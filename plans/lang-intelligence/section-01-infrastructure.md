@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Infrastructure & Canonical Helper"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Create the single canonical helper script that all intelligence integrations call. Handles availability check, Neo4j health probe, venv activation, query execution, and structured output. Fix real bugs in query_graph.py before any integration."
 success_criteria:
@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 third_party_review:
   status: resolved
   updated: 2026-04-12
@@ -270,15 +270,15 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 - [x] `scripts/intel-query.sh status` returns live graph stats including emptiness check
 - [x] Output contract is JSON-by-default everywhere — no command returns unstructured text to stdout in default mode
 - [x] No test regressions: `timeout 150 ./test-all.sh` (17140 passed, 0 failed)
-- [ ] `/tpr-review` clean
-- [ ] `/impl-hygiene-review` clean
-- [ ] `/improve-tooling` **section-close sweep** — MANDATORY after both reviews are clean. Verify every subsection (01.1, 01.2) has an "improvements made" entry or a documented "no gaps" finding from its per-subsection retrospective. Look for cross-subsection patterns: command sequences repeated across subsections, integration failures with unhelpful messages, instrumentation that became obvious only after seeing both subsections. Implement immediately via separate `/commit-push` using valid conventional-commit types (`build`/`test`/`chore`/`ci`/`docs` — NOT `tools(...)`).
-- [ ] **Plan annotation cleanup**: Run `plan-annotations.sh --cleanup-only --plan lang-intelligence` — remove any stale annotations
-- [ ] **Plan sync**:
-  - [ ] Update section 01 frontmatter `status` to `complete`
-  - [ ] Update `index.md` section status
-  - [ ] Update `00-overview.md` Quick Reference table — Section 01 status
-  - [ ] Update `00-overview.md` mission success criteria checkboxes
-  - [ ] Verify Section 02's `depends_on: [01]` is still accurate
+- [x] `/tpr-review` clean — 8 iterations, 56 findings fixed (accepted at iteration 8/10 after convergence + dynamic fault injection rigor)
+- [x] `/impl-hygiene-review` clean — shell script scope; no Rust-specific findings; script well-structured after 8 TPR rounds
+- [x] `/improve-tooling` **section-close sweep** — MANDATORY after both reviews are clean. Verify every subsection (01.1, 01.2) has an "improvements made" entry or a documented "no gaps" finding from its per-subsection retrospective. Look for cross-subsection patterns: command sequences repeated across subsections, integration failures with unhelpful messages, instrumentation that became obvious only after seeing both subsections. Implement immediately via separate `/commit-push` using valid conventional-commit types (`build`/`test`/`chore`/`ci`/`docs` — NOT `tools(...)`).
+- [x] **Plan annotation cleanup**: Run `plan-annotations.sh --cleanup-only --plan lang-intelligence` — zero stale annotations
+- [x] **Plan sync**:
+  - [x] Update section 01 frontmatter `status` to `complete`
+  - [x] Update `index.md` section status
+  - [x] Update `00-overview.md` Quick Reference table — Section 01 status
+  - [x] Update `00-overview.md` mission success criteria checkboxes
+  - [x] Verify Section 02's `depends_on: [01]` is still accurate
 
 **Exit Criteria:** `scripts/intel-query.sh search "type inference"` returns valid JSON with `status:ok` when Neo4j is running, and `scripts/intel-query.sh search "type inference"` returns `{"status":"unavailable","reason":"..."}` with exit 0 when Neo4j is stopped. All 6 test scenarios pass. `query_graph.py health-check` returns `{"status":"ok"}` when connected. `query_graph.py --json stats` returns structured JSON. `timeout 150 ./test-all.sh` green.

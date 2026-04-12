@@ -15,7 +15,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 
 ## Mission Success Criteria
 
-- [ ] `scripts/intel-query.sh` returns JSON by default: `{"status":"ok","data":...}` when Neo4j is available, `{"status":"unavailable","reason":"..."}` when not (exit 0 in both cases)
+- [x] `scripts/intel-query.sh` returns JSON by default: `{"status":"ok","data":...}` when Neo4j is available, `{"status":"unavailable","reason":"..."}` when not (exit 0 in both cases)
 - [ ] `.claude/rules/intelligence.md` auto-loads and triggers intelligence queries during design decisions, bug fixes, and reviews
 - [ ] `/query-intel` command works from any conversation with search, compare, and Ori preset queries
 - [ ] `/tpr-review` evidence packets include cross-language prior art from the intelligence graph
@@ -108,7 +108,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 
 | # | Section | Status | Files Touched | Depends On |
 |---|---------|--------|---------------|------------|
-| 01 | Infrastructure & Canonical Helper | in-progress | `scripts/intel-query.sh`, `~/projects/lang_intelligence/` | — |
+| 01 | Infrastructure & Canonical Helper | complete | `scripts/intel-query.sh`, `~/projects/lang_intelligence/` | — |
 | 02 | Claude Rules & Commands | not-started | `.claude/rules/intelligence.md`, `.claude/commands/query-intel.md` | 01 |
 | 03 | Skill Integration: TPR + Fix-Bug | not-started | `.claude/skills/tpr-review/SKILL.md`, `.claude/skills/fix-bug/SKILL.md` | 01, 02 |
 | 04 | Skill Integration: Remaining | not-started | 4 skill files + `review-bugs.md` | 01, 02 |
