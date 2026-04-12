@@ -1172,7 +1172,11 @@ fn annotate_protocol_collect_set_produces_owned() {
     }
 }
 
-/// Verify `annotate_arg_ownership` maps `iter` to [Borrowed].
+/// Verify `annotate_arg_ownership` maps `iter` to [Borrowed] for non-collection receivers.
+///
+/// The protocol definition says `Iter.arg_ownership() = [Borrowed]` — this is the base case
+/// for generic/primitive receivers. Collection receivers get overridden to Owned by
+/// `apply_consuming_overrides()` — see `annotate_iter_on_collection_overrides_to_owned`.
 #[test]
 fn annotate_protocol_iter_produces_borrowed() {
     let interner = StringInterner::new();
@@ -1210,6 +1214,67 @@ fn annotate_protocol_iter_produces_borrowed() {
             arg_ownership,
             &[ArgOwnership::Borrowed],
             "iter must produce [Borrowed]"
+        );
+    } else {
+        panic!("expected Apply");
+    }
+}
+
+/// Verify `annotate_arg_ownership` overrides `iter` to [Owned] for collection receivers.
+///
+/// The protocol defines `Iter.arg_ownership() = [Borrowed]` as the base case, but
+/// `apply_consuming_overrides()` promotes collection receivers (List/Map/Set) to Owned
+/// because the runtime transfers buffer ownership to the iterator. This test verifies
+/// the full `annotate_arg_ownership` flow — protocol base + type-qualified override.
+///
+/// TPR finding: TPR-06-005-codex (the prior test used a non-collection receiver,
+/// so the override path was never exercised at the consumer level).
+#[test]
+fn annotate_iter_on_collection_overrides_to_owned() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let builtins = BuiltinOwnershipSets::new(&interner);
+    let func_name = interner.intern("caller");
+    let iter_name = interner.intern("iter");
+
+    let list_int = pool.list(Idx::INT);
+
+    let blocks = vec![ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![ArcInstr::Apply {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            func: iter_name,
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+        }],
+        terminator: ArcTerminator::Return {
+            value: ArcVarId::new(1),
+        },
+    }];
+
+    // var 0 = List<int>, var 1 = int (return)
+    let mut func = make_func_named(
+        func_name,
+        vec![],
+        Idx::NONE,
+        blocks,
+        vec![list_int, Idx::INT],
+    );
+    super::annotate_arg_ownership(
+        &mut func,
+        &FxHashMap::default(),
+        &interner,
+        &builtins,
+        &pool,
+    );
+
+    if let ArcInstr::Apply { arg_ownership, .. } = &func.blocks[0].body[0] {
+        assert_eq!(
+            arg_ownership,
+            &[ArgOwnership::Owned],
+            "iter on List<int> must produce [Owned] via consuming override"
         );
     } else {
         panic!("expected Apply");

@@ -403,6 +403,16 @@ When all findings are triaged:
   Impact: Section presented as complete on criteria not actually verified.
   Basis: direct_file_inspection. Confidence: high.
   Resolved: Fixed on 2026-04-12. Updated checklist items, success criteria, and overview to accurately state Set<int> blocked by BUG-04-063. All claims now match implementation reality.
+- [x] `[TPR-06-006-codex][high]` `compiler/ori_arc/src/borrow/builtins/mod.rs:49` — Protocol Iter pinned as Borrowed but collection override produces Owned; consumer test gap.
+  Evidence: LEAK claim — `ProtocolBuiltin::Iter.arg_ownership()` returns `[Borrowed]` but `apply_consuming_overrides()` overrides to `Owned` for List/Map/Set receivers. The existing `annotate_protocol_iter_produces_borrowed` test uses `Idx::INT` (non-collection), so the override path was never exercised at the consumer level.
+  Impact: Test gap — the protocol-vs-override layered architecture IS intentional (protocol defines base, override adds collection exception), but no unit test verified the full flow with a collection receiver.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-12. Added `annotate_iter_on_collection_overrides_to_owned` test in `rc_insert/tests.rs` that constructs a `List<int>` receiver and verifies `annotate_arg_ownership` produces `[Owned]`. Updated existing test doc comment to explain the layered architecture. Architecture is sound (not a true LEAK) — the two layers compose correctly; the gap was test coverage only.
+- [x] `[TPR-06-003-gemini][medium]` `compiler/ori_llvm/tests/aot/iter_rc_matrix.rs:374` — Set<int> matrix only has P1-P2 (full/break); P3-P8 variants missing.
+  Evidence: `iter_rc_matrix.rs` adds E7 (Set<int>) but only `full` and `break` test variants. Missing: `nested`, `two_call`, `guard`, `unwind`, `continue`, `yield_transform`.
+  Impact: Gaps in matrix coverage for Set<int> iteration patterns.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Accepted on 2026-04-12. P3-P8 variants blocked by BUG-04-063 (Set<int> iteration crashes with SIGSEGV). BUG-04-063 already notes "Blocks Set<int> iteration matrix (iter_rc_matrix E7)". When BUG-04-063 is fixed, the fixer should expand E7 to the full P1-P8 matrix.
 
 ---
 
