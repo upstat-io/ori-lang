@@ -1,0 +1,10 @@
+// FileCheck test: break in for loop still cleans up iterator
+// CHECK: ori_iter_drop
+
+@main () -> void = {
+    let xs = [1, 2, 3, 4, 5];
+    for x in xs do {
+        if x == 3 then break;
+        print(msg: x.to_str())
+    }
+}

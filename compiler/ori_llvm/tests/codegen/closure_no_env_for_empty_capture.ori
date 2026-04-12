@@ -1,0 +1,7 @@
+// FileCheck test: closure without captures has no env allocation
+// CHECK-NOT: ori_rc_alloc
+
+@main () -> void = {
+    let f = (x: int) -> int = x + 1;
+    print(msg: f(x: 5).to_str())
+}

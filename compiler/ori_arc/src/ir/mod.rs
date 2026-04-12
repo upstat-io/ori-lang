@@ -17,6 +17,7 @@
 //! Values are named via [`ArcVarId`] (SSA-like). Control flow uses
 //! [`ArcBlockId`] references between blocks.
 
+pub mod format;
 mod function;
 mod instr;
 mod repr;
@@ -443,6 +444,28 @@ pub struct ArcFunction {
     /// rewrite pass (§09.2). Skipped during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub tail_calls: Vec<crate::tail_call::TailCallSite>,
+}
+
+/// Flatten an ARC function cache into a single Vec (parents + lambdas).
+///
+/// This is the **single canonical implementation** of the flattening
+/// algorithm for the `(Name, (ArcFunction, Vec<ArcFunction>))` cache shape.
+/// All consumers that need a flat list of ARC functions MUST call this helper.
+///
+/// The cache uses `FxHashMap` which has non-deterministic iteration order.
+/// Callers that need deterministic ordering must sort the result.
+#[expect(
+    clippy::implicit_hasher,
+    reason = "internal function always called with FxHashMap"
+)]
+pub fn collect_all_arc_functions(
+    arc_cache: &rustc_hash::FxHashMap<Name, (ArcFunction, Vec<ArcFunction>)>,
+) -> Vec<ArcFunction> {
+    arc_cache
+        .values()
+        .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
+        .cloned()
+        .collect()
 }
 
 // Tests

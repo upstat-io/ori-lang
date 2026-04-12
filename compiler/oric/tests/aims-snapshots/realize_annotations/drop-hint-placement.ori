@@ -1,0 +1,10 @@
+// Drop hint annotation after merge.
+// When a heap-allocated value goes out of scope, realize_annotations
+// should place a drop hint to guide the runtime.
+//
+// @test-arc-pass: realize_annotations
+
+@create_and_discard () -> void = {
+    let $s = "temporary";
+    print(msg: s);
+};

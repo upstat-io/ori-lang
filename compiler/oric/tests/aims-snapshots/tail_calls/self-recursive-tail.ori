@@ -1,0 +1,10 @@
+// Semantic pin: self-recursive tail call detected, RcDec hoisted.
+// A tail-recursive factorial should have its tail call detected and
+// the RcDec hoisted before the recursive call.
+//
+// @test-arc-pass: tail_calls
+
+@factorial (n: int, acc: int) -> int = {
+    if n <= 1 then acc
+    else factorial(n: n - 1, acc: acc * n)
+};

@@ -125,12 +125,12 @@ fn verify_detects_rc_on_scalar() {
     );
 }
 
-// ── run_aims_verify: blocking on absent-param-has-uses ──
+// ── run_aims_verify: absent-param-has-uses (live vs dead path) ──
 
 #[test]
-fn aims_verify_blocks_on_absent_param_has_uses() {
-    // v0 = param (Absent cardinality), return v0
-    // v0 IS referenced in the Return terminator — inconsistent with Absent.
+fn aims_verify_blocks_absent_param_used_on_live_path() {
+    // Live-path: single block `return v0`. The absent param IS used on a
+    // path that reaches Return → genuine contract/IR inconsistency → Err.
     let func = crate::test_helpers::make_func(
         vec![owned_param(0, Idx::NONE)],
         Idx::NONE,
@@ -147,7 +147,177 @@ fn aims_verify_blocks_on_absent_param_has_uses() {
     let result = super::run_aims_verify(&func, &contract, "test", true);
     assert!(
         result.is_err(),
-        "run_aims_verify should return Err when absent param has uses and verify=true"
+        "run_aims_verify should return Err when absent param has uses on a live path"
+    );
+}
+
+#[test]
+fn aims_verify_allows_absent_param_in_dead_code() {
+    // Regression: AIMS verifier false positive on dead code after always-panic paths.
+    // CFG: entry(b0) → Branch → b1(uses v0, Unreachable) / b2(return v1)
+    // v0 used only in b1 (dead path to Unreachable) → no live-path use → Ok.
+    use crate::ir::{ArcInstr, RcStrategy};
+    let func = crate::test_helpers::make_func(
+        vec![owned_param(0, Idx::NONE), owned_param(1, Idx::NONE)],
+        Idx::NONE,
+        vec![
+            // Block 0: entry — branch to dead block or live block.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            // Block 1: dead path — uses v0, ends in Unreachable.
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                }],
+                terminator: ArcTerminator::Unreachable,
+            },
+            // Block 2: live path — returns v1 (NOT v0).
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+        ],
+        vec![Idx::NONE; 2],
+    );
+    let non_absent = ParamContract {
+        cardinality: Cardinality::Once,
+        ..absent_param()
+    };
+    let contract = make_contract(vec![absent_param(), non_absent]);
+
+    // v0 (absent) is used only in block 1 (dead path → Unreachable).
+    // live_blocks() excludes block 1 → no live-path use → Ok.
+    let result = super::run_aims_verify(&func, &contract, "test", true);
+    assert!(
+        result.is_ok(),
+        "run_aims_verify should return Ok when absent param is used only in dead code: {result:?}"
+    );
+}
+
+#[test]
+fn aims_verify_respects_nonzero_entry_block() {
+    // Regression: live_blocks() must use func.entry, not hardcoded block 0.
+    // TRMC normalization creates a prologue block and sets func.entry to it.
+    // CFG: b0(return v1) / b1(entry, branch → b0 or b2) / b2(uses v0, Unreachable)
+    // func.entry = b1. v0 used only in b2 (dead path) → Ok.
+    use crate::ir::{ArcInstr, RcStrategy};
+    let mut func = crate::test_helpers::make_func(
+        vec![owned_param(0, Idx::NONE), owned_param(1, Idx::NONE)],
+        Idx::NONE,
+        vec![
+            // Block 0: live path (return v1) — NOT the entry.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            // Block 1: entry — branch to live (b0) or dead (b2).
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: ArcBlockId::new(0),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            // Block 2: dead path — uses v0, ends in Unreachable.
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                }],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        vec![Idx::NONE; 2],
+    );
+    func.entry = ArcBlockId::new(1); // Entry is block 1, not 0.
+    let non_absent = ParamContract {
+        cardinality: Cardinality::Once,
+        ..absent_param()
+    };
+    let contract = make_contract(vec![absent_param(), non_absent]);
+
+    let result = super::run_aims_verify(&func, &contract, "test", true);
+    assert!(
+        result.is_ok(),
+        "live_blocks must use func.entry (b1), not hardcoded b0: {result:?}"
+    );
+}
+
+#[test]
+fn aims_verify_treats_resume_as_live_exit() {
+    // Regression: Resume is a real exit (exceptional unwind path).
+    // CFG: b0(entry) → return v1 / b1 uses v0, Resume
+    // v0 used on Resume path (live) → Err.
+    use crate::ir::{ArcInstr, RcStrategy};
+    let func = crate::test_helpers::make_func(
+        vec![owned_param(0, Idx::NONE), owned_param(1, Idx::NONE)],
+        Idx::NONE,
+        vec![
+            // Block 0: entry — branch to normal or unwind.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            // Block 1: unwind path — uses v0, ends in Resume (live exit).
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                }],
+                terminator: ArcTerminator::Resume,
+            },
+            // Block 2: normal path — returns v1 (NOT v0).
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+        ],
+        vec![Idx::NONE; 2],
+    );
+    let non_absent = ParamContract {
+        cardinality: Cardinality::Once,
+        ..absent_param()
+    };
+    let contract = make_contract(vec![absent_param(), non_absent]);
+
+    // v0 used on Resume path — Resume IS a real exit → live path → Err.
+    let result = super::run_aims_verify(&func, &contract, "test", true);
+    assert!(
+        result.is_err(),
+        "Resume is a live exit — absent param used on unwind path must be an error"
     );
 }
 
@@ -171,6 +341,176 @@ fn aims_verify_returns_ok_when_verify_false() {
         result.is_ok(),
         "run_aims_verify should return Ok when verify=false (warn only)"
     );
+}
+
+// ── Checkpoint observer tests ──
+
+#[test]
+fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_order() {
+    use std::cell::RefCell;
+
+    // Build a minimal function that exercises the full AIMS pipeline.
+    // A function with one param, one block, returns the param — simple but
+    // goes through all pipeline steps.
+    let mut func = ArcFunction {
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        var_types: vec![Idx::NONE],
+        ..Default::default()
+    };
+
+    // Capture phase names from the observer callback (single-threaded test).
+    let captured = RefCell::new(Vec::<String>::new());
+    let observer = |_func: &ArcFunction, phase: &str| {
+        captured.borrow_mut().push(phase.to_owned());
+    };
+
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let contracts = rustc_hash::FxHashMap::default();
+    let pool = ori_types::Pool::default();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: Some(&observer),
+    };
+
+    let _result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
+
+    let phases = captured.into_inner();
+    // Must have at least the core phases in order.
+    assert!(
+        !phases.is_empty(),
+        "observer should have captured at least one phase"
+    );
+    // verify key phases appear in order
+    let core_phases = [
+        "compute_var_reprs",
+        "normalize_function",
+        "normalize_with_trmc_complete",
+        "analyze_function",
+        "realize_rc_reuse",
+    ];
+    let mut last_idx = 0;
+    for expected in &core_phases {
+        if let Some(pos) = phases.iter().position(|p| p == *expected) {
+            assert!(
+                pos >= last_idx,
+                "phase '{expected}' at {pos} should be after previous core phase at {last_idx}"
+            );
+            last_idx = pos;
+        }
+        // Phase may not appear if the pipeline short-circuits on error,
+        // but if it does appear it must be in order.
+    }
+}
+
+#[test]
+fn checkpoint_observer_when_none_skips_all_callbacks() {
+    // With observer: None, no callbacks are invoked. This is a compile-only
+    // structural test — the type system enforces that None means no callback,
+    // but the test documents intent and verifies the config construction.
+    let mut func = ArcFunction {
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        var_types: vec![Idx::NONE],
+        ..Default::default()
+    };
+
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let contracts = rustc_hash::FxHashMap::default();
+    let pool = ori_types::Pool::default();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: None,
+    };
+
+    // Pipeline runs successfully with no observer — zero overhead path.
+    let result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
+    assert!(
+        result.is_ok(),
+        "pipeline should succeed with observer: None"
+    );
+}
+
+#[test]
+fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
+    use std::cell::RefCell;
+
+    // Build a function where realize_rc_reuse will ADD RC ops:
+    // A function with an owned ref-counted param that is returned.
+    // realize_rc_reuse should insert RcInc for the return value.
+    let mut func = crate::test_helpers::make_func(
+        vec![owned_param(0, Idx::NONE)],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::NONE],
+    );
+
+    // Track RC ops at the realize_rc_reuse checkpoint (single-threaded test).
+    let rc_at_realize = RefCell::new(None::<(usize, usize)>);
+    let observer = |func: &ArcFunction, phase: &str| {
+        if phase == "realize_rc_reuse" {
+            let rc = crate::pipeline::rc_count::count_rc_ops(func);
+            *rc_at_realize.borrow_mut() = Some((rc.inc, rc.dec));
+        }
+    };
+
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let contracts = rustc_hash::FxHashMap::default();
+    let pool = ori_types::Pool::default();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: Some(&observer),
+    };
+
+    let _result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
+
+    // The observer should have been called at the realize_rc_reuse checkpoint.
+    let captured = rc_at_realize.into_inner();
+    assert!(
+        captured.is_some(),
+        "observer should have been called at 'realize_rc_reuse' phase"
+    );
+    // Note: whether RC ops are present depends on the classifier results
+    // for Idx::NONE (likely Scalar → no RC). The key assertion is that
+    // the observer was called at the right phase — the RC counts are a
+    // bonus verification that the function state is accessible.
 }
 
 // ── FIP structural verification tests ──

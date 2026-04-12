@@ -165,11 +165,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         let classifier = ori_arc::ArcClassifier::new(self.pool);
 
         // Compute representation plan (canonical reprs only).
-        let all_arc_funcs: Vec<ori_arc::ArcFunction> = arc_cache
-            .values()
-            .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
-            .cloned()
-            .collect();
+        let all_arc_funcs = ori_arc::collect_all_arc_functions(arc_cache);
         let policy = narrowing_policy.unwrap_or_else(|| {
             if ori_repr::NarrowingPolicy::env_disabled() {
                 ori_repr::NarrowingPolicy::Disabled
@@ -349,11 +345,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         FxHashMap<Name, ori_arc::UniquenessSummary>,
         FxHashMap<Name, ori_arc::MemoryContract>,
     ) {
-        let all_funcs: Vec<ori_arc::ArcFunction> = arc_cache
-            .values()
-            .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
-            .cloned()
-            .collect();
+        let all_funcs = ori_arc::collect_all_arc_functions(arc_cache);
         let uniqueness_summaries =
             ori_arc::run_uniqueness_analysis(&all_funcs, classifier, interner);
 
@@ -377,7 +369,8 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         use inkwell::OptimizationLevel;
 
-        // Bail out early if codegen produced type-mismatch errors.
+        // Bail out early if codegen produced errors (type mismatches,
+        // ARC IR verification failures, LLVM IR verification failures).
         // Feeding malformed IR to LLVM's verifier or JIT can cause
         // heap corruption (SIGABRT) that kills the entire process.
         if codegen_errors > 0 {
@@ -390,7 +383,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 format!(":\n  - {}", codegen_error_descriptions.join("\n  - "))
             };
             return Err(LLVMEvalError::new(format!(
-                "LLVM codegen had {codegen_errors} type-mismatch error(s) — skipping verification/JIT{details}",
+                "LLVM codegen had {codegen_errors} error(s) — skipping verification/JIT{details}",
             )));
         }
 

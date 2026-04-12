@@ -19,7 +19,7 @@ order: 1
 ## Keyword Clusters by Section
 
 ### Section 01: Verifier Gates & Quick Wins
-**File:** `section-01-verifier-gates.md` | **Status:** In Progress (pending TPR/hygiene close-out)
+**File:** `section-01-verifier-gates.md` | **Status:** Complete
 
 ```
 verify_each, ORI_VERIFY_EACH, function-level verify, fn_val.verify
@@ -32,7 +32,7 @@ pipeline/mod.rs, postprocess.rs, debug_assert, FIP
 ---
 
 ### Section 02: Shared Test Harness Infrastructure
-**File:** `section-02-shared-harness.md` | **Status:** Not Started
+**File:** `section-02-shared-harness.md` | **Status:** Complete
 
 ```
 directive parser, //@, CHECK:, CHECK-LABEL, CHECK-NOT
@@ -46,13 +46,13 @@ test runner, snapshot comparison, diff generation
 ---
 
 ### Section 03: AIMS Pass-Level Snapshot Tests
-**File:** `section-03-aims-snapshots.md` | **Status:** Not Started
+**File:** `section-03-aims-snapshots.md` | **Status:** Complete
 
 ```
 AIMS pipeline, 12 steps, pass-level snapshots
-realize_rc_reuse, merge_blocks, realize_annotations, normalize_function
-.before.arc, .after.arc, .diff, per-pass dump hooks
-tests/arc-opt/, snapshot corpus, baseline artifacts
+realize_rc_reuse, merge_blocks, realize_annotations, normalize_function, tail_calls
+lowered.arc, .after.arc, per-pass checkpoint observer
+compiler/oric/tests/aims-snapshots/, snapshot corpus, baseline artifacts
 ORI_DUMP_AFTER_ARC, ArcFunction, ArcInstr, ArcTerminator
 MIR-opt pattern, EMIT_MIR, Rust compiletest
 ```
@@ -60,7 +60,7 @@ MIR-opt pattern, EMIT_MIR, Rust compiletest
 ---
 
 ### Section 04: AIMS Lattice Property Verification
-**File:** `section-04-lattice-properties.md` | **Status:** Not Started
+**File:** `section-04-lattice-properties.md` | **Status:** Not Started (RESET 2026-04-11 — autopilot work untrusted)
 
 ```
 proptest, property-based testing, lattice axioms
@@ -76,7 +76,7 @@ dimensions.rs, lattice/mod.rs, transfer/mod.rs
 ---
 
 ### Section 05: Contract Coherence Oracle
-**File:** `section-05-contract-oracle.md` | **Status:** Not Started
+**File:** `section-05-contract-oracle.md` | **Status:** Not Started (RESET 2026-04-11 — autopilot work untrusted)
 
 ```
 MemoryContract, ParamContract, contract coherence
@@ -91,7 +91,7 @@ contract vs realization, non-negotiable invariant
 ---
 
 ### Section 06: Protocol Builtin Verification Matrix
-**File:** `section-06-protocol-builtins.md` | **Status:** Not Started
+**File:** `section-06-protocol-builtins.md` | **Status:** Not Started (RESET 2026-04-11 — autopilot work untrusted)
 
 ```
 ProtocolBuiltin, __index, iter, __iter_next
@@ -110,7 +110,7 @@ aims/builtins/tests.rs, AnnotatedSig
 ```
 FileCheck, CHECK:, CHECK-LABEL:, CHECK-NOT:
 directive-based, IR assertions, LLVM IR patterns
-tests/codegen/, RC emission, COW patterns
+compiler/ori_llvm/tests/codegen/, RC emission, COW patterns
 closure codegen, ABI patterns, iterator codegen
 revision system, debug, release, no-repr-opt
 .matches mode, .exact mode, Zig addCheckFile

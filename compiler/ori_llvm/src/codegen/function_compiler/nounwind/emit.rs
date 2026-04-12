@@ -57,6 +57,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     name = %self.interner.lookup(func.name),
                     "LLVM IR verification failed after codegen (emit_prepared_functions)"
                 );
+                self.builder.record_codegen_error();
             }
 
             if self.codegen_ctx.nounwind_functions.contains(&func.name) {
@@ -151,6 +152,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 name = %self.interner.lookup(lambda.name),
                 "LLVM IR verification failed after codegen (emit_prepared_lambda)"
             );
+            self.builder.record_codegen_error();
         }
 
         if self.codegen_ctx.nounwind_functions.contains(&lambda.name) {

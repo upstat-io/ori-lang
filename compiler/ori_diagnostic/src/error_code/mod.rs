@@ -162,6 +162,7 @@ define_error_codes! {
     E4002, "Unsupported pattern in ARC IR lowering";
     E4003, "ARC internal error";
     E4004, "FBIP enforcement violation";
+    E4005, "Contract coherence violation";
 
     // Codegen / LLVM Errors (E5xxx)
     E5001, "LLVM module verification failed";

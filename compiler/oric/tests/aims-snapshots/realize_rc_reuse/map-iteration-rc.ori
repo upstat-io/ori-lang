@@ -1,0 +1,7 @@
+// RC lifecycle during map iteration.
+// Map entries have both key and value with RC — iteration must
+// handle RC for both components correctly.
+//
+// @test-arc-pass: realize_rc_reuse
+
+@count_entries (m: {str: int}) -> int = len(collection: m);

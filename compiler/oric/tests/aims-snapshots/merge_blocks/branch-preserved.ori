@@ -1,0 +1,7 @@
+// Negative pin: branches NOT merged.
+// An if-then-else creates a branch that must be preserved —
+// merge_blocks must not coalesce diverging control flow.
+//
+// @test-arc-pass: merge_blocks
+
+@pick (flag: bool) -> int = if flag then 1 else 2;
