@@ -215,7 +215,7 @@ The oracle must track which variables are aliases of function parameters. A `Let
   - `RcInc { var, count, .. }` — if `alias_map[var]` exists, add `count` (not 1) to `rc_incs[param_idx]`
   - `RcDec { var, .. }` — if `alias_map[var]` exists, increment `rc_decs[param_idx]`
   - **For ALL instruction types** (not just Apply/ApplyIndirect): iterate over `instr.used_vars()` and for each `(pos, used_var)` where `alias_map[used_var]` exists, check `instr.is_owned_position(pos)`. If owned, set `has_owned_transfer = true`. If not owned, increment `non_rc_uses`. This generalizes correctly to `Construct`, `PartialApply`, and `CollectionReuse` which also have owned positions (`compiler/ori_arc/src/ir/instr.rs:276-325`). Do NOT special-case individual instruction types — the `is_owned_position()` API is the canonical dispatcher.
-  - **For terminators**: use `ArcTerminator::used_vars()` and `ArcTerminator::is_owned_position()` (`compiler/ori_arc/src/ir/terminator.rs:90-129`). This covers `Invoke { args, arg_ownership, .. }` and `InvokeIndirect { closure, args, arg_ownership, .. }` — the unwind-capable call variants that carry the same owned-position semantics as `Apply`/`ApplyIndirect`. Also covers `Return` (which transfers ownership) and `Jump` args (which transfer to block params).
+  - **For terminators**: use `ArcTerminator::used_vars()` and `ArcTerminator::is_owned_position()` (`compiler/ori_arc/src/ir/terminator.rs:90-129`) for `Invoke` and `InvokeIndirect` — these have `arg_ownership` and carry the same owned-position semantics as `Apply`/`ApplyIndirect`. **Handle `Return` explicitly** — `is_owned_position()` does NOT cover `Return` (the current implementation returns `false` for Return). Return transfers ownership of the returned value; the oracle must handle this as a separate case: `ArcTerminator::Return { value, .. }` where `alias_map[value]` exists → set `has_owned_transfer = true` (the callee is consuming the parameter by returning it). The interprocedural extractor uses the same pattern (`compiler/ori_arc/src/aims/interprocedural/extract.rs:330-340`). **Handle `Jump` as alias propagation** — `Jump { target, args }` does NOT transfer ownership in the `is_owned_position` sense; it propagates aliases to successor block params (already handled in 05.1.1's worklist). Count Jump args as `non_rc_uses`.
 
 - [ ] Also count uses in terminators (Return, Jump args, Branch condition, Switch scrutinee) via `ArcTerminator::used_vars()`.
 
@@ -531,12 +531,12 @@ This is not actionable — the user (developer debugging the compiler) cannot te
   impl std::fmt::Display for CoherenceMismatch {
       fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
           match self {
-              Self::ParamAccess { param_index, param_name, inferred, realized } =>
-                  write!(f, "param {param_index} ({param_name}): access inferred={inferred:?}, realized={realized:?}"),
-              Self::ParamConsumption { param_index, param_name, inferred, realized } =>
-                  write!(f, "param {param_index} ({param_name}): consumption inferred={inferred:?}, realized={realized:?}"),
-              Self::ParamMayShare { param_index, param_name, inferred, realized } =>
-                  write!(f, "param {param_index} ({param_name}): may_share inferred={inferred}, realized={realized}"),
+              Self::ParamAccess { param_index, param_var, inferred, realized } =>
+                  write!(f, "param {param_index} (var {param_var:?}): access inferred={inferred:?}, realized={realized:?}"),
+              Self::ParamConsumption { param_index, param_var, inferred, realized } =>
+                  write!(f, "param {param_index} (var {param_var:?}): consumption inferred={inferred:?}, realized={realized:?}"),
+              Self::ParamMayShare { param_index, param_var, inferred, realized } =>
+                  write!(f, "param {param_index} (var {param_var:?}): may_share inferred={inferred}, realized={realized}"),
               Self::EffectMismatch { field, inferred, realized } =>
                   write!(f, "effect {field}: inferred={inferred}, realized={realized}"),
           }
@@ -633,22 +633,30 @@ When all findings are triaged:
   Resolved: Fixed on 2026-04-12. Same root cause as TPR-05-004-codex. Updated derivation + tests.
 - [x] `[TPR-05-004-gemini][high]` `section-05-contract-oracle.md:330` — Check may_allocate and may_share effects in verify_coherence.
   Resolved: Fixed on 2026-04-12. Added all three effect dimension checks to verify_coherence() code snippet.
+- [x] `[TPR-05-006-codex][high]` (iter2) `section-05-contract-oracle.md:218` — Stop claiming terminator owned-position coverage for Return/Jump.
+  Resolved: Fixed on 2026-04-12. Return handled explicitly as consumed transfer; Jump described as alias propagation. is_owned_position only for Invoke/InvokeIndirect.
+- [x] `[TPR-05-006-gemini][high]` (iter2) `section-05-contract-oracle.md:218` — Same Return/is_owned_position issue.
+  Resolved: Fixed on 2026-04-12. Same fix as TPR-05-006-codex (agreement).
+- [x] `[TPR-05-007-codex][medium]` (iter2) `section-05-contract-oracle.md:529` — Display example still uses stale param_name.
+  Resolved: Fixed on 2026-04-12. Updated Display impl to use param_var: ArcVarId.
+- [x] `[TPR-05-008-codex][medium]` (iter2) `section-05-contract-oracle.md:644` — Completion checklist uses pre-TPR ownership scope.
+  Resolved: Fixed on 2026-04-12. Updated to match generalized is_owned_position + Invoke/InvokeIndirect + explicit Return scope.
 
 ---
 
 ## 05.N Completion Checklist
 
 - [ ] `oracle.rs` rewritten in `compiler/ori_arc/src/aims/verify/` with aliasing-aware, batched-count, arg_ownership-aware analysis
-- [ ] `build_param_alias_map()` tracks transitive aliasing through `Let { value: Var(_) }` chains
+- [ ] `build_param_alias_map()` tracks transitive aliasing through `Let { value: Var(_) }` chains AND `Jump`/block-param edges via worklist
 - [ ] `derive_param_observations()` uses alias map and handles `RcInc.count` batched increments
-- [ ] `derive_param_observations()` checks `arg_ownership` on `Apply`/`ApplyIndirect` for ownership transfers
+- [ ] `derive_param_observations()` checks ownership via `is_owned_position()` on ALL instruction types + `Invoke`/`InvokeIndirect` terminators, with explicit `Return` handling
 - [ ] `RealizedParamContract` includes `access`, `consumption`, `may_share` (not naive `cardinality`)
 - [ ] `may_share` derived from `rc_incs > 0` per aims-rules IC-3
 - [ ] `may_deallocate` second-pass correction accounted for (oracle runs after `run_second_pass()`)
 - [ ] Compatibility predicates distinguish unsafe (analysis too optimistic -> error) from conservative (analysis too cautious -> info log)
 - [ ] `verify_coherence()` checks access, consumption, may_share, and effects dimensions
 - [ ] Dimension scope statement documents which dimensions are checked vs deferred (cardinality, uniqueness, locality_bound, may_escape out of scope)
-- [ ] `CoherenceMismatch` includes `ParamMayShare` variant and `param_name` field on all param variants
+- [ ] `CoherenceMismatch` includes `ParamMayShare` variant and `param_var: ArcVarId` field on all param variants
 - [ ] `Display` impl on `CoherenceMismatch` for actionable diagnostic messages
 - [ ] `CodegenProblem::ArcContractCoherence` carries full mismatch details (not just count)
 - [ ] Diagnostic renderer at `compiler/oric/src/problem/codegen/mod.rs` includes per-mismatch detail labels
