@@ -294,8 +294,8 @@ fn test_iter_join_long_float() {
     );
 }
 
-/// Negative pin: unsupported element types (Duration) must NOT produce a successful
-/// join — the codegen error guard rejects them instead of generating wrong output.
+/// Negative pin: unsupported element types (Duration) must be rejected at
+/// compile time — the codegen error guard rejects them with E5001.
 #[test]
 fn test_iter_join_unsupported_type_rejected() {
     let source = r#"
@@ -304,11 +304,15 @@ fn test_iter_join_unsupported_type_rejected() {
     if result == "1s, 2s" then 0 else 1
 }
 "#;
-    let (exit_code, _, _) = compile_and_run_capture(source);
-    // Must NOT succeed — Duration join has no to_str trampoline
-    assert_ne!(
-        exit_code, 0,
-        "Duration join should fail (codegen error), not silently succeed"
+    let (exit_code, _, stderr) = compile_and_run_capture(source);
+    // Must fail at compile time (-1), not crash at runtime or silently succeed
+    assert_eq!(
+        exit_code, -1,
+        "Duration join should be rejected at compile time, got exit code {exit_code}"
+    );
+    assert!(
+        stderr.contains("not yet supported in LLVM backend"),
+        "Expected codegen error for unsupported join type, got:\n{stderr}"
     );
 }
 

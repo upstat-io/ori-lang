@@ -27,7 +27,14 @@ Bugs in the runtime library: reference counting, COW operations, slice handling,
   Fix: Call `ori_str_rc_dec` on the temporary OriStr after `push_str` in the trampoline path (`consumers.rs:553-557`).
   Subsystem: `compiler/ori_rt/src/iterator/consumers.rs`
   Found: 2026-04-12 | Source: tpr-review | Reviewer: codex
-  Note: Exposed by BUG-04-039 fix (to_str trampoline). Active work in `plans/bug-tracker/fix-BUG-04-039.md`.
+  Note: Exposed by BUG-04-039 fix (to_str trampoline). Fixed 2026-04-12 (commit 2296d3f2).
+
+- [ ] `[BUG-05-003][high]` **`ori_iter_join` direct string path leaks owned string elements from adapters (map, filter)** — found by tpr-review.
+  Repro: `["aaa..."].iter().map(s -> s + "x").join(separator: ",")` under valgrind shows 168 bytes lost.
+  Root cause: The `else` branch in `ori_iter_join` reads string elements via `ptr::read_unaligned` and borrows for `push_str`, but never frees owned strings yielded by adapters like `map`. Adding an unconditional drop would double-free borrowed elements from `[str].iter()`. The iterator C protocol lacks a mechanism to pass element ownership state to consumers.
+  Subsystem: `compiler/ori_rt/src/iterator/consumers.rs`
+  Found: 2026-04-12 | Source: tpr-review | Reviewer: gemini
+  Note: Distinct from BUG-05-002 (trampoline path). This is the direct-string path where the iterator yields owned OriStr elements but the consumer can't distinguish owned from borrowed.
 
 ---
 
