@@ -425,9 +425,12 @@ impl AimsState {
     /// qualifies.
     #[must_use]
     pub fn is_rc_skip_eligible(&self) -> bool {
+        // DP-7: Uniqueness = Unique is load-bearing — a Shared value's
+        // +1 inc from the caller is never balanced without it → leak.
         self.is_local()
             && self.access == AccessClass::Owned
             && self.consumption == Consumption::Linear
+            && self.uniqueness == Uniqueness::Unique
             && !self.is_scalar()
     }
 
