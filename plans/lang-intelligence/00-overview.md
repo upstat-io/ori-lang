@@ -152,13 +152,4 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 - Rust fetch used v1 script (filtered PRs, no reviews) — needs re-fetch with v2 to pick up PR data
 - `--paginate` on `gh api` produces concatenated JSON arrays — needs `jq -s 'add'` post-processing
 - Fetch pipeline lacks incremental comment/review re-fetch for updated issues
-- `query_graph.py` `get_driver()` has no try/except — Neo4j down = unhandled `ServiceUnavailable` traceback
-- `query_graph.py` `driver.close()` not in try/finally — exceptions leak the driver connection
-- `query_graph.py` `label-graph` command is a TODO stub (line 444)
-- `query_graph.py` has no `--json` output mode for machine-readable results
-- `query_graph.py` credentials hardcoded (bolt://localhost:7687, neo4j/intelligence) — should use env vars
-- `query_graph.py` `_parse_flags` and positional args lack numeric validation — non-numeric input to `--limit`, `--depth`, `cmd_related`, or `cmd_fix_chain` crashes with raw `ValueError` traceback
-- `query_graph.py` has no connection timeout — a hanging Neo4j (Bolt port open but server wedged) hangs the script indefinitely
-- `query_graph.py` `cmd_stats` has no graph-emptiness detection — empty graph shows blank tables with no warning
-- `query_graph.py` `cmd_compare` and `cmd_pattern` bypass `_parse_flags` — `" ".join(args)` includes flags like `--json` in search terms
-- `query_graph.py` has no `--health-check` command for lightweight connectivity verification
+- ~~`query_graph.py` issues~~ — All 10 `query_graph.py` issues resolved in Section 01.2 (driver error handling, driver.close() leak, label-graph, --json mode, env vars, _parse_flags validation, connection timeout, emptiness detection, cmd_compare/cmd_pattern flag bypass, health-check command)

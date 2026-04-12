@@ -240,6 +240,8 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 - [x] `[TPR-01-003-codex][low]` (close-out-5) `section-01-infrastructure.md:100` — DRIFT: Checklist says `--human` is "passed through"; actually stripped locally.
   Resolved: Fixed on 2026-04-12. Changed to "Strip `--human` locally — omit `--json` in human mode."
 - [x] `[TPR-01-001-gemini][informational]` (close-out-5) `scripts/intel-query.sh:43` — Confirms timeout arithmetic fix is complete and correct for all edge cases.
+- [x] `[TPR-01-001-codex][low]` (close-out-6) `00-overview.md:155` — DRIFT: Known Issues block still lists 10 resolved query_graph.py defects.
+  Resolved: Fixed on 2026-04-12. Collapsed resolved items into single resolved-summary line.
 
 ## 01.N Completion Checklist
 
