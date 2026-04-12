@@ -362,6 +362,8 @@ Example:
 
 **Planned work requirement**: A `<!-- blocked-by:X -->` tag is ONLY valid if Section X contains a concrete `- [ ]` item whose completion will resolve the blocker. Adding a `blocked-by` reference to a section that has no planned resolution work is creating an unplanned blocker — which is not allowed (see Step 2.6). If no such item exists in Section X, you must add one before tagging.
 
+**Scope relevance requirement**: A `<!-- blocked-by:X -->` tag on a close-out item (TPR, hygiene review, tooling sweep) is ONLY valid if the blocker affects the **section's own scope**. A blocker from a different subsystem, different bug fix, or different code path does NOT block the section's close-out — it blocks that other item's close-out. Before accepting any blocker on a close-out item, verify: "Does this blocker affect the code that THIS section's TPR/hygiene would review?" If not, the blocker annotation is wrong — remove it and proceed with close-out. Separate bug fixes (e.g., `fix-BUG-XX-NNN`) have their own TPR/hygiene gates in their own fix sections; their blockers do not propagate to the parent section's close-out unless the bug is in the section's own code.
+
 **No prose-only blockers**: `<!-- blocked: some description -->` without a section reference is a temporary annotation only. Step 2.6 will convert these to either (a) planned subsections in the current plan, or (b) `blocked-by:X` references pointing to concrete plan items. Prose-only blockers cannot persist across `/continue-roadmap` invocations.
 
 This ensures:
@@ -375,11 +377,16 @@ This ensures:
 When the scanner shows blocked items, analyze the blocker chain:
 
 1. Read the **Blocker summary** and **Blocker chain** from scanner output
-2. Classify each blocker:
+2. **Validate blocker scope** (MANDATORY — do NOT skip). For each `<!-- blocked-by:X -->` annotation:
+   - Read the annotation's parenthetical explanation (if any)
+   - Ask: "Does blocker X affect code that THIS section's work touches?" If the blocker references a different subsystem, different bug fix, or different code path — the annotation is **scope-mismatched** and must be removed. Separate bug fixes have their own close-out gates; their blockers do not cascade to the parent section.
+   - If the annotation references "clean TPR for fix-BUG-XX-NNN" but fix-BUG-XX-NNN is in a different subsystem — the section's TPR reviews the section's code, not the bug fix's code. Remove the blocker.
+   - **NEVER accept a blocker at face value.** Always read the explanation, verify the scope, and remove invalid blockers before proceeding. Accepting a scope-mismatched blocker is how close-out gets skipped entirely.
+3. Classify each **validated** blocker:
    - **READY**: All its dependencies are `[complete]` — can start implementing now
    - **IN PROGRESS**: Section already being worked on — progress will eventually unblock
    - **WAITING**: Has incomplete dependencies — blocked itself, can't start yet
-3. Build and present a blocker tree in the summary:
+4. Build and present a blocker tree in the summary:
    ```
    Blocker Tree:
    ├─ Section 18: Const Generics [not-started] — READY (deps satisfied: 2 [complete])

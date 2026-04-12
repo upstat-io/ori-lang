@@ -862,8 +862,8 @@ When all findings are triaged:
   - [x] This section's frontmatter `status` updated (stays `in-progress` — TPR/hygiene blocked)
   - [x] `00-overview.md` Quick Reference updated (2026-04-12)
   - [x] `index.md` section status updated (2026-04-12)
-- [ ] `/tpr-review` passed — both reviewers clean on final code <!-- blocked-by:plans/iterator-element-ownership (BUG-05-003 blocks clean TPR for fix-BUG-04-039) -->
-- [ ] `/impl-hygiene-review` passed <!-- blocked-by:plans/iterator-element-ownership -->
+- [ ] `/tpr-review` passed — both reviewers clean on final code
+- [ ] `/impl-hygiene-review` passed
 - [ ] `/improve-tooling` section-close sweep
 
 **Exit Criteria:** `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` runs all property-based lattice tests and passes. proptest has verified join commutativity/idempotence, partial-order axioms, canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts, `capture_state_update` monotonicity, permutation invariance for n-ary merges, and fixpoint convergence across thousands of randomly generated `AimsState` values. BUG-04-057 soundness formally analyzed with one of three outcomes documented. The `SCALAR` sentinel is excluded from all property tests. All tests complete within the 150-second timeout.
