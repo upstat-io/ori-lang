@@ -71,7 +71,7 @@ Always use the canonical helper — never open-code Neo4j access:
   scripts/intel-query.sh compare "type inference"
   scripts/intel-query.sh fixed "memory leak" --repo rust,swift
   scripts/intel-query.sh hot --repo rust
-  scripts/intel-query.sh ori-arc
+  scripts/intel-query.sh ori-arc                          # also: ori-inference, ori-codegen, ori-patterns, ori-diagnostics
   scripts/intel-query.sh cypher "MATCH (i:Issue)-[:FIXES]->(b) RETURN count(i)"
 
 ## How to Use Results
@@ -142,6 +142,8 @@ Present results to the user with context. For search results, highlight:
   Resolved: Fixed on 2026-04-12. Added `/review-work` and `/review-plan` entries to the "When to Query" section.
 - [x] `[TPR-02-005-codex][low]` `plans/lang-intelligence/section-02-claude-rules.md:58` — DRIFT: Embedded "Content design" snippet in 02.1 was stale after TPR-02-004 fix.
   Resolved: Fixed on 2026-04-12. Synced the snippet with the actual implemented rule (added /review-work, /review-plan, hot subcommand).
+- [x] `[TPR-02-006-codex][low]` `.claude/commands/query-intel.md:5` — GAP: Command argument-hint only advertised `ori-arc` but 5 ori presets exist.
+  Resolved: Fixed on 2026-04-12. Updated argument-hint to `ori-*` with full preset list. Updated rule and plan snippets to note the full family.
 
 ## Completion Checklist
 

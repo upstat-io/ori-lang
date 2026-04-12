@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {1: "hello world this is a long string exceeding SSO", 2: "another long string that also exceeds SSO threshold"};
+    let val = m[1];
+    if val.is_some() && val.unwrap().starts_with(prefix: "hello") then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let maps = [{"a": 1, "b": 2}, {"c": 3, "d": 4}];
+    let collected: [{str: int}] = maps.iter().collect();
+    if collected.len() == 2 then 0 else 1
+}
