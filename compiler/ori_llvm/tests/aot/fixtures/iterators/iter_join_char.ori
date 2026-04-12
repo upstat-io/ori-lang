@@ -1,0 +1,7 @@
+// AOT test for iter_join with char elements.
+// Exercises: ori_str_from_char via generated to_str trampoline in emit_iter_join.
+
+@main () -> int = {
+    let result = ['a', 'b', 'c'].iter().join(separator: ":");
+    if result == "a:b:c" then 0 else 1
+}

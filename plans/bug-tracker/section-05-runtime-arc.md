@@ -21,6 +21,14 @@ Bugs in the runtime library: reference counting, COW operations, slice handling,
   Subsystem: `compiler/ori_repr/src/range/field_summary.rs`, `compiler/ori_repr/src/range/fixpoint/mod.rs`, `compiler/ori_repr/src/range/fixpoint/narrowing.rs`
   Found: 2026-03-30 | Root-caused: 2026-04-02 | Fixed: 2026-04-02 | Source: continue-roadmap + OBE investigation
 
+- [ ] `[BUG-05-002][high]` **`ori_iter_join` leaks heap-backed OriStr temporaries from `to_str` trampoline** — found by tpr-review.
+  Repro: `[-2.2250738585072014e-308].iter().join(separator: ", ")` under `ORI_CHECK_LEAKS=1` reports 1 RC allocation not freed.
+  Root cause: OriStr is `Copy` (no `Drop`). When the trampoline produces a heap-backed string (>23 bytes SSO), the temporary is read via `ptr::read_unaligned`, borrowed for `push_str`, then goes out of scope without freeing the heap allocation.
+  Fix: Call `ori_str_rc_dec` on the temporary OriStr after `push_str` in the trampoline path (`consumers.rs:553-557`).
+  Subsystem: `compiler/ori_rt/src/iterator/consumers.rs`
+  Found: 2026-04-12 | Source: tpr-review | Reviewer: codex
+  Note: Exposed by BUG-04-039 fix (to_str trampoline). Active work in `plans/bug-tracker/fix-BUG-04-039.md`.
+
 ---
 
 ## Resolved Bugs
