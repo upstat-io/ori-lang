@@ -20,7 +20,7 @@ inspired_by:
   - "Swift SIL Verifier (swift/lib/SIL/Verifier/SILVerifier.cpp) — independent verification of SIL ownership invariants after each pass"
 depends_on: ["03", "04"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-12
 sections:
   - id: "05.PRE"
@@ -682,7 +682,7 @@ When all findings are triaged:
   - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
   - [ ] `00-overview.md` Quick Reference updated
   - [ ] `00-overview.md` mission success criteria checkboxes updated
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) — iter3 found 4 findings (alias fixpoint bug, PartialApply effect gap, may_allocate tolerance), all fixed and confirmed clean on iter4 (dual-source: Codex + Gemini, both zero findings)
 - [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
 
