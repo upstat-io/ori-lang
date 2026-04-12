@@ -168,7 +168,8 @@ Canonicalization enforces cross-dimensional feasibility invariants. It runs afte
 *Rationale*: A unique dead value's memory IS reusable — the allocation is available for reset.
 
 **CN-6** — Wide-locality uniqueness ceiling: `Locality ≥ HeapEscaping ∧ Uniqueness = Unique ⟹ Uniqueness := MaybeShared`.
-*Rationale*: A value reachable from the heap (or with unknown locality) may have aliases via heap paths. Only `ArgEscaping` (callee-scoped, no heap persistence) and below preserve uniqueness. Uses `≥` because `Unknown` subsumes `HeapEscaping` — if heap-escaping forces `MaybeShared`, unknown must also. (BUG-04-058 fix.)
+*Rationale*: A value stored in a heap structure may have aliases via heap paths. Uses `≥` because `Unknown` subsumes `HeapEscaping`.
+*Exception — return values*: CN-6 SHALL NOT apply to values whose HeapEscaping locality comes solely from being returned (IA-6). Return transfers ownership, creating a unique reference at the caller. The `ReturnContract` extraction SHALL use the pre-return-widening uniqueness. Fresh allocations returned from a function remain `Unique` in the `ReturnContract` even though their intraprocedural locality widens to HeapEscaping. This ensures RL-29 (noalias on fresh allocation returns) is achievable.
 
 **CN-7** — ~~REMOVED.~~ The former rule about Shared+CollectionBuffer forcing COW mode was a decision predicate result, not a lattice state mutation. The behavior is fully covered by DP-9 (`Shared ⟹ StaticShared`). Canonicalization rules SHALL only mutate lattice dimensions — assigning `cow_mode` is a decision, not a state mutation.
 
@@ -214,8 +215,8 @@ Each operand of each instruction generates a `(variable, cardinality)` demand:
 **TF-12** — PartialApply emits NO backward demand from the standard demand system. Captured argument demand is handled entirely by `capture_state_update` to avoid double-counting.
 
 **TF-13** — `capture_state_update(current, closure_state)` (OxCaml LAM rule):
-- If closure cardinality ≤ Once: `consumption := max(current.consumption, Affine)`, `cardinality := max(current.cardinality, Once)`, `locality := max(current.locality, closure_state.locality, FunctionLocal)`. Preserves linearity/uniqueness. Locality incorporates both current state AND closure's escape scope — if the closure escapes to heap, captured variables must also be at least HeapEscaping.
-- If closure cardinality > Once: `consumption := Unrestricted`, `cardinality := Many`, `locality := max(current.locality, closure_state.locality, FunctionLocal)`. Multiple invocations = multiple consumptions.
+- If closure cardinality ≤ Once: `consumption := max(current.consumption, Affine)`, `cardinality := max(current.cardinality, Once)`, `locality := max(current.locality, closure_state.locality)`. Preserves linearity/uniqueness. Locality incorporates both current state AND closure's escape scope — if the closure escapes to heap, captured variables must also be at least HeapEscaping. No artificial `FunctionLocal` floor: a block-local closure capturing a block-local variable preserves BlockLocal locality (both are scoped to the same block).
+- If closure cardinality > Once: `consumption := Unrestricted`, `cardinality := Many`, `locality := max(current.locality, closure_state.locality)`. Multiple invocations = multiple consumptions.
 
 **TF-13 SHALL be monotone**: if `a ≤ b` then `capture_state_update(a, c) ≤ capture_state_update(b, c)`.
 
@@ -253,7 +254,7 @@ Local + owned + linear = lifetime precisely scoped; skip both inc and dec.
 - `MaybeShared ⟹ Dynamic` (runtime IsShared check)
 - `Shared ⟹ StaticShared` (unconditional copy)
 
-**DP-10** — Cross-dimensional uniqueness proof: `s.access = Owned ∧ s.consumption = Linear ∧ s.cardinality = Once ⟹ cow_aware_unique`. Joint reasoning: owned + linear + once = RC == 1 regardless of `Uniqueness` dimension.
+**DP-10** — ~~REMOVED (unsound).~~ The former rule claimed `Owned ∧ Linear ∧ Once ⟹ RC == 1`. This is false: backward analysis proves "no future duplication" (consumption/cardinality are FUTURE guarantees) but NOT "no existing aliases" (uniqueness is a PAST guarantee). A shared allocation passed as Owned+Linear+Once still has RC > 1 from aliases created before this program point. Uniqueness is ONLY established by (a) the Uniqueness dimension directly, or (b) fresh allocation (TF-3: FRESH starts Unique). Cross-dimensional "proofs" that derive past from future are unsound.
 
 ---
 
@@ -273,7 +274,7 @@ Local + owned + linear = lifetime precisely scoped; skip both inc and dec.
 
 **IC-7** — Convergence: finite domain (each dimension has bounded height × parameter count) guarantees termination. Iteration limit: `param_count × 6 + return × 4 + effects × 4`.
 
-**IC-8** — Parameter uniqueness tightening: after fixpoint, if ALL call sites pass argument with `Owned ∧ Linear ∧ Once`, tighten `ParamContract.uniqueness := Unique`. Requires ALL callers — a single Unrestricted caller invalidates.
+**IC-8** — ~~REMOVED (unsound — same root cause as DP-10).~~ The former rule derived parameter uniqueness from caller consumption patterns (`Owned ∧ Linear ∧ Once`). This is unsound: a caller with a `MaybeShared` argument that it uses linearly still holds a reference whose RC may be > 1 from upstream aliases. Parameter uniqueness is established by the SCC fixpoint (IC-2/IC-3): if ALL callers pass arguments whose `Uniqueness` dimension is `Unique`, the fixpoint converges to `ParamContract.uniqueness = Unique` naturally. No post-fixpoint tightening is needed or sound.
 
 ---
 
@@ -314,6 +315,7 @@ Step 5a: verify_fip_contract()     — FIP enforcement
 Step 6:  verify()                  — ARC IR structural sanity
 Step 7:  run_aims_verify()         — AIMS contract vs IR consistency
 Step 8:  detect/rewrite tail calls — CFG optimization
+Step 8a: unwind_cleanup()          — Invoke-unwind RC cleanup
 Step 9:  merge_blocks()            — CFG cleanup
 Step 10: realize_annotations()     — Phase 2: COW + drop hints (post-merge)
 Step 11: verify()                  — Final sanity
@@ -376,7 +378,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 ### Allocation Reuse
 
-**RL-11** — Same-block reuse: a dying value's allocation SHALL be reused for a fresh allocation of the same type in the same block, if the death precedes the allocation and no intervening use exists.
+**RL-11** — Same-block reuse: a dying value's allocation SHALL be reused for a fresh allocation of the same type in the same block, if: (a) the death precedes the allocation, (b) no intervening use exists, AND (c) the dying value is statically unique (`Uniqueness = Unique`) OR provably unique via cross-dimensional proof (`MaybeShared ∧ Cardinality = Once ∧ Shape = ReusableCtor` — fresh construction + single use = RC == 1). Reusing a Shared allocation corrupts other aliases.
 
 **RL-12** — Cross-block reuse: a dying value's allocation SHALL be reused across blocks when the death dominates and post-dominates the allocation, and the dying value is statically unique.
 
@@ -432,7 +434,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-29** — Fresh allocation returns (`ReturnContract.uniqueness = Unique`) SHALL be marked with LLVM `noalias`.
 
-**RL-30** — Effect-based call annotations: pure calls (`may_allocate = false ∧ may_deallocate = false ∧ may_throw = false` and no writes to parameters) SHALL receive LLVM `memory(none)`. Readonly calls (reads but no writes, no allocation, no deallocation) SHALL receive LLVM `memory(read)`. Allocating-only calls (`may_allocate = true` but no deallocation) SHALL receive `memory(argmem: readwrite)`.
+**RL-30** — Effect-based call annotations: pure calls (`may_allocate = false ∧ may_deallocate = false ∧ may_throw = false` and no writes to parameters) SHALL receive LLVM `memory(none)`. Readonly calls (reads but no writes, no allocation, no deallocation) SHALL receive LLVM `memory(read)`. Allocating calls (`may_allocate = true`) SHALL receive `memory(inaccessiblemem: readwrite)` — heap allocation touches global allocator state (inaccessible memory), not just argument memory. `memory(argmem: readwrite)` is WRONG for allocators and causes LLVM miscompilation (optimizer assumes no global side effects).
 
 **RL-31** — Disjoint borrowed parameters SHALL receive `!alias.scope` + `!noalias` metadata pairs.
 
