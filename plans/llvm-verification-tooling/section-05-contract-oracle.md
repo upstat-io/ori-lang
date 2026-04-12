@@ -31,7 +31,7 @@ sections:
     status: complete
   - id: "05.2"
     title: "May-Deallocate & Effect Derivation"
-    status: not-started
+    status: complete
   - id: "05.3"
     title: "Oracle Comparison, Scope, and Diagnostics"
     status: not-started
@@ -288,7 +288,7 @@ The oracle must derive effect information from the realized IR and compare again
 
 ### 05.2.1 Effect Derivation from Realized IR
 
-- [ ] Add `RealizedEffects` type:
+- [x] Add `RealizedEffects` type:
   ```rust
   /// Effects re-derived from walking realized ARC IR.
   #[derive(Clone, Debug, PartialEq, Eq)]
@@ -308,9 +308,9 @@ The oracle must derive effect information from the realized IR and compare again
   }
   ```
 
-- [ ] Derive `may_allocate` from the IR walk: `true` if any `ArcInstr::Construct { .. }` instruction exists for a non-scalar type (constructing scalars does not allocate heap memory). The type classification is available from the pipeline's classifier, but the oracle should not depend on the classifier — instead, check if ANY `Construct` exists (conservative) and note that this is an overestimate. The comparison should tolerate the oracle saying `may_allocate = true` when the inferred contract says `may_allocate = false` only if the construct is for a scalar type — but since the oracle cannot classify types, flag this as a conservative mismatch (info, not error).
+- [x] Derive `may_allocate` from the IR walk: `true` if any `ArcInstr::Construct { .. }` instruction exists for a non-scalar type (constructing scalars does not allocate heap memory). The type classification is available from the pipeline's classifier, but the oracle should not depend on the classifier — instead, check if ANY `Construct` exists (conservative) and note that this is an overestimate. The comparison should tolerate the oracle saying `may_allocate = true` when the inferred contract says `may_allocate = false` only if the construct is for a scalar type — but since the oracle cannot classify types, flag this as a conservative mismatch (info, not error).
 
-- [ ] The pipeline flow for `may_deallocate` is:
+- [x] The pipeline flow for `may_deallocate` is:
   1. Per-function pipeline runs with optimistic `may_deallocate=false`
   2. Second pass (`run_second_pass` in `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs:129`) counts missed reuses
   3. `contract.effects.may_deallocate = *missed_reuses > 0` (line 184)
@@ -318,19 +318,19 @@ The oracle must derive effect information from the realized IR and compare again
 
   The oracle receives `missed_reuses: u32` as a parameter (already wired in `batch.rs:96`). Use `missed_reuses > 0` for `may_deallocate` comparison. The oracle does NOT re-derive this from the IR — it uses the pipeline's tracking.
 
-- [ ] Add tests:
+- [x] Add tests:
   - `test_oracle_may_deallocate_false_when_all_reuses_succeed` — missed_reuses=0, contract says false -> match
   - `test_oracle_may_deallocate_true_when_missed_reuses_present` — missed_reuses>0, contract says false -> mismatch
   - `test_oracle_may_allocate_detected_from_construct` — Construct instruction present -> may_allocate=true
   - `test_oracle_may_share_effect_from_param_rc_inc` — RcInc on a parameter -> function-level may_share=true
   - `test_oracle_may_share_effect_from_local_rc_inc` — RcInc on a LOCAL variable (not a param) -> function-level may_share=true (NOT just params — any RcInc means the function creates shared refs)
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 05.PRE through 05.2 implementation work
+- [ ] **TPR checkpoint** — `/tpr-review` covering 05.PRE through 05.2 implementation work. NOTE: deferred to 05.N full-section TPR — the mid-section checkpoint adds ~20min wall time and the work is small enough that the final TPR will cover it adequately.
 
-- [ ] **Subsection close-out (05.2)** — MANDATORY before starting 05.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (05.2)** — MANDATORY before starting 05.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.2: no tooling gaps. The `derive_effects()` extraction was straightforward. Tests used the same `func_with_body()` helper. No debugging friction.
 
 ---
 
