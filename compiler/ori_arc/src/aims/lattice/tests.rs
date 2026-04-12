@@ -640,7 +640,7 @@ mod aims_state_join {
     }
 
     /// Join associativity on sampled states (supplement to proptest).
-    /// Regression guard for BUG-04-057 (Rule 4 removal fixed associativity).
+    /// Regression guard: Rule 4 removal ensures join associativity.
     #[test]
     fn associativity() {
         let states = representative_states();
@@ -732,12 +732,12 @@ mod canonicalization {
         assert_eq!(s.shape, before_shape);
     }
 
-    // Rule 4: REMOVED (BUG-04-057) — was anti-monotone, broke join associativity.
+    // Rule 4: REMOVED — was anti-monotone, broke join associativity.
     // BlockLocal+Owned+≤Once no longer promotes MaybeShared → Unique in canonicalize.
     // Uniqueness is established by transfer functions (FRESH starts Unique),
     // not re-derived during canonicalization.
 
-    /// Regression: BUG-04-057 — Rule 4 removal semantic pin.
+    /// Regression: Rule 4 removal semantic pin.
     /// `BlockLocal`+`Owned`+`Once`+`MaybeShared` must stay `MaybeShared` after canonicalize.
     /// This test would fail if Rule 4 is re-added.
     #[test]
@@ -954,7 +954,7 @@ mod canonicalization {
         assert_eq!(s.uniqueness, Uniqueness::Unique);
     }
 
-    /// Regression: BUG-04-058 — Rule 6 now fires at `Unknown` locality.
+    /// Regression: Rule 6 widening — now fires at `Unknown` locality.
     /// `Unknown` subsumes `HeapEscaping`; if `HeapEscaping` forces `MaybeShared`,
     /// `Unknown` must also force `MaybeShared`.
     #[test]
@@ -2168,7 +2168,7 @@ mod convergence_feedback {
         assert_eq!(s.cardinality, Cardinality::Absent);
     }
 
-    /// Regression: BUG-04-057 — Rule 4 removed. `BlockLocal`+`Owned`+`Once`+`MaybeShared`
+    /// Regression: Rule 4 removed. `BlockLocal`+`Owned`+`Once`+`MaybeShared`
     /// now converges in 0 rounds (no rule fires), uniqueness stays `MaybeShared`.
     #[test]
     fn feedback_zero_rounds_block_local_maybe_shared_unchanged() {

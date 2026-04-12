@@ -1310,7 +1310,7 @@ fn synergy_metrics_cross_dim_evidence() {
 }
 
 #[test]
-/// Regression: BUG-04-057 — Rule 4 removed. `BlockLocal`+`Owned`+`Once`+`MaybeShared`
+/// Regression: Rule 4 removed. `BlockLocal`+`Owned`+`Once`+`MaybeShared`
 /// now produces 0 cross-dim fires and uniqueness stays `MaybeShared`.
 fn canonicalize_feedback_tracks_cross_dim_fires() {
     use crate::aims::lattice::{AimsState, Locality};

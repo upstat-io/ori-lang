@@ -11,6 +11,13 @@ success_criteria:
   - "Activates venv transparently, handles missing neo4j Python package"
   - "All other integration points (sections 02-04) call this script, never open-code availability logic"
 depends_on: []
+sections:
+  - id: "01.1"
+    title: "Canonical Helper Script"
+    status: not-started
+  - id: "01.2"
+    title: "Fix Existing query_graph.py Bugs"
+    status: not-started
 third_party_review:
   status: none
   updated: null
