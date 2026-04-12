@@ -305,12 +305,9 @@ proptest! {
         );
     }
 
-    /// BUG-04-057: join is non-associative due to canonicalization Rule 4
-    /// (BlockLocal+Owned+≤Once+MaybeShared → Unique) creating order-dependent
-    /// intermediate states. The uniqueness dimension diverges depending on
-    /// whether the intermediate join result triggers the rule.
+    /// Join associativity (L-2): `(a join b) join c == a join (b join c)`.
+    /// Regression guard for BUG-04-057 (Rule 4 removal).
     #[test]
-    // BUG-04-057 FIXED: Rule 4 removed from canonicalize, join is now associative.
     fn join_associative(
         a in canonical_aims_state_strategy(),
         b in canonical_aims_state_strategy(),
@@ -414,13 +411,9 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(5000))]
 
-    /// BUG-04-057: join-based `lattice_leq` is NOT transitive.
-    ///
-    /// Minimal counterexample: a={Borrowed,Dead,Absent,MaybeShared,BlockLocal},
-    /// b={Owned,Dead,Absent,Unique,BlockLocal}, c={...,FunctionLocal}.
-    /// Rule 4 fires at BlockLocal (a<=b) but not at FunctionLocal (a<=c fails).
+    /// Partial-order transitivity (L-4): `a <= b && b <= c => a <= c`.
+    /// Regression guard for BUG-04-057 (Rule 4 removal fixed transitivity).
     #[test]
-    // BUG-04-057 FIXED: Rule 4 removed, lattice_leq is now transitive.
     fn lattice_leq_transitive(
         a in canonical_aims_state_strategy(),
         diff_ab in canonical_aims_state_strategy(),
@@ -708,18 +701,14 @@ proptest! {
     }
 }
 
-// Transfer function monotonicity (uses componentwise_leq since lattice_leq is non-transitive)
+// Transfer function monotonicity (TF-13, L-6)
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(5000))]
 
-    /// BUG-04-058: `capture_state_update` is NOT monotone in its first argument.
-    ///
-    /// Rule 6 fires for HeapEscaping but not Unknown. Since capture widens
-    /// locality to HeapEscaping for small-locality inputs but preserves
-    /// larger localities like Unknown, the function is non-monotone.
+    /// capture_state_update monotonicity in first arg (TF-13).
+    /// Regression guard for BUG-04-058 (Rule 6 widening fixed monotonicity).
     #[test]
-    // BUG-04-058 FIXED: Rule 6 widened to >= HeapEscaping, capture_state_update is now monotone.
     fn capture_state_update_monotone_in_current(
         a in canonical_aims_state_strategy(),
         diff in canonical_aims_state_strategy(),
@@ -737,11 +726,9 @@ proptest! {
         );
     }
 
-    /// BUG-04-058: `capture_state_update` is NOT monotone in its second argument.
-    ///
-    /// Same root cause as first-argument non-monotonicity: Rule 6 + locality.
+    /// capture_state_update monotonicity in second arg (TF-13).
+    /// Regression guard for BUG-04-058 (Rule 6 widening fixed monotonicity).
     #[test]
-    // BUG-04-058 FIXED: Rule 6 widened to >= HeapEscaping, capture_state_update is now monotone.
     fn capture_state_update_monotone_in_closure(
         current in canonical_aims_state_strategy(),
         c1 in canonical_aims_state_strategy(),
@@ -837,13 +824,9 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(2000))]
 
-    /// BUG-04-057: N-ary join fold is NOT permutation-invariant.
-    ///
-    /// Minimal counterexample: 3 states where forward fold triggers Rule 4
-    /// (BlockLocal intermediate) but reverse fold doesn't (FunctionLocal
-    /// intermediate). Analysis IS order-dependent.
+    /// N-ary join permutation invariance (IA-9): fold order doesn't matter.
+    /// Regression guard for BUG-04-057 (Rule 4 removal fixed invariance).
     #[test]
-    // BUG-04-057 FIXED: Rule 4 removed, n-ary join is permutation-invariant.
     fn nary_join_permutation_invariant(
         states in proptest::collection::vec(canonical_aims_state_strategy(), 2..8),
     ) {
@@ -872,9 +855,9 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1000))]
 
-    /// BUG-04-057: Shuffled permutation test also fails (same root cause).
+    /// N-ary join shuffled permutation invariance (IA-9, shuffle variant).
+    /// Regression guard for BUG-04-057.
     #[test]
-    // BUG-04-057 FIXED: Rule 4 removed, n-ary join is permutation-invariant.
     fn nary_join_shuffled_permutations(
         states in proptest::collection::vec(canonical_aims_state_strategy(), 3..6),
         seed in any::<u64>(),
