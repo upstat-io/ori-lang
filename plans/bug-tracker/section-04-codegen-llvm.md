@@ -481,4 +481,16 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 - [x] `[BUG-04-002][critical]` **Inherent impl method returns wrong value when type also has trait impl** — found by manual.
   Resolved: OBE on 2026-03-28. False positive — caused by stale release binary from prior session. After `cargo b --release` (force rebuild), `test_aot_multiple_impl_blocks` passes. The AOT test framework falls back to the release binary when debug lacks LLVM; the stale release binary had code from before range analysis field narrowing was fixed.
 
-- None.
+- [ ] `[BUG-04-063][medium]` **ArgEscaping locality variant missing from Locality enum**
+  Repro: `compiler/ori_arc/src/aims/lattice/dimensions.rs` — `Locality` enum has 4 variants (BlockLocal, FunctionLocal, HeapEscaping, Unknown) but spec §1.5 mandates 5 (+ ArgEscaping). `CHAIN_HEIGHT` is 15 but should be 16 with ArgEscaping.
+  Subsystem: `compiler/ori_arc/src/aims/lattice/dimensions.rs`
+  Found: 2026-04-12 | Source: tpr-review
+  Reviewer: gemini
+  Note: Blocks RL-15a caller-stack allocation optimization. When added, update `CHAIN_HEIGHT`, all proptest strategies in `prop_tests.rs`, and CN-8/DP-8 implementations.
+
+- [ ] `[BUG-04-064][high]` **DP-5 `can_mutate_in_place` does not check overlapping borrows**
+  Repro: `compiler/ori_arc/src/aims/transfer/mod.rs:433` — implementation checks `Owned + Unique` only, omitting `no_active_overlapping_borrows(s)` mandated by spec DP-5. Could permit in-place mutations that corrupt active borrowed projections.
+  Subsystem: `compiler/ori_arc/src/aims/transfer/mod.rs`
+  Found: 2026-04-12 | Source: tpr-review
+  Reviewer: gemini
+  Note: Must intersect `borrow_sources` side table with live-variable set at mutation point per spec §1.9 + DP-5.
