@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = [1000000000000, 2000000000000].iter().join(separator: ", ");
+    if result == "1000000000000, 2000000000000" then 0 else 1
+}

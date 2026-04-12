@@ -281,12 +281,12 @@ impl AimsState {
     /// 1. `Dead` ↔ `Absent`: dead means zero future uses, and vice versa
     /// 2. `Linear` + `Absent` is infeasible → collapse to `Dead`
     /// 3. `Shared` + reusable shape → collapse shape to `NonReusable`
-    /// 4. REMOVED (BUG-04-057) — was anti-monotone, broke join associativity
+    /// 4. REMOVED — was anti-monotone, broke join associativity
     /// 5. `Unique` + `Dead` → preserve `ReusableCtor` shape (implicit — no
     ///    rule collapses shape here; documented for clarity)
     /// 6. `HeapEscaping` or `Unknown` → uniqueness ceiling `MaybeShared`
     ///    (Section 09.3, widened from `== HeapEscaping` to `>= HeapEscaping`
-    ///    by BUG-04-058 fix)
+    ///    by Rule 6 widening fix)
     /// 7. `Shared` + `CollectionBuffer` → force Dynamic COW (Section 09.3,
     ///    enforced at query sites via `needs_cow_check()`)
     /// 8. `Borrowed` → locality ceiling `FunctionLocal` (Section 09.3)
@@ -356,7 +356,7 @@ impl AimsState {
             cross_fires += 1; // Rule 6: Locality → Uniqueness (2 dimensions)
         }
 
-        // Rule 4: REMOVED (BUG-04-057).
+        // Rule 4: REMOVED.
         //
         // The former Rule 4 promoted MaybeShared → Unique when
         // BlockLocal+Owned+≤Once. This was anti-monotone: it injected
@@ -367,7 +367,6 @@ impl AimsState {
         // canonicalize to synthesize Unique from MaybeShared. Uniqueness
         // is now established only by transfer functions and preserved
         // (or lost) through joins — never re-derived in canonicalize.
-        // See: plans/bug-tracker/fix-BUG-04-057.md
 
         // Rule 5 (Section 09.3): Unique + Dead → preserve ReusableCtor.
         // A unique dead value's memory IS reusable — don't collapse shape.
