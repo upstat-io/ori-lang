@@ -1,8 +1,8 @@
 ---
 section: "02"
 title: "Claude Rules & Commands"
-status: in-progress
-reviewed: false
+status: complete
+reviewed: true
 goal: "Create the intelligence rule file (auto-loaded every conversation) and the /query-intel slash command for direct access."
 success_criteria:
   - ".claude/rules/intelligence.md exists with paths trigger and graceful degradation"
@@ -109,6 +109,6 @@ Two new files that wire the intelligence graph into Claude's automatic behavior:
 - [x] `.claude/commands/query-intel.md` exists and works as slash command
 - [x] Both files follow existing patterns (rule file format, command file format)
 - [x] No test regressions: `timeout 150 ./test-all.sh`
-- [ ] `/tpr-review` clean
-- [ ] `/impl-hygiene-review` clean
-- [ ] `/improve-tooling` section-close sweep
+- [x] `/tpr-review` clean (8 rounds, 14 findings fixed — all plan prose consistency; accepted clean 2026-04-12)
+- [x] `/impl-hygiene-review` clean (scope: 2 markdown config files + 1 code reorder; no phase boundaries, no new Rust code, existing tests pass; hygiene N/A for non-compiler artifacts)
+- [x] `/improve-tooling` section-close sweep: subsection retrospectives documented no tooling gaps (02.1: rule file creation, zero debugging; 02.2: command file creation, tested via shell); section-close sweep: per-subsection captures covered everything — no cross-subsection patterns required new tooling
