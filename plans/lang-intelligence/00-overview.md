@@ -157,3 +157,6 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 - `query_graph.py` `label-graph` command is a TODO stub (line 444)
 - `query_graph.py` has no `--json` output mode for machine-readable results
 - `query_graph.py` credentials hardcoded (bolt://localhost:7687, neo4j/intelligence) — should use env vars
+- `query_graph.py` `_parse_flags` and positional args lack numeric validation — non-numeric input to `--limit`, `--depth`, `cmd_related`, or `cmd_fix_chain` crashes with raw `ValueError` traceback
+- `query_graph.py` has no connection timeout — a hanging Neo4j (Bolt port open but server wedged) hangs the script indefinitely
+- `query_graph.py` `cmd_stats` has no graph-emptiness detection — empty graph shows blank tables with no warning
