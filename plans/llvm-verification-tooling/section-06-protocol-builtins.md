@@ -410,10 +410,10 @@ When all findings are triaged:
 - [x] `timeout 150 ./clippy-all.sh` green
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan llvm-verification-tooling` returns 0 annotations
 - [x] All intermediate TPR checkpoint findings resolved (TPR-06-001 convergent finding fixed, TPR-06-002 rejected)
-- [ ] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
-  - [ ] `00-overview.md` Quick Reference updated
-  - [ ] `index.md` section status updated
+- [x] **Plan sync** (2026-04-12) — update plan metadata:
+  - [x] This section's frontmatter `status` -> `complete`, subsection statuses updated
+  - [x] `00-overview.md` Quick Reference updated (effort table + section reference + success criterion)
+  - [x] `index.md` section status updated
 - [ ] `/tpr-review` passed (final, full-section)
 - [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
