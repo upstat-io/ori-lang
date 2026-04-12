@@ -92,7 +92,7 @@ sections:
 **Partial order definition:** `ShapeClass` and `EffectClass` lack `PartialOrd`. For lattice-law tests, define `a <= b` as `a.join(b) == b` (the standard lattice-theoretic definition). This avoids adding `PartialOrd` to types where it's not natural (flat lattice `ShapeClass`, bitfield `EffectClass`).
 
 **Cross-section dependency -- BLOCKER for Section 05; Section 06 partially independent:**
-- **Section 05 (Contract Coherence Oracle)** `depends_on: ["03", "04"]` -- depends on lattice properties for contract stability. If BUG-04-057 means the analysis is order-dependent, inferred contracts may also be structurally unstable -- the contract oracle would compare against a non-deterministic baseline. Section 05 MUST NOT proceed until 04.6 (BUG-04-057 soundness analysis) is complete and either: (a) the bug is fixed, or (b) a formal proof demonstrates that the analysis is sound despite non-associativity. Note: Section 05's *implementation* (building the oracle code) is not blocked -- only its *correctness-gate authority* (using it to verify contracts) requires lattice soundness to be resolved.
+- **Section 05 (Contract Coherence Oracle)** `depends_on: ["03", "04"]` -- depends on lattice properties for contract stability. If BUG-04-057 means the analysis is order-dependent, inferred contracts may also be structurally unstable -- the contract oracle would compare against a non-deterministic baseline. Section 05 MUST NOT proceed until 04.6 (BUG-04-057 soundness analysis) is complete and either: (a) the bug is fixed, or (b) a formal proof demonstrates that the analysis is sound despite non-associativity. This matches the plan-wide dependency in `00-overview.md` and `section-05-contract-oracle.md`.
 - **Section 06 (Protocol Builtins)** `depends_on: ["01"]` (NOT `["04"]`) -- Section 06's ownership pin matrix tests and RC balance codegen audit tests are independent of BUG-04-057. They test protocol builtin ownership values and verify RC balance through existing LLVM codegen audit infrastructure, which operates at the concrete instruction level, not through lattice-theoretic reasoning. Section 06 can proceed in parallel with Section 04. Non-protocol runtime contracts (`ori_list_push`, `ori_iter_*` consumers) have the same ownership risk but are not verified in Section 06's current scope -- this is a coverage gap that should be cross-referenced when Section 06 is implemented.
 
 **Reference implementations:**
@@ -456,7 +456,7 @@ At CFG join points, the analysis folds multiple predecessor states: `fold(join, 
       }
   }
   ```
-  **Important:** If this test FAILS, it confirms that BUG-04-057 has real consequences for the analysis -- the fixpoint result depends on worklist iteration order. This would escalate BUG-04-057 from "high" to "critical" and block Section 05's correctness-gate authority (Section 06 is independently implementable per its `depends_on: ["01"]`).
+  **Important:** If this test FAILS, it confirms that BUG-04-057 has real consequences for the analysis -- the fixpoint result depends on worklist iteration order. This would escalate BUG-04-057 from "high" to "critical" and block Section 05 entirely (Section 06 is independently implementable per its `depends_on: ["01"]`).
 
   **Design note (blind-spot analysis):** The real `compute_block_exit_state()` in `intraprocedural/block.rs:76-90` does NOT seed with `AimsState::BOTTOM`. It starts with an empty `FxHashMap` and uses `map_or(succ_state, |existing| existing.join(&succ_state))`, meaning the first successor's state is taken verbatim and subsequent successors are joined in. This is mathematically equivalent to a BOTTOM-seeded fold (since `BOTTOM.join(x) == x`), but the test models the real code exactly to avoid any confusion about the equivalence.
 
@@ -549,14 +549,14 @@ If the non-associativity only affects the uniqueness dimension in states that ar
 
 - [ ] Enumerate the state space where associativity fails -- characterize ALL counterexamples exhaustively:
 
-  **Approach:** The canonical state space has ~3,928 states (verified empirically by enumerating all 11,519 non-SCALAR raw states and canonicalizing). Full triple enumeration (~60.6 billion) is infeasible within the 150s test timeout. Instead, use a **two-tier strategy**: (1) exhaustive enumeration over all canonical STATE PAIRS to identify which `(a, b)` pairs produce join results that are sensitive to associativity (the `ab` intermediate), then (2) for each sensitive pair, sweep over all canonical `c` values. This reduces the search space dramatically because most pairs produce joins where Rule 4 never triggers. If the sensitive-pair set is still too large, fall back to high-coverage proptest sampling (100,000 cases with targeted strategies that focus on Rule 4 boundary states).
+  **Approach:** The canonical state space has ~3,928 states (verified empirically by enumerating all 11,519 non-SCALAR raw states and canonicalizing). Full triple enumeration (~60.6 billion) is infeasible within the 150s test timeout. Instead, use a **two-tier strategy**: (1) exhaustive enumeration over all canonical STATE PAIRS to identify which `(a, b)` pairs produce join results that are sensitive to associativity (the `ab` intermediate), then (2) for each sensitive pair, sweep over all canonical `c` values. This reduces the search space dramatically because most pairs produce joins where Rule 4 never triggers. If the sensitive-pair set is unexpectedly large (making the test exceed 150s), further tier refinement is needed — sampling CANNOT discharge the exhaustive proof required by Option A. In that case, partition the sensitive set by dimension values and sweep each partition separately, or escalate to Option B/C.
 
   ```rust
   /// Two-tier characterization: first find sensitive (a,b) pairs where
   /// the join intermediate is in the Rule 4 trigger zone, then sweep c
   /// for each. Falls back to proptest if tier-1 set is too large.
   #[test]
-  fn characterize_associativity_failures_two_tier() {
+  fn associativity_divergence_with_canonical_triples_detects_decision_impact() {
       let canonical_states = collect_all_canonical_states();
       let n = canonical_states.len();
       eprintln!("canonical state count: {n}");
@@ -730,7 +730,6 @@ If the non-associativity only affects the uniqueness dimension in states that ar
   - `intraprocedural/state_map.rs:428` -- immortal check branches on `uniqueness == Unique`
   - `realize/decide.rs:484` -- realization decisions use uniqueness
   - `intraprocedural/post_convergence.rs:259,336` -- post-convergence adjustments use uniqueness
-  - `intraprocedural/block.rs:409` -- block analysis checks `uniqueness == Unique`
 
 ### Option B: The bug affects RC decisions (fix required)
 
@@ -781,6 +780,9 @@ When all findings are triaged:
 - [x] `[TPR-04-001-gemini][medium]` `section-04-lattice-properties.md:401` — Include FIP conditional check in characterization.
   Evidence: `compute_effective_may_share` at block.rs:409 directly checks `uniqueness == Unique` but was not in the predicate list.
   Resolved: Fixed on 2026-04-11. Added direct `(uniqueness == Unique)` equality check to the characterization test, covering compute_effective_may_share and all other direct uniqueness consumers.
+- [x] `[TPR-04-005-codex][medium]` `section-04-lattice-properties.md:737` — Remaining Section 06 blocker drift in Option B.
+  Evidence: Option B still said "Sections 05/06 proceed" after round 1 fixes.
+  Resolved: Fixed on 2026-04-11. Updated Option B to match revised dependency model.
 
 ---
 
@@ -828,7 +830,7 @@ When all findings are triaged:
 - [ ] Impact analysis: determine if failures affect ANY downstream uniqueness consumer (6 lattice predicates + can_mutate_in_place + direct uniqueness==Unique checks in FIP balance, compute_effective_may_share, state_map, realize/decide, post_convergence, COW emission, reuse detection/planning)
 - [ ] Resolution: Option A (benign -- proof documented), Option B (fix via `/fix-bug`), or Option C (permutation test fails -- escalate)
 - [ ] BUG-04-057 bug tracker entry updated with analysis results
-- [ ] Cross-section blocker resolved: Section 05 correctness-gate authority unblocked (or blocked with documented reason). Section 06 is independently implementable per `depends_on: ["01"]`.
+- [ ] Cross-section blocker resolved: Section 05 unblocked (or blocked with documented reason). Section 06 is independently implementable per `depends_on: ["01"]`.
 
 ### Standard close-out
 - [ ] All property tests pass: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests`
