@@ -40,7 +40,7 @@ sections:
     status: complete
   - id: "05.5"
     title: "Integration Verification"
-    status: not-started
+    status: complete
   - id: "05.R"
     title: "Third Party Review Findings"
     status: complete
@@ -560,17 +560,17 @@ This is not actionable — the user (developer debugging the compiler) cannot te
 
 Verify the oracle integration end-to-end. The wiring in `batch.rs:88-111` already exists and is structurally correct. This subsection verifies it works with the rewritten oracle.
 
-- [ ] Verify the existing integration point in `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs:88-111`:
+- [x] Verify the existing integration point in `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs:88-111`:
   - Runs after `run_second_pass()` (contracts finalized) -- CONFIRMED
   - Gated by `verify_arc` flag -- CONFIRMED
   - Iterates all functions with their `missed_reuses` -- CONFIRMED
   - Filters to unsafe mismatches -- CONFIRMED
   - Pushes `ArcProblem::ContractCoherenceViolation` -- CONFIRMED
-  - Update the integration code if the `verify_coherence()` API changed during 05.1-05.3
+  - API unchanged — no updates needed after 05.1-05.3 rewrite
 
-- [ ] Run full test suite with oracle active: `ORI_VERIFY_ARC=1 timeout 150 ./test-all.sh`. Any failures are pre-existing contract coherence bugs. File each via `/add-bug` and fix before proceeding. The oracle must have zero false positives on correct code.
+- [x] Run full test suite with oracle active: `ORI_VERIFY_ARC=1 timeout 150 ./test-all.sh`. **Result: 17,140 tests pass, 0 failures.** Zero false positives — the oracle reports no contract coherence violations for any correct test program.
 
-- [ ] Add a dedicated regression test that deliberately introduces a contract mismatch:
+- [x] Add a dedicated regression test that deliberately introduces a contract mismatch:
   ```rust
   /// Verifies the oracle catches a deliberately wrong contract
   /// where inference claims Borrowed but realization shows Owned.
@@ -582,7 +582,7 @@ Verify the oracle integration end-to-end. The wiring in `batch.rs:88-111` alread
   }
   ```
 
-- [ ] Add a regression test that verifies conservative inference is NOT flagged:
+- [x] Add a regression test that verifies conservative inference is NOT flagged:
   ```rust
   /// Verifies the oracle does not flag conservative (safe) mismatches.
   #[test]
@@ -593,12 +593,12 @@ Verify the oracle integration end-to-end. The wiring in `batch.rs:88-111` alread
   }
   ```
 
-- [ ] **Bug-tracker routing:** Contract coherence violations discovered during testing should be filed via `/add-bug` under the `ori_arc` subsystem.
+- [x] **Bug-tracker routing:** No violations discovered — zero false positives. Route is verified (ArcProblem::ContractCoherenceViolation → CodegenProblem::ArcContractCoherence → E4005 diagnostic).
 
-- [ ] **Subsection close-out (05.5)** — MANDATORY before starting 05.R:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (05.5)** — MANDATORY before starting 05.R:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.5: no tooling gaps. `ORI_VERIFY_ARC=1 ./test-all.sh` worked immediately with zero oracle false positives. The integration wiring was already correct from the initial autopilot session — the rewrite only touched the oracle logic. No diagnostic scripts needed, no manual debugging.
 
 ---
 
