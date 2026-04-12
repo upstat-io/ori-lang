@@ -47,6 +47,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-11 | Source: continue-roadmap
   Resolved: Fixed on 2026-04-12 (3f7cf7c2) as part of BUG-04-057 fix. Rule 6 widened from `== HeapEscaping` to `>= HeapEscaping`. Both monotonicity proptests now pass. Fix section: `plans/bug-tracker/fix-BUG-04-057.md`.
 
+- [ ] `[BUG-04-059][high]` **AIMS realization uses unsound cross-dimensional uniqueness proofs (DP-10/RL-13 pattern)**
+  Repro: `decide_reuse()` at `compiler/ori_arc/src/aims/realize/decide.rs:263` upgrades `MaybeShared + Once + ReusableCtor` to `StaticReuse`; `decide_cow()` at `decide.rs:389` upgrades params with `Owned + Linear + Once` to `StaticUnique`; `emit_reuse/detect.rs:80` marks same states `is_static_unique`; `emit_rc/cow.rs:61` (`is_cow_aware_unique`) documents the linearity-based proof. The formal AIMS rules (`aims-rules.md`) explicitly removed DP-10 and RL-13 as unsound: backward-analysis facts (consumption/cardinality are FUTURE guarantees) do NOT prove RC==1 (a PAST guarantee). `MaybeShared + Once + ReusableCtor` can have RC>1 if the single use is a store that increments RC. Tests `cow_param_cow_aware_unique` and `decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse` pin the currently-unsound behavior.
+  Subsystem: `compiler/ori_arc/src/aims/realize/decide.rs`, `compiler/ori_arc/src/aims/emit_reuse/detect.rs`, `compiler/ori_arc/src/aims/emit_rc/cow.rs`
+  Found: 2026-04-12 | Source: tpr-review
+  Reviewer: codex
+  Note: Active work in llvm-verification-tooling Section 05 (Contract Coherence Oracle) may overlap — the oracle should detect this mismatch between inferred contracts and realized IR.
+
 - [ ] `[BUG-04-055][medium]` **LLVM lint: sret attribute not present on call-site for `ori_str_from_raw`**
   Repro: `ORI_LLVM_LINT=1 ori build` any program using string literals — lint reports `Undefined behavior: ABI attribute sret not present on both function and call-site` for `ori_str_from_raw` calls
   Subsystem: `compiler/ori_llvm/src/codegen/` — string literal emission calls `ori_str_from_raw` without matching sret attribute on the call-site argument
