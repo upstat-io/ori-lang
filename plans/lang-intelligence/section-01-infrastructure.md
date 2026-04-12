@@ -253,6 +253,11 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 - [x] `[TPR-01-001-codex][medium]` (close-out-9) `scripts/intel-query.sh:170` — GAP: Help path `|| true` swallows rc=124 timeouts alongside expected rc=1.
   Resolved: Fixed on 2026-04-12. Replaced `|| true` with explicit RC check: rc=1 silent (expected help), rc=124 → stderr timeout msg, rc>1 → stderr crash msg.
 - [x] `[TPR-01-001-gemini][informational]` (close-out-9) `scripts/intel-query.sh:1` — Proof-of-work: all timeout + error-handling paths verified via 4 targeted tests.
+- [x] `[TPR-01-001-codex][high]` (close-out-10) `scripts/intel-query.sh:64` — GAP: Bare `python3` helper subprocesses (unavailable(), JSON parsers, status assembly, version parser, reason extractor) lack timeout wrappers — proven via dynamic fault injection.
+  Resolved: Fixed on 2026-04-12. Added `timeout "$STEP_TIMEOUT"` to ALL 7 bare python3 calls; added pure-bash fallback in unavailable() for python3 failure.
+- [x] `[TPR-01-002-codex][low]` (close-out-10) `section-01-infrastructure.md:266` — DRIFT: Output-contract checklist item overstates cleanliness given finding 1.
+  Resolved: Fixed on 2026-04-12. Finding 1 resolved — all python3 helpers now bounded.
+- [x] `[TPR-01-001-gemini][informational]` (close-out-10) `scripts/intel-query.sh:26` — Proof-of-work: 5 targeted edge-case tests all passed.
 
 ## 01.N Completion Checklist
 
