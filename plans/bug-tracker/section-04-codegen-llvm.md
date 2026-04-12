@@ -25,14 +25,27 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-10 | Source: continue-roadmap
   Resolved: Fixed on 2026-04-10. Demoted `AbsentParamHasUses` from hard error to non-blocking warning in `run_aims_verify()`. Added reachability filtering to `check_absent_param_no_uses()` for syntactically-unreachable blocks. Updated pipeline test to match new behavior.
 
-- [ ] `[BUG-04-057][high]` **AIMS lattice join is non-associative on canonical states — uniqueness dimension diverges**
+- [ ] `[BUG-04-057][critical]` **AIMS lattice join is non-associative on canonical states — uniqueness dimension diverges; join-based partial order is non-transitive**
   Repro: `cargo test -p ori_arc -- aims::lattice::prop_tests::join_associative --ignored --exact`
-  Minimal counterexample: a={Owned,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, b={Borrowed,Dead,Absent,MaybeShared,BlockLocal,ReusableCtor(Struct),{F,T,F}}, c={Borrowed,Linear,Once,Unique,FunctionLocal,ReusableCtor(EnumVariant),{T,F,T}}. Left=(a.join(b)).join(c) has uniqueness=Unique; right=a.join(b.join(c)) has uniqueness=MaybeShared.
-  Root cause: `canonicalize_single_pass` resets uniqueness for Dead+Absent intermediates but not Linear+Once — order of joining produces different canonical intermediate states.
-  Impact: Could cause non-deterministic dataflow results depending on worklist order. Currently masked by deterministic reverse-postorder processing.
+  Transitivity repro: `cargo test -p ori_arc -- aims::lattice::prop_tests::lattice_leq_transitive --ignored --exact`
+  Minimal counterexample (associativity): a={Owned,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, b={Borrowed,Dead,Absent,MaybeShared,BlockLocal,ReusableCtor(Struct),{F,T,F}}, c={Borrowed,Linear,Once,Unique,FunctionLocal,ReusableCtor(EnumVariant),{T,F,T}}. Left=(a.join(b)).join(c) has uniqueness=Unique; right=a.join(b.join(c)) has uniqueness=MaybeShared.
+  Minimal counterexample (transitivity): a={Borrowed,Dead,Absent,MaybeShared,BlockLocal,NonReusable,{F,F,F}}, b={Owned,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, c={Owned,Dead,Absent,Unique,FunctionLocal,NonReusable,{F,F,F}}. a<=b (Rule 4 forces Unique at BlockLocal), b<=c (locality grows), but a<=c FAILS (Rule 4 doesn't fire at FunctionLocal, uniqueness stays MaybeShared).
+  Root cause: `canonicalize_single_pass` Rule 4 forces Unique only at BlockLocal. When locality grows beyond BlockLocal (to FunctionLocal/HeapEscaping), the uniqueness forcing stops, breaking transitivity of the join-based partial order `a<=b iff a.join(b)==b`.
+  Impact: (1) **CONFIRMED non-deterministic**: n-ary join fold produces different results for forward vs reverse ordering (minimal: 3 states with BlockLocal/FunctionLocal locality transition). Masked by deterministic reverse-postorder but fragile. (2) Join-based `lattice_leq` is NOT a valid partial order — cannot be used for monotonicity proofs. Componentwise ordering must be used instead. (3) `capture_state_update` is non-monotone (BUG-04-058) — same Rule 4/6 narrowness class.
   Subsystem: `compiler/ori_arc/src/aims/lattice/mod.rs` — `canonicalize_single_pass()`
   Found: 2026-04-11 | Source: continue-roadmap
-  Note: Active work in `plans/llvm-verification-tooling` §04 (lattice property verification) — this bug was discovered by the proptest infrastructure being built there.
+  Escalated: 2026-04-11 — transitivity failure discovered during §04.2 partial-order axiom verification. Upgraded from high to critical.
+  Note: Active work in `plans/llvm-verification-tooling` §04 (lattice property verification) — analysis continues in §04.6.
+
+- [ ] `[BUG-04-058][high]` **`capture_state_update` is non-monotone under componentwise partial order — Rule 6 fires for HeapEscaping but not Unknown**
+  Repro: `cargo test -p ori_arc -- aims::lattice::prop_tests::capture_state_update_monotone_in_current --exact`
+  Also: `cargo test -p ori_arc -- aims::lattice::prop_tests::capture_state_update_monotone_in_closure --exact`
+  Minimal counterexample: a={Borrowed,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, b={Owned,Dead,Absent,Unique,Unknown,NonReusable,{T,T,T}}, closure={Owned,Dead,Absent,Shared,HeapEscaping,CollectionBuffer,{F,T,T}}. f(a)=MaybeShared (Rule 6 fires at HeapEscaping), f(b)=Unique (Rule 6 doesn't fire at Unknown).
+  Root cause: `canonicalize_single_pass` Rule 6 checks `locality == HeapEscaping` but Unknown subsumes HeapEscaping. If HeapEscaping forces MaybeShared, then Unknown (which is more conservative) must also force MaybeShared. Fix: Rule 6 should fire for `locality >= HeapEscaping`.
+  Impact: `capture_state_update` violates `arc.md` "Non-monotone transfer = unsound analysis". Currently masked by deterministic processing order, but any reordering could produce unsound optimization decisions.
+  Subsystem: `compiler/ori_arc/src/aims/lattice/mod.rs` (Rule 6), `compiler/ori_arc/src/aims/transfer/mod.rs` (capture_state_update)
+  Found: 2026-04-11 | Source: continue-roadmap
+  Note: Active work in `plans/llvm-verification-tooling` §04.4 (transfer function monotonicity verification). Related to BUG-04-057 (same class of canonicalization rule narrowness).
 
 - [ ] `[BUG-04-055][medium]` **LLVM lint: sret attribute not present on call-site for `ori_str_from_raw`**
   Repro: `ORI_LLVM_LINT=1 ori build` any program using string literals — lint reports `Undefined behavior: ABI attribute sret not present on both function and call-site` for `ori_str_from_raw` calls
