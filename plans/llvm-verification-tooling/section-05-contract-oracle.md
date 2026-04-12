@@ -46,7 +46,7 @@ sections:
     status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 05: Contract Coherence Oracle
@@ -73,14 +73,14 @@ The following dimensions are **explicitly out of scope for this section** (ackno
 
 **Success Criteria:**
 
-- [ ] Oracle re-derives `ParamContract` per parameter from post-pipeline IR with aliasing-aware variable tracking — satisfies mission criterion: "Contract coherence oracle"
-- [ ] Oracle correctly handles `RcInc.count` (batched increments) and `Apply`/`ApplyIndirect` `arg_ownership` — satisfies mission criterion: "Contract coherence oracle"
-- [ ] Oracle derives `may_share` from `rc_incs > 0` — satisfies mission criterion: "Contract coherence oracle"
-- [ ] Oracle accounts for `may_deallocate` second-pass correction — satisfies mission criterion: "Contract coherence oracle"
-- [ ] Mismatch is blocking error under `ORI_VERIFY_ARC=1` — satisfies mission criterion: "Verifier failures become blocking gates"
-- [ ] Diagnostic renderer includes per-mismatch details — satisfies mission criterion: "Clear diagnostics"
-- [ ] All existing test programs pass oracle (zero false positives) — satisfies mission criterion: "No regressions"
-- [ ] Deliberately introduced mismatch caught — satisfies mission criterion: "Regression detection"
+- [x] Oracle re-derives `ParamContract` per parameter from post-pipeline IR with aliasing-aware variable tracking — satisfies mission criterion: "Contract coherence oracle"
+- [x] Oracle correctly handles `RcInc.count` (batched increments) and `Apply`/`ApplyIndirect` `arg_ownership` — satisfies mission criterion: "Contract coherence oracle"
+- [x] Oracle derives `may_share` from `rc_incs > 0` — satisfies mission criterion: "Contract coherence oracle"
+- [x] Oracle accounts for `may_deallocate` second-pass correction — satisfies mission criterion: "Contract coherence oracle"
+- [x] Mismatch is blocking error under `ORI_VERIFY_ARC=1` — satisfies mission criterion: "Verifier failures become blocking gates"
+- [x] Diagnostic renderer includes per-mismatch details — satisfies mission criterion: "Clear diagnostics"
+- [x] All existing test programs pass oracle (zero false positives) — satisfies mission criterion: "No regressions"
+- [x] Deliberately introduced mismatch caught — satisfies mission criterion: "Regression detection"
 
 **Context:** The AIMS pipeline has a fundamental coherence requirement (`.claude/rules/arc.md` Non-Negotiable Invariant 1): "Contracts and realization must agree." Currently, `run_aims_verify()` at steps 7 and 11 checks structural ARC IR properties, and the autopilot oracle (`compiler/ori_arc/src/aims/verify/oracle.rs`) performs a basic comparison — but the oracle has multiple soundness bugs that make it unreliable.
 
@@ -647,29 +647,29 @@ When all findings are triaged:
 
 ## 05.N Completion Checklist
 
-- [ ] `oracle.rs` rewritten in `compiler/ori_arc/src/aims/verify/` with aliasing-aware, batched-count, arg_ownership-aware analysis
-- [ ] `build_param_alias_map()` tracks transitive aliasing through `Let { value: Var(_) }` chains AND `Jump`/block-param edges via worklist
-- [ ] `derive_param_observations()` uses alias map and handles `RcInc.count` batched increments
-- [ ] `derive_param_observations()` checks ownership via `is_owned_position()` on ALL instruction types + `Invoke`/`InvokeIndirect` terminators, with explicit `Return` handling
-- [ ] `RealizedParamContract` includes `access`, `consumption`, `may_share` (not naive `cardinality`)
-- [ ] `may_share` derived from `rc_incs > 0` per aims-rules IC-3
-- [ ] `may_deallocate` second-pass correction accounted for (oracle runs after `run_second_pass()`)
-- [ ] Compatibility predicates distinguish unsafe (analysis too optimistic -> error) from conservative (analysis too cautious -> info log)
-- [ ] `verify_coherence()` checks access, consumption, may_share, and effects dimensions
-- [ ] Dimension scope statement documents which dimensions are checked vs deferred (cardinality, uniqueness, locality_bound, may_escape out of scope)
-- [ ] `CoherenceMismatch` includes `ParamMayShare` variant and `param_var: ArcVarId` field on all param variants
-- [ ] `Display` impl on `CoherenceMismatch` for actionable diagnostic messages
-- [ ] `CodegenProblem::ArcContractCoherence` carries full mismatch details (not just count)
-- [ ] Diagnostic renderer at `compiler/oric/src/problem/codegen/mod.rs` includes per-mismatch detail labels
-- [ ] `ArcProblem::ContractCoherenceViolation` variant verified/updated at `compiler/ori_arc/src/lower/mod.rs:92-98`
-- [ ] Oracle wired into `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs` after second pass, gated by `verify_arc` (existing wiring at lines 88-111 preserved/updated)
-- [ ] Unsafe mismatches are blocking errors under `ORI_VERIFY_ARC=1`
-- [ ] All existing test programs pass oracle: `ORI_VERIFY_ARC=1 timeout 150 ./test-all.sh` green
-- [ ] Deliberately introduced mismatch caught by regression test
-- [ ] No regressions: `timeout 150 ./test-all.sh` green
-- [ ] `timeout 150 ./clippy-all.sh` green
-- [ ] Plan annotation cleanup: no stale annotations referencing section 05
-- [ ] All intermediate TPR checkpoint findings resolved
+- [x] `oracle.rs` rewritten in `compiler/ori_arc/src/aims/verify/` with aliasing-aware, batched-count, arg_ownership-aware analysis
+- [x] `build_param_alias_map()` tracks transitive aliasing through `Let { value: Var(_) }` chains AND `Jump`/block-param edges via worklist
+- [x] `derive_param_observations()` uses alias map and handles `RcInc.count` batched increments
+- [x] `derive_param_observations()` checks ownership via `is_owned_position()` on ALL instruction types + `Invoke`/`InvokeIndirect` terminators, with explicit `Return` handling
+- [x] `RealizedParamContract` includes `access`, `consumption`, `may_share` (not naive `cardinality`)
+- [x] `may_share` derived from `rc_incs > 0` per aims-rules IC-3
+- [x] `may_deallocate` second-pass correction accounted for (oracle runs after `run_second_pass()`)
+- [x] Compatibility predicates distinguish unsafe (analysis too optimistic -> error) from conservative (analysis too cautious -> info log)
+- [x] `verify_coherence()` checks access, consumption, may_share, and effects dimensions
+- [x] Dimension scope statement documents which dimensions are checked vs deferred (cardinality, uniqueness, locality_bound, may_escape out of scope)
+- [x] `CoherenceMismatch` includes `ParamMayShare` variant and `param_var: ArcVarId` field on all param variants
+- [x] `Display` impl on `CoherenceMismatch` for actionable diagnostic messages
+- [x] `CodegenProblem::ArcContractCoherence` carries full mismatch details (not just count)
+- [x] Diagnostic renderer at `compiler/oric/src/problem/codegen/mod.rs` includes per-mismatch detail labels
+- [x] `ArcProblem::ContractCoherenceViolation` variant verified/updated at `compiler/ori_arc/src/lower/mod.rs:92-98`
+- [x] Oracle wired into `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs` after second pass, gated by `verify_arc` (existing wiring at lines 88-111 preserved/updated)
+- [x] Unsafe mismatches are blocking errors under `ORI_VERIFY_ARC=1`
+- [x] All existing test programs pass oracle: `ORI_VERIFY_ARC=1 timeout 150 ./test-all.sh` green (17,140 tests, 0 failures)
+- [x] Deliberately introduced mismatch caught by regression test (`oracle_rejects_unsafe_optimistic_inference`)
+- [x] No regressions: `timeout 150 ./test-all.sh` green (17,140 tests, 0 failures)
+- [x] `timeout 150 ./clippy-all.sh` green
+- [x] Plan annotation cleanup: no stale annotations referencing section 05 (0 total)
+- [x] All intermediate TPR checkpoint findings resolved (05.R: 13/13 resolved)
 - [ ] **Plan sync** — update plan metadata:
   - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
   - [ ] `00-overview.md` Quick Reference updated
