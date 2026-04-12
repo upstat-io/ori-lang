@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Blog Migration (Cross-Repo, Atomic)"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Migrate the 3 tracked blog posts from `ori_lang/blog/` to `ori-lang-website/src/content/blog/` atomically across the repository boundary — preserving their existing Astro-compliant frontmatter, changing the website's cross-repo glob loader base from `'../ori_lang/blog'` to `'./content/blog'`, and deleting `ori_lang/blog/` from tracking — with per-file `AskUserQuestion` approval for every edit to `ori-lang-website/` per `projects/CLAUDE.md`."
 success_criteria:
@@ -37,7 +37,7 @@ sections:
     status: not-started
   - id: "04.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "04.N"
     title: "Completion Checklist"
     status: not-started
