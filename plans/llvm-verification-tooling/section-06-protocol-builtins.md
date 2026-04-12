@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Protocol Builtin Verification Matrix"
-status: complete
+status: in-progress
 reviewed: true
 goal: "Pin every ProtocolBuiltin variant x argument position x ownership value in a test matrix, with RC balance verification through LLVM codegen audit for each protocol — ensuring that protocol builtin ownership changes never silently break RC correctness"
 success_criteria:

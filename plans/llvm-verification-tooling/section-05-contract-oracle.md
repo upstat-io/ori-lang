@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Contract Coherence Oracle"
-status: complete
+status: in-progress
 reviewed: true
 goal: "Build an independent contract re-derivation oracle that walks the final realized ARC IR (actual RcInc/RcDec/Reuse instructions post-pipeline), derives a MemoryContract from what was actually emitted, and compares it against the inferred MemoryContract — discrepancies are blocking errors under ORI_VERIFY_ARC=1"
 success_criteria:
@@ -41,7 +41,7 @@ sections:
 
 # Section 05: Contract Coherence Oracle
 
-**Status:** Complete
+**Status:** In Progress (reverted — TPR findings unresolved from autopilot session)
 **Goal:** Build an independent contract re-derivation oracle that walks the final realized ARC IR (actual `RcInc`/`RcDec`/`Reuse` instructions after the full AIMS pipeline completes), derives a `MemoryContract` from what was actually emitted, and compares it against the inferred `MemoryContract` from interprocedural analysis. Discrepancies are blocking errors under `ORI_VERIFY_ARC=1`. This catches the class of bugs where the AIMS analysis infers a correct contract but the realization pipeline (steps 5-12) emits IR that violates it — or where the analysis infers an incorrect contract that happens to produce working code by accident.
 
 **Success Criteria:**
