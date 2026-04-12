@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Protocol Builtin Verification Matrix"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Verify that ProtocolBuiltin ownership values are correctly defined (ori_ir) and consumed (ori_arc borrow inference and AIMS contract seeding), with end-to-end validation through AOT leak checks (ori_llvm) across a type x pattern matrix. Note: ori_llvm does not directly consume arg_ownership() — it dispatches on from_name() and type info; ownership correctness flows through ori_arc's RC annotations."
 success_criteria:
@@ -22,7 +22,7 @@ third_party_review:
 sections:
   - id: "06.1"
     title: "Existing Test Audit & Gap-Fill"
-    status: not-started
+    status: complete
   - id: "06.2"
     title: "ori_arc Consumer Verification"
     status: not-started
@@ -99,7 +99,7 @@ Protocol builtins (`compiler/ori_ir/src/builtin_constants/protocol/mod.rs`) are 
 
 Audit the existing 10 tests in `protocol/tests.rs` and confirm they pin all ownership values. Fix the stale `IterDrop` doc comment in the source. The existing tests are comprehensive for IR-level pinning — this subsection is an audit, not a rewrite.
 
-- [ ] **Audit existing tests** — read `compiler/ori_ir/src/builtin_constants/protocol/tests.rs` and verify the following are covered (check, do NOT rewrite):
+- [x] **Audit existing tests** — read `compiler/ori_ir/src/builtin_constants/protocol/tests.rs` and verify the following are covered (check, do NOT rewrite):
   - `pin_arg_counts` — all 5 variants' arg counts pinned
   - `all_variants_covered` — `ALL.len() == 5`, `from_name` round-trip, ownership len == arg count
   - `from_name_returns_none_for_unknown` — negative: unknown names return `None`
@@ -110,13 +110,13 @@ Audit the existing 10 tests in `protocol/tests.rs` and confirm they pin all owne
   - `collect_set_ownership_is_owned` — single arg Owned
   - `is_intercepted_matches_dispatch` — `Iter`/`IterDrop` not intercepted, others intercepted
   - `is_intercepted_exhaustive` — all variants have defined interception status
-  - **Result**: document which tests exist, confirm no gaps for IR-level ownership pinning
+  - **Result**: All 10 tests confirmed — no gaps for IR-level ownership pinning (2026-04-12)
 
-- [ ] **Fix stale `IterDrop` doc comment** in `compiler/ori_ir/src/builtin_constants/protocol/mod.rs` line 25: change `"Iterator cleanup. Iterator state borrowed (freed internally)."` to `"Iterator cleanup. Iterator handle owned (consumed by cleanup)."` — the ownership was changed from Borrowed to Owned (TPR-07-008) but the doc comment was not updated. This is a DRIFT finding.
+- [x] **Fix stale `IterDrop` doc comment** in `compiler/ori_ir/src/builtin_constants/protocol/mod.rs` line 25: change `"Iterator cleanup. Iterator state borrowed (freed internally)."` to `"Iterator cleanup. Iterator handle owned (consumed by cleanup)."` — the ownership was changed from Borrowed to Owned (TPR-07-008) but the doc comment was not updated. This is a DRIFT finding. (Fixed 2026-04-12)
 
-- [ ] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
 
 ---
 
