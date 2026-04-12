@@ -41,7 +41,7 @@ sections:
     status: complete
   - id: "04.6"
     title: "BUG-04-057 Soundness Analysis"
-    status: in-progress
+    status: complete
   - id: "04.R"
     title: "Third Party Review Findings"
     status: complete
@@ -858,10 +858,10 @@ When all findings are triaged:
 - [x] `timeout 150 ./clippy-all.sh` green (verified 2026-04-12)
 - [x] Plan annotation cleanup: `plan-annotations.sh --count` — 0 stale annotations, 39 active-scaffolding (in-progress plans, expected). No cleanup needed.
 - [x] All TPR findings triaged and resolved (check 04.R block) — 10/10 items `[x]`
-- [ ] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` updated
-  - [ ] `00-overview.md` Quick Reference updated
-  - [ ] `index.md` section status updated
+- [x] **Plan sync** — update plan metadata:
+  - [x] This section's frontmatter `status` updated (stays `in-progress` — TPR/hygiene blocked)
+  - [x] `00-overview.md` Quick Reference updated (2026-04-12)
+  - [x] `index.md` section status updated (2026-04-12)
 - [ ] `/tpr-review` passed — both reviewers clean on final code <!-- blocked-by:plans/iterator-element-ownership (BUG-05-003 blocks clean TPR for fix-BUG-04-039) -->
 - [ ] `/impl-hygiene-review` passed <!-- blocked-by:plans/iterator-element-ownership -->
 - [ ] `/improve-tooling` section-close sweep

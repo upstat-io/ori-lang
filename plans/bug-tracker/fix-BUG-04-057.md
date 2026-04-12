@@ -155,8 +155,8 @@ The existing proptest infrastructure already provides the test matrix. The tests
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review` passed (after TPR is clean)
 - [ ] `/improve-tooling` retrospective completed
-- [ ] Bug entry BUG-04-057 in section-04-codegen-llvm.md updated: `- [x]` with resolution
-- [ ] Bug entry BUG-04-058 in section-04-codegen-llvm.md updated: `- [x]` with resolution
+- [x] Bug entry BUG-04-057 in section-04-codegen-llvm.md updated: `- [x]` with resolution (2026-04-12)
+- [x] Bug entry BUG-04-058 in section-04-codegen-llvm.md updated: `- [x]` with resolution (2026-04-12)
 - [ ] Fix section frontmatter `status` updated to `complete`
 - [ ] Bug-tracker `00-overview.md` Quick Reference open count updated
 - [ ] Final `/commit-push` — commit closure artifacts
