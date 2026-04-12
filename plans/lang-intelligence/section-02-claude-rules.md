@@ -135,6 +135,8 @@ Present results to the user with context. For search results, highlight:
   Resolved: Fixed on 2026-04-12. Added verification timestamps and specific results to each test checkbox.
 - [x] `[TPR-02-003-codex][low]` `plans/lang-intelligence/section-02-claude-rules.md:119` — Wording: "returns results" contradicts "0 results" verification note.
   Resolved: Fixed on 2026-04-12. Changed to "executes successfully" — the test verifies plumbing, not specific hits.
+- [x] `[TPR-02-004-codex][medium]` `.claude/rules/intelligence.md:22` — GAP: Rule omits `/review-work` and `/review-plan` from "When to Query" despite success criteria saying "reviews" broadly.
+  Resolved: Fixed on 2026-04-12. Added `/review-work` and `/review-plan` entries to the "When to Query" section.
 
 ## Completion Checklist
 

@@ -20,6 +20,8 @@ Query the intelligence graph proactively in these workflows:
 - **Design decisions**: Before choosing an approach, query for how reference compilers handled it
 - **Bug investigation** (/fix-bug Phase 1): Query for similar bugs across languages
 - **TPR reviews** (/tpr-review Step 2): Pre-query relevant prior art for the evidence packet
+- **Code reviews** (/review-work): Query for prior art relevant to the reviewed changes
+- **Plan reviews** (/review-plan): Query for cross-language precedent on plan assumptions
 - **Proposals** (/create-draft-proposal): Query cross-language precedent for the Prior Art section
 - **Pattern review** (/design-pattern-review): Query for equivalent implementations
 - **Roadmap** (/continue-roadmap): After focus resolution, query for section-relevant intelligence
