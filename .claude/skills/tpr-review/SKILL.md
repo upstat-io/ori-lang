@@ -21,6 +21,35 @@ This wrapper is built on the Section 02 dual-source transport utility. All launc
 Read CLAUDE.md (the project root one)
 ```
 
+## Step 0.5 — MANDATORY: Spec/Grammar Proposal Gate Audit
+
+**Before launching reviewers, check whether the diff touches spec or grammar files.** Run:
+
+```
+Bash:
+  git diff --cached --name-only HEAD~5 2>/dev/null | grep -E '^docs/ori_lang/v2026/spec/' || true
+```
+
+(Adjust `HEAD~5` to match the review scope — the point is to catch ALL spec/grammar files in the diff.)
+
+**If ANY files match** (any file under `docs/ori_lang/v2026/spec/`, including `grammar.ebnf` and `operator-rules.md`):
+
+1. Check the git log for those files — does the commit message reference `Proposal:` with an approved proposal filename?
+2. Check `docs/ori_lang/proposals/approved/` — does an approved proposal exist that covers this spec change?
+
+**If NO approved proposal exists for a spec/grammar change, this is a CRITICAL finding.** Do NOT launch reviewers. Instead:
+
+- File it immediately as a **CRITICAL** finding:
+  ```
+  `[SPEC-GATE-CRITICAL]` Spec/grammar file modified without approved proposal.
+  Files: <list of spec files in diff>
+  Required: Run /create-draft-proposal → /review-draft-proposal BEFORE modifying spec.
+  ```
+- Surface to the user via `AskUserQuestion`: "Spec/grammar files were modified without an approved proposal. This violates the proposal gate. Should I revert the spec changes and start the proposal workflow, or do you have an approved proposal to reference?"
+- Do NOT proceed with the TPR review loop until the proposal gate is satisfied.
+
+**If an approved proposal exists**, note the proposal filename in the reviewer prompts' evidence packet so reviewers can cross-check the spec changes against the approved proposal.
+
 ## ABSOLUTE: You May NEVER Reason Out of Findings
 
 **There is NO circumstance under which you may dismiss, rationalize, scope-note, or defer a TPR finding.** The ONLY valid responses to a finding are:
@@ -88,6 +117,9 @@ Read CLAUDE.md (the project root one)
 |              DUAL-SOURCE TPR REVIEW LOOP                |
 |                                                         |
 |  0. CLAUDE re-reads CLAUDE.md (MANDATORY)               |
+|        |                                                |
+|  0.5 CLAUDE checks spec/grammar proposal gate           |
+|     (BLOCKS if spec files changed without proposal)     |
 |        |                                                |
 |  1. TRANSPORT launches BOTH reviewers in parallel       |
 |     Infra retries (3 per reviewer) inside transport —   |
