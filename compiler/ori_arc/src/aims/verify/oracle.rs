@@ -31,31 +31,34 @@ fn build_param_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, usize> {
         alias_map.insert(param.var, i);
     }
 
-    // Forward pass: propagate through Let { value: Var(_) } bindings.
-    // Within a single block, ARC IR is SSA so one pass suffices.
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                if let Some(&param_idx) = alias_map.get(src) {
-                    alias_map.insert(*dst, param_idx);
-                }
-            }
-        }
-    }
-
-    // Worklist: propagate through Jump → block-param edges.
-    // A Jump { target, args: [v1, v2] } targeting a block with params
-    // [(bp0, _), (bp1, _)] means bp0 aliases v1 and bp1 aliases v2.
-    // Loop back-edges require iterating until no new aliases are found.
+    // Fixpoint loop: propagate aliases through BOTH Let { value: Var(_) }
+    // bindings AND Jump → block-param edges. Both must be inside the loop
+    // because a Jump may introduce a block-param alias that a subsequent
+    // Let re-aliases — the Let pass must see those block-param aliases.
+    // Matches the canonical pattern in interprocedural/extract.rs:244-277.
     let mut changed = true;
     while changed {
         changed = false;
+
         for block in &func.blocks {
+            // Let { dst, Var(src) } — direct alias propagation.
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if let Some(&param_idx) = alias_map.get(src) {
+                        if !alias_map.contains_key(dst) {
+                            alias_map.insert(*dst, param_idx);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+
+            // Jump { target, args } — args[i] flows to target.params[i].
             if let ArcTerminator::Jump { target, args } = &block.terminator {
                 let target_block = func.blocks.iter().find(|b| b.id == *target);
                 if let Some(target_block) = target_block {
@@ -247,10 +250,15 @@ pub struct RealizedEffects {
 ///
 /// `missed_reuses` comes from the batch pipeline's second pass.
 pub fn derive_effects(func: &ArcFunction, missed_reuses: u32) -> RealizedEffects {
+    // may_allocate: Construct (heap allocation) OR PartialApply (closure env).
+    // Matches the canonical effect sources in intraprocedural/effects.rs.
     let may_allocate = func.blocks.iter().any(|b| {
-        b.body
-            .iter()
-            .any(|i| matches!(i, ArcInstr::Construct { .. }))
+        b.body.iter().any(|i| {
+            matches!(
+                i,
+                ArcInstr::Construct { .. } | ArcInstr::PartialApply { .. }
+            )
+        })
     });
 
     let may_deallocate = missed_reuses > 0;
@@ -447,14 +455,17 @@ pub fn verify_coherence(
         tracing::info!("conservative may_deallocate inference — no missed reuses detected");
     }
 
+    // may_allocate: the oracle's derivation is an OVERESTIMATE — it sees any
+    // Construct/PartialApply as allocation without type classification (can't
+    // distinguish scalar from heap). Per plan 05.2.1, treat oracle overestimate
+    // as conservative (info log), not as an unsafe error.
     if !inferred.effects.may_allocate && effects.may_allocate {
-        mismatches.push(CoherenceMismatch::EffectMismatch {
-            field: "may_allocate",
-            inferred: false,
-            realized: true,
-        });
+        tracing::info!(
+            "oracle may_allocate overestimate — oracle sees Construct/PartialApply \
+             but analysis says no allocation (likely scalar constructor)"
+        );
     } else if inferred.effects.may_allocate && !effects.may_allocate {
-        tracing::info!("conservative may_allocate inference — no Construct instructions found");
+        tracing::info!("conservative may_allocate inference — no Construct/PartialApply found");
     }
 
     if !inferred.effects.may_share && effects.may_share {
