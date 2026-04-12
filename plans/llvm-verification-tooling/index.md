@@ -76,7 +76,7 @@ dimensions.rs, lattice/mod.rs, transfer/mod.rs
 ---
 
 ### Section 05: Contract Coherence Oracle
-**File:** `section-05-contract-oracle.md` | **Status:** Complete
+**File:** `section-05-contract-oracle.md` | **Status:** In Progress
 
 ```
 MemoryContract, ParamContract, contract coherence
@@ -91,7 +91,7 @@ contract vs realization, non-negotiable invariant
 ---
 
 ### Section 06: Protocol Builtin Verification Matrix
-**File:** `section-06-protocol-builtins.md` | **Status:** Complete
+**File:** `section-06-protocol-builtins.md` | **Status:** In Progress
 
 ```
 ProtocolBuiltin, __index, iter, __iter_next
