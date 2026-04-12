@@ -19,7 +19,7 @@ depends_on: []
 sections:
   - id: "01.1"
     title: "Canonical Helper Script"
-    status: not-started
+    status: complete
   - id: "01.2"
     title: "Fix Existing query_graph.py Issues"
     status: complete
@@ -93,24 +93,24 @@ Flags:
 If any check fails, output the unavailable JSON and exit 0. The caller never sees an error.
 
 **Implementation checklist**:
-- [ ] Create `scripts/intel-query.sh` with the availability check sequence (steps 1-5 above)
-- [ ] Each check step bounded by `timeout 5` (or Python `socket.settimeout`) — hanging Neo4j must not hang the script
-- [ ] Parse `--timeout N` flag from caller arguments (default 5s) — use this variable in all bounded check steps and pass it to `query_graph.py` via argument
-- [ ] Proxy all arguments to `../lang_intelligence/.venv/bin/python ../lang_intelligence/neo4j/query_graph.py --json [args]`
-- [ ] Pass `--human` through when specified by caller, otherwise default to `--json`
-- [ ] Add `status` subcommand that reports: Neo4j version, node/relationship counts, repo list, graph-emptiness check (warn if zero Issue nodes)
-- [ ] Verify script is idempotent and safe to call from any directory (use `$(dirname "$0")` for relative paths)
-- [ ] Test: Neo4j running with data → returns JSON with `status:ok` and query results
-- [ ] Test: Neo4j stopped → returns `{"status":"unavailable","reason":"container not running"}`, exit 0
-- [ ] Test: lang_intelligence repo missing → returns unavailable JSON, exit 0
-- [ ] Test: venv missing neo4j package → returns unavailable JSON, exit 0
-- [ ] Test: Neo4j container running but DB not ready (Bolt handshake fails) → returns unavailable JSON, not hang
-- [ ] Test: Neo4j reachable but `issue_text` full-text index missing → returns unavailable JSON with reason indicating missing index
+- [x] Create `scripts/intel-query.sh` with the availability check sequence (steps 1-5 above)
+- [x] Each check step bounded by `timeout 5` (or Python `socket.settimeout`) — hanging Neo4j must not hang the script
+- [x] Parse `--timeout N` flag from caller arguments (default 5s) — use this variable in all bounded check steps and pass it to `query_graph.py` via argument
+- [x] Proxy all arguments to `../lang_intelligence/.venv/bin/python ../lang_intelligence/neo4j/query_graph.py --json [args]`
+- [x] Pass `--human` through when specified by caller, otherwise default to `--json`
+- [x] Add `status` subcommand that reports: Neo4j version, node/relationship counts, repo list, graph-emptiness check (warn if zero Issue nodes)
+- [x] Verify script is idempotent and safe to call from any directory (use `$(dirname "$0")` for relative paths)
+- [x] Test: Neo4j running with data → returns JSON with `status:ok` and query results
+- [x] Test: Neo4j stopped → returns `{"status":"unavailable","reason":"container not running"}`, exit 0
+- [x] Test: lang_intelligence repo missing → returns unavailable JSON, exit 0
+- [x] Test: venv missing neo4j package → returns unavailable JSON, exit 0
+- [x] Test: Neo4j container running but DB not ready (Bolt handshake fails) → returns unavailable JSON, not hang
+- [x] Test: Neo4j reachable but `issue_text` full-text index missing → returns unavailable JSON with reason indicating missing index
 
-- [ ] **Subsection close-out (01.1)** — MANDATORY before starting 01.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging/testing experience for 01.1: did `scripts/intel-query.sh` give clear output on failure? Was the availability check sequence easy to debug? Any flags or output formats that would have helped? Implement improvements NOW via separate `/commit-push`. Commit each via SEPARATE `/commit-push` using a valid conventional-commit type — `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs. Do NOT use `tools(...)` — the lefthook commit-msg hook rejects it.
+- [x] **Subsection close-out (01.1)** — MANDATORY before starting 01.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.1: no tooling gaps. Script gives clear JSON/text output on every failure path. Availability check sequence is straightforward (5 steps, cheapest first). Timeout handling via shell `timeout` is debuggable. No ori_lang diagnostic/testing tooling exercised.
 
 ---
 
@@ -207,15 +207,15 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 
 ## 01.N Completion Checklist
 
-- [ ] `scripts/intel-query.sh` exists, executable, passes all 6 test scenarios (running, stopped, missing repo, missing venv, Bolt-not-ready, index-missing)
-- [ ] `query_graph.py` `--health-check` command implemented and used by `intel-query.sh` step 4
-- [ ] `query_graph.py` issues fixed: driver error handling, driver.close() leak, _parse_flags validation, connection timeout
-- [ ] `query_graph.py` label-graph command implemented (not a stub)
-- [ ] `query_graph.py` --json output mode works for all commands
-- [ ] `query_graph.py` credentials read from env vars with current values as defaults
-- [ ] `scripts/intel-query.sh status` returns live graph stats including emptiness check
-- [ ] Output contract is JSON-by-default everywhere — no command returns unstructured text to stdout in default mode
-- [ ] No test regressions: `timeout 150 ./test-all.sh`
+- [x] `scripts/intel-query.sh` exists, executable, passes all 6 test scenarios (running, stopped, missing repo, missing venv, Bolt-not-ready, index-missing)
+- [x] `query_graph.py` `--health-check` command implemented and used by `intel-query.sh` step 4
+- [x] `query_graph.py` issues fixed: driver error handling, driver.close() leak, _parse_flags validation, connection timeout
+- [x] `query_graph.py` label-graph command implemented (not a stub)
+- [x] `query_graph.py` --json output mode works for all commands
+- [x] `query_graph.py` credentials read from env vars with current values as defaults
+- [x] `scripts/intel-query.sh status` returns live graph stats including emptiness check
+- [x] Output contract is JSON-by-default everywhere — no command returns unstructured text to stdout in default mode
+- [x] No test regressions: `timeout 150 ./test-all.sh` (17120 passed, 0 failed)
 - [ ] `/tpr-review` clean
 - [ ] `/impl-hygiene-review` clean
 - [ ] `/improve-tooling` **section-close sweep** — MANDATORY after both reviews are clean. Verify every subsection (01.1, 01.2) has an "improvements made" entry or a documented "no gaps" finding from its per-subsection retrospective. Look for cross-subsection patterns: command sequences repeated across subsections, integration failures with unhelpful messages, instrumentation that became obvious only after seeing both subsections. Implement immediately via separate `/commit-push` using valid conventional-commit types (`build`/`test`/`chore`/`ci`/`docs` — NOT `tools(...)`).
