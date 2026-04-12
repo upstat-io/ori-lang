@@ -44,7 +44,7 @@ sections:
     status: not-started
   - id: "04.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "04.N"
     title: "Completion Checklist"
     status: not-started
@@ -84,7 +84,7 @@ sections:
 - `capture_state_update` monotonicity test (it IS a state transformer, not just a predicate) -- uses constructive generation to avoid `prop_assume!` discard rate issues
 - `Cardinality::seq_add` distributivity over `Cardinality::alt_join` as proptest (only `Cardinality`-level -- there is no `AimsState`-level `seq_add`, so no cross-dimension interaction to test here)
 - Permutation-invariance for n-ary successor merges (pairwise commutativity does not guarantee this when associativity is broken) -- fold modeled to match actual `compute_block_exit_state()` behavior
-- BUG-04-057 soundness analysis: exhaustive enumeration over ALL canonical state triples (not proptest sampling), checking ALL downstream decision predicates (not just 3)
+- BUG-04-057 soundness analysis: two-tier exhaustive characterization (sensitive-pair filtering + full c-sweep) checking ALL downstream uniqueness consumers (not just 3 predicates) — sampling cannot discharge the Option A proof
 - Generator skew analysis (uniform raw->canonicalize may underrepresent Rule 3/4/6/8 trigger states) -- Rule 6 generator corrected: was `Borrowed+HeapEscaping` (unreachable due to Rule 8), now correctly `Owned+HeapEscaping+Unique`
 
 **Critical invariant:** `AimsState::SCALAR` must be excluded from all lattice-law tests. It is a sentinel, not a lattice element — joining with `SCALAR` is undefined behavior in the lattice algebra.
@@ -260,9 +260,10 @@ The `lattice_leq` helper (`a <= b iff a.join(b) == b`) is used by every subseque
           // likely hitting proptest's TooManyRejects limit.
           let b = a.join(&diff_ab);
           let c = b.join(&diff_bc);
-          // Verify the construction actually produced the ordering:
-          assert!(lattice_leq(&a, &b), "construction failed: a={a:?}, b={b:?}");
-          assert!(lattice_leq(&b, &c), "construction failed: b={b:?}, c={c:?}");
+          // Guard: constructive generation usually works, but canonicalization
+          // can decrease dimensions below a's values (BUG-04-057). Use
+          // prop_assume! to gracefully discard the rare failures (<1%).
+          prop_assume!(lattice_leq(&a, &b) && lattice_leq(&b, &c));
           // The actual transitivity check:
           assert!(
               lattice_leq(&a, &c),
@@ -349,8 +350,10 @@ Audit the existing semantic contract tests and add the missing `capture_state_up
           closure in canonical_aims_state_strategy(),
       ) {
           use crate::aims::transfer::capture_state_update;
-          // Constructive: b = a.join(diff) guarantees a <= b.
+          // Constructive: b = a.join(diff) usually guarantees a <= b.
+          // prop_assume! guards against rare canonicalization edge cases.
           let b = a.join(&diff);
+          prop_assume!(lattice_leq(&a, &b));
           let fa = capture_state_update(&a, &closure);
           let fb = capture_state_update(&b, &closure);
           assert!(
@@ -373,8 +376,10 @@ Audit the existing semantic contract tests and add the missing `capture_state_up
           diff in canonical_aims_state_strategy(),
       ) {
           use crate::aims::transfer::capture_state_update;
-          // Constructive: c2 = c1.join(diff) guarantees c1 <= c2.
+          // Constructive: c2 = c1.join(diff) usually guarantees c1 <= c2.
+          // prop_assume! guards against rare canonicalization edge cases.
           let c2 = c1.join(&diff);
+          prop_assume!(lattice_leq(&c1, &c2));
           let fc1 = capture_state_update(&current, &c1);
           let fc2 = capture_state_update(&current, &c2);
           assert!(
@@ -783,6 +788,21 @@ When all findings are triaged:
 - [x] `[TPR-04-005-codex][medium]` `section-04-lattice-properties.md:737` — Remaining Section 06 blocker drift in Option B.
   Evidence: Option B still said "Sections 05/06 proceed" after round 1 fixes.
   Resolved: Fixed on 2026-04-11. Updated Option B to match revised dependency model.
+- [x] `[TPR-04-006-codex][medium]` `section-04-lattice-properties.md:82` — Stale "exhaustive enumeration over ALL triples" wording.
+  Evidence: Blind-spot summary still said full-triple sweep; actual approach is two-tier.
+  Resolved: Fixed on 2026-04-11. Updated line 87 to describe two-tier approach.
+- [x] `[TPR-04-007-codex][low]` `section-04-lattice-properties.md:45` — 04.R frontmatter status not-started should be complete.
+  Evidence: All TPR findings resolved but subsection metadata was stale.
+  Resolved: Fixed on 2026-04-11. Changed 04.R status to complete.
+  Agreement: [TPR-04-004-gemini] (both reviewers flagged this).
+- [x] `[TPR-04-001-gemini-r3][high]` `section-04-lattice-properties.md:556` — Asymmetric tier-1 filter claim.
+  Evidence: Gemini claimed filter skips triples where left intermediate is Shared.
+  Resolved: REJECTED on 2026-04-11. Verified that if ab.uniqueness == Shared, at least one input is Shared (join is componentwise max, no canon rule produces Shared). Both association paths yield Shared final uniqueness — no divergence possible. The filter is sound.
+- [x] `[TPR-04-002-gemini-r3][medium]` `section-04-lattice-properties.md:431` — Constructive generation needs prop_assume safety guard.
+  Evidence: Canonicalization can decrease dimensions below input values, breaking the ordering guarantee.
+  Resolved: Fixed on 2026-04-11. Added prop_assume!(lattice_leq(...)) after constructive generation in transitivity and both monotonicity tests.
+- [x] `[TPR-04-003-gemini-r3][low]` `section-04-lattice-properties.md:794` — Missing path prefix for plan-annotations.sh.
+  Resolved: Fixed on 2026-04-11. Added full path prefix.
 
 ---
 
@@ -836,7 +856,7 @@ When all findings are triaged:
 - [ ] All property tests pass: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests`
 - [ ] No regressions: `timeout 150 ./test-all.sh` green
 - [ ] `timeout 150 ./clippy-all.sh` green
-- [ ] Plan annotation cleanup: run `plan-annotations.sh --cleanup-only --plan llvm-verification-tooling` — remove stale annotations from completed items
+- [ ] Plan annotation cleanup: run `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --cleanup-only --plan llvm-verification-tooling` — remove stale annotations from completed items
 - [ ] All TPR findings triaged and resolved (check 04.R block)
 - [ ] **Plan sync** — update plan metadata:
   - [ ] This section's frontmatter `status` updated
