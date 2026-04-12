@@ -498,7 +498,7 @@ proptest! {
     /// - access: unchanged (no rule touches it)
     /// - consumption: only decreases (Rule 1: → Dead for Absent)
     /// - cardinality: only decreases (Rule 1: → Absent for Dead)
-    /// - uniqueness: EITHER direction (Rule 4: ↓Unique, Rule 6: ↑MaybeShared)
+    /// - uniqueness: only increases (CN-6: ↑MaybeShared at HeapEscaping+; CN-4 REMOVED)
     /// - locality: only decreases (Rule 8: → ≤FunctionLocal for Borrowed)
     /// - shape: can move to NonReusable/top (Rule 3: Shared+ReusableCtor → NonReusable)
     /// - effect: unchanged (no rule touches it)
