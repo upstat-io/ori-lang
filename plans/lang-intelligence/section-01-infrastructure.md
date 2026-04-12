@@ -95,7 +95,7 @@ If any check fails, output the unavailable JSON and exit 0. The caller never see
 **Implementation checklist**:
 - [x] Create `scripts/intel-query.sh` with the availability check sequence (steps 1-5 above)
 - [x] Each check step bounded by `timeout 5` (or Python `socket.settimeout`) — hanging Neo4j must not hang the script
-- [x] Parse `--timeout N` flag from caller arguments (default 5s) — use this variable in all bounded check steps and pass it to `query_graph.py` via argument
+- [x] Parse `--timeout N` flag from caller arguments (default 5s) — use this variable in all bounded check steps; derive query timeout (`QUERY_TIMEOUT = STEP_TIMEOUT * 6`) for proxy and stats calls
 - [x] Proxy all arguments to `../lang_intelligence/.venv/bin/python ../lang_intelligence/neo4j/query_graph.py --json [args]`
 - [x] Pass `--human` through when specified by caller, otherwise default to `--json`
 - [x] Add `status` subcommand that reports: Neo4j version, node/relationship counts, repo list, graph-emptiness check (warn if zero Issue nodes)
@@ -204,6 +204,20 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
   Resolved: Fixed on 2026-04-12. Added validation item before 01.2 close-out block covering --limit, positional numeric, and --json tests.
 - [x] `[TPR-01-005-gemini][rejected]` (iter3) `section-01-infrastructure.md` — Claimed `depends_on: []` on section-01 frontmatter was incorrect (should list itself as a dependency).
   Resolved: Rejected on 2026-04-12. `depends_on: []` on section 01 is correct — it has no dependencies. A section cannot depend on itself.
+- [x] `[TPR-01-001-codex][high]` (close-out) `scripts/intel-query.sh:37` — GAP: `--timeout` without value causes infinite loop (`shift 2` fails, while loop spins).
+  Resolved: Fixed on 2026-04-12. Added numeric validation and graceful fallback to default for missing/non-numeric `--timeout` values.
+- [x] `[TPR-01-002-codex][high]` (close-out) `scripts/intel-query.sh:49` — LEAK: `unavailable()` hand-rolls JSON escaping via sed (misses newlines/control chars → malformed JSON).
+  Resolved: Fixed on 2026-04-12. Replaced sed escaping with `python3 -c json.dump(...)` for proper JSON serialization.
+- [x] `[TPR-01-003-codex][medium]` (close-out) `query_graph.py:83` — GAP: `_parse_flags` silently absorbs dangling flags (`--limit` with no value → becomes search term).
+  Resolved: Fixed on 2026-04-12. Added missing-value checks that raise ValueError, caught by main()'s try/except.
+- [x] `[TPR-01-004-codex][medium]` (close-out) `section-01-infrastructure.md:98` — DRIFT: Plan claims `--timeout N` is passed to `query_graph.py` via argument; implementation only uses it for shell probes.
+  Resolved: Fixed on 2026-04-12. Updated plan claim to match reality (shell-side bounded probes + derived QUERY_TIMEOUT for proxy calls).
+- [x] `[TPR-01-001-gemini][high]` (close-out) `scripts/intel-query.sh:105` — Proxy execution swallows Python's structured error JSON, returns generic "query failed".
+  Resolved: Fixed on 2026-04-12. Proxy now extracts `reason` from Python's JSON error output when available.
+- [x] `[TPR-01-002-gemini][medium]` (close-out) `query_graph.py:44` — Argument validation (`_parse_int`, command validators) bypasses `json_mode` — prints to stderr + `sys.exit(1)`.
+  Resolved: Fixed on 2026-04-12. Changed all validators to raise ValueError; caught by main()'s try/except → routed through `_handle_error(msg, json_mode)`.
+- [x] `[TPR-01-003-gemini][medium]` (close-out) `scripts/intel-query.sh:31` — Unsafe manual JSON construction (near-agreement with TPR-01-002-codex close-out).
+  Resolved: Fixed on 2026-04-12. Same fix as TPR-01-002-codex close-out (python3 json.dump).
 
 ## 01.N Completion Checklist
 

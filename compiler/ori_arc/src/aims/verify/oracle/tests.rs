@@ -576,6 +576,39 @@ fn oracle_detects_may_share_from_local_rc_inc() {
     );
 }
 
+/// Conservative `may_share`: inferred true but realized false → no mismatch (safe direction).
+#[test]
+fn oracle_accepts_conservative_may_share() {
+    let func = func_with_body(
+        vec![owned_param(0, Idx::UNIT)],
+        // No RcInc on param0 → realized may_share = false
+        vec![ArcInstr::Apply {
+            dst: v(1),
+            ty: Idx::UNIT,
+            func: ori_ir::Name::from_raw(100),
+            args: vec![v(0)],
+            arg_ownership: vec![],
+        }],
+    );
+
+    // Inferred claims may_share=true (conservative) but realized has no RcInc
+    let contract = make_contract(vec![ParamContract {
+        access: AccessClass::Owned,
+        consumption: Consumption::Linear,
+        cardinality: Cardinality::Once,
+        may_escape: false,
+        may_share: true, // conservative: claims sharing
+        locality_bound: Locality::Unknown,
+        uniqueness: Uniqueness::MaybeShared,
+    }]);
+
+    let mismatches = verify_coherence(&func, &contract, 0);
+    assert!(
+        mismatches.is_empty(),
+        "conservative may_share (inferred=true, realized=false) should not produce mismatches: {mismatches:?}"
+    );
+}
+
 /// `may_share` effect mismatch detected when inferred says no sharing but
 /// the function has `RcInc` on a local variable.
 #[test]
@@ -602,5 +635,92 @@ fn oracle_coherence_catches_function_level_may_share_mismatch() {
             }
         )),
         "local RcInc should trigger function-level may_share mismatch"
+    );
+}
+
+/// Param count mismatch: inferred has 2 params but function has 1.
+/// Oracle should handle gracefully via `zip` (checks only the shared prefix).
+#[test]
+fn oracle_handles_param_count_mismatch_gracefully() {
+    let func = func_with_body(
+        vec![owned_param(0, Idx::UNIT)],
+        vec![ArcInstr::RcDec {
+            var: v(0),
+            strategy: RcStrategy::HeapPointer,
+        }],
+    );
+
+    // Contract claims 2 params but function only has 1.
+    let contract = make_contract(vec![
+        ParamContract {
+            access: AccessClass::Owned,
+            consumption: Consumption::Affine,
+            cardinality: Cardinality::Once,
+            may_escape: false,
+            may_share: false,
+            locality_bound: Locality::Unknown,
+            uniqueness: Uniqueness::MaybeShared,
+        },
+        ParamContract {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            may_escape: false,
+            may_share: false,
+            locality_bound: Locality::Unknown,
+            uniqueness: Uniqueness::MaybeShared,
+        },
+    ]);
+
+    // Should not panic — zip handles length mismatch by truncating to shorter.
+    let mismatches = verify_coherence(&func, &contract, 0);
+    // The matching param (index 0) should not produce mismatches since
+    // inferred=Owned/Affine matches realized=Owned/Affine.
+    assert!(
+        mismatches.is_empty(),
+        "param count mismatch should be handled gracefully: {mismatches:?}"
+    );
+}
+
+/// Param count mismatch (reverse): function has 2 params, contract has 1.
+/// Extra function params beyond the contract are silently ignored by zip.
+#[test]
+fn oracle_handles_extra_function_params_gracefully() {
+    let func = func_with_body(
+        vec![owned_param(0, Idx::UNIT), owned_param(1, Idx::UNIT)],
+        vec![],
+    );
+
+    let contract = make_contract(vec![ParamContract {
+        access: AccessClass::Borrowed,
+        consumption: Consumption::Dead,
+        cardinality: Cardinality::Absent,
+        may_escape: false,
+        may_share: false,
+        locality_bound: Locality::Unknown,
+        uniqueness: Uniqueness::MaybeShared,
+    }]);
+
+    // Should not panic — zip truncates to the shorter (1 param from contract).
+    let mismatches = verify_coherence(&func, &contract, 0);
+    assert!(
+        mismatches.is_empty(),
+        "extra function params should be handled gracefully: {mismatches:?}"
+    );
+}
+
+/// Conservative effect: inferred claims `may_allocate=true` but no Construct exists.
+/// Should not produce a mismatch (safe direction).
+#[test]
+fn oracle_accepts_conservative_may_allocate_effect() {
+    let func = func_with_body(vec![], vec![]);
+
+    let mut contract = make_contract(vec![]);
+    contract.effects.may_allocate = true; // conservative: claims allocation
+
+    let mismatches = verify_coherence(&func, &contract, 0);
+    assert!(
+        mismatches.is_empty(),
+        "conservative may_allocate (inferred=true, realized=false) should not produce mismatches: {mismatches:?}"
     );
 }

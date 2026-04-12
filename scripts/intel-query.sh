@@ -34,10 +34,24 @@ PASS_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --human)   JSON_FLAG=""; shift ;;
-        --timeout) STEP_TIMEOUT="${2:-5}"; shift 2 ;;
+        --timeout)
+            if [[ $# -lt 2 ]]; then
+                # --timeout at end with no value — use default
+                shift
+            elif [[ "$2" =~ ^[0-9]+$ ]]; then
+                STEP_TIMEOUT="$2"
+                shift 2
+            else
+                # Next arg isn't numeric — treat as implicit default
+                shift
+            fi
+            ;;
         *)         PASS_ARGS+=("$1"); shift ;;
     esac
 done
+
+# Derive query timeout from step timeout (queries need more time than probes)
+QUERY_TIMEOUT=$((STEP_TIMEOUT * 6))
 
 is_json() { [[ -n "$JSON_FLAG" ]]; }
 
@@ -45,9 +59,8 @@ is_json() { [[ -n "$JSON_FLAG" ]]; }
 unavailable() {
     local reason="$1"
     if is_json; then
-        local escaped
-        escaped="$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-        printf '{"status":"unavailable","reason":"%s"}\n' "$escaped"
+        python3 -c 'import sys,json; json.dump({"status":"unavailable","reason":sys.argv[1]}, sys.stdout)' "$reason"
+        printf '\n'
     else
         printf 'Intelligence unavailable: %s\n' "$reason" >&2
     fi
@@ -97,7 +110,7 @@ fi
 
 # Handle 'status' subcommand
 if [[ ${#PASS_ARGS[@]} -gt 0 && "${PASS_ARGS[0]}" == "status" ]]; then
-    STATS_JSON=$(timeout 30 "$VENV_PYTHON" "$QUERY_SCRIPT" --json stats 2>/dev/null) \
+    STATS_JSON=$(timeout "$QUERY_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" --json stats 2>/dev/null) \
         || unavailable "stats query failed"
 
     VERSION_JSON=$(timeout "$STEP_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" --json cypher \
@@ -156,10 +169,17 @@ fi
 
 # Proxy to query_graph.py
 if is_json; then
-    RESULT=$(timeout 30 "$VENV_PYTHON" "$QUERY_SCRIPT" --json "${PASS_ARGS[@]}" 2>/dev/null)
+    RESULT=$(timeout "$QUERY_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" --json "${PASS_ARGS[@]}" 2>/dev/null)
     RC=$?
     if [[ $RC -ne 0 || -z "$RESULT" ]]; then
-        unavailable "query failed"
+        # Try to extract reason from Python's JSON error output
+        REASON="query failed"
+        if [[ -n "$RESULT" ]]; then
+            REASON=$(python3 -c \
+                'import sys,json; print(json.loads(sys.stdin.read()).get("reason","query failed"))' \
+                <<< "$RESULT" 2>/dev/null) || REASON="query failed"
+        fi
+        unavailable "$REASON"
     fi
     printf '{"status":"ok","data":%s}\n' "$RESULT"
 else

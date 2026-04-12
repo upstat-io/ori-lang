@@ -314,7 +314,9 @@ impl CoherenceMismatch {
 ///
 /// Only reports **unsafe mismatches** — where the analysis was more optimistic
 /// than what the realization actually needed. Conservative mismatches (analysis
-/// was more pessimistic than necessary) are tolerated per `aims-rules` RL-3/VF-6.
+/// was more pessimistic than necessary) are logged at `tracing::info!` level
+/// per `aims-rules` RL-3/VF-6 for optimization diagnostics — they indicate
+/// the analysis is leaving performance on the table but is not unsound.
 ///
 /// `missed_reuses` comes from the second pass in `batch.rs`.
 pub fn verify_coherence(
@@ -341,6 +343,15 @@ pub fn verify_coherence(
                 inferred: inferred_p.access,
                 realized: realized_p.access,
             });
+        } else if inferred_p.access != realized_p.access {
+            // Conservative: inferred Owned but realized only needs Borrowed.
+            tracing::info!(
+                param_index = i,
+                ?param_var,
+                ?inferred_p.access,
+                ?realized_p.access,
+                "conservative access inference — analysis is leaving performance on the table"
+            );
         }
 
         // Consumption: unsafe if inferred is more optimistic than realized.
@@ -352,6 +363,15 @@ pub fn verify_coherence(
                 inferred: inferred_p.consumption,
                 realized: realized_p.consumption,
             });
+        } else if inferred_p.consumption > realized_p.consumption {
+            // Conservative: analysis inferred heavier consumption than needed.
+            tracing::info!(
+                param_index = i,
+                ?param_var,
+                ?inferred_p.consumption,
+                ?realized_p.consumption,
+                "conservative consumption inference — analysis is leaving performance on the table"
+            );
         }
 
         // may_share: unsafe if inferred false but realized true.
@@ -362,6 +382,13 @@ pub fn verify_coherence(
                 inferred: false,
                 realized: true,
             });
+        } else if inferred_p.may_share && !realized_p.may_share {
+            // Conservative: analysis claims sharing but realized has no RcInc.
+            tracing::info!(
+                param_index = i,
+                ?param_var,
+                "conservative may_share inference — parameter was not shared"
+            );
         }
     }
 
@@ -374,20 +401,28 @@ pub fn verify_coherence(
             inferred: false,
             realized: true,
         });
+    } else if inferred.effects.may_deallocate && !effects.may_deallocate {
+        tracing::info!("conservative may_deallocate inference — no missed reuses detected");
     }
+
     if !inferred.effects.may_allocate && effects.may_allocate {
         mismatches.push(CoherenceMismatch::EffectMismatch {
             field: "may_allocate",
             inferred: false,
             realized: true,
         });
+    } else if inferred.effects.may_allocate && !effects.may_allocate {
+        tracing::info!("conservative may_allocate inference — no Construct instructions found");
     }
+
     if !inferred.effects.may_share && effects.may_share {
         mismatches.push(CoherenceMismatch::EffectMismatch {
             field: "may_share",
             inferred: false,
             realized: true,
         });
+    } else if inferred.effects.may_share && !effects.may_share {
+        tracing::info!("conservative may_share inference — no RcInc instructions found");
     }
 
     mismatches
