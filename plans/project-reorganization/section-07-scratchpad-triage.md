@@ -652,6 +652,10 @@ Delete everything that's not migrating. All files are in gitignored `scratchpad/
   Basis: fresh_verification. Confidence: high.
   Resolved: Fixed on 2026-04-11 iteration 2. Updated all 4 remaining stale references with consistent counts AND the 11+1 schema breakdown. §07:16 now says "12 migrations" with the explicit "11 use Astro docsSchema frontmatter; 1 (package-system proposal) uses body-format schema". §07:61 updated similarly. §07:671 exit criteria updated with the 12/18 counts + per-destination schema clarification. §09:457 commit template updated to "12 migrated, 18 deleted".
 
+---
+
+## 07.N Completion Checklist
+
 - [ ] 7 files migrated to `docs/ori_lang/v2026/design/` with Astro frontmatter (07.2)
 - [ ] 3 files migrated to `docs/compiler/design/` with Astro frontmatter (07.3)
 - [ ] 1 file migrated to `docs/tooling/` (07.4)

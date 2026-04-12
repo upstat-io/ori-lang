@@ -325,7 +325,7 @@ The oracle must derive effect information from the realized IR and compare again
   - `test_oracle_may_share_effect_from_param_rc_inc` — RcInc on a parameter -> function-level may_share=true
   - `test_oracle_may_share_effect_from_local_rc_inc` — RcInc on a LOCAL variable (not a param) -> function-level may_share=true (NOT just params — any RcInc means the function creates shared refs)
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 05.PRE through 05.2 implementation work. NOTE: deferred to 05.N full-section TPR — the mid-section checkpoint adds ~20min wall time and the work is small enough that the final TPR will cover it adequately.
+- [x] **TPR checkpoint** — `/tpr-review` covering 05.PRE through 05.2 implementation work. NOTE: deferred to 05.N full-section TPR — covered by the full-section TPR that passed clean on 2026-04-12.
 
 - [x] **Subsection close-out (05.2)** — MANDATORY before starting 05.3:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified

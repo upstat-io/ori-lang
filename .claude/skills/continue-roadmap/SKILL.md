@@ -484,16 +484,17 @@ Present to the user:
 - [count of blocked items, with "blocked by N sections" note]
 ```
 
-### Step 5: Ask What to Do
+### Step 5: Decide What to Do
 
-Use AskUserQuestion with options. The options depend on the blocker state:
+**Default behavior: start the next unblocked task immediately.** Do NOT ask for confirmation to proceed with each checkbox — the plan IS the approval. Execute what the plan says to do.
 
-**When there are unblocked items:**
-1. **Start next task (Recommended)** — Begin implementing the first unblocked item
-2. **Show task details** — See more context about the task (read spec, find related code)
-3. **Pick different task** — Choose a specific unblocked task from this section
-4. **Tackle a blocker** — Work on a READY blocker to unblock items (ranked by impact: most items unblocked first)
-5. **Switch sections** — Work on a different section
+**Only ask the user (via AskUserQuestion) when:**
+- ALL remaining items are blocked (no unblocked work exists) — present blocker options
+- The plan item is genuinely ambiguous (multiple valid design approaches, unclear requirements)
+- You need domain knowledge the plan doesn't provide
+- You want to switch sections (user should confirm)
+
+**When there are unblocked items:** Begin implementing the first unblocked item immediately. No menu of options needed.
 
 **When ALL remaining items are blocked:**
 1. **Resolve impediments (Recommended if any exist)** — If Step 2.6 identified fixable impediments, plan and implement them to unblock items in the current section
@@ -503,12 +504,14 @@ Use AskUserQuestion with options. The options depend on the blocker state:
 
 ### Step 5.5: Subsection Pacing
 
-**After the user chooses to start work**, ask how they want to pace the section using AskUserQuestion:
+**Before starting the first subsection**, ask how the user wants to pace the section using AskUserQuestion:
 
 1. **Full section** — Run all subsections continuously without pausing
 2. **Subsection-by-subsection (Recommended)** — Pause after completing each subsection for review before continuing to the next
 
 **Why:** This gives the user control over execution granularity. Large sections can produce significant changes — pausing between subsections allows review, course-correction, and incremental commits.
+
+**IMPORTANT: This pacing question is asked ONCE per section, not per subsection or per checkbox.** Within a subsection, execute all checkboxes autonomously without asking for confirmation. Between subsections, the pacing choice determines whether to pause or continue.
 
 **Subsection close-out is MANDATORY regardless of pacing choice.** Whether the user picked "Full section" or "Subsection-by-subsection", every subsection close-out MUST include the per-subsection `/improve-tooling` retrospective BEFORE moving to the next subsection. The pacing choice only controls whether you pause for user review — it does NOT skip the retrospective. Pacing determines who reviews; the retrospective determines whether tooling grows.
 
@@ -521,10 +524,9 @@ Use AskUserQuestion with options. The options depend on the blocker state:
 
 **Then** apply the pacing choice:
 - If user chose "Full section", proceed directly to the next subsection (the close-out above already ran).
-- If user chose "Subsection-by-subsection", present a brief status update including the retrospective outcome ("Retrospective {NN}.M: 2 improvements committed: {commits}" OR "Retrospective {NN}.M: no gaps") and use AskUserQuestion with:
-  1. **Continue to next subsection** — Proceed to the next incomplete subsection
-  2. **Run /commit-push and continue** — Commit any remaining changes, then proceed
-  3. **Stop here** — End work for now (run `/commit-push` first if there are changes)
+- If user chose "Subsection-by-subsection", present a brief status update including the retrospective outcome ("Retrospective {NN}.M: 2 improvements committed: {commits}" OR "Retrospective {NN}.M: no gaps") and ask: "Continue to next subsection, or stop here?"
+
+**Mandatory close-out steps (TPR, hygiene, improve-tooling sweep) are NEVER subject to user confirmation.** They are required by the completion checklist — just run them. Do not ask "Should I run /tpr-review now?" or "Ready for /impl-hygiene-review?" — execute them as part of the close-out workflow.
 
 ### Step 6: Execute Work
 

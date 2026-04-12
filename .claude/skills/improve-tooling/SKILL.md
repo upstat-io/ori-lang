@@ -5,6 +5,8 @@ description: "AUTO-TRIGGER: Improve testing, diagnostic, debugging, or developer
 
 # Improve Tooling
 
+**SCOPE: This skill improves tooling — scripts, harnesses, diagnostics, and skills. It does NOT save memories, update memory files, or modify MEMORY.md. When invoked with user feedback about workflow behavior, improve the relevant skill files directly.**
+
 **ABSOLUTE RULE: Never work around deficient tooling. Fix the tool.**
 
 When you encounter friction, gaps, or deficiencies in any developer tooling — testing scripts, diagnostic scripts, build scripts, or any automation — you MUST improve the tool rather than working around it. The tool improvement IS the work.
