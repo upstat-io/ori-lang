@@ -127,8 +127,9 @@ fn raw_aims_state_strategy() -> impl Strategy<Value = AimsState> {
 /// cross-dimension interaction trigger zones. The uniform
 /// `raw_aims_state_strategy()` generates all 11,519 non-SCALAR raw states
 /// uniformly, but after canonicalization many raw states collapse to the
-/// same canonical form. States triggering Rules 3/4/6/8 are
-/// underrepresented in the canonical distribution.
+/// same canonical form. States triggering active canonicalization rules
+/// (CN-3, CN-6, CN-8) are underrepresented in the canonical distribution.
+/// The former Rule 4 zone is preserved as a regression guard.
 fn rule_boundary_aims_state_strategy() -> impl Strategy<Value = AimsState> {
     prop_oneof![
         // Rule 3 trigger zone: Shared + ReusableCtor → NonReusable
@@ -147,7 +148,9 @@ fn rule_boundary_aims_state_strategy() -> impl Strategy<Value = AimsState> {
                 shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
                 effect: eff,
             }),
-        // Rule 4 trigger zone: BlockLocal + Owned + ≤Once + MaybeShared → Unique
+        // Former Rule 4 zone (CN-4 REMOVED — BUG-04-057): BlockLocal + Owned +
+        // ≤Once + MaybeShared. Preserved as regression guard — these states must
+        // NOT be promoted to Unique by canonicalization after the fix.
         (effect_class_strategy(), shape_class_strategy()).prop_map(|(eff, shape)| AimsState {
             access: AccessClass::Owned,
             consumption: Consumption::Linear,
