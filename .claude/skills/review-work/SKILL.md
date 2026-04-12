@@ -750,8 +750,12 @@ The transport reports one of these categories on its stderr tail (prefixed `infr
 | `launch_or_exit_fail` | Either reviewer process failed to start or exited non-zero on all 3 attempts (includes crashes, missing CLI, auth errors) |
 | `codex_*` | `parse-codex.py` rejected the codex JSONL stream on all 3 attempts. Suffix is the parser's first error line (`codex_schema_violation`, `codex_missing_envelope`, `codex_parse_error`, etc.) |
 | `gemini_*` | `parse-gemini.py` rejected the gemini stream-json on all 3 attempts. Suffix is the parser's first error line (`gemini_missing_terminator`, `gemini_no_begin`, `gemini_no_end`, `gemini_parse_error`, etc.) |
-| `dirty_worktree` | `worktree-guard.sh compare` detected tracked-file modifications during the reviewer run on all 3 attempts. The reviewer violated its read-only contract. |
+| `dirty_worktree` | **Strict mode only** (`ORI_TPR_STRICT_WORKTREE=1`): `worktree-guard.sh compare` detected tracked-file drift and strict mode escalated it to terminal. **Without strict mode (default)**: drift is a non-blocking WARNING — the round succeeds, envelopes are parsed, and drift details are saved to `$RUN/worktree-drift.txt`. Most drift is from parallel agents or user edits, not reviewer violations. |
 | `unknown_failure` | Fallback — the script exhausted retries without recording a specific category (rare; investigate round.log) |
+
+### Worktree drift (non-blocking, default behavior)
+
+After a successful round, check for `$RUN/worktree-drift.txt`. If it exists and is non-empty, tracked files changed during the review. This is **expected** when parallel agents or the user are editing files. The drift details are also logged in `$RUN/round.log` under `WARNING: worktree drift detected`. No action is required — drift does not affect the review envelopes. If you want strict enforcement (e.g., in a CI context), set `ORI_TPR_STRICT_WORKTREE=1`.
 
 ### Escalation procedure
 
@@ -764,7 +768,8 @@ When the transport fails, surface the failure to the user via `AskUserQuestion` 
    - `codex.jsonl` / `gemini.jsonl` — raw reviewer output streams (may be empty if launch failed)
    - `codex.envelope.json` / `gemini.envelope.json` — parsed envelopes (absent if parse failed)
    - `codex.parse-error` / `gemini.parse-error` — parser error output (first line = failure reason)
-   - `worktree-error` — diff of tracked files modified during the reviewer run (present only on `dirty_worktree`)
+   - `worktree-drift.txt` — tracked-file drift details (present when drift detected, even on successful rounds)
+   - `worktree-after.txt` — post-run worktree snapshot (when drift detected)
    - `codex.exit` / `gemini.exit` — reviewer exit codes
    - `codex.walltime` / `gemini.walltime` — wall time per reviewer (useful when one hung)
 4. **Recommended user actions:**

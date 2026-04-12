@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # validate-dual-tpr.sh — automated validation harness for the dual-source
 # transport stack. Runs the stub-based scenarios from Section 04.3 of the
-# dual-tpr-gemini plan: Scenario 4 (infra retry fault injection) and
-# Scenario 3 (dirty-worktree guard).
+# dual-tpr-gemini plan: Scenario 4 (infra retry fault injection),
+# Scenario 3 (worktree drift — non-blocking warning by default), and
+# Scenario 3b (worktree drift — strict mode opt-in).
 #
 # Scenarios 1 and 2 from Section 04.3 require running real codex and gemini
 # reviewers against real work and observing genuine agreement / disagreement
@@ -186,27 +187,29 @@ rm -f /tmp/stub-codex-state /tmp/stub-gemini-state
 
 say ""
 
-# ── Scenario 3: dirty-worktree guard test ────────────────────────────
+# ── Scenario 3: worktree drift — non-blocking warning (default) ──────
 #
 # Setup: STUB_CODEX_MODE=dirty causes the stub codex to append a line to
 # dirty-target.txt (a tracked file dedicated to this test), then emit a
-# valid envelope and exit 0. Gemini stays in OK mode. The reviewer
-# subprocesses both look "successful" from the parser's perspective —
-# the only signal of misbehavior is the worktree mutation.
+# valid envelope and exit 0. Gemini stays in OK mode.
+#
+# Post-2026-04-12 behavior: worktree drift is a NON-BLOCKING WARNING by
+# default. The transport succeeds because the user regularly runs parallel
+# agents whose edits produce drift that is NOT a reviewer violation.
+#
 # We expect dual-invoke-with-retry.sh to:
 #   1. Make attempt 1, observe both reviewers exit 0 and parsers succeed
-#   2. Run worktree-guard.sh compare, detect the modification, classify
-#      as dirty_worktree, sleep 1s
-#   3. Make attempt 2 — the dirty stub modifies the file again, dirty
-#      again. Same on attempt 3.
-#   4. Exhaust retries, exit non-zero with FAILURE=dirty_worktree
+#   2. Run worktree-guard.sh compare, detect the modification
+#   3. Log a WARNING (not a failure), save drift details
+#   4. Exit 0 — the round SUCCEEDED despite worktree drift
 # Verification:
-#   - Final exit code != 0 (transport gave up after 3 dirty rounds)
-#   - $RUN/round.log records dirty_worktree on every attempt
-#   - $RUN/worktree-error contains a diff of the modifications
+#   - Final exit code == 0 (drift is non-blocking)
+#   - $RUN/round.log records the WARNING with drift details
+#   - $RUN/worktree-drift.txt contains the drift details
+#   - Both envelopes are parsed and saved
 #   - Cleanup: dirty-target.txt restored to committed state
 
-say "── Scenario 3: dirty-worktree guard test ────────────────────"
+say "── Scenario 3: worktree drift — non-blocking warning (default)"
 
 # Snapshot the current contents of dirty-target.txt so we can restore it
 # byte-for-byte after the test, regardless of whether the file is committed
@@ -233,30 +236,35 @@ STUB_REPO_ROOT="$REPO_ROOT" \
   >/dev/null 2>&1
 S3_EXIT=$?
 
-if [[ $S3_EXIT -ne 0 ]]; then
-  pass_test "transport exits non-zero after dirty-worktree retries exhausted"
+if [[ $S3_EXIT -eq 0 ]]; then
+  pass_test "transport exits 0 despite worktree drift (non-blocking default)"
 else
-  fail_test "transport exits non-zero after dirty-worktree retries exhausted" \
-    "expected exit != 0, got $S3_EXIT"
+  fail_test "transport exits 0 despite worktree drift (non-blocking default)" \
+    "expected exit 0, got $S3_EXIT (round.log at $RUN/round.log)"
 fi
 
-if grep -q 'dirty_worktree on attempt' "$RUN/round.log" 2>/dev/null; then
-  pass_test "round.log records dirty_worktree on at least one attempt"
+if grep -q 'WARNING: worktree drift detected' "$RUN/round.log" 2>/dev/null; then
+  pass_test "round.log records worktree drift WARNING"
 else
-  fail_test "round.log records dirty_worktree on at least one attempt" \
-    "missing 'dirty_worktree on attempt' in $RUN/round.log"
+  fail_test "round.log records worktree drift WARNING" \
+    "missing 'WARNING: worktree drift detected' in $RUN/round.log"
 fi
 
-if [[ -s "$RUN/worktree-error" ]]; then
-  pass_test "worktree-error file contains the diff"
+if [[ -s "$RUN/worktree-drift.txt" ]]; then
+  pass_test "worktree-drift.txt contains the drift details"
 else
-  fail_test "worktree-error file contains the diff" \
-    "missing or empty $RUN/worktree-error"
+  fail_test "worktree-drift.txt contains the drift details" \
+    "missing or empty $RUN/worktree-drift.txt"
 fi
 
-# Restore dirty-target.txt from the byte-for-byte snapshot we took above.
-# Robust against the file being either committed or merely staged — works
-# in both states because we restore from a content snapshot, not from git.
+if [[ -s "$RUN/codex.envelope.json" ]] && [[ -s "$RUN/gemini.envelope.json" ]]; then
+  pass_test "both envelopes parsed despite worktree drift"
+else
+  fail_test "both envelopes parsed despite worktree drift" \
+    "missing or empty envelopes in $RUN"
+fi
+
+# Restore dirty-target.txt
 cp "$DIRTY_BACKUP" "$DIRTY_TARGET"
 if cmp -s "$DIRTY_TARGET" "$DIRTY_BACKUP"; then
   pass_test "dirty-target.txt restored to pre-test state"
@@ -264,6 +272,73 @@ else
   fail_test "dirty-target.txt restored to pre-test state" \
     "cmp reports $DIRTY_TARGET differs from snapshot after restore"
 fi
+rm -f "$DIRTY_BACKUP"
+
+say ""
+
+# ── Scenario 3b: worktree drift — strict mode (ORI_TPR_STRICT_WORKTREE=1) ──
+#
+# Same setup as Scenario 3, but with ORI_TPR_STRICT_WORKTREE=1 enabled.
+# This restores the old terminal behavior: drift → terminal failure → exit 1.
+# Verifies the strict-mode escape hatch works.
+#
+# We expect dual-invoke-with-retry.sh to:
+#   1. Make attempt 1, detect drift, escalate to dirty_worktree
+#   2. Terminal classifier breaks the loop immediately
+#   3. Exit non-zero
+# Verification:
+#   - Final exit code != 0 (strict mode makes drift terminal)
+#   - $RUN/round.log records dirty_worktree with STRICT note
+#   - Only 1 attempt (terminal classifier breaks early)
+
+say "── Scenario 3b: worktree drift — strict mode ──────────────────"
+
+DIRTY_BACKUP=$(mktemp)
+cp "$DIRTY_TARGET" "$DIRTY_BACKUP"
+
+RUN=$("$SCRIPT_DIR/scratch-dir.sh")
+RUNS_TO_CLEAN+=("$RUN")
+printf 'echo prompt\n' > "$RUN/codex.prompt.md"
+printf 'echo prompt\n' > "$RUN/gemini.prompt.md"
+
+PATH="$STUB_BIN:$PATH" \
+STUB_CODEX_MODE=dirty \
+STUB_GEMINI_MODE=ok \
+STUB_REPO_ROOT="$REPO_ROOT" \
+ORI_TPR_STRICT_WORKTREE=1 \
+"$SCRIPT_DIR/dual-invoke-with-retry.sh" \
+  --run "$RUN" \
+  --skill review-work \
+  --codex-prompt "$RUN/codex.prompt.md" \
+  --gemini-prompt "$RUN/gemini.prompt.md" \
+  --schema "$SCHEMA" \
+  >/dev/null 2>&1
+S3B_EXIT=$?
+
+if [[ $S3B_EXIT -ne 0 ]]; then
+  pass_test "strict mode: transport exits non-zero on worktree drift"
+else
+  fail_test "strict mode: transport exits non-zero on worktree drift" \
+    "expected exit != 0, got $S3B_EXIT"
+fi
+
+if grep -q 'dirty_worktree on attempt.*ORI_TPR_STRICT_WORKTREE=1' "$RUN/round.log" 2>/dev/null; then
+  pass_test "strict mode: round.log records dirty_worktree with STRICT note"
+else
+  fail_test "strict mode: round.log records dirty_worktree with STRICT note" \
+    "missing 'dirty_worktree on attempt.*ORI_TPR_STRICT_WORKTREE=1' in $RUN/round.log"
+fi
+
+ATTEMPT_COUNT=$(grep -c 'attempt [0-9]/3' "$RUN/round.log" 2>/dev/null || echo 0)
+if [[ "$ATTEMPT_COUNT" == "1" ]]; then
+  pass_test "strict mode: terminal classifier broke after 1 attempt"
+else
+  fail_test "strict mode: terminal classifier broke after 1 attempt" \
+    "expected 1 attempt, got $ATTEMPT_COUNT"
+fi
+
+# Restore dirty-target.txt
+cp "$DIRTY_BACKUP" "$DIRTY_TARGET"
 rm -f "$DIRTY_BACKUP"
 
 say ""

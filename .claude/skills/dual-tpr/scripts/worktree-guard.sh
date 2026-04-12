@@ -1,23 +1,30 @@
 #!/usr/bin/env bash
 # worktree-guard.sh — snapshot or compare git working tree state.
 #
-# Purpose: detect reviewer-caused modifications to the working tree during a
-# dual-source review run. Reviewers (codex, gemini) run under prompt-discipline
-# contracts that forbid writing to tracked files; this script's `compare` mode
-# exists to catch violations.
+# Purpose: detect tracked-file modifications to the working tree during a
+# dual-source review run. This script detects drift — it does NOT attribute
+# causation. Drift may come from reviewers violating their read-only contract,
+# from the user editing files, or from parallel agents running concurrently.
+# The CALLER decides how to handle detected drift (warning vs failure).
 #
 # CORRECT SEMANTICS (post-2026-04-08 fix): `compare` flags ONLY lines that are
 # new in AFTER that weren't in BEFORE. A line that was in BEFORE and is now
 # absent in AFTER means the drift was CLEANED UP during the run (e.g., Claude
-# committed pre-existing uncommitted edits) — that is NOT a violation and
-# MUST NOT trigger the guard.
+# committed pre-existing uncommitted edits) — that is NOT drift and MUST NOT
+# trigger the guard.
 #
-# UNTRACKED FILES ARE NOT VIOLATIONS (post-2026-04-11 fix): lines with `??`
+# UNTRACKED FILES ARE NOT DRIFT (post-2026-04-11 fix): lines with `??`
 # prefix (untracked files) are filtered OUT of both snapshots before comparison.
 # Reviewers (especially gemini) create temp files in the repo root during
 # verification (e.g., `test_regex.rs`, `dummy.txt`) — these are NOT codebase
 # modifications. The guard only cares about changes to TRACKED files (M, A, D,
 # R, C status codes). Untracked files are cleaned up after the run.
+#
+# ATTRIBUTION IS CALLER'S RESPONSIBILITY (post-2026-04-12 fix): this script
+# reports WHAT changed, not WHO changed it. The user regularly runs parallel
+# agents alongside reviews — most drift is from parallel work, not reviewer
+# violations. The caller (dual-invoke-with-retry.sh) treats drift as a
+# non-blocking warning by default.
 #
 # Usage:
 #   worktree-guard.sh snapshot OUT_FILE
@@ -70,8 +77,8 @@ case "$MODE" in
     if [[ -z "$NEW_DRIFT" ]]; then
       exit 0
     else
-      echo "dirty_worktree: reviewer-caused modifications detected during run" >&2
-      echo "new lines in AFTER not present in BEFORE:" >&2
+      echo "worktree_drift: tracked-file modifications detected during run" >&2
+      echo "new lines in AFTER not present in BEFORE (cause unknown — may be parallel agents, user edits, or reviewer violation):" >&2
       printf '%s\n' "$NEW_DRIFT" >&2
       exit 1
     fi
