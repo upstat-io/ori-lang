@@ -161,31 +161,56 @@ A sparse map `ArcVarId → BorrowSource` tracking the origin of borrowed project
 - **DP-5** (`can_mutate_in_place`): queries `borrow_sources` to check for active overlapping borrows. A `Unique` value with an active borrow from the same field is NOT safe for in-place mutation — the borrow would alias the mutated memory. Disjoint field borrows are safe (RL-10).
 - **TF-14** (backward propagation): when a projected variable's locality widens, the widening propagates to its borrow source via this table.
 
-**Aliasing rules**:
-- `TF-2` (`Let { Var(v) }`): if `v` has a borrow source, the alias `dst` does NOT inherit it. The alias copies the lattice state but has no borrow source entry. *Rationale*: the alias is a separate variable that happens to share state — it is not itself a projection. Borrow provenance is definitional (tied to the `Project` that created the borrow), not transferable.
-- `TF-8` (`Select`): the merged `dst` has no borrow source, even if one or both branch operands do. *Rationale*: at the merge point, the borrow source is ambiguous (could be from either branch). Conservative: treat as non-projected.
-- Block parameters: variables entering a block as parameters have no borrow source, even if their predecessor-supplied values do. *Rationale*: same as TF-8 — cross-block flow erases definitional provenance.
-
 **Invariants**:
 - Every `Project` instruction creates exactly one borrow source entry.
-- No other instruction creates borrow source entries.
-- Aliases, merges, and block parameters do NOT propagate borrow source entries.
-- The table is read-only after intraprocedural analysis (Step 4) completes.
+- No other instruction creates borrow source entries in `borrow_sources`.
+- The table is read-only after intraprocedural analysis completes.
+
+#### Project Alias Sources (`project_alias_sources`)
+
+A function-wide map `ArcVarId → SmallVec<ArcVarId>` tracking transitive aliases of projected values. This is the companion to `borrow_sources` that ensures demand propagation is sound across aliases, merges, and block parameters.
+
+**Motivation**: `borrow_sources` maps only the direct `Project` destination to its source (e.g., `%3 = Project %2.0` → `%3 → %2`). But projected values flow through Let aliases (`%4 = Let Var(%3)`) and Jump arguments to block parameters (`Jump block1, args=[%3]` → param `%5`). Without tracking these aliases, a parent aggregate can be freed while a borrowed child flowing through an alias is still live.
+
+**Construction**: precomputed once per function (the alias structure is static):
+1. Direct Project destinations → Project source variables.
+2. Let aliases: if `%4 = Let Var(%3)` and `%3` maps to sources `[%2]`, then `%4` also maps to `[%2]`.
+3. Jump-arg → block-param: if `Jump block1, args=[%3]` and block1 has param `%5`, and `%3` maps to sources `[%2]`, then `%5` maps to `[%2]`.
+4. CFG merge: if block param `%5` receives projected values from multiple predecessor Jump arguments tracing to different source aggregates, `%5` maps to the union of all sources.
+
+**Example**:
+```
+%3 = Project %2.0
+%4 = Let Var(%3)
+Jump block1, args=[%4]
+// block1 params: [%5]
+```
+Maps: `%3 → [%2]`, `%4 → [%2]`, `%5 → [%2]`
+
+**Consumer**: `propagate_project_source_demand()` — invoked on EVERY iteration of the backward worklist (inside `compute_block_entry_state()`), not as a post-convergence pass. On each worklist iteration, for each alias variable in the current block-entry demand map that is live (Cardinality ≠ Absent), propagates a `Borrowed` demand with the alias's cardinality and other dimensions to ALL source aggregates in the map. The demand is joined with the source's existing state. Because this runs inside the worklist loop, the propagated demand feeds back into predecessor exit states on subsequent iterations, ensuring cross-block convergence.
+
+**Demand construction**: the propagated demand uses `Access = Borrowed` because the source is alive through a borrow, not through ownership. CN-8 clamps the demand's locality to ≤ FunctionLocal (Borrowed variables cannot escape beyond the function). This is correct: borrows in Ori are function-scoped temporary views — they structurally cannot heap-escape. The parent aggregate's own demand (from its direct uses) determines its wider locality; TF-14 propagation only ensures the parent stays alive and at least FunctionLocal while borrowed children are used.
+
+**Merge-point filtering**: at CFG merges, the union of project sources from multiple predecessors is an over-approximation (the analysis keeps all possible parent aggregates alive). The EMISSION side (RL-4, RL-5) must filter: variables that exist only on one predecessor path must NOT receive merge-block-level decrements. Instead, they receive decrements on their specific predecessor edge. This filtering is an emission concern, not an analysis concern — the analysis correctly over-approximates to keep parents alive on all paths.
+
+**Select**: `Select` instructions do NOT participate in project alias tracking. Select is handled by its own backward-demand rules (TF-8, TF-11) which join branch operand states. A Select result that happens to receive a projected value gets demand from the standard demand system — it does not enter `project_alias_sources`.
+
+This mechanism makes TF-14 (backward demand propagation) sound across control flow. TF-14 fires for direct `borrow_sources` entries during the per-instruction backward walk; `project_alias_sources` extends that to transitive aliases within the worklist loop.
 
 #### Return Provenance
 
-CN-6 and IA-6 operate on per-variable states within the intraprocedural analysis (Step 4). The `ReturnContract` (IC-4) is extracted in the **interprocedural pass (Step 1)** — BEFORE intraprocedural analysis runs. These two mechanisms operate in different pipeline phases and never interact.
+The `ReturnContract` (IC-4) is extracted within the interprocedural pass (Step 1). The interprocedural pass internally invokes `analyze_function()` (intraprocedural backward analysis) for each function or SCC member, and then extracts the contract from the converged state. However, the `ReturnContract` extraction itself uses **structural definition tracing**, not the `AimsStateMap`:
 
-The `ReturnContract` extraction works by **definition tracing**, not by reading the intraprocedural state map:
 - For each `Return { value }` terminator, trace `value` back through the definition chain (`Let`, `Apply`, `Construct`, etc.).
 - If the value traces back to a `Construct` instruction (fresh allocation), the return is `Unique` with `preserves_freshness = true`.
 - If the value traces back to a callee with a `Unique` return contract, uniqueness is inherited.
-- If the value traces back to a parameter or unresolvable definition, the return is conservative (`MaybeShared`).
+- If the value traces back to a parameter directly or through a single `Let Var(param)` alias, the return is `MaybeShared` (conservative uniqueness) but `preserves_freshness = true` (the parameter's freshness is passed through unchanged — important for interprocedural contract precision on wrapper functions). Block-param/phi-like aliases of parameters are NOT traced — they fall into the conservative case below.
+- If the value traces back to an unresolvable definition, the return is fully conservative (`MaybeShared`, `preserves_freshness = false`).
 - Results from all return paths are joined (IC-4: `uniqueness(join), preserves_freshness(AND)`).
 
-This means CN-6 never touches the `ReturnContract`: CN-6 operates on per-variable `AimsState` in Step 4, while `ReturnContract` is a per-function summary computed in Step 1 by structural analysis of the IR. Fresh allocations returned from a function retain `Unique` in the `ReturnContract` (enabling RL-29 `noalias`) regardless of what CN-6 does to the per-variable state within the function body.
+CN-6 operates on per-variable `AimsState` during the intraprocedural analysis that runs WITHIN Step 1. It may demote `Unique → MaybeShared` for returned values within the function body's per-variable state. But this does not affect the `ReturnContract` because the extractor traces definitions structurally — it reads the IR instruction types (Construct, Apply, etc.), NOT the per-variable lattice state. Fresh allocations returned from a function retain `Unique` in the `ReturnContract` (enabling RL-29 `noalias`) regardless of what CN-6 does to the per-variable state.
 
-The key correctness property: `ReturnContract` extraction SHALL trace definitions structurally, NOT read from the intraprocedural `AimsStateMap` (which does not exist at Step 1).
+The key correctness property: `ReturnContract` extraction SHALL trace definitions structurally. It reads IR instruction types and callee contracts, NOT the `AimsStateMap`'s per-variable states. The intraprocedural analysis runs (and its state map exists) at this point, but the extractor deliberately avoids it to prevent CN-6/IA-6 contamination of the per-function summary.
 
 ---
 
