@@ -50,8 +50,8 @@ This follows the SSOT principle from `.claude/rules/impl-hygiene.md`: "every beh
 - Diagnostic/debug messages: stderr only, never stdout
 
 **Ownership split (important distinction)**:
-- The **shell script** owns the availability CHECK — fast bootstrap probes that answer "is Neo4j reachable?" (filesystem check, venv check, container check, Bolt handshake). These run before invoking Python so the shell can return the unavailable JSON without ever starting Python.
-- **Python** (`query_graph.py`) owns health/status SEMANTICS — detailed graph queries, node counts, index verification, repo list, JSON formatting, and all query logic. The shell's job is to get Python running; everything meaningful happens in Python.
+- The **shell script** owns orchestration and graceful degradation — it sequences the availability checks (directory, venv, Docker, health-check) and returns structured unavailable JSON on any failure. Step 1 (directory check) is pure shell; steps 2-5 invoke Python for the neo4j import probe and health-check semantics.
+- **Python** (`query_graph.py`) owns health/status SEMANTICS — detailed graph queries, node counts, index verification, repo list, JSON formatting, and all query logic. The shell's job is to orchestrate the check sequence and wrap failures; everything meaningful happens in Python.
 
 These are distinct concerns. The shell answers "can I reach Neo4j?" The Python answers "what is the graph state?"
 
@@ -87,7 +87,7 @@ Flags:
 1. `../lang_intelligence/` directory exists (filesystem check, instant)
 2. `../lang_intelligence/.venv/bin/python -c "import neo4j"` succeeds (venv has the package — must pass before we can use the driver)
 3. `docker inspect lang-intelligence --format '{{.State.Running}}'` returns `true` (container running)
-4. Neo4j Bolt protocol readiness + auth: `../lang_intelligence/.venv/bin/python ../lang_intelligence/neo4j/query_graph.py --health-check` — a lightweight command that verifies TCP, Bolt handshake, AND auth using the configured credentials (reads `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASS` env vars or defaults). Credentials stay in one place (Python), not duplicated inline in the shell script.
+4. Neo4j Bolt protocol readiness + auth: `../lang_intelligence/.venv/bin/python ../lang_intelligence/neo4j/query_graph.py --json health-check` — a lightweight command that verifies TCP, Bolt handshake, AND auth using the configured credentials (reads `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASS` env vars or defaults). Credentials stay in one place (Python), not duplicated inline in the shell script.
 5. Full-text index verification: `CALL db.indexes() YIELD name WHERE name = 'issue_text' RETURN count(*) > 0` — commands `search`, `compare`, `fixed`, `pattern` depend on this index from `schema.cypher`
 
 If any check fails, output the unavailable JSON and exit 0. The caller never sees an error.
@@ -97,7 +97,7 @@ If any check fails, output the unavailable JSON and exit 0. The caller never see
 - [x] Each check step bounded by `timeout 5` (or Python `socket.settimeout`) — hanging Neo4j must not hang the script
 - [x] Parse `--timeout N` flag from caller arguments (default 5s) — use this variable in all bounded check steps; derive query timeout (`QUERY_TIMEOUT = STEP_TIMEOUT * 6`) for proxy and stats calls
 - [x] Proxy all arguments to `../lang_intelligence/.venv/bin/python ../lang_intelligence/neo4j/query_graph.py --json [args]`
-- [x] Pass `--human` through when specified by caller, otherwise default to `--json`
+- [x] Strip `--human` locally — in human mode, omit `--json` when calling `query_graph.py` (not forwarded as a flag)
 - [x] Add `status` subcommand that reports: Neo4j version, node/relationship counts, repo list, graph-emptiness check (warn if zero Issue nodes)
 - [x] Verify script is idempotent and safe to call from any directory (use `$(dirname "$0")` for relative paths)
 - [x] Test: Neo4j running with data → returns JSON with `status:ok` and query results
@@ -127,7 +127,7 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 
 ### 01.2b Missing Functionality
 
-- [x] Implement `--health-check` command in `query_graph.py` — a lightweight probe that verifies TCP + Bolt handshake + auth using the configured credentials (env vars or defaults). Returns JSON `{"status":"ok"}` on success, `{"status":"error","reason":"..."}` on failure. Exit 0 always. This is called by `intel-query.sh` step 4 to validate connectivity without running a full query. Also verify that the full-text `issue_text` index exists (needed by `search`, `compare`, `fixed`, `pattern`).
+- [x] Implement `health-check` command in `query_graph.py` — a lightweight probe that verifies TCP + Bolt handshake + auth using the configured credentials (env vars or defaults). Returns JSON `{"status":"ok"}` on success, `{"status":"error","reason":"..."}` on failure. Exit 0 always. This is called by `intel-query.sh` step 4 to validate connectivity without running a full query. Also verify that the full-text `issue_text` index exists (needed by `search`, `compare`, `fixed`, `pattern`).
 - [x] `cmd_label_graph` was a TODO stub. Implement the label co-occurrence graph query or remove it from the usage docstring — a silently no-op command is a trap.
 - [x] No `--json` output mode — all commands print human-readable text to stdout. Add `--json` flag that makes every command output structured JSON instead. This is required by `intel-query.sh` which needs machine-parseable results.
 - [x] No graph-emptiness detection in `cmd_stats` — if the graph has zero Issue nodes (e.g., after a fresh `schema.cypher` without any data import), `stats` prints empty tables with no warning. Add a "graph is empty — run the fetch pipeline first" message.
@@ -151,7 +151,7 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 - [x] `[TPR-01-001-codex][high]` `section-01-infrastructure.md:108` — get_driver() is lazy; wrapping it won't catch Neo4j failures.
   Resolved: Fixed on 2026-04-12. Rewrote 01.2a to target command dispatch, not get_driver().
 - [x] `[TPR-01-002-codex][high]` `section-01-infrastructure.md:46` — LEAK between shell bootstrap and Python health logic.
-  Resolved: Fixed on 2026-04-12. Added ownership split paragraph; shell does availability CHECK, Python does health SEMANTICS. Step 4 now calls `query_graph.py --health-check` instead of inline probe.
+  Resolved: Fixed on 2026-04-12. Added ownership split paragraph; shell does availability CHECK, Python does health SEMANTICS. Step 4 now calls `query_graph.py health-check` instead of inline probe.
 - [x] `[TPR-01-003-codex][medium]` `section-01-infrastructure.md:42` — Success JSON contract DRIFT (command field inconsistent).
   Resolved: Fixed on 2026-04-12. Removed `command` field from canonical contract; unified across all locations.
 - [x] `[TPR-01-004-codex][medium]` `section-01-infrastructure.md:110` — Missing numeric validation in cmd_related/cmd_fix_chain.
@@ -233,11 +233,18 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
   Resolved: Fixed on 2026-04-12. Same fix as TPR-01-001-codex close-out-4.
 - [x] `[TPR-01-002-gemini][low]` (close-out-4) `section-01-infrastructure.md:246` — DRIFT: test-all count 17140 vs 17142.
   Resolved: Rejected on 2026-04-12. Count 17140 is correct for committed HEAD; 17142 reflects uncommitted parallel-session tests in working tree.
+- [x] `[TPR-01-001-codex][low]` (close-out-5) `section-01-infrastructure.md:90` — DRIFT: `--health-check` spelling throughout plan; actual CLI is positional `health-check`.
+  Resolved: Fixed on 2026-04-12. Replaced all `--health-check` with `health-check` (except historical TPR finding titles).
+- [x] `[TPR-01-002-codex][low]` (close-out-5) `section-01-infrastructure.md:53` — DRIFT: Ownership paragraph claims shell avoids starting Python; steps 2+4 invoke Python.
+  Resolved: Fixed on 2026-04-12. Rewrote ownership paragraph to reflect actual orchestration-with-Python design.
+- [x] `[TPR-01-003-codex][low]` (close-out-5) `section-01-infrastructure.md:100` — DRIFT: Checklist says `--human` is "passed through"; actually stripped locally.
+  Resolved: Fixed on 2026-04-12. Changed to "Strip `--human` locally — omit `--json` in human mode."
+- [x] `[TPR-01-001-gemini][informational]` (close-out-5) `scripts/intel-query.sh:43` — Confirms timeout arithmetic fix is complete and correct for all edge cases.
 
 ## 01.N Completion Checklist
 
 - [x] `scripts/intel-query.sh` exists, executable, passes all 6 test scenarios (running, stopped, missing repo, missing venv, Bolt-not-ready, index-missing)
-- [x] `query_graph.py` `--health-check` command implemented and used by `intel-query.sh` step 4
+- [x] `query_graph.py` `health-check` command implemented and used by `intel-query.sh` step 4
 - [x] `query_graph.py` issues fixed: driver error handling, driver.close() leak, _parse_flags validation, connection timeout
 - [x] `query_graph.py` label-graph command implemented (not a stub)
 - [x] `query_graph.py` --json output mode works for all commands
@@ -256,4 +263,4 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
   - [ ] Update `00-overview.md` mission success criteria checkboxes
   - [ ] Verify Section 02's `depends_on: [01]` is still accurate
 
-**Exit Criteria:** `scripts/intel-query.sh search "type inference"` returns valid JSON with `status:ok` when Neo4j is running, and `scripts/intel-query.sh search "type inference"` returns `{"status":"unavailable","reason":"..."}` with exit 0 when Neo4j is stopped. All 6 test scenarios pass. `query_graph.py --health-check` returns `{"status":"ok"}` when connected. `query_graph.py --json stats` returns structured JSON. `timeout 150 ./test-all.sh` green.
+**Exit Criteria:** `scripts/intel-query.sh search "type inference"` returns valid JSON with `status:ok` when Neo4j is running, and `scripts/intel-query.sh search "type inference"` returns `{"status":"unavailable","reason":"..."}` with exit 0 when Neo4j is stopped. All 6 test scenarios pass. `query_graph.py health-check` returns `{"status":"ok"}` when connected. `query_graph.py --json stats` returns structured JSON. `timeout 150 ./test-all.sh` green.
