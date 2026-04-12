@@ -24,7 +24,7 @@ Build world-class verification tooling for Ori's AIMS memory system and LLVM bac
 - [ ] **AIMS snapshot regression detection**: Running `cargo test -p oric --test aims_snapshots` catches pass-level regressions in `realize_rc_reuse`, `merge_blocks`, `realize_annotations`, `normalize_function`, and `tail_calls` via `lowered.arc` baseline + per-pass `.after.arc` artifacts (Section 03)
 - [x] **Lattice property verification**: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` runs 36 property tests (35 pass, 1 O(n^3) manual-only `#[ignore]`). Join commutativity, associativity, idempotence, partial-order axioms, canonicalization idempotence/convergence/dimension-guarantees, 8 decision predicate semantic contracts, capture_state_update monotonicity, fixpoint convergence, and permutation invariance all verified. BUG-04-057 fixed (3f7cf7c2): removed Rule 4, widened Rule 6. Section 04 complete (2026-04-12). TPR found BUG-04-059 (realization-layer unsound proofs, filed in bug tracker).
 - [x] **Contract coherence oracle**: After AIMS pipeline completion, an independent contract re-derivation from realized ARC IR (walking actual `RcInc`/`RcDec`/`Reuse` instructions) matches inferred `MemoryContract` — discrepancies are blocking errors under `ORI_VERIFY_ARC=1` (Section 05) — Completed 2026-04-12. Oracle walks post-pipeline ARC IR with aliasing-aware tracking, handles batched RcInc, PartialApply effects, directional tolerance. 29 unit tests, 17,142 full-suite tests pass with zero false positives. TPR found alias fixpoint bug + 2 others, all fixed. Enriched diagnostic with per-mismatch details.
-- [ ] **Protocol builtin ownership pinned**: Every `ProtocolBuiltin` variant's per-argument expected ownership is pinned (not a Cartesian product — each position has ONE expected value), with RC balance verified through existing AOT tests exercising each protocol path (Section 06)
+- [x] **Protocol builtin ownership pinned**: Every `ProtocolBuiltin` variant's per-argument expected ownership is pinned at all three layers: IR definition (existing tests audited), ori_arc consumers (MemoryContract field-level + negative pins + consistency pins + dispatch order bug fixed), and LLVM codegen (AOT type x pattern matrix with `ORI_CHECK_LEAKS=1`, including Set<int>, {int:str}, and looped indexing). Exhaustiveness guard with compile-time + test-time coverage. 2 bugs filed (BUG-04-061, BUG-04-062). (Section 06) — Completed 2026-04-12.
 - [x] **LLVM verification gates active**: `ORI_VERIFY_EACH=1` runs LLVM IR verifier after every optimization pass in `test-all.sh` and CI; function-level `fn_val.verify()` runs after each function's codegen; `opt -lint` runs in the codegen audit pipeline (Section 01) — Completed 2026-04-10. Both `ORI_VERIFY_ARC=1` and `ORI_VERIFY_EACH=1` enabled globally (54s, 36% of budget). `function(lint)` integrated. All 16,978 tests pass.
 - [ ] **FileCheck IR assertions**: `compiler/ori_llvm/tests/codegen/` contains ≥30 directive-based IR pattern tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns, with revision support for debug/release/no-repr-opt configurations (Section 07)
 - [ ] **Sanitizer integration**: ASan/UBSan instrumentation on generated AOT binaries via LLVM pipeline; separate CI job with smoke subset on PRs and full sweep nightly (Section 08)
@@ -238,7 +238,7 @@ Enabling `ORI_VERIFY_ARC=1` and `ORI_VERIFY_EACH=1` is specifically designed to 
 | 03 AIMS Pass-Level Snapshots | ~1,500 | Medium | 02 |
 | 04 AIMS Lattice Properties | ~1,200 | Medium | — |
 | 05 Contract Coherence Oracle | ~1,500 | High | 03, 04 |
-| 06 Protocol Builtin Matrix | ~800 | Low | 01 |
+| 06 Protocol Builtin Matrix | ~800 | Complete | 01 |
 | 07 FileCheck IR Assertions | ~2,500 | High | 02 |
 | 08 Sanitizer Integration | ~1,200 | Medium | 01 |
 | 09 Alive2 Formal Verification | ~2,000 | Very High | 07 |
@@ -271,7 +271,7 @@ Note: §09 (Alive2) and §10 (fuzzing) estimates include tool installation, corp
 | 03 | AIMS Pass-Level Snapshot Tests | `section-03-aims-snapshots.md` | Complete |
 | 04 | AIMS Lattice Property Verification | `section-04-lattice-properties.md` | Complete |
 | 05 | Contract Coherence Oracle | `section-05-contract-oracle.md` | Complete |
-| 06 | Protocol Builtin Verification Matrix | `section-06-protocol-builtins.md` | Not Started |
+| 06 | Protocol Builtin Verification Matrix | `section-06-protocol-builtins.md` | Complete |
 | 07 | FileCheck-Style IR Pattern Matching | `section-07-filecheck.md` | Not Started |
 | 08 | Sanitizer Integration | `section-08-sanitizers.md` | Not Started |
 | 09 | Alive2 Formal Verification | `section-09-alive2.md` | Not Started |
