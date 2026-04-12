@@ -161,20 +161,31 @@ A sparse map `ArcVarId → BorrowSource` tracking the origin of borrowed project
 - **DP-5** (`can_mutate_in_place`): queries `borrow_sources` to check for active overlapping borrows. A `Unique` value with an active borrow from the same field is NOT safe for in-place mutation — the borrow would alias the mutated memory. Disjoint field borrows are safe (RL-10).
 - **TF-14** (backward propagation): when a projected variable's locality widens, the widening propagates to its borrow source via this table.
 
+**Aliasing rules**:
+- `TF-2` (`Let { Var(v) }`): if `v` has a borrow source, the alias `dst` does NOT inherit it. The alias copies the lattice state but has no borrow source entry. *Rationale*: the alias is a separate variable that happens to share state — it is not itself a projection. Borrow provenance is definitional (tied to the `Project` that created the borrow), not transferable.
+- `TF-8` (`Select`): the merged `dst` has no borrow source, even if one or both branch operands do. *Rationale*: at the merge point, the borrow source is ambiguous (could be from either branch). Conservative: treat as non-projected.
+- Block parameters: variables entering a block as parameters have no borrow source, even if their predecessor-supplied values do. *Rationale*: same as TF-8 — cross-block flow erases definitional provenance.
+
 **Invariants**:
 - Every `Project` instruction creates exactly one borrow source entry.
 - No other instruction creates borrow source entries.
+- Aliases, merges, and block parameters do NOT propagate borrow source entries.
 - The table is read-only after intraprocedural analysis (Step 4) completes.
 
 #### Return Provenance
 
-CN-6 exempts values whose `HeapEscaping` locality comes solely from being returned (IA-6). This exemption is enforced through **pipeline ordering**, not a lattice flag:
-- During intraprocedural analysis (Step 4), IA-6 widens returned values to `HeapEscaping`.
-- CN-6 fires and demotes `Unique → MaybeShared` for these values within the intraprocedural state.
-- The `ReturnContract` extraction (IC-4) runs AFTER intraprocedural analysis but reads the **pre-return-widening uniqueness** from the return instruction's operand state at the point before IA-6 fires.
-- This ensures fresh allocations returned from a function retain `Unique` in the `ReturnContract` (enabling RL-29 `noalias`) while correctly being `MaybeShared` within the function body after return.
+CN-6 and IA-6 operate on per-variable states within the intraprocedural analysis (Step 4). The `ReturnContract` (IC-4) is extracted in the **interprocedural pass (Step 1)** — BEFORE intraprocedural analysis runs. These two mechanisms operate in different pipeline phases and never interact.
 
-This is a pipeline-ordering guarantee (PL-2: analysis before realization), not a side-table. The key correctness property: the `ReturnContract` extraction SHALL read the operand's state at the return instruction, NOT the post-IA-6-widened block exit state.
+The `ReturnContract` extraction works by **definition tracing**, not by reading the intraprocedural state map:
+- For each `Return { value }` terminator, trace `value` back through the definition chain (`Let`, `Apply`, `Construct`, etc.).
+- If the value traces back to a `Construct` instruction (fresh allocation), the return is `Unique` with `preserves_freshness = true`.
+- If the value traces back to a callee with a `Unique` return contract, uniqueness is inherited.
+- If the value traces back to a parameter or unresolvable definition, the return is conservative (`MaybeShared`).
+- Results from all return paths are joined (IC-4: `uniqueness(join), preserves_freshness(AND)`).
+
+This means CN-6 never touches the `ReturnContract`: CN-6 operates on per-variable `AimsState` in Step 4, while `ReturnContract` is a per-function summary computed in Step 1 by structural analysis of the IR. Fresh allocations returned from a function retain `Unique` in the `ReturnContract` (enabling RL-29 `noalias`) regardless of what CN-6 does to the per-variable state within the function body.
+
+The key correctness property: `ReturnContract` extraction SHALL trace definitions structurally, NOT read from the intraprocedural `AimsStateMap` (which does not exist at Step 1).
 
 ---
 
@@ -309,7 +320,7 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 
 ## §4 Decision Predicates
 
-Decision predicates map lattice states to RC/COW/reuse decisions. Each is a pure function of `AimsState`.
+Decision predicates map lattice states to RC/COW/reuse decisions. Most are pure functions of `AimsState`. Exception: DP-5 (`can_mutate_in_place`) additionally consults the `borrow_sources` side table and the live-variable set at the mutation point — see §1.9 for the side-table specification.
 
 **DP-1** — `is_rc_needed(s) ⟺ s.access = Owned ∧ s.consumption ≠ Dead ∧ ¬s.is_scalar()`.
 Only owned, live, non-scalar variables carry RC obligations.
@@ -323,8 +334,12 @@ Moved once — no duplication, no increment needed.
 **DP-4** — `needs_cow_check(s) ⟺ s.uniqueness = MaybeShared`.
 Only MaybeShared needs a runtime uniqueness check. Unique takes fast path statically; Shared takes slow path statically.
 
-**DP-5** — `can_mutate_in_place(s) ⟺ s.access = Owned ∧ s.uniqueness = Unique ∧ no_active_overlapping_borrows(s)`.
-Unique ownership permits direct mutation without COW, BUT only when no active borrow from the same source overlaps the mutated field. Borrows (via `Project`) do not increment RC — a `Unique` value with an active borrow is still RC = 1 but mutating it would corrupt the borrowed reference. The `borrow_sources` side table tracks active borrows; disjoint field borrows (RL-10) are safe.
+**DP-5** — `can_mutate_in_place(s, var, point) ⟺ s.access = Owned ∧ s.uniqueness = Unique ∧ no_active_overlapping_borrows(var, point)`.
+Unique ownership permits direct mutation without COW, BUT only when no active borrow from the same source overlaps the mutated field. Borrows (via `Project`) do not increment RC — a `Unique` value with an active borrow is still RC = 1 but mutating it would corrupt the borrowed reference.
+
+`no_active_overlapping_borrows(var, point)` is defined as: for all variables `b` in `borrow_sources` where `borrow_sources[b].source = var`: `b` is NOT live at `point`, OR `borrow_sources[b].field` is disjoint from the mutated field (RL-10). "Active" means live at the mutation point — a borrow that has gone dead is not a conflict. The liveness intersection is required; checking `borrow_sources` without liveness would permanently disable COW fast paths for any object that was ever borrowed, even after the borrow dies.
+
+Note: DP-5 is NOT a pure function of `AimsState` alone — it additionally consults `borrow_sources` (§1.9) and the live-variable set at the program point. See Appendix C for the truth table (which includes the side-table input column).
 
 **DP-6** — `is_reuse_candidate(s) ⟺ s.access = Owned ∧ s.uniqueness ≠ Shared ∧ s.shape ≠ NonReusable`.
 Reuse requires owned, non-shared, reusable shape.
@@ -664,7 +679,7 @@ The following dimension combinations are eliminated by canonicalization. They SH
 
 ## Appendix C: Decision Predicate Truth Tables
 
-Each predicate is a pure function of the lattice state. The tables below show the exact conditions for each decision. All predicates operate on canonical states only (post-canonicalization).
+Each predicate is a function of the lattice state. Most are pure functions of `AimsState`; DP-5 additionally consults the `borrow_sources` side table and liveness (see §1.9). The tables below show the exact conditions for each decision. All predicates operate on canonical states only (post-canonicalization).
 
 ### DP-1: `is_rc_needed(s)`
 
@@ -709,7 +724,7 @@ Each predicate is a pure function of the lattice state. The tables below show th
 | Owned | Unique | yes (same field) | **false** |
 | Owned | Unique | no (disjoint or none) | **true** |
 
-"Overlapping borrows" checked via `borrow_sources` side table (§1.9).
+"Overlapping borrows" checked via `borrow_sources` side table intersected with live-variable set at the mutation point (§1.9). DP-5 is the sole predicate that is NOT a pure function of `AimsState` — it additionally requires `borrow_sources` and liveness.
 
 ### DP-6: `is_reuse_candidate(s)`
 
@@ -730,6 +745,16 @@ Each predicate is a pure function of the lattice state. The tables below show th
 | true | Owned | Linear | ≠ Unique | any | **false** |
 | true | Owned | Linear | Unique | true | **false** |
 | true | Owned | Linear | Unique | false | **true** |
+
+### DP-8: `is_local(s)`
+
+| Locality | Result |
+|---|---|
+| BlockLocal | **true** |
+| FunctionLocal | **true** |
+| ArgEscaping | **false** — escapes into callee; see DP-8 rationale in §4 |
+| HeapEscaping | **false** |
+| Unknown | **false** |
 
 ### DP-9: `cow_mode(s)`
 

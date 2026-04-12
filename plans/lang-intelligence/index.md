@@ -11,7 +11,7 @@ reroute: false
 | # | Section | Status | Depends On |
 |---|---------|--------|------------|
 | 01 | Infrastructure & Canonical Helper | complete | — |
-| 02 | Claude Rules & Commands | in-progress | 01 |
+| 02 | Claude Rules & Commands | complete | 01 |
 | 03 | Skill Integration: TPR + Fix-Bug | not-started | 01, 02 |
 | 04 | Skill Integration: Remaining | not-started | 01, 02 |
 | 05 | Code Graph: Parser Adapters | not-started | — |
