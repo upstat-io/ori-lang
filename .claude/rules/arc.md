@@ -3,13 +3,15 @@ paths:
   - "**arc**"
 ---
 
-# ARC Optimization — AIMS (ARC Intelligent Memory System)
+# AIMS — The ARC Intelligence Layer (ori_arc)
 
 ## Mission — READ THIS FIRST
 
-AIMS exists to replace fragmented memory-management heuristics with a **single sound semantic framework**. RC placement, reuse, COW, FIP, contracts, and TRMC are **not separate features** — they are facets of one model and must agree. The goal is not partial implementation of many ideas, but one trustworthy system whose claims are enforceable in code and verification.
+**ARC is the runtime substrate. AIMS is the compile-time intelligence layer.** ARC is the refcount header, the atomic inc/dec primitives, the drop functions, the uniqueness check — the machinery that ships in `ori_rt` and executes at runtime. AIMS is everything in `ori_arc/src/aims/` + the surrounding passes (`borrow/`, `drop/`, `fbip/`, `uniqueness/`, `classify/`) that decide **at compile time** when RC operations are unnecessary and elides them. Plain ARC without AIMS would be a mediocre memory model; AIMS is what makes the substrate competitive. **The goal is RC rareness in emitted code, not RC speed.** Reasoning about AIMS as "RC placement" misses the point — placement is the fallback for the leftovers after elimination.
 
-**Every change to ARC/AIMS code must preserve system coherence.** Fixing one subsystem while leaving another inconsistent is not a fix — it's a new bug. When you touch RC emission, ask if contracts still agree. When you touch contracts, ask if realization still matches. When you touch COW, ask if reuse and drop hints still cohere.
+AIMS exists to replace fragmented memory-management heuristics with a **single sound semantic framework**. RC placement, reuse, COW, FIP, contracts, TRMC, borrow inference, immortal detection, and locality/escape classification are **not separate features** — they are facets of one 7D lattice model and must agree. The goal is not partial implementation of many ideas, but one trustworthy system whose claims are enforceable in code and verification.
+
+**Every change to ARC/AIMS code must preserve system coherence.** Fixing one subsystem while leaving another inconsistent is not a fix — it's a new bug. When you touch RC emission, ask if contracts still agree. When you touch contracts, ask if realization still matches. When you touch COW, ask if reuse and drop hints still cohere. And ask: **does this fix preserve the through-line from proof to elimination?** A change that adds RC ops without pointing at a specific proof failure is a regression, not a correctness win.
 
 ### Non-Negotiable Invariants
 

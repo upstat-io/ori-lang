@@ -95,13 +95,37 @@ A fix is NOT done until ALL of these are true:
 5. **ARC-safe**: no GC/borrow checker; capture by value; no shared mutable refs
 
 ### AIMS — ARC Intelligent Memory System
-AIMS is a **unified semantic framework** — RC placement, reuse, COW, FIP, contracts, and TRMC are facets of one model, not separate features. Every memory decision flows through the unified lattice, contracts, and realization. **Non-negotiable invariants:**
+
+**AIMS is ARC-based, but it is NOT "just ARC."** Plain reference counting is a mediocre memory model — every copy an atomic op, every drop a cache miss, every shared value a contention point. AIMS is the compile-time intelligence layer on top of that substrate, and its job is to **make RC rare in emitted code, not to make RC ops faster**. What reaches the LLVM backend should look less like "refcounted code" and more like "plain pointer code with occasional explicit lifetime ops where aliasing is genuinely dynamic." Reasoning about AIMS as "RC placement" misses the point — placement is the fallback for the leftovers after elimination.
+
+**The unified model.** RC placement, reuse, COW, FIP, TRMC, contracts, borrow inference, immortal detection, and locality/escape classification are NOT independent optimizations — they are facets of one formally-grounded 7-dimensional lattice (`AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass`). Every memory decision is derived from this lattice via backward dataflow (intraprocedural) + SCC fixpoint (interprocedural), and realized into ARC IR only where the proof fails to eliminate the operation. There is no "bag of peephole passes" — there is one semantic framework whose facets must agree, verified continuously by `run_aims_verify()`.
+
+**What AIMS does TODAY (shipped, not roadmap):**
+- **Interprocedural RC elimination** via `MemoryContract` — callers skip inc/dec when callees prove non-consumption; callees skip initialization when callers prove uniqueness
+- **Intraprocedural RC elimination** via the 7D lattice — proves locally that ownership already exists or that a value dies unused
+- **FBIP / reuse** — replaces entire alloc-copy-dealloc sequences with in-place updates when uniqueness is provable (Koka + Lean 4 style)
+- **TRMC** — tail-recursion modulo cons, eliminating RC ops on the return path of tail-call chains
+- **Immortal detection** — heap-allocated constants skip RC entirely
+- **Borrow inference** — per-parameter Owned/Borrowed ABI decisions at function boundaries
+
+**Where AIMS is HEADED (pending plans, all ARC-based extensions — none replace refcounting):**
+- **Escape analysis → stack promotion** (`plans/repr-opt/section-08-escape-analysis.md`) — non-escaping allocations vanish entirely; no header, no RC ops, pure stack
+- **Unified locality dimension** (`plans/locality-representation-unification/`) — one canonical escape classification feeding stack promotion, header sizing, and cross-function reasoning; replaces 3+ parallel escape enums
+- **RC header compression** (`plans/repr-opt/section-09-arc-header.md`) — refcount field narrowed from i64 → i8/i16/i32 based on proven sharing bounds
+- **Non-atomic RC** (`plans/repr-opt/section-10-thread-local-arc.md`) — thread-local allocations use plain load/store instead of atomic CAS
+- **AIMS → LLVM fact export** (`plans/semantic-optimization-pipeline/section-03-aims-export.md`) — `noalias`, `alias.scope`, `memory(none)` attributes let standard LLVM passes exploit AIMS proofs
+- **Clang ARC patterns** (`plans/clang-arc-lessons/`) — KnownSafe flag, barrier analysis, RC motion, COW contraction, per-phase elimination statistics
+
+**The through-line:** every planned extension shrinks the problem space AIMS has to emit RC ops for. The endgame is emitted code where RC operations are so rare they can be audited one-by-one, and where the AIMS pipeline can justify each surviving operation by pointing at the specific proof step that failed. This is a categorically different goal from "make ARC faster" — AIMS aims to make ARC **invisible except where it is load-bearing**.
+
+**Non-negotiable invariants:**
 1. Contracts and realization must agree (FipContract::Certified ↔ zero unmatched alloc/dealloc)
 2. Active rewrites must be sound (identical observable behavior, behavioral verification required)
 3. No pass may rely on stale summaries (pipeline ordering is load-bearing)
 4. Every active subsystem must be end-to-end verified (implementation + invariant enforcement + tests)
+5. **The unified model must stay unified** — no subsystem may introduce a parallel escape enum, a side RC placement path, or a shadow uniqueness tracker. New capabilities extend a lattice dimension or a contract field; they do NOT spawn a new sync point.
 
-When fixing any AIMS-related bug: ask "does this preserve system coherence?" A fix in one subsystem that leaves another inconsistent is a new bug, not a fix. See `.claude/rules/arc.md` for full details.
+When fixing any AIMS-related bug: ask "does this preserve system coherence?" (facets still agree) AND "does this preserve the through-line from proof to elimination?" (every RC op added points at a specific proof failure). See `.claude/rules/arc.md` for full details.
 
 ---
 
