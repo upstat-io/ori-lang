@@ -6,7 +6,7 @@ reviewed: true
 goal: "Audit and extend proptest-based verification of algebraic lattice properties (join commutativity, idempotence, partial-order axioms), canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts and transfer function monotonicity, fixpoint convergence bounds, and BUG-04-057 soundness analysis across the full 7-dimensional AIMS product lattice"
 success_criteria:
   - "proptest in ori_arc dev-dependencies and lattice property tests compile and run"
-  - "Join laws (commutativity, idempotence) verified via proptest across randomly sampled canonical AimsState pairs, excluding SCALAR sentinel. Associativity blocked by BUG-04-057 (test exists as #[ignore])"
+  - "Join laws (commutativity, associativity, idempotence) verified via proptest across randomly sampled canonical AimsState pairs, excluding SCALAR sentinel. BUG-04-057 fixed (Rule 4 removed, Rule 6 widened) — all 3 join laws pass"
   - "Partial-order axioms (reflexivity, antisymmetry, transitivity) verified for lattice_leq on canonical states"
   - "Canonicalization idempotence: canonicalize(canonicalize(s)) == canonicalize(s) for all sampled states"
   - "Decision predicate properties: semantic contracts for is_rc_dec_unnecessary, is_rc_inc_elidable, can_mutate_in_place, is_rc_needed, needs_cow_check, is_reuse_candidate, is_rc_skip_eligible, is_local verified via proptest; capture_state_update verified to produce canonical output AND tested for monotonicity"
@@ -29,13 +29,13 @@ sections:
     status: complete
   - id: "04.2"
     title: "Join Law Properties and Partial-Order Axioms"
-    status: in-progress
+    status: complete
   - id: "04.3"
     title: "Canonicalization Properties"
     status: complete
   - id: "04.4"
     title: "Transfer Function Properties"
-    status: in-progress
+    status: complete
   - id: "04.5"
     title: "Fixpoint Convergence and Permutation Invariance"
     status: complete
@@ -276,7 +276,7 @@ The `lattice_leq` helper (`a <= b iff a.join(b) == b`) is used by every subseque
 
   **CRITICAL GATE:** If this test FAILS, then `lattice_leq` defined as `a.join(b) == b` is NOT a valid partial order when join is non-associative (BUG-04-057). Transitivity failure would invalidate ALL downstream monotonicity tests (04.4 `capture_state_update` monotonicity) and ALL ordering assertions in 04.5/04.6. If transitivity fails: (1) STOP all further work in this section, (2) escalate BUG-04-057 to critical, (3) the partial order definition must be reconsidered (possibly componentwise `<=` on each dimension separately, which is always a valid partial order regardless of join associativity).
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 04.1-04.2 implementation work (covered by mandatory section-close TPR per /continue-roadmap §Step 10)
+- [x] **TPR checkpoint** — `/tpr-review` covering 04.1-04.2 (completed via section-close TPR 2026-04-12, 3 rounds)
 
 - [x] **Subsection close-out (04.2)** — MANDATORY before starting 04.3:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
@@ -393,7 +393,7 @@ Audit the existing semantic contract tests and add the missing `capture_state_up
 
   **Note on `prop_assume!` avoidance:** Both tests above use constructive generation (`b = a.join(diff)`) to guarantee the ordering relation, avoiding `prop_assume!(lattice_leq(...))` which would discard most random pairs (most canonical states are incomparable in the 7D product lattice). This ensures 100% hit rate and avoids `TooManyRejects` failures.
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 04.3-04.4 implementation work (covered by mandatory section-close TPR per /continue-roadmap §Step 10)
+- [x] **TPR checkpoint** — `/tpr-review` covering 04.3-04.4 (completed via section-close TPR 2026-04-12, 3 rounds)
 
 - [x] **Subsection close-out (04.4)** — MANDATORY before starting 04.5:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
