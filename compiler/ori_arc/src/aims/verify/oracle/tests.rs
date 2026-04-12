@@ -55,9 +55,9 @@ fn derive_param_linear_when_no_rc_ops() {
 
     let contracts = derive_param_contracts(&func);
     assert_eq!(contracts.len(), 1);
-    assert_eq!(contracts[0].access, AccessClass::Borrowed);
+    assert_eq!(contracts[0].access, AccessClass::Owned);
     assert_eq!(contracts[0].consumption, Consumption::Linear);
-    assert_eq!(contracts[0].cardinality, Cardinality::Once);
+    assert!(!contracts[0].may_share);
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn derive_param_dead_when_unused() {
     let contracts = derive_param_contracts(&func);
     assert_eq!(contracts[0].access, AccessClass::Borrowed);
     assert_eq!(contracts[0].consumption, Consumption::Dead);
-    assert_eq!(contracts[0].cardinality, Cardinality::Absent);
+    assert!(!contracts[0].may_share);
 }
 
 // verify_coherence tests
@@ -232,9 +232,8 @@ fn oracle_detects_may_deallocate_mismatch() {
 
 /// The oracle must detect RC operations on parameter aliases created via `Let` bindings.
 /// Bug: current oracle only checks direct parameter vars, not aliases.
-/// 05.PRE TDD: un-ignore after 05.1 rewrite.
+/// 05.PRE TDD: now passes with aliasing-aware oracle (05.1 rewrite).
 #[test]
-#[ignore = "05.PRE: oracle blind to aliasing — will pass after 05.1 rewrite"]
 fn oracle_tracks_aliased_param_via_let_binding() {
     // param0 -> v1 via Let { dst: v1, value: Var(param0) }
     // RcInc on v1 should be detected as an RC op on param0
@@ -293,9 +292,8 @@ fn oracle_counts_batched_rc_inc() {
 
 /// The oracle must detect ownership transfers via `arg_ownership` on `Apply`.
 /// Bug: current oracle treats all `Apply` args as non-RC uses, ignoring `arg_ownership`.
-/// 05.PRE TDD: un-ignore after 05.1 rewrite.
+/// 05.PRE TDD: now passes with ownership-aware oracle (05.1 rewrite).
 #[test]
-#[ignore = "05.PRE: oracle blind to arg_ownership — will pass after 05.1 rewrite"]
 fn oracle_accounts_for_arg_ownership_transfer() {
     let func = func_with_body(
         vec![owned_param(0, Idx::UNIT)],
@@ -351,25 +349,20 @@ fn oracle_derives_may_share_from_rc_incs() {
     // oracle does not check may_share at all -- verify_coherence returns
     // NO mismatches for this case, which is the bug.
     //
-    // GAP: verify_coherence does not check may_share dimension.
+    // After 05.1 rewrite: oracle now checks may_share via ParamMayShare.
     assert!(
-        !mismatches.iter().any(|m| matches!(
-            m,
-            CoherenceMismatch::EffectMismatch {
-                field: "may_share",
-                ..
-            }
-        )),
-        "BUG: oracle currently does NOT detect may_share mismatch -- this test documents the gap"
+        mismatches
+            .iter()
+            .any(|m| matches!(m, CoherenceMismatch::ParamMayShare { .. })),
+        "oracle should detect may_share mismatch (inferred=false, realized has RcInc)"
     );
 }
 
 /// `RcDec` after a non-RC use should be `Linear`, not `Affine`.
 /// Bug: current oracle derives `Affine` for any "`RcDec` only" pattern,
 /// regardless of whether there was a prior non-RC use.
-/// 05.PRE TDD: un-ignore after 05.1 rewrite.
+/// 05.PRE TDD: now passes with aggregate-count derivation (05.1 rewrite).
 #[test]
-#[ignore = "05.PRE: oracle conflates Affine/Linear — will pass after 05.1 rewrite"]
 fn oracle_distinguishes_affine_from_linear() {
     let func = func_with_body(
         vec![owned_param(0, Idx::UNIT)],
@@ -400,4 +393,138 @@ fn oracle_distinguishes_affine_from_linear() {
         Consumption::Linear,
         "RcDec after non-RC use should be Linear, not Affine"
     );
+}
+
+// --- 05.1.3 Additional matrix tests ---
+
+/// Transitive alias chain: param0 -> v1 -> v2, `RcInc` on v2 detected.
+#[test]
+fn oracle_tracks_transitive_alias_chain() {
+    let func = func_with_body(
+        vec![owned_param(0, Idx::UNIT)],
+        vec![
+            ArcInstr::Let {
+                dst: v(1),
+                ty: Idx::UNIT,
+                value: crate::ir::ArcValue::Var(v(0)),
+            },
+            ArcInstr::Let {
+                dst: v(2),
+                ty: Idx::UNIT,
+                value: crate::ir::ArcValue::Var(v(1)),
+            },
+            ArcInstr::RcInc {
+                var: v(2), // two-hop alias of param0
+                count: 1,
+                strategy: RcStrategy::HeapPointer,
+            },
+        ],
+    );
+
+    let contracts = derive_param_contracts(&func);
+    assert_eq!(
+        contracts[0].access,
+        AccessClass::Owned,
+        "RcInc on two-hop alias should detect as Owned"
+    );
+    assert_eq!(contracts[0].consumption, Consumption::Unrestricted);
+    assert!(contracts[0].may_share);
+}
+
+/// Ownership transfer via `ApplyIndirect` (closure call with owned arg).
+#[test]
+fn oracle_detects_owned_transfer_via_apply_indirect() {
+    let func = func_with_body(
+        vec![owned_param(0, Idx::UNIT)],
+        vec![ArcInstr::ApplyIndirect {
+            dst: v(2),
+            ty: Idx::UNIT,
+            closure: v(10), // closure is always borrowed
+            args: vec![v(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+        }],
+    );
+
+    let contracts = derive_param_contracts(&func);
+    assert_eq!(
+        contracts[0].access,
+        AccessClass::Owned,
+        "param passed as Owned in ApplyIndirect should be Owned"
+    );
+    assert_eq!(contracts[0].consumption, Consumption::Linear);
+}
+
+/// Ownership transfer via `Invoke` terminator (unwind-capable call).
+#[test]
+fn oracle_detects_owned_transfer_via_invoke() {
+    let func = make_func(
+        vec![owned_param(0, Idx::UNIT)],
+        Idx::UNIT,
+        vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Invoke {
+                dst: v(1),
+                ty: Idx::UNIT,
+                func: ori_ir::Name::from_raw(100),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+                normal: ArcBlockId::new(1),
+                unwind: ArcBlockId::new(2),
+            },
+        }],
+        vec![Idx::UNIT; 1000],
+    );
+
+    let contracts = derive_param_contracts(&func);
+    assert_eq!(
+        contracts[0].access,
+        AccessClass::Owned,
+        "param passed as Owned in Invoke terminator should be Owned"
+    );
+}
+
+/// Ownership transfer via `Construct` (all constructor args are owned).
+#[test]
+fn oracle_detects_owned_transfer_via_construct() {
+    let func = func_with_body(
+        vec![owned_param(0, Idx::UNIT)],
+        vec![ArcInstr::Construct {
+            dst: v(1),
+            ty: Idx::UNIT,
+            ctor: crate::ir::CtorKind::Tuple,
+            args: vec![v(0), v(10)],
+        }],
+    );
+
+    let contracts = derive_param_contracts(&func);
+    assert_eq!(
+        contracts[0].access,
+        AccessClass::Owned,
+        "param consumed by Construct should be Owned"
+    );
+    assert_eq!(contracts[0].consumption, Consumption::Linear);
+}
+
+/// Ownership transfer via `PartialApply` (closure capture — all args owned).
+#[test]
+fn oracle_detects_owned_transfer_via_partial_apply() {
+    let func = func_with_body(
+        vec![owned_param(0, Idx::UNIT)],
+        vec![ArcInstr::PartialApply {
+            dst: v(1),
+            ty: Idx::UNIT,
+            func: ori_ir::Name::from_raw(200),
+            args: vec![v(0)],
+        }],
+    );
+
+    let contracts = derive_param_contracts(&func);
+    assert_eq!(
+        contracts[0].access,
+        AccessClass::Owned,
+        "param captured by PartialApply should be Owned"
+    );
+    assert_eq!(contracts[0].consumption, Consumption::Linear);
 }
