@@ -258,6 +258,23 @@ fn test_iter_join_int_after_map() {
     );
 }
 
+#[test]
+fn test_iter_join_empty_int() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_empty_int.ori"),
+        "iter_join_empty_int",
+    );
+}
+
+/// Cross-feature: join on filtered int iterator exercises filter adapter + `to_str` trampoline.
+#[test]
+fn test_iter_join_int_after_filter() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_int_after_filter.ori"),
+        "iter_join_int_after_filter",
+    );
+}
+
 // zip adapter
 
 #[test]
