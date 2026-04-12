@@ -170,8 +170,8 @@ Canonicalization enforces cross-dimensional feasibility invariants. It runs afte
 **CN-6** — Wide-locality uniqueness ceiling: `Locality ≥ HeapEscaping ∧ Uniqueness = Unique ⟹ Uniqueness := MaybeShared`.
 *Rationale*: A value reachable from the heap (or with unknown locality) may have aliases via heap paths. Only `ArgEscaping` (callee-scoped, no heap persistence) and below preserve uniqueness. Uses `≥` because `Unknown` subsumes `HeapEscaping` — if heap-escaping forces `MaybeShared`, unknown must also. (BUG-04-058 fix.)
 
-**CN-7** — Shared collection forces dynamic COW: `Uniqueness = Shared ∧ Shape = CollectionBuffer` — enforced at query sites via `needs_cow_check()`.
-*Rationale*: Shared collection buffers require COW on every mutation.
+**CN-7** — Shared collection forces unconditional copy: `Uniqueness = Shared ∧ Shape = CollectionBuffer ⟹ cow_mode = StaticShared`. Shared collections bypass the runtime uniqueness check entirely — they always take the copy path (DP-9).
+*Rationale*: Shared values are definitively RC > 1. No runtime check is needed; the copy path is statically selected.
 
 **CN-8** — Borrowed locality ceiling: `Access = Borrowed ∧ Locality > FunctionLocal ⟹ Locality := FunctionLocal`.
 *Rationale*: A borrowed reference cannot escape its defining function — it is a temporary view. Placed before CN-4 and CN-6 so locality is precise when those rules fire.
@@ -210,7 +210,7 @@ Transfer functions define how each ARC IR instruction updates the lattice state.
 
 Each operand of each instruction generates a `(variable, cardinality)` demand:
 
-**TF-11** — Most instructions emit `(operand, Once)` per argument: Apply, Construct, Project, Select (cond + both values), Set (base + value), Return, Jump args, Branch cond, Switch scrutinee.
+**TF-11** — Most instructions emit `(operand, Once)` per argument: Apply, Construct, Project, Set (base + value), Return, Jump args, Branch cond, Switch scrutinee. **Select** emits `(cond, Once)` and `(true_val, Once)` and `(false_val, Once)` — these are per-variable demands. Because only one branch value is selected at runtime, if `true_val = false_val` (same variable in both positions), only one demand is emitted (alternative, not additive).
 
 **TF-12** — PartialApply emits NO backward demand from the standard demand system. Captured argument demand is handled entirely by `capture_state_update` to avoid double-counting.
 
@@ -262,9 +262,9 @@ Local + owned + linear = lifetime precisely scoped; skip both inc and dec.
 
 **IC-1** — The call graph SHALL be decomposed into SCCs. SCCs SHALL be processed in topological order (callees before callers).
 
-**IC-2** — Each parameter initializes to most optimistic: `(Borrowed, Dead, Absent, BlockLocal, Unique, no escape, no share)`. Fixed-point iteration promotes toward conservative.
+**IC-2** — Each parameter initializes to most optimistic: `(Borrowed, Dead, Absent, BlockLocal, Unique)`. Fixed-point iteration promotes toward conservative. Escape is derived from Locality (`locality > FunctionLocal ⟹ escapes`), not stored as a separate fact — the Locality dimension is the SSOT for escape classification.
 
-**IC-3** — Parameter contract join is componentwise max: `access(max), consumption(max), cardinality(max), locality(max), uniqueness(max), may_escape(OR), may_share(OR)`. If join changes any dimension, iterate again.
+**IC-3** — Parameter contract join is componentwise max: `access(max), consumption(max), cardinality(max), locality(max), uniqueness(max)`. If join changes any dimension, iterate again. `may_share` is an EffectSummary field (IC-5), not a parameter contract field.
 
 **IC-4** — Return contract: `uniqueness(join), preserves_freshness(AND), locality(join), shape(join)`. Freshness requires ALL return paths to preserve it.
 
@@ -332,6 +332,20 @@ Step 12: FBIP enforcement          — Read-only diagnostic
 **PL-5** — No pass SHALL rely on stale summaries. If a step modifies IR or updates an effect summary, all downstream consumers SHALL see updated values.
 
 **PL-6** — Adding a new pass requires updating the pipeline ordering and proving it does not violate any existing ordering constraint.
+
+### TRMC (Tail-Recursion Modulo Cons)
+
+TRMC is a pipeline-integrated rewrite that enables tail-call optimization for functions that construct on the return path. It is an active subsystem with formal rules, not future work.
+
+**PL-7** — TRMC normalization (Step 3a) SHALL detect tail-recursive functions that return constructor applications. The `ContextBehavior` contract on `MemoryContract` tracks: `is_trmc_candidate` (bool), `context_param_idx` (Option), `produces_context` (bool), and `consumes_context` (bool).
+
+**PL-8** — TRMC candidate predicate: a function is a TRMC candidate when it is self-recursive, the recursive call appears in tail position of a constructor argument, and the constructor is in the return path. The context region is the span from the recursive call to the constructor that wraps its result.
+
+**PL-9** — TRMC rewrite: the candidate function is normalized to accept a `ContextHole` parameter (Shape = ContextHole). The recursive call fills the hole with the partially-constructed value instead of allocating a new frame. The rewrite SHALL be idempotent — a second pass produces identical IR.
+
+**PL-10** — TRMC soundness verification: after rewrite AND after intraprocedural analysis (Step 4), `verify_trmc_soundness()` SHALL confirm that the rewritten function preserves observable behavior. If verification fails, the rewrite SHALL be rolled back to the pre-TRMC IR. Rollback is safe — it restores the original (correct but unoptimized) code.
+
+**PL-11** — `ContextBehavior` join: `is_trmc_candidate(AND)`, `produces_context(OR)`, `consumes_context(OR)`. Conservative: candidacy requires ALL paths, context production/consumption is any-path.
 
 ---
 
@@ -455,17 +469,17 @@ The verification stack is **layered**. Each layer catches a different class of i
 
 AIMS draws from multiple traditions. No single prior system has this combination.
 
-### Lean 4 Perceus (PLDI 2021)
-- **Adopted**: Binary borrow inference (Owned/Borrowed) with monotone fixpoint. Reset/reuse via IsShared runtime check. RC insertion driven by liveness analysis.
-- **Extended by AIMS**: Lean uses binary liveness (live/dead); AIMS uses 7D product lattice with substructural consumption, cardinality, locality, shape, and effects. Lean's reuse is same-type only; AIMS adds cross-dimensional uniqueness proofs.
+### Lean 4 — Counting Immutable Beans (Ullrich & de Moura, IFL 2019)
+- **Adopted**: Binary borrow inference (Owned/Borrowed) with monotone fixpoint. RC insertion driven by liveness analysis. Reset/reuse via IsShared runtime check (ExpandResetReuse.lean).
+- **Extended by AIMS**: Lean uses binary liveness (live/dead); AIMS uses a multi-dimensional product lattice with substructural consumption, cardinality, locality, shape, and effects. Lean's reuse is same-type only; AIMS adds cross-dimensional uniqueness proofs.
 
-### Koka FBIP (Reinking et al.)
-- **Adopted**: Functional-but-in-place certification. Allocation credit tracking. Tail-recursion modulo cons.
+### Koka Perceus (Reinking, Lorenzen, Leijen & de Moura, PLDI 2021)
+- **Adopted**: Perceus garbage-free RC with reuse. Functional-but-in-place (FBIP) certification. Allocation credit tracking. Tail-recursion modulo cons (TRMC).
 - **Extended by AIMS**: Koka certifies at the function level (FIP/FBIP/neither); AIMS certifies at the instruction level via the product lattice and contracts. Koka's allocation tracking is a tree; AIMS uses EffectSummary fields on interprocedural contracts.
 
 ### Swift ARC Optimizer
-- **Adopted**: KnownSafe flag for nested pair elimination. Bidirectional dataflow for RC motion. Effect-aware barriers.
-- **Extended by AIMS**: Swift uses a 4-state per-direction lattice (None→Decremented→MightBeUsed→MightBeDecremented); AIMS's 7D lattice subsumes this as the Consumption dimension. Swift's barrier analysis is per-pointer; AIMS uses interprocedural contracts for whole-function reasoning.
+- **Adopted**: KnownSafe flag for nested pair elimination (RL-22/23). Bidirectional dataflow for RC motion (RL-24/25). Effect-aware barriers (RL-27/28).
+- **Extended by AIMS**: Swift uses a 4-state per-direction lattice (None→Decremented→MightBeUsed→MightBeDecremented) plus an independent KnownSafe boolean flag. AIMS's product lattice is broader — Consumption subsumes the 4-state lattice, while AIMS's KnownSafe rules (RL-22/23) correspond to Swift's independent KnownSafe flag. Swift's barrier analysis is per-pointer; AIMS uses interprocedural contracts for whole-function reasoning.
 
 ### GHC Demand Analysis (POPL 2014)
 - **Adopted**: Cardinality dimension (0-1-ω semiring from QTT). `seq_add` (sequential) vs `alt_join` (alternative) composition. Distributivity of `seq_add` over `alt_join`.
