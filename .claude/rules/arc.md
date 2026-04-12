@@ -93,7 +93,7 @@ Any fixpoint analysis (interprocedural contract computation, intraprocedural bac
 - **Finite lattice height**: every lattice dimension has bounded height. The count of dimensions is a choice that can evolve; the invariant is that **each active dimension** must be provably finite. Current state: 7 dimensions, each proven finite — adding a new dimension requires re-proving finiteness for it.
 - **Monotone transfer functions**: `state_after >= state_before` in the lattice partial order. Non-monotone transfer = unsound analysis.
 - **Deterministic worklist ordering**: iteration must be deterministic regardless of hash-map ordering. Use reverse-postorder or SCC-index-based ordering.
-- **Iteration bound**: maximum iteration count per SCC (default: 100). Log warning at 50 iterations. Abort with diagnostic at 100.
+- **Iteration bound**: derived from domain dimensions — see `aims-rules.md` IC-7 for the authoritative formula. Practical safety cap: `max(100, derived_limit)`. Log warning at 50% of cap. Abort with diagnostic at 100%.
 - **Widening**: if convergence is slow due to lattice height, apply widening at loop headers. Currently not needed (all dimensions have height <= 5).
 
 ### Entry Points

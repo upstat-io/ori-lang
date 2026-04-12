@@ -210,7 +210,7 @@ Transfer functions define how each ARC IR instruction updates the lattice state.
 
 Each operand of each instruction generates a `(variable, cardinality)` demand:
 
-**TF-11** — Most instructions emit `(operand, Once)` per argument: Apply, Construct, Project, Set (base + value), Return, Jump args, Branch cond, Switch scrutinee. **Select** emits `(cond, Once)` and `(true_val, Once)` and `(false_val, Once)` — these are per-variable demands. Because only one branch value is selected at runtime, if `true_val = false_val` (same variable in both positions), only one demand is emitted (alternative, not additive).
+**TF-11** — Most instructions emit `(operand, Once)` per argument: Construct, Project, Set (base + value), Return, Jump args, Branch cond, Switch scrutinee. **Apply/Invoke**: emit `(arg, Once)` conservatively; callee contract refinement (IA-8) narrows demands using `ParamContract.cardinality` — an `Absent` parameter produces zero demand at the caller. **Select**: emit `(cond, Once)` and `(true_val, Once)` and `(false_val, Once)` as per-variable demands. If `true_val = false_val` (same variable), only one demand is emitted (alternative, not additive).
 
 **TF-12** — PartialApply emits NO backward demand from the standard demand system. Captured argument demand is handled entirely by `capture_state_update` to avoid double-counting.
 
@@ -238,8 +238,8 @@ Moved once — no duplication, no increment needed.
 **DP-4** — `needs_cow_check(s) ⟺ s.uniqueness = MaybeShared`.
 Only MaybeShared needs a runtime uniqueness check. Unique takes fast path statically; Shared takes slow path statically.
 
-**DP-5** — `can_mutate_in_place(s) ⟺ s.access = Owned ∧ s.uniqueness = Unique`.
-Unique ownership permits direct mutation without COW.
+**DP-5** — `can_mutate_in_place(s) ⟺ s.access = Owned ∧ s.uniqueness = Unique ∧ no_active_overlapping_borrows(s)`.
+Unique ownership permits direct mutation without COW, BUT only when no active borrow from the same source overlaps the mutated field. Borrows (via `Project`) do not increment RC — a `Unique` value with an active borrow is still RC = 1 but mutating it would corrupt the borrowed reference. The `borrow_sources` side table tracks active borrows; disjoint field borrows (RL-10) are safe.
 
 **DP-6** — `is_reuse_candidate(s) ⟺ s.access = Owned ∧ s.uniqueness ≠ Shared ∧ s.shape ≠ NonReusable`.
 Reuse requires owned, non-shared, reusable shape.
@@ -272,7 +272,7 @@ Local + owned + linear + unique = lifetime precisely scoped with RC == 1; skip b
 
 **IC-6** — FIP contract: `Never` absorbs all; `Conditional` absorbs `Bounded/Certified`; `Bounded(n) ⊔ Bounded(m) = Bounded(max(n,m))`. FipContract::Certified ⟺ zero unmatched allocations/deallocations in realized IR.
 
-**IC-7** — Convergence: finite domain guarantees termination. Parameter contract has 5 dimensions (access height 1 + consumption height 3 + cardinality height 2 + locality height 4 + uniqueness height 2 = 12 per param). Return contract has 4 dimensions. EffectSummary has 6 boolean fields. Iteration limit: `param_count × 12 + return_dims × 4 + effect_dims × 6`. If exceeded, widen all contracts to most conservative and emit a diagnostic.
+**IC-7** — Convergence: finite domain guarantees termination. Parameter contract has 5 dimensions (access height 1 + consumption height 3 + cardinality height 2 + locality height 4 + uniqueness height 2 = 12 per param). Return contract has 4 dimensions. EffectSummary has 6 boolean fields. The iteration limit is derived from the domain: `param_count × 12 + return_dims × 4 + effect_dims × 6`. As a practical safety cap, the implementation uses `max(100, derived_limit)` — log warning at 50% of cap, abort with diagnostic at 100%. This document (`aims-rules.md`) is authoritative for the convergence bound formula; `arc.md` references it.
 
 **IC-8** — ~~REMOVED (unsound — same root cause as DP-10).~~ The former rule derived parameter uniqueness from caller consumption patterns (`Owned ∧ Linear ∧ Once`). This is unsound: a caller with a `MaybeShared` argument that it uses linearly still holds a reference whose RC may be > 1 from upstream aliases. Parameter uniqueness is established by the SCC fixpoint (IC-2/IC-3): if ALL callers pass arguments whose `Uniqueness` dimension is `Unique`, the fixpoint converges to `ParamContract.uniqueness = Unique` naturally. No post-fixpoint tightening is needed or sound.
 
@@ -382,7 +382,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-11** — Same-block reuse: a dying value's allocation SHALL be reused for a fresh allocation of the same type in the same block, if: (a) the death precedes the allocation, (b) no intervening use exists, AND (c) the dying value has `Uniqueness = Unique`. Reusing a non-unique allocation corrupts other aliases. For `MaybeShared` values, dynamic reuse (IsShared check + conditional) is available via DP-6 but requires a runtime guard.
 
-**RL-12** — Cross-block reuse: a dying value's allocation SHALL be reused across blocks when the death dominates and post-dominates the allocation, and the dying value is statically unique.
+**RL-12** — Cross-block reuse: a dying value's allocation SHALL be reused across blocks when the death block dominates the allocation block AND the allocation block post-dominates the death block (ensuring the reuse is unconditional on all paths between death and allocation), and the dying value is statically unique.
 
 **RL-13** — ~~REMOVED (unsound — same root cause as DP-10).~~ The former rule claimed `Construct + Once = RC == 1 at death`. This is false: the one use may be "store into a data structure," which creates an alias via RcInc. At death, the original variable's allocation is still alive via the alias. Reuse would overwrite live memory. Reuse eligibility is determined SOLELY by the Uniqueness dimension (DP-6 + RL-11/RL-12).
 
@@ -391,6 +391,8 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 **RL-14** — Non-escaping allocations (`Locality ≤ FunctionLocal`) with fixed size SHALL be stack-allocated via `alloca`. No RC header. No RC operations. Stack deallocation at scope exit.
 
 **RL-15** — Non-escaping dynamic-size allocations SHALL use a function-local bump allocator. Entire region freed at function return.
+
+**RL-15a** — ArgEscaping allocations (`Locality = ArgEscaping`) SHALL be heap-allocated (they escape the function via argument, so stack allocation is unsound), BUT their uniqueness is preserved (CN-6 does not fire for ArgEscaping — only HeapEscaping and above). ArgEscaping values are candidates for callee-scoped optimizations: the callee knows ownership is temporary and can optimize RC ops accordingly via the interprocedural contract.
 
 **RL-16** — Escaping allocations (`Locality ≥ HeapEscaping`) SHALL be heap-allocated with full RC header.
 
@@ -446,7 +448,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-33** — Projection propagation: if a projected field becomes `Owned`, the source variable SHALL be promoted to `Owned`.
 
-**RL-34** — Tail call preservation: never insert `RcDec` after a tail call. Transfer ownership instead.
+**RL-34** — Tail call preservation: never insert `RcDec` after a tail call. Transfer ownership instead — BUT only when the callee parameter is `Owned`. If the callee parameter is `Borrowed`, ownership transfer violates the ABI (callee expects a borrow, caller's dec never fires → leak). A call to a `Borrowed` parameter cannot be optimized as a tail call unless the caller can arrange for the dec to happen before the call.
 
 ---
 
