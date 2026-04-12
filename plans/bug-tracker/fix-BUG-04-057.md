@@ -2,7 +2,7 @@
 bug: "BUG-04-057"
 title: "AIMS lattice join non-associative — canonicalization Rule 4 anti-monotone + Rule 6 locality narrowness"
 severity: critical
-status: in-progress  # awaiting TPR + hygiene review
+status: complete
 goal: "AIMS lattice join is associative, commutative, and idempotent on canonical states; lattice_leq is transitive; capture_state_update is monotone"
 success_criteria:
   - "join_associative proptest passes (5000 cases, currently #[ignore])"
@@ -152,9 +152,9 @@ The existing proptest infrastructure already provides the test matrix. The tests
 - [x] `timeout 150 ./clippy-all.sh` green
 - [x] `timeout 150 cargo test -p ori_arc` green — 1159 passed, 0 failed
 - [x] `/commit-push` — committed as 3f7cf7c2, pushed to origin/dev
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review` passed (after TPR is clean)
-- [ ] `/improve-tooling` retrospective completed
+- [x] `/tpr-review` passed (via Section 04 close-out TPR, 4 rounds, 2026-04-12)
+- [x] `/impl-hygiene-review` passed (via Section 04 close-out, 2026-04-12)
+- [x] `/improve-tooling` retrospective completed (via Section 04 close-out sweep, 2026-04-12)
 - [x] Bug entry BUG-04-057 in section-04-codegen-llvm.md updated: `- [x]` with resolution (2026-04-12)
 - [x] Bug entry BUG-04-058 in section-04-codegen-llvm.md updated: `- [x]` with resolution (2026-04-12)
 - [ ] Fix section frontmatter `status` updated to `complete`
