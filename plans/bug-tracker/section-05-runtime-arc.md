@@ -34,7 +34,7 @@ Bugs in the runtime library: reference counting, COW operations, slice handling,
   Root cause: The `else` branch in `ori_iter_join` reads string elements via `ptr::read_unaligned` and borrows for `push_str`, but never frees owned strings yielded by adapters like `map`. Adding an unconditional drop would double-free borrowed elements from `[str].iter()`. The iterator C protocol lacks a mechanism to pass element ownership state to consumers.
   Subsystem: `compiler/ori_rt/src/iterator/consumers.rs`
   Found: 2026-04-12 | Source: tpr-review | Reviewer: gemini
-  Note: Distinct from BUG-05-002 (trampoline path). This is the direct-string path where the iterator yields owned OriStr elements but the consumer can't distinguish owned from borrowed.
+  Escalated: requires plan — iterator protocol redesign across ori_rt + ori_llvm + ori_arc. The C API passes raw bytes with no ownership metadata; consumers cannot distinguish borrowed vs owned elements. See `plans/iterator-element-ownership/`.
 
 ---
 
