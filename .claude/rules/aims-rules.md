@@ -99,6 +99,8 @@ Lineage: Marshall et al. (ESOP 2022) — uniqueness is PAST guarantee ("not dupl
 
 Order: `BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping < Unknown`. Join: `max`. Height: 4.
 
+**Implementation status:** `ArgEscaping` is NOT YET IMPLEMENTED in the `Locality` enum (`dimensions.rs`). The current code has 4 variants (`BlockLocal < FunctionLocal < HeapEscaping < Unknown`, height 3). `ArgEscaping` is tracked in `plans/locality-representation-unification/` (queued reroute). Property tests in Section 04 verify the 4-variant lattice currently implemented. When `ArgEscaping` is added, `CHAIN_HEIGHT` and all proptest strategies must be updated.
+
 Both `seq_add` and `alt_join` coincide with `join` for Locality — escape scope widens monotonically.
 
 Lineage: OxCaml locality modes (ICFP 2024), Go `leakCallee`.
