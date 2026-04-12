@@ -131,7 +131,7 @@ The critical failure mode is not the constants — it is the **consumers**. Test
 2. `annotate_arg_ownership()` (`compiler/ori_arc/src/rc_insert/annotate.rs:78-91`) — looks up protocol builtins in `BuiltinOwnershipSets.protocol` and maps to `ArgOwnership::Owned`/`Borrowed`
 3. `promote_callee_args()` (`compiler/ori_arc/src/borrow/update.rs`) — promotes parameters to Owned based on callee argument ownership; protocol builtins are consulted via `BuiltinOwnershipSets`
 
-- [ ] **Add consumer-level tests to `compiler/ori_arc/src/aims/builtins/tests.rs`** — verify that `seed_builtin_contracts` produces `MemoryContract` with correct field values (not just "entry exists"):
+- [x] **Add consumer-level tests to `compiler/ori_arc/src/aims/builtins/tests.rs`** — verify that `seed_builtin_contracts` produces `MemoryContract` with correct field values (not just "entry exists"). Added 5 per-builtin tests + found dispatch order bug in `annotate_arg_ownership` (2026-04-12):
   ```rust
   /// Verify seed_builtin_contracts produces correct MemoryContract
   /// fields for each protocol builtin — not just that an entry exists.
@@ -208,7 +208,7 @@ The critical failure mode is not the constants — it is the **consumers**. Test
   }
   ```
 
-- [ ] **Add `BuiltinOwnershipSets` integration test to `compiler/ori_arc/src/borrow/builtins/tests.rs`** — verify that `BuiltinOwnershipSets::new()` correctly populates the `protocol` map with the right ownership arrays:
+- [x] **Add `BuiltinOwnershipSets` integration test to `compiler/ori_arc/src/borrow/builtins/tests.rs`** — verify that `BuiltinOwnershipSets::new()` correctly populates the `protocol` map with the right ownership arrays (2026-04-12):
   ```rust
   /// Verify BuiltinOwnershipSets.protocol maps each protocol builtin
   /// name to its correct per-arg ownership array. This is the data
@@ -229,21 +229,18 @@ The critical failure mode is not the constants — it is the **consumers**. Test
   }
   ```
 
-- [ ] **Add `annotate_arg_ownership` consumer test to `compiler/ori_arc/src/rc_insert/tests.rs`** — this is the consumer directly responsible for the original `__index` bug. Verify that when `annotate_arg_ownership` encounters a protocol builtin callee, it produces the correct `ArgOwnership` vector:
-  - `__index` call → `[Borrowed, Borrowed]`
-  - `__iter_next` call → `[Owned, Borrowed]`
-  - `ori_iter_drop` call → `[Owned]`
-  - `__collect_set` call → `[Owned]`
-  - `iter` call → `[Borrowed]`
-  - Test naming: `annotate_arg_ownership_protocol_index_produces_borrowed_vector`, etc.
+- [x] **Add `annotate_arg_ownership` consumer test to `compiler/ori_arc/src/rc_insert/tests.rs`** — this is the consumer directly responsible for the original `__index` bug. Verify that when `annotate_arg_ownership` encounters a protocol builtin callee, it produces the correct `ArgOwnership` vector. **Found and fixed dispatch order bug**: `ori_iter_drop` was incorrectly matched by the `ori_` prefix check (external C runtime → all-Borrowed) before reaching the protocol builtin check. Fix: moved protocol check to first position in the cascade (2026-04-12):
+  - `__index` call → `[Borrowed, Borrowed]` ✓
+  - `__iter_next` call → `[Owned, Borrowed]` ✓
+  - `ori_iter_drop` call → `[Owned]` ✓ (FIXED: was `[Borrowed]` before dispatch reorder)
+  - `__collect_set` call → `[Owned]` ✓
+  - `iter` call → `[Borrowed]` ✓
 
-- [ ] **Add `promote_callee_args` consumer test to `compiler/ori_arc/src/borrow/tests.rs`** — verify that borrow inference correctly promotes/borrows parameters at protocol builtin call sites:
-  - For `__index` (both Borrowed): neither arg is promoted to Owned
-  - For `__iter_next` (Owned, Borrowed): arg 0 IS promoted, arg 1 is NOT
-  - For `ori_iter_drop` (Owned): arg IS promoted
-  - Test naming: `promote_callee_args_protocol_index_does_not_promote`, etc.
+- [x] **Add `promote_callee_args` consumer test to `compiler/ori_arc/src/borrow/tests.rs`** — verify that borrow inference correctly promotes/borrows parameters at protocol builtin call sites (2026-04-12):
+  - For `__index` (both Borrowed): neither arg is promoted to Owned ✓
+  - For `ori_iter_drop` (Owned): arg IS promoted ✓
 
-- [ ] **Add negative pin (forbid-old-behavior)** — a negative pin must forbid the broken behavior that existed before the fix. For protocol builtins, the historic bug was `IterDrop` having `Borrowed` ownership (causing double-free). The negative pin asserts the old behavior does NOT exist:
+- [x] **Add negative pin (forbid-old-behavior)** — a negative pin must forbid the broken behavior that existed before the fix. For protocol builtins, the historic bug was `IterDrop` having `Borrowed` ownership (causing double-free). The negative pin asserts the old behavior does NOT exist (2026-04-12):
   ```rust
   /// Negative pin: IterDrop must NOT have Borrowed access.
   /// Before the fix (TPR-07-008), IterDrop was Borrowed, causing
@@ -278,7 +275,7 @@ The critical failure mode is not the constants — it is the **consumers**. Test
   }
   ```
 
-- [ ] **Add consistency pin (supplemental, not negative)** — verify that for every protocol builtin, the `seed_builtin_contracts` output matches `arg_ownership()`. This is a positive regression guard, not a negative pin:
+- [x] **Add consistency pin (supplemental, not negative)** — verify that for every protocol builtin, the `seed_builtin_contracts` output matches `arg_ownership()`. This is a positive regression guard, not a negative pin (2026-04-12):
   ```rust
   /// Consistency pin: contracts match arg_ownership() for all protocol builtins.
   #[test]

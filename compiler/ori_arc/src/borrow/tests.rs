@@ -1,4 +1,4 @@
-use ori_ir::Name;
+use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool};
 
 use crate::borrow::BuiltinOwnershipSets;
@@ -673,7 +673,7 @@ fn unknown_callee_marks_args_owned() {
 use super::infer_derived_ownership;
 use crate::ownership::DerivedOwnership;
 
-/// Borrowed parameter → BorrowedFrom(self).
+/// Borrowed parameter → `BorrowedFrom(self)`.
 #[test]
 fn derived_borrowed_param() {
     // fn f(x: str) -> int  -- x is borrowed (just read, not stored)
@@ -1430,4 +1430,106 @@ fn derived_let_alias_inherits() {
     assert_eq!(ownership[0], DerivedOwnership::BorrowedFrom(v(0)));
     // v1 = Var(v0) → inherits BorrowedFrom(v(0))
     assert_eq!(ownership[1], DerivedOwnership::BorrowedFrom(v(0)));
+}
+
+// Protocol builtin borrow inference tests — verify promote_callee_args
+// correctly handles protocol builtins via BuiltinOwnershipSets.protocol.
+
+/// For `__index` (both Borrowed), params passed to it should NOT be promoted.
+#[test]
+fn promote_protocol_index_does_not_promote() {
+    let interner = StringInterner::new();
+    let func_name = interner.intern("caller");
+    let index_name = interner.intern("__index");
+
+    // fn caller(collection: str, key: str) -> int
+    //   let v2 = __index(collection, key)
+    //   return v2
+    let func = make_func(
+        func_name,
+        vec![param(0, Idx::STR), param(1, Idx::STR)],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(2),
+                ty: Idx::INT,
+                func: index_name,
+                args: vec![v(0), v(1)],
+                arg_ownership: vec![ArgOwnership::Owned; 2],
+            }],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![Idx::STR, Idx::STR, Idx::INT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let builtins = BuiltinOwnershipSets::new(&interner);
+    let sigs = infer_borrows_scc(std::slice::from_ref(&func), &classifier, &builtins);
+
+    let sig = &sigs[&func_name];
+    // Both params passed to __index (all-Borrowed protocol) should stay Borrowed.
+    assert_eq!(
+        sig.params[0].ownership,
+        Ownership::Borrowed,
+        "param passed to __index arg 0 should stay Borrowed"
+    );
+    assert_eq!(
+        sig.params[1].ownership,
+        Ownership::Borrowed,
+        "param passed to __index arg 1 should stay Borrowed"
+    );
+}
+
+/// For `ori_iter_drop` (Owned), param passed to it should be promoted to Owned.
+#[test]
+fn promote_protocol_iter_drop_promotes_param() {
+    let interner = StringInterner::new();
+    let func_name = interner.intern("caller");
+    let iter_drop_name = interner.intern("ori_iter_drop");
+
+    // fn caller(iter_handle: str) -> int
+    //   let v1 = ori_iter_drop(iter_handle)
+    //   let v2 = int_literal(0)
+    //   return v2
+    let func = make_func(
+        func_name,
+        vec![param(0, Idx::STR)],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: iter_drop_name,
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Let {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![Idx::STR, Idx::UNIT, Idx::INT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let builtins = BuiltinOwnershipSets::new(&interner);
+    let sigs = infer_borrows_scc(std::slice::from_ref(&func), &classifier, &builtins);
+
+    let sig = &sigs[&func_name];
+    // Param passed to ori_iter_drop (Owned protocol) should be promoted.
+    assert_eq!(
+        sig.params[0].ownership,
+        Ownership::Owned,
+        "param passed to ori_iter_drop should be promoted to Owned"
+    );
 }

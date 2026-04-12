@@ -54,6 +54,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Reviewer: codex
   Note: Active work in llvm-verification-tooling Section 05 (Contract Coherence Oracle) may overlap — the oracle should detect this mismatch between inferred contracts and realized IR.
 
+- [x] `[BUG-04-060][medium]` **`seed_builtin_contracts` seeding priority: `__index` gets 1-param borrowing contract instead of correct 2-param protocol contract**
+  Repro: `cargo test -p ori_arc --lib -- protocol_contract_index_has_two_borrowed_params` (asserts `contract.params.len() == 2`)
+  Subsystem: `compiler/ori_arc/src/aims/builtins/mod.rs`
+  Found: 2026-04-12 | Source: continue-roadmap
+  Root cause: `borrowing_builtin_names()` includes `__index` (both args are Borrowed). In `seed_builtin_contracts`, borrowing methods were seeded BEFORE protocol builtins. Since both use `or_insert_with` (first-wins), `__index` got a generic 1-param `borrowing_contract(1)` and the correct 2-param `protocol_contract([Borrowed, Borrowed])` was never inserted.
+  Resolved: Fixed on 2026-04-12. Reordered protocol seeding before borrowing seeding so protocol builtins (with per-arg ownership from source of truth) take priority.
+
 - [ ] `[BUG-04-055][medium]` **LLVM lint: sret attribute not present on call-site for `ori_str_from_raw`**
   Repro: `ORI_LLVM_LINT=1 ori build` any program using string literals — lint reports `Undefined behavior: ABI attribute sret not present on both function and call-site` for `ori_str_from_raw` calls
   Subsystem: `compiler/ori_llvm/src/codegen/` — string literal emission calls `ori_str_from_raw` without matching sret attribute on the call-site argument

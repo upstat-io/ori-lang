@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Claude Rules & Commands"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Create the intelligence rule file (auto-loaded every conversation) and the /query-intel slash command for direct access."
 success_criteria:
@@ -13,10 +13,10 @@ depends_on: ["01"]
 sections:
   - id: "02.1"
     title: "Intelligence Rule File"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Query Intel Command"
-    status: not-started
+    status: complete
 third_party_review:
   status: none
   updated: null
@@ -81,9 +81,9 @@ Results are for DISCOVERY, not replacement:
 ```
 
 **Implementation checklist**:
-- [ ] Create `.claude/rules/intelligence.md` with the content above
-- [ ] Verify paths trigger loads in all contexts (test by reading the rule from a compiler directory)
-- [ ] Verify the rule doesn't conflict with existing rules (check for duplicate advice)
+- [x] Create `.claude/rules/intelligence.md` with the content above
+- [x] Verify paths trigger loads in all contexts (test by reading the rule from a compiler directory)
+- [x] Verify the rule doesn't conflict with existing rules (check for duplicate advice)
 
 ### Subsection 02.1 close-out
 
@@ -115,11 +115,11 @@ Present results to the user with context. For search results, highlight:
 ```
 
 **Implementation checklist**:
-- [ ] Create `.claude/commands/query-intel.md`
-- [ ] Test: `/query-intel search "exhaustiveness"` returns results
-- [ ] Test: `/query-intel` with no args shows graph stats
-- [ ] Test: `/query-intel ori-arc` runs the ARC preset
-- [ ] Test: `/query-intel cypher "MATCH (r:Repo) RETURN r.name"` runs raw Cypher
+- [x] Create `.claude/commands/query-intel.md`
+- [x] Test: `/query-intel search "exhaustiveness"` returns results
+- [x] Test: `/query-intel` with no args shows graph stats
+- [x] Test: `/query-intel ori-arc` runs the ARC preset
+- [x] Test: `/query-intel cypher "MATCH (r:Repo) RETURN r.name"` runs raw Cypher
 
 ### Subsection 02.2 close-out
 
@@ -133,10 +133,10 @@ Present results to the user with context. For search results, highlight:
 
 ## Completion Checklist
 
-- [ ] `.claude/rules/intelligence.md` exists and auto-loads
-- [ ] `.claude/commands/query-intel.md` exists and works as slash command
-- [ ] Both files follow existing patterns (rule file format, command file format)
-- [ ] No test regressions: `timeout 150 ./test-all.sh`
+- [x] `.claude/rules/intelligence.md` exists and auto-loads
+- [x] `.claude/commands/query-intel.md` exists and works as slash command
+- [x] Both files follow existing patterns (rule file format, command file format)
+- [x] No test regressions: `timeout 150 ./test-all.sh`
 - [ ] `/tpr-review` clean
 - [ ] `/impl-hygiene-review` clean
 - [ ] `/improve-tooling` section-close sweep

@@ -343,6 +343,31 @@ fn sharing_methods_exist_in_registry() {
     }
 }
 
+/// Verify `BuiltinOwnershipSets.protocol` maps each protocol builtin
+/// name to its correct per-arg ownership array. This is the data
+/// that `annotate_arg_ownership()` consumes at call sites.
+#[test]
+fn ownership_sets_protocol_map_matches_all_builtins() {
+    let interner = StringInterner::default();
+    let sets = BuiltinOwnershipSets::new(&interner);
+    for &pb in ProtocolBuiltin::ALL {
+        let name = interner.intern(pb.name());
+        let ownership = sets.protocol.get(&name).unwrap_or_else(|| {
+            panic!("protocol {pb:?} missing from BuiltinOwnershipSets.protocol")
+        });
+        assert_eq!(
+            *ownership,
+            pb.arg_ownership(),
+            "BuiltinOwnershipSets.protocol[{pb:?}] doesn't match ProtocolBuiltin.arg_ownership()"
+        );
+    }
+    assert_eq!(
+        sets.protocol.len(),
+        ProtocolBuiltin::ALL.len(),
+        "BuiltinOwnershipSets.protocol has extra entries beyond ProtocolBuiltin::ALL"
+    );
+}
+
 /// Protocol builtins with all-borrowed args must be in `borrowing_builtin_names()`,
 /// and protocol builtins with any Owned args must NOT be.
 ///
