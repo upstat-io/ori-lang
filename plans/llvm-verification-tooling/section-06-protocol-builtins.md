@@ -326,7 +326,7 @@ Verify RC balance through the full LLVM codegen pipeline for programs exercising
 
 - [x] **Map indexing RC balance gap-fill** (2026-04-12) — added `test_coll_map_index_int_str` ({int: str} reversed types, exercises value-type RC) and `test_coll_map_index_in_loop` (map indexing inside for-loop, exercises __index + Iter/IterNext interaction). Both pass with ORI_CHECK_LEAKS=1.
 
-- [x] **Set iteration type coverage** (2026-04-12) — Set iteration NOW WORKS in AOT (stale exclusion). Added `Set<int>` to iter_rc_matrix with 4 tests: for-do full/break + for-yield full/break. Updated matrix header from E7 excluded to E7 = Set<int>. All pass with ORI_CHECK_LEAKS=1.
+- [x] **Set iteration type coverage** (2026-04-12) — Evaluated: `Set<int>` iteration crashes in AOT (SIGSEGV, BUG-04-063). `Set<str>` iteration works (existing sets.rs tests pass). E7 fixtures kept as list-collect regression guards (without `: Set<int>` annotation). Matrix header updated to document the blocker. The original exclusion comment ("not yet implemented") was inaccurate — it's a codegen crash, not a missing implementation.
 
 - [x] **`CollectSet` with non-trivial element types** (2026-04-12) — added `test_iter_collect_nested_list` ([[int]] → collect exercises elem_inc_fn for [int]) and `test_iter_collect_map_elements` ([{str: int}] → collect exercises elem_inc_fn for {str: int}). Both pass. Note: nested_list test avoids `Option<[int]>.unwrap()` due to BUG-04-061 (AOT monomorphization gap).
 
@@ -388,6 +388,16 @@ When all findings are triaged:
   Impact: Low (naming convention concern).
   Basis: direct_file_inspection. Confidence: high.
   Resolved: Rejected after verification on 2026-04-12. The existing 30+ tests in borrow/tests.rs (pre-dating this work) all omit the `test_` prefix — this IS the established crate convention. The impl-hygiene.md shape definition is `<subject>_<scenario>_<expected>` (no `test_` in the shape). Adding the prefix would introduce inconsistency with the existing file. Names are descriptive and self-explanatory. Codex (HIGH trust, 16 files read, ran all tests) found zero naming issues.
+- [x] `[TPR-06-003-codex][medium]` `compiler/ori_llvm/tests/aot/fixtures/iter_rc_matrix/iter_rc_for_do_set_int_full.ori:2` — Set<int> matrix fixtures lacked explicit type annotation, actually created lists not sets.
+  Evidence: GAP — fresh ARC dump verification showed `Invoke @collect(...)` instead of `Apply @__collect_set(...)`. All 4 E7 fixtures used `[10, 20, 30].iter().collect()` without `Set<int>` annotation.
+  Impact: Section 06.3 claimed Set<int> coverage but tests exercised list iteration.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-12. `Set<int>` iteration crashes in AOT (BUG-04-063). Reverted `: Set<int>` annotations; E7 fixtures kept as list-collect regression guards. Plan updated to document the blocker. Codex finding correctly identified the gap.
+- [x] `[TPR-06-004-codex][medium]` `compiler/ori_llvm/tests/aot/fixtures/fat_ptr_iter/method_collect/iter_collect_nested_list.ori:3` — Complex-element collect fixtures exercise list collect, not __collect_set.
+  Evidence: GAP — fixtures annotated as `[[int]]` and `[{str: int}]` (list targets), not Set targets. ARC dumps confirmed `Invoke @collect(...)` not `Apply @__collect_set(...)`.
+  Impact: CollectSet verification for non-trivial elements is limited to existing Set<str> coverage.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-12. Set<[int]> and Set<{str: int}> crash with SIGSEGV (filed BUG-04-063). Fixtures kept as list-collect tests (exercise elem_inc_fn for complex types). CollectSet with complex elements is blocked by BUG-04-063. Notes added to test comments.
 
 ---
 

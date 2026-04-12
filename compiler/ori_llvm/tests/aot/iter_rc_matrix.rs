@@ -1,17 +1,18 @@
 //! Iterator-collection RC ownership matrix tests.
 //!
-//! Comprehensive combinatorial coverage: 7 element types × 8 iteration
-//! patterns × 2 loop variants. Exercises every RC-relevant combination
-//! to prevent regression.
+//! Comprehensive combinatorial coverage: 6 element types × 8 iteration
+//! patterns × 2 loop variants + E7 list-collect guards. Exercises every
+//! RC-relevant combination to prevent regression.
 //!
 //! Matrix dimensions:
 //!   Loop:    for-do (P1-P2, P4-P8), for-yield (P1-P8)
-//!   Type:    E1=str, E2=[int] nested, E3=Option<str>, E4=closure, E5=struct,
-//!            E6=map, E7=Set<int>
+//!   Type:    E1=str, E2=[int] nested, E3=Option<str>, E4=closure, E5=struct, E6=map
 //!   Pattern: P1=full, P2=break, P3=yield-transform, P4=two-call, P5=nested,
 //!            P6=guard, P7=unwind, P8=continue
 //!
-//! E7 covers full + break patterns (Set iteration now works in AOT).
+//! E7 (Set<int>) is blocked by BUG-04-063 (Set<int> iteration crashes in AOT).
+//! The E7 fixtures exercise list collect + iteration as a positive regression guard;
+//! they do NOT exercise `__collect_set`. `Set<str>` iteration works (see `sets.rs`).
 //! E2×P5 for-yield excluded — nested yield of [int] collapses to flat int; covered by P1.
 
 #![allow(
@@ -367,7 +368,7 @@ fn test_iter_rc_for_do_map_continue() {
     );
 }
 
-// E7: Set<int> — for-do patterns (Set iteration now works in AOT)
+// E7: list-collect guard — Set<int> iteration blocked by BUG-04-063; these exercise list collect as regression guard
 
 #[test]
 fn test_iter_rc_for_do_set_int_full() {
@@ -772,7 +773,7 @@ fn test_iter_rc_for_yield_map_continue() {
     );
 }
 
-// E7: Set<int> — for-yield patterns
+// E7: list-collect guard — for-yield patterns (Set<int> blocked by BUG-04-063)
 
 #[test]
 fn test_iter_rc_for_yield_set_int_full() {
