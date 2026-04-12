@@ -17,8 +17,8 @@ inspired_by:
   - "Swift ARC tests — positive + negative RC pairing (must-optimize + must-not-optimize)"
 depends_on: ["01"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-12
 sections:
   - id: "06.1"
     title: "Existing Test Audit & Gap-Fill"
@@ -382,7 +382,16 @@ When all findings are triaged:
 - `third_party_review.status` becomes `resolved` or `none`
 -->
 
-- None.
+- [x] `[TPR-06-001-codex][medium]` `compiler/ori_arc/src/borrow/tests.rs:1435` — Add mixed-ownership protocol promotion coverage for __iter_next.
+  Evidence: GAP — promote_callee_args coverage only exercises all-borrowed (Index) and single-arg owned (IterDrop). The mixed [Owned, Borrowed] vector for __iter_next is untested.
+  Impact: Partial-promotion path unverified; regression could reintroduce ownership DRIFT at iterator-advance call sites.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-12. Added `promote_protocol_iter_next_promotes_first_arg_only` test.
+- [x] `[TPR-06-001-gemini][medium]` `compiler/ori_arc/src/borrow/tests.rs:1434` — Add missing promote_callee_args test for __iter_next.
+  Evidence: Plan section 06.2 requested consumer test for __iter_next (Owned, Borrowed). Test was omitted.
+  Impact: Mixed-ownership iteration logic in promote_callee_args unverified.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-12. Same fix as [TPR-06-001-codex] (convergent finding).
 
 ---
 
