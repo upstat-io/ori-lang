@@ -31,13 +31,13 @@ sections:
     status: complete
   - id: "06.4"
     title: "Exhaustiveness Guard & Doc Fix"
-    status: not-started
+    status: complete
   - id: "06.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "06.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 06: Protocol Builtin Verification Matrix
@@ -51,14 +51,14 @@ Protocol builtins (`compiler/ori_ir/src/builtin_constants/protocol/mod.rs`) are 
 
 **Success Criteria:**
 
-- [ ] Audit confirms existing `protocol/tests.rs` (93 lines, 10 tests) already pins all ownership values — no new IR-level pin tests needed
-- [ ] New `ori_arc` consumer tests verify that `seed_builtin_contracts` produces correct `MemoryContract` params for each protocol builtin (access, consumption, cardinality=Once fields — all three dimensions pinned)
-- [ ] New `ori_arc` consumer tests verify that `annotate_arg_ownership` produces correct `ArgOwnership` vectors when called with protocol builtin callees
-- [ ] New `ori_arc` consumer tests verify that `promote_callee_args` correctly promotes/borrows params at protocol builtin call sites
-- [ ] AOT programs pass `ORI_CHECK_LEAKS=1` across type x pattern matrix: `[str]`, `[int]`, `{str: int}`, `Set<int>` x full iteration, break, yield, nested
-- [ ] At least one negative pin demonstrates that wrong ownership (e.g., IterDrop=Borrowed) produces a double-free or leak
-- [ ] Exhaustiveness guard: `ProtocolBuiltin::ALL.len() == 5` assertion prevents silent additions
-- [ ] `IterDrop` doc comment fixed: "borrowed (freed internally)" -> "owned (consumed by cleanup)"
+- [x] Audit confirms existing `protocol/tests.rs` (93 lines, 10 tests) already pins all ownership values — no new IR-level pin tests needed
+- [x] New `ori_arc` consumer tests verify that `seed_builtin_contracts` produces correct `MemoryContract` params for each protocol builtin (access, consumption, cardinality=Once fields — all three dimensions pinned)
+- [x] New `ori_arc` consumer tests verify that `annotate_arg_ownership` produces correct `ArgOwnership` vectors when called with protocol builtin callees
+- [x] New `ori_arc` consumer tests verify that `promote_callee_args` correctly promotes/borrows params at protocol builtin call sites
+- [x] AOT programs pass `ORI_CHECK_LEAKS=1` across type x pattern matrix: `[str]`, `[int]`, `{str: int}`, `Set<int>` x full iteration, break, yield, nested
+- [x] At least one negative pin demonstrates that wrong ownership (e.g., IterDrop=Borrowed) produces a double-free or leak
+- [x] Exhaustiveness guard: `ProtocolBuiltin::ALL.len() == 5` assertion prevents silent additions
+- [x] `IterDrop` doc comment fixed: "borrowed (freed internally)" -> "owned (consumed by cleanup)"
 
 **Context:** The `ProtocolBuiltin` enum has 5 variants. The ownership matrix is small and fixed:
 
@@ -349,17 +349,13 @@ Verify RC balance through the full LLVM codegen pipeline for programs exercising
 
 The exhaustiveness guard already exists: `all_variants_covered` asserts `ALL.len() == 5` and iterates all variants. This subsection verifies it is sufficient and adds defense-in-depth if needed.
 
-- [ ] **Verify existing exhaustiveness guard** — confirm `all_variants_covered()` in `protocol/tests.rs` already:
-  - Asserts `ProtocolBuiltin::ALL.len() == 5`
-  - Iterates all variants checking `name()` non-empty, `from_name` round-trip, `arg_ownership().len() == arg_count()`
-  - **If sufficient**: document as covered, no new code needed
-  - **If insufficient**: add the missing check (e.g., if the count assertion is missing, add it)
+- [x] **Verify existing exhaustiveness guard** (2026-04-12) — `all_variants_covered()` in `protocol/tests.rs` is sufficient: asserts `ALL.len() == 5`, iterates all variants checking `name()` non-empty + `from_name` round-trip + `arg_ownership().len() == arg_count()`. `is_intercepted_exhaustive()` separately confirms all variants have defined interception status. `pin_arg_counts()` pins exact arg counts per variant. No new code needed.
 
-- [ ] **Compile-time exhaustiveness note** — the `match` in `arg_ownership()`, `name()`, `is_intercepted()`, and `arg_count()` all cover every variant exhaustively (Rust enforces this). The test-time guard is defense-in-depth for the case where a variant is added to the enum and to the match arms but NOT to the test assertions or the `ALL` constant. Document this in a brief comment in the test.
+- [x] **Compile-time exhaustiveness note** (2026-04-12) — added doc comment on `all_variants_covered()` explaining that all four methods use exhaustive match (no `_` catch-all), so Rust enforces coverage at compile time. Test-time guard is defense-in-depth for the `ALL` constant and test assertions.
 
-- [ ] **Subsection close-out (06.4)** — MANDATORY before starting 06.R:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (06.4)** — MANDATORY before starting 06.R:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
 
 ---
 
@@ -397,23 +393,23 @@ When all findings are triaged:
 
 ## 06.N Completion Checklist
 
-- [ ] Existing `protocol/tests.rs` audited — all 10 tests confirmed covering IR-level ownership pins
-- [ ] `IterDrop` doc comment fixed: "borrowed" -> "owned (consumed by cleanup)"
-- [ ] `seed_builtin_contracts` consumer tests verify `MemoryContract` field values (access, consumption, cardinality) for all 5 protocol builtins
-- [ ] `annotate_arg_ownership` consumer test verifies correct `ArgOwnership` vectors for protocol builtin callees
-- [ ] `promote_callee_args` consumer test verifies correct promotion/borrowing at protocol call sites
-- [ ] `BuiltinOwnershipSets.protocol` integration test verifies name-to-ownership mapping for all builtins
-- [ ] Negative pin (forbid-old-behavior): `assert_ne` pins that IterDrop is NOT Borrowed and Index receiver is NOT Owned — forbids the historic regression states
-- [ ] Consistency pin (supplemental): contracts read from `arg_ownership()` — drift between constant and contract is caught
-- [ ] AOT gap-fill: map indexing gap-fill (existing `{str:int}` covered; add `{int:str}` and looped indexing)
-- [ ] AOT gap-fill: `CollectSet` with complex element types tested (nested list, map elements)
-- [ ] Set iteration status evaluated — either covered or blocker documented
-- [ ] `ORI_AUDIT_CODEGEN=1` harness integration evaluated — either wired or blockers filed
-- [ ] Debug AND release builds pass for all protocol-exercising AOT tests
-- [ ] No regressions: `timeout 150 ./test-all.sh` green
-- [ ] `timeout 150 ./clippy-all.sh` green
-- [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 06` returns 0 annotations
-- [ ] All intermediate TPR checkpoint findings resolved
+- [x] Existing `protocol/tests.rs` audited — all 10 tests confirmed covering IR-level ownership pins
+- [x] `IterDrop` doc comment fixed: "borrowed" -> "owned (consumed by cleanup)"
+- [x] `seed_builtin_contracts` consumer tests verify `MemoryContract` field values (access, consumption, cardinality) for all 5 protocol builtins
+- [x] `annotate_arg_ownership` consumer test verifies correct `ArgOwnership` vectors for protocol builtin callees
+- [x] `promote_callee_args` consumer test verifies correct promotion/borrowing at protocol call sites
+- [x] `BuiltinOwnershipSets.protocol` integration test verifies name-to-ownership mapping for all builtins
+- [x] Negative pin (forbid-old-behavior): `assert_ne` pins that IterDrop is NOT Borrowed and Index receiver is NOT Owned — forbids the historic regression states
+- [x] Consistency pin (supplemental): contracts read from `arg_ownership()` — drift between constant and contract is caught
+- [x] AOT gap-fill: map indexing gap-fill (existing `{str:int}` covered; add `{int:str}` and looped indexing)
+- [x] AOT gap-fill: `CollectSet` with complex element types tested (nested list, map elements)
+- [x] Set iteration status evaluated — Set iteration works in AOT, added Set<int> to iter_rc_matrix (4 tests)
+- [x] `ORI_AUDIT_CODEGEN=1` harness integration evaluated — 38 unwind-path failures, NOT adding globally; filed BUG-04-062
+- [x] Debug AND release builds pass for all protocol-exercising AOT tests
+- [x] No regressions: `timeout 150 ./test-all.sh` green (17,167 tests pass)
+- [x] `timeout 150 ./clippy-all.sh` green
+- [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan llvm-verification-tooling` returns 0 annotations
+- [x] All intermediate TPR checkpoint findings resolved (TPR-06-001 convergent finding fixed, TPR-06-002 rejected)
 - [ ] **Plan sync** — update plan metadata:
   - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
   - [ ] `00-overview.md` Quick Reference updated
