@@ -37,6 +37,8 @@ sections:
 
 # Section 06: Protocol Builtin Verification Matrix
 
+> **RESET (2026-04-11):** All work in this section was produced by an autopilot session with inadequate planning and TPR oversight. Implementation code may exist in the codebase (commits from the autopilot session) but the design, test coverage, and verification cannot be trusted as valid. This section must be re-done from scratch with proper planning, review (`/review-plan`), and verification (`/tpr-review` + `/impl-hygiene-review`). The existing code should be audited during re-implementation — it may be partially reusable but must not be assumed correct.
+
 **Status:** Not Started
 **Goal:** Pin every `ProtocolBuiltin` variant x argument position x ownership value in a test matrix, with RC balance verification through LLVM codegen audit for each protocol builtin. Protocol builtins (`ori_ir/src/builtin_constants/protocol/mod.rs`) are compiler-internal functions emitted by ARC lowering that carry per-argument ownership semantics. A wrong ownership value on a protocol builtin causes silent RC leaks or double-frees — the `__index` RC leak was caused by exactly this class of bug (unknown callee -> all Owned fallthrough). This section ensures that ownership changes to protocol builtins are caught by tests, not by users.
 

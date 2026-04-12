@@ -41,6 +41,13 @@ use crate::ArcClassification;
 // Re-export batch entry points used by pipeline/mod.rs.
 pub(crate) use batch::{apply_aims_ownership, run_aims_pipeline_all};
 
+/// Callback invoked at each pipeline checkpoint.
+///
+/// Receives the current function state and the phase name. Used by
+/// snapshot tests to capture ARC IR at pipeline boundaries. Production
+/// code passes `None` — zero overhead when not capturing.
+pub type CheckpointObserver<'a> = dyn Fn(&ArcFunction, &str /* phase */) + 'a;
+
 /// Emit a pipeline checkpoint event for `bisect-passes.sh` consumption.
 ///
 /// Uses `info` level on the `ori_arc::aims::pipeline` target so it can be
@@ -52,30 +59,38 @@ pub(crate) use batch::{apply_aims_ownership, run_aims_pipeline_all};
 /// Uses existing `rc_count::count_rc_ops()` (SSOT for RC counting) plus
 /// structural metrics (`blocks`, `vars`) to detect phases that change
 /// CFG structure without altering RC totals.
+///
+/// When `observer` is `Some`, invokes the callback with the current function
+/// and phase name — used by snapshot tests to capture ARC IR at pipeline
+/// boundaries. When `None`, zero overhead beyond the existing tracing check.
 pub(crate) fn trace_pipeline_checkpoint(
     func: &ArcFunction,
     phase: &str,
     interner: &ori_ir::StringInterner,
+    observer: Option<&CheckpointObserver<'_>>,
 ) {
     // Early exit when the pipeline target is disabled — avoids the cost of
     // count_rc_ops() and string lookup when tracing is off.
-    if !tracing::enabled!(target: "ori_arc::aims::pipeline", tracing::Level::INFO) {
-        return;
+    if tracing::enabled!(target: "ori_arc::aims::pipeline", tracing::Level::INFO) {
+        let fn_name = interner.lookup(func.name);
+        let rc = rc_count::count_rc_ops(func);
+        let blocks = func.blocks.len();
+        let vars = func.var_types.len();
+        tracing::info!(
+            target: "ori_arc::aims::pipeline",
+            function = fn_name,
+            phase,
+            rc_incs = rc.inc,
+            rc_decs = rc.dec,
+            blocks,
+            vars,
+            "AIMS phase checkpoint"
+        );
     }
-    let fn_name = interner.lookup(func.name);
-    let rc = rc_count::count_rc_ops(func);
-    let blocks = func.blocks.len();
-    let vars = func.var_types.len();
-    tracing::info!(
-        target: "ori_arc::aims::pipeline",
-        function = fn_name,
-        phase,
-        rc_incs = rc.inc,
-        rc_decs = rc.dec,
-        blocks,
-        vars,
-        "AIMS phase checkpoint"
-    );
+    // Invoke observer if present (snapshot capture).
+    if let Some(obs) = observer {
+        obs(func, phase);
+    }
 }
 
 /// Configuration for the AIMS per-function pipeline.
@@ -89,6 +104,10 @@ pub(crate) struct AimsPipelineConfig<'a> {
     pub interner: &'a ori_ir::StringInterner,
     pub builtins: &'a BuiltinOwnershipSets,
     pub verify_arc: bool,
+    /// Optional checkpoint observer for snapshot capture.
+    /// When `Some`, called after each pipeline step with the current
+    /// function state and phase name. When `None`, zero overhead.
+    pub observer: Option<&'a CheckpointObserver<'a>>,
 }
 
 /// Result of `run_aims_pipeline` for a single function.
@@ -120,7 +139,12 @@ pub(crate) fn run_aims_pipeline(
     // TRMC rewrite loop (idempotent — at most 2 iterations).
     let (norm_result, immortals, did_trmc_transform, pre_trmc_func) =
         trmc::normalize_with_trmc(func, config);
-    trace_pipeline_checkpoint(func, "normalize_with_trmc_complete", config.interner);
+    trace_pipeline_checkpoint(
+        func,
+        "normalize_with_trmc_complete",
+        config.interner,
+        config.observer,
+    );
 
     // Intraprocedural analysis → converged state map.
     let state_map = {
@@ -133,12 +157,17 @@ pub(crate) fn run_aims_pipeline(
             immortals,
         )
     };
-    trace_pipeline_checkpoint(func, "analyze_function", config.interner);
+    trace_pipeline_checkpoint(func, "analyze_function", config.interner, config.observer);
 
     // Step 4a: TRMC semantic soundness verification.
     let (state_map, trmc_rewrite_survived) =
         trmc::verify_trmc_soundness(func, state_map, did_trmc_transform, pre_trmc_func, config);
-    trace_pipeline_checkpoint(func, "verify_trmc_soundness", config.interner);
+    trace_pipeline_checkpoint(
+        func,
+        "verify_trmc_soundness",
+        config.interner,
+        config.observer,
+    );
 
     // Phase 1: RC + reuse + arg_ownership (pre-merge).
     let mut result = {
@@ -152,52 +181,19 @@ pub(crate) fn run_aims_pipeline(
             config.pool,
         )
     };
-    trace_pipeline_checkpoint(func, "realize_rc_reuse", config.interner);
+    trace_pipeline_checkpoint(func, "realize_rc_reuse", config.interner, config.observer);
 
     // Post-emission missed_reuses count for the second pass (FP² Theorem 2).
     let missed_reuses = result.fip_evidence.missed_reuses;
 
-    // Step 5a: FIP enforcement pre-check (Section 12.3).
-    // Cross-checks FipContract against realization evidence. At this point,
-    // the contract has optimistic may_deallocate=false from interprocedural
-    // analysis — `CertifiedButHasMissedReuses` mismatches are expected and
-    // will be corrected by the second pass. But structural violations
-    // (`CertifiedButUnboundedStack`, `BoundedExceeded`) are genuine bugs
-    // that should be caught immediately.
-    if let Some(contract) = config.contracts.get(&func.name) {
-        let fip_errors = crate::aims::verify::fip::verify_fip_contract(
-            func.name,
-            contract,
-            &result.fip_evidence,
-        );
-        // Collect structural violations for blocking error under verify mode.
-        let mut structural_errors = Vec::new();
-        for e in &fip_errors {
-            use crate::aims::verify::fip::FipVerificationError;
-            match e {
-                FipVerificationError::CertifiedButHasMissedReuses { .. } => {
-                    // Expected: may_deallocate is stale (optimistic default).
-                    // Second pass will recompute contract.fip and re-verify.
-                    tracing::debug!("FIP pre-check (will recompute in second pass): {e}");
-                }
-                FipVerificationError::CertifiedButUnboundedStack { .. }
-                | FipVerificationError::BoundedExceeded { .. } => {
-                    // Genuine bug: structural violations are known at
-                    // interprocedural analysis time, not post-emission facts.
-                    tracing::error!("FIP verification failed: {e}");
-                    if config.verify_arc {
-                        structural_errors.push(crate::verify::VerifyError::FipStructural {
-                            message: e.to_string(),
-                        });
-                    }
-                }
-            }
-        }
-        if !structural_errors.is_empty() {
-            return Err(structural_errors);
-        }
-    }
-    trace_pipeline_checkpoint(func, "verify_fip_contract", config.interner);
+    // Step 5a: FIP enforcement pre-check.
+    fip_precheck(func, config, &result)?;
+    trace_pipeline_checkpoint(
+        func,
+        "verify_fip_contract",
+        config.interner,
+        config.observer,
+    );
 
     // Set canonicalize cross-dim fires from converged state analysis.
     result.synergy_metrics.canonicalize_cross_fires = state_map.count_cross_dim_states();
@@ -218,7 +214,12 @@ pub(crate) fn run_aims_pipeline(
             &mut result,
         );
     }
-    trace_pipeline_checkpoint(func, "realize_annotations", config.interner);
+    trace_pipeline_checkpoint(
+        func,
+        "realize_annotations",
+        config.interner,
+        config.observer,
+    );
     func.cow_annotations = result.cow_annotations;
     func.drop_hints = result.drop_hints;
 
@@ -230,4 +231,51 @@ pub(crate) fn run_aims_pipeline(
         missed_reuses,
         was_trmc_rewritten: trmc_rewrite_survived,
     })
+}
+
+/// Step 5a: FIP enforcement pre-check (Section 12.3).
+///
+/// Cross-checks `FipContract` against realization evidence. At this point,
+/// the contract has optimistic `may_deallocate=false` from interprocedural
+/// analysis — `CertifiedButHasMissedReuses` mismatches are expected and
+/// will be corrected by the second pass. But structural violations
+/// (`CertifiedButUnboundedStack`, `BoundedExceeded`) are genuine bugs
+/// that should be caught immediately.
+fn fip_precheck(
+    func: &ArcFunction,
+    config: &AimsPipelineConfig<'_>,
+    result: &crate::aims::realize::RealizationResult,
+) -> Result<(), Vec<crate::verify::VerifyError>> {
+    let Some(contract) = config.contracts.get(&func.name) else {
+        return Ok(());
+    };
+    let fip_errors =
+        crate::aims::verify::fip::verify_fip_contract(func.name, contract, &result.fip_evidence);
+    let mut structural_errors = Vec::new();
+    for e in &fip_errors {
+        use crate::aims::verify::fip::FipVerificationError;
+        match e {
+            FipVerificationError::CertifiedButHasMissedReuses { .. } => {
+                // Expected: may_deallocate is stale (optimistic default).
+                // Second pass will recompute contract.fip and re-verify.
+                tracing::debug!("FIP pre-check (will recompute in second pass): {e}");
+            }
+            FipVerificationError::CertifiedButUnboundedStack { .. }
+            | FipVerificationError::BoundedExceeded { .. } => {
+                // Genuine bug: structural violations are known at
+                // interprocedural analysis time, not post-emission facts.
+                tracing::error!("FIP verification failed: {e}");
+                if config.verify_arc {
+                    structural_errors.push(crate::verify::VerifyError::FipStructural {
+                        message: e.to_string(),
+                    });
+                }
+            }
+        }
+    }
+    if structural_errors.is_empty() {
+        Ok(())
+    } else {
+        Err(structural_errors)
+    }
 }

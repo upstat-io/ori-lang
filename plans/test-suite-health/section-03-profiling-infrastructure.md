@@ -2,7 +2,7 @@
 section: "03"
 title: "Profiling Infrastructure"
 status: not-started
-reviewed: true
+reviewed: false
 goal: "Establish reproducible profiling infrastructure that reveals where time is spent during cargo t, with per-phase timing for the AOT test pipeline."
 inspired_by:
   - "Rust compiler perf.rust-lang.org — continuous performance tracking with reproducible benchmarks"

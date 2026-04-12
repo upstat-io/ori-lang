@@ -10,8 +10,11 @@
 //!   [`ShapeClass`] (precise since Section 09.2 Shape Activation — per-variable
 //!   shape map, cross-dimensional reuse/COW, TRMC `ContextHole` detection)
 //!
-//! Lattice properties: idempotent, commutative, associative join; monotonic
-//! transfer; finite height 15. See tests for exhaustive verification.
+//! Lattice properties: idempotent, commutative join; monotonic transfer;
+//! finite height 15. See tests for exhaustive verification.
+//!
+//! **Note:** join is NOT associative on canonical states (BUG-04-057) due to
+//! canonicalization Rule 4 interaction with the uniqueness dimension.
 //!
 //! References: Perceus (PLDI 2021), GHC demand analysis (POPL 2014),
 //! Lean 4 borrow inference (IFL 2019), Linearity ≠ Uniqueness (ESOP 2022),
@@ -20,6 +23,8 @@
 // Exposed for dead-code lint satisfaction — the glob re-export below
 // is the intended public API surface.
 pub mod dimensions;
+#[cfg(test)]
+mod prop_tests;
 #[cfg(test)]
 #[expect(
     clippy::unwrap_used,

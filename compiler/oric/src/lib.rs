@@ -88,6 +88,7 @@ pub mod eval;
 pub mod problem;
 pub mod reporting;
 pub mod test;
+pub mod test_support;
 pub mod testing;
 pub mod tracing_setup;
 pub mod typeck;

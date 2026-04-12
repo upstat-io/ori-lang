@@ -1,23 +1,21 @@
 //! ARC IR pretty-printer for phase dumps.
 //!
 //! Produces human-readable representations of the ARC IR after the full ARC
-//! pipeline (borrow inference → RC insertion → RC elimination → reset/reuse).
+//! pipeline (borrow inference -> RC insertion -> RC elimination -> reset/reuse).
 //! Intended for compiler debugging via `ORI_DUMP_AFTER_ARC=1`.
 //!
-//! Unlike `ast_dump` (tree-walking parse tree) and `ir_dump` (tree-walking typed
-//! IR), ARC IR is a basic-block SSA-like form. The output follows LLVM IR / Rust
-//! MIR conventions: `fn @name(params) -> ret`, `bb0:`, `%var: type = instr`.
+//! The core formatting logic lives in `ori_arc::ir::format` (canonical home).
+//! This module is a thin wrapper that re-runs the ARC pipeline on cached
+//! functions and delegates formatting.
 
 pub(crate) mod instr;
 
 use std::fmt::Write;
 
-use ori_arc::{AnnotatedSig, ArcClassification, ArcFunction, Ownership, RcStrategy, ValueRepr};
+use ori_arc::{AnnotatedSig, ArcClassification, ArcFunction};
 use ori_ir::{Name, StringInterner};
-use ori_types::{Idx, Pool};
+use ori_types::Pool;
 use rustc_hash::FxHashMap;
-
-use self::instr::{fmt_instr, fmt_terminator};
 
 /// Dump ARC IR to stderr for all functions in the arc cache.
 ///
@@ -67,7 +65,7 @@ pub fn dump_arc_ir(
             &builtins,
             std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|v| v != "0"),
         );
-        // Log verification ICEs but don't abort the dump — it's a diagnostic tool.
+        // Log verification ICEs but don't abort the dump -- it's a diagnostic tool.
         if let Err(verify_errors) = &problems {
             for e in verify_errors {
                 tracing::error!("ARC IR verification ICE during dump: {e}");
@@ -76,127 +74,12 @@ pub fn dump_arc_ir(
         let _ = problems;
 
         for func in &funcs {
-            dump_function(&mut out, func, pool, interner);
+            // Delegate to ori_arc's canonical formatter.
+            out.push_str(&ori_arc::ir::format::format_function(func, pool, interner));
             writeln!(out).unwrap();
         }
     }
 
     writeln!(out, "=== END ARC IR ===").unwrap();
     eprint!("{out}");
-}
-
-/// Pretty-print a single ARC function.
-#[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-fn dump_function(out: &mut String, func: &ArcFunction, pool: &Pool, interner: &StringInterner) {
-    let name = interner.lookup(func.name);
-    let ret_str = format_type(pool, func.return_type, interner);
-
-    // Parameters with ownership and type annotations
-    let params: Vec<String> = func
-        .params
-        .iter()
-        .map(|p| {
-            let pname = format!("%{}", p.var.raw());
-            let ty = format_type(pool, p.ty, interner);
-            let own = match p.ownership {
-                Ownership::Owned => "own",
-                Ownership::Borrowed => "borrow",
-            };
-            format!("{pname}: {ty} [{own}]")
-        })
-        .collect();
-
-    writeln!(
-        out,
-        "fn @{name}({}) -> {ret_str} [entry: bb{}]",
-        params.join(", "),
-        func.entry.raw(),
-    )
-    .unwrap();
-
-    if func.is_fbip {
-        writeln!(out, "  #fbip").unwrap();
-    }
-    if func.num_captures > 0 {
-        writeln!(out, "  captures: {}", func.num_captures).unwrap();
-    }
-
-    // Basic blocks
-    for block in &func.blocks {
-        write!(out, "  bb{}:", block.id.raw()).unwrap();
-
-        // Block parameters (phi-like values)
-        if !block.params.is_empty() {
-            let bp: Vec<String> = block
-                .params
-                .iter()
-                .map(|(var, ty)| {
-                    let ts = format_type(pool, *ty, interner);
-                    format!("%{}: {ts}", var.raw())
-                })
-                .collect();
-            write!(out, " ({})", bp.join(", ")).unwrap();
-        }
-        writeln!(out).unwrap();
-
-        // Instructions
-        for instr in &block.body {
-            write!(out, "    ").unwrap();
-            fmt_instr(out, instr, func, pool, interner);
-            writeln!(out).unwrap();
-        }
-
-        // Terminator
-        write!(out, "    ").unwrap();
-        fmt_terminator(out, &block.terminator, func, pool, interner);
-        writeln!(out).unwrap();
-    }
-}
-
-// Formatting helpers
-
-/// Format a type index as a human-readable string.
-pub(crate) fn format_type(pool: &Pool, idx: Idx, interner: &StringInterner) -> String {
-    pool.format_type_resolved(idx, interner)
-}
-
-/// Format a variable reference with its type and repr annotation.
-pub(crate) fn fmt_var(_func: &ArcFunction, var: ori_arc::ArcVarId) -> String {
-    format!("%{}", var.raw())
-}
-
-/// Format a variable with its type annotation.
-pub(crate) fn fmt_var_typed(
-    func: &ArcFunction,
-    var: ori_arc::ArcVarId,
-    pool: &Pool,
-    interner: &StringInterner,
-) -> String {
-    let ty = format_type(pool, func.var_type(var), interner);
-    let repr = func
-        .var_repr(var)
-        .map_or(String::new(), |r| format!(" [{}]", fmt_repr(r)));
-    format!("%{}: {ty}{repr}", var.raw())
-}
-
-/// Format a value representation tag.
-pub(crate) fn fmt_repr(repr: ValueRepr) -> &'static str {
-    match repr {
-        ValueRepr::Scalar => "Scalar",
-        ValueRepr::RcPointer => "RcPtr",
-        ValueRepr::Aggregate => "Aggregate",
-        ValueRepr::FatValue => "FatVal",
-    }
-}
-
-/// Format an RC strategy tag.
-pub(crate) fn fmt_strategy(strategy: RcStrategy) -> &'static str {
-    match strategy {
-        RcStrategy::HeapPointer => "HeapPtr",
-        RcStrategy::FatPointer => "FatPtr",
-        RcStrategy::Closure => "Closure",
-        RcStrategy::AggregateFields => "AggFields",
-        RcStrategy::InlineEnum => "InlineEnum",
-        RcStrategy::Iterator => "Iterator",
-    }
 }

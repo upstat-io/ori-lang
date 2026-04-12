@@ -1,0 +1,9 @@
+// Iterator create/next/drop RC pattern.
+// Iterating over a list involves creating an iterator, advancing it,
+// and dropping it — each step has RC implications.
+//
+// @test-arc-pass: realize_rc_reuse
+
+@sum_list (items: [int]) -> int = {
+    items.fold(initial: 0, op: (acc, x) -> acc + x)
+};

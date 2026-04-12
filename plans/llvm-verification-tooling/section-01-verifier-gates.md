@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Verifier Gates & Quick Wins"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Make AIMS and LLVM verifier failures blocking gates under verification mode, wire verify_each to env var, add function-level verify and opt -lint — so all subsequent verification tooling has enforceable failure semantics"
 success_criteria:
@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "01.2"
     title: "Wire ORI_VERIFY_EACH, Function-Level Verify, and verify_each Across All Entry Points"
-    status: in-progress
+    status: complete
   - id: "01.3"
     title: "Add opt -lint to Codegen Audit Pipeline"
     status: complete
@@ -36,7 +36,7 @@ sections:
     status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Verifier Gates & Quick Wins
@@ -308,7 +308,7 @@ Function-level `fn_val.verify()` must run after EVERY function's codegen complet
 
 ### 01.2.3 TPR checkpoint and close-out
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 01.1-01.2 implementation work (deferred to section-close TPR per /continue-roadmap workflow — prior TPR iteration 4 already passed clean on 2026-04-10)
+- [x] **TPR checkpoint** — `/tpr-review` covering 01.1-01.2 implementation work (deferred to section-close TPR per /continue-roadmap workflow — completed in Iteration 6 dual-source TPR on 2026-04-10)
 
 - [x] **Subsection close-out (01.2)** — MANDATORY before starting 01.3:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
@@ -467,6 +467,31 @@ When all findings are triaged:
 - [x] **[TPR-01-002-codex-i5][medium] DRIFT: FindingKind::LlvmLint dead code — no producer** — `FindingKind::LlvmLint { message: String }` variant added in ed46c7d9 has no producer. LLVM's lint pass outputs via `dbgs()` (stderr), so structured capture via the audit report is not feasible.
   Resolved: Fixed on 2026-04-10. Removed the dead `LlvmLint` variant from `report.rs`. The plan already documents that lint output goes to stderr. The variant can be re-added if LLVM's lint pass gains diagnostic handler support in a future version.
 
+### Iteration 6 Findings (final section-close TPR — dual-source)
+
+- [x] `[TPR-01-001-codex][high]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:345` — ARC pipeline errors swallowed: `process_arc_function()` and `declare_and_process_lambda()` log `Err(verify_errors)` via `tracing::error!` but return `()`, allowing codegen to proceed with invalid ARC IR.
+  Resolved: Fixed on 2026-04-10. Added `record_codegen_error_with_msg()` in both `Err` branches. Pipeline error count now catches ARC verification failures.
+
+- [x] `[TPR-01-001-gemini][high]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:345` — Same issue as TPR-01-001-codex (de facto agreement — title/location match, merger didn't auto-detect due to slight title difference).
+  Resolved: Fixed on 2026-04-10. Same fix as [TPR-01-001-codex].
+
+- [x] `[TPR-01-002-codex][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/closures.rs:189` — Three emission sites missing `fn_val.verify()`: `generate_env_drop_fn()`, `generate_trampoline_fn()` (`trampolines.rs:76`), `generate_join_to_str_trampoline()` (`iterator_consumers.rs:581`).
+  Resolved: Fixed on 2026-04-10. Added `fn_val.verify()` + `record_codegen_error()` to all 3 sites.
+
+- [x] `[TPR-01-002-gemini][medium]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:204` — All 16 `fn_val.verify()` sites log via `tracing::error!` but never call `record_codegen_error()`, making LLVM IR verification failures invisible to the pipeline error count.
+  Resolved: Fixed on 2026-04-10. Added `record_codegen_error()` to all 16 existing `fn_val.verify()` failure paths plus 3 new sites.
+
+- [x] `[TPR-01-003-gemini][low]` `compiler/ori_llvm/src/evaluator/compile.rs:259` — JIT path reads `ORI_VERIFY_ARC` env var directly instead of `debug_flags.rs`.
+  Resolved: Rejected after verification on 2026-04-10. The JIT entry point is in `ori_llvm`, which cannot depend on `oric` (backward dependency). `debug_flags.rs` is in the `oric` crate (CLI layer). The JIT path's env var read is the legitimate initial read for its compilation unit, not a re-read or SSOT violation.
+
+### Iteration 7 Findings (re-review after iteration 6 fixes — dual-source)
+
+- [x] `[TPR-01-001-codex-i7][high]` `compiler/ori_arc/src/pipeline/mod.rs:190` — AbsentParamHasUses demotion was too broad: suppressed ALL cases including live-path inconsistencies. Live-path Absent param with uses IS a soundness-relevant contract/IR drift.
+  Resolved: Fixed on 2026-04-10 in 15901623. Narrowed to dead-code uses only via `live_blocks()` (forward ∩ backward reachable). Live-path cases remain hard errors. Restored `Result` return type for `run_aims_verify()`. Split test distinguishes dead-path from live-path.
+
+- [x] `[TPR-01-002-codex-i7][low]` `compiler/oric/src/commands/codegen_pipeline.rs:474` — Abort message said "type-mismatch error(s)" but counter now includes verification errors.
+  Resolved: Fixed on 2026-04-10 in 15901623. Changed to generic "error(s)" in both AOT (`codegen_pipeline.rs`) and JIT (`evaluator/compile.rs`) paths.
+
 ---
 
 ## 01.N Completion Checklist
@@ -508,14 +533,14 @@ When all findings are triaged:
 - [x] BLOAT: `arc_emitter/mod.rs` (630 lines) NOT touched by this section's changes — N/A
 
 ### Plan sync
-- [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated (pending TPR/hygiene)
+- [x] This section's frontmatter `status` -> `complete`, subsection statuses updated
 - [x] `00-overview.md` Quick Reference table status updated for this section (In Progress)
 - [x] `00-overview.md` mission success criteria checkboxes updated (§01 checked off)
 - [x] `index.md` section status updated (In Progress, pending close-out)
 
 ### Final reviews
-- [ ] `/tpr-review` passed (final, full-section)
-- [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
-- [ ] `/improve-tooling` **section-close sweep** — MANDATORY after both reviews are clean. Per-subsection captures from 01.1-01.4 should already be committed; the sweep verifies they ran and adds only NEW cross-cutting items. Document the negative finding if there are no cross-cutting gaps.
+- [x] `/tpr-review` passed (final, full-section) — 4 semantic iterations (6→7→8→9 across the session), 9 findings fixed across 4 commits (ac8ff045, 15901623, 88d94ce8, c0a500cf). Clean on iteration 4 (Gemini 0 findings, Codex 1 low-severity test pin → fixed). Convergence: high→medium→low→low severity progression.
+- [x] `/impl-hygiene-review` passed — Auto Mode scoped to work arc (ori_arc, ori_llvm, oric). Phase 0 tools: 1 stale annotation cleaned (BUG-04-056 ref). All 19 verify sites consistent. No new LEAKs, no swallowed errors, no drift introduced. Pre-existing pattern variance (A vs B) non-blocking.
+- [x] `/improve-tooling` **section-close sweep** — Per-subsection retrospectives (01.1-01.4) all documented "no gaps". One cross-session tooling improvement: `/add-bug` Step 8 (resume-after-filing, commit e43cdb84) — captured and committed during the TPR fix cycle. No additional cross-cutting patterns surfaced. Section-close sweep: per-subsection retrospectives covered everything; no cross-cutting gaps.
 
 **Exit Criteria:** `ORI_VERIFY_ARC=1 timeout 150 ./test-all.sh` passes with 0 failures and 0 regressions. Verification failures in ARC IR and LLVM IR are hard errors under verification mode, not warnings. `fn_val.verify()` runs per-function at all emission sites. `opt -lint` runs as part of codegen audit. All flags registered canonically in `debug_flags.rs`. Error propagation chain is complete from verification through compilation abort. `ORI_VERIFY_EACH=1` enabled if measured within timeout budget, otherwise gated to separate CI job with documented tradeoff.

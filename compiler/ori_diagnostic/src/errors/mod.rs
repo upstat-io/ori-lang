@@ -132,6 +132,7 @@ static DOCS: &[(ErrorCode, &str)] = &[
     (ErrorCode::E4002, include_str!("E4002.md")),
     (ErrorCode::E4003, include_str!("E4003.md")),
     (ErrorCode::E4004, include_str!("E4004.md")),
+    (ErrorCode::E4005, include_str!("E4005.md")),
     // Internal errors (E9xxx)
     (ErrorCode::E9001, include_str!("E9001.md")),
     (ErrorCode::E9002, include_str!("E9002.md")),

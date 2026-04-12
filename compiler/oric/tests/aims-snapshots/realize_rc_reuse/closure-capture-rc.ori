@@ -1,0 +1,9 @@
+// Closure environment RC handling.
+// Captures a string into a closure — the closure environment needs
+// RC management for the captured value.
+//
+// @test-arc-pass: realize_rc_reuse
+
+@make_greeter (name: str) -> () -> void = {
+    () -> print(msg: name)
+};

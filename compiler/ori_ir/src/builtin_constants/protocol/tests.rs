@@ -1,5 +1,18 @@
 use super::*;
 
+/// Semantic pin: every variant's arg count is pinned.
+/// Adding/removing args to a protocol builtin changes its ABI contract.
+#[test]
+fn pin_arg_counts() {
+    assert_eq!(ProtocolBuiltin::Index.arg_count(), 2);
+    assert_eq!(ProtocolBuiltin::Iter.arg_count(), 1);
+    assert_eq!(ProtocolBuiltin::IterNext.arg_count(), 2);
+    assert_eq!(ProtocolBuiltin::IterDrop.arg_count(), 1);
+    assert_eq!(ProtocolBuiltin::CollectSet.arg_count(), 1);
+}
+
+/// Guard: adding a new `ProtocolBuiltin` variant without updating these
+/// tests causes `ALL.len()` to change, failing this assertion.
 #[test]
 fn all_variants_covered() {
     assert_eq!(ProtocolBuiltin::ALL.len(), 5);

@@ -52,6 +52,43 @@ pub fn run_arc_pipeline(
         interner,
         builtins: &builtins,
         verify_arc,
+        observer: None,
+    };
+    Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
+}
+
+/// Run the full ARC optimization pipeline on a single function with a
+/// checkpoint observer.
+///
+/// Used by snapshot tests to capture per-pass ARC IR. The observer
+/// receives `(&ArcFunction, phase_name)` at each pipeline boundary.
+/// Otherwise identical to [`run_arc_pipeline`].
+#[expect(
+    clippy::too_many_arguments,
+    reason = "pipeline entry point bundles all context"
+)]
+#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
+pub fn run_arc_pipeline_with_observer<'a>(
+    func: &mut ArcFunction,
+    classifier: &'a dyn ArcClassification,
+    sigs: &FxHashMap<Name, AnnotatedSig>,
+    pool: &'a Pool,
+    interner: &'a ori_ir::StringInterner,
+    uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
+    aims_contracts: &'a FxHashMap<Name, MemoryContract>,
+    verify_arc: bool,
+    observer: &'a aims_pipeline::CheckpointObserver<'a>,
+) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
+    let _ = (sigs, uniqueness_summaries);
+    let builtins = BuiltinOwnershipSets::new(interner);
+    let config = aims_pipeline::AimsPipelineConfig {
+        classifier,
+        contracts: aims_contracts,
+        pool,
+        interner,
+        builtins: &builtins,
+        verify_arc,
+        observer: Some(observer),
     };
     Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
 }
@@ -117,6 +154,7 @@ pub fn run_uniqueness_analysis(
 }
 
 mod aims_pipeline;
+pub use aims_pipeline::CheckpointObserver;
 pub(crate) mod rc_count;
 
 #[cfg(test)]
@@ -189,6 +227,11 @@ pub(crate) fn run_aims_verify(
 
     if verify {
         // Explicit verification mode: hard error.
+        // Note: check_absent_param_no_uses already filters to only LIVE blocks
+        // (forward-reachable from entry AND backward-reachable to Return).
+        // Dead-code references (e.g., after `if true then panic()`) are excluded
+        // by the live_blocks() analysis. Any error reaching here is a genuine
+        // contract/IR inconsistency on a live path.
         return Err(aims_errors);
     }
 

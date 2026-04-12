@@ -1,0 +1,8 @@
+// FileCheck test: closure with captures creates environment allocation
+// CHECK: ori_rc_alloc
+
+@main () -> void = {
+    let x = "hello";
+    let f = () -> str = x;
+    print(msg: f())
+}

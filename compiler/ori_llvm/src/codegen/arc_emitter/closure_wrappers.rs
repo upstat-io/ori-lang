@@ -235,6 +235,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     name = wrapper_name,
                     "LLVM IR verification failed (generate_closure_wrapper)"
                 );
+                self.builder.record_codegen_error();
             }
         }
 
