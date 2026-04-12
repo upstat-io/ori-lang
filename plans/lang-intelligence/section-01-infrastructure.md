@@ -242,6 +242,8 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 - [x] `[TPR-01-001-gemini][informational]` (close-out-5) `scripts/intel-query.sh:43` — Confirms timeout arithmetic fix is complete and correct for all edge cases.
 - [x] `[TPR-01-001-codex][low]` (close-out-6) `00-overview.md:155` — DRIFT: Known Issues block still lists 10 resolved query_graph.py defects.
   Resolved: Fixed on 2026-04-12. Collapsed resolved items into single resolved-summary line.
+- [x] `[TPR-01-001-codex][medium]` (close-out-7) `scripts/intel-query.sh:157` — GAP: Human-mode status and proxy branches bypass QUERY_TIMEOUT — can hang indefinitely.
+  Resolved: Fixed on 2026-04-12. Added `timeout "$QUERY_TIMEOUT"` to human-mode stats (line 157) and proxy (line 188) branches.
 
 ## 01.N Completion Checklist
 
