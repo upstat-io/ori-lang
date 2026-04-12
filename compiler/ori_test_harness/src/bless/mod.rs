@@ -96,31 +96,34 @@ pub fn compare_or_bless(
     bless: bool,
 ) -> Result<CompareOutcome, io::Error> {
     if bless {
-        if actual.is_empty() && expected_path.exists() {
+        // Normalize to LF before blessing so baselines are always LF, even on Windows
+        let blessed_content = actual.replace("\r\n", "\n");
+        if blessed_content.is_empty() && expected_path.exists() {
             fs::remove_file(expected_path)?;
             return Ok(CompareOutcome::BlessedEmpty);
         }
-        if !actual.is_empty() {
+        if !blessed_content.is_empty() {
             if let Some(parent) = expected_path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            fs::write(expected_path, actual)?;
+            fs::write(expected_path, &blessed_content)?;
             return Ok(CompareOutcome::Blessed);
         }
         return Ok(CompareOutcome::BlessedEmpty);
     }
 
-    // Normal mode: compare
+    // Normal mode: compare (normalize line endings to LF for cross-platform parity)
     let expected = match fs::read_to_string(expected_path) {
-        Ok(s) => s,
+        Ok(s) => s.replace("\r\n", "\n"),
         Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e),
     };
-    if expected == actual {
+    let actual_normalized = actual.replace("\r\n", "\n");
+    if expected == actual_normalized {
         Ok(CompareOutcome::Match)
     } else {
         Ok(CompareOutcome::Mismatch {
-            diff: diff::generate_diff(&expected, actual),
+            diff: diff::generate_diff(&expected, &actual_normalized),
         })
     }
 }
