@@ -250,6 +250,9 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
   Resolved: Fixed on 2026-04-12. Added `timeout "$STEP_TIMEOUT"` to help invocation.
 - [x] `[TPR-01-001-gemini][medium]` (close-out-8) `scripts/intel-query.sh:167` — GAP: Same help-path timeout gap (near-agreement with TPR-01-002-codex).
   Resolved: Fixed on 2026-04-12. Same fix as TPR-01-002-codex close-out-8.
+- [x] `[TPR-01-001-codex][medium]` (close-out-9) `scripts/intel-query.sh:170` — GAP: Help path `|| true` swallows rc=124 timeouts alongside expected rc=1.
+  Resolved: Fixed on 2026-04-12. Replaced `|| true` with explicit RC check: rc=1 silent (expected help), rc=124 → stderr timeout msg, rc>1 → stderr crash msg.
+- [x] `[TPR-01-001-gemini][informational]` (close-out-9) `scripts/intel-query.sh:1` — Proof-of-work: all timeout + error-handling paths verified via 4 targeted tests.
 
 ## 01.N Completion Checklist
 

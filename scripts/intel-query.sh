@@ -167,7 +167,14 @@ if [[ ${#PASS_ARGS[@]} -eq 0 ]]; then
     if is_json; then
         printf '{"status":"ok","data":{"help":"Usage: intel-query.sh <command> [args...]. Run with --human for full help."}}\n'
     else
-        timeout "$STEP_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" 2>&1 || true
+        timeout "$STEP_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" 2>&1
+        RC=$?
+        # rc=1 is expected (query_graph.py exits 1 for help); rc=124 = timeout, others = crash
+        if [[ $RC -eq 124 ]]; then
+            printf 'Intelligence unavailable: help timed out\n' >&2
+        elif [[ $RC -gt 1 ]]; then
+            printf 'Intelligence unavailable: help command failed (exit %d)\n' "$RC" >&2
+        fi
     fi
     exit 0
 fi
