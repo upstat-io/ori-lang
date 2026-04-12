@@ -102,14 +102,17 @@ Results are for DISCOVERY, not replacement:
 
 ```markdown
 ---
+name: query-intel
 description: "Query the cross-language intelligence graph for prior art, similar bugs, and design patterns."
+allowed-tools: Bash, Read, Grep, Glob
+argument-hint: "[search|compare|fixed|hot|ori-*|cypher|status] [args...] (ori presets: ori-arc, ori-inference, ori-codegen, ori-patterns, ori-diagnostics)"
 ---
 
 # /query-intel
 
-Run: scripts/intel-query.sh $ARGUMENTS
+Run: `scripts/intel-query.sh $ARGUMENTS`
 
-If $ARGUMENTS is empty, run: scripts/intel-query.sh status
+If `$ARGUMENTS` is empty, run: `scripts/intel-query.sh status`
 
 Present results to the user with context. For search results, highlight:
 - Cross-repo patterns (same issue in 2+ languages)
@@ -121,7 +124,7 @@ Present results to the user with context. For search results, highlight:
 - [x] Create `.claude/commands/query-intel.md`
 - [x] Test: `/query-intel search "exhaustiveness"` executes successfully (verified 2026-04-12 against live Neo4j — `status: ok`, 0 hits for this term; confirms plumbing works end-to-end)
 - [x] Test: `/query-intel` with no args shows graph stats (verified 2026-04-12 — 10 repos, 298K issues)
-- [x] Test: `/query-intel ori-arc` runs the ARC preset (verified 2026-04-12 — `status: ok`)
+- [x] Test: `/query-intel ori-arc` runs Ori presets (verified 2026-04-12 — `status: ok`; 5 presets: ori-arc, ori-inference, ori-codegen, ori-patterns, ori-diagnostics)
 - [x] Test: `/query-intel cypher "MATCH (r:Repo) RETURN r.name"` runs raw Cypher (verified 2026-04-12 — returns all 10 repo names)
 
 ### Subsection 02.2 close-out
@@ -144,6 +147,14 @@ Present results to the user with context. For search results, highlight:
   Resolved: Fixed on 2026-04-12. Synced the snippet with the actual implemented rule (added /review-work, /review-plan, hot subcommand).
 - [x] `[TPR-02-006-codex][low]` `.claude/commands/query-intel.md:5` — GAP: Command argument-hint only advertised `ori-arc` but 5 ori presets exist.
   Resolved: Fixed on 2026-04-12. Updated argument-hint to `ori-*` with full preset list. Updated rule and plan snippets to note the full family.
+- [x] `[TPR-02-007-codex][low]` `plans/lang-intelligence/section-02-claude-rules.md:104` — DRIFT: Plan's embedded query-intel snippet missing name/allowed-tools/argument-hint frontmatter.
+  Resolved: Fixed on 2026-04-12. Synced snippet with actual command file frontmatter.
+- [x] `[TPR-02-008-gemini][medium]` `plans/lang-intelligence/section-02-claude-rules.md:104` — Same as TPR-02-007-codex (agreement on missing frontmatter in snippet).
+  Resolved: Same fix as TPR-02-007-codex.
+- [x] `[TPR-02-009-gemini][low]` `plans/lang-intelligence/00-overview.md:20` — DRIFT: Overview success criteria said "search, compare, and Ori preset queries" but actual command supports more subcommands.
+  Resolved: Fixed on 2026-04-12. Updated to "search, compare, fixed, hot, ori-* presets, and raw cypher".
+- [x] `[TPR-02-010-gemini][low]` `plans/lang-intelligence/section-02-claude-rules.md:124` — GAP: Test checkbox "runs the ARC preset" didn't acknowledge the full preset family.
+  Resolved: Fixed on 2026-04-12. Updated to note all 5 presets.
 
 ## Completion Checklist
 

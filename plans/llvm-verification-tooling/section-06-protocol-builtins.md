@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "06.3"
     title: "AOT End-to-End Type x Pattern Matrix"
-    status: not-started
+    status: complete
   - id: "06.4"
     title: "Exhaustiveness Guard & Doc Fix"
     status: not-started
@@ -324,27 +324,22 @@ Verify RC balance through the full LLVM codegen pipeline for programs exercising
 
 **Known gaps to fill:**
 
-- [ ] **Map indexing RC balance gap-fill** — `{str: int}` direct indexing is already covered by `collections_ext.rs:705` (`coll_map_index.ori`) which runs via `assert_aot_success` with `ORI_CHECK_LEAKS=1`. What is NOT covered:
-  - `{int: str}` indexing (reversed key/value types) — tests value-type RC on index result
-  - Map indexing in a loop: `for k in ["a", "b"] do { let v = m[k] }` — exercises `__index` + `Iter`/`IterNext` interaction together
+- [x] **Map indexing RC balance gap-fill** (2026-04-12) — added `test_coll_map_index_int_str` ({int: str} reversed types, exercises value-type RC) and `test_coll_map_index_in_loop` (map indexing inside for-loop, exercises __index + Iter/IterNext interaction). Both pass with ORI_CHECK_LEAKS=1.
 
-- [ ] **Set iteration type coverage** — `iter_rc_matrix.rs` excludes `Set<str>` ("not yet implemented in AOT"). Verify current status: if Set iteration now works in AOT, add `Set<int>` to the matrix (full iteration + break patterns). If still blocked, file the blocker via `/add-bug` immediately so it is tracked in the bug tracker for resolution — do NOT leave a dangling `- [ ]` item without a concrete tracked artifact.
+- [x] **Set iteration type coverage** (2026-04-12) — Set iteration NOW WORKS in AOT (stale exclusion). Added `Set<int>` to iter_rc_matrix with 4 tests: for-do full/break + for-yield full/break. Updated matrix header from E7 excluded to E7 = Set<int>. All pass with ORI_CHECK_LEAKS=1.
 
-- [ ] **`CollectSet` with non-trivial element types** — existing `method_collect.rs` tests `collect()` on `[str]` and `Set<str>`. Add: `collect()` on `[[int]]` (nested list elements) and `[{str: int}]` (map elements) to exercise `elem_inc_fn` correctness for complex element types through `__collect_set`.
+- [x] **`CollectSet` with non-trivial element types** (2026-04-12) — added `test_iter_collect_nested_list` ([[int]] → collect exercises elem_inc_fn for [int]) and `test_iter_collect_map_elements` ([{str: int}] → collect exercises elem_inc_fn for {str: int}). Both pass. Note: nested_list test avoids `Option<[int]>.unwrap()` due to BUG-04-061 (AOT monomorphization gap).
 
-- [ ] **AOT regression guard** — verify that all protocol-exercising AOT programs compile AND run clean (exit 0) with `ORI_CHECK_LEAKS=1`. Note: a clean exit is a **positive regression guard**, NOT a negative pin. The negative pin requirement is satisfied at the IR level in 06.2 (where we can construct intentionally-wrong ownership and observe the effect). At the AOT level, we cannot easily inject wrong ownership without modifying the compiler, so the value here is end-to-end confirmation that correct ownership produces zero leaks. If a fault-injection framework is added in a future section, revisit adding AOT-level negative pins then.
+- [x] **AOT regression guard** (2026-04-12) — all 2,161 AOT tests pass (0 failed, 22 ignored) with `ORI_CHECK_LEAKS=1`. Positive regression guard confirmed.
 
-- [ ] **ORI_AUDIT_CODEGEN=1 in harness** — the AOT test harness (`compiler/ori_llvm/tests/aot/util/aot.rs`) enables `ORI_CHECK_LEAKS=1` but NOT `ORI_AUDIT_CODEGEN=1`. Evaluate adding `ORI_AUDIT_CODEGEN=1` to the compile step (not the run step — it is a compile-time check):
-  - If Section 01's verifier gates are already blocking (audit findings = compile failure), adding `ORI_AUDIT_CODEGEN=1` to the `ori build` invocation in the harness would catch RC imbalance at compile time in addition to leak detection at runtime
-  - **Risk**: if any existing AOT test triggers a legitimate audit finding, adding it globally would break those tests. Evaluate by running `ORI_AUDIT_CODEGEN=1 cargo test -p ori_llvm` first. If findings exist, scope to a subset of tests or file bugs.
-  - Decision: add `ORI_AUDIT_CODEGEN=1` to the compilation environment in `compile_and_run_capture` if the audit is clean, OR document the findings as `- [ ]` bug tracker items if not
+- [x] **ORI_AUDIT_CODEGEN=1 in harness** (2026-04-12) — evaluated: 38/2161 tests fail with `ORI_AUDIT_CODEGEN=1`, all concentrated in unwind/panic/catch paths (cli::test_main_args_*, error_handling::test_catch_*, fat_ptr_iter::unwind::*). Decision: NOT adding globally — filed as BUG-04-062. Once unwind RC audit is fixed, harness can enable it.
 
-- [ ] **Debug AND release** — verify protocol-exercising AOT tests pass in both debug (`cargo test -p ori_llvm`) and release (`cargo test -p ori_llvm --release`) builds. FastISel behavior differs (per llvm.md); list/map/set struct passing is a known divergence surface.
+- [x] **Debug AND release** (2026-04-12) — both debug (`cargo test -p ori_llvm`: 2161 pass/0 fail) and release (`cargo test -p ori_llvm --release`: 2161 pass/0 fail) builds pass. No FastISel divergence on protocol-exercising tests.
 
-- [ ] **Subsection close-out (06.3)** — MANDATORY before starting 06.4:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey: which `diagnostics/` scripts you ran, where test failures gave unhelpful messages, whether `ORI_AUDIT_CODEGEN` integration exposed harness deficiencies.
+- [x] **Subsection close-out (06.3)** — MANDATORY before starting 06.4:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 06.3: The `ORI_AUDIT_CODEGEN=1` evaluation exposed 38 unwind-path RC failures (filed as BUG-04-062) — this surfaced a real issue class. The `unwrap()` monomorphization gap was caught by a test exercising complex generic types (filed as BUG-04-061). No diagnostic scripts needed; targeted `cargo test` with specific filters was sufficient. No tooling gaps — the AOT harness's `ORI_CHECK_LEAKS=1` integration provided immediate, actionable feedback (exit code 2 = leak).
 
 ---
 

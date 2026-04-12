@@ -17,7 +17,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 
 - [x] `scripts/intel-query.sh` returns JSON by default: `{"status":"ok","data":...}` when Neo4j is available, `{"status":"unavailable","reason":"..."}` when not (exit 0 in both cases)
 - [ ] `.claude/rules/intelligence.md` auto-loads and triggers intelligence queries during design decisions, bug fixes, and reviews
-- [ ] `/query-intel` command works from any conversation with search, compare, and Ori preset queries
+- [ ] `/query-intel` command works from any conversation with search, compare, fixed, hot, ori-* presets, and raw cypher
 - [ ] `/tpr-review` evidence packets include cross-language prior art from the intelligence graph
 - [ ] `/fix-bug` Phase 1 queries for similar bugs in reference compilers
 - [ ] Ontology contains Concept, FailureMode, CompilerPhase, DesignDecision nodes with rich typed edges
