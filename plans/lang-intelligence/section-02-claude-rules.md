@@ -58,6 +58,8 @@ Query the intelligence graph proactively in these workflows:
 - **Design decisions**: Before choosing an approach, query for how reference compilers handled it
 - **Bug investigation** (/fix-bug Phase 1): Query for similar bugs across languages
 - **TPR reviews** (/tpr-review Step 2): Pre-query relevant prior art for the evidence packet
+- **Code reviews** (/review-work): Query for prior art relevant to the reviewed changes
+- **Plan reviews** (/review-plan): Query for cross-language precedent on plan assumptions
 - **Proposals** (/create-draft-proposal): Query cross-language precedent for the Prior Art section
 - **Pattern review** (/design-pattern-review): Query for equivalent implementations
 - **Roadmap** (/continue-roadmap): After focus resolution, query for section-relevant intelligence
@@ -68,6 +70,7 @@ Always use the canonical helper — never open-code Neo4j access:
   scripts/intel-query.sh search "pattern matching exhaustiveness"
   scripts/intel-query.sh compare "type inference"
   scripts/intel-query.sh fixed "memory leak" --repo rust,swift
+  scripts/intel-query.sh hot --repo rust
   scripts/intel-query.sh ori-arc
   scripts/intel-query.sh cypher "MATCH (i:Issue)-[:FIXES]->(b) RETURN count(i)"
 
@@ -137,6 +140,8 @@ Present results to the user with context. For search results, highlight:
   Resolved: Fixed on 2026-04-12. Changed to "executes successfully" — the test verifies plumbing, not specific hits.
 - [x] `[TPR-02-004-codex][medium]` `.claude/rules/intelligence.md:22` — GAP: Rule omits `/review-work` and `/review-plan` from "When to Query" despite success criteria saying "reviews" broadly.
   Resolved: Fixed on 2026-04-12. Added `/review-work` and `/review-plan` entries to the "When to Query" section.
+- [x] `[TPR-02-005-codex][low]` `plans/lang-intelligence/section-02-claude-rules.md:58` — DRIFT: Embedded "Content design" snippet in 02.1 was stale after TPR-02-004 fix.
+  Resolved: Fixed on 2026-04-12. Synced the snippet with the actual implemented rule (added /review-work, /review-plan, hot subcommand).
 
 ## Completion Checklist
 
