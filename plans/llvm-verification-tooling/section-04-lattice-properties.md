@@ -740,7 +740,7 @@ If the non-associativity only affects the uniqueness dimension in states that ar
 
 If the characterization test reveals that associativity failures CAN change RC/COW/reuse decisions, the bug MUST be fixed before Section 05's correctness-gate authority can be trusted. Section 06 remains independently implementable per its `depends_on: ["01"]` unless this analysis proves a concrete dependency. The fix would be in `canonicalize_single_pass()` — the root cause is that Rule 4 (BlockLocal+Owned+<=Once+MaybeShared -> Unique) fires on different intermediate states depending on fold order.
 
-- [ ] Fix IS required: file via `/fix-bug BUG-04-057` for full plan-section rigor (root cause analysis, TDD matrix, implementation). The fix section file will be at `plans/bug-tracker/fix-BUG-04-057.md`. **Root cause: Rule 4 fires only at BlockLocal but not at FunctionLocal/HeapEscaping/Unknown. Likely fix: widen Rule 4 to fire for `locality <= BlockLocal` (which is just BlockLocal itself) OR make Rule 4's uniqueness forcing permanent across locality changes. Rule 6 has the same narrowness issue (BUG-04-058).**
+- [x] Fix IS required: filed via `/fix-bug BUG-04-057`. Fix section at `plans/bug-tracker/fix-BUG-04-057.md`. Committed 3f7cf7c2: removed Rule 4, widened Rule 6 (`==` → `>=`). All 7 previously-ignored proptests un-ignored and passing. Fix section TPR done (3 rounds in aims-rules.md). Hygiene blocked by BUG-05-003 (iterator ownership) → `plans/iterator-element-ownership/`.
 
 ### Option C: Permutation-invariance test (04.5) already fails
 
@@ -850,20 +850,20 @@ When all findings are triaged:
 - [x] Impact analysis: **DECISION DIVERGENCE CONFIRMED** — uniqueness diverges (MaybeShared vs Unique), affecting `needs_cow_check`, `can_mutate_in_place`, `is_reuse_candidate`, and direct `uniqueness==Unique` checks
 - [x] Resolution: **Option C → Option B (fix required)**. Permutation test fails (04.5), characterization confirms decision divergence (04.6). `/fix-bug BUG-04-057` is the next action.
 - [x] BUG-04-057 bug tracker entry updated: escalated to critical, added transitivity failure, permutation non-invariance, decision divergence findings, BUG-04-058 cross-reference
-- [ ] Cross-section blocker resolved: Section 05 BLOCKED until BUG-04-057 is fixed. Section 06 independently implementable per `depends_on: ["01"]`.
+- [x] Cross-section blocker resolved: BUG-04-057 fixed (3f7cf7c2). Section 05 UNBLOCKED. Section 06 independently implementable.
 
 ### Standard close-out
-- [ ] All property tests pass: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests`
-- [ ] No regressions: `timeout 150 ./test-all.sh` green
-- [ ] `timeout 150 ./clippy-all.sh` green
-- [ ] Plan annotation cleanup: run `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --cleanup-only --plan llvm-verification-tooling` — remove stale annotations from completed items
-- [ ] All TPR findings triaged and resolved (check 04.R block)
+- [x] All property tests pass: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` — 36 passed, 1 ignored (O(n^3) manual-only), 0 failed (verified 2026-04-12)
+- [x] No regressions: `timeout 150 ./test-all.sh` green — 17,119 passed, 0 failed (verified 2026-04-12)
+- [x] `timeout 150 ./clippy-all.sh` green (verified 2026-04-12)
+- [x] Plan annotation cleanup: `plan-annotations.sh --count` — 0 stale annotations, 39 active-scaffolding (in-progress plans, expected). No cleanup needed.
+- [x] All TPR findings triaged and resolved (check 04.R block) — 10/10 items `[x]`
 - [ ] **Plan sync** — update plan metadata:
   - [ ] This section's frontmatter `status` updated
   - [ ] `00-overview.md` Quick Reference updated
   - [ ] `index.md` section status updated
-- [ ] `/tpr-review` passed — both reviewers clean on final code
-- [ ] `/impl-hygiene-review` passed — zero critical/major findings (mod.rs BLOAT pre-existing, prop_tests.rs exempt as test file)
+- [ ] `/tpr-review` passed — both reviewers clean on final code <!-- blocked-by:plans/iterator-element-ownership (BUG-05-003 blocks clean TPR for fix-BUG-04-039) -->
+- [ ] `/impl-hygiene-review` passed <!-- blocked-by:plans/iterator-element-ownership -->
 - [ ] `/improve-tooling` section-close sweep
 
 **Exit Criteria:** `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` runs all property-based lattice tests and passes. proptest has verified join commutativity/idempotence, partial-order axioms, canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts, `capture_state_update` monotonicity, permutation invariance for n-ary merges, and fixpoint convergence across thousands of randomly generated `AimsState` values. BUG-04-057 soundness formally analyzed with one of three outcomes documented. The `SCALAR` sentinel is excluded from all property tests. All tests complete within the 150-second timeout.

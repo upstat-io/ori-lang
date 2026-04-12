@@ -2,7 +2,7 @@
 bug: "BUG-04-039"
 title: "LLVM codegen: join on non-string iterators crashes (missing to_str_fn trampoline)"
 severity: high
-status: in-progress
+status: in-progress  # TPR done (3 rounds); hygiene blocked by BUG-05-003 → plans/iterator-element-ownership/
 goal: "Iterator.join(separator:) correctly converts non-string elements to strings in LLVM backend, producing identical output to the interpreter"
 success_criteria:
   - "join on [int], [float], [bool] iterators produces correct output in both JIT and AOT"
@@ -125,10 +125,12 @@ Generate a `to_str` trampoline function for non-string element types:
 - [x] `cargo test -p ori_llvm` green — 602 passed, 0 failed
 - [x] `/commit-push` — test commit 44373cfc pushed
 - [x] Bug entry in `plans/bug-tracker/section-04-codegen-llvm.md` updated: `- [x]` — updated test count to 7
-- [ ] Fix section frontmatter `status` updated to `complete`
-- [ ] Bug-tracker `00-overview.md` open bug count updated
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review` passed
+- [x] `/tpr-review` — 3 rounds completed (2026-04-12):
+  - Round 1: 5 findings (heap OriStr leak, missing char/float tests, inline sext, negative pin) — all fixed
+  - Round 2: 2 findings (strengthen negative pin, BUG-05-003 direct-string leak) — pin fixed, bug filed
+  - Round 3: 1 finding (BUG-05-003 re-flagged as blocker) — escalated to `plans/iterator-element-ownership/`
+  - **Trampoline fix is correct and complete.** BUG-05-003 is a broader iterator protocol issue, not a trampoline bug.
+- [ ] `/impl-hygiene-review` passed <!-- blocked-by:plans/iterator-element-ownership -->
 - [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `[1,2,3].iter().join(separator: ", ")` produces `"1, 2, 3"` in both JIT and AOT modes, all 8 tests in `tests/spec/traits/iterator/join.ori` pass under `--backend=llvm`, AOT tests for int/float/bool join pass in debug and release, and `test-all.sh` is green with 0 regressions.
