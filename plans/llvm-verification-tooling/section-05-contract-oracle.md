@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Contract Coherence Oracle"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Rewrite the existing contract coherence oracle to be sound — track parameter aliasing, handle batched RcInc counts, account for Apply/ApplyIndirect arg_ownership, derive may_share, and explicitly scope which ParamContract dimensions are checked vs deferred. Enrich the diagnostic renderer to include per-mismatch details instead of a bare count."
 success_criteria:
@@ -31,7 +31,7 @@ sections:
     status: complete
   - id: "05.2"
     title: "May-Deallocate & Effect Derivation"
-    status: in-progress
+    status: complete
   - id: "05.3"
     title: "Oracle Comparison, Scope, and Diagnostics"
     status: complete
@@ -46,7 +46,7 @@ sections:
     status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 05: Contract Coherence Oracle
@@ -678,12 +678,12 @@ When all findings are triaged:
 - [x] `timeout 150 ./clippy-all.sh` green
 - [x] Plan annotation cleanup: no stale annotations referencing section 05 (0 total)
 - [x] All intermediate TPR checkpoint findings resolved (05.R: 13/13 resolved)
-- [ ] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
-  - [ ] `00-overview.md` Quick Reference updated
-  - [ ] `00-overview.md` mission success criteria checkboxes updated
+- [x] **Plan sync** — update plan metadata:
+  - [x] This section's frontmatter `status` -> `complete`, subsection statuses updated
+  - [x] `00-overview.md` Quick Reference updated (Not Started → Complete)
+  - [x] `00-overview.md` mission success criteria checkboxes updated (Contract coherence oracle → [x])
 - [x] `/tpr-review` passed (final, full-section) — iter3 found 4 findings (alias fixpoint bug, PartialApply effect gap, may_allocate tolerance), all fixed and confirmed clean on iter4 (dual-source: Codex + Gemini, both zero findings)
 - [x] `/impl-hygiene-review` passed — 6 findings fixed: extracted 5 helper functions (reduced nesting 7→4/5, fn-length 111→80), cleaned 6 stale plan annotations/banners. Residual: oracle.rs 535 lines (35 over, marginal single-responsibility file), codegen/mod.rs 586 lines (pre-existing). 17,142 tests pass.
-- [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
+- [x] `/improve-tooling` **section-close sweep** — Per-subsection retrospectives verified: 05.PRE, 05.1 (earlier session), 05.2, 05.3, 05.4, 05.5 all documented. No cross-subsection tooling patterns required new tooling — all subsections used the same test helpers and ORI_VERIFY_ARC=1 verification.
 
 **Exit Criteria:** `ORI_VERIFY_ARC=1 timeout 150 ./test-all.sh` passes with the rewritten contract coherence oracle active. The oracle walks post-pipeline ARC IR using aliasing-aware variable tracking, correctly handles batched `RcInc` counts and `arg_ownership` transfers, re-derives `access`, `consumption`, and `may_share` per parameter, compares against inferred `MemoryContract`, and reports zero unsafe mismatches for all test programs. The diagnostic renderer includes per-mismatch dimension details. Deliberately introduced mismatches are caught as blocking errors.
