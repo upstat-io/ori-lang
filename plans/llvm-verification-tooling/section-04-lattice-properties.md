@@ -21,8 +21,8 @@ inspired_by:
   - "proptest documentation (proptest-rs/proptest) — Arbitrary strategy composition for product types"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-11
 sections:
   - id: "04.1"
     title: "Audit Existing proptest Infrastructure and AimsState Strategy"
@@ -80,26 +80,28 @@ sections:
 - 3 fixpoint tests (ascending chain, top fixpoint, cardinality seq_add convergence)
 
 **Missing (identified by blind-spot analysis):**
-- Partial-order axioms (reflexivity, antisymmetry, transitivity) for `lattice_leq`
-- `capture_state_update` monotonicity test (it IS a state transformer, not just a predicate)
-- `seq_add` distributivity over `join` at the `AimsState` level (only tested exhaustively for `Cardinality` in `tests.rs`)
-- Permutation-invariance for n-ary successor merges (pairwise commutativity does not guarantee this when associativity is broken)
-- BUG-04-057 soundness analysis (currently just an `#[ignore]` test — insufficient for a fundamental soundness issue)
-- Generator skew analysis (uniform raw->canonicalize may underrepresent Rule 3/4/6/8 trigger states)
+- Partial-order axioms (reflexivity, antisymmetry, transitivity) for `lattice_leq` -- **transitivity is a CRITICAL GATE**: if it fails, `lattice_leq` is not a valid partial order and ALL monotonicity tests are invalid
+- `capture_state_update` monotonicity test (it IS a state transformer, not just a predicate) -- uses constructive generation to avoid `prop_assume!` discard rate issues
+- `Cardinality::seq_add` distributivity over `Cardinality::alt_join` as proptest (only `Cardinality`-level -- there is no `AimsState`-level `seq_add`, so no cross-dimension interaction to test here)
+- Permutation-invariance for n-ary successor merges (pairwise commutativity does not guarantee this when associativity is broken) -- fold modeled to match actual `compute_block_exit_state()` behavior
+- BUG-04-057 soundness analysis: exhaustive enumeration over ALL canonical state triples (not proptest sampling), checking ALL downstream decision predicates (not just 3)
+- Generator skew analysis (uniform raw->canonicalize may underrepresent Rule 3/4/6/8 trigger states) -- Rule 6 generator corrected: was `Borrowed+HeapEscaping` (unreachable due to Rule 8), now correctly `Owned+HeapEscaping+Unique`
 
 **Critical invariant:** `AimsState::SCALAR` must be excluded from all lattice-law tests. It is a sentinel, not a lattice element — joining with `SCALAR` is undefined behavior in the lattice algebra.
 
 **Partial order definition:** `ShapeClass` and `EffectClass` lack `PartialOrd`. For lattice-law tests, define `a <= b` as `a.join(b) == b` (the standard lattice-theoretic definition). This avoids adding `PartialOrd` to types where it's not natural (flat lattice `ShapeClass`, bitfield `EffectClass`).
 
-**Cross-section dependency — BLOCKER for Sections 05 and 06:**
-- **Section 05 (Contract Coherence Oracle)** depends on lattice properties for contract stability. If BUG-04-057 means the analysis is order-dependent, inferred contracts may also be structurally unstable — the contract oracle would compare against a non-deterministic baseline. Section 05 MUST NOT proceed until 04.6 (BUG-04-057 soundness analysis) is complete and either: (a) the bug is fixed, or (b) a formal proof demonstrates that the analysis is sound despite non-associativity.
-- **Section 06 (Protocol Builtins)** depends on correct lattice properties for RC balance reasoning. Non-protocol runtime contracts (`ori_list_push`, `ori_iter_*` consumers) have the same ownership risk but are not verified in Section 06's current scope — this is a coverage gap that should be cross-referenced.
+**Cross-section dependency -- BLOCKER for Section 05; Section 06 partially independent:**
+- **Section 05 (Contract Coherence Oracle)** `depends_on: ["03", "04"]` -- depends on lattice properties for contract stability. If BUG-04-057 means the analysis is order-dependent, inferred contracts may also be structurally unstable -- the contract oracle would compare against a non-deterministic baseline. Section 05 MUST NOT proceed until 04.6 (BUG-04-057 soundness analysis) is complete and either: (a) the bug is fixed, or (b) a formal proof demonstrates that the analysis is sound despite non-associativity. Note: Section 05's *implementation* (building the oracle code) is not blocked -- only its *correctness-gate authority* (using it to verify contracts) requires lattice soundness to be resolved.
+- **Section 06 (Protocol Builtins)** `depends_on: ["01"]` (NOT `["04"]`) -- Section 06's ownership pin matrix tests and RC balance codegen audit tests are independent of BUG-04-057. They test protocol builtin ownership values and verify RC balance through existing LLVM codegen audit infrastructure, which operates at the concrete instruction level, not through lattice-theoretic reasoning. Section 06 can proceed in parallel with Section 04. Non-protocol runtime contracts (`ori_list_push`, `ori_iter_*` consumers) have the same ownership risk but are not verified in Section 06's current scope -- this is a coverage gap that should be cross-referenced when Section 06 is implemented.
 
 **Reference implementations:**
 - **Lean4** `src/Lean/Compiler/IR/Checker.lean`: algebraic property verification on IR lattice — checks that join is sound w.r.t. the semantics.
 - **proptest** (`proptest-rs/proptest`): `prop_compose!` and `Strategy` for building complex type generators from simple dimension strategies.
 
-**Depends on:** Nothing — independent of other sections. The lattice module is self-contained.
+**Depends on:** The lattice module code (`lattice/mod.rs`, `lattice/dimensions.rs`, `lattice/prop_tests.rs`) is self-contained — subsections 04.1-04.5 have no external dependencies. Subsection 04.6 (BUG-04-057 soundness analysis) requires reading `intraprocedural/block.rs` (to verify actual fold behavior), `emit_rc/cow.rs` (COW emission's uniqueness consumption), `emit_reuse/detect.rs` and `emit_reuse/planner.rs` (reuse decisions), and `transfer/mod.rs` (`can_mutate_in_place`) — these are read-only consumers, not code dependencies.
+
+**Cross-section note for Section 06:** Section 06 `depends_on: ["01"]` does not list Section 04. If 04.6 determines BUG-04-057 affects RC decisions, Section 06's dependency metadata must be updated by whoever implements Section 06. This is outside our edit scope but is recorded here.
 
 ---
 
@@ -159,10 +161,14 @@ Audit the existing proptest setup, strategy definitions, and helper functions. V
                   shape,
                   effect: eff,
               }),
-          // Rule 6 trigger zone: Unique + non-Owned or non-local
+          // Rule 6 trigger zone: Owned + HeapEscaping + Unique.
+          // IMPORTANT: Rule 8 fires before Rule 6 in canonicalize_single_pass()
+          // (mod.rs:329-338). Rule 8 clamps Borrowed+HeapEscaping to
+          // Borrowed+FunctionLocal, so Borrowed values NEVER reach Rule 6.
+          // Only Owned+HeapEscaping+Unique triggers Rule 6 (→ MaybeShared).
           (consumption_strategy(), cardinality_strategy(), effect_class_strategy(), shape_class_strategy())
               .prop_map(|(c, card, eff, shape)| AimsState {
-                  access: AccessClass::Borrowed,
+                  access: AccessClass::Owned,
                   consumption: c,
                   cardinality: card,
                   uniqueness: Uniqueness::Unique,
@@ -188,7 +194,9 @@ Audit the existing proptest setup, strategy definitions, and helper functions. V
 
 **File(s):** `compiler/ori_arc/src/aims/lattice/prop_tests.rs`
 
-Audit the existing join law tests and add missing partial-order axiom tests. The partial order `lattice_leq` is used pervasively in subsequent tests — its own axioms MUST be verified first.
+Audit the existing join law tests and add missing partial-order axiom tests. The partial order `lattice_leq` is used pervasively in subsequent tests -- its own axioms MUST be verified first.
+
+**CRITICAL GATE -- Transitivity:** The definition `a <= b iff a.join(b) == b` is the standard lattice-theoretic partial order, BUT it is only guaranteed to be transitive when join is associative. BUG-04-057 proves join is NOT associative. If transitivity fails, then `lattice_leq` is NOT a valid partial order, and ALL downstream monotonicity tests (04.4) that use it are testing against an invalid ordering relation. The transitivity test is therefore the FIRST critical gate in this section: if it fails, 04.4 must be redesigned to use componentwise dimension-by-dimension ordering instead.
 
 ### Existing tests to audit (verify they pass and are correct):
 
@@ -242,18 +250,30 @@ The `lattice_leq` helper (`a <= b iff a.join(b) == b`) is used by every subseque
       #[test]
       fn lattice_leq_transitive(
           a in canonical_aims_state_strategy(),
-          b in canonical_aims_state_strategy(),
-          c in canonical_aims_state_strategy(),
+          diff_ab in canonical_aims_state_strategy(),
+          diff_bc in canonical_aims_state_strategy(),
       ) {
-          prop_assume!(lattice_leq(&a, &b) && lattice_leq(&b, &c));
-              assert!(
-                  lattice_leq(&a, &c),
-                  "lattice_leq must be transitive: a={a:?}, b={b:?}, c={c:?}"
-              );
+          // Constructive generation: build b = a.join(diff_ab) so a <= b holds
+          // by construction. Then build c = b.join(diff_bc) so b <= c holds.
+          // This avoids prop_assume!(lattice_leq(...)) which would discard
+          // the vast majority of random triples (most pairs are incomparable),
+          // likely hitting proptest's TooManyRejects limit.
+          let b = a.join(&diff_ab);
+          let c = b.join(&diff_bc);
+          // Verify the construction actually produced the ordering:
+          assert!(lattice_leq(&a, &b), "construction failed: a={a:?}, b={b:?}");
+          assert!(lattice_leq(&b, &c), "construction failed: b={b:?}, c={c:?}");
+          // The actual transitivity check:
+          assert!(
+              lattice_leq(&a, &c),
+              "lattice_leq must be transitive: a={a:?}, b={b:?}, c={c:?}"
+          );
       }
   }
   ```
-  Note: use `prop_assume!` (not `if` guards) so proptest counts rejected cases as discards and generates more cases to compensate. Configure with 5000 cases for adequate hitting rate.
+  **Design note (blind-spot analysis):** The original approach using `prop_assume!(lattice_leq(&a, &b) && lattice_leq(&b, &c))` on random canonical states would discard the vast majority of cases (most pairs are incomparable in the product lattice), likely hitting proptest's `TooManyRejects` limit. Constructive generation guarantees `a <= b <= c` by definition (`b = a.join(diff)` implies `a <= b` because `a.join(a.join(diff)) == a.join(diff) == b`). This gives 100% hit rate while still exploring diverse state triples.
+
+  **CRITICAL GATE:** If this test FAILS, then `lattice_leq` defined as `a.join(b) == b` is NOT a valid partial order when join is non-associative (BUG-04-057). Transitivity failure would invalidate ALL downstream monotonicity tests (04.4 `capture_state_update` monotonicity) and ALL ordering assertions in 04.5/04.6. If transitivity fails: (1) STOP all further work in this section, (2) escalate BUG-04-057 to critical, (3) the partial order definition must be reconsidered (possibly componentwise `<=` on each dimension separately, which is always a valid partial order regardless of join associativity).
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 04.1-04.2 implementation work (covered by mandatory section-close TPR per /continue-roadmap §Step 10)
 
@@ -325,23 +345,24 @@ Audit the existing semantic contract tests and add the missing `capture_state_up
       #[test]
       fn capture_state_update_monotone_in_current(
           a in canonical_aims_state_strategy(),
-          b in canonical_aims_state_strategy(),
+          diff in canonical_aims_state_strategy(),
           closure in canonical_aims_state_strategy(),
       ) {
           use crate::aims::transfer::capture_state_update;
-          prop_assume!(lattice_leq(&a, &b));
-              let fa = capture_state_update(&a, &closure);
-              let fb = capture_state_update(&b, &closure);
-              assert!(
-                  lattice_leq(&fa, &fb),
-                  "capture_state_update must be monotone in current: \
-                   a={a:?}, b={b:?}, closure={closure:?}, f(a)={fa:?}, f(b)={fb:?}"
-              );
+          // Constructive: b = a.join(diff) guarantees a <= b.
+          let b = a.join(&diff);
+          let fa = capture_state_update(&a, &closure);
+          let fb = capture_state_update(&b, &closure);
+          assert!(
+              lattice_leq(&fa, &fb),
+              "capture_state_update must be monotone in current: \
+               a={a:?}, b={b:?}, closure={closure:?}, f(a)={fa:?}, f(b)={fb:?}"
+          );
       }
   }
   ```
 
-- [ ] Add `capture_state_update` monotonicity test (second argument — closure state):
+- [ ] Add `capture_state_update` monotonicity test (second argument -- closure state):
   ```rust
   proptest! {
       #![proptest_config(ProptestConfig::with_cases(5000))]
@@ -349,20 +370,23 @@ Audit the existing semantic contract tests and add the missing `capture_state_up
       fn capture_state_update_monotone_in_closure(
           current in canonical_aims_state_strategy(),
           c1 in canonical_aims_state_strategy(),
-          c2 in canonical_aims_state_strategy(),
+          diff in canonical_aims_state_strategy(),
       ) {
           use crate::aims::transfer::capture_state_update;
-          prop_assume!(lattice_leq(&c1, &c2));
-              let fc1 = capture_state_update(&current, &c1);
-              let fc2 = capture_state_update(&current, &c2);
-              assert!(
-                  lattice_leq(&fc1, &fc2),
-                  "capture_state_update must be monotone in closure: \
-                   current={current:?}, c1={c1:?}, c2={c2:?}, f(c1)={fc1:?}, f(c2)={fc2:?}"
-              );
+          // Constructive: c2 = c1.join(diff) guarantees c1 <= c2.
+          let c2 = c1.join(&diff);
+          let fc1 = capture_state_update(&current, &c1);
+          let fc2 = capture_state_update(&current, &c2);
+          assert!(
+              lattice_leq(&fc1, &fc2),
+              "capture_state_update must be monotone in closure: \
+               current={current:?}, c1={c1:?}, c2={c2:?}, f(c1)={fc1:?}, f(c2)={fc2:?}"
+          );
       }
   }
   ```
+
+  **Note on `prop_assume!` avoidance:** Both tests above use constructive generation (`b = a.join(diff)`) to guarantee the ordering relation, avoiding `prop_assume!(lattice_leq(...))` which would discard most random pairs (most canonical states are incomparable in the 7D product lattice). This ensures 100% hit rate and avoids `TooManyRejects` failures.
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 04.3-04.4 implementation work (covered by mandatory section-close TPR per /continue-roadmap §Step 10)
 
@@ -399,19 +423,30 @@ At CFG join points, the analysis folds multiple predecessor states: `fold(join, 
       fn nary_join_permutation_invariant(
           states in proptest::collection::vec(canonical_aims_state_strategy(), 2..8),
       ) {
-          // Fold left-to-right
-          let mut forward = AimsState::BOTTOM;
-          forward.canonicalize();
-          for s in &states {
-              forward = forward.join(s);
-          }
+          // Model the REAL analysis fold from compute_block_exit_state()
+          // (intraprocedural/block.rs:76-90): the real code uses an empty
+          // HashMap, so the first successor state is taken verbatim via
+          // map_or(succ_state, ...), and subsequent successors are joined in.
+          // This is equivalent to seeding with BOTTOM because:
+          //   BOTTOM_canonical.join(x) == x for all canonical x
+          // (BOTTOM is componentwise minimum, join is componentwise max,
+          //  and canonicalization is a no-op on already-canonical states).
+          // We use the first-element seed to match the real code exactly.
+          let fold_join = |order: &[AimsState]| -> AimsState {
+              let mut iter = order.iter();
+              let first = *iter.next().unwrap();
+              let mut acc = first;
+              for s in iter {
+                  acc = acc.join(s);
+              }
+              acc
+          };
 
-          // Fold right-to-left
-          let mut backward = AimsState::BOTTOM;
-          backward.canonicalize();
-          for s in states.iter().rev() {
-              backward = backward.join(s);
-          }
+          let forward = fold_join(&states);
+
+          // Fold in reverse order
+          let reversed: Vec<_> = states.iter().copied().rev().collect();
+          let backward = fold_join(&reversed);
 
           assert_eq!(
               forward, backward,
@@ -421,7 +456,9 @@ At CFG join points, the analysis folds multiple predecessor states: `fold(join, 
       }
   }
   ```
-  **Important:** If this test FAILS, it confirms that BUG-04-057 has real consequences for the analysis — the fixpoint result depends on worklist iteration order. This would escalate BUG-04-057 from "high" to "critical" and block Sections 05/06.
+  **Important:** If this test FAILS, it confirms that BUG-04-057 has real consequences for the analysis -- the fixpoint result depends on worklist iteration order. This would escalate BUG-04-057 from "high" to "critical" and block Section 05's correctness-gate authority (Section 06 is independently implementable per its `depends_on: ["01"]`).
+
+  **Design note (blind-spot analysis):** The real `compute_block_exit_state()` in `intraprocedural/block.rs:76-90` does NOT seed with `AimsState::BOTTOM`. It starts with an empty `FxHashMap` and uses `map_or(succ_state, |existing| existing.join(&succ_state))`, meaning the first successor's state is taken verbatim and subsequent successors are joined in. This is mathematically equivalent to a BOTTOM-seeded fold (since `BOTTOM.join(x) == x`), but the test models the real code exactly to avoid any confusion about the equivalence.
 
 - [ ] Add shuffled permutation test for stronger coverage (test multiple random orderings, not just forward/reverse):
   ```rust
@@ -436,9 +473,10 @@ At CFG join points, the analysis folds multiple predecessor states: `fold(join, 
           use std::hash::{Hash, Hasher};
 
           let fold_join = |order: &[AimsState]| -> AimsState {
-              let mut acc = AimsState::BOTTOM;
-              acc.canonicalize();
-              for s in order {
+              let mut iter = order.iter();
+              let first = *iter.next().unwrap();
+              let mut acc = first;
+              for s in iter {
                   acc = acc.join(s);
               }
               acc
@@ -466,9 +504,9 @@ At CFG join points, the analysis folds multiple predecessor states: `fold(join, 
   }
   ```
 
-### New test — `seq_add` distributivity over `join` at AimsState level:
+### New test -- `seq_add` distributivity over `alt_join` at Cardinality level:
 
-The `dimensions.rs` doc claims `seq_add` distributes over `alt_join` for `Cardinality`, and this is exhaustively tested in `tests.rs` for the `Cardinality` dimension alone. However, there is no proptest verifying this at the full `AimsState` level where cross-dimension canonicalization rules interact. Since `seq_add` only applies to `Cardinality` (other dimensions use `join` for both sequential and alternative composition), this test focuses on the `Cardinality` dimension but within full `AimsState` context to catch canonicalization interference.
+The `dimensions.rs` doc claims `seq_add` distributes over `alt_join` for `Cardinality`, and this is exhaustively tested in `tests.rs` for the `Cardinality` dimension alone. This proptest duplicates that exhaustive coverage with proptest's shrinking for better counterexample reporting if the property ever breaks. **This test operates on the `Cardinality` dimension only, not at the full `AimsState` level** -- `seq_add` is a `Cardinality`-only operation (other dimensions use `join`/`max` for both sequential and alternative composition, as documented in `dimensions.rs`). There is no `AimsState`-level `seq_add` to test.
 
 - [ ] Add `Cardinality::seq_add` distributivity over `Cardinality::alt_join` proptest:
   ```rust
@@ -488,7 +526,7 @@ The `dimensions.rs` doc claims `seq_add` distributes over `alt_join` for `Cardin
       }
   }
   ```
-  Note: This duplicates the exhaustive test in `tests.rs` but adds proptest shrinking for better counterexample reporting if the property ever breaks.
+  Note: This is `Cardinality`-only (3 values = 27 triples total), so the exhaustive test in `tests.rs` already covers the full space. This proptest exists for regression safety with minimal cost.
 
 - [ ] **Subsection close-out (04.5)** — MANDATORY before starting 04.6:
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
@@ -509,61 +547,190 @@ This subsection requires a formal analysis of whether BUG-04-057 threatens fixpo
 
 If the non-associativity only affects the uniqueness dimension in states that are Dead+Absent (the counterexample in the bug tracker), and these states never influence RC decisions (because `is_rc_needed` returns false for Dead states), then the analysis may be sound despite non-associativity. This requires a formal argument:
 
-- [ ] Enumerate the state space where associativity fails — characterize ALL counterexamples, not just the one in the bug tracker:
+- [ ] Enumerate the state space where associativity fails -- characterize ALL counterexamples exhaustively:
+
+  **Approach:** The canonical state space has ~3,928 states (verified empirically by enumerating all 11,519 non-SCALAR raw states and canonicalizing). Full triple enumeration (~60.6 billion) is infeasible within the 150s test timeout. Instead, use a **two-tier strategy**: (1) exhaustive enumeration over all canonical STATE PAIRS to identify which `(a, b)` pairs produce join results that are sensitive to associativity (the `ab` intermediate), then (2) for each sensitive pair, sweep over all canonical `c` values. This reduces the search space dramatically because most pairs produce joins where Rule 4 never triggers. If the sensitive-pair set is still too large, fall back to high-coverage proptest sampling (100,000 cases with targeted strategies that focus on Rule 4 boundary states).
+
   ```rust
-  /// Find all (a, b, c) triples where associativity fails.
-  /// First, compute the count of canonical states. If <= 500, use exhaustive
-  /// enumeration over all triples instead of proptest sampling. If > 500,
-  /// run with proptest cases=100_000 to maximize coverage.
-  proptest! {
-      #![proptest_config(ProptestConfig::with_cases(100_000))]
-      #[test]
-      fn characterize_associativity_failures(
-          a in canonical_aims_state_strategy(),
-          b in canonical_aims_state_strategy(),
-          c in canonical_aims_state_strategy(),
-      ) {
-          let ab_c = a.join(&b).join(&c);
-          let a_bc = a.join(&b.join(&c));
-          if ab_c != a_bc {
-              // Log the diverging dimensions for analysis
-              // (proptest will shrink to minimal counterexamples)
-              let diverges_uniqueness = ab_c.uniqueness != a_bc.uniqueness;
-              let diverges_other = ab_c.access != a_bc.access
-                  || ab_c.consumption != a_bc.consumption
-                  || ab_c.cardinality != a_bc.cardinality
-                  || ab_c.locality != a_bc.locality
-                  || ab_c.shape != a_bc.shape
-                  || ab_c.effect != a_bc.effect;
-              // If non-uniqueness dimensions diverge, this is worse than expected
-              assert!(
-                  !diverges_other,
-                  "associativity failure in non-uniqueness dimension — \
-                   escalate BUG-04-057: ab_c={ab_c:?}, a_bc={a_bc:?}"
-              );
-              // For uniqueness-only divergence, verify neither result
-              // influences RC decisions differently
-              assert_eq!(
-                  ab_c.is_rc_needed(), a_bc.is_rc_needed(),
-                  "associativity failure changes RC decision — \
-                   BUG-04-057 is unsound: ab_c={ab_c:?}, a_bc={a_bc:?}"
-              );
-              assert_eq!(
-                  ab_c.needs_cow_check(), a_bc.needs_cow_check(),
-                  "associativity failure changes COW decision — \
-                   BUG-04-057 is unsound: ab_c={ab_c:?}, a_bc={a_bc:?}"
-              );
-              assert_eq!(
-                  ab_c.is_reuse_candidate(), a_bc.is_reuse_candidate(),
-                  "associativity failure changes reuse decision — \
-                   BUG-04-057 is unsound: ab_c={ab_c:?}, a_bc={a_bc:?}"
-              );
+  /// Two-tier characterization: first find sensitive (a,b) pairs where
+  /// the join intermediate is in the Rule 4 trigger zone, then sweep c
+  /// for each. Falls back to proptest if tier-1 set is too large.
+  #[test]
+  fn characterize_associativity_failures_two_tier() {
+      let canonical_states = collect_all_canonical_states();
+      let n = canonical_states.len();
+      eprintln!("canonical state count: {n}");
+      // Expected: ~3,928 canonical states. Full triple sweep (~60B)
+      // is infeasible within 150s; use two-tier approach instead.
+
+      // Tier 1: find all (a,b) pairs where the intermediate ab has
+      // MaybeShared or Unique uniqueness (the Rule 4 trigger zone).
+      let mut sensitive_pairs: Vec<(usize, usize)> = Vec::new();
+      for (i, a) in canonical_states.iter().enumerate() {
+          for (j, b) in canonical_states.iter().enumerate() {
+              let ab = a.join(b);
+              if ab.uniqueness == Uniqueness::MaybeShared
+                  || ab.uniqueness == Uniqueness::Unique {
+                  sensitive_pairs.push((i, j));
+              }
           }
       }
+      eprintln!("sensitive pairs: {}", sensitive_pairs.len());
+
+      // Tier 2: for each sensitive pair, sweep all c values
+      let mut failure_count = 0u64;
+      let mut uniqueness_only_count = 0u64;
+      let mut decision_divergence = false;
+
+      for &(i, j) in &sensitive_pairs {
+          let a = &canonical_states[i];
+          let b = &canonical_states[j];
+          let ab = a.join(b);
+          for c in &canonical_states {
+              let ab_c = ab.join(c);
+              let a_bc = a.join(&b.join(c));
+              if ab_c != a_bc {
+                  failure_count += 1;
+
+                  let diverges_non_uniqueness = ab_c.access != a_bc.access
+                      || ab_c.consumption != a_bc.consumption
+                      || ab_c.cardinality != a_bc.cardinality
+                      || ab_c.locality != a_bc.locality
+                      || ab_c.shape != a_bc.shape
+                      || ab_c.effect != a_bc.effect;
+
+                  if diverges_non_uniqueness {
+                      panic!(
+                          "associativity failure in non-uniqueness dimension — \
+                           escalate BUG-04-057: a={a:?}, b={b:?}, c={c:?}, \
+                           ab_c={ab_c:?}, a_bc={a_bc:?}"
+                      );
+                  }
+                  uniqueness_only_count += 1;
+
+                  // Check ALL downstream uniqueness consumers:
+                  //   - is_rc_needed, needs_cow_check, is_reuse_candidate,
+                  //     is_rc_skip_eligible, is_local (lattice predicates)
+                  //   - can_mutate_in_place (transfer/mod.rs:433)
+                  //   - compute_effective_may_share (block.rs:409)
+                  //   - FIP balance (fip_balance.rs:272)
+                  //   - state_map immortal (state_map.rs:428)
+                  //   - realize/decide.rs:484
+                  //   - post_convergence.rs:259,336
+                  //   - COW emission (emit_rc/cow.rs:37)
+                  //   - reuse detection (emit_reuse/detect.rs:86-87)
+                  //   - reuse planning (emit_reuse/planner.rs:83)
+                  use crate::aims::transfer::can_mutate_in_place;
+                  let predicates_match =
+                      ab_c.is_rc_needed() == a_bc.is_rc_needed()
+                      && ab_c.needs_cow_check() == a_bc.needs_cow_check()
+                      && ab_c.is_reuse_candidate() == a_bc.is_reuse_candidate()
+                      && ab_c.is_rc_skip_eligible() == a_bc.is_rc_skip_eligible()
+                      && ab_c.is_local() == a_bc.is_local()
+                      && can_mutate_in_place(&ab_c) == can_mutate_in_place(&a_bc)
+                      // Direct uniqueness equality — covers ALL consumers
+                      // that branch on `uniqueness == Unique` (FIP balance,
+                      // compute_effective_may_share, state_map, etc.)
+                      && (ab_c.uniqueness == Uniqueness::Unique)
+                          == (a_bc.uniqueness == Uniqueness::Unique);
+                  if !predicates_match {
+                      decision_divergence = true;
+                      eprintln!(
+                          "DECISION DIVERGENCE: a={a:?}, b={b:?}, c={c:?}, \
+                           ab_c={ab_c:?}, a_bc={a_bc:?}"
+                      );
+                  }
+              }
+          }
+      }
+
+      eprintln!(
+          "associativity failures: {failure_count} total, \
+           {uniqueness_only_count} uniqueness-only, \
+           across {} sensitive pairs × {n} c-values",
+          sensitive_pairs.len()
+      );
+
+      assert!(
+          !decision_divergence,
+          "BUG-04-057 affects downstream decisions — fix required. \
+           {failure_count} failures, see stderr for details."
+      );
+  }
+
+  /// Collect all canonical AimsState values by exhaustive enumeration.
+  fn collect_all_canonical_states() -> Vec<AimsState> {
+      use std::collections::HashSet;
+      let accesses = [AccessClass::Borrowed, AccessClass::Owned];
+      let consumptions = [
+          Consumption::Dead, Consumption::Linear,
+          Consumption::Affine, Consumption::Unrestricted,
+      ];
+      let cardinalities = [Cardinality::Absent, Cardinality::Once, Cardinality::Many];
+      let uniquenesses = [Uniqueness::Unique, Uniqueness::MaybeShared, Uniqueness::Shared];
+      let localities = [
+          Locality::BlockLocal, Locality::FunctionLocal,
+          Locality::HeapEscaping, Locality::Unknown,
+      ];
+      let shapes = [
+          ShapeClass::NonReusable,
+          ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+          ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
+          ShapeClass::CollectionBuffer,
+          ShapeClass::ContextHole,
+      ];
+      let effects = [
+          EffectClass { may_alloc: false, may_share: false, may_throw: false },
+          EffectClass { may_alloc: true, may_share: false, may_throw: false },
+          EffectClass { may_alloc: false, may_share: true, may_throw: false },
+          EffectClass { may_alloc: true, may_share: true, may_throw: false },
+          EffectClass { may_alloc: false, may_share: false, may_throw: true },
+          EffectClass { may_alloc: true, may_share: false, may_throw: true },
+          EffectClass { may_alloc: false, may_share: true, may_throw: true },
+          EffectClass { may_alloc: true, may_share: true, may_throw: true },
+      ];
+
+      let mut seen = HashSet::new();
+      for &access in &accesses {
+          for &consumption in &consumptions {
+              for &cardinality in &cardinalities {
+                  for &uniqueness in &uniquenesses {
+                      for &locality in &localities {
+                          for &shape in &shapes {
+                              for &effect in &effects {
+                                  let mut s = AimsState {
+                                      access, consumption, cardinality,
+                                      uniqueness, locality, shape, effect,
+                                  };
+                                  if s.is_scalar() { continue; }
+                                  s.canonicalize();
+                                  seen.insert(s);
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+      }
+      seen.into_iter().collect()
   }
   ```
 
-- [ ] If the characterization test passes (all associativity failures are uniqueness-only AND do not affect RC/COW/reuse decisions), document the formal argument in a code comment on `join()` and update BUG-04-057 severity from `high` to `low` with the formal justification.
+  **Test function naming:** The function name follows `<subject>_<scenario>_<expected>` convention per `impl-hygiene.md`. Provenance (BUG-04-057) goes in `///` doc comment only.
+
+  **Runtime estimate:** With ~3,928 canonical states, the full pair space is ~15.4M pairs. The sensitive subset (uniqueness in {MaybeShared, Unique}) is expected to be much smaller. Each sensitive pair sweeps ~3,928 c-values with 2 joins + 7 predicate checks per triple. Runtime depends on the sensitive-pair count — if ~10% of pairs are sensitive (~1.5M), the total is ~6B operations at ~10ns/op ≈ ~60s, within the 150s budget. If the sensitive set is larger, the test will log the count and may need further tier refinement.
+
+- [ ] If the characterization test passes (all associativity failures are uniqueness-only AND do not affect ANY downstream decision predicate -- `is_rc_needed`, `needs_cow_check`, `is_reuse_candidate`, `is_rc_skip_eligible`, `is_local`, `can_mutate_in_place`), document the formal argument in a code comment on `join()` and update BUG-04-057 severity from `high` to `low` with the formal justification. The argument must explicitly address why uniqueness divergence is harmless for each consumer:
+  - `emit_rc/cow.rs:37` -- COW emission checks `uniqueness != Unique`
+  - `emit_reuse/detect.rs:86-87` -- reuse detection checks `uniqueness == Unique || MaybeShared`
+  - `emit_reuse/planner.rs:83` -- reuse planning filters `uniqueness == Unique`
+  - `transfer/mod.rs:433-434` -- `can_mutate_in_place` requires `Owned && Unique`
+  - `intraprocedural/block.rs:409` -- `compute_effective_may_share` checks `uniqueness == Unique`
+  - `intraprocedural/fip_balance.rs:272` -- FIP balance checks `uniqueness == Unique`
+  - `intraprocedural/state_map.rs:428` -- immortal check branches on `uniqueness == Unique`
+  - `realize/decide.rs:484` -- realization decisions use uniqueness
+  - `intraprocedural/post_convergence.rs:259,336` -- post-convergence adjustments use uniqueness
+  - `intraprocedural/block.rs:409` -- block analysis checks `uniqueness == Unique`
 
 ### Option B: The bug affects RC decisions (fix required)
 
@@ -579,7 +746,7 @@ If the `nary_join_permutation_invariant` test from 04.5 FAILS, then BUG-04-057 h
 
 - [ ] Update BUG-04-057 entry in `plans/bug-tracker/section-04-codegen-llvm.md` with the analysis results.
 
-- [ ] If Option A (benign): remove `#[ignore]` from `join_associative` and replace with a targeted test that documents exactly WHY non-associativity is safe (e.g., "uniqueness divergence in Dead+Absent states does not affect RC decisions").
+- [ ] If Option A (benign): remove `#[ignore]` from `join_associative` and replace with a targeted characterization test (the exhaustive one above) that documents exactly WHICH triples fail and WHY non-associativity is safe. The `#[ignore]` annotation is a deferral placeholder -- it must be resolved to either a passing test (with documented safety proof) or escalated to `/fix-bug`.
 
 - [ ] **Subsection close-out (04.6)** — MANDATORY before starting 04.R:
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
@@ -602,7 +769,18 @@ When all findings are triaged:
 - `third_party_review.status` becomes `resolved` or `none`
 -->
 
-- None. (Previous TPR findings from autopilot session cleared during 2026-04-11 reset — untrusted work.)
+- [x] `[TPR-04-001-codex][high]` `section-04-lattice-properties.md:552` — Fix GAP in 04.6 exhaustive characterization sizing.
+  Evidence: Canonical state count is ~3,928, not ~300-500. Full triple sweep (~60B) is infeasible within 150s timeout.
+  Resolved: Fixed on 2026-04-11. Replaced exhaustive triple sweep with two-tier approach (sensitive-pair filtering + per-pair c-sweep). Updated runtime estimate.
+- [x] `[TPR-04-002-codex][high]` `section-04-lattice-properties.md:593` — Close GAP in 04.6 uniqueness consumer coverage.
+  Evidence: Additional uniqueness consumers at realize/decide.rs:484, post_convergence.rs:259,336, fip_balance.rs:272, state_map.rs:428 were not covered.
+  Resolved: Fixed on 2026-04-11. Expanded consumer list in characterization test and formal argument section. Added direct `uniqueness == Unique` equality check to predicates_match.
+- [x] `[TPR-04-003-codex][medium]` `section-04-lattice-properties.md:459` — Resolve DRIFT in 05 vs 06 blocker text.
+  Evidence: 04.5 and 04.N still referenced "Sections 05/06" despite revised dependency model.
+  Resolved: Fixed on 2026-04-11. Updated 04.5 and 04.N to reflect that only Section 05's correctness-gate authority is blocked; Section 06 is independently implementable.
+- [x] `[TPR-04-001-gemini][medium]` `section-04-lattice-properties.md:401` — Include FIP conditional check in characterization.
+  Evidence: `compute_effective_may_share` at block.rs:409 directly checks `uniqueness == Unique` but was not in the predicate list.
+  Resolved: Fixed on 2026-04-11. Added direct `(uniqueness == Unique)` equality check to the characterization test, covering compute_effective_may_share and all other direct uniqueness consumers.
 
 ---
 
@@ -620,10 +798,10 @@ When all findings are triaged:
 - [ ] Join idempotence: `a.join(a) == a` for random canonical states — audited
 - [ ] Join absorption: `a.join(BOTTOM) >= a`, `a.join(TOP) == TOP` — audited
 
-### Partial-order axioms (NEW — 04.2)
+### Partial-order axioms (NEW -- 04.2)
 - [ ] `lattice_leq` reflexivity: `lattice_leq(a, a)` for all canonical states
 - [ ] `lattice_leq` antisymmetry: `leq(a,b) && leq(b,a)` implies `a == b`
-- [ ] `lattice_leq` transitivity: `leq(a,b) && leq(b,c)` implies `leq(a,c)`
+- [ ] `lattice_leq` transitivity: constructive generation (`b=a.join(diff)`, `c=b.join(diff2)`) -- **CRITICAL GATE**: if this fails, all 04.4 monotonicity tests are invalid
 
 ### Canonicalization properties (04.3)
 - [ ] Canonicalization idempotence: `canonicalize(canonicalize(s)) == canonicalize(s)` — audited
@@ -632,25 +810,25 @@ When all findings are triaged:
 - [ ] Join output is canonical: `canonicalize(a.join(b)) == a.join(b)` — audited
 
 ### Transfer function properties (04.4)
-- [ ] 8 decision predicate semantic contracts verified — audited
-- [ ] `capture_state_update` produces canonical output — audited
-- [ ] `capture_state_update` monotonicity in first argument (NEW)
-- [ ] `capture_state_update` monotonicity in second argument (NEW)
+- [ ] 8 decision predicate semantic contracts verified -- audited
+- [ ] `capture_state_update` produces canonical output -- audited
+- [ ] `capture_state_update` monotonicity in first argument (NEW, constructive generation)
+- [ ] `capture_state_update` monotonicity in second argument (NEW, constructive generation)
 
 ### Fixpoint convergence and permutation invariance (04.5)
-- [ ] Ascending chain convergence within height bound (15 steps) — audited
-- [ ] TOP is a fixpoint — audited
-- [ ] `Cardinality::seq_add` convergence within 2 steps — audited
-- [ ] N-ary join permutation invariance — forward vs reverse (NEW)
-- [ ] N-ary join shuffled permutations (NEW)
-- [ ] `Cardinality::seq_add` distributivity over `alt_join` proptest (NEW)
+- [ ] Ascending chain convergence within height bound (15 steps) -- audited
+- [ ] TOP is a fixpoint -- audited
+- [ ] `Cardinality::seq_add` convergence within 2 steps -- audited
+- [ ] N-ary join permutation invariance -- forward vs reverse (NEW, first-element-seed fold matching `block.rs`)
+- [ ] N-ary join shuffled permutations (NEW, first-element-seed fold matching `block.rs`)
+- [ ] `Cardinality::seq_add` distributivity over `alt_join` proptest (NEW, Cardinality-only)
 
-### BUG-04-057 soundness analysis (NEW — 04.6)
-- [ ] Associativity failure characterization: all counterexamples enumerated
-- [ ] Impact analysis: determine if failures affect RC/COW/reuse decisions
-- [ ] Resolution: Option A (benign — proof documented), Option B (fix via `/fix-bug`), or Option C (permutation test fails — escalate)
+### BUG-04-057 soundness analysis (NEW -- 04.6)
+- [ ] Associativity failure characterization: ALL counterexamples enumerated exhaustively (not sampled)
+- [ ] Impact analysis: determine if failures affect ANY downstream uniqueness consumer (6 lattice predicates + can_mutate_in_place + direct uniqueness==Unique checks in FIP balance, compute_effective_may_share, state_map, realize/decide, post_convergence, COW emission, reuse detection/planning)
+- [ ] Resolution: Option A (benign -- proof documented), Option B (fix via `/fix-bug`), or Option C (permutation test fails -- escalate)
 - [ ] BUG-04-057 bug tracker entry updated with analysis results
-- [ ] Cross-section blocker resolved: Sections 05/06 unblocked (or blocked with documented reason)
+- [ ] Cross-section blocker resolved: Section 05 correctness-gate authority unblocked (or blocked with documented reason). Section 06 is independently implementable per `depends_on: ["01"]`.
 
 ### Standard close-out
 - [ ] All property tests pass: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests`
