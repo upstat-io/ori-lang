@@ -61,7 +61,10 @@ is_json() { [[ -n "$JSON_FLAG" ]]; }
 unavailable() {
     local reason="$1"
     if is_json; then
-        python3 -c 'import sys,json; json.dump({"status":"unavailable","reason":sys.argv[1]}, sys.stdout)' "$reason"
+        timeout "$STEP_TIMEOUT" python3 -c \
+            'import sys,json; json.dump({"status":"unavailable","reason":sys.argv[1]}, sys.stdout)' \
+            "$reason" 2>/dev/null \
+            || printf '{"status":"unavailable","reason":"%s"}' "$reason"
         printf '\n'
     else
         printf 'Intelligence unavailable: %s\n' "$reason" >&2
@@ -89,19 +92,19 @@ HEALTH_JSON=$(timeout "$STEP_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" \
     --json health-check 2>/dev/null) \
     || unavailable "health-check timed out or crashed"
 
-HEALTH_STATUS=$(python3 -c \
+HEALTH_STATUS=$(timeout "$STEP_TIMEOUT" python3 -c \
     "import sys,json; print(json.load(sys.stdin).get('status','error'))" \
     <<< "$HEALTH_JSON" 2>/dev/null) \
     || unavailable "failed to parse health-check response"
 
 if [[ "$HEALTH_STATUS" != "ok" ]]; then
-    REASON=$(python3 -c \
+    REASON=$(timeout "$STEP_TIMEOUT" python3 -c \
         "import sys,json; print(json.load(sys.stdin).get('reason','unknown'))" \
         <<< "$HEALTH_JSON" 2>/dev/null || echo "unknown")
     unavailable "$REASON"
 fi
 
-HAS_INDEX=$(python3 -c \
+HAS_INDEX=$(timeout "$STEP_TIMEOUT" python3 -c \
     "import sys,json; print(json.load(sys.stdin).get('has_fulltext_index',False))" \
     <<< "$HEALTH_JSON" 2>/dev/null || echo "False")
 if [[ "$HAS_INDEX" != "True" ]]; then
@@ -120,7 +123,7 @@ if [[ ${#PASS_ARGS[@]} -gt 0 && "${PASS_ARGS[0]}" == "status" ]]; then
         2>/dev/null || echo "{}")
 
     if is_json; then
-        COMBINED=$(_STATS="$STATS_JSON" _VERSION="$VERSION_JSON" python3 << 'PYEOF'
+        COMBINED=$(_STATS="$STATS_JSON" _VERSION="$VERSION_JSON" timeout "$STEP_TIMEOUT" python3 << 'PYEOF'
 import json, os, sys
 stats = json.loads(os.environ["_STATS"])
 try:
@@ -143,7 +146,7 @@ PYEOF
         ) || unavailable "failed to assemble status response"
         printf '{"status":"ok","data":%s}\n' "$COMBINED"
     else
-        VERSION=$(python3 -c "
+        VERSION=$(timeout "$STEP_TIMEOUT" python3 -c "
 import json, sys
 try:
     d = json.loads(sys.argv[1])
@@ -187,7 +190,7 @@ if is_json; then
         # Try to extract reason from Python's JSON error output
         REASON="query failed"
         if [[ -n "$RESULT" ]]; then
-            REASON=$(python3 -c \
+            REASON=$(timeout "$STEP_TIMEOUT" python3 -c \
                 'import sys,json; print(json.loads(sys.stdin.read()).get("reason","query failed"))' \
                 <<< "$RESULT" 2>/dev/null) || REASON="query failed"
         fi
