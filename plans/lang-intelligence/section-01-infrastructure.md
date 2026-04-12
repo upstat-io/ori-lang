@@ -223,6 +223,10 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 - [x] `[TPR-01-002-codex][low]` (close-out-2) `section-01-infrastructure.md:119` — DRIFT: Stale line references in 01.2 checklist (shifted after fixes).
   Resolved: Fixed on 2026-04-12. Removed fragile line numbers; use function names as stable identifiers with grep instructions.
 - [x] `[TPR-01-001-gemini][informational]` (close-out-2) `scripts/intel-query.sh:1` — All 7 fixes verified successfully; no architectural violations found. Proof-of-work from thorough re-review pass.
+- [x] `[TPR-01-001-codex][medium]` (close-out-3) `scripts/intel-query.sh:41` — GAP: `--timeout 0` disables GNU timeout, breaking bounded-call guarantee.
+  Resolved: Fixed on 2026-04-12. Added minimum-of-1 guard: `$(( $2 > 0 ? $2 : 1 ))` so `--timeout 0` is clamped to 1s.
+- [x] `[TPR-01-002-codex][low]` (close-out-3) `section-01-infrastructure.md:237` — DRIFT: test-all pass count stale (17120 vs 17140).
+  Resolved: Fixed on 2026-04-12. Updated count to 17140 (current HEAD).
 
 ## 01.N Completion Checklist
 
@@ -234,7 +238,7 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 - [x] `query_graph.py` credentials read from env vars with current values as defaults
 - [x] `scripts/intel-query.sh status` returns live graph stats including emptiness check
 - [x] Output contract is JSON-by-default everywhere — no command returns unstructured text to stdout in default mode
-- [x] No test regressions: `timeout 150 ./test-all.sh` (17120 passed, 0 failed)
+- [x] No test regressions: `timeout 150 ./test-all.sh` (17140 passed, 0 failed)
 - [ ] `/tpr-review` clean
 - [ ] `/impl-hygiene-review` clean
 - [ ] `/improve-tooling` **section-close sweep** — MANDATORY after both reviews are clean. Verify every subsection (01.1, 01.2) has an "improvements made" entry or a documented "no gaps" finding from its per-subsection retrospective. Look for cross-subsection patterns: command sequences repeated across subsections, integration failures with unhelpful messages, instrumentation that became obvious only after seeing both subsections. Implement immediately via separate `/commit-push` using valid conventional-commit types (`build`/`test`/`chore`/`ci`/`docs` — NOT `tools(...)`).

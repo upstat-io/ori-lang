@@ -39,7 +39,8 @@ while [[ $# -gt 0 ]]; do
                 # --timeout at end with no value — use default
                 shift
             elif [[ "$2" =~ ^[0-9]+$ ]]; then
-                STEP_TIMEOUT="$2"
+                # Enforce minimum of 1s — timeout 0 disables GNU timeout entirely
+                STEP_TIMEOUT=$(( $2 > 0 ? $2 : 1 ))
                 shift 2
             else
                 # Next arg isn't numeric — treat as implicit default
