@@ -1533,3 +1533,53 @@ fn promote_protocol_iter_drop_promotes_param() {
         "param passed to ori_iter_drop should be promoted to Owned"
     );
 }
+
+/// For `__iter_next` (Owned, Borrowed), arg 0 should be promoted and arg 1 should stay Borrowed.
+/// This is the mixed-ownership case that exercises per-argument index-based promotion.
+#[test]
+fn promote_protocol_iter_next_promotes_first_arg_only() {
+    let interner = StringInterner::new();
+    let func_name = interner.intern("caller");
+    let iter_next_name = interner.intern("__iter_next");
+
+    // fn caller(iter_state: str, type_marker: str) -> str
+    //   let v2 = __iter_next(iter_state, type_marker)
+    //   return v2
+    let func = make_func(
+        func_name,
+        vec![param(0, Idx::STR), param(1, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(2),
+                ty: Idx::STR,
+                func: iter_next_name,
+                args: vec![v(0), v(1)],
+                arg_ownership: vec![ArgOwnership::Owned; 2],
+            }],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![Idx::STR, Idx::STR, Idx::STR],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let builtins = BuiltinOwnershipSets::new(&interner);
+    let sigs = infer_borrows_scc(std::slice::from_ref(&func), &classifier, &builtins);
+
+    let sig = &sigs[&func_name];
+    // Arg 0 (iterator state, Owned) should be promoted.
+    assert_eq!(
+        sig.params[0].ownership,
+        Ownership::Owned,
+        "param passed to __iter_next arg 0 (Owned) should be promoted"
+    );
+    // Arg 1 (type marker, Borrowed) should stay Borrowed.
+    assert_eq!(
+        sig.params[1].ownership,
+        Ownership::Borrowed,
+        "param passed to __iter_next arg 1 (Borrowed) should stay Borrowed"
+    );
+}
