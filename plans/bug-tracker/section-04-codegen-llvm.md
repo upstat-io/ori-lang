@@ -25,7 +25,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-10 | Source: continue-roadmap
   Resolved: Fixed on 2026-04-10. Demoted `AbsentParamHasUses` from hard error to non-blocking warning in `run_aims_verify()`. Added reachability filtering to `check_absent_param_no_uses()` for syntactically-unreachable blocks. Updated pipeline test to match new behavior.
 
-- [ ] `[BUG-04-057][critical]` **AIMS lattice join is non-associative on canonical states — uniqueness dimension diverges; join-based partial order is non-transitive**
+- [x] `[BUG-04-057][critical]` **AIMS lattice join is non-associative on canonical states — uniqueness dimension diverges; join-based partial order is non-transitive**
   Repro: `cargo test -p ori_arc -- aims::lattice::prop_tests::join_associative --ignored --exact`
   Transitivity repro: `cargo test -p ori_arc -- aims::lattice::prop_tests::lattice_leq_transitive --ignored --exact`
   Minimal counterexample (associativity): a={Owned,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, b={Borrowed,Dead,Absent,MaybeShared,BlockLocal,ReusableCtor(Struct),{F,T,F}}, c={Borrowed,Linear,Once,Unique,FunctionLocal,ReusableCtor(EnumVariant),{T,F,T}}. Left=(a.join(b)).join(c) has uniqueness=Unique; right=a.join(b.join(c)) has uniqueness=MaybeShared.
@@ -35,9 +35,9 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_arc/src/aims/lattice/mod.rs` — `canonicalize_single_pass()`
   Found: 2026-04-11 | Source: continue-roadmap
   Escalated: 2026-04-11 — transitivity failure discovered during §04.2 partial-order axiom verification. Upgraded from high to critical.
-  Note: Active work in `plans/llvm-verification-tooling` §04 (lattice property verification) — analysis continues in §04.6.
+  Resolved: Fixed on 2026-04-12 (3f7cf7c2). Removed anti-monotone Rule 4 entirely, widened Rule 6 from `== HeapEscaping` to `>= HeapEscaping`. All 7 previously-ignored proptests un-ignored and passing (36 total, 1 O(n^3) manual-only). Fix section: `plans/bug-tracker/fix-BUG-04-057.md`. Also fixes BUG-04-058.
 
-- [ ] `[BUG-04-058][high]` **`capture_state_update` is non-monotone under componentwise partial order — Rule 6 fires for HeapEscaping but not Unknown**
+- [x] `[BUG-04-058][high]` **`capture_state_update` is non-monotone under componentwise partial order — Rule 6 fires for HeapEscaping but not Unknown**
   Repro: `cargo test -p ori_arc -- aims::lattice::prop_tests::capture_state_update_monotone_in_current --exact`
   Also: `cargo test -p ori_arc -- aims::lattice::prop_tests::capture_state_update_monotone_in_closure --exact`
   Minimal counterexample: a={Borrowed,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, b={Owned,Dead,Absent,Unique,Unknown,NonReusable,{T,T,T}}, closure={Owned,Dead,Absent,Shared,HeapEscaping,CollectionBuffer,{F,T,T}}. f(a)=MaybeShared (Rule 6 fires at HeapEscaping), f(b)=Unique (Rule 6 doesn't fire at Unknown).
@@ -45,7 +45,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Impact: `capture_state_update` violates `arc.md` "Non-monotone transfer = unsound analysis". Currently masked by deterministic processing order, but any reordering could produce unsound optimization decisions.
   Subsystem: `compiler/ori_arc/src/aims/lattice/mod.rs` (Rule 6), `compiler/ori_arc/src/aims/transfer/mod.rs` (capture_state_update)
   Found: 2026-04-11 | Source: continue-roadmap
-  Note: Active work in `plans/llvm-verification-tooling` §04.4 (transfer function monotonicity verification). Related to BUG-04-057 (same class of canonicalization rule narrowness).
+  Resolved: Fixed on 2026-04-12 (3f7cf7c2) as part of BUG-04-057 fix. Rule 6 widened from `== HeapEscaping` to `>= HeapEscaping`. Both monotonicity proptests now pass. Fix section: `plans/bug-tracker/fix-BUG-04-057.md`.
 
 - [ ] `[BUG-04-055][medium]` **LLVM lint: sret attribute not present on call-site for `ori_str_from_raw`**
   Repro: `ORI_LLVM_LINT=1 ori build` any program using string literals — lint reports `Undefined behavior: ABI attribute sret not present on both function and call-site` for `ori_str_from_raw` calls
