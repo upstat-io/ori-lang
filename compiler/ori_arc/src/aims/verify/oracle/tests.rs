@@ -395,7 +395,7 @@ fn oracle_distinguishes_affine_from_linear() {
     );
 }
 
-// --- TPR-05-001 regression: Jump→Let alias propagation ---
+// Alias propagation across Jump→block-param→Let chains
 
 /// Regression: alias introduced via Let AFTER a Jump block-param propagation.
 /// Bug: the Let pass ran outside the fixpoint loop, so Let bindings in blocks
