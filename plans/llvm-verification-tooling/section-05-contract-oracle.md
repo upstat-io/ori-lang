@@ -2,7 +2,7 @@
 section: "05"
 title: "Contract Coherence Oracle"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Rewrite the existing contract coherence oracle to be sound — track parameter aliasing, handle batched RcInc counts, account for Apply/ApplyIndirect arg_ownership, derive may_share, and explicitly scope which ParamContract dimensions are checked vs deferred. Enrich the diagnostic renderer to include per-mismatch details instead of a bare count."
 success_criteria:
   - "Oracle re-derives ParamContract per parameter from post-pipeline IR with aliasing-aware variable tracking"
