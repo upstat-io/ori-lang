@@ -294,3 +294,48 @@ The keyword `Self` (capitalized) refers to the implementing type. It is visible 
 `Self` is not visible in standalone functions, module scope, or `extend` blocks.
 
 The keyword `self` (lowercase) is a parameter name available in methods — functions declared with a `self` parameter. Unlike other parameters, `self` is a mutable binding: it may be reassigned and its fields may be mutated within the method body. Methods that mutate `self` implicitly propagate the modified value back to the caller through desugaring (see [mutable-self-proposal](../../proposals/approved/mutable-self-proposal.md)). `self` has type `Self`.
+
+## 11.12 Block Expressions and Semicolons
+
+A _block expression_ has the form `{ statement* expression? }`.
+
+Each _statement_ within a block shall be terminated by `;`. The last expression in a block, if present and not terminated by `;`, is the _block value_ — the value produced by the block expression. A block in which every expression is terminated by `;` produces `void`.
+
+> **Grammar:** See [Annex A](grammar.ebnf) §block_expr, §statement, §block_ending_expression
+
+### 11.12.1 Optional Semicolons After Block-Ending Expressions
+
+When an expression statement's last token is `}`, the trailing `;` is optional. This applies to the following expression forms when used as statements within a block:
+
+- `for...do { }` — for-do loops with block bodies
+- `while...do { }` — while-do loops with block bodies
+- `loop { }` — infinite loops
+- `if...then { }` — conditionals with block bodies (with or without `else`)
+- `match { }` — match expressions
+- `unsafe { }` — unsafe blocks
+- `block:label { }` — labeled blocks
+- `{ }` — bare block expressions
+
+The `;` remains required for expression statements that do not end with `}`.
+
+EXAMPLE
+
+```ori
+@main () -> void = {
+    for i in 0..10 do {
+        print(msg: `{i}`)
+    }                         // valid: last token is }, ; optional
+
+    let $x = compute();       // required: last token is ), ; required
+
+    if x > 0 then {
+        handle_positive(x:)
+    } else {
+        handle_negative(x:)
+    }                         // valid: last token is }, ; optional
+
+    print(msg: `done`);       // required: last token is ), ; required
+}
+```
+
+NOTE  The optional-semicolon rule is purely syntactic — it does not change the semantics of the expression. An expression statement whose `;` is omitted is still treated as a statement (not a block value), unless it is the last expression in the block without `;`.

@@ -6,12 +6,19 @@
 # proposal (via /create-draft-proposal -> /review-draft-proposal).
 #
 # This hook fires on Edit and Write tool calls. If the target file_path
-# is under the spec directory, the tool call is DENIED unless the
-# ORI_SPEC_PROPOSAL environment variable is set to an approved proposal
-# filename.
+# is under the spec directory, the tool call is DENIED unless a bypass
+# is active.
 #
-# Bypass: set ORI_SPEC_PROPOSAL=<proposal-filename> when using /sync-spec
-# or /sync-grammar after a proposal has been approved.
+# Bypass methods (either works):
+#   1. Environment variable: ORI_SPEC_PROPOSAL=<proposal-filename>
+#      Works for CLI usage: ORI_SPEC_PROPOSAL=foo.md ori ...
+#   2. Marker file: .claude/.spec-proposal-active
+#      Contains a single line: the proposal filename.
+#      Works for Claude Code sessions where env vars don't persist
+#      across tool calls. Created by /review-draft-proposal during
+#      the approval workflow, cleaned up by /commit-push or manually.
+#
+# Both methods verify the proposal exists in approved/ before allowing.
 #
 # Reading spec files is always allowed (this hook only fires on Edit/Write).
 
@@ -31,11 +38,21 @@ print(ti.get('file_path', ''))
 SPEC_PATTERN="docs/ori_lang/v2026/spec/"
 
 if [[ "$FILE_PATH" == *"$SPEC_PATTERN"* ]]; then
-    # Check for approved proposal bypass
-    if [[ -n "${ORI_SPEC_PROPOSAL:-}" ]]; then
-        APPROVED_DIR="docs/ori_lang/proposals/approved"
-        PROPOSAL="$ORI_SPEC_PROPOSAL"
+    APPROVED_DIR="docs/ori_lang/proposals/approved"
+    PROPOSAL=""
 
+    # Method 1: Check environment variable
+    if [[ -n "${ORI_SPEC_PROPOSAL:-}" ]]; then
+        PROPOSAL="$ORI_SPEC_PROPOSAL"
+    fi
+
+    # Method 2: Check marker file (fallback for Claude Code sessions)
+    MARKER_FILE=".claude/.spec-proposal-active"
+    if [[ -z "$PROPOSAL" ]] && [[ -f "$MARKER_FILE" ]]; then
+        PROPOSAL=$(head -1 "$MARKER_FILE" | tr -d '[:space:]')
+    fi
+
+    if [[ -n "$PROPOSAL" ]]; then
         # Verify the proposal actually exists in approved/
         if [[ -f "$APPROVED_DIR/$PROPOSAL" ]] || \
            [[ -f "$APPROVED_DIR/${PROPOSAL}.md" ]] || \
@@ -78,7 +95,8 @@ print(json.dumps({
             + ' without an approved proposal. '
             + 'Run /create-draft-proposal first, then /review-draft-proposal. '
             + 'Only after approval may spec/grammar files be edited. '
-            + 'Set ORI_SPEC_PROPOSAL=<filename> after approval to bypass. '
+            + 'Set ORI_SPEC_PROPOSAL=<filename> or write the filename to '
+            + '.claude/.spec-proposal-active after approval to bypass. '
             + 'See .claude/rules/spec.md for details.'
         )
     }
