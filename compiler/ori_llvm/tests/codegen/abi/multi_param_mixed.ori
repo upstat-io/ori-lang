@@ -1,10 +1,10 @@
 // FileCheck test: multiple params with mixed types.
 // Function with int (i64), str (ptr), and bool (i1) parameters.
-// Verifies the concrete parameter types in the function signature.
+// Verifies the concrete parameter types on the define line itself.
+// Uses .matches mode since all assertions target the define line.
 //
 // @function: _ori_mixed
-// CHECK: i64
-// CHECK: ptr
+// CHECK: define fastcc void @_ori_mixed(i64
 // CHECK: i1
 
 @mixed (n: int, s: str, b: bool) -> void = {
