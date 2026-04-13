@@ -24,9 +24,9 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 - [ ] tree-sitter parses all 9 supported languages and extracts structural symbols (Module, Function, Struct, Trait, Method)
 - [ ] Code graph contains CALLS, IMPORTS, IMPLEMENTS relationships for all reference repos
 - [ ] Issue-to-code bridge links GitHub issues to code symbols via CodeReference nodes with confidence scores
-- [ ] Ori live sync updates the code graph within 500ms of a file save via lefthook post-commit async enqueue
-- [ ] Per-emoji reaction data stored on Issue and Comment nodes (with `author_type` for bot filtering); materialized sentiment metrics (pain, controversy, excitement) computed and indexed
-- [ ] `sentiment` and `landscape` query commands surface cross-language user pain, controversy, and excitement signals
+- [ ] Ori live sync updates the code graph within 5s of a commit via lefthook post-commit async background sync
+- [ ] Per-emoji reaction data stored on Issue and Comment nodes across all 10 repos (with `author_type` for bot filtering); materialized sentiment metrics (pain, controversy, excitement) computed with within-repo percentile normalization
+- [ ] `sentiment` and `landscape` query commands surface cross-language user pain, controversy, and excitement signals via percentile-based thresholds
 - [ ] `./test-all.sh` green — no regressions from any integration changes
 - [ ] All section success criteria met
 
@@ -121,8 +121,8 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 | 05 | Code Graph: Parser Adapters | complete | `~/projects/lang_intelligence/neo4j/`, `languages.yaml` | — |
 | 06 | Code Graph: Symbol Extraction | complete | `~/projects/lang_intelligence/neo4j/extract_symbols.py` | 05 |
 | 07 | Code Graph: Import Pipeline | complete | `~/projects/lang_intelligence/neo4j/import_code_graph.py`, `schema.cypher`, `scripts/build-code-graph.sh` | 06 |
-| 08 | Issue-to-Code Bridge | not-started | `~/projects/lang_intelligence/neo4j/extract_code_refs.py` | 07 |
-| 09 | Ori Live Sync | not-started | `lefthook.yml`, `~/projects/lang_intelligence/neo4j/sync_code_graph.py` | 06, 07 |
+| 08 | Issue-to-Code Bridge | complete | `~/projects/lang_intelligence/neo4j/extract_code_refs.py` | 07 |
+| 09 | Ori Live Sync | not-started | `lefthook.yml`, `~/projects/lang_intelligence/scripts/sync-ori-graph.sh`, `~/projects/lang_intelligence/neo4j/ori_adapter.py`, `~/projects/lang_intelligence/neo4j/sync_ori_graph.py` | 06, 07 |
 | 10 | Sentiment & Issue Signals | not-started | `schema.cypher`, `import_graph.py`, `enrich_sentiment.py`, `query_graph.py`, `fetch-all.sh`, `tests/test_enrich_sentiment.py` | 01 |
 
 ## Estimated Effort

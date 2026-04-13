@@ -277,7 +277,7 @@ The oracle must track which variables are aliases of function parameters. A `Let
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.1: no tooling gaps. The `is_owned_position()` API and `used_vars()` API were clean and well-documented. Test helpers worked well for constructing multi-block ARC IR. The only friction was needing to look up `CtorKind::Tuple` as a unit variant — documented in Rust autocompletion.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -332,7 +332,7 @@ The oracle must derive effect information from the realized IR and compare again
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.2: no tooling gaps. The `derive_effects()` extraction was straightforward. Tests used the same `func_with_body()` helper. No debugging friction.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -483,7 +483,7 @@ Rewrite the `verify_coherence()` function to compare the oracle's re-derived con
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.3: no tooling gaps. Most 05.3 work was already implemented during 05.1/05.2 — the remaining work was adding conservative tracing::info! logging and 4 focused tests. No debugging friction, no diagnostic gaps. The existing `func_with_body()` + `make_contract()` test helpers were sufficient.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -554,7 +554,7 @@ This is not actionable — the user (developer debugging the compiler) cannot te
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.4: no tooling gaps. The existing test infrastructure (`CodegenProblem` test pattern) made adding the diagnostic test straightforward. Display impl was standard. No debugging friction.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -603,7 +603,7 @@ Verify the oracle integration end-to-end. The wiring in `batch.rs:88-111` alread
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.5: no tooling gaps. `ORI_VERIFY_ARC=1 ./test-all.sh` worked immediately with zero oracle false positives. The integration wiring was already correct from the initial autopilot session — the rewrite only touched the oracle logic. No diagnostic scripts needed, no manual debugging.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 

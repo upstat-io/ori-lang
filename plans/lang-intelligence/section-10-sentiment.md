@@ -2,16 +2,17 @@
 section: "10"
 title: "Sentiment & Issue Signals"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Enrich the intelligence graph with per-emoji reaction data and materialized sentiment metrics so that design decisions, bug fixes, and reviews are informed by cross-language user pain, excitement, and controversy signals."
 success_criteria:
-  - "Issue nodes store 8 per-emoji reaction properties (reaction_plus1 through reaction_eyes) — verified by Cypher: MATCH (i:Issue) WHERE i.reaction_plus1 IS NOT NULL RETURN count(i) > 0"
-  - "Comment nodes store per-emoji reactions, author_association, and author_type — verified by Cypher: MATCH (c:Comment) WHERE c.reaction_plus1 IS NOT NULL AND c.author_association IS NOT NULL AND c.author_type IS NOT NULL RETURN count(c) > 0"
-  - "Materialized sentiment metrics (pain_score, controversy_score, excitement_score) exist as indexed properties on Issue nodes — verified by Cypher: MATCH (i:Issue) WHERE i.pain_score IS NOT NULL RETURN count(i) > 0"
-  - "query_graph.py sentiment command returns issues ranked by sentiment type (pain, controversy, excitement) — verified by: python3 neo4j/query_graph.py sentiment pain --repo rust --limit 5"
-  - "query_graph.py landscape command returns per-subsystem sentiment overview — verified by: python3 neo4j/query_graph.py landscape --repo rust"
-  - "_print_issue() shows sentiment tags (e.g., [Pain], [Controversial]) for issues with scores above threshold — verified by visual inspection of human output"
+  - "All 10 repos have per-emoji reaction data on Issue nodes — verified by Cypher: MATCH (r:Repo) OPTIONAL MATCH (i:Issue)-[:IN_REPO]->(r) WHERE i.reaction_plus1 IS NOT NULL RETURN r.name, count(i) — all repos have count > 0"
+  - "Comment nodes store per-emoji reactions, author_association, and author_type for repos with fetched comments — verified per-repo with comment_coverage metadata on Repo nodes"
+  - "Materialized sentiment metrics (pain_score, controversy_score, excitement_score) exist as indexed properties on Issue nodes across all 10 repos — verified by: MATCH (r:Repo) OPTIONAL MATCH (i:Issue)-[:IN_REPO]->(r) WHERE i.pain_score IS NOT NULL RETURN r.name, count(i)"
+  - "query_graph.py sentiment command returns issues ranked by sentiment type — verified by: python3 neo4j/query_graph.py sentiment pain --repo rust --limit 5 (returns non-empty results)"
+  - "query_graph.py landscape command returns per-label sentiment aggregations — verified by: python3 neo4j/query_graph.py landscape --repo rust (returns non-empty results)"
+  - "_print_issue() shows percentile-based sentiment tags (e.g., [Pain], [Controversial]) for issues above the 95th percentile — verified by visual inspection of human output"
   - "All existing skills automatically inherit sentiment via --human output — no SKILL.md files modified"
+  - "scripts/intel-query.sh ori-sentiment returns results via canonical helper — verified by: scripts/intel-query.sh --human ori-sentiment --limit 3"
   - "Satisfies mission criterion: all section success criteria met"
 inspired_by:
   - "GitHub API reactions model (per-emoji breakdown on issues and comments)"
@@ -97,10 +98,10 @@ The raw GitHub JSON already contains per-emoji reaction data for every issue and
 
 - [ ] Add performance indexes for sentiment queries:
   ```cypher
-  CREATE INDEX issue_reaction_minus1 FOR (i:Issue) ON (i.reaction_minus1);
-  CREATE INDEX issue_reaction_confused FOR (i:Issue) ON (i.reaction_confused);
-  CREATE INDEX comment_author_assoc FOR (c:Comment) ON (c.author_association);
-  CREATE INDEX comment_author_type FOR (c:Comment) ON (c.author_type);
+  CREATE INDEX IF NOT EXISTS issue_reaction_minus1 FOR (i:Issue) ON (i.reaction_minus1);
+  CREATE INDEX IF NOT EXISTS issue_reaction_confused FOR (i:Issue) ON (i.reaction_confused);
+  CREATE INDEX IF NOT EXISTS comment_author_assoc FOR (c:Comment) ON (c.author_association);
+  CREATE INDEX IF NOT EXISTS comment_author_type FOR (c:Comment) ON (c.author_type);
   ```
 
 ### Import pipeline changes
@@ -152,6 +153,12 @@ The raw GitHub JSON already contains per-emoji reaction data for every issue and
 - [ ] Verify: existing `Issue.reactions` (total_count) field preserved for backward compatibility — `cmd_hot()` at query_graph.py:451 uses `i.reactions` and must continue to work unchanged.
 
 ### Backfill
+
+- [ ] **Prerequisite: Verify comment corpus completeness.** The comment fetch in `fetch_repo.sh` stops when GitHub rate limit drops below 50, so the local comment corpus is knowingly partial for large repos (e.g., Go has ~74K issues with comments but only ~1K comment JSON files on disk). Before backfilling:
+  1. Run a per-repo coverage check: for each repo, count issues with `comments > 0` vs. comment JSON files on disk
+  2. If coverage is below 80% for any repo, run `fetch_repo.sh <repo> <github_org/repo>` to complete the comment fetch (may require multiple runs due to rate limits)
+  3. Document actual per-repo coverage in a verification artifact — thread-level aggregation in 10.2 is only meaningful when comment data is substantially complete
+  4. If full comment fetch is impractical (rate limits), the plan must still proceed with issue-level-only sentiment for under-fetched repos. Add a `comment_coverage` property to `:Repo` nodes so queries can report which repos have reliable thread-level metrics.
 
 - [ ] Re-import all 10 repos to backfill per-emoji data. The raw JSON files already contain the breakdown — re-running `import_graph.py` with the updated code will populate the new properties via MERGE+SET (idempotent — existing non-reaction properties are preserved).
   ```bash
@@ -212,12 +219,12 @@ Additionally, `import_graph.py` processes Issues (Phase 1) before Comments (Phas
 
 - [ ] Add materialized sentiment indexes to `schema.cypher`:
   ```cypher
-  CREATE INDEX issue_pain_score FOR (i:Issue) ON (i.pain_score);
-  CREATE INDEX issue_controversy_score FOR (i:Issue) ON (i.controversy_score);
-  CREATE INDEX issue_excitement_score FOR (i:Issue) ON (i.excitement_score);
-  CREATE INDEX issue_pain_pctile FOR (i:Issue) ON (i.pain_pctile);
-  CREATE INDEX issue_controversy_pctile FOR (i:Issue) ON (i.controversy_pctile);
-  CREATE INDEX issue_excitement_pctile FOR (i:Issue) ON (i.excitement_pctile);
+  CREATE INDEX IF NOT EXISTS issue_pain_score FOR (i:Issue) ON (i.pain_score);
+  CREATE INDEX IF NOT EXISTS issue_controversy_score FOR (i:Issue) ON (i.controversy_score);
+  CREATE INDEX IF NOT EXISTS issue_excitement_score FOR (i:Issue) ON (i.excitement_score);
+  CREATE INDEX IF NOT EXISTS issue_pain_pctile FOR (i:Issue) ON (i.pain_pctile);
+  CREATE INDEX IF NOT EXISTS issue_controversy_pctile FOR (i:Issue) ON (i.controversy_pctile);
+  CREATE INDEX IF NOT EXISTS issue_excitement_pctile FOR (i:Issue) ON (i.excitement_pctile);
   ```
 
 ### Enrichment script
@@ -244,11 +251,18 @@ Additionally, `import_graph.py` processes Issues (Phase 1) before Comments (Phas
   4. **Within-repo percentile bands**: After computing raw scores, compute percentile rank within each repo. Store as `i.pain_pctile`, `i.controversy_pctile`, `i.excitement_pctile` (integer 0-100). This enables cross-repo comparison: "top 5% most painful issues in Go" is comparable to "top 5% in Rust" even though Go has 76K issues and Rust has 15K.
   5. **Idempotency**: Script must be re-runnable. Use `SET` (not `+=`) on all properties.
 
-- [ ] Wire into `fetch-all.sh` — after all repos are imported, run enrichment:
-  ```bash
-  # At end of fetch-all.sh, after all imports complete:
-  python3 neo4j/enrich_sentiment.py
-  ```
+- [ ] Wire enrichment into ALL import entrypoints to prevent DRIFT between raw reactions and materialized scores:
+  1. **`fetch-all.sh`** — after all repos are imported, run enrichment:
+     ```bash
+     # At end of fetch-all.sh, after all imports complete:
+     python3 neo4j/enrich_sentiment.py
+     ```
+  2. **`fetch_repo.sh`** — after single-repo import completes (including `--since` incremental mode), run enrichment for that repo:
+     ```bash
+     python3 neo4j/enrich_sentiment.py --repo "$NAME"
+     ```
+     This requires `enrich_sentiment.py` to accept an optional `--repo` flag that limits enrichment to one repo's issues.
+  3. **Documentation** — add a note to `~/projects/lang_intelligence/CLAUDE.md` that direct `python3 import_graph.py` runs must be followed by `python3 enrich_sentiment.py` to keep scores in sync.
 
 - [ ] Verification queries:
   ```cypher
@@ -283,7 +297,7 @@ Additionally, `import_graph.py` processes Issues (Phase 1) before Comments (Phas
   - Percentile computation: repo with 1 issue gets pctile=100; repo with 100 issues distributes correctly
 
 - [ ] **Semantic pin**: Go error handling (#32825) must have pain_score > 0 (has 223 thumbs-down, 22 confused => pain = 223*2 + 22 = 468).
-- [ ] **Semantic pin**: Go generics proposal (#15292) must have controversy_score > Go error handling (#32825). #15292 has min(1997, 152) * log2(1997 + 152 + 1) = 152 * 11.07 = 1682; #32825 has min(2010, 223) * log2(2010 + 223 + 1) = 223 * 11.13 = 2482. Both are highly controversial but #32825 is higher (more absolute disagreement despite similar total engagement). Pin: both have controversy_score > 1000.
+- [ ] **Semantic pin**: Go error handling (#32825) must have controversy_score > Go generics (#15292). Calculation: #32825 has min(2010, 223) * log2(2233) = 223 * 11.13 ≈ 2482; #15292 has min(1997, 152) * log2(2150) = 152 * 11.07 ≈ 1683. Pin: `controversy_score(#32825) > controversy_score(#15292) > 1000` (both highly controversial, but #32825 has more absolute disagreement).
 - [ ] **Negative pin**: An issue with zero reactions across all emoji types must have pain_score = 0, controversy_score = 0, excitement_score = 0.
 
 - [ ] **Subsection close-out (10.2)** — MANDATORY before starting 10.3:
@@ -320,7 +334,9 @@ Add two query commands and modify the output formatter to show sentiment signals
          i.pain_score as pain_score,
          i.controversy_score as controversy_score,
          i.excitement_score as excitement_score,
-         i.{score_field}_pctile as pctile
+         i.pain_pctile as pain_pctile,
+         i.controversy_pctile as controversy_pctile,
+         i.excitement_pctile as excitement_pctile
   ORDER BY i.{score_field} DESC LIMIT $limit
   ```
   Where `{score_field}` maps: pain→`pain_score`, controversy→`controversy_score`, excitement→`excitement_score`. **Input validation:** the `<type>` argument must be one of {pain, controversy, excitement}. Any other value must produce a clear error message (not a Cypher injection or silent empty result). Use a hardcoded allowlist dict, not string interpolation of raw user input.
@@ -369,17 +385,18 @@ Add two query commands and modify the output formatter to show sentiment signals
       if comments:
           signal += f"{comments}c"
 
-      # Sentiment tags — only when scores are available and above threshold
+      # Sentiment tags — use percentile thresholds (not absolute scores)
+      # to ensure cross-repo fairness (Go's 76K issues vs Koka's 677).
+      # Tags only appear when percentile fields are returned by the query.
       tags = []
-      pain = rec.get("pain_score", 0) or 0
-      controversy = rec.get("controversy_score", 0) or 0
-      excitement = rec.get("excitement_score", 0) or 0
-      pctile = rec.get("pctile", 0) or 0  # from sentiment command
-      if pain > 10:
+      pain_pct = rec.get("pain_pctile", 0) or 0
+      controversy_pct = rec.get("controversy_pctile", 0) or 0
+      excitement_pct = rec.get("excitement_pctile", 0) or 0
+      if pain_pct >= 95:
           tags.append("[Pain]")
-      if controversy > 20:
+      if controversy_pct >= 95:
           tags.append("[Controversial]")
-      if excitement > 10:
+      if excitement_pct >= 95:
           tags.append("[Excitement]")
       tag_str = " ".join(tags)
 
