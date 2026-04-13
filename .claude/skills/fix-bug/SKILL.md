@@ -136,10 +136,10 @@ After investigation, assess whether this bug is a **point fix** (inline bug fix)
 - Fix naturally belongs as a roadmap section or plan with multiple phases
 - You cannot write a TDD matrix because the fix approach itself is unclear
 
-**If point fix** → proceed to Phase 2.
+**If point fix** → proceed to Phase 1.6 (Create Fix Section File).
 
 **If plan needed** → escalate:
-1. **Do NOT proceed to Phase 2.** Do NOT write code. Do NOT create a fix section file.
+1. **Do NOT proceed to Phase 1.6.** Do NOT write code. Do NOT create a fix section file.
 2. **Run `/create-plan`** — create a proper plan for this work. The plan IS the deliverable.
 3. **Update the bug entry** in the section file — add a note: `Escalated to plan: plans/{plan-name}/`. Do NOT mark it `[x]` — it is not fixed, it is planned.
 4. **Report the escalation** to the user:
@@ -152,7 +152,7 @@ After investigation, assess whether this bug is a **point fix** (inline bug fix)
 5. **Stop.** This bug is done for `/fix-bug`. The plan will be worked separately.
 
 **If blocked/latent** (prerequisite feature doesn't exist yet):
-1. **Do NOT proceed to Phase 2.** The bug cannot be fixed because the infrastructure doesn't exist.
+1. **Do NOT proceed to Phase 1.6.** The bug cannot be fixed because the infrastructure doesn't exist.
 2. **Update the bug entry** — add a note explaining the blocker: `Blocked: {reason — e.g., "LLVM FFI codegen not yet implemented"}`. Do NOT mark it `[x]`.
 3. **Report the blocker:**
    ```
@@ -176,11 +176,33 @@ When NOT in autopilot mode, invoke `/create-plan` normally per the escalation pr
 
 Autopilot means autonomous, not reckless. Correctly identifying that a bug needs a plan and deferring the plan creation to the interactive user IS the correct autonomous decision. The key: always return to the caller — never just "document and stop."
 
+### Phase 1.6: Create Fix Section File — IMMEDIATELY After Scope Confirmation
+
+**Create the fix section file NOW** — do NOT wait for `/tp-help` consensus. The fix file is the first user-visible artifact and must exist as soon as the investigation is complete and scope is confirmed.
+
+Create `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md` using the template in [fix-section-template.md](fix-section-template.md). Fill in everything known so far:
+
+- **Frontmatter**: all fields (bug ID, title, severity, status: `in-progress`, goal, subsystem, etc.)
+- **§1 Root Cause Analysis**: populated from Phase 1 investigation findings (symptom, proximate cause, root cause, blast radius, affected files)
+- **§1.5 Fix Consensus**: leave as `Pending — /tp-help consensus in Phase 1.75`
+- **§2 TDD Matrix**: skeleton with section headers — fill in after consensus
+- **§3 Implementation**: skeleton with proposed approach from Phase 1 — may be revised by consensus
+- **§R TPR Findings**: empty (populated during Phase 5)
+- **§4 Completion Checklist**: full template from the fix-section-template
+
+**Why this is here and not later:** The previous workflow created the fix file at Phase 2 (after `/tp-help` consensus), which meant no visible plan artifact existed for potentially 30+ minutes of investigation and consensus work. The user had no way to see progress or verify the investigation findings were being captured. Moving file creation to immediately after scope confirmation ensures:
+1. The investigation's root cause analysis is persisted immediately (not held only in Claude's context)
+2. The user can read the fix plan and course-correct before `/tp-help` runs
+3. If the session is interrupted, the investigation work isn't lost
+4. Phase 1.75 (`/tp-help`) updates §1.5 of an existing file rather than creating the whole file from scratch
+
+**Set frontmatter `status: in-progress`** — the fix is now actively being worked, even though implementation hasn't started. The file transitions from `in-progress` to `complete` at Phase 5.
+
 ### Phase 1.75: Fix Consensus (via /tp-help) — MANDATORY GATE
 
-**Before writing the fix section file, get independent dual-source consensus on the proposed fix approach.** This catches wrong-approach errors BEFORE they are locked into the fix section, the test matrix, or the implementation.
+**Before writing tests or code, get independent dual-source consensus on the proposed fix approach.** This catches wrong-approach errors BEFORE they are locked into the test matrix or the implementation. The fix section file already exists (Phase 1.6) — this phase fills in its §1.5 Fix Consensus section.
 
-This is NOT `/tp-help`'s usual "stuck help" use case — it is **design consensus**. You have investigation + root cause (Phase 1) + a confirmed point-fix scope (Phase 1.5) + a proposed approach. You are about to commit to it in writing. Get Codex and Gemini to independently pressure-test the approach before you lock it in. The `/tp-help` skill has an explicit carve-out for this calling context (see its "What Does NOT Trigger This" → "Exception — design consensus mode").
+This is NOT `/tp-help`'s usual "stuck help" use case — it is **design consensus**. You have investigation + root cause (Phase 1) + a confirmed point-fix scope (Phase 1.5) + a written fix plan (Phase 1.6) + a proposed approach. You are about to commit to implementation. Get Codex and Gemini to independently pressure-test the approach before you lock it in. The `/tp-help` skill has an explicit carve-out for this calling context (see its "What Does NOT Trigger This" → "Exception — design consensus mode").
 
 **Skip only when:** Phase 1.5 escalated to `/create-plan` or marked blocked. Plans get their own review loops; blocked bugs have nothing to review. EVERY other bug — including "trivial" one-liners — runs through consensus. What looks trivial often has architectural implications you would want flagged.
 
@@ -203,17 +225,22 @@ This is NOT `/tp-help`'s usual "stuck help" use case — it is **design consensu
    - **Interactive mode**: escalate via `AskUserQuestion` with a summary of the deadlock — Claude's position, reviewers' positions, the specific disagreement, and why Claude cannot reconcile. The user breaks the tie.
    - **Autopilot mode**: document the deadlock in § 1.5 Fix Consensus → "Round 3" entry ("AUTOPILOT DEADLOCK"), then proceed with Claude's best-grounded approach. The deadlock MUST be flagged in the `/fix-next-bug` final session report so the user can audit after the autopilot run ends. Do NOT use `AskUserQuestion` (autopilot rule).
 
-6. **Document consensus in the fix section file** (§ 1.5 Fix Consensus, per the template). The content is captured NOW; the file itself is written in Phase 2.
+6. **Update the fix section file's §1.5 Fix Consensus** with the consensus outcome (per the template). The fix file already exists from Phase 1.6 — fill in the consensus section now.
 
 **Interaction with Phase 1.5**: If `/tp-help` reveals the bug is actually systemic (requires architectural change across 4+ files, new abstractions, cross-crate redesign), **return to Phase 1.5** and re-assess. A consensus round that surfaces plan-escalation criteria is a WIN — cheaper than discovering it mid-implementation. Follow Phase 1.5's escalation protocol exactly — including the autopilot exception (which marks `Escalated: requires plan` instead of invoking `/create-plan`).
 
 **Runtime expectation**: `/tp-help` is ~10–15 min per round (dominated by gemini wall time). Budget 10–45 min for Phase 1.75 depending on whether reconciliation rounds are needed. This is deliberately expensive — one saved bad-approach cycle (where tests encode the wrong semantics and the fix has to be reverted) pays for many consensus calls.
 
-### Phase 2: Create the Fix Section File
+### Phase 2: Finalize the Fix Section File
 
-Create `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md` using the template in [fix-section-template.md](fix-section-template.md). This file is the plan section for this bug fix — it documents the investigation, drives the TDD process, and tracks completion.
+The fix section file (`plans/bug-tracker/fix-BUG-{section}-{ordinal}.md`) already exists from Phase 1.6. After `/tp-help` consensus (Phase 1.75), finalize it:
 
-**IMPORTANT:** Write the fix file BEFORE writing any code. The fix file is the plan; the plan comes before the implementation.
+1. **Update §1.5 Fix Consensus** — already done in Phase 1.75 step 6
+2. **Fill in §2 TDD Matrix** — design the test matrix based on the agreed approach. List all tests that will be written in Phase 3.
+3. **Fill in §3 Implementation** — write the concrete implementation plan based on the consensus-agreed approach. Include code sketches.
+4. **Verify §1 Root Cause Analysis** is still accurate after consensus — if `/tp-help` revealed new affected files or a refined root cause, update §1.
+
+**IMPORTANT:** The fix file must be complete BEFORE writing any code. The file is the plan; the plan comes before the implementation.
 
 ### Phase 3: TDD — Write Tests First
 
