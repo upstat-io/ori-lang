@@ -156,6 +156,7 @@ Quick reference — full rules: `compiler.md` (architecture, tracing), `impl-hyg
 **LLVM pass verification**: `ORI_VERIFY_EACH=1` — enable LLVM IR verification after every optimization pass (~30-60% slower); catches which pass breaks IR well-formedness
 **Repr-opt disable**: `ORI_NO_REPR_OPT=1` — disable all representation optimizations (integer narrowing, enum packing). CLI: `--no-repr-opt`
 **Sanitizer**: `ORI_SANITIZE=address,undefined` — enable sanitizer instrumentation on generated AOT binaries via Clang delegation. Requires Clang on PATH. Significant performance impact (2-10x slower). Not for main test suite.
+**Sanitizer scripts**: `scripts/sanitizer-smoke.sh` (17 curated programs, O0+O2 matrix, <=60s) | `scripts/sanitizer-full.sh` (full spec sweep, sharded for CI) | `scripts/build-rt-asan.sh` (build ASan-instrumented `libori_rt_asan.a`, requires nightly Rust)
 **AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed.
 **Always run `./test-all.sh` after compiler changes.**
 **Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh` | **Cargo cache**: `./scripts/cache-doctor.sh [--print-cleanup|--clean]` — detects root-owned files in `target/` that cargo cannot update (accidental `sudo cargo build`); refuses destructive actions by default
