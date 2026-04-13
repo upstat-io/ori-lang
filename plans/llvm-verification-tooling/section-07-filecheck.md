@@ -24,7 +24,7 @@ third_party_review:
 sections:
   - id: "07.0"
     title: "Prerequisites: Harness Fixes and aot.rs Split"
-    status: not-started
+    status: complete
   - id: "07.1"
     title: "Evolve ir_checks.rs into Harness-Based Runner"
     status: not-started
@@ -95,27 +95,27 @@ sections:
 
 ### Harness Bug Fixes
 
-- [ ] **Document the multiple-match flaw in check.rs.** In `.matches` mode, two identical `CHECK: ori_rc_inc` directives both match the same IR line. A test expecting N occurrences of a pattern passes with only 1 actual. Add a `//!` doc comment in `check.rs` warning about this. Mitigation: use `.exact` mode with `CHECK-LABEL` scoping for any test that cares about occurrence count, or use distinct substring patterns (e.g., include the argument: `CHECK: call void @ori_rc_inc(ptr %xs)` instead of bare `CHECK: ori_rc_inc`).
+- [x] **Document the multiple-match flaw in check.rs.** In `.matches` mode, two identical `CHECK: ori_rc_inc` directives both match the same IR line. A test expecting N occurrences of a pattern passes with only 1 actual. Add a `//!` doc comment in `check.rs` warning about this. Mitigation: use `.exact` mode with `CHECK-LABEL` scoping for any test that cares about occurrence count, or use distinct substring patterns (e.g., include the argument: `CHECK: call void @ori_rc_inc(ptr %xs)` instead of bare `CHECK: ori_rc_inc`).
 
-- [ ] **Fix CHECK-NOT scope in exact mode.** Currently `run_exact_mode` in `check.rs` implements `CheckNot` by scanning from `search_from` to EOF. This means CHECK-NOT is unbounded — it picks up symbols from later functions, runtime declarations, and stdlib stubs. **Fix**: update `CheckNot` logic to evaluate only the lines between `search_from` and the *next* positive `Check` or `CheckLabel` match (or EOF if no subsequent matches), aligning with standard LLVM FileCheck semantics where CHECK-NOT checks the region between its preceding and following positive directives.
+- [x] **Fix CHECK-NOT scope in exact mode.** Currently `run_exact_mode` in `check.rs` implements `CheckNot` by scanning from `search_from` to EOF. This means CHECK-NOT is unbounded — it picks up symbols from later functions, runtime declarations, and stdlib stubs. **Fix**: update `CheckNot` logic to evaluate only the lines between `search_from` and the *next* positive `Check` or `CheckLabel` match (or EOF if no subsequent matches), aligning with standard LLVM FileCheck semantics where CHECK-NOT checks the region between its preceding and following positive directives.
 
-- [ ] **Add function-scoped IR slicing to the FileCheckStrategy.** CHECK-LABEL provides section anchoring within a file, but it does NOT provide true function isolation — `CheckNot` can still see symbols from later functions. The robust solution: the `FileCheckStrategy::execute()` method should use `extract_function_ir()` (from `util/ir_capture.rs` after the split) to slice the captured module IR to the target function before passing it to `run_checks()`. Convention: each test file must have a `// @function: <name>` custom directive specifying the target function. If absent, use `_ori_main` as default. This ensures CHECK-NOT patterns are truly function-scoped.
+- [x] **Add function-scoped IR slicing to the FileCheckStrategy.** CHECK-LABEL provides section anchoring within a file, but it does NOT provide true function isolation — `CheckNot` can still see symbols from later functions. The robust solution: the `FileCheckStrategy::execute()` method should use `extract_function_ir()` (from `util/ir_capture.rs` after the split) to slice the captured module IR to the target function before passing it to `run_checks()`. Convention: each test file must have a `// @function: <name>` custom directive specifying the target function. If absent, use `_ori_main` as default. This ensures CHECK-NOT patterns are truly function-scoped.
 
-- [ ] **Document CHECK-LABEL search behavior.** In exact mode, `CHECK-LABEL` searches from line 0 (resetting search position). Document that LABEL patterns should be specific enough to unambiguously identify the target function (e.g., `CHECK-LABEL: define void @_ori_main` not just `CHECK-LABEL: @main`). With function-scoped IR slicing above, CHECK-LABEL is still useful for within-function structure (e.g., anchoring to a specific basic block label) but no longer the primary function isolation mechanism.
+- [x] **Document CHECK-LABEL search behavior.** In exact mode, `CHECK-LABEL` searches from line 0 (resetting search position). Document that LABEL patterns should be specific enough to unambiguously identify the target function (e.g., `CHECK-LABEL: define void @_ori_main` not just `CHECK-LABEL: @main`). With function-scoped IR slicing above, CHECK-LABEL is still useful for within-function structure (e.g., anchoring to a specific basic block label) but no longer the primary function isolation mechanism.
 
 ### aot.rs Split
 
-- [ ] **Split `compiler/ori_llvm/tests/aot/util/aot.rs` (737 lines) into submodules.** The file exceeds the 500-line limit (impl-hygiene.md). Extract to:
+- [x] **Split `compiler/ori_llvm/tests/aot/util/aot.rs` (737 lines) into submodules.** The file exceeds the 500-line limit (impl-hygiene.md). Extract to:
   - `util/compile.rs` — `compile_and_run()`, `compile_and_run_capture()`, `compile_and_run_with_args()`, `assert_aot_success()`, `assert_multifile_aot_success()`, exit code helpers
   - `util/ir_capture.rs` — `compile_and_capture_ir()`, `extract_function_ir()`, `compile_to_llvm_ir()`, IR inspection helpers
   - `util/binary.rs` — `ori_binary()`, `ir_capture_binary()`, `stdlib_path()`, `workspace_root()`, path/binary discovery
   - `util/aot.rs` — re-exports from submodules for backward compatibility (thin facade)
   Each submodule must be under 500 lines. Update `util/mod.rs` to expose all submodules.
 
-- [ ] **Subsection close-out (07.0)** — MANDATORY before starting 07.1:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (07.0)** — MANDATORY before starting 07.1:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.0: no tooling gaps — test-infrastructure refactoring used cargo test/clippy/test-all.sh, all sufficient
 
 ---
 
