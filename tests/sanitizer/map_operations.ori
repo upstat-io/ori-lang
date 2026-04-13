@@ -1,0 +1,13 @@
+// Sanitizer smoke: Map hash table — insert, lookup.
+// Tests hash map allocation and key/value RC.
+
+@main () -> int = {
+    let m = {"hello": 1, "world": 2, "ori": 3};
+    let hello = m["hello"];
+    let ori = m["ori"];
+    let missing = m["nope"];
+    let ok = hello == Some(1)
+        && ori == Some(3)
+        && missing == None;
+    if ok then 0 else 1
+}

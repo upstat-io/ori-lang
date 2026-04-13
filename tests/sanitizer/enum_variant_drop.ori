@@ -1,0 +1,22 @@
+// Sanitizer smoke: Sum type variant drops — variant with RC payload.
+// Each variant may carry different RC'd data; drops must match construction.
+
+type Shape = Circle(radius: int) | Rectangle(width: int, height: int) | Label(name: str);
+
+@area (s: Shape) -> int = match s {
+    Circle(radius:) -> radius * radius * 3,
+    Rectangle(width:, height:) -> width * height,
+    Label(name:) -> name.len()
+}
+
+@main () -> int = {
+    let c = Circle(radius: 5);
+    let r = Rectangle(width: 4, height: 6);
+    let l = Label(name: "test");
+    let a1 = area(s: c);
+    let a2 = area(s: r);
+    let a3 = area(s: l);
+    // Circle: 5*5*3=75, Rect: 4*6=24, Label: "test".len()=4
+    let ok = a1 == 75 && a2 == 24 && a3 == 4;
+    if ok then 0 else 1
+}

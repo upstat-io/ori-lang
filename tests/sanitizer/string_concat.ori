@@ -1,0 +1,11 @@
+// Sanitizer smoke: String RC and buffer — concat, interpolation.
+// Strings are RC'd; concat creates new allocations.
+
+@greet (name: str) -> str = `Hello, {name}!`;
+
+@main () -> int = {
+    let greeting = greet(name: "World");
+    let long = "a" + "b" + "c" + "d" + "e";
+    let ok = greeting == "Hello, World!" && long == "abcde";
+    if ok then 0 else 1
+}

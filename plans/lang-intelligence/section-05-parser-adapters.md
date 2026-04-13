@@ -127,7 +127,7 @@ There is NO shared library building step. Grammar packages are Python modules wi
   - [x] All tasks above are `[x]` and all grammars load via smoke test
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.1: Koka scanner patch was the main friction point (upstream bug in setup.py). `setup-parsers.sh` already has `--verbose` flag. No additional tooling gaps — `validate-parsers.py --smoke` gives clear per-grammar pass/fail.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Clean (2026-04-13).
 
 ---
 
@@ -205,7 +205,7 @@ go:
   - [x] All tasks above are `[x]` and both manifests validate
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.2: Validation is currently inline Python. Built into parser_adapter.py in 05.3 (resolve_repo_path + manifest loading). No separate validate-manifests.py needed — `validate-parsers.py --smoke` already covers grammar loading, and the inline validation covered path resolution. No tooling gaps.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Clean (2026-04-13).
 
 ---
 
@@ -268,7 +268,7 @@ class CoverageStatus(Enum):
   - [x] All tasks above are `[x]` and adapter API is documented and tested
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.3: Query file warning spam was noisy during testing (expected — no query files yet). Added `logging` properly so downstream consumers control verbosity. Grammar cache and query cache prevent redundant loads. No tooling gaps.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Clean (2026-04-13).
 
 ---
 
@@ -317,7 +317,7 @@ Official `tags.scm` files vary by language in what they capture. Some (Rust, Go)
   - [x] All tasks above are `[x]` and all query files compile (non-stubs produce captures, declared stubs return zero captures)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.4: Node type discovery was the main friction (had to iterate multiple times fixing "Impossible pattern" errors). The inline test script used for validation should be formalized into `validate-parsers.py --matrix` in 05.5. Key lesson: always check named node types from the grammar BEFORE writing queries (the `Language.node_kind_for_id()` API). tree-sitter-swift 0.0.1 lacks struct_declaration/enum_declaration — noted in query file comments.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Clean (2026-04-13).
 
 ---
 
@@ -350,7 +350,7 @@ A comprehensive validation script that tests the full parser adapter stack: gram
   - [x] All tasks above are `[x]` and `validate-parsers.py --matrix` passes (108/108)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.5: Script output is clear for human consumption. JSON output for CI could be useful but not blocking (no CI pipeline yet). `BLESS=1` for golden probes is a nice-to-have for 05.N. No urgent tooling gaps.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Clean (2026-04-13).
 
 ---
 

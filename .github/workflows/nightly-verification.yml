@@ -1,0 +1,80 @@
+name: Nightly Verification
+
+on:
+  pull_request:
+    paths:
+      - 'compiler/**'
+      - 'library/**'
+      - 'tests/sanitizer/**'
+      - 'scripts/sanitizer-smoke.sh'
+      - 'scripts/sanitizer-full.sh'
+      - 'scripts/build-rt-asan.sh'
+  schedule:
+    - cron: '30 2 * * *'  # 2:30 AM UTC (after nightly release PR at midnight)
+  workflow_dispatch:
+
+jobs:
+  sanitizer-smoke:
+    name: Sanitizer Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-rt-dev
+
+      - name: Install Rust nightly (for ori_rt ASan)
+        run: rustup toolchain install nightly
+
+      - name: Build compiler
+        run: cargo build --release
+
+      - name: Build ASan-instrumented ori_rt
+        run: ./scripts/build-rt-asan.sh --release
+
+      - name: Sanitizer smoke (debug/O0)
+        env:
+          ORI_SANITIZE: "address,undefined"
+        run: timeout 150 ./scripts/sanitizer-smoke.sh
+
+      - name: Sanitizer smoke (release/O2)
+        env:
+          ORI_SANITIZE: "address,undefined"
+          ORI_RELEASE: "1"
+        run: timeout 150 ./scripts/sanitizer-smoke.sh
+
+  sanitizer-full:
+    name: Sanitizer Full Sweep (shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: sanitizer-smoke  # Only run full sweep if smoke passes
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-rt-dev
+
+      - name: Install Rust nightly
+        run: rustup toolchain install nightly
+
+      - name: Build compiler
+        run: cargo build --release
+
+      - name: Build ASan-instrumented ori_rt
+        run: ./scripts/build-rt-asan.sh --release
+
+      - name: Run shard
+        env:
+          ORI_SANITIZE: "address,undefined"
+          TEST_SHARD: "${{ matrix.shard }}"
+          TEST_TOTAL_SHARDS: "4"
+        run: ./scripts/sanitizer-full.sh

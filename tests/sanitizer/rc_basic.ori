@@ -1,0 +1,15 @@
+// Sanitizer smoke: RC inc/dec balance — allocation, use, and drop.
+// Verifies that basic reference counting produces no leaks or UAF.
+
+type Point = { x: int, y: int }
+
+@distance_squared (p: Point) -> int = p.x * p.x + p.y * p.y;
+
+@main () -> int = {
+    let p1 = Point { x: 3, y: 4 };
+    let p2 = Point { x: 5, y: 12 };
+    let d1 = distance_squared(p: p1);
+    let d2 = distance_squared(p: p2);
+    // p1: 3^2 + 4^2 = 25, p2: 5^2 + 12^2 = 169
+    if d1 == 25 && d2 == 169 then 0 else 1
+}
