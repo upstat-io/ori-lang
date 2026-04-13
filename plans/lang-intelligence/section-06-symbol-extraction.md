@@ -51,9 +51,12 @@ Transform tree-sitter ASTs into normalized symbol and relationship records. This
 **Contract**:
 ```
 Usage: python3 neo4j/extract_symbols.py <repo_name> [--output symbols.jsonl]
-Reads: repos.yaml, languages.yaml, queries/{lang}/tags.scm
+Consumes: parser_adapter.parse_repo() -> Iterator[ParseResult]
+  (ParseResult includes: source_bytes, tree, query_handles for decls/calls/imports/impls)
 Outputs: JSONL with one record per symbol or relationship
 ```
+
+**Note:** This script does NOT read `repos.yaml`, `languages.yaml`, or query `.scm` files directly. All grammar loading, file walking, query compilation, and error handling is the responsibility of Section 05's `parser_adapter.py`. This script operates on `ParseResult` objects — it extracts symbols from pre-parsed trees using pre-compiled query handles.
 
 **Symbol record format**:
 ```json
