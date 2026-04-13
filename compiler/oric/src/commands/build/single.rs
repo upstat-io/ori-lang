@@ -137,7 +137,14 @@ pub(super) fn build_file_single(
 
     // Step 8: Link into executable
     // Note: temp_dir must stay alive until linking completes (auto-cleaned on drop)
-    link_and_finish(vec![obj_path], &output_path, &target, options, start);
+    link_and_finish(
+        vec![obj_path],
+        &output_path,
+        &target,
+        options,
+        &opt_config.sanitizer,
+        start,
+    );
 }
 
 /// Emit a module and finish (used for --emit flag).

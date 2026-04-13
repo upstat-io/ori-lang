@@ -233,6 +233,7 @@ fn link_and_finish(
     output_path: &Path,
     target: &ori_llvm::aot::TargetConfig,
     options: &BuildOptions,
+    sanitizer: &ori_llvm::aot::SanitizerMode,
     start: std::time::Instant,
 ) {
     use ori_llvm::aot::{LinkInput, LinkOutput, LinkerDriver, LinkerFlavor, RuntimeConfig};
@@ -266,6 +267,7 @@ fn link_and_finish(
         lto: matches!(options.lto, LtoMode::Thin | LtoMode::Full),
         gc_sections: options.release,
         strip: options.release && matches!(options.debug_level, DebugLevel::None),
+        sanitizer: sanitizer.clone(),
         ..Default::default()
     };
 

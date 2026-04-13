@@ -27,7 +27,12 @@ impl LinkerDriver {
         }
 
         // Select linker flavor (with cross-compilation-aware fallback)
-        let flavor = if let Some(explicit) = input.linker {
+        let flavor = if input.sanitizer.any_enabled() {
+            // Sanitizers require Clang as the linker driver — GCC and Clang
+            // ship incompatible sanitizer runtime libraries. Using GCC to link
+            // Clang-instrumented objects causes missing symbols or ABI mismatches.
+            LinkerFlavor::Gcc // create_linker() will use clang via with_path
+        } else if let Some(explicit) = input.linker {
             // User explicitly chose a linker — respect it
             explicit
         } else {
@@ -59,7 +64,7 @@ impl LinkerDriver {
 
         // Create the appropriate linker using enum dispatch (not trait objects)
         // This provides exhaustiveness checking, static dispatch, and no heap allocation
-        let mut linker = self.create_linker(flavor);
+        let mut linker = self.create_linker(flavor, input.sanitizer.any_enabled());
 
         // Configure linker
         Self::configure_linker(&mut linker, input)?;
@@ -108,6 +113,11 @@ impl LinkerDriver {
             linker.export_symbols(&input.exported_symbols);
         }
 
+        // Sanitizer runtime linkage (before extra_args for ordering)
+        if let Some(fsanitize) = input.sanitizer.clang_flag_value() {
+            linker.add_arg(&format!("-fsanitize={fsanitize}"));
+        }
+
         // Add extra arguments
         for arg in &input.extra_args {
             linker.add_arg(arg);
@@ -120,12 +130,20 @@ impl LinkerDriver {
     }
 
     /// Create the appropriate linker implementation for the given flavor.
-    fn create_linker(&self, flavor: LinkerFlavor) -> LinkerImpl {
+    ///
+    /// When `use_clang` is true (sanitizers enabled), forces `clang` as the
+    /// GCC-flavor driver instead of the default `cc`. GCC and Clang ship
+    /// incompatible sanitizer runtime libraries — linking Clang-instrumented
+    /// objects with GCC's `-fsanitize` causes missing symbols.
+    fn create_linker(&self, flavor: LinkerFlavor, use_clang: bool) -> LinkerImpl {
         let cross = LinkerDetection::is_cross_compiling(&self.target);
 
         match flavor {
             LinkerFlavor::Gcc => {
-                if cross {
+                if use_clang && !cross {
+                    // Sanitizers require Clang as the linker driver
+                    LinkerImpl::Gcc(GccLinker::with_path(&self.target, "clang"))
+                } else if cross {
                     // Use the target-prefixed cross-compiler (e.g., aarch64-linux-gnu-gcc)
                     if let Some(name) =
                         LinkerDetection::gcc_cross_compiler_name(self.target.components())
@@ -264,7 +282,7 @@ impl LinkerDriver {
                     .unwrap_or(preferred)
             }
         });
-        let mut linker = self.create_linker(flavor);
+        let mut linker = self.create_linker(flavor, adjusted.sanitizer.any_enabled());
         Self::configure_linker(&mut linker, &adjusted)?;
         let cmd = linker.finalize();
         self.execute_with_retry(cmd, &adjusted, true)

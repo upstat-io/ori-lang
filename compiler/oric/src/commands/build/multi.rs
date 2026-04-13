@@ -165,7 +165,14 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
 
     // Note: temp_dir must stay alive until linking completes (auto-cleaned on drop)
     let output_path = determine_output_path(path, options);
-    link_and_finish(final_object_files, &output_path, &target, options, start);
+    link_and_finish(
+        final_object_files,
+        &output_path,
+        &target,
+        options,
+        &opt_config.sanitizer,
+        start,
+    );
 
     // temp_dir automatically cleans up when it goes out of scope
     drop(temp_dir);
