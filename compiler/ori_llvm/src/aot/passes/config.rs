@@ -58,6 +58,21 @@ impl OptimizationLevel {
         }
     }
 
+    /// Get the Clang `-O` flag string corresponding to this optimization level.
+    ///
+    /// Used when delegating compilation to Clang (e.g., for sanitizer instrumentation).
+    #[must_use]
+    pub fn as_clang_flag(&self) -> &'static str {
+        match self {
+            Self::O0 => "-O0",
+            Self::O1 => "-O1",
+            Self::O2 => "-O2",
+            Self::O3 => "-O3",
+            Self::Os => "-Os",
+            Self::Oz => "-Oz",
+        }
+    }
+
     /// Check if this level enables loop vectorization by default.
     #[must_use]
     pub fn enables_loop_vectorization(&self) -> bool {

@@ -140,8 +140,11 @@ impl LinkerDriver {
 
         match flavor {
             LinkerFlavor::Gcc => {
-                if use_clang && !cross {
-                    // Sanitizers require Clang as the linker driver
+                if use_clang {
+                    // Sanitizers require Clang as the linker driver.
+                    // GCC and Clang ship incompatible sanitizer runtime libraries —
+                    // linking Clang-instrumented objects with GCC causes missing symbols.
+                    // For cross-compilation, pass --target to Clang for the correct triple.
                     LinkerImpl::Gcc(GccLinker::with_path(&self.target, "clang"))
                 } else if cross {
                     // Use the target-prefixed cross-compiler (e.g., aarch64-linux-gnu-gcc)
