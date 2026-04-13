@@ -58,6 +58,8 @@ The following mapping SHALL be the single source of truth for Ori → LLVM type 
 | Closure | `{ ptr, ptr }` | 16 | fn_ptr + env_ptr |
 | `Duration` | `i64` (nanoseconds) | 8 | |
 | `Size` | `i64` (bytes) | 8 | |
+| `Ordering` | `i8` | 1 | Less=0, Equal=1, Greater=2 |
+| `Iterator<T>` | `ptr` (opaque handle) | 8 | Runtime iterator state |
 | `Never` | `i64` | 8 | Same storage as unit in canonical table |
 
 **Critical notes:**
@@ -114,8 +116,8 @@ Parameters SHALL be classified into one of:
 
 | Mode | Condition | LLVM Semantics |
 |------|-----------|----------------|
-| `Direct(llvm_ty)` | `abi_size <= 16` ∧ owned | Passed by value in registers |
-| `Indirect` | `abi_size > 16` ∧ owned | Passed as `ptr` (caller allocates, callee reads) |
+| `Direct(llvm_ty)` | `abi_size <= 16` ∧ (owned ∨ scalar) | Passed by value in registers |
+| `Indirect` | `abi_size > 16` ∧ (owned ∨ scalar) | Passed as `ptr` (caller allocates, callee reads) |
 | `Reference` | borrowed ∧ non-scalar | Passed as `ptr` (caller retains ownership) |
 | `Void` | type is void/unit/Never | No parameter emitted |
 
@@ -129,7 +131,7 @@ Return values SHALL be classified into one of:
 |------|-----------|----------------|
 | `Direct(llvm_ty)` | `abi_size <= 16` | Returned in registers |
 | `Sret(llvm_ty)` | `abi_size > 16` | Caller-allocated `sret` pointer as first parameter |
-| `Void` | Return type is void/unit | No return value |
+| `Void` | Return type is void/unit/Never | No return value |
 
 ### AB-4 — Sret on ARM64
 
@@ -186,6 +188,8 @@ Rationale: The narrowed representation is an internal optimization of the collec
 
 At all non-storage sites, `element_store_size(elem_ty)` SHALL be used instead. This function returns the canonical byte size for the element type.
 
+**IT-1 boundary exception**: The `emit_list_iter` widening path (NR-4) is a storage-boundary site — it intentionally passes the narrowed `elem_size` to both `ori_iter_from_list` AND the wrapping `ori_iter_map`. This is the ONE place where a runtime iterator function receives a narrowed size, and it is correct because the `ori_iter_from_list` source reads from the narrowed buffer and the wrapping `ori_iter_map`'s `in_size` must match the source's output stride.
+
 Rationale: `collection_elem_size` consults the `ReprPlan` for narrowed widths. Calling it at non-storage sites (e.g., when sizing a trampoline scratch buffer) injects narrowed sizes where canonical sizes are expected.
 
 ### NR-3 — Iterator Pipeline Uses Canonical Types
@@ -196,7 +200,7 @@ Specifically:
 - Trampoline element loads/stores SHALL use `resolve_type(elem_ty)` (TR-1), never `collection_elem_llvm_type()`
 - Consumer scratch buffers SHALL be sized by `element_store_size(elem_ty)`, never `collection_elem_size()`
 - Collect allocation SHALL use canonical element sizes
-- Runtime iterator functions (`ori_iter_next`, `ori_iter_map`, etc.) receive `elem_size` in canonical bytes
+- Runtime iterator functions (`ori_iter_next`, `ori_iter_map`, etc.) receive `elem_size` in canonical bytes — **except** the IT-1 boundary pair (`ori_iter_from_list` + widening `ori_iter_map`) which intentionally receives narrowed sizes
 
 Rationale: The runtime iterator state machine (`ori_rt/src/iterator/state.rs`) uses `elem_size` for `memcpy` between internal buffers. If the codegen passes a narrowed size but the runtime copies canonical-width data, it reads/writes past buffer boundaries.
 
@@ -381,7 +385,7 @@ After step 4, the iterator's `elem_size` is ALWAYS canonical — all downstream 
 Iterator adapters are emitted as calls to `ori_iter_*` runtime functions. Each adapter that accepts a closure SHALL build a trampoline (§4) to bridge the closure. The adapter's output `elem_size` is determined by the adapter's result type — always canonical.
 
 Most adapters map 1:1 to runtime functions (`map` → `ori_iter_map`, `filter` → `ori_iter_filter`, etc.). Exceptions:
-- `flat_map(f)` is lowered as `map(f)` followed by `flatten` — there is no `ori_iter_flat_map` runtime entry point. See `emit_iter_flat_map()` in `builtins/iterator.rs`.
+- `flat_map(f)` is lowered as `map(f)` followed by `flatten` — there is no `ori_iter_flat_map` runtime entry point. The `flatten` stage receives the source iterator's `elem_ty` as its `inner_elem_size`. **Caveat**: when `flat_map(f: T -> Iterator<U>)` has `sizeof(U) != sizeof(T)`, the flatten stage may use the wrong size. Current tests only exercise `T == U` (int→int). See `emit_iter_flat_map()` in `builtins/iterator.rs`.
 - `rev` creates a reversed iterator wrapper via `ori_iter_rev`.
 
 ### IT-3 — Consumer Emission
