@@ -28,6 +28,10 @@ Usage:
 import re
 from typing import Optional
 
+# Callers (parse-codex.py, parse-gemini.py) add this directory to sys.path
+# before importing repair_envelope, so sibling imports work.
+from envelope_invariants import LOCATION_RE, URI_RE
+
 # Valid enum values (source of truth: findings-schema.json)
 VALID_STATUSES = {"complete", "failed_partial"}
 VALID_SKILLS = {"tpr-review", "review-work", "review-plan", "tp-help"}
@@ -168,6 +172,13 @@ def repair_envelope(
         )
 
     findings = envelope["findings"]
+
+    # Filter out non-dict findings (stray strings, numbers, nulls in array)
+    non_dict_count = sum(1 for f in findings if not isinstance(f, dict))
+    if non_dict_count:
+        findings = [f for f in findings if isinstance(f, dict)]
+        envelope["findings"] = findings
+        repairs.append(f"removed {non_dict_count} non-dict finding(s) from array")
 
     # ── no_findings ────────────────────────────────────────────────────
 
@@ -447,6 +458,31 @@ def _repair_location(finding: dict, prefix: str, repairs: list[str]) -> None:
         finding["location"] = loc
         repairs.append(f"{prefix}: repaired location from '{original}' to '{loc}'")
 
+    # Final regex guard: if location still doesn't match the invariant regex
+    # after all structural repairs, sanitize aggressively. A cosmetic location
+    # format issue is not worth a 10+ minute full-review retry.
+    final_loc = finding.get("location", "unknown:1")
+    if not LOCATION_RE.match(final_loc):
+        # Split on the last colon to preserve the path:line structure,
+        # then sanitize only the path portion.
+        if ':' in final_loc:
+            path_part, line_part = final_loc.rsplit(':', 1)
+            if not line_part.isdigit():
+                path_part = final_loc
+                line_part = '1'
+        else:
+            path_part = final_loc
+            line_part = '1'
+        sanitized_path = re.sub(r'[^a-zA-Z0-9_./-]', '_', path_part)
+        sanitized_path = sanitized_path.lstrip('/')
+        if sanitized_path.startswith('./'):
+            sanitized_path = sanitized_path[2:]
+        sanitized = f"{sanitized_path}:{line_part}" if sanitized_path else "unknown:1"
+        if not LOCATION_RE.match(sanitized):
+            sanitized = 'unknown:1'
+        finding["location"] = sanitized
+        repairs.append(f"{prefix}: sanitized location to '{sanitized}' (invariant regex)")
+
 
 def _repair_title(finding: dict, prefix: str, repairs: list[str]) -> None:
     """Repair the title field (trailing punctuation, length)."""
@@ -500,6 +536,27 @@ def _repair_citations(finding: dict, prefix: str, repairs: list[str]) -> None:
                 repairs.append(
                     f"{prefix}.citations[{c_idx}]: added https:// prefix to URL"
                 )
+
+    # Post-repair filter: remove citations whose URLs still don't match the
+    # URI invariant regex. Better to lose a citation than kill a review.
+    all_citations = finding.get("citations", [])
+    if all_citations:
+        cleaned = []
+        removed_count = 0
+        for cit in all_citations:
+            if not isinstance(cit, dict):
+                removed_count += 1
+                continue
+            cit_url = cit.get("url", "")
+            if isinstance(cit_url, str) and URI_RE.match(cit_url):
+                cleaned.append(cit)
+            else:
+                removed_count += 1
+        if removed_count:
+            finding["citations"] = cleaned
+            repairs.append(
+                f"{prefix}: removed {removed_count} citation(s) with invalid URLs"
+            )
 
 
 def _repair_verification(verification: dict, repairs: list[str]) -> None:

@@ -90,14 +90,23 @@ a structurally-sloppy-but-substantively-correct review isn't wasted.
 - **Symmetric** — both `parse-codex.py` and `parse-gemini.py` use the same
   `repair_envelope()` function.
 
-### Retry classification change
+### Rescue mode (2026-04-13)
 
-With the repair layer in place, `gemini_schema_violation` is reclassified
-from **terminal** to **retryable** in `dual-invoke-with-retry.sh`. Rationale:
-the repair layer fixes most systematic violations in-parser; remaining
-violations may succeed on retry with fresh Gemini output that is differently
-structured. `codex_schema_violation` remains terminal because Codex's JSON
-compliance is more reliable and doesn't benefit from the extra retry budget.
+Both parsers now **rescue** schema-invalid envelopes instead of failing. When
+`jsonschema.validate()` or `validate_envelope_invariants()` fails AFTER the
+repair layer has run, the parser accepts the repaired envelope anyway (exit 0)
+with `RESCUED:` warnings on stderr. This prevents costly full-review retries
+(10+ minutes each) for cosmetic JSON structure issues. The only remaining
+fatal exit for content-bearing envelopes is `failed_partial` (reviewer
+explicitly said it did not finish). `gemini_schema_violation` is now
+effectively dead code in the retry classifier — kept as a safety net.
+
+Previously, `gemini_schema_violation` was retryable (3 attempts), burning
+10–30+ minutes of wall time and user polling context for edge-case format
+issues while the actual review content was already available. The aggressive
+repair layer (location regex sanitization, citation URL filtering, non-dict
+finding removal) handles the structural issues; rescue mode catches anything
+that slips through.
 
 ---
 
