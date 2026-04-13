@@ -125,7 +125,11 @@ Three independent boolean flags. Join is componentwise OR. Height: 3.
 | `may_share` | May create shared references | Uniqueness preservation |
 | `may_throw` | May throw/panic | Cleanup path correctness |
 
-**Current consumer status**: EffectClass is tracked per-variable in `AimsState` but is NOT currently consumed by any decision predicate (DP-1 through DP-9). Its primary role today is as INPUT to the interprocedural `EffectSummary` (IC-5), which aggregates per-function effects for FIP certification (IC-6) and LLVM fact export (RL-30). The per-variable tracking exists so that future passes can make per-variable effect-aware decisions (e.g., hoisting RC operations past effect-free instructions, or narrowing the effect scope of a code region for alias analysis). `refine()` (TF-6) does NOT narrow EffectClass from call results because the EffectSummary is the correct granularity for interprocedural effect information — per-variable effect state from a callee's internal analysis is not meaningful to the caller. The per-variable EffectClass remains at ALL for call results; the EffectSummary carries the precise per-function facts.
+**Current consumer status and EffectSummary relationship**: EffectClass is tracked per-variable in `AimsState` but is NOT currently consumed by any decision predicate (DP-1 through DP-9). The per-variable tracking exists so that future passes can make per-variable effect-aware decisions (e.g., hoisting RC operations past effect-free instructions, or narrowing the effect scope of a code region for alias analysis).
+
+**CRITICAL: EffectSummary (IC-5) is computed from INSTRUCTIONS, not from per-variable EffectClass.** The interprocedural `EffectSummary` is computed by scanning the function's instruction stream and callee contracts — NOT by OR-ing per-variable EffectClass values. Specifically: `Construct` contributes `may_allocate=true`; `Apply/Invoke` with a callee contract contributes the callee's `EffectSummary`; `Apply/Invoke` without a contract contributes ALL. This means the per-variable EffectClass = ALL on call results does NOT poison the caller's EffectSummary — the EffectSummary reads the callee's CONTRACT, not the per-variable state. A function calling a pure callee (whose `EffectSummary` has all flags false) correctly inherits no effects from that call, even though the per-variable EffectClass on the call result is ALL.
+
+`refine()` (TF-6) does NOT narrow EffectClass from call results because the per-variable EffectClass is not consumed by EffectSummary computation. Narrowing it would be precision work for future per-variable passes, not a correctness requirement for the current system.
 
 ### §1.8 Lattice Properties
 
@@ -363,7 +367,7 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 | `SetTag { base }` | `(base, Once)` |
 | `IsShared { var }` | `(var, Once)` |
 | `Reset { var }` | `(var, Once)` |
-| `Reuse { token, args }` | `(token, Once)`, `(arg, Once)` per arg |
+| `Reuse { token, args }` | `(arg, Once)` per arg. Note: NO demand on `token` — the token is SCALAR (TF-10a) and L-9 excludes scalars from the demand system. Token availability is structurally guaranteed by the `Reset`/`Reuse` pairing (see TF-10a rationale). |
 | `CollectionReuse { old_var, args }` | `(old_var, Once)`, `(arg, Once)` per arg |
 | `Select { cond, true_val, false_val }` | `(cond, Once)`, `(true_val, Once)`, `(false_val, Once)` — if `true_val = false_val` (same variable), only one demand emitted (alternative, not additive) |
 | `RcInc { var }` | none (RC operation, not a use) |
@@ -415,7 +419,7 @@ Unique ownership permits direct mutation without COW, BUT only when no active bo
 
 `no_active_overlapping_borrows(var, field, point)` is defined as: for all variables that borrow from `var` — checking BOTH direct borrows in `borrow_sources` AND transitive aliases in `project_alias_sources`:
 1. **Direct borrows**: for all `b` in `borrow_sources` where `borrow_sources[b].source = var`: `b` is NOT live at `point`, OR `borrow_sources[b].field` is disjoint from `field`.
-2. **Transitive aliases**: for all `a` in `project_alias_sources` where `var ∈ project_alias_sources[a]`: `a` is NOT live at `point`. Aliases do not carry field-level granularity (they inherit the full borrow scope of their source), so ANY live alias of a borrow from `var` blocks in-place mutation of `var`, regardless of which field the alias borrows. This is conservative but sound — field tracking through alias chains is a precision extension, not a soundness requirement.
+2. **Transitive aliases**: for all `a` in `project_alias_sources` where `var ∈ project_alias_sources[a]` AND `a` is NOT already a direct borrow in `borrow_sources` (i.e., `a ∉ borrow_sources` or `borrow_sources[a].source ≠ var`): `a` is NOT live at `point`. Direct borrows (variables in `borrow_sources` with `source = var`) are handled EXCLUSIVELY by Step 1 with field-level granularity — they MUST NOT also trigger Step 2's conservative check, because Step 2 blocks unconditionally regardless of field, which would make Step 1's disjoint-field optimization (RL-10) dead code. Aliases that are NOT direct borrows do not carry field-level granularity, so ANY live non-borrow alias of a projection from `var` blocks in-place mutation conservatively. This is sound — field tracking through alias chains is a precision extension, not a soundness requirement.
 
 "Active" means live at the mutation point — a borrow (or alias) that has gone dead is not a conflict. The liveness intersection is required; checking `borrow_sources`/`project_alias_sources` without liveness would permanently disable COW fast paths for any object that was ever borrowed, even after all borrows and aliases die.
 
@@ -443,7 +447,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 **IC-1** — The call graph SHALL be decomposed into SCCs. SCCs SHALL be processed in topological order (callees before callers).
 
-**IC-2** — Each parameter initializes to most optimistic: `(Borrowed, Dead, Absent, BlockLocal, Unique)`. Fixed-point iteration promotes toward conservative. Escape is derived from Locality (`locality > FunctionLocal ⟹ escapes`), not stored as a separate fact — the Locality dimension is the SSOT for escape classification.
+**IC-2** — Each parameter initializes to most optimistic: `(Borrowed, Dead, Absent, BlockLocal, Unique, may_share=false)`. Fixed-point iteration promotes toward conservative. The `may_share = false` initial assumes the callee does not increment the parameter's RC; if ANY call site's analysis shows the callee may share, the fixpoint promotes to `may_share = true`. Escape is derived from Locality (`locality > FunctionLocal ⟹ escapes`), not stored as a separate fact — the Locality dimension is the SSOT for escape classification.
 
 **IC-3** — Parameter contract join is componentwise max: `access(max), consumption(max), cardinality(max), locality(max), uniqueness(max), may_share(OR)`. If join changes any dimension, iterate again. Note: `may_share` IS a per-parameter property (whether the callee may increment the parameter's RC) and remains on `ParamContract` — it is orthogonal to Locality. Only `may_escape` was removed (derived from `locality > FunctionLocal`).
 
@@ -453,7 +457,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 **IC-6** — FIP contract: `Never` absorbs all; `Conditional` absorbs `Bounded/Certified`; `Bounded(n) ⊔ Bounded(m) = Bounded(max(n,m))`. FipContract::Certified ⟺ zero unmatched allocations/deallocations in realized IR.
 
-**IC-7** — Convergence: finite domain guarantees termination. The iteration limit SHALL be derived from the domain heights: parameter contract 6 dimensions (access=1 + consumption=3 + cardinality=2 + locality=4 + uniqueness=2 + may_share=1 = 13 per param), return contract 4 dimensions (uniqueness=2 + freshness=1 + locality=4 + shape=1 = 8 total), EffectSummary 6 boolean fields. Formula: `param_count × 13 + 8 + 6`. If exceeded, widen all contracts to most conservative and emit a diagnostic. This document (`aims-rules.md`) is authoritative for the convergence bound; `arc.md` references it.
+**IC-7** — Convergence: finite domain guarantees termination. The iteration limit SHALL be derived from the domain heights: parameter contract 6 dimensions (access=1 + consumption=3 + cardinality=2 + locality=4 + uniqueness=2 + may_share=1 = 13 per param), return contract 4 dimensions (uniqueness=2 + freshness=1 + locality=4 + shape=1 = 8 total), EffectSummary 6 boolean fields, ContextBehavior 4 boolean fields (PL-7/PL-11). Formula: `param_count × 13 + 8 + 6 + 4`. If exceeded, widen all contracts to most conservative and emit a diagnostic. This document (`aims-rules.md`) is authoritative for the convergence bound; `arc.md` references it.
 
 **IC-8** — ~~REMOVED (unsound — same root cause as DP-10).~~ The former rule derived parameter uniqueness from caller consumption patterns (`Owned ∧ Linear ∧ Once`). This is unsound: a caller with a `MaybeShared` argument that it uses linearly still holds a reference whose RC may be > 1 from upstream aliases. Parameter uniqueness is established by the SCC fixpoint (IC-2/IC-3): if ALL callers pass arguments whose `Uniqueness` dimension is `Unique`, the fixpoint converges to `ParamContract.uniqueness = Unique` naturally. No post-fixpoint tightening is needed or sound.
 
@@ -473,7 +477,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 **IA-6** — Return values SHALL be widened: `access := Owned`, `locality := max(locality, HeapEscaping)`. Returned values escape the function.
 
-**IA-7** — Convergence by monotone iteration: iterate worklist until no block state changes or iteration limit exceeded. Limit: `CHAIN_HEIGHT × |variables| × |blocks|`. If exceeded, widen all to TOP — this is a safety net, not expected behavior.
+**IA-7** — Convergence by monotone iteration: iterate worklist until no block state changes or iteration limit exceeded. Limit: `CHAIN_HEIGHT × |variables| × |blocks|`, where `CHAIN_HEIGHT` is the maximum chain length of the product lattice = sum of per-dimension heights: Access(1) + Consumption(3) + Cardinality(2) + Uniqueness(2) + Locality(4) + Shape(1) + Effect(3) = **16**. If exceeded, widen all to TOP — this is a safety net, not expected behavior.
 
 **IA-8** — Immortal variables (heap-allocated constants with MAX_REFCOUNT) SHALL be excluded from analysis entirely — treated as scalars.
 
@@ -649,7 +653,7 @@ The verification stack is **layered**. Each layer catches a different class of i
 
 **VF-6** — Contracts and realization SHALL agree. If `MemoryContract` says `FipContract::Certified`, realized IR SHALL have zero unmatched alloc/dealloc.
 
-**VF-7** — Active rewrites SHALL be sound: identical observable behavior. Structural tests alone are insufficient — behavioral verification is required.
+**VF-7** — Active rewrites SHALL be sound: identical observable behavior. Verification comes in two tiers: (a) **compile-time structural verification** — the rewrite pass validates well-formedness and rolls back on failure (e.g., PL-10 for TRMC), providing a safety net that prevents unsound rewrites from persisting; (b) **test-time behavioral verification** — dedicated tests exercise pre/post-rewrite behavior to confirm semantic equivalence. Tier (a) alone is sufficient for a rewrite to be active when the rollback mechanism is sound and complete (i.e., any structural violation causes rollback). Tier (b) strengthens confidence but is not a gating requirement when tier (a) provides adequate safety. Rewrites lacking BOTH tiers are not active.
 
 **VF-8** — The verification stack applies to ALL rules in this document — including rules from §8 that are not yet implemented. An unimplemented rule without a corresponding verification layer planned is a spec gap.
 
@@ -805,7 +809,7 @@ Each predicate is a function of the lattice state. Most are pure functions of `A
 | Owned | Unique | no | yes (any alias live at `point`) | **false** |
 | Owned | Unique | no | no | **true** |
 
-"Active direct borrow" checked via `borrow_sources` side table: entries where `borrow_sources[b].source = var` and `b` is live at `point` and `borrow_sources[b].field` overlaps `field`. "Active alias" checked via `project_alias_sources`: entries where `var ∈ project_alias_sources[a]` and `a` is live at `point`. Aliases block conservatively (no field-level granularity — any live alias blocks). Both checks are intersected with the live-variable set at the mutation point (§1.9). DP-5 is the sole predicate that is NOT a pure function of `AimsState` — it additionally requires `borrow_sources`, `project_alias_sources`, and liveness.
+"Active direct borrow" checked via `borrow_sources` side table: entries where `borrow_sources[b].source = var` and `b` is live at `point` and `borrow_sources[b].field` overlaps `field`. "Active alias" checked via `project_alias_sources`: entries where `var ∈ project_alias_sources[a]` and `a` is live at `point` AND `a` is NOT a direct borrow of `var` in `borrow_sources` (direct borrows are handled field-aware by Step 1 — see DP-5 body). Non-borrow aliases block conservatively (no field-level granularity). Both checks are intersected with the live-variable set at the mutation point (§1.9). DP-5 is the sole predicate that is NOT a pure function of `AimsState` — it additionally requires `borrow_sources`, `project_alias_sources`, and liveness.
 
 ### DP-6: `is_reuse_candidate(s)`
 
