@@ -1105,7 +1105,7 @@ When all findings are triaged:
   - [x] `00-overview.md` Quick Reference updated (Effort: Complete, Status: In Progress)
   - [x] `00-overview.md` mission success criteria checkbox updated (Section 08 checked)
   - [x] `index.md` — table has no status column, no update needed
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) — clean on iteration 4 after fixing 10 findings across iterations 1-3 (6+3+1). Both Codex and Gemini returned zero actionable findings with thorough verification (gemini ran test-all.sh + sanitizer-smoke.sh; codex read 27 files + 23 rules + ran 7 tests).
 - [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
 

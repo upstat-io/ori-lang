@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Infrastructure + First 15 Programs"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Methodically implement/evaluate 15 Rosetta programs — each running every diagnostic tool, verification flag, and benchmark in the full pipeline."
 success_criteria:
@@ -23,7 +23,7 @@ third_party_review:
 sections:
   - id: "01.PRE"
     title: "Infrastructure"
-    status: not-started
+    status: complete
   - id: "01.1"
     title: "001_100_doors"
     status: not-started
@@ -106,13 +106,13 @@ sections:
 
 ## 01.PRE Infrastructure
 
-- [ ] Create `tests/run-pass/rosetta/rosetta-manifest.json` with per-program schema (status, features, has_main, has_tests, aot_eligible, bugs_filed, language_findings, perf)
-- [ ] Update `tests/run-pass/rosetta/README.md` documenting the per-program pipeline, manifest, and folder structure
+- [x] Create `tests/run-pass/rosetta/rosetta-manifest.json` with per-program schema (status, features, has_main, has_tests, aot_eligible, bugs_filed, language_findings, perf)
+- [x] Update `tests/run-pass/rosetta/README.md` documenting the per-program pipeline, manifest, and folder structure
 
-- [ ] **Subsection close-out (01.PRE)**:
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
+- [x] **Subsection close-out (01.PRE)**:
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.PRE: no tooling gaps (subsection was pure infrastructure — JSON manifest + README, no compiler/diagnostic usage)
+  - [x] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` — clean
 
 ---
 ## 01.1 001_100_doors
