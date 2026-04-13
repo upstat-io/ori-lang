@@ -141,11 +141,13 @@ pub fn run_file_compiled(path: &str) {
 
     let start = Instant::now();
 
-    // Fail fast if sanitizers are requested but Clang is not available
-    let sanitizer_env = std::env::var(crate::debug_flags::ORI_SANITIZE).ok();
-    if sanitizer_env.as_ref().is_some_and(|v| v != "0") {
-        if let Err(e) = ori_llvm::aot::check_clang_available() {
-            crate::problem::codegen::report_codegen_error(e);
+    // Fail fast if sanitizers are requested but Clang is not available.
+    // Uses the canonical SanitizerMode parser for consistency with build_optimization_config().
+    if let Ok(v) = std::env::var(crate::debug_flags::ORI_SANITIZE) {
+        if ori_llvm::aot::SanitizerMode::from_env_value(&v).any_enabled() {
+            if let Err(e) = ori_llvm::aot::check_clang_available() {
+                crate::problem::codegen::report_codegen_error(e);
+            }
         }
     }
 
