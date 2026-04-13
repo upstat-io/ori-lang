@@ -68,7 +68,7 @@ Lineage: Chirimar et al. (substructural RC), QTT semiring.
 | `Once` | Used exactly once | Move semantics |
 | `Many` | Used multiple times or in loop | Full RC |
 
-Order: `Absent < Once < Many`. Join: `max`. Height: 2.
+Order: `Absent < Once < Many`. Join: `max`. Height: 2. `seq_add` (commutative): `Absent + x = x`, `Once + Once = Many`, `Once + Many = Many`, `Many + Many = Many`.
 
 **Sequential composition** (`seq_add`): `Absent + x = x`, `Once + Once = Many`, `Many + _ = Many`. This is QTT's `+` (resource accumulation along one execution path). Distributes over `alt_join`.
 
@@ -225,7 +225,7 @@ The `ReturnContract` (IC-4) is extracted within the interprocedural pass (Step 1
 | Definition type | Uniqueness | preserves_freshness | Locality | Shape |
 |---|---|---|---|---|
 | `Construct` (fresh allocation) | `Unique` | `true` | `BlockLocal` | `shape_from_ctor` |
-| `Reuse` (reused allocation) | `Unique` | `true` | `BlockLocal` | `shape_from_ctor` |
+| `Reuse` (reused allocation) | `Unique` | `true` | `BlockLocal` | inherited from Reset token |
 | `CollectionReuse` | `Unique` | `true` | `BlockLocal` | `CollectionBuffer` |
 | `PartialApply` (closure) | `Unique` | `true` | `BlockLocal` | `NonReusable` |
 | `Apply`/`Invoke` with `Unique` return contract | inherited `Unique` | callee's `preserves_freshness` | callee's `locality` | callee's `shape` |
@@ -338,7 +338,7 @@ Dimensions NOT narrowed by `refine`: Access (stays `Owned` — call results are 
 
 **TF-8** — Conditional selection (`Select`): if both operands are SCALAR (per L-9), `dst := SCALAR`. If one operand is SCALAR (including immortal constants per IA-8) and the other is not, the SCALAR operand is excluded from the join and `dst` inherits the non-SCALAR operand's state, BUT with `uniqueness := MaybeShared` (the result may be an immortal constant at runtime, so in-place mutation is unsafe — DP-4 will emit a dynamic COW check). Otherwise, `dst := state(true_val) ⊔ state(false_val)` (merge of both branches).
 
-**TF-9** — Reuse (`Reuse { token, ty, args }`): `dst := FRESH(shape_from_type(ty))`. Reused memory gets fresh state. Shape is derived from the target type (`ty`), not from a constructor (unlike `Construct` which carries a ctor variant).
+**TF-9** — Reuse (`Reuse { token, ty, args }`): `dst := FRESH(shape)` where shape is inherited from the dying value's `Reset` token (the reused allocation retains the shape of the original Construct that created it). Reused memory gets fresh state with the same shape classification.
 
 **TF-9a** — Collection reuse (`CollectionReuse`): `dst := FRESH(CollectionBuffer)`. The old collection's allocation is recycled by the runtime; the result is a fresh collection with RC = 1.
 
@@ -364,7 +364,7 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 | `Let { value = Literal }` | none |
 | `Let { value = PrimOp { args } }` | `(arg, Once)` per arg |
 | `Construct { args }` | `(arg, Once)` per arg |
-| `Project { value }` | `(value, Once)` |
+| `Project { value }` | `(value, cardinality=Once, consumption=Affine)` — overrides default Linear because Project is a non-destructive borrow |
 | `Apply { args }` | `(arg, cardinality=Once, consumption=Linear)` per arg; refined by callee contract (IC-3): Borrowed `Absent` → zero demand; Owned `Absent` → `(arg, Once, Linear)` (ownership transfer to callee for RL-5 dec — NOT zero demand); Owned non-Absent: `arg.locality := max(arg.locality, max(param.locality, ArgEscaping))`, `arg.access := Owned`; Borrowed with `may_share = true`: `arg.uniqueness := MaybeShared` |
 | `ApplyIndirect { closure, args }` | `(closure, Once)`, `(arg, Once)` per arg |
 | `Set { base, value }` | `(base, Once)`, `(value, Once)` |
@@ -469,7 +469,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 - `Invoke`/`InvokeIndirect` (unwinding edge): `may_throw = true`
 - `Resume`: `may_throw = true`
 - Functions with unbounded recursion: `has_unbounded_stack = true`
-- `alloc_only_on_slow_path`: AND — computed POST-REALIZATION (after Step 10), not during Step 1. This field is derived from the realized ARC IR where COW branches (`IsShared` + `Branch`) exist. It is `true` only when every allocation in the realized IR is dominated by a COW slow path. At Step 1 time, this field is initialized to `false` (PESSIMISTIC). Because PL-1 runs Step 1 globally before any per-function realization, callers always read `false` during the SCC fixpoint. This field is therefore **intraprocedural-only** — it is refined per-function after that function's realization (Step 10) and consumed only by that function's own LLVM export (RL-30), NOT inherited by callers. Per-instruction classification (post-realization): unconditional `Construct`/`Reuse`/`CollectionReuse` → `false`; allocation inside a COW slow-path arm → `true`. Callee values are NOT inherited (intraprocedural-only).
+- `alloc_only_on_slow_path`: AND — computed POST-REALIZATION (after Step 10), not during Step 1. This field is derived from the realized ARC IR where COW branches (`IsShared` + `Branch`) exist. It is `true` only when every allocation in the realized IR is dominated by a COW slow path. At Step 1 time, this field is initialized to `false` (PESSIMISTIC). Because PL-1 runs Step 1 globally before any per-function realization, callers always read `false` during the SCC fixpoint. This field is therefore **intraprocedural-only** — it is refined per-function after that function's realization (Step 10), NOT inherited by callers. No current RL-30 rule consumes it (reserved for future split-path attribute emission). Per-instruction classification (post-realization): unconditional `Construct`/`Reuse`/`CollectionReuse` → `false`; allocation inside a COW slow-path arm → `true`. Callee values are NOT inherited (intraprocedural-only).
 
 **IC-6** — FIP contract: `Never` absorbs all; `Conditional` absorbs `Bounded/Certified`; `Bounded(n) ⊔ Bounded(m) = Bounded(max(n,m))`. FipContract::Certified ⟺ zero unmatched allocations/deallocations in realized IR. **Timing**: FipContract is computed POST-REALIZATION (Step 5a `verify_fip_contract()`), NOT during the Step 1 SCC fixpoint. Step 1 initializes FipContract to a conservative default (`Never`) and the real value is computed after realization when the alloc/dealloc IR is available. IC-7 includes FipContract in the convergence bound for theoretical completeness, but in practice the FipContract field does not iterate during Step 1.
 
@@ -751,7 +751,7 @@ Exhaustive mapping of every `ArcInstr` and `ArcTerminator` variant to its output
 | `Select` | TF-8 | `⊔`* | `⊔`* | `⊔`* | `⊔`* | `⊔`* | `⊔`* | `⊔`* |
 | `IsShared` | TF-10 | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR |
 | `Reset` | TF-10a | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR |
-| `Reuse` | TF-9 | Owned | Linear | Once | Unique | BlockLocal | `shape_from_ctor` | `{may_alloc=T}` |
+| `Reuse` | TF-9 | Owned | Linear | Once | Unique | BlockLocal | inherited | `{may_alloc=T}` |
 | `CollectionReuse` | TF-9a | Owned | Linear | Once | Unique | BlockLocal | CollectionBuffer | `{may_alloc=T}` |
 | `RcInc` | TF-N/A | — | — | — | — | — | — | — |
 | `RcDec` | TF-N/A | — | — | — | — | — | — | — |
