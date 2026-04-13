@@ -1,11 +1,13 @@
 // FileCheck test: borrowed param passed without RC operations.
 // A list parameter passed to a function that only reads it should not
-// trigger any RC increment or decrement in the callee.
+// trigger any RC increment or decrement in the callee — neither generic
+// (ori_rc_inc/ori_rc_dec) nor type-specific variants (ori_buffer_rc_inc).
 //
 // @function: _ori_helper
-// CHECK-LABEL: define
+// CHECK: readonly
 // CHECK-NOT: ori_rc_inc
 // CHECK-NOT: ori_rc_dec
+// CHECK-NOT: ori_buffer_rc_inc
 
 @helper (xs: [int]) -> int = xs.len();
 

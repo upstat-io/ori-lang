@@ -1,8 +1,9 @@
 // FileCheck test: enumerate produces (int, T) tuples.
-// The enumerate iterator adapter wraps each element with its index.
+// The enumerate iterator adapter (ori_iter_enumerate) wraps each element
+// with its index.
 //
 // CHECK-LABEL: define void @_ori_main
-// CHECK: ori_iter_from_list
+// CHECK: ori_iter_enumerate
 
 @main () -> void = {
     let xs = ["a", "b", "c"];

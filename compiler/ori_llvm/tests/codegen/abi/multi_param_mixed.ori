@@ -1,8 +1,11 @@
 // FileCheck test: multiple params with mixed types.
 // Function with int (i64), str (ptr), and bool (i1) parameters.
+// Verifies the concrete parameter types in the function signature.
 //
 // @function: _ori_mixed
-// CHECK-LABEL: define
+// CHECK: i64
+// CHECK: ptr
+// CHECK: i1
 
 @mixed (n: int, s: str, b: bool) -> void = {
     if b then print(msg: s) else print(msg: n.to_str())

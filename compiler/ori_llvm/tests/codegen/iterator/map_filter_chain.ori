@@ -1,9 +1,10 @@
-// FileCheck test: chained iterator methods produce composed iteration.
-// filter() + collect() should involve the iterator lifecycle
-// (ori_iter_from_list for the source list).
+// FileCheck test: chained iterator methods produce filter + collect operations.
+// filter() creates a filtered iterator (ori_iter_filter) and collect()
+// materializes it (ori_iter_collect).
 //
 // CHECK-LABEL: define void @_ori_main
-// CHECK: ori_iter_from_list
+// CHECK: ori_iter_filter
+// CHECK: ori_iter_collect
 
 @main () -> void = {
     let xs = [1, 2, 3, 4, 5];
