@@ -204,7 +204,7 @@ Maps: `%3 → [%2]`, `%4 → [%3, %2]` (transitive: %3 maps to [%2], so %4 gets 
 
 **Consumer**: `propagate_project_source_demand()` — invoked on EVERY iteration of the backward worklist (inside `compute_block_entry_state()`), not as a post-convergence pass. On each worklist iteration, for each alias variable in the current block-entry demand map that is live (Cardinality ≠ Absent), propagates a `Borrowed` demand with the alias's cardinality and other dimensions to ALL source aggregates in the map. The demand is joined with the source's existing state. Because this runs inside the worklist loop, the propagated demand feeds back into predecessor exit states on subsequent iterations, ensuring cross-block convergence.
 
-**Demand construction**: the propagated demand uses `Access = Borrowed` because the source is alive through a borrow, not through ownership. CN-8 clamps the demand's locality to ≤ FunctionLocal (Borrowed variables cannot escape beyond the function). This is correct: borrows in Ori are function-scoped temporary views — they structurally cannot heap-escape. The parent aggregate's own demand (from its direct uses) determines its wider locality; TF-14 propagation only ensures the parent stays alive and at least FunctionLocal while borrowed children are used.
+**Demand construction**: the propagated demand uses `Access` depending on the alias's escape scope. If the alias's locality is ≤ FunctionLocal: `Access = Borrowed` (the source is alive through a non-escaping borrow). If the alias's locality is > FunctionLocal: `Access = Owned` (the borrow escapes beyond the function, so the source must be promoted to Owned to prevent CN-8 from clamping away the escape signal — matching IA-5 step 1's escape-driven access promotion for direct borrows).
 
 **Merge-point filtering**: at CFG merges, the union of project sources from multiple predecessors is an over-approximation (the analysis keeps all possible parent aggregates alive). The EMISSION side (RL-4, RL-5) must filter: variables that exist only on one predecessor path must NOT receive merge-block-level decrements. Instead, they receive decrements on their specific predecessor edge. This filtering is an emission concern, not an analysis concern — the analysis correctly over-approximates to keep parents alive on all paths.
 
@@ -521,6 +521,7 @@ Step 2:  apply_ownership()         — Populate ArcParam.ownership from contract
 Step 3:  compute_var_reprs()       — ValueRepr per variable (Scalar/DefiniteRef/PossibleRef)
 Step 3a: normalize_function()      — TRMC context region detection
 Step 4:  analyze_function()        — Backward dataflow → converged AimsStateMap
+Step 4a: verify_trmc_soundness()   — TRMC structural verification (PL-10); rollback to pre-TRMC + re-run Step 4 on failure
 Step 5:  realize_rc_reuse()        — Phase 1: RC + reuse + arg_ownership (pre-merge)
 Step 5a: verify_fip_contract()     — FIP enforcement
 Step 6:  verify()                  — ARC IR structural sanity
@@ -601,7 +602,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 ### Stack Promotion
 
-**RL-14** — Non-escaping allocations (`Locality ≤ FunctionLocal ∧ Uniqueness = Unique`) with fixed size SHALL be stack-allocated via `alloca`. No RC header. No RC operations. Stack deallocation at scope exit. The `Uniqueness = Unique` requirement is load-bearing: a `MaybeShared` value that is stack-promoted without a header would crash on `IsShared` (DP-4) which reads the non-existent RC header. See also RL-17: `is_local(s) ∧ Unique → no header`.
+**RL-14** — Non-escaping allocations (`Locality ≤ FunctionLocal ∧ Uniqueness = Unique`) with fixed size SHALL be stack-allocated via `alloca`. No RC header. No RC operations. Stack deallocation at scope exit. The `Uniqueness = Unique` requirement is load-bearing: a `MaybeShared` value that is stack-promoted without a header would crash on `IsShared` (DP-4). **Heap children**: if a headerless stack allocation contains reference-type fields pointing to heap-allocated values, the stack value has no Drop/RC mechanism to release those children. The emission phase SHALL emit explicit `RcDec` for each heap-allocated field at scope exit (these are field-level decs on the stack value's children, not on the stack value itself).
 
 **RL-15** — Non-escaping dynamic-size allocations (`Locality ≤ FunctionLocal`) SHALL use a function-local bump allocator. Bump-allocated objects retain RC headers if `Uniqueness ≠ Unique` (for `IsShared` checks, same rationale as RL-14). Entire region freed at function return.
 
