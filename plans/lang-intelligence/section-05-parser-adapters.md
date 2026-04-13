@@ -257,7 +257,7 @@ class CoverageStatus(Enum):
   - Logs per-file soft failures without aborting
   - Skips `coverage_status: custom` languages (native parsers)
 - [x] Implement hard error handling: grammar load failures raise `RuntimeError` with module/func context; query compilation failures raise `RuntimeError` with `.scm` path. Per-file I/O errors return None with warning log.
-- [x] Add `--parallel` flag using `ProcessPoolExecutor` (parameter plumbed through `parse_repo`, implementation deferred to 05.5 `--full` mode where parallelism is actually needed for the <60s target).
+- [x] `--parallel` flag: removed unused parameter from `parse_repo` — sequential parsing meets the <60s target (28.1s actual). ProcessPoolExecutor can be added to `validate-parsers.py --full` if needed in the future.
 - [x] Implement `resolve_repo_path(template)` that expands `${REFERENCE_REPOS_ROOT}`, `${LANG_INTELLIGENCE_ROOT}`, and `${ORI_LANG_ROOT}` env vars via regex substitution. Checks env vars first, falls back to defaults. Also exposed `load_manifests()` for downstream consumers.
 - [x] Verify adapter output: smoke test on Gleam repo (188 files, 0 errors). All ParseResult fields populated. Content hash deterministic (SHA-256, same file = same hash on re-parse).
 
@@ -384,6 +384,29 @@ A comprehensive validation script that tests the full parser adapter stack: gram
 - [x] `[TPR-05-003-codex][medium]` (iter 2) `section-05-parser-adapters.md:62` — Success criteria overstates extraction.
   Evidence: Section 05 claims "extracts structural symbols" but extraction is Section 06's deliverable.
   Resolved: Fixed on 2026-04-12. Changed to "Unblocks mission criteria" (parsing half only).
+- [x] `[TPR-05-001-codex][high]` (iter 3) `scripts/setup-parsers.sh:78` — Koka scanner patch detection uses grep on directory instead of file-existence check.
+  Evidence: `grep -q 'src/scanner.c' src/` searches file CONTENTS, not checks file existence. Patch never applied on fresh bootstrap.
+  Resolved: Fixed on 2026-04-13. Changed to `[ -f src/scanner.c ]`.
+- [x] `[TPR-05-002-codex][high]` (iter 3) `scripts/validate-parsers.py:159` — Matrix test assertions too weak: no behavioral checks for malformed/empty/valid conditions.
+  Evidence: --matrix only checks query compilation, not ERROR node presence on malformed, clean on empty, or >0 captures on valid.
+  Resolved: Fixed on 2026-04-13. Added behavioral assertions per condition.
+- [x] `[TPR-05-003-codex][high]` (iter 3) `neo4j/parser_adapter.py:196` — Missing declared query family only logs warning instead of hard error.
+  Evidence: Missing .scm file returns {} silently, violating the hard-error contract.
+  Resolved: Fixed on 2026-04-13. Promoted to RuntimeError.
+- [x] `[TPR-05-004-codex][medium]` (iter 3) `scripts/validate-parsers.py:155` — Malformed fixtures use .txt extension but lookup uses native extensions.
+  Evidence: tests/malformed/rust.txt never matched by `f"{lang_id}{ext}"` lookup for `.rs`.
+  Resolved: Fixed on 2026-04-13. Renamed fixtures to native extensions (.rs, .go, .zig, etc.).
+- [x] `[TPR-05-005-codex][medium]` (iter 3) `neo4j/parser_adapter.py:119` — load_manifests() missing path validation for source_root/issue_root.
+  Evidence: Bad paths silently accepted. Path-existence validation only ran as inline ad-hoc check.
+  Resolved: Fixed on 2026-04-13. Added path validation to load_manifests().
+- [x] `[TPR-05-001-gemini][high]` (iter 3) `neo4j/parser_adapter.py:250` — parallel parameter accepted but ignored in parse_repo.
+  Evidence: `parallel: bool = False` plumbed through but never used. False API contract.
+  Resolved: Fixed on 2026-04-13. Removed unused parameter. Sequential parsing meets <60s target.
+- [x] `[TPR-05-002-gemini][medium]` (iter 3) `scripts/validate-parsers.py:115` — Same as TPR-05-004-codex (malformed fixture extension mismatch).
+  Resolved: Fixed on 2026-04-13. Same fix as TPR-05-004-codex.
+- [x] `[TPR-05-003-gemini][medium]` (iter 3) `neo4j/parser_adapter.py:44` — ParseResult missing source_root field for downstream absolute path construction.
+  Evidence: Downstream consumers need absolute paths but only get relative_path. Must break encapsulation to reconstruct.
+  Resolved: Fixed on 2026-04-13. Added source_root field to ParseResult.
 
 ---
 
@@ -399,12 +422,12 @@ A comprehensive validation script that tests the full parser adapter stack: gram
 - [x] Content hashing deterministic (SHA-256, same file = same hash); grammar update policy documented in validate-parsers.py
 - [x] Plan annotation cleanup: no stale plan references in code (infrastructure plan, no compiler code annotations)
 - [x] All intermediate TPR checkpoint findings resolved (pre-implementation TPR covered in 05.R)
-- [ ] **Plan sync** — update plan metadata to reflect this section's completion:
-  - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
-  - [ ] `00-overview.md` Quick Reference table status updated for this section
-  - [ ] `00-overview.md` mission success criteria checkboxes updated (check off any now satisfied)
-  - [ ] `index.md` section status updated
-  - [ ] Next section's (`06`) `depends_on` verified — no stale assumptions
+- [x] **Plan sync** — update plan metadata to reflect this section's completion:
+  - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated (pending close-out gates)
+  - [x] `00-overview.md` Quick Reference table status updated (not-started → in-progress)
+  - [x] `00-overview.md` mission success criteria: line 24 not checked — requires Section 06 (extraction) to complete "and extracts structural symbols" half
+  - [x] `index.md` section status updated (not-started → in-progress)
+  - [x] Next section's (`06`) `depends_on: ["05"]` verified — correct, no stale assumptions
   - [x] **Update Section 06 plan** — already updated during plan review (TPR iter-2): Section 06.2 contract now consumes `ParseResult`/`parse_repo()` and uses query family handles.
 - [ ] `/tpr-review` passed (final, full-section)
 - [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean
