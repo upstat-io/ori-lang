@@ -108,6 +108,7 @@ pub(super) fn emit_module_artifact(
     ctx: &ModuleCompileContext<'_>,
     llvm_module: &ori_llvm::inkwell::module::Module<'_>,
     module_name: &str,
+    source_path: &str,
 ) -> Option<PathBuf> {
     use ori_llvm::aot::ObjectEmitter;
 
@@ -164,11 +165,13 @@ pub(super) fn emit_module_artifact(
         eprintln!("    Emitting object to {}", obj_path.display());
     }
 
+    let hooks = super::ir_capture::build_hooks(source_path);
     if let Err(e) = emitter.verify_optimize_emit(
         llvm_module,
         ctx.opt_config,
         &obj_path,
         ori_llvm::aot::OutputFormat::Object,
+        hooks,
     ) {
         let mut acc = CodegenDiagnostics::new();
         acc.push(e.into());

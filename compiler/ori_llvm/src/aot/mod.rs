@@ -102,7 +102,7 @@ pub use target_features::{
 
 // Re-export key types from object and emit_error
 pub use emit_error::{EmitError, ModulePipelineError};
-pub use object::{ObjectEmitter, OutputFormat};
+pub use object::{CaptureHook, CaptureHooks, ObjectEmitter, OutputFormat};
 
 // Re-export key types from mangle
 pub use mangle::{demangle, is_ori_symbol, Mangler, MANGLE_PREFIX};
