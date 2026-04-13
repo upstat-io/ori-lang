@@ -77,3 +77,39 @@ All support `--help`, `--no-color`/`--color`.
 - `ORI_AUDIT_CODEGEN=1` — enable in-pipeline audit (add `ORI_AUDIT_STRICT=1` | `ORI_AUDIT_FUNCTION=name`)
 
 **Self-test:** `diagnostics/self-test.sh` — runs all scripts against fixtures
+
+## Verification Flags (from LLVM Verification Tooling Plan)
+
+These environment variables enable deeper verification during compilation/execution:
+
+| Flag | Purpose | Performance impact |
+|------|---------|-------------------|
+| `ORI_VERIFY_ARC=1` | ARC IR correctness checks + per-function LLVM IR verification at all emission sites | ~10-20% slower |
+| `ORI_VERIFY_EACH=1` | LLVM IR verification after every optimization pass — catches which pass breaks IR | ~30-60% slower |
+| `ORI_LLVM_LINT=1` | LLVM `function(lint)` pass: division by zero, suspicious alignment, unreachable. Auto-enabled by `ORI_AUDIT_CODEGEN=1` | ~5% slower |
+| `ORI_SANITIZE=address,undefined` | ASan/UBSan on generated AOT binaries via Clang delegation | 2-10x slower |
+| `ORI_BLESS=1` | Bless mode for snapshot tests — write actual as new baseline (only `"1"` accepted) | N/A |
+
+**Combining flags for deep verification:**
+```bash
+ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1 ORI_AUDIT_CODEGEN=1 ori build file.ori  # maximum verification
+ORI_CHECK_LEAKS=1 ORI_RT_DEBUG=1 ./binary                                   # maximum runtime checks
+```
+
+## Verification Test Suites
+
+Built by `plans/llvm-verification-tooling/`. Run these when touching ARC, LLVM codegen, or optimization.
+
+| Suite | Command | Tests | What it catches |
+|-------|---------|-------|----------------|
+| AIMS Snapshots | `cargo test -p oric --test aims_snapshots` | 22 | Per-pass ARC IR regressions (reuse, merge, normalize, realize, tail calls) |
+| FileCheck IR | `cargo test -p ori_llvm --test codegen_checks` | 44+ | LLVM IR pattern regressions (RC emission, COW, ABI, iterators, closures) |
+| Lattice Properties | `cargo test -p ori_arc -- lattice::prop_tests` | 36 | Join law violations, partial-order axiom breaks, fixpoint divergence |
+| Contract Oracle | `cargo test -p ori_arc -- oracle` | 8 | Analysis/realization mismatches in MemoryContract |
+| Protocol Builtins | `cargo test -p ori_arc -- builtins::tests` | 11 | Protocol builtin ownership matrix consistency |
+| Sanitizer Smoke | `scripts/sanitizer-smoke.sh` | 17 programs | ASan/UBSan runtime memory safety violations |
+
+**Test corpus locations:**
+- `compiler/oric/tests/aims-snapshots/` — AIMS snapshot `.ori` files and `.arc` baselines
+- `compiler/ori_llvm/tests/codegen/` — FileCheck `.ori` files with `// CHECK:` directives
+- `compiler/ori_test_harness/` — shared harness crate (directives, bless, CHECK matching)

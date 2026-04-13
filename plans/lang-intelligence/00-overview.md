@@ -122,7 +122,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 | 06 | Code Graph: Symbol Extraction | complete | `~/projects/lang_intelligence/neo4j/extract_symbols.py` | 05 |
 | 07 | Code Graph: Import Pipeline | complete | `~/projects/lang_intelligence/neo4j/import_code_graph.py`, `schema.cypher`, `scripts/build-code-graph.sh` | 06 |
 | 08 | Issue-to-Code Bridge | complete | `~/projects/lang_intelligence/neo4j/extract_code_refs.py` | 07 |
-| 09 | Ori Live Sync | complete | `lefthook.yml`, `~/projects/lang_intelligence/scripts/sync-ori-graph.sh`, `~/projects/lang_intelligence/neo4j/ori_adapter.py`, `~/projects/lang_intelligence/neo4j/sync_ori_graph.py` | 06, 07 |
+| 09 | Ori Live Sync | in-progress | `lefthook.yml`, `~/projects/lang_intelligence/scripts/sync-ori-graph.sh`, `~/projects/lang_intelligence/neo4j/ori_adapter.py`, `~/projects/lang_intelligence/neo4j/sync_ori_graph.py` | 06, 07 |
 | 10 | Sentiment & Issue Signals | not-started | `schema.cypher`, `import_graph.py`, `enrich_sentiment.py`, `query_graph.py`, `fetch-all.sh`, `tests/test_enrich_sentiment.py` | 01 |
 
 ## Estimated Effort
