@@ -14,7 +14,8 @@ on:
       - 'diagnostics/alive2-verify.sh'
       - '.github/workflows/nightly-verification.yml'
   schedule:
-    - cron: '30 2 * * *'  # 2:30 AM UTC (after nightly release PR at midnight)
+    - cron: '30 2 * * *'  # 2:30 AM UTC nightly (after nightly release PR at midnight)
+    - cron: '0 4 * * 0'   # 4:00 AM UTC weekly (Sunday — Alive2 full sweep)
   workflow_dispatch:
 
 jobs:
@@ -121,3 +122,87 @@ jobs:
           build/alive2/alive-tv "$tmpfile" --passes=instcombine 2>&1 | grep -q "Transformation seems to be correct"
           rm -f "$tmpfile"
           echo "alive-tv verification passed"
+
+  alive2-curated:
+    name: Alive2 Curated Corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: alive2-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Alive2 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libz3-dev re2c cmake
+
+      - name: Extract Alive2 cache key
+        id: alive2-key
+        run: |
+          LLVM_MAJOR=$(llvm-config-21 --version | cut -d. -f1)
+          ALIVE2_COMMIT=$(grep 'ALIVE2_COMMIT=' scripts/build-alive2.sh | head -1 | cut -d'"' -f2)
+          echo "key=alive2-llvm${LLVM_MAJOR}-${ALIVE2_COMMIT}-${{ hashFiles('scripts/build-alive2.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore alive-tv binary
+        uses: actions/cache@v4
+        with:
+          path: build/alive2/alive-tv
+          key: ${{ steps.alive2-key.outputs.key }}
+
+      - name: Build Ori compiler
+        run: cargo build
+
+      - name: Run Alive2 on curated corpus
+        run: diagnostics/alive2-verify.sh --corpus --timeout 60 --check-survival
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: alive2-curated-results
+          path: build/alive2-results/
+          retention-days: 30
+
+  # <!-- plan-sync: Section 11.3 may relocate this job to weekly-verification.yml -->
+  alive2-full-sweep:
+    name: Alive2 Full Sweep (Weekly)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    needs: alive2-curated
+    if: github.event_name == 'schedule' && github.event.schedule == '0 4 * * 0'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Alive2 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libz3-dev re2c cmake
+
+      - name: Extract Alive2 cache key
+        id: alive2-key
+        run: |
+          LLVM_MAJOR=$(llvm-config-21 --version | cut -d. -f1)
+          ALIVE2_COMMIT=$(grep 'ALIVE2_COMMIT=' scripts/build-alive2.sh | head -1 | cut -d'"' -f2)
+          echo "key=alive2-llvm${LLVM_MAJOR}-${ALIVE2_COMMIT}-${{ hashFiles('scripts/build-alive2.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore alive-tv binary
+        uses: actions/cache@v4
+        with:
+          path: build/alive2/alive-tv
+          key: ${{ steps.alive2-key.outputs.key }}
+
+      - name: Build Ori compiler
+        run: cargo build
+
+      - name: Run Alive2 on all codegen tests
+        run: |
+          diagnostics/alive2-verify.sh --all-codegen --timeout 120 \
+            --suppress tests/alive2/suppressed.json --check-survival
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: alive2-full-results
+          path: build/alive2-results/
+          retention-days: 90

@@ -1,7 +1,7 @@
 ---
 plan: "lang-intelligence"
 title: "Language Intelligence Graph: Exhaustive Implementation Plan"
-status: in-progress
+status: complete
 references:
   - "~/projects/lang_intelligence/CLAUDE.md"
   - "~/projects/lang_intelligence/neo4j/schema.cypher"
@@ -16,19 +16,19 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 ## Mission Success Criteria
 
 - [x] `scripts/intel-query.sh` returns JSON by default: `{"status":"ok","data":...}` when Neo4j is available, `{"status":"unavailable","reason":"..."}` when not (exit 0 in both cases)
-- [ ] `.claude/rules/intelligence.md` auto-loads and triggers intelligence queries during design decisions, bug fixes, and reviews
-- [ ] `/query-intel` command works from any conversation with search, compare, fixed, hot, ori-* presets, and raw cypher
+- [x] `.claude/rules/intelligence.md` auto-loads and triggers intelligence queries during design decisions, bug fixes, and reviews
+- [x] `/query-intel` command works from any conversation with search, compare, fixed, hot, ori-* presets, and raw cypher
 - [x] `/tpr-review` evidence packets include cross-language prior art from the intelligence graph
 - [x] `/fix-bug` Phase 1 queries for similar bugs in reference compilers
-- [ ] Ontology contains Concept, FailureMode, CompilerPhase, DesignDecision nodes with rich typed edges
-- [ ] tree-sitter parses all 9 supported languages and extracts structural symbols (Module, Function, Struct, Trait, Method)
-- [ ] Code graph contains CALLS, IMPORTS, IMPLEMENTS relationships for all reference repos
-- [ ] Issue-to-code bridge links GitHub issues to code symbols via CodeReference nodes with confidence scores
+- [x] Ontology contains Concept, FailureMode, CompilerPhase, DesignDecision nodes with rich typed edges
+- [x] tree-sitter parses all 9 supported languages and extracts structural symbols (Module, Function, Struct, Trait, Method)
+- [x] Code graph contains CALLS, IMPORTS, IMPLEMENTS relationships for all reference repos
+- [x] Issue-to-code bridge links GitHub issues to code symbols via CodeReference nodes with confidence scores
 - [x] Ori live sync updates the code graph within 5s of a commit via lefthook post-commit async background sync
-- [ ] Per-emoji reaction data stored on Issue and Comment nodes across all 10 repos (with `author_type` for bot filtering); materialized sentiment metrics (pain, controversy, excitement) computed with within-repo percentile normalization
-- [ ] `sentiment` and `landscape` query commands surface cross-language user pain, controversy, and excitement signals via percentile-based thresholds
-- [ ] `./test-all.sh` green — no regressions from any integration changes
-- [ ] All section success criteria met
+- [x] Per-emoji reaction data stored on Issue and Comment nodes across all 10 repos (with `author_type` for bot filtering); materialized sentiment metrics (pain, controversy, excitement) computed with within-repo percentile normalization
+- [x] `sentiment` and `landscape` query commands surface cross-language user pain, controversy, and excitement signals via percentile-based thresholds
+- [x] `./test-all.sh` green — no regressions from any integration changes
+- [x] All section success criteria met
 
 ## Architecture
 
@@ -123,7 +123,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 | 07 | Code Graph: Import Pipeline | complete | `~/projects/lang_intelligence/neo4j/import_code_graph.py`, `schema.cypher`, `scripts/build-code-graph.sh` | 06 |
 | 08 | Issue-to-Code Bridge | complete | `~/projects/lang_intelligence/neo4j/extract_code_refs.py` | 07 |
 | 09 | Ori Live Sync | complete | `lefthook.yml`, `~/projects/lang_intelligence/scripts/sync-ori-graph.sh`, `~/projects/lang_intelligence/neo4j/ori_adapter.py`, `~/projects/lang_intelligence/neo4j/sync_ori_graph.py` | 06, 07 |
-| 10 | Sentiment & Issue Signals | not-started | `schema.cypher`, `import_graph.py`, `enrich_sentiment.py`, `query_graph.py`, `fetch-all.sh`, `tests/test_enrich_sentiment.py` | 01 |
+| 10 | Sentiment & Issue Signals | complete | `schema.cypher`, `import_graph.py`, `enrich_sentiment.py`, `query_graph.py`, `fetch-all.sh`, `tests/test_enrich_sentiment.py` | 01 |
 
 ## Estimated Effort
 
