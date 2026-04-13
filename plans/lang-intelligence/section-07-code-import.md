@@ -279,8 +279,8 @@ The bulk importer calls it per-file in a loop; the live sync calls it for a sing
 - [x] Store `last_imported_at` on the Repo node after successful import
 
 **File and symbol import (Phase 1 — nodes only, no relationships):**
-- [x] Read JSONL line by line (streaming, not loading entire file into memory)
-- [x] Group symbol records by `file` path (buffer in memory — one file at a time)
+- [x] Read JSONL into memory (symbols grouped by file, relationships buffered for Phase 2). Memory bounded by repo size (~50MB for rust). Two-pass streaming possible but not warranted at current scale.
+- [x] Group symbol records by `file` path; also collect symbolless files from `file_meta` records
 - [x] For each file group, call `upsert_file_symbols(driver, repo, path, symbols)` — declarative diff per 07.2.1, no relationships parameter
 - [x] Include ALL Section 06 fields on Symbol nodes: `name`, `qualified_name`, `kind`, `language`, `language_kind`, `file`, `line`, `end_line`, `visibility`, `signature_hash`, `content_hash`, `had_error`, `coverage_status`
 - [x] Store file-level `content_hash` (from ParseResult) on File nodes — added `file_meta` record to extract_symbols.py, consumed by import_code_graph.py
@@ -448,7 +448,7 @@ LIMIT 20;
 - [x] `[TPR-07-009-codex][low]` `section-07-code-import.md:303` — DRIFT: Per-repo <30s target checked off but Rust exceeds it.
   Resolved: Fixed on 2026-04-13. Reworded target to honestly note 9/10 repos pass; Rust exceeds due to file count with explanation.
 - [x] `[TPR-07-010-codex][medium]` `import_code_graph.py:434` — GAP: Module-scope relationships from symbolless files dropped (source resolution requires Symbol node).
-  Resolved: Noted on 2026-04-13. This is a Section 06 extraction quality issue — calls.scm/imports.scm emit module-scope source_qualified_names that don't correspond to any Symbol from decls.scm. The import correctly tracks these as source_unresolved. Fix belongs in Section 06/09 extraction improvements.
+  Resolved: Noted on 2026-04-13. Section 06 extraction quality issue — calls.scm/imports.scm emit module-scope source_qualified_names without corresponding Symbol nodes. Import correctly tracks as source_unresolved. Concrete fix anchored in Section 08.2 `- [ ] Module-level source resolution` item. <!-- blocked-by:08 -->
 - [x] `[TPR-07-011-codex][medium]` `import_code_graph.py:320` — DRIFT: Memory model claim ("streaming JSONL") doesn't match reality (all records loaded into memory).
   Resolved: Fixed on 2026-04-13. Updated plan documentation and module docstring to accurately describe the memory model (all records in RAM, bounded by repo size).
 - [x] `[TPR-07-012-codex][medium]` `import_code_graph.py:521` — DRIFT: Repo timestamp set unconditionally even after partial failures.
@@ -461,6 +461,12 @@ LIMIT 20;
   Resolved: Fixed on 2026-04-13. Transaction closure now uses local_stats dict; outer stats updated only after successful tx via result_stats.
 - [x] `[TPR-07-016-gemini][low]` `import_code_graph.py:431` — GAP: Orphan UnresolvedSymbol stubs accumulate.
   Resolved: Fixed on 2026-04-13. Added cleanup query at end of Phase 2: DELETE unresolved stubs with zero incoming edges.
+- [x] `[TPR-07-017-codex][medium]` `import_code_graph.py:477` — GAP: Module-scope relationships from symbolless files (re-raise of TPR-07-010).
+  Resolved: 2026-04-13. Concrete anchor added to Section 08.2 `- [ ] Module-level source resolution` for synthetic module Symbol creation. Import correctly tracks as source_unresolved.
+- [x] `[TPR-07-018-codex][medium]` `import_code_graph.py:45` — GAP: No regression tests for importer or pipeline.
+  Resolved: 2026-04-13. Added `tests/test_import_code_graph.py` with unit tests for resolution functions and stats double-counting fix. Integration tests require Neo4j — deferred to CI setup.
+- [x] `[TPR-07-019-codex][low]` `section-07-code-import.md:282` — DRIFT: Stale streaming claim in 07.2.6 checklist.
+  Resolved: Fixed on 2026-04-13. Reworded to describe actual buffered memory model.
 
 ## 07.C Completion Checklist
 
