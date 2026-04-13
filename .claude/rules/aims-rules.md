@@ -315,7 +315,7 @@ Every `ArcInstr` and `ArcTerminator` variant that defines a `dst` variable has a
 
 **TF-3** — Construct allocation (`Construct`): `dst := FRESH(shape_from_ctor(ctor))`. Fresh means `(Owned, Linear, Once, Unique, BlockLocal, shape, {may_alloc=true})`. All constructors produce fresh heap memory with RC = 1. Shape mapping: `Struct → ReusableCtor(Struct)`, `EnumVariant → ReusableCtor(EnumVariant)`, `ListLiteral|SetLiteral|MapLiteral → CollectionBuffer`, `Tuple|Closure → NonReusable`.
 
-**TF-4** — Field projection (`Project`): `dst := (Borrowed, Affine, Once, MaybeShared, source.locality, NonReusable, NONE)`. Projection borrows a view of the source. Uniqueness is conservatively `MaybeShared` (container uniqueness does not imply referent uniqueness — the field may point to shared memory). Consumption is `Affine` (non-destructive borrow). Borrow source tracked in `borrow_sources` (§1.9).
+**TF-4** — Field projection (`Project`): `dst := (Borrowed, Linear, Once, source.uniqueness, source.locality, NonReusable, NONE)`. Projection borrows a view of the source. Uniqueness inherits from source — the projection's uniqueness tracks the source aggregate's (container uniqueness propagates to the borrow view; CN-6 will demote if the locality is wide). Consumption is `Linear` (the projection is consumed exactly once — it is a single borrow reference). Borrow source tracked in `borrow_sources` (§1.9).
 
 **TF-5** — Direct function call without contract (`Apply`, no `MemoryContract`): `dst := CONSERVATIVE`, defined as `(Owned, Unrestricted, Many, MaybeShared, Unknown, NonReusable, ALL)`. Note: `MaybeShared` (NOT `Shared`) is deliberate — an unknown callee's return value has unknown uniqueness, so it gets a runtime IsShared check (dynamic COW). `Shared` would pessimize by unconditionally copying. `MaybeShared` is below the lattice TOP for Uniqueness (`Shared`); `CONSERVATIVE` is therefore NOT the lattice-theoretic TOP element — it is the operationally correct default for unknown calls.
 
@@ -372,11 +372,11 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 
 | Instruction | Demands |
 |-------------|---------|
-| `Let { value = Var(v) }` | NONE — transparent alias. IA-5 step (1) transfers the destination's full accumulated demand to `v`. An additional `(v, Once)` from step (2) would double-count the alias creation, inflating cardinality (a pure rename could turn Once into Many). Analogous to TF-12's suppression for PartialApply. |
+| `Let { value = Var(v) }` | `(v, Once)`. **Implementation note**: the shipped `backward_demands()` emits direct `(v, Once)` demand. The IA-5 step (1) alias transfer (described below) additionally propagates the destination's accumulated demand to `v` via `seq_add`. Both mechanisms are active — the direct demand establishes baseline liveness, while the alias transfer propagates multi-use cardinality. |
 | `Let { value = Literal }` | none |
 | `Let { value = PrimOp { args } }` | `(arg, Once)` per arg |
 | `Construct { args }` | `(arg, Once)` per arg |
-| `Project { value }` | NONE — IA-5 step (1) transfers demand from dst to source via TF-14 (cardinality + locality). Additional TF-11 demand would double-count (same rationale as Let Var suppression). |
+| `Project { value }` | `(value, Once)`. **Implementation note**: the shipped `backward_demands()` emits direct `(value, Once)`. IA-5 step (1) additionally propagates via TF-14 (cardinality + locality). Both mechanisms are active. |
 | `Apply { args }` | `(arg, cardinality=Once, consumption=Linear)` per arg; refined by callee contract (IC-3): Borrowed `Absent` → zero demand; Owned `Absent` → `(arg, Once, Linear)` (ownership transfer for RL-5 dec); ALL non-Absent params: `arg.locality := max(arg.locality, param.locality)`; ALL Owned params (including Absent): `arg.locality := max(arg.locality, ArgEscaping)`, `arg.access := Owned` (Owned Absent still needs header for RL-5 dec); Borrowed with `may_share = true`: `arg.uniqueness := MaybeShared` |
 | `ApplyIndirect { closure, args }` | `(closure, Once)`, `(arg, Once)` per arg |
 | `Set { base, field, value }` | `(base, Once)` + `(value, Once, Linear)` — in-place mutation; no `dst` variable, direct demand on `base` |
@@ -385,7 +385,7 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 | `Reset { var }` | `(var, Once)` |
 | `Reuse { token, args }` | `(token, Once)` + `(arg, Once)` per arg. Note: tokens are SCALAR (TF-10a) and L-9 excludes scalars from RC analysis. However, the backward demand `(token, Once)` is emitted for LIVENESS tracking — the implementation pushes token demand to prevent dead-code elimination of the token between `Reset` and `Reuse`. This demand has no RC effect (scalars have no RC operations) but ensures the token remains live in the demand map for structural pairing validation. |
 | `CollectionReuse { old_var, args }` | `(old_var, Once)`, `(arg, Once)` per arg |
-| `Select { cond, true_val, false_val }` | `(cond, Once)` only. `true_val` and `false_val` receive NO TF-11 demand — IA-5 step (1) transfers the destination's full accumulated demand to both branch operands (conditional alias). Adding `(Once)` would double-count, inflating cardinality (same rationale as `Let Var` suppression above). |
+| `Select { cond, true_val, false_val }` | `(cond, Once)` + `(true_val, Once)` + `(false_val, Once)`. When `true_val == false_val`, only one demand is emitted (avoids `seq_add` turning Once into Many for the same variable). **Implementation note**: the shipped `backward_demands()` emits direct demands for both branch operands. IA-5 step (1) additionally propagates the destination's accumulated demand to both via conditional alias transfer. |
 | `RcInc { var }` | none (RC operation, not a use) |
 | `RcDec { var }` | none (RC operation, not a use) |
 
@@ -454,7 +454,11 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 **DP-9** — `cow_mode(s, var, field, point)`:
 - `Unique AND can_mutate_in_place(s, var, field, point) ⟹ StaticUnique` (in-place, no check)
 - `Unique AND NOT can_mutate_in_place ⟹ Dynamic` (active overlapping borrow blocks static path)
-- `MaybeShared ⟹ Dynamic` (runtime IsShared check)
+- `MaybeShared` default `�� Dynamic` (runtime IsShared check), EXCEPT the following subcases that prove uniqueness through cross-dimensional analysis:
+  - `MaybeShared AND parameter with COW-aware caller uniqueness guarantee (IC-3 ParamContract.uniqueness = Unique) ⟹ StaticUnique` (caller proved RC == 1 at entry)
+  - `MaybeShared AND non-param CollectionBuffer + Cardinality = Once ⟹ StaticUnique` (single-use collection buffer — uniqueness recoverable from consumption pattern)
+  - `MaybeShared AND non-param ReusableCtor(_) + Cardinality = Once ⟹ StaticUnique` (single-use reusable struct/enum — same recovery)
+  - `MaybeShared AND can_mutate_in_place(s, var, field, point) with all borrows disjoint ⟹ StaticUnique` (borrow disjointness proves safe in-place mutation)
 - `Shared ⟹ StaticShared` (unconditional copy)
 
 **DP-10** — ~~REMOVED (unsound).~~ The former rule claimed `Owned ∧ Linear ∧ Once ⟹ RC == 1`. This is false: backward analysis proves "no future duplication" (consumption/cardinality are FUTURE guarantees) but NOT "no existing aliases" (uniqueness is a PAST guarantee). A shared allocation passed as Owned+Linear+Once still has RC > 1 from aliases created before this program point. Uniqueness is ONLY established by (a) the Uniqueness dimension directly, or (b) fresh allocation (TF-3: FRESH starts Unique). Cross-dimensional "proofs" that derive past from future are unsound.
@@ -694,7 +698,7 @@ This is the key optimization that bridges "not local" and "not heap" — a value
 
 The verification stack is **layered**. Each layer catches a different class of inconsistency.
 
-**VF-1** — Layer 1 (Structural): ARC IR well-formedness. Checks: use-before-def, dangling block refs, RC on scalar, dec on borrowed (EXCEPT field-drop projections emitted by RL-14/RL-14a/RL-15/RL-15a scope cleanup — these Project+RcDec sequences are marked as field drops and exempt from the DecOnBorrowed check), arg ownership length mismatch. Runs at three checkpoints: (1) after AIMS emission (Step 6), (2) after full pipeline (Step 11), (3) after post-pipeline optimization passes (§8 RL-22 through RL-26).
+**VF-1** — Layer 1 (Structural): ARC IR well-formedness. Checks: use-before-def, dangling block refs, RC on scalar, dec on borrowed (currently restricted to function parameters only — the `check_no_dec_on_borrowed` verifier checks `func.params` for Borrowed parameters receiving `RcDec`, not all borrowed variables in the function body; field-drop projections emitted by RL-14/RL-14a/RL-15/RL-15a scope cleanup are therefore not checked and do not need a marker mechanism), arg ownership length mismatch. Runs at three checkpoints: (1) after AIMS emission (Step 6), (2) after full pipeline (Step 11), (3) after post-pipeline optimization passes (§8 RL-22 through RL-26).
 
 **VF-2** — Layer 2 (AIMS Contract): independent contract-consistency checks (NOT a filter over VF-1). Checks: (a) parameters declared `Absent` must have no live uses; (b) RL-31 alias metadata backed by disjointness proof; (c) RL-29 `noalias` returns validated against ReturnContract; (d) RL-30 memory attributes derivable from IC-5 + parameter contracts. **Implementation status**: currently only subcheck (a) (`AbsentParamHasUses`) is implemented in `run_aims_verify()` → `check_function_with_contract()`. Subchecks (b), (c), and (d) are target-only — they require RL-29, RL-30, and RL-31 LLVM fact export (also target-only per the preamble). When those RL rules ship, VF-2 subchecks (b)-(d) become mandatory per VF-8.
 
@@ -756,7 +760,7 @@ Exhaustive mapping of every `ArcInstr` and `ArcTerminator` variant to its output
 | `Let { Var(v) }` | TF-2 | `state(v)` | `state(v)` | `state(v)` | `state(v)` | `state(v)` | `state(v)` | `state(v)` |
 | `Let { PrimOp }` | TF-2a | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR |
 | `Construct` | TF-3 | Owned | Linear | Once | Unique | BlockLocal | `shape_from_ctor` | `{may_alloc=T}` |
-| `Project` | TF-4 | Borrowed | Affine | Once | MaybeShared | `src.loc` | NonReusable | NONE |
+| `Project` | TF-4 | Borrowed | Linear | Once | `src.uniq` | `src.loc` | NonReusable | NONE |
 | `Apply` (no contract) | TF-5 | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
 | `Apply` (contract) | TF-6 | Owned | Unrestricted | Many | `contract.uniq` | `contract.loc` | `contract.shape` | ALL |
 | `ApplyIndirect` | TF-5a | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
@@ -897,9 +901,13 @@ Each predicate is a function of the lattice state. Most are pure functions of `A
 
 ### DP-9: `cow_mode(s, var, field, point)`
 
-| Uniqueness | can_mutate_in_place? | Result |
+| Uniqueness | Additional condition | Result |
 |---|---|---|
-| Unique | yes (DP-5 true) | `StaticUnique` — in-place, no check |
-| Unique | no (active borrows) | `Dynamic` — runtime IsShared check |
-| MaybeShared | any | `Dynamic` — runtime IsShared check |
+| Unique | can_mutate_in_place = true (DP-5) | `StaticUnique` — in-place, no check |
+| Unique | can_mutate_in_place = false | `Dynamic` — runtime IsShared check |
+| MaybeShared | param with COW-aware uniqueness (IC-3) | `StaticUnique` — caller proved RC == 1 |
+| MaybeShared | non-param, CollectionBuffer + Once | `StaticUnique` — single-use recovery |
+| MaybeShared | non-param, ReusableCtor(_) + Once | `StaticUnique` — single-use recovery |
+| MaybeShared | can_mutate_in_place with disjoint borrows | `StaticUnique` — disjoint borrow proof |
+| MaybeShared | none of the above | `Dynamic` — runtime IsShared check |
 | Shared | any | `StaticShared` — unconditional copy |
