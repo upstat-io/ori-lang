@@ -144,8 +144,10 @@ impl LinkerDriver {
                     // Sanitizers require Clang as the linker driver.
                     // GCC and Clang ship incompatible sanitizer runtime libraries —
                     // linking Clang-instrumented objects with GCC causes missing symbols.
-                    // For cross-compilation, pass --target to Clang for the correct triple.
-                    LinkerImpl::Gcc(GccLinker::with_path(&self.target, "clang"))
+                    // Use find_clang() for consistency with the compilation path (supports
+                    // versioned names like clang-17 on Debian/Ubuntu).
+                    let clang_bin = super::super::passes::find_clang().unwrap_or("clang");
+                    LinkerImpl::Gcc(GccLinker::with_path(&self.target, clang_bin))
                 } else if cross {
                     // Use the target-prefixed cross-compiler (e.g., aarch64-linux-gnu-gcc)
                     if let Some(name) =

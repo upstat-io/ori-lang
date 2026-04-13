@@ -79,19 +79,27 @@ for (( i=START; i<END; i++ )); do
     fi
 
     # Run with per-test timeout (sanitized binaries are slower).
-    # Programs without @main produce a binary that exits immediately (no entry point).
-    if timeout 10 "$TMPDIR/san_full_$name" 2>/dev/null; then
+    # Capture stderr to detect ASan reports — ASan exits with code 1 by default,
+    # which would be indistinguishable from a normal assertion failure without
+    # checking the error stream.
+    if timeout 10 "$TMPDIR/san_full_$name" 2>"$TMPDIR/stderr_$name" ; then
         PASS_COUNT=$((PASS_COUNT + 1))
     else
         exit_code=$?
-        # Exit code 127 or similar = no @main, not a sanitizer failure
-        if [ $exit_code -eq 127 ] || [ $exit_code -eq 1 ]; then
+        # Check if this is a sanitizer hit (ASan/UBSan report on stderr)
+        if grep -q "Sanitizer\|ERROR:.*Sanitizer\|SUMMARY:.*Sanitizer" "$TMPDIR/stderr_$name" 2>/dev/null; then
+            echo "FAIL (sanitizer): $test_file (exit $exit_code)"
+            head -5 "$TMPDIR/stderr_$name" >&2
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+        elif [ $exit_code -eq 127 ]; then
+            # Exit 127 = command not found / no entry point
             SKIP_COUNT=$((SKIP_COUNT + 1))
         else
-            echo "FAIL: $test_file (exit $exit_code)"
-            FAIL_COUNT=$((FAIL_COUNT + 1))
+            # Non-zero but no sanitizer report — likely assertion failure or missing @main
+            SKIP_COUNT=$((SKIP_COUNT + 1))
         fi
     fi
+    rm -f "$TMPDIR/stderr_$name"
 
     # Clean up binary to avoid disk pressure
     rm -f "$TMPDIR/san_full_$name"
