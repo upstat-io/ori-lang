@@ -325,9 +325,13 @@ fn compile_and_cache(
     let opt_config = crate::commands::build::build_optimization_config(&run_options);
     let obj_path = cache_dir.join(format!("{binary_name}.o"));
 
-    if let Err(e) =
-        emitter.verify_optimize_emit(&llvm_module, &opt_config, &obj_path, OutputFormat::Object)
-    {
+    if let Err(e) = emitter.verify_optimize_emit(
+        &llvm_module,
+        &opt_config,
+        &obj_path,
+        OutputFormat::Object,
+        ori_llvm::aot::CaptureHooks::default(),
+    ) {
         crate::problem::codegen::report_codegen_error(e);
     }
 

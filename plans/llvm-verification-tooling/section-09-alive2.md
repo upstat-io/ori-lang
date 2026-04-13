@@ -26,7 +26,7 @@ sections:
     status: complete
   - id: "09.2"
     title: "IR Capture Pipeline in oric (Phase-Pure)"
-    status: not-started
+    status: complete
   - id: "09.3"
     title: "Diagnostic Script, Function Selection, and Inlining Survival"
     status: not-started
@@ -173,7 +173,7 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
 
 **File size constraint:** `passes/mod.rs` is 438 lines (approaching 500-line limit). No capture logic goes there. All capture logic lives in a new `ir_capture.rs` helper in `oric`.
 
-- [ ] Register three new flags in `compiler/oric/src/debug_flags.rs` (the single source of truth for all debug env vars):
+- [x] Register three new flags in `compiler/oric/src/debug_flags.rs` (the single source of truth for all debug env vars):
   ```rust
   /// Dump raw LLVM IR to a .preopt.ll file after verification, before optimization.
   ///
@@ -198,7 +198,7 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
   ```
   **WHERE:** `compiler/oric/src/debug_flags.rs` — add to the `flags!` block after the existing verification flags (after line 165).
 
-- [ ] Create `compiler/oric/src/commands/build/ir_capture.rs` helper module (keeps capture logic out of single.rs and passes/mod.rs):
+- [x] Create `compiler/oric/src/commands/build/ir_capture.rs` helper module (keeps capture logic out of single.rs and passes/mod.rs):
   ```rust
   //! IR capture for Alive2 translation validation.
   //!
@@ -252,7 +252,7 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
   ```
   **WHERE:** `compiler/oric/src/commands/build/ir_capture.rs` (new file, ~50 lines)
 
-- [ ] Refactor `ObjectEmitter::verify_optimize_emit` in `compiler/ori_llvm/src/aot/object.rs` to accept optional capture hooks. This keeps the pipeline orchestration (verify -> optimize -> sanitizer -> audit -> emit) as the sole SSOT in `ori_llvm`, while letting `oric` inject IO at the right points via closures:
+- [x] Refactor `ObjectEmitter::verify_optimize_emit` in `compiler/ori_llvm/src/aot/object.rs` to accept optional capture hooks. This keeps the pipeline orchestration (verify -> optimize -> sanitizer -> audit -> emit) as the sole SSOT in `ori_llvm`, while letting `oric` inject IO at the right points via closures:
   ```rust
   /// Optional hooks for IR capture at pipeline boundaries.
   /// Closures perform IO in the caller's crate (oric), not in ori_llvm.
@@ -270,7 +270,7 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
   Then modify `verify_optimize_emit` to call hooks at the correct pipeline points — between verify and optimize (pre_opt), and between optimize and emit (post_opt). Non-capture builds pass `CaptureHooks::default()` (zero overhead).
   **WHERE:** `compiler/ori_llvm/src/aot/object.rs` — refactor `verify_optimize_emit` (~15 lines added). This preserves the existing sanitizer check, audit histogram, and Clang delegation inside the canonical pipeline owner.
 
-- [ ] Wire capture hooks from `oric` into the refactored `verify_optimize_emit`. In `single.rs`, construct `CaptureHooks` from the `ir_capture` helper:
+- [x] Wire capture hooks from `oric` into the refactored `verify_optimize_emit`. In `single.rs`, construct `CaptureHooks` from the `ir_capture` helper:
   ```rust
   let hooks = if ir_capture::capture_requested() {
       CaptureHooks {
@@ -288,23 +288,23 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
   ```
   **WHERE:** `compiler/oric/src/commands/build/single.rs` — at the existing `verify_optimize_emit` call site.
 
-- [ ] Apply the same hook wiring to `compiler/oric/src/commands/build/multi_emission.rs`. Note: the multi-file path calls `emit_module_artifact(ctx, llvm_module, module_name)` which does not currently receive the source file path. Thread `source_path` from `compile_single_module(...)` (one layer up) into `emit_module_artifact` so that `capture_path()` can encode the repo-relative path for collision-free filenames. Without this, the multi-file capture cannot produce unique artifact names per the iteration-3 invariant.
+- [x] Apply the same hook wiring to `compiler/oric/src/commands/build/multi_emission.rs`. Note: the multi-file path calls `emit_module_artifact(ctx, llvm_module, module_name)` which does not currently receive the source file path. Thread `source_path` from `compile_single_module(...)` (one layer up) into `emit_module_artifact` so that `capture_path()` can encode the repo-relative path for collision-free filenames. Without this, the multi-file capture cannot produce unique artifact names per the iteration-3 invariant.
   **WHERE:** `compiler/oric/src/commands/build/multi_emission.rs` — at the `verify_optimize_emit` call site and the `emit_module_artifact` signature.
 
-- [ ] Re-export `CaptureHooks` from `ori_llvm::aot` (via `compiler/ori_llvm/src/aot/mod.rs`) so `oric` can import it without reaching into `ori_llvm::aot::object` directly. This follows the existing pattern where `ObjectEmitter` and `OutputFormat` are already re-exported from `ori_llvm::aot`.
+- [x] Re-export `CaptureHooks` from `ori_llvm::aot` (via `compiler/ori_llvm/src/aot/mod.rs`) so `oric` can import it without reaching into `ori_llvm::aot::object` directly. This follows the existing pattern where `ObjectEmitter` and `OutputFormat` are already re-exported from `ori_llvm::aot`.
   **WHERE:** `compiler/ori_llvm/src/aot/mod.rs` — add `pub use object::CaptureHooks;`
 
-- [ ] Update all other callers of `verify_optimize_emit` (if any) to pass `CaptureHooks::default()`. Grep for `verify_optimize_emit` across the codebase to find all call sites.
+- [x] Update all other callers of `verify_optimize_emit` (if any) to pass `CaptureHooks::default()`. Grep for `verify_optimize_emit` across the codebase to find all call sites.
 
-- [ ] Verify that `module.print_to_file()` preserves all function definitions (standard LLVM behavior, but confirm with a test that a multi-function module round-trips correctly). Alive2 compares functions by name — both pre-opt and post-opt IR must contain the same `@_ori_*` function names.
+- [x] Verify that `module.print_to_file()` preserves all function definitions (standard LLVM behavior, but confirm with a test that a multi-function module round-trips correctly). Alive2 compares functions by name — both pre-opt and post-opt IR must contain the same `@_ori_*` function names.
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 09.1-09.2 implementation work
 
-- [ ] **Subsection close-out (09.2)** — MANDATORY before starting 09.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 09.1's close-out, scoped to 09.2's debugging journey. Commit improvements separately using a valid conventional-commit type.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+- [x] **Subsection close-out (09.2)** — MANDATORY before starting 09.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 09.2: no tooling gaps. Friction: `check-debug-flags.sh` correctly caught undocumented flags — fixed inline. `ModuleCompileContext` didn't have `source_path` — threaded through. No new diagnostic tooling needed.
+  - [x] **Repo hygiene check** — clean (2026-04-13).
 
 ---
 

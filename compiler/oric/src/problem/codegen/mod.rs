@@ -398,7 +398,9 @@ impl From<ori_llvm::aot::ModulePipelineError> for CodegenProblem {
     fn from(err: ori_llvm::aot::ModulePipelineError) -> Self {
         use ori_llvm::aot::ModulePipelineError;
         match err {
-            ModulePipelineError::Verification(message) => Self::VerificationFailed { message },
+            ModulePipelineError::Verification(message) | ModulePipelineError::Capture(message) => {
+                Self::VerificationFailed { message }
+            }
             ModulePipelineError::Optimization(opt_err) => opt_err.into(),
             ModulePipelineError::Emission(emit_err) => emit_err.into(),
         }

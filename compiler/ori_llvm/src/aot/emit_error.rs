@@ -78,6 +78,8 @@ pub enum ModulePipelineError {
     Optimization(OptimizationError),
     /// Object/bitcode/IR emission failed.
     Emission(EmitError),
+    /// IR capture hook failed (e.g., writing pre/post-opt IR for Alive2).
+    Capture(String),
 }
 
 impl fmt::Display for ModulePipelineError {
@@ -86,6 +88,7 @@ impl fmt::Display for ModulePipelineError {
             Self::Verification(msg) => write!(f, "LLVM IR verification failed: {msg}"),
             Self::Optimization(err) => write!(f, "optimization failed: {err}"),
             Self::Emission(err) => write!(f, "emission failed: {err}"),
+            Self::Capture(msg) => write!(f, "IR capture failed: {msg}"),
         }
     }
 }
@@ -93,7 +96,7 @@ impl fmt::Display for ModulePipelineError {
 impl std::error::Error for ModulePipelineError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Verification(_) => None,
+            Self::Verification(_) | Self::Capture(_) => None,
             Self::Optimization(err) => Some(err),
             Self::Emission(err) => Some(err),
         }
