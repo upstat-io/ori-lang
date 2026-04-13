@@ -237,8 +237,8 @@ The `ReturnContract` (IC-4) is extracted within the interprocedural pass (Step 1
 | `Let { Literal }` / `Let { PrimOp }` | SCALAR — excluded from contract (no RC) | — | — | — |
 | `Let { Var(v) }` | follow `v`'s definition (recursive trace) | follow `v` | follow `v` | follow `v` |
 | `Select { true_val, false_val }` | `join(true_path, false_path)` | `AND(true_path, false_path)` | `join(true_path, false_path)` | `join(true_path, false_path)` |
-| Parameter (direct) | `MaybeShared` | `true` | `FunctionLocal` | `NonReusable` |
-| Parameter via single `Let Var(param)` alias | `MaybeShared` | `true` | `FunctionLocal` | `NonReusable` |
+| Parameter (direct) | `MaybeShared` | `true` | `HeapEscaping` | `NonReusable` |
+| Parameter via single `Let Var(param)` alias | `MaybeShared` | `true` | `HeapEscaping` | `NonReusable` |
 | Unresolvable (longer chains, block-params, etc.) | `MaybeShared` | `false` | `Unknown` | `NonReusable` |
 
 **Tracing rules:**
@@ -557,7 +557,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **PL-10** — TRMC structural verification: after Step 3a rewrite AND after Step 4 intraprocedural analysis (which operates on the rewritten IR), `verify_trmc_soundness()` SHALL confirm: (a) the ContextHole parameter is threaded correctly through recursive calls, (b) no allocation-free path introduces a new allocation, (c) the rewritten CFG is well-formed (consistent block parameters, valid RC state), (d) function arity and calling convention are preserved, and (e) constructor arguments are evaluated in the same order as the original (no side-effect reordering). This is a STRUCTURAL check, NOT a behavioral equivalence proof — full semantic equivalence checking is beyond the current verification scope. These five checks constitute VF-7 tier (a) for TRMC. VF-7 additionally requires tiers (b) and (c) — behavioral tests and a proof sketch — for TRMC to be active. This verification runs between Step 4 and Step 5 (before realization). If verification fails, the rewrite SHALL be rolled back to the pre-TRMC IR AND Step 4 SHALL be re-run on the restored CFG (per PL-5: no stale summaries). The rollback-on-failure mechanism provides a safety net: unsound rewrites are caught and reversed, preserving the pre-TRMC behavior.
 
-**PL-11** — `ContextBehavior` join: `preserves_context(AND)`, `consumes_hole(AND)`, `requires_unique_context(OR)`, `may_resume_nonlinearly(OR)`. Conservative: preservation and consumption require ALL paths to agree; unique-context and non-linear-resumption are any-path (soundness obligations widen).
+**PL-11** — `ContextBehavior` initialization and join. Initial values (most optimistic): `preserves_context = true`, `consumes_hole = true`, `requires_unique_context = false`, `may_resume_nonlinearly = false`. These are the weakest constraints — the SCC fixpoint promotes toward conservative. Derivation: `preserves_context` = true when all recursive calls pass the context hole unchanged; `consumes_hole` = true when all return paths fill the hole; `requires_unique_context` = true when any path requires the hole to be uniquely owned for soundness; `may_resume_nonlinearly` = true when any path may resume at the hole more than once. Join: `preserves_context(AND)`, `consumes_hole(AND)`, `requires_unique_context(OR)`, `may_resume_nonlinearly(OR)`. Conservative: preservation and consumption require ALL paths to agree; unique-context and non-linear-resumption are any-path (soundness obligations widen).
 
 ---
 
@@ -573,9 +573,9 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-3** — RC operations SHALL be ELIDED when the lattice proves they are unnecessary (DP-2, DP-3, DP-7).
 
-**RL-4** — Edge-specific decrements: a variable alive at block exit but dead at successor entry SHALL receive a decrement on that specific CFG edge.
+**RL-4** — Edge-specific decrements: an OWNED non-scalar variable alive at block exit but dead at successor entry SHALL receive a decrement on that specific CFG edge. Borrowed variables do NOT receive decrements (VF-1 treats RcDec on borrowed values as a structural error).
 
-**RL-5** — Dead-at-entry cleanup: a block parameter with `Cardinality = Absent` at entry SHALL receive an immediate decrement.
+**RL-5** — Dead-at-entry cleanup: an OWNED non-scalar block parameter with `Cardinality = Absent` at entry SHALL receive an immediate decrement. Borrowed parameters with Absent cardinality do not need decrements.
 
 ### COW (Copy-on-Write)
 
