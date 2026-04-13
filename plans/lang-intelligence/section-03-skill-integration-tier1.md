@@ -25,7 +25,7 @@ sections:
     status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 third_party_review:
   status: resolved
   updated: 2026-04-12
