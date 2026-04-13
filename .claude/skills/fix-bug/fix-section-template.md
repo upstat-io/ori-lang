@@ -9,6 +9,8 @@ This template is used by `/fix-bug` to create `plans/bug-tracker/fix-BUG-XX-NNN.
 bug: "BUG-{section}-{ordinal}"
 title: "{Bug title from the bug entry}"
 severity: "{critical|high|medium|low}"
+original_severity: "{if reclassified: original severity from /add-bug | otherwise: omit this field}"
+reclassified: "{if reclassified: YYYY-MM-DD — reason | otherwise: omit this field}"
 status: not-started
 goal: "{One-line measurable goal — not 'fix X' but 'X correctly produces Y under conditions Z'}"
 success_criteria:
@@ -122,6 +124,23 @@ Write ALL tests BEFORE the fix. Verify they fail against current code.
 
 ---
 
+## 2.5 Fix Plan TPR Findings
+
+Adversarial review of this fix PLAN (§1–§3) before implementation. Ran AFTER `/tp-help` consensus (§1.5) and plan finalization (§2) but BEFORE writing tests or code. Reviews the root cause analysis, TDD matrix completeness, and implementation approach for edge cases, downstream impacts, and architectural risks.
+
+**Gate:** {Mandatory — severity is critical/high | Mandatory — complexity-elevated subsystem ({subsystem}) | Skipped — {severity} severity, non-elevated subsystem, round-1 consensus}
+
+{If mandatory and ran:}
+- **TPR run**: {date, scratch dir or run reference}
+- **Key findings**: {numbered list of findings with resolution status}
+- **Plan revisions**: {what changed in §2 TDD Matrix or §3 Implementation as a result}
+- **Outcome**: {clean | findings resolved — proceed to Phase 3}
+
+{If skipped:}
+Plan TPR: Skipped — {severity} severity, non-elevated subsystem, round-1 consensus.
+
+---
+
 ## 3. Implementation
 
 - [ ] {Describe the fix approach — what changes, where, why}
@@ -154,8 +173,9 @@ Reviews MUST complete before bug closure — a bug marked resolved before TPR/hy
 - [ ] `timeout 150 ./clippy-all.sh` green
 - [ ] `cargo test -p {affected_crate}` green
 - [ ] `/commit-push` — commit all changes before review
-- [ ] `/tpr-review` passed — independent dual-source review found no actionable findings. **MANDATORY for ALL severities** — per CLAUDE.md Fix Completeness, no severity carve-out.
-- [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean. **MANDATORY for ALL severities.**
+- [ ] Plan TPR (Phase 2.5) — {completed | skipped — reason}. See §2.5 above.
+- [ ] `/tpr-review` (Phase 5 — code review) passed — independent dual-source review of the IMPLEMENTATION found no actionable findings. **MANDATORY for ALL severities** — per CLAUDE.md Fix Completeness, no severity carve-out. This is distinct from Plan TPR (Phase 2.5) which reviews the plan before implementation.
+- [ ] `/impl-hygiene-review` passed — MUST run AFTER code `/tpr-review` is clean. **MANDATORY for ALL severities.**
 - [ ] `/improve-tooling` retrospective completed — MANDATORY at fix close, after both reviews are clean. Reflect on the bug-finding journey: which `diagnostics/` scripts you ran during root cause analysis, where you added ad-hoc `dbg!`/`tracing` calls (and what each one was looking for), where the original failure message was unhelpful, where the matrix tests were tedious because helpers were missing, what instrumentation would have made the bug obvious in 1 minute instead of 30. Bug fixes are the richest source of tooling gaps because you've just spent time fighting the diagnostic surface — capture every gap. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (e.g., `build(diagnostics): add --bb-level RC tracking — surfaced by BUG-XX-NNN retrospective` — `build`/`test`/`chore`/`ci`/`docs` are the valid types; do NOT use `tools(...)`, the lefthook commit-msg hook rejects it). See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full look-back protocol.
 - [ ] Bug entry in `plans/bug-tracker/section-{NN}-*.md` updated: `- [x]` with resolution details (canonical format from `plans/bug-tracker/00-overview.md`)
 - [ ] Fix section frontmatter `status` updated to `complete`

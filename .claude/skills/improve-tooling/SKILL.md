@@ -86,6 +86,8 @@ Read the existing tool code. Understand:
 - Its conventions (does it follow `_common.sh` patterns? Does it support `--help`?)
 - Where the gap is in the code
 
+Before creating a new tool, check if similar tools already exist: `scripts/intel-query.sh --human symbols "<keyword>" --repo ori --kind function --limit 10`
+
 ### Step 3: Fix the Tool
 
 Make the improvement. Follow existing conventions:

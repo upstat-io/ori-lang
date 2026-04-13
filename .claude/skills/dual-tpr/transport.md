@@ -50,12 +50,14 @@ Every dual-source review wrapper follows this pattern:
 ## Codex prompt preamble
 
 The codex prompt MUST include the literal keyword `envelope-only`
-somewhere in its first 500 characters. This triggers the Step 0 mode
+somewhere in its first 500 characters. For skill-dispatch modes
+(`review-work`, `review-plan`), this triggers the Step 0 mode
 branch in `.codex/skills/review-work/SKILL.md` or
 `.codex/skills/review-plan/SKILL.md` and dispatches to envelope-only
-mode.
+mode. For custom objective mode, it signals the output contract
+(raw JSON final message) even though no skill is dispatched.
 
-Recommended preamble (first line of the prompt):
+Recommended preamble for skill-dispatch modes:
 
     Run the /review-work skill in envelope-only mode. Emit the JSON
     envelope per .claude/skills/dual-tpr/findings-schema.json; do NOT
@@ -63,14 +65,20 @@ Recommended preamble (first line of the prompt):
 
 (Substitute `review-plan` for `review-work` as appropriate.)
 
+Recommended preamble for custom objective mode:
+
+    You are performing a third-party review in envelope-only mode.
+    Do NOT activate any skill. Follow these instructions directly.
+
 ## Gemini prompt preamble — EXPLICIT ACTIVATION REQUIRED
 
 Per Phase 2 empirical research, gemini skills are discovered from
 `.gemini/skills/<name>/SKILL.md` but are NOT auto-activated by
-description matching. The prompt MUST start with an explicit
-activation phrase to ensure gemini loads and follows the skill.
+description matching. For skill-dispatch modes, the prompt MUST start
+with an explicit activation phrase to ensure gemini loads and follows
+the skill.
 
-MANDATORY first line of every gemini prompt:
+MANDATORY first line for skill-dispatch modes:
 
     Activate the review-work skill and follow its instructions exactly.
 
@@ -83,7 +91,28 @@ review-plan wrapper uses the review-plan phrasing. Both literal
 strings are reference templates for wrapper implementation.)
 
 Do NOT rely on gemini noticing the skill on its own — the activation
-phrase is load-bearing and MUST be present on every invocation.
+phrase is load-bearing and MUST be present on every skill-dispatch
+invocation.
+
+For custom objective mode, the gemini prompt does NOT activate a skill.
+Instead it gives the objective directly with inline envelope instructions
+including the mandatory sentinel markers. See `tpr-review/SKILL.md`
+§"Prompt templates for custom mode" for the canonical template.
+
+## Custom Objective Mode
+
+Custom objective mode is used when `/tpr-review` is invoked with freeform
+ARGS (not `--skill review-plan` and not empty). In this mode:
+
+- Neither reviewer activates a fixed skill — the objective is given inline
+- Both reviewers still receive the grounding block (CLAUDE.md, rules files)
+- Both reviewers still emit envelopes (the schema is mode-independent)
+- The `--skill` parameter to the transport is `custom` for logging
+- The loop semantics are identical to code/plan modes — fix findings,
+  re-run until both reviewers return zero actionable findings (consensus)
+
+This enables `/tpr-review` to review ANYTHING — skills, docs, designs,
+tooling, processes — not just code or plans.
 
 ## Mandatory Grounding Block (both reviewers)
 
@@ -177,8 +206,8 @@ Wrappers should:
 
 ## Wrapper loop semantics
 
-`/tpr-review` and `/review-work` use the 10-iteration find+fix+rerun
-loop. Each iteration:
+`/tpr-review` (all three modes: review-work, review-plan, custom) and
+`/review-work` use the 10-iteration find+fix+rerun loop. Each iteration:
 1. Runs the dual-source transport (both reviewers per round, max
    3 infra retries per reviewer)
 2. Claude reads the merged findings

@@ -393,6 +393,11 @@ After determining the focus section in Step 2, optionally query the intelligence
    ```
    If a preset was identified: `scripts/intel-query.sh --human <preset> --limit 5`
 
+   If the section body contains concrete file paths or symbol names:
+   - `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori`
+   - `scripts/intel-query.sh --human callers "<symbol>" --repo ori` and `callees "<symbol>" --repo ori`
+   - `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5`
+
 5. Hold results as "Cross-language context for Section {NN}:" — use when making design decisions within the section. Do NOT inject into every subsection prompt; reference as needed.
 
 6. **Discovery, not replacement**: Intelligence results are pointers to investigate, not authoritative claims. Before using any result to influence design decisions or plan text, verify it against the referenced source code or issue (per `.claude/rules/intelligence.md`).

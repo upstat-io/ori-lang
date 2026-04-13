@@ -17,19 +17,25 @@ If unavailable, proceed normally — intelligence is additive, never blocking.
 
 Query the intelligence graph proactively in these workflows:
 
-- **Design decisions**: Before choosing an approach, query for how reference compilers handled it
-- **Bug investigation** (/fix-bug Phase 1): Query for similar bugs across languages
-- **TPR reviews** (/tpr-review Step 2): Pre-query relevant prior art for the evidence packet
-- **Code reviews** (/review-work): Query for prior art relevant to the reviewed changes
-- **Plan reviews** (/review-plan): Query for cross-language precedent on plan assumptions
-- **Proposals** (/create-draft-proposal): Query cross-language precedent for the Prior Art section
-- **Pattern review** (/design-pattern-review): Query for equivalent implementations
-- **Roadmap** (/continue-roadmap): After focus resolution, query for section-relevant intelligence
+- **Design decisions**: Before choosing an approach, query `similar` for how reference compilers handled it
+- **Bug investigation** (/fix-bug Phase 1): `callers`/`callees` for blast radius, `similar` for reference fixes
+- **Bug triage** (/review-bugs, /add-bug): `callers` to assess blast radius, `file-symbols` to cluster related bugs
+- **TPR reviews** (/tpr-review Step 0.75): `file-symbols` + `callers`/`callees` for module inventory + blast radius
+- **Code reviews** (/review-work, /independent-review): `file-symbols` for module context, `callers` for impact
+- **Hygiene reviews** (/impl-hygiene-review): `callers`/`callees` for flow mapping, `similar` for cross-backend mirrors
+- **Plan reviews** (/review-plan): `symbols`/`file-symbols` to validate plan assumptions against actual code
+- **Plan creation** (/create-plan): `symbols`/`similar` for intelligence reconnaissance before architecture
+- **Proposals** (/create-draft-proposal): `similar` + `symbols` for prior art discovery
+- **Pattern review** (/design-pattern-review): `similar` for instant cross-repo equivalents, `callers`/`callees` for Ori dispatch mapping
+- **Roadmap** (/continue-roadmap): `file-symbols`/`callers`/`callees`/`similar` for section-relevant code surface
+- **Execution tracing** (/code-journey, /rosetta-test): `callers`/`callees` to map exercised paths, `similar` for cross-repo equivalents
+- **Tooling** (/improve-tooling): `symbols` to check if similar tools already exist before creating new ones
 
 ## How to Query
 
 Always use the canonical helper — never open-code Neo4j access:
 ```
+# Issue/PR search (external repos)
 scripts/intel-query.sh search "pattern matching exhaustiveness"
 scripts/intel-query.sh compare "type inference"
 scripts/intel-query.sh fixed "memory leak" --repo rust,swift
@@ -38,8 +44,33 @@ scripts/intel-query.sh ori-arc                          # also: ori-inference, o
 scripts/intel-query.sh sentiment pain --repo go         # rank by pain/controversy/excitement
 scripts/intel-query.sh landscape --repo rust            # per-label sentiment aggregation
 scripts/intel-query.sh ori-sentiment                    # highest-pain in ARC-relevant repos
+
+# Code symbol queries (Ori + reference repos — 32K+ symbols, 24K+ call edges)
+scripts/intel-query.sh symbols "IteratorValue" --repo ori              # find symbols by name
+scripts/intel-query.sh symbols "iter" --repo ori --kind function       # filter by kind (function|type|sum_type|...)
+scripts/intel-query.sh callers "eval_iter_next" --repo ori             # who calls this function?
+scripts/intel-query.sh callees "eval_iter_last" --repo ori             # what does it call?
+scripts/intel-query.sh file-symbols "iterator/consumers" --repo ori    # all symbols in matching files
+
+# Cross-repo semantic similarity (vector embeddings — finds equivalents by meaning, not name)
+scripts/intel-query.sh similar "eval_iter_collect" --repo rust         # Rust equivalents to Ori function
+scripts/intel-query.sh similar "emit_rc_inc" --repo rust,swift         # cross-repo codegen matches
+scripts/intel-query.sh similar "check_exhaustiveness"                   # search ALL other repos
+
+# Raw Cypher
 scripts/intel-query.sh cypher "MATCH (i:Issue)-[:FIXES]->(b) RETURN count(i)"
 ```
+
+## Symbol-First Workflow
+
+When investigating code, reviewing changes, or exploring a subsystem, use this workflow BEFORE manual grep or reference-repo browsing:
+
+1. **Inventory the module**: `scripts/intel-query.sh file-symbols "<path-fragment>" --repo ori`
+2. **Map blast radius**: `scripts/intel-query.sh callers "<symbol>" --repo ori` and `callees "<symbol>" --repo ori`
+3. **Find cross-repo equivalents**: `scripts/intel-query.sh similar "<symbol>" --repo rust,swift,go --limit 5`
+4. **Then read the matched source** — the graph tells you WHERE to look; you still verify by reading the actual code
+
+This replaces manual grep-based navigation. The graph answers "what calls X?", "what does X call?", and "what's the Rust equivalent of X?" in sub-second time. Use it aggressively — it's free and fast.
 
 ## Subsystem Mapping
 

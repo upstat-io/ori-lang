@@ -68,7 +68,11 @@ Query the intelligence graph for cross-language prior art relevant to the propos
    ```
    scripts/intel-query.sh --human search "<proposal topic>" --limit 5
    scripts/intel-query.sh --human compare "<feature concept>" --limit 5
+   scripts/intel-query.sh --human symbols "<Ori keyword>" --repo ori --limit 15
+   scripts/intel-query.sh --human file-symbols "<likely path fragment>" --repo ori
+   scripts/intel-query.sh --human similar "<feature concept or Ori symbol>" --repo rust,swift,go,koka --limit 5
    ```
+   Use `symbols` and `file-symbols` to map current Ori surface area and `similar` to find concrete reference implementations to verify in Step 4.5.4.
 
 3. From the results, draft a `## Prior Art` section with structured entries:
    - Which languages implemented this feature

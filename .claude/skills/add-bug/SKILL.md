@@ -87,6 +87,7 @@ Do just enough to write a useful bug entry. DO NOT deep-dive — the code may ch
 1. Confirm the bug exists (quick grep or test run if trivial)
 2. Identify the approximate location (crate + file, not exact line)
 3. Note any obvious repro (existing test file, or 2-3 line Ori snippet)
+4. If the intelligence graph is available, run `scripts/intel-query.sh --human callers "<buggy function>" --repo ori` to quickly assess blast radius for severity assignment.
 
 ### Step 5: Write the Bug Entry
 

@@ -317,6 +317,13 @@ Then:
   EXISTING_BUGS: {any bugs or issues you noticed while reading}
 ```
 
+### Step 2.5: Intelligence reconnaissance (CONDITIONAL)
+If the intelligence graph is available (`scripts/intel-query.sh status`):
+1. `scripts/intel-query.sh --human symbols "<topic keyword>" --repo ori --limit 20`
+2. `scripts/intel-query.sh --human file-symbols "<likely path>" --repo ori`
+3. For high-signal symbols: `callers`, `callees`, and `similar "<symbol>" --repo rust,swift,go,koka --limit 5`
+Feed the resulting symbol inventory into the breadth-scan agent prompts.
+
 #### Agent 2: Tests, Spec, & Hygiene Audit
 
 ```
