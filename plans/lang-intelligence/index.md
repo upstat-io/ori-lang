@@ -15,7 +15,7 @@ reroute: false
 | 03 | Skill Integration: TPR + Fix-Bug | complete | 01, 02 |
 | 04 | Skill Integration: Remaining | complete | 01, 02, 03 |
 | 05 | Code Graph: Parser Adapters | complete | — |
-| 06 | Code Graph: Symbol Extraction | not-started | 05 |
+| 06 | Code Graph: Symbol Extraction | complete | 05 |
 | 07 | Code Graph: Import Pipeline | not-started | 06 |
 | 08 | Issue-to-Code Bridge | not-started | 07 |
 | 09 | Ori Live Sync | not-started | 06 |
