@@ -59,6 +59,7 @@ Match extracted references to actual code symbols in Neo4j:
 - [ ] Create `MENTIONS_CODE` edges from Issue/Comment/Review to CodeReference
 - [ ] Create `RESOLVES_TO` edges from CodeReference to File/Symbol (when confidence >= threshold)
 - [ ] Unresolved references: keep the CodeReference node without RESOLVES_TO (for future resolution when more code is indexed)
+- [ ] **Module-level source resolution**: Create synthetic module-level Symbol nodes for files that emit relationships but have zero structural symbols from decls.scm (e.g., Haskell modules, C/C++ headers). These files produce IMPORTS/CALLS records with `source_qualified_name` that can't resolve to any Symbol node at import time — Section 07 tracks them as `source_unresolved`. Fix here or in Section 06's extract_symbols.py by emitting a file-scope symbol record when relationships exist but no declaration symbols do. <!-- unblocks:07.2 source_unresolved gap -->
 
 ### Subsection 08.2 close-out
 **`/improve-tooling` retrospective**: What's the resolution success rate? What fraction of references resolve unambiguously? Should we lower/raise the confidence threshold?
