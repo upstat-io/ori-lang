@@ -141,7 +141,7 @@ Create a new workspace crate that holds the shared test infrastructure. This cra
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -246,7 +246,7 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -292,7 +292,7 @@ Define how test artifacts (`.before.arc`, `.after.arc`, `.diff`, `.ll`) are name
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -404,7 +404,7 @@ Implement bless mode and diff generation. **Bless mode is controlled exclusively
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -473,7 +473,7 @@ Implement the revision expansion system. **Critical design boundary:** the harne
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -704,7 +704,7 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -747,7 +747,7 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 

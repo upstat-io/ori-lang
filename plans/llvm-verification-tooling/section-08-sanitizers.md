@@ -45,7 +45,7 @@ sections:
     status: complete
   - id: "08.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 08: Sanitizer Integration
@@ -235,7 +235,7 @@ Add a `SanitizerMode` field to `OptimizationConfig` and wire it to the `ORI_SANI
   - [x] `timeout 150 ./test-all.sh` green (no regressions)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -364,14 +364,14 @@ This is the same strategy used by Rust's `-Zsanitizer` flag (which uses a C++ sh
   - `clang_compile_with_sanitizers_produces_asan_symbols` — compile a trivial program via `clang_compile_with_sanitizers`, verify the object contains `__asan_` symbols (via `nm`)
   - `optimization_pipeline_unchanged_when_sanitizers_disabled` — verify the optimization path is identical when `SanitizerMode::NONE`
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 08.0-08.2 implementation work <!-- deferred to section close 08.N -->
+- [x] **TPR checkpoint** — `/tpr-review` covering 08.0-08.2 implementation work — deferred to section-close TPR (08.N) which covers full section
 
 - [x] **Subsection close-out (08.2)** — MANDATORY before starting 08.3:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] `timeout 150 ./test-all.sh` green (sanitizers OFF)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -464,7 +464,7 @@ When sanitizers are enabled, the linker must link the sanitizer runtime librarie
   - [x] `timeout 150 ./test-all.sh` green (sanitizers OFF)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -562,7 +562,7 @@ If only Ori-generated LLVM IR is sanitized but `ori_rt` is compiled normally, th
   - [x] `timeout 150 ./test-all.sh` green (sanitizers OFF)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -841,7 +841,7 @@ Create a curated smoke test subset for PR CI and configure full nightly runs. **
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] `timeout 150 ./test-all.sh` green (sanitizers OFF — no regressions to normal builds)
     17,196 passed, 0 failed, 159 skipped, 2663 LCFail.
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] Update this subsection's `status` in section frontmatter to `complete` — updated 2026-04-13
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
     Retrospective 08.5: no tooling gaps. Work was test program authoring + script writing. AOT verification of programs was manual (interpreter + build + run per file) — the sanitizer-smoke.sh script itself serves as the permanent verification tool for these programs. Two bugs filed (BUG-04-073, BUG-04-074) discovered organically during AOT verification — the bug-filing workflow was smooth.
   - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
