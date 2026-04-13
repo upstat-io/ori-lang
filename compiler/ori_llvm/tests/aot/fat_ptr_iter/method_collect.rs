@@ -26,7 +26,7 @@ fn test_iter_collect_set_str() {
 }
 
 // [[int]].iter().collect() → [[int]] — nested list elements exercise elem_inc_fn for [int].
-// Note: exercises list collect (not __collect_set) — Set<[int]> crashes (BUG-04-063).
+// Note: exercises list collect (not __collect_set) — Set<[int]> crashes (BUG-04-065).
 
 #[test]
 fn test_iter_collect_nested_list() {
@@ -37,7 +37,7 @@ fn test_iter_collect_nested_list() {
 }
 
 // [{str: int}].iter().collect() → [{str: int}] — map elements exercise elem_inc_fn for {str: int}.
-// Note: exercises list collect (not __collect_set) — Set<{str: int}> crashes (BUG-04-063).
+// Note: exercises list collect (not __collect_set) — Set<{str: int}> crashes (BUG-04-065).
 
 #[test]
 fn test_iter_collect_map_elements() {

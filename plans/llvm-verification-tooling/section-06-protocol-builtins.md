@@ -44,7 +44,7 @@ sections:
 
 > **RESET (2026-04-11):** All work in this section was produced by an autopilot session with inadequate planning and TPR oversight. Implementation code may exist in the codebase (commits from the autopilot session) but the design, test coverage, and verification cannot be trusted as valid. This section must be re-done from scratch with proper planning, review (`/review-plan`), and verification (`/tpr-review` + `/impl-hygiene-review`). The existing code should be audited during re-implementation — it may be partially reusable but must not be assumed correct.
 
-**Status:** Not Started
+**Status:** In Progress (close-out: TPR + hygiene + tooling sweep pending)
 **Goal:** Verify that `ProtocolBuiltin` ownership values are correctly **defined** (`ori_ir`) and **consumed** (`ori_arc` — borrow inference and AIMS contract seeding), with **end-to-end validation** through AOT leak checks (`ori_llvm`). Note: `try_emit_protocol()` in `ori_llvm` dispatches on `from_name()` and type information — it does NOT read `arg_ownership()`. The ownership consumers are purely in `ori_arc`; LLVM correctness is validated end-to-end via AOT tests, not by direct ownership-table consumption.
 
 Protocol builtins (`compiler/ori_ir/src/builtin_constants/protocol/mod.rs`) are compiler-internal functions emitted by ARC lowering that carry per-argument ownership semantics. The critical failure mode is not that `ProtocolBuiltin::Index.arg_ownership()` returns the wrong constant (that is a tautology test) — it is that the **consumers** of these values (`seed_builtin_contracts`, `annotate_arg_ownership`, `promote_callee_args`) fail to use them correctly, producing wrong `MemoryContract`s or wrong `ArgOwnership` annotations. Note: `try_emit_protocol` in `ori_llvm` dispatches on `ProtocolBuiltin::from_name()` and type information — it does NOT read `arg_ownership()`. The ownership consumers are purely in `ori_arc`; LLVM is verified end-to-end via AOT tests. The `__index` RC leak was caused by exactly this class of bug — the ownership constant was correct, but the consumer fell through to the "unknown callee -> all Owned" default.
@@ -413,6 +413,16 @@ When all findings are triaged:
   Impact: Gaps in matrix coverage for Set<int> iteration patterns.
   Basis: direct_file_inspection. Confidence: high.
   Resolved: Accepted on 2026-04-12. P3-P8 variants blocked by BUG-04-063 (Set<int> iteration crashes with SIGSEGV). BUG-04-063 already notes "Blocks Set<int> iteration matrix (iter_rc_matrix E7)". When BUG-04-063 is fixed, the fixer should expand E7 to the full P1-P8 matrix.
+- [x] `[TPR-06-007-codex][medium]` `plans/llvm-verification-tooling/section-06-protocol-builtins.md:4` — DRIFT: Section 06 status inconsistent across plan surfaces.
+  Evidence: Section file has `status: in-progress` and body says "Not Started", but overview/index marked "Complete". Close-out items (TPR, hygiene, tooling) still unchecked.
+  Impact: Plan tooling and reviewers get contradictory signals about section status.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-12. Updated overview (effort table + quick ref) and index to "In Progress". Updated body status to "In Progress (close-out pending)". Status will be set to Complete only after all 06.N close-out items pass.
+- [x] `[TPR-06-008-codex][low]` `compiler/ori_arc/src/rc_insert/tests.rs:1230` — DRIFT: Test comment references TPR-06-005-codex but correct ID is TPR-06-006-codex.
+  Evidence: Stale ID — TPR-06-005-codex is the plan-drift finding; TPR-06-006-codex is the collection-receiver test gap.
+  Impact: Incorrect plan annotation provenance.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-12. Updated comment to reference TPR-06-006-codex.
 
 ---
 
