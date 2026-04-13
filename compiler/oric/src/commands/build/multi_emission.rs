@@ -71,9 +71,42 @@ pub(super) fn lto_merge(
         report_codegen_error(e);
     }
 
-    // Emit final object
+    // Emit final object (with optional sanitizer delegation)
     let final_obj = obj_dir.join("merged_lto.o");
-    if let Err(e) = emitter.emit_object(&merged_module, &final_obj) {
+    if opt_config.sanitizer.any_enabled() {
+        // Sanitizer path: emit IR, then invoke Clang with -fsanitize
+        let ir_path = obj_dir.join("merged_lto.ll");
+        if let Err(e) = emitter.emit_llvm_ir(&merged_module, &ir_path) {
+            report_codegen_error(CodegenProblem::EmissionFailed {
+                format: "LTO IR for sanitizer".into(),
+                path: ir_path.display().to_string(),
+                message: e.to_string(),
+            });
+        }
+
+        let opt_level = match opt_config.level {
+            ori_llvm::aot::OptimizationLevel::O0 => "-O0",
+            ori_llvm::aot::OptimizationLevel::O1 => "-O1",
+            ori_llvm::aot::OptimizationLevel::O2 => "-O2",
+            ori_llvm::aot::OptimizationLevel::O3 => "-O3",
+            ori_llvm::aot::OptimizationLevel::Os => "-Os",
+            ori_llvm::aot::OptimizationLevel::Oz => "-Oz",
+        };
+
+        if let Err(e) = ori_llvm::aot::clang_compile_with_sanitizers(
+            &ir_path,
+            &final_obj,
+            &opt_config.sanitizer,
+            opt_level,
+            target.triple(),
+        ) {
+            report_codegen_error(CodegenProblem::OptimizationFailed {
+                pipeline: "sanitizer (clang)".into(),
+                message: e.to_string(),
+            });
+        }
+        let _ = std::fs::remove_file(&ir_path);
+    } else if let Err(e) = emitter.emit_object(&merged_module, &final_obj) {
         report_codegen_error(CodegenProblem::EmissionFailed {
             format: "LTO object".into(),
             path: final_obj.display().to_string(),

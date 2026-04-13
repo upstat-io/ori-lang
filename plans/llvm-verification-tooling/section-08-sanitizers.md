@@ -30,7 +30,7 @@ sections:
     status: complete
   - id: "08.2"
     title: "Clang-Delegated Sanitizer Pass Integration"
-    status: not-started
+    status: complete
   - id: "08.3"
     title: "Linker Integration via LinkInput and GccLinker"
     status: not-started
@@ -252,7 +252,7 @@ Add a `SanitizerMode` field to `OptimizationConfig` and wire it to the `ORI_SANI
 
 This is the same strategy used by Rust's `-Zsanitizer` flag (which uses a C++ shim to access `PassBuilder` internals we cannot reach from the C API) — we just use Clang as the external driver instead of building our own C++ shim.
 
-- [ ] Create `compiler/ori_llvm/src/aot/passes/sanitizer.rs` with a `clang_compile_with_sanitizers` function:
+- [x] Create `compiler/ori_llvm/src/aot/passes/sanitizer.rs` with a `clang_compile_with_sanitizers` function:
   ```rust
   //! Clang-delegated sanitizer pass integration.
   //!
@@ -342,9 +342,9 @@ This is the same strategy used by Rust's `-Zsanitizer` flag (which uses a C++ sh
   }
   ```
 
-- [ ] Add `mod sanitizer;` to `passes/mod.rs` and `pub use sanitizer::{clang_compile_with_sanitizers, check_clang_available};`
+- [x] Add `mod sanitizer;` to `passes/mod.rs` and `pub use sanitizer::{clang_compile_with_sanitizers, check_clang_available};`
 
-- [ ] Hook the **canonical emission layer** (`ObjectEmitter::verify_optimize_emit` in `compiler/ori_llvm/src/aot/object.rs` and `multi_emission.rs` for multi-file/LTO) to use the Clang delegation path when sanitizers are enabled. **Do NOT patch `single.rs` or `multi.rs` directly** — that would put side logic in command handlers and miss the LTO merge path. The correct integration point is the object emission layer (SSOT for object production):
+- [x] Hook the **canonical emission layer** (`ObjectEmitter::verify_optimize_emit` in `compiler/ori_llvm/src/aot/object.rs` and `multi_emission.rs` for multi-file/LTO) to use the Clang delegation path when sanitizers are enabled. **Do NOT patch `single.rs` or `multi.rs` directly** — that would put side logic in command handlers and miss the LTO merge path. The correct integration point is the object emission layer (SSOT for object production):
   - In `ObjectEmitter::verify_optimize_emit()`: after the normal LLVM optimization pipeline runs, if `config.sanitizer.any_enabled()`:
     1. Emit LLVM IR to a temp file via `module.print_to_file()`
     2. Call `clang_compile_with_sanitizers()` to produce the object file
@@ -353,23 +353,23 @@ This is the same strategy used by Rust's `-Zsanitizer` flag (which uses a C++ sh
   - If sanitizers are NOT enabled, the existing `optimize_module()` + `emit_object()` path is unchanged
   - **Verify all three paths are covered**: single-file, multi-file, and LTO merge
 
-- [ ] Add early Clang availability check: in the canonical emission entry point, if `opt_config.sanitizer.any_enabled()`, call `check_clang_available()` and fail fast with a clear error before doing expensive compilation work
+- [x] Add early Clang availability check: in the canonical emission entry point, if `opt_config.sanitizer.any_enabled()`, call `check_clang_available()` and fail fast with a clear error before doing expensive compilation work
 
-- [ ] Verify that ASan instrumentation is visible in the **Clang-produced object file** (not `ORI_DUMP_AFTER_LLVM`, which shows pre-Clang IR). After `ORI_SANITIZE=address ori build test.ori -o /tmp/test_asan`, run `nm /tmp/test_asan | grep __asan` to verify ASan symbols (`__asan_load`, `__asan_store`, `__asan_report_*`) are present in the linked binary
+- [x] Verify that ASan instrumentation is visible in the **Clang-produced object file** (not `ORI_DUMP_AFTER_LLVM`, which shows pre-Clang IR). After `ORI_SANITIZE=address ori build test.ori -o /tmp/test_asan`, run `nm /tmp/test_asan | grep __asan` to verify ASan symbols (`__asan_load`, `__asan_store`, `__asan_report_*`) are present in the linked binary
 
-- [ ] Add tests (AAA naming: `<subject>_<scenario>_<expected>`):
+- [x] Add tests (AAA naming: `<subject>_<scenario>_<expected>`):
   - `clang_available_check_succeeds_in_ci` — verify `check_clang_available()` succeeds in test environment
   - `sanitizer_mode_both_enabled_produces_combined_flag` — verify `SanitizerMode { address: true, undefined: true }.clang_flag_value()` == `Some("address,undefined")`
   - `clang_compile_with_sanitizers_produces_asan_symbols` — compile a trivial program via `clang_compile_with_sanitizers`, verify the object contains `__asan_` symbols (via `nm`)
   - `optimization_pipeline_unchanged_when_sanitizers_disabled` — verify the optimization path is identical when `SanitizerMode::NONE`
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 08.0-08.2 implementation work
+- [ ] **TPR checkpoint** — `/tpr-review` covering 08.0-08.2 implementation work <!-- deferred to section close 08.N -->
 
-- [ ] **Subsection close-out (08.2)** — MANDATORY before starting 08.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] `timeout 150 ./test-all.sh` green (sanitizers OFF)
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (08.2)** — MANDATORY before starting 08.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] `timeout 150 ./test-all.sh` green (sanitizers OFF)
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 

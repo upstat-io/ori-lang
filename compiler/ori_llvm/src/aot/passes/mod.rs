@@ -35,8 +35,10 @@
 //! - [LLVM C API](https://llvm.org/docs/doxygen/group__LLVMCCoreNewPM.html)
 
 mod config;
+mod sanitizer;
 
 pub use config::{LtoMode, OptimizationConfig, OptimizationLevel, SanitizerMode};
+pub use sanitizer::{check_clang_available, clang_compile_with_sanitizers};
 
 use inkwell::module::Module;
 use inkwell::targets::TargetMachine;
