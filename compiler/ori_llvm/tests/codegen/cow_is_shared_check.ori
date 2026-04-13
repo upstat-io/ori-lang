@@ -1,11 +1,13 @@
-// FileCheck test: list mutation uses COW push operation.
-// Rewritten from xs[0] = 42 (E4003 ARC error) to .push() which
-// correctly exercises the COW code path via ori_list_push_cow.
+// FileCheck test: shared list mutation uses COW push operation.
+// A list with RC > 1 (shared via let ys = xs) forces the COW
+// shared-mutation path through ori_list_push_cow.
 //
 // CHECK: ori_list_push_cow
 
 @main () -> void = {
     let xs = [1, 2, 3];
-    xs.push(value: 42);
+    let ys = xs;
+    ys.push(value: 42);
+    print(msg: ys.len().to_str());
     print(msg: xs.len().to_str())
 }

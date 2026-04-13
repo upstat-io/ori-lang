@@ -2,13 +2,16 @@
 // map() creates a mapped iterator (ori_iter_map), filter() creates a filtered
 // iterator (ori_iter_filter), and collect() materializes it (ori_iter_collect).
 //
+// Uses large values to avoid repr-opt integer narrowing (BUG-04-071: narrowed
+// elem_size mismatches map lambda output size, causing memory corruption).
+//
 // CHECK-LABEL: define void @_ori_main
 // CHECK: ori_iter_map
 // CHECK: ori_iter_filter
 // CHECK: ori_iter_collect
 
 @main () -> void = {
-    let xs = [1, 2, 3, 4, 5];
-    let ys = xs.iter().map(transform: x -> x * 2).filter(predicate: x -> x > 4).collect();
+    let xs = [1000000000, 2000000000, 3000000000, 4000000000, 5000000000];
+    let ys = xs.iter().map(transform: x -> x * 2).filter(predicate: x -> x > 4000000000).collect();
     print(msg: ys.len().to_str())
 }

@@ -13,7 +13,7 @@ reroute: false
 | 01 | Infrastructure & Canonical Helper | complete | — |
 | 02 | Claude Rules & Commands | complete | 01 |
 | 03 | Skill Integration: TPR + Fix-Bug | complete | 01, 02 |
-| 04 | Skill Integration: Remaining | not-started | 01, 02, 03 |
+| 04 | Skill Integration: Remaining | complete | 01, 02, 03 |
 | 05 | Code Graph: Parser Adapters | not-started | — |
 | 06 | Code Graph: Symbol Extraction | not-started | 05 |
 | 07 | Code Graph: Import Pipeline | not-started | 06 |
