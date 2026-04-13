@@ -168,6 +168,74 @@ impl fmt::Display for LtoMode {
     }
 }
 
+/// Sanitizer instrumentation modes for generated code.
+///
+/// Controls which sanitizer passes are applied (via Clang delegation)
+/// and which sanitizer runtime libraries are linked.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SanitizerMode {
+    /// `AddressSanitizer`: use-after-free, buffer overflow, stack overflow.
+    pub address: bool,
+    /// `UndefinedBehaviorSanitizer`: signed overflow, null deref, misaligned access.
+    pub undefined: bool,
+}
+
+impl SanitizerMode {
+    /// No sanitizers (default).
+    pub const NONE: Self = Self {
+        address: false,
+        undefined: false,
+    };
+
+    /// Parse from `ORI_SANITIZE` env var value.
+    ///
+    /// Format: comma-separated list of `"address"`, `"undefined"`.
+    /// Example: `"address,undefined"` or `"address"` or `"undefined"`.
+    /// Unknown sanitizer names are logged as warnings and ignored.
+    pub fn from_env_value(value: &str) -> Self {
+        let mut mode = Self::NONE;
+        for part in value.split(',') {
+            match part.trim() {
+                "address" => mode.address = true,
+                "undefined" => mode.undefined = true,
+                other if !other.is_empty() => {
+                    tracing::warn!(
+                        sanitizer = other,
+                        "unknown sanitizer in ORI_SANITIZE, ignoring"
+                    );
+                }
+                _ => {}
+            }
+        }
+        mode
+    }
+
+    /// Whether any sanitizer is enabled.
+    #[must_use]
+    pub fn any_enabled(&self) -> bool {
+        self.address || self.undefined
+    }
+
+    /// Return the Clang-compatible `-fsanitize=...` flag value.
+    ///
+    /// Returns `None` if no sanitizers are enabled.
+    #[must_use]
+    pub fn clang_flag_value(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if self.address {
+            parts.push("address");
+        }
+        if self.undefined {
+            parts.push("undefined");
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(","))
+        }
+    }
+}
+
 /// Configuration for the optimization pipeline.
 ///
 /// Provides fine-grained control over which optimizations are enabled.
@@ -220,6 +288,13 @@ pub struct OptimizationConfig {
     /// Gated by `ORI_LLVM_LINT=1`. Auto-enabled when `ORI_AUDIT_CODEGEN=1`.
     pub lint_enabled: bool,
 
+    /// Sanitizer instrumentation for generated code.
+    ///
+    /// When enabled, the AOT pipeline delegates to Clang for sanitizer pass
+    /// insertion rather than using LLVM's C API directly (which doesn't expose
+    /// sanitizer pass configuration in LLVM 21).
+    pub sanitizer: SanitizerMode,
+
     /// Additional custom passes to run (comma-separated).
     /// Example: "instcombine,simplifycfg,dce"
     pub extra_passes: Option<String>,
@@ -242,6 +317,7 @@ impl OptimizationConfig {
             verify_each: false,
             debug_logging: false,
             lint_enabled: false,
+            sanitizer: SanitizerMode::NONE,
             extra_passes: None,
         }
     }
@@ -346,6 +422,16 @@ impl OptimizationConfig {
     #[must_use]
     pub fn with_lint(mut self, enable: bool) -> Self {
         self.lint_enabled = enable;
+        self
+    }
+
+    /// Set sanitizer mode (builder pattern).
+    ///
+    /// When sanitizers are enabled, the AOT pipeline delegates compilation
+    /// to Clang with appropriate `-fsanitize=` flags.
+    #[must_use]
+    pub fn with_sanitizer(mut self, mode: SanitizerMode) -> Self {
+        self.sanitizer = mode;
         self
     }
 

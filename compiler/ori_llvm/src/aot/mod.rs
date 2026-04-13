@@ -115,6 +115,7 @@ pub use debug::{
 pub use passes::{
     optimize_module, prelink_and_emit_bitcode, run_custom_pipeline, run_lto_pipeline,
     run_optimization_passes, LtoMode, OptimizationConfig, OptimizationError, OptimizationLevel,
+    SanitizerMode,
 };
 
 // Re-export key types from linker

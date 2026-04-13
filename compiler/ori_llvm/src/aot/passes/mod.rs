@@ -36,7 +36,7 @@
 
 mod config;
 
-pub use config::{LtoMode, OptimizationConfig, OptimizationLevel};
+pub use config::{LtoMode, OptimizationConfig, OptimizationLevel, SanitizerMode};
 
 use inkwell::module::Module;
 use inkwell::targets::TargetMachine;

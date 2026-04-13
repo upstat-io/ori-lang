@@ -138,7 +138,9 @@ fn configure_target(
 /// Build optimization configuration from options.
 #[cfg(feature = "llvm")]
 fn build_optimization_config(options: &BuildOptions) -> ori_llvm::aot::OptimizationConfig {
-    use ori_llvm::aot::{LtoMode as LlvmLtoMode, OptimizationConfig, OptimizationLevel};
+    use ori_llvm::aot::{
+        LtoMode as LlvmLtoMode, OptimizationConfig, OptimizationLevel, SanitizerMode,
+    };
 
     let level = match options.opt_level {
         OptLevel::O0 => OptimizationLevel::O0,
@@ -158,10 +160,17 @@ fn build_optimization_config(options: &BuildOptions) -> ori_llvm::aot::Optimizat
     let verify_each = std::env::var(crate::debug_flags::ORI_VERIFY_EACH).is_ok_and(|v| v != "0");
     let lint_enabled = std::env::var(crate::debug_flags::ORI_LLVM_LINT).is_ok_and(|v| v != "0")
         || std::env::var(crate::debug_flags::ORI_AUDIT_CODEGEN).is_ok_and(|v| v != "0");
+
+    let sanitizer = std::env::var(crate::debug_flags::ORI_SANITIZE)
+        .ok()
+        .filter(|v| v != "0")
+        .map_or(SanitizerMode::NONE, |v| SanitizerMode::from_env_value(&v));
+
     OptimizationConfig::new(level)
         .with_lto(lto)
         .with_verify_each(verify_each)
         .with_lint(lint_enabled)
+        .with_sanitizer(sanitizer)
 }
 
 /// Determine the output path for the build.

@@ -1,9 +1,10 @@
-//! Tests for the optimization pipeline, including lint pass integration.
+//! Tests for the optimization pipeline, including lint pass integration
+//! and sanitizer mode configuration.
 
 use inkwell::context::Context;
 
 use crate::aot::target::TargetConfig;
-use crate::aot::OptimizationConfig;
+use crate::aot::{OptimizationConfig, SanitizerMode};
 
 use super::run_optimization_passes;
 
@@ -77,4 +78,115 @@ fn opt_lint_runs_at_all_optimization_levels() {
             "lint pass should succeed at {level:?}: {result:?}"
         );
     }
+}
+
+// SanitizerMode parsing and configuration tests
+
+#[test]
+fn sanitizer_mode_from_env_address_only() {
+    let mode = SanitizerMode::from_env_value("address");
+    assert!(mode.address);
+    assert!(!mode.undefined);
+}
+
+#[test]
+fn sanitizer_mode_from_env_address_and_undefined() {
+    let mode = SanitizerMode::from_env_value("address,undefined");
+    assert!(mode.address);
+    assert!(mode.undefined);
+}
+
+#[test]
+fn sanitizer_mode_from_env_undefined_only() {
+    let mode = SanitizerMode::from_env_value("undefined");
+    assert!(!mode.address);
+    assert!(mode.undefined);
+}
+
+#[test]
+fn sanitizer_mode_from_env_empty_is_none() {
+    let mode = SanitizerMode::from_env_value("");
+    assert!(!mode.address);
+    assert!(!mode.undefined);
+    assert_eq!(mode, SanitizerMode::NONE);
+}
+
+#[test]
+fn sanitizer_mode_from_env_whitespace_tolerant() {
+    let mode = SanitizerMode::from_env_value(" address , undefined ");
+    assert!(mode.address);
+    assert!(mode.undefined);
+}
+
+#[test]
+fn sanitizer_mode_from_env_unknown_ignored() {
+    let mode = SanitizerMode::from_env_value("address,foo");
+    assert!(mode.address);
+    assert!(!mode.undefined);
+}
+
+#[test]
+fn sanitizer_mode_clang_flag_value_both() {
+    let mode = SanitizerMode {
+        address: true,
+        undefined: true,
+    };
+    assert_eq!(
+        mode.clang_flag_value(),
+        Some("address,undefined".to_string())
+    );
+}
+
+#[test]
+fn sanitizer_mode_clang_flag_value_address_only() {
+    let mode = SanitizerMode {
+        address: true,
+        undefined: false,
+    };
+    assert_eq!(mode.clang_flag_value(), Some("address".to_string()));
+}
+
+#[test]
+fn sanitizer_mode_clang_flag_value_none() {
+    assert_eq!(SanitizerMode::NONE.clang_flag_value(), None);
+}
+
+#[test]
+fn sanitizer_mode_any_enabled_true_for_address() {
+    let mode = SanitizerMode {
+        address: true,
+        undefined: false,
+    };
+    assert!(mode.any_enabled());
+}
+
+#[test]
+fn sanitizer_mode_any_enabled_true_for_undefined() {
+    let mode = SanitizerMode {
+        address: false,
+        undefined: true,
+    };
+    assert!(mode.any_enabled());
+}
+
+#[test]
+fn sanitizer_mode_any_enabled_false_for_none() {
+    assert!(!SanitizerMode::NONE.any_enabled());
+}
+
+#[test]
+fn optimization_config_default_has_no_sanitizer() {
+    let config = OptimizationConfig::default();
+    assert_eq!(config.sanitizer, SanitizerMode::NONE);
+}
+
+#[test]
+fn optimization_config_with_sanitizer_builder() {
+    let mode = SanitizerMode {
+        address: true,
+        undefined: true,
+    };
+    let config =
+        OptimizationConfig::new(crate::aot::OptimizationLevel::O2).with_sanitizer(mode.clone());
+    assert_eq!(config.sanitizer, mode);
 }
