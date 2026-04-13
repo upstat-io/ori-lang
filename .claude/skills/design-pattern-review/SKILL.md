@@ -131,6 +131,31 @@ You are researching how established compilers handle {DOMAIN}.
 STEP 1: Read `.claude/skills/design-pattern-review/prior-art-ref.md` section {N}
 for an overview of patterns in this domain.
 
+STEP 1.5: CONDITIONAL — Intelligence Pre-Query
+If the intelligence graph is available (check: run `scripts/intel-query.sh status`
+via Bash and parse the JSON output — if the `status` field is not `"ok"`, skip
+this step silently):
+
+Check if {DOMAIN} maps to an intelligence preset per .claude/rules/intelligence.md
+§Subsystem Mapping (e.g., "arc-optimization" → ori-arc, "pattern-matching" →
+ori-patterns). If so, use the preset; otherwise use compare/search with the
+domain name.
+
+Run these queries via Bash (output stays in your context — do NOT capture into
+shell variables):
+  scripts/intel-query.sh --human compare "{DOMAIN}" --limit 5
+  scripts/intel-query.sh --human search "{DOMAIN}" --limit 5
+  # If a preset was identified: scripts/intel-query.sh --human <preset> --limit 5
+
+Use results to:
+- Identify which of your assigned 2-3 repos have the most relevant prior art
+  (read those FIRST in Step 2)
+- Note specific issue/PR numbers worth examining alongside source code
+- Flag cross-compiler patterns (2+ repos hit same design challenge)
+
+If unavailable or empty, proceed to Step 2 normally — the repo shortlist from
+the file map below is sufficient without intelligence ranking.
+
 STEP 2: Dive into these reference repos at ~/projects/reference_repos/lang_repos/:
 
 {DOMAIN-SPECIFIC REPO PATHS — see file map below, 2-3 repos}

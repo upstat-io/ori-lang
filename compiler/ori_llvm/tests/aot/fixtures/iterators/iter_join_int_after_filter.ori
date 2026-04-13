@@ -1,0 +1,7 @@
+// AOT test for iter_join with int elements after filter adapter.
+// Cross-feature: join on filtered (int -> int) iterator with to_str trampoline.
+
+@main () -> int = {
+    let result = [1, 2, 3, 4, 5].iter().filter(x -> x % 2 == 0).join(separator: "+");
+    if result == "2+4" then 0 else 1
+}

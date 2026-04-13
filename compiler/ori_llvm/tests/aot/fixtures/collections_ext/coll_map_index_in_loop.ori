@@ -1,0 +1,10 @@
+@main () -> int = {
+    let m = {"alpha": 10, "beta": 20, "gamma": 30};
+    let keys = ["alpha", "beta", "gamma"];
+    let sum = 0;
+    for k in keys do {
+        let v = m[k];
+        if v.is_some() then sum = sum + v.unwrap()
+    };
+    if sum == 60 then 0 else 1
+}

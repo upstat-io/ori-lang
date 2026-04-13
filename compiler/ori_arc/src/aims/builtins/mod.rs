@@ -67,16 +67,20 @@ pub fn seed_builtin_contracts(
         sigs.entry(name).or_insert_with(sharing_return_contract);
     }
 
-    // Borrowing builtins: receiver borrowed, return conservative.
-    // Seeded after COW methods so consuming methods aren't overwritten.
-    for &name in &builtins.borrowing {
-        sigs.entry(name).or_insert_with(|| borrowing_contract(1));
-    }
-
     // Protocol builtins: per-arg ownership from ProtocolBuiltin.
+    // Seeded BEFORE borrowing methods because protocol builtins have specific
+    // per-arg ownership from the source of truth (ProtocolBuiltin::arg_ownership).
+    // Without this priority, __index (2 borrowed params) gets a generic 1-param
+    // borrowing_contract(1) from the borrowing set, losing the second param.
     for (&name, arg_ownership) in &builtins.protocol {
         sigs.entry(name)
             .or_insert_with(|| protocol_contract(arg_ownership));
+    }
+
+    // Borrowing builtins: receiver borrowed, return conservative.
+    // Seeded after COW and protocol methods so specific contracts aren't overwritten.
+    for &name in &builtins.borrowing {
+        sigs.entry(name).or_insert_with(|| borrowing_contract(1));
     }
 
     // Internal runtime functions called by ARC IR lowering (not user-facing).

@@ -152,3 +152,5 @@ perf(typeck): optimize line lookup and hash map usage
 - Never force push or use destructive git operations
 - Keep the first line of commit message under 72 characters
 - Do NOT include `Co-Authored-By` lines in commit messages
+- **NEVER discard uncommitted work**: Do NOT use `git checkout -- <file>`, `git restore <file>`, `git reset --hard`, or `git clean` to "clean up" unrelated changes. The user runs parallel sessions — uncommitted files may be active work. Stage only your files with `git add <specific files>` instead of `git add -A` when other files are dirty. Dirty commits with extra files are acceptable; lost work is not.
+- **When pre-commit hooks fail on files you didn't touch**: Stage only your specific files, not `-A`. If hooks still fail on unstaged files, report to the user — never discard.

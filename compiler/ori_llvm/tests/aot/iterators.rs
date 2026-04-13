@@ -10,7 +10,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // List.iter() — construct from list
 
@@ -255,6 +255,64 @@ fn test_iter_join_int_after_map() {
     assert_aot_success(
         include_str!("fixtures/iterators/iter_join_int_after_map.ori"),
         "iter_join_int_after_map",
+    );
+}
+
+#[test]
+fn test_iter_join_empty_int() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_empty_int.ori"),
+        "iter_join_empty_int",
+    );
+}
+
+/// Cross-feature: join on filtered int iterator exercises filter adapter + `to_str` trampoline.
+#[test]
+fn test_iter_join_int_after_filter() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_int_after_filter.ori"),
+        "iter_join_int_after_filter",
+    );
+}
+
+/// Char join exercises `ori_str_from_char` via the `to_str` trampoline.
+#[test]
+fn test_iter_join_char() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_char.ori"),
+        "iter_join_char",
+    );
+}
+
+/// Long float join exercises heap-backed `OriStr` path (>23 bytes SSO).
+/// Regression guard for BUG-05-002 (`OriStr` temporary leak).
+#[test]
+fn test_iter_join_long_float() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_long_float.ori"),
+        "iter_join_long_float",
+    );
+}
+
+/// Negative pin: unsupported element types (Duration) must be rejected at
+/// compile time — the codegen error guard rejects them with E5001.
+#[test]
+fn test_iter_join_unsupported_type_rejected() {
+    let source = r#"
+@main () -> int = {
+    let result = [1s, 2s].iter().join(separator: ", ");
+    if result == "1s, 2s" then 0 else 1
+}
+"#;
+    let (exit_code, _, stderr) = compile_and_run_capture(source);
+    // Must fail at compile time (-1), not crash at runtime or silently succeed
+    assert_eq!(
+        exit_code, -1,
+        "Duration join should be rejected at compile time, got exit code {exit_code}"
+    );
+    assert!(
+        stderr.contains("not yet supported in LLVM backend"),
+        "Expected codegen error for unsupported join type, got:\n{stderr}"
     );
 }
 

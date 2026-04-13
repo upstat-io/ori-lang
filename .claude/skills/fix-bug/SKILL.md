@@ -100,7 +100,22 @@ Spending time checking out old commits to see if something "was already broken" 
    - Why did that code do the wrong thing? (root cause)
    - Is the root cause localized or systemic? (blast radius)
 
-5. **Check reference compilers** (if the bug involves a design question) — consult `~/projects/reference_repos/lang_repos/` for prior art on how other compilers handle this case.
+5. **Check reference compilers** (if the bug involves a design question):
+
+   **5a. Intelligence Graph Query** — If the intelligence graph is available, query for similar bugs:
+   1. Check availability: run `scripts/intel-query.sh status` and parse the JSON `status` field. If not `"ok"`, skip to 5b.
+   2. Map the bug's subsystem to a preset per `.claude/rules/intelligence.md` §Subsystem Mapping.
+   3. Run preset and search queries (output visible in Claude's context — do NOT capture into variables):
+      - `scripts/intel-query.sh --human <preset> --limit 5`
+      - `scripts/intel-query.sh --human search "<bug description keywords>" --limit 5`
+      - `scripts/intel-query.sh --human fixed "<bug category>" --repo rust,swift,koka,lean4 --limit 5`
+   4. Look for: same failure mode in 2+ compilers, how they fixed it, what regressions it caused.
+   5. Record relevant findings in the fix section's investigation notes.
+   If intelligence is unavailable, skip 5a entirely and proceed to 5b.
+
+   **5b. Manual Reference Compiler Inspection** — Consult `~/projects/reference_repos/lang_repos/` for prior art. Intelligence results from 5a narrow the search — check the repos and issues it flagged first — but always inspect the actual source code. This sub-step is MANDATORY for design-question bugs regardless of whether 5a produced results.
+
+   If the bug is NOT a design question, skip Steps 5a and 5b entirely.
 
 6. **Identify all affected code paths** — the fix may need changes in multiple places. List every file and function that needs to change.
 

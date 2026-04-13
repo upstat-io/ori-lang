@@ -1,0 +1,14 @@
+// FileCheck test: early break still triggers iter_drop.
+// When a for loop exits early via break, the iterator must still be
+// cleaned up via ori_iter_drop to prevent resource leaks.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_iter_drop
+
+@main () -> void = {
+    let xs = [1, 2, 3, 4, 5];
+    for x in xs do {
+        if x == 3 then break;
+        print(msg: x.to_str())
+    }
+}

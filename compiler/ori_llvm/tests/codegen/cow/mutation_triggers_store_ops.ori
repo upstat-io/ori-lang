@@ -1,0 +1,12 @@
+// FileCheck test: list mutation via .push() emits COW push operation.
+// Uses .push() instead of index assignment (xs[0] = 42) because index
+// assignment hits E4003 ARC internal error before desugaring.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_list_push_cow
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    xs.push(value: 4);
+    print(msg: xs.len().to_str())
+}

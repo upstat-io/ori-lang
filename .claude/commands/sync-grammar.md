@@ -59,6 +59,15 @@ production = expression .     // Production definition (terminated with .)
 
 Production names use `snake_case`.
 
+## Proposal Gate — MANDATORY
+
+Grammar files are protected by the proposal gate hook (`.claude/hooks/block-spec-edits.sh`). Before running this command, ensure:
+
+1. An approved proposal exists in `docs/ori_lang/proposals/approved/`
+2. Set the bypass: `export ORI_SPEC_PROPOSAL=<proposal-filename>.md`
+
+Without this, all Edit/Write calls to grammar files will be **blocked by the hook**. This is intentional — grammar changes without approved proposals are never allowed. See `.claude/rules/spec.md` §Proposal Gate.
+
 ## Update Process
 
 1. **Read the current grammar.ebnf** to understand existing structure

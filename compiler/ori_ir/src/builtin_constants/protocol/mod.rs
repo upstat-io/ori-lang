@@ -22,7 +22,7 @@ pub enum ProtocolBuiltin {
     Iter,
     /// Iterator advancement. Iterator owned (consumed), type marker borrowed.
     IterNext,
-    /// Iterator cleanup. Iterator state borrowed (freed internally).
+    /// Iterator cleanup. Iterator handle owned (consumed by cleanup).
     IterDrop,
     /// Set collection from iterator. Iterator owned (consumed).
     CollectSet,

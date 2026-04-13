@@ -555,6 +555,18 @@ pub extern "C" fn ori_iter_join(
             (to_str)(to_str_env, elem_buf.as_ptr(), str_buf.as_mut_ptr());
             let s = unsafe { ptr::read_unaligned(str_buf.as_ptr().cast::<OriStr>()) };
             result.push_str(unsafe { s.as_str() });
+            // Free the temporary OriStr created by the trampoline.
+            // OriStr is Copy (no Drop), so heap-backed temporaries leak without
+            // explicit cleanup. ori_str_rc_dec handles SSO (no-op) and slice
+            // encoding. ori_str_drop_buffer reads the size from the RC header
+            // and calls ori_rc_free to deallocate.
+            unsafe {
+                crate::rc::ori_str_rc_dec(
+                    s.heap.data,
+                    s.heap.cap,
+                    Some(crate::rc::ori_str_drop_buffer),
+                );
+            }
         } else {
             // Element is already an OriStr (24 bytes)
             let s = unsafe { ptr::read_unaligned(elem_buf.as_ptr().cast::<OriStr>()) };

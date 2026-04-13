@@ -95,13 +95,21 @@ A fix is NOT done until ALL of these are true:
 5. **ARC-safe**: no GC/borrow checker; capture by value; no shared mutable refs
 
 ### AIMS — ARC Intelligent Memory System
-AIMS is a **unified semantic framework** — RC placement, reuse, COW, FIP, contracts, and TRMC are facets of one model, not separate features. Every memory decision flows through the unified lattice, contracts, and realization. **Non-negotiable invariants:**
+
+**AIMS is ARC-based, but it is NOT "just ARC."** Plain reference counting is a mediocre memory model — every copy an atomic op, every drop a cache miss, every shared value a contention point. AIMS is the compile-time intelligence layer on top of that substrate, and its job is to **make RC rare in emitted code, not to make RC ops faster**. What reaches the LLVM backend should look less like "refcounted code" and more like "plain pointer code with occasional explicit lifetime ops where aliasing is genuinely dynamic." Reasoning about AIMS as "RC placement" misses the point — placement is the fallback for the leftovers after elimination.
+
+**The unified model.** RC placement, reuse, COW, FIP, TRMC, contracts, borrow inference, and locality/escape classification are NOT independent optimizations — they are facets of one formally-grounded product lattice. Today the lattice has 7 dimensions (`AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass`) because that's where iteration has landed, not because 7 is sacred — dimensions are added, refined, or merged as analysis needs evolve (see e.g. `plans/locality-representation-unification/` for a pending `Locality` extension). Every memory decision is derived from this lattice via backward dataflow (intraprocedural) + SCC fixpoint (interprocedural), and realized into ARC IR only where the proof fails to eliminate the operation. Complementary pre-passes (e.g. immortal-object detection) produce typed inputs that feed the lattice-driven analysis — they are part of the unified pipeline, but they are NOT lattice dimensions themselves. There is no "bag of peephole passes" — there is one semantic framework whose facets must agree, enforced by a layered verification stack (see `.claude/rules/arc.md` §Verification Surface).
+
+**The through-line:** every pending extension (escape analysis/stack promotion, unified locality dimension, RC header compression, non-atomic RC, AIMS→LLVM fact export, Clang ARC patterns) shrinks the problem space AIMS has to emit RC ops for. The endgame is emitted code where RC operations are rare enough to audit one-by-one, and where the AIMS pipeline can justify each surviving operation by pointing at the specific proof step that failed. This is a categorically different goal from "make ARC faster." See `.claude/rules/arc.md` for the full shipped surface, the roadmap with plan paths, the verification stack, and the per-subsystem detail.
+
+**Non-negotiable invariants:**
 1. Contracts and realization must agree (FipContract::Certified ↔ zero unmatched alloc/dealloc)
 2. Active rewrites must be sound (identical observable behavior, behavioral verification required)
 3. No pass may rely on stale summaries (pipeline ordering is load-bearing)
 4. Every active subsystem must be end-to-end verified (implementation + invariant enforcement + tests)
+5. **The unified model must stay unified** — new analysis capabilities must either extend a lattice dimension, extend a contract field, or feed the lattice-driven analysis as a typed pre-pass input (as `immortal` detection does via a per-var bitvector consumed by intraprocedural analysis). What they must NOT do is spawn an independent RC emission path, a parallel escape enum, or a shadow uniqueness tracker that bypasses the lattice.
 
-When fixing any AIMS-related bug: ask "does this preserve system coherence?" A fix in one subsystem that leaves another inconsistent is a new bug, not a fix. See `.claude/rules/arc.md` for full details.
+When fixing any AIMS-related bug: ask "does this preserve system coherence?" (facets still agree) AND "does this preserve the through-line from proof to elimination?" (every RC op added points at a specific proof failure). See `.claude/rules/arc.md` for full details.
 
 ---
 

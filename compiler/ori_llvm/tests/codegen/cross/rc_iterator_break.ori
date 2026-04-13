@@ -1,0 +1,15 @@
+// FileCheck test: RC-tracked value inside for loop with early break.
+// When a string copy is made inside a loop that breaks early,
+// the iterator must still be dropped (ori_iter_drop).
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_iter_drop
+
+@main () -> void = {
+    let xs = ["hello", "world", "!"];
+    for x in xs do {
+        if x == "!" then break;
+        let copy = x;
+        print(msg: copy)
+    }
+}

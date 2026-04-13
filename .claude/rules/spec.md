@@ -7,6 +7,41 @@ paths:
 
 Style: ISO/IEC Directives, Part 2. Sync rules in `.claude/rules/ori-lang.md`.
 
+## ABSOLUTE: Proposal Gate — No Spec/Grammar Changes Without Approved Proposal
+
+**NEVER modify ANY file under `docs/ori_lang/v2026/spec/` (including `grammar.ebnf`, `operator-rules.md`, and all clause files) without an approved proposal.**
+
+### Required workflow — NO EXCEPTIONS:
+1. **STOP** — do not edit the spec/grammar file
+2. Run `/create-draft-proposal` to create a formal proposal covering the change
+3. Run `/review-draft-proposal` to get independent review
+4. Only after proposal status is `Approved` may the spec/grammar files be modified
+5. The commit message MUST reference the proposal: `Proposal: <proposal-filename>`
+
+### What counts as a spec/grammar change:
+- Editing any `.md` file under `docs/ori_lang/v2026/spec/`
+- Editing `grammar.ebnf` (formal grammar)
+- Editing `operator-rules.md` (operator semantics)
+- Creating new clause files in the spec directory
+- Deleting or renaming spec files
+
+### What does NOT require this gate:
+- Updating `ori-syntax.md` (quick reference in `.claude/rules/`) to reflect already-approved changes
+- Updating design docs (`docs/ori_lang/design/`)
+- Updating proposals themselves (`docs/ori_lang/proposals/`)
+
+### No exceptions — these are NOT valid bypass reasons:
+- "It's just a typo fix" — typos in normative text can change semantics
+- "It's just formatting" — formatting changes can alter clause structure
+- "It's just a clarification" — clarifications are semantic decisions that need review
+- "The compiler already does this" — the spec defines correctness, not the compiler
+- "It's obvious" — if it's obvious, the proposal will be approved quickly
+
+### Enforcement:
+- `/tpr-review` MUST flag any spec/grammar diff without a proposal reference as a **CRITICAL** finding
+- Pre-commit hook rejects staged spec/grammar files without `Proposal:` in the commit message
+- Violating this gate is treated with the same severity as bypassing `--no-verify`
+
 ## Spec vs Design
 - Specification: what IS valid Ori (normative, formal)
 - Design (`../design/`): explains WHY (tutorial tone)

@@ -1,0 +1,15 @@
+// FileCheck test: shared value mutation via .push() triggers COW path.
+// When a list is shared and one copy is mutated, ori_list_push_cow handles
+// the copy-on-write protocol, and both owners require cleanup.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_list_push_cow
+// CHECK: ori_buffer_rc_dec
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    let ys = xs;
+    ys.push(value: 4);
+    print(msg: ys.len().to_str());
+    print(msg: xs.len().to_str())
+}

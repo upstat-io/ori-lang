@@ -767,10 +767,10 @@ fn capture_update_affine_once_closure_preserves_linearity() {
 }
 
 #[test]
-fn capture_update_block_local_closure_widens_to_function_local() {
+fn capture_update_block_local_closure_preserves_block_local() {
     let state = AimsState::FRESH;
-    // Closure with BlockLocal locality — captured vars still need at least
-    // FunctionLocal because they escape the defining block.
+    // Block-local closure capturing a block-local value: no artificial
+    // FunctionLocal floor — both are scoped to the same block (TF-13).
     let closure_state = AimsState {
         locality: Locality::BlockLocal,
         cardinality: Cardinality::Once,
@@ -778,8 +778,8 @@ fn capture_update_block_local_closure_widens_to_function_local() {
         ..AimsState::BOTTOM
     };
     let updated = capture_state_update(&state, &closure_state);
-    // Capture locality is max(closure.locality, FunctionLocal) = FunctionLocal.
-    assert_eq!(updated.locality, Locality::FunctionLocal);
+    // max(BlockLocal, BlockLocal) = BlockLocal — no floor applied.
+    assert_eq!(updated.locality, Locality::BlockLocal);
 }
 
 #[test]

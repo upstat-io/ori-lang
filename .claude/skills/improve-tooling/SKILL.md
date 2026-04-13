@@ -1,15 +1,17 @@
 ---
 name: improve-tooling
-description: "AUTO-TRIGGER: Improve testing, diagnostic, debugging, or developer tooling. TRIGGER when: (1) a script in diagnostics/ or scripts/ produces confusing output, missing information, or wrong results, (2) test-all.sh, clippy-all.sh, or any test harness has gaps, missing coverage, or unclear failure output, (3) dual-exec-verify.sh, diagnose-aot.sh, or any diagnostic script doesn't cover a case you need, (4) you work around a tool limitation instead of fixing the tool, (5) you notice a script is missing --help, error handling, or useful flags, (6) you manually do something a script should automate, (7) RETROSPECTIVE — PER SUBSECTION (primary): invoked immediately after marking a plan subsection complete (e.g., {NN}.1, {NN}.2) to look back at THAT subsection's debugging journey while pain points are still fresh, (8) RETROSPECTIVE — BUG-FIX CLOSE: invoked at /fix-bug Phase 5 completion checklist step 8 to capture root-cause analysis tooling gaps, (9) RETROSPECTIVE — SECTION CLOSE (sweep): invoked at the end of a roadmap/plan section as an integration safety net that verifies per-subsection and bug-fix retrospectives ran and adds only NEW items from cross-cutting patterns. DO NOT TRIGGER for: normal tool usage that works correctly, or one-off ad-hoc commands."
+description: "AUTO-TRIGGER: Improve testing, diagnostic, debugging, or developer tooling. TRIGGER when: (1) a script in diagnostics/ or scripts/ produces confusing output, missing information, or wrong results, (2) test-all.sh, clippy-all.sh, or any test harness has gaps, missing coverage, or unclear failure output, (3) dual-exec-verify.sh, diagnose-aot.sh, or any diagnostic script doesn't cover a case you need, (4) you work around a tool limitation instead of fixing the tool, (5) you notice a script is missing --help, error handling, or useful flags, (6) you manually do something a script should automate, (7) RETROSPECTIVE — PER SUBSECTION (primary): invoked immediately after marking a plan subsection complete (e.g., {NN}.1, {NN}.2) to look back at THAT subsection's debugging journey while pain points are still fresh, (8) RETROSPECTIVE — BUG-FIX CLOSE: invoked at /fix-bug Phase 5 completion checklist step 8 to capture root-cause analysis tooling gaps, (9) RETROSPECTIVE — SECTION CLOSE (sweep): invoked at the end of a roadmap/plan section as an integration safety net that verifies per-subsection and bug-fix retrospectives ran and adds only NEW items from cross-cutting patterns, (10) DOC AWARENESS — a tool exists but isn't documented in its canonical doc surface (see §Documentation Surfaces), (11) DOC AWARENESS — tooling was skipped during the session because it wasn't discoverable in loaded docs, (12) DOC SYNC — a tool was created or modified during the session but its canonical doc surface wasn't updated. DO NOT TRIGGER for: normal tool usage that works correctly, or one-off ad-hoc commands."
 ---
 
 # Improve Tooling
+
+**SCOPE: This skill improves tooling — scripts, harnesses, diagnostics, and skills. It does NOT save memories, update memory files, or modify MEMORY.md. When invoked with user feedback about workflow behavior, improve the relevant skill files directly.**
 
 **ABSOLUTE RULE: Never work around deficient tooling. Fix the tool.**
 
 When you encounter friction, gaps, or deficiencies in any developer tooling — testing scripts, diagnostic scripts, build scripts, or any automation — you MUST improve the tool rather than working around it. The tool improvement IS the work.
 
-**Tooling grows organically.** You cannot predict every use case ahead of time. The way the diagnostic suite gets sharp is by ratcheting it up by one improvement after every subsection, every bug fix, every debugging session — guided by what was *actually* painful, not what was imagined to be painful. This skill has two trigger modes: **reactive** (mid-task friction, the original auto-trigger) and **reflective** (post-subsection, post-bug-fix, and post-section retrospective — see Retrospective Mode below).
+**Tooling grows organically.** You cannot predict every use case ahead of time. The way the diagnostic suite gets sharp is by ratcheting it up by one improvement after every subsection, every bug fix, every debugging session — guided by what was *actually* painful, not what was imagined to be painful. This skill has three pillars: **reactive** (mid-task friction, the original auto-trigger), **reflective** (post-subsection, post-bug-fix, and post-section retrospective — see Retrospective Mode below), and **documentation awareness** (ensuring tools are discoverable and that new tools get documented — see Documentation Awareness Verification below).
 
 **Pain memory decays fast.** This is why retrospectives must fire at the smallest natural unit of work, not at section close. By the time you've finished six subsections plus TPR plus hygiene review, the friction from subsection `.1` is days old and three reviews ago — you have already smoothed over it. Retrospective Mode therefore has THREE granularities: per-subsection (the primary capture mechanism, run while the journey is fresh), bug-fix close (captures root-cause analysis friction — mandated by `/fix-bug` Phase 5), and section-close (an integration sweep that catches cross-cutting patterns invisible at finer scope).
 
@@ -32,6 +34,12 @@ Additionally, this skill is **mandatorily invoked** as a retrospective at three 
 10. **Bug-fix close** — at `/fix-bug` Phase 5 completion checklist step 8 (see Retrospective Mode §Bug-Fix Close)
 11. **Section-close sweep** — at the end of a full section, after TPR and hygiene are clean (see Retrospective Mode §Section-Close Sweep)
 
+Finally, this skill triggers for **documentation awareness gaps** — the invisible failure mode where tools exist but sessions don't know about them:
+
+12. **Undocumented tool** — a script exists in `diagnostics/`, `scripts/`, or project root but isn't listed in its canonical doc surface (see §Documentation Surfaces)
+13. **Tooling unawareness** — during the session, you manually did something that an existing tool already automates, but you didn't know the tool existed because it wasn't documented where you looked
+14. **New tool without docs** — a tool was created or significantly modified during this session but its documentation wasn't updated across all canonical surfaces
+
 ## Tooling Scope
 
 These are the tools you own and must improve:
@@ -39,10 +47,28 @@ These are the tools you own and must improve:
 | Category | Location | Canonical reference |
 |----------|----------|---------------------|
 | **Test harnesses** | `./test-all.sh`, `./clippy-all.sh`, `./fmt-all.sh`, `./build-all.sh` | `CLAUDE.md` §Commands |
-| **Diagnostic scripts** | `diagnostics/` | `.claude/rules/diagnostic.md` §Diagnostic Scripts — full table with all scripts and flags |
+| **Diagnostic scripts** | `diagnostics/` | `diagnostics/README.md` — single canonical home (see §Documentation Surfaces) |
 | **Scripts** (build, release, test utilities) | `scripts/` | `CLAUDE.md` §Commands |
 | **Diagnostic common** | `diagnostics/_common.sh` | `.claude/rules/diagnostic.md` |
 | **LLVM test harness** | `./llvm-test.sh` | `CLAUDE.md` §Commands |
+
+## Documentation Surfaces
+
+Every tool must be documented in its **canonical doc surface** (the single source of truth for that tool's documentation). Some tools also appear in **secondary surfaces** for discoverability. The mapping:
+
+| Tool location | Canonical doc surface | Secondary surfaces |
+|---|---|---|
+| `diagnostics/*.sh` | `diagnostics/README.md` (full reference: usage, flags, workflows) | `.claude/rules/diagnostic.md` §Diagnostic Scripts (quick-reference table — MAY lag canonical), `CLAUDE.md` §Commands (key scripts only) |
+| `scripts/` (commonly-needed: `perf-baseline.sh`, `cow-benchmark.sh`, `cache-doctor.sh`, `bump-build.sh`, `sync-version.sh`) | `CLAUDE.md` §Commands | Script's own `--help` |
+| `scripts/` (maintenance/migration: `extract_tests.py`, `pgo-build.sh`, `release.sh`, etc.) | Script's own `--help` | Not required in CLAUDE.md — these are infrequently needed and would bloat the curated Commands section |
+| Root harnesses (`test-all.sh`, `clippy-all.sh`, `fmt-all.sh`, `build-all.sh`) | `CLAUDE.md` §Commands | — |
+| Root build/setup (`llvm-test.sh`, `llvm-build.sh`, `install.sh`, `full-check.sh`, etc.) | `CLAUDE.md` §Commands (if commonly needed) or script's own `--help` (if one-off) | — |
+
+**SSOT invariant**: Each tool has exactly ONE canonical surface. `diagnostics/README.md` is the single source of truth for diagnostic scripts — `.claude/rules/diagnostic.md` is a quick-reference table that may lag; it is NOT a second mandatory sync target. Do NOT mandate parallel updates to multiple doc surfaces — that guarantees drift.
+
+**Canonical means one, not two**: when the skill says "update the canonical surface," that means update ONE file. Secondary surfaces are best-effort — update them if convenient, but a missing secondary entry is not a gap finding. A missing canonical entry IS a gap finding.
+
+**Why CLAUDE.md matters**: CLAUDE.md is loaded into every conversation's context. Tools documented *only* in `diagnostics/README.md` or hidden in `scripts/` are effectively invisible to most sessions. But CLAUDE.md is curated for interactive use — it should list commonly-needed scripts with brief descriptions, not serve as an exhaustive script index. Maintenance/migration scripts that are rarely needed interactively should have `--help` but don't need CLAUDE.md entries.
 
 ## Workflow
 
@@ -71,12 +97,16 @@ Make the improvement. Follow existing conventions:
 
 Now use the improved tool for your original task. The improvement must actually solve the friction that triggered it.
 
-### Step 5: Update Documentation
+### Step 5: Update Documentation (MANDATORY — Zero Exceptions)
 
-If the tool gained new flags or capabilities:
-- Update `CLAUDE.md` if the tool is listed there
-- Update the tool's `--help` output
-- Update `diagnostics/README.md` if it's a diagnostic script
+**Every tool change requires a doc sync pass.** This is not optional, even for "minor" flag additions.
+
+1. **Canonical surface MUST be updated** — see §Documentation Surfaces for the mapping. If the tool is in `diagnostics/`, update `diagnostics/README.md`. If commonly-needed in `scripts/` or root, update `CLAUDE.md` §Commands. If maintenance/migration, ensure `--help` is complete.
+2. **Secondary surfaces — best-effort** — if the tool is already listed in a secondary surface (e.g., `.claude/rules/diagnostic.md` quick table), update it there too. But secondary surfaces are not mandatory sync targets.
+3. **`--help` MUST reflect the change** — the script's own help output is part of the doc surface.
+4. **New commonly-needed tools MUST appear in their canonical doc index** — commonly-needed scripts that only have `--help` but aren't in CLAUDE.md or `diagnostics/README.md` are invisible to future sessions. Maintenance/migration scripts whose canonical surface IS their `--help` do not need doc index entries.
+
+**Verification**: After updating docs, re-read the doc surface and confirm the new tool/flag appears correctly. A doc update that's syntactically wrong (broken table row, missing column) is worse than no update.
 
 ## Anti-Patterns (BANNED)
 
@@ -93,6 +123,49 @@ Every tool improvement must meet these standards:
 5. **Idempotent** — safe to run multiple times
 6. **Tested** — if adding a flag, verify it works before moving on
 7. **Consistent** — follows the same conventions as sibling scripts
+
+## Documentation Awareness Verification
+
+This is the third pillar of the skill, alongside reactive improvements (§Workflow) and reflective retrospectives (§Retrospective Mode). It catches the failure mode where tools exist but nobody uses them because the docs don't mention them.
+
+### Three Checks
+
+**Check 1: Undocumented Tools (doc-exists gap)**
+Verify that every tool in `diagnostics/`, `scripts/`, and root has an entry in its canonical doc surface. This is a structural audit — it doesn't require any session context.
+
+How to run:
+1. List all **tracked** (git-tracked) tool scripts in `diagnostics/`, `scripts/`, and root — this includes `*.sh` AND `*.py` utilities (excluding `_common.sh`, test fixtures, `__pycache__`, and untracked scratch files)
+2. For each, check whether it appears in its canonical doc surface (see §Documentation Surfaces). Remember: maintenance/migration scripts only need `--help`, not a CLAUDE.md entry
+3. Any commonly-needed tool missing from its canonical doc index is a gap — add it NOW
+
+When to run: at every section-close sweep (§Retrospective Mode §Section-Close Sweep step 1.5 — added below), and whenever you notice a tool that isn't documented.
+
+**Check 2: Awareness Gap (session-skipped-tool)**
+During retrospectives, ask: "Did I manually do something during this session that an existing tool already automates, but I didn't know the tool existed?" This catches the invisible cost of incomplete docs — you can't use what you don't know about.
+
+Indicators:
+- You wrote a one-off shell command that a `diagnostics/` script already handles
+- You piped/grepped output that a script's `--flag` already filters
+- You ran `ORI_*` env vars manually when a diagnostic script wraps them
+- You read a script's source code to discover flags that should have been in `CLAUDE.md`
+
+When discovered: (1) Use the existing tool going forward, (2) Add it to `CLAUDE.md` §Commands or the appropriate doc surface so future sessions find it, (3) Record the gap in the retrospective output.
+
+**Check 3: New Tool Without Docs (creation-sync gap)**
+After creating or significantly modifying a tool during this session, verify:
+1. The tool has `--help` that documents all flags
+2. The tool appears in its canonical doc surface (see §Documentation Surfaces — ONE surface, not multiple)
+3. If the tool is commonly needed during interactive sessions, it appears in `CLAUDE.md` §Commands
+4. If the tool is a diagnostic script, `diagnostics/README.md` is the single canonical home — update `.claude/rules/diagnostic.md` only if the tool is already listed there (best-effort, not mandatory)
+
+When to run: at every commit that adds or modifies a tool script. Step 5 of the Workflow (§Update Documentation) enforces this for reactive improvements; this check also applies during retrospectives for tools added earlier in the session.
+
+### Anti-Patterns (Documentation-Specific)
+
+- **"The tool has `--help`, that's enough documentation."** — For commonly-needed tools, `--help` alone is insufficient — if the tool isn't listed in its canonical doc surface, nobody will discover it. However, for maintenance/migration scripts (see §Documentation Surfaces), `--help` IS the canonical surface and no doc index entry is required.
+- **"I'll document it later when the tool stabilizes."** — BANNED. An undocumented tool is invisible. Document it now with what it does today; update the docs when it changes.
+- **"It's only used by one script / one workflow."** — Irrelevant. If it lives in `diagnostics/` or `scripts/`, it's a project tool and needs documentation. Internal helpers that are genuinely private should be functions inside the calling script, not standalone scripts.
+- **"CLAUDE.md is already long, I don't want to add more."** — CLAUDE.md §Commands should list key scripts with brief descriptions, not full reference docs. One line per tool. The canonical surface (`diagnostics/README.md` or the script's own `--help`) carries the full reference.
 
 ## Retrospective Mode
 
@@ -119,6 +192,9 @@ When invoked immediately after marking a subsection complete:
    - Where did I stare at output for >30 seconds trying to understand it?
    - Which test failures gave unhelpful messages — "expected X, got Y" without context about *why*?
    - Did I write any one-off shell incantations a script should own permanently?
+   - **[DOC AWARENESS]** Did I manually do something that an existing tool already handles — but I didn't know the tool existed? (Check: `diagnostics/README.md` for the full inventory)
+   - **[DOC AWARENESS]** Did I discover a tool mid-session by reading source code or stumbling on it, rather than finding it in `CLAUDE.md`? If so, it needs a doc surface entry.
+   - **[DOC SYNC]** Did I create or modify any scripts during this subsection? Are they documented in all applicable surfaces (see §Documentation Surfaces)?
 
 2. **Forward-look as well as back-look.** Ask: "If someone hits a regression in this exact code path next month, what tool/log/diagnostic would shorten their debugging session by 10 minutes?"
 
@@ -150,6 +226,8 @@ When invoked at `/fix-bug` Phase 5 completion checklist step 8, AFTER TPR and hy
    - Where did the original failure message or test output fail to explain *why* something was wrong?
    - Did the TDD matrix writing reveal missing test helpers or assertion utilities?
    - Did I manually run `ORI_CHECK_LEAKS=1`, `ORI_TRACE_RC=1`, or other environment flags that a script should orchestrate?
+   - **[DOC AWARENESS]** Did I miss an existing tool that would have shortened root-cause analysis? (Check `diagnostics/README.md` for the full inventory — was there a script I didn't know about?)
+   - **[DOC SYNC]** Did I create any new diagnostic scripts or test utilities during this fix? Are they documented?
 
 2. **Forward-look.** Ask: "If this same bug class recurs in a different code path, what tool/flag/diagnostic would make root-cause analysis 10 minutes faster?"
 
@@ -162,6 +240,8 @@ When invoked at `/fix-bug` Phase 5 completion checklist step 8, AFTER TPR and hy
 When invoked at the end of a section, after `/tpr-review` and `/impl-hygiene-review` are clean:
 
 1. **Verify per-subsection and bug-fix retrospectives actually ran.** For each subsection in this section, confirm there is either an "Improvements made" entry (with commits) or a documented "no gaps" negative finding. For each `/fix-bug` completed during this section, confirm the fix section's completion checklist has a "Tooling retrospective" entry. If any retrospective was skipped, **STOP** — go back and run it now. The sweep cannot substitute for the missing captures; it can only catch what they missed.
+
+   - **Documentation Awareness audit (§Documentation Awareness Verification Check 1).** List all tracked tool scripts in `diagnostics/`, `scripts/`, and root (both `*.sh` and `*.py`). For each, verify it appears in its canonical doc surface per §Documentation Surfaces. Fix any gaps NOW. Also verify that any tools *created during this section* have complete doc coverage (Check 3). This is the structural audit that catches drift between the actual tool inventory and the documentation.
 
 2. **Look for cross-item patterns invisible at finer granularity:**
    - Did I run the same command sequence transitioning between different subsections or between subsection work and bug-fix work? (e.g., "every time I moved from a typeck change to a codegen change, I had to manually clear the salsa cache and re-run two diagnostic scripts")
@@ -232,3 +312,15 @@ Retrospective mode covers all three. The per-subsection cadence ensures the capt
 
 **Bad**: "This script doesn't handle the case where the file doesn't exist"
 **Good**: Add existence checks with clear error messages: `echo "Error: $file not found" >&2; exit 1`
+
+**Bad**: "I manually ran `ORI_DUMP_AFTER_ARC=1 cargo run -- build file.ori | grep my_func` to see the ARC IR"
+**Good**: `arc-dump.sh` already does this — use `arc-dump.sh file.ori --function my_func`. If you didn't know it existed, add it to `CLAUDE.md` §Commands so the next session finds it.
+
+**Bad**: "I wrote a new `scripts/check-foo.sh` and it works great" (but it's not documented anywhere)
+**Good**: After writing the script, add `--help` and update `CLAUDE.md` §Commands if it's commonly needed during interactive sessions. If it's a maintenance/migration script, `--help` alone is sufficient.
+
+**Bad**: "I wrote a new diagnostic script but only put it in `scripts/`"
+**Good**: Diagnostic scripts MUST live in `diagnostics/`, not `scripts/`. Add it to `diagnostics/`, add `--help`, and update `diagnostics/README.md` (the single canonical home for diagnostic docs).
+
+**Bad**: "Retrospective: no gaps" (but you manually ran 5 env-var incantations during the subsection)
+**Good**: Check `diagnostics/README.md` for the full tool inventory. If any of those 5 manual incantations match an existing script's flags, that's an awareness gap — document the tool in `CLAUDE.md` so future sessions find it.

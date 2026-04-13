@@ -481,12 +481,12 @@ pub fn capture_state_update(current: &AimsState, closure_state: &AimsState) -> A
         state.cardinality = Cardinality::Many;
     }
 
-    // Closure-aware locality: captured vars inherit the closure's locality,
-    // but at least FunctionLocal (they escape the defining block into the
-    // closure's scope).
-    let capture_locality = closure_state.locality.max(Locality::FunctionLocal);
-    if state.locality < capture_locality {
-        state.locality = capture_locality;
+    // Closure-aware locality: captured vars inherit the closure's locality.
+    // No artificial FunctionLocal floor — a block-local closure capturing a
+    // block-local variable preserves BlockLocal (both scoped to the same block).
+    // Per aims-rules.md TF-13.
+    if state.locality < closure_state.locality {
+        state.locality = closure_state.locality;
     }
 
     state.canonicalize();

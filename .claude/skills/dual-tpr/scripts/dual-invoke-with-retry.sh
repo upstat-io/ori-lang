@@ -14,7 +14,13 @@
 #   - dual-invoke.sh exits 0 (both reviewers exited cleanly)
 #   - parse-codex.py succeeds on $RUN/codex.jsonl
 #   - parse-gemini.py succeeds on $RUN/gemini.jsonl
-#   - worktree-guard.sh compare passes (no dirty files)
+#
+# Worktree drift check (informational, non-blocking by default):
+#   - worktree-guard.sh compare runs AFTER parsers succeed
+#   - Drift is logged as a WARNING, not a failure — the user regularly runs
+#     parallel agents and their edits should not kill the review round
+#   - Only escalated to terminal failure with ORI_TPR_STRICT_WORKTREE=1
+#   - Drift details saved to $RUN/worktree-drift.txt for user triage
 
 set -euo pipefail
 
@@ -76,8 +82,13 @@ fi
 #
 # Terminal categories — deterministic, retry will produce the same result:
 #
-#   dirty_worktree                 — reviewer modified tracked files, will do
-#                                    so again on retry (BUG-08-002 fix).
+#   dirty_worktree                 — tracked-file drift detected AND
+#                                    ORI_TPR_STRICT_WORKTREE=1 was set.
+#                                    Without strict mode, drift is a non-
+#                                    blocking warning (not a failure at all).
+#                                    (Post-2026-04-12: default changed from
+#                                    terminal to informational — user runs
+#                                    parallel agents whose edits are expected).
 #   codex_missing_dependency       — jsonschema Python module not installed
 #                                    on this host; won't install itself on
 #                                    retry (TPR-04-002-codex fix).
@@ -150,9 +161,9 @@ fi
 #                                    the retry will surface the same category
 #                                    three times and the operator will see it.
 #
-# Why this is the symmetric form of BUG-08-002: the dirty_worktree fix added
-# a single-case `break`. This generalizes that to a classifier so we don't
-# burn 3 attempts on every newly-discovered deterministic failure mode. The
+# Why this is the symmetric form of the original dirty_worktree fix: the
+# original fix added a single-case `break`. This generalizes that to a
+# classifier so we don't burn 3 attempts on deterministic failure modes. The
 # categories listed above are the RESULT of auditing what parse-codex.py and
 # parse-gemini.py actually emit — earlier iterations of this function
 # invented category names (`codex_invalid_*`, `codex_authentication_*`,
@@ -206,6 +217,7 @@ ATTEMPT=0
 FAILURE=""
 while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   ATTEMPT=$((ATTEMPT + 1))
+  FAILURE=""  # Reset for this attempt — stale value from prior attempt must not leak
 
   # ── Selective retry: narrow to failing reviewers only ─────────────
   #
@@ -231,9 +243,9 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   #
   # Both-successful edge case: if both envelopes are valid but the wrapper
   # reached this point anyway, the failure category must have been
-  # dirty_worktree (already classified terminal) or a future category that
-  # somehow leaves both envelopes untouched. Fall through to running both on
-  # the retry — conservative default that matches pre-fix behavior.
+  # dirty_worktree in strict mode or a future category that somehow leaves
+  # both envelopes untouched. Fall through to running both on the retry —
+  # conservative default that matches pre-fix behavior.
   EFFECTIVE_REVIEWERS="$ORIGINAL_REVIEWERS"
   if [[ $ATTEMPT -gt 1 && "$ORIGINAL_REVIEWERS" == "both" ]]; then
     CODEX_OK=0
@@ -286,13 +298,37 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   elif [[ ( "$EFFECTIVE_REVIEWERS" == "gemini" || "$EFFECTIVE_REVIEWERS" == "both" ) ]] && ! "$SCRIPT_DIR/parse-gemini.py" --jsonl "$RUN/gemini.jsonl" --schema "$SCHEMA" > "$RUN/gemini.envelope.json" 2> "$RUN/gemini.parse-error"; then
     FAILURE="$(extract_failure_category gemini "$RUN/gemini.parse-error")"
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
-  elif ! "$SCRIPT_DIR/worktree-guard.sh" compare "$RUN/worktree-before.txt" 2> "$RUN/worktree-error"; then
-    FAILURE="dirty_worktree"
-    echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
   else
-    # All checks passed
-    echo "[$(date +%s)] round succeeded on attempt $ATTEMPT" >> "$RUN/round.log"
-    exit 0
+    # ── Launch + parse succeeded — run worktree guard as INFORMATIONAL check ──
+    #
+    # Post-2026-04-12 fix: worktree drift is NO LONGER a failure condition by
+    # default. The user regularly runs parallel agents whose edits produce drift
+    # that is NOT a reviewer violation. Drift is logged as a warning and saved
+    # to $RUN/worktree-drift.txt for the skill layer to surface if desired.
+    #
+    # ORI_TPR_STRICT_WORKTREE=1 restores the old terminal behavior for contexts
+    # where the user is NOT running parallel work and wants strict enforcement.
+    if ! "$SCRIPT_DIR/worktree-guard.sh" compare "$RUN/worktree-before.txt" "$RUN/worktree-after.txt" 2> "$RUN/worktree-drift.txt"; then
+      if [[ "${ORI_TPR_STRICT_WORKTREE:-0}" == "1" ]]; then
+        # Strict mode: treat drift as terminal failure (old behavior)
+        FAILURE="dirty_worktree"
+        echo "[$(date +%s)] dirty_worktree on attempt $ATTEMPT (ORI_TPR_STRICT_WORKTREE=1 — escalated to terminal)" >> "$RUN/round.log"
+      else
+        # Default: warn and continue — drift is expected from parallel work
+        echo "[$(date +%s)] WARNING: worktree drift detected during run (non-blocking — assumed parallel agent or user edits)" >> "$RUN/round.log"
+        if [[ -s "$RUN/worktree-drift.txt" ]]; then
+          echo "--- drift details ---" >> "$RUN/round.log"
+          cat "$RUN/worktree-drift.txt" >> "$RUN/round.log"
+          echo "--- end drift details ---" >> "$RUN/round.log"
+        fi
+      fi
+    fi
+
+    # If no failure was set (either no drift, or drift was non-blocking), succeed
+    if [[ -z "$FAILURE" ]]; then
+      echo "[$(date +%s)] round succeeded on attempt $ATTEMPT" >> "$RUN/round.log"
+      exit 0
+    fi
   fi
 
   # Generalized terminal-failure classifier (BUG-08-006). Originally only
