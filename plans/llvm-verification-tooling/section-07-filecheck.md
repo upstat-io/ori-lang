@@ -27,7 +27,7 @@ sections:
     status: complete
   - id: "07.1"
     title: "Evolve ir_checks.rs into Harness-Based Runner"
-    status: not-started
+    status: complete
   - id: "07.2"
     title: "RC Emission Tests"
     status: not-started
@@ -132,26 +132,26 @@ sections:
 
 Instead, evolve `ir_checks.rs` to use `run_test_directory()` for automatic test discovery, replacing the existing per-test functions with the discovery runner (see migration task below).
 
-- [ ] **Add a `run_all_codegen_filecheck` test** that uses `run_test_directory()` from the shared harness to automatically discover and run all `.ori` files in `compiler/ori_llvm/tests/codegen/`. This requires implementing `FileCheckStrategy` that implements `TestStrategy`:
+- [x] **Add a `run_all_codegen_filecheck` test** that uses `run_test_directory()` from the shared harness to automatically discover and run all `.ori` files in `compiler/ori_llvm/tests/codegen/`. This requires implementing `FileCheckStrategy` that implements `TestStrategy`:
   - `execute()`: calls `compile_and_capture_ir()` (from util) on the source, then slices to the target function using `extract_function_ir()` if a `// @function: <name>` custom directive is present (default: `_ori_main`). Returns sliced IR as `TestOutput.content`
   - `verify()`: calls `run_checks()` with the appropriate `CheckMode` (see below)
   - `baseline_suffix()`: returns `None` (no `.ll` baselines — pattern matching only)
 
-- [ ] **Determine CheckMode per test file.** The `FileCheckStrategy::verify()` must select `.exact` or `.matches` mode per file. Convention: if a test file contains any `CHECK-LABEL` **or** `CHECK-NEXT` directive, use `.exact` mode (the author is asserting ordering or adjacency — `CHECK-NEXT` is downgraded to a plain existence check in `.matches` mode per `check.rs:133-140`). If only bare `CHECK` and `CHECK-NOT` directives are present, use `.matches` mode. This keeps backward compatibility with existing tests while enabling order-sensitive tests going forward.
+- [x] **Determine CheckMode per test file.** The `FileCheckStrategy::verify()` must select `.exact` or `.matches` mode per file. Convention: if a test file contains any `CHECK-LABEL` **or** `CHECK-NEXT` directive, use `.exact` mode (the author is asserting ordering or adjacency — `CHECK-NEXT` is downgraded to a plain existence check in `.matches` mode per `check.rs:133-140`). If only bare `CHECK` and `CHECK-NOT` directives are present, use `.matches` mode. This keeps backward compatibility with existing tests while enabling order-sensitive tests going forward.
 
-- [ ] **Remove existing per-file test functions after migration.** Once `run_all_codegen_filecheck` via `run_test_directory()` is confirmed working for all existing 12 tests, delete the individual `filecheck_rc_simple_inc_dec()` etc. functions from `ir_checks.rs`. Running 30+ AOT compilations twice (once per manual test, once via discovery) threatens the mandatory 150s timeout and is WASTE. The discovery runner provides sufficient granularity via per-file pass/fail reporting in `TestSummary`.
+- [x] **Remove existing per-file test functions after migration.** Once `run_all_codegen_filecheck` via `run_test_directory()` is confirmed working for all existing 12 tests, delete the individual `filecheck_rc_simple_inc_dec()` etc. functions from `ir_checks.rs`. Running 30+ AOT compilations twice (once per manual test, once via discovery) threatens the mandatory 150s timeout and is WASTE. The discovery runner provides sufficient granularity via per-file pass/fail reporting in `TestSummary`.
 
-- [ ] **Pass `bless` parameter correctly.** The `run_test_directory()` call must pass `bless::is_bless_enabled()` as the third argument, not hardcode `false`.
+- [x] **Pass `bless` parameter correctly.** The `run_test_directory()` call must pass `bless::is_bless_enabled()` as the third argument, not hardcode `false`.
 
-- [ ] **Add tests for the FileCheckStrategy:**
+- [x] **Add tests for the FileCheckStrategy:**
   - `test_filecheck_strategy_selects_exact_when_label_present`
   - `test_filecheck_strategy_selects_matches_when_no_label`
   - `test_filecheck_strategy_discovers_all_codegen_tests`
 
-- [ ] **Subsection close-out (07.1)** — MANDATORY before starting 07.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey for 07.1 specifically: which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where test failures gave unhelpful messages. Implement every accepted improvement NOW and commit each via SEPARATE `/commit-push` using a valid conventional-commit type.
+- [x] **Subsection close-out (07.1)** — MANDATORY before starting 07.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.1: no tooling gaps — trait implementation used standard cargo test/clippy, all sufficient
 
 ---
 
