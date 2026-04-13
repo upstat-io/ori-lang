@@ -57,7 +57,7 @@ Lineage: Lean 4 borrow inference, OxCaml modality.
 | `Affine` | May be dropped without use | Dec may be needed, no inc |
 | `Unrestricted` | Freely copied and dropped | Full RC (inc on copy, dec on drop) |
 
-Order: `Dead < Linear < Affine < Unrestricted`. Join: `max`. Height: 3.
+Partial order: `Dead` and `Linear` are INCOMPARABLE (join = `Affine`); `Affine` and `Unrestricted` are above both. `join(Dead, Linear) = Affine` (conditionally consumed = at-most-once). `join(Dead, Affine) = Affine`. `join(Linear, Affine) = Affine`. `join(X, Unrestricted) = Unrestricted`. Height: 3.
 Lineage: Chirimar et al. (substructural RC), QTT semiring.
 
 ### §1.3 Cardinality — Forward Usage Count
@@ -159,7 +159,7 @@ The product lattice is the primary analysis domain. Two auxiliary side tables ca
 
 #### Borrow Sources (`borrow_sources`)
 
-A sparse map `ArcVarId → BorrowSource` tracking the origin of borrowed projections. Populated by TF-4 (Project): when `dst = src.field`, the map records `dst → BorrowSource { source: src, field: field }`.
+A sparse map `ArcVarId → BorrowSource` tracking the origin of borrowed projections. Populated by TF-4 (Project): when `dst = src.field`, the map records `dst → BorrowSource { source: root(src), field: field }`, where `root(src)` traces through Let Var aliases to find the actual aggregate (matching project_alias_sources Rule 1).
 
 **Join**: borrow sources do NOT join. Each projected variable has exactly one borrow source (set at definition by TF-4). If a variable is defined by a non-Project instruction, it has no borrow source entry.
 
@@ -193,7 +193,7 @@ A function-wide map `ArcVarId → SmallVec<ArcVarId>` tracking transitive aliase
 Jump block1, args=[%4]
 // block1 params: [%5]
 ```
-Maps: `%3 → [%2]`, `%4 → [%2]`, `%5 → [%2]`
+Maps: `%3 → [%2]` (Rule 1), `%4 → [%3, %2]` (Rule 2: [%3] ∪ sources(%3)), `%5 → [%4, %3, %2]` (Rule 3: [%4] ∪ sources(%4))
 
 **Example (nested Projects)**:
 ```
@@ -370,7 +370,7 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 | `Let { value = PrimOp { args } }` | `(arg, Once)` per arg |
 | `Construct { args }` | `(arg, Once)` per arg |
 | `Project { value }` | NONE — IA-5 step (1) transfers demand from dst to source via TF-14 (cardinality + locality). Additional TF-11 demand would double-count (same rationale as Let Var suppression). |
-| `Apply { args }` | `(arg, cardinality=Once, consumption=Linear)` per arg; refined by callee contract (IC-3): Borrowed `Absent` → zero demand; Owned `Absent` → `(arg, Once, Linear)` (ownership transfer to callee for RL-5 dec — NOT zero demand); Owned non-Absent: `arg.locality := max(arg.locality, max(param.locality, ArgEscaping))`, `arg.access := Owned`; Borrowed with `may_share = true`: `arg.uniqueness := MaybeShared` |
+| `Apply { args }` | `(arg, cardinality=Once, consumption=Linear)` per arg; refined by callee contract (IC-3): Borrowed `Absent` → zero demand; Owned `Absent` → `(arg, Once, Linear)` (ownership transfer for RL-5 dec); ALL non-Absent params: `arg.locality := max(arg.locality, param.locality)` (propagate callee's escape scope); Owned non-Absent additionally: `arg.locality := max(arg.locality, ArgEscaping)`, `arg.access := Owned`; Borrowed with `may_share = true`: `arg.uniqueness := MaybeShared` |
 | `ApplyIndirect { closure, args }` | `(closure, Once)`, `(arg, Once)` per arg |
 | `Set { base, value }` | `(base, Once)`, `(value, Once)` |
 | `SetTag { base }` | `(base, Once)` |
@@ -492,7 +492,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 **IA-2** — Blocks SHALL be processed in reverse postorder (successors before predecessors in the backward direction).
 
-**IA-3** — Block exit state = `⊔(successor.entry_states)` using `alt_join` (only one successor executes per dynamic run).
+**IA-3** — Block exit state = `⊔(successor.entry_states)` using `alt_join`. For terminal blocks (no successors — `Return`, `Resume`, `Unreachable`): exit state is seeded from TF-11a terminator demands (e.g., `Return { value }` seeds `(value, Once, Linear)` + IA-6 widening). The backward walk then proceeds from this seed through the block's instructions.
 
 **IA-4** — Cross-block locality widening: variables flowing across block boundaries SHALL have `locality := max(locality, FunctionLocal)`.
 
@@ -609,7 +609,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 ### Stack Promotion
 
-**RL-14** — Non-escaping allocations (`Locality ≤ FunctionLocal ∧ Uniqueness = Unique`) with fixed size SHALL be stack-allocated via `alloca`. No RC header. No RC operations. Stack deallocation at scope exit. The `Uniqueness = Unique` requirement is load-bearing: a `MaybeShared` value that is stack-promoted without a header would crash on `IsShared` (DP-4). **Heap children**: if a headerless stack allocation contains reference-type fields pointing to heap-allocated values, the stack value has no Drop/RC mechanism to release those children. The emission phase SHALL emit explicit `RcDec` for each heap-allocated field at scope exit AND on CFG edges where the parent dies (matching RL-4's edge-specific cleanup). VF-1 exempts these field-drop Project+RcDec sequences from the DecOnBorrowed check.
+**RL-14** — Non-escaping allocations (`Locality ≤ FunctionLocal ∧ Uniqueness = Unique`) with fixed size SHALL be stack-allocated via `alloca`. No RC header. No RC operations. Stack deallocation at scope exit. The `Uniqueness = Unique` requirement is load-bearing: a `MaybeShared` value that is stack-promoted without a header would crash on `IsShared` (DP-4). **Heap children**: if a headerless stack allocation contains OWNED reference-type fields, the emission phase SHALL emit explicit `RcDec` for each Owned field at scope exit AND on CFG edges where the parent dies. Borrowed fields do NOT receive field drops (no RC obligation). VF-1 exempts field-drop Project+RcDec sequences from DecOnBorrowed.
 
 **RL-14a** — Non-escaping fixed-size allocations with `Uniqueness ≠ Unique` (`Locality ≤ FunctionLocal`) SHALL be stack-allocated via `alloca` WITH RC header initialized to `MAX_REFCOUNT` (immortal — prevents free on stack pointer). **Heap children**: field-level `RcDec` at scope exit per RL-14.
 
