@@ -66,6 +66,7 @@ use std::process::Command;
 
 use crate::aot::target::TargetConfig;
 use crate::aot::target_features::TargetTripleComponents;
+use crate::aot::SanitizerMode;
 
 // Error Types
 
@@ -277,6 +278,10 @@ pub struct LinkInput {
     pub extra_args: Vec<String>,
     /// Override the linker flavor.
     pub linker: Option<LinkerFlavor>,
+    /// Sanitizer mode. When enabled, adds `-fsanitize=...` to the linker
+    /// command and forces Clang as the linker driver (GCC and Clang ship
+    /// incompatible sanitizer runtimes).
+    pub sanitizer: SanitizerMode,
 }
 
 // Linker Flavor
