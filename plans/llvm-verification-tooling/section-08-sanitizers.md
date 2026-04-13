@@ -1020,6 +1020,10 @@ When all findings are triaged:
 - [x] `[TPR-08-002-gemini][medium]` `compiler/oric/src/commands/build/single.rs:194` — Hardcoded .o extension overrides user's -o flag.
   Resolved: Fixed on 2026-04-13. Preserves user-specified extension if present, falls back to .o only when no extension.
 
+**Close-out TPR (2026-04-13), iteration 14 (re-review after iter 13 fixes):**
+- [x] `[TPR-08-001-codex][medium]` `compiler/oric/src/commands/run/tests.rs:1` — Missing regression test for compiled-run sanitizer propagation.
+  Resolved: Fixed on 2026-04-13. Added `test_build_optimization_config_reads_sanitizer_env` regression test covering None/address/address+undefined cases. Pins the fix from iter 13.
+
 **Close-out TPR (2026-04-13), iteration 13 (re-review after iter 12 fixes):**
 - [x] `[TPR-08-001-codex][high]` `compiler/oric/src/commands/run/mod.rs:312` — `run_file_compiled` doesn't populate `sanitizer_env` in its `BuildOptions`, silently dropping sanitizers in compiled-run path.
   Resolved: Fixed on 2026-04-13. Passed `sanitizer_env` from `run_file_compiled` through `compile_and_cache` to the `BuildOptions` construction. Regression introduced by iter 12's SSOT refactor.
