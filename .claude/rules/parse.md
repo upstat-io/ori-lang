@@ -373,7 +373,7 @@ Rationale: Lexer-soft keywords balance expressiveness (identifier status preserv
 
 The three paths are mutually exclusive: the first matching lookahead wins.
 
-Source: `ori_parse/src/grammar/expr/operators.rs` — `match_function_exp_kind()`, `is_with_capability_syntax()`.
+Source: `ori_parse/src/grammar/expr/operators.rs` — `match_function_exp_kind()`; `ori_parse/src/cursor/mod.rs` — `is_with_capability_syntax()` (the capability-pattern lookahead lives on `Cursor`).
 
 ---
 
@@ -513,13 +513,13 @@ Inline warnings (e.g., `UnknownCallingConvention` in `grammar/item/extern_def.rs
 
 ### DI-5 — Common Mistake Detection
 
-The parser SHALL detect common mistakes from other languages and provide helpful suggestions:
-- Foreign keywords: `fn` → "use `@` for function declarations", `func` → "use `@`", `function` → "use `@`"
-- Confused operators and syntax patterns
+Foreign-language keyword detection (e.g., `fn`, `func`, `function` → "use `@` for function declarations") is performed by `dispatch.rs` via the `foreign_keywords` module when an unknown identifier appears in declaration position. This is a parser-phase check applied at the top-level dispatch point.
 
 Note: `def` is a valid Ori keyword (used in `def impl` for default trait implementations) and is NOT detected as a foreign-keyword mistake.
 
-Source: `ori_parse/src/error/mistakes.rs`.
+Lexer-level mistake detection (e.g., triple-equals `===`, single-quote strings, increment operators) is a LEXER responsibility and produces errors in the `E0xxx` range. The `ori_parse/src/error/mistakes.rs` module provides `ParseError::from_error_token()` to convert `TokenKind::Error` tokens into parser-side diagnostics; this path is rarely used because lex errors are already surfaced by the lexer.
+
+Source: `ori_parse/src/dispatch.rs` (foreign-keyword dispatch), `ori_parse/src/foreign_keywords/mod.rs` (keyword table), `ori_lexer/` (lex-level mistake detection — `E0xxx` codes).
 
 ### DI-6 — Error Context Wrapping
 
@@ -555,7 +555,7 @@ Source: `ori_parse/src/dispatch.rs`, `ori_parse/src/module_parse.rs`.
 | `use` / `pub use` | Import statement |
 | `extension` / `pub extension` | Extension import |
 
-**Stage 2 — Declaration Dispatch** (`dispatch_declaration()` in `dispatch.rs`): handles actual declarations after imports complete. Processes:
+**Stage 2 — Declaration Dispatch** (`dispatch_declaration()` in `dispatch.rs`): handles actual declarations after imports complete. Preprocessing in `module_parse.rs` parses any leading attributes (`#...`) and consumes any leading `pub` token BEFORE calling `dispatch_declaration()`. `dispatch_declaration()` itself dispatches on the tokens below:
 
 | Leading Token(s) | Declaration |
 |-------------------|-------------|
@@ -563,14 +563,12 @@ Source: `ori_parse/src/dispatch.rs`, `ori_parse/src/module_parse.rs`.
 | `type` | Type declaration (struct, enum, newtype) |
 | `trait` | Trait definition |
 | `impl` | Impl block |
-| `def` | Default impl (`def impl`) |
-| `pub` | Public declaration (any of the above) |
+| `def impl` | Default impl (requires `impl` after `def`) |
 | `let $` or bare `$` | Module-level constant |
 | `extend` | Extension block |
 | `extern` | FFI declaration block |
-| Attributes (`#`) | Parsed first, then attached to the following declaration |
 
-The two-stage structure enforces import ordering (imports SHALL precede declarations). Attribute applicability (declaration-kind checks) is performed in `dispatch.rs` during stage 2.
+The two-stage structure enforces import ordering (imports SHALL precede declarations). Attributes and `pub` visibility are handled in `module_parse.rs` preprocessing; attribute applicability (declaration-kind checks) is enforced in `dispatch.rs` during stage 2.
 
 ### DD-2 — Semicolon Rule
 
