@@ -252,12 +252,18 @@ fn link_and_finish(
         }
     };
 
-    // Validate ASan runtime availability when sanitizers request address sanitization
-    if sanitizer.address && !runtime_config.has_asan_variant() {
+    // Validate ASan runtime availability via canonical RuntimeConfig method
+    if let Err(e) = runtime_config.validate_sanitizer(sanitizer) {
         eprintln!(
-            "error: ORI_SANITIZE=address is set but {} was not found in {}.",
-            ori_llvm::aot::RuntimeConfig::lib_name_asan(),
-            runtime_config.library_path.display(),
+            "error: ORI_SANITIZE=address is set but the ASan-instrumented runtime was not found."
+        );
+        eprintln!(
+            "  Searched: {}",
+            e.searched_paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
         eprintln!("Without ASan-instrumented ori_rt, memory bugs in RC operations and containers");
         eprintln!("will NOT be detected — defeating the primary goal of sanitizer integration.");

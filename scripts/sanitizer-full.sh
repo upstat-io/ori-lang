@@ -92,11 +92,13 @@ for (( i=START; i<END; i++ )); do
             head -5 "$TMPDIR/stderr_$name" >&2
             FAIL_COUNT=$((FAIL_COUNT + 1))
         elif [ $exit_code -eq 127 ]; then
-            # Exit 127 = command not found / no entry point
+            # Exit 127 = command not found / no entry point — skip
             SKIP_COUNT=$((SKIP_COUNT + 1))
         else
-            # Non-zero but no sanitizer report — likely assertion failure or missing @main
-            SKIP_COUNT=$((SKIP_COUNT + 1))
+            # Non-zero exit without sanitizer report — real test failure (assertion or crash).
+            # Treat as failure, not skip, to catch regressions from sanitizer integration.
+            echo "FAIL (runtime): $test_file (exit $exit_code)"
+            FAIL_COUNT=$((FAIL_COUNT + 1))
         fi
     fi
     rm -f "$TMPDIR/stderr_$name"

@@ -167,8 +167,9 @@ impl LinkerDriver {
                 } else if self.target.is_wasm() {
                     LinkerImpl::Wasm(WasmLinker::new(&self.target))
                 } else {
-                    // Use clang with -fuse-ld=lld
-                    let mut gcc = GccLinker::with_path(&self.target, "clang");
+                    // Use clang with -fuse-ld=lld (supports versioned Clang)
+                    let clang_bin = super::super::passes::find_clang().unwrap_or("clang");
+                    let mut gcc = GccLinker::with_path(&self.target, clang_bin);
                     gcc.cmd().arg("-fuse-ld=lld");
                     LinkerImpl::Gcc(gcc)
                 }
