@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use super::sanitizer::SanitizerMode;
+
 /// Optimization level for the pass pipeline.
 ///
 /// These map directly to LLVM's `OptimizationLevel` enum and the
@@ -179,74 +181,6 @@ impl fmt::Display for LtoMode {
             Self::Off => write!(f, "off"),
             Self::Thin => write!(f, "thin"),
             Self::Full => write!(f, "full"),
-        }
-    }
-}
-
-/// Sanitizer instrumentation modes for generated code.
-///
-/// Controls which sanitizer passes are applied (via Clang delegation)
-/// and which sanitizer runtime libraries are linked.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SanitizerMode {
-    /// `AddressSanitizer`: use-after-free, buffer overflow, stack overflow.
-    pub address: bool,
-    /// `UndefinedBehaviorSanitizer`: signed overflow, null deref, misaligned access.
-    pub undefined: bool,
-}
-
-impl SanitizerMode {
-    /// No sanitizers (default).
-    pub const NONE: Self = Self {
-        address: false,
-        undefined: false,
-    };
-
-    /// Parse from `ORI_SANITIZE` env var value.
-    ///
-    /// Format: comma-separated list of `"address"`, `"undefined"`.
-    /// Example: `"address,undefined"` or `"address"` or `"undefined"`.
-    /// Unknown sanitizer names are logged as warnings and ignored.
-    pub fn from_env_value(value: &str) -> Self {
-        let mut mode = Self::NONE;
-        for part in value.split(',') {
-            match part.trim() {
-                "address" => mode.address = true,
-                "undefined" => mode.undefined = true,
-                other if !other.is_empty() => {
-                    tracing::warn!(
-                        sanitizer = other,
-                        "unknown sanitizer in ORI_SANITIZE, ignoring"
-                    );
-                }
-                _ => {}
-            }
-        }
-        mode
-    }
-
-    /// Whether any sanitizer is enabled.
-    #[must_use]
-    pub fn any_enabled(&self) -> bool {
-        self.address || self.undefined
-    }
-
-    /// Return the Clang-compatible `-fsanitize=...` flag value.
-    ///
-    /// Returns `None` if no sanitizers are enabled.
-    #[must_use]
-    pub fn clang_flag_value(&self) -> Option<String> {
-        let mut parts = Vec::new();
-        if self.address {
-            parts.push("address");
-        }
-        if self.undefined {
-            parts.push("undefined");
-        }
-        if parts.is_empty() {
-            None
-        } else {
-            Some(parts.join(","))
         }
     }
 }
