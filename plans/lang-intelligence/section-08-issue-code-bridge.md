@@ -21,7 +21,7 @@ sections:
     status: complete
   - id: "08.1"
     title: "Code Reference Extraction"
-    status: not-started
+    status: complete
   - id: "08.2"
     title: "Reference Resolution"
     status: not-started
@@ -201,17 +201,17 @@ For comments and reviews, `source_key` is the `github_id` string:
 }
 ```
 
-- [ ] Implement regex extractors for each pattern type (file paths, backticks, qualified names, line refs, code blocks)
-- [ ] Implement stop-word/keyword filter for backtick extraction
-- [ ] Read issue/comment/review bodies from Neo4j (batch query, not per-node)
-- [ ] Emit one JSONL record per occurrence (no deduplication at this stage)
-- [ ] Include `body_offset` for each occurrence
-- [ ] Include `source_type` and `source_key` for provenance (issues: `"{repo}/{number}"`, comments/reviews: `"{github_id}"`)
-- [ ] Handle edge cases: nested backticks, backticks in code blocks, escaped backticks
-- [ ] Test: run on gleam repo issues and verify extraction count is reasonable (not 0, not 100K per issue)
-- [ ] Test: verify stop-word filter removes `true`, `false`, `self`, single-letter identifiers
-- [ ] Test: verify file path regex does not match URLs (e.g., `https://github.com/...`)
-- [ ] Create `~/projects/lang_intelligence/tests/test_extract_code_refs.py` with unit tests: pattern accuracy per type, stop-word filtering, URL rejection, nested backticks, fenced code block handling
+- [x] Implement regex extractors for each pattern type (file paths, backticks, qualified names, line refs, code blocks)
+- [x] Implement stop-word/keyword filter for backtick extraction
+- [x] Read issue/comment/review bodies from Neo4j (batch query, not per-node)
+- [x] Emit one JSONL record per occurrence (no deduplication at this stage)
+- [x] Include `body_offset` for each occurrence
+- [x] Include `source_type` and `source_key` for provenance (issues: `"{repo}/{number}"`, comments/reviews: `"{github_id}"`)
+- [x] Handle edge cases: nested backticks, backticks in code blocks, escaped backticks
+- [x] Test: run on gleam repo issues and verify extraction count is reasonable (not 0, not 100K per issue) — gleam: 8471 refs from 4802 sources
+- [x] Test: verify stop-word filter removes `true`, `false`, `self`, single-letter identifiers — 32 unit tests pass
+- [x] Test: verify file path regex does not match URLs (e.g., `https://github.com/...`) — TestFilePathExtraction::test_url_not_matched_as_file_path
+- [x] Create `~/projects/lang_intelligence/tests/test_extract_code_refs.py` with unit tests: pattern accuracy per type, stop-word filtering, URL rejection, nested backticks, fenced code block handling — 32 tests
 
 ### Subsection 08.1 close-out
 **`/improve-tooling` retrospective**: Were the regex patterns accurate? High false positive rate? Any common patterns missed? Is the stop-word list sufficient or too aggressive?
