@@ -2,7 +2,7 @@
 section: "07"
 title: "FileCheck-Style IR Pattern Matching"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Expand the existing FileCheck IR assertion framework in compiler/ori_llvm/tests/ to >=30 directive-based tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns — using .exact mode with function-scoped IR slicing (via extract_function_ir) for all order-sensitive categories, fixing known harness bugs, and splitting the over-limit aot.rs helper file"
 success_criteria:
   - "compiler/ori_llvm/tests/codegen/ contains >=30 FileCheck-style tests with // CHECK: directives"
