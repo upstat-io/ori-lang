@@ -44,7 +44,7 @@ This follows the SSOT principle from `.claude/rules/impl-hygiene.md`: "every beh
 
 **Output contract (canonical — all references in this plan MUST match):**
 - Default format: **JSON** (for machine consumption by skills and rules)
-- `--human` flag: **raw text** output for direct human consumption — NOT JSON. Skills NEVER pass `--human`; it is for interactive use only.
+- `--human` flag: **raw text** output for human-readable display — NOT JSON. Skills use `--human` when query results will be held in Claude's conversation context (Tier 1+2 integrations per Sections 03-04). Interactive CLI use also passes `--human`.
 - On success: `{"status":"ok","data":...}` to stdout, exit 0
 - On unavailable: `{"status":"unavailable","reason":"<reason>"}` to stdout, exit 0
 - Diagnostic/debug messages: stderr only, never stdout
@@ -76,7 +76,7 @@ Output (default JSON):
   On unavailable: {"status":"unavailable","reason":"..."} to stdout
   Diagnostic messages to stderr only
 
-  --human: raw text output (NOT JSON) — human consumption only; skills never pass this flag
+  --human: raw text output (NOT JSON) — for conversation context and interactive display
 
 Flags:
   --human   Switch to human-readable display format
