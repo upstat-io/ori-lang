@@ -110,7 +110,7 @@ This gives you all existing scenarios and which ones have results files.
 5. **When a feature area fails to compile**: Try a DIFFERENT feature area. Do NOT get stuck on one broken area.
 
 ### Intelligence map for the journey (CONDITIONAL)
-If the intelligence graph is available:
+If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`):
 1. Run `scripts/intel-query.sh --human symbols "<feature keyword>" --repo ori --limit 15`
 2. Run `scripts/intel-query.sh --human callers "<main exercised symbol>" --repo ori` and `callees`
 3. Run `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5`

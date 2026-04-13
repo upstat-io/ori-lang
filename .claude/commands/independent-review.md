@@ -218,7 +218,7 @@ For EACH finding from the previous reviewer:
 
 ### Phase B: Expand Search
 
-Before manual adjacency reading, use the intelligence graph:
+Before manual adjacency reading, if the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`), use it:
 - `scripts/intel-query.sh --human file-symbols "<changed path>" --repo ori` for module inventory
 - `scripts/intel-query.sh --human callers "<affected symbol>" --repo ori` and `callees` for call graph
 - `scripts/intel-query.sh --human similar "<affected symbol>" --repo rust,swift,go --limit 5` for prior-art validation

@@ -95,6 +95,13 @@ Search `docs/ori_lang/proposals/approved/` for conflicts:
 
 If conflicts found, present each and ask user to resolve via `AskUserQuestion`.
 
+### CONDITIONAL: Intelligence Prior Art for Review
+If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`):
+1. Run `scripts/intel-query.sh --human symbols "<proposal topic>" --repo ori --limit 15` to map existing Ori surface
+2. Run `scripts/intel-query.sh --human similar "<proposed feature concept>" --repo rust,swift,go --limit 5` to find cross-repo equivalents
+3. Use results to enrich the Conflict Check (existing symbol collisions) and Purity Analysis (reference implementations).
+If unavailable, skip silently.
+
 ---
 
 ## Phase 3: Recommendation
