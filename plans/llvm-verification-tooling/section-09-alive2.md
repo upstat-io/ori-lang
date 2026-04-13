@@ -109,12 +109,14 @@ Alive2 tracks LLVM top-of-tree and may not build against a specific LLVM release
     # Dynamic Z3 + LLVM discovery — works on Ubuntu, Debian, macOS (Homebrew), etc.
     # CMake's FindZ3 module (Alive2 uses find_package(Z3 4.8.5 REQUIRED))
     # handles platform-specific library paths when CMAKE_PREFIX_PATH is set.
-    cmake -GNinja \
+    # Use modern cmake -B/-S for explicit out-of-source build.
+    # The CI cache path (build/alive2/alive-tv) must match this layout.
+    cmake -B build -S . -GNinja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_PREFIX_PATH="$(llvm-config --prefix)" \
-      -DBUILD_TV=ON \
-      ..
-    ninja alive-tv
+      -DBUILD_TV=ON
+    ninja -C build alive-tv
+    # Binary is at: build/alive-tv (relative to Alive2 checkout root)
     ```
     Note: Do NOT pass `-DZ3_INCLUDE_DIR` or `-DZ3_LIBRARIES` with hardcoded paths — this breaks macOS and non-Debian Linux. CMake's `FindZ3` discovers Z3 automatically. If Z3 is in a non-standard location, pass its prefix via `CMAKE_PREFIX_PATH` alongside LLVM's.
     **WHERE:** `scripts/build-alive2.sh` (new file)
@@ -232,12 +234,15 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
           // like traits.ori, collections.ori across different directories)
           let dir = Path::new("build/alive2-results");
           std::fs::create_dir_all(dir).ok();
-          // Sanitize repo-relative path: replace / with _ to create flat unique names
+          // Sanitize repo-relative path: strip extension safely, then replace / with _
           // e.g., "tests/spec/traits/iterator/map.ori" -> "tests_spec_traits_iterator_map"
-          let sanitized = source_path
+          // Use Path::with_extension("") to strip only the trailing extension — do NOT
+          // use .replace(".ori", "") which corrupts paths containing ".ori" in directory
+          // names (e.g., "tests/spec/ori_rc/basic.ori" would lose "ori_" → collision)
+          let without_ext = Path::new(source_path).with_extension("");
+          let sanitized = without_ext.to_str().unwrap_or(source_path)
               .trim_start_matches("./")
-              .replace('/', "_")
-              .replace(".ori", "");
+              .replace('/', "_");
           dir.join(format!("{sanitized}{suffix}"))
       } else {
           // Alongside the source file
@@ -283,8 +288,11 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
   ```
   **WHERE:** `compiler/oric/src/commands/build/single.rs` — at the existing `verify_optimize_emit` call site.
 
-- [ ] Apply the same hook wiring to `compiler/oric/src/commands/build/multi_emission.rs`. Same `CaptureHooks` construction pattern.
-  **WHERE:** `compiler/oric/src/commands/build/multi_emission.rs` — at the `verify_optimize_emit` call site.
+- [ ] Apply the same hook wiring to `compiler/oric/src/commands/build/multi_emission.rs`. Note: the multi-file path calls `emit_module_artifact(ctx, llvm_module, module_name)` which does not currently receive the source file path. Thread `source_path` from `compile_single_module(...)` (one layer up) into `emit_module_artifact` so that `capture_path()` can encode the repo-relative path for collision-free filenames. Without this, the multi-file capture cannot produce unique artifact names per the iteration-3 invariant.
+  **WHERE:** `compiler/oric/src/commands/build/multi_emission.rs` — at the `verify_optimize_emit` call site and the `emit_module_artifact` signature.
+
+- [ ] Re-export `CaptureHooks` from `ori_llvm::aot` (via `compiler/ori_llvm/src/aot/mod.rs`) so `oric` can import it without reaching into `ori_llvm::aot::object` directly. This follows the existing pattern where `ObjectEmitter` and `OutputFormat` are already re-exported from `ori_llvm::aot`.
+  **WHERE:** `compiler/ori_llvm/src/aot/mod.rs` — add `pub use object::CaptureHooks;`
 
 - [ ] Update all other callers of `verify_optimize_emit` (if any) to pass `CaptureHooks::default()`. Grep for `verify_optimize_emit` across the codebase to find all call sites.
 
@@ -422,6 +430,16 @@ Alive2 will produce false positives for Ori programs because it conservatively a
 **File(s):** `.github/workflows/nightly-verification.yml` (existing workflow — extend, do not create new)
 
 Wire alive-tv into CI with tiered execution: nightly runs the curated corpus (fast, high-value), weekly runs the full FileCheck test set (slow, comprehensive). The existing `nightly-verification.yml` already handles sanitizer smoke and full sweep jobs (added in Section 08). Alive2 jobs are added to this existing workflow.
+
+- [ ] Update `nightly-verification.yml`'s `pull_request.paths` to include Alive2-owned files so that changes to Alive2 tooling trigger PR validation:
+  ```yaml
+  paths:
+    # ... existing paths (compiler/**, library/**, tests/sanitizer/**, etc.)
+    - scripts/build-alive2.sh
+    - diagnostics/alive2-verify.sh
+    - tests/alive2/**
+  ```
+  **WHERE:** `.github/workflows/nightly-verification.yml` — in the existing `on.pull_request.paths` block.
 
 - [ ] Add nightly CI job `alive2-curated` to the existing `.github/workflows/nightly-verification.yml`:
   ```yaml
@@ -637,6 +655,17 @@ When all findings are triaged:
   Resolved: Fixed on 2026-04-13 (iter 3). Removed noinline corpus metadata entirely; corpus entries must naturally survive -O2. --check-survival is the enforcement mechanism. Simplest correct design — no phantom transport needed.
 - [x] `[TPR-09-012-codex][medium]` `section-09-alive2.md:233` — Duplicate basenames in build/alive2-results/ from different directories.
   Resolved: Fixed on 2026-04-13 (iter 3). Changed capture_path() to encode repo-relative path (/ -> _) for guaranteed uniqueness.
+
+**Iteration 4 findings (all resolved):**
+
+- [x] `[TPR-09-013-codex][medium]` `section-09-alive2.md:286` — Multi-file capture needs source_path threading + CaptureHooks re-export.
+  Resolved: Fixed on 2026-04-13 (iter 4). Added source_path threading to emit_module_artifact and CaptureHooks re-export via ori_llvm::aot.
+- [x] `[TPR-09-014-codex][medium]` `section-09-alive2.md:426` — Nightly workflow missing Alive2 path filters for PR triggers.
+  Resolved: Fixed on 2026-04-13 (iter 4). Added PR path filter update task for build-alive2.sh, alive2-verify.sh, tests/alive2/**.
+- [x] `[TPR-09-013-gemini][high]` `section-09-alive2.md:210` — .replace(".ori","") corrupts paths with .ori in directory names.
+  Resolved: Fixed on 2026-04-13 (iter 4). Changed to Path::with_extension("") for safe suffix-only stripping.
+- [x] `[TPR-09-014-gemini][medium]` `section-09-alive2.md:115` — cmake missing explicit build directory (in-source build fails).
+  Resolved: Fixed on 2026-04-13 (iter 4). Changed to `cmake -B build -S .` with `ninja -C build` for modern out-of-source build.
 
 ---
 
