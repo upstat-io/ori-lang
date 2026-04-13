@@ -334,13 +334,10 @@ fn compile_and_cache(
         }
     };
 
-    // Validate ASan runtime availability
-    if opt_config.sanitizer.address && !runtime_config.has_asan_variant() {
+    if let Err(e) = runtime_config.validate_sanitizer(&opt_config.sanitizer) {
         eprintln!(
-            "error: ORI_SANITIZE=address is set but {} was not found.",
-            ori_llvm::aot::RuntimeConfig::lib_name_asan(),
+            "error: {e}\nRun `./scripts/build-rt-asan.sh` to build the ASan-instrumented runtime."
         );
-        eprintln!("Run `./scripts/build-rt-asan.sh` to build the ASan-instrumented runtime.");
         std::process::exit(1);
     }
 
