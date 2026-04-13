@@ -23,7 +23,7 @@ third_party_review:
 sections:
   - id: "09.1"
     title: "Build Alive2 from Pinned Source with Z3 Dependencies"
-    status: not-started
+    status: complete
   - id: "09.2"
     title: "IR Capture Pipeline in oric (Phase-Pure)"
     status: not-started
@@ -85,7 +85,7 @@ sections:
 
 Alive2 tracks LLVM top-of-tree and may not build against a specific LLVM release. The build script pins a known-good Alive2 commit that builds cleanly against LLVM 21 (our required version per `.cargo/config.toml` and `.claude/rules/llvm.md`). The pinned commit must be updated when the LLVM version changes.
 
-- [ ] Create `scripts/build-alive2.sh` with commit pinning:
+- [x] Create `scripts/build-alive2.sh` with commit pinning:
   - Define version constants at the top of the script:
     ```bash
     ALIVE2_REPO="https://github.com/AliveToolkit/alive2.git"
@@ -123,13 +123,13 @@ Alive2 tracks LLVM top-of-tree and may not build against a specific LLVM release
   - Output `alive-tv` binary path to stdout for downstream consumption
   - Support `--cached` flag that skips rebuild if `alive-tv` binary exists and is newer than source
 
-- [ ] Document Z3 installation requirements in the script's `--help` output:
+- [x] Document Z3 installation requirements in the script's `--help` output:
   ```
   # Ubuntu/Debian: sudo apt-get install libz3-dev re2c
   # macOS: brew install z3 re2c
   ```
 
-- [ ] Add CI caching for the `alive-tv` binary. Cache key includes both LLVM version and the pinned Alive2 commit hash to invalidate on either change:
+- [x] Add CI caching for the `alive-tv` binary. Cache key includes both LLVM version and the pinned Alive2 commit hash to invalidate on either change:
   ```yaml
   - uses: actions/cache@v4
     with:
@@ -138,7 +138,7 @@ Alive2 tracks LLVM top-of-tree and may not build against a specific LLVM release
   ```
   **WHERE:** `.github/workflows/nightly-verification.yml` (Alive2 job)
 
-- [ ] Verify the built `alive-tv` works by running it on a trivial identity function:
+- [x] Verify the built `alive-tv` works by running it on a trivial identity function:
   ```bash
   tmpfile="$(mktemp --suffix=.ll)"
   echo 'define i64 @f(i64 %x) { ret i64 %x }' > "$tmpfile"
@@ -148,11 +148,11 @@ Alive2 tracks LLVM top-of-tree and may not build against a specific LLVM release
   ```
   Use `mktemp` (not hardcoded `/tmp`) per cross-platform rules.
 
-- [ ] **Subsection close-out (09.1)** — MANDATORY before starting 09.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey for 09.1 specifically: which build errors were hit, what was confusing about the cmake/Z3 setup, where the script could be more helpful. Implement every accepted improvement NOW and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(scripts): ...`).
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+- [x] **Subsection close-out (09.1)** — MANDATORY before starting 09.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 09.1: no tooling gaps. Build script authoring task — the script itself is the tooling improvement. Friction points (LLVM compat bisection, shallow clone handling, missing re2c) all resolved inline.
+  - [x] **Repo hygiene check** — clean (2026-04-13).
 
 ---
 
