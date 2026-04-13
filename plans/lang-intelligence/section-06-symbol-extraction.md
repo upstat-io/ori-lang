@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Code Graph: Symbol Extraction"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Extract structural symbols (Module, Function, Struct, Trait, Method) and relationships (CALLS, IMPORTS, IMPLEMENTS) from tree-sitter ASTs into a normalized intermediate format."
 success_criteria:
@@ -41,7 +41,7 @@ sections:
     status: complete
   - id: "06.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # 06 Code Graph: Symbol Extraction
