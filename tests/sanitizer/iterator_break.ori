@@ -1,0 +1,13 @@
+// Sanitizer smoke: Early iterator termination — partial iteration + cleanup.
+// Breaking mid-iteration must correctly drop the iterator state.
+
+@main () -> int = {
+    let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let sum = 0;
+    for x in items do {
+        if x > 5 then break;
+        sum = sum + x
+    };
+    // 1 + 2 + 3 + 4 + 5 = 15
+    if sum == 15 then 0 else 1
+}

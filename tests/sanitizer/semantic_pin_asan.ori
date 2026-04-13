@@ -1,0 +1,16 @@
+// Semantic pin: detects a heap-use-after-free WITH sanitizers that is silent WITHOUT.
+//
+// This program calls a C helper function that deliberately reads from freed memory.
+// - WITHOUT sanitizers: exits cleanly (0) — freed memory not yet reclaimed by OS.
+// - WITH ASan: crashes with "heap-use-after-free" — ASan quarantines freed memory.
+//
+// The C helper (pin_helper.c) is compiled and linked by sanitizer-smoke.sh.
+// This test validates that the sanitizer pipeline detects real memory errors.
+
+extern "c" from "pin_helper" {
+    @_trigger_use_after_free () -> int as "trigger_use_after_free"
+}
+
+@main () -> int = {
+    _trigger_use_after_free()
+}

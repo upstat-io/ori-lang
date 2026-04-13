@@ -111,7 +111,7 @@ If any check fails, output the unavailable JSON and exit 0. The caller never see
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.1: no tooling gaps. Script gives clear JSON/text output on every failure path. Availability check sequence is straightforward (5 steps, cheapest first). Timeout handling via shell `timeout` is debuggable. No ori_lang diagnostic/testing tooling exercised.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Clean (2026-04-13).
 
 ---
 
@@ -144,7 +144,7 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.2: no tooling gaps. Work was entirely Python changes in an external project (`~/projects/lang_intelligence/`). Ori compiler tooling (diagnostics, test harness, scripts) was not exercised. No improvements needed.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Clean (2026-04-13).
 
 ---
 

@@ -1,0 +1,12 @@
+// Sanitizer smoke: Iterator create/next/drop — full iteration lifecycle.
+// Tests complete iteration through a collection via for...do.
+
+@main () -> int = {
+    let items = [10, 20, 30, 40, 50];
+    let sum = 0;
+    for x in items do {
+        sum = sum + x
+    };
+    // 10 + 20 + 30 + 40 + 50 = 150
+    if sum == 150 then 0 else 1
+}
