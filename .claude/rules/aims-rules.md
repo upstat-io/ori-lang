@@ -370,7 +370,7 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 | `Let { value = PrimOp { args } }` | `(arg, Once)` per arg |
 | `Construct { args }` | `(arg, Once)` per arg |
 | `Project { value }` | NONE — IA-5 step (1) transfers demand from dst to source via TF-14 (cardinality + locality). Additional TF-11 demand would double-count (same rationale as Let Var suppression). |
-| `Apply { args }` | `(arg, cardinality=Once, consumption=Linear)` per arg; refined by callee contract (IC-3): Borrowed `Absent` → zero demand; Owned `Absent` → `(arg, Once, Linear)` (ownership transfer for RL-5 dec); ALL non-Absent params: `arg.locality := max(arg.locality, param.locality)` (propagate callee's escape scope); Owned non-Absent additionally: `arg.locality := max(arg.locality, ArgEscaping)`, `arg.access := Owned`; Borrowed with `may_share = true`: `arg.uniqueness := MaybeShared` |
+| `Apply { args }` | `(arg, cardinality=Once, consumption=Linear)` per arg; refined by callee contract (IC-3): Borrowed `Absent` → zero demand; Owned `Absent` → `(arg, Once, Linear)` (ownership transfer for RL-5 dec); ALL non-Absent params: `arg.locality := max(arg.locality, param.locality)`; ALL Owned params (including Absent): `arg.locality := max(arg.locality, ArgEscaping)`, `arg.access := Owned` (Owned Absent still needs header for RL-5 dec); Borrowed with `may_share = true`: `arg.uniqueness := MaybeShared` |
 | `ApplyIndirect { closure, args }` | `(closure, Once)`, `(arg, Once)` per arg |
 | `Set { base, value }` | `(base, Once)`, `(value, Once)` |
 | `SetTag { base }` | `(base, Once)` |
