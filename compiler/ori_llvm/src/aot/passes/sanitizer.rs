@@ -17,10 +17,11 @@ use super::OptimizationError;
 /// Candidates for the Clang binary, tried in order.
 ///
 /// On many Linux distributions (Debian, Ubuntu), versioned packages like
-/// `clang-21` don't create the unversioned `clang` symlink. We try the
-/// generic name first, then versioned names from newest to oldest.
+/// `clang-21` don't create the unversioned `clang` symlink. Prefer the
+/// LLVM-21-matched binary first to avoid version drift with the backend,
+/// then fall back to newer/older versioned names and the generic symlink.
 const CLANG_CANDIDATES: &[&str] = &[
-    "clang", "clang-21", "clang-20", "clang-19", "clang-18", "clang-17",
+    "clang-21", "clang-20", "clang-19", "clang-18", "clang-17", "clang",
 ];
 
 /// Cached result of Clang binary detection.
