@@ -99,11 +99,13 @@ Rationale: Scoped modification guarantees that context is restored after parsing
 
 ### CF-3 — NO_STRUCT_LIT in Conditions
 
-`NO_STRUCT_LIT` SHALL be set when parsing the condition of `if` (shipped) and any future control-flow construct where a `{` after the condition would be ambiguous with a block body. Without this flag, the parser would greedily consume `if Point { x, y } { body }` as `if <struct Point { x, y }>` — leaving the trailing `{ body }` unmatched as a block. With the flag set, the struct literal parse is suppressed, so `Point` becomes the condition and `{ x, y }` becomes the `if` block body.
+`NO_STRUCT_LIT` SHALL be set when parsing the condition of `if` (shipped) and any future control-flow construct where a struct literal inside the condition would complicate parsing.
+
+Ori's actual `if` syntax uses the `then` keyword (`if cond then expr else expr`) — `parse_if_expr_body()` explicitly calls `cursor.expect(&TokenKind::Then)` after the condition. So the ambiguity between struct literal and block body does not actually bite in the shipped syntax. The `NO_STRUCT_LIT` flag is retained as a consistency / forward-compatibility measure: disallowing struct literals in condition position keeps the grammar predictable and future-safe (e.g., for `while` conditions that may not have a `then` delimiter).
 
 Note: `while` (target-only) is spec'd to use the same mechanism. The parser does not currently have a `while` production — when it ships, it will follow the same `NO_STRUCT_LIT` discipline as `if`.
 
-Spec: `grammar.ebnf` — `if_expr` (shipped), `while_expr` (target-only).
+Spec: `grammar.ebnf` — `if_expr` (shipped, uses `then`), `while_expr` (target-only).
 
 ### CF-4 — PIPE_IS_SEPARATOR in Contracts
 
@@ -484,7 +486,7 @@ Parse errors SHALL be structured `ParseError` values carrying:
 
 ### DI-2 — Error Code Stability
 
-Parser error codes live in the **`E1xxx`** range per the diagnostic namespace allocation in `ori_diagnostic/src/error_code/mod.rs` (`E0xxx` = lexer errors, `E1xxx` = parser errors, `E2xxx` = semantic/type errors). Once assigned, a code SHALL NOT be reused or change meaning. Tests SHOULD assert on error codes, not exact message text.
+Parser error codes live in the **`E1xxx`** range per the diagnostic namespace allocation in `ori_diagnostic/src/error_code/mod.rs` (`E0xxx` = lexer errors, `E1xxx` = parser errors, `E2xxx` = type errors, `E3xxx` = pattern errors). Once assigned, a code SHALL NOT be reused or change meaning. Tests SHOULD assert on error codes, not exact message text.
 
 Rationale: Per `impl-hygiene.md` §Error Handling: "Error codes are stable API: once assigned, never reuse or change meaning." Per-phase namespace allocation prevents cross-phase collision.
 
@@ -557,13 +559,18 @@ The module parser SHALL loop over the token stream, dispatching to declaration p
 | `extension` | Extension import |
 | Attributes (`#`) | Parsed first, then attached to the following declaration |
 
-The dispatch module also performs declaration-level validation: import ordering, attribute applicability, and section constraints.
+The dispatch module also performs declaration-level validation: import ordering (imports must come before other declarations in `module_parse.rs`) and attribute applicability (declaration-kind checks in `dispatch.rs`).
 
 ### DD-2 — Semicolon Rule
 
-Declarations follow the Ori semicolon rule: if the declaration body ends with `}`, no semicolon is needed. For other declarations (imports, constants, extension imports), the parser accepts semicolons but treats them as optional via `eat_optional_semicolon()` in `dispatch.rs`. This means the parser is more lenient than the spec's strict grammar — semicolons are consumed when present but not required for all non-block declarations in practice.
+Declarations follow the Ori semicolon rule: if the declaration body ends with `}`, no semicolon is needed. Two distinct helpers in `dispatch.rs` handle the other cases:
 
-Spec: `grammar.ebnf` — semicolon rules per declaration kind (canonical grammar is stricter than the parser's accepted surface).
+- **`eat_optional_semicolon()`**: used for imports, module-level constants, extension imports, and similar declarations where the terminating `;` is accepted but not required.
+- **`eat_optional_item_semicolon()`**: used for expression-bodied items (functions, tests, methods). If the body is a non-block expression and `;` is missing, the parser emits error `E1016`.
+
+The two helpers encode the spec's intent: block-bodied items need no terminator, non-block expression-bodied items require one, and some module-level declarations accept either form.
+
+Spec: `grammar.ebnf` — semicolon rules per declaration kind.
 
 ### DD-3 — Attribute Attachment
 
