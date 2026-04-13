@@ -1,7 +1,7 @@
 ---
 section: "10"
 title: "Sentiment & Issue Signals"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Enrich the intelligence graph with per-emoji reaction data and materialized sentiment metrics so that design decisions, bug fixes, and reviews are informed by cross-language user pain, excitement, and controversy signals."
 success_criteria:
@@ -24,16 +24,16 @@ third_party_review:
 sections:
   - id: "10.1"
     title: "Schema Extension & Reaction Import"
-    status: not-started
+    status: in-progress
   - id: "10.2"
     title: "Materialized Sentiment Metrics"
-    status: not-started
+    status: in-progress
   - id: "10.3"
     title: "Query Commands & Output Formatting"
-    status: not-started
+    status: in-progress
   - id: "10.4"
     title: "Ori Presets & Integration Verification"
-    status: not-started
+    status: in-progress
   - id: "10.R"
     title: "Third Party Review Findings"
     status: not-started
