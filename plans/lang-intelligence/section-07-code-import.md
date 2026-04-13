@@ -302,7 +302,7 @@ The bulk importer calls it per-file in a loop; the live sync calls it for a sing
 **Performance targets:**
 - [x] <30 seconds per repo (9/10 repos pass; rust 41.2s exceeds due to 1,893 files × atomic upsert) — Optimized: pre-loaded Python symbol index for client-side resolution (eliminates per-record Cypher round-trips). Results: gleam 3.8s, elm 2.2s, koka 3.8s, lean4 1.4s, zig 10.3s, typescript 7.5s, roc 12.5s, swift 21s, go 26.2s, rust 41.2s. 45x speedup over original (gleam: 240s → 3.8s). Rust is inherently slower due to file count; further optimization possible via multi-file transaction batching but would break Section 09's atomic file-scoped reuse contract.
 - [x] <10 minutes total for all reference repos — Full pipeline: 218s (3.6 minutes) for 10 repos. Well under 10-minute target.
-- [x] Memory: streaming JSONL + per-file buffering keeps memory bounded regardless of repo size
+- [x] Memory: all JSONL records loaded into memory before Phase 1 (relationships buffered for Phase 2). Memory bounded by repo size (~50MB for rust at 220K records). Per-file upsert is atomic. Two-pass streaming possible but not warranted at current scale.
 
 ### Subsection 07.2 close-out
 **`/improve-tooling` retrospective**: Was batch sizing appropriate? Any OOM or deadlock issues? Is the wipe-and-replace fast enough? Should we use Neo4j's `CALL { ... } IN TRANSACTIONS` for better memory management? Is the `upsert_file_symbols()` function clean enough for Section 09 to reuse directly?
@@ -447,6 +447,20 @@ LIMIT 20;
   Resolved: Fixed on 2026-04-13. Added _retry_write() helper; all Phase 2 Neo4j writes (UnresolvedSymbol stubs, relationship batches) now use retry with exponential backoff.
 - [x] `[TPR-07-009-codex][low]` `section-07-code-import.md:303` — DRIFT: Per-repo <30s target checked off but Rust exceeds it.
   Resolved: Fixed on 2026-04-13. Reworded target to honestly note 9/10 repos pass; Rust exceeds due to file count with explanation.
+- [x] `[TPR-07-010-codex][medium]` `import_code_graph.py:434` — GAP: Module-scope relationships from symbolless files dropped (source resolution requires Symbol node).
+  Resolved: Noted on 2026-04-13. This is a Section 06 extraction quality issue — calls.scm/imports.scm emit module-scope source_qualified_names that don't correspond to any Symbol from decls.scm. The import correctly tracks these as source_unresolved. Fix belongs in Section 06/09 extraction improvements.
+- [x] `[TPR-07-011-codex][medium]` `import_code_graph.py:320` — DRIFT: Memory model claim ("streaming JSONL") doesn't match reality (all records loaded into memory).
+  Resolved: Fixed on 2026-04-13. Updated plan documentation and module docstring to accurately describe the memory model (all records in RAM, bounded by repo size).
+- [x] `[TPR-07-012-codex][medium]` `import_code_graph.py:521` — DRIFT: Repo timestamp set unconditionally even after partial failures.
+  Resolved: Fixed on 2026-04-13. Timestamp now conditional on `stats["errors"] == 0`; partial imports logged as WARNING.
+- [x] `[TPR-07-013-gemini][high]` `import_code_graph.py:277` — GAP: Ghost file deletion — files removed from repo persist in Neo4j forever.
+  Resolved: Fixed on 2026-04-13. Added ghost file detection: query existing File paths, compute set difference with incoming JSONL, DETACH DELETE stale File+Symbol nodes.
+- [x] `[TPR-07-014-gemini][medium]` `import_code_graph.py:388` — GAP: UnresolvedSymbol stub creation not chunked (OOM risk on large repos).
+  Resolved: Fixed on 2026-04-13. Added UNRESOLVED_BATCH_SIZE=5000 and chunked UNWIND for stub creation.
+- [x] `[TPR-07-015-gemini][low]` `import_code_graph.py:133` — GAP: Stats double-counting in retried closure.
+  Resolved: Fixed on 2026-04-13. Transaction closure now uses local_stats dict; outer stats updated only after successful tx via result_stats.
+- [x] `[TPR-07-016-gemini][low]` `import_code_graph.py:431` — GAP: Orphan UnresolvedSymbol stubs accumulate.
+  Resolved: Fixed on 2026-04-13. Added cleanup query at end of Phase 2: DELETE unresolved stubs with zero incoming edges.
 
 ## 07.C Completion Checklist
 
