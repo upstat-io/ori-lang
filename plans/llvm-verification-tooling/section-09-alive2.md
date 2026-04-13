@@ -104,17 +104,19 @@ Alive2 tracks LLVM top-of-tree and may not build against a specific LLVM release
   - Check for Z3 installation (headers + library): `pkg-config --exists z3` or check `/usr/include/z3.h`
   - Check for re2c: `which re2c`
   - Clone or update Alive2 from `~/projects/reference_repos/verification_tools/alive2/` (local) or GitHub (CI), then checkout pinned commit
-  - Build Alive2 with cmake+ninja against the system LLVM 21 with the **`BUILD_TV`** flag (without this, the `alive-tv` target is never added to the cmake build):
+  - Build Alive2 with cmake+ninja against the system LLVM 21 with the **`BUILD_TV`** flag (without this, the `alive-tv` target is never added to the cmake build). Use CMake's native `FindZ3` for cross-platform Z3 discovery — do NOT hardcode platform-specific paths:
     ```bash
+    # Dynamic Z3 + LLVM discovery — works on Ubuntu, Debian, macOS (Homebrew), etc.
+    # CMake's FindZ3 module (Alive2 uses find_package(Z3 4.8.5 REQUIRED))
+    # handles platform-specific library paths when CMAKE_PREFIX_PATH is set.
     cmake -GNinja \
       -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_PREFIX_PATH=/usr/lib/llvm-21 \
+      -DCMAKE_PREFIX_PATH="$(llvm-config --prefix)" \
       -DBUILD_TV=ON \
-      -DZ3_INCLUDE_DIR=/usr/include \
-      -DZ3_LIBRARIES=/usr/lib/x86_64-linux-gnu/libz3.so \
       ..
     ninja alive-tv
     ```
+    Note: Do NOT pass `-DZ3_INCLUDE_DIR` or `-DZ3_LIBRARIES` with hardcoded paths — this breaks macOS and non-Debian Linux. CMake's `FindZ3` discovers Z3 automatically. If Z3 is in a non-standard location, pass its prefix via `CMAKE_PREFIX_PATH` alongside LLVM's.
     **WHERE:** `scripts/build-alive2.sh` (new file)
   - Output `alive-tv` binary path to stdout for downstream consumption
   - Support `--cached` flag that skips rebuild if `alive-tv` binary exists and is newer than source
@@ -136,9 +138,11 @@ Alive2 tracks LLVM top-of-tree and may not build against a specific LLVM release
 
 - [ ] Verify the built `alive-tv` works by running it on a trivial identity function:
   ```bash
-  echo 'define i64 @f(i64 %x) { ret i64 %x }' > "$(mktemp --suffix=.ll)"
+  tmpfile="$(mktemp --suffix=.ll)"
+  echo 'define i64 @f(i64 %x) { ret i64 %x }' > "$tmpfile"
   ./alive-tv "$tmpfile" --passes=instcombine
   # Should print: "Transformation seems to be correct!"
+  rm -f "$tmpfile"
   ```
   Use `mktemp` (not hardcoded `/tmp`) per cross-platform rules.
 
@@ -239,40 +243,46 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
   ```
   **WHERE:** `compiler/oric/src/commands/build/ir_capture.rs` (new file, ~50 lines)
 
-- [ ] Integrate IR capture into `build_file_single` at `compiler/oric/src/commands/build/single.rs`. The capture points bracket the optimization call in `verify_optimize_emit` (object.rs:294). Since `verify_optimize_emit` is in `ori_llvm` and we cannot add IO there, the approach is to split the single `verify_optimize_emit` call into explicit steps when capture is active:
+- [ ] Refactor `ObjectEmitter::verify_optimize_emit` in `compiler/ori_llvm/src/aot/object.rs` to accept optional capture hooks. This keeps the pipeline orchestration (verify -> optimize -> sanitizer -> audit -> emit) as the sole SSOT in `ori_llvm`, while letting `oric` inject IO at the right points via closures:
   ```rust
-  // In single.rs, replace the single verify_optimize_emit call with:
-  if ir_capture::capture_requested() {
-      // Manual pipeline: verify → capture pre-opt → optimize → capture post-opt → emit
-      // Step 1: Verify (must succeed before pre-opt capture — alive-tv needs valid IR)
-      llvm_module.verify().map_err(|msg| ...)?;
+  /// Optional hooks for IR capture at pipeline boundaries.
+  /// Closures perform IO in the caller's crate (oric), not in ori_llvm.
+  pub struct CaptureHooks<'a> {
+      /// Called after module verification succeeds, before optimization.
+      pub pre_opt: Option<Box<dyn FnOnce(&Module<'_>) -> Result<(), String> + 'a>>,
+      /// Called after optimization completes, before object emission.
+      pub post_opt: Option<Box<dyn FnOnce(&Module<'_>) -> Result<(), String> + 'a>>,
+  }
 
-      // Step 2: Capture pre-opt IR (AFTER verification)
-      if ir_capture::preopt_requested() {
-          let path = ir_capture::capture_path(path, ".preopt.ll");
-          llvm_module.print_to_file(&path).map_err(|e| ...)?;
-      }
-
-      // Step 3: Optimize
-      ori_llvm::aot::run_optimization_passes(&llvm_module, machine, &opt_config)?;
-
-      // Step 4: Capture post-opt IR (AFTER optimization, BEFORE emission)
-      if ir_capture::postopt_requested() {
-          let path = ir_capture::capture_path(path, ".postopt.ll");
-          llvm_module.print_to_file(&path).map_err(|e| ...)?;
-      }
-
-      // Step 5: Emit
-      emitter.emit(&llvm_module, &obj_path, OutputFormat::Object)?;
-  } else {
-      // Normal path: single verify_optimize_emit call
-      emitter.verify_optimize_emit(&llvm_module, &opt_config, &obj_path, OutputFormat::Object)?;
+  impl Default for CaptureHooks<'_> {
+      fn default() -> Self { Self { pre_opt: None, post_opt: None } }
   }
   ```
-  **WHERE:** `compiler/oric/src/commands/build/single.rs` — around lines 119-124 (the existing `verify_optimize_emit` call).
+  Then modify `verify_optimize_emit` to call hooks at the correct pipeline points — between verify and optimize (pre_opt), and between optimize and emit (post_opt). Non-capture builds pass `CaptureHooks::default()` (zero overhead).
+  **WHERE:** `compiler/ori_llvm/src/aot/object.rs` — refactor `verify_optimize_emit` (~15 lines added). This preserves the existing sanitizer check, audit histogram, and Clang delegation inside the canonical pipeline owner.
 
-- [ ] Apply the same capture integration to `compiler/oric/src/commands/build/multi_emission.rs` (multi-file build path). Same pattern: split `verify_optimize_emit` into manual steps when capture is active.
+- [ ] Wire capture hooks from `oric` into the refactored `verify_optimize_emit`. In `single.rs`, construct `CaptureHooks` from the `ir_capture` helper:
+  ```rust
+  let hooks = if ir_capture::capture_requested() {
+      CaptureHooks {
+          pre_opt: if ir_capture::preopt_requested() {
+              let path = ir_capture::capture_path(source, ".preopt.ll");
+              Some(Box::new(move |m: &Module| m.print_to_file(&path).map_err(|e| e.to_string())))
+          } else { None },
+          post_opt: if ir_capture::postopt_requested() {
+              let path = ir_capture::capture_path(source, ".postopt.ll");
+              Some(Box::new(move |m: &Module| m.print_to_file(&path).map_err(|e| e.to_string())))
+          } else { None },
+      }
+  } else { CaptureHooks::default() };
+  emitter.verify_optimize_emit(&module, &opt_config, &obj_path, format, hooks)?;
+  ```
+  **WHERE:** `compiler/oric/src/commands/build/single.rs` — at the existing `verify_optimize_emit` call site.
+
+- [ ] Apply the same hook wiring to `compiler/oric/src/commands/build/multi_emission.rs`. Same `CaptureHooks` construction pattern.
   **WHERE:** `compiler/oric/src/commands/build/multi_emission.rs` — at the `verify_optimize_emit` call site.
+
+- [ ] Update all other callers of `verify_optimize_emit` (if any) to pass `CaptureHooks::default()`. Grep for `verify_optimize_emit` across the codebase to find all call sites.
 
 - [ ] Verify that `module.print_to_file()` preserves all function definitions (standard LLVM behavior, but confirm with a test that a multi-function module round-trips correctly). Alive2 compares functions by name — both pre-opt and post-opt IR must contain the same `@_ori_*` function names.
 
@@ -336,10 +346,10 @@ Build the diagnostic script that orchestrates alive-tv verification and curate t
 - [ ] Curate the initial function corpus (`tests/alive2/curated-corpus.txt`). Selection criteria:
   - **Include**: Pure arithmetic functions, simple control flow (no loops or loops with small bounds), no runtime calls (`_ori_rc_inc`, `_ori_rc_dec`, `_ori_alloc`, `_ori_panic`), no exception handling (`invoke`/`landingpad`), no indirect calls (closures)
   - **Exclude**: Functions with `call void @_ori_rc_*` (RC operations), functions with `invoke` (exception handling), functions calling external runtime (`_ori_*`), functions with large loop nests (>256 iterations), functions with `va_arg` or variadics, functions with `_ori_is_unique` calls (COW branches), functions with checked-overflow intrinsics that branch to panic blocks
-  - **Survival requirement**: Each corpus entry must survive `-O2` optimization (not be fully inlined away). Verify with `--check-survival` during corpus creation. If a function is inlined at `-O2`, either mark it with `noinline` in the corpus metadata or replace it with a function that survives.
+  - **Survival requirement**: Each corpus entry must survive `-O2` optimization (not be fully inlined away). Verify with `--check-survival` during corpus creation. If a function is inlined at `-O2`, either replace it with a function that naturally survives, or mark it with `noinline` in the corpus metadata — which triggers the `CaptureHooks` pre_opt hook to inject the `noinline` LLVM attribute on the function BEFORE optimization runs (via the existing `compiler/ori_llvm/src/codegen/ir_builder/attributes.rs:53-60` infrastructure). The attribute must be applied at compile time, not by editing the captured `.preopt.ll` file — editing the captured file cannot retroactively affect the optimizer that already produced `.postopt.ll`.
   - **Source**: Start from `compiler/ori_llvm/tests/codegen/` (Section 07's FileCheck tests) — functions that have clean CHECK patterns are good Alive2 candidates. Also include pure functions from `tests/spec/` that compile to small LLVM IR.
   - Format: one line per entry: `<ori_file_path> <function_name> [noinline]`
-    - Optional `noinline` marker tells the verification script to inject the `noinline` LLVM attribute on the function in the pre-opt IR. Do NOT use `optnone` — it disables ALL optimizations, causing alive-tv to compare unoptimized-vs-unoptimized IR (silently invalidating verification). `noinline` prevents inlining while allowing all other optimizations to proceed.
+    - Optional `noinline` marker tells the build to inject the `noinline` LLVM attribute at compile time (before optimization runs), via the `CaptureHooks` pre_opt path. Do NOT use `optnone` — it disables ALL optimizations, causing alive-tv to compare unoptimized-vs-unoptimized IR (silently invalidating verification). `noinline` only prevents inlining while allowing all other optimizations to proceed. The attribute is applied to the live module before `run_optimization_passes`, NOT to the captured `.preopt.ll` file after the fact.
   **WHERE:** `tests/alive2/curated-corpus.txt` (new file)
 
 - [ ] Create `tests/alive2/` directory with the corpus file and a README explaining the selection criteria, survival requirements, and how to add new entries.
@@ -602,6 +612,21 @@ When all findings are triaged:
   Resolved: Fixed on 2026-04-13. Same fix as [TPR-09-005-codex] — weekly job provisional in 09, Section 11 owns topology.
 - [x] `[TPR-09-005-gemini][medium]` `section-09-alive2.md:427` — Export ALIVE2_COMMIT to GITHUB_ENV for cache key.
   Resolved: Fixed on 2026-04-13. Same fix as [TPR-09-006-codex] — CI step extracts from build script.
+
+**Iteration 2 findings (all resolved):**
+
+- [x] `[TPR-09-007-codex][high]` `section-09-alive2.md:242` — 09.2 body still had pipeline-duplication code; CaptureHooks only in 09.R/09.N.
+  Resolved: Fixed on 2026-04-13 (iter 2). Replaced old split-pipeline code block with CaptureHooks implementation in 09.2 body.
+- [x] `[TPR-09-008-codex][medium]` `section-09-alive2.md:342` — noinline injection must happen at compile time, not post-capture.
+  Resolved: Fixed on 2026-04-13 (iter 2). Updated corpus metadata and survival docs to specify CaptureHooks pre_opt path for noinline injection.
+- [x] `[TPR-09-009-codex][medium]` `section-09-alive2.md:109` — Hardcoded Z3 paths still in cmake command despite claimed fix.
+  Resolved: Fixed on 2026-04-13 (iter 2). Removed -DZ3_INCLUDE_DIR and -DZ3_LIBRARIES from cmake snippet; uses FindZ3 + llvm-config --prefix.
+- [x] `[TPR-09-010-codex][low]` `section-09-alive2.md:139` — mktemp smoke-test variable not assigned.
+  Resolved: Fixed on 2026-04-13 (iter 2). Assigned mktemp output to $tmpfile variable.
+- [x] `[TPR-09-007-gemini][high]` `section-09-alive2.md:113` — Same as TPR-09-009-codex (hardcoded Z3 paths).
+  Resolved: Fixed on 2026-04-13 (iter 2). Same fix as [TPR-09-009-codex].
+- [x] `[TPR-09-008-gemini][high]` `section-09-alive2.md:242` — Same as TPR-09-007-codex (pipeline duplication in body).
+  Resolved: Fixed on 2026-04-13 (iter 2). Same fix as [TPR-09-007-codex].
 
 ---
 
