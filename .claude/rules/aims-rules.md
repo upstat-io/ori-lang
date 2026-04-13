@@ -223,10 +223,10 @@ The `ReturnContract` (IC-4) is extracted within the interprocedural pass (Step 1
 
 | Definition type | Uniqueness | preserves_freshness | Locality | Shape |
 |---|---|---|---|---|
-| `Construct` (fresh allocation) | `Unique` | `true` | `BlockLocal` | `shape_from_ctor` |
-| `Reuse` (reused allocation) | `Unique` | `true` | `BlockLocal` | `shape_from_ctor` |
-| `CollectionReuse` | `Unique` | `true` | `BlockLocal` | `CollectionBuffer` |
-| `PartialApply` (closure) | `Unique` | `true` | `BlockLocal` | `NonReusable` |
+| `Construct` (fresh allocation) | `Unique` | `true` | `HeapEscaping` | `shape_from_ctor` |
+| `Reuse` (reused allocation) | `Unique` | `true` | `HeapEscaping` | `shape_from_ctor` |
+| `CollectionReuse` | `Unique` | `true` | `HeapEscaping` | `CollectionBuffer` |
+| `PartialApply` (closure) | `Unique` | `true` | `HeapEscaping` | `NonReusable` |
 | `Apply`/`Invoke` with `Unique` return contract | inherited `Unique` | callee's `preserves_freshness` | callee's `locality` | callee's `shape` |
 | `Apply`/`Invoke` with non-`Unique` contract | callee's uniqueness | callee's `preserves_freshness` | callee's `locality` | callee's `shape` |
 | `Apply`/`Invoke` without contract | `MaybeShared` | `false` | `Unknown` | `NonReusable` |
@@ -334,7 +334,7 @@ Dimensions NOT narrowed by `refine`: Access (stays `Owned` — call results are 
 
 **TF-7** — Closure capture (`PartialApply`): `dst := FRESH(NonReusable)`. Closures are not reusable. Captured variables updated via `capture_state_update` (TF-13).
 
-**TF-8** — Conditional selection (`Select`): `dst := state(true_val) ⊔ state(false_val)`. Merge of both branches.
+**TF-8** — Conditional selection (`Select`): if both operands are SCALAR (per L-9), `dst := SCALAR`. Otherwise, `dst := state(true_val) ⊔ state(false_val)` (merge of both branches). If one operand is SCALAR and the other is not, the SCALAR operand is excluded from the join and `dst` inherits the non-SCALAR operand's state (L-9: scalars do not participate in joins).
 
 **TF-9** — Reuse (`Reuse { token }`): `dst := FRESH(shape_from_ctor(ctor))`. Reused memory gets fresh state.
 
@@ -397,7 +397,7 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 
 **TF-13 SHALL be monotone**: if `a ≤ b` then `capture_state_update(a, c) ≤ capture_state_update(b, c)`.
 
-**TF-14** — Project backward demand propagation: when a projected variable `dst` accumulates demand (locality widening, extended liveness), that demand SHALL be propagated to the borrow source `src` via the `borrow_sources` side table: `src.locality := max(src.locality, dst.locality)`. Without this propagation, `src` can be freed or stack-allocated while a reference to its projected field escapes or outlives it. This is the Ori equivalent of Lean 4's borrow liveness extension.
+**TF-14** — Project backward demand propagation: when a projected variable `dst` accumulates demand (locality widening, extended liveness), that demand SHALL be propagated to the borrow source `src` via the `borrow_sources` side table: `src.locality := max(src.locality, dst.locality)` AND `src.cardinality := max(src.cardinality, dst.cardinality)`. The locality propagation prevents premature stack promotion; the cardinality propagation prevents premature RcDec (keeps the source alive as long as the borrow is alive). Without this propagation, `src` can be freed or stack-allocated while a reference to its projected field escapes or outlives it. This is the Ori equivalent of Lean 4's borrow liveness extension.
 
 ---
 
@@ -431,7 +431,7 @@ Note: DP-5 is NOT a pure function of `AimsState` alone — it additionally consu
 **DP-6** — `is_reuse_candidate(s) ⟺ s.access = Owned ∧ s.uniqueness ≠ Shared ∧ s.shape ≠ NonReusable`.
 Reuse requires owned, non-shared, reusable shape.
 
-**DP-7** — `is_rc_skip_eligible(s) ⟺ s.is_local() ∧ s.access = Owned ∧ s.consumption = Linear ∧ s.uniqueness = Unique ∧ ¬s.is_scalar()`.
+**DP-7** — `is_rc_skip_eligible(s) ⟺ s.is_local() ∧ s.access = Owned ∧ s.consumption = Linear ∧ s.cardinality = Once ∧ s.uniqueness = Unique ∧ ¬s.is_scalar()`.
 Scope: **parameter inc/dec pair elision only.** For Owned parameters where the caller increments and the callee decrements, if the parameter is local+linear+unique, the inc/dec pair cancels — skip both. This does NOT apply to the final dec that triggers the free for fresh allocations; that dec is always needed for heap-allocated values (only stack-promoted values via RL-14 skip it). The `Uniqueness = Unique` requirement is load-bearing: a Shared value's +1 inc from the caller is never balanced → leak.
 
 **DP-8** — `is_local(s) ⟺ s.locality ∈ {BlockLocal, FunctionLocal}`.
@@ -553,7 +553,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **PL-9** — TRMC rewrite: the candidate function is normalized to accept a `ContextHole` parameter (Shape = ContextHole). The recursive call fills the hole with the partially-constructed value instead of allocating a new frame. The rewrite SHALL be idempotent — a second pass produces identical IR.
 
-**PL-10** — TRMC structural verification: after Step 3a rewrite AND after Step 4 intraprocedural analysis (which operates on the rewritten IR), `verify_trmc_soundness()` SHALL confirm the structural validity of the rewritten function — specifically that the ContextHole parameter is threaded correctly, that no allocation-free path introduces a new allocation, and that the rewritten CFG is well-formed. This is a STRUCTURAL check (correct plumbing of the ContextHole, consistent block parameters, valid RC state), NOT a behavioral equivalence proof — full semantic equivalence checking is beyond the current verification scope. This verification runs between Step 4 and Step 5 (before realization). If verification fails, the rewrite SHALL be rolled back to the pre-TRMC IR AND Step 4 SHALL be re-run on the restored CFG (per PL-5: no stale summaries). The rollback-on-failure mechanism provides a safety net: unsound rewrites are caught and reversed, preserving the pre-TRMC behavior.
+**PL-10** — TRMC structural verification: after Step 3a rewrite AND after Step 4 intraprocedural analysis (which operates on the rewritten IR), `verify_trmc_soundness()` SHALL confirm: (a) the ContextHole parameter is threaded correctly through recursive calls, (b) no allocation-free path introduces a new allocation, (c) the rewritten CFG is well-formed (consistent block parameters, valid RC state), (d) function arity and calling convention are preserved, and (e) constructor arguments are evaluated in the same order as the original (no side-effect reordering). This is a STRUCTURAL check, NOT a behavioral equivalence proof — full semantic equivalence checking is beyond the current verification scope. These five checks together ensure that a structurally valid TRMC rewrite is behaviorally equivalent (see VF-7). This verification runs between Step 4 and Step 5 (before realization). If verification fails, the rewrite SHALL be rolled back to the pre-TRMC IR AND Step 4 SHALL be re-run on the restored CFG (per PL-5: no stale summaries). The rollback-on-failure mechanism provides a safety net: unsound rewrites are caught and reversed, preserving the pre-TRMC behavior.
 
 **PL-11** — `ContextBehavior` join: `preserves_context(AND)`, `consumes_hole(AND)`, `requires_unique_context(OR)`, `may_resume_nonlinearly(OR)`. Conservative: preservation and consumption require ALL paths to agree; unique-context and non-linear-resumption are any-path (soundness obligations widen).
 
@@ -585,13 +585,13 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-9** — COW compound contraction: diamond CFG patterns `IsShared → Branch → (clone+Set | Set) → Merge` SHALL be contracted into a single compound instruction.
 
-**RL-10** — Disjoint field borrows SHALL NOT trigger COW: if receiver borrows field F and all other borrows are from different fields, the borrow is safe without COW check.
+**RL-10** — Disjoint field mutation SHALL NOT trigger COW: if receiver is mutated at field F (via `Set`/`SetTag`) and all active borrows from the same source are from different fields, the mutation is safe without COW check. DP-5 enforces this via the field-aware disjointness check in Step 1.
 
 ### Allocation Reuse
 
 **RL-11** — Same-block reuse: a dying value's allocation SHALL be reused for a fresh allocation of the same type in the same block, if: (a) the `Reset` (death) precedes the `Reuse` (allocation), (b) no intervening instruction between the `Reset` and `Reuse` may throw (`may_throw`), may allocate, or may use the dying value or any alias of it (an intervening throwing instruction would leak the reuse token if the exception path doesn't consume it; an intervening allocation could invalidate the reuse opportunity; an intervening use of the dying value or its alias is impossible by definition since the value is dead, but aliases through `project_alias_sources` must be checked), AND (c) the dying value has `Uniqueness = Unique`. Reusing a non-unique allocation corrupts other aliases. For `MaybeShared` values, dynamic reuse (IsShared check + conditional) is available via DP-6 but requires a runtime guard.
 
-**RL-12** — Cross-block reuse: a dying value's allocation SHALL be reused across blocks when the death block dominates the allocation block AND the allocation block post-dominates the death block (ensuring the reuse is unconditional on all paths between death and allocation), and the dying value is statically unique.
+**RL-12** — Cross-block reuse: a dying value's allocation SHALL be reused across blocks when the death block dominates the allocation block AND the allocation block post-dominates the death block (ensuring the reuse is unconditional on all paths between death and allocation), and the dying value is statically unique. Note: cross-block reuse does NOT use the `Reset`/`Reuse` token pair from RL-11/TF-10a (which is same-block-only and structurally paired). Instead, cross-block reuse is realized via the `Reuse` instruction consuming a dominator-analysis-provided token that represents the dying value's allocation. The cross-block token's liveness is guaranteed by the dominance/post-dominance precondition, not by the backward demand system.
 
 **RL-13** — ~~REMOVED (unsound — same root cause as DP-10).~~ The former rule claimed `Construct + Once = RC == 1 at death`. This is false: the one use may be "store into a data structure," which creates an alias via RcInc. At death, the original variable's allocation is still alive via the alias. Reuse would overwrite live memory. Reuse eligibility is determined SOLELY by the Uniqueness dimension (DP-6 + RL-11/RL-12).
 
@@ -603,6 +603,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-15a** — ArgEscaping allocations (`Locality = ArgEscaping`) SHALL be stack-allocated in the CALLER with allocation strategy depending on the callee's parameter contract:
 - **Callee parameter = `Borrowed` AND `Uniqueness = Unique`**: headerless stack allocation (no RC operations emitted by the callee). This is the fast path — caller stack lifetime with zero RC overhead.
+- **Callee parameter = `Borrowed` AND `Uniqueness ≠ Unique`** (MaybeShared or Shared): caller-stack allocation WITH RC header. The callee may emit `IsShared` checks (DP-4), which read the header. Headerless allocation would crash.
 - **Callee parameter = `Owned`**: caller-stack allocation WITH RC header. The callee may emit `RcDec` or `IsShared`, so the header is required for safety. The caller-stack lifetime still outlives the callee's execution, providing the stack-promotion benefit without heap allocation, but the header supports the callee's RC operations.
 - **Note on CN-8**: `Borrowed` values have their locality clamped to `≤ FunctionLocal` by CN-8, so a `Borrowed` value never reaches `ArgEscaping` in the lattice. `ArgEscaping` only arises for `Owned` values that escape into a callee but not to the heap. The `Borrowed` callee parameter case above refers to the CALLEE'S contract for the PARAMETER (how the callee treats the received value), not the value's own Access dimension at the caller. The caller's value is `Owned`+`ArgEscaping`; the callee receives it as `Borrowed` (per the callee's parameter contract from IC-3).
 
@@ -652,7 +653,7 @@ This is the key optimization that bridges "not local" and "not heap" — a value
 
 **RL-29** — Fresh allocation returns (`ReturnContract.preserves_freshness = true AND ReturnContract.uniqueness = Unique`) SHALL be marked with LLVM `noalias`. The gate is `preserves_freshness`, not `uniqueness` alone — a return that is merely `Unique` (e.g., a uniquely-held parameter passed through) is not necessarily fresh (may alias the caller's copy). `preserves_freshness` is the proof that the returned pointer was produced by a fresh allocation or by a callee whose return contract also preserves freshness.
 
-**RL-30** — Effect-based call annotations. Parameter access classification is derived from IC-3 `ParamContract.access` AND `may_share`: `Borrowed` with `may_share = false` = reads only, `Borrowed` with `may_share = true` = reads AND writes (RC header updates are writes to inaccessible memory), `Owned` = reads and writes, `Absent` = no access. "No writes to parameters" = all non-Absent params are `Borrowed` AND `may_share = false`. "No arg access" = all params are `Absent` (dead). Pure calls (`may_allocate = false ∧ may_deallocate = false ∧ may_throw = false` and no writes to parameters) SHALL receive LLVM `memory(none)`. Readonly calls (reads but no writes, no allocation, no deallocation) SHALL receive LLVM `memory(read)`. Allocating calls (`may_allocate = true`) that also access arguments SHALL receive `memory(argmem: readwrite, inaccessiblemem: readwrite)`. Pure allocators (no arg access) SHALL receive `memory(inaccessiblemem: readwrite)`. `memory(argmem: readwrite)` ALONE is WRONG for allocators (misses global heap state); omitting `argmem` is WRONG for functions that allocate AND read/write arguments (optimizer assumes args untouched).
+**RL-30** — Effect-based call annotations. Parameter access classification is derived from IC-3 `ParamContract.access` AND `may_share`: `Borrowed` with `may_share = false` = reads only, `Borrowed` with `may_share = true` = reads AND writes (RC header updates are writes to inaccessible memory), `Owned` = reads and writes. Parameters with `ParamContract.cardinality = Absent` (dead per IC-2/IC-3) have no access. "No writes to parameters" = all non-dead params (cardinality ≠ Absent) are `Borrowed` AND `may_share = false`. "No arg access" = all params have `cardinality = Absent`. Pure calls (`may_allocate = false ∧ may_deallocate = false ∧ may_throw = false` and no writes to parameters) SHALL receive LLVM `memory(none)`. Readonly calls (reads but no writes, no allocation, no deallocation) SHALL receive LLVM `memory(read)`. Allocating calls (`may_allocate = true`) that also access arguments SHALL receive `memory(argmem: readwrite, inaccessiblemem: readwrite)`. Pure allocators (no arg access) SHALL receive `memory(inaccessiblemem: readwrite)`. `memory(argmem: readwrite)` ALONE is WRONG for allocators (misses global heap state); omitting `argmem` is WRONG for functions that allocate AND read/write arguments (optimizer assumes args untouched).
 
 **RL-31** — Disjoint borrowed parameters SHALL receive `!alias.scope` + `!noalias` metadata pairs. "Disjoint" means no two `Borrowed` parameters can alias the same memory at runtime. The proof requires a **cross-function provenance summary** not carried by IC-2/IC-3 alone: each call site must prove that the actual arguments passed to distinct `Borrowed` parameters trace to different source aggregates or disjoint fields. This is a separate analysis pass that computes per-call-site disjointness from the callers' `borrow_sources` and `project_alias_sources` tables. (The borrow-inference analysis specification is pending; until it exists, the disjointness proof is implemented conservatively by inspecting callers' local provenance tables.) The disjointness proof is conservative: if any call site cannot prove disjointness, the parameter does not receive alias metadata. Note: `borrow_sources` is function-local (§1.9), so the cross-function disjointness proof operates on CALLERS' local provenance tables at call sites, not on a global provenance carrier.
 
@@ -851,14 +852,15 @@ Each predicate is a function of the lattice state. Most are pure functions of `A
 
 ### DP-7: `is_rc_skip_eligible(s)`
 
-| is_local | Access | Consumption | Uniqueness | is_scalar | Result |
-|---|---|---|---|---|---|
-| false | any | any | any | any | **false** |
-| true | ≠ Owned | any | any | any | **false** |
-| true | Owned | ≠ Linear | any | any | **false** |
-| true | Owned | Linear | ≠ Unique | any | **false** |
-| true | Owned | Linear | Unique | true | **false** |
-| true | Owned | Linear | Unique | false | **true** |
+| is_local | Access | Consumption | Cardinality | Uniqueness | is_scalar | Result |
+|---|---|---|---|---|---|---|
+| false | any | any | any | any | any | **false** |
+| true | ≠ Owned | any | any | any | any | **false** |
+| true | Owned | ≠ Linear | any | any | any | **false** |
+| true | Owned | Linear | ≠ Once | any | any | **false** |
+| true | Owned | Linear | Once | ≠ Unique | any | **false** |
+| true | Owned | Linear | Once | Unique | true | **false** |
+| true | Owned | Linear | Once | Unique | false | **true** |
 
 ### DP-8: `is_local(s)`
 
