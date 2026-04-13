@@ -74,9 +74,48 @@ rustc-ice-*.txt
 !std.log/
 *.temp
 
+# Debug/IR dump files (from ORI_DUMP_AFTER_*, manual debugging)
+*.ll
+*.bc
+*.dump
+*.ir
+*.llvm-ir
+/llvm_dump*
+
+# One-off scratch files at repo root
+/test_*.py
+/test_*.sh
+/scratch.*
+/scratch_*
+/temp.*
+/temp_*
+/tmp.*
+/tmp_*
+/hack.*
+/hack_*
+/wip.*
+/wip_*
+
+# Build artifacts outside target/
+/*.o
+/*.a
+/*.so
+/*.dylib
+
+# Core dumps
+core
+core.*
+
+# Editor merge/backup artifacts
+*.orig
+*.bak
+*.rej
+
 # Python
 __pycache__/
 *.pyc
+venv/
+.venv/
 
 #claude
 .claude/discussions
