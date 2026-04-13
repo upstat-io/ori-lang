@@ -141,9 +141,9 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 | Zig | tree-sitter-zig | Stable | NO | 6% | pip + custom queries |
 | TypeScript | tree-sitter-typescript | Stable | YES | 5% | Standard pip |
 | Haskell | tree-sitter-haskell | Stable | NO | 1-2% | pip + custom queries (for Elm, Koka .hs) |
-| Swift | alex-pinkus fork | Stable | YES | Low | Build from source (pip pkg abandoned) |
+| Swift | tree-sitter-swift (PyPI) | Stable | YES | Low | Try PyPI first; fall back to alex-pinkus source build |
 | C++ | tree-sitter-cpp | Stable | YES | Low | Standard pip (for Lean4 runtime) |
-| Lean | tree-sitter-lean | Experimental | NO | 86% | Skip .lean files, use C++ for runtime |
+| Lean | tree-sitter-cpp (C++ only) | Partial | NO | 86% (.lean) | Skip .lean files (86% error rate); parse C++ runtime only |
 | Koka .kk | tree-sitter-koka | Beta | NO | Unknown | Build from source + custom queries |
 | Ori | None | N/A | N/A | N/A | Use Ori's own Rust parser via FFI |
 
