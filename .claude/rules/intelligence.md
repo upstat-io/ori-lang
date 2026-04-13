@@ -26,7 +26,9 @@ Query the intelligence graph proactively in these workflows:
 - **Plan reviews** (/review-plan): `symbols`/`file-symbols` to validate plan assumptions against actual code
 - **Plan creation** (/create-plan): `symbols`/`similar` for intelligence reconnaissance before architecture
 - **Proposals** (/create-draft-proposal): `similar` + `symbols` for prior art discovery
+- **Proposal review** (/review-draft-proposal): `similar` + `symbols` for conflict check and purity analysis
 - **Pattern review** (/design-pattern-review): `similar` for instant cross-repo equivalents, `callers`/`callees` for Ori dispatch mapping
+- **Third-party help** (/tp-help): `callers`/`callees`/`similar` to enrich context package for reviewers
 - **Roadmap** (/continue-roadmap): `file-symbols`/`callers`/`callees`/`similar` for section-relevant code surface
 - **Execution tracing** (/code-journey, /rosetta-test): `callers`/`callees` to map exercised paths, `similar` for cross-repo equivalents
 - **Tooling** (/improve-tooling): `symbols` to check if similar tools already exist before creating new ones
