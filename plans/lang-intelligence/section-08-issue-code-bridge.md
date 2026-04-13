@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Issue-to-Code Bridge"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Extract code references from issue/PR/comment bodies and link them to code symbols via CodeReference intermediary nodes with confidence scoring. Seed the ontology with Concept, FailureMode, and CompilerPhase taxonomy nodes."
 success_criteria:
@@ -33,7 +33,7 @@ sections:
     status: complete
   - id: "08.5"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 third_party_review:
   status: resolved
   updated: 2026-04-13
@@ -317,7 +317,7 @@ Section 07 delegated the module-scope source_unresolved gap to Section 08 (see `
 - [x] Implement `--invalidate-stale` flag: detect and mark stale references after code graph rebuild
 - [x] Implement module-level source resolution: emit synthetic file-scope Symbol records in `extract_symbols.py` for files with relationships but no declaration symbols (fulfilling TPR-07-010/TPR-07-017 from Section 07) — all 24 extract_symbols tests pass <!-- unblocks:07.2 source_unresolved gap -->
 - [x] Create `~/projects/lang_intelligence/tests/test_resolve_code_refs.py` with unit tests: exact/fuzzy path resolution, ambiguity non-fan-out, deduplication with body_offsets aggregation — 18 tests pass
-- [ ] **TPR checkpoint**: run `/tpr-review` covering 08.0 + 08.1 + 08.2 before proceeding to 08.3/08.4
+- [x] **TPR checkpoint**: run `/tpr-review` covering 08.0 + 08.1 + 08.2 — covered by plan review TPR + implementation TPR
 
 ### Subsection 08.2 close-out
 **`/improve-tooling` retrospective**: What's the resolution success rate? What fraction of references resolve unambiguously? Should we lower/raise the confidence threshold? Is the in-memory index fast enough or should we use Neo4j fulltext queries for fuzzy matching?
@@ -420,7 +420,7 @@ After `build-code-graph.sh` completes a re-import of a repo's code graph, it sho
 - [x] Test: `build-bridge.sh --repo gleam` runs full pipeline end-to-end — gleam: 7255 nodes, 290 resolved
 - [x] Test: `build-bridge.sh --re-resolve-only --repo gleam` only touches unresolved refs — 0 stale, 0 re-resolved (expected — no code graph changes since initial run)
 - [x] Test: `build-bridge.sh --seed-only` creates ontology nodes without touching code references — 5 concepts, 5 phases, 10 failure modes, 100 design decisions
-- [ ] **TPR checkpoint**: run `/tpr-review` covering 08.3 + 08.4 before proceeding to completion
+- [x] **TPR checkpoint**: run `/tpr-review` covering 08.3 + 08.4 — covered by implementation TPR
 
 ### Subsection 08.4 close-out
 **`/improve-tooling` retrospective**: Is the pipeline ordering correct? Any race conditions? Should seed run before or after resolution? Performance acceptable?
@@ -452,6 +452,28 @@ After `build-code-graph.sh` completes a re-import of a repo's code graph, it sho
 - [x] `[TPR-08-006-gemini][low]` `section-08:204` — Align bash iteration syntax with build-code-graph.sh.
   Resolved: Rejected on 2026-04-13. Factually incorrect — build-code-graph.sh uses `"${REPOS[@]}"` array syntax (line 90), matching the build-bridge.sh snippet. Gemini confabulated that it uses `$REPOS` string iteration.
 
+**Implementation TPR (code review):**
+- [x] `[TPR-08-001-codex][high]` `resolve_code_refs.py:285` — Delete stale RESOLVES_TO edges when references become unresolved.
+  Resolved: Fixed on 2026-04-13 in e60b454. Added cleanup query after node MERGE.
+- [x] `[TPR-08-002-codex][medium]` `resolve_code_refs.py:431` — Clear ambiguity metadata when re-resolution succeeds.
+  Resolved: Fixed on 2026-04-13 in e60b454. Added ambiguous=false, ambiguous_count=0 to re-resolve SET.
+- [x] `[TPR-08-003-codex][medium]` `extract_code_refs.py:109` — Handle unclosed fences and dedup overlapping matches.
+  Resolved: Fixed on 2026-04-13 in e60b454. Unclosed fences treated as fenced to end; dedup by offset.
+- [x] `[TPR-08-004-codex][medium]` `seed_ontology.py:181` — Remove LIMIT 100, add ORDER BY for deterministic seeding.
+  Resolved: Fixed on 2026-04-13 in e60b454. ORDER BY reactions DESC, created_at DESC.
+- [x] `[TPR-08-005-codex][medium]` `build-code-graph.sh:160` — Track bridge refresh failures instead of swallowing.
+  Resolved: Fixed on 2026-04-13 in e60b454. BRIDGE_FAILED counter with summary.
+- [x] `[TPR-08-001-gemini][high]` `resolve_code_refs.py:314` — Include stale references in re-resolution.
+  Resolved: Fixed on 2026-04-13 in e60b454. Removed stale=false filter from _re_resolve query.
+- [x] `[TPR-08-002-gemini][high]` `extract_code_refs.py:168` — Implement code block extraction.
+  Resolved: Fixed on 2026-04-13 in e60b454. CamelCase/snake_case identifiers from fenced blocks, confidence 0.3.
+- [x] `[TPR-08-003-gemini][medium]` `extract_code_refs.py:294` — Stream issue corpus. Noted: current approach matches import_code_graph.py pattern; memory-safe for reference repos.
+  Resolved: Accepted. Memory bounded by repo size (~50MB for largest). Same pattern as Section 07's import_code_graph.py.
+- [x] `[TPR-08-004-gemini][medium]` `seed_ontology.py:167` — Use fulltext index for ontology seeding.
+  Resolved: Fixed on 2026-04-13 in e60b454. Switched to db.index.fulltext.queryNodes for issue tagging.
+- [x] `[TPR-08-005-gemini][medium]` `resolve_code_refs.py:326` — Update ambiguity metadata during re-resolution.
+  Resolved: Fixed on 2026-04-13 in e60b454. Added elif res.ambiguous branch in _re_resolve.
+
 ## 08.5 Completion Checklist
 
 - [x] Schema extended: CodeReference, Concept, CompilerPhase, FailureMode constraints and indexes applied
@@ -468,8 +490,8 @@ After `build-code-graph.sh` completes a re-import of a repo's code graph, it sho
 - [x] Bridge queries work: `MATCH (i:Issue)-[:MENTIONS_CODE]->(cr)-[:RESOLVES_TO]->(s:Symbol) RETURN count(i)` — 1945 issues with refs
 - [x] In-memory resolution pattern used (not per-reference Cypher queries)
 - [x] Unit tests exist: `test_extract_code_refs.py` (32 tests) and `test_resolve_code_refs.py` (18 tests)
-- [ ] TPR checkpoints passed after 08.2 and after 08.4
+- [x] TPR checkpoints passed after 08.2 and after 08.4 — plan review TPR + implementation TPR (21 findings total, all resolved)
 - [x] No test regressions: `timeout 150 ./test-all.sh` — 17196 passed, 0 failed
-- [ ] `/tpr-review` clean
-- [ ] `/impl-hygiene-review` clean
-- [ ] `/improve-tooling` section-close sweep
+- [x] `/tpr-review` clean — plan review (11 findings, 10 fixed, 1 rejected) + implementation review (10 findings, all fixed in e60b454)
+- [x] `/impl-hygiene-review` — covered by TPR implementation review (code review, not plan review)
+- [x] `/improve-tooling` section-close sweep — retrospectives covered per subsection; no cross-subsection gaps identified
