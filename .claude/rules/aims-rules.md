@@ -690,7 +690,7 @@ The verification stack is **layered**. Each layer catches a different class of i
 
 **VF-1** — Layer 1 (Structural): ARC IR well-formedness. Checks: use-before-def, dangling block refs, RC on scalar, dec on borrowed (EXCEPT field-drop projections emitted by RL-14/RL-14a/RL-15/RL-15a scope cleanup — these Project+RcDec sequences are marked as field drops and exempt from the DecOnBorrowed check), arg ownership length mismatch. Runs at three checkpoints: (1) after AIMS emission (Step 6), (2) after full pipeline (Step 11), (3) after post-pipeline optimization passes (§8 RL-22 through RL-26).
 
-**VF-2** — Layer 2 (AIMS Contract): filters structural verifier output to AIMS-specific inconsistencies. Checks: (a) parameters declared `Absent` must have no live uses; (b) RL-31 alias metadata must be backed by disjointness proof; (c) RL-29 `noalias` returns must have `preserves_freshness = true AND uniqueness = Unique` in the ReturnContract; (d) RL-30 memory attributes must be derivable from IC-5 EffectSummary + parameter contracts.
+**VF-2** — Layer 2 (AIMS Contract): independent contract-consistency checks (NOT a filter over VF-1). Checks: (a) parameters declared `Absent` must have no live uses; (b) RL-31 alias metadata backed by disjointness proof; (c) RL-29 `noalias` returns validated against ReturnContract; (d) RL-30 memory attributes derivable from IC-5 + parameter contracts.
 
 **VF-3** — Layer 3 (Oracle): re-derives `MemoryContract` from realized IR and compares against inferred contract along access, consumption, and effects dimensions. Unsafe mismatches (analysis more optimistic than realization) are errors.
 
