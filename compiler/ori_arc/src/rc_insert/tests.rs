@@ -1227,8 +1227,8 @@ fn annotate_protocol_iter_produces_borrowed() {
 /// because the runtime transfers buffer ownership to the iterator. This test verifies
 /// the full `annotate_arg_ownership` flow — protocol base + type-qualified override.
 ///
-/// TPR finding: TPR-06-005-codex (the prior test used a non-collection receiver,
-/// so the override path was never exercised at the consumer level).
+/// Prior to this test, the override path was never exercised at the consumer level
+/// (the original test used a non-collection receiver type).
 #[test]
 fn annotate_iter_on_collection_overrides_to_owned() {
     let interner = StringInterner::new();

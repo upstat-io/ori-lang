@@ -91,7 +91,7 @@ contract vs realization, non-negotiable invariant
 ---
 
 ### Section 06: Protocol Builtin Verification Matrix
-**File:** `section-06-protocol-builtins.md` | **Status:** Complete
+**File:** `section-06-protocol-builtins.md` | **Status:** In Progress
 
 ```
 ProtocolBuiltin, __index, iter, __iter_next
