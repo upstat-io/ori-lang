@@ -55,6 +55,10 @@ sections:
   - id: "11.11"
     title: Deep FFI -- Higher-Level FFI Abstractions
     status: not-started
+  - id: "11.12"
+    title: Post-FFI Sanitizer Tooling Upgrade
+    status: not-started
+    notes: "Depends on 11.1-11.7 (working extern 'c' in AOT). Upgrades sanitizer smoke tests to use Ori-native FFI semantic pin instead of C-only workaround."
 ---
 
 # Section 11: Foreign Function Interface (FFI)
@@ -835,3 +839,64 @@ impl SqliteDb {
         _sqlite3_close(db: self.handle)
 }
 ```
+
+---
+
+## 11.12 Post-FFI Sanitizer Tooling Upgrade
+
+**Depends on**: 11.1-11.7 (working `extern "c" from "lib"` in AOT compilation)
+
+**Context**: Section 08 of `plans/llvm-verification-tooling` implemented sanitizer integration (ASan/UBSan via Clang delegation) with a smoke test suite of 17 Ori programs. The suite includes a **semantic pin** — a test that deliberately triggers a heap-use-after-free to prove ASan detects real memory errors. However, the semantic pin currently uses a **C-only workaround** (`tests/sanitizer/pin_helper.c` compiled directly by `scripts/sanitizer-smoke.sh`) because Ori's `extern "c" from "lib"` blocks don't resolve in AOT compilation — the type checker rejects the extern function identifier before linking has a chance to find the library.
+
+Once FFI is fully implemented (extern blocks resolve in AOT, `CPtr` operations work, `from "lib"` links local libraries), the sanitizer tooling should be upgraded to use Ori-native FFI instead of the C workaround.
+
+**Why this matters**: The C-only semantic pin proves ASan works on the CI host but does NOT prove that Ori's sanitizer pipeline (env var → `SanitizerMode` → Clang delegation → linker `-fsanitize` flags → ASan-instrumented `ori_rt`) correctly instruments Ori FFI calls. A Clang-compiled C program with ASan is a baseline that any CI host can pass. The real test — an Ori program that calls a C function through the full compilation pipeline and has ASan catch a UAF in the C code — requires working FFI.
+
+### Checklist
+
+- [ ] **Restore Ori-native semantic pin** — rewrite `tests/sanitizer/semantic_pin_asan.ori` to use `extern "c" from "pin_helper"` with the existing `pin_helper.c`:
+  ```ori
+  extern "c" from "pin_helper" {
+      @_trigger_use_after_free () -> int as "trigger_use_after_free"
+  }
+
+  @main () -> int = {
+      _trigger_use_after_free()
+  }
+  ```
+  This program should compile via `ori build` with `ORI_SANITIZE=address`, link `libpin_helper.a`, and have ASan catch the UAF in the C code.
+
+- [ ] **Update `scripts/sanitizer-smoke.sh`** — the smoke script currently compiles `pin_helper.c` into a static library and runs it as a standalone C program. Once the Ori semantic pin compiles, change the script to:
+  1. Build `libpin_helper.a` from `pin_helper.c` (same as now)
+  2. Compile the Ori semantic pin via `$ORI build --release tests/sanitizer/semantic_pin_asan.ori -o $TMPDIR/san_semantic_pin -L $PIN_LIB`
+  3. Run the resulting binary and verify ASan catches the UAF
+  This validates the full pipeline: Ori source → type checker (resolves extern) → LLVM codegen → Clang delegation (adds sanitizer passes) → linker (links `libpin_helper.a` + ASan runtime) → binary with ASan active.
+
+- [ ] **Add FFI-specific smoke tests** — once extern blocks work in AOT, add these to `tests/sanitizer/`:
+  - `ffi_alloc_free.ori` — call `malloc`/`free` via FFI, verify no leaks with ASan
+  - `ffi_string_pass.ori` — pass Ori `str` to a C function via `CPtr`, verify no buffer overflow
+  - `ffi_callback.ori` — pass an Ori closure as a C callback, verify the callback's captures are correctly RC'd under ASan
+  These exercise the FFI ↔ ARC interaction surface — the most likely source of sanitizer-detectable bugs.
+
+- [ ] **Remove C-only workaround** — once the Ori-native semantic pin is verified working in CI:
+  1. Delete the C-only compilation path from `sanitizer-smoke.sh`
+  2. Update `pin_helper.c` comment to note it's linked via Ori FFI, not compiled standalone
+  3. Update Section 08's TPR block to note the upgrade
+
+- [ ] **Update nightly-verification.yml** — if any new smoke tests require library compilation, add the build step to the CI workflow.
+
+- [ ] **Verify end-to-end** — the upgraded semantic pin must:
+  - Exit cleanly (0) when compiled WITHOUT `ORI_SANITIZE`
+  - Exit with ASan error (heap-use-after-free report on stderr) when compiled WITH `ORI_SANITIZE=address`
+  - Complete within the 60-second smoke budget
+
+### Bug Reference
+
+This subsection exists because of **BUG-04-074** (empty list literal unresolved type variables in AOT — tangentially related) and the broader issue that `extern "c" from "lib"` blocks don't resolve in AOT mode. The latter is not yet filed as a standalone bug because it's inherent to FFI being incomplete (Section 11.1 notes "typeck+codegen missing"). Once 11.1-11.7 are complete, the extern block resolution is a natural side-effect — no separate bug fix needed.
+
+### Cross-References
+
+- `plans/llvm-verification-tooling/section-08-sanitizers.md` — Section 08 implementation and TPR findings
+- `tests/sanitizer/pin_helper.c` — the C helper with the deliberate heap-use-after-free
+- `scripts/sanitizer-smoke.sh` — the smoke runner that handles the semantic pin
+- `scripts/build-rt-asan.sh` — builds the ASan-instrumented `ori_rt`
