@@ -395,6 +395,8 @@ After determining the focus section in Step 2, optionally query the intelligence
 
 5. Hold results as "Cross-language context for Section {NN}:" — use when making design decisions within the section. Do NOT inject into every subsection prompt; reference as needed.
 
+6. **Discovery, not replacement**: Intelligence results are pointers to investigate, not authoritative claims. Before using any result to influence design decisions or plan text, verify it against the referenced source code or issue (per `.claude/rules/intelligence.md`).
+
 If unavailable or empty, skip silently. Section work proceeds normally.
 
 ### Step 2.5: Blocker Chain Resolution

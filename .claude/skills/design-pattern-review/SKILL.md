@@ -136,10 +136,16 @@ If the intelligence graph is available (check: run `scripts/intel-query.sh statu
 via Bash and parse the JSON output — if the `status` field is not `"ok"`, skip
 this step silently):
 
+Check if {DOMAIN} maps to an intelligence preset per .claude/rules/intelligence.md
+§Subsystem Mapping (e.g., "arc-optimization" → ori-arc, "pattern-matching" →
+ori-patterns). If so, use the preset; otherwise use compare/search with the
+domain name.
+
 Run these queries via Bash (output stays in your context — do NOT capture into
 shell variables):
   scripts/intel-query.sh --human compare "{DOMAIN}" --limit 5
   scripts/intel-query.sh --human search "{DOMAIN}" --limit 5
+  # If a preset was identified: scripts/intel-query.sh --human <preset> --limit 5
 
 Use results to:
 - Identify which of your assigned 2-3 repos have the most relevant prior art
