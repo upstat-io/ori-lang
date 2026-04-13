@@ -61,6 +61,15 @@ pub fn build_file(path: &str, options: &BuildOptions) {
 
     let start = Instant::now();
 
+    // Fail fast if sanitizers are requested but Clang is not available.
+    // This check runs before expensive parsing/type-checking.
+    let sanitizer_env = std::env::var(crate::debug_flags::ORI_SANITIZE).ok();
+    if sanitizer_env.as_ref().is_some_and(|v| v != "0") {
+        if let Err(e) = ori_llvm::aot::check_clang_available() {
+            crate::problem::codegen::report_codegen_error(e);
+        }
+    }
+
     // Read the source file
     let content = read_file(path);
 
