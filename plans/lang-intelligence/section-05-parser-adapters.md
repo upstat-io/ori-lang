@@ -59,7 +59,7 @@ Set up the tree-sitter parsing infrastructure that all code graph work depends o
 - [ ] Query file families (`decls.scm`, `calls.scm`, `imports.scm`, `impls.scm`) exist for every supported language
 - [ ] Matrix validation: Language x (Valid/Malformed/Empty) x query family all pass
 - [ ] Full parse of all reference repos completes in <60 seconds
-- [ ] Satisfies mission criteria: "tree-sitter parses all 9 supported languages and extracts structural symbols"
+- [ ] Unblocks mission criteria: "tree-sitter parses all 9 supported languages" (parsing half — extraction is Section 06's deliverable)
 
 **Context:** Section 06 (Symbol Extraction) needs more than just parse trees — it needs compiled query handles for declarations, calls, imports, and implementations. If Section 05 only delivers `tags.scm` parsing, Section 06 must reinvent query infrastructure. This section front-loads that work.
 
@@ -321,11 +321,11 @@ Official `tags.scm` files vary by language in what they capture. Some (Rust, Go)
 - [ ] **Swift** (`queries/swift/`): Create `decls.scm` from official tags.scm. Write `calls.scm`, `imports.scm`, `impls.scm` (match `protocol_conformance`).
 - [ ] **C++** (`queries/cpp/`): Create `decls.scm` from official tags.scm. Write `calls.scm`, `imports.scm` (match `#include`). `impls.scm`: empty stub.
 - [ ] **Koka** (`queries/koka/`): If tree-sitter-koka grammar loaded successfully in 05.1: write `decls.scm` (`fun_decl`, `type_decl`, `effect_decl`, `val_decl`), `calls.scm`, `imports.scm`, `impls.scm`. If grammar failed: use Haskell queries for `.hs` files and document the gap.
-- [ ] Test each query file against at least one real file from its repo. Each query must compile without error and produce at least one capture on the test file.
+- [ ] Test each query file against at least one real file from its repo. Non-stub queries must compile without error and produce at least one capture on the test file. Declared stub queries (e.g., Go `impls.scm`, Zig `impls.scm`, C++ `impls.scm`) must compile without error and return zero captures as expected.
 - [ ] Create golden file probes: for each language, pick one well-known file and record expected capture count. Example: `rustc_parse/src/parser/expr.rs` must yield at least 20 `decls` captures and at least 50 `calls` captures. Store in `tests/golden-probes.yaml`.
 
 - [ ] **Subsection close-out (05.4)**
-  - [ ] All tasks above are `[x]` and all query files compile and produce captures
+  - [ ] All tasks above are `[x]` and all query files compile (non-stubs produce captures, declared stubs return zero captures)
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — were query files hard to write? Should there be a `test-queries.py` script that compiles all `.scm` files and reports errors? Any node types unexpectedly named? Implement improvements, commit separately.
 
@@ -389,6 +389,15 @@ A comprehensive validation script that tests the full parser adapter stack: gram
 - [x] `[TPR-05-003-gemini][high]` `plans/lang-intelligence/section-05-parser-adapters.md:393` — Add task to update Section 06 for query file rename.
   Evidence: Section 05 renames tags.scm to decls.scm but no plan-sync item to update Section 06.
   Resolved: Fixed on 2026-04-12. Added Section 06 update item to plan-sync block. (Overlaps with TPR-05-001-codex.)
+- [x] `[TPR-05-001-codex][high]` (iter 2) `section-06-symbol-extraction.md:54` — Update Section 06 to consume adapter.
+  Evidence: Section 06.2 still reads repos.yaml/tags.scm directly.
+  Resolved: Fixed on 2026-04-12. Updated Section 06.2 contract to consume ParseResult/parse_repo().
+- [x] `[TPR-05-002-codex][medium]` (iter 2) `section-05-parser-adapters.md:324` — Stub query validation contradiction.
+  Evidence: Plan says stubs are valid (zero captures) but also requires all queries to produce captures.
+  Resolved: Fixed on 2026-04-12. Qualified validation: non-stubs must produce captures, stubs must compile cleanly.
+- [x] `[TPR-05-003-codex][medium]` (iter 2) `section-05-parser-adapters.md:62` — Success criteria overstates extraction.
+  Evidence: Section 05 claims "extracts structural symbols" but extraction is Section 06's deliverable.
+  Resolved: Fixed on 2026-04-12. Changed to "Unblocks mission criteria" (parsing half only).
 
 ---
 
