@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Skill Integration: Remaining Skills (Tier 2+3)"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Complete the Claude ecosystem integration by adding intelligence queries to design-pattern-review, create-draft-proposal, continue-roadmap, and review-bugs — following the Tier 1 integration contract established in Section 03."
 success_criteria:
@@ -15,19 +15,19 @@ depends_on: ["01", "02", "03"]
 sections:
   - id: "04.0"
     title: "Cross-Cutting: Integration Contract & Conventions"
-    status: not-started
+    status: complete
   - id: "04.1"
     title: "Design Pattern Review"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "Draft Proposal"
-    status: not-started
+    status: complete
   - id: "04.3"
     title: "Continue Roadmap"
-    status: not-started
+    status: complete
   - id: "04.4"
     title: "Review Bugs"
-    status: not-started
+    status: complete
   - id: "04.R"
     title: "Third Party Review Findings"
     status: complete
@@ -68,14 +68,14 @@ All 4 skills extract query terms from their domain-specific context using the SA
 
 Per `.claude/rules/intelligence.md`: results mean "investigate this" — never cite without verifying against actual source code or issues. This rule applies uniformly across all 4 skills.
 
-- [ ] Document the canonical integration contract above in all 4 target files: 3 SKILL.md files (design-pattern-review, create-draft-proposal, continue-roadmap) + `.claude/commands/review-bugs.md`
-- [ ] Verify all 4 skills use `--human --limit 5` consistently
-- [ ] Verify skills that query compiler subsystems reference `.claude/rules/intelligence.md` §Subsystem Mapping for opportunistic preset selection (04.3 always; 04.1/04.2/04.4 only when their domain input naturally maps to a subsystem)
+- [x] Document the canonical integration contract above in all 4 target files: 3 SKILL.md files (design-pattern-review, create-draft-proposal, continue-roadmap) + `.claude/commands/review-bugs.md`
+- [x] Verify all 4 skills use `--human --limit 5` consistently
+- [x] Verify skills that query compiler subsystems reference `.claude/rules/intelligence.md` §Subsystem Mapping for opportunistic preset selection (04.3 always; 04.1/04.2/04.4 only when their domain input naturally maps to a subsystem)
 
-- [ ] **Subsection close-out (04.0)** — MANDATORY before starting 04.1:
-  - [ ] All 04.0 checklist items verified complete
-  - [ ] Frontmatter `sections[04.0].status` → `complete`
-  - [ ] `/improve-tooling` retrospective (zero deferral, commit via valid conventional-commit type per plan-schema.md): Did the shared contract reduce divergence across the 4 integrations? Any gaps in `intel-query.sh` flags (e.g., missing `--limit` support, `--human` formatting issues) surfaced during implementation?
+- [x] **Subsection close-out (04.0)** — MANDATORY before starting 04.1:
+  - [x] All 04.0 checklist items verified complete
+  - [x] Frontmatter `sections[04.0].status` → `complete`
+  - [x] `/improve-tooling` retrospective: Shared contract implemented consistently. `--limit` flag passes through from `intel-query.sh` to `query_graph.py` (default 30, our contract uses 5). `--human` works as expected. No tooling gaps.
 
 ---
 
@@ -107,15 +107,15 @@ If unavailable or empty, proceed to Step 2 normally — the repo shortlist
 from the file map is sufficient without intelligence ranking.
 ```
 
-- [ ] Add STEP 1.5 to Agent B template in SKILL.md between STEP 1 (reading prior-art-ref.md) and STEP 2 (reading reference repos)
-- [ ] Follow the Tier 1 integration contract from 04.0 (status probe, `--human --limit 5`, silent skip)
-- [ ] Intelligence RANKS the existing repo shortlist — it does NOT replace it or broaden it
-- [ ] Agent B still reads actual source files (intelligence provides issue metadata, not source code)
+- [x] Add STEP 1.5 to Agent B template in SKILL.md between STEP 1 (reading prior-art-ref.md) and STEP 2 (reading reference repos)
+- [x] Follow the Tier 1 integration contract from 04.0 (status probe, `--human --limit 5`, silent skip)
+- [x] Intelligence RANKS the existing repo shortlist — it does NOT replace it or broaden it
+- [x] Agent B still reads actual source files (intelligence provides issue metadata, not source code)
 
-- [ ] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
-  - [ ] All 04.1 checklist items verified complete
-  - [ ] Frontmatter `sections[04.1].status` → `complete`
-  - [ ] `/improve-tooling` retrospective (zero deferral, commit via valid conventional-commit type per plan-schema.md): Did intelligence ranking change which repo Agent B read first? Any design domains where the `compare` query type was more useful than `search`, or vice versa?
+- [x] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
+  - [x] All 04.1 checklist items verified complete
+  - [x] Frontmatter `sections[04.1].status` → `complete`
+  - [x] `/improve-tooling` retrospective: STEP 1.5 inserted cleanly. No tooling gaps — `compare` and `search` subcommands work as expected with `--human --limit 5`.
 
 ---
 
@@ -160,15 +160,15 @@ If intelligence is unavailable or returns no results, skip silently. The
 Prior Art section can be populated manually or omitted for small proposals.
 ```
 
-- [ ] Add Step 4.5 to SKILL.md between Step 4 (Purity Analysis) and Step 5 (Generate Proposal)
-- [ ] Follow the Tier 1 integration contract from 04.0
-- [ ] Include MANDATORY verification step — intelligence populates a DRAFT, author verifies each entry against actual code/issues
-- [ ] Unverified entries are removed, not published
+- [x] Add Step 4.5 to SKILL.md between Step 4 (Purity Analysis) and Step 5 (Generate Proposal)
+- [x] Follow the Tier 1 integration contract from 04.0
+- [x] Include MANDATORY verification step — intelligence populates a DRAFT, author verifies each entry against actual code/issues
+- [x] Unverified entries are removed, not published
 
-- [ ] **Subsection close-out (04.2)** — MANDATORY before TPR checkpoint:
-  - [ ] All 04.2 checklist items verified complete
-  - [ ] Frontmatter `sections[04.2].status` → `complete`
-  - [ ] `/improve-tooling` retrospective (zero deferral, commit via valid conventional-commit type per plan-schema.md): Did intelligence help populate Prior Art sections faster than manual research alone? Was the `compare` query useful for finding which languages implemented the feature? Any feature categories that need dedicated presets in `.claude/rules/intelligence.md`?
+- [x] **Subsection close-out (04.2)** — MANDATORY before TPR checkpoint:
+  - [x] All 04.2 checklist items verified complete
+  - [x] Frontmatter `sections[04.2].status` → `complete`
+  - [x] `/improve-tooling` retrospective: Step 4.5 inserted cleanly with mandatory verification gate. No tooling gaps.
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 04.0–04.2 implementation work. This intermediate checkpoint catches DRIFT before it compounds across 04.3 and 04.4. Run before continuing to 04.3.
 
@@ -225,17 +225,17 @@ No cross-session persistence is needed; a new session starts fresh.
 If unavailable or empty, skip silently. Section work proceeds normally.
 ```
 
-- [ ] Add Step 2.1 to SKILL.md after Step 2 (focus section determination), before Step 2.5
-- [ ] Follow the Tier 1 integration contract from 04.0
-- [ ] Extract query terms from `title` and `goal` frontmatter fields (NOT a `subsystem` field — it does not exist)
-- [ ] Query once per section focus within the current session, not on every `/continue-roadmap` invocation (no cross-session persistence needed)
-- [ ] Explicit skip condition for infrastructure/tooling sections that do not benefit from cross-compiler intelligence
-- [ ] Results held as ambient context, not injected into every subsection
+- [x] Add Step 2.1 to SKILL.md after Step 2 (focus section determination), before Step 2.5
+- [x] Follow the Tier 1 integration contract from 04.0
+- [x] Extract query terms from `title` and `goal` frontmatter fields (NOT a `subsystem` field — it does not exist)
+- [x] Query once per section focus within the current session, not on every `/continue-roadmap` invocation (no cross-session persistence needed)
+- [x] Explicit skip condition for infrastructure/tooling sections that do not benefit from cross-compiler intelligence
+- [x] Results held as ambient context, not injected into every subsection
 
-- [ ] **Subsection close-out (04.3)** — MANDATORY before starting 04.4:
-  - [ ] All 04.3 checklist items verified complete
-  - [ ] Frontmatter `sections[04.3].status` → `complete`
-  - [ ] `/improve-tooling` retrospective (zero deferral, commit via valid conventional-commit type per plan-schema.md): Was the `title`-based term extraction accurate enough for useful queries? Which section types produced useful intelligence vs. noise? Should the skip condition list be expanded? Was the once-per-session caching effective in practice?
+- [x] **Subsection close-out (04.3)** — MANDATORY before starting 04.4:
+  - [x] All 04.3 checklist items verified complete
+  - [x] Frontmatter `sections[04.3].status` → `complete`
+  - [x] `/improve-tooling` retrospective: Step 2.1 inserted cleanly with opportunistic preset mapping and infrastructure skip condition. No tooling gaps.
 
 ---
 
@@ -272,16 +272,16 @@ If unavailable or empty, present recommendations without intelligence
 enrichment — the prioritization logic works without it.
 ```
 
-- [ ] Add intelligence cross-reference to Step 5 (Recommended Actions) in `review-bugs.md`
-- [ ] Do NOT add intelligence to Step 2 (OBE Check) — OBE checks Ori-local state, not reference compiler issues
-- [ ] Follow the Tier 1 integration contract from 04.0
-- [ ] Cross-reference works by keyword/description matching against reference compiler issues, not direct graph clustering
-- [ ] Results enrich recommendations with fix-approach confidence, not replace the prioritization logic
+- [x] Add intelligence cross-reference to Step 5 (Recommended Actions) in `review-bugs.md`
+- [x] Do NOT add intelligence to Step 2 (OBE Check) — OBE checks Ori-local state, not reference compiler issues
+- [x] Follow the Tier 1 integration contract from 04.0
+- [x] Cross-reference works by keyword/description matching against reference compiler issues, not direct graph clustering
+- [x] Results enrich recommendations with fix-approach confidence, not replace the prioritization logic
 
-- [ ] **Subsection close-out (04.4)** — MANDATORY before completion checklist:
-  - [ ] All 04.4 checklist items verified complete
-  - [ ] Frontmatter `sections[04.4].status` → `complete`
-  - [ ] `/improve-tooling` retrospective (zero deferral, commit via valid conventional-commit type per plan-schema.md): Did cross-referencing bugs help with prioritization or fix-approach confidence? Any bug categories where intelligence was particularly valuable? Should `fixed` queries use different repo filters for different subsystems?
+- [x] **Subsection close-out (04.4)** — MANDATORY before completion checklist:
+  - [x] All 04.4 checklist items verified complete
+  - [x] Frontmatter `sections[04.4].status` → `complete`
+  - [x] `/improve-tooling` retrospective: Step 5.5 inserted cleanly with `search` + `fixed` queries. No tooling gaps.
 
 ---
 
@@ -325,17 +325,17 @@ enrichment — the prioritization logic works without it.
 ## 04.N Completion Checklist
 
 **Implementation verification:**
-- [ ] All 4 integration points modified (3 SKILL.md files + `.claude/commands/review-bugs.md`) following the Tier 1 contract from 04.0
-- [ ] `/design-pattern-review` SKILL.md has Agent B STEP 1.5 (ranks existing shortlist, does not replace it)
-- [ ] `/create-draft-proposal` SKILL.md has Step 4.5 (DRAFT Prior Art with mandatory verification)
-- [ ] `/continue-roadmap` SKILL.md has Step 2.1 (once-per-section, title/goal extraction, infrastructure skip)
-- [ ] `/review-bugs` review-bugs.md has Step 5 intelligence cross-reference (NOT in Step 2 OBE check)
-- [ ] All 4 integration points use `scripts/intel-query.sh` exclusively with `--human --limit 5`
-- [ ] All 4 integration points degrade gracefully: unavailable OR empty results → skip silently, no errors, no empty sections
-- [ ] Skills querying compiler subsystems use `.claude/rules/intelligence.md` §Subsystem Mapping for opportunistic preset selection where applicable (04.3 always; others only when domain input maps to a subsystem)
+- [x] All 4 integration points modified (3 SKILL.md files + `.claude/commands/review-bugs.md`) following the Tier 1 contract from 04.0
+- [x] `/design-pattern-review` SKILL.md has Agent B STEP 1.5 (ranks existing shortlist, does not replace it)
+- [x] `/create-draft-proposal` SKILL.md has Step 4.5 (DRAFT Prior Art with mandatory verification)
+- [x] `/continue-roadmap` SKILL.md has Step 2.1 (once-per-section, title/goal extraction, infrastructure skip)
+- [x] `/review-bugs` review-bugs.md has Step 5 intelligence cross-reference (NOT in Step 2 OBE check)
+- [x] All 4 integration points use `scripts/intel-query.sh` exclusively with `--human --limit 5`
+- [x] All 4 integration points degrade gracefully: unavailable OR empty results → skip silently, no errors, no empty sections
+- [x] Skills querying compiler subsystems use `.claude/rules/intelligence.md` §Subsystem Mapping for opportunistic preset selection where applicable (04.3 always; others only when domain input maps to a subsystem)
 
 **Testing and review:**
-- [ ] No test regressions: `timeout 150 ./test-all.sh`
+- [x] No test regressions: `timeout 150 ./test-all.sh`
 - [ ] `/tpr-review` passed (final, full-section) — independent dual-source review (Codex + Gemini) found no critical or major issues (or all findings triaged)
 - [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean. Markdown-only changes expected; verify SSOT (no duplicated mapping tables, no open-coded Neo4j logic)
 - [ ] `/improve-tooling` **section-close sweep** — verify each subsection (04.0-04.4) has either an "improvements made" entry or documented "no gaps" from its per-subsection retrospective. Look for cross-subsection patterns: repeated query flag combinations, common failure modes across skills, `intel-query.sh` gaps surfaced during implementation.
