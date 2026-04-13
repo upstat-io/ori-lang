@@ -1,0 +1,35 @@
+// Pure arithmetic functions for Alive2 translation validation.
+//
+// These functions contain no runtime calls (RC, alloc, panic),
+// no exception handling (invoke/landingpad), and no closures.
+// All survive -O2 optimization (not inlined away).
+
+@add (a: int, b: int) -> int = a + b;
+
+@multiply (a: int, b: int) -> int = a * b;
+
+@abs_val (x: int) -> int = {
+    if x < 0 then -x else x
+}
+
+@max_of_three (a: int, b: int, c: int) -> int = {
+    let $m = if a > b then a else b;
+    if m > c then m else c
+}
+
+@factorial (n: int) -> int = {
+    if n <= 1 then 1
+    else n * factorial(n: n - 1)
+}
+
+@is_even (n: int) -> bool = n % 2 == 0;
+
+@main () -> void = {
+    let $r = add(a: 1, b: 2);
+    let $s = multiply(a: 3, b: 4);
+    let $a = abs_val(x: -42);
+    let $m = max_of_three(a: 1, b: 3, c: 2);
+    let $f = factorial(n: 5);
+    let $e = is_even(n: 4);
+    print(msg: `{r} {s} {a} {m} {f} {e}`)
+}

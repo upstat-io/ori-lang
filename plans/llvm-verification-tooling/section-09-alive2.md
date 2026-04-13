@@ -29,7 +29,7 @@ sections:
     status: complete
   - id: "09.3"
     title: "Diagnostic Script, Function Selection, and Inlining Survival"
-    status: not-started
+    status: complete
   - id: "09.4"
     title: "False Positive Management (9 Categories)"
     status: not-started
@@ -314,7 +314,7 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
 
 Build the diagnostic script that orchestrates alive-tv verification and curate the initial function corpus. A critical concern: pure/arithmetic functions are the most likely to be fully inlined at `-O2`, causing alive-tv to silently verify nothing (missing functions are ignored). The corpus must include an inlining survival filter.
 
-- [ ] Create `diagnostics/alive2-verify.sh` following existing diagnostic conventions (`--help`, `--no-color`, `--verbose`, `--json`, exit codes 0/1/2):
+- [x] Create `diagnostics/alive2-verify.sh` following existing diagnostic conventions (`--help`, `--no-color`, `--verbose`, `--json`, exit codes 0/1/2):
   ```bash
   # Usage: diagnostics/alive2-verify.sh [OPTIONS] <file.ori | --corpus>
   #
@@ -333,7 +333,7 @@ Build the diagnostic script that orchestrates alive-tv verification and curate t
   ```
   **WHERE:** `diagnostics/alive2-verify.sh` (new file)
 
-- [ ] Implement the verification pipeline in the script:
+- [x] Implement the verification pipeline in the script:
   1. Build the `.ori` file with `ORI_ALIVE2_CAPTURE=1 cargo run -- build <file>`
   2. Extract function names from the pre-opt IR: `grep '^define' preopt.ll | sed 's/.*@\([^ (]*\).*/\1/'`
   3. Extract function names from the post-opt IR (same command on postopt.ll)
@@ -355,7 +355,7 @@ Build the diagnostic script that orchestrates alive-tv verification and curate t
      - Check against suppression list for known false positives
   6. Report summary: N verified, M timeouts, K suppressed, L failures, P inlined
 
-- [ ] Curate the initial function corpus (`tests/alive2/curated-corpus.txt`). Selection criteria:
+- [x] Curate the initial function corpus (`tests/alive2/curated-corpus.txt`). Selection criteria:
   - **Include**: Pure arithmetic functions, simple control flow (no loops or loops with small bounds), no runtime calls (`_ori_rc_inc`, `_ori_rc_dec`, `_ori_alloc`, `_ori_panic`), no exception handling (`invoke`/`landingpad`), no indirect calls (closures)
   - **Exclude**: Functions with `call void @_ori_rc_*` (RC operations), functions with `invoke` (exception handling), functions calling external runtime (`_ori_*`), functions with large loop nests (>256 iterations), functions with `va_arg` or variadics, functions with `_ori_is_unique` calls (COW branches), functions with checked-overflow intrinsics that branch to panic blocks
   - **Survival requirement**: Each corpus entry must **naturally** survive `-O2` optimization (not be fully inlined away). Verify with `--check-survival` during corpus creation. If a function is inlined at `-O2`, **replace it** with one that survives — do NOT attempt to inject `noinline` attributes, as there is no clean transport mechanism from the corpus file to the compiler's codegen path (CaptureHooks are module-level IO hooks, not per-function attribute injectors). The `--check-survival` filter is the enforcement mechanism: any entry that fails survival is flagged as an error during `--corpus` runs, forcing the maintainer to find a replacement.
@@ -363,15 +363,15 @@ Build the diagnostic script that orchestrates alive-tv verification and curate t
   - Format: one line per entry: `<ori_file_path> <function_name>`
   **WHERE:** `tests/alive2/curated-corpus.txt` (new file)
 
-- [ ] Create `tests/alive2/` directory with the corpus file and a README explaining the selection criteria, survival requirements, and how to add new entries.
+- [x] Create `tests/alive2/` directory with the corpus file and a README explaining the selection criteria, survival requirements, and how to add new entries.
 
-- [ ] Add the script to `diagnostics/self-test.sh` with a minimal positive test (one known-good pure function that survives optimization).
+- [x] Add the script to `diagnostics/self-test.sh` with a minimal positive test (one known-good pure function that survives optimization).
 
-- [ ] **Subsection close-out (09.3)** — MANDATORY before starting 09.4:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+- [x] **Subsection close-out (09.3)** — MANDATORY before starting 09.4:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 09.3: no tooling gaps. Script follows diagnostic conventions. Corpus verified end-to-end (8/8 functions pass). Self-test integration gated on alive-tv availability.
+  - [x] **Repo hygiene check** — clean (2026-04-13).
 
 ---
 
