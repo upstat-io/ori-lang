@@ -2,7 +2,7 @@
 section: "05"
 title: "Code Graph: Parser Adapters"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Set up tree-sitter parsing infrastructure for all 11 repos with per-language adapters, query file families, adapter API contract, and validation matrix."
 success_criteria:
   - "tree-sitter parses files from all 9 supported languages (Lean .lean excluded, coverage: partial)"
@@ -40,7 +40,7 @@ sections:
     status: not-started
   - id: "05.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "05.N"
     title: "Completion Checklist"
     status: not-started
