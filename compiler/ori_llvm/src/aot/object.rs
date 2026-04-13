@@ -393,6 +393,11 @@ impl ObjectEmitter {
         path: &Path,
         format: OutputFormat,
     ) -> Result<(), ModulePipelineError> {
+        // Step 0: Early Clang availability check when sanitizers are enabled
+        if opt_config.sanitizer.any_enabled() {
+            super::passes::check_clang_available().map_err(ModulePipelineError::Optimization)?;
+        }
+
         // Step 1: Verify
         if let Err(msg) = module.verify() {
             return Err(ModulePipelineError::Verification(msg.to_string()));
@@ -409,9 +414,39 @@ impl ObjectEmitter {
             stats.emit_to_stderr();
         }
 
-        // Step 3: Emit
-        self.emit(module, path, format)
-            .map_err(ModulePipelineError::Emission)?;
+        // Step 3: Emit (with optional sanitizer delegation)
+        if opt_config.sanitizer.any_enabled() && format == OutputFormat::Object {
+            // Sanitizer path: emit LLVM IR to temp file, then invoke Clang
+            // with -fsanitize=... to produce a sanitized object file.
+            let ir_path = path.with_extension("ll");
+            self.emit_llvm_ir(module, &ir_path)
+                .map_err(ModulePipelineError::Emission)?;
+
+            let opt_level = match opt_config.level {
+                super::passes::OptimizationLevel::O0 => "-O0",
+                super::passes::OptimizationLevel::O1 => "-O1",
+                super::passes::OptimizationLevel::O2 => "-O2",
+                super::passes::OptimizationLevel::O3 => "-O3",
+                super::passes::OptimizationLevel::Os => "-Os",
+                super::passes::OptimizationLevel::Oz => "-Oz",
+            };
+
+            super::passes::clang_compile_with_sanitizers(
+                &ir_path,
+                path,
+                &opt_config.sanitizer,
+                opt_level,
+                self.config.triple(),
+            )
+            .map_err(ModulePipelineError::Optimization)?;
+
+            // Clean up the intermediate IR file
+            let _ = std::fs::remove_file(&ir_path);
+        } else {
+            // Normal path: emit directly via LLVM
+            self.emit(module, path, format)
+                .map_err(ModulePipelineError::Emission)?;
+        }
 
         Ok(())
     }
