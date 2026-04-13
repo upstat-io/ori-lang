@@ -202,15 +202,19 @@ Maps: `%3 → [%2]`, `%4 → [%2]`, `%5 → [%2]`
 ```
 Maps: `%3 → [%2]`, `%4 → [%3, %2]` (transitive: %3 maps to [%2], so %4 gets %3 ∪ [%2])
 
-**Consumer**: `propagate_project_source_demand()` — invoked on EVERY iteration of the backward worklist. On each iteration, for each BORROW alias variable (entries originating from Rules 1 or 6 — direct Project destinations and their transitive chain) that is live, propagates `Locality = max(source_current, alias_locality)`, `Cardinality = seq_add(source_current, alias_cardinality)`, and if alias's locality >= HeapEscaping: `Access = Owned`. NON-BORROW aliases (Rules 2, 3, 5) do NOT trigger demand propagation — they are for DP-5 only.
+**Consumer**: `propagate_project_source_demand()` — invoked on EVERY iteration of the backward worklist. For each alias variable in the block-entry demand map that is live AND originates from a BORROW entry (Rules 1 or 6 — direct Project destinations and their transitive chain):
+- `src.cardinality := seq_add(src.cardinality, alias.cardinality)` (keeps source alive)
+- `src.locality := max(src.locality, alias.locality)` (prevents premature stack promotion)
+- If `alias.locality >= HeapEscaping`: `src.access := Owned` (prevents CN-8 from clamping escape signal)
+- Consumption is NOT propagated.
 
-**Demand construction**: the propagated demand uses `Access = Owned` (the source aggregate must support field cleanup RcDec, which requires Owned). Locality uses `max(source_current, alias_locality)`. Cardinality uses `seq_add`. Consumption is NOT propagated.
+NON-BORROW aliases (Rules 2, 3, 5 — Let Var, Jump, Select) do NOT trigger demand propagation — they are in the map solely for DP-5 mutation safety checks. Their demand is handled by IA-5 step (1) transparent-alias transfer during the backward walk.
 
 **Merge-point filtering**: at CFG merges, the union of project sources from multiple predecessors is an over-approximation (the analysis keeps all possible parent aggregates alive). The EMISSION side (RL-4, RL-5) must filter: variables that exist only on one predecessor path must NOT receive merge-block-level decrements. Instead, they receive decrements on their specific predecessor edge. This filtering is an emission concern, not an analysis concern — the analysis correctly over-approximates to keep parents alive on all paths.
 
 **Select**: `Select` instructions participate in project alias tracking as CONDITIONAL aliases: if `%3 = Select(cond, %A, %B)`, then `%3 → [%A, %B]` (the Select result may be either operand at runtime). This is needed for DP-5 soundness: if `%4 = Project %3.0` and %A is later mutated, DP-5 must detect the borrow chain %4 → %3 → %A. Without Select in project_alias_sources, the chain breaks at %3. Select's backward DEMAND is handled separately by IA-5 step (1) (conditional alias transfer); the project_alias_sources entry handles the DP-5 SAFETY CHECK path.
 
-**Propagation scope — why TF-14 and project_alias_sources propagate different things**: TF-14 (direct borrow sources, intra-block) propagates locality AND cardinality. `project_alias_sources` (cross-block) propagates with `Access = Owned`, locality, and cardinality (via seq_add). Both always use `Access = Owned` (not Borrowed) because source aggregates need Owned for field cleanup. The difference: TF-14 fires during the per-instruction backward walk; project_alias_sources fires at block boundaries in the worklist loop.
+**Propagation scope — TF-14 and project_alias_sources are consistent**: Both propagate cardinality (seq_add) and locality (max). Both conditionally promote `Access = Owned` when `dst.locality >= HeapEscaping`. TF-14 fires intra-block during the backward walk; project_alias_sources fires cross-block in the worklist loop.
 
 This mechanism makes TF-14 (backward demand propagation) sound across control flow. TF-14 fires for direct `borrow_sources` entries during the per-instruction backward walk; `project_alias_sources` extends that to transitive aliases within the worklist loop.
 
@@ -336,7 +340,7 @@ Dimensions NOT narrowed by `refine`: Access (stays `Owned` — call results are 
 
 **TF-7** — Closure capture (`PartialApply`): `dst := FRESH(NonReusable)`. Closures are not reusable. Captured variables updated via `capture_state_update` (TF-13).
 
-**TF-8** — Conditional selection (`Select`): if both operands are SCALAR (per L-9), `dst := SCALAR`. If one operand is SCALAR (including immortal constants per IA-8) and the other is not, the SCALAR operand is excluded from the join and `dst` inherits the non-SCALAR operand's state, BUT with `uniqueness := MaybeShared` (the result may be an immortal constant at runtime, so in-place mutation is unsafe — DP-4 will emit a dynamic COW check). Otherwise, `dst := state(true_val) ⊔ state(false_val)` (merge of both branches).
+**TF-8** — Conditional selection (`Select`): if both operands are SCALAR (per L-9), `dst := SCALAR`. If one operand is SCALAR (including immortal constants per IA-8) and the other is not, the SCALAR operand is excluded and `dst` inherits the non-SCALAR operand's state with `uniqueness := max(MaybeShared, non_scalar.uniqueness)` (preserves Shared, downgrades Unique to MaybeShared — monotone per L-6). Otherwise, `dst := state(true_val) ⊔ state(false_val)` (merge of both branches).
 
 **TF-9** — Reuse (`Reuse { token, ty, args }`): `dst := FRESH(shape)` where shape is inherited from the dying value's `Reset` token (the reused allocation retains the shape of the original Construct that created it). Reused memory gets fresh state with the same shape classification.
 
@@ -499,7 +503,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 - **`Select` (conditional alias)**: the destination's full accumulated demand transfers to BOTH `true_val` and `false_val` via `seq_add` (same as Let Var — additive accumulation for cardinality/consumption, max for locality) — because at runtime, one of them IS the destination. E.g., if `%5 = Select(cond, %3, %4)` and `%5` has `Many` cardinality, both `%3` and `%4` receive `Many`. This is the backward interpretation of TF-8: `dst := state(true_val) ⊔ state(false_val)` means both operands should absorb `dst`'s demand. `cond` receives only the TF-11 demand `(cond, Once)` (it's a boolean control input, not an alias).
 - **`Construct`, `Reuse`, `CollectionReuse` (aggregate builders)**: the destination's LOCALITY transfers to all arguments: `arg.locality := max(arg.locality, dst.locality)`. Arguments SHALL ALWAYS be promoted to `access := Owned` (regardless of destination locality). Even for local structs, field cleanup at scope exit requires `RcDec` on fields, which requires the fields to be Owned. Without unconditional Owned promotion, field decs would underflow on Borrowed values. This prevents the "dangling stack-to-heap pointer" problem. Arguments also receive their standard TF-11 `(arg, Once)` demand from step (2). Cardinality is NOT transferred — the Construct uses each argument once regardless of how many times the result is used.
 - **`Set { base, value }` (in-place field mutation)**: transfers `base.locality` to `value`: `value.locality := max(value.locality, base.locality)`. If `base.locality > FunctionLocal`, also `value.access := Owned` (prevents CN-8 clamping from destroying the escape signal). This prevents storing a FunctionLocal variable into a HeapEscaping aggregate and then incorrectly stack-allocating it.
-- **Non-aliasing definitions** (`Apply`, `PartialApply`, etc.): step (1) has no backward transfer — the destination's demand does not flow to its arguments. Only step (2) applies. (`PartialApply` uses TF-13 for capture demand, which is separate from step (1).)
+- **Non-aliasing definitions** (`Apply`, `PartialApply`, etc.): step (1) has no backward transfer. Step (2) applies TF-11 backward demands (or TF-13 for `PartialApply` — TF-13 replaces TF-11 for closure captures per TF-12).
 
 **Step (2)** adds the instruction's own operational demand per TF-11. Steps (1) and (2) are complementary: step (1) transfers accumulated state through aliasing, step (2) adds the instruction's direct operand demands.
 
@@ -536,7 +540,7 @@ Step 11: verify()                  — Final sanity
 Step 12: FBIP enforcement          — Read-only diagnostic
 ```
 
-**PL-1** — Steps 1-2 (interprocedural) SHALL run once across all functions before any per-function step. Contracts are prerequisites for call-site refinement.
+**PL-1** — Steps 1-2 (interprocedural) SHALL run once across all functions before any per-function step. Contracts are prerequisites for call-site refinement. **PL-1a** — The per-function pipeline (Steps 3-12) SHALL process functions in SCC topological order (callees before callers), ensuring post-realization facts like `FipContract` propagate correctly.
 
 **PL-2** — Step 4 (analysis) SHALL precede Step 5 (realization). State map drives emission decisions.
 
@@ -681,7 +685,7 @@ This is the key optimization that bridges "not local" and "not heap" — a value
 
 The verification stack is **layered**. Each layer catches a different class of inconsistency.
 
-**VF-1** — Layer 1 (Structural): ARC IR well-formedness. Checks: use-before-def, dangling block refs, RC on scalar, dec on borrowed (EXCEPT field-drop projections emitted by RL-14/RL-15 scope cleanup — these Project+RcDec sequences are marked as field drops and exempt from the DecOnBorrowed check), arg ownership length mismatch. Runs at three checkpoints: (1) after AIMS emission (Step 6), (2) after full pipeline (Step 11), (3) after post-pipeline optimization passes (§8 RL-22 through RL-26).
+**VF-1** — Layer 1 (Structural): ARC IR well-formedness. Checks: use-before-def, dangling block refs, RC on scalar, dec on borrowed (EXCEPT field-drop projections emitted by RL-14/RL-14a/RL-15/RL-15a scope cleanup — these Project+RcDec sequences are marked as field drops and exempt from the DecOnBorrowed check), arg ownership length mismatch. Runs at three checkpoints: (1) after AIMS emission (Step 6), (2) after full pipeline (Step 11), (3) after post-pipeline optimization passes (§8 RL-22 through RL-26).
 
 **VF-2** — Layer 2 (AIMS Contract): filters structural verifier output to AIMS-specific inconsistencies. Checks: (a) parameters declared `Absent` must have no live uses; (b) RL-31 alias metadata (`!noalias`/`!alias.scope`) must be backed by a valid disjointness proof from the RL-31 normative procedure — metadata without proof is a contract violation.
 
