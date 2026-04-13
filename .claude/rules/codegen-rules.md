@@ -43,7 +43,7 @@ The following mapping SHALL be the single source of truth for Ori → LLVM type 
 |----------|-----------|-------------|-------|
 | `int` | `i64` | 8 | |
 | `float` | `f64` | 8 | |
-| `bool` | `i1` | 1 | Stored as `i8` in aggregates |
+| `bool` | `i1` | 1 | |
 | `byte` | `i8` | 1 | |
 | `char` | `i32` | 4 | |
 | `void` / `()` | `i64` (unit sentinel) | 8 | |
@@ -203,7 +203,7 @@ Rationale: The runtime iterator state machine (`ori_rt/src/iterator/state.rs`) u
 When a list has narrowed integer elements, `emit_list_iter` SHALL inject a sign-extension widening step at the iterator boundary. The implementation is:
 
 1. Call `ori_iter_from_list(data, len, cap, narrowed_elem_size)` — creating the source iterator with the **narrowed** buffer stride
-2. Wrap that iterator with `ori_iter_map(iter, sext_trampoline, null_env, narrowed_in_size, canonical_out_size)` — the sext widening trampoline reads narrowed elements and writes canonical i64
+2. Wrap that iterator with `ori_iter_map(iter, sext_trampoline, null_env, narrowed_elem_size)` — 4 parameters. The `in_size` matches the narrowed stride; the sext trampoline internally writes canonical i64 to `out_ptr`, so downstream consumers see canonical elements without an explicit output-size parameter.
 
 After the wrapping `ori_iter_map` call:
 - The output iterator's `elem_size` is the **canonical** i64 size (8 bytes)
@@ -367,8 +367,8 @@ Iterator operations are emitted as calls to `ori_rt` iterator functions, with tr
 `emit_list_iter` SHALL:
 1. Extract `data`, `len`, `cap` from the list fat pointer (TR-4)
 2. Compute `elem_size` — using `collection_elem_size()` for the **source buffer stride** (storage boundary)
-3. Call `ori_iter_from_list(data, len, cap, elem_size)` — note: 4 parameters, `cap` is third
-4. If the list has narrowed int elements (NR-4), wrap the iterator with `ori_iter_map(iter, sext_trampoline, null_env, narrowed_in_size, canonical_out_size)` to produce canonical elements
+3. Call `ori_iter_from_list(data, len, cap, elem_size)` — 4 parameters, `cap` is third
+4. If the list has narrowed int elements (NR-4), wrap with `ori_iter_map(iter, sext_trampoline, null_env, narrowed_elem_size)` — 4 parameters. The sext trampoline writes canonical i64 to `out_ptr`, making downstream elements canonical.
 
 After step 4, the iterator's `elem_size` is ALWAYS canonical — all downstream operations (NR-3) see canonical sizes.
 
@@ -484,17 +484,20 @@ These attributes enable LLVM to perform aggressive optimization (CSE, dead store
 
 Functions proven to never unwind (no panic paths, no invoke instructions) SHALL receive the `nounwind` attribute. This is determined by the nounwind analysis in `codegen/function_compiler/nounwind/`. The `nounwind` attribute enables LLVM to eliminate unnecessary unwind tables and landing pads.
 
-### AT-5 — Interface with AIMS RL-29/30/31
+### AT-5 — Relationship to AIMS RL-29/30/31 (Target-System Rules)
 
-AIMS rules RL-29 (`noalias` on fresh returns), RL-30 (`memory(...)` from `EffectSummary`), and RL-31 (alias metadata from `project_alias_sources`) specify the analysis-side contracts for LLVM attribute emission. This section (AT-1 through AT-4) specifies the emission-side implementation. The two must agree:
+AIMS rules RL-29 (`noalias` on fresh returns), RL-30 (`memory(...)` from `EffectSummary`), and RL-31 (alias metadata from `project_alias_sources`) describe the **target-system** attribute export — they are NOT yet shipped.
 
-| AIMS Rule | Codegen Rule | What Flows |
-|-----------|-------------|------------|
-| RL-29 (fresh returns → `noalias`) | AT-2 (sret `noalias`) | Return freshness → return attribute |
-| RL-30 (`EffectSummary` → `memory(...)`) | AT-3 (purity → `memory(none/read)`) | Effect flags → memory attribute |
-| RL-31 (alias sources → alias metadata) | AT-1 (borrowed → `readonly`/`nonnull`) | Borrow state → param attributes |
+**The currently shipped attributes (AT-1 through AT-4) derive from simpler analysis, not from the AIMS RL-29/30/31 pipeline:**
 
-Note: RL-29/30/31 are target-system rules in aims-rules.md (not yet fully shipped). AT-1 through AT-4 describe the currently shipped attribute emission.
+| Shipped Rule | Actual Analysis Source | NOT Derived From |
+|-------------|----------------------|------------------|
+| AT-1 (borrowed param attrs) | Basic borrow inference (`ownership/`) | RL-31 (which requires `project_alias_sources` metadata — unshipped) |
+| AT-2 (sret `noalias`) | Sret pointer is a fresh caller alloca | RL-29 (which requires `ReturnContract.preserves_freshness` — partially shipped) |
+| AT-3 (purity `memory(...)`) | ARC-IR shape + ABI analysis | RL-30 (which requires full `EffectSummary` — partially shipped) |
+| AT-4 (nounwind) | Control-flow analysis (no panic/invoke) | N/A — not an AIMS rule |
+
+**When RL-29/30/31 are fully shipped**, they will provide more precise attribute derivation (e.g., RL-29 will enable `noalias` on return values beyond just sret, RL-30 will derive `memory(...)` from interprocedural effect summaries instead of local ARC-IR shape). At that point, the AT-* rules will be updated to reference AIMS contracts as their analysis source. Until then, the shipped attributes are standalone and should not be conflated with the target-system rules.
 
 ---
 
@@ -562,9 +565,9 @@ This provides SMT-solver-backed proof that LLVM optimization passes preserve cod
 | RL-2 (RC dec emission) | RE-1, RE-3 (closure-aware + drop functions) | AIMS decides WHEN to dec; codegen generates the drop tree |
 | RL-5 (COW emission) | RE-4, RE-5 (IsShared + COW mutation) | AIMS emits `IsShared`+`Set`; codegen implements the branch |
 | RL-10 (reuse emission) | RE-6 (reuse two-path) | AIMS emits `Reuse`; codegen implements fast/slow paths |
-| RL-29 (fresh return → `noalias`) | AT-2 (sret attributes) | Analysis freshness → emission attribute |
-| RL-30 (effects → `memory(...)`) | AT-3 (purity attributes) | Effect summary → memory attribute |
-| RL-31 (alias → metadata) | AT-1 (borrowed param attributes) | Borrow state → param attributes |
+| RL-29 (fresh return → `noalias`) | AT-2 (sret — partial) | **Target**: analysis freshness → return noalias. **Shipped**: sret noalias only (caller alloca) |
+| RL-30 (effects → `memory(...)`) | AT-3 (purity — partial) | **Target**: EffectSummary → memory attrs. **Shipped**: ARC-IR shape analysis only |
+| RL-31 (alias → metadata) | *Not yet shipped* | **Target**: `!alias.scope`/`!noalias` metadata. **Shipped**: no alias metadata emission |
 | VF-1 through VF-8 | VR-1 through VR-6 | AIMS verifies analysis; codegen verifies emission |
 
 ---
