@@ -1,9 +1,10 @@
-// FileCheck test: shared list mutation uses COW push with RC setup.
-// A list with RC > 1 (shared via let ys = xs) forces the COW
-// shared-mutation path. The RC increment (ori_list_rc_inc) sets up
-// sharing before ori_list_push_cow handles the mutation.
+// FileCheck test: shared list mutation uses COW push with double RC setup.
+// A list with RC > 1 (shared via let ys = xs) produces two ori_list_rc_inc
+// calls before ori_list_push_cow — one for each alias. The unique-owner
+// path only has one inc, so requiring two in exact mode distinguishes them.
 //
 // CHECK-LABEL: define void @_ori_main
+// CHECK: ori_list_rc_inc
 // CHECK: ori_list_rc_inc
 // CHECK: ori_list_push_cow
 
