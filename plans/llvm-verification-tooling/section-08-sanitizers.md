@@ -2,7 +2,7 @@
 section: "08"
 title: "Sanitizer Integration"
 status: in-progress
-reviewed: false
+reviewed: true
 goal: "Integrate ASan and UBSan into AOT-compiled Ori binaries via Clang driver delegation, with ASan-instrumented ori_rt, gated by ORI_SANITIZE env var, with a smoke subset for PR CI and full sweep nightly — catching memory errors and undefined behavior in generated code AND runtime library code that verification gates and FileCheck tests cannot detect"
 success_criteria:
   - "ORI_SANITIZE=address,undefined causes Ori compiler to delegate compilation through Clang with -fsanitize=address,undefined"
