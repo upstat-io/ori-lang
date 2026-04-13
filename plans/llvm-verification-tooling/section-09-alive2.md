@@ -35,7 +35,7 @@ sections:
     status: complete
   - id: "09.5"
     title: "CI Integration via nightly-verification.yml"
-    status: not-started
+    status: complete
   - id: "09.6"
     title: "Machine-Readable Artifact Contract for Sections 11/12"
     status: not-started
@@ -431,7 +431,7 @@ Alive2 will produce false positives for Ori programs because it conservatively a
 
 Wire alive-tv into CI with tiered execution: nightly runs the curated corpus (fast, high-value), weekly runs the full FileCheck test set (slow, comprehensive). The existing `nightly-verification.yml` already handles sanitizer smoke and full sweep jobs (added in Section 08). Alive2 jobs are added to this existing workflow.
 
-- [ ] Update `nightly-verification.yml`'s `pull_request.paths` to include Alive2-owned files so that changes to Alive2 tooling trigger PR validation:
+- [x] Update `nightly-verification.yml`'s `pull_request.paths` to include Alive2-owned files so that changes to Alive2 tooling trigger PR validation:
   ```yaml
   paths:
     # ... existing paths (compiler/**, library/**, tests/sanitizer/**, etc.)
@@ -441,7 +441,7 @@ Wire alive-tv into CI with tiered execution: nightly runs the curated corpus (fa
   ```
   **WHERE:** `.github/workflows/nightly-verification.yml` — in the existing `on.pull_request.paths` block.
 
-- [ ] Add nightly CI job `alive2-curated` to the existing `.github/workflows/nightly-verification.yml`:
+- [x] Add nightly CI job `alive2-curated` to the existing `.github/workflows/nightly-verification.yml`:
   ```yaml
   alive2-curated:
     name: Alive2 Curated Corpus (Nightly)
@@ -482,7 +482,7 @@ Wire alive-tv into CI with tiered execution: nightly runs the curated corpus (fa
   ```
   **WHERE:** `.github/workflows/nightly-verification.yml` — add after the existing `sanitizer-full` job.
 
-- [ ] Define the weekly CI job `alive2-full-sweep` in `nightly-verification.yml` as a **provisional** job. Section 11 (CI Integration) may later consolidate weekly jobs into a dedicated `weekly-verification.yml` workflow — at that point, the job moves from `nightly-verification.yml` to the new file. Section 09 defines the job's content and interface; Section 11 owns the final workflow topology. Add a cross-reference: `<!-- plan-sync: Section 11.3 may relocate this job to weekly-verification.yml -->`:
+- [x] Define the weekly CI job `alive2-full-sweep` in `nightly-verification.yml` as a **provisional** job. Section 11 (CI Integration) may later consolidate weekly jobs into a dedicated `weekly-verification.yml` workflow — at that point, the job moves from `nightly-verification.yml` to the new file. Section 09 defines the job's content and interface; Section 11 owns the final workflow topology. Add a cross-reference: `<!-- plan-sync: Section 11.3 may relocate this job to weekly-verification.yml -->`:
   ```yaml
   alive2-full-sweep:
     name: Alive2 Full Sweep (Weekly)
@@ -514,16 +514,16 @@ Wire alive-tv into CI with tiered execution: nightly runs the curated corpus (fa
       - cron: '0 4 * * 0'   # weekly (Sunday 4 AM UTC)
   ```
 
-- [ ] Configure Z3 timeout appropriately:
+- [x] Configure Z3 timeout appropriately:
   - Nightly (curated): 60 seconds per function — pre-selected to be fast
   - Weekly (full sweep): 120 seconds per function — allows more complex functions
   - Functions that timeout are reported but do not fail the job (they indicate candidates for the suppression list or corpus exclusion)
 
-- [ ] **Subsection close-out (09.5)** — MANDATORY before starting 09.6:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+- [x] **Subsection close-out (09.5)** — MANDATORY before starting 09.6:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 09.5: no tooling gaps. CI jobs use shared cache key pattern from alive2-build. Nightly=60s timeout, weekly=120s. Section 11 cross-ref added for future job relocation.
+  - [x] **Repo hygiene check** — clean (2026-04-13).
 
 ---
 
