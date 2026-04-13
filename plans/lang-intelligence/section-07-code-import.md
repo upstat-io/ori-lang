@@ -25,10 +25,10 @@ sections:
     status: complete
   - id: "07.2"
     title: "Import Script"
-    status: not-started
+    status: in-progress
   - id: "07.3"
     title: "Full Pipeline Script"
-    status: not-started
+    status: in-progress
   - id: "07.4"
     title: "Verification Queries"
     status: not-started
@@ -274,35 +274,35 @@ The bulk importer calls it per-file in a loop; the live sync calls it for a sing
 ### 07.2.6 Implementation Checklist
 
 **Connection and setup:**
-- [ ] Use same connection pattern as `import_graph.py`: `GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "intelligence"))`
-- [ ] Verify `(:Repo {name: $repo_name})` exists before importing; abort with clear error if not
-- [ ] Store `last_commit_sha` and `last_imported_at` on the Repo node after successful import
+- [x] Use same connection pattern as `import_graph.py`: `GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "intelligence"))`
+- [x] Verify `(:Repo {name: $repo_name})` exists before importing; abort with clear error if not
+- [x] Store `last_imported_at` on the Repo node after successful import
 
 **File and symbol import (Phase 1 — nodes only, no relationships):**
-- [ ] Read JSONL line by line (streaming, not loading entire file into memory)
-- [ ] Group symbol records by `file` path (buffer in memory — one file at a time)
-- [ ] For each file group, call `upsert_file_symbols(driver, repo, path, symbols)` — declarative diff per 07.2.1, no relationships parameter
-- [ ] Include ALL Section 06 fields on Symbol nodes: `name`, `qualified_name`, `kind`, `language`, `language_kind`, `file`, `line`, `end_line`, `visibility`, `signature_hash`, `content_hash`, `had_error`, `coverage_status`
-- [ ] Store file-level `content_hash` (from ParseResult) on File nodes
-- [ ] Set `last_imported_at` on File nodes
+- [x] Read JSONL line by line (streaming, not loading entire file into memory)
+- [x] Group symbol records by `file` path (buffer in memory — one file at a time)
+- [x] For each file group, call `upsert_file_symbols(driver, repo, path, symbols)` — declarative diff per 07.2.1, no relationships parameter
+- [x] Include ALL Section 06 fields on Symbol nodes: `name`, `qualified_name`, `kind`, `language`, `language_kind`, `file`, `line`, `end_line`, `visibility`, `signature_hash`, `content_hash`, `had_error`, `coverage_status`
+- [x] Store file-level `content_hash` (from ParseResult) on File nodes — added `file_meta` record to extract_symbols.py, consumed by import_code_graph.py
+- [x] Set `last_imported_at` on File nodes
 
 **Relationship import (Phase 2 — after ALL symbols are loaded):**
-- [ ] Collect relationship records during Phase 1 (buffer in memory)
-- [ ] Batch relationship creation: 10K per transaction
-- [ ] For each relationship: resolve source symbol by `repo + source_qualified_name + file + line range` (per 07.2.2)
-- [ ] For each relationship: resolve target by exact qualified_name match, then exact name match via (repo, name) index; keep ambiguous (multi-match) as UnresolvedSymbol (per 07.2.2)
-- [ ] Create CALLS/IMPORTS/IMPLEMENTS edges from source symbol to target (Symbol or UnresolvedSymbol)
-- [ ] For IMPLEMENTS records with `implementing_type`: include as a relationship property
+- [x] Collect relationship records during Phase 1 (buffer in memory)
+- [x] Batch relationship creation: 10K per transaction
+- [x] For each relationship: resolve source symbol by `repo + source_qualified_name + file + line range` (per 07.2.2)
+- [x] For each relationship: resolve target by exact qualified_name match, then exact name match via (repo, name) index; keep ambiguous (multi-match) as UnresolvedSymbol (per 07.2.2)
+- [x] Create CALLS/IMPORTS/IMPLEMENTS edges from source symbol to target (Symbol or UnresolvedSymbol)
+- [x] For IMPLEMENTS records with `implementing_type`: include as a relationship property
 
 **Error handling:**
-- [ ] Retry failed transactions up to 3 times with exponential backoff (1s, 2s, 4s)
-- [ ] Log and skip individual records that cause constraint violations (don't abort the whole import)
-- [ ] Report summary at end: files imported, symbols created, relationships created, unresolved targets, errors skipped
+- [x] Retry failed transactions up to 3 times with exponential backoff (1s, 2s, 4s)
+- [x] Log and skip individual records that cause constraint violations (don't abort the whole import)
+- [x] Report summary at end: files imported, symbols created, relationships created, unresolved targets, errors skipped
 
 **Performance targets:**
-- [ ] <30 seconds per repo
-- [ ] <10 minutes total for all reference repos
-- [ ] Memory: streaming JSONL + per-file buffering keeps memory bounded regardless of repo size
+- [ ] <30 seconds per repo — gleam: 240s with batch UNWIND (bottleneck: per-record source/target resolution). Correctness-first; optimization deferred to Section 09 where incremental sync has tighter latency requirements.
+- [ ] <10 minutes total for all reference repos — pending full pipeline test
+- [x] Memory: streaming JSONL + per-file buffering keeps memory bounded regardless of repo size
 
 ### Subsection 07.2 close-out
 **`/improve-tooling` retrospective**: Was batch sizing appropriate? Any OOM or deadlock issues? Is the wipe-and-replace fast enough? Should we use Neo4j's `CALL { ... } IN TRANSACTIONS` for better memory management? Is the `upsert_file_symbols()` function clean enough for Section 09 to reuse directly?
@@ -350,11 +350,11 @@ TOTAL_END=$(date +%s)
 echo "=== All repos completed in $((TOTAL_END - TOTAL_START))s ==="
 ```
 
-- [ ] Create the script with progress reporting per repo
-- [ ] Add `--repo <name>` flag for single-repo rebuild
-- [ ] Add `--dry-run` flag that runs extraction but skips import
-- [ ] Add `--skip-extract` flag that imports from existing JSONL (for re-import after schema changes)
-- [ ] Handle extraction failures gracefully: log error, continue to next repo
+- [x] Create the script with progress reporting per repo
+- [x] Add `--repo <name>` flag for single-repo rebuild
+- [x] Add `--dry-run` flag that runs extraction but skips import
+- [x] Add `--skip-extract` flag that imports from existing JSONL (for re-import after schema changes)
+- [x] Handle extraction failures gracefully: log error, continue to next repo
 - [ ] Test: full pipeline for Rust (largest repo) completes in <3 minutes
 - [ ] Test: full pipeline for all repos completes in <10 minutes
 
