@@ -31,6 +31,7 @@ set -uo pipefail
 # --- Defaults ---
 CORPUS_MODE=false
 ALL_CODEGEN_MODE=false
+REVIEW_SUPPRESSIONS=false
 TARGET_FUNCTION=""
 Z3_TIMEOUT=60
 OPT_LEVEL=2
@@ -71,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --corpus) CORPUS_MODE=true; shift ;;
         --all-codegen) ALL_CODEGEN_MODE=true; shift ;;
+        --review-suppressions) REVIEW_SUPPRESSIONS=true; shift ;;
         --function) TARGET_FUNCTION="$2"; shift 2 ;;
         --timeout) Z3_TIMEOUT="$2"; shift 2 ;;
         --opt-level) OPT_LEVEL="$2"; shift 2 ;;
@@ -87,8 +89,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Validate inputs ---
-if [[ "$CORPUS_MODE" == "false" ]] && [[ "$ALL_CODEGEN_MODE" == "false" ]] && [[ -z "$ORI_FILE" ]]; then
-    echo "ERROR: Provide a .ori file, --corpus, or --all-codegen" >&2
+if [[ "$CORPUS_MODE" == "false" ]] && [[ "$ALL_CODEGEN_MODE" == "false" ]] && [[ "$REVIEW_SUPPRESSIONS" == "false" ]] && [[ -z "$ORI_FILE" ]]; then
+    echo "ERROR: Provide a .ori file, --corpus, --all-codegen, or --review-suppressions" >&2
     exit 2
 fi
 
@@ -133,14 +135,90 @@ extract_functions() {
     grep '^define' "$1" 2>/dev/null | sed 's/.*@\"\{0,1\}\([^" (]*\)\"\{0,1\}.*/\1/'
 }
 
-# --- Check if a function is in the suppression list ---
+# --- Check if a function+file pair is in the suppression list ---
+# Uses python3 for reliable JSON parsing — available on all CI runners.
 is_suppressed() {
-    local func="$1"
+    local func="$1" file="$2"
     if [[ "$STRICT" == "true" ]] || [[ ! -f "$SUPPRESS_FILE" ]]; then
         return 1
     fi
-    # Simple grep-based check — suppressed.json has "function": "name" entries
-    grep -q "\"$func\"" "$SUPPRESS_FILE" 2>/dev/null
+    python3 -c "
+import json, sys
+with open('$SUPPRESS_FILE') as f:
+    entries = json.load(f)
+for e in entries:
+    if e.get('function') == '$func' and ('$file' == '' or e.get('file', '') == '$file'):
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null
+}
+
+# --- Get suppression category for a function ---
+get_suppression_category() {
+    local func="$1" file="$2"
+    python3 -c "
+import json
+with open('$SUPPRESS_FILE') as f:
+    entries = json.load(f)
+for e in entries:
+    if e.get('function') == '$func' and ('$file' == '' or e.get('file', '') == '$file'):
+        print(e.get('category', 'unknown'))
+        break
+" 2>/dev/null
+}
+
+# --- Review suppressions: check if suppressed entries still need suppression ---
+review_suppressions() {
+    if [[ ! -f "$SUPPRESS_FILE" ]]; then
+        cecho "$GREEN" "No suppression file — nothing to review"
+        return 0
+    fi
+    local count removable=0
+    count=$(python3 -c "import json; print(len(json.load(open('$SUPPRESS_FILE'))))" 2>/dev/null)
+    if [[ "$count" == "0" ]]; then
+        cecho "$GREEN" "Suppression file is empty — nothing to review"
+        return 0
+    fi
+    cecho "$CYAN" "Reviewing $count suppressions..."
+    python3 -c "
+import json
+with open('$SUPPRESS_FILE') as f:
+    entries = json.load(f)
+for e in entries:
+    print(e.get('file', '?') + ' ' + e.get('function', '?') + ' ' + e.get('category', '?'))
+" 2>/dev/null | while read -r file func category; do
+        echo -n "  $func ($file, $category): "
+        if [[ ! -f "$ROOT_DIR/$file" ]]; then
+            cecho "$YELLOW" "file missing — can remove"
+            removable=$((removable + 1))
+            continue
+        fi
+        # Try building and running alive-tv
+        local capture_output
+        capture_output=$(ORI_ALIVE2_CAPTURE=1 "$ORI_BIN" build "$ROOT_DIR/$file" --opt="$OPT_LEVEL" 2>&1)
+        if [[ $? -ne 0 ]]; then
+            echo "build failed — keep suppression"
+            continue
+        fi
+        local basename
+        basename=$(echo "$file" | sed 's|^\./||; s|/|_|g')
+        basename="${basename%.ori}"
+        local preopt="$RESULTS_DIR/${basename}.preopt.ll"
+        local postopt="$RESULTS_DIR/${basename}.postopt.ll"
+        if [[ ! -f "$preopt" ]] || [[ ! -f "$postopt" ]]; then
+            echo "capture failed — keep suppression"
+            continue
+        fi
+        local atv_output
+        atv_output=$("$ALIVE_TV" "$preopt" "$postopt" --src-fn="$func" --tgt-fn="$func" --smt-to="$Z3_TIMEOUT" 2>&1)
+        if echo "$atv_output" | grep -q "Transformation seems to be correct"; then
+            cecho "$GREEN" "NOW PASSES — can remove suppression"
+            removable=$((removable + 1))
+        else
+            echo "still fails — keep suppression"
+        fi
+    done
+    cecho "$CYAN" "Review complete: $removable suppression(s) can be removed"
 }
 
 # --- Verify a single .ori file ---
@@ -191,9 +269,11 @@ verify_file() {
     for func in $target_funcs; do
         TOTAL=$((TOTAL + 1))
 
-        # Check suppression
-        if is_suppressed "$func"; then
-            [[ "$VERBOSE" == "true" ]] && cecho "$YELLOW" "  SUPPRESSED: $func"
+        # Check suppression (file+function pair)
+        if is_suppressed "$func" "$ori_file"; then
+            local cat
+            cat=$(get_suppression_category "$func" "$ori_file")
+            [[ "$VERBOSE" == "true" ]] && cecho "$YELLOW" "  SUPPRESSED: $func ($cat)"
             SUPPRESSED=$((SUPPRESSED + 1))
             continue
         fi
@@ -223,7 +303,7 @@ verify_file() {
             TIMEOUT_COUNT=$((TIMEOUT_COUNT + 1))
         elif echo "$atv_output" | grep -q "ERROR"; then
             # alive-tv error (unsupported instruction, etc.)
-            if is_suppressed "$func"; then
+            if is_suppressed "$func" "$ori_file"; then
                 SUPPRESSED=$((SUPPRESSED + 1))
             else
                 cecho "$YELLOW" "  UNSUPPORTED: $func"
@@ -248,6 +328,11 @@ cecho "$CYAN" "ori: $ORI_BIN"
 echo ""
 
 EXIT_CODE=0
+
+if [[ "$REVIEW_SUPPRESSIONS" == "true" ]]; then
+    review_suppressions
+    exit 0
+fi
 
 if [[ "$CORPUS_MODE" == "true" ]]; then
     CORPUS_FILE="$ROOT_DIR/tests/alive2/curated-corpus.txt"
