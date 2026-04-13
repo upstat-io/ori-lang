@@ -1,48 +1,590 @@
 ---
 paths:
   - "**parse**"
+  - "**lex**"
 ---
 
-# Parser
+# Parser & Lexer Formal Ruleset
 
-## Pre-Implementation
-- Spec first: add grammar to `docs/ori_lang/v2026/spec/`
-- Update `grammar.ebnf` | check disambiguation and context flags
-- Create failing tests in `tests/spec/`
+This document defines the **laws** of the parser and lexer — the boundary between source text and structured AST. The spec (`docs/ori_lang/v2026/spec/grammar.ebnf`) defines **what** the language's syntax is; this document defines **how** the parser implements that syntax faithfully. If the code violates a rule stated here, the code has a bug.
 
-## Implementation
-- Lexer: new tokens in `ori_lexer/` | AST: add nodes to `ori_ir/`
-- Parser: add parsing in `ori_parse/` | type checker + evaluator updates
+**Relationship to other rulesets**: The parser produces an AST consumed by the type checker (`ori_types`), which feeds into evaluation (`ori_eval`) and ARC analysis (`aims-rules.md`), which feeds into codegen (`codegen-rules.md`). The parser is the first phase — its correctness is upstream of every other phase.
 
-## Token Consumption Primitives
-All parsing composes from these — no other token consumption patterns:
-- `bump()` — advance unconditionally
-- `check(kind)` / `at(kind)` — lookahead without consuming
-- `expect(kind)` — advance or emit error
-- `eat(kind)` — try advance, return bool
+**Relationship to compiler.md and impl-hygiene.md**: Those files are *operational* guides (how to structure code, test, trace). This document is *normative* (what the parser must guarantee). When they conflict, this document is authoritative for parser-specific rules.
 
-## Context Flags
-- `NO_STRUCT_LIT` -- prevent in `if` conditions
-- `IN_PATTERN` -- parsing pattern
-- `IN_INDEX` -- inside `[...]` (enables `#`)
-- `IN_LOOP` -- enables `break`/`continue`
+**Scope**: This ruleset covers the lexer (`ori_lexer`), parser (`ori_parse`), and their shared boundary. AST node definitions live in `ori_ir` and are outside this ruleset's scope.
 
-## Lexer-Parser Boundary
-- `>` always single token (never `>>`) | parser combines adjacent `>` in expression context
-- Enables: `Result<Result<T, E>, E>`
+**Target-only rules**: Rules marked **(target-only)** describe the COMPLETE target system per the spec. The implementation may not have shipped them yet. The spec is authoritative; code divergences are bugs to file, not spec inaccuracies. These annotations prevent reviewers from re-flagging known implementation gaps as spec issues.
 
-## Progress Tracking
-- `Progress::None` + error -> try alternative
-- `Progress::Made` + error -> commit and sync
+---
 
-## Tracing
-- Target: `ori_parse` (instrumentation in progress) | `ORI_LOG=oric=debug` (Salsa parse query) | `ORI_LOG=ori_parse=trace` (parser-level)
-- Phase dump: `ORI_DUMP_AFTER_PARSE=1` | see compiler.md for full reference
+## Notation
 
-## Key Files
-- `ori_lexer/src/lib.rs`: Tokens
-- `context/`: ParseContext flags
-- `grammar/`: Parsing (expr, decl, pattern, type)
-- `error/`: Parse error reporting
-- `recovery/`: Error recovery strategies
-- `grammar.ebnf`: Unified grammar (in spec)
+- **SHALL** = mandatory requirement (violation = implementation bug)
+- **SHOULD** = recommended practice (violation = design smell, may be justified)
+- Rules are numbered `CATEGORY-N`. Categories: `CU` (cursor/token consumption), `CF` (context flag), `PO` (parse outcome / progress), `ER` (error recovery), `PR` (Pratt / expression parsing), `LB` (lexer-parser boundary), `SE` (series combinator), `AR` (arena allocation), `DI` (diagnostics), `SN` (snapshot / speculative parsing), `DD` (declaration dispatch), `TR` (tracing), `KW` (context-sensitive keywords)
+- Cross-references: `impl-hygiene.md` rules prefixed with `HYG:`, compiler.md rules prefixed with `COMP:`
+
+---
+
+## §1 Cursor & Token Consumption
+
+The cursor module is the parser's sole interface to the token stream. All token access and consumption flows through the cursor.
+
+Source: `ori_parse/src/cursor/mod.rs`.
+
+### CU-1 — Core Primitives
+
+All parsing ultimately composes from these foundational operations:
+
+| Primitive | Signature | Behavior |
+|-----------|-----------|----------|
+| `check(kind)` | `fn check(&self, kind: &TokenKind) -> bool` | Lookahead — test current token kind without consuming. O(1) via tag array. |
+| `advance()` | `fn advance(&mut self) -> &Token` | Unconditional consume — caller MUST have verified the token kind first. |
+| `expect(kind)` | `fn expect(&mut self, kind: &TokenKind) -> Result<&Token, ParseError>` | Committed consume — advance if match, else error. |
+| `eat(kind)` | `fn eat_optional_*(...)` | Speculative consume — try advance, return bool/option. No-op on mismatch. |
+
+### CU-2 — Derived Cursor Operations
+
+The cursor provides higher-level operations composed from the core primitives. These are part of the parser's public cursor contract, not violations of it:
+
+| Category | Methods | Purpose |
+|----------|---------|---------|
+| Tag access | `current_tag()`, `current_kind()` | Raw discriminant access (u8 tag vs full TokenKind) |
+| Lookahead | `peek_kind_at(n)`, `peek_next_kind()` | Multi-token lookahead |
+| Adjacency | `next_is_adjacent()`, `is_shift_right()`, `is_greater_equal()`, `is_shift_right_assign()` | Compound operator detection (PR-4) |
+| Named checks | `next_is_lparen()`, `next_is_colon()`, `is_named_arg_start()` | Production disambiguation |
+| Compound consume | `consume_compound()`, `consume_triple()` | Multi-token operator consumption |
+| Whitespace | `skip_newlines()` | Newline-insensitive contexts |
+| Identity | `check_ident()`, `expect_ident()` | Identifier-specific operations |
+
+All derived operations SHALL be implemented in the cursor module. Grammar code SHALL NOT perform raw position arithmetic or direct token array access.
+
+Rationale: Centralizing all token access in the cursor module makes the parser's progress semantics auditable. The cursor is the SSOT for token stream position.
+
+---
+
+## §2 Context Flags
+
+The parser uses a bitset of context flags to handle syntactic ambiguity without grammar transformation. Context flags control which productions are available at a given parse point.
+
+Source: `ori_parse/src/context/mod.rs`. Representation: `ParseContext(u16)`.
+
+### CF-1 — Context Flag Catalog
+
+The following flags SHALL be the complete set. Adding a new flag requires updating this catalog. Bit `1 << 3` is unused/reserved.
+
+| Flag | Bit | Status | Purpose | Affected Productions |
+|------|-----|--------|---------|---------------------|
+| `IN_PATTERN` | `1 << 0` | Defined | Parsing a pattern (match arms, let bindings) | Identifier vs binding, literal interpretation |
+| `IN_TYPE` | `1 << 1` | Defined | Parsing a type annotation | `>` closes generic instead of comparison |
+| `NO_STRUCT_LIT` | `1 << 2` | Active | Struct literals forbidden | `if` conditions, `while` conditions — prevents `{ }` ambiguity with blocks |
+| *(reserved)* | `1 << 3` | Unused | Reserved for future use | — |
+| `IN_LOOP` | `1 << 4` | Active | Inside a loop body | Enables `break` and `continue` as valid expressions |
+| `ALLOW_YIELD` | `1 << 5` | Defined | Yield expressions allowed | `for...yield` constructs |
+| `IN_FUNCTION` | `1 << 6` | Active | Inside a function body | Scoping and return handling |
+| `IN_INDEX` | `1 << 7` | Active | Inside `[...]` index expression | Makes `#` valid as the length-of-collection symbol |
+| `PIPE_IS_SEPARATOR` | `1 << 8` | Active | `\|` is a message separator, not bitwise OR | `pre(condition \| "message")` and `post()` contracts |
+
+**Status legend**: *Active* = consulted by production grammar code. *Defined* = exists in `ParseContext` but not yet consulted by grammar code (infrastructure for future language features). All defined flags are part of the `ParseContext` API contract and SHALL NOT be removed without a deprecation cycle.
+
+### CF-2 — Scoped Context Modification
+
+Context flags SHALL be modified only through scoped combinators: `with_context(flag, closure)` adds a flag for the duration of a closure, `without_context(flag, closure)` removes one. Direct mutation of the `ParseContext` field outside these combinators is forbidden.
+
+Rationale: Scoped modification guarantees that context is restored after parsing a sub-expression, preventing flag leakage across productions.
+
+### CF-3 — NO_STRUCT_LIT in Conditions
+
+`NO_STRUCT_LIT` SHALL be set when parsing the condition of `if`, `while`, and any other construct where a `{` after the condition would be ambiguous with a block body. Without this flag, `if Point { x, y }` would be parsed as `if Point` followed by block `{ x, y }` instead of struct literal `Point { x, y }`.
+
+Spec: `grammar.ebnf` — `if_expr`, `while_expr`.
+
+### CF-4 — PIPE_IS_SEPARATOR in Contracts
+
+`PIPE_IS_SEPARATOR` SHALL be set when parsing `pre()` and `post()` contract expressions. In contract context, `|` introduces a message string (`pre(x > 0 | "x must be positive")`) rather than acting as bitwise OR. The flag is scoped to the contract body only. The Pratt table's `infix_binding_power()` (PR-1) checks this flag and suppresses `|` as an operator when set.
+
+---
+
+## §3 Parse Outcome (Progress Tracking)
+
+The parser uses a four-way result type that encodes both progress (consumed vs empty) and success (ok vs error). This is the Elm/Roc-inspired design that enables automatic backtracking without explicit lookahead.
+
+Source: `ori_parse/src/outcome/mod.rs`.
+
+### PO-1 — Four-Way Outcome
+
+`ParseOutcome<T>` SHALL have exactly four variants:
+
+| Variant | Progress | Result | Meaning |
+|---------|----------|--------|---------|
+| `ConsumedOk { value: T }` | Consumed | Ok | Committed to path, succeeded |
+| `EmptyOk { value: T }` | Empty | Ok | Optional content absent, succeeded |
+| `ConsumedErr { error, consumed_span }` | Consumed | Err | Hard error — committed, cannot backtrack |
+| `EmptyErr { expected: TokenSet, position }` | Empty | Err | Soft error — try next alternative |
+
+### PO-2 — Backtracking Semantics
+
+The combination of progress and result SHALL determine backtracking strategy:
+
+- **`ConsumedErr`**: the parser has consumed tokens and committed to a production. This is a **hard error** — report it, synchronize (ER-1), and continue. Do NOT try alternative productions.
+- **`EmptyErr`**: the parser has not consumed any tokens. This is a **soft error** — restore position and try the next alternative in the `one_of!` list. The `expected` field accumulates valid token sets across alternatives for diagnostic purposes.
+
+Rationale: This is the key insight from Elm's parser — progress information coupled with the result type makes backtracking decisions automatic and correct by construction. No explicit lookahead count is needed.
+
+### PO-3 — Composition Macros
+
+Five macros SHALL implement the outcome composition patterns:
+
+| Macro | Purpose | Input Type | On Soft Error | On Hard Error |
+|-------|---------|-----------|---------------|---------------|
+| `one_of!(self, alt1, alt2, ...)` | Try alternatives in order | `ParseOutcome` | Restore position, try next | Return immediately |
+| `try_outcome!(self, expr)` | Optional element | `ParseOutcome` | Restore, return `None` | Propagate |
+| `require!(self, expr, context)` | Mandatory element after commitment | `ParseOutcome` | Convert to `ConsumedErr` with context | Propagate |
+| `chain!(self, expr)` | Sequential composition — extract value, propagate errors | `ParseOutcome` | Propagate `EmptyErr` | Propagate `ConsumedErr` |
+| `committed!(expr)` | Bridge `Result<T, ParseError>` after commitment | `Result` | N/A (Result, not Outcome) | Convert to `ConsumedErr` |
+
+`chain!` and `committed!` serve analogous roles (extract-or-propagate) but differ in input type: `chain!` takes `ParseOutcome` from grammar functions, `committed!` takes `Result` from cursor functions (`expect()`, `series()`).
+
+### PO-4 — one_of! Exhaustive Alternatives
+
+`one_of!` SHALL try each alternative in declaration order. For each alternative:
+1. Save parser snapshot
+2. Evaluate the alternative
+3. If `ConsumedOk` or `EmptyOk` → return immediately (first match wins)
+4. If `ConsumedErr` → return immediately (committed error, no backtracking)
+5. If `EmptyErr` → restore snapshot, accumulate `expected` tokens, try next
+6. If all alternatives produce `EmptyErr` → return merged `EmptyErr` with union of all `expected` sets
+
+Rationale: First-match semantics with accumulated expected sets provides both unambiguous parsing and high-quality diagnostics ("expected one of: ..., ..., or ...").
+
+### PO-5 — Return Type Selection
+
+Parse functions SHALL use the appropriate return type for their role:
+
+| Return Type | When To Use |
+|-------------|-------------|
+| `ParseOutcome<T>` | Entry points, alternative-bearing productions |
+| `Result<T, ParseError>` | Internal helpers after commitment point |
+| `Option<T>` | Lightweight type parsing, optional elements |
+| `ParsedAttrs + &mut Vec<ParseError>` | Attribute parsing (always produces a value) |
+
+---
+
+## §4 Error Recovery
+
+The parser uses bitset-based synchronization to recover from errors and continue parsing, maximizing the number of diagnostics per compilation pass.
+
+Source: `ori_parse/src/recovery/mod.rs`.
+
+### ER-1 — TokenSet Representation
+
+`TokenSet` SHALL use a `[u128; 2]` bitset (256 bits) for O(1) membership testing. Each `TokenKind` discriminant index maps to a single bit. All set operations (membership, union, intersection) are O(1) bitwise operations.
+
+Rationale: The 256-bit bitset covers all possible `u8` discriminant values. O(1) membership testing is critical because recovery checks run on every error — linear scanning would dominate error-path performance.
+
+### ER-2 — Pre-Defined Recovery Sets
+
+The following recovery sets SHALL be defined as compile-time constants:
+
+| Set | Members | Purpose |
+|-----|---------|---------|
+| `STMT_BOUNDARY` | `@`, `use`, `type`, `trait`, `impl`, `def`, `pub`, `let`, `$`, `extend`, `extern`, `extension`, `EOF` | Skip to next top-level declaration after error |
+| `FUNCTION_BOUNDARY` | `@`, `EOF` | Skip to next function definition after error inside a function |
+
+Additional recovery sets MAY be defined as needed for specific productions.
+
+### ER-3 — Synchronization Protocol
+
+`synchronize(cursor, recovery_set)` SHALL advance the cursor until either:
+1. The current token is in `recovery_set` → return `true` (recovery point found)
+2. EOF is reached → return `false` (no recovery possible)
+
+The synchronization function SHALL NOT consume the recovery token itself — it leaves the cursor positioned AT the recovery token for the caller to resume parsing.
+
+### ER-4 — Recovery Strategy
+
+Parser error recovery primarily accumulates diagnostics and synchronizes token flow. The parser does NOT generally synthesize error AST nodes — `ExprKind::Error` is currently produced only when the lexer emits a `TokenKind::Error` token (e.g., for malformed literals). General parse errors are collected in the deferred error list; the parser synchronizes to a recovery boundary and continues.
+
+Recovery monotonicity (HYG: Error Recovery Monotonicity): recovery in the parser SHALL NOT create work for later phases. Error expressions propagate silently through type checking (via `TyError` poison type) without generating cascading diagnostics.
+
+---
+
+## §5 Pratt Parsing (Expression Parsing)
+
+Expressions are parsed using a Pratt parser (precedence climbing) with a static binding power table. This is the core expression parsing algorithm.
+
+Source: `ori_parse/src/grammar/expr/mod.rs`, `ori_parse/src/grammar/expr/operators.rs`.
+
+### PR-1 — Binding Power Table
+
+Binary operators SHALL be dispatched via a static lookup table (`OPER_TABLE`) indexed by token discriminant tag. Table entry format: `(left_bp, right_bp, op_variant, token_count)`. A `left_bp` of 0 means "not an operator."
+
+The binding power values SHALL match the spec's precedence table (`operator-rules.md`). Currently shipped operators:
+
+| Precedence | Operators | Left BP | Right BP | Associativity |
+|------------|-----------|---------|----------|---------------|
+| 15 (lowest shipped) | `??` | 2 | 1 | Right |
+| 14 | `\|\|` | 3 | 4 | Left |
+| 13 | `&&` | 5 | 6 | Left |
+| 12 | `\|` (bitwise) | 7 | 8 | Left |
+| 11 | `^` | 9 | 10 | Left |
+| 10 | `&` (bitwise) | 11 | 12 | Left |
+| 9 | `==` `!=` | 13 | 14 | Left |
+| 8 | `<` `>` `<=` `>=` | 15 | 16 | Left |
+| 7 | `..` `..=` | 17 | — | Non-associative (special) |
+| 6 | `<<` `>>` | 19 | 20 | Left |
+| 5 | `+` `-` | 21 | 22 | Left |
+| 4 (highest shipped) | `*` `/` `%` `div` | 23 | 24 | Left |
+
+**Not yet shipped (target-only)**: `**` (power, precedence 2, right-associative), `@` (matrix multiply, precedence 4, left-associative), `|>` (pipe, precedence 16, lowest). The spec defines these; the parser does not yet lex or parse them. `@` exists only as the `@=` compound assignment operator. `MatMul` is a `BinaryOp` variant but is listed as a special case (not wired as infix).
+
+Left-associative operators have `left_bp < right_bp`. Right-associative operators have `left_bp > right_bp`. The gap at binding power 18 separates the non-associative range operator from shift operators.
+
+Spec: `docs/ori_lang/v2026/spec/operator-rules.md` §Precedence Table.
+
+### PR-2 — Associativity Encoding
+
+Associativity SHALL be encoded in the binding power pair:
+- **Left-associative**: `left_bp < right_bp` (e.g., `+` has `(21, 22)`) — the left operand binds tighter, so `a + b + c` parses as `(a + b) + c`.
+- **Right-associative**: `left_bp > right_bp` (e.g., `??` has `(2, 1)`) — the right operand binds tighter, so `a ?? b ?? c` parses as `a ?? (b ?? c)`.
+- **Non-associative**: range operators (`..`, `..=`) have a single binding power value (17) and are parsed with special-case logic that rejects chaining (`a..b..c` is an error).
+
+### PR-3 — Pratt Loop Structure
+
+The expression parser SHALL follow this structure:
+1. Parse a primary expression (literal, identifier, parenthesized, prefix unary, block, etc.)
+2. Apply postfix operators (`.field`, `.method()`, `[index]`, `(args)`, `?`, `as`, `as?`)
+3. Enter the infix loop: while the current token's `left_bp > min_bp`, consume the operator, parse the right-hand side recursively with the operator's `right_bp` as the new `min_bp`, and build a `BinaryOp` node
+4. Return the accumulated expression
+
+### PR-4 — Compound Operator Synthesis
+
+Operators composed of multiple tokens SHALL be synthesized by the parser at the expression level, not by the lexer:
+
+| Token Sequence | Synthesized Operator | Condition |
+|----------------|---------------------|-----------|
+| `>` + `>` | `>>` (shift right) | Adjacent, no whitespace |
+| `>` + `=` | `>=` (greater-equal) | Adjacent, no whitespace |
+| `>` + `>` + `=` | `>>=` (shift-right-assign) | Adjacent, no whitespace; checked BEFORE `>>` |
+
+The `>>=` check SHALL take priority over `>>` to prevent greedy consumption of `>>` when `>>=` was intended.
+
+Rationale: This interacts with LB-1 — `>` is always a single token so that nested generics (`Result<Result<T, E>, E>`) parse correctly. The parser synthesizes multi-token operators only in expression context.
+
+### PR-5 — Compound Assignment
+
+Compound assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`, `@=`, `&=`, `|=`, `^=`, `<<=`, `&&=`, `||=`) SHALL be parsed at the top level of the expression parser, ABOVE the Pratt loop. Compound assignment is a statement-level construct with the lowest precedence — it is NOT part of the Pratt binding power table.
+
+The `>>=` compound assignment is synthesized from three adjacent tokens (`>` `>` `=`) and handled separately from the single-token compound assignment operators.
+
+### PR-6 — Unary Operator Parsing
+
+Prefix unary operators (`-`, `!`, `~`) SHALL be parsed at the primary expression level, before entering the Pratt infix loop. Postfix `?` (try operator) SHALL be parsed in the postfix chain, NOT as a unary operator — it produces `ExprKind::Try`, not a `UnaryOp` node.
+
+### PR-7 — Operator Table Exhaustiveness
+
+The operator table SHALL be validated by a compile-time-enforced exhaustive test (`table_covers_all_non_special_operators`) that asserts: table entries + special-case count = total `BinaryOp` variants. Adding a new `BinaryOp` variant without updating the table is a compilation failure.
+
+Rationale: The static table is a registration sync point — its exhaustiveness is enforced per `impl-hygiene.md` §Registration Sync Points.
+
+---
+
+## §6 Lexer-Parser Boundary
+
+The lexer and parser are separate phases with a clean boundary. The lexer produces a flat token stream; the parser builds structured AST from it.
+
+### LB-1 — Single-Token `>`
+
+The lexer SHALL always emit `>` as a single token — never `>>` or `>=`. The parser synthesizes multi-character operators from adjacent single tokens in expression context (PR-4).
+
+Rationale: This design enables parsing nested generics like `Result<Result<T, E>, E>` where two adjacent `>` tokens close two generic parameter lists. If the lexer emitted `>>`, the parser could not distinguish "close two generics" from "shift right." This is the same approach used by Rust, C++, and Java.
+
+### LB-2 — Token Representation
+
+Tokens are represented as `Token { kind: TokenKind, span: Span }` in `ori_ir/src/token/mod.rs`. The `TokenList` in `ori_ir/src/token/list.rs` stores tokens alongside parallel arrays:
+- `tokens: Vec<Token>` — full token data (kind + span)
+- `tags: Vec<u8>` — parallel discriminant tags for O(1) lookahead (LB-3)
+- `flags: Vec<TokenFlags>` — per-token flags (e.g., adjacency to previous token)
+
+Source text is borrowed from the Salsa-managed source string via `Span`. Token-level string interning for identifiers happens at lex time via the `Name` interner. Tokens do NOT carry string copies.
+
+### LB-3 — Tag-Parallel Array
+
+The cursor SHALL use the parallel `u8` tag array for O(1) discriminant comparison in all hot-path lookahead operations (`check()`, `current_tag()`, `infix_binding_power()`). The full `TokenKind` enum is touched only when the actual kind value is needed (e.g., extracting literal values).
+
+Rationale: The tag array is ~1/16th the size of the token array (1 byte vs 16+ bytes per token), fitting entirely in L1 cache for typical source files. This is the parser's primary performance optimization — every `check()` call in the hot parse loop benefits.
+
+### LB-4 — String Interning at Lex Time
+
+All identifiers SHALL be interned into `Name` values at lex time. The parser receives interned `Name` handles, never raw strings. Identifier comparison is O(1) index equality, not O(n) string comparison.
+
+Rationale: Per `impl-hygiene.md` §Interning Discipline: "Identifiers: always `Name` (interned at lex time). Never compare identifier `String`s directly."
+
+### LB-5 — Lexer Phase Purity
+
+The lexer SHALL perform scanning with minimal local state (nesting depth, mode stack) and produce tokens. The lexer SHALL NOT perform name resolution, semantic validation, or any operation that requires knowledge beyond the current token and its local context.
+
+Rationale: Per `compiler.md` §Phase-Specific Purity.
+
+### LB-6 — Parser Phase Purity
+
+The parser SHALL build AST from tokens. The parser owns: syntax, declaration-shape validation, attribute placement/applicability checks, and parse-time warnings (e.g., `UnknownCallingConvention`, detached doc comments). The parser SHALL NOT perform name resolution, type checking, or deeper semantic analysis. Contextual keyword resolution (e.g., `with` as capability provision vs `with` as function_exp) is syntactic disambiguation, not semantic analysis.
+
+Rationale: Per `compiler.md` §Phase-Specific Purity. Note: the parser performs more than pure tree assembly — it validates declaration shapes, import ordering, and attribute applicability as part of its syntax-level responsibility.
+
+---
+
+## §7 Context-Sensitive Keywords
+
+### KW-1 — function_exp Keywords
+
+Eleven keywords (`recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with`, `print`, `panic`, `catch`, `todo`, `unreachable`) SHALL be treated as `function_exp` keywords **only when immediately followed by `(`**. Without a following `(`, they are parsed as ordinary identifiers.
+
+Source: `ori_parse/src/grammar/expr/operators.rs` — `match_function_exp_kind()`.
+
+Rationale: This context-sensitive rule prevents reserving commonly-used words. A user can have a variable named `timeout` — it only becomes a keyword in the `timeout(...)` function_exp position.
+
+### KW-2 — `with` Disambiguation
+
+`with` has additional disambiguation beyond KW-1: even when followed by `(`, the parser checks whether the `with` + identifier + `=` pattern matches capability provision syntax (`with Http = RealHttp { } in expr`). If it does, `with` is parsed as a capability provision expression, not a function_exp.
+
+Source: `ori_parse/src/grammar/expr/operators.rs` — `match_function_exp_kind()`, `is_with_capability_syntax()`.
+
+---
+
+## §8 Series Combinator
+
+The series combinator unifies the common pattern of parsing delimiter-separated lists (function parameters, struct fields, generic arguments, etc.).
+
+Source: `ori_parse/src/series/mod.rs`.
+
+### SE-1 — Series Configuration
+
+`SeriesConfig` SHALL specify:
+- `separator` — the token between items (typically `Comma`)
+- `terminator` — the token that ends the series (e.g., `RParen`, `RBracket`, `RBrace`)
+- `trailing` — trailing separator policy (`Allowed`, `Forbidden`, or `Required`)
+- `skip_newlines` — whether to skip newline tokens between items
+- `min_count` / `max_count` — cardinality constraints
+
+### SE-2 — Trailing Separator Policy
+
+| Policy | Behavior |
+|--------|----------|
+| `Allowed` | Trailing separator permitted; break when terminator found after separator |
+| `Forbidden` | Error if separator appears before terminator |
+| `Required` | Separator required between items, not after last |
+
+Spec: `grammar.ebnf` — most Ori syntax uses `Allowed` trailing commas in multi-line contexts.
+
+### SE-3 — Series as Single Source
+
+All delimiter-separated list parsing SHOULD use the series combinator. Ad hoc `while !check(terminator) { parse(); expect(comma); }` loops that duplicate the series logic are `LEAK:algorithmic-duplication` per `impl-hygiene.md` §Algorithmic DRY.
+
+---
+
+## §9 Arena Allocation
+
+The parser allocates all AST nodes in a flat arena for cache-friendly traversal and O(1) node creation.
+
+Source: `ori_parse/src/lib.rs`, `ori_ir/src/arena/mod.rs`.
+
+### AR-1 — Arena-Based AST
+
+All expressions SHALL be allocated via `ExprArena::alloc_expr()`, returning an opaque `ExprId` handle. The parser SHALL NOT use `Box<Expr>` or any pointer-based tree structure.
+
+Rationale: Arena allocation provides: (1) single allocation for the entire AST (no per-node malloc), (2) cache-friendly sequential memory layout for traversal, (3) O(1) allocation via bump pointer, (4) zero-cost deallocation (drop the arena). Per `compiler.md` §Memory: "Arena + ID (`ExprArena`+`ExprId`), not `Box<Expr>`."
+
+### AR-2 — Capacity Pre-Allocation
+
+The arena is pre-allocated with a capacity estimate: `ExprArena::with_capacity(tokens.len() * 5)`. The heuristic assumes ~5 bytes per token as a proxy for expression count.
+
+Source: `ori_parse/src/lib.rs` — `Parser::new()`.
+
+### AR-3 — ExprId as Opaque Handle
+
+`ExprId` SHALL be an opaque newtype over a `u32` index. The inner field SHALL be private outside the defining module. Construction via `ExprArena::alloc_expr()` only — never raw `u32` conversion in parser code.
+
+Rationale: Per `impl-hygiene.md` §Type Discipline: "Newtypes for all IDs: `ExprId`, `TypeId`, `TokenIndex` — not raw `u32`."
+
+---
+
+## §10 Snapshot / Speculative Parsing
+
+The parser supports speculative parsing via position snapshots for disambiguation.
+
+Source: `ori_parse/src/snapshot/`.
+
+### SN-1 — Snapshot Scope
+
+`ParserSnapshot` SHALL capture the minimal state needed for rollback: cursor position (`usize`) and parse context flags (`ParseContext`). Total size: ~10 bytes. Snapshots are used by speculative parsing and `one_of!` (PO-4) for automatic backtracking on `EmptyErr`.
+
+**Arena state is NOT captured.** Speculative parsing SHALL only examine tokens and make decisions based on token patterns — it SHALL NOT allocate AST nodes. If a speculative path must allocate, the allocations persist even if the snapshot is restored. This is by design: keeping snapshots lightweight (10 bytes vs arena-state tracking) is a performance choice that constrains how speculation is used.
+
+### SN-2 — Snapshot Lifetime
+
+Snapshots SHALL be short-lived — created before trying an alternative, consumed (restored or discarded) immediately after the alternative resolves. Long-lived snapshots that span multiple production rules indicate a design problem (the grammar may need refactoring to reduce ambiguity).
+
+### SN-3 — Speculative Parsing Hierarchy
+
+The parser provides four levels of speculation, from lightest to heaviest:
+
+| Level | Method | What It Does | When To Use |
+|-------|--------|-------------|-------------|
+| Simple lookahead | `check()`, `next_is_*()` | Peek 1-2 tokens, no state change | Token-kind decisions |
+| `look_ahead(predicate)` | Run a closure that may advance cursor, auto-restore | Complex multi-token patterns | >2 token lookahead, newline skipping |
+| `try_parse(parser_fn)` | Attempt a full parse, auto-restore on failure | Full production attempt | Decision requires parse success, not just tokens |
+| `snapshot()` / `restore()` | Manual state save/restore | Multiple alternative restorations | Complex decision trees with branching |
+
+Simple lookahead SHOULD be preferred over heavier mechanisms when sufficient.
+
+---
+
+## §11 Diagnostics
+
+The parser produces structured diagnostics with source locations, context, and suggestions.
+
+Source: `ori_parse/src/error/`.
+
+### DI-1 — Structured Error Construction
+
+Parse errors SHALL be structured `ParseError` values carrying:
+- `code: ErrorCode` — stable identifier for deduplication and testing
+- `message: String` — human-readable description
+- `span: Span` — source location (u32 byte offset pair)
+- `context: Option<String>` — "while parsing X" annotation
+- `help: Vec<String>` — actionable suggestions
+- `severity: DiagnosticSeverity` — hard (report always) vs soft (may suppress after hard error)
+
+### DI-2 — Error Code Stability
+
+Error codes in the `E0xxx` range are stable API. Once assigned, a code SHALL NOT be reused or change meaning. Tests SHOULD assert on error codes, not exact message text.
+
+Rationale: Per `impl-hygiene.md` §Error Handling: "Error codes are stable API: once assigned, never reuse or change meaning."
+
+### DI-3 — Construction Paths
+
+Two construction paths exist:
+
+| Path | Call Sites | Description |
+|------|-----------|-------------|
+| `ParseError::new(code, message, span)` | ~87 | Simple construction — code, message, span provided directly |
+| `ParseError::from_kind(kind)` | ~8 | Rich structured construction — derives code, message, and span from `ParseErrorKind` variant |
+
+`from_kind()` is preferred for new code. The `new()` path is NOT deprecated — it serves the majority of call sites and is appropriate for simple errors.
+
+### DI-4 — Parse Warnings
+
+The parser produces warnings separately from errors via `ParseWarning` variants in `ori_parse/src/error/warning.rs`. Warnings include: `UnknownCallingConvention`, `DetachedDocComment`, and similar non-fatal parse-time observations. Warnings are collected in `deferred_warnings: Vec<ParseWarning>` alongside the error list.
+
+### DI-5 — Common Mistake Detection
+
+The parser SHALL detect common mistakes from other languages and provide helpful suggestions:
+- Foreign keywords: `fn` → "use `@` for function declarations", `def` → "use `@`", `func` → "use `@`"
+- Confused operators and syntax patterns
+
+Source: `ori_parse/src/error/mistakes.rs`.
+
+### DI-6 — Error Context Wrapping
+
+Errors SHOULD carry context annotations ("while parsing function body", "while parsing match arm") using the `ErrorContext` mechanism. Context wrapping follows the Elm pattern — errors bubble up through nested parsers, accumulating context at each level.
+
+### DI-7 — Error Accumulation
+
+The parser SHALL accumulate all errors in a deferred error list rather than bailing on the first error. Error recovery (§4) enables the parser to continue past errors and report multiple diagnostics per pass.
+
+Rationale: Per `impl-hygiene.md` §Error Handling: "Accumulate, don't bail: each phase collects all errors in one pass."
+
+---
+
+## §12 Declaration Dispatch
+
+Top-level declarations are routed from the module parser to specific declaration parsers.
+
+Source: `ori_parse/src/dispatch.rs`, `ori_parse/src/module_parse.rs`.
+
+### DD-1 — Top-Level Dispatch
+
+The module parser SHALL loop over the token stream, dispatching to declaration parsers based on the leading token:
+
+| Leading Token(s) | Declaration |
+|-------------------|-------------|
+| `@` | Function or test declaration |
+| `type` | Type declaration (struct, enum, newtype) |
+| `trait` | Trait definition |
+| `impl` | Impl block |
+| `def` | Default impl (`def impl`) |
+| `use` | Import statement |
+| `pub` | Public declaration (any of the above) |
+| `let $` or bare `$` | Module-level constant |
+| `extend` | Extension block |
+| `extern` | FFI declaration block |
+| `extension` | Extension import |
+| Attributes (`#`) | Parsed first, then attached to the following declaration |
+
+The dispatch module also performs declaration-level validation: import ordering, attribute applicability, and section constraints.
+
+### DD-2 — Semicolon Rule
+
+Declarations SHALL follow the Ori semicolon rule: if the declaration body ends with `}`, no semicolon is needed. All other declarations require a terminating `;`.
+
+Spec: `grammar.ebnf` — semicolon rules per declaration kind.
+
+### DD-3 — Attribute Attachment
+
+Attributes (`#derive(...)`, `#skip(...)`, `#compile_fail(...)`, `#target(...)`, `#cfg(...)`, `#repr(...)`) SHALL be parsed first and attached to the immediately following declaration. An attribute without a following declaration is an error.
+
+Source: `ori_parse/src/grammar/attr/`.
+
+---
+
+## §13 Tracing
+
+### TR-1 — Parse Tracing
+
+Parser tracing SHALL use the `ori_parse` target. Diagnostic levels:
+- `trace` — per-expression parsing events (hot path, very verbose)
+- `debug` — production entry/exit, significant parsing decisions
+
+Salsa parse query tracing uses target `oric` at `debug` level.
+
+### TR-2 — Phase Dump
+
+`ORI_DUMP_AFTER_PARSE=1` SHALL dump the complete AST to stderr after parsing completes. This is a zero-cost diagnostic — no overhead when disabled.
+
+---
+
+## §14 Key Files
+
+| File / Directory | Responsibility |
+|-----------------|---------------|
+| `ori_lexer/src/lib.rs` | Lexer entry point, string interning |
+| `ori_lexer/src/driver.rs` | Main tokenization loop |
+| `ori_lexer/src/cooker/` | Token cooking (keywords, literals, escape sequences) |
+| `ori_lexer/src/trivial/` | Simple single/multi-character token scanning |
+| `ori_ir/src/token/mod.rs` | `Token { kind, span }` definition |
+| `ori_ir/src/token/list.rs` | `TokenList` with parallel tag/flag arrays |
+| `ori_ir/src/token/kind.rs` | `TokenKind` enum (all token discriminants) |
+| `ori_ir/src/arena/mod.rs` | `ExprArena` — flat arena for AST nodes |
+| `ori_parse/src/lib.rs` | Parser entry point, `Parser` struct, public API |
+| `ori_parse/src/cursor/` | Token stream navigation, tag-parallel array, derived operations |
+| `ori_parse/src/context/` | `ParseContext` flags |
+| `ori_parse/src/outcome/` | `ParseOutcome<T>` four-way result, composition macros |
+| `ori_parse/src/recovery/` | `TokenSet` bitset, `synchronize()`, recovery sets |
+| `ori_parse/src/grammar/expr/` | Expression parsing (Pratt loop, operators, blocks, postfix) |
+| `ori_parse/src/grammar/expr/operators.rs` | Binding power table, compound ops, keyword disambiguation |
+| `ori_parse/src/grammar/item/` | Declaration parsing (functions, traits, impls, types) |
+| `ori_parse/src/grammar/attr/` | Attribute parsing |
+| `ori_parse/src/grammar/ty/` | Type expression parsing |
+| `ori_parse/src/grammar/expr/patterns/` | Pattern parsing (within expressions) |
+| `ori_parse/src/series/` | Series combinator for delimiter-separated lists |
+| `ori_parse/src/error/` | Parse error types, error kinds, mistake detection |
+| `ori_parse/src/error/warning.rs` | Parse warnings (separate from errors) |
+| `ori_parse/src/snapshot/` | Speculative parsing support |
+| `ori_parse/src/parser_capture.rs` | Token range capture for formatters/macros |
+| `ori_parse/src/dispatch.rs` | Top-level declaration routing and validation |
+| `ori_parse/src/module_parse.rs` | Module-level parsing orchestration |
+| `ori_parse/src/incremental/` | Incremental reparsing support |
+| `docs/ori_lang/v2026/spec/grammar.ebnf` | Authoritative grammar (EBNF) |
+| `docs/ori_lang/v2026/spec/operator-rules.md` | Operator semantics and precedence |
