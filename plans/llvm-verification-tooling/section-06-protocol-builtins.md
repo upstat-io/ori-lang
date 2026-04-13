@@ -55,7 +55,7 @@ Protocol builtins (`compiler/ori_ir/src/builtin_constants/protocol/mod.rs`) are 
 - [x] New `ori_arc` consumer tests verify that `seed_builtin_contracts` produces correct `MemoryContract` params for each protocol builtin (access, consumption, cardinality=Once fields — all three dimensions pinned)
 - [x] New `ori_arc` consumer tests verify that `annotate_arg_ownership` produces correct `ArgOwnership` vectors when called with protocol builtin callees
 - [x] New `ori_arc` consumer tests verify that `promote_callee_args` correctly promotes/borrows params at protocol builtin call sites
-- [x] AOT programs pass `ORI_CHECK_LEAKS=1` across type x pattern matrix: `[str]`, `[int]`, `{str: int}`, `{int: str}` x full iteration, break, yield, nested. Note: `Set<int>` blocked by BUG-04-063 (crashes); `Set<str>` verified via existing tests
+- [x] AOT programs pass `ORI_CHECK_LEAKS=1` across type x pattern matrix: `[str]`, `[int]`, `{str: int}`, `{int: str}` x full iteration, break, yield, nested. Note: `Set<int>` blocked by BUG-04-065 (crashes); `Set<str>` verified via existing tests
 - [x] At least one negative pin demonstrates that wrong ownership (e.g., IterDrop=Borrowed) produces a double-free or leak
 - [x] Exhaustiveness guard: `ProtocolBuiltin::ALL.len() == 5` assertion prevents silent additions
 - [x] `IterDrop` doc comment fixed: "borrowed (freed internally)" -> "owned (consumed by cleanup)"
@@ -326,7 +326,7 @@ Verify RC balance through the full LLVM codegen pipeline for programs exercising
 
 - [x] **Map indexing RC balance gap-fill** (2026-04-12) — added `test_coll_map_index_int_str` ({int: str} reversed types, exercises value-type RC) and `test_coll_map_index_in_loop` (map indexing inside for-loop, exercises __index + Iter/IterNext interaction). Both pass with ORI_CHECK_LEAKS=1.
 
-- [x] **Set iteration type coverage** (2026-04-12) — Evaluated: `Set<int>` iteration crashes in AOT (SIGSEGV, BUG-04-063). `Set<str>` iteration works (existing sets.rs tests pass). E7 fixtures kept as list-collect regression guards (without `: Set<int>` annotation). Matrix header updated to document the blocker. The original exclusion comment ("not yet implemented") was inaccurate — it's a codegen crash, not a missing implementation.
+- [x] **Set iteration type coverage** (2026-04-12) — Evaluated: `Set<int>` iteration crashes in AOT (SIGSEGV, BUG-04-065). `Set<str>` iteration works (existing sets.rs tests pass). E7 fixtures kept as list-collect regression guards (without `: Set<int>` annotation). Matrix header updated to document the blocker. The original exclusion comment ("not yet implemented") was inaccurate — it's a codegen crash, not a missing implementation.
 
 - [x] **`CollectSet` with non-trivial element types** (2026-04-12) — added `test_iter_collect_nested_list` ([[int]] → collect exercises elem_inc_fn for [int]) and `test_iter_collect_map_elements` ([{str: int}] → collect exercises elem_inc_fn for {str: int}). Both pass. Note: nested_list test avoids `Option<[int]>.unwrap()` due to BUG-04-061 (AOT monomorphization gap).
 
@@ -392,17 +392,17 @@ When all findings are triaged:
   Evidence: GAP — fresh ARC dump verification showed `Invoke @collect(...)` instead of `Apply @__collect_set(...)`. All 4 E7 fixtures used `[10, 20, 30].iter().collect()` without `Set<int>` annotation.
   Impact: Section 06.3 claimed Set<int> coverage but tests exercised list iteration.
   Basis: fresh_verification. Confidence: high.
-  Resolved: Fixed on 2026-04-12. `Set<int>` iteration crashes in AOT (BUG-04-063). Reverted `: Set<int>` annotations; E7 fixtures kept as list-collect regression guards. Plan updated to document the blocker. Codex finding correctly identified the gap.
+  Resolved: Fixed on 2026-04-12. `Set<int>` iteration crashes in AOT (BUG-04-065). Reverted `: Set<int>` annotations; E7 fixtures kept as list-collect regression guards. Plan updated to document the blocker. Codex finding correctly identified the gap.
 - [x] `[TPR-06-004-codex][medium]` `compiler/ori_llvm/tests/aot/fixtures/fat_ptr_iter/method_collect/iter_collect_nested_list.ori:3` — Complex-element collect fixtures exercise list collect, not __collect_set.
   Evidence: GAP — fixtures annotated as `[[int]]` and `[{str: int}]` (list targets), not Set targets. ARC dumps confirmed `Invoke @collect(...)` not `Apply @__collect_set(...)`.
   Impact: CollectSet verification for non-trivial elements is limited to existing Set<str> coverage.
   Basis: fresh_verification. Confidence: high.
-  Resolved: Fixed on 2026-04-12. Set<[int]> and Set<{str: int}> crash with SIGSEGV (filed BUG-04-063). Fixtures kept as list-collect tests (exercise elem_inc_fn for complex types). CollectSet with complex elements is blocked by BUG-04-063. Notes added to test comments.
+  Resolved: Fixed on 2026-04-12. Set<[int]> and Set<{str: int}> crash with SIGSEGV (filed BUG-04-065). Fixtures kept as list-collect tests (exercise elem_inc_fn for complex types). CollectSet with complex elements is blocked by BUG-04-065. Notes added to test comments.
 - [x] `[TPR-06-005-codex][medium]` `plans/llvm-verification-tooling/section-06-protocol-builtins.md:416` — Plan/implementation drift: checklist/overview claims Set<int> coverage while implementation documents it blocked.
-  Evidence: Checklist claims "Set iteration works in AOT, added Set<int> to iter_rc_matrix" and "CollectSet with complex element types tested" while fixtures and matrix header document BUG-04-063 blocker.
+  Evidence: Checklist claims "Set iteration works in AOT, added Set<int> to iter_rc_matrix" and "CollectSet with complex element types tested" while fixtures and matrix header document BUG-04-065 blocker.
   Impact: Section presented as complete on criteria not actually verified.
   Basis: direct_file_inspection. Confidence: high.
-  Resolved: Fixed on 2026-04-12. Updated checklist items, success criteria, and overview to accurately state Set<int> blocked by BUG-04-063. All claims now match implementation reality.
+  Resolved: Fixed on 2026-04-12. Updated checklist items, success criteria, and overview to accurately state Set<int> blocked by BUG-04-065. All claims now match implementation reality.
 - [x] `[TPR-06-006-codex][high]` `compiler/ori_arc/src/borrow/builtins/mod.rs:49` — Protocol Iter pinned as Borrowed but collection override produces Owned; consumer test gap.
   Evidence: LEAK claim — `ProtocolBuiltin::Iter.arg_ownership()` returns `[Borrowed]` but `apply_consuming_overrides()` overrides to `Owned` for List/Map/Set receivers. The existing `annotate_protocol_iter_produces_borrowed` test uses `Idx::INT` (non-collection), so the override path was never exercised at the consumer level.
   Impact: Test gap — the protocol-vs-override layered architecture IS intentional (protocol defines base, override adds collection exception), but no unit test verified the full flow with a collection receiver.
@@ -412,7 +412,7 @@ When all findings are triaged:
   Evidence: `iter_rc_matrix.rs` adds E7 (Set<int>) but only `full` and `break` test variants. Missing: `nested`, `two_call`, `guard`, `unwind`, `continue`, `yield_transform`.
   Impact: Gaps in matrix coverage for Set<int> iteration patterns.
   Basis: direct_file_inspection. Confidence: high.
-  Resolved: Accepted on 2026-04-12. P3-P8 variants blocked by BUG-04-063 (Set<int> iteration crashes with SIGSEGV). BUG-04-063 already notes "Blocks Set<int> iteration matrix (iter_rc_matrix E7)". When BUG-04-063 is fixed, the fixer should expand E7 to the full P1-P8 matrix.
+  Resolved: Accepted on 2026-04-12. P3-P8 variants blocked by BUG-04-065 (Set<int> iteration crashes with SIGSEGV). BUG-04-065 already notes "Blocks Set<int> iteration matrix (iter_rc_matrix E7)". When BUG-04-065 is fixed, the fixer should expand E7 to the full P1-P8 matrix.
 - [x] `[TPR-06-007-codex][medium]` `plans/llvm-verification-tooling/section-06-protocol-builtins.md:4` — DRIFT: Section 06 status inconsistent across plan surfaces.
   Evidence: Section file has `status: in-progress` and body says "Not Started", but overview/index marked "Complete". Close-out items (TPR, hygiene, tooling) still unchecked.
   Impact: Plan tooling and reviewers get contradictory signals about section status.
@@ -423,6 +423,14 @@ When all findings are triaged:
   Impact: Incorrect plan annotation provenance.
   Basis: direct_file_inspection. Confidence: high.
   Resolved: Fixed on 2026-04-12. Updated comment to reference TPR-06-006-codex.
+- [x] `[TPR-06-009-codex][medium]` `plans/llvm-verification-tooling/section-06-protocol-builtins.md:58` — DRIFT: Plan references stale BUG-04-063 (now ArgEscaping) instead of BUG-04-065 (Set iteration SIGSEGV).
+  Evidence: Bug tracker renumbered Set iteration crash from BUG-04-063 to BUG-04-065; plan still used BUG-04-063.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-12. Replaced all BUG-04-063 → BUG-04-065 in section-06 and overview.
+- [x] `[TPR-06-010-codex][low]` `plans/llvm-verification-tooling/section-06-protocol-builtins.md:449` — Plan-sync item checked but section still in-progress.
+  Evidence: Checklist marks "frontmatter status -> complete" as done while section is in-progress.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-12. Unchecked plan-sync item; will be re-checked after close-out gates pass.
 
 ---
 
@@ -437,16 +445,16 @@ When all findings are triaged:
 - [x] Negative pin (forbid-old-behavior): `assert_ne` pins that IterDrop is NOT Borrowed and Index receiver is NOT Owned — forbids the historic regression states
 - [x] Consistency pin (supplemental): contracts read from `arg_ownership()` — drift between constant and contract is caught
 - [x] AOT gap-fill: map indexing gap-fill (existing `{str:int}` covered; add `{int:str}` and looped indexing)
-- [x] AOT gap-fill: `CollectSet` with complex element types evaluated — Set<[int]>/Set<{str:int}> crash (BUG-04-063); list-collect equivalents added as regression guards; existing Set<str> coverage via `iter_collect_set_str.ori` exercises `__collect_set`
-- [x] Set iteration status evaluated — Set<int> iteration crashes in AOT (BUG-04-063); E7 fixtures exercise list-collect as regression guards; Set<str> iteration works (existing tests pass)
+- [x] AOT gap-fill: `CollectSet` with complex element types evaluated — Set<[int]>/Set<{str:int}> crash (BUG-04-065); list-collect equivalents added as regression guards; existing Set<str> coverage via `iter_collect_set_str.ori` exercises `__collect_set`
+- [x] Set iteration status evaluated — Set<int> iteration crashes in AOT (BUG-04-065); E7 fixtures exercise list-collect as regression guards; Set<str> iteration works (existing tests pass)
 - [x] `ORI_AUDIT_CODEGEN=1` harness integration evaluated — 38 unwind-path failures, NOT adding globally; filed BUG-04-062
 - [x] Debug AND release builds pass for all protocol-exercising AOT tests
 - [x] No regressions: `timeout 150 ./test-all.sh` green (17,167 tests pass)
 - [x] `timeout 150 ./clippy-all.sh` green
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan llvm-verification-tooling` returns 0 annotations
 - [x] All intermediate TPR checkpoint findings resolved (TPR-06-001 convergent finding fixed, TPR-06-002 rejected)
-- [x] **Plan sync** (2026-04-12) — update plan metadata:
-  - [x] This section's frontmatter `status` -> `complete`, subsection statuses updated
+- [ ] **Plan sync** — update plan metadata (deferred until close-out gates pass):
+  - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
   - [x] `00-overview.md` Quick Reference updated (effort table + section reference + success criterion)
   - [x] `index.md` section status updated
 - [ ] `/tpr-review` passed (final, full-section)
