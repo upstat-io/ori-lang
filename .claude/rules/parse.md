@@ -83,7 +83,7 @@ The following flags SHALL be the complete set. Adding a new flag requires updati
 | *(reserved)* | `1 << 3` | Unused | Reserved for future use | — |
 | `IN_LOOP` | `1 << 4` | Active | Inside a loop body | Enables `break` and `continue` as valid expressions |
 | `ALLOW_YIELD` | `1 << 5` | Defined | Yield expressions allowed | `for...yield` constructs |
-| `IN_FUNCTION` | `1 << 6` | Active | Inside a function body | Scoping and return handling |
+| `IN_FUNCTION` | `1 << 6` | Defined | Inside a function body | Set by function/impl body parsers but not yet consulted by grammar productions (infrastructure for future use) |
 | `IN_INDEX` | `1 << 7` | Active | Inside `[...]` index expression | Makes `#` valid as the length-of-collection symbol |
 | `PIPE_IS_SEPARATOR` | `1 << 8` | Active | `\|` is a message separator, not bitwise OR | `pre(condition \| "message")` and `post()` contracts |
 
@@ -334,7 +334,9 @@ Rationale: Per `compiler.md` §Phase-Specific Purity.
 
 ### LB-6 — Parser Phase Purity
 
-The parser SHALL build AST from tokens. The parser owns: syntax, declaration-shape validation, attribute placement/applicability checks, and parse-time warnings (e.g., `UnknownCallingConvention`, detached doc comments). The parser SHALL NOT perform name resolution, type checking, or deeper semantic analysis. Contextual keyword resolution (e.g., `with` as capability provision vs `with` as function_exp) is syntactic disambiguation, not semantic analysis.
+The parser SHALL build AST from tokens. The parser owns: syntax, declaration-shape validation, attribute placement/applicability checks, and parse-time warnings (e.g., `UnknownCallingConvention` emitted by parser). The parser SHALL NOT perform name resolution, type checking, or deeper semantic analysis. Contextual keyword resolution (e.g., `with` as capability provision vs `with` as function_exp) is syntactic disambiguation, not semantic analysis.
+
+Note: detached doc comment warnings (`LexProblem::DetachedDocComment`) are emitted by the LEXER in the standard pipeline (`oric/src/commands/mod.rs` processes `lex_output.warnings` before parsing). The parser provides `ParseOutput::check_detached_doc_comments()` as an opt-in alternative, but the standard `parse()` and Salsa `parsed()` query do not invoke it.
 
 Rationale: Per `compiler.md` §Phase-Specific Purity. Note: the parser performs more than pure tree assembly — it validates declaration shapes, import ordering, and attribute applicability as part of its syntax-level responsibility.
 
@@ -411,9 +413,12 @@ Rationale: Arena allocation provides: (1) single allocation for the entire AST (
 
 ### AR-2 — Capacity Pre-Allocation
 
-The arena is pre-allocated with a capacity estimate: `ExprArena::with_capacity(tokens.len() * 5)`. The heuristic assumes ~5 bytes per token as a proxy for expression count.
+Arena capacity is derived in two steps:
 
-Source: `ori_parse/src/lib.rs` — `Parser::new()`.
+1. **Parser-side estimate** (`ori_parse/src/lib.rs` — `Parser::new()`): `estimated_source_len = tokens.len() * 5` — a rough "source bytes" estimate (~5 bytes per token on average).
+2. **Arena-side conversion** (`ori_ir/src/arena/mod.rs` — `ExprArena::with_capacity()`): interprets its argument as source bytes and applies its own heuristic (~1 expression per 20 bytes of source) to derive the initial arena capacity.
+
+The composition: parser estimates source size from token count, arena converts source size to expression-count capacity. Neither step directly multiplies tokens by a proxy ratio.
 
 ### AR-3 — ExprId as Opaque Handle
 
@@ -480,20 +485,18 @@ Rationale: Per `impl-hygiene.md` §Error Handling: "Error codes are stable API: 
 
 Two construction paths exist:
 
-| Path | Call Sites | Description |
-|------|-----------|-------------|
-| `ParseError::new(code, message, span)` | ~87 | Simple construction — code, message, span provided directly |
-| `ParseError::from_kind(kind)` | ~8 | Rich structured construction — derives code, message, and span from `ParseErrorKind` variant |
+| Path | Description |
+|------|-------------|
+| `ParseError::new(code, message, span)` | Simple construction — code, message, span provided directly. Used by the majority of call sites for straightforward errors. |
+| `ParseError::from_kind(&kind, span)` | Rich structured construction — derives code and message from a `ParseErrorKind` enum variant. Preferred when the error carries structured context. |
 
-`from_kind()` is preferred for new code. The `new()` path is NOT deprecated — it serves the majority of call sites and is appropriate for simple errors.
+Both paths are active. The `new()` path is NOT deprecated — it is appropriate for simple errors. The `from_kind()` path is preferred when an error variant carries structured data (field names, token kinds, expected sets) that would otherwise require ad hoc message formatting.
 
 ### DI-4 — Parse Warnings
 
 The parser produces warnings separately from errors via `ParseWarning` variants in `ori_parse/src/error/warning.rs`. Warnings are collected in `deferred_warnings: Vec<ParseWarning>`.
 
-Warning production has two mechanisms:
-- **Inline warnings** (e.g., `UnknownCallingConvention` in `grammar/item/extern_def.rs`) are pushed to `deferred_warnings` during parsing.
-- **Post-parse warnings** (e.g., `DetachedDocComment`) are NOT produced during `parse()` automatically. They require an explicit call to `ParseOutput::check_detached_doc_comments()` by the caller. The standard `parse()` and `parse_with_metadata()` APIs do NOT invoke this check.
+Inline warnings (e.g., `UnknownCallingConvention` in `grammar/item/extern_def.rs`) are pushed to `deferred_warnings` during parsing. Some parser warnings (e.g., `ParseOutput::check_detached_doc_comments()`) are opt-in post-parse checks, not invoked by the standard `parse()` / Salsa `parsed()` pipeline — the equivalent LEXER-emitted `LexProblem::DetachedDocComment` covers detached doc warnings in the production pipeline.
 
 ### DI-5 — Common Mistake Detection
 
