@@ -1,8 +1,9 @@
 # Proposal: Optional Semicolon After Block-Ending Expression Statements
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-04-13
+**Approved:** 2026-04-13
 **Affects:** Compiler (parser), spec (Clause 11), grammar (Annex A)
 **Amends:** block-expression-syntax.md
 
@@ -75,18 +76,20 @@ statement = let_expr ";"
           | expression ";" .
 ```
 
-Where `block_ending_expression` matches any expression whose last token is `}`:
+Where `block_ending_expression` matches any expression whose last token is `}`. The rule is purely syntactic: **does the last token of the expression happen to be `}`?** No enumeration of specific forms is needed — the parser already knows what the last token was.
 
 ```ebnf
-block_ending_expression = for_do_expr
-                        | while_do_expr
-                        | loop_expr
-                        | if_else_expr      // only when else branch ends with }
-                        | match_expr
-                        | unsafe_expr
-                        | labeled_block
-                        | block_expr .
+block_ending_expression = for_do_expr         // for...do { }
+                        | while_do_expr       // while...do { }
+                        | loop_expr           // loop { }
+                        | if_expr             // if...then { } (with or without else, as long as last token is })
+                        | match_expr          // match { }
+                        | unsafe_expr         // unsafe { }
+                        | labeled_block       // block:name { }
+                        | block_expr .        // { }
 ```
+
+NOTE  `if condition then { body }` (no else) ends with `}` and qualifies. `if condition then expr` (no block) does not. `if condition then { a } else expr` does not (last token is not `}`). The rule is always the same: check the last token.
 
 ### Semantics
 
