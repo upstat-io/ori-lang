@@ -99,7 +99,7 @@ Rationale: Scoped modification guarantees that context is restored after parsing
 
 ### CF-3 — NO_STRUCT_LIT in Conditions
 
-`NO_STRUCT_LIT` SHALL be set when parsing the condition of `if` (shipped) and any future control-flow construct where a `{` after the condition would be ambiguous with a block body. Without this flag, `if Point { x, y }` would be parsed as `if Point` followed by block `{ x, y }` instead of struct literal `Point { x, y }`.
+`NO_STRUCT_LIT` SHALL be set when parsing the condition of `if` (shipped) and any future control-flow construct where a `{` after the condition would be ambiguous with a block body. Without this flag, the parser would greedily consume `if Point { x, y } { body }` as `if <struct Point { x, y }>` — leaving the trailing `{ body }` unmatched as a block. With the flag set, the struct literal parse is suppressed, so `Point` becomes the condition and `{ x, y }` becomes the `if` block body.
 
 Note: `while` (target-only) is spec'd to use the same mechanism. The parser does not currently have a `while` production — when it ships, it will follow the same `NO_STRUCT_LIT` discipline as `if`.
 
@@ -346,21 +346,26 @@ Rationale: Per `compiler.md` §Phase-Specific Purity. Note: the parser performs 
 
 ### KW-1 — function_exp Keywords
 
-The `match_function_exp_kind()` dispatcher recognizes function_exp forms when the current token is followed by `(`. However, the implementation splits the eleven names into two categories based on whether the LEXER treats them as soft or reserved:
+The `match_function_exp_kind()` dispatcher recognizes function_exp forms when the current token is followed by `(`. The implementation splits the eleven names into two categories based on whether the LEXER treats them as soft or reserved:
 
-**Lexer-soft keywords** (6): `cache`, `catch`, `parallel`, `recurse`, `spawn`, `timeout`. These are identifiers by default; the lexer promotes them to their keyword token kind only when followed (after horizontal whitespace) by `(`. Without the `(`, they parse as plain identifiers.
+**Lexer-soft keywords** (6): `cache`, `catch`, `parallel`, `recurse`, `spawn`, `timeout`. The lexer does NOT produce the keyword token kind unless followed (after horizontal whitespace) by `(`. Without the `(`, they are lexed as ordinary identifiers.
 
 Source: `ori_lexer/src/keywords/mod.rs` — contextual promotion logic.
 
-**Reserved keywords** (5): `with`, `print`, `panic`, `todo`, `unreachable`. These are always lexed as their keyword token kind. They cannot be used as ordinary identifiers. The `match_function_exp_kind()` dispatcher tests the following-`(` condition before dispatching to the function_exp parser.
+**Reserved-but-reusable keywords** (5): `with`, `print`, `panic`, `todo`, `unreachable`. These are always lexed as their keyword token kind. However, the parser treats a subset of them as reusable as identifiers via `soft_keyword_str()` (`ori_parse/src/cursor/identifiers.rs`) — specifically `print`, `panic`, and `with` can appear in identifier positions (bindings, call names, pattern names) via `expect_ident()` and `parse_binding_pattern()`. `todo` and `unreachable` are always reserved.
 
-Source: `ori_parse/src/grammar/expr/operators.rs` — `match_function_exp_kind()`; `ori_parse/src/grammar/expr/primary/literals.rs` — reserved-keyword handling.
+Source: `ori_parse/src/grammar/expr/operators.rs` — `match_function_exp_kind()`; `ori_parse/src/cursor/identifiers.rs` — `soft_keyword_str()`; `ori_parse/src/grammar/expr/primary/literals.rs`, `bindings.rs` — reuse sites.
 
-Rationale: Lexer-soft keywords balance expressiveness (identifiers remain available) with parser convenience (common idioms like `timeout(...)` read naturally). Reserved keywords are core language constructs that cannot shadow identifiers.
+Rationale: Lexer-soft keywords balance expressiveness (identifier status preserved at lex time) with parser convenience (common idioms like `timeout(...)` read naturally). Reserved-but-reusable keywords are always lexed as keywords but accepted in identifier positions by the cursor's identifier-or-soft-keyword APIs, giving users flexibility without ambiguity.
 
 ### KW-2 — `with` Disambiguation
 
-`with` has additional disambiguation beyond KW-1: even when followed by `(`, the parser checks whether the `with` + identifier + `=` pattern matches capability provision syntax (`with Http = RealHttp { } in expr`). If it does, `with` is parsed as a capability provision expression, not a function_exp.
+`with` has three parse paths selected by lookahead:
+- **Capability provision** (`with Http = RealHttp { } in expr`): selected when `with` is followed by `Ident = `. This is checked via `is_with_capability_syntax()` before any function_exp dispatch.
+- **function_exp `with(...)`**: selected when `with` is followed by `(` AND the capability-provision pattern does not match (the `(` token after `with` is not an `Ident`, so it cannot match the capability pattern).
+- **Identifier**: when `with` appears in identifier position (see KW-1 reserved-but-reusable note), it is accepted by the cursor's identifier APIs.
+
+The three paths are mutually exclusive: the first matching lookahead wins.
 
 Source: `ori_parse/src/grammar/expr/operators.rs` — `match_function_exp_kind()`, `is_with_capability_syntax()`.
 
@@ -409,7 +414,9 @@ Source: `ori_parse/src/lib.rs`, `ori_ir/src/arena/mod.rs`.
 
 All expressions SHALL be allocated via `ExprArena::alloc_expr()`, returning an opaque `ExprId` handle. The parser SHALL NOT use `Box<Expr>` or any pointer-based tree structure.
 
-Rationale: Arena allocation provides: (1) single allocation for the entire AST (no per-node malloc), (2) cache-friendly sequential memory layout for traversal, (3) O(1) allocation via bump pointer, (4) zero-cost deallocation (drop the arena). Per `compiler.md` §Memory: "Arena + ID (`ExprArena`+`ExprId`), not `Box<Expr>`."
+Implementation: `ExprArena` is a **struct-of-arrays** of parallel `Vec`s (one per AST component: kinds, spans, auxiliary data), not a classical bump-pointer arena. `alloc_expr()` pushes into the parallel vectors and returns an `ExprId` that indexes into them.
+
+Rationale: Arena-indexed allocation provides: (1) cache-friendly sequential memory layout for traversal over a single component (kinds, spans) without touching unrelated fields, (2) O(1) amortized allocation via `Vec::push`, (3) zero-cost deallocation (drop the arena), (4) opaque handle interface that decouples AST consumers from representation. Per `compiler.md` §Memory: "Arena + ID (`ExprArena`+`ExprId`), not `Box<Expr>`."
 
 ### AR-2 — Capacity Pre-Allocation
 
