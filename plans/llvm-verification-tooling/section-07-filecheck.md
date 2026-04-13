@@ -3,10 +3,10 @@ section: "07"
 title: "FileCheck-Style IR Pattern Matching"
 status: not-started
 reviewed: false
-goal: "Expand the existing FileCheck IR assertion framework in compiler/ori_llvm/tests/ to >=30 directive-based tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns — using .exact mode with function-scoped CHECK-LABEL anchoring for all order-sensitive categories, fixing known harness bugs, and splitting the over-limit aot.rs helper file"
+goal: "Expand the existing FileCheck IR assertion framework in compiler/ori_llvm/tests/ to >=30 directive-based tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns — using .exact mode with function-scoped IR slicing (via extract_function_ir) for all order-sensitive categories, fixing known harness bugs, and splitting the over-limit aot.rs helper file"
 success_criteria:
   - "compiler/ori_llvm/tests/codegen/ contains >=30 FileCheck-style tests with // CHECK: directives"
-  - "Order-sensitive tests (RC, COW, closure env, ABI, iterator cleanup) use .exact mode with CHECK-LABEL function scoping"
+  - "Order-sensitive tests (RC, COW, closure env, ABI, iterator cleanup) use .exact mode with function-scoped IR slicing via extract_function_ir()"
   - ".matches mode reserved for pure existence/absence checks only"
   - "No regex syntax in CHECK patterns — engine uses literal substring matching"
   - "Tests run within 150s timeout as part of cargo test -p ori_llvm --test aot"
@@ -53,7 +53,7 @@ sections:
 **Success Criteria:**
 
 - [ ] 30+ FileCheck tests in `compiler/ori_llvm/tests/codegen/` — satisfies mission criterion: "FileCheck IR assertions"
-- [ ] `.exact` mode with `CHECK-LABEL` function scoping for order-sensitive tests — correctness over convenience
+- [ ] `.exact` mode with function-scoped IR slicing (via `extract_function_ir()`) for order-sensitive tests — correctness over convenience
 - [ ] `.matches` mode reserved for existence/absence-only checks — avoids the multiple-match flaw
 - [ ] No regex syntax (`{{.*}}`) in CHECK patterns — engine uses literal substring matching only
 - [ ] Every "should optimize" test has a "should NOT optimize" companion — positive+negative pairing
@@ -130,14 +130,14 @@ sections:
 2. Require extracting aot helpers to a shared location just for cross-target imports
 3. Add a second test binary that `test-all.sh` would need to discover
 
-Instead, evolve `ir_checks.rs` to optionally use `run_test_directory()` for automatic test discovery while keeping the existing per-test functions as explicit entry points.
+Instead, evolve `ir_checks.rs` to use `run_test_directory()` for automatic test discovery, replacing the existing per-test functions with the discovery runner (see migration task below).
 
 - [ ] **Add a `run_all_codegen_filecheck` test** that uses `run_test_directory()` from the shared harness to automatically discover and run all `.ori` files in `compiler/ori_llvm/tests/codegen/`. This requires implementing `FileCheckStrategy` that implements `TestStrategy`:
   - `execute()`: calls `compile_and_capture_ir()` (from util) on the source, then slices to the target function using `extract_function_ir()` if a `// @function: <name>` custom directive is present (default: `_ori_main`). Returns sliced IR as `TestOutput.content`
   - `verify()`: calls `run_checks()` with the appropriate `CheckMode` (see below)
   - `baseline_suffix()`: returns `None` (no `.ll` baselines — pattern matching only)
 
-- [ ] **Determine CheckMode per test file.** The `FileCheckStrategy::verify()` must select `.exact` or `.matches` mode per file. Convention: if a test file contains any `CHECK-LABEL` directive, use `.exact` mode (the author is asserting ordering). If only bare `CHECK` and `CHECK-NOT` directives are present, use `.matches` mode. This keeps backward compatibility with existing tests while enabling order-sensitive tests going forward.
+- [ ] **Determine CheckMode per test file.** The `FileCheckStrategy::verify()` must select `.exact` or `.matches` mode per file. Convention: if a test file contains any `CHECK-LABEL` **or** `CHECK-NEXT` directive, use `.exact` mode (the author is asserting ordering or adjacency — `CHECK-NEXT` is downgraded to a plain existence check in `.matches` mode per `check.rs:133-140`). If only bare `CHECK` and `CHECK-NOT` directives are present, use `.matches` mode. This keeps backward compatibility with existing tests while enabling order-sensitive tests going forward.
 
 - [ ] **Remove existing per-file test functions after migration.** Once `run_all_codegen_filecheck` via `run_test_directory()` is confirmed working for all existing 12 tests, delete the individual `filecheck_rc_simple_inc_dec()` etc. functions from `ir_checks.rs`. Running 30+ AOT compilations twice (once per manual test, once via discovery) threatens the mandatory 150s timeout and is WASTE. The discovery runner provides sufficient granularity via per-file pass/fail reporting in `TestSummary`.
 
@@ -157,7 +157,7 @@ Instead, evolve `ir_checks.rs` to optionally use `run_test_directory()` for auto
 
 ## 07.2 RC Emission Tests
 
-**File(s):** `compiler/ori_llvm/tests/codegen/rc/` (new subdirectory), `compiler/ori_llvm/tests/aot/ir_checks.rs` (add test entry points)
+**File(s):** `compiler/ori_llvm/tests/codegen/rc/` (new subdirectory — test files only; discovered by the harness runner)
 
 Write FileCheck tests that pin RC emission patterns. These tests verify that the AIMS pipeline + LLVM codegen emits the expected RC operations. **All RC tests use `.exact` mode with `CHECK-LABEL` function anchoring** because RC operation ordering is correctness-critical (inc before use, dec after last use).
 
@@ -255,7 +255,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
   }
   ```
 
-- [ ] **Add test entry points in ir_checks.rs** for each new `.ori` file.
+- [ ] **Verify new test files are discovered by the harness runner** — no manual entry points needed after 07.1 migration.
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 07.0–07.2 implementation work
 
@@ -274,7 +274,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
 
 COW is one of the highest-risk codegen areas — a silent degradation from fast-path to always-copy is invisible to behavioral tests. **COW tests use `.exact` mode with `CHECK-LABEL`** because `is_shared` check ordering relative to mutation is correctness-critical.
 
-- [ ] `compiler/ori_llvm/tests/codegen/cow/mutation_via_updated.ori` — list mutation via `.updated()` emits store operations:
+- [ ] `compiler/ori_llvm/tests/codegen/cow/mutation_triggers_store_ops.ori` — list mutation via index assignment emits store operations:
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK: ori_buffer_store_elem_dec
@@ -282,34 +282,34 @@ COW is one of the highest-risk codegen areas — a silent degradation from fast-
 
   @main () -> void = {
       let xs = [1, 2, 3];
-      let ys = xs.updated(key: 0, value: 42);
-      print(msg: ys[0].to_str())
+      xs[0] = 42;
+      print(msg: xs[0].to_str())
   }
   ```
-  **Note:** `xs[0] = 42` index assignment syntax is not yet supported (pending design proposal — see `tests/spec/expressions/index_access.ori:359`). Use `.updated()` method instead, which is the current supported mutation API.
+  **Note:** Index assignment (`xs[0] = 42`) is supported and already tested in `compiler/ori_llvm/tests/codegen/cow_is_shared_check.ori`. The spec test at `tests/spec/expressions/index_access.ori:359` is skipped for a different aspect of index assignment.
 
-- [ ] `compiler/ori_llvm/tests/codegen/cow/push_triggers_cow_ops.ori` — list push triggers COW operations:
+- [ ] `compiler/ori_llvm/tests/codegen/cow/shared_mutation_triggers_copy.ori` — shared value mutation triggers copy:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
   @main () -> void = {
       let xs = [1, 2, 3];
       let ys = xs;
-      ys.push(value: 4);
-      print(msg: ys.len().to_str());
-      print(msg: xs.len().to_str())
+      ys[0] = 42;
+      print(msg: ys[0].to_str());
+      print(msg: xs[0].to_str())
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/cow/unique_push_no_copy.ori` — unique owner push skips copy (negative pin):
+- [ ] `compiler/ori_llvm/tests/codegen/cow/unique_mutation_no_copy.ori` — unique owner mutation skips copy (negative pin):
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK-NOT: memcpy
 
   @main () -> void = {
       let xs = [1, 2, 3];
-      xs.push(value: 4);
-      print(msg: xs.len().to_str())
+      xs[0] = 42;
+      print(msg: xs[0].to_str())
   }
   ```
 
@@ -324,7 +324,7 @@ COW is one of the highest-risk codegen areas — a silent degradation from fast-
       print(msg: m2["a"].to_str())
   }
   ```
-  **Note:** `m["a"] = 42` bracket mutation syntax is not yet supported. Use `.insert()` method.
+  **Note:** Map bracket mutation (`m["a"] = 42`) may not be supported — verify during implementation. `.insert()` is the safe alternative.
 
 - [ ] `compiler/ori_llvm/tests/codegen/cow/drop_at_scope_end.ori` — drop hint emitted for COW values at scope end:
   ```ori
@@ -404,7 +404,7 @@ Closure tests pin capture patterns, environment layout, and RC for captured valu
   }
   ```
 
-- [ ] **Add test entry points in ir_checks.rs** for each new `.ori` file.
+- [ ] **Verify new test files are discovered by the harness runner** — no manual entry points needed after 07.1 migration.
 
 - [ ] **Subsection close-out (07.3)** — MANDATORY before starting 07.4:
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
@@ -423,6 +423,7 @@ Verify parameter passing modes and return conventions. ABI prologue/epilogue tes
 
 - [ ] `compiler/ori_llvm/tests/codegen/abi/scalar_direct_pass.ori` — scalar params passed directly (not via pointer):
   ```ori
+  // @function: _ori_add
   // CHECK-LABEL: define i64 @_ori_add
   // CHECK-NOT: sret
 
@@ -433,6 +434,7 @@ Verify parameter passing modes and return conventions. ABI prologue/epilogue tes
 
 - [ ] `compiler/ori_llvm/tests/codegen/abi/struct_sret_return.ori` — large struct returned via sret pointer:
   ```ori
+  // @function: _ori_make_point
   // CHECK-LABEL: define void @_ori_make_point
   // CHECK: sret
 
@@ -455,6 +457,7 @@ Verify parameter passing modes and return conventions. ABI prologue/epilogue tes
 
 - [ ] `compiler/ori_llvm/tests/codegen/abi/borrowed_param_no_rc.ori` — borrowed param passed without RC operations:
   ```ori
+  // @function: _ori_helper
   // CHECK-LABEL: define i64 @_ori_helper
   // CHECK-NOT: ori_rc_inc
   // CHECK-NOT: ori_rc_dec
@@ -469,6 +472,7 @@ Verify parameter passing modes and return conventions. ABI prologue/epilogue tes
 
 - [ ] `compiler/ori_llvm/tests/codegen/abi/multi_param_mixed.ori` — multiple params with mixed types:
   ```ori
+  // @function: _ori_mixed
   // CHECK-LABEL: define void @_ori_mixed
 
   @mixed (n: int, s: str, b: bool) -> void = {
@@ -629,14 +633,31 @@ When all findings are triaged:
 - [x] `[TPR-07-003-gemini][medium]` `section-07-filecheck.md:79` — Update aot.rs split target list to actual functions.
   Resolved: Fixed on 2026-04-12. Replaced `compile_and_check_output()`/`compile_expect_error()` with actual functions: `compile_and_run_capture()`, `assert_aot_success()`, etc.
 
+**Round 2 findings (iteration 2):**
+- [x] `[TPR-07-001-codex][high]` `section-07-filecheck.md:6` — Replace remaining CHECK-LABEL function-scoping contract with real function slicing in frontmatter.
+  Resolved: Fixed on 2026-04-12. Updated goal, success criteria, and exit criteria to reference function-scoped IR slicing.
+- [x] `[TPR-07-002-codex][high]` `section-07-filecheck.md:258` — Delete per-file ir_checks entry-point tasks in 07.2/07.3.
+  Resolved: Fixed on 2026-04-12. Replaced with "verify discovery runner picks up new files" tasks.
+- [x] `[TPR-07-003-codex][medium]` `section-07-filecheck.md:140` — Select exact mode for CHECK-NEXT files too.
+  Resolved: Fixed on 2026-04-12. Updated mode selection to trigger on CHECK-LABEL OR CHECK-NEXT.
+- [x] `[TPR-07-004-codex][medium]` `section-07-filecheck.md:289` — Restore list index assignment — it IS supported.
+  Resolved: Fixed on 2026-04-12. Restored `xs[0] = 42` in COW examples, updated notes.
+- [x] `[TPR-07-005-codex][medium]` `00-overview.md:29` — Reconcile overview mission criterion with no-revision decision.
+  Resolved: Fixed on 2026-04-12. Updated overview to reference `.exact` + function slicing instead of debug/release revisions.
+- [x] `[TPR-07-001-gemini][high]` `section-07-filecheck.md:277` — Replace .updated() with .set() — .updated() doesn't exist.
+  Resolved: Fixed on 2026-04-12. Restored index assignment syntax instead (verified to work via existing cow_is_shared_check.ori).
+- [x] `[TPR-07-002-gemini][high]` `section-07-filecheck.md:435` — Add @function: directives to ABI tests targeting non-main functions.
+  Resolved: Fixed on 2026-04-12. Added `// @function: _ori_add`, `_ori_make_point`, `_ori_helper`, `_ori_mixed` to respective test examples.
+
 ---
 
 ## 07.N Completion Checklist
 
 - [ ] `compiler/ori_llvm/tests/codegen/` contains 30+ FileCheck-style `.ori` test files
 - [ ] `ir_checks.rs` has `run_all_codegen_filecheck` discovery test (per-file manual tests removed after migration)
-- [ ] `FileCheckStrategy` implements `TestStrategy` and auto-selects mode (`.exact` when CHECK-LABEL present, `.matches` otherwise)
-- [ ] Order-sensitive tests (RC, COW, closure env, ABI, iterator cleanup) use `.exact` mode with `CHECK-LABEL`
+- [ ] `FileCheckStrategy` implements `TestStrategy` with function-scoped IR slicing and auto-selects mode (`.exact` when CHECK-LABEL or CHECK-NEXT present, `.matches` otherwise)
+- [ ] Order-sensitive tests (RC, COW, closure env, ABI, iterator cleanup) use `.exact` mode with function-scoped IR slicing
+- [ ] Tests targeting non-main functions have `// @function: <name>` directive
 - [ ] `.matches` mode used only for pure existence/absence checks
 - [ ] No `{{.*}}` regex syntax in any CHECK patterns — all patterns are literal substrings
 - [ ] Every "should optimize" test has a "should NOT optimize" companion
