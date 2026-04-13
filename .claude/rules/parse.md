@@ -42,7 +42,8 @@ All parsing ultimately composes from these foundational operations:
 | `check(kind)` | `fn check(&self, kind: &TokenKind) -> bool` | Lookahead — test current token kind without consuming. O(1) via tag array. |
 | `advance()` | `fn advance(&mut self) -> &Token` | Unconditional consume — caller MUST have verified the token kind first. |
 | `expect(kind)` | `fn expect(&mut self, kind: &TokenKind) -> Result<&Token, ParseError>` | Committed consume — advance if match, else error. |
-| `eat(kind)` | `fn eat_optional_*(...)` | Speculative consume — try advance, return bool/option. No-op on mismatch. |
+
+Note: there is no generic `eat(kind)` cursor primitive. Optional/speculative consumption (e.g., `eat_optional_semicolon()`) is implemented as parser-level helpers in `dispatch.rs` and grammar modules, composing from `check()` + `advance()`.
 
 ### CU-2 — Derived Cursor Operations
 
@@ -420,7 +421,7 @@ Source: `ori_parse/src/snapshot/`.
 
 `ParserSnapshot` SHALL capture the minimal state needed for rollback: cursor position (`usize`) and parse context flags (`ParseContext`). Total size: ~10 bytes. Snapshots are used by speculative parsing and `one_of!` (PO-4) for automatic backtracking on `EmptyErr`.
 
-**Arena state is NOT captured.** Speculative parsing SHALL only examine tokens and make decisions based on token patterns — it SHALL NOT allocate AST nodes. If a speculative path must allocate, the allocations persist even if the snapshot is restored. This is by design: keeping snapshots lightweight (10 bytes vs arena-state tracking) is a performance choice that constrains how speculation is used.
+**Arena state is NOT captured.** If a speculative path allocates AST nodes (e.g., `parse_type()` during speculative disambiguation in collections parsing), those allocations persist even after snapshot restore. This is by design: keeping snapshots lightweight (10 bytes vs arena-state tracking) is a performance choice. Persisted speculative allocations are harmless — they remain in the arena but are unreferenced by the final AST.
 
 ### SN-2 — Snapshot Lifetime
 
@@ -476,7 +477,11 @@ Two construction paths exist:
 
 ### DI-4 — Parse Warnings
 
-The parser produces warnings separately from errors via `ParseWarning` variants in `ori_parse/src/error/warning.rs`. Warnings include: `UnknownCallingConvention`, `DetachedDocComment`, and similar non-fatal parse-time observations. Warnings are collected in `deferred_warnings: Vec<ParseWarning>` alongside the error list.
+The parser produces warnings separately from errors via `ParseWarning` variants in `ori_parse/src/error/warning.rs`. Warnings are collected in `deferred_warnings: Vec<ParseWarning>`.
+
+Warning production has two mechanisms:
+- **Inline warnings** (e.g., `UnknownCallingConvention` in `grammar/item/extern_def.rs`) are pushed to `deferred_warnings` during parsing.
+- **Post-parse warnings** (e.g., `DetachedDocComment`) are NOT produced during `parse()` automatically. They require an explicit call to `ParseOutput::check_detached_doc_comments()` by the caller. The standard `parse()` and `parse_with_metadata()` APIs do NOT invoke this check.
 
 ### DI-5 — Common Mistake Detection
 
@@ -488,7 +493,7 @@ Source: `ori_parse/src/error/mistakes.rs`.
 
 ### DI-6 — Error Context Wrapping
 
-Errors SHOULD carry context annotations ("while parsing function body", "while parsing match arm") using the `ErrorContext` mechanism. Context wrapping follows the Elm pattern — errors bubble up through nested parsers, accumulating context at each level.
+Errors SHOULD carry context annotations ("while parsing function body", "while parsing match arm") using the `ErrorContext` mechanism. Context uses **first-context-wins** semantics: if an error already has a context set, subsequent attempts to add context are ignored (`error.context.is_none()` guard). This means the innermost parser that first catches the error provides the context — outer parsers do not stack additional contexts.
 
 ### DI-7 — Error Accumulation
 
@@ -527,9 +532,9 @@ The dispatch module also performs declaration-level validation: import ordering,
 
 ### DD-2 — Semicolon Rule
 
-Declarations SHALL follow the Ori semicolon rule: if the declaration body ends with `}`, no semicolon is needed. All other declarations require a terminating `;`.
+Declarations follow the Ori semicolon rule: if the declaration body ends with `}`, no semicolon is needed. For other declarations (imports, constants, extension imports), the parser accepts semicolons but treats them as optional via `eat_optional_semicolon()` in `dispatch.rs`. This means the parser is more lenient than the spec's strict grammar — semicolons are consumed when present but not required for all non-block declarations in practice.
 
-Spec: `grammar.ebnf` — semicolon rules per declaration kind.
+Spec: `grammar.ebnf` — semicolon rules per declaration kind (canonical grammar is stricter than the parser's accepted surface).
 
 ### DD-3 — Attribute Attachment
 
