@@ -23,7 +23,7 @@ fi
 
 # Check Clang availability — try versioned names (matching compiler/ori_llvm/src/aot/passes/sanitizer.rs)
 find_clang() {
-    for candidate in clang clang-21 clang-20 clang-19 clang-18 clang-17; do
+    for candidate in clang-21 clang-20 clang-19 clang-18 clang-17 clang; do
         if command -v "$candidate" &>/dev/null; then
             echo "$candidate"
             return 0
@@ -125,8 +125,10 @@ echo "=== Sanitizer smoke: $PASS_COUNT passed, $FAIL_COUNT failed, $SKIP_COUNT s
 if [ "$SEMANTIC_PIN_TESTED" = true ]; then
     echo "  Semantic pin: VERIFIED (ASan detected deliberate UAF)"
 else
-    echo "  WARNING: Semantic pin NOT TESTED (pin_helper build failed or skipped)"
-    echo "  The smoke suite passed but the ASan detection capability was not validated."
+    echo "  ERROR: Semantic pin NOT TESTED (pin_helper build failed or skipped)"
+    echo "  The smoke suite cannot pass without validating ASan detection capability."
+    echo "  Ensure Clang and pin_helper.c are available."
+    exit 1
 fi
 
 if [ "$FAIL_COUNT" -gt 0 ]; then
