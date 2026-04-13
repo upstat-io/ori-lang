@@ -113,7 +113,7 @@ pub use debug::{
 
 // Re-export key types from passes
 pub use passes::{
-    check_clang_available, clang_compile_with_sanitizers, optimize_module,
+    check_clang_available, clang_compile_with_sanitizers, find_clang, optimize_module,
     prelink_and_emit_bitcode, run_custom_pipeline, run_lto_pipeline, run_optimization_passes,
     LtoMode, OptimizationConfig, OptimizationError, OptimizationLevel, SanitizerMode,
 };

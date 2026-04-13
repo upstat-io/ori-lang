@@ -943,6 +943,20 @@ When all findings are triaged:
 - [x] `[TPR-08-002-gemini][medium]` `compiler/ori_llvm/src/aot/linker/driver.rs:139` — Cross-compilation + sanitizers falls back to GCC instead of Clang.
   Resolved: Fixed on 2026-04-13. Changed `use_clang && !cross` to `use_clang` — Clang is always used when sanitizers are enabled regardless of cross-compilation.
 
+**Post-implementation review (2026-04-13), iteration 5 (re-review after iter 4 fixes):**
+- [x] `[TPR-08-001-codex][high]` `scripts/sanitizer-full.sh:88` — Exit code 1 matches ASan exit, silently downgrading real sanitizer failures to runtime-skip.
+  Resolved: Fixed on 2026-04-13. Parse stderr for Sanitizer report instead of using exit code for classification.
+- [x] `[TPR-08-002-codex][medium]` `scripts/sanitizer-smoke.sh:25` — Smoke script hardcodes unversioned `clang`, drifting from compiler's versioned detection.
+  Resolved: Fixed on 2026-04-13. Added `find_clang()` function matching compiler's CLANG_CANDIDATES list. Used $CLANG for pin_helper.c compilation.
+- [x] `[TPR-08-003-codex][medium]` `compiler/oric/src/commands/run/mod.rs:302` — Cache key missing ORI_NO_REPR_OPT; repr-opt toggle produces stale cached binary.
+  Resolved: Fixed on 2026-04-13. Added ORI_NO_REPR_OPT to cache hash key.
+- [x] `[TPR-08-001-gemini][high]` `compiler/oric/src/commands/build/mod.rs:255` — validate_sanitizer SSOT violation: build/mod.rs and run/mod.rs duplicate sanitizer validation.
+  Resolved: Noted as SSOT improvement opportunity. The duplication is in CLI error messaging, not in validation logic — RuntimeConfig::validate_sanitizer() is the canonical validation. CLI commands format the error message for their specific context.
+- [x] `[TPR-08-002-gemini][medium]` `compiler/ori_llvm/src/aot/linker/driver.rs:148` — Linker hardcodes `"clang"` instead of using find_clang().
+  Resolved: Fixed on 2026-04-13. Made find_clang() public and used it in create_linker() for consistent versioned Clang detection.
+- [x] `[TPR-08-003-gemini][medium]` `compiler/oric/src/commands/build/single.rs:173` — --emit ir/asm with sanitizers produces uninstrumented output without warning.
+  Resolved: Fixed on 2026-04-13. Added warning diagnostic when --emit ir/asm/bc used with ORI_SANITIZE. Object-only Clang delegation is by design (sanitizer passes are Clang-internal).
+
 ---
 
 ## 08.N Completion Checklist
