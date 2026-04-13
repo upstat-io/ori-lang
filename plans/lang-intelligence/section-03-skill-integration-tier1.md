@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Skill Integration: TPR + Fix-Bug (Tier 1)"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Insert intelligence pre-queries into the two highest-value skills: /tpr-review (evidence packets for reviewers) and /fix-bug (investigation phase). Intelligence AUGMENTS existing workflows — it does not replace manual reference repo inspection."
 success_criteria:
@@ -16,10 +16,10 @@ depends_on: ["01", "02"]
 sections:
   - id: "03.1"
     title: "TPR Review Integration"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Fix-Bug Integration"
-    status: not-started
+    status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
     status: complete
@@ -108,13 +108,13 @@ an empty intelligence section or "no results found" in the prompts.
 ```
 
 **Implementation checklist**:
-- [ ] Add subsystem-to-preset mapping table to `.claude/rules/intelligence.md` §Subsystem Mapping (prerequisite — creates the SSOT the skill references)
-- [ ] Add Step 0.75 to `.claude/skills/tpr-review/SKILL.md` after Step 0.5, titled "CONDITIONAL"
-- [ ] Use `status` subcommand (JSON) for availability check, then `--human --limit 5` for actual queries — two distinct output modes
-- [ ] Instruct Claude to hold summary in context and write directly into prompt text (no shell variable interpolation — heredocs are single-quoted)
-- [ ] Note in Step 2 that when intelligence summary exists, it goes after `## Scope:` as literal text in both prompts
-- [ ] Intelligence summary bounded at 500 chars
-- [ ] Verify: available + results → summary in prompts; unavailable → silent skip; available + empty → silent skip
+- [x] Add subsystem-to-preset mapping table to `.claude/rules/intelligence.md` §Subsystem Mapping (prerequisite — creates the SSOT the skill references)
+- [x] Add Step 0.75 to `.claude/skills/tpr-review/SKILL.md` after Step 0.5, titled "CONDITIONAL"
+- [x] Use `status` subcommand (JSON) for availability check, then `--human --limit 5` for actual queries — two distinct output modes
+- [x] Instruct Claude to hold summary in context and write directly into prompt text (no shell variable interpolation — heredocs are single-quoted)
+- [x] Note in Step 2 that when intelligence summary exists, it goes after `## Scope:` as literal text in both prompts
+- [x] Intelligence summary bounded at 500 chars
+- [x] Verify: available + results → summary in prompts; unavailable → silent skip; available + empty → silent skip
 
 ### Subsection 03.1 close-out
 
@@ -157,11 +157,11 @@ Intelligence AUGMENTS manual inspection — it does NOT replace it. The intellig
 ```
 
 **Implementation checklist**:
-- [ ] Split Phase 1 Step 5 in `.claude/skills/fix-bug/SKILL.md` into Step 5a (intelligence) + Step 5b (manual repos), both under the existing design-question gate
-- [ ] Use `status` subcommand (JSON) for availability, `--human --limit 5` for queries — same conventions as 03.1
-- [ ] Instruct Claude to run queries directly (visible in context), not capture into variables
-- [ ] Reference `.claude/rules/intelligence.md` §Subsystem Mapping for preset selection
-- [ ] Verify: design-question + available → 5a then 5b; design-question + unavailable → 5b only; non-design bug → skip both
+- [x] Split Phase 1 Step 5 in `.claude/skills/fix-bug/SKILL.md` into Step 5a (intelligence) + Step 5b (manual repos), both under the existing design-question gate
+- [x] Use `status` subcommand (JSON) for availability, `--human --limit 5` for queries — same conventions as 03.1
+- [x] Instruct Claude to run queries directly (visible in context), not capture into variables
+- [x] Reference `.claude/rules/intelligence.md` §Subsystem Mapping for preset selection
+- [x] Verify: design-question + available → 5a then 5b; design-question + unavailable → 5b only; non-design bug → skip both
 
 ### Subsection 03.2 close-out
 
@@ -203,14 +203,14 @@ Intelligence AUGMENTS manual inspection — it does NOT replace it. The intellig
 ## 03.N Completion Checklist
 
 **Implementation verification:**
-- [ ] `.claude/rules/intelligence.md` has §Subsystem Mapping table (prerequisite for both skills)
-- [ ] `/tpr-review` SKILL.md has Step 0.75 (conditional, queries run visibly, summary written directly into prompts)
-- [ ] `/fix-bug` SKILL.md has Phase 1 Step 5a/5b under design-question gate, queries run visibly
-- [ ] Both skills use `scripts/intel-query.sh` exclusively — `status` for availability (JSON), `--human` for queries
-- [ ] Both degrade gracefully: unavailable → skip silently, no errors, no empty sections
+- [x] `.claude/rules/intelligence.md` has §Subsystem Mapping table (prerequisite for both skills)
+- [x] `/tpr-review` SKILL.md has Step 0.75 (conditional, queries run visibly, summary written directly into prompts)
+- [x] `/fix-bug` SKILL.md has Phase 1 Step 5a/5b under design-question gate, queries run visibly
+- [x] Both skills use `scripts/intel-query.sh` exclusively — `status` for availability (JSON), `--human` for queries
+- [x] Both degrade gracefully: unavailable → skip silently, no errors, no empty sections
 
 **Testing and review:**
-- [ ] No test regressions: `timeout 150 ./test-all.sh`
+- [x] No test regressions: `timeout 150 ./test-all.sh`
 - [ ] `/tpr-review` clean
 - [ ] `/impl-hygiene-review` clean
 - [ ] `/improve-tooling` section-close sweep
