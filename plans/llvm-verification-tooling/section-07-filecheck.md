@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "FileCheck-Style IR Pattern Matching"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Expand the existing FileCheck IR assertion framework in compiler/ori_llvm/tests/ to >=30 directive-based tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns — using .exact mode with function-scoped IR slicing (via extract_function_ir) for all order-sensitive categories, fixing known harness bugs, and splitting the over-limit aot.rs helper file"
 success_criteria:
@@ -39,7 +39,7 @@ sections:
     status: not-started
   - id: "07.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "07.N"
     title: "Completion Checklist"
     status: not-started
@@ -47,7 +47,7 @@ sections:
 
 # Section 07: FileCheck-Style IR Pattern Matching
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Expand the existing FileCheck IR assertion framework to 30+ directive-based tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns. Tests use `// CHECK:` directives embedded in `.ori` source files, compiled through the LLVM pipeline, with the resulting IR matched against directives via literal substring matching. Order-sensitive categories (RC, COW, closure env layout, ABI, iterator cleanup) use `.exact` mode with `CHECK-LABEL` function anchoring to enforce ordering. Pure existence/absence checks (e.g., "no RC ops anywhere", "sret attribute present") use `.matches` mode.
 
 **Success Criteria:**
