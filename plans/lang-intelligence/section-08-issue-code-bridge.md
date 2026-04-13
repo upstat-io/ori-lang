@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Issue-to-Code Bridge"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Extract code references from issue/PR/comment bodies and link them to code symbols via CodeReference intermediary nodes with confidence scoring. Seed the ontology with Concept, FailureMode, and CompilerPhase taxonomy nodes."
 success_criteria:
@@ -18,7 +18,7 @@ depends_on: ["07"]
 sections:
   - id: "08.0"
     title: "Schema Extension for Bridge Layer"
-    status: not-started
+    status: complete
   - id: "08.1"
     title: "Code Reference Extraction"
     status: not-started
@@ -132,10 +132,10 @@ CREATE INDEX coderef_stale IF NOT EXISTS FOR (cr:CodeReference) ON (cr.stale);
 
 **Checklist:**
 
-- [ ] Add CodeReference constraint, resolved/stale indexes to `schema.cypher`
-- [ ] Add Concept, CompilerPhase, FailureMode, DesignDecision constraints to `schema.cypher`
-- [ ] Apply updated schema to running Neo4j — verify no conflicts with existing constraints
-- [ ] Verify constraint names don't collide with existing 8 constraints + 24 indexes from Section 07
+- [x] Add CodeReference constraint, resolved/stale indexes to `schema.cypher`
+- [x] Add Concept, CompilerPhase, FailureMode, DesignDecision constraints to `schema.cypher`
+- [x] Apply updated schema to running Neo4j — verify no conflicts with existing constraints
+- [x] Verify constraint names don't collide with existing 8 constraints + 24 indexes from Section 07
 
 ### Subsection 08.0 close-out
 Confirm all constraints and indexes are applied before proceeding to 08.1/08.2/08.3.
