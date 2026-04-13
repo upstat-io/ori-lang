@@ -105,7 +105,7 @@ aims/builtins/tests.rs, AnnotatedSig
 ---
 
 ### Section 07: FileCheck-Style IR Pattern Matching
-**File:** `section-07-filecheck.md` | **Status:** Not Started
+**File:** `section-07-filecheck.md` | **Status:** Complete
 
 ```
 FileCheck, CHECK:, CHECK-LABEL:, CHECK-NOT:
