@@ -155,6 +155,7 @@ Quick reference — full rules: `compiler.md` (architecture, tracing), `impl-hyg
 **ARC verification**: `ORI_VERIFY_ARC=1` — extra ARC IR correctness checks (RC balance, drop placement) after the AIMS pipeline; also enables per-function LLVM IR verification at all emission sites
 **LLVM pass verification**: `ORI_VERIFY_EACH=1` — enable LLVM IR verification after every optimization pass (~30-60% slower); catches which pass breaks IR well-formedness
 **Repr-opt disable**: `ORI_NO_REPR_OPT=1` — disable all representation optimizations (integer narrowing, enum packing). CLI: `--no-repr-opt`
+**Sanitizer**: `ORI_SANITIZE=address,undefined` — enable sanitizer instrumentation on generated AOT binaries via Clang delegation. Requires Clang on PATH. Significant performance impact (2-10x slower). Not for main test suite.
 **AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed.
 **Always run `./test-all.sh` after compiler changes.**
 **Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh` | **Cargo cache**: `./scripts/cache-doctor.sh [--print-cleanup|--clean]` — detects root-owned files in `target/` that cargo cannot update (accidental `sudo cargo build`); refuses destructive actions by default

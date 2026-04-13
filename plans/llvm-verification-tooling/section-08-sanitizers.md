@@ -24,10 +24,10 @@ third_party_review:
 sections:
   - id: "08.0"
     title: "Prerequisite: Linker Module Split"
-    status: not-started
+    status: complete
   - id: "08.1"
     title: "SanitizerMode Type and Env Var Wiring"
-    status: not-started
+    status: complete
   - id: "08.2"
     title: "Clang-Delegated Sanitizer Pass Integration"
     status: not-started
@@ -86,16 +86,16 @@ sections:
 
 **Why:** `linker/mod.rs` is 648 lines — 148 over the 500-line limit. Adding sanitizer support to the linker without splitting first would push it further over. The `LinkerDetection` struct and its methods (~250 lines, starting around line 390) are an independent concern from the core linker types and `LinkerImpl` dispatch.
 
-- [ ] Extract `LinkerDetection` and all its methods (`detect`, `detect_for_target`, `is_available`, `is_available_for_target`, `is_cross_compiling`, `gcc_cross_compiler_name`, `cross_compilation_error`, etc.) to a new `compiler/ori_llvm/src/aot/linker/detect.rs`
-- [ ] Update `mod.rs` to re-export: `mod detect; pub use detect::LinkerDetection;`
-- [ ] Verify `linker/mod.rs` is now under 500 lines
-- [ ] Verify `linker/detect.rs` is under 500 lines
-- [ ] `timeout 150 cargo test -p ori_llvm` green after split
-- [ ] `timeout 150 ./clippy-all.sh` green after split
+- [x] Extract `LinkerDetection` and all its methods (`detect`, `detect_for_target`, `is_available`, `is_available_for_target`, `is_cross_compiling`, `gcc_cross_compiler_name`, `cross_compilation_error`, etc.) to a new `compiler/ori_llvm/src/aot/linker/detect.rs`
+- [x] Update `mod.rs` to re-export: `mod detect; pub use detect::LinkerDetection;`
+- [x] Verify `linker/mod.rs` is now under 500 lines
+- [x] Verify `linker/detect.rs` is under 500 lines
+- [x] `timeout 150 cargo test -p ori_llvm` green after split
+- [x] `timeout 150 ./clippy-all.sh` green after split
 
-- [ ] **Subsection close-out (08.0)** — MANDATORY before starting 08.1:
-  - [ ] All tasks above are `[x]`
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (08.0)** — MANDATORY before starting 08.1:
+  - [x] All tasks above are `[x]`
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
 
 ---
 
@@ -107,7 +107,7 @@ Add a `SanitizerMode` field to `OptimizationConfig` and wire it to the `ORI_SANI
 
 **Design decision — env var format:** Use a single `ORI_SANITIZE` env var with comma-separated sanitizer names (e.g., `ORI_SANITIZE=address,undefined`). This matches Clang's `-fsanitize=address,undefined` pattern. The individual-boolean pattern (`ORI_SANITIZE_ADDRESS=1`, `ORI_SANITIZE_UNDEFINED=1`) would match the existing `debug_flags.rs` pattern but diverges from the Clang convention that users will already know. Consistency with Clang is more valuable here because the sanitizer flags are ultimately passed through to Clang.
 
-- [ ] Define `SanitizerMode` in `config.rs`:
+- [x] Define `SanitizerMode` in `config.rs`:
   ```rust
   /// Sanitizer instrumentation modes for generated code.
   ///
@@ -172,7 +172,7 @@ Add a `SanitizerMode` field to `OptimizationConfig` and wire it to the `ORI_SANI
   }
   ```
 
-- [ ] Add `sanitizer: SanitizerMode` field to `OptimizationConfig`:
+- [x] Add `sanitizer: SanitizerMode` field to `OptimizationConfig`:
   ```rust
   pub struct OptimizationConfig {
       // ... existing fields ...
@@ -185,7 +185,7 @@ Add a `SanitizerMode` field to `OptimizationConfig` and wire it to the `ORI_SANI
   Update `OptimizationConfig::new()` to initialize `sanitizer: SanitizerMode::NONE`.
   Update `Default for OptimizationConfig` to include `sanitizer: SanitizerMode::NONE`.
 
-- [ ] Register `ORI_SANITIZE` in `debug_flags.rs`:
+- [x] Register `ORI_SANITIZE` in `debug_flags.rs`:
   ```rust
   /// Enable sanitizer instrumentation on generated AOT binaries.
   ///
@@ -198,7 +198,7 @@ Add a `SanitizerMode` field to `OptimizationConfig` and wire it to the `ORI_SANI
   ORI_SANITIZE
   ```
 
-- [ ] Wire `ORI_SANITIZE` through `build_optimization_config` in `oric/src/commands/build/mod.rs`. **NOTE:** This is the SINGLE canonical location for reading `ORI_SANITIZE` — the function is called by both `single.rs` and `multi.rs`. **ALSO:** Verify that `oric/src/commands/run/mod.rs` (the `ori run` AOT path) also flows through this canonical config — if it builds its own `OptimizationConfig`, it must read `ORI_SANITIZE` via the same shared helper:
+- [x] Wire `ORI_SANITIZE` through `build_optimization_config` in `oric/src/commands/build/mod.rs`. **NOTE:** This is the SINGLE canonical location for reading `ORI_SANITIZE` — the function is called by both `single.rs` and `multi.rs`. **ALSO:** Verify that `oric/src/commands/run/mod.rs` (the `ori run` AOT path) also flows through this canonical config — if it builds its own `OptimizationConfig`, it must read `ORI_SANITIZE` via the same shared helper:
   ```rust
   fn build_optimization_config(options: &BuildOptions) -> ori_llvm::aot::OptimizationConfig {
       // ... existing level, lto, verify_each, lint_enabled code ...
@@ -217,7 +217,7 @@ Add a `SanitizerMode` field to `OptimizationConfig` and wire it to the `ORI_SANI
   }
   ```
 
-- [ ] Add tests in `config.rs`'s sibling `tests.rs` (following the existing pattern):
+- [x] Add tests in `config.rs`'s sibling `tests.rs` (following the existing pattern):
   - `sanitizer_mode_from_env_address_only` — `"address"` -> address=true, undefined=false
   - `sanitizer_mode_from_env_address_and_undefined` — `"address,undefined"` -> both true
   - `sanitizer_mode_from_env_undefined_only` — `"undefined"` -> address=false, undefined=true
@@ -230,11 +230,11 @@ Add a `SanitizerMode` field to `OptimizationConfig` and wire it to the `ORI_SANI
   - `sanitizer_mode_any_enabled_false` — `NONE` -> `.any_enabled()` false
   - `optimization_config_default_has_no_sanitizer` — `OptimizationConfig::default().sanitizer == SanitizerMode::NONE`
 
-- [ ] **Subsection close-out (08.1)** — MANDATORY before starting 08.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] `timeout 150 ./test-all.sh` green (no regressions)
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (08.1)** — MANDATORY before starting 08.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] `timeout 150 ./test-all.sh` green (no regressions)
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 
