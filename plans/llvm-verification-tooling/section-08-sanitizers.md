@@ -1008,6 +1008,18 @@ When all findings are triaged:
 - [x] `[TPR-08-001-gemini][low]` `tests/sanitizer/closure_capture.ori:1` — Rename files to kebab-case.
   Resolved: Rejected. tests.md kebab-case rule applies to spec tests (`tests/spec/`). These are standalone `@main` programs in `tests/sanitizer/`, not spec tests. snake_case is appropriate for standalone programs.
 
+**Post-implementation review (2026-04-13), iteration 11 (real iter 8, after fixing cross-session contamination):**
+- [x] `[TPR-08-001-codex][medium]` `compiler/oric/src/commands/build/mod.rs:66` — Early Clang check uses ad-hoc `!= "0"` instead of canonical SanitizerMode parser.
+  Resolved: Fixed on 2026-04-13. Both build_file() and run_file_compiled() now use SanitizerMode::from_env_value() for the early check.
+- [x] `[TPR-08-002-codex][medium]` `compiler/ori_llvm/src/aot/passes/sanitizer.rs:80` — Thread target CPU/features through Clang.
+  Resolved: Not needed. Clang infers CPU defaults from --target; sanitizer passes don't depend on CPU features. Added explanatory comment.
+- [x] `[TPR-08-003-codex][high]` `scripts/sanitizer-full.sh:117` — 90% compile gate is wrong (most spec files won't compile via ori build).
+  Resolved: Fixed on 2026-04-13. Removed the gate entirely — compile failures are informational, not a regression signal.
+- [x] `[TPR-08-001-gemini][high]` `compiler/ori_llvm/src/aot/passes/sanitizer.rs:149` — IR temp file collision when output_path has .ll extension.
+  Resolved: Fixed on 2026-04-13. Changed temp suffix to `.sanitizer-tmp.ll` to avoid collision.
+- [x] `[TPR-08-002-gemini][medium]` `compiler/oric/src/commands/build/single.rs:194` — Hardcoded .o extension overrides user's -o flag.
+  Resolved: Fixed on 2026-04-13. Preserves user-specified extension if present, falls back to .o only when no extension.
+
 ---
 
 ## 08.N Completion Checklist

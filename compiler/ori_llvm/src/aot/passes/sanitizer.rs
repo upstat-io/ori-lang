@@ -98,6 +98,10 @@ pub fn clang_compile_with_sanitizers(
         .arg(format!("-fsanitize={fsanitize_value}"))
         .arg(format!("--target={target_triple}"))
         .arg(opt_level);
+    // Note: CPU/feature flags (-mcpu, -mattr) are not threaded through because
+    // the TargetMachine's CPU info is not exposed through ObjectEmitter. Clang
+    // infers appropriate defaults from --target, which is correct for sanitizer
+    // instrumentation (the sanitizer passes don't depend on CPU features).
 
     tracing::debug!(
         ?ir_path,
@@ -151,7 +155,8 @@ pub fn clang_sanitize_object(
     opt_level: &str,
     target_triple: &str,
 ) -> Result<(), crate::aot::object::ModulePipelineError> {
-    let ir_path = output_path.with_extension("ll");
+    // Use a distinct suffix to avoid collision when output_path is already .ll
+    let ir_path = output_path.with_extension("sanitizer-tmp.ll");
 
     emitter
         .emit_llvm_ir(module, &ir_path)
