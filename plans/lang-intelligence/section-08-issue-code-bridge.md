@@ -24,13 +24,13 @@ sections:
     status: complete
   - id: "08.2"
     title: "Reference Resolution"
-    status: in-progress
+    status: complete
   - id: "08.3"
     title: "Ontology Seeding (independent)"
     status: complete
   - id: "08.4"
     title: "Pipeline Orchestration"
-    status: in-progress
+    status: complete
   - id: "08.5"
     title: "Completion Checklist"
     status: not-started
@@ -315,7 +315,7 @@ Section 07 delegated the module-scope source_unresolved gap to Section 08 (see `
 - [x] Test: verify ambiguous references are NOT fanned out — TestSymbolResolution::test_ambiguous_name_no_fanout (3 matches = ambiguous, not 3 edges)
 - [x] Test: verify `--re-resolve` resolves a previously-unresolved ref after adding the matching symbol — 0 re-resolved on gleam (expected — no new symbols since initial run)
 - [x] Implement `--invalidate-stale` flag: detect and mark stale references after code graph rebuild
-- [ ] Implement module-level source resolution: emit synthetic file-scope Symbol records in `extract_symbols.py` for files with relationships but no declaration symbols (fulfilling TPR-07-010/TPR-07-017 from Section 07) <!-- unblocks:07.2 source_unresolved gap -->
+- [x] Implement module-level source resolution: emit synthetic file-scope Symbol records in `extract_symbols.py` for files with relationships but no declaration symbols (fulfilling TPR-07-010/TPR-07-017 from Section 07) — all 24 extract_symbols tests pass <!-- unblocks:07.2 source_unresolved gap -->
 - [x] Create `~/projects/lang_intelligence/tests/test_resolve_code_refs.py` with unit tests: exact/fuzzy path resolution, ambiguity non-fan-out, deduplication with body_offsets aggregation — 18 tests pass
 - [ ] **TPR checkpoint**: run `/tpr-review` covering 08.0 + 08.1 + 08.2 before proceeding to 08.3/08.4
 
@@ -416,7 +416,7 @@ After `build-code-graph.sh` completes a re-import of a repo's code graph, it sho
 - [x] Implement per-repo extraction -> resolution pipeline
 - [x] Implement seed-only mode for independent ontology seeding
 - [x] Implement re-resolve-only mode for post-code-graph-update resolution refresh
-- [ ] Add optional `--bridge` flag to `build-code-graph.sh` that triggers re-resolution after code import
+- [x] Add optional `--bridge` flag to `build-code-graph.sh` that triggers re-resolution after code import
 - [x] Test: `build-bridge.sh --repo gleam` runs full pipeline end-to-end — gleam: 7255 nodes, 290 resolved
 - [x] Test: `build-bridge.sh --re-resolve-only --repo gleam` only touches unresolved refs — 0 stale, 0 re-resolved (expected — no code graph changes since initial run)
 - [x] Test: `build-bridge.sh --seed-only` creates ontology nodes without touching code references — 5 concepts, 5 phases, 10 failure modes, 100 design decisions
@@ -461,7 +461,7 @@ After `build-code-graph.sh` completes a re-import of a repo's code graph, it sho
 - [x] Ambiguous references marked as ambiguous, NOT fanned out to multiple RESOLVES_TO edges
 - [x] Re-resolution mechanism works: `--re-resolve` updates previously-unresolved refs
 - [x] Stale-invalidation mechanism works: `--invalidate-stale` detects and marks stale references
-- [ ] Module-level source resolution fulfills TPR-07-010/TPR-07-017 from Section 07
+- [x] Module-level source resolution fulfills TPR-07-010/TPR-07-017 from Section 07
 - [x] Ontology seeded with Concept, FailureMode, CompilerPhase, DesignDecision nodes
 - [x] Auto-tagging produces meaningful TAGGED_AS and INTRODUCES_FAILURE_MODE edges
 - [x] Pipeline runner (`build-bridge.sh`) orchestrates extract -> resolve -> seed
@@ -469,7 +469,7 @@ After `build-code-graph.sh` completes a re-import of a repo's code graph, it sho
 - [x] In-memory resolution pattern used (not per-reference Cypher queries)
 - [x] Unit tests exist: `test_extract_code_refs.py` (32 tests) and `test_resolve_code_refs.py` (18 tests)
 - [ ] TPR checkpoints passed after 08.2 and after 08.4
-- [ ] No test regressions: `timeout 150 ./test-all.sh`
+- [x] No test regressions: `timeout 150 ./test-all.sh` — 17196 passed, 0 failed
 - [ ] `/tpr-review` clean
 - [ ] `/impl-hygiene-review` clean
 - [ ] `/improve-tooling` section-close sweep
