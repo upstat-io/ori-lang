@@ -13,6 +13,11 @@ fn pin_arg_counts() {
 
 /// Guard: adding a new `ProtocolBuiltin` variant without updating these
 /// tests causes `ALL.len()` to change, failing this assertion.
+///
+/// This is defense-in-depth: `arg_ownership()`, `name()`, `is_intercepted()`,
+/// and `arg_count()` all use exhaustive match (no `_` catch-all), so Rust's
+/// compiler enforces coverage at compile time. This test-time guard catches
+/// the case where match arms are updated but `ALL` or test assertions are not.
 #[test]
 fn all_variants_covered() {
     assert_eq!(ProtocolBuiltin::ALL.len(), 5);

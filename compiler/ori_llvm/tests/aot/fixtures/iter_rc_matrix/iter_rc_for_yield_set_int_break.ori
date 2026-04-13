@@ -1,0 +1,10 @@
+@main () -> int = {
+    let s = [10, 20, 30].iter().collect();
+    let partial = for x in s yield {
+        if x == 30 then break;
+        x
+    };
+    let sum = 0;
+    for x in partial do sum = sum + x;
+    if sum == 30 then 0 else 1
+}

@@ -180,3 +180,127 @@ fn check_next_fails_when_not_adjacent() {
     let result = run_checks(ir, &directives, CheckMode::Exact);
     assert!(!result.passed);
 }
+
+// CHECK-NOT bounded scoping tests
+
+#[test]
+fn exact_check_not_bounded_by_next_positive() {
+    // CHECK-NOT should only check between current position and next CHECK match.
+    // "bad_pattern" appears AFTER "line B", so CHECK-NOT between A and B should pass.
+    let ir = "line A\nline B\nbad_pattern here\n";
+    let directives = vec![
+        dl(
+            1,
+            Directive::Check {
+                pattern: "line A".into(),
+            },
+        ),
+        dl(
+            2,
+            Directive::CheckNot {
+                pattern: "bad_pattern".into(),
+            },
+        ),
+        dl(
+            3,
+            Directive::Check {
+                pattern: "line B".into(),
+            },
+        ),
+    ];
+    let result = run_checks(ir, &directives, CheckMode::Exact);
+    assert!(
+        result.passed,
+        "CHECK-NOT should be bounded by next positive directive: {:?}",
+        result.failures
+    );
+}
+
+#[test]
+fn exact_check_not_fails_within_bounded_region() {
+    // "bad_pattern" appears between A and B — CHECK-NOT should catch it.
+    let ir = "line A\nbad_pattern here\nline B\n";
+    let directives = vec![
+        dl(
+            1,
+            Directive::Check {
+                pattern: "line A".into(),
+            },
+        ),
+        dl(
+            2,
+            Directive::CheckNot {
+                pattern: "bad_pattern".into(),
+            },
+        ),
+        dl(
+            3,
+            Directive::Check {
+                pattern: "line B".into(),
+            },
+        ),
+    ];
+    let result = run_checks(ir, &directives, CheckMode::Exact);
+    assert!(
+        !result.passed,
+        "CHECK-NOT should fail when pattern is within bounded region"
+    );
+}
+
+#[test]
+fn exact_check_not_extends_to_eof_without_following_positive() {
+    // No positive directive after CHECK-NOT — scans to EOF.
+    let ir = "line A\nbad_pattern here\n";
+    let directives = vec![
+        dl(
+            1,
+            Directive::Check {
+                pattern: "line A".into(),
+            },
+        ),
+        dl(
+            2,
+            Directive::CheckNot {
+                pattern: "bad_pattern".into(),
+            },
+        ),
+    ];
+    let result = run_checks(ir, &directives, CheckMode::Exact);
+    assert!(
+        !result.passed,
+        "CHECK-NOT should extend to EOF when no following positive directive"
+    );
+}
+
+#[test]
+fn exact_check_not_ignores_patterns_in_later_functions() {
+    // Simulates function-scoped behavior: CHECK-NOT between CHECK-LABEL
+    // and next CHECK should not see patterns from a later function.
+    let ir = "define @foo {\n  ret void\n}\ndefine @bar {\n  call @ori_rc_inc\n}\n";
+    let directives = vec![
+        dl(
+            1,
+            Directive::CheckLabel {
+                pattern: "define @foo".into(),
+            },
+        ),
+        dl(
+            2,
+            Directive::CheckNot {
+                pattern: "ori_rc_inc".into(),
+            },
+        ),
+        dl(
+            3,
+            Directive::Check {
+                pattern: "ret void".into(),
+            },
+        ),
+    ];
+    let result = run_checks(ir, &directives, CheckMode::Exact);
+    assert!(
+        result.passed,
+        "CHECK-NOT should not see patterns past the next positive directive: {:?}",
+        result.failures
+    );
+}

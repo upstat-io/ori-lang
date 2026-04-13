@@ -60,7 +60,7 @@ MIR-opt pattern, EMIT_MIR, Rust compiletest
 ---
 
 ### Section 04: AIMS Lattice Property Verification
-**File:** `section-04-lattice-properties.md` | **Status:** Not Started (RESET 2026-04-11 — autopilot work untrusted)
+**File:** `section-04-lattice-properties.md` | **Status:** Complete
 
 ```
 proptest, property-based testing, lattice axioms
@@ -76,7 +76,7 @@ dimensions.rs, lattice/mod.rs, transfer/mod.rs
 ---
 
 ### Section 05: Contract Coherence Oracle
-**File:** `section-05-contract-oracle.md` | **Status:** Not Started (RESET 2026-04-11 — autopilot work untrusted)
+**File:** `section-05-contract-oracle.md` | **Status:** Not Started
 
 ```
 MemoryContract, ParamContract, contract coherence
@@ -91,7 +91,7 @@ contract vs realization, non-negotiable invariant
 ---
 
 ### Section 06: Protocol Builtin Verification Matrix
-**File:** `section-06-protocol-builtins.md` | **Status:** Not Started (RESET 2026-04-11 — autopilot work untrusted)
+**File:** `section-06-protocol-builtins.md` | **Status:** In Progress
 
 ```
 ProtocolBuiltin, __index, iter, __iter_next

@@ -1,0 +1,14 @@
+// FileCheck test: struct with heap-allocated fields triggers RC cleanup.
+// A struct containing a list field requires buffer RC cleanup (ori_buffer_rc_dec)
+// when the struct goes out of scope.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_buffer_rc_dec
+
+type Wrapper = { inner: [int] }
+
+@main () -> void = {
+    let w = Wrapper { inner: [1, 2, 3] };
+    let w2 = w;
+    print(msg: w2.inner.len().to_str())
+}

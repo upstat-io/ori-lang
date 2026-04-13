@@ -1,7 +1,7 @@
 ---
 section: "09"
 title: "Final Verification"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Prove end-to-end that the reorganization is correct: all 14 mission success criteria from `00-overview.md` are satisfied, `./test-all.sh` + `./full-check.sh` + `lefthook run pre-commit` + `cargo check/clippy/build/test` + `./scripts/sync-version.sh --check` all green, CI dry-run green, zero stale references survive via a global grep, and dual-source `/tpr-review` + `/impl-hygiene-review` come back clean."
 success_criteria:
@@ -55,7 +55,7 @@ sections:
     status: not-started
   - id: "09.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "09.N"
     title: "Completion Checklist"
     status: not-started

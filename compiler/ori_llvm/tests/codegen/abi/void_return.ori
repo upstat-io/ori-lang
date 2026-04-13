@@ -1,0 +1,6 @@
+// FileCheck test: void return convention.
+// Functions returning void use `define void`.
+//
+// CHECK-LABEL: define void @_ori_main
+
+@main () -> void = print(msg: "hello");

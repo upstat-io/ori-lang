@@ -1,0 +1,6 @@
+@main () -> int = {
+    let s = [10, 20, 30].iter().collect();
+    let sum = 0;
+    for x in s do sum = sum + x;
+    if sum == 60 then 0 else 1
+}

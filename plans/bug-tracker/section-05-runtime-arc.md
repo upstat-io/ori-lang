@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Runtime & ARC"
-status: complete
+status: in-progress
 goal: "Track and resolve all known runtime and memory management bugs"
 sections: []
 ---
@@ -20,6 +20,21 @@ Bugs in the runtime library: reference counting, COW operations, slice handling,
   Resolved: Fixed on 2026-04-02. Root cause: `update_element_summaries` only tracked `Construct(ListLiteral)` and `CollectionReuse`, missing `Apply` and `Invoke` calls returning `[int]`. Fix: (1) `update_element_summaries` now widens element range to `Top` for any `Apply`/`ApplyIndirect` returning a collection with int elements, (2) new `update_element_summaries_from_terminator` handles `Invoke` terminators (the actual path for `push` — it can panic, so it's an Invoke). Both the fixpoint loop and the post-narrowing recompute pass now check terminators. Tests: 6 Rust unit tests (Apply/ApplyIndirect/Invoke widening, literal+Apply combined, negative pin for non-collection Apply) + 3 AOT regression tests (push corruption guard, push large values, literal-only still narrows). All 3 originally-failing COW valgrind tests now exit 0.
   Subsystem: `compiler/ori_repr/src/range/field_summary.rs`, `compiler/ori_repr/src/range/fixpoint/mod.rs`, `compiler/ori_repr/src/range/fixpoint/narrowing.rs`
   Found: 2026-03-30 | Root-caused: 2026-04-02 | Fixed: 2026-04-02 | Source: continue-roadmap + OBE investigation
+
+- [ ] `[BUG-05-002][high]` **`ori_iter_join` leaks heap-backed OriStr temporaries from `to_str` trampoline** — found by tpr-review.
+  Repro: `[-2.2250738585072014e-308].iter().join(separator: ", ")` under `ORI_CHECK_LEAKS=1` reports 1 RC allocation not freed.
+  Root cause: OriStr is `Copy` (no `Drop`). When the trampoline produces a heap-backed string (>23 bytes SSO), the temporary is read via `ptr::read_unaligned`, borrowed for `push_str`, then goes out of scope without freeing the heap allocation.
+  Fix: Call `ori_str_rc_dec` on the temporary OriStr after `push_str` in the trampoline path (`consumers.rs:553-557`).
+  Subsystem: `compiler/ori_rt/src/iterator/consumers.rs`
+  Found: 2026-04-12 | Source: tpr-review | Reviewer: codex
+  Note: Exposed by BUG-04-039 fix (to_str trampoline). Fixed 2026-04-12 (commit 2296d3f2).
+
+- [ ] `[BUG-05-003][high]` **`ori_iter_join` direct string path leaks owned string elements from adapters (map, filter)** — found by tpr-review.
+  Repro: `["aaa..."].iter().map(s -> s + "x").join(separator: ",")` under valgrind shows 168 bytes lost.
+  Root cause: The `else` branch in `ori_iter_join` reads string elements via `ptr::read_unaligned` and borrows for `push_str`, but never frees owned strings yielded by adapters like `map`. Adding an unconditional drop would double-free borrowed elements from `[str].iter()`. The iterator C protocol lacks a mechanism to pass element ownership state to consumers.
+  Subsystem: `compiler/ori_rt/src/iterator/consumers.rs`
+  Found: 2026-04-12 | Source: tpr-review | Reviewer: gemini
+  Escalated: requires plan — iterator protocol redesign across ori_rt + ori_llvm + ori_arc. The C API passes raw bytes with no ownership metadata; consumers cannot distinguish borrowed vs owned elements. See `plans/iterator-element-ownership/`.
 
 ---
 

@@ -1,0 +1,12 @@
+// FileCheck test: shared list value produces buffer RC cleanup ops.
+// When a list is assigned and then consumed, the buffer must be cleaned up
+// via ori_buffer_rc_dec.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_buffer_rc_dec
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    let ys = xs;
+    print(msg: ys.len().to_str())
+}

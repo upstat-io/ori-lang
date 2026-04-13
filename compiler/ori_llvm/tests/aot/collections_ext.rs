@@ -708,3 +708,23 @@ fn test_coll_map_index() {
         "coll_map_index",
     );
 }
+
+/// Map indexing with reversed types {int: str} — exercises value-type RC on index result.
+/// Heap-allocated str values must be correctly RC'd through the __index protocol.
+#[test]
+fn test_coll_map_index_int_str() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_map_index_int_str.ori"),
+        "coll_map_index_int_str",
+    );
+}
+
+/// Map indexing inside a for-loop — exercises __index + Iter/IterNext interaction.
+/// Each iteration indexes the map, producing an Option<int> that must be RC-balanced.
+#[test]
+fn test_coll_map_index_in_loop() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_map_index_in_loop.ori"),
+        "coll_map_index_in_loop",
+    );
+}
