@@ -1,7 +1,7 @@
 ---
 section: "09"
 title: "Ori Live Sync"
-status: complete
+status: in-progress
 reviewed: true
 goal: "Keep Ori's code graph in Neo4j continuously updated via a lefthook post-commit hook that triggers a background sync script in lang_intelligence/, using Ori's own built binary for parsing and the existing upsert_file_symbols() API for atomic Neo4j updates."
 success_criteria:
@@ -21,25 +21,25 @@ sections:
     status: complete
   - id: "09.1"
     title: "Lefthook Post-Commit Hook"
-    status: complete
+    status: in-progress
   - id: "09.2"
     title: "Sync Script & Error Handling"
-    status: complete
+    status: in-progress
   - id: "09.3"
     title: "Ori Symbol Extraction Adapter"
-    status: complete
+    status: in-progress
   - id: "09.4"
     title: "Health Monitoring & Diagnostics"
-    status: complete
+    status: in-progress
   - id: "09.5"
     title: "Tests"
-    status: complete
+    status: in-progress
   - id: "09.R"
     title: "Third Party Review Findings"
     status: not-started
   - id: "09.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 third_party_review:
   status: none
   updated: null
@@ -62,7 +62,7 @@ Ori is the one repo where the code graph must stay current during active develop
 **success_criteria:**
 - [x] Ori `:Repo` node exists in Neo4j with `name: "ori"`
 - [x] `import_code_graph.py ori <jsonl>` succeeds (Repo check passes)
-- [ ] `ori_adapter.py` extracts `.ori` files and standard tree-sitter pipeline extracts `.rs` files — combined JSONL imports via `import_code_graph.py ori`
+- [x] `ori_adapter.py` extracts `.ori` files and standard tree-sitter pipeline extracts `.rs` files — combined JSONL imports via `import_code_graph.py ori`
 
 - [x] Create Ori `:Repo` node via a bootstrap Cypher in `sync-ori-graph.sh --bootstrap`:
   ```cypher
@@ -75,11 +75,11 @@ Ori is the one repo where the code graph must stay current during active develop
 - [x] Verify `import_code_graph.py` accepts the bootstrapped Repo node
 - [x] Verify `logs/` directory is created by the sync script if it does not exist (`mkdir -p`)
 
-- [ ] **Subsection close-out (09.0)** — MANDATORY before starting 09.1:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — Does the bootstrap Cypher need to be run manually, or should `sync-ori-graph.sh` auto-bootstrap on first run? Should `build-code-graph.sh` be updated to handle custom repos alongside issue-graph repos?
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files
+- [x] **Subsection close-out (09.0)** — MANDATORY before starting 09.1:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified — Ori Repo node exists, bootstrap idempotent, logs/ created
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 09.0: `sync-ori-graph.sh` already auto-bootstraps on every run (idempotent MERGE). `build-code-graph.sh` handles custom repos via `--repo ori` flag. No tooling gaps — bootstrap infrastructure is solid.
+  - [x] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`: clean
 
 ---
 
