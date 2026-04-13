@@ -494,9 +494,42 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Reviewer: gemini
   Note: Blocks RL-15a caller-stack allocation optimization. When added, update `CHAIN_HEIGHT`, all proptest strategies in `prop_tests.rs`, and CN-8/DP-8 implementations.
 
-- [ ] `[BUG-04-064][high]` **DP-5 `can_mutate_in_place` does not check overlapping borrows**
-  Repro: `compiler/ori_arc/src/aims/transfer/mod.rs:433` — implementation checks `Owned + Unique` only, omitting `no_active_overlapping_borrows(s)` mandated by spec DP-5. Could permit in-place mutations that corrupt active borrowed projections.
-  Subsystem: `compiler/ori_arc/src/aims/transfer/mod.rs`
+- [ ] `[BUG-04-064][high]` **DP-5 `can_mutate_in_place` does not check overlapping borrows or project_alias_sources**
+  Repro: `compiler/ori_arc/src/aims/transfer/mod.rs:433` — implementation checks `Owned + Unique` only, omitting `no_active_overlapping_borrows(s, var, field, point)` mandated by spec DP-5. Also: `emit_rc/cow.rs:23-52` and `realize/decide.rs:381-438` only inspect direct sibling borrows, never consult `project_alias_sources`, and do not intersect with point liveness. Could permit in-place mutations that corrupt active borrowed projections or aliases.
+  Subsystem: `compiler/ori_arc/src/aims/transfer/mod.rs`, `compiler/ori_arc/src/aims/emit_rc/cow.rs`, `compiler/ori_arc/src/aims/realize/decide.rs`
   Found: 2026-04-12 | Source: tpr-review
-  Reviewer: gemini
-  Note: Must intersect `borrow_sources` side table with live-variable set at mutation point per spec §1.9 + DP-5.
+  Reviewers: codex + gemini (both independently flagged)
+  Note: Must check BOTH `borrow_sources` AND `project_alias_sources` (including transitive closure for nested Projects) intersected with live-variable set at mutation point per spec §1.9 + DP-5.
+
+- [ ] `[BUG-04-065][medium]` **TF-6 `refine()` not implemented — call results always get CONSERVATIVE state**
+  Repro: `compiler/ori_arc/src/aims/transfer/mod.rs:75-80` routes `Apply` to `transfer_apply_conservative()`. `transfer/mod.rs:234-238` routes `Invoke` the same way. `intraprocedural/block.rs:439-480` refines argument DEMAND (parameter contracts), NOT the destination state. No inspected path reads `return_info.locality` or `return_info.shape` to refine call results per TF-6.
+  Subsystem: `compiler/ori_arc/src/aims/transfer/mod.rs`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 6)
+  Reviewer: codex
+  Note: Spec defines `refine(CONSERVATIVE, callee.return_contract)` narrowing uniqueness, locality, shape. Code leaves all call results at CONSERVATIVE. Blocks downstream precision for COW, reuse, stack promotion.
+
+- [ ] `[BUG-04-066][medium]` **Return provenance extractor only extracts uniqueness+freshness — locality and shape always CONSERVATIVE**
+  Repro: `compiler/ori_arc/src/aims/interprocedural/extract.rs:353-401` joins `(uniqueness, preserves_freshness)` then fills remaining with `..ReturnContract::CONSERVATIVE`. `extract.rs:407-483` returns `(Uniqueness, bool)` only. Contract type has `locality` and `shape` fields (`contract/mod.rs:260-296`) but extractor never computes them. Also: `build_invoke_def_map` (`extract.rs:506-514`) only records direct `Invoke`, not `InvokeIndirect`.
+  Subsystem: `compiler/ori_arc/src/aims/interprocedural/extract.rs`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 6)
+  Reviewer: codex
+  Note: Spec §1.9 Return Provenance defines exhaustive per-instruction classification along all 4 dimensions. Blocks RL-29 noalias, stack promotion based on return locality, and shape-based reuse of call results.
+
+- [ ] `[BUG-04-067][medium]` **RL-29 noalias not applied to user-function returns**
+  Repro: LLVM codegen only adds `noalias` to sret parameters (`function_compiler/mod.rs:236-243`). `NoaliasReturn` hook in `runtime_decl/mod.rs:64-70` is used for runtime functions (e.g., `ori_rc_alloc`), not user functions. No inspected path reads `MemoryContract.return_info.uniqueness` to influence user-function LLVM return attributes.
+  Subsystem: `compiler/ori_llvm/src/codegen/function_compiler/`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 6)
+  Reviewer: codex
+  Note: Spec RL-29 says fresh allocation returns with `ReturnContract.uniqueness = Unique` SHALL be marked `noalias`. Depends on BUG-04-066 (extractor must compute uniqueness accurately first).
+
+- [ ] `[BUG-04-068][medium]` **`may_escape` field still exists on `ParamContract` — spec says removed, derived from Locality**
+  Repro: Spec IC-2/IC-3 state that `may_escape` was removed from `ParamContract` — escape classification is derived from `locality > FunctionLocal`. Code still has `may_escape` as a field on `ParamContract` in `compiler/ori_arc/src/aims/contract/mod.rs`.
+  Subsystem: `compiler/ori_arc/src/aims/contract/mod.rs`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 4 — unfiled drift)
+  Note: SSOT violation — Locality dimension is the canonical source for escape classification per spec. Dual representation risks drift.
+
+- [ ] `[BUG-04-069][medium]` **`tighten_uniqueness_from_callers()` still runs — spec says IC-8 removed as unsound**
+  Repro: Spec IC-8 is explicitly marked `~~REMOVED (unsound — same root cause as DP-10)~~`. Code still contains and runs `tighten_uniqueness_from_callers()` in the interprocedural pass. This function derives parameter uniqueness from caller consumption patterns, which is unsound per spec rationale.
+  Subsystem: `compiler/ori_arc/src/aims/interprocedural/`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 4 — unfiled drift)
+  Note: Unsound by spec analysis — a caller with `MaybeShared` argument used linearly still has RC > 1 from upstream aliases. Parameter uniqueness should be established only by SCC fixpoint (IC-2/IC-3).
