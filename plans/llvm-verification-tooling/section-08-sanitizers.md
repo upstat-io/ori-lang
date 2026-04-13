@@ -1020,6 +1020,14 @@ When all findings are triaged:
 - [x] `[TPR-08-002-gemini][medium]` `compiler/oric/src/commands/build/single.rs:194` — Hardcoded .o extension overrides user's -o flag.
   Resolved: Fixed on 2026-04-13. Preserves user-specified extension if present, falls back to .o only when no extension.
 
+**Close-out TPR (2026-04-13), iteration 13 (re-review after iter 12 fixes):**
+- [x] `[TPR-08-001-codex][high]` `compiler/oric/src/commands/run/mod.rs:312` — `run_file_compiled` doesn't populate `sanitizer_env` in its `BuildOptions`, silently dropping sanitizers in compiled-run path.
+  Resolved: Fixed on 2026-04-13. Passed `sanitizer_env` from `run_file_compiled` through `compile_and_cache` to the `BuildOptions` construction. Regression introduced by iter 12's SSOT refactor.
+- [x] `[TPR-08-001-gemini][high]` `compiler/oric/src/commands/run/mod.rs:312` — Same regression as codex (independent verification via `ORI_LOG` showing no clang invocations).
+  Resolved: Fixed on 2026-04-13. Same fix as [TPR-08-001-codex] (agreement on location/root cause).
+- [x] `[TPR-08-002-gemini][low]` `compiler/oric/src/commands/build_options/mod.rs:408` — Hardcoded `"ORI_SANITIZE"` string instead of `crate::debug_flags::ORI_SANITIZE` constant (LEAK:scattered-knowledge).
+  Resolved: Fixed on 2026-04-13. Replaced with canonical `crate::debug_flags::ORI_SANITIZE`.
+
 **Close-out TPR (2026-04-13), iteration 12 (final full-section review):**
 - [x] `[TPR-08-001-codex][high]` `scripts/sanitizer-full.sh:56` — Plan claims full-suite harness coverage but script walks files manually; "future work" lacked concrete artifact.
   Resolved: Fixed on 2026-04-13. Corrected plan text and exit criteria to accurately describe @main-subset coverage. Added cross-reference to §11.12 as the concrete implementation anchor for harness-backed sanitizer runs.

@@ -215,7 +215,14 @@ pub fn run_file_compiled(path: &str) {
     // Cache miss - need to compile
     eprintln!("  Compiling {path} (first run)...");
 
-    compile_and_cache(path, content, &cache_dir, &binary_name, &binary_path);
+    compile_and_cache(
+        path,
+        content,
+        &cache_dir,
+        &binary_name,
+        &binary_path,
+        sanitizer_env.as_deref(),
+    );
 
     let compile_time = start.elapsed();
     eprintln!("  Compiled in {:.2}s", compile_time.as_secs_f64());
@@ -246,6 +253,7 @@ fn compile_and_cache(
     cache_dir: &std::path::Path,
     binary_name: &str,
     binary_path: &std::path::Path,
+    sanitizer_env: Option<&str>,
 ) {
     use ori_llvm::aot::{
         LinkInput, LinkOutput, LinkerDriver, ObjectEmitter, OutputFormat, RuntimeConfig,
@@ -311,6 +319,7 @@ fn compile_and_cache(
     // Uses O2 for compiled-run since performance matters more than debug cycle time.
     let run_options = crate::commands::build::BuildOptions {
         opt_level: crate::commands::build::OptLevel::O2,
+        sanitizer_env: sanitizer_env.map(str::to_owned),
         ..Default::default()
     };
     let opt_config = crate::commands::build::build_optimization_config(&run_options);
