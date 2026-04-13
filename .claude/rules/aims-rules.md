@@ -354,7 +354,7 @@ Dimensions NOT narrowed by `refine`: Access (stays `Owned` — call results are 
 
 Each operand of each instruction generates a `(variable, cardinality)` demand. This list SHALL be exhaustive — every `ArcInstr` and `ArcTerminator` variant appears below.
 
-**TF-11** — Standard `(operand, cardinality=Once, consumption=Linear)` demand per argument. The `consumption=Linear` is load-bearing: without it, CN-1 would erase the demand (Dead+Once → Dead+Absent). Applies to:
+**TF-11** — Standard `(operand, cardinality=Once, consumption=Linear)` demand per argument. The `consumption=Linear` is load-bearing: without it, CN-1 would erase the demand. **Accumulation**: when a variable receives demands from MULTIPLE instructions (e.g., used as argument twice, or used directly AND through an alias), demands are ADDITIVELY combined for cardinality: `Once + Once = Many` (sequential resource counting, not lattice max). Consumption follows: `Linear + Linear = Affine`. This is `seq_add`, not lattice join — critical for correct use-counting. IA-5 step (1) alias transfers also use `seq_add` for cardinality: if %4 = Let Var(%3) and %4 has Once cardinality, %3's existing demand is ADDED to (not joined with) the transferred Once. Applies to:
 
 | Instruction | Demands |
 |-------------|---------|
@@ -431,7 +431,7 @@ Note: DP-5 is NOT a pure function of `AimsState` alone — it additionally consu
 **DP-6** — `is_reuse_candidate(s) ⟺ s.access = Owned ∧ s.uniqueness ≠ Shared ∧ s.shape ≠ NonReusable`.
 Reuse requires owned, non-shared, reusable shape.
 
-**DP-7** — `is_rc_skip_eligible(s) ⟺ s.is_local() ∧ s.access = Owned ∧ s.consumption = Linear ∧ s.cardinality = Once ∧ s.uniqueness = Unique ∧ ¬s.is_scalar()`.
+**DP-7** — `is_rc_skip_eligible(s) ⟺ s.locality ≤ FunctionLocal ∧ s.access = Owned ∧ s.consumption = Linear ∧ s.cardinality = Once ∧ s.uniqueness = Unique ∧ ¬s.is_scalar()`. **Scope**: evaluated on the CALLEE's parameter state (not the caller's argument). The callee's parameter may be `FunctionLocal` even though the caller's argument was promoted to `ArgEscaping` by TF-11 — the parameter contract (IC-2/IC-3) reflects how the callee USES the parameter. If the callee uses a parameter locally (FunctionLocal + Linear + Once + Unique), the caller's ABI inc and callee's dec cancel. The ArgEscaping floor in TF-11 applies to the CALLER's argument state, not the callee's parameter contract.
 Scope: **parameter inc/dec pair elision only.** For Owned parameters where the caller increments and the callee decrements, if the parameter is local+linear+unique, the inc/dec pair cancels — skip both. This does NOT apply to the final dec that triggers the free for fresh allocations; that dec is always needed for heap-allocated values (only stack-promoted values via RL-14 skip it). The `Uniqueness = Unique` requirement is load-bearing: a Shared value's +1 inc from the caller is never balanced → leak.
 
 **DP-8** — `is_local(s) ⟺ s.locality ∈ {BlockLocal, FunctionLocal}`.
@@ -495,7 +495,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 - **`Let { Var(v) }` (transparent alias)**: the destination's FULL accumulated demand (cardinality, consumption, locality, all dimensions from downstream uses) transfers to the source via join. E.g., if `%4 = Let Var(%3)` and `%4` has `Many` cardinality from 3 uses, then `%3` inherits `Many`. This is the backward interpretation of TF-2: `dst := state(src)` means `src` should absorb `dst`'s demand.
 - **`Project` (borrow — NOT a transparent alias)**: the destination's CARDINALITY and LOCALITY transfer to the source, and ACCESS is promoted to Owned if the destination escapes. Specifically: `src.cardinality := max(src.cardinality, dst.cardinality)` (keeps the source alive as long as the borrow is alive), `src.locality := max(src.locality, dst.locality)` (via TF-14 — prevents premature stack promotion), and if `dst.locality > FunctionLocal`: `src.access := Owned` (prevents CN-8 from clamping a Borrowed source's locality, which would destroy the escape signal). Consumption is NOT transferred because the Project instruction accesses the source Once regardless of how the projected field is used downstream. The standard TF-11 demand `(value, cardinality=Once, consumption=Linear)` additionally records the Project's direct operand use.
 - **`Select` (conditional alias)**: the destination's full accumulated demand transfers to BOTH `true_val` and `false_val` via join — because at runtime, one of them IS the destination. E.g., if `%5 = Select(cond, %3, %4)` and `%5` has `Many` cardinality, both `%3` and `%4` receive `Many`. This is the backward interpretation of TF-8: `dst := state(true_val) ⊔ state(false_val)` means both operands should absorb `dst`'s demand. `cond` receives only the TF-11 demand `(cond, Once)` (it's a boolean control input, not an alias).
-- **`Construct`, `Reuse`, `CollectionReuse` (aggregate builders)**: the destination's LOCALITY transfers to all arguments: `arg.locality := max(arg.locality, dst.locality)`. Additionally, if `dst.locality > FunctionLocal`, arguments SHALL be promoted to `access := Owned` (same rationale as TF-13 for closures: a Borrowed value stored into an escaping aggregate would have its locality clipped by CN-8, creating a dangling reference). This prevents the "dangling stack-to-heap pointer" problem. Arguments also receive their standard TF-11 `(arg, Once)` demand from step (2). Cardinality is NOT transferred — the Construct uses each argument once regardless of how many times the result is used.
+- **`Construct`, `Reuse`, `CollectionReuse` (aggregate builders)**: the destination's LOCALITY transfers to all arguments: `arg.locality := max(arg.locality, dst.locality)`. Additionally, if `dst.locality >= HeapEscaping` (matching TF-13's threshold — ArgEscaping aggregates are caller-scoped and don't need Owned promotion), arguments SHALL be promoted to `access := Owned`. This prevents the "dangling stack-to-heap pointer" problem. Arguments also receive their standard TF-11 `(arg, Once)` demand from step (2). Cardinality is NOT transferred — the Construct uses each argument once regardless of how many times the result is used.
 - **`Set { base, value }` (in-place field mutation)**: transfers `base.locality` to `value`: `value.locality := max(value.locality, base.locality)`. If `base.locality > FunctionLocal`, also `value.access := Owned` (prevents CN-8 clamping from destroying the escape signal). This prevents storing a FunctionLocal variable into a HeapEscaping aggregate and then incorrectly stack-allocating it.
 - **Non-aliasing definitions** (`Apply`, `PartialApply`, etc.): step (1) has no backward transfer — the destination's demand does not flow to its arguments. Only step (2) applies. (`PartialApply` uses TF-13 for capture demand, which is separate from step (1).)
 
@@ -521,7 +521,7 @@ Step 2:  apply_ownership()         — Populate ArcParam.ownership from contract
 Step 3:  compute_var_reprs()       — ValueRepr per variable (Scalar/DefiniteRef/PossibleRef)
 Step 3a: normalize_function()      — TRMC context region detection
 Step 4:  analyze_function()        — Backward dataflow → converged AimsStateMap
-Step 4a: verify_trmc_soundness()   — TRMC structural verification (PL-10); rollback to pre-TRMC + re-run Step 4 on failure
+Step 4a: verify_trmc_soundness()   — TRMC structural verification (PL-10); rollback to pre-TRMC + re-run Steps 3-4 on failure (Step 3 recomputes ValueRepr for restored IR per PL-5)
 Step 5:  realize_rc_reuse()        — Phase 1: RC + reuse + arg_ownership (pre-merge)
 Step 5a: verify_fip_contract()     — FIP enforcement
 Step 6:  verify()                  — ARC IR structural sanity
@@ -604,7 +604,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-14** — Non-escaping allocations (`Locality ≤ FunctionLocal ∧ Uniqueness = Unique`) with fixed size SHALL be stack-allocated via `alloca`. No RC header. No RC operations. Stack deallocation at scope exit. The `Uniqueness = Unique` requirement is load-bearing: a `MaybeShared` value that is stack-promoted without a header would crash on `IsShared` (DP-4). **Heap children**: if a headerless stack allocation contains reference-type fields pointing to heap-allocated values, the stack value has no Drop/RC mechanism to release those children. The emission phase SHALL emit explicit `RcDec` for each heap-allocated field at scope exit (these are field-level decs on the stack value's children, not on the stack value itself).
 
-**RL-15** — Non-escaping dynamic-size allocations (`Locality ≤ FunctionLocal`) SHALL use a function-local bump allocator. Bump-allocated objects retain RC headers if `Uniqueness ≠ Unique` (for `IsShared` checks, same rationale as RL-14). Entire region freed at function return.
+**RL-15** — Non-escaping dynamic-size allocations (`Locality ≤ FunctionLocal`) SHALL use a function-local bump allocator. Bump-allocated objects retain RC headers if `Uniqueness ≠ Unique`. **Heap children**: same as RL-14 — headerless bump allocations containing heap-allocated fields require explicit field-level `RcDec` at scope exit. Entire bump region freed at function return.
 
 **RL-15a** — ArgEscaping allocations (`Locality = ArgEscaping`) SHALL be stack-allocated in the CALLER with allocation strategy depending on the callee's parameter contract:
 - **Callee parameter = `Borrowed` AND `Uniqueness = Unique`**: headerless stack allocation (no RC operations emitted by the callee). This is the fast path — caller stack lifetime with zero RC overhead.
@@ -647,7 +647,7 @@ This is the key optimization that bridges "not local" and "not heap" — a value
 
 **RL-25** — A pair is eliminable when: KnownSafe = true OR both forward/backward paths are safe, AND no CFG hazard (path count alignment).
 
-**RL-26** — RC motion SHALL NOT move operations across calls that may observe RC (effect-aware barrier check).
+**RL-26** — RC motion SHALL NOT move operations across calls that may observe RC. "May observe RC" is defined as: the callee has `may_deallocate = true` (dec may trigger free) OR `may_share = true` (may increment RC) OR any parameter is `Owned` (may dec parameter RC). This mirrors the RL-27 barrier conditions.
 
 ### Selective Barriers
 
