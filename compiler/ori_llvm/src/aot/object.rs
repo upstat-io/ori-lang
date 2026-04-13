@@ -422,14 +422,7 @@ impl ObjectEmitter {
             self.emit_llvm_ir(module, &ir_path)
                 .map_err(ModulePipelineError::Emission)?;
 
-            let opt_level = match opt_config.level {
-                super::passes::OptimizationLevel::O0 => "-O0",
-                super::passes::OptimizationLevel::O1 => "-O1",
-                super::passes::OptimizationLevel::O2 => "-O2",
-                super::passes::OptimizationLevel::O3 => "-O3",
-                super::passes::OptimizationLevel::Os => "-Os",
-                super::passes::OptimizationLevel::Oz => "-Oz",
-            };
+            let opt_level = opt_config.level.as_clang_flag();
 
             super::passes::clang_compile_with_sanitizers(
                 &ir_path,

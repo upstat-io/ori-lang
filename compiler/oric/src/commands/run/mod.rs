@@ -144,12 +144,25 @@ pub fn run_file_compiled(path: &str) {
     // Read source file
     let content = read_file(path);
 
-    // Compute content hash for caching
+    // Compute content hash for caching.
+    // Includes env vars that affect codegen so cache hits don't serve stale binaries.
     let content_hash = {
         let mut hasher = DefaultHasher::new();
         content.hash(&mut hasher);
-        // Include compiler version in hash for cache invalidation
         env!("CARGO_PKG_VERSION").hash(&mut hasher);
+        // Include verification/sanitizer env vars — these change the emitted binary
+        std::env::var(crate::debug_flags::ORI_SANITIZE)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        std::env::var(crate::debug_flags::ORI_VERIFY_EACH)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        std::env::var(crate::debug_flags::ORI_LLVM_LINT)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        std::env::var(crate::debug_flags::ORI_AUDIT_CODEGEN)
+            .unwrap_or_default()
+            .hash(&mut hasher);
         hasher.finish()
     };
 
