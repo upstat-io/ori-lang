@@ -24,6 +24,7 @@ This document defines the **laws** of AIMS — the ARC Intelligent Memory System
 - **TF-8 `transfer_select`**: spec defines scalar exclusion (if one operand SCALAR, exclude it; downgrade uniqueness to MaybeShared). Shipped: naive `join` without scalar check. (BUG-04-072 class — filed separately.)
 - **`propagate_project_source_demand`**: spec mandates `seq_add` for cardinality (TF-14). Shipped: uses `join` (lattice max / alt_join). (BUG to file.)
 - **DP-9 `decide_cow()` implementation optimizations**: shipped code returns `StaticUnique` for 3 additional `MaybeShared` subcases (`CollectionBuffer + Once`, `ReusableCtor + Once`, `no_active_borrows`) not in the normative spec rules. These derive past uniqueness from future consumption, contradicting DP-10's removal rationale. Formal soundness proofs pending. The spec's DP-9 rules are normative; implementation divergences are tracked here.
+- **TF-11 backward demand model**: the spec's alias-transfer model (IA-5 step 1 transfers accumulated demand for Let Var, Project, Select; TF-11 suppresses direct demand to avoid double-counting) and the shipped implementation's direct-demand model (`backward_demands()` emits `(v, Once)` for Let Var, Project, Select operands) produce EQUIVALENT final states through different mechanisms. The spec uses the alias-transfer model as the normative formal model because it precisely captures the QTT semiring semantics. The implementation's direct-demand approach is a valid simplification that relies on the worklist's additive accumulation to achieve the same convergence. Neither model is "wrong" — they are dual representations. When verifying spec-vs-code consistency, compare CONVERGED STATES (final `AimsStateMap`), not per-instruction demand mechanisms.
 
 ## Mission — Non-Negotiable
 
@@ -258,7 +259,7 @@ The `ReturnContract` (IC-4) is extracted within the interprocedural pass (Step 1
 | `IsShared` / `Reset` | SCALAR — excluded from contract (no RC) | — | — | — |
 | `Let { Literal }` / `Let { PrimOp }` | SCALAR — excluded from contract (no RC) | — | — | — |
 | `Let { Var(v) }` | follow `v`'s definition (recursive trace) | follow `v` | follow `v` | follow `v` |
-| `Select { true_val, false_val }` | `join(true_path, false_path)` (scalar operands excluded per TF-8; mixed scalar/non-scalar → inherit non-scalar with MaybeShared) | `AND(true_path, false_path)` (scalar arm contributes `false` — scalars have no freshness) | `join(true_path, false_path)` | `join(true_path, false_path)` |
+| `Select { true_val, false_val }` | `join(true_path, false_path)` (scalar operands excluded per TF-8; mixed scalar/non-scalar → inherit non-scalar with MaybeShared) | `AND(non_scalar_paths_only)` (scalar arms are EXCLUDED from the AND — scalars have no freshness concept, and including them as `false` would poison an otherwise-fresh Select return. E.g., `Select(cond, Construct, Literal)` should preserve freshness from the Construct arm.) | `join(true_path, false_path)` | `join(true_path, false_path)` |
 | Parameter (direct or via chain of `Let Var` aliases) | `MaybeShared` | `false` | `HeapEscaping` | `NonReusable` |
 | Unresolvable (longer chains, block-params, etc.) | `MaybeShared` | `false` | `Unknown` | `NonReusable` |
 
@@ -383,11 +384,11 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 
 | Instruction | Demands |
 |-------------|---------|
-| `Let { value = Var(v) }` | `(v, Once)`. **Implementation note**: the shipped `backward_demands()` emits direct `(v, Once)` demand. The IA-5 step (1) alias transfer (described below) additionally propagates the destination's accumulated demand to `v` via `seq_add`. Both mechanisms are active — the direct demand establishes baseline liveness, while the alias transfer propagates multi-use cardinality. |
+| `Let { value = Var(v) }` | NONE — transparent alias. IA-5 step (1) transfers the destination's full accumulated demand to `v` via `seq_add`. No TF-11 demand — adding `(v, Once)` would double-count (a pure rename could inflate Once into Many). |
 | `Let { value = Literal }` | none |
 | `Let { value = PrimOp { args } }` | `(arg, Once)` per arg |
 | `Construct { args }` | `(arg, Once)` per arg |
-| `Project { value }` | `(value, Once)`. **Implementation note**: the shipped `backward_demands()` emits direct `(value, Once)`. IA-5 step (1) additionally propagates via TF-14 (cardinality + locality). Both mechanisms are active. |
+| `Project { value }` | NONE — borrow. IA-5 step (1) transfers demand from dst to source via TF-14 (cardinality + locality + consumption). No TF-11 demand — adding `(value, Once)` would double-count (same rationale as Let Var suppression). |
 | `Apply { args }` | `(arg, cardinality=Once, consumption=Linear)` per arg; refined by callee contract (IC-3): Borrowed `Absent` → zero demand; Owned `Absent` → `(arg, Once, Linear)` (ownership transfer for RL-5 dec); ALL non-Absent params: `arg.locality := max(arg.locality, param.locality)`; ALL Owned params (including Absent): `arg.locality := max(arg.locality, ArgEscaping)`, `arg.access := Owned` (Owned Absent still needs header for RL-5 dec); Borrowed with `may_share = true`: `arg.uniqueness := MaybeShared` |
 | `ApplyIndirect { closure, args }` | `(closure, Once)`, `(arg, Once)` per arg |
 | `Set { base, field, value }` | `(base, Once)` + `(value, Once, Linear)` — in-place mutation; no `dst` variable, direct demand on `base` |
@@ -396,7 +397,7 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 | `Reset { var }` | `(var, Once)` |
 | `Reuse { token, args }` | `(token, Once)` + `(arg, Once)` per arg. Note: tokens are SCALAR (TF-10a) and L-9 excludes scalars from RC analysis. However, the backward demand `(token, Once)` is emitted for LIVENESS tracking — the implementation pushes token demand to prevent dead-code elimination of the token between `Reset` and `Reuse`. This demand has no RC effect (scalars have no RC operations) but ensures the token remains live in the demand map for structural pairing validation. |
 | `CollectionReuse { old_var, args }` | `(old_var, Once)`, `(arg, Once)` per arg |
-| `Select { cond, true_val, false_val }` | `(cond, Once)` + `(true_val, Once)` + `(false_val, Once)`. When `true_val == false_val`, only one demand is emitted (avoids `seq_add` turning Once into Many for the same variable). **Implementation note**: the shipped `backward_demands()` emits direct demands for both branch operands. IA-5 step (1) additionally propagates the destination's accumulated demand to both via conditional alias transfer. |
+| `Select { cond, true_val, false_val }` | `(cond, Once)` only. `true_val` and `false_val` receive NO TF-11 demand — IA-5 step (1) transfers the destination's full accumulated demand to both branch operands via `seq_add` (conditional alias). Adding `(Once)` would double-count, inflating cardinality (same rationale as Let Var suppression). |
 | `RcInc { var }` | none (RC operation, not a use) |
 | `RcDec { var }` | none (RC operation, not a use) |
 
@@ -522,7 +523,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 **Step (1) detail — backward transfer depends on instruction type:**
 - **`Let { Var(v) }` (transparent alias)**: the destination's accumulated demand transfers to the source. Cardinality and Consumption use `seq_add` (Once + Once = Many, Linear + Linear = Unrestricted — per TF-11's additive accumulation rule). Locality uses `max` (join). This ensures a variable used both directly AND through an alias is correctly counted as Many.
-- **`Project` (borrow — NOT a transparent alias)**: TF-14 propagation: `src.cardinality := seq_add(src.cardinality, dst.cardinality)`, `src.locality := max(src.locality, dst.locality)`, `src.consumption := seq_add(src.consumption, Affine)` (keeps source alive — projection is an additive use; seq_add correctly counts the borrow alongside other uses, consistent with the QTT semiring). TF-11 also emits `(value, Once)` — both mechanisms are active (TF-14 propagates accumulated demand, TF-11 establishes baseline liveness).
+- **`Project` (borrow — NOT a transparent alias)**: TF-14 propagation: `src.cardinality := seq_add(src.cardinality, dst.cardinality)`, `src.locality := max(src.locality, dst.locality)`, `src.consumption := seq_add(src.consumption, Affine)` (keeps source alive — projection is an additive use; seq_add correctly counts the borrow alongside other uses, consistent with the QTT semiring). No TF-11 demand (suppressed to avoid double-counting).
 - **`Select` (conditional alias)**: the destination's full accumulated demand transfers to BOTH `true_val` and `false_val` via `seq_add` (same as Let Var — additive accumulation for cardinality/consumption, max for locality) — because at runtime, one of them IS the destination. E.g., if `%5 = Select(cond, %3, %4)` and `%5` has `Many` cardinality, both `%3` and `%4` receive `Many`. This is the backward interpretation of TF-8: `dst := state(true_val) ⊔ state(false_val)` means both operands should absorb `dst`'s demand. `cond` receives only the TF-11 demand `(cond, Once)` (it's a boolean control input, not an alias).
 - **`Construct`, `Reuse`, `CollectionReuse` (aggregate builders)**: the destination's LOCALITY transfers to all arguments: `arg.locality := max(arg.locality, dst.locality)`. Arguments SHALL ALWAYS be promoted to `access := Owned` (regardless of destination locality). Even for local structs, field cleanup at scope exit requires `RcDec` on fields, which requires the fields to be Owned. Without unconditional Owned promotion, field decs would underflow on Borrowed values. This prevents the "dangling stack-to-heap pointer" problem. Arguments also receive their standard TF-11 `(arg, Once)` demand from step (2). Cardinality is NOT transferred — the Construct uses each argument once regardless of how many times the result is used.
 - **`Set`/`SetTag` (in-place mutation, no `dst`)**: these instructions mutate `base` in-place and produce no new variable. There is no alias transfer — `base` receives DIRECT demand via TF-11 step (2): `(base, Once)`. For `Set`, additionally: `value.access := Owned` (unconditional — stored values are owned by the aggregate), `value.locality := max(value.locality, base_state.locality)`. For `SetTag`: no value operand (`tag` is scalar `u64`).
@@ -872,7 +873,7 @@ Each predicate is a function of the lattice state. Most are pure functions of `A
 |---|---|---|---|---|
 | ≠ Owned | any | any | any | **false** |
 | Owned | ≠ Unique | any | any | **false** |
-| Owned | Unique | yes (same or overlapping field, live at `point`) | any | **false** |
+| Owned | Unique | yes (overlapping path per §1.9, live at `point`) | any | **false** |
 | Owned | Unique | no | yes (any alias live at `point`) | **false** |
 | Owned | Unique | no | no | **true** |
 
