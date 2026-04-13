@@ -33,7 +33,7 @@ sections:
     status: complete
   - id: "08.3"
     title: "Linker Integration via LinkInput and GccLinker"
-    status: not-started
+    status: complete
   - id: "08.4"
     title: "ori_rt ASan Instrumentation"
     status: not-started
@@ -388,7 +388,7 @@ When sanitizers are enabled, the linker must link the sanitizer runtime librarie
 
 **Design:** Add `sanitizer: SanitizerMode` as a typed field on `LinkInput` (not just string args) for type safety and discoverability. `LinkerDriver::configure_linker` reads it and adds the appropriate `-fsanitize=...` arg. This keeps the sanitizer intent typed rather than buried in opaque string args.
 
-- [ ] Add `sanitizer: SanitizerMode` field to `LinkInput`:
+- [x] Add `sanitizer: SanitizerMode` field to `LinkInput`:
   ```rust
   /// Input configuration for the linker.
   #[derive(Debug, Clone, Default)]
@@ -400,9 +400,9 @@ When sanitizers are enabled, the linker must link the sanitizer runtime librarie
   ```
   Import `SanitizerMode` from `crate::aot::passes::config::SanitizerMode` (or re-export at the `aot` level).
 
-- [ ] **Force Clang as the linker driver when sanitizers are enabled.** When `input.sanitizer.any_enabled()`, override the linker to use `GccLinker::with_path(target, "clang")` instead of the default `cc` (which is typically GCC on Linux). GCC and Clang ship incompatible sanitizer runtime libraries — linking Clang-instrumented objects with GCC's `-fsanitize` causes missing symbols or ABI mismatches. Add this check in `LinkerDriver::configure_linker()` or at driver instantiation time.
+- [x] **Force Clang as the linker driver when sanitizers are enabled.** When `input.sanitizer.any_enabled()`, override the linker to use `GccLinker::with_path(target, "clang")` instead of the default `cc` (which is typically GCC on Linux). GCC and Clang ship incompatible sanitizer runtime libraries — linking Clang-instrumented objects with GCC's `-fsanitize` causes missing symbols or ABI mismatches. Add this check in `LinkerDriver::configure_linker()` or at driver instantiation time.
 
-- [ ] Modify `LinkerDriver::configure_linker()` in `driver.rs` to add sanitizer flags BEFORE extra_args (sanitizer flags must come before general args for some linkers):
+- [x] Modify `LinkerDriver::configure_linker()` in `driver.rs` to add sanitizer flags BEFORE extra_args (sanitizer flags must come before general args for some linkers):
   ```rust
   // Sanitizer runtime linkage
   if let Some(fsanitize) = input.sanitizer.clang_flag_value() {
@@ -415,7 +415,7 @@ When sanitizers are enabled, the linker must link the sanitizer runtime librarie
   }
   ```
 
-- [ ] Thread `SanitizerMode` from `OptimizationConfig` to `LinkInput` in `link_and_finish()` (`build/mod.rs`). Add a `sanitizer` parameter to `link_and_finish`:
+- [x] Thread `SanitizerMode` from `OptimizationConfig` to `LinkInput` in `link_and_finish()` (`build/mod.rs`). Add a `sanitizer` parameter to `link_and_finish`:
   ```rust
   fn link_and_finish(
       object_files: Vec<PathBuf>,
@@ -438,30 +438,30 @@ When sanitizers are enabled, the linker must link the sanitizer runtime librarie
   ```
   Update all call sites in `single.rs` and `multi.rs` to pass the sanitizer from `opt_config.sanitizer`.
 
-- [ ] **Cover the `ori run --compile` path**: `run/mod.rs` also builds and links AOT binaries when `--compile` is used. Verify it flows through the same canonical `ObjectEmitter` and `link_and_finish()` paths that receive sanitizer configuration. If `run/mod.rs` has its own `build_optimization_config()` call or link logic, wire `ORI_SANITIZE` through it.
+- [x] **Cover the `ori run --compile` path**: `run/mod.rs` also builds and links AOT binaries when `--compile` is used. Verify it flows through the same canonical `ObjectEmitter` and `link_and_finish()` paths that receive sanitizer configuration. If `run/mod.rs` has its own `build_optimization_config()` call or link logic, wire `ORI_SANITIZE` through it.
 
-- [ ] When sanitizers are enabled and the linker is GCC-flavor on macOS: add a note that macOS requires Clang (not bare `ld`) and that `-fsanitize` is a Clang driver flag, not a raw linker flag. The existing `GccLinker` already uses `clang` on macOS, so this should work. Add a warning if MSVC or WASM linker is selected with sanitizers enabled (sanitizers are Linux/macOS only for now).
+- [x] When sanitizers are enabled and the linker is GCC-flavor on macOS: add a note that macOS requires Clang (not bare `ld`) and that `-fsanitize` is a Clang driver flag, not a raw linker flag. The existing `GccLinker` already uses `clang` on macOS, so this should work. Add a warning if MSVC or WASM linker is selected with sanitizers enabled (sanitizers are Linux/macOS only for now).
 
-- [ ] Verify that the linked binary actually runs with sanitizer runtime. Smoke test:
+- [x] Verify that the linked binary actually runs with sanitizer runtime. Smoke test:
   ```bash
   ORI_SANITIZE=address ori build tests/spec/basic/hello.ori -o /tmp/hello_asan
   /tmp/hello_asan  # Should print "hello" and exit 0
   ```
 
-- [ ] Document the system requirements: **Clang** must be installed (since we delegate sanitizer compilation to Clang). Clang ships its own sanitizer runtimes (`compiler-rt`). On Ubuntu/Debian: `sudo apt-get install clang libclang-rt-dev`. On macOS: included with Xcode Command Line Tools. **Do NOT install GCC's `libasan8`/`libubsan1` — those are incompatible with Clang-instrumented code.** Add a clear error message if the linker fails due to missing Clang sanitizer runtimes — detect the `cannot find -lclang_rt.asan` pattern in linker stderr and emit a diagnostic with install instructions.
+- [x] Document the system requirements: **Clang** must be installed (since we delegate sanitizer compilation to Clang). Clang ships its own sanitizer runtimes (`compiler-rt`). On Ubuntu/Debian: `sudo apt-get install clang libclang-rt-dev`. On macOS: included with Xcode Command Line Tools. **Do NOT install GCC's `libasan8`/`libubsan1` — those are incompatible with Clang-instrumented code.** Add a clear error message if the linker fails due to missing Clang sanitizer runtimes — detect the `cannot find -lclang_rt.asan` pattern in linker stderr and emit a diagnostic with install instructions.
 
-- [ ] Add tests:
+- [x] Add tests:
   - `link_input_default_has_no_sanitizer` — `LinkInput::default().sanitizer == SanitizerMode::NONE`
   - `configure_linker_adds_fsanitize_when_address_enabled` — mock/spy on the `LinkerImpl` args; verify `-fsanitize=address` is present
   - `configure_linker_adds_fsanitize_when_both_enabled` — verify `-fsanitize=address,undefined` is present
   - `configure_linker_no_fsanitize_when_disabled` — verify no `-fsanitize` arg
   - `sanitizer_flag_before_extra_args` — verify ordering: `-fsanitize=...` appears before any `extra_args` entries
 
-- [ ] **Subsection close-out (08.3)** — MANDATORY before starting 08.4:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] `timeout 150 ./test-all.sh` green (sanitizers OFF)
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (08.3)** — MANDATORY before starting 08.4:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] `timeout 150 ./test-all.sh` green (sanitizers OFF)
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 
