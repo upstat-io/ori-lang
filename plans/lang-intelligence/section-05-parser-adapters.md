@@ -113,14 +113,16 @@ There is NO shared library building step. Grammar packages are Python modules wi
 - [ ] Swift grammar: Try `tree-sitter-swift==0.0.1` from PyPI first (exists on PyPI). If it loads successfully with the pinned core version, use it. Fall back to alex-pinkus source build only if the PyPI package fails the smoke test. Document which path was taken.
 - [ ] Koka grammar: NOT on PyPI. Clone `koka-community/tree-sitter-koka` and install from source:
   ```bash
-  git clone https://github.com/koka-community/tree-sitter-koka.git /tmp/tree-sitter-koka
-  cd /tmp/tree-sitter-koka && pip install .
+  KOKA_TMP=$(mktemp -d)
+  git clone https://github.com/koka-community/tree-sitter-koka.git "$KOKA_TMP/tree-sitter-koka"
+  cd "$KOKA_TMP/tree-sitter-koka" && pip install .
+  rm -rf "$KOKA_TMP"
   ```
-  If installation fails, document the failure and mark Koka coverage as `partial` (use Haskell grammar for `.hs` files only).
-- [ ] Verify all grammars load: write `scripts/verify-grammars.py` that instantiates `Language()` for each grammar, runs `Parser(lang).parse(b"x")`, and reports success/failure
+  If installation fails: (1) file via `/add-bug` with subsystem `lang-intelligence`, severity `medium`, and repro steps; (2) mark Koka coverage as `partial` in `languages.yaml` (use Haskell grammar for `.hs` files only).
+- [ ] Verify all grammars load: create `scripts/validate-parsers.py` early (the permanent validation tool from 05.5) with at least `--smoke` mode that instantiates `Language()` for each grammar, runs `Parser(lang).parse(b"x")`, and reports success/failure. Do NOT create a separate `verify-grammars.py` — one tool, extended incrementally.
 - [ ] Document: Lean `.lean` files have 86% parse error rate. Lean4 repo is parsed via C++ grammar for runtime code only. Coverage status: `partial` (not "unsupported" — some of the repo IS parseable via C++ grammar).
-- [ ] Document: Ori uses its own Rust parser (no tree-sitter grammar). Ori adapter is a separate path (Section 09). Ori MUST appear in `languages.yaml` with `grammar: native` and `coverage_status: custom`.
-- [ ] Create `scripts/setup-parsers.sh` that automates: venv creation, `pip install -r requirements.txt`, Koka source build (if needed), `verify-grammars.py` run. This script is the reproducible setup path for any new developer.
+- [ ] Document: Ori uses its own Rust parser (no tree-sitter grammar). Ori adapter is implemented in Section 09.3 <!-- blocked-by:09 --> (specifically: `- [ ] Create a thin Python wrapper that calls cargo run -- check --dump-symbols`). Ori MUST appear in `languages.yaml` with `grammar: native` and `coverage_status: custom`.
+- [ ] Create `scripts/setup-parsers.sh` that automates: venv creation, `pip install -r requirements.txt`, Koka source build (if needed), `validate-parsers.py --smoke` run. This script is the reproducible setup path for any new developer.
 
 - [ ] **Subsection close-out (05.1)**
   - [ ] All tasks above are `[x]` and all grammars load via smoke test

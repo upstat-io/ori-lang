@@ -127,7 +127,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 | 03 | Medium | Evidence packet size (too much intel = noisy reviewers) |
 | 04 | Medium | 5 different skills with different insertion patterns |
 | 05 | High | Swift (build from source), Lean (86% error rate), Ori (no grammar) |
-| 06 | High | Custom tags.scm queries for 5 languages that lack them |
+| 06 | High | Per-language query family coverage (decls/calls/imports/impls) via adapter query handles |
 | 07 | Medium | Neo4j batch import performance at scale (~500K nodes) |
 | 08 | Medium | Code reference extraction accuracy (false positives vs coverage) |
 | 09 | Medium | Incremental dependency invalidation (what to re-parse when imports change) |
