@@ -121,7 +121,7 @@ There is NO shared library building step. Grammar packages are Python modules wi
   If installation fails: (1) file via `/add-bug` with subsystem `lang-intelligence`, severity `medium`, and repro steps; (2) mark Koka coverage as `partial` in `languages.yaml` (use Haskell grammar for `.hs` files only).
 - [ ] Verify all grammars load: create `scripts/validate-parsers.py` early (the permanent validation tool from 05.5) with at least `--smoke` mode that instantiates `Language()` for each grammar, runs `Parser(lang).parse(b"x")`, and reports success/failure. Do NOT create a separate `verify-grammars.py` — one tool, extended incrementally.
 - [ ] Document: Lean `.lean` files have 86% parse error rate. Lean4 repo is parsed via C++ grammar for runtime code only. Coverage status: `partial` (not "unsupported" — some of the repo IS parseable via C++ grammar).
-- [ ] Document: Ori uses its own Rust parser (no tree-sitter grammar). Ori adapter is implemented in Section 09.3 <!-- blocked-by:09 --> (specifically: `- [ ] Create a thin Python wrapper that calls cargo run -- check --dump-symbols`). Ori MUST appear in `languages.yaml` with `grammar: native` and `coverage_status: custom`.
+- [ ] Document: Ori uses its own Rust parser (no tree-sitter grammar). Ori adapter is implemented in Section 09.3. Ori MUST appear in `languages.yaml` with `grammar: native` and `coverage_status: custom`. Note: `validate-parsers.py` MUST skip `coverage_status: custom` entries (they use non-tree-sitter adapters implemented in other sections). No `blocked-by` annotation — Section 05 is complete without the Ori adapter; Section 09 builds on top.
 - [ ] Create `scripts/setup-parsers.sh` that automates: venv creation, `pip install -r requirements.txt`, Koka source build (if needed), `validate-parsers.py --smoke` run. This script is the reproducible setup path for any new developer.
 
 - [ ] **Subsection close-out (05.1)**
@@ -167,7 +167,7 @@ ori:
 lean:
   grammar: tree-sitter-cpp         # .lean files skipped; only C++ runtime parsed
   extensions: [".cpp", ".h"]       # NOT .lean
-  query_families: [decls]
+  query_families: [decls, calls, imports, impls]  # all C++ query families
   coverage_status: partial
   maturity: stable
   expected_error_rate: 0.02
@@ -274,7 +274,7 @@ class CoverageStatus(Enum):
   - Logs per-file soft failures without aborting
 - [ ] Implement hard error handling: grammar load and query compilation failures raise immediately with actionable error message (which package, which `.scm` file, what went wrong)
 - [ ] Add `--parallel` flag using `ProcessPoolExecutor` for multi-repo or large-repo parsing. The <60s target for all repos may require parallelism — single-threaded Python is a bottleneck for ~500K+ lines across 11 repos. Default: sequential. Flag enables `max_workers=cpu_count()`.
-- [ ] Implement `resolve_repo_path(template)` that expands `${REFERENCE_REPOS_ROOT}` and `${LANG_INTELLIGENCE_ROOT}` env vars in `repos.yaml` paths. Default `REFERENCE_REPOS_ROOT` to `~/projects/reference_repos/lang_repos` if unset. This is the canonical path resolver — downstream scripts must NOT hardcode absolute paths.
+- [ ] Implement `resolve_repo_path(template)` that expands `${REFERENCE_REPOS_ROOT}`, `${LANG_INTELLIGENCE_ROOT}`, and `${ORI_LANG_ROOT}` env vars in `repos.yaml` paths. Defaults: `REFERENCE_REPOS_ROOT` → `~/projects/reference_repos/lang_repos`, `ORI_LANG_ROOT` → `~/projects/ori_lang`, `LANG_INTELLIGENCE_ROOT` → `~/projects/lang_intelligence`. This is the canonical path resolver — downstream scripts must NOT hardcode absolute paths.
 - [ ] Verify adapter output: write a smoke test that calls `parse_repo("rust")` on a small include path and asserts all `ParseResult` fields are populated
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 05.1–05.3 implementation work
@@ -421,7 +421,7 @@ A comprehensive validation script that tests the full parser adapter stack: gram
   - [ ] `00-overview.md` mission success criteria checkboxes updated (check off any now satisfied)
   - [ ] `index.md` section status updated
   - [ ] Next section's (`06`) `depends_on` verified — no stale assumptions
-  - [ ] **Update Section 06 plan** to consume `ParseResult`/`parse_repo()` from `parser_adapter.py` instead of reading `repos.yaml`/`languages.yaml`/`tags.scm` directly. Update `extract_symbols.py` contract to import from the adapter, not reopen query files. Update query file references from `tags.scm` to the new query family names (`decls.scm`, `calls.scm`, etc.).
+  - [x] **Update Section 06 plan** — already updated during plan review (TPR iter-2): Section 06.2 contract now consumes `ParseResult`/`parse_repo()` and uses query family handles.
 - [ ] `/tpr-review` passed (final, full-section)
 - [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` **section-close sweep** — verify every subsection ran its retrospective (no skips). Look for cross-subsection patterns: command sequences repeated across subsections, integration points with worse error messages than within-subsection failures, manual cross-referencing no tool combined. Implement new items, commit separately. Document negative finding if no cross-cutting gaps.
