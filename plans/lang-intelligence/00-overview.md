@@ -25,6 +25,8 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 - [ ] Code graph contains CALLS, IMPORTS, IMPLEMENTS relationships for all reference repos
 - [ ] Issue-to-code bridge links GitHub issues to code symbols via CodeReference nodes with confidence scores
 - [ ] Ori live sync updates the code graph within 500ms of a file save via lefthook post-commit async enqueue
+- [ ] Per-emoji reaction data stored on Issue and Comment nodes; materialized sentiment metrics (pain, controversy, excitement) computed and indexed
+- [ ] `sentiment` and `landscape` query commands surface cross-language user pain, controversy, and excitement signals
 - [ ] `./test-all.sh` green — no regressions from any integration changes
 - [ ] All section success criteria met
 
@@ -91,11 +93,14 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 05 (Parsers) ──> 06 (Extraction) ──> 07 (Import) ──> 08 (Bridge)
                        │
                        └──> 09 (Ori Sync)
+
+01 (Helper) ──> 10 (Sentiment)   [soft dep on 08 for label taxonomy]
 ```
 
 - Sections 01-04 (Claude Integration pillar) and 05-09 (Code Graph pillar) are independent pillars that can proceed in parallel after Section 01
 - Within each pillar, sections are strictly sequential
 - Section 08 (Bridge) depends on both pillars (needs code symbols from 07 AND issue data from existing graph)
+- Section 10 (Sentiment) depends on Section 01 (canonical helper); soft dependency on Section 08 for label taxonomy — works with raw Labels until 08.3 normalizes them
 
 ## Implementation Sequence
 
@@ -103,6 +108,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 2. **Claude Integration**: Sections 02 → 03 → 04 (rules, high-value skills, remaining skills)
 3. **Code Graph**: Sections 05 → 06 → 07 (parsers, extraction, import)
 4. **Bridge + Sync**: Sections 08, 09 (connect the two pillars, add live sync)
+5. **Sentiment**: Section 10 (per-emoji reactions, materialized metrics, query surface) — depends on 01; soft dep on 08 for label taxonomy
 
 ## Quick Reference
 
@@ -117,6 +123,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 | 07 | Code Graph: Import Pipeline | complete | `~/projects/lang_intelligence/neo4j/import_code_graph.py`, `schema.cypher`, `scripts/build-code-graph.sh` | 06 |
 | 08 | Issue-to-Code Bridge | not-started | `~/projects/lang_intelligence/neo4j/extract_code_refs.py` | 07 |
 | 09 | Ori Live Sync | not-started | `lefthook.yml`, `~/projects/lang_intelligence/neo4j/sync_code_graph.py` | 06, 07 |
+| 10 | Sentiment & Issue Signals | not-started | `schema.cypher`, `import_graph.py`, `enrich_sentiment.py`, `query_graph.py` | 01 |
 
 ## Estimated Effort
 
@@ -131,6 +138,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 | 07 | Medium | Neo4j batch import performance at scale (~500K nodes) |
 | 08 | Medium | Code reference extraction accuracy (false positives vs coverage) |
 | 09 | Medium | Incremental dependency invalidation (what to re-parse when imports change) |
+| 10 | Medium | Sentiment formula calibration (thresholds, cross-repo normalization) |
 
 ## Tree-Sitter Language Support Matrix
 

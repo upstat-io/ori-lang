@@ -416,25 +416,16 @@ impl ObjectEmitter {
 
         // Step 3: Emit (with optional sanitizer delegation)
         if opt_config.sanitizer.any_enabled() && format == OutputFormat::Object {
-            // Sanitizer path: emit LLVM IR to temp file, then invoke Clang
-            // with -fsanitize=... to produce a sanitized object file.
-            let ir_path = path.with_extension("ll");
-            self.emit_llvm_ir(module, &ir_path)
-                .map_err(ModulePipelineError::Emission)?;
-
-            let opt_level = opt_config.level.as_clang_flag();
-
-            super::passes::clang_compile_with_sanitizers(
-                &ir_path,
+            // Sanitizer path: emit LLVM IR, invoke Clang with -fsanitize,
+            // clean up intermediate IR (handled by clang_sanitize_object).
+            super::passes::clang_sanitize_object(
+                self,
+                module,
                 path,
                 &opt_config.sanitizer,
-                opt_level,
+                opt_config.level.as_clang_flag(),
                 self.config.triple(),
-            )
-            .map_err(ModulePipelineError::Optimization)?;
-
-            // Clean up the intermediate IR file
-            let _ = std::fs::remove_file(&ir_path);
+            )?;
         } else {
             // Normal path: emit directly via LLVM
             self.emit(module, path, format)

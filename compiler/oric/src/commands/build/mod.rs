@@ -146,7 +146,9 @@ fn configure_target(
 
 /// Build optimization configuration from options.
 #[cfg(feature = "llvm")]
-fn build_optimization_config(options: &BuildOptions) -> ori_llvm::aot::OptimizationConfig {
+pub(crate) fn build_optimization_config(
+    options: &BuildOptions,
+) -> ori_llvm::aot::OptimizationConfig {
     use ori_llvm::aot::{
         LtoMode as LlvmLtoMode, OptimizationConfig, OptimizationLevel, SanitizerMode,
     };
@@ -261,22 +263,10 @@ fn link_and_finish(
         }
     };
 
-    // Validate ASan runtime availability via canonical RuntimeConfig method
+    // Validate ASan runtime availability via canonical RuntimeConfig method.
+    // RuntimeNotFound::Display includes the full context (searched paths, fix instructions).
     if let Err(e) = runtime_config.validate_sanitizer(sanitizer) {
-        eprintln!(
-            "error: ORI_SANITIZE=address is set but the ASan-instrumented runtime was not found."
-        );
-        eprintln!(
-            "  Searched: {}",
-            e.searched_paths
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        eprintln!("Without ASan-instrumented ori_rt, memory bugs in RC operations and containers");
-        eprintln!("will NOT be detected — defeating the primary goal of sanitizer integration.");
-        eprintln!("Run `./scripts/build-rt-asan.sh` to build the ASan-instrumented runtime.");
+        eprintln!("error: {e}");
         std::process::exit(1);
     }
 
