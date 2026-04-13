@@ -31,6 +31,7 @@
 
 use std::path::{Path, PathBuf};
 
+use super::passes::SanitizerMode;
 use super::{LibraryKind, LinkInput, LinkLibrary};
 
 /// Strip Windows extended-length path prefix after `canonicalize()`.
@@ -114,6 +115,16 @@ impl RuntimeConfig {
             "ori_rt.lib"
         } else {
             "libori_rt.a"
+        }
+    }
+
+    /// Get platform-specific ASan-instrumented library filename.
+    #[must_use]
+    pub fn lib_name_asan() -> &'static str {
+        if cfg!(windows) {
+            "ori_rt_asan.lib"
+        } else {
+            "libori_rt_asan.a"
         }
     }
 
@@ -227,18 +238,50 @@ impl RuntimeConfig {
         self
     }
 
+    /// Check whether the ASan-instrumented runtime variant is available.
+    #[must_use]
+    pub fn has_asan_variant(&self) -> bool {
+        Self::lib_exists(&self.library_path, Self::lib_name_asan())
+    }
+
+    /// Validate that the runtime configuration is consistent with the
+    /// requested sanitizer mode. Returns an error if `ASan` is requested
+    /// but the `ASan`-instrumented runtime is not available.
+    ///
+    /// # Errors
+    ///
+    /// Returns a hard error (not a warning) when `ORI_SANITIZE=address`
+    /// but `libori_rt_asan.a` is not found — the primary goal of sanitizer
+    /// integration (catching RC memory bugs) fails without it.
+    pub fn validate_sanitizer(&self, sanitizer: &SanitizerMode) -> Result<(), RuntimeNotFound> {
+        if sanitizer.address && !self.has_asan_variant() {
+            return Err(RuntimeNotFound {
+                searched_paths: vec![self.library_path.join(Self::lib_name_asan())],
+            });
+        }
+        Ok(())
+    }
+
     /// Configure link input with runtime library.
     ///
-    /// Adds the library path and library to the link input.
+    /// When the sanitizer mode includes `ASan` and the `ASan`-instrumented
+    /// runtime variant is available, links `ori_rt_asan` instead of `ori_rt`.
     pub fn configure_link(&self, input: &mut LinkInput) {
         // Add library search path
         input.library_paths.push(self.library_path.clone());
 
+        // Select the appropriate runtime variant
+        let rt_name = if input.sanitizer.address && self.has_asan_variant() {
+            "ori_rt_asan"
+        } else {
+            "ori_rt"
+        };
+
         // Add the runtime library
         let lib = if self.static_link {
-            LinkLibrary::new("ori_rt").static_lib()
+            LinkLibrary::new(rt_name).static_lib()
         } else {
-            LinkLibrary::new("ori_rt").dynamic_lib()
+            LinkLibrary::new(rt_name).dynamic_lib()
         };
         input.libraries.push(lib);
 
@@ -267,6 +310,9 @@ impl RuntimeConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Strip the Windows extended-length path prefix (`\\?\`).
 ///
