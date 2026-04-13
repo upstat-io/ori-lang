@@ -155,13 +155,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Types > 16 bytes (e.g. str = 24 bytes) use indirect parameter
         // passing and sret return in Ori's fastcc ABI.
         //
-        // Use narrowed type for loads from buffer pointers.
-        // The buffer stores narrowed elements, but the Ori closure expects
-        // canonical i64 values. Load narrowed, sext, then pass to closure.
+        // Use canonical types for all iterator trampoline loads. Narrowing is
+        // handled at the iter() boundary (emit_list_iter injects a sext widening
+        // trampoline), so by the time elements reach user trampolines, they are
+        // always canonical. See BUG-04-071 fix consensus.
         let elem_llvm_ty = self.resolve_type(elem_ty);
-        let buf_elem_llvm_ty = self.int_element_llvm_type(elem_ty);
-        let needs_sext = self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int
-            && self.narrowed_int_collection_element_width().is_some();
+        let buf_elem_llvm_ty = elem_llvm_ty;
+        let needs_sext = false;
         let elem_is_indirect = abi_size(elem_ty, self.type_info, self.repr_plan) > 16;
 
         match kind {
@@ -369,6 +369,78 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         // Restore builder position
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
+        func_id
+    }
+
+    /// Generate a sign-extension widening trampoline for narrowed list iterators.
+    ///
+    /// The trampoline reads a narrowed integer element (i8/i16/i32) from `in_ptr`,
+    /// sign-extends it to canonical i64, and stores the i64 to `out_ptr`. This is
+    /// injected at the `iter()` boundary for narrowed lists so the entire iterator
+    /// pipeline operates on canonical element types.
+    ///
+    /// Signature: `(env: ptr, in_ptr: ptr, out_ptr: ptr) -> void`
+    /// (env is unused — null passed by the caller)
+    pub(crate) fn generate_sext_widening_trampoline(
+        &mut self,
+        narrowed_width: ori_repr::IntWidth,
+    ) -> FunctionId {
+        let tramp_id = self.partial_apply_counter;
+        self.partial_apply_counter += 1;
+        let tramp_name = format!("_ori_sext_widen_{tramp_id}");
+
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        let ptr_ty = self.builder.ptr_type();
+
+        // (env: ptr, in_ptr: ptr, out_ptr: ptr) -> void
+        let func_id = self
+            .builder
+            .declare_void_function(&tramp_name, &[ptr_ty, ptr_ty, ptr_ty]);
+        self.builder.set_ccc(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+        self.builder.add_uwtable_attribute(func_id);
+        for i in 0..3 {
+            self.builder.add_noundef_param_attribute(func_id, i);
+        }
+
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+
+        let in_ptr = self.builder.get_param(func_id, 1);
+        let out_ptr = self.builder.get_param(func_id, 2);
+
+        // Load narrowed type from in_ptr
+        let narrowed_llvm_ty = self.llvm_type_for_int_width(narrowed_width);
+        let raw = self.builder.load(narrowed_llvm_ty, in_ptr, "sext.raw");
+
+        // Sign-extend to canonical i64
+        let i64_ty = self.builder.i64_type();
+        let widened = self.builder.sext(raw, i64_ty, "sext.wide");
+
+        // Store canonical i64 to out_ptr
+        self.builder.store(widened, out_ptr);
+        self.builder.ret_void();
+
+        // Verify
+        if self.verify_arc {
+            let fn_val = self.builder.get_function_value(func_id);
+            if !fn_val.verify(true) {
+                tracing::error!(
+                    name = tramp_name,
+                    "LLVM IR verification failed (generate_sext_widening_trampoline)"
+                );
+                self.builder.record_codegen_error();
+            }
+        }
+
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
             self.builder.set_current_function(f);
