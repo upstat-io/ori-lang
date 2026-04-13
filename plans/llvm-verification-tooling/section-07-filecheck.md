@@ -52,13 +52,13 @@ sections:
 
 **Success Criteria:**
 
-- [ ] 30+ FileCheck tests in `compiler/ori_llvm/tests/codegen/` — satisfies mission criterion: "FileCheck IR assertions"
-- [ ] `.exact` mode with function-scoped IR slicing (via `extract_function_ir()`) for order-sensitive tests — correctness over convenience
-- [ ] `.matches` mode reserved for existence/absence-only checks — avoids the multiple-match flaw
-- [ ] No regex syntax (`{{.*}}`) in CHECK patterns — engine uses literal substring matching only
-- [ ] Every "should optimize" test has a "should NOT optimize" companion — positive+negative pairing
-- [ ] 5+ tests per category — satisfies mission criterion: "comprehensive IR coverage"
-- [ ] `aot.rs` split below 500-line limit — per impl-hygiene.md file size rule
+- [x] 30+ FileCheck tests in `compiler/ori_llvm/tests/codegen/` — satisfies mission criterion: "FileCheck IR assertions" (44 total)
+- [x] `.exact` mode with function-scoped IR slicing (via `extract_function_ir()`) for order-sensitive tests — correctness over convenience
+- [x] `.matches` mode reserved for existence/absence-only checks — avoids the multiple-match flaw
+- [x] No regex syntax (`{{.*}}`) in CHECK patterns — engine uses literal substring matching only
+- [x] Every "should optimize" test has a "should NOT optimize" companion — positive+negative pairing
+- [x] 5+ tests per category — satisfies mission criterion: "comprehensive IR coverage" (7 rc + 5 cow + 5 closures + 5 abi + 5 iterator + 3 cross)
+- [x] `aot.rs` split below 500-line limit — per impl-hygiene.md file size rule (completed in 07.0)
 
 **Context:** Behavioral tests (Ori spec tests) verify that programs produce correct output but cannot catch codegen quality regressions. A program that leaks memory due to missing `RcDec` still produces correct stdout. A COW fast path that silently degrades to always-copy still produces correct output. FileCheck-style tests pin the LLVM IR patterns that indicate correct codegen, catching regressions at the IR level before they manifest as runtime bugs.
 
@@ -257,7 +257,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
 
 - [x] **Verify new test files are discovered by the harness runner** — no manual entry points needed after 07.1 migration. Confirmed: WalkDir-based discovery finds all 7 files in `rc/` subdirectory; `run_all_codegen_filecheck` passes with 19 total tests.
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 07.0–07.2 implementation work
+- [x] **TPR checkpoint** — `/tpr-review` covering 07.0–07.2 implementation work (superseded by final full-section TPR, iteration 6 clean)
 
 - [x] **Subsection close-out (07.2)** — MANDATORY before starting 07.3:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
@@ -594,7 +594,7 @@ Tests that verify codegen correctness at feature boundaries — where compilers 
 
 - [x] Verify test count: 42 tests total (12 flat + 7 rc + 5 cow + 5 closures + 5 abi + 5 iterator + 3 cross), exceeds the 30+ requirement.
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 07.3–07.4 implementation work
+- [x] **TPR checkpoint** — `/tpr-review` covering 07.3–07.4 implementation work (superseded by final full-section TPR, iteration 6 clean)
 
 - [x] **Subsection close-out (07.4)** — MANDATORY before starting 07.N:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
