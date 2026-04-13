@@ -173,87 +173,18 @@ impl RuntimeConfig {
     ///
     /// Returns `RuntimeNotFound` if the library cannot be found.
     pub fn detect() -> Result<Self, RuntimeNotFound> {
-        let mut searched = Vec::new();
         let lib_name = Self::lib_name();
+        let candidates = Self::candidate_directories();
 
-        // 1. Check relative to current executable (like rustc's sysroot discovery)
-        if let Ok(exe_path) = std::env::current_exe() {
-            // Canonicalize to resolve symlinks (like rustc does), then strip
-            // Windows extended-length prefix so MSVC linker gets valid paths.
-            let exe_path = normalize_path(exe_path.canonicalize().unwrap_or(exe_path));
-
-            if let Some(exe_dir) = exe_path.parent() {
-                // Dev layout: same directory as executable (target/release/)
-                // This is the most common case during development
-                if Self::lib_exists(exe_dir, lib_name) {
-                    return Ok(Self::new(exe_dir.to_path_buf()));
-                }
-                searched.push(exe_dir.to_path_buf());
-
-                // Sibling profile: target/debug/ori -> check target/release/ (and vice versa).
-                // Handles the common case where `cargo build` (debug) builds the compiler but
-                // `libori_rt.a` was built in release (or vice versa).
-                if let Some(target_dir) = exe_dir.parent() {
-                    for profile in &["release", "debug"] {
-                        let sibling = target_dir.join(profile);
-                        if sibling != exe_dir && Self::lib_exists(&sibling, lib_name) {
-                            return Ok(Self::new(sibling));
-                        }
-                        if sibling != *exe_dir {
-                            searched.push(sibling);
-                        }
-                    }
-                }
-
-                // Installed layout: bin/ori -> ../lib/libori_rt.a
-                // Standard FHS: /usr/local/bin/ori -> /usr/local/lib/libori_rt.a
-                let lib_path = exe_dir.join("../lib");
-                if Self::lib_exists(&lib_path, lib_name) {
-                    return Ok(Self::new(normalize_path(
-                        lib_path.canonicalize().unwrap_or(lib_path),
-                    )));
-                }
-                searched.push(lib_path);
-            }
-        }
-
-        // 2. Check ori_rt's standalone build directory.
-        // ori_rt is excluded from the workspace, so `cargo build --manifest-path
-        // compiler/ori_rt/Cargo.toml` puts the staticlib in compiler/ori_rt/target/.
-        // Detect the workspace root by walking up from the executable.
-        if let Ok(exe_path) = std::env::current_exe() {
-            let exe_path = normalize_path(exe_path.canonicalize().unwrap_or(exe_path));
-            // exe is at <workspace>/target/<profile>/ori → workspace = exe/../../../
-            if let Some(workspace_root) = exe_path
-                .parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.parent())
-            {
-                let ori_rt_target = workspace_root.join("compiler/ori_rt/target");
-                for profile in ["release", "debug"] {
-                    let path = ori_rt_target.join(profile);
-                    if Self::lib_exists(&path, lib_name) {
-                        return Ok(Self::new(path));
-                    }
-                    searched.push(path);
-                }
-            }
-        }
-
-        // 3. Check workspace directory (for `cargo run` during development)
-        // ORI_WORKSPACE_DIR is set by the build system when running via cargo
-        if let Ok(workspace) = std::env::var("ORI_WORKSPACE_DIR") {
-            for profile in ["release", "debug"] {
-                let path = PathBuf::from(&workspace).join("target").join(profile);
-                if Self::lib_exists(&path, lib_name) {
-                    return Ok(Self::new(path));
-                }
-                searched.push(path);
+        // Search candidates in order — first match wins
+        for dir in &candidates {
+            if Self::lib_exists(dir, lib_name) {
+                return Ok(Self::new(dir.clone()));
             }
         }
 
         Err(RuntimeNotFound {
-            searched_paths: searched,
+            searched_paths: candidates.iter().map(|d| d.join(lib_name)).collect(),
             asan_variant: false,
         })
     }
@@ -305,6 +236,7 @@ impl RuntimeConfig {
             }
         }
 
+        // Workspace directory (for cargo run during development)
         if let Ok(workspace) = std::env::var("ORI_WORKSPACE_DIR") {
             for profile in ["release", "debug"] {
                 candidates.push(PathBuf::from(&workspace).join("target").join(profile));
@@ -368,9 +300,29 @@ impl RuntimeConfig {
         // Add library search path
         input.library_paths.push(self.library_path.clone());
 
-        // Select the appropriate runtime variant
-        let rt_name = if input.sanitizer.address && self.has_asan_variant() {
-            "ori_rt_asan"
+        // Select the appropriate runtime variant.
+        // When ASan is requested, search all candidate directories for the ASan
+        // variant (not just self.library_path) to handle split-directory layouts.
+        let rt_name = if input.sanitizer.address {
+            let asan_name = Self::lib_name_asan();
+            if Self::lib_exists(&self.library_path, asan_name) {
+                "ori_rt_asan"
+            } else {
+                // Search candidate directories for ASan variant
+                let mut found_asan = false;
+                for dir in Self::candidate_directories() {
+                    if Self::lib_exists(&dir, asan_name) {
+                        input.library_paths.push(dir);
+                        found_asan = true;
+                        break;
+                    }
+                }
+                if found_asan {
+                    "ori_rt_asan"
+                } else {
+                    "ori_rt"
+                }
+            }
         } else {
             "ori_rt"
         };

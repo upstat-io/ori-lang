@@ -85,6 +85,11 @@ if [ -f "$SMOKE_DIR/pin_helper.c" ]; then
     rm -rf "$PIN_TMPDIR"
 fi
 
+# Run all Ori smoke test programs
+for ori_file in "$SMOKE_DIR"/*.ori; do
+    [ -f "$ori_file" ] || continue
+    name=$(basename "$ori_file" .ori)
+
     echo -n "  $name ... "
     TMPDIR=$(mktemp -d)
 
@@ -113,8 +118,6 @@ fi
     rm -rf "$TMPDIR"
 done
 
-# Clean up pin helper
-[ -n "$PIN_LIB" ] && rm -rf "$PIN_LIB"
 
 echo ""
 echo "=== Sanitizer smoke: $PASS_COUNT passed, $FAIL_COUNT failed, $SKIP_COUNT skipped ==="
