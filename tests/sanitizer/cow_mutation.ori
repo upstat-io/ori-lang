@@ -1,0 +1,14 @@
+// Sanitizer smoke: COW uniqueness check — shared -> unique -> mutate.
+// Tests that COW correctly copies on write when refs are shared.
+
+@main () -> int = {
+    let original = [1, 2, 3, 4, 5];
+    let copy = original;
+    // Mutate copy — should trigger COW (original is still alive)
+    let copy = copy.push(value: 6);
+    let ok = original.len() == 5
+        && copy.len() == 6
+        && original[0] == 1
+        && copy[5] == 6;
+    if ok then 0 else 1
+}

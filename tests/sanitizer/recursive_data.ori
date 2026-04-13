@@ -1,0 +1,22 @@
+// Sanitizer smoke: Recursive structure RC — linked list.
+// Tests RC correctness for self-referential data.
+
+type IntList = Cons(head: int, tail: IntList) | Nil;
+
+@sum_list (list: IntList) -> int = match list {
+    Cons(head:, tail:) -> head + sum_list(list: tail),
+    Nil -> 0
+}
+
+@list_len (list: IntList) -> int = match list {
+    Cons(head:, tail:) -> 1 + list_len(list: tail),
+    Nil -> 0
+}
+
+@main () -> int = {
+    let list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
+    let s = sum_list(list: list);
+    let l = list_len(list: list);
+    // sum = 1+2+3=6, length = 3
+    if s == 6 && l == 3 then 0 else 1
+}

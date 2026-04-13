@@ -19,6 +19,17 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-074][high]` **AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure**
+  Repro: `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` — passes in interpreter, AOT fails with "unresolved type variable at codegen — type inference bug". The empty list `[]` element type is never propagated to LLVM codegen even though `push(value: 10)` provides int context.
+  Subsystem: `ori_llvm` / `ori_types` (type variable resolution before codegen)
+  Found: 2026-04-13 | Source: continue-roadmap
+
+- [ ] `[BUG-04-073][high]` **AOT codegen: `iter().find()` on list causes double-free (`ori_rc_dec` on already-freed allocation)**
+  Repro: `let found = [10, 20, 30, 40, 50].iter().find(where: x -> x == 30); if found == Some(30) then 0 else 1` — passes in interpreter, AOT binary crashes with `FATAL — ori_rc_dec called on already-freed allocation`. Compiled via `cargo run -- build tests/sanitizer/option_some_none.ori -o /tmp/test`.
+  Subsystem: `ori_llvm` (iterator find + Option RC handling)
+  Found: 2026-04-13 | Source: continue-roadmap
+  Note: Active work in `plans/llvm-verification-tooling` §08.5 (sanitizer smoke tests) exercises this code path.
+
 - [ ] `[BUG-04-072][medium]` **CN-3 canonicalize_single_pass only demotes ReusableCtor shapes — spec requires all non-NonReusable**
   Repro: A `Shared` variable with `CollectionBuffer` or `ContextHole` shape passes through `canonicalize_single_pass` without demotion. Line 325: `matches!(self.shape, ShapeClass::ReusableCtor(_))` misses CollectionBuffer/ContextHole.
   Subsystem: `compiler/ori_arc/src/aims/lattice/mod.rs:325`
