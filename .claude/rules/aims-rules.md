@@ -455,6 +455,16 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 **IC-5** — Effect summary: `may_allocate(OR), may_deallocate(OR), may_share(OR), may_throw(OR), has_unbounded_stack(OR), alloc_only_on_slow_path(AND)`.
 
+**Derivation**: EffectSummary is computed by scanning the function's instruction stream (NOT from per-variable EffectClass — see §1.7). Key instruction contributions:
+- `Construct`, `Reuse`, `CollectionReuse`, `PartialApply`: `may_allocate = true`
+- `RcDec` (when it triggers free): `may_deallocate = true`
+- `Apply`/`Invoke` with callee contract: inherit callee's `EffectSummary` via OR
+- `Apply`/`Invoke` without contract, `ApplyIndirect`/`InvokeIndirect`: ALL effects (conservative)
+- `Invoke`/`InvokeIndirect` (unwinding edge): `may_throw = true`
+- `Resume`: `may_throw = true`
+- Functions with unbounded recursion: `has_unbounded_stack = true`
+- `alloc_only_on_slow_path`: AND — true only when ALL allocation paths are gated by MaybeShared checks (allocations happen only on the shared/copy branch, never the fast unique path)
+
 **IC-6** — FIP contract: `Never` absorbs all; `Conditional` absorbs `Bounded/Certified`; `Bounded(n) ⊔ Bounded(m) = Bounded(max(n,m))`. FipContract::Certified ⟺ zero unmatched allocations/deallocations in realized IR.
 
 **IC-7** — Convergence: finite domain guarantees termination. The iteration limit SHALL be derived from the domain heights: parameter contract 6 dimensions (access=1 + consumption=3 + cardinality=2 + locality=4 + uniqueness=2 + may_share=1 = 13 per param), return contract 4 dimensions (uniqueness=2 + freshness=1 + locality=4 + shape=1 = 8 total), EffectSummary 6 boolean fields, ContextBehavior 4 boolean fields (PL-7/PL-11). Formula: `param_count × 13 + 8 + 6 + 4`. If exceeded, widen all contracts to most conservative and emit a diagnostic. This document (`aims-rules.md`) is authoritative for the convergence bound; `arc.md` references it.
@@ -473,7 +483,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 **IA-4** — Cross-block locality widening: variables flowing across block boundaries SHALL have `locality := max(locality, FunctionLocal)`.
 
-**IA-5** — Block entry state is computed by walking instructions in reverse from exit state: (1) apply forward transfer for definitions, (2) apply backward demands for operands, (3) remove defined variables.
+**IA-5** — Block entry state is computed by walking instructions in reverse from exit state. At each instruction: (1) apply backward interpretation of the forward transfer — for transparent aliasing instructions (`Let { Var(v) }` and `Project`), this means the destination variable's ACCUMULATED demand (cardinality, consumption, locality from downstream uses) transfers to the source operand via join; (2) apply backward demands for operands per TF-11 — these are the INCREMENTAL demands from the instruction itself, joined with any demand already on the operand; (3) remove the defined variable from the state map. Note: step (1) and step (2) are complementary — step (1) transfers the destination's full accumulated state to the source (e.g., if `%4 = Let Var(%3)` and `%4` has `Many` cardinality from 3 uses downstream, then `%3` inherits `Many`), while step (2) adds the instruction's own operational demand (e.g., `(%3, Once)` because the Let reads %3 once). For non-aliasing definitions (e.g., `Construct`, `Apply`), step (1) has no backward transfer — the destination's demand does not flow to its arguments; only step (2) applies.
 
 **IA-6** — Return values SHALL be widened: `access := Owned`, `locality := max(locality, HeapEscaping)`. Returned values escape the function.
 
@@ -539,11 +549,13 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 ## §8 Realization & Post-Lattice Optimization
 
+**Relationship to §7 Pipeline**: §7 defines the AIMS analysis and realization pipeline (Steps 1-12). §8 defines the realization RULES that Steps 5, 5a, 8, 8a, 10 apply, PLUS post-pipeline optimization passes (RL-22 through RL-26: KnownSafe pair elimination, PRE-style RC motion) that operate on the realized ARC IR AFTER the §7 pipeline completes. Post-pipeline passes are logically separate from the main pipeline — they take the fully realized, verified IR as input and optimize RC operations without re-running the analysis. PL-6 ("adding a new pass requires updating the pipeline ordering") governs passes WITHIN the pipeline; post-pipeline optimizations operate on the pipeline's OUTPUT and do not need slots in §7. If a post-pipeline pass is later integrated into the pipeline (e.g., for better ordering with other passes), it would then need a §7 slot per PL-6.
+
 ### RC Emission
 
 **RL-1** — RC increment SHALL be emitted when a value is duplicated (passed to Owned parameter while still live).
 
-**RL-2** — RC decrement SHALL be emitted at the last use of an owned value or at scope exit.
+**RL-2** — RC decrement SHALL be emitted at the last use of an owned value or at scope exit. This includes UNUSED owned non-scalar values (consumption = Dead from definition): if a variable is defined by a heap-allocating instruction (TF-3, TF-5, TF-5a, TF-6, TF-6a, TF-6b, TF-6c, TF-7, TF-9, TF-9a — any instruction producing `access = Owned` with non-SCALAR state) but has no uses (consumption = Dead, cardinality = Absent), an immediate `RcDec` SHALL be emitted at the definition point. Without this, unused call results and discarded allocations leak. DP-1 (`is_rc_needed`) returns false for Dead variables, but that gates supplementary RC tracking — the definitional cleanup dec is mandatory regardless of DP-1. DP-2 (`is_rc_dec_unnecessary`) does NOT suppress the definitional cleanup dec — DP-2 gates ADDITIONAL decs beyond the terminal cleanup handled by RL-2/RL-4/RL-5.
 
 **RL-3** — RC operations SHALL be ELIDED when the lattice proves they are unnecessary (DP-2, DP-3, DP-7).
 
@@ -583,7 +595,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 ### RC Header Compression
 
-**RL-17** — Sharing bound analysis SHALL determine maximum simultaneous reference count. `NoEscape → Unique (no header)`, straight-line N incs → `Bounded(N+1)`, loops/recursion/global → `Unbounded`.
+**RL-17** — Sharing bound analysis SHALL determine maximum simultaneous reference count. `is_local(s) ∧ Unique → no header`, straight-line N incs → `Bounded(N+1)`, loops/recursion/global → `Unbounded`. (Note: `is_local(s)` is defined by DP-8: `locality ∈ {BlockLocal, FunctionLocal}`. The former `NoEscape` term is replaced by this Locality-based condition per RL-18a.)
 
 **RL-18** — RC header width SHALL be narrowed: `Unique → none`, `Bounded(≤127) → i8`, `Bounded(≤32767) → i16`, `Bounded(≤2^31-1) → i32`, `Unbounded → i64`.
 
@@ -621,11 +633,11 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 ### AIMS → LLVM Fact Export
 
-**RL-29** — Fresh allocation returns (`ReturnContract.uniqueness = Unique`) SHALL be marked with LLVM `noalias`.
+**RL-29** — Fresh allocation returns (`ReturnContract.preserves_freshness = true AND ReturnContract.uniqueness = Unique`) SHALL be marked with LLVM `noalias`. The gate is `preserves_freshness`, not `uniqueness` alone — a return that is merely `Unique` (e.g., a uniquely-held parameter passed through) is not necessarily fresh (may alias the caller's copy). `preserves_freshness` is the proof that the returned pointer was produced by a fresh allocation or by a callee whose return contract also preserves freshness.
 
 **RL-30** — Effect-based call annotations: pure calls (`may_allocate = false ∧ may_deallocate = false ∧ may_throw = false` and no writes to parameters) SHALL receive LLVM `memory(none)`. Readonly calls (reads but no writes, no allocation, no deallocation) SHALL receive LLVM `memory(read)`. Allocating calls (`may_allocate = true`) that also access arguments SHALL receive `memory(argmem: readwrite, inaccessiblemem: readwrite)`. Pure allocators (no arg access) SHALL receive `memory(inaccessiblemem: readwrite)`. `memory(argmem: readwrite)` ALONE is WRONG for allocators (misses global heap state); omitting `argmem` is WRONG for functions that allocate AND read/write arguments (optimizer assumes args untouched).
 
-**RL-31** — Disjoint borrowed parameters SHALL receive `!alias.scope` + `!noalias` metadata pairs.
+**RL-31** — Disjoint borrowed parameters SHALL receive `!alias.scope` + `!noalias` metadata pairs. "Disjoint" means the parameter's borrowed projection does not overlap with any other parameter's borrowed projection at any call site — established by the interprocedural borrow analysis (IC-2/IC-3 parameter contracts) where two `Borrowed` parameters are disjoint when their `borrow_sources` entries trace to different source aggregates or to disjoint fields of the same source. The disjointness proof is conservative: if any call site cannot prove disjointness, the parameter does not receive alias metadata. See `arc.md` §Borrow Inference for the full analysis specification.
 
 ### Borrow Inference
 
