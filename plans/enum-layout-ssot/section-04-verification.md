@@ -69,6 +69,7 @@ The implementation plan from TPR-07-018 (already documented in `plans/repr-opt/s
 - [ ] **Remove include_str! assertions** from the test file — they are replaced by the emitter-driven tests. The file keeps its location (`option_result_helpers/tests.rs`) but the content is entirely rewritten.
 
 - [ ] **Subsection close-out (04.1)** — Run `/improve-tooling` retrospectively. Commit separately.
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -97,6 +98,7 @@ The implementation plan from TPR-07-018 (already documented in `plans/repr-opt/s
 - [ ] **Add to `./clippy-all.sh` or document as a manual gate** (depending on false-positive rate)
 
 - [ ] **Subsection close-out (04.2)** — Run `/improve-tooling` retrospectively. Commit separately.
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -119,6 +121,7 @@ The implementation plan from TPR-07-018 (already documented in `plans/repr-opt/s
   - [ ] Emitter-driven niche tests working (verified by `cargo test -p ori_llvm option_result_helpers`)
 
 - [ ] **Subsection close-out (04.3)** — Run `/improve-tooling` retrospectively. Commit separately.
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
