@@ -158,7 +158,7 @@ A sparse map `ArcVarId → BorrowSource` tracking the origin of borrowed project
 **Join**: borrow sources do NOT join. Each projected variable has exactly one borrow source (set at definition by TF-4). If a variable is defined by a non-Project instruction, it has no borrow source entry.
 
 **Consumers**:
-- **DP-5** (`can_mutate_in_place`): queries `borrow_sources` to check for active overlapping borrows. A `Unique` value with an active borrow from the same field is NOT safe for in-place mutation — the borrow would alias the mutated memory. Disjoint field borrows are safe (RL-10).
+- **DP-5** (`can_mutate_in_place`): queries BOTH `borrow_sources` (direct borrows) AND `project_alias_sources` (transitive aliases) to check for active overlapping borrows or live aliases. A `Unique` value with an active borrow from the same field is NOT safe for in-place mutation — the borrow would alias the mutated memory. Disjoint field borrows are safe (RL-10). Live transitive aliases block conservatively (no field-level granularity).
 - **TF-14** (backward propagation): when a projected variable's locality widens, the widening propagates to its borrow source via this table.
 
 **Invariants**:
@@ -195,18 +195,43 @@ Maps: `%3 → [%2]`, `%4 → [%2]`, `%5 → [%2]`
 
 **Select**: `Select` instructions do NOT participate in project alias tracking. Select is handled by its own backward-demand rules (TF-8, TF-11) which join branch operand states. A Select result that happens to receive a projected value gets demand from the standard demand system — it does not enter `project_alias_sources`.
 
+**Propagation scope — why TF-14 and project_alias_sources propagate different things**: TF-14 (direct borrow sources) propagates ONLY locality: `src.locality := max(src.locality, dst.locality)`. This is sufficient for direct borrows because (a) the direct Project variable already has full demand from the standard backward demand system (TF-11: `(value, Once)` at the Project instruction), which keeps the source aggregate alive, and (b) TF-14's role is to ensure the source's locality stays wide enough to prevent premature stack promotion while a reference escapes or lives longer. In contrast, `project_alias_sources` propagates FULL borrowed demand (Access = Borrowed, with cardinality and other dimensions) because transitive aliases cross block boundaries where the standard per-instruction backward demand system cannot propagate — a block parameter receiving a projected value via Jump does not know its definition chain, so the project_alias_sources consumer must inject the full "this source is alive through a borrow" signal at block entry. The asymmetry is intentional: intra-block demand propagation is handled by TF-11 through the instruction chain, while cross-block demand for aliases must be injected explicitly with full demand.
+
 This mechanism makes TF-14 (backward demand propagation) sound across control flow. TF-14 fires for direct `borrow_sources` entries during the per-instruction backward walk; `project_alias_sources` extends that to transitive aliases within the worklist loop.
 
 #### Return Provenance
 
 The `ReturnContract` (IC-4) is extracted within the interprocedural pass (Step 1). The interprocedural pass internally invokes `analyze_function()` (intraprocedural backward analysis) for each function or SCC member, and then extracts the contract from the converged state. However, the `ReturnContract` extraction itself uses **structural definition tracing**, not the `AimsStateMap`:
 
-- For each `Return { value }` terminator, trace `value` back through the definition chain (`Let`, `Apply`, `Construct`, etc.).
-- If the value traces back to a `Construct` instruction (fresh allocation), the return is `Unique` with `preserves_freshness = true`.
-- If the value traces back to a callee with a `Unique` return contract, uniqueness is inherited.
-- If the value traces back to a parameter directly or through a single `Let Var(param)` alias, the return is `MaybeShared` (conservative uniqueness) but `preserves_freshness = true` (the parameter's freshness is passed through unchanged — important for interprocedural contract precision on wrapper functions). Block-param/phi-like aliases of parameters are NOT traced — they fall into the conservative case below.
-- If the value traces back to an unresolvable definition, the return is fully conservative (`MaybeShared`, `preserves_freshness = false`).
-- Results from all return paths are joined (IC-4: `uniqueness(join), preserves_freshness(AND)`).
+- For each `Return { value }` terminator, trace `value` back through the definition chain (`Let`, `Apply`, `Construct`, etc.). The extractor classifies each return path along ALL four `ReturnContract` dimensions: `uniqueness`, `preserves_freshness`, `locality`, and `shape`.
+
+**Per-instruction classification** (exhaustive over ArcInstr variants that can reach a Return):
+
+| Definition type | Uniqueness | preserves_freshness | Locality | Shape |
+|---|---|---|---|---|
+| `Construct` (fresh allocation) | `Unique` | `true` | `BlockLocal` | `shape_from_ctor` |
+| `Reuse` (reused allocation) | `Unique` | `true` | `BlockLocal` | `shape_from_ctor` |
+| `CollectionReuse` | `Unique` | `true` | `BlockLocal` | `CollectionBuffer` |
+| `PartialApply` (closure) | `Unique` | `true` | `BlockLocal` | `NonReusable` |
+| `Apply`/`Invoke` with `Unique` return contract | inherited `Unique` | callee's `preserves_freshness` | callee's `locality` | callee's `shape` |
+| `Apply`/`Invoke` with non-`Unique` contract | callee's uniqueness | callee's `preserves_freshness` | callee's `locality` | callee's `shape` |
+| `Apply`/`Invoke` without contract | `MaybeShared` | `false` | `Unknown` | `NonReusable` |
+| `ApplyIndirect`/`InvokeIndirect` | `MaybeShared` | `false` | `Unknown` | `NonReusable` |
+| `Let { Literal }` / `Let { PrimOp }` | SCALAR — excluded from contract (no RC) | — | — | — |
+| `Let { Var(v) }` | follow `v`'s definition (recursive trace) | follow `v` | follow `v` | follow `v` |
+| `Select { true_val, false_val }` | `join(true_path, false_path)` | `AND(true_path, false_path)` | `join(true_path, false_path)` | `join(true_path, false_path)` |
+| Parameter (direct) | `MaybeShared` | `true` | `FunctionLocal` | `NonReusable` |
+| Parameter via single `Let Var(param)` alias | `MaybeShared` | `true` | `FunctionLocal` | `NonReusable` |
+| Unresolvable (longer chains, block-params, etc.) | `MaybeShared` | `false` | `Unknown` | `NonReusable` |
+
+**Tracing rules:**
+- `Let { Var(v) }` is transparent: recurse into `v`'s definition. A chain of Let aliases follows until a non-Let instruction is reached.
+- Block-params/phi-like aliases are NOT traced beyond the first Let — they fall into the conservative case (`MaybeShared`, `preserves_freshness = false`). This bounds the extraction to local definition chains, preventing SCC dependency on predecessor-block analysis state.
+- Parameters traced directly or through a SINGLE `Let Var(param)` alias get `preserves_freshness = true` — the parameter's freshness is passed through unchanged, which is important for interprocedural contract precision on wrapper functions.
+- `Select` is handled by tracing BOTH branch operands and joining the results per dimension: `uniqueness(join)`, `preserves_freshness(AND)`, `locality(join)`, `shape(join)`.
+- Scalar definitions (`Literal`, `PrimOp`) do not contribute to the contract — they have no RC.
+
+- Results from all return paths are joined (IC-4: `uniqueness(join), preserves_freshness(AND), locality(join), shape(join)`).
 
 CN-6 operates on per-variable `AimsState` during the intraprocedural analysis that runs WITHIN Step 1. It may demote `Unique → MaybeShared` for returned values within the function body's per-variable state. But this does not affect the `ReturnContract` because the extractor traces definitions structurally — it reads the IR instruction types (Construct, Apply, etc.), NOT the per-variable lattice state. Fresh allocations returned from a function retain `Unique` in the `ReturnContract` (enabling RL-29 `noalias`) regardless of what CN-6 does to the per-variable state.
 
@@ -263,17 +288,33 @@ Every `ArcInstr` and `ArcTerminator` variant that defines a `dst` variable has a
 
 **TF-4** — Field projection (`Project`): `dst := (Borrowed, Linear, Once, source.uniqueness, source.locality, NonReusable, NONE)`. Projection borrows a view of the source. Borrow source tracked in the `borrow_sources` side table (§1.9).
 
-**TF-5** — Direct function call without contract (`Apply`, no `MemoryContract`): `dst := TOP`. Conservative — return value may escape, be shared, have any effect.
+**TF-5** — Direct function call without contract (`Apply`, no `MemoryContract`): `dst := CONSERVATIVE`, defined as `(Owned, Unrestricted, Many, MaybeShared, Unknown, NonReusable, ALL)`. Note: `MaybeShared` (NOT `Shared`) is deliberate — an unknown callee's return value has unknown uniqueness, so it gets a runtime IsShared check (dynamic COW). `Shared` would pessimize by unconditionally copying. `MaybeShared` is below the lattice TOP for Uniqueness (`Shared`); `CONSERVATIVE` is therefore NOT the lattice-theoretic TOP element — it is the operationally correct default for unknown calls.
 
-**TF-5a** — Indirect function call (`ApplyIndirect`): `dst := TOP`. Closures have no interprocedural contract — always conservative.
+**TF-5a** — Indirect function call (`ApplyIndirect`): `dst := CONSERVATIVE` (same as TF-5). Closures have no interprocedural contract — always conservative.
 
-**TF-6** — Direct function call with contract (`Apply`, with `MemoryContract`): `dst := refine(TOP, callee.return_contract)`. Contract narrows uniqueness, freshness, locality.
+**TF-6** — Direct function call with contract (`Apply`, with `MemoryContract`): `dst := refine(CONSERVATIVE, callee.return_contract)`. The `refine` function narrows the CONSERVATIVE default using the callee's `ReturnContract`:
 
-**TF-6a** — Invoke with contract (`Invoke`, with `MemoryContract`): Same as TF-6. The unwinding edge does not affect the definition on the normal path.
+```
+refine(base, contract) → AimsState:
+  result := base                           // start from CONSERVATIVE
+  result.uniqueness := contract.uniqueness // Unique, MaybeShared, or Shared
+  result.locality   := contract.locality   // narrows Unknown → actual scope
+  result.shape      := contract.shape      // narrows NonReusable → actual shape
+  // preserves_freshness is NOT an AimsState dimension — it is a contract
+  // flag consumed by downstream contract extraction (§1.9 Return Provenance).
+  // When a caller returns a value from a callee that preserves_freshness,
+  // the caller's OWN return contract inherits that freshness transitively.
+  // It does NOT modify the call-site result's AimsState directly.
+  return result
+```
 
-**TF-6b** — Invoke without contract (`Invoke`, no `MemoryContract`): Same as TF-5.
+Dimensions NOT narrowed by `refine`: Access (stays `Owned` — call results are always owned by the caller), Consumption (stays `Unrestricted` — the caller may use the result arbitrarily), Cardinality (stays `Many` — refined by actual usage during backward demand), Effect (stays `ALL` — the EffectSummary governs this, not the ReturnContract).
 
-**TF-6c** — Indirect invoke (`InvokeIndirect`): Same as TF-5a. No contract available.
+**TF-6a** — Invoke with contract (`Invoke`, with `MemoryContract`): Same as TF-6 (`refine(CONSERVATIVE, callee.return_contract)`). The unwinding edge does not affect the definition on the normal path.
+
+**TF-6b** — Invoke without contract (`Invoke`, no `MemoryContract`): Same as TF-5 (`CONSERVATIVE`).
+
+**TF-6c** — Indirect invoke (`InvokeIndirect`): Same as TF-5a (`CONSERVATIVE`). No contract available.
 
 **TF-7** — Closure capture (`PartialApply`): `dst := FRESH(NonReusable)`. Closures are not reusable. Captured variables updated via `capture_state_update` (TF-13).
 
@@ -345,7 +386,7 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 
 ## §4 Decision Predicates
 
-Decision predicates map lattice states to RC/COW/reuse decisions. Most are pure functions of `AimsState`. Exception: DP-5 (`can_mutate_in_place`) additionally consults the `borrow_sources` side table and the live-variable set at the mutation point — see §1.9 for the side-table specification.
+Decision predicates map lattice states to RC/COW/reuse decisions. Most are pure functions of `AimsState`. Exception: DP-5 (`can_mutate_in_place`) additionally consults the `borrow_sources` side table, the `project_alias_sources` side table, and the live-variable set at the mutation point — see §1.9 for the side-table specifications.
 
 **DP-1** — `is_rc_needed(s) ⟺ s.access = Owned ∧ s.consumption ≠ Dead ∧ ¬s.is_scalar()`.
 Only owned, live, non-scalar variables carry RC obligations.
@@ -359,12 +400,16 @@ Moved once — no duplication, no increment needed.
 **DP-4** — `needs_cow_check(s) ⟺ s.uniqueness = MaybeShared`.
 Only MaybeShared needs a runtime uniqueness check. Unique takes fast path statically; Shared takes slow path statically.
 
-**DP-5** — `can_mutate_in_place(s, var, point) ⟺ s.access = Owned ∧ s.uniqueness = Unique ∧ no_active_overlapping_borrows(var, point)`.
-Unique ownership permits direct mutation without COW, BUT only when no active borrow from the same source overlaps the mutated field. Borrows (via `Project`) do not increment RC — a `Unique` value with an active borrow is still RC = 1 but mutating it would corrupt the borrowed reference.
+**DP-5** — `can_mutate_in_place(s, var, field, point) ⟺ s.access = Owned ∧ s.uniqueness = Unique ∧ no_active_overlapping_borrows(var, field, point)`.
+Unique ownership permits direct mutation without COW, BUT only when no active borrow from the same source overlaps the mutated field. Borrows (via `Project`) do not increment RC — a `Unique` value with an active borrow is still RC = 1 but mutating it would corrupt the borrowed reference. The `field` parameter identifies WHICH field is being mutated — required for the disjointness check (RL-10).
 
-`no_active_overlapping_borrows(var, point)` is defined as: for all variables `b` in `borrow_sources` where `borrow_sources[b].source = var`: `b` is NOT live at `point`, OR `borrow_sources[b].field` is disjoint from the mutated field (RL-10). "Active" means live at the mutation point — a borrow that has gone dead is not a conflict. The liveness intersection is required; checking `borrow_sources` without liveness would permanently disable COW fast paths for any object that was ever borrowed, even after the borrow dies.
+`no_active_overlapping_borrows(var, field, point)` is defined as: for all variables that borrow from `var` — checking BOTH direct borrows in `borrow_sources` AND transitive aliases in `project_alias_sources`:
+1. **Direct borrows**: for all `b` in `borrow_sources` where `borrow_sources[b].source = var`: `b` is NOT live at `point`, OR `borrow_sources[b].field` is disjoint from `field`.
+2. **Transitive aliases**: for all `a` in `project_alias_sources` where `var ∈ project_alias_sources[a]`: `a` is NOT live at `point`. Aliases do not carry field-level granularity (they inherit the full borrow scope of their source), so ANY live alias of a borrow from `var` blocks in-place mutation of `var`, regardless of which field the alias borrows. This is conservative but sound — field tracking through alias chains is a precision extension, not a soundness requirement.
 
-Note: DP-5 is NOT a pure function of `AimsState` alone — it additionally consults `borrow_sources` (§1.9) and the live-variable set at the program point. See Appendix C for the truth table (which includes the side-table input column).
+"Active" means live at the mutation point — a borrow (or alias) that has gone dead is not a conflict. The liveness intersection is required; checking `borrow_sources`/`project_alias_sources` without liveness would permanently disable COW fast paths for any object that was ever borrowed, even after all borrows and aliases die.
+
+Note: DP-5 is NOT a pure function of `AimsState` alone — it additionally consults `borrow_sources`, `project_alias_sources` (§1.9), and the live-variable set at the program point. See Appendix C for the truth table (which includes the side-table input columns).
 
 **DP-6** — `is_reuse_candidate(s) ⟺ s.access = Owned ∧ s.uniqueness ≠ Shared ∧ s.shape ≠ NonReusable`.
 Reuse requires owned, non-shared, reusable shape.
@@ -662,7 +707,7 @@ Exhaustive mapping of every `ArcInstr` and `ArcTerminator` variant to its output
 | `Invoke` (no contract) | TF-6b | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
 | `InvokeIndirect` | TF-6c | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
 
-Legend: `⊔` = componentwise join of branch operands. `refined` = TOP narrowed by `callee.return_contract`. `NONE` = `{may_alloc=F, may_share=F, may_throw=F}`. `ALL` = `{may_alloc=T, may_share=T, may_throw=T}`. `shape_from_ctor`: Struct→ReusableCtor(Struct), EnumVariant→ReusableCtor(EnumVariant), ListLiteral/SetLiteral/MapLiteral→CollectionBuffer, Tuple/Closure→NonReusable.
+Legend: `⊔` = componentwise join of branch operands. `CONSERVATIVE` = `(Owned, Unrestricted, Many, MaybeShared, Unknown, NonReusable, ALL)` — the operationally correct default for unknown calls (NOT the lattice-theoretic TOP; `MaybeShared` is deliberately below `Shared` to enable dynamic COW checks). `refined` = CONSERVATIVE narrowed by `callee.return_contract` via the `refine()` function (see TF-6). `NONE` = `{may_alloc=F, may_share=F, may_throw=F}`. `ALL` = `{may_alloc=T, may_share=T, may_throw=T}`. `shape_from_ctor`: Struct→ReusableCtor(Struct), EnumVariant→ReusableCtor(EnumVariant), ListLiteral/SetLiteral/MapLiteral→CollectionBuffer, Tuple/Closure→NonReusable.
 
 Terminators `Return`, `Jump`, `Branch`, `Switch`, `Resume`, `Unreachable` produce no definitions (no `dst`). `Invoke`/`InvokeIndirect` are listed above (they define `dst` on the normal path).
 
@@ -740,16 +785,17 @@ Each predicate is a function of the lattice state. Most are pure functions of `A
 | MaybeShared | **true** (runtime check needed) |
 | Shared | **false** (static shared path) |
 
-### DP-5: `can_mutate_in_place(s)`
+### DP-5: `can_mutate_in_place(s, var, field, point)`
 
-| Access | Uniqueness | Overlapping borrows? | Result |
-|---|---|---|---|
-| ≠ Owned | any | any | **false** |
-| Owned | ≠ Unique | any | **false** |
-| Owned | Unique | yes (same field) | **false** |
-| Owned | Unique | no (disjoint or none) | **true** |
+| Access | Uniqueness | Active direct borrow overlaps `field`? | Active alias of borrow from `var`? | Result |
+|---|---|---|---|---|
+| ≠ Owned | any | any | any | **false** |
+| Owned | ≠ Unique | any | any | **false** |
+| Owned | Unique | yes (same or overlapping field, live at `point`) | any | **false** |
+| Owned | Unique | no | yes (any alias live at `point`) | **false** |
+| Owned | Unique | no | no | **true** |
 
-"Overlapping borrows" checked via `borrow_sources` side table intersected with live-variable set at the mutation point (§1.9). DP-5 is the sole predicate that is NOT a pure function of `AimsState` — it additionally requires `borrow_sources` and liveness.
+"Active direct borrow" checked via `borrow_sources` side table: entries where `borrow_sources[b].source = var` and `b` is live at `point` and `borrow_sources[b].field` overlaps `field`. "Active alias" checked via `project_alias_sources`: entries where `var ∈ project_alias_sources[a]` and `a` is live at `point`. Aliases block conservatively (no field-level granularity — any live alias blocks). Both checks are intersected with the live-variable set at the mutation point (§1.9). DP-5 is the sole predicate that is NOT a pure function of `AimsState` — it additionally requires `borrow_sources`, `project_alias_sources`, and liveness.
 
 ### DP-6: `is_reuse_candidate(s)`
 
