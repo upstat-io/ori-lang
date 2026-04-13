@@ -49,6 +49,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-12 | Source: tpr-review
   Reviewer: gemini (deep investigation with ORI_DUMP_AFTER_LLVM=1 + valgrind during §07 FileCheck TPR round 5)
 
+- [ ] `[BUG-04-076][high]` **emit_iter_flatten passes iterator handle size instead of inner element size**
+  Repro: `[[true, false], [true]].iter().flatten().collect()` — `elem_ty` for flatten is `Iterator<bool>` (8-byte handle), but `ori_iter_flatten` expects `inner_elem_size = sizeof(bool) = 1`. The runtime's `next_flattened` uses the wrong stride for inner element reads. Currently masked for `int` (both are 8 bytes) but wrong for `bool`, `byte`, tuples, or structs.
+  Subsystem: `ori_llvm` (iterator codegen — `emit_iter_flatten`, `emit_iter_flat_map`)
+  Found: 2026-04-13 | Source: tpr-review
+  Reviewers: codex + gemini (near-agreement during BUG-04-071 fix TPR round 1)
+
 - [ ] `[BUG-04-070][high]` **E4003: Index assignment (`xs[0] = 42`) hits ARC internal error before desugaring**
   Repro: Any `.ori` file with `xs[0] = value` emits `error[E4003]: ARC internal error: index assignment reached ARC lowering before desugaring`. The compilation continues and produces LLVM IR, but the mutation op is silently dropped — the emitted IR only contains list creation ops, not mutation ops. FileCheck tests that rely on index assignment produce false-green results.
   Subsystem: `ori_arc` (ARC lowering / desugaring pipeline)
