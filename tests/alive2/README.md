@@ -54,4 +54,30 @@ diagnostics/alive2-verify.sh --corpus
 
 # All codegen tests (weekly CI sweep)
 diagnostics/alive2-verify.sh --all-codegen
+
+# With JSON output (for CI artifacts)
+diagnostics/alive2-verify.sh --corpus --json
 ```
+
+## Machine-Readable Output Contract (v1)
+
+When `--json` is passed, `alive2-verify.sh` writes structured results to `build/alive2-results/results.json` conforming to `tests/alive2/results-schema.json` (JSON Schema draft-07).
+
+### Directory Layout
+
+```
+build/alive2-results/
+  results.json           # Structured verification results
+  *.preopt.ll            # Pre-optimization LLVM IR (per-file)
+  *.postopt.ll           # Post-optimization LLVM IR (per-file)
+```
+
+### Schema Version
+
+- **Version 1** (current): flat function array with status enum
+- Schema changes bump the `version` integer — consumers check version before parsing
+
+### Consumers
+
+- **Section 11 (CI Integration)**: uploads `build/alive2-results/` as CI artifact, compares nightly/weekly runs
+- **Section 12 (Regression Dashboard)**: tracks verification trends across runs, detects new failures

@@ -130,6 +130,21 @@ INLINED=0
 ERRORS=0
 TOTAL=0
 
+# JSON result accumulator (newline-separated JSON objects)
+JSON_ENTRIES_FILE=""
+if [[ "$JSON_OUTPUT" == "true" ]]; then
+    JSON_ENTRIES_FILE="$(mktemp)"
+fi
+
+# --- Record a JSON result entry ---
+json_record() {
+    [[ "$JSON_OUTPUT" != "true" ]] && return
+    local file="$1" func="$2" status="$3" category="${4:-}" output="${5:-}"
+    # Escape strings for JSON
+    output=$(echo "$output" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null || echo '""')
+    echo "{\"file\":\"$file\",\"function\":\"$func\",\"status\":\"$status\"${category:+,\"suppression_category\":\"$category\"},\"alive2_output\":$output}" >> "$JSON_ENTRIES_FILE"
+}
+
 # --- Extract function names from LLVM IR (without @ prefix) ---
 extract_functions() {
     grep '^define' "$1" 2>/dev/null | sed 's/.*@\"\{0,1\}\([^" (]*\)\"\{0,1\}.*/\1/'
@@ -275,6 +290,7 @@ verify_file() {
             cat=$(get_suppression_category "$func" "$ori_file")
             [[ "$VERBOSE" == "true" ]] && cecho "$YELLOW" "  SUPPRESSED: $func ($cat)"
             SUPPRESSED=$((SUPPRESSED + 1))
+            json_record "$ori_file" "$func" "suppressed" "$cat"
             continue
         fi
 
@@ -285,6 +301,7 @@ verify_file() {
             fi
             INLINED=$((INLINED + 1))
             file_inlined=$((file_inlined + 1))
+            json_record "$ori_file" "$func" "inlined"
             continue
         fi
 
@@ -298,23 +315,28 @@ verify_file() {
             [[ "$VERBOSE" == "true" ]] && cecho "$GREEN" "  VERIFIED: $func"
             VERIFIED=$((VERIFIED + 1))
             file_verified=$((file_verified + 1))
+            json_record "$ori_file" "$func" "verified"
         elif echo "$atv_output" | grep -q "timeout"; then
             cecho "$YELLOW" "  TIMEOUT: $func (Z3 timeout at ${Z3_TIMEOUT}s)"
             TIMEOUT_COUNT=$((TIMEOUT_COUNT + 1))
+            json_record "$ori_file" "$func" "timeout" "" "$atv_output"
         elif echo "$atv_output" | grep -q "ERROR"; then
             # alive-tv error (unsupported instruction, etc.)
             if is_suppressed "$func" "$ori_file"; then
                 SUPPRESSED=$((SUPPRESSED + 1))
+                json_record "$ori_file" "$func" "suppressed"
             else
                 cecho "$YELLOW" "  UNSUPPORTED: $func"
                 [[ "$VERBOSE" == "true" ]] && echo "$atv_output" | grep "ERROR:" | head -3
                 ERRORS=$((ERRORS + 1))
+                json_record "$ori_file" "$func" "error" "" "$atv_output"
             fi
         else
             cecho "$RED" "  FAILED: $func"
             [[ "$VERBOSE" == "true" ]] && echo "$atv_output"
             FAILED=$((FAILED + 1))
             file_failed=$((file_failed + 1))
+            json_record "$ori_file" "$func" "failed" "" "$atv_output"
         fi
     done
 
@@ -370,6 +392,50 @@ else
     if ! verify_file "$ORI_FILE"; then
         EXIT_CODE=1
     fi
+fi
+
+# --- Write JSON results ---
+if [[ "$JSON_OUTPUT" == "true" ]] && [[ -n "$JSON_ENTRIES_FILE" ]]; then
+    JSON_FILE="$RESULTS_DIR/results.json"
+    # Determine mode
+    json_mode="single-file"
+    [[ "$CORPUS_MODE" == "true" ]] && json_mode="curated"
+    [[ "$ALL_CODEGEN_MODE" == "true" ]] && json_mode="full-sweep"
+    # Extract alive2 commit from build script
+    alive2_commit=$(grep 'ALIVE2_COMMIT=' "$ROOT_DIR/scripts/build-alive2.sh" 2>/dev/null | head -1 | cut -d'"' -f2)
+    llvm_major=$("$ROOT_DIR/build/alive2/alive-tv" --version 2>&1 | grep -oP 'LLVM \K\d+' || echo "21")
+    # Build JSON
+    python3 -c "
+import json, sys
+from datetime import datetime, timezone
+entries = []
+with open('$JSON_ENTRIES_FILE') as f:
+    for line in f:
+        line = line.strip()
+        if line:
+            entries.append(json.loads(line))
+result = {
+    'version': 1,
+    'timestamp': datetime.now(timezone.utc).isoformat(),
+    'llvm_version': int('${llvm_major}'),
+    'alive2_commit': '${alive2_commit}',
+    'mode': '${json_mode}',
+    'summary': {
+        'verified': $VERIFIED,
+        'failed': $FAILED,
+        'timeout': $TIMEOUT_COUNT,
+        'suppressed': $SUPPRESSED,
+        'inlined': $INLINED,
+        'errors': $ERRORS,
+        'total': $TOTAL
+    },
+    'functions': entries
+}
+with open('$JSON_FILE', 'w') as f:
+    json.dump(result, f, indent=2)
+print(f'JSON results written to $JSON_FILE', file=sys.stderr)
+" 2>&1 >&2
+    rm -f "$JSON_ENTRIES_FILE"
 fi
 
 # --- Summary ---
