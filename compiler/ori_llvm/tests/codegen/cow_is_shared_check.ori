@@ -1,9 +1,11 @@
-// FileCheck test: list mutation uses buffer store operations
-// CHECK: ori_buffer_store_elem_dec
-// CHECK: ori_buffer_store_elem_count
+// FileCheck test: list mutation uses COW push operation.
+// Rewritten from xs[0] = 42 (E4003 ARC error) to .push() which
+// correctly exercises the COW code path via ori_list_push_cow.
+//
+// CHECK: ori_list_push_cow
 
 @main () -> void = {
     let xs = [1, 2, 3];
-    xs[0] = 42;
-    print(msg: xs[0].to_str())
+    xs.push(value: 42);
+    print(msg: xs.len().to_str())
 }

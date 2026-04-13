@@ -19,6 +19,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-070][high]` **E4003: Index assignment (`xs[0] = 42`) hits ARC internal error before desugaring**
+  Repro: Any `.ori` file with `xs[0] = value` emits `error[E4003]: ARC internal error: index assignment reached ARC lowering before desugaring`. The compilation continues and produces LLVM IR, but the mutation op is silently dropped — the emitted IR only contains list creation ops, not mutation ops. FileCheck tests that rely on index assignment produce false-green results.
+  Subsystem: `ori_arc` (ARC lowering / desugaring pipeline)
+  Found: 2026-04-12 | Source: tpr-review
+  Reviewer: codex + gemini (both independently discovered during §07 FileCheck test verification)
+
 - [x] `[BUG-04-056][low]` **AIMS verifier false positive: `AbsentParamHasUses` on dead code after `if true then panic()`**
   Repro: `ORI_VERIFY_ARC=1 cargo test -p ori_llvm --test aot -- test_generic_call_with_builtin_arg_not_treated_as_intercepted`
   Subsystem: `compiler/ori_arc/src/pipeline/mod.rs` — `run_aims_verify()` treated `AbsentParamHasUses` as a hard error, but it's a precision gap (backward analysis correctly classifies param as absent when all uses are in semantically-dead code)
