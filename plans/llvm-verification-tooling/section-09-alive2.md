@@ -38,7 +38,7 @@ sections:
     status: complete
   - id: "09.6"
     title: "Machine-Readable Artifact Contract for Sections 11/12"
-    status: not-started
+    status: complete
   - id: "09.R"
     title: "Third Party Review Findings"
     status: complete
@@ -533,7 +533,7 @@ Wire alive-tv into CI with tiered execution: nightly runs the curated corpus (fa
 
 Sections 11 (CI Integration) and 12 (Regression Dashboard) explicitly consume artifacts from `build/alive2-results/`. This subsection defines the machine-readable output format that serves as the contract between Section 09 (producer) and Sections 11/12 (consumers).
 
-- [ ] Define the output schema (`tests/alive2/results-schema.json`):
+- [x] Define the output schema (`tests/alive2/results-schema.json`):
   ```json
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -577,23 +577,23 @@ Sections 11 (CI Integration) and 12 (Regression Dashboard) explicitly consume ar
   ```
   **WHERE:** `tests/alive2/results-schema.json` (new file)
 
-- [ ] Implement `--json` output in `diagnostics/alive2-verify.sh` that writes to `build/alive2-results/results.json` conforming to the schema above. The script creates the `build/alive2-results/` directory and writes:
+- [x] Implement `--json` output in `diagnostics/alive2-verify.sh` that writes to `build/alive2-results/results.json` conforming to the schema above. The script creates the `build/alive2-results/` directory and writes:
   - `results.json` — the structured results file
   - `*.preopt.ll` and `*.postopt.ll` — the captured IR pairs (for debugging failed verifications)
 
-- [ ] Add a validation step that checks `results.json` against the schema (using `python3 -c 'import jsonschema; ...'` or a simple jq-based structural check).
+- [x] Add a validation step that checks `results.json` against the schema (using `python3 -c 'import jsonschema; ...'` or a simple jq-based structural check).
 
-- [ ] Document the contract in `tests/alive2/README.md`:
+- [x] Document the contract in `tests/alive2/README.md`:
   - Schema version and compatibility guarantees
   - Directory layout: `build/alive2-results/{results.json, *.preopt.ll, *.postopt.ll}`
   - How Section 11 consumes: artifact upload in CI, nightly/weekly comparison
   - How Section 12 consumes: trend tracking across runs, regression detection
 
-- [ ] **Subsection close-out (09.6)** — MANDATORY before starting 09.R:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+- [x] **Subsection close-out (09.6)** — MANDATORY before starting 09.R:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 09.6: no tooling gaps. JSON output verified end-to-end with python3. Schema in results-schema.json. Contract documented in README.
+  - [x] **Repo hygiene check** — clean (2026-04-13).
 
 ---
 
