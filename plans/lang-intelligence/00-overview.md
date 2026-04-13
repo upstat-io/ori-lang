@@ -110,7 +110,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 |---|---------|--------|---------------|------------|
 | 01 | Infrastructure & Canonical Helper | complete | `scripts/intel-query.sh`, `~/projects/lang_intelligence/` | — |
 | 02 | Claude Rules & Commands | complete | `.claude/rules/intelligence.md`, `.claude/commands/query-intel.md` | 01 |
-| 03 | Skill Integration: TPR + Fix-Bug | not-started | `.claude/skills/tpr-review/SKILL.md`, `.claude/skills/fix-bug/SKILL.md` | 01, 02 |
+| 03 | Skill Integration: TPR + Fix-Bug | complete | `.claude/skills/tpr-review/SKILL.md`, `.claude/skills/fix-bug/SKILL.md` | 01, 02 |
 | 04 | Skill Integration: Remaining | not-started | 4 skill files + `review-bugs.md` | 01, 02 |
 | 05 | Code Graph: Parser Adapters | not-started | `~/projects/lang_intelligence/neo4j/`, `languages.yaml` | — |
 | 06 | Code Graph: Symbol Extraction | not-started | `~/projects/lang_intelligence/neo4j/extract_symbols.py` | 05 |

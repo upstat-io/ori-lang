@@ -11,6 +11,19 @@ success_criteria:
   - "/review-bugs cross-references bugs with similar issues in reference compilers"
   - "All skills use scripts/intel-query.sh — no open-coded Neo4j logic"
 depends_on: ["01", "02"]
+sections:
+  - id: "04.1"
+    title: "Design Pattern Review"
+    status: not-started
+  - id: "04.2"
+    title: "Draft Proposal"
+    status: not-started
+  - id: "04.3"
+    title: "Continue Roadmap"
+    status: not-started
+  - id: "04.4"
+    title: "Review Bugs"
+    status: not-started
 third_party_review:
   status: none
   updated: null
