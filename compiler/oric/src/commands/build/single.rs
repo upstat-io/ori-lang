@@ -81,23 +81,13 @@ pub(super) fn build_file_single(
     let output_path = determine_output_path(path, options);
 
     // Step 6: Emit based on emit type (--emit flag)
-    // For --emit, we still verify+optimize first, then emit in the requested format.
     if let Some(emit_type) = options.emit {
-        if let Err(e) = ori_llvm::aot::optimize_module(&llvm_module, emitter.machine(), &opt_config)
-        {
-            report_codegen_error(e);
-        }
-        // Post-optimization RC histogram (gated behind audit flag).
-        if ori_llvm::verify::audit_requested() {
-            let audit_opts = ori_llvm::verify::AuditOptions::from_env();
-            let stats = ori_llvm::verify::audit_module_histogram_only(&llvm_module, &audit_opts);
-            stats.emit_to_stderr();
-        }
-        emit_and_finish(
+        handle_emit_type(
             &llvm_module,
             &emitter,
             &output_path,
             emit_type,
+            &opt_config,
             options,
             start,
         );
@@ -145,6 +135,77 @@ pub(super) fn build_file_single(
         &opt_config.sanitizer,
         start,
     );
+}
+
+/// Handle `--emit` flag: optimize then emit in the requested format.
+/// When sanitizers are enabled and emit type is Object, routes through Clang delegation.
+fn handle_emit_type(
+    llvm_module: &ori_llvm::inkwell::module::Module<'_>,
+    emitter: &ori_llvm::aot::ObjectEmitter,
+    output_path: &Path,
+    emit_type: EmitType,
+    opt_config: &ori_llvm::aot::OptimizationConfig,
+    options: &BuildOptions,
+    start: std::time::Instant,
+) {
+    use crate::problem::codegen::report_codegen_error;
+
+    if let Err(e) = ori_llvm::aot::optimize_module(llvm_module, emitter.machine(), opt_config) {
+        report_codegen_error(e);
+    }
+    if ori_llvm::verify::audit_requested() {
+        let audit_opts = ori_llvm::verify::AuditOptions::from_env();
+        let stats = ori_llvm::verify::audit_module_histogram_only(llvm_module, &audit_opts);
+        stats.emit_to_stderr();
+    }
+    if emit_type == EmitType::Object && opt_config.sanitizer.any_enabled() {
+        emit_sanitized_object(
+            llvm_module,
+            emitter,
+            output_path,
+            opt_config,
+            options,
+            start,
+        );
+        return;
+    }
+    emit_and_finish(llvm_module, emitter, output_path, emit_type, options, start);
+}
+
+/// Emit a sanitizer-instrumented object via Clang delegation (used for --emit object with sanitizers).
+fn emit_sanitized_object(
+    llvm_module: &ori_llvm::inkwell::module::Module<'_>,
+    emitter: &ori_llvm::aot::ObjectEmitter,
+    output_path: &Path,
+    opt_config: &ori_llvm::aot::OptimizationConfig,
+    options: &BuildOptions,
+    start: std::time::Instant,
+) {
+    use crate::problem::codegen::report_codegen_error;
+
+    let emit_path = output_path.with_extension("o");
+    let ir_path = emit_path.with_extension("ll");
+    if let Err(e) = emitter.emit(llvm_module, &ir_path, ori_llvm::aot::OutputFormat::LlvmIr) {
+        report_codegen_error(e);
+    }
+    let target = emitter.machine().get_triple().to_string();
+    if let Err(e) = ori_llvm::aot::clang_compile_with_sanitizers(
+        &ir_path,
+        &emit_path,
+        &opt_config.sanitizer,
+        opt_config.level.as_clang_flag(),
+        &target,
+    ) {
+        report_codegen_error(e);
+    }
+    let _ = std::fs::remove_file(&ir_path);
+    if options.verbose {
+        eprintln!(
+            "  Finished {} (sanitized) in {:.2}s",
+            emit_path.display(),
+            start.elapsed().as_secs_f64()
+        );
+    }
 }
 
 /// Emit a module and finish (used for --emit flag).

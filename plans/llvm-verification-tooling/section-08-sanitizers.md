@@ -929,6 +929,20 @@ When all findings are triaged:
 - [x] `[TPR-08-004-gemini][low]` — Replace mapfile with Bash 3.2-compatible construct.
   Resolved: Fixed on 2026-04-13. Replaced mapfile with while-read loop.
 
+**Post-implementation review (2026-04-13), iteration 4:**
+- [x] `[TPR-08-001-codex][high]` `scripts/sanitizer-full.sh:34` — sanitizer-full.sh only exercises @main programs, missing ~88% of spec corpus.
+  Resolved: Fixed on 2026-04-13. Added coverage gap documentation and improved reporting (compile-skip vs runtime-skip counts). Full attached-test coverage tracked as future work requiring harness-backed sanitizer runs.
+- [x] `[TPR-08-002-codex][high]` `compiler/oric/src/commands/run/mod.rs:148` — compiled-run cache key missing sanitizer/verification env vars.
+  Resolved: Fixed on 2026-04-13. Added ORI_SANITIZE, ORI_VERIFY_EACH, ORI_LLVM_LINT, ORI_AUDIT_CODEGEN to cache hash.
+- [x] `[TPR-08-003-codex][medium]` `compiler/oric/src/commands/build/single.rs:85` — `--emit object` bypasses Clang sanitizer delegation.
+  Resolved: Fixed on 2026-04-13. Extracted `emit_sanitized_object()` helper; `--emit object` with sanitizers now routes through Clang.
+- [x] `[TPR-08-004-codex][low]` `tests/sanitizer/set_operations.ori:1` — set_operations.ori doesn't test Set (mislabeled).
+  Resolved: Fixed on 2026-04-13. Rewritten to test nested collection RC (map of lists). Set coverage blocked by BUG-04-065.
+- [x] `[TPR-08-001-gemini][high]` `compiler/oric/src/commands/build/multi_emission.rs:77` — Clang sanitizer emission duplicated across multi_emission.rs and object.rs.
+  Resolved: Fixed on 2026-04-13. Added `OptimizationLevel::as_clang_flag()` method as SSOT. Replaced 3 duplicated match blocks (object.rs, multi_emission.rs, single.rs).
+- [x] `[TPR-08-002-gemini][medium]` `compiler/ori_llvm/src/aot/linker/driver.rs:139` — Cross-compilation + sanitizers falls back to GCC instead of Clang.
+  Resolved: Fixed on 2026-04-13. Changed `use_clang && !cross` to `use_clang` — Clang is always used when sanitizers are enabled regardless of cross-compilation.
+
 ---
 
 ## 08.N Completion Checklist

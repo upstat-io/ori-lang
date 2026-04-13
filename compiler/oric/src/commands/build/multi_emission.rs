@@ -84,14 +84,7 @@ pub(super) fn lto_merge(
             });
         }
 
-        let opt_level = match opt_config.level {
-            ori_llvm::aot::OptimizationLevel::O0 => "-O0",
-            ori_llvm::aot::OptimizationLevel::O1 => "-O1",
-            ori_llvm::aot::OptimizationLevel::O2 => "-O2",
-            ori_llvm::aot::OptimizationLevel::O3 => "-O3",
-            ori_llvm::aot::OptimizationLevel::Os => "-Os",
-            ori_llvm::aot::OptimizationLevel::Oz => "-Oz",
-        };
+        let opt_level = opt_config.level.as_clang_flag();
 
         if let Err(e) = ori_llvm::aot::clang_compile_with_sanitizers(
             &ir_path,

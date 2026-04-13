@@ -1,15 +1,12 @@
-// Sanitizer smoke: Set operations — insert, contains.
-// Tests set hash table allocation and element RC.
+// Sanitizer smoke: Nested collection RC — lists inside maps.
+// Tests RC correctness for compound collection structures.
+// NOTE: Set<T> iteration blocked by BUG-04-065 (SIGSEGV in AOT).
+// This test exercises the nested-collection-drop pattern instead.
 
 @main () -> int = {
-    let items = [1, 2, 3, 2, 1, 4, 5, 3];
-    let unique = for x in items yield x;
-    // Collect unique elements by building a list and checking length
-    let all_items = [1, 2, 3, 4, 5];
-    let sum = 0;
-    for x in all_items do {
-        sum = sum + x
-    };
-    // 1+2+3+4+5 = 15
-    if sum == 15 then 0 else 1
+    let m = {"nums": [1, 2, 3], "more": [4, 5, 6]};
+    let nums = m["nums"];
+    let more = m["more"];
+    let ok = nums == Some([1, 2, 3]) && more == Some([4, 5, 6]);
+    if ok then 0 else 1
 }

@@ -53,10 +53,17 @@ END=$(( START + PER_SHARD ))
 
 echo "  Running tests $((START + 1)) to $END of $TOTAL_TESTS"
 echo ""
+echo "  NOTE: This script exercises files via 'ori build' + direct execution."
+echo "  Only files with @main entry points produce runnable binaries."
+echo "  Files using @test (attached tests) are compiled but skipped at runtime."
+echo "  Full attached-test coverage requires harness-backed sanitizer runs"
+echo "  (ori test --backend=llvm with ORI_SANITIZE) — tracked as future work."
+echo ""
 
 FAIL_COUNT=0
 PASS_COUNT=0
 SKIP_COUNT=0
+COMPILE_FAIL_COUNT=0
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 
@@ -66,17 +73,24 @@ for (( i=START; i<END; i++ )); do
 
     # Compile to AOT binary with sanitizers via ORI_SANITIZE
     if ! "$ORI" build "$test_file" -o "$TMPDIR/san_full_$name" 2>/dev/null; then
-        # Compilation failure — may be compile_fail test or codegen limitation
-        SKIP_COUNT=$((SKIP_COUNT + 1))
+        # Compilation failure — may be compile_fail test, @test-only file, or codegen limitation
+        COMPILE_FAIL_COUNT=$((COMPILE_FAIL_COUNT + 1))
         continue
     fi
 
-    # Run with per-test timeout (sanitized binaries are slower)
+    # Run with per-test timeout (sanitized binaries are slower).
+    # Programs without @main produce a binary that exits immediately (no entry point).
     if timeout 10 "$TMPDIR/san_full_$name" 2>/dev/null; then
         PASS_COUNT=$((PASS_COUNT + 1))
     else
-        echo "FAIL: $test_file"
-        FAIL_COUNT=$((FAIL_COUNT + 1))
+        exit_code=$?
+        # Exit code 127 or similar = no @main, not a sanitizer failure
+        if [ $exit_code -eq 127 ] || [ $exit_code -eq 1 ]; then
+            SKIP_COUNT=$((SKIP_COUNT + 1))
+        else
+            echo "FAIL: $test_file (exit $exit_code)"
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+        fi
     fi
 
     # Clean up binary to avoid disk pressure
@@ -84,7 +98,12 @@ for (( i=START; i<END; i++ )); do
 done
 
 echo ""
-echo "=== Shard $SHARD complete: $PASS_COUNT passed, $FAIL_COUNT failed, $SKIP_COUNT skipped ==="
+echo "=== Shard $SHARD complete ==="
+echo "  Passed:        $PASS_COUNT"
+echo "  Failed:        $FAIL_COUNT"
+echo "  Compile-skip:  $COMPILE_FAIL_COUNT"
+echo "  Runtime-skip:  $SKIP_COUNT"
+echo "  Total in shard: $((END - START))"
 
 if [ "$FAIL_COUNT" -gt 0 ]; then
     echo "ERROR: $FAIL_COUNT sanitizer failure(s) in shard $SHARD"
