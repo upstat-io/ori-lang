@@ -252,6 +252,19 @@ fn link_and_finish(
         }
     };
 
+    // Validate ASan runtime availability when sanitizers request address sanitization
+    if sanitizer.address && !runtime_config.has_asan_variant() {
+        eprintln!(
+            "error: ORI_SANITIZE=address is set but {} was not found in {}.",
+            ori_llvm::aot::RuntimeConfig::lib_name_asan(),
+            runtime_config.library_path.display(),
+        );
+        eprintln!("Without ASan-instrumented ori_rt, memory bugs in RC operations and containers");
+        eprintln!("will NOT be detected — defeating the primary goal of sanitizer integration.");
+        eprintln!("Run `./scripts/build-rt-asan.sh` to build the ASan-instrumented runtime.");
+        std::process::exit(1);
+    }
+
     let output_kind = if options.lib {
         LinkOutput::StaticLibrary
     } else if options.dylib {
