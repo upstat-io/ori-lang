@@ -287,7 +287,11 @@ The `>>=` compound assignment is synthesized from three adjacent tokens (`>` `>`
 
 ### PR-6 — Unary Operator Parsing
 
-Prefix unary operators (`-`, `!`, `~`) SHALL be parsed at the primary expression level, before entering the Pratt infix loop. Postfix `?` (try operator) SHALL be parsed in the postfix chain, NOT as a unary operator — it produces `ExprKind::Try`, not a `UnaryOp` node.
+Expression parsing has three layers in order: **Pratt infix loop → unary layer → primary + postfix**. Prefix unary operators (`-`, `!`, `~`) SHALL be handled by `parse_unary()`, a distinct layer entered from `parse_binary_pratt()` before falling through to `parse_call()` (which handles primary + postfix). This places unary parsing ABOVE primary/postfix in precedence, which is the correct Pratt-parser layering for prefix operators.
+
+Postfix `?` (try operator) SHALL be parsed in the postfix chain (`parse_call()`), NOT as a unary operator — it produces `ExprKind::Try`, not a `UnaryOp` node.
+
+Source: `ori_parse/src/grammar/expr/mod.rs` — `parse_unary()`, `parse_call()`; postfix handling in `postfix.rs`.
 
 ### PR-7 — Operator Table Exhaustiveness
 
@@ -540,9 +544,18 @@ Top-level declarations are routed from the module parser to specific declaration
 
 Source: `ori_parse/src/dispatch.rs`, `ori_parse/src/module_parse.rs`.
 
-### DD-1 — Top-Level Dispatch
+### DD-1 — Two-Stage Module Parsing
 
-The module parser SHALL loop over the token stream, dispatching to declaration parsers based on the leading token:
+`parse_module()` SHALL route top-level forms through two distinct stages:
+
+**Stage 1 — Imports** (`parse_imports()` in `module_parse.rs`): handles all leading import forms and must come first. Processes:
+
+| Leading Token(s) | Form |
+|-------------------|------|
+| `use` / `pub use` | Import statement |
+| `extension` / `pub extension` | Extension import |
+
+**Stage 2 — Declaration Dispatch** (`dispatch_declaration()` in `dispatch.rs`): handles actual declarations after imports complete. Processes:
 
 | Leading Token(s) | Declaration |
 |-------------------|-------------|
@@ -551,22 +564,20 @@ The module parser SHALL loop over the token stream, dispatching to declaration p
 | `trait` | Trait definition |
 | `impl` | Impl block |
 | `def` | Default impl (`def impl`) |
-| `use` | Import statement |
 | `pub` | Public declaration (any of the above) |
 | `let $` or bare `$` | Module-level constant |
 | `extend` | Extension block |
 | `extern` | FFI declaration block |
-| `extension` | Extension import |
 | Attributes (`#`) | Parsed first, then attached to the following declaration |
 
-The dispatch module also performs declaration-level validation: import ordering (imports must come before other declarations in `module_parse.rs`) and attribute applicability (declaration-kind checks in `dispatch.rs`).
+The two-stage structure enforces import ordering (imports SHALL precede declarations). Attribute applicability (declaration-kind checks) is performed in `dispatch.rs` during stage 2.
 
 ### DD-2 — Semicolon Rule
 
 Declarations follow the Ori semicolon rule: if the declaration body ends with `}`, no semicolon is needed. Two distinct helpers in `dispatch.rs` handle the other cases:
 
 - **`eat_optional_semicolon()`**: used for imports, module-level constants, extension imports, and similar declarations where the terminating `;` is accepted but not required.
-- **`eat_optional_item_semicolon()`**: used for expression-bodied items (functions, tests, methods). If the body is a non-block expression and `;` is missing, the parser emits error `E1016`.
+- **`eat_optional_item_semicolon()`**: used for expression-bodied items (functions, tests, methods, and type declarations). If the body is a non-block expression and `;` is missing, the parser emits error `E1016`. Call sites include `grammar/item/function/mod.rs`, `grammar/item/impl_def/mod.rs`, `grammar/item/trait_def.rs`, and `grammar/item/type_decl.rs`.
 
 The two helpers encode the spec's intent: block-bodied items need no terminator, non-block expression-bodied items require one, and some module-level declarations accept either form.
 
