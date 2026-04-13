@@ -957,6 +957,14 @@ When all findings are triaged:
 - [x] `[TPR-08-003-gemini][medium]` `compiler/oric/src/commands/build/single.rs:173` — --emit ir/asm with sanitizers produces uninstrumented output without warning.
   Resolved: Fixed on 2026-04-13. Added warning diagnostic when --emit ir/asm/bc used with ORI_SANITIZE. Object-only Clang delegation is by design (sanitizer passes are Clang-internal).
 
+**Post-implementation review (2026-04-13), iteration 6 (re-review after iter 5 fixes):**
+- [x] `[TPR-08-001-codex][high]` `scripts/sanitizer-full.sh:75` — Non-sanitizer runtime failures silently downgraded to skip.
+  Resolved: Fixed on 2026-04-13. Changed non-127, non-sanitizer exit codes to FAIL instead of SKIP.
+- [x] `[TPR-08-002-codex][medium]` `compiler/ori_llvm/src/aot/linker/driver.rs:171` — LLD linker path still hardcodes "clang".
+  Resolved: Fixed on 2026-04-13. Used find_clang() in LLD path for versioned Clang detection consistency.
+- [x] `[TPR-08-003-codex][medium]` `compiler/oric/src/commands/build/mod.rs:255` — validate_sanitizer() SSOT violation in both build and run commands.
+  Resolved: Fixed on 2026-04-13. Both build/mod.rs and run/mod.rs now call RuntimeConfig::validate_sanitizer() instead of inline predicate.
+
 ---
 
 ## 08.N Completion Checklist
