@@ -61,7 +61,7 @@ Query the intelligence graph for cross-language prior art relevant to the code u
    ```
    Parse the JSON output: if the `status` field is not `"ok"`, skip this step silently. Do not mention intelligence in prompts.
 
-2. **Identify subsystem(s)** from the diff (use file paths from `git diff --name-only`). Map subsystems to presets per `.claude/rules/intelligence.md` §Subsystem Mapping. Do NOT hardcode the mapping here — always reference the rule file.
+2. **Identify subsystem(s)** from the review scope. Use the same git range as the review (e.g., `git diff --name-only HEAD~5..HEAD` for committed changes, or `git diff --name-only` for unstaged changes — match the scope from Step 0.5). Map subsystems to presets per `.claude/rules/intelligence.md` §Subsystem Mapping. Do NOT hardcode the mapping here — always reference the rule file.
 
 3. **Run the query** (output is visible in Claude's context — do NOT capture into a variable):
    ```
@@ -152,6 +152,9 @@ If intelligence is unavailable or returns no results, skip silently — do not i
 |        |                                                |
 |  0.5 CLAUDE checks spec/grammar proposal gate           |
 |     (BLOCKS if spec files changed without proposal)     |
+|        |                                                |
+|  0.75 CLAUDE queries intelligence graph (CONDITIONAL)   |
+|     (skip silently if unavailable or no results)        |
 |        |                                                |
 |  1. TRANSPORT launches BOTH reviewers in parallel       |
 |     Infra retries (3 per reviewer) inside transport —   |
@@ -360,6 +363,8 @@ Bash:
 
   ## Scope: <scope hint — e.g. "HEAD~5..HEAD", a plan section name, or explicit files>
 
+  <If Step 0.75 produced an Intelligence Summary, insert it here as literal text>
+
   <evidence packet: what changed, why, what to look for>
   PROMPT
 
@@ -382,6 +387,8 @@ Bash:
   4. <any other .claude/rules/*.md relevant to the files under review>
 
   ## Scope: <same scope hint>
+
+  <If Step 0.75 produced an Intelligence Summary, insert it here as literal text>
 
   <evidence packet: same>
   PROMPT
