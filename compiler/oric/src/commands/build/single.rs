@@ -191,7 +191,12 @@ fn emit_sanitized_object(
 ) {
     use crate::problem::codegen::report_codegen_error;
 
-    let emit_path = output_path.with_extension("o");
+    // Use the output path as-is (respects user's -o flag) with object extension
+    let emit_path = if output_path.extension().is_some() {
+        output_path.to_path_buf()
+    } else {
+        output_path.with_extension("o")
+    };
     let target = emitter.config().triple().to_string();
     if let Err(e) = ori_llvm::aot::clang_sanitize_object(
         emitter,
