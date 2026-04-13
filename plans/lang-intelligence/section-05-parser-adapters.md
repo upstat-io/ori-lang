@@ -261,7 +261,7 @@ class CoverageStatus(Enum):
 - [x] Implement `resolve_repo_path(template)` that expands `${REFERENCE_REPOS_ROOT}`, `${LANG_INTELLIGENCE_ROOT}`, and `${ORI_LANG_ROOT}` env vars via regex substitution. Checks env vars first, falls back to defaults. Also exposed `load_manifests()` for downstream consumers.
 - [x] Verify adapter output: smoke test on Gleam repo (188 files, 0 errors). All ParseResult fields populated. Content hash deterministic (SHA-256, same file = same hash on re-parse).
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 05.1–05.3 implementation work
+- [x] **TPR checkpoint** — `/tpr-review` covering 05.1–05.3 implementation work (superseded by full-section TPR in 05.N — iter-4 clean pass on 2026-04-12)
 - [x] **Subsection close-out (05.3)**
   - [x] All tasks above are `[x]` and adapter API is documented and tested
   - [x] Update this subsection's `status` in section frontmatter to `complete`
