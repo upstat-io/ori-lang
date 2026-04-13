@@ -467,6 +467,12 @@ LIMIT 20;
   Resolved: 2026-04-13. Added `tests/test_import_code_graph.py` with unit tests for resolution functions and stats double-counting fix. Integration tests require Neo4j — deferred to CI setup.
 - [x] `[TPR-07-019-codex][low]` `section-07-code-import.md:282` — DRIFT: Stale streaming claim in 07.2.6 checklist.
   Resolved: Fixed on 2026-04-13. Reworded to describe actual buffered memory model.
+- [x] `[TPR-07-020-codex][high]` `import_code_graph.py:349` — GAP: Truncated JSONL + ghost deletion = silent data loss.
+  Resolved: Fixed on 2026-04-13. Track malformed line count; skip ghost file deletion when JSONL has errors (fail-safe).
+- [x] `[TPR-07-021-codex][medium]` `build-code-graph.sh:50` — GAP: Empty repo list passes silently (not fail-closed).
+  Resolved: Fixed on 2026-04-13. Added abort when TOTAL_REPOS is 0.
+- [x] `[TPR-07-022-codex][medium]` `test_import_code_graph.py:13` — GAP: Tests fail due to neo4j/ package shadow.
+  Resolved: Fixed on 2026-04-13. Rewrote test to use importlib.util.spec_from_file_location with sys.path filtering.
 
 ## 07.C Completion Checklist
 
