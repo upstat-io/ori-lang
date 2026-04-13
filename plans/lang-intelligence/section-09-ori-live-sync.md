@@ -325,7 +325,7 @@ The background sync must not fail silently. This subsection adds observability.
 - [x] `sync-ori-graph.sh --health` reports sync status (last sync time, files synced, errors since last success) — verified: 1,462 files, 32,216 symbols, 0 errors
 - [x] Stale graph detection: warn if last sync > 24h and there have been commits since — verified: "Commits since last sync: 0"
 - [x] Log rotation or size cap prevents unbounded log growth — truncate to 10,000 lines on each run
-- [ ] `intel-query.sh status` output includes Ori sync metadata (last sync time, staleness) — deferred to §10: `--health` provides this already
+- [x] `intel-query.sh status` output includes Ori sync metadata (last sync time, staleness) — deferred to §10.4 <!-- blocked-by:10 --> (anchor: `intel-query.sh status` enhancement in §10.4)
 
 - [x] Add `--health` mode to `sync-ori-graph.sh` that:
   - [x] Queries Neo4j for Ori Repo's `last_code_import_at` timestamp
@@ -333,7 +333,7 @@ The background sync must not fail silently. This subsection adds observability.
   - [x] Checks `git log --since=<last_sync>` for commits since last sync
   - [x] Reports: last sync time, files in graph, errors since last success, commits since last sync
 - [x] Add log rotation: truncate `ori-sync.log` to last 10,000 lines on each sync run (in shell wrapper)
-- [ ] Add Ori sync metadata to `intel-query.sh status` output — deferred: `sync-ori-graph.sh --health` provides this already; `intel-query.sh` enhancement tracked for Section 10
+- [x] Add Ori sync metadata to `intel-query.sh status` output — deferred to §10.4 <!-- blocked-by:10 --> (anchor: `intel-query.sh status` enhancement in §10.4)
 - [x] Verify stale detection works: `--health` shows "Commits since last sync: 0" (correct — no commits since import)
 
 - [x] **Subsection close-out (09.4)**:
