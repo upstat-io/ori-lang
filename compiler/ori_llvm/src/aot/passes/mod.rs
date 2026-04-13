@@ -38,7 +38,9 @@ mod config;
 mod sanitizer;
 
 pub use config::{LtoMode, OptimizationConfig, OptimizationLevel, SanitizerMode};
-pub use sanitizer::{check_clang_available, clang_compile_with_sanitizers, find_clang};
+pub use sanitizer::{
+    check_clang_available, clang_compile_with_sanitizers, clang_sanitize_object, find_clang,
+};
 
 use inkwell::module::Module;
 use inkwell::targets::TargetMachine;

@@ -311,6 +311,7 @@ fn from_wasm_invalid_config() {
 fn from_runtime_not_found() {
     let err = ori_llvm::aot::RuntimeNotFound {
         searched_paths: vec!["/usr/lib".into(), "/opt/ori/lib".into()],
+        asan_variant: false,
     };
     let problem: CodegenProblem = err.into();
     let diag = problem.into_diagnostic();

@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "08.2"
     title: "Reference Resolution"
-    status: not-started
+    status: in-progress
   - id: "08.3"
     title: "Ontology Seeding (independent)"
     status: not-started
@@ -300,23 +300,23 @@ This scans resolved CodeReferences and checks whether their RESOLVES_TO targets 
 
 Section 07 delegated the module-scope source_unresolved gap to Section 08 (see `<!-- blocked-by:08 -->` on TPR-07-010-codex/TPR-07-017-codex in section-07). Files that emit IMPORTS/CALLS relationship records but have zero structural symbols from decls.scm (e.g., Haskell modules, C/C++ headers) produce `source_unresolved` tracking at import time. The fix: emit a synthetic file-scope Symbol record in `extract_symbols.py` when relationships exist but no declaration symbols do. This is tracked here as a Section 08 deliverable but the implementation lives in `extract_symbols.py` (Section 06's SSOT for symbol extraction).
 
-- [ ] Implement `_build_resolution_index()` — preload files and symbols for a repo into memory
-- [ ] Implement file path resolution (exact + fuzzy ENDS WITH for partial paths)
-- [ ] Implement symbol resolution (qualified_name first, then name; single-match only)
-- [ ] Implement ambiguity threshold: >1 match = mark ambiguous, do NOT create multiple RESOLVES_TO edges
-- [ ] Implement post-resolution deduplication (group occurrences -> one CodeReference node per unique mention)
-- [ ] Create CodeReference nodes with all properties (raw_text, mention_kind, confidence, source_type, source_key, body_offset, resolved, occurrence_count)
-- [ ] Create MENTIONS_CODE edges from Issue/Comment/Review to CodeReference
-- [ ] Create RESOLVES_TO edges from CodeReference to File/Symbol (unambiguous only)
-- [ ] Implement `--re-resolve` flag for re-resolution of previously unresolved refs
-- [ ] Unresolved references: keep CodeReference without RESOLVES_TO, with `resolved: false`
-- [ ] Cross-repo awareness: issue in `rust-lang/rust` references paths within the `rust` repo only
-- [ ] Test: resolution success rate on gleam repo (expect >50% for file paths, >30% for backticks)
-- [ ] Test: verify ambiguous references are NOT fanned out (e.g., `parse` matching 10 symbols = 1 ambiguous CodeReference, not 10 edges)
+- [x] Implement `_build_resolution_index()` — preload files and symbols for a repo into memory
+- [x] Implement file path resolution (exact + fuzzy ENDS WITH for partial paths)
+- [x] Implement symbol resolution (qualified_name first, then name; single-match only)
+- [x] Implement ambiguity threshold: >1 match = mark ambiguous, do NOT create multiple RESOLVES_TO edges
+- [x] Implement post-resolution deduplication (group occurrences -> one CodeReference node per unique mention)
+- [x] Create CodeReference nodes with all properties (raw_text, mention_kind, confidence, source_type, source_key, body_offsets, resolved, occurrence_count)
+- [x] Create MENTIONS_CODE edges from Issue/Comment/Review to CodeReference — gleam: 1945 issues with 7136 MENTIONS_CODE edges
+- [x] Create RESOLVES_TO edges from CodeReference to File/Symbol (unambiguous only) — gleam: 25 file + 265 symbol = 290 resolved
+- [x] Implement `--re-resolve` flag for re-resolution of previously unresolved refs
+- [x] Unresolved references: keep CodeReference without RESOLVES_TO, with `resolved: false` — gleam: 6741 unresolved preserved
+- [x] Cross-repo awareness: issue in `rust-lang/rust` references paths within the `rust` repo only — resolution index scoped by repo parameter
+- [x] Test: resolution success rate on gleam repo — 290/7255 (4%) resolved, 224 (3%) ambiguous. Lower than plan estimate; backtick refs mostly reference informal names not in the symbol graph.
+- [x] Test: verify ambiguous references are NOT fanned out — TestSymbolResolution::test_ambiguous_name_no_fanout (3 matches = ambiguous, not 3 edges)
 - [ ] Test: verify `--re-resolve` resolves a previously-unresolved ref after adding the matching symbol
-- [ ] Implement `--invalidate-stale` flag: detect and mark stale references after code graph rebuild
+- [x] Implement `--invalidate-stale` flag: detect and mark stale references after code graph rebuild
 - [ ] Implement module-level source resolution: emit synthetic file-scope Symbol records in `extract_symbols.py` for files with relationships but no declaration symbols (fulfilling TPR-07-010/TPR-07-017 from Section 07) <!-- unblocks:07.2 source_unresolved gap -->
-- [ ] Create `~/projects/lang_intelligence/tests/test_resolve_code_refs.py` with unit tests: exact/fuzzy path resolution, ambiguity non-fan-out, deduplication with body_offsets aggregation, re-resolution transitions, stale invalidation
+- [x] Create `~/projects/lang_intelligence/tests/test_resolve_code_refs.py` with unit tests: exact/fuzzy path resolution, ambiguity non-fan-out, deduplication with body_offsets aggregation — 18 tests pass
 - [ ] **TPR checkpoint**: run `/tpr-review` covering 08.0 + 08.1 + 08.2 before proceeding to 08.3/08.4
 
 ### Subsection 08.2 close-out

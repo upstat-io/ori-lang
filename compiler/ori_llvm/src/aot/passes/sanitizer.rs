@@ -48,6 +48,20 @@ pub fn find_clang() -> Option<&'static str> {
         .as_deref()
 }
 
+/// Construct the canonical "Clang not found" error for sanitizer operations.
+///
+/// Used by both `check_clang_available()` and `clang_compile_with_sanitizers()`
+/// to ensure a consistent error message.
+fn clang_not_found_error() -> OptimizationError {
+    OptimizationError::PassesFailed {
+        message: format!(
+            "Clang not found on PATH. Tried: {}. Clang is required for sanitizer \
+             instrumentation (ORI_SANITIZE). Install clang or disable sanitizers.",
+            CLANG_CANDIDATES.join(", ")
+        ),
+    }
+}
+
 /// Compile LLVM IR to an object file with sanitizer instrumentation via Clang.
 ///
 /// Invokes `clang` with `-fsanitize=...` flags to add sanitizer passes that
@@ -70,13 +84,7 @@ pub fn clang_compile_with_sanitizers(
     opt_level: &str,
     target_triple: &str,
 ) -> Result<(), OptimizationError> {
-    let clang = find_clang().ok_or_else(|| OptimizationError::PassesFailed {
-        message: format!(
-            "Clang not found on PATH. Tried: {}. Clang is required for sanitizer \
-             instrumentation (ORI_SANITIZE). Install clang or disable sanitizers.",
-            CLANG_CANDIDATES.join(", ")
-        ),
-    })?;
+    let clang = find_clang().ok_or_else(clang_not_found_error)?;
 
     let fsanitize_value = sanitizer
         .clang_flag_value()
@@ -118,6 +126,47 @@ pub fn clang_compile_with_sanitizers(
     Ok(())
 }
 
+/// Emit LLVM IR from a module, compile it with Clang sanitizer instrumentation,
+/// and produce a sanitized object file.
+///
+/// This is the canonical entry point for the "emit IR → clang -fsanitize → object"
+/// sequence. The intermediate `.ll` file is always cleaned up, even on failure.
+///
+/// # Arguments
+/// * `emitter` - Object emitter (used for IR emission)
+/// * `module` - The LLVM module to compile
+/// * `output_path` - Path for the output object file (`.o`)
+/// * `sanitizer` - Which sanitizers to enable
+/// * `opt_level` - Optimization level string (e.g., `"-O2"`)
+/// * `target_triple` - LLVM target triple (e.g., `"x86_64-unknown-linux-gnu"`)
+///
+/// # Errors
+/// Returns an error if IR emission or Clang compilation fails.
+/// The intermediate IR file is cleaned up on both success and failure.
+pub fn clang_sanitize_object(
+    emitter: &crate::aot::ObjectEmitter,
+    module: &inkwell::module::Module<'_>,
+    output_path: &Path,
+    sanitizer: &SanitizerMode,
+    opt_level: &str,
+    target_triple: &str,
+) -> Result<(), crate::aot::object::ModulePipelineError> {
+    let ir_path = output_path.with_extension("ll");
+
+    emitter
+        .emit_llvm_ir(module, &ir_path)
+        .map_err(crate::aot::object::ModulePipelineError::Emission)?;
+
+    let result =
+        clang_compile_with_sanitizers(&ir_path, output_path, sanitizer, opt_level, target_triple)
+            .map_err(crate::aot::object::ModulePipelineError::Optimization);
+
+    // Always clean up the intermediate IR file, even on failure
+    let _ = std::fs::remove_file(&ir_path);
+
+    result
+}
+
 /// Check that Clang is available on PATH.
 ///
 /// Call this early when `ORI_SANITIZE` is set to fail fast with a clear error
@@ -127,15 +176,7 @@ pub fn clang_compile_with_sanitizers(
 /// # Errors
 /// Returns [`OptimizationError::PassesFailed`] if no Clang can be found.
 pub fn check_clang_available() -> Result<(), OptimizationError> {
-    find_clang()
-        .map(|_| ())
-        .ok_or_else(|| OptimizationError::PassesFailed {
-            message: format!(
-                "Clang not found on PATH. Tried: {}. Clang is required for sanitizer \
-             instrumentation (ORI_SANITIZE). Install clang or disable sanitizers.",
-                CLANG_CANDIDATES.join(", ")
-            ),
-        })
+    find_clang().map(|_| ()).ok_or_else(clang_not_found_error)
 }
 
 #[cfg(test)]
