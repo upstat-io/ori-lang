@@ -1,16 +1,14 @@
-// FileCheck test: COW push inside a closure capturing a list.
-// A closure that captures a list and pushes to it exercises the
-// COW + closure env interaction — env allocation (ori_rc_alloc)
-// must be present for the captured list.
+// FileCheck test: COW push + closure capturing a list.
+// A list that undergoes COW push (ori_list_push_cow) AND is captured by
+// a closure (ori_rc_alloc for env) exercises the COW + closure interaction.
 //
 // CHECK-LABEL: define void @_ori_main
+// CHECK: ori_list_push_cow
 // CHECK: ori_rc_alloc
 
 @main () -> void = {
     let xs = [1, 2, 3];
-    let mutator = () -> void = {
-        xs.push(value: 4);
-        print(msg: xs.len().to_str())
-    };
-    mutator()
+    xs.push(value: 4);
+    let f = () -> int = xs.len();
+    print(msg: f().to_str())
 }

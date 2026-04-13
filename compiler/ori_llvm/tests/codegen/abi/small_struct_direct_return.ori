@@ -1,0 +1,16 @@
+// FileCheck test: small struct returned directly in registers (negative pin for sret).
+// Structs <= 16 bytes (2 x i64) are returned as values, not via sret pointer.
+// Companion to struct_sret_return.ori which tests the sret path for large structs.
+//
+// @function: _ori_make_point
+// CHECK: %ori.Point
+// CHECK-NOT: sret
+
+type Point = { x: int, y: int }
+
+@make_point (x: int, y: int) -> Point = Point { x, y };
+
+@main () -> void = {
+    let p = make_point(x: 1, y: 2);
+    print(msg: p.x.to_str())
+}
