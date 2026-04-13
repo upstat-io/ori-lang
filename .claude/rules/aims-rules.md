@@ -57,7 +57,7 @@ Lineage: Lean 4 borrow inference, OxCaml modality.
 | `Affine` | May be dropped without use | Dec may be needed, no inc |
 | `Unrestricted` | Freely copied and dropped | Full RC (inc on copy, dec on drop) |
 
-Partial order: `Dead` and `Linear` are INCOMPARABLE (join = `Affine`); `Affine` and `Unrestricted` are above both. `join(Dead, Linear) = Affine` (conditionally consumed = at-most-once). `join(Dead, Affine) = Affine`. `join(Linear, Affine) = Affine`. `join(X, Unrestricted) = Unrestricted`. Height: 3.
+Order: `Dead < Linear < Affine < Unrestricted`. Join: `max`. Height: 3. Note: `join(Dead, Linear) = Linear` — DP-7 additionally gates on `Cardinality = Once` to prevent unsound RC skip on conditionally-consumed parameters (where one path is Dead and another Linear — the join is Linear but Cardinality from CN-1 ensures the variable is consistently consumed).
 Lineage: Chirimar et al. (substructural RC), QTT semiring.
 
 ### §1.3 Cardinality — Forward Usage Count
@@ -159,7 +159,7 @@ The product lattice is the primary analysis domain. Two auxiliary side tables ca
 
 #### Borrow Sources (`borrow_sources`)
 
-A sparse map `ArcVarId → BorrowSource` tracking the origin of borrowed projections. Populated by TF-4 (Project): when `dst = src.field`, the map records `dst → BorrowSource { source: root(src), field: field }`, where `root(src)` traces through Let Var aliases to find the actual aggregate (matching project_alias_sources Rule 1).
+A sparse map `ArcVarId → BorrowSource` tracking the origin of borrowed projections. Populated by TF-4 (Project): when `dst = src.field`, the map records `dst → BorrowSource { source: root(src), path: [field_chain] }`, where `root(src)` traces through Let Var aliases and `path` is the FULL projection path from root to this borrow (e.g., for `%4 = Project %3.1` where `%3 = Project %2.0`, the path is `[0, 1]`). Full paths are needed for DP-5/RL-10 nested overlap checks and RL-31 prefix detection.
 
 **Join**: borrow sources do NOT join. Each projected variable has exactly one borrow source (set at definition by TF-4). If a variable is defined by a non-Project instruction, it has no borrow source entry.
 
@@ -184,7 +184,8 @@ A function-wide map `ArcVarId → SmallVec<ArcVarId>` tracking transitive aliase
 3. Jump-arg → block-param: if `Jump block1, args=[%3]` and block1 has param `%5`, then `%5` maps to `[%3] ∪ sources(%3)`. Same as Let — includes the immediate source even when %3 is a root.
 4. CFG merge: if block param `%5` receives projected values from multiple predecessor Jump arguments tracing to different source aggregates, `%5` maps to the union of all sources.
 5. **Select aliases**: if `%3 = Select(cond, %A, %B)` and %A or %B have existing sources in the map, then `%3` maps to the union: `%3 → [%A, %B] ∪ sources(%A) ∪ sources(%B)`. If neither has sources, `%3 → [%A, %B]`. This ensures DP-5 can detect borrow chains through conditional selections.
-6. **Transitive closure for nested Projects**: if `%4 = Project %3.field` and `%3` maps to sources `S`, then `%4` maps to `[%3] ∪ S` (the immediate source PLUS all of the immediate source's own sources). This ensures that DP-5 can detect live borrows at ANY depth of the nesting chain. Without transitive closure, a nested projection `%4 = Project %3.1` where `%3 = Project %2.0` would only map `%4 → [%3]`, missing the root aggregate `%2` — DP-5 would then fail to block in-place mutation of `%2` while `%4` holds a live reference through `%3`.
+6. **Transitive closure for nested Projects**: if `%4 = Project %3.field` and `%3` maps to sources `S`, then `%4` maps to `[%3] ∪ S`.
+7. **Set/SetTag aliases**: `Set { dst, obj, ... }` and `SetTag { dst, obj }` create transparent mutation aliases. `dst` maps to `[obj] ∪ sources(obj)` (same as Let Var — the mutated result IS the same aggregate). This ensures DP-5 tracks borrows across sequential mutations.
 
 **Example (simple chain)**:
 ```
@@ -748,7 +749,7 @@ Exhaustive mapping of every `ArcInstr` and `ArcTerminator` variant to its output
 | `Let { Var(v) }` | TF-2 | `state(v)` | `state(v)` | `state(v)` | `state(v)` | `state(v)` | `state(v)` | `state(v)` |
 | `Let { PrimOp }` | TF-2a | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR |
 | `Construct` | TF-3 | Owned | Linear | Once | Unique | BlockLocal | `shape_from_ctor` | `{may_alloc=T}` |
-| `Project` | TF-4 | Borrowed | Linear | Once | `src.uniq` | `src.loc` | NonReusable | NONE |
+| `Project` | TF-4 | Borrowed | Affine | Once | MaybeShared | `src.loc` | NonReusable | NONE |
 | `Apply` (no contract) | TF-5 | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
 | `Apply` (contract) | TF-6 | Owned | Unrestricted | Many | `contract.uniq` | `contract.loc` | `contract.shape` | ALL |
 | `ApplyIndirect` | TF-5a | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
