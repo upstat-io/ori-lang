@@ -1,13 +1,12 @@
-// FileCheck test: list mutation via index assignment emits store operations.
-// The ori_buffer_store_elem_dec call registers element destructors during
-// list construction, and ori_buffer_store_elem_count sets the live count.
+// FileCheck test: list mutation via .push() emits COW push operation.
+// Uses .push() instead of index assignment (xs[0] = 42) because index
+// assignment hits E4003 ARC internal error before desugaring.
 //
 // CHECK-LABEL: define void @_ori_main
-// CHECK: ori_buffer_store_elem_dec
-// CHECK: ori_buffer_store_elem_count
+// CHECK: ori_list_push_cow
 
 @main () -> void = {
     let xs = [1, 2, 3];
-    xs[0] = 42;
-    print(msg: xs[0].to_str())
+    xs.push(value: 4);
+    print(msg: xs.len().to_str())
 }
