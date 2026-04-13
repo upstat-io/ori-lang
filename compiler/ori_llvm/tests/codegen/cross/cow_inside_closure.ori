@@ -1,0 +1,14 @@
+// FileCheck test: COW push + closure capturing a list.
+// A list that undergoes COW push (ori_list_push_cow) AND is captured by
+// a closure (ori_rc_alloc for env) exercises the COW + closure interaction.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_list_push_cow
+// CHECK: ori_rc_alloc
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    xs.push(value: 4);
+    let f = () -> int = xs.len();
+    print(msg: f().to_str())
+}

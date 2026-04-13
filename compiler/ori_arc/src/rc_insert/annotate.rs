@@ -53,6 +53,27 @@ fn compute_arg_ownership(
 ) -> Vec<ArgOwnership> {
     // External C runtime: not in sigs, name starts with `ori_`.
     if !sigs.contains_key(&callee) {
+        // Protocol builtins with explicit per-arg ownership — check FIRST.
+        // Uses the ProtocolBuiltin::arg_ownership() table as source of truth.
+        // Must precede the `ori_` prefix check because `ori_iter_drop` starts
+        // with `ori_` but is a protocol builtin with Owned semantics, not an
+        // external C runtime function (which defaults to all-Borrowed).
+        if let Some(ownership) = protocol_builtins.get(&callee) {
+            assert_eq!(
+                ownership.len(),
+                arg_count,
+                "ProtocolBuiltin arity mismatch: expected {}, got {} args",
+                ownership.len(),
+                arg_count,
+            );
+            return ownership
+                .iter()
+                .map(|o| match o {
+                    ProtocolArgOwnership::Owned => ArgOwnership::Owned,
+                    ProtocolArgOwnership::Borrowed => ArgOwnership::Borrowed,
+                })
+                .collect();
+        }
         if interner
             .try_lookup(callee)
             .is_some_and(|name_str| name_str.starts_with("ori_"))
@@ -73,24 +94,6 @@ fn compute_arg_ownership(
         // Builtin method with borrowing receiver (e.g., len, is_empty).
         if borrowing_builtins.contains(&callee) {
             return vec![ArgOwnership::Borrowed; arg_count];
-        }
-        // Protocol builtins with explicit per-arg ownership.
-        // Uses the ProtocolBuiltin::arg_ownership() table as source of truth.
-        if let Some(ownership) = protocol_builtins.get(&callee) {
-            assert_eq!(
-                ownership.len(),
-                arg_count,
-                "ProtocolBuiltin arity mismatch: expected {}, got {} args",
-                ownership.len(),
-                arg_count,
-            );
-            return ownership
-                .iter()
-                .map(|o| match o {
-                    ProtocolArgOwnership::Owned => ArgOwnership::Owned,
-                    ProtocolArgOwnership::Borrowed => ArgOwnership::Borrowed,
-                })
-                .collect();
         }
         // Unknown non-external: conservative owned.
         return vec![ArgOwnership::Owned; arg_count];

@@ -19,20 +19,77 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-071][critical]` **Iterator map with repr-opt narrowed list: element size mismatch causes memory corruption**
+  Repro: `[1,2,3,4,5].iter().map(transform: x -> x * 2).collect()` — repr-opt narrows `[int]` literal to i8 (values fit in 1 byte), so `ori_iter_map` receives `elem_size=1`. But the map lambda `x -> x * 2` returns i64 (8 bytes). The trampoline `_ori_tramp_0` does `store i64 %result, ptr %slot, align 8`, writing 8 bytes into a 1-byte slot. Downstream `ori_iter_collect` allocates a buffer with 1-byte slots. Passes by coincidence for short arrays on little-endian; will corrupt data with larger arrays or specific element counts.
+  Subsystem: `ori_llvm` (repr-opt + iterator codegen interaction)
+  Found: 2026-04-12 | Source: tpr-review
+  Reviewer: gemini (deep investigation with ORI_DUMP_AFTER_LLVM=1 + valgrind during §07 FileCheck TPR round 5)
+
+- [ ] `[BUG-04-070][high]` **E4003: Index assignment (`xs[0] = 42`) hits ARC internal error before desugaring**
+  Repro: Any `.ori` file with `xs[0] = value` emits `error[E4003]: ARC internal error: index assignment reached ARC lowering before desugaring`. The compilation continues and produces LLVM IR, but the mutation op is silently dropped — the emitted IR only contains list creation ops, not mutation ops. FileCheck tests that rely on index assignment produce false-green results.
+  Subsystem: `ori_arc` (ARC lowering / desugaring pipeline)
+  Found: 2026-04-12 | Source: tpr-review
+  Reviewer: codex + gemini (both independently discovered during §07 FileCheck test verification)
+
 - [x] `[BUG-04-056][low]` **AIMS verifier false positive: `AbsentParamHasUses` on dead code after `if true then panic()`**
   Repro: `ORI_VERIFY_ARC=1 cargo test -p ori_llvm --test aot -- test_generic_call_with_builtin_arg_not_treated_as_intercepted`
   Subsystem: `compiler/ori_arc/src/pipeline/mod.rs` — `run_aims_verify()` treated `AbsentParamHasUses` as a hard error, but it's a precision gap (backward analysis correctly classifies param as absent when all uses are in semantically-dead code)
   Found: 2026-04-10 | Source: continue-roadmap
   Resolved: Fixed on 2026-04-10. Demoted `AbsentParamHasUses` from hard error to non-blocking warning in `run_aims_verify()`. Added reachability filtering to `check_absent_param_no_uses()` for syntactically-unreachable blocks. Updated pipeline test to match new behavior.
 
-- [ ] `[BUG-04-057][high]` **AIMS lattice join is non-associative on canonical states — uniqueness dimension diverges**
+- [x] `[BUG-04-057][critical]` **AIMS lattice join is non-associative on canonical states — uniqueness dimension diverges; join-based partial order is non-transitive**
   Repro: `cargo test -p ori_arc -- aims::lattice::prop_tests::join_associative --ignored --exact`
-  Minimal counterexample: a={Owned,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, b={Borrowed,Dead,Absent,MaybeShared,BlockLocal,ReusableCtor(Struct),{F,T,F}}, c={Borrowed,Linear,Once,Unique,FunctionLocal,ReusableCtor(EnumVariant),{T,F,T}}. Left=(a.join(b)).join(c) has uniqueness=Unique; right=a.join(b.join(c)) has uniqueness=MaybeShared.
-  Root cause: `canonicalize_single_pass` resets uniqueness for Dead+Absent intermediates but not Linear+Once — order of joining produces different canonical intermediate states.
-  Impact: Could cause non-deterministic dataflow results depending on worklist order. Currently masked by deterministic reverse-postorder processing.
+  Transitivity repro: `cargo test -p ori_arc -- aims::lattice::prop_tests::lattice_leq_transitive --ignored --exact`
+  Minimal counterexample (associativity): a={Owned,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, b={Borrowed,Dead,Absent,MaybeShared,BlockLocal,ReusableCtor(Struct),{F,T,F}}, c={Borrowed,Linear,Once,Unique,FunctionLocal,ReusableCtor(EnumVariant),{T,F,T}}. Left=(a.join(b)).join(c) has uniqueness=Unique; right=a.join(b.join(c)) has uniqueness=MaybeShared.
+  Minimal counterexample (transitivity): a={Borrowed,Dead,Absent,MaybeShared,BlockLocal,NonReusable,{F,F,F}}, b={Owned,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, c={Owned,Dead,Absent,Unique,FunctionLocal,NonReusable,{F,F,F}}. a<=b (Rule 4 forces Unique at BlockLocal), b<=c (locality grows), but a<=c FAILS (Rule 4 doesn't fire at FunctionLocal, uniqueness stays MaybeShared).
+  Root cause: `canonicalize_single_pass` Rule 4 forces Unique only at BlockLocal. When locality grows beyond BlockLocal (to FunctionLocal/HeapEscaping), the uniqueness forcing stops, breaking transitivity of the join-based partial order `a<=b iff a.join(b)==b`.
+  Impact: (1) **CONFIRMED non-deterministic**: n-ary join fold produces different results for forward vs reverse ordering (minimal: 3 states with BlockLocal/FunctionLocal locality transition). Masked by deterministic reverse-postorder but fragile. (2) Join-based `lattice_leq` is NOT a valid partial order — cannot be used for monotonicity proofs. Componentwise ordering must be used instead. (3) `capture_state_update` is non-monotone (BUG-04-058) — same Rule 4/6 narrowness class.
   Subsystem: `compiler/ori_arc/src/aims/lattice/mod.rs` — `canonicalize_single_pass()`
   Found: 2026-04-11 | Source: continue-roadmap
-  Note: Active work in `plans/llvm-verification-tooling` §04 (lattice property verification) — this bug was discovered by the proptest infrastructure being built there.
+  Escalated: 2026-04-11 — transitivity failure discovered during §04.2 partial-order axiom verification. Upgraded from high to critical.
+  Resolved: Fixed on 2026-04-12 (3f7cf7c2). Removed anti-monotone Rule 4 entirely, widened Rule 6 from `== HeapEscaping` to `>= HeapEscaping`. All 7 previously-ignored proptests un-ignored and passing (36 total, 1 O(n^3) manual-only). Fix section: `plans/bug-tracker/fix-BUG-04-057.md`. Also fixes BUG-04-058.
+
+- [x] `[BUG-04-058][high]` **`capture_state_update` is non-monotone under componentwise partial order — Rule 6 fires for HeapEscaping but not Unknown**
+  Repro: `cargo test -p ori_arc -- aims::lattice::prop_tests::capture_state_update_monotone_in_current --exact`
+  Also: `cargo test -p ori_arc -- aims::lattice::prop_tests::capture_state_update_monotone_in_closure --exact`
+  Minimal counterexample: a={Borrowed,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, b={Owned,Dead,Absent,Unique,Unknown,NonReusable,{T,T,T}}, closure={Owned,Dead,Absent,Shared,HeapEscaping,CollectionBuffer,{F,T,T}}. f(a)=MaybeShared (Rule 6 fires at HeapEscaping), f(b)=Unique (Rule 6 doesn't fire at Unknown).
+  Root cause: `canonicalize_single_pass` Rule 6 checks `locality == HeapEscaping` but Unknown subsumes HeapEscaping. If HeapEscaping forces MaybeShared, then Unknown (which is more conservative) must also force MaybeShared. Fix: Rule 6 should fire for `locality >= HeapEscaping`.
+  Impact: `capture_state_update` violates `arc.md` "Non-monotone transfer = unsound analysis". Currently masked by deterministic processing order, but any reordering could produce unsound optimization decisions.
+  Subsystem: `compiler/ori_arc/src/aims/lattice/mod.rs` (Rule 6), `compiler/ori_arc/src/aims/transfer/mod.rs` (capture_state_update)
+  Found: 2026-04-11 | Source: continue-roadmap
+  Resolved: Fixed on 2026-04-12 (3f7cf7c2) as part of BUG-04-057 fix. Rule 6 widened from `== HeapEscaping` to `>= HeapEscaping`. Both monotonicity proptests now pass. Fix section: `plans/bug-tracker/fix-BUG-04-057.md`.
+
+- [ ] `[BUG-04-065][high]` **AOT: Set iteration crashes with SIGSEGV for Set<int> and composite types (Set<[int]>, Set<{str: int}>)**
+  Repro: `@main () -> int = { let s: Set<int> = [10, 20, 30].iter().collect(); for x in s do {}; 0 }` → `ori build` succeeds, binary segfaults (exit 139). Same for `Set<[int]>` and `Set<{str: int}>`. `Set<str>` iteration works correctly (existing `sets.rs` AOT tests pass). Non-iteration Set operations (insert, length, contains) work for `Set<int>`. Issue is in Set iteration codegen for non-str element types.
+  Subsystem: `compiler/ori_llvm/src/codegen/` (Set iterator codegen) or `compiler/ori_rt/` (Set runtime)
+  Found: 2026-04-12 | Source: continue-roadmap
+  Note: Blocks Set<int> iteration matrix (iter_rc_matrix E7) and CollectSet verification with non-str element types.
+
+- [ ] `[BUG-04-062][medium]` **38 AOT tests fail with `ORI_AUDIT_CODEGEN=1` — RC audit findings on unwind/panic/catch paths**
+  Repro: `ORI_AUDIT_CODEGEN=1 cargo test -p ori_llvm` — 2123 pass, 38 fail, 22 ignored. All 38 failures are concentrated in `cli::test_main_args_*`, `error_handling::test_catch_*`, `fat_ptr_iter::unwind::*`, and `panic::*` tests. The audit catches RC imbalance on exception/unwind paths — likely a single root cause class (cleanup code missing inc/dec on invoke-unwind edges). Without `ORI_AUDIT_CODEGEN=1`, all 2161 tests pass with `ORI_CHECK_LEAKS=1`.
+  Subsystem: `compiler/ori_arc/src/aims/` (unwind RC emission), `compiler/ori_llvm/src/codegen/arc_emitter/` (unwind codegen)
+  Found: 2026-04-12 | Source: continue-roadmap
+  Note: Blocks adding `ORI_AUDIT_CODEGEN=1` to the AOT harness globally. Once fixed, harness can enable it.
+
+- [ ] `[BUG-04-061][medium]` **AOT: `unwrap()` on `Option<[int]>` fails with "unresolved function `unwrap` in invoke — missing mono instance"**
+  Repro: `@main () -> int = { let nested = [[1, 2, 3]]; let c: [[int]] = nested.iter().collect(); if c[0].unwrap().len() == 3 then 0 else 1 }` — `ori build` emits E5001 "LLVM module verification failed". The `unwrap()` method on `Option<[int]>` is not found during monomorphization. Simpler `Option<int>.unwrap()` and `Option<str>.unwrap()` work correctly — the issue is specific to `Option<T>` where `T` is a complex generic type like `[int]`.
+  Subsystem: `compiler/ori_llvm/src/codegen/function_compiler/` (mono instance resolution)
+  Found: 2026-04-12 | Source: continue-roadmap
+  Note: Active work in llvm-verification-tooling Section 06.3 touches this area. Discovered while writing CollectSet gap-fill tests.
+
+- [ ] `[BUG-04-059][high]` **AIMS realization uses unsound cross-dimensional uniqueness proofs (DP-10/RL-13 pattern)**
+  Repro: `decide_reuse()` at `compiler/ori_arc/src/aims/realize/decide.rs:263` upgrades `MaybeShared + Once + ReusableCtor` to `StaticReuse`; `decide_cow()` at `decide.rs:389` upgrades params with `Owned + Linear + Once` to `StaticUnique`; `emit_reuse/detect.rs:80` marks same states `is_static_unique`; `emit_rc/cow.rs:61` (`is_cow_aware_unique`) documents the linearity-based proof. The formal AIMS rules (`aims-rules.md`) explicitly removed DP-10 and RL-13 as unsound: backward-analysis facts (consumption/cardinality are FUTURE guarantees) do NOT prove RC==1 (a PAST guarantee). `MaybeShared + Once + ReusableCtor` can have RC>1 if the single use is a store that increments RC. Tests `cow_param_cow_aware_unique` and `decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse` pin the currently-unsound behavior.
+  Subsystem: `compiler/ori_arc/src/aims/realize/decide.rs`, `compiler/ori_arc/src/aims/emit_reuse/detect.rs`, `compiler/ori_arc/src/aims/emit_rc/cow.rs`
+  Found: 2026-04-12 | Source: tpr-review
+  Reviewer: codex
+  Note: Active work in llvm-verification-tooling Section 05 (Contract Coherence Oracle) may overlap — the oracle should detect this mismatch between inferred contracts and realized IR.
+
+- [x] `[BUG-04-060][medium]` **`seed_builtin_contracts` seeding priority: `__index` gets 1-param borrowing contract instead of correct 2-param protocol contract**
+  Repro: `cargo test -p ori_arc --lib -- protocol_contract_index_has_two_borrowed_params` (asserts `contract.params.len() == 2`)
+  Subsystem: `compiler/ori_arc/src/aims/builtins/mod.rs`
+  Found: 2026-04-12 | Source: continue-roadmap
+  Root cause: `borrowing_builtin_names()` includes `__index` (both args are Borrowed). In `seed_builtin_contracts`, borrowing methods were seeded BEFORE protocol builtins. Since both use `or_insert_with` (first-wins), `__index` got a generic 1-param `borrowing_contract(1)` and the correct 2-param `protocol_contract([Borrowed, Borrowed])` was never inserted.
+  Resolved: Fixed on 2026-04-12. Reordered protocol seeding before borrowing seeding so protocol builtins (with per-arg ownership from source of truth) take priority.
 
 - [ ] `[BUG-04-055][medium]` **LLVM lint: sret attribute not present on call-site for `ori_str_from_raw`**
   Repro: `ORI_LLVM_LINT=1 ori build` any program using string literals — lint reports `Undefined behavior: ABI attribute sret not present on both function and call-site` for `ori_str_from_raw` calls
@@ -328,7 +385,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 - [x] `[BUG-04-039][high]` **LLVM codegen: `join` on non-string iterators crashes (missing `to_str_fn` trampoline)** — found by continue-roadmap.
   Resolved: 2026-04-06. Generated `to_str` trampoline in `emit_iter_join` for int, float, bool, char element types. Byte/Duration/Size/Ordering excluded — they need proper Printable method dispatch (codegen error produced instead of wrong output).
-  Fix: `plans/bug-tracker/fix-BUG-04-039.md` | 5 AOT tests added (`iter_join_int/float/bool/single_int/int_after_map`)
+  Fix: `plans/bug-tracker/fix-BUG-04-039.md` | 7 AOT tests added (`iter_join_int/float/bool/single_int/int_after_map/empty_int/int_after_filter`)
 
 - [x] `[BUG-04-040][medium]` **LLVM JIT spec test runner: path-dependent compilation context causes spurious LCFails** — found by tpr-review.
   Resolved: Misdiagnosis on 2026-04-06. The path-dependent behavior was caused by a **stale user-local stdlib** at `~/.local/share/ori/library/std/testing.ori` (from 2026-03-28) with older `assert_eq<T: Eq>` signatures (no Debug bound), while the project's current `library/std/testing.ori` has `assert_eq<T: Eq + Debug>`. Module resolution walks up from the file's directory: project-tree files found the correct project library; `/tmp/` files fell through to the stale user-local copy with simpler signatures that the JIT could handle. Stale user-local stdlib removed. Both paths now consistently use project stdlib. The underlying LCFail for `assert_eq` with `Debug` bound is a general codegen feature gap (unresolved type variables in imported generics), not a path-dependent issue.
@@ -442,4 +499,49 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 - [x] `[BUG-04-002][critical]` **Inherent impl method returns wrong value when type also has trait impl** — found by manual.
   Resolved: OBE on 2026-03-28. False positive — caused by stale release binary from prior session. After `cargo b --release` (force rebuild), `test_aot_multiple_impl_blocks` passes. The AOT test framework falls back to the release binary when debug lacks LLVM; the stale release binary had code from before range analysis field narrowing was fixed.
 
-- None.
+- [ ] `[BUG-04-063][medium]` **ArgEscaping locality variant missing from Locality enum**
+  Repro: `compiler/ori_arc/src/aims/lattice/dimensions.rs` — `Locality` enum has 4 variants (BlockLocal, FunctionLocal, HeapEscaping, Unknown) but spec §1.5 mandates 5 (+ ArgEscaping). `CHAIN_HEIGHT` is 15 but should be 16 with ArgEscaping.
+  Subsystem: `compiler/ori_arc/src/aims/lattice/dimensions.rs`
+  Found: 2026-04-12 | Source: tpr-review
+  Reviewer: gemini
+  Note: Blocks RL-15a caller-stack allocation optimization. When added, update `CHAIN_HEIGHT`, all proptest strategies in `prop_tests.rs`, and CN-8/DP-8 implementations.
+
+- [ ] `[BUG-04-064][high]` **DP-5 `can_mutate_in_place` does not check overlapping borrows or project_alias_sources**
+  Repro: `compiler/ori_arc/src/aims/transfer/mod.rs:433` — implementation checks `Owned + Unique` only, omitting `no_active_overlapping_borrows(s, var, field, point)` mandated by spec DP-5. Also: `emit_rc/cow.rs:23-52` and `realize/decide.rs:381-438` only inspect direct sibling borrows, never consult `project_alias_sources`, and do not intersect with point liveness. Could permit in-place mutations that corrupt active borrowed projections or aliases.
+  Subsystem: `compiler/ori_arc/src/aims/transfer/mod.rs`, `compiler/ori_arc/src/aims/emit_rc/cow.rs`, `compiler/ori_arc/src/aims/realize/decide.rs`
+  Found: 2026-04-12 | Source: tpr-review
+  Reviewers: codex + gemini (both independently flagged)
+  Note: Must check BOTH `borrow_sources` AND `project_alias_sources` (including transitive closure for nested Projects) intersected with live-variable set at mutation point per spec §1.9 + DP-5.
+
+- [ ] `[BUG-04-065][medium]` **TF-6 `refine()` not implemented — call results always get CONSERVATIVE state**
+  Repro: `compiler/ori_arc/src/aims/transfer/mod.rs:75-80` routes `Apply` to `transfer_apply_conservative()`. `transfer/mod.rs:234-238` routes `Invoke` the same way. `intraprocedural/block.rs:439-480` refines argument DEMAND (parameter contracts), NOT the destination state. No inspected path reads `return_info.locality` or `return_info.shape` to refine call results per TF-6.
+  Subsystem: `compiler/ori_arc/src/aims/transfer/mod.rs`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 6)
+  Reviewer: codex
+  Note: Spec defines `refine(CONSERVATIVE, callee.return_contract)` narrowing uniqueness, locality, shape. Code leaves all call results at CONSERVATIVE. Blocks downstream precision for COW, reuse, stack promotion.
+
+- [ ] `[BUG-04-066][medium]` **Return provenance extractor only extracts uniqueness+freshness — locality and shape always CONSERVATIVE**
+  Repro: `compiler/ori_arc/src/aims/interprocedural/extract.rs:353-401` joins `(uniqueness, preserves_freshness)` then fills remaining with `..ReturnContract::CONSERVATIVE`. `extract.rs:407-483` returns `(Uniqueness, bool)` only. Contract type has `locality` and `shape` fields (`contract/mod.rs:260-296`) but extractor never computes them. Also: `build_invoke_def_map` (`extract.rs:506-514`) only records direct `Invoke`, not `InvokeIndirect`.
+  Subsystem: `compiler/ori_arc/src/aims/interprocedural/extract.rs`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 6)
+  Reviewer: codex
+  Note: Spec §1.9 Return Provenance defines exhaustive per-instruction classification along all 4 dimensions. Blocks RL-29 noalias, stack promotion based on return locality, and shape-based reuse of call results.
+
+- [ ] `[BUG-04-067][medium]` **RL-29 noalias not applied to user-function returns**
+  Repro: LLVM codegen only adds `noalias` to sret parameters (`function_compiler/mod.rs:236-243`). `NoaliasReturn` hook in `runtime_decl/mod.rs:64-70` is used for runtime functions (e.g., `ori_rc_alloc`), not user functions. No inspected path reads `MemoryContract.return_info.uniqueness` to influence user-function LLVM return attributes.
+  Subsystem: `compiler/ori_llvm/src/codegen/function_compiler/`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 6)
+  Reviewer: codex
+  Note: Spec RL-29 says fresh allocation returns with `ReturnContract.uniqueness = Unique` SHALL be marked `noalias`. Depends on BUG-04-066 (extractor must compute uniqueness accurately first).
+
+- [ ] `[BUG-04-068][medium]` **`may_escape` field still exists on `ParamContract` — spec says removed, derived from Locality**
+  Repro: Spec IC-2/IC-3 state that `may_escape` was removed from `ParamContract` — escape classification is derived from `locality > FunctionLocal`. Code still has `may_escape` as a field on `ParamContract` in `compiler/ori_arc/src/aims/contract/mod.rs`.
+  Subsystem: `compiler/ori_arc/src/aims/contract/mod.rs`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 4 — unfiled drift)
+  Note: SSOT violation — Locality dimension is the canonical source for escape classification per spec. Dual representation risks drift.
+
+- [ ] `[BUG-04-069][medium]` **`tighten_uniqueness_from_callers()` still runs — spec says IC-8 removed as unsound**
+  Repro: Spec IC-8 is explicitly marked `~~REMOVED (unsound — same root cause as DP-10)~~`. Code still contains and runs `tighten_uniqueness_from_callers()` in the interprocedural pass. This function derives parameter uniqueness from caller consumption patterns, which is unsound per spec rationale.
+  Subsystem: `compiler/ori_arc/src/aims/interprocedural/`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 4 — unfiled drift)
+  Note: Unsound by spec analysis — a caller with `MaybeShared` argument used linearly still has RC > 1 from upstream aliases. Parameter uniqueness should be established only by SCC fixpoint (IC-2/IC-3).

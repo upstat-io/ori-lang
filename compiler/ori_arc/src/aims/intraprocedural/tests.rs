@@ -1588,11 +1588,11 @@ fn callee_contract_function_local_preserves_arg() {
     );
 }
 
-/// Block-local construct gets `Unique` uniqueness via Rule 4.
+/// Block-local construct starts `Unique` via TF-3 (fresh allocation).
 ///
-/// A value constructed and consumed within the same block (`BlockLocal`)
-/// that is `Owned` and used at most `Once` gets `MaybeShared` promoted to
-/// `Unique` by canonicalize Rule 4.
+/// A value constructed within a block starts with `Uniqueness::Unique`
+/// because `Construct` produces a fresh allocation with RC == 1 (TF-3).
+/// Uniqueness is preserved through the block because no sharing occurs.
 #[test]
 fn block_local_value_gets_unique_without_runtime_check() {
     use super::super::lattice::Uniqueness;
@@ -2256,7 +2256,7 @@ fn effect_summary_apply_unions_callee_effects() {
 // Closure-capture locality and uniqueness (Section 09.1)
 
 #[test]
-fn closure_capture_non_escaping_gets_function_local() {
+fn closure_capture_non_escaping_preserves_block_local() {
     // func(v0: ref):
     //   v1 = PartialApply(f, [v0])   — captures v0
     //   v2 = ApplyIndirect(v1, [])   — uses closure locally
@@ -2264,8 +2264,8 @@ fn closure_capture_non_escaping_gets_function_local() {
     //
     // v0 is a parameter (captured by closure). The closure v1 is used once
     // locally via ApplyIndirect and never returned, so v1's demand locality
-    // stays BlockLocal. capture_state_update widens captured v0's locality
-    // to max(closure_locality, FunctionLocal) = FunctionLocal.
+    // stays BlockLocal. capture_state_update uses max(current, closure_locality)
+    // with no artificial FunctionLocal floor (TF-13).
     use super::super::lattice::Consumption;
 
     let func = ArcFunction {
@@ -2303,8 +2303,8 @@ fn closure_capture_non_escaping_gets_function_local() {
     let entry_v0 = state_map.var_state_at_block_entry(block_id(0), var(0));
     assert_eq!(
         entry_v0.locality,
-        Locality::FunctionLocal,
-        "captured var in non-escaping closure should have FunctionLocal locality"
+        Locality::BlockLocal,
+        "captured var in block-local closure preserves BlockLocal (no FunctionLocal floor per TF-13)"
     );
     // Captured by a once-closure (used once via ApplyIndirect), so
     // consumption should be Affine (may be dropped), not Unrestricted.

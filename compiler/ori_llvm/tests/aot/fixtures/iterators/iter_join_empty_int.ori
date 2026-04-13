@@ -1,0 +1,8 @@
+// AOT test for iter_join with empty integer list.
+// Edge case: to_str trampoline is provided but never called (zero elements).
+
+@main () -> int = {
+    let empty: [int] = [];
+    let result = empty.iter().join(separator: ", ");
+    if result == "" then 0 else 1
+}

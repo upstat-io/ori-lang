@@ -17,8 +17,13 @@ pre-commit:
     version-sync:
       glob: "**/Cargo.toml|**/package.json|**/BaseLayout.astro"
       run: ./scripts/sync-version.sh --check
+    spec-proposal-gate:
+      glob: "docs/ori_lang/v2026/spec/**"
+      run: .lefthook/check-spec-proposal-gate.sh
 
 commit-msg:
   commands:
     conventional-commit:
       run: .lefthook/commit-msg.sh {1}
+    spec-proposal-gate:
+      run: .lefthook/check-spec-proposal-msg.sh {1}

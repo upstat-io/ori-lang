@@ -592,11 +592,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // - Ordering: formatted as "Less"/"Equal"/"Greater" not ints
         // - Byte: formatted as hex ("0xff") not decimal
         // These need proper Printable method dispatch — future work.
-        let (rt_func_name, needs_sext_to_i64) = match tag {
-            Tag::Int => ("ori_str_from_int", true),
-            Tag::Float => ("ori_str_from_float", false),
-            Tag::Bool => ("ori_str_from_bool", false),
-            Tag::Char => ("ori_str_from_char", false),
+        let rt_func_name = match tag {
+            Tag::Int => "ori_str_from_int",
+            Tag::Float => "ori_str_from_float",
+            Tag::Bool => "ori_str_from_bool",
+            Tag::Char => "ori_str_from_char",
             _ => return None,
         };
 
@@ -631,12 +631,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let out_ptr = self.builder.get_param(func_id, 2);
 
         // Load element from elem_ptr. Use narrowed type for int elements
-        // (iterator buffers store narrowed ints).
+        // (iterator buffers store narrowed ints via repr-opt integer narrowing).
+        // NOTE: cannot use `sext_narrowed_int_element` here because that function
+        // requires a collection-emission context (`narrowed_int_collection_element_width`)
+        // that isn't available in this standalone trampoline function. The canonical
+        // `int_element_llvm_type` already handles narrowing — we just need the sext.
         let buf_elem_llvm_ty = self.int_element_llvm_type(elem_ty);
         let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "elem");
 
-        // Widen to the canonical type expected by the runtime function.
-        let elem_val = if needs_sext_to_i64 {
+        // Widen narrowed ints to i64 for the runtime function.
+        // Only int elements can be narrowed (float/bool/char are fixed-width).
+        let elem_val = if tag == Tag::Int {
             let i64_ty = self.builder.i64_type();
             self.builder.sext(raw, i64_ty, "elem.sext")
         } else {

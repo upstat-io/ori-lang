@@ -1,0 +1,11 @@
+// FileCheck test: list of strings uses element dec for cleanup.
+// A list containing heap-allocated elements (strings) requires
+// ori_buffer_store_elem_dec to register the element destructor during construction.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_buffer_store_elem_dec
+
+@main () -> void = {
+    let xs = ["hello", "world"];
+    print(msg: xs.len().to_str())
+}

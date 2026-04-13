@@ -1,0 +1,17 @@
+// FileCheck test: closure capturing a value, created inside a loop.
+// Each loop iteration creates a new closure env (ori_rc_alloc).
+// The iterator lifecycle must clean up (ori_iter_drop) and the
+// closure env must be freed (ori_rc_dec) — in that order in the IR.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_rc_alloc
+// CHECK: ori_iter_drop
+// CHECK: ori_rc_dec
+
+@main () -> void = {
+    let names = ["alice", "bob"];
+    for name in names do {
+        let greet = () -> str = `hello {name}`;
+        print(msg: greet())
+    }
+}

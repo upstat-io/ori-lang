@@ -1,9 +1,17 @@
-// FileCheck test: list mutation uses buffer store operations
-// CHECK: ori_buffer_store_elem_dec
-// CHECK: ori_buffer_store_elem_count
+// FileCheck test: shared list mutation uses COW push with double RC setup.
+// A list with RC > 1 (shared via let ys = xs) produces two ori_list_rc_inc
+// calls before ori_list_push_cow — one for each alias. The unique-owner
+// path only has one inc, so requiring two in exact mode distinguishes them.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_list_rc_inc
+// CHECK: ori_list_rc_inc
+// CHECK: ori_list_push_cow
 
 @main () -> void = {
     let xs = [1, 2, 3];
-    xs[0] = 42;
-    print(msg: xs[0].to_str())
+    let ys = xs;
+    ys.push(value: 42);
+    print(msg: ys.len().to_str());
+    print(msg: xs.len().to_str())
 }

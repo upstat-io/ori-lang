@@ -1,9 +1,9 @@
 // AIMS synergy test: Locality × Uniqueness
 //
-// Dimensions: BlockLocal + Owned + Once → Unique (Rule 4)
+// Dimensions: BlockLocal + Owned + Once → Unique (TF-3 fresh allocation)
 //
 // Without locality: list is MaybeShared → Dynamic COW check on each push.
-// With locality: BlockLocal + Owned + Once → Unique → StaticUnique on each push.
+// With locality: BlockLocal + fresh allocation → Unique → StaticUnique on each push.
 //
 // Expected: N fewer runtime COW checks (where N = number of pushes).
 

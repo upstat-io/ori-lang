@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Orphan Cleanup"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Delete three confirmed orphan entries — the empty `samples/` directory, the phantom `compiler/ori_lsp/.gitkeep` placeholder (and let the now-empty directory disappear from the filesystem since git doesn't track empty dirs; the canonical LSP reservation is preserved by `plans/roadmap/section-22-tooling.md:150-156`, not by an empty filesystem directory), and the obsolete `rebuild-playground.sh` script (confirmed 0 references, dead `./website/` path) — without touching the stale `tools/ori-lsp/` prototype which has its own dedicated §06 treatment."
 success_criteria:
@@ -29,7 +29,7 @@ sections:
     status: not-started
   - id: "05.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "05.N"
     title: "Completion Checklist"
     status: not-started
