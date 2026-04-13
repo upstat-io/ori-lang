@@ -160,8 +160,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // trampoline), so by the time elements reach user trampolines, they are
         // always canonical. See BUG-04-071 fix consensus.
         let elem_llvm_ty = self.resolve_type(elem_ty);
-        let buf_elem_llvm_ty = elem_llvm_ty;
-        let needs_sext = false;
         let elem_is_indirect = abi_size(elem_ty, self.type_info, self.repr_plan) > 16;
 
         match kind {
@@ -188,14 +186,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem_arg = if elem_is_indirect {
                     in_ptr
                 } else {
-                    // Load with narrowed type, sext to canonical.
-                    let raw = self.builder.load(buf_elem_llvm_ty, in_ptr, "tramp.elem");
-                    if needs_sext {
-                        let i64_ty = self.builder.i64_type();
-                        self.builder.sext(raw, i64_ty, "tramp.elem.sext")
-                    } else {
-                        raw
-                    }
+                    // Load canonical element from buffer pointer.
+                    self.builder.load(elem_llvm_ty, in_ptr, "tramp.elem")
                 };
 
                 if result_is_indirect {
@@ -236,14 +228,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         "tramp.pred",
                     )
                 } else {
-                    // Load with narrowed type, sext to canonical.
-                    let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
-                    let elem = if needs_sext {
-                        let i64_ty = self.builder.i64_type();
-                        self.builder.sext(raw, i64_ty, "tramp.elem.sext")
-                    } else {
-                        raw
-                    };
+                    // Load canonical element from buffer pointer.
+                    let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
                     self.builder.call_indirect(
                         bool_ty,
                         &[ptr_ty, elem_llvm_ty],
@@ -276,14 +262,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         &[ori_env, elem_ptr],
                     );
                 } else {
-                    // Load with narrowed type, sext to canonical.
-                    let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
-                    let elem = if needs_sext {
-                        let i64_ty = self.builder.i64_type();
-                        self.builder.sext(raw, i64_ty, "tramp.elem.sext")
-                    } else {
-                        raw
-                    };
+                    // Load canonical element from buffer pointer.
+                    let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
                     let unit_ty = self.builder.i64_type(); // Unit = i64
                     self.builder.call_indirect(
                         unit_ty,
@@ -314,14 +294,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem_arg = if elem_is_indirect {
                     elem_ptr
                 } else {
-                    // Load with narrowed type, sext to canonical.
-                    let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
-                    if needs_sext {
-                        let i64_ty = self.builder.i64_type();
-                        self.builder.sext(raw, i64_ty, "tramp.elem.sext")
-                    } else {
-                        raw
-                    }
+                    // Load canonical element from buffer pointer.
+                    self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem")
                 };
 
                 let acc_arg_ty = if acc_is_indirect { ptr_ty } else { acc_llvm_ty };
