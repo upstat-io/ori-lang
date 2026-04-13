@@ -142,8 +142,37 @@ def generate_program_subsection(section_num: str, sub_num: int, task_path: Path,
 - [ ] Copy task definition: `cp tests/run-pass/rosetta/_tasks/{task_file} {path}/task.md`
 - [ ] Read `{path}/task.md` — understand the problem requirements, success criteria, and expected outputs
 
+### Spec & Grammar Gate (MANDATORY — before writing ANY Ori code)
+
+- [ ] Read `docs/ori_lang/v2026/spec/grammar.ebnf` — the **authoritative grammar** for ALL Ori syntax
+- [ ] Read `.claude/rules/ori-syntax.md` — the quick reference for Ori syntax, types, prelude, and formatting rules
+- [ ] Read the relevant spec clauses for the features this program will use. Key clauses:
+  - `docs/ori_lang/v2026/spec/08-types.md` — type system (primitives, collections, sum types, generics)
+  - `docs/ori_lang/v2026/spec/10-declarations.md` — functions, types, traits, impls, constants
+  - `docs/ori_lang/v2026/spec/11-blocks-and-scope.md` — blocks, semicolons, scoping rules
+  - `docs/ori_lang/v2026/spec/14-expressions.md` — expressions, operators, literals, lambdas
+  - `docs/ori_lang/v2026/spec/15-patterns.md` — pattern matching, destructuring
+  - `docs/ori_lang/v2026/spec/16-control-flow.md` — for/while/loop, yield, break, ranges, labels
+  - `docs/ori_lang/v2026/spec/18-modules.md` — imports, use declarations, visibility
+  - `docs/ori_lang/v2026/spec/19-testing.md` — test syntax, test attributes, test runner
+
+> **ABSOLUTE RULE: NEVER modify `.ori` source to work around a compiler error.**
+>
+> When the compiler rejects or mishandles syntax that is valid per the spec/grammar:
+>
+> 1. **STOP** — do NOT rewrite the code to avoid the error
+> 2. **Validate** the syntax against `grammar.ebnf` and the spec — confirm it SHOULD work
+> 3. **If valid per spec:** invoke `/add-bug` immediately with: the exact error message, the code that triggered it, and the spec/grammar clause that says it should work
+> 4. **Keep the original code** — do NOT "fix" it by avoiding the feature. Add `#skip("BUG-XX-NNN: <description>")` if the test cannot run
+> 5. **Record as language finding** in the subsection results and `rosetta-manifest.json`
+>
+> Rewriting code to avoid a compiler limitation is **deferral** — it hides the bug from the roadmap,
+> the bug tracker, and future implementers. **The bugs found ARE the primary deliverable of this plan.**
+> A working program that silently avoids broken features is worth LESS than a blocked program that
+> exposes and records compiler issues.
+
 ### A. Language Design
-- [ ] Design the most elegant, idiomatic Ori solution — push the full feature set (generics, pattern matching, closures, traits, iterators, sum types, `as`/`as?`, pipe `|>`, `for...yield`, multi-clause functions, everything available)
+- [ ] Design the most elegant, idiomatic Ori solution — push the full feature set (generics, pattern matching, closures, traits, iterators, sum types, `as`/`as?`, pipe `|>`, `for...yield`, multi-clause functions, everything available). **Reference the spec/grammar read above** — use features because the spec says they exist, not because you've seen them work before.
 - [ ] Write `{ori}` with implementation functions + `@main () -> void` that demonstrates the program with `print()` calls
 - [ ] Write `{test}` with `use std.testing {{ assert_eq }}` and comprehensive assertions (happy path + edge cases + boundary conditions)
 - [ ] Record language findings: where Ori shines, where it forces workarounds, missing features → blocker with roadmap/bug-tracker xref
