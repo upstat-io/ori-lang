@@ -407,7 +407,7 @@ pub fn accumulate_build_options_with_env(args: &[String], env_disabled: bool) ->
 
     // Apply ORI_SANITIZE env var — centralized here as the single read point.
     // Consumers access `options.sanitizer_env` instead of re-reading the env var.
-    if let Ok(v) = std::env::var("ORI_SANITIZE") {
+    if let Ok(v) = std::env::var(crate::debug_flags::ORI_SANITIZE) {
         if v != "0" && !v.is_empty() {
             options.sanitizer_env = Some(v);
         }
