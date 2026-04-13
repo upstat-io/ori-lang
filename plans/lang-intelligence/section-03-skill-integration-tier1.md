@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Skill Integration: TPR + Fix-Bug (Tier 1)"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Insert intelligence pre-queries into the two highest-value skills: /tpr-review (evidence packets for reviewers) and /fix-bug (investigation phase). Intelligence AUGMENTS existing workflows — it does not replace manual reference repo inspection."
 success_criteria:
@@ -25,7 +25,7 @@ sections:
     status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 third_party_review:
   status: resolved
   updated: 2026-04-12
@@ -211,13 +211,13 @@ Intelligence AUGMENTS manual inspection — it does NOT replace it. The intellig
 
 **Testing and review:**
 - [x] No test regressions: `timeout 150 ./test-all.sh`
-- [ ] `/tpr-review` clean
-- [ ] `/impl-hygiene-review` clean
-- [ ] `/improve-tooling` section-close sweep
+- [x] `/tpr-review` clean — 1 iteration, 3 findings fixed (scope resolution, prompt template, flowchart)
+- [x] `/impl-hygiene-review` clean — markdown-only changes, SSOT verified
+- [x] `/improve-tooling` section-close sweep — per-subsection retrospectives covered everything; no cross-subsection patterns
 
 **Plan sync (after section completion):**
-- [ ] Update section 03 frontmatter `status: complete`
-- [ ] Update `00-overview.md` Quick Reference table for section 03
-- [ ] Update `index.md` section 03 status
-- [ ] Clean up any plan annotations from section 03 in source code
-- [ ] Verify section 04 `depends_on` is correct
+- [x] Update section 03 frontmatter `status: complete`
+- [x] Update `00-overview.md` Quick Reference table for section 03
+- [x] Update `index.md` section 03 status
+- [x] Clean up any plan annotations from section 03 in source code (none exist — markdown-only changes)
+- [x] Verify section 04 `depends_on` is correct (depends on 01, 02 — same as 03, no change needed)
