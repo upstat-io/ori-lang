@@ -990,6 +990,16 @@ When all findings are triaged:
 - [x] `[TPR-08-005-gemini][low]` `compiler/ori_llvm/src/aot/passes/sanitizer.rs:74` — Deduplicate Clang missing error string.
   Resolved: Fixed on 2026-04-13. Extracted `clang_not_found_error()` helper; both functions call it.
 
+**Post-implementation review (2026-04-13), iteration 9 (re-review after iter 8 fixes):**
+- [x] `[TPR-08-001-codex][high]` `scripts/sanitizer-smoke.sh:114` — Smoke script `for` loop accidentally deleted during semantic pin rewrite.
+  Resolved: Fixed on 2026-04-13. Restored the `for ori_file in *.ori` loop. Added `bash -n` syntax check verification.
+- [x] `[TPR-08-002-codex][high]` `compiler/ori_llvm/src/aot/runtime.rs:329` — ASan runtime path not propagated to linker in split-directory layouts.
+  Resolved: Fixed on 2026-04-13. `configure_link()` now searches candidate_directories() for ASan variant when not found in base path.
+- [x] `[TPR-08-001-gemini][high]` `compiler/oric/src/commands/build/single.rs:142` — Phase bleeding: CLI handlers encode emission pipeline.
+  Resolved: Acknowledged but not further changed. The `clang_sanitize_object()` canonical function IS the SSOT. CLI handlers calling it with a 1-line `if sanitizer.any_enabled()` is correct — the alternative (making verify_optimize_emit handle all emit types) would conflate different pipeline stages.
+- [x] `[TPR-08-002-gemini][medium]` `compiler/ori_llvm/src/aot/runtime.rs:276` — DRY between detect() and candidate_directories().
+  Resolved: Fixed on 2026-04-13. Refactored `detect()` to use `candidate_directories()` as its search source. Moved ORI_WORKSPACE_DIR into candidate_directories(). detect() is now 10 lines.
+
 ---
 
 ## 08.N Completion Checklist

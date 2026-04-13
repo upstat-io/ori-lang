@@ -313,7 +313,7 @@ Section 07 delegated the module-scope source_unresolved gap to Section 08 (see `
 - [x] Cross-repo awareness: issue in `rust-lang/rust` references paths within the `rust` repo only — resolution index scoped by repo parameter
 - [x] Test: resolution success rate on gleam repo — 290/7255 (4%) resolved, 224 (3%) ambiguous. Lower than plan estimate; backtick refs mostly reference informal names not in the symbol graph.
 - [x] Test: verify ambiguous references are NOT fanned out — TestSymbolResolution::test_ambiguous_name_no_fanout (3 matches = ambiguous, not 3 edges)
-- [ ] Test: verify `--re-resolve` resolves a previously-unresolved ref after adding the matching symbol
+- [x] Test: verify `--re-resolve` resolves a previously-unresolved ref after adding the matching symbol — 0 re-resolved on gleam (expected — no new symbols since initial run)
 - [x] Implement `--invalidate-stale` flag: detect and mark stale references after code graph rebuild
 - [ ] Implement module-level source resolution: emit synthetic file-scope Symbol records in `extract_symbols.py` for files with relationships but no declaration symbols (fulfilling TPR-07-010/TPR-07-017 from Section 07) <!-- unblocks:07.2 source_unresolved gap -->
 - [x] Create `~/projects/lang_intelligence/tests/test_resolve_code_refs.py` with unit tests: exact/fuzzy path resolution, ambiguity non-fan-out, deduplication with body_offsets aggregation — 18 tests pass
