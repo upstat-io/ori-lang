@@ -114,10 +114,12 @@ Parameters SHALL be classified into one of:
 
 | Mode | Condition | LLVM Semantics |
 |------|-----------|----------------|
-| `Direct(llvm_ty)` | `abi_size <= 16` | Passed by value in registers |
-| `Indirect` | `abi_size > 16` | Passed as `ptr` (caller allocates, callee reads) |
+| `Direct(llvm_ty)` | `abi_size <= 16` ∧ owned | Passed by value in registers |
+| `Indirect` | `abi_size > 16` ∧ owned | Passed as `ptr` (caller allocates, callee reads) |
+| `Reference` | borrowed ∧ non-scalar | Passed as `ptr` (caller retains ownership) |
+| `Void` | type is void/unit/Never | No parameter emitted |
 
-The classification is computed by `compute_param_passing()` in `codegen/abi/mod.rs`.
+Basic classification is computed by `compute_param_passing()` in `codegen/abi/mod.rs`. Ownership-aware classification (which adds `Reference` for borrowed params) is computed by `compute_param_passing_with_ownership()`.
 
 ### AB-3 — ReturnPassing Classification
 
@@ -376,9 +378,11 @@ After step 4, the iterator's `elem_size` is ALWAYS canonical — all downstream 
 
 ### IT-2 — Adapter Emission
 
-Iterator adapters (`map`, `filter`, `take`, `skip`, `enumerate`, `zip`, `chain`, `flatten`, `flat_map`, `cycle`, `rev`) are emitted as calls to `ori_iter_*` runtime functions. Each adapter that accepts a closure SHALL build a trampoline (§4) to bridge the closure.
+Iterator adapters are emitted as calls to `ori_iter_*` runtime functions. Each adapter that accepts a closure SHALL build a trampoline (§4) to bridge the closure. The adapter's output `elem_size` is determined by the adapter's result type — always canonical.
 
-The adapter's output `elem_size` is determined by the adapter's result type — always canonical.
+Most adapters map 1:1 to runtime functions (`map` → `ori_iter_map`, `filter` → `ori_iter_filter`, etc.). Exceptions:
+- `flat_map(f)` is lowered as `map(f)` followed by `flatten` — there is no `ori_iter_flat_map` runtime entry point. See `emit_iter_flat_map()` in `builtins/iterator.rs`.
+- `rev` creates a reversed iterator wrapper via `ori_iter_rev`.
 
 ### IT-3 — Consumer Emission
 
@@ -580,11 +584,11 @@ Which function to call for element sizes, by context:
 |---------|----------|---------|
 | List buffer read/write | `collection_elem_size(collection_idx, elem_ty)` | Narrowed or canonical |
 | Map/set buffer operations | `collection_elem_size(collection_idx, elem_ty)` | Narrowed or canonical |
-| Iterator source creation | `collection_elem_size()` for source stride; then canonical via `ori_iter_map` wrapping | See IT-1 |
+| Iterator source creation | `collection_elem_size()` for both `ori_iter_from_list` AND the wrapping `ori_iter_map` `in_size` (NR-4 exception) | See IT-1 |
 | Trampoline element load/store | `resolve_type(elem_ty)` → LLVM type size | Always canonical |
 | Consumer scratch buffer | `element_store_size(elem_ty)` | Always canonical |
 | Collect output allocation | `element_store_size(elem_ty)` | Always canonical |
-| Runtime function `elem_size` arg | `element_store_size(elem_ty)` | Always canonical |
+| Runtime function `elem_size` arg | `element_store_size(elem_ty)` | Always canonical (except IT-1 boundary — see above) |
 | Struct field | ReprPlan field width | Narrowed (struct-scoped) |
 | Local variable | `narrow_local_if_needed()` | Canonical (trunc+sext pair) |
 
