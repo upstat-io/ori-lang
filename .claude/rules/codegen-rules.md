@@ -55,11 +55,14 @@ The following mapping SHALL be the single source of truth for Ori → LLVM type 
 | `Result<T, E>` | `TypeLayoutResolver` | varies | Tag + max(T, E); niche-encoded when possible |
 | Struct | struct of resolved fields | varies | `TypeLayoutResolver`; field order from `ReprPlan` |
 | Tuple | struct of resolved elements | varies | `TypeLayoutResolver` |
-| Closure | `{ ptr, ptr }` | 16 | fn_ptr + env_ptr |
+| Function/Closure | `{ ptr, ptr }` | 16 | fn_ptr + env_ptr (`TypeInfo::Function`) |
 | `Duration` | `i64` (nanoseconds) | 8 | |
 | `Size` | `i64` (bytes) | 8 | |
 | `Ordering` | `i8` | 1 | Less=0, Equal=1, Greater=2 |
+| `Range` | `{ i64, i64, i64, i64 }` | 32 | start, end, step, inclusive flag |
+| Enum | `TypeLayoutResolver` | varies | Tag + max payload; may be niche-encoded |
 | `Iterator<T>` | `ptr` (opaque handle) | 8 | Runtime iterator state |
+| `Channel` | `ptr` (opaque handle) | 8 | Runtime channel handle |
 | `Never` | `i64` | 8 | Same storage as unit in canonical table |
 
 **Critical notes:**
@@ -116,8 +119,8 @@ Parameters SHALL be classified into one of:
 
 | Mode | Condition | LLVM Semantics |
 |------|-----------|----------------|
-| `Direct(llvm_ty)` | `abi_size <= 16` ∧ (owned ∨ scalar) | Passed by value in registers |
-| `Indirect` | `abi_size > 16` ∧ (owned ∨ scalar) | Passed as `ptr` (caller allocates, callee reads) |
+| `Direct` | `abi_size <= 16` ∧ (owned ∨ scalar) | Passed by value in registers |
+| `Indirect { alignment }` | `abi_size > 16` ∧ (owned ∨ scalar) | Passed as `ptr` (caller allocates, callee reads) |
 | `Reference` | borrowed ∧ non-scalar | Passed as `ptr` (caller retains ownership) |
 | `Void` | type is void/unit/Never | No parameter emitted |
 
@@ -129,8 +132,8 @@ Return values SHALL be classified into one of:
 
 | Mode | Condition | LLVM Semantics |
 |------|-----------|----------------|
-| `Direct(llvm_ty)` | `abi_size <= 16` | Returned in registers |
-| `Sret(llvm_ty)` | `abi_size > 16` | Caller-allocated `sret` pointer as first parameter |
+| `Direct` | `abi_size <= 16` | Returned in registers |
+| `Sret { alignment }` | `abi_size > 16` | Caller-allocated `sret` pointer as first parameter |
 | `Void` | Return type is void/unit/Never | No return value |
 
 ### AB-4 — Sret on ARM64
@@ -337,7 +340,7 @@ Drop functions SHALL NOT be generated for scalar types (RE-2).
 - **`ValueRepr::RcPointer`** (heap-allocated with RC header): emit inline `GEP + load + icmp`:
   1. GEP to the `strong_count` field in the RC header
   2. Load the count
-  3. `icmp ugt count, 1` → `i1` result
+  3. `icmp sgt count, 1` → `i1` result (signed comparison; refcounts are non-negative)
 
 - **Non-pointer representations** (inline aggregates, fat values without RC headers): emit a constant `true` (i.e., "always shared"). This forces the slow path (clone before mutate), which is conservative but correct — there is no RC header to inspect.
 
@@ -385,7 +388,7 @@ After step 4, the iterator's `elem_size` is ALWAYS canonical — all downstream 
 Iterator adapters are emitted as calls to `ori_iter_*` runtime functions. Each adapter that accepts a closure SHALL build a trampoline (§4) to bridge the closure. The adapter's output `elem_size` is determined by the adapter's result type — always canonical.
 
 Most adapters map 1:1 to runtime functions (`map` → `ori_iter_map`, `filter` → `ori_iter_filter`, etc.). Exceptions:
-- `flat_map(f)` is lowered as `map(f)` followed by `flatten` — there is no `ori_iter_flat_map` runtime entry point. The `flatten` stage receives the source iterator's `elem_ty` as its `inner_elem_size`. **Caveat**: when `flat_map(f: T -> Iterator<U>)` has `sizeof(U) != sizeof(T)`, the flatten stage may use the wrong size. Current tests only exercise `T == U` (int→int). See `emit_iter_flat_map()` in `builtins/iterator.rs`.
+- `flat_map(f)` is lowered as `map(f)` followed by `flatten` — there is no `ori_iter_flat_map` runtime entry point. Both `emit_iter_flatten()` and `emit_iter_flat_map()` pass `element_store_size(elem_ty)` as `inner_elem_size` to `ori_iter_flatten`, where `elem_ty` is the outer iterator element type (the iterator handle). **Caveat (BUG-04-076)**: for both `flatten` and `flat_map`, when the inner element type differs in size from the iterator handle (e.g., `Iterator<bool>` has 8-byte handle but inner elements are 1 byte), the flatten stage uses the wrong stride. Current tests only exercise same-sized types. See `builtins/iterator.rs`.
 - `rev` creates a reversed iterator wrapper via `ori_iter_rev`.
 
 ### IT-3 — Consumer Emission
