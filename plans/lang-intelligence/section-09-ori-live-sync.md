@@ -2,12 +2,12 @@
 section: "09"
 title: "Ori Live Sync"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Keep Ori's code graph in Neo4j continuously updated via a lefthook post-commit hook that triggers a background sync script in lang_intelligence/, using Ori's own built binary for parsing and the existing upsert_file_symbols() API for atomic Neo4j updates."
 success_criteria:
   - "lefthook post-commit hook triggers background sync and returns immediately (<100ms)"
   - "Sync script identifies changed/deleted/renamed .ori/.rs files via git diff-tree and runs per-file extraction+upsert with relationship resolution"
-  - "Single-file sync completes in <5s (built binary cold invocation + extraction + Neo4j upsert)"
+  - "Single-file sync completes in <5s (regex extraction + Neo4j upsert)"
   - "Parse failures short-circuit before upsert — last-good graph state preserved (zero data loss on broken AST)"
   - "Manual sync available: ~/projects/lang_intelligence/scripts/sync-ori-graph.sh [--full]"
   - "Errors logged to ~/projects/lang_intelligence/logs/ori-sync.log — no silent failures"
@@ -62,7 +62,7 @@ Ori is the one repo where the code graph must stay current during active develop
 **success_criteria:**
 - [ ] Ori `:Repo` node exists in Neo4j with `name: "ori"`
 - [ ] `import_code_graph.py ori <jsonl>` succeeds (Repo check passes)
-- [ ] `extract_symbols.py ori` can run against Ori source (via the native adapter from 09.3)
+- [ ] `ori_adapter.py` extracts `.ori` files and standard tree-sitter pipeline extracts `.rs` files — combined JSONL imports via `import_code_graph.py ori`
 
 - [ ] Create Ori `:Repo` node via a bootstrap Cypher in `sync-ori-graph.sh --bootstrap`:
   ```cypher
@@ -75,8 +75,11 @@ Ori is the one repo where the code graph must stay current during active develop
 - [ ] Verify `import_code_graph.py` accepts the bootstrapped Repo node
 - [ ] Verify `logs/` directory is created by the sync script if it does not exist (`mkdir -p`)
 
-### Subsection 09.0 close-out
-**`/improve-tooling` retrospective**: Does the bootstrap Cypher need to be run manually, or should `sync-ori-graph.sh` auto-bootstrap on first run? Should `build-code-graph.sh` be updated to handle custom repos alongside issue-graph repos?
+- [ ] **Subsection close-out (09.0)** — MANDATORY before starting 09.1:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — Does the bootstrap Cypher need to be run manually, or should `sync-ori-graph.sh` auto-bootstrap on first run? Should `build-code-graph.sh` be updated to handle custom repos alongside issue-graph repos?
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files
 
 ---
 
@@ -101,8 +104,9 @@ post-commit:
     intel-sync:
       run: |
         if [ -x ../lang_intelligence/scripts/sync-ori-graph.sh ]; then
-          CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD -- '*.ori' '*.rs' 'library/')
+          CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD -- 'compiler/*.rs' 'library/*.ori' 'library/*.rs')
           if [ -n "$CHANGED" ]; then
+            mkdir -p ../lang_intelligence/logs
             ../lang_intelligence/scripts/sync-ori-graph.sh --changed "$CHANGED" >> ../lang_intelligence/logs/ori-sync.log 2>&1 &
           fi
         fi
@@ -112,7 +116,7 @@ post-commit:
 ```
 
 Key design decisions:
-- **`git diff-tree --no-commit-id --name-only -r HEAD`** identifies files changed in the just-committed revision. The `-- '*.ori' '*.rs' 'library/'` suffix filters to relevant file types.
+- **`git diff-tree --no-commit-id --name-only -r HEAD`** identifies files changed in the just-committed revision. The pathspecs `'compiler/*.rs' 'library/*.ori' 'library/*.rs'` scope to the Ori code-graph's `include` roots defined in `repos.yaml` (`compiler/` and `library/`). This prevents fixtures, diagnostics, examples, tools, and other out-of-scope files from triggering unnecessary syncs or polluting the graph.
 - **Log redirection**: stdout and stderr go to `ori-sync.log`. The original plan used fire-and-forget `&` with no output capture, which makes errors invisible (Finding #7). Logging to a file makes failures diagnosable.
 - **Conditional trigger**: Only runs if `$CHANGED` is non-empty (no sync needed for docs-only commits).
 
@@ -123,8 +127,11 @@ Key design decisions:
 - [ ] Verify `git diff-tree` correctly identifies changed `.ori` and `.rs` files
 - [ ] Verify errors are captured in `ori-sync.log` (not silently dropped)
 
-### Subsection 09.1 close-out
-**`/improve-tooling` retrospective**: Is the `git diff-tree` filter sufficient? Should we also trigger on `.toml` changes (new dependencies might affect symbols)? Any race conditions with rapid successive commits?
+- [ ] **Subsection close-out (09.1)** — MANDATORY before starting 09.2:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — Is the `git diff-tree` filter sufficient? Should we also trigger on `.toml` changes (new dependencies might affect symbols)? Any race conditions with rapid successive commits?
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files
 
 ---
 
@@ -149,26 +156,31 @@ Two modes:
 1. Acquire lock (`flock` on `~/projects/lang_intelligence/.ori-sync.lock`)
 2. Auto-bootstrap: ensure Ori `:Repo` node exists (idempotent MERGE)
 3. Ensure `logs/` directory exists (`mkdir -p ~/projects/lang_intelligence/logs`)
-4. For each changed file:
-   a. Run Ori symbol extraction (see 09.3) to produce JSONL records
-   b. **If extraction fails** (compiler error, non-zero exit): log the error and **skip this file** — do NOT call `upsert_file_symbols()` with empty symbols. This is the "retain last-good" contract. The existing graph state for this file remains intact.
+4. For each changed file (that still exists on disk):
+   a. **Route by extension:** `.ori` files → `ori_adapter.extract_ori_file()` (09.3). `.rs` files → standard tree-sitter pipeline (`parse_file()` → `extract_from_parse_result()` from `extract_symbols.py`). This is critical: the hook triggers on both `.ori` and `.rs` changes, but `ori_adapter.py` only handles `.ori` files. Routing `.rs` files to `ori_adapter.py` would fail silently.
+   b. **If extraction fails** (Python scanner exception): log the error and **skip this file** — do NOT call `upsert_file_symbols()` with empty symbols. This is the "retain last-good" contract. The existing graph state for this file remains intact.
    c. **If extraction succeeds**: call `upsert_file_symbols()` from `import_code_graph.py` for this file. This function implements atomic file-scoped symbol diff (see `import_code_graph.py` lines 45-202): it deletes stale symbols, merges updated symbols, and creates DECLARES/IN_REPO edges — all in a single transaction.
-   d. **After symbol upsert**: resolve per-file relationships (CALLS/IMPORTS/IMPLEMENTS) for this file. `upsert_file_symbols()` only handles symbol nodes and DECLARES/IN_REPO edges — it does NOT rebuild CALLS/IMPORTS/IMPLEMENTS. These are handled by the bulk importer's separate Phase 2 relationship pass (`import_code_graph.py` lines 464-520). The incremental sync must run a file-scoped version of this relationship resolution: delete stale outgoing relationship edges for the changed file, then resolve and create new ones from the extraction JSONL. Without this, incremental sync would gradually strip the relationship graph.
-5. For deleted/renamed files (detected via `git diff-tree --diff-filter=DR`):
+   d. **After symbol upsert**: resolve per-file relationships (CALLS/IMPORTS/IMPLEMENTS) for this file. `upsert_file_symbols()` only handles symbol nodes and DECLARES/IN_REPO edges — it does NOT rebuild CALLS/IMPORTS/IMPLEMENTS. These are handled by the bulk importer's separate Phase 2 relationship pass (`import_code_graph.py` lines 464-520). To avoid algorithmic duplication (LEAK:algorithmic-duplication), the incremental sync must use **the same shared logic** as the bulk importer — extract the Phase 2 resolution code from `import_code_graph.py::main()` into a reusable function (e.g., `resolve_file_relationships(driver, repo_name, file_path, relationships)`) that both the bulk importer and incremental sync call. The incremental sync invokes this function per-file: delete stale outgoing relationship edges, then resolve and create new ones from the extraction JSONL.
+5. For deleted files (detected in Python via `os.path.exists()` — the shell wrapper passes all changed paths from `git diff-tree --name-only`, including paths that no longer exist on disk):
    a. Delete the old file's `(:File)` node and all connected `(:Symbol)` nodes and edges from Neo4j
-   b. For renames, the new path will be handled as a new file in step 4 above
+   b. Git reports renames as separate add+delete entries (without `-M` flag). The deleted path is handled here; the new path is handled as a new file in step 4. This delete+add model is simpler and sufficient for live sync correctness.
    c. This prevents stale nodes from persisting until full rebuild
+6. **Update `:Repo` node's `last_code_import_at` timestamp** after all files are processed. Without this, the `--health` check would falsely report the sync as stale after 24h regardless of how many incremental syncs ran.
+7. **Reverse-dependency note:** When a changed file deletes or renames symbols, incoming edges from UNCHANGED files (e.g., a caller that `CALLS` a now-deleted function) become dangling. The incremental sync does NOT repair these — that would require re-extracting and re-resolving all files that reference the changed symbols, which approaches full-rebuild cost. This is an explicit simplification: incremental sync keeps symbols and outgoing edges correct; incoming edges from other files are eventually consistent via periodic `--full` rebuilds. **Recommended practice:** run `--full` weekly or after commits that delete/rename many symbols.
 6. Release lock
 7. Log summary (files processed, files deleted, files skipped due to errors, elapsed time)
 
 **Full rebuild flow:**
 1. Acquire lock
 2. Auto-bootstrap Repo node
-3. **Extract all Ori symbols via `ori_adapter.py` directly** (NOT `extract_symbols.py ori` — `parse_repo()` in `extract_symbols.py` skips `coverage_status: custom` languages, so `extract_symbols.py ori` would process zero files). The full-rebuild path must: enumerate all `.ori` files in the Ori source tree, call `ori_adapter.extract_ori_file()` for each, and write the combined JSONL to a temp file.
-4. Run `import_code_graph.py ori <temp_jsonl>` (the standard bulk import path from Section 07 — this includes ghost file deletion and Phase 2 relationship resolution)
+3. **Extract BOTH `.ori` and `.rs` symbols into a single combined JSONL.** `extract_symbols.py ori` processes ZERO files of any type because `parser_adapter.py:parse_repo()` (line 343-348) skips the entire repo when `coverage_status: custom`. The full-rebuild path must therefore enumerate all files itself and route per-file:
+   a. Enumerate all `.ori` and `.rs` files within the Ori repo's `include` roots from `repos.yaml` (`compiler/`, `library/`), respecting `exclude` patterns
+   b. **`.ori` files** → `ori_adapter.extract_ori_file()` (the standalone adapter from 09.3)
+   c. **`.rs` files** → tree-sitter Rust pipeline per-file via `parse_file()` + `extract_from_parse_result()` from `extract_symbols.py` (`parse_file()` works per-file even for custom repos — it's `parse_repo()` that skips)
+   d. **Parse-failed files during full rebuild:** Unlike incremental sync (where parse failures skip the file to preserve last-good state), full rebuild IS the canonical state reset — it produces the authoritative graph. Files that fail extraction are still included in the JSONL with `had_error: true` and zero symbols, which causes `upsert_file_symbols()` to remove their old symbols. This is **correct behavior for full rebuild**: if a file can't be parsed, its graph representation should reflect that (no symbols). The "retain last-good" contract applies ONLY to incremental sync, where a temporary parse error shouldn't destroy previously-good data. Parse failures during full rebuild are logged prominently so the developer knows to fix the broken files.
+   e. **Combine all successful outputs** into a single JSONL temp file — this is critical because `import_code_graph.py`'s ghost file deletion removes files absent from the JSONL. The combined JSONL must contain BOTH `.ori` and `.rs` records so neither type gets ghost-deleted.
+4. Run `import_code_graph.py ori <combined_jsonl>` (the standard bulk import path from Section 07 — this includes ghost file deletion and Phase 2 relationship resolution)
 5. Release lock
-
-**Note on `extract_symbols.py` integration:** The plan originally assumed `extract_symbols.py ori` would work. This is a GAP — `parser_adapter.py:parse_repo()` (line 343-348) explicitly skips `coverage_status: custom` languages, and `extract_symbols.py` only iterates `parse_repo()`. The fix is to have the full-rebuild path call `ori_adapter.py` directly rather than routing through the tree-sitter pipeline. A future enhancement could extend `parse_repo()` to dispatch custom adapters, but that is not required for Section 09.
 
 **Critical: `upsert_file_symbols()` already does the diff.** The original plan (09.2) described implementing a "symbol diff: compare extracted symbols against Neo4j's current signature_hash." This is algorithmic duplication — `upsert_file_symbols()` already performs file-scoped declarative diff (steps 1-5 in the function: get existing keys, compute incoming keys, delete outgoing edges, delete stale symbols, merge new symbols). The sync script must NOT re-implement this logic. It feeds file-level symbol records to `upsert_file_symbols()` and lets it handle the diff.
 
@@ -216,16 +228,24 @@ fi
   - [ ] Short-circuits on extraction failure — does NOT call `upsert_file_symbols()` with empty symbols
   - [ ] Calls `upsert_file_symbols()` from `import_code_graph.py` for each successfully-extracted file
   - [ ] After symbol upsert, resolves per-file relationships (CALLS/IMPORTS/IMPLEMENTS) — deletes stale outgoing relationship edges for the changed file, then creates new ones from extraction JSONL
-  - [ ] Handles deleted files: removes (:File) node and all connected (:Symbol) nodes and edges
-  - [ ] Handles renamed files: deletes old path, processes new path as a new file
-  - [ ] Detects deletions/renames via `git diff-tree --diff-filter=DR HEAD` in the shell wrapper
+  - [ ] Routes by file extension: `.ori` → `ori_adapter.py`, `.rs` → tree-sitter pipeline (`parse_file()` + `extract_from_parse_result()`)
+  - [ ] Handles deleted files (detected via `os.path.exists()`): removes (:File) node and all connected (:Symbol) nodes and edges
+  - [ ] Handles renamed files as delete+add (git reports renames as separate entries without `-M`)
+  - [ ] Updates `:Repo` node's `last_code_import_at` timestamp after successful sync
   - [ ] Logs per-file results (success/skip/error/deleted) and summary statistics
+- [ ] Extract Phase 2 relationship resolution from `import_code_graph.py::main()` into a reusable function (e.g., `resolve_file_relationships()`) — both bulk importer and incremental sync must use the same shared logic (SSOT, no algorithmic duplication)
 - [ ] Verify incremental mode does NOT use bulk import path (no ghost file deletion on partial input)
 - [ ] Verify per-file relationship resolution works (CALLS/IMPORTS/IMPLEMENTS survive incremental sync)
-- [ ] Verify full mode uses the dedicated full-rebuild path (see below)
+- [ ] Verify full mode combines both pipelines (ori_adapter for .ori + tree-sitter for .rs) into single JSONL before import
+- [ ] Verify incremental mode routes .ori → ori_adapter, .rs → tree-sitter pipeline
 
-### Subsection 09.2 close-out
-**`/improve-tooling` retrospective**: Is `flock` sufficient for concurrency control, or do we need a PID-based guard? Should we batch multiple file changes into one Neo4j transaction for performance? Is the per-file extraction overhead acceptable?
+- [ ] **Subsection close-out (09.2)** — MANDATORY before starting 09.3:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — Is `flock` sufficient for concurrency control, or do we need a PID-based guard? Should we batch multiple file changes into one Neo4j transaction for performance? Is the per-file extraction overhead acceptable?
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files
+
+- [ ] **TPR checkpoint** — `/tpr-review` covering 09.0–09.2 implementation work
 
 ---
 
@@ -235,16 +255,15 @@ fi
 
 Ori uses its own Rust parser (`ori_parse`), not tree-sitter. The adapter must bridge Ori's compiler output to the JSONL format consumed by `upsert_file_symbols()`.
 
-**Design principle: compiler-agnostic normalization.** The compiler exposes compiler-native data via existing phase dump flags (e.g., `ORI_DUMP_AFTER_PARSE=1`). The intelligence layer (`lang_intelligence/`) owns the normalization from compiler output to JSONL. The compiler has NO knowledge of the intelligence DB's schema. Specifically:
-- **NO `--dump-symbols` flag in the compiler** — adding a flag that outputs "the same JSONL format as extract_symbols.py" leaks the intelligence schema into the compiler (Finding #4). The compiler's job is to parse and type-check Ori code; the intelligence layer's job is to extract symbols from that output.
-- The adapter calls the **built binary** (`~/projects/ori_lang/target/release/ori` or `target/debug/ori`), NOT `cargo run`. The `cargo run` path has multi-second cold-start overhead (compiles if needed, creates fresh `CompilerDb`, discards Salsa incrementality). The built binary starts in ~50ms.
+**Design principle: compiler-agnostic normalization.** The intelligence layer (`lang_intelligence/`) owns all symbol extraction logic. The compiler has NO knowledge of the intelligence DB's schema or extraction process. Specifically:
+- **NO `--dump-symbols` flag in the compiler** — adding a flag that outputs "the same JSONL format as extract_symbols.py" leaks the intelligence schema into the compiler boundary.
+- **NO compiler binary invocation during extraction** — the adapter uses a pure Python regex scanner on `.ori` source files, mirroring tree-sitter's approach of extracting structural declarations from source text. This avoids: (a) cold-start overhead of invoking the binary per-file, (b) type-checking rejections that would block extraction of valid structural declarations during active development, (c) coupling the intelligence pipeline to the compiler's build state.
 
 **success_criteria:**
 - [ ] Adapter produces JSONL records in the same format as `extract_symbols.py` (type: "symbol"/"relationship"/"file_meta")
-- [ ] Uses the built Ori binary, not `cargo run`
-- [ ] Falls back gracefully if binary doesn't exist (logs error, returns empty result)
-- [ ] Parse errors produce `had_error: true` file_meta record and zero symbol records
-- [ ] Per-file extraction completes in <3s for typical Ori source files
+- [ ] Pure Python regex scanner — no compiler binary invocation needed
+- [ ] Handles malformed/partial `.ori` files gracefully (extracts what it can, logs warnings)
+- [ ] Per-file extraction completes in <1s for typical Ori source files (pure Python, no process spawn)
 
 **Approach: `ori check` + AST dump parsing.**
 
@@ -256,10 +275,11 @@ The Ori compiler already supports `ORI_DUMP_AFTER_PARSE=1 ori check <file>` whic
 
 However, the AST dump format is designed for human debugging, not machine consumption. A more robust approach:
 
-**Preferred approach: `ori check` exit code + direct source scanning.**
+**Preferred approach: direct source scanning (no `ori check` validation step).**
 
-1. Run `<ori_binary> check <file>` to validate parseability (exit 0 = parseable, non-zero = error)
-2. Use a lightweight Python regex/AST scanner on the `.ori` source to extract structural declarations:
+`ori check` performs BOTH parsing AND type-checking. A type error (which is common during active development) causes a non-zero exit code, which would block symbol extraction even when the structural declarations are perfectly valid. Instead, rely entirely on the Python regex scanner's fault tolerance — it extracts what it can from the source text, mirroring tree-sitter's approach of producing partial results from imperfect input.
+
+1. Use a lightweight Python regex/AST scanner on the `.ori` source to extract structural declarations:
    - `@name (...) -> T` — function declarations
    - `type Name = { ... }` — struct/sum type declarations
    - `trait Name { ... }` — trait declarations
@@ -278,19 +298,20 @@ This approach is the most correct because:
 **For `.rs` files in `compiler/` and `library/`:** Use the existing tree-sitter Rust parser (`languages.yaml: rust: grammar: tree-sitter-rust`). The Ori adapter only handles `.ori` files; Rust files go through the standard `extract_symbols.py` pipeline.
 
 - [ ] Create `ori_adapter.py` in `~/projects/lang_intelligence/neo4j/` with:
-  - [ ] `extract_ori_file(file_path, ori_binary) -> list[dict]` — extract symbols from a single `.ori` file
-  - [ ] `find_ori_binary() -> str` — locate the Ori binary (prefer release, fall back to debug, error if neither exists)
-  - [ ] `validate_parseable(file_path, ori_binary) -> bool` — run `ori check` and check exit code
+  - [ ] `extract_ori_file(file_path) -> list[dict]` — extract symbols from a single `.ori` file using the regex scanner
   - [ ] Python regex scanner for Ori structural declarations (`@fn`, `type`, `trait`, `impl`, `use`)
   - [ ] `qualified_name` derivation from file path + nesting
   - [ ] `signature_hash` computation (body-independent)
   - [ ] JSONL record generation in the standard format (type: "symbol"/"relationship"/"file_meta")
-- [ ] Register `ori` in `parser_adapter.py`'s `parse_file()` to delegate to `ori_adapter.py` for `coverage_status: custom` languages (currently `parse_file()` raises `ValueError` for native parsers — add a dispatch path)
+- [ ] **Do NOT register `ori` in `parser_adapter.py`'s `parse_file()`** — `parse_file()` returns a tree-sitter `ParseResult` object, while `ori_adapter.py` produces JSONL directly. These are incompatible interfaces. `ori_adapter.py` is a standalone parallel pipeline (source → JSONL), not a `parser_adapter.py` plugin. The sync script routes by file extension before calling either pipeline.
 - [ ] Verify output format matches `extract_symbols.py` schema exactly (same fields, same types)
 - [ ] Verify `.rs` files in `compiler/` use the standard Rust tree-sitter pipeline (no adapter needed)
 
-### Subsection 09.3 close-out
-**`/improve-tooling` retrospective**: Is the regex scanner robust enough for Ori's syntax? Should we invest in a proper AST dump JSON mode in the compiler instead? Benchmark the binary cold-start time — is <3s achievable?
+- [ ] **Subsection close-out (09.3)** — MANDATORY before starting 09.4:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — Is the regex scanner robust enough for Ori's syntax? Should we invest in a proper AST dump JSON mode in the compiler instead? Benchmark the binary cold-start time — is <3s achievable?
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files
 
 ---
 
@@ -315,8 +336,13 @@ The background sync must not fail silently. This subsection adds observability.
 - [ ] Add Ori sync metadata to `intel-query.sh status` output (query Repo node's `last_code_import_at` — `status` is the canonical public surface per Section 01, not a separate `health` command)
 - [ ] Verify stale detection works: commit a file, wait, check `--health` reports stale
 
-### Subsection 09.4 close-out
-**`/improve-tooling` retrospective**: Is the health check sufficient for detecting problems? Should we add a cron job for periodic health checks? Should `--health` be integrated into `test-all.sh` or a CI check?
+- [ ] **Subsection close-out (09.4)** — MANDATORY before starting 09.5:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — Is the health check sufficient for detecting problems? Should we add a cron job for periodic health checks? Should `--health` be integrated into `test-all.sh` or a CI check?
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files
+
+- [ ] **TPR checkpoint** — `/tpr-review` covering 09.3–09.4 implementation work
 
 ---
 
@@ -338,10 +364,8 @@ Zero tests in the original plan is a violation of CLAUDE.md testing requirements
 - [ ] `test_extract_import` — `use "..." { ... }` produces correct relationship record
 - [ ] `test_qualified_name_derivation` — file path + nesting produces correct qualified_name
 - [ ] `test_signature_hash_body_independent` — changing function body does not change signature_hash
-- [ ] `test_parse_failure_produces_error_meta` — broken `.ori` file produces file_meta with `had_error: true` and zero symbols
-- [ ] `test_find_ori_binary_prefers_release` — release binary preferred over debug
-- [ ] `test_find_ori_binary_fallback_to_debug` — debug binary used when release absent
-- [ ] `test_find_ori_binary_error_when_neither` — clear error when no binary exists
+- [ ] `test_malformed_file_extracts_partial` — malformed `.ori` file extracts what it can and logs warnings
+- [ ] `test_empty_file_produces_file_meta_only` — empty `.ori` file produces file_meta with zero symbols
 
 **Integration tests** (`~/projects/lang_intelligence/tests/test_sync_ori_graph.py`):
 
@@ -362,8 +386,11 @@ Zero tests in the original plan is a violation of CLAUDE.md testing requirements
 - [ ] `test_hook_captures_changed_files` — verify `git diff-tree` output matches committed files
 - [ ] `test_hook_skips_non_ori_commits` — docs-only commit produces no sync trigger
 
-### Subsection 09.5 close-out
-**`/improve-tooling` retrospective**: Are the integration tests fast enough to run in CI? Do they need a dedicated Neo4j test instance? Should we add property-based tests for the regex scanner?
+- [ ] **Subsection close-out (09.5)** — MANDATORY before 09.N:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — Are the integration tests fast enough to run in CI? Do they need a dedicated Neo4j test instance? Should we add property-based tests for the regex scanner?
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files
 
 ---
 
@@ -390,9 +417,15 @@ Zero tests in the original plan is a violation of CLAUDE.md testing requirements
 - [ ] Integration tests pass for sync pipeline (09.5)
 - [ ] No interference with existing ori_lang hooks (09.1)
 - [ ] No test regressions: `timeout 150 ./test-all.sh`
-- [ ] `/tpr-review` clean
+- [ ] **All intermediate TPR checkpoint findings resolved** (09.2 checkpoint, 09.4 checkpoint)
+- [ ] **Plan annotation cleanup** — remove any `<!-- reviewed: ... -->` or TPR-specific comments from source code
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files
+- [ ] `/tpr-review` clean (final section-level review)
 - [ ] `/impl-hygiene-review` clean
 - [ ] `/improve-tooling` section-close sweep
+- [ ] **Plan sync** — update plan metadata to reflect this section's completion:
+  - [ ] Update `00-overview.md` Quick Reference table: Section 09 status → Complete
+  - [ ] Update `index.md` section status
+  - [ ] Verify mission success criteria checkbox for Ori live sync
 
-### Subsection 09.N close-out
-Confirm all checklist items pass. Strip any plan annotations from code. Archive sync log.
+**Exit Criteria:** All integration tests pass against a live Neo4j instance. A commit to ori_lang triggers background sync, and the changed symbols appear in Neo4j within 5s. A `--full` rebuild produces identical graph state to a fresh bulk import. Parse failures during development do not corrupt the graph. The `--health` check correctly reports stale state when sync has not run.
