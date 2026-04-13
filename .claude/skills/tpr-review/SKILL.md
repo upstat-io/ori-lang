@@ -315,6 +315,8 @@ Bash:
   echo "$RUN"
 ```
 
+**This MUST be a separate foreground Bash call.** The `$RUN` path must be visible in Claude's context before Steps 2-3 run. If `$RUN` is created inside a `run_in_background: true` compound command, Claude never sees the path and will poll the wrong directory — potentially a parallel session's directory from a different project.
+
 Each semantic iteration gets a fresh `$RUN` (e.g. `/tmp/ori-tpr-XXXXXXXX`). Reuse across iterations is forbidden — a stale envelope from the previous round would corrupt the merge.
 
 ### 2. Write both reviewer prompts
@@ -420,6 +422,8 @@ Bash (run_in_background: true):
 - Wrap the transport in an Agent subagent — the subagent cannot itself be backgrounded, so it reintroduces the foreground cap.
 - Poll `$RUN/*.envelope.json` or `$RUN/merged.json` — those files use atomic-write semantics and reading them mid-stream can see a partial file.
 - Add a trailing `echo "transport_exit=$?"` (or any other trailing command). The bash script's overall exit code is the exit code of the LAST executed command — a trailing echo ALWAYS exits 0 and masks the transport's real failure (BUG-08-007). The task notification's reported exit code is the source of truth.
+- **Combine `scratch-dir.sh` + prompt writing + transport launch in a single `run_in_background` call.** The `$RUN` path is lost — Claude never sees it and will poll the wrong directory. Steps 1-2 MUST be foreground; only Step 3 (the transport itself) runs in the background. Incident: 2026-04-13 §08 iteration 8 merged oriterm findings because `$RUN` was created inside a background compound command and polling used filesystem discovery (`ls | tail -1`) which picked a parallel session's directory.
+- **Use filesystem discovery (`ls -d /tmp/ori-tpr-* | sort | tail -1`) to find `$RUN`.** Multiple sessions (different projects) create `/tmp/ori-tpr-*` directories concurrently. The `$RUN` value from Step 1 is the ONLY reliable identifier. If you lose `$RUN`, the round is invalid — re-create from Step 1.
 
 ### Polling Protocol — Canonical SSOT
 
