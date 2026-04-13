@@ -158,16 +158,24 @@ fn handle_emit_type(
         let stats = ori_llvm::verify::audit_module_histogram_only(llvm_module, &audit_opts);
         stats.emit_to_stderr();
     }
-    if emit_type == EmitType::Object && opt_config.sanitizer.any_enabled() {
-        emit_sanitized_object(
-            llvm_module,
-            emitter,
-            output_path,
-            opt_config,
-            options,
-            start,
+    if opt_config.sanitizer.any_enabled() {
+        if emit_type == EmitType::Object {
+            emit_sanitized_object(
+                llvm_module,
+                emitter,
+                output_path,
+                opt_config,
+                options,
+                start,
+            );
+            return;
+        }
+        // Warn: --emit ir/asm/bc with sanitizers produces uninstrumented output.
+        // Sanitizer passes are added by Clang during object compilation, not by LLVM.
+        eprintln!(
+            "warning: --emit {emit_type:?} with ORI_SANITIZE produces pre-sanitizer output. \
+             Sanitizer instrumentation is only visible in --emit object."
         );
-        return;
     }
     emit_and_finish(llvm_module, emitter, output_path, emit_type, options, start);
 }

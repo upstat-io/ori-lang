@@ -30,7 +30,7 @@ static CLANG_BINARY: OnceLock<Option<String>> = OnceLock::new();
 ///
 /// Tries candidates in order, caches the result for subsequent calls.
 /// Returns `None` if no Clang is found.
-fn find_clang() -> Option<&'static str> {
+pub fn find_clang() -> Option<&'static str> {
     CLANG_BINARY
         .get_or_init(|| {
             for candidate in CLANG_CANDIDATES {

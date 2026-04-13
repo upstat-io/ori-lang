@@ -163,6 +163,9 @@ pub fn run_file_compiled(path: &str) {
         std::env::var(crate::debug_flags::ORI_AUDIT_CODEGEN)
             .unwrap_or_default()
             .hash(&mut hasher);
+        std::env::var(crate::debug_flags::ORI_NO_REPR_OPT)
+            .unwrap_or_default()
+            .hash(&mut hasher);
         hasher.finish()
     };
 

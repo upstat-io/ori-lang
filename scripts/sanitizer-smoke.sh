@@ -21,11 +21,21 @@ if [ ! -d "$SMOKE_DIR" ]; then
     exit 1
 fi
 
-# Check Clang availability
-if ! command -v clang &>/dev/null; then
-    echo "ERROR: Clang not found on PATH (required for sanitizer compilation)"
+# Check Clang availability — try versioned names (matching compiler/ori_llvm/src/aot/passes/sanitizer.rs)
+find_clang() {
+    for candidate in clang clang-21 clang-20 clang-19 clang-18 clang-17; do
+        if command -v "$candidate" &>/dev/null; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+CLANG=$(find_clang) || {
+    echo "ERROR: Clang not found on PATH (tried: clang, clang-21..clang-17)"
+    echo "  Required for sanitizer compilation. Install clang or a versioned variant."
     exit 1
-fi
+}
 
 export ORI_SANITIZE="$SANITIZE"
 
@@ -56,7 +66,7 @@ if [ -f "$SMOKE_DIR/pin_helper.c" ]; then
     if [ -n "$SANITIZE" ]; then
         SANITIZER_CFLAGS="-fsanitize=$SANITIZE"
     fi
-    if clang $SANITIZER_CFLAGS -c "$SMOKE_DIR/pin_helper.c" -o "$PIN_TMPDIR/pin_helper.o" 2>/dev/null; then
+    if "$CLANG" $SANITIZER_CFLAGS -c "$SMOKE_DIR/pin_helper.c" -o "$PIN_TMPDIR/pin_helper.o" 2>/dev/null; then
         if ar rcs "$PIN_TMPDIR/libpin_helper.a" "$PIN_TMPDIR/pin_helper.o" 2>/dev/null; then
             PIN_LIB="$PIN_TMPDIR"
             echo "  Built: $PIN_TMPDIR/libpin_helper.a"
@@ -152,7 +162,8 @@ echo "=== Sanitizer smoke: $PASS_COUNT passed, $FAIL_COUNT failed, $SKIP_COUNT s
 if [ "$SEMANTIC_PIN_TESTED" = true ]; then
     echo "  Semantic pin: VERIFIED (ASan detected deliberate UAF)"
 else
-    echo "  Semantic pin: NOT TESTED (pin_helper build failed or skipped)"
+    echo "  WARNING: Semantic pin NOT TESTED (pin_helper build failed or skipped)"
+    echo "  The smoke suite passed but the ASan detection capability was not validated."
 fi
 
 if [ "$FAIL_COUNT" -gt 0 ]; then
