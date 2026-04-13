@@ -187,6 +187,7 @@ Audit the existing proptest setup, strategy definitions, and helper functions. V
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.1: no tooling gaps. proptest workflow is smooth; `cargo test -p ori_arc -- aims::lattice::prop_tests` gives clear, fast output.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -282,6 +283,7 @@ The `lattice_leq` helper (`a <= b iff a.join(b) == b`) is used by every subseque
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.2: Transitivity failure was the expected critical gate. The proptest shrinking produced a clean minimal counterexample immediately (0 successes before first failure). No tooling gaps — proptest's output was clear and diagnostic.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -312,6 +314,7 @@ Audit the existing canonicalization property tests. These are complete and corre
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.3: pure audit, no implementation. No tooling gaps.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -399,6 +402,7 @@ Audit the existing semantic contract tests and add the missing `capture_state_up
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.4: monotonicity tests immediately surfaced BUG-04-058. proptest counterexample was clear and minimal. Filed bug inline without needing external tools. No tooling gaps.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -537,6 +541,7 @@ The `dimensions.rs` doc claims `seq_add` distributes over `alt_join` for `Cardin
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.5: permutation-invariance test immediately surfaced the operational consequence of BUG-04-057 (0 successes — first-try fail). proptest shrinking gave a minimal 3-element counterexample. No tooling gaps.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -756,6 +761,7 @@ If the `nary_join_permutation_invariant` test from 04.5 FAILS, then BUG-04-057 h
   - [x] All tasks above are `[x]` (except `/fix-bug` which is tracked separately) and behavior verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.6: the two-tier exhaustive search with early-exit worked perfectly (2.7s vs >150s for full enumeration). No tooling gaps. `collect_all_canonical_states()` utility is reusable for future lattice tests.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 

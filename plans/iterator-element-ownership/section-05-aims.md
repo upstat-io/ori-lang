@@ -51,6 +51,7 @@ This is the most architecturally sensitive section. The AIMS pipeline currently 
   - [ ] All tasks above are `[x]` and behavior verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -69,6 +70,7 @@ Lines 140-142 in `emit_last_use_decs` skip RcDec for variables in `iter_element_
   - [ ] All tasks above are `[x]` and behavior verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -87,6 +89,7 @@ The codegen registers the iterator scratch pointer for borrowed forwarding. With
   - [ ] All tasks above are `[x]` and behavior verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -102,6 +105,7 @@ The codegen registers the iterator scratch pointer for borrowed forwarding. With
   - [ ] All tasks above are `[x]` and behavior verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
