@@ -96,7 +96,7 @@ for ori_file in "$SMOKE_DIR"/*.ori; do
     # Compile with sanitizers (pass --release if ORI_RELEASE=1 for O2 matrix coverage)
     BUILD_FLAGS=""
     [ -n "$RELEASE" ] && BUILD_FLAGS="--release"
-    if ! "$ORI" build $BUILD_FLAGS "$ori_file" -o "$TMPDIR/san_$name" 2>"$TMPDIR/compile.log"; then
+    if ! "$ORI" build "$ori_file" $BUILD_FLAGS -o "$TMPDIR/san_$name" 2>"$TMPDIR/compile.log"; then
         echo "FAIL (compilation)"
         cat "$TMPDIR/compile.log" >&2
         FAIL_COUNT=$((FAIL_COUNT + 1))
