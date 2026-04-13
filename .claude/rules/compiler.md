@@ -117,6 +117,8 @@ These test suites were built by `plans/llvm-verification-tooling/` and verify de
 | **Contract Oracle** | `cargo test -p ori_arc -- oracle` | Re-derives MemoryContract from realized IR, detects analysis/realization mismatches (8 tests) |
 | **Protocol Builtins** | `cargo test -p ori_arc -- builtins::tests` | Protocol builtin ownership matrix (11 consumer tests) |
 | **Sanitizer Smoke** | `scripts/sanitizer-smoke.sh` | ASan/UBSan on 17 programs (O0+O2 matrix). Requires Clang. |
+| **Alive2 Curated** | `diagnostics/alive2-verify.sh --corpus` | Formal translation validation: 8 pure functions verified via Z3 SMT solver (proves optimization correctness for ALL inputs). Requires `alive-tv` (`scripts/build-alive2.sh`). |
+| **Alive2 Full Sweep** | `diagnostics/alive2-verify.sh --all-codegen` | Weekly: all codegen tests through alive-tv with false positive suppression. |
 
 ### Shared Test Harness (`ori_test_harness` crate)
 
@@ -124,7 +126,7 @@ The `compiler/ori_test_harness/` crate provides shared infrastructure for snapsh
 - **Directives**: `// CHECK:`, `// CHECK-NOT:`, `// CHECK-LABEL:`, `// CHECK-NEXT:`, `// @revisions:`
 - **Bless mode**: `ORI_BLESS=1` writes actual output as new baseline (only `"1"` accepted)
 - **Runner**: `run_test_directory(path, strategy, bless) → TestSummary`
-- **Test corpus locations**: `compiler/oric/tests/aims-snapshots/` (AIMS), `compiler/ori_llvm/tests/codegen/` (FileCheck)
+- **Test corpus locations**: `compiler/oric/tests/aims-snapshots/` (AIMS), `compiler/ori_llvm/tests/codegen/` (FileCheck), `tests/alive2/` (Alive2 corpus)
 
 ## Diagnostic Scripts — USE THESE
 

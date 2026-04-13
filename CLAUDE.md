@@ -158,10 +158,11 @@ Quick reference — full rules: `compiler.md` (architecture, tracing), `impl-hyg
 **Repr-opt disable**: `ORI_NO_REPR_OPT=1` — disable all representation optimizations (integer narrowing, enum packing). CLI: `--no-repr-opt`
 **Sanitizer**: `ORI_SANITIZE=address,undefined` — enable sanitizer instrumentation on generated AOT binaries via Clang delegation. Requires Clang on PATH. Significant performance impact (2-10x slower). Not for main test suite.
 **Sanitizer scripts**: `scripts/sanitizer-smoke.sh` (17 curated programs, O0+O2 matrix, <=60s) | `scripts/sanitizer-full.sh` (full spec sweep, sharded for CI) | `scripts/build-rt-asan.sh` (build ASan-instrumented `libori_rt_asan.a`, requires nightly Rust)
+**Alive2 scripts**: `scripts/build-alive2.sh` (build alive-tv from pinned commit, LLVM 21) | `diagnostics/alive2-verify.sh --corpus` (curated 8-function verification) | `diagnostics/alive2-verify.sh --all-codegen` (weekly full sweep) | `diagnostics/alive2-verify.sh <file> --function <name>` (single function) | `--json` (machine-readable to `build/alive2-results/results.json`)
 **AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed.
 **Always run `./test-all.sh` after compiler changes.**
 **Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh` | **Cargo cache**: `./scripts/cache-doctor.sh [--print-cleanup|--clean]` — detects root-owned files in `target/` that cargo cannot update (accidental `sudo cargo build`); refuses destructive actions by default
-**Diagnostic scripts** (`diagnostics/`): see `.claude/rules/diagnostic.md` §Diagnostic Scripts for full table with flags. Key scripts: `rc-stats.sh` (`--block-level`, `--optimized`), `codegen-audit.sh` (`--strict`), `diagnose-aot.sh` (`--valgrind`), `dual-exec-debug.sh`, `ir-dump.sh`, `debug-release-compare.sh`, `bisect-passes.sh` (`--function`, `--rc-only`), `repo-hygiene.sh` (`--check`, `--clean`) — detect/remove untracked temp files at subsection close-out
+**Diagnostic scripts** (`diagnostics/`): see `.claude/rules/diagnostic.md` §Diagnostic Scripts for full table with flags. Key scripts: `rc-stats.sh` (`--block-level`, `--optimized`), `codegen-audit.sh` (`--strict`), `diagnose-aot.sh` (`--valgrind`), `dual-exec-debug.sh`, `ir-dump.sh`, `debug-release-compare.sh`, `bisect-passes.sh` (`--function`, `--rc-only`), `alive2-verify.sh` (`--corpus`, `--all-codegen`, `--json`), `repo-hygiene.sh` (`--check`, `--clean`) — detect/remove untracked temp files at subsection close-out
 
 ## Feature Flags
 
@@ -178,7 +179,7 @@ CalVer — see `docs/ori_lang/versioning.md` | `docs/development/versioning.md` 
 
 ## Key Paths
 
-`compiler/oric/` — compiler | `docs/ori_lang/v2026/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `docs/ori_lang/versioning.md` — versioning scheme | `library/std/` — stdlib | `tests/spec/` — conformance | `tests/spec/collections/cow/` — COW spec tests | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT tests | `tests/valgrind/` — Valgrind tests | `tests/valgrind/cow/` — COW Valgrind tests | `tests/benchmarks/` — benchmarks | `tests/benchmarks/cow/` — COW benchmarks (+ `baseline.json`) | `diagnostics/` — diagnostic scripts | `plans/roadmap/` — roadmap
+`compiler/oric/` — compiler | `docs/ori_lang/v2026/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `docs/ori_lang/versioning.md` — versioning scheme | `library/std/` — stdlib | `tests/spec/` — conformance | `tests/spec/collections/cow/` — COW spec tests | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT tests | `tests/valgrind/` — Valgrind tests | `tests/valgrind/cow/` — COW Valgrind tests | `tests/alive2/` — Alive2 formal verification corpus | `tests/benchmarks/` — benchmarks | `tests/benchmarks/cow/` — COW benchmarks (+ `baseline.json`) | `diagnostics/` — diagnostic scripts | `plans/roadmap/` — roadmap
 
 ## Reference Repos (`~/projects/reference_repos/lang_repos/`)
 

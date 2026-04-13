@@ -23,7 +23,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_iter_collect");
 
         // Use narrowed element size for int elements.
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
@@ -154,7 +154,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_iter_count");
 
         // Use narrowed element size for int elements.
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         self.builder
@@ -178,7 +178,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
         // Use narrowed element size for int elements.
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_any");
@@ -212,7 +212,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
         // Use narrowed element size for int elements.
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_all");
@@ -246,7 +246,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
         // Use narrowed element size for int elements.
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_find");
@@ -291,7 +291,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.build_trampoline(closure, elem_ty, TrampolineKind::ForEach, None);
 
         // Use narrowed element size for int elements.
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_for_each");
@@ -327,7 +327,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.build_trampoline(closure, elem_ty, TrampolineKind::Fold, Some(acc_ty));
 
         // Use narrowed element size for int elements.
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let acc_size = self.element_store_size(acc_ty);
         let acc_size_val = self.builder.const_i64(acc_size as i64);
@@ -371,7 +371,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         iter_ptr: ValueId,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         // Option layout: {i64 tag, T payload}
@@ -410,7 +410,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         // Option layout: {i64 tag, T payload}
@@ -459,7 +459,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Fold, Some(acc_ty));
 
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let acc_size = self.element_store_size(acc_ty);
         let acc_size_val = self.builder.const_i64(acc_size as i64);
@@ -543,7 +543,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(separator, FIELD_DATA, "join.sep.data")?;
 
-        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         // OriStr result type (always str, regardless of element type)
@@ -635,8 +635,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // NOTE: cannot use `sext_narrowed_int_element` here because that function
         // requires a collection-emission context (`narrowed_int_collection_element_width`)
         // that isn't available in this standalone trampoline function. The canonical
-        // `int_element_llvm_type` already handles narrowing — we just need the sext.
-        let buf_elem_llvm_ty = self.int_element_llvm_type(elem_ty);
+        // Use canonical type — narrowing confined to list boundary (BUG-04-071).
+        let buf_elem_llvm_ty = self.resolve_type(elem_ty);
         let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "elem");
 
         // Widen narrowed ints to i64 for the runtime function.

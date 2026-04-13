@@ -1347,3 +1347,19 @@ fn test_phase_c_push_large_values() {
         "phase_c_push_large_values",
     );
 }
+
+// Regression: BUG-04-071 — iterator map on narrowed [int]
+//
+// repr-opt narrows [int] to i8 when all values fit. The iterator map
+// trampoline must produce canonical i64 output. Narrowing must not leak
+// into scratch buffers, collect allocation, or chained trampolines.
+
+/// Semantic pin: map on narrowed [int] produces correct canonical values.
+/// Exercises: map+collect, signed values, chained maps, for-loop path.
+#[test]
+fn test_iter_map_on_narrowed_int_list() {
+    assert_aot_success(
+        include_str!("fixtures/narrowing/iter_map_narrowed_int.ori"),
+        "iter_map_narrowed_int",
+    );
+}

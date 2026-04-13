@@ -71,6 +71,9 @@ See `ir.md` §DerivedTrait for the canonical sync point list. This crate's sync 
 | `ORI_LOG=ori_llvm=debug` | Codegen event log (function-level) |
 | `ORI_LOG=ori_llvm=trace` | Per-instruction detail (very verbose) |
 | `ORI_AUDIT_CODEGEN=1` | In-pipeline RC/COW/ABI audit (add `ORI_AUDIT_STRICT=1` for pessimistic) |
+| `ORI_DUMP_PREOPT_LLVM=1` | Raw pre-optimization IR to `.preopt.ll` file (for alive-tv) |
+| `ORI_DUMP_POSTOPT_LLVM=1` | Raw post-optimization IR to `.postopt.ll` file (for alive-tv) |
+| `ORI_ALIVE2_CAPTURE=1` | Both pre/post-opt IR into `build/alive2-results/` (alive-tv structured output) |
 
 - **Runtime debug vars**: See `runtime.md`. **Diagnostic scripts**: See `diagnostic.md` §Diagnostic Scripts.
 - **Triage**: Verification fail = our codegen bug | optimization crash = `opt -verify-each -opt-bisect-limit=N` | runtime segfault = check ABI/GEP/aggregate loads | compare with `clang -emit-llvm -S -O0`

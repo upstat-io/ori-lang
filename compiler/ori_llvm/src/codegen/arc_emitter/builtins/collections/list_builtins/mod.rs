@@ -238,6 +238,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
     /// `elem_dec_fn` from the V5 RC header at cleanup time (Section 02.1).
+    ///
+    /// **Narrowing boundary (BUG-04-071):** when the list has narrowed int
+    /// elements (i8/i16/i32 via repr-opt), the list iterator yields narrowed
+    /// bytes. To prevent the narrowing from leaking into the iterator pipeline
+    /// (trampolines, scratch buffers, consumers), we inject a sext widening
+    /// map trampoline that converts narrowed elements to canonical i64. The
+    /// entire iterator pipeline then operates on canonical element types.
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,
@@ -247,13 +254,36 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_iter_from_list");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        // Narrowed element size for iterators.
         let collection_idx = self.pool.resolve_fully(receiver_ty);
-        let elem_size_val = self
-            .builder
-            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
+        let narrowed_elem_size = self.collection_elem_size(collection_idx, elem_ty);
+        let elem_size_val = self.builder.const_i64(narrowed_elem_size as i64);
 
-        self.emit_rt_call(func_id, &[data_ptr, len, cap, elem_size_val], "list.iter")
+        let list_iter =
+            self.emit_rt_call(func_id, &[data_ptr, len, cap, elem_size_val], "list.iter")?;
+
+        // If the collection has narrowed int elements, inject a sext widening
+        // trampoline at the iter() boundary. This converts narrowed elements
+        // (i8/i16/i32) to canonical i64 so the entire iterator pipeline
+        // operates on canonical types. Without this, downstream trampolines,
+        // scratch buffers, and collect allocations would use the narrowed size
+        // and corrupt data (BUG-04-071).
+        let canonical_elem_size = self.element_store_size(elem_ty);
+        if narrowed_elem_size < canonical_elem_size {
+            if let Some(narrowed_width) = self.narrowed_collection_element_width(collection_idx) {
+                let sext_tramp_fn_id = self.generate_sext_widening_trampoline(narrowed_width);
+                let sext_tramp_ptr = self.builder.get_function_ptr(sext_tramp_fn_id);
+                let null_env = self.builder.const_null_ptr();
+
+                let map_fn_id = self.builder.runtime_fn("ori_iter_map");
+                return self.emit_rt_call(
+                    map_fn_id,
+                    &[list_iter, sext_tramp_ptr, null_env, elem_size_val],
+                    "list.iter.widen",
+                );
+            }
+        }
+
+        Some(list_iter)
     }
 
     /// Emit `list.slice(start, end)` — zero-copy seamless slice.
