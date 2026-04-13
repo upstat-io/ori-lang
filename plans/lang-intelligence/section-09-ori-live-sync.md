@@ -12,7 +12,7 @@ success_criteria:
   - "Broken ASTs during development handled gracefully (partial parse, retain last-good edges)"
   - "Manual sync command available: scripts/sync-ori-graph.sh"
   - "Full rebuild fallback: scripts/sync-ori-graph.sh --full"
-depends_on: ["06"]
+depends_on: ["06", "07"]
 third_party_review:
   status: none
   updated: null
