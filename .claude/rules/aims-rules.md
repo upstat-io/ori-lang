@@ -581,7 +581,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-1** — RC increment SHALL be emitted when a value is duplicated (passed to Owned parameter while still live).
 
-**RL-2** — RC decrement SHALL be emitted at the last use of an owned value or at scope exit, UNLESS the last use is an ownership-transferring instruction (`Return`, `Construct`/`Reuse`/`CollectionReuse` argument, `Set`/`SetTag` value operand, `Apply`/`Invoke` to Owned parameter, `Jump` argument per RL-4 exemption). Ownership transfers move the RC obligation to the consumer. This applies only to values that remain HEAP-ALLOCATED or that are stack-allocated WITH RC headers (RL-15a Owned/MaybeShared cases). Headerless stack-promoted values (RL-14 with Unique, RL-15a Borrowed+Unique) have no RC header and no RC operations — their cleanup is automatic via stack frame deallocation. Stack-allocated values WITH headers (RL-15a Owned case, using immortal RC) do receive RC operations from the callee but the immortal RC prevents actual deallocation. For heap-allocated values, RL-2 includes UNUSED owned non-scalar values (consumption = Dead from definition): if a variable is defined by a heap-allocating instruction (TF-3, TF-5, TF-5a, TF-6, TF-6a, TF-6b, TF-6c, TF-7, TF-9, TF-9a) but has no uses (consumption = Dead, cardinality = Absent), an immediate `RcDec` SHALL be emitted at the definition point. Without this, unused call results and discarded allocations leak. DP-1 (`is_rc_needed`) returns false for Dead variables, but that gates supplementary RC tracking — the definitional cleanup dec is mandatory regardless of DP-1. DP-2 (`is_rc_dec_unnecessary`) does NOT suppress the definitional cleanup dec — DP-2 gates ADDITIONAL decs beyond the terminal cleanup handled by RL-2/RL-4/RL-5.
+**RL-2** — RC decrement SHALL be emitted at the last use of an owned value or at scope exit, UNLESS the last use is an ownership-transferring instruction (`Return`, `Construct`/`Reuse`/`CollectionReuse` argument, `Set`/`SetTag` value operand, `PartialApply` captured variable, `Apply`/`Invoke` to Owned parameter, `Jump` argument per RL-4 exemption). Ownership transfers move the RC obligation to the consumer. This applies only to values that remain HEAP-ALLOCATED or that are stack-allocated WITH RC headers (RL-15a Owned/MaybeShared cases). Headerless stack-promoted values (RL-14 with Unique, RL-15a Borrowed+Unique) have no RC header and no RC operations — their cleanup is automatic via stack frame deallocation. Stack-allocated values WITH headers (RL-15a Owned case, using immortal RC) do receive RC operations from the callee but the immortal RC prevents actual deallocation. For heap-allocated values, RL-2 includes UNUSED owned non-scalar values (consumption = Dead from definition): if a variable is defined by a heap-allocating instruction (TF-3, TF-5, TF-5a, TF-6, TF-6a, TF-6b, TF-6c, TF-7, TF-9, TF-9a) but has no uses (consumption = Dead, cardinality = Absent), an immediate `RcDec` SHALL be emitted at the definition point. Without this, unused call results and discarded allocations leak. DP-1 (`is_rc_needed`) returns false for Dead variables, but that gates supplementary RC tracking — the definitional cleanup dec is mandatory regardless of DP-1. DP-2 (`is_rc_dec_unnecessary`) does NOT suppress the definitional cleanup dec — DP-2 gates ADDITIONAL decs beyond the terminal cleanup handled by RL-2/RL-4/RL-5.
 
 **RL-3** — RC operations SHALL be ELIDED when the lattice proves they are unnecessary (DP-2, DP-3, DP-7).
 
@@ -889,10 +889,11 @@ Each predicate is a function of the lattice state. Most are pure functions of `A
 | HeapEscaping | **false** |
 | Unknown | **false** |
 
-### DP-9: `cow_mode(s)`
+### DP-9: `cow_mode(s, var, field, point)`
 
-| Uniqueness | Result |
-|---|---|
-| Unique | `StaticUnique` — in-place, no check |
-| MaybeShared | `Dynamic` — runtime IsShared check |
-| Shared | `StaticShared` — unconditional copy |
+| Uniqueness | can_mutate_in_place? | Result |
+|---|---|---|
+| Unique | yes (DP-5 true) | `StaticUnique` — in-place, no check |
+| Unique | no (active borrows) | `Dynamic` — runtime IsShared check |
+| MaybeShared | any | `Dynamic` — runtime IsShared check |
+| Shared | any | `StaticShared` — unconditional copy |
