@@ -56,6 +56,19 @@ fn clang_compile_with_sanitizers_produces_object_file() {
     );
     assert!(obj_path.exists(), "object file should be produced");
 
+    // Verify the object contains ASan instrumentation symbols.
+    // This pins the -fsanitize flag plumbing — without it, clang produces a
+    // plain object that would still pass the exists() check above.
+    let obj_bytes = std::fs::read(&obj_path).unwrap();
+    let has_asan = obj_bytes
+        .windows(7)
+        .any(|w| w == b"__asan_" || w == b"asan_re");
+    assert!(
+        has_asan,
+        "sanitized object should contain __asan symbols — \
+         the -fsanitize flag may not be reaching clang"
+    );
+
     // Cleanup
     let _ = std::fs::remove_dir_all(&dir);
 }

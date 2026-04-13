@@ -105,13 +105,26 @@ for (( i=START; i<END; i++ )); do
     rm -f "$TMPDIR/san_full_$name"
 done
 
+SHARD_SIZE=$((END - START))
 echo ""
 echo "=== Shard $SHARD complete ==="
 echo "  Passed:        $PASS_COUNT"
 echo "  Failed:        $FAIL_COUNT"
 echo "  Compile-skip:  $COMPILE_FAIL_COUNT"
 echo "  Runtime-skip:  $SKIP_COUNT"
-echo "  Total in shard: $((END - START))"
+echo "  Total in shard: $SHARD_SIZE"
+
+# Detect compile regression: if >90% of files fail to compile, the sanitizer
+# wiring likely broke compilation. Normal rate is ~60-70% (most spec files lack
+# @main and use @test patterns that ori build can't handle).
+if [ "$SHARD_SIZE" -gt 0 ]; then
+    COMPILE_FAIL_PCT=$((COMPILE_FAIL_COUNT * 100 / SHARD_SIZE))
+    if [ "$COMPILE_FAIL_PCT" -gt 90 ]; then
+        echo "ERROR: $COMPILE_FAIL_PCT% of files failed to compile ($COMPILE_FAIL_COUNT/$SHARD_SIZE)"
+        echo "This suggests a sanitizer-induced compilation regression, not normal skip behavior."
+        exit 1
+    fi
+fi
 
 if [ "$FAIL_COUNT" -gt 0 ]; then
     echo "ERROR: $FAIL_COUNT sanitizer failure(s) in shard $SHARD"
