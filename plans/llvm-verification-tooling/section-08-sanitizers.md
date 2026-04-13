@@ -1,14 +1,14 @@
 ---
 section: "08"
 title: "Sanitizer Integration"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Integrate ASan and UBSan into AOT-compiled Ori binaries via Clang driver delegation, with ASan-instrumented ori_rt, gated by ORI_SANITIZE env var, with a smoke subset for PR CI and full sweep nightly — catching memory errors and undefined behavior in generated code AND runtime library code that verification gates and FileCheck tests cannot detect"
 success_criteria:
   - "ORI_SANITIZE=address,undefined causes Ori compiler to delegate compilation through Clang with -fsanitize=address,undefined"
   - "ori_rt is recompiled with -Zsanitizer=address when ORI_SANITIZE includes address (nightly Rust required)"
   - "SanitizerMode field in OptimizationConfig controls which sanitizers are active"
-  - "Linker invocation includes -fsanitize=address,undefined via the existing LinkInput.extra_args + GccLinker API"
+  - "Linker invocation includes -fsanitize=address,undefined via typed LinkInput.sanitizer field + Clang linker driver override"
   - "Smoke subset (<=20 test programs) runs in <=60s for PR CI in a dedicated workflow"
   - "Full spec test sweep runs nightly with sanitizers enabled in a NEW nightly-verification.yml"
   - "At least one test detects a memory error that would be silent without sanitizers (semantic pin)"
@@ -42,7 +42,7 @@ sections:
     status: not-started
   - id: "08.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "08.N"
     title: "Completion Checklist"
     status: not-started
@@ -198,7 +198,7 @@ Add a `SanitizerMode` field to `OptimizationConfig` and wire it to the `ORI_SANI
   ORI_SANITIZE
   ```
 
-- [ ] Wire `ORI_SANITIZE` through `build_optimization_config` in `oric/src/commands/build/mod.rs`. **NOTE:** This is the SINGLE canonical location for reading `ORI_SANITIZE` — the function is called by both `single.rs` and `multi.rs`:
+- [ ] Wire `ORI_SANITIZE` through `build_optimization_config` in `oric/src/commands/build/mod.rs`. **NOTE:** This is the SINGLE canonical location for reading `ORI_SANITIZE` — the function is called by both `single.rs` and `multi.rs`. **ALSO:** Verify that `oric/src/commands/run/mod.rs` (the `ori run` AOT path) also flows through this canonical config — if it builds its own `OptimizationConfig`, it must read `ORI_SANITIZE` via the same shared helper:
   ```rust
   fn build_optimization_config(options: &BuildOptions) -> ori_llvm::aot::OptimizationConfig {
       // ... existing level, lto, verify_each, lint_enabled code ...
@@ -506,6 +506,11 @@ If only Ori-generated LLVM IR is sanitized but `ori_rt` is compiled normally, th
   # Detect host target triple
   HOST_TARGET=$(rustc -vV | sed -n 's/^host: //p')
 
+  # ori_rt's build.rs compiles C/asm sources via cc::Build (ori_eh).
+  # Set CFLAGS BEFORE the cargo build to ensure those native objects are also ASan-instrumented.
+  export CFLAGS="-fsanitize=address"
+  echo "CFLAGS=-fsanitize=address (for C/asm sources in ori_rt build.rs / ori_eh)"
+
   echo "Building ori_rt with ASan instrumentation (nightly, $PROFILE, target=$HOST_TARGET)..."
   # -Zbuild-std ensures std itself is ASan-instrumented (Vec, String allocations)
   # --target is required with -Zbuild-std
@@ -516,13 +521,8 @@ If only Ori-generated LLVM IR is sanitized but `ori_rt` is compiled normally, th
       $([ "$PROFILE" = "release" ] && echo "--release") \
       --target-dir target/sanitizer
 
-  # ori_rt's build.rs compiles C/asm sources via cc::Build (ori_eh).
-  # Set CFLAGS to ensure those native objects are also ASan-instrumented.
-  export CFLAGS="-fsanitize=address"
-  echo "Note: CFLAGS=-fsanitize=address set for C/asm sources in ori_rt build.rs (ori_eh)"
-
-  # Copy the static library to a distinguishable name
-  SRC="target/sanitizer/$PROFILE_DIR/libori_rt.a"
+  # With -Zbuild-std + --target, output goes to target/sanitizer/<target-triple>/<profile>/
+  SRC="target/sanitizer/$HOST_TARGET/$PROFILE_DIR/libori_rt.a"
   DEST="target/$PROFILE_DIR/libori_rt_asan.a"
 
   if [ ! -f "$SRC" ]; then
@@ -696,6 +696,9 @@ Create a curated smoke test subset for PR CI and configure full nightly runs. **
         - 'compiler/**'
         - 'library/**'
         - 'tests/sanitizer/**'
+        - 'scripts/sanitizer-smoke.sh'
+        - 'scripts/sanitizer-full.sh'
+        - 'scripts/build-rt-asan.sh'
     schedule:
       - cron: '30 2 * * *'  # 2:30 AM UTC (after nightly release PR at midnight)
     workflow_dispatch:
@@ -868,6 +871,24 @@ When all findings are triaged:
 - [x] `[TPR-08-006-gemini][medium]` `section-08-sanitizers.md:638` — Add timeout to sanitized binary execution.
   Resolved: Fixed on 2026-04-13. Added timeout 150 around binary execution in both scripts.
 
+**Pre-implementation review (2026-04-13), iteration 2:**
+- [x] `[TPR-08-001-codex][high]` `section-08-sanitizers.md:201` — Cover the `ori run` AOT path in sanitizer wiring.
+  Resolved: Fixed on 2026-04-13. Added note to verify run/mod.rs flows through canonical config.
+- [x] `[TPR-08-002-codex][high]` `section-08-sanitizers.md:512` — Set CFLAGS before invoking the ASan runtime build.
+  Resolved: Fixed on 2026-04-13. Moved CFLAGS export before cargo build in build-rt-asan.sh.
+- [x] `[TPR-08-003-codex][high]` `section-08-sanitizers.md:525` — Copy libori_rt_asan from target-triple output directory.
+  Resolved: Fixed on 2026-04-13. Changed SRC path to target/sanitizer/$HOST_TARGET/$PROFILE_DIR/.
+- [x] `[TPR-08-004-codex][medium]` `section-08-sanitizers.md:551` — Tests/checklist must require hard error for missing ASan'd ori_rt.
+  Resolved: Fixed on 2026-04-13. Updated checklist from "warning" to "hard error".
+- [x] `[TPR-08-005-codex][low]` `section-08-sanitizers.md:11` — Align success criteria with typed LinkInput.sanitizer design.
+  Resolved: Fixed on 2026-04-13. Updated success criteria line to reference typed field + Clang linker override.
+- [x] `[TPR-08-001-gemini][medium]` `section-08-sanitizers.md:904` — Update checklist to require hard error.
+  Resolved: Fixed on 2026-04-13. Same fix as TPR-08-004-codex.
+- [x] `[TPR-08-002-gemini][low]` `section-08-sanitizers.md:899` — Correct linker error pattern in checklist.
+  Resolved: Fixed on 2026-04-13. Changed from `cannot find -lasan` to `cannot find -lclang_rt.asan`.
+- [x] `[TPR-08-003-gemini][medium]` `section-08-sanitizers.md:695` — Add CI trigger paths for sanitizer scripts.
+  Resolved: Fixed on 2026-04-13. Added scripts/sanitizer-smoke.sh, sanitizer-full.sh, build-rt-asan.sh to paths filter.
+
 ---
 
 ## 08.N Completion Checklist
@@ -896,12 +917,12 @@ When all findings are triaged:
 - [ ] `LinkInput` has typed `sanitizer: SanitizerMode` field
 - [ ] `LinkerDriver::configure_linker()` adds `-fsanitize=...` when sanitizers enabled
 - [ ] Sanitized binary runs correctly for simple programs
-- [ ] Clear error message when sanitizer runtime libraries are missing (detects `cannot find -lasan` pattern)
+- [ ] Clear error message when Clang sanitizer runtime libraries are missing (detects `cannot find -lclang_rt.asan` pattern)
 
 **ori_rt instrumentation:**
 - [ ] `scripts/build-rt-asan.sh` produces `libori_rt_asan.a` with nightly Rust
 - [ ] Runtime discovery prefers `libori_rt_asan.a` when `ORI_SANITIZE` includes `address`
-- [ ] Clear warning when asan variant is missing (partial coverage still works)
+- [ ] **Hard error** when asan variant is missing and `ORI_SANITIZE` includes `address` (not a warning — partial coverage defeats the mission)
 
 **Smoke tests:**
 - [ ] `tests/sanitizer/` contains <=20 curated smoke test programs
