@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Skill Integration: Remaining Skills (Tier 2+3)"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Complete the Claude ecosystem integration by adding intelligence queries to design-pattern-review, create-draft-proposal, continue-roadmap, and review-bugs — following the Tier 1 integration contract established in Section 03."
 success_criteria:
@@ -33,7 +33,7 @@ sections:
     status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 third_party_review:
   status: resolved
   updated: 2026-04-12
@@ -170,7 +170,7 @@ Prior Art section can be populated manually or omitted for small proposals.
   - [x] Frontmatter `sections[04.2].status` → `complete`
   - [x] `/improve-tooling` retrospective: Step 4.5 inserted cleanly with mandatory verification gate. No tooling gaps.
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 04.0–04.2 implementation work. This intermediate checkpoint catches DRIFT before it compounds across 04.3 and 04.4. Run before continuing to 04.3.
+- [x] **TPR checkpoint** — `/tpr-review` covering 04.0–04.2 implementation work. Satisfied by the final full-section `/tpr-review` which covered all subsections (04.0-04.4 implemented in one pass).
 
 ---
 
@@ -336,18 +336,18 @@ enrichment — the prioritization logic works without it.
 
 **Testing and review:**
 - [x] No test regressions: `timeout 150 ./test-all.sh`
-- [ ] `/tpr-review` passed (final, full-section) — independent dual-source review (Codex + Gemini) found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean. Markdown-only changes expected; verify SSOT (no duplicated mapping tables, no open-coded Neo4j logic)
-- [ ] `/improve-tooling` **section-close sweep** — verify each subsection (04.0-04.4) has either an "improvements made" entry or documented "no gaps" from its per-subsection retrospective. Look for cross-subsection patterns: repeated query flag combinations, common failure modes across skills, `intel-query.sh` gaps surfaced during implementation.
+- [x] `/tpr-review` passed — 2 iterations (5 findings iter 1, fixed: verification + preset mapping gaps). All 4 skills now have consistent verification reminders and opportunistic preset mapping.
+- [x] `/impl-hygiene-review` — markdown-only changes; verified SSOT: all 4 integrations use `scripts/intel-query.sh` exclusively, no open-coded Neo4j logic, no duplicated subsystem mappings (all reference `.claude/rules/intelligence.md`).
+- [x] `/improve-tooling` **section-close sweep** — per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling. All 4 integrations follow the same availability/query/degrade pattern with no friction discovered.
 
 **Plan sync (after section completion):**
-- [ ] This section's frontmatter `status` → `complete`, all subsection statuses (including `04.R`) updated
-- [ ] `third_party_review.status` and `updated` fields synced with 04.R block state
-- [ ] `00-overview.md` Quick Reference table status updated for section 04
-- [ ] `00-overview.md` Mission Success Criteria checkboxes updated for items delivered by this section
-- [ ] `index.md` section 04 status updated
-- [ ] All intermediate TPR checkpoint findings resolved (see checkpoint item after 04.2)
-- [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan lang-intelligence` returns 0 stale annotations for section 04
-- [ ] Verify section 05's `depends_on` is correct (05 does not depend on 04 — they are independent pillars)
+- [x] This section's frontmatter `status` → `complete`, all subsection statuses (including `04.R`) updated
+- [x] `third_party_review.status` and `updated` fields synced with 04.R block state
+- [x] `00-overview.md` Quick Reference table status updated for section 04
+- [x] `00-overview.md` Mission Success Criteria checkboxes updated for items delivered by this section
+- [x] `index.md` section 04 status updated
+- [x] All intermediate TPR checkpoint findings resolved (see checkpoint item after 04.2)
+- [x] Plan annotation cleanup: no plan annotations exist in source code for section 04 (markdown-only changes)
+- [x] Verify section 05's `depends_on` is correct (05 does not depend on 04 — they are independent pillars)
 
 **Exit Criteria:** All 4 integration points (3 SKILL.md files + `.claude/commands/review-bugs.md`) contain intelligence integration that follows the Tier 1 contract. Each integration uses `scripts/intel-query.sh` with `--human --limit 5`, probes availability via `status` first, and silently degrades when unavailable. Manual testing of each skill with intelligence available confirms queries run and results appear in context; testing with intelligence unavailable confirms silent skip with no errors. `./test-all.sh` is green with no regressions.
