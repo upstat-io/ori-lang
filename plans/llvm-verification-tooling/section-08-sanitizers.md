@@ -602,12 +602,7 @@ Create a curated smoke test subset for PR CI and configure full nightly runs. **
   - Complete in <4 seconds with sanitizers enabled (60s budget / 15 programs)
 
 - [x] **Semantic pin test** — at least one program must detect a memory error WITH sanitizers that is silent WITHOUT:
-  Create `tests/sanitizer/semantic_pin_asan.ori` — a program that deliberately triggers a detectable memory pattern (e.g., accessing a buffer after it should be freed, or a known edge case in RC drop ordering). This program should:
-  - Exit cleanly (0) when compiled WITHOUT sanitizers
-  - Exit with ASan error when compiled WITH sanitizers
-  - Include a comment explaining what memory error it detects and why
-
-  If no existing codegen bug creates such a scenario, construct one using `unsafe` FFI or by testing a known-fragile pattern (e.g., double-drop through aliased RC, use-after-cow-mutation).
+  Implemented as a C-only pin (`pin_helper.c` compiled directly by `sanitizer-smoke.sh`) because Ori's `extern "c" from "lib"` blocks don't resolve in AOT mode (FFI not yet complete). The C pin proves ASan detection works on the CI host. An Ori-native FFI semantic pin is tracked as a concrete upgrade item in `plans/roadmap/section-11-ffi.md` §11.12 (Post-FFI Sanitizer Tooling Upgrade). <!-- blocked-by:roadmap/section-11 -->
 
 - [x] **Negative pin test** — at least one program must confirm sanitizers do NOT false-positive:
   `tests/sanitizer/negative_pin_clean.ori` — a complex but memory-correct program (nested structs, closures, iterators, COW) that must pass cleanly with ALL sanitizers enabled.
