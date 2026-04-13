@@ -125,6 +125,8 @@ Three independent boolean flags. Join is componentwise OR. Height: 3.
 | `may_share` | May create shared references | Uniqueness preservation |
 | `may_throw` | May throw/panic | Cleanup path correctness |
 
+**Current consumer status**: EffectClass is tracked per-variable in `AimsState` but is NOT currently consumed by any decision predicate (DP-1 through DP-9). Its primary role today is as INPUT to the interprocedural `EffectSummary` (IC-5), which aggregates per-function effects for FIP certification (IC-6) and LLVM fact export (RL-30). The per-variable tracking exists so that future passes can make per-variable effect-aware decisions (e.g., hoisting RC operations past effect-free instructions, or narrowing the effect scope of a code region for alias analysis). `refine()` (TF-6) does NOT narrow EffectClass from call results because the EffectSummary is the correct granularity for interprocedural effect information — per-variable effect state from a callee's internal analysis is not meaningful to the caller. The per-variable EffectClass remains at ALL for call results; the EffectSummary carries the precise per-function facts.
+
 ### §1.8 Lattice Properties
 
 **L-1** — Join SHALL be commutative: `a ⊔ b = b ⊔ a`.
@@ -172,13 +174,14 @@ A function-wide map `ArcVarId → SmallVec<ArcVarId>` tracking transitive aliase
 
 **Motivation**: `borrow_sources` maps only the direct `Project` destination to its source (e.g., `%3 = Project %2.0` → `%3 → %2`). But projected values flow through Let aliases (`%4 = Let Var(%3)`) and Jump arguments to block parameters (`Jump block1, args=[%3]` → param `%5`). Without tracking these aliases, a parent aggregate can be freed while a borrowed child flowing through an alias is still live.
 
-**Construction**: precomputed once per function (the alias structure is static):
-1. Direct Project destinations → Project source variables.
-2. Let aliases: if `%4 = Let Var(%3)` and `%3` maps to sources `[%2]`, then `%4` also maps to `[%2]`.
-3. Jump-arg → block-param: if `Jump block1, args=[%3]` and block1 has param `%5`, and `%3` maps to sources `[%2]`, then `%5` maps to `[%2]`.
+**Construction**: precomputed once per function (the alias structure is static). Rules are applied in dependency order (1 → 2 → 3 → 4) and the result is transitively closed (Rule 5):
+1. Direct Project destinations → Project source variables. `%3 = Project %2.field` → `%3 → [%2]`.
+2. Let aliases: if `%4 = Let Var(%3)` and `%3` maps to sources `S`, then `%4` also maps to `S`.
+3. Jump-arg → block-param: if `Jump block1, args=[%3]` and block1 has param `%5`, and `%3` maps to sources `S`, then `%5` maps to `S`.
 4. CFG merge: if block param `%5` receives projected values from multiple predecessor Jump arguments tracing to different source aggregates, `%5` maps to the union of all sources.
+5. **Transitive closure for nested Projects**: if `%4 = Project %3.field` and `%3` maps to sources `S`, then `%4` maps to `[%3] ∪ S` (the immediate source PLUS all of the immediate source's own sources). This ensures that DP-5 can detect live borrows at ANY depth of the nesting chain. Without transitive closure, a nested projection `%4 = Project %3.1` where `%3 = Project %2.0` would only map `%4 → [%3]`, missing the root aggregate `%2` — DP-5 would then fail to block in-place mutation of `%2` while `%4` holds a live reference through `%3`.
 
-**Example**:
+**Example (simple chain)**:
 ```
 %3 = Project %2.0
 %4 = Let Var(%3)
@@ -186,6 +189,13 @@ Jump block1, args=[%4]
 // block1 params: [%5]
 ```
 Maps: `%3 → [%2]`, `%4 → [%2]`, `%5 → [%2]`
+
+**Example (nested Projects)**:
+```
+%3 = Project %2.0        // direct borrow from %2
+%4 = Project %3.1        // nested borrow — borrows field 1 of a projection of %2
+```
+Maps: `%3 → [%2]`, `%4 → [%3, %2]` (transitive: %3 maps to [%2], so %4 gets %3 ∪ [%2])
 
 **Consumer**: `propagate_project_source_demand()` — invoked on EVERY iteration of the backward worklist (inside `compute_block_entry_state()`), not as a post-convergence pass. On each worklist iteration, for each alias variable in the current block-entry demand map that is live (Cardinality ≠ Absent), propagates a `Borrowed` demand with the alias's cardinality and other dimensions to ALL source aggregates in the map. The demand is joined with the source's existing state. Because this runs inside the worklist loop, the propagated demand feeds back into predecessor exit states on subsequent iterations, ensuring cross-block convergence.
 
@@ -517,7 +527,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **PL-9** — TRMC rewrite: the candidate function is normalized to accept a `ContextHole` parameter (Shape = ContextHole). The recursive call fills the hole with the partially-constructed value instead of allocating a new frame. The rewrite SHALL be idempotent — a second pass produces identical IR.
 
-**PL-10** — TRMC soundness verification: after Step 3a rewrite AND after Step 4 intraprocedural analysis (which operates on the rewritten IR), `verify_trmc_soundness()` SHALL confirm that the rewritten function preserves observable behavior. This verification runs between Step 4 and Step 5 (before realization). If verification fails, the rewrite SHALL be rolled back to the pre-TRMC IR AND Step 4 SHALL be re-run on the restored CFG (per PL-5: no stale summaries).
+**PL-10** — TRMC structural verification: after Step 3a rewrite AND after Step 4 intraprocedural analysis (which operates on the rewritten IR), `verify_trmc_soundness()` SHALL confirm the structural validity of the rewritten function — specifically that the ContextHole parameter is threaded correctly, that no allocation-free path introduces a new allocation, and that the rewritten CFG is well-formed. This is a STRUCTURAL check (correct plumbing of the ContextHole, consistent block parameters, valid RC state), NOT a behavioral equivalence proof — full semantic equivalence checking is beyond the current verification scope. This verification runs between Step 4 and Step 5 (before realization). If verification fails, the rewrite SHALL be rolled back to the pre-TRMC IR AND Step 4 SHALL be re-run on the restored CFG (per PL-5: no stale summaries). The rollback-on-failure mechanism provides a safety net: unsound rewrites are caught and reversed, preserving the pre-TRMC behavior.
 
 **PL-11** — `ContextBehavior` join: `preserves_context(AND)`, `consumes_hole(AND)`, `requires_unique_context(OR)`, `may_resume_nonlinearly(OR)`. Conservative: preservation and consumption require ALL paths to agree; unique-context and non-linear-resumption are any-path (soundness obligations widen).
 
@@ -691,7 +701,7 @@ Exhaustive mapping of every `ArcInstr` and `ArcTerminator` variant to its output
 | `Construct` | TF-3 | Owned | Linear | Once | Unique | BlockLocal | `shape_from_ctor` | `{may_alloc=T}` |
 | `Project` | TF-4 | Borrowed | Linear | Once | `src.uniq` | `src.loc` | NonReusable | NONE |
 | `Apply` (no contract) | TF-5 | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
-| `Apply` (contract) | TF-6 | refined | refined | refined | refined | refined | refined | refined |
+| `Apply` (contract) | TF-6 | Owned | Unrestricted | Many | `contract.uniq` | `contract.loc` | `contract.shape` | ALL |
 | `ApplyIndirect` | TF-5a | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
 | `PartialApply` | TF-7 | Owned | Linear | Once | Unique | BlockLocal | NonReusable | `{may_alloc=T}` |
 | `Select` | TF-8 | `⊔` | `⊔` | `⊔` | `⊔` | `⊔` | `⊔` | `⊔` |
@@ -703,11 +713,11 @@ Exhaustive mapping of every `ArcInstr` and `ArcTerminator` variant to its output
 | `RcDec` | TF-N/A | — | — | — | — | — | — | — |
 | `Set` | TF-N/A | — | — | — | — | — | — | — |
 | `SetTag` | TF-N/A | — | — | — | — | — | — | — |
-| `Invoke` (contract) | TF-6a | refined | refined | refined | refined | refined | refined | refined |
+| `Invoke` (contract) | TF-6a | Owned | Unrestricted | Many | `contract.uniq` | `contract.loc` | `contract.shape` | ALL |
 | `Invoke` (no contract) | TF-6b | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
 | `InvokeIndirect` | TF-6c | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
 
-Legend: `⊔` = componentwise join of branch operands. `CONSERVATIVE` = `(Owned, Unrestricted, Many, MaybeShared, Unknown, NonReusable, ALL)` — the operationally correct default for unknown calls (NOT the lattice-theoretic TOP; `MaybeShared` is deliberately below `Shared` to enable dynamic COW checks). `refined` = CONSERVATIVE narrowed by `callee.return_contract` via the `refine()` function (see TF-6). `NONE` = `{may_alloc=F, may_share=F, may_throw=F}`. `ALL` = `{may_alloc=T, may_share=T, may_throw=T}`. `shape_from_ctor`: Struct→ReusableCtor(Struct), EnumVariant→ReusableCtor(EnumVariant), ListLiteral/SetLiteral/MapLiteral→CollectionBuffer, Tuple/Closure→NonReusable.
+Legend: `⊔` = componentwise join of branch operands. `CONSERVATIVE` = `(Owned, Unrestricted, Many, MaybeShared, Unknown, NonReusable, ALL)` — the operationally correct default for unknown calls (NOT the lattice-theoretic TOP; `MaybeShared` is deliberately below `Shared` to enable dynamic COW checks). `contract.uniq`/`contract.loc`/`contract.shape` = narrowed from CONSERVATIVE by `callee.return_contract` via the `refine()` function (see TF-6); Access, Consumption, Cardinality, and Effect stay at CONSERVATIVE values. `NONE` = `{may_alloc=F, may_share=F, may_throw=F}`. `ALL` = `{may_alloc=T, may_share=T, may_throw=T}`. `shape_from_ctor`: Struct→ReusableCtor(Struct), EnumVariant→ReusableCtor(EnumVariant), ListLiteral/SetLiteral/MapLiteral→CollectionBuffer, Tuple/Closure→NonReusable.
 
 Terminators `Return`, `Jump`, `Branch`, `Switch`, `Resume`, `Unreachable` produce no definitions (no `dst`). `Invoke`/`InvokeIndirect` are listed above (they define `dst` on the normal path).
 
