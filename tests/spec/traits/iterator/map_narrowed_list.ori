@@ -146,6 +146,46 @@ use std.testing { assert_eq }
 }
 
 // ---------------------------------------------------------------------------
+// Adapter-boundary coverage (TPR-04-002 finding)
+// ---------------------------------------------------------------------------
+
+@test_narrowed_enumerate tests @target () -> void = {
+    // enumerate on narrowed list — tuple construction with narrowed element
+    let sum = 0;
+    for pair in [10, 20, 30].iter().enumerate() do {
+        let (i, x) = pair;
+        sum = sum + i + x
+    };
+    // indices: 0+1+2 = 3, values: 10+20+30 = 60, total = 63
+    assert_eq(actual: sum, expected: 63)
+}
+
+@test_narrowed_take tests @target () -> void = {
+    let result = [1, 2, 3, 4, 5].iter().take(count: 3).collect();
+    assert_eq(actual: result, expected: [1, 2, 3])
+}
+
+@test_narrowed_skip tests @target () -> void = {
+    let result = [1, 2, 3, 4, 5].iter().skip(count: 2).collect();
+    assert_eq(actual: result, expected: [3, 4, 5])
+}
+
+@test_narrowed_filter tests @target () -> void = {
+    let result = [1, 2, 3, 4, 5].iter().filter((x) -> x > 3).collect();
+    assert_eq(actual: result, expected: [4, 5])
+}
+
+@test_narrowed_chain tests @target () -> void = {
+    let result = [1, 2].iter().chain(other: [3, 4].iter()).collect();
+    assert_eq(actual: result, expected: [1, 2, 3, 4])
+}
+
+@test_narrowed_rev tests @target () -> void = {
+    let result = [1, 2, 3].iter().rev().collect();
+    assert_eq(actual: result, expected: [3, 2, 1])
+}
+
+// ---------------------------------------------------------------------------
 // Negative pin — narrowing still works for direct list access
 // ---------------------------------------------------------------------------
 
