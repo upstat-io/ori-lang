@@ -50,6 +50,38 @@ Bash:
 
 **If an approved proposal exists**, note the proposal filename in the reviewer prompts' evidence packet so reviewers can cross-check the spec changes against the approved proposal.
 
+## Step 0.75 — CONDITIONAL: Intelligence Pre-Query
+
+Query the intelligence graph for cross-language prior art relevant to the code under review. This step runs when the graph is available and produces results; it is skipped silently when the graph is unavailable or returns no hits.
+
+1. **Check availability** via the `status` subcommand (returns JSON):
+   ```
+   Bash:
+     scripts/intel-query.sh status
+   ```
+   Parse the JSON output: if the `status` field is not `"ok"`, skip this step silently. Do not mention intelligence in prompts.
+
+2. **Identify subsystem(s)** from the diff (use file paths from `git diff --name-only`). Map subsystems to presets per `.claude/rules/intelligence.md` §Subsystem Mapping. Do NOT hardcode the mapping here — always reference the rule file.
+
+3. **Run the query** (output is visible in Claude's context — do NOT capture into a variable):
+   ```
+   Bash:
+     scripts/intel-query.sh --human <preset-or-search> --limit 5
+   ```
+   Read the output. If empty or only unavailability messages, skip silently.
+
+4. **Condense** the query results into a bounded Intelligence Summary (max 500 chars):
+   ```
+   **Intelligence Summary (from cross-language graph):**
+   - [rust#12345] Similar ARC bug in iterator early-exit (fixed, 45 comments)
+   - [swift#6789] Protocol witness table leak on break (fixed, 12 comments)
+   - Pattern appears in 3/10 reference compilers
+   ```
+
+5. **Hold the summary in context.** In Step 2 (Write both reviewer prompts), write the summary directly into BOTH `codex.prompt.md` and `gemini.prompt.md`, after the `## Scope:` header. Do NOT use shell variable interpolation — the prompts use single-quoted heredocs (`<<'PROMPT'`) which suppress expansion. Instead, assemble the prompt content programmatically (e.g., using the Write tool or a double-quoted heredoc for the section that includes the summary). Reviewers should use the intelligence summary as a pointer to investigate, not as authoritative evidence.
+
+If intelligence is unavailable or returns no results, skip silently — do not include an empty intelligence section or "no results found" in the prompts.
+
 ## ABSOLUTE: You May NEVER Reason Out of Findings
 
 **There is NO circumstance under which you may dismiss, rationalize, scope-note, or defer a TPR finding.** The ONLY valid responses to a finding are:
