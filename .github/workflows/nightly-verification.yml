@@ -9,6 +9,9 @@ on:
       - 'scripts/sanitizer-smoke.sh'
       - 'scripts/sanitizer-full.sh'
       - 'scripts/build-rt-asan.sh'
+      - 'scripts/build-alive2.sh'
+      - 'tests/alive2/**'
+      - 'diagnostics/alive2-verify.sh'
       - '.github/workflows/nightly-verification.yml'
   schedule:
     - cron: '30 2 * * *'  # 2:30 AM UTC (after nightly release PR at midnight)
@@ -79,3 +82,42 @@ jobs:
           TEST_SHARD: "${{ matrix.shard }}"
           TEST_TOTAL_SHARDS: "4"
         run: ./scripts/sanitizer-full.sh
+
+  alive2-build:
+    name: Build alive-tv
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Alive2 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libz3-dev re2c cmake
+
+      - name: Extract Alive2 cache key
+        id: alive2-key
+        run: |
+          # Cache key includes LLVM version, pinned commit, and script hash
+          LLVM_MAJOR=$(llvm-config-21 --version | cut -d. -f1)
+          ALIVE2_COMMIT=$(grep 'ALIVE2_COMMIT=' scripts/build-alive2.sh | head -1 | cut -d'"' -f2)
+          echo "key=alive2-llvm${LLVM_MAJOR}-${ALIVE2_COMMIT}-${{ hashFiles('scripts/build-alive2.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache alive-tv binary
+        id: alive2-cache
+        uses: actions/cache@v4
+        with:
+          path: build/alive2/alive-tv
+          key: ${{ steps.alive2-key.outputs.key }}
+
+      - name: Build alive-tv
+        if: steps.alive2-cache.outputs.cache-hit != 'true'
+        run: ./scripts/build-alive2.sh
+
+      - name: Verify alive-tv
+        run: |
+          tmpfile="$(mktemp --suffix=.ll)"
+          echo 'define i64 @f(i64 %x) { ret i64 %x }' > "$tmpfile"
+          build/alive2/alive-tv "$tmpfile" --passes=instcombine 2>&1 | grep -q "Transformation seems to be correct"
+          rm -f "$tmpfile"
+          echo "alive-tv verification passed"
