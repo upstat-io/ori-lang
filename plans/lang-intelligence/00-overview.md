@@ -114,9 +114,9 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 | 04 | Skill Integration: Remaining | complete | 4 skill files + `review-bugs.md` | 01, 02, 03 |
 | 05 | Code Graph: Parser Adapters | complete | `~/projects/lang_intelligence/neo4j/`, `languages.yaml` | — |
 | 06 | Code Graph: Symbol Extraction | complete | `~/projects/lang_intelligence/neo4j/extract_symbols.py` | 05 |
-| 07 | Code Graph: Import Pipeline | not-started | `~/projects/lang_intelligence/neo4j/import_code_graph.py`, `schema.cypher` | 06 |
+| 07 | Code Graph: Import Pipeline | complete | `~/projects/lang_intelligence/neo4j/import_code_graph.py`, `schema.cypher`, `scripts/build-code-graph.sh` | 06 |
 | 08 | Issue-to-Code Bridge | not-started | `~/projects/lang_intelligence/neo4j/extract_code_refs.py` | 07 |
-| 09 | Ori Live Sync | not-started | `lefthook.yml`, `~/projects/lang_intelligence/neo4j/sync_code_graph.py` | 06 |
+| 09 | Ori Live Sync | not-started | `lefthook.yml`, `~/projects/lang_intelligence/neo4j/sync_code_graph.py` | 06, 07 |
 
 ## Estimated Effort
 
