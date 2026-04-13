@@ -463,13 +463,12 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 **DP-9** — `cow_mode(s, var, field, point)`:
 - `Unique AND can_mutate_in_place(s, var, field, point) ⟹ StaticUnique` (in-place, no check)
-- `Unique AND NOT can_mutate_in_place ⟹ Dynamic` (active overlapping borrow blocks static path)
-- `MaybeShared` default `�� Dynamic` (runtime IsShared check), EXCEPT the following subcases that prove uniqueness through cross-dimensional analysis:
-  - `MaybeShared AND parameter with COW-aware caller uniqueness guarantee (IC-3 ParamContract.uniqueness = Unique) ⟹ StaticUnique` (caller proved RC == 1 at entry)
-  - `MaybeShared AND non-param CollectionBuffer + Cardinality = Once ⟹ StaticUnique` (single-use collection buffer — uniqueness recoverable from consumption pattern)
-  - `MaybeShared AND non-param ReusableCtor(_) + Cardinality = Once ⟹ StaticUnique` (single-use reusable struct/enum — same recovery)
-  - `MaybeShared AND no_active_borrows(var, point)` (no borrows from `var` are live at the mutation point — no overlap check needed because there are no borrows) `⟹ StaticUnique` (borrow absence proves safe mutation even without static uniqueness proof). Note: this is NOT `can_mutate_in_place` (DP-5), which requires `Uniqueness = Unique`. This is a weaker, standalone check that only verifies borrow absence.
+- `Unique AND NOT can_mutate_in_place ⟹ StaticShared` (active overlapping borrow blocks in-place path; must copy unconditionally because IsShared on a Unique value always returns false — the runtime check cannot distinguish "unique but borrowed" from "unique and safe to mutate")
+- `MaybeShared AND parameter with COW-aware caller uniqueness guarantee (IC-3 ParamContract.uniqueness = Unique) ⟹ StaticUnique` (caller proved RC == 1 at entry — this is a PAST guarantee from the interprocedural contract, not a future-use inference)
+- `MaybeShared` (all other cases) `⟹ Dynamic` (runtime IsShared check)
 - `Shared ⟹ StaticShared` (unconditional copy)
+
+**DP-9 implementation note**: the shipped `decide_cow()` also returns `StaticUnique` for `MaybeShared + CollectionBuffer + Once`, `MaybeShared + ReusableCtor + Once`, and `MaybeShared + no_active_borrows`. These are implementation optimizations whose formal soundness proofs are pending — they derive past uniqueness from future consumption (`Once`), which contradicts DP-10's removal rationale. The spec lists them in the preamble "partially-shipped" section. Until formal soundness is established, the spec's DP-9 rules above are the normative reference.
 
 **DP-10** — ~~REMOVED (unsound).~~ The former rule claimed `Owned ∧ Linear ∧ Once ⟹ RC == 1`. This is false: backward analysis proves "no future duplication" (consumption/cardinality are FUTURE guarantees) but NOT "no existing aliases" (uniqueness is a PAST guarantee). A shared allocation passed as Owned+Linear+Once still has RC > 1 from aliases created before this program point. Uniqueness is ONLY established by (a) the Uniqueness dimension directly, or (b) fresh allocation (TF-3: FRESH starts Unique). Cross-dimensional "proofs" that derive past from future are unsound.
 
@@ -510,7 +509,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 ## §6 Intraprocedural Analysis
 
-**IA-1** — Analysis direction is BACKWARD for demand computation. Future-use demand determines RC operations. Compute block exit states (demand from successors), then entry states (supply from predecessors). **Bidirectional interaction with forward transfer**: the backward pass walks instructions in reverse; at each definition, the forward transfer function (§3 Forward) establishes the defined variable's initial state (Uniqueness, Shape, Locality, etc.). This state is then INTERSECTED with accumulated backward demand from use sites. The backward direction governs the demand computation; the forward transfer governs definition properties. Dimensions like `Uniqueness` (a past guarantee — "not duplicated") and `Shape` (structural) are set at definition by forward transfer (TF-3, TF-6, TF-7, TF-9). Dimensions like `Cardinality` and `Consumption` (future guarantees — "how many times used") are accumulated from use sites by backward demand. The final `AimsState` at each program point combines both.
+**IA-1** — Analysis direction is BACKWARD for demand computation. Future-use demand determines RC operations. Compute block exit states (demand from successors), then entry states (supply from predecessors). **Bidirectional interaction with forward transfer**: the backward pass walks instructions in reverse; at each definition, the forward transfer function (§3 Forward) establishes the defined variable's initial state (Uniqueness, Shape, Locality, etc.). This state is COMPOSED with accumulated backward demand: the forward transfer sets definition-time dimensions (Uniqueness, Shape, Effect), while backward demand accumulates use-time dimensions (Cardinality, Consumption, Access). Locality and other dimensions may be set by either direction depending on context. This composition is NOT a lattice meet or intersection — it is the per-dimension application of forward transfer (§3) and backward demand accumulation (TF-11, TF-14, IA-5) operating on complementary dimension subsets. The backward direction governs the demand computation; the forward transfer governs definition properties. Dimensions like `Uniqueness` (a past guarantee — "not duplicated") and `Shape` (structural) are set at definition by forward transfer (TF-3, TF-6, TF-7, TF-9). Dimensions like `Cardinality` and `Consumption` (future guarantees — "how many times used") are accumulated from use sites by backward demand. The final `AimsState` at each program point combines both.
 
 **IA-2** — Blocks SHALL be processed in reverse postorder (successors before predecessors in the backward direction).
 
@@ -914,10 +913,7 @@ Each predicate is a function of the lattice state. Most are pure functions of `A
 | Uniqueness | Additional condition | Result |
 |---|---|---|
 | Unique | can_mutate_in_place = true (DP-5) | `StaticUnique` — in-place, no check |
-| Unique | can_mutate_in_place = false | `Dynamic` — runtime IsShared check |
-| MaybeShared | param with COW-aware uniqueness (IC-3) | `StaticUnique` — caller proved RC == 1 |
-| MaybeShared | non-param, CollectionBuffer + Once | `StaticUnique` — single-use recovery |
-| MaybeShared | non-param, ReusableCtor(_) + Once | `StaticUnique` — single-use recovery |
-| MaybeShared | no_active_borrows(var, point) — no borrows live | `StaticUnique` — borrow absence proof (NOT DP-5) |
-| MaybeShared | none of the above | `Dynamic` — runtime IsShared check |
+| Unique | can_mutate_in_place = false | `StaticShared` — must copy (IsShared always false for Unique; runtime check is unsound with active borrows) |
+| MaybeShared | param with COW-aware uniqueness (IC-3 ParamContract.uniqueness = Unique) | `StaticUnique` — caller proved RC == 1 (past guarantee from interprocedural contract) |
+| MaybeShared | all other cases | `Dynamic` — runtime IsShared check |
 | Shared | any | `StaticShared` — unconditional copy |
