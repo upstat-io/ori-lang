@@ -8,11 +8,21 @@ paths:
 
 This document defines the **laws** of AIMS — the ARC Intelligent Memory System. The implementation is judged against this document, not the other way around. If the code violates a rule stated here, the code has a bug. Rules marked with pending plan references (RL-14 through RL-31, post-pipeline passes, KnownSafe) describe the COMPLETE target system — the implementation may not have shipped all of them yet. `arc.md` describes the CURRENT shipped surface; this document describes the FULL target. The verification layers (VF-1 through VF-8) similarly describe the full verification stack — `arc.md` may report fewer active checks than this document mandates.
 
-**Target-only vocabulary changes** (not yet shipped — the implementation uses the prior vocabulary):
-- **§1.5 Locality**: the spec defines 5 values including `ArgEscaping` between `FunctionLocal` and `HeapEscaping`. The shipped implementation has 4 values (no `ArgEscaping`). Rules consuming `ArgEscaping` (DP-8, RL-15a, TF-11 Apply) are target-only in that dimension.
-- **IC-3 ParamContract**: the spec states `may_escape` was removed (escape derived from Locality). The shipped implementation still has `may_escape` and `locality_bound` fields on `ParamContract`. The spec's vocabulary represents the target contract schema.
-- **IC-5 EffectSummary**: the spec includes `may_read_inaccessible`. The shipped `EffectSummary` does not yet have this field. RL-30 rules consuming it are target-only.
-- **§8 post-pipeline passes** (RL-22 through RL-26): described as formal rules of the target system. VF-7 "active rewrite" requirements apply when these passes are implemented. The shipped pipeline does not yet include these post-pipeline optimization passes.
+**Target-only and partially-shipped subsystems** — the spec describes the COMPLETE target system. The following areas are either not yet shipped or only partially implemented. The spec is authoritative (code divergences are bugs to file), but these annotations prevent reviewers from re-flagging known implementation gaps as spec issues:
+
+**Vocabulary changes (not yet shipped):**
+- **§1.5 Locality**: 5 values including `ArgEscaping`. Shipped: 4 values (no `ArgEscaping`). Rules consuming `ArgEscaping` (DP-8, RL-15a, TF-11 Apply) are target-only in that dimension.
+- **IC-3 ParamContract**: spec removed `may_escape` (escape derived from Locality). Shipped: still has `may_escape` and `locality_bound`.
+- **IC-5 EffectSummary**: spec includes `may_read_inaccessible`. Shipped: does not yet have this field. RL-30 rules consuming it are target-only.
+- **§8 post-pipeline passes** (RL-22 through RL-26): target-system rules. VF-7 requirements apply when shipped.
+
+**Partially-shipped analysis subsystems (spec is correct, implementation partial):**
+- **§1.9 Return Provenance / TF-6 `refine()`**: spec describes full 4-dimension `ReturnContract` refinement (`uniqueness`, `preserves_freshness`, `locality`, `shape`). Shipped: `extract_return_info()` only computes `uniqueness` and `preserves_freshness`; `locality` and `shape` default to CONSERVATIVE. `transfer_def()` does not yet call `refine()` — all Apply/Invoke use `transfer_apply_conservative()`. Note: the shipped extractor marks parameter-passthrough returns as `preserves_freshness = true`; the spec says returned parameters are NOT fresh (§1.9 "Parameters traced directly...get `preserves_freshness = false`"). The spec's rule is the target; the implementation has this inverted. (BUG to file.)
+- **§1.9 `project_alias_sources`**: spec defines 7 rules (direct Project roots, Let aliases, Jump, CFG merge, Select, nested Projects, Set/SetTag). Shipped: implements Rules 1 (direct Project, but without Let-alias-to-root tracing), 2 (Let), 3 (Jump), 6 (nested Projects partially). Not shipped: Rule 4 (CFG merge), Rule 5 (Select conditional aliases), Rule 7 (Set/SetTag mutation tracking). DP-5's full borrow+alias safety and RL-31 disjointness proof depend on unshipped rules.
+- **IC-5 EffectSummary derivation**: spec describes conservative ALL-effects for unknown calls, `Reuse`/`CollectionReuse` allocation effects. Shipped: `accumulate_instr_effects()` handles only `Construct`, `PartialApply`, and known-contract `Apply`. Unknown `Apply`, `ApplyIndirect`, `InvokeIndirect`, `Reuse`, `CollectionReuse`, `Resume` do not yet contribute conservative effects.
+- **VF-3 Oracle**: spec describes general effects cross-check. Shipped: `derive_effects()` re-derives only `may_allocate`, `may_deallocate`, `may_share` from a subset of instructions (`Construct`/`PartialApply` for `may_allocate`).
+- **TF-8 `transfer_select`**: spec defines scalar exclusion (if one operand SCALAR, exclude it; downgrade uniqueness to MaybeShared). Shipped: naive `join` without scalar check. (BUG-04-072 class — filed separately.)
+- **`propagate_project_source_demand`**: spec mandates `seq_add` for cardinality (TF-14). Shipped: uses `join` (lattice max / alt_join). (BUG to file.)
 
 ## Mission — Non-Negotiable
 
