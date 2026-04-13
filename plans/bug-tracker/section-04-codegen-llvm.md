@@ -19,6 +19,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-075][critical]` **ARC drop order: tail-expression temporaries in blocks outlive local bindings (Rust RFC 3606 class)**
+  Repro: Any block where a tail expression creates an ARC-managed temporary while local bindings also hold ARC references — the temporary's RC dec happens after the locals' RC decs instead of before. Same class as Rust's RFC 3606 / Edition 2024 fix. Ori should drop tail-expression temporaries immediately after evaluation, before block-local bindings are dropped.
+  Subsystem: `ori_arc` (AIMS pipeline / realization / drop ordering)
+  Found: 2026-04-13 | Source: tp-help (dual-source design consultation — both Codex and Gemini independently identified this)
+  Note: Cross-language precedent: Rust required RFC 3606, a migration lint (#130836 — massive false positives), and a full Edition change (Rust 2024) to fix this. Ori should implement correct drop order natively since it's pre-1.0.
+
 - [ ] `[BUG-04-074][high]` **AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure**
   Repro: `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` — passes in interpreter, AOT fails with "unresolved type variable at codegen — type inference bug". The empty list `[]` element type is never propagated to LLVM codegen even though `push(value: 10)` provides int context.
   Subsystem: `ori_llvm` / `ori_types` (type variable resolution before codegen)
