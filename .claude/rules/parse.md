@@ -79,7 +79,7 @@ The following flags SHALL be the complete set. Adding a new flag requires updati
 |------|-----|--------|---------|---------------------|
 | `IN_PATTERN` | `1 << 0` | Defined | Parsing a pattern (match arms, let bindings) | Identifier vs binding, literal interpretation |
 | `IN_TYPE` | `1 << 1` | Defined | Parsing a type annotation | `>` closes generic instead of comparison |
-| `NO_STRUCT_LIT` | `1 << 2` | Active | Struct literals forbidden | `if` conditions, `while` conditions — prevents `{ }` ambiguity with blocks |
+| `NO_STRUCT_LIT` | `1 << 2` | Active | Struct literals forbidden | `if` conditions — prevents `{ }` ambiguity with blocks (also applies to future `while` conditions when `while` ships) |
 | *(reserved)* | `1 << 3` | Unused | Reserved for future use | — |
 | `IN_LOOP` | `1 << 4` | Active | Inside a loop body | Enables `break` and `continue` as valid expressions |
 | `ALLOW_YIELD` | `1 << 5` | Defined | Yield expressions allowed | `for...yield` constructs |
@@ -91,15 +91,19 @@ The following flags SHALL be the complete set. Adding a new flag requires updati
 
 ### CF-2 — Scoped Context Modification
 
-Context flags SHALL be modified only through scoped combinators: `with_context(flag, closure)` adds a flag for the duration of a closure, `without_context(flag, closure)` removes one. Direct mutation of the `ParseContext` field outside these combinators is forbidden.
+Grammar code SHALL modify context flags only through the scoped combinators `with_context(flag, closure)` and `without_context(flag, closure)`. Direct mutation of `self.context` from grammar code is forbidden.
 
-Rationale: Scoped modification guarantees that context is restored after parsing a sub-expression, preventing flag leakage across productions.
+Exception: snapshot restore (`Parser::restore()`) directly reassigns `self.context` to the saved `ParseContext` value as part of speculative rollback. This is the sole legitimate direct mutation — it restores a previously-valid state rather than introducing new context.
+
+Rationale: Scoped modification guarantees that context is restored after parsing a sub-expression, preventing flag leakage across productions. Snapshot restore is the dual mechanism for speculative paths.
 
 ### CF-3 — NO_STRUCT_LIT in Conditions
 
-`NO_STRUCT_LIT` SHALL be set when parsing the condition of `if`, `while`, and any other construct where a `{` after the condition would be ambiguous with a block body. Without this flag, `if Point { x, y }` would be parsed as `if Point` followed by block `{ x, y }` instead of struct literal `Point { x, y }`.
+`NO_STRUCT_LIT` SHALL be set when parsing the condition of `if` (shipped) and any future control-flow construct where a `{` after the condition would be ambiguous with a block body. Without this flag, `if Point { x, y }` would be parsed as `if Point` followed by block `{ x, y }` instead of struct literal `Point { x, y }`.
 
-Spec: `grammar.ebnf` — `if_expr`, `while_expr`.
+Note: `while` (target-only) is spec'd to use the same mechanism. The parser does not currently have a `while` production — when it ships, it will follow the same `NO_STRUCT_LIT` discipline as `if`.
+
+Spec: `grammar.ebnf` — `if_expr` (shipped), `while_expr` (target-only).
 
 ### CF-4 — PIPE_IS_SEPARATOR in Contracts
 
@@ -256,7 +260,7 @@ Associativity SHALL be encoded in the binding power pair:
 The expression parser SHALL follow this structure:
 1. Parse a primary expression (literal, identifier, parenthesized, prefix unary, block, etc.)
 2. Apply postfix operators (`.field`, `.method()`, `[index]`, `(args)`, `?`, `as`, `as?`)
-3. Enter the infix loop: while the current token's `left_bp > min_bp`, consume the operator, parse the right-hand side recursively with the operator's `right_bp` as the new `min_bp`, and build a `BinaryOp` node
+3. Enter the infix loop: while the current token's `left_bp >= min_bp`, consume the operator, parse the right-hand side recursively with the operator's `right_bp` as the new `min_bp`, and build a `BinaryOp` node. (The loop terminates on `left_bp < min_bp`.)
 4. Return the accumulated expression
 
 ### PR-4 — Compound Operator Synthesis
@@ -340,11 +344,17 @@ Rationale: Per `compiler.md` §Phase-Specific Purity. Note: the parser performs 
 
 ### KW-1 — function_exp Keywords
 
-Eleven keywords (`recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with`, `print`, `panic`, `catch`, `todo`, `unreachable`) SHALL be treated as `function_exp` keywords **only when immediately followed by `(`**. Without a following `(`, they are parsed as ordinary identifiers.
+The `match_function_exp_kind()` dispatcher recognizes function_exp forms when the current token is followed by `(`. However, the implementation splits the eleven names into two categories based on whether the LEXER treats them as soft or reserved:
 
-Source: `ori_parse/src/grammar/expr/operators.rs` — `match_function_exp_kind()`.
+**Lexer-soft keywords** (6): `cache`, `catch`, `parallel`, `recurse`, `spawn`, `timeout`. These are identifiers by default; the lexer promotes them to their keyword token kind only when followed (after horizontal whitespace) by `(`. Without the `(`, they parse as plain identifiers.
 
-Rationale: This context-sensitive rule prevents reserving commonly-used words. A user can have a variable named `timeout` — it only becomes a keyword in the `timeout(...)` function_exp position.
+Source: `ori_lexer/src/keywords/mod.rs` — contextual promotion logic.
+
+**Reserved keywords** (5): `with`, `print`, `panic`, `todo`, `unreachable`. These are always lexed as their keyword token kind. They cannot be used as ordinary identifiers. The `match_function_exp_kind()` dispatcher tests the following-`(` condition before dispatching to the function_exp parser.
+
+Source: `ori_parse/src/grammar/expr/operators.rs` — `match_function_exp_kind()`; `ori_parse/src/grammar/expr/primary/literals.rs` — reserved-keyword handling.
+
+Rationale: Lexer-soft keywords balance expressiveness (identifiers remain available) with parser convenience (common idioms like `timeout(...)` read naturally). Reserved keywords are core language constructs that cannot shadow identifiers.
 
 ### KW-2 — `with` Disambiguation
 
@@ -375,9 +385,11 @@ Source: `ori_parse/src/series/mod.rs`.
 |--------|----------|
 | `Allowed` | Trailing separator permitted; break when terminator found after separator |
 | `Forbidden` | Error if separator appears before terminator |
-| `Required` | Separator required between items, not after last |
+| `Required` | Distinct enum value, not currently differentiated in `series_core()` — behaves identically to `Allowed` at runtime. Reserved for future semantics distinguishing "separator required between items" from "trailing separator permitted." |
 
 Spec: `grammar.ebnf` — most Ori syntax uses `Allowed` trailing commas in multi-line contexts.
+
+`Forbidden` is the only policy with special runtime handling today. `Required` exists in the enum surface but no shipped call site uses it.
 
 ### SE-3 — Series as Single Source
 
@@ -460,9 +472,9 @@ Parse errors SHALL be structured `ParseError` values carrying:
 
 ### DI-2 — Error Code Stability
 
-Error codes in the `E0xxx` range are stable API. Once assigned, a code SHALL NOT be reused or change meaning. Tests SHOULD assert on error codes, not exact message text.
+Parser error codes live in the **`E1xxx`** range per the diagnostic namespace allocation in `ori_diagnostic/src/error_code/mod.rs` (`E0xxx` = lexer errors, `E1xxx` = parser errors, `E2xxx` = semantic/type errors). Once assigned, a code SHALL NOT be reused or change meaning. Tests SHOULD assert on error codes, not exact message text.
 
-Rationale: Per `impl-hygiene.md` §Error Handling: "Error codes are stable API: once assigned, never reuse or change meaning."
+Rationale: Per `impl-hygiene.md` §Error Handling: "Error codes are stable API: once assigned, never reuse or change meaning." Per-phase namespace allocation prevents cross-phase collision.
 
 ### DI-3 — Construction Paths
 
@@ -486,14 +498,21 @@ Warning production has two mechanisms:
 ### DI-5 — Common Mistake Detection
 
 The parser SHALL detect common mistakes from other languages and provide helpful suggestions:
-- Foreign keywords: `fn` → "use `@` for function declarations", `def` → "use `@`", `func` → "use `@`"
+- Foreign keywords: `fn` → "use `@` for function declarations", `func` → "use `@`", `function` → "use `@`"
 - Confused operators and syntax patterns
+
+Note: `def` is a valid Ori keyword (used in `def impl` for default trait implementations) and is NOT detected as a foreign-keyword mistake.
 
 Source: `ori_parse/src/error/mistakes.rs`.
 
 ### DI-6 — Error Context Wrapping
 
-Errors SHOULD carry context annotations ("while parsing function body", "while parsing match arm") using the `ErrorContext` mechanism. Context uses **first-context-wins** semantics: if an error already has a context set, subsequent attempts to add context are ignored (`error.context.is_none()` guard). This means the innermost parser that first catches the error provides the context — outer parsers do not stack additional contexts.
+Errors SHOULD carry context annotations ("while parsing function body", "while parsing match arm") using the `ErrorContext` mechanism. Two context-attachment paths exist with DIFFERENT semantics:
+
+- **`ParseOutcome::with_error_context()`** and **`Parser::in_error_context_result()`** use **first-context-wins** semantics: if an error already has a context set, subsequent attempts are ignored (`error.context.is_none()` guard). Used for nested grammar scopes.
+- **`ParseError::with_context()`** is an unconditional mutator that OVERWRITES any existing context. Used at specific call sites (e.g., `parse_contracts()`) where the inner context is less useful than the outer one.
+
+Grammar code SHOULD prefer the first-context-wins wrappers for normal propagation. The unconditional mutator is reserved for deliberate override cases and SHOULD be documented inline when used.
 
 ### DI-7 — Error Accumulation
 
