@@ -2,7 +2,7 @@
 section: "09"
 title: "Alive2 Formal Verification"
 status: in-progress
-reviewed: false
+reviewed: true
 goal: "Integrate Alive2's alive-tv translation validator to formally verify that LLVM optimization passes preserve the semantics of Ori's emitted IR — running a curated subset of pure/arithmetic functions on every CI nightly build and a full sweep weekly"
 success_criteria:
   - "alive-tv binary is built from a pinned Alive2 commit and available in CI via cached artifact"
