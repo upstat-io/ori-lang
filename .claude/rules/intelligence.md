@@ -35,6 +35,9 @@ scripts/intel-query.sh compare "type inference"
 scripts/intel-query.sh fixed "memory leak" --repo rust,swift
 scripts/intel-query.sh hot --repo rust
 scripts/intel-query.sh ori-arc                          # also: ori-inference, ori-codegen, ori-patterns, ori-diagnostics
+scripts/intel-query.sh sentiment pain --repo go         # rank by pain/controversy/excitement
+scripts/intel-query.sh landscape --repo rust            # per-label sentiment aggregation
+scripts/intel-query.sh ori-sentiment                    # highest-pain in ARC-relevant repos
 scripts/intel-query.sh cypher "MATCH (i:Issue)-[:FIXES]->(b) RETURN count(i)"
 ```
 
