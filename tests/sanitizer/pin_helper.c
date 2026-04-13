@@ -1,19 +1,18 @@
 /*
- * Semantic pin helper: deliberate heap-use-after-free.
+ * Semantic pin: deliberate heap-use-after-free.
  *
- * This function allocates a buffer, writes to it, frees it, and then reads
- * from the freed buffer. Without sanitizers, the read usually succeeds
- * (freed memory not yet reclaimed by the OS). With ASan, the quarantined
- * memory is poisoned and the read triggers an immediate error.
+ * Compiled directly by scripts/sanitizer-smoke.sh with -fsanitize=address.
+ * Without ASan: exits 0 (freed memory not yet reclaimed by OS).
+ * With ASan: crashes with "heap-use-after-free" report.
  *
- * Compiled into libpin_helper.a by scripts/sanitizer-smoke.sh before
- * running the semantic pin test.
+ * This is a C-only workaround because Ori's extern "c" from "lib" blocks
+ * don't resolve in AOT mode (FFI not yet complete — see roadmap §11.12
+ * for the upgrade to an Ori-native FFI semantic pin).
  */
 
 #include <stdlib.h>
-#include <string.h>
 
-int trigger_use_after_free(void) {
+int main(void) {
     int *buf = (int *)malloc(16 * sizeof(int));
     if (!buf) return -1;
 

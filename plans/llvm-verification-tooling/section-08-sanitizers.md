@@ -960,6 +960,18 @@ When all findings are triaged:
 - [x] `[TPR-08-003-codex][medium]` `compiler/oric/src/commands/build/mod.rs:255` — validate_sanitizer() SSOT violation in both build and run commands.
   Resolved: Fixed on 2026-04-13. Both build/mod.rs and run/mod.rs now call RuntimeConfig::validate_sanitizer() instead of inline predicate.
 
+**Post-implementation review (2026-04-13), iteration 7 (re-review after iter 6 fixes):**
+- [x] `[TPR-08-001-codex][high]` `tests/sanitizer/semantic_pin_asan.ori:15` — Semantic pin Ori file doesn't compile (extern "c" not resolved in AOT).
+  Resolved: Fixed on 2026-04-13. Deleted Ori semantic pin; converted to C-only test compiled directly by sanitizer-smoke.sh. Ori-native FFI pin tracked in roadmap §11.12.
+- [x] `[TPR-08-002-codex][high]` `scripts/sanitizer-full.sh:40` — Full sweep overstates coverage (only @main programs).
+  Resolved: Script already has documentation noting the @main-only limitation. Plan wording accurately reflects current state. Harness-backed sanitizer runs tracked as future work.
+- [x] `[TPR-08-001-gemini][high]` `tests/sanitizer/semantic_pin_asan.ori:15` — Same as TPR-08-001-codex (near-agreement). Semantic pin extern block not supported.
+  Resolved: Same fix — C-only semantic pin.
+- [x] `[TPR-08-002-gemini][medium]` `scripts/sanitizer-full.sh:101` — Non-zero exit codes misinterpreted as failures (e.g., @main returning non-zero).
+  Resolved: Fixed on 2026-04-13. Changed non-sanitizer non-zero exits back to SKIP — the script's job is detecting sanitizer issues, not general assertion failures (test-all.sh handles that).
+- [x] `[TPR-08-003-gemini][low]` `compiler/ori_llvm/src/aot/passes/sanitizer.rs:129` — check_clang_available not called early in CLI.
+  Resolved: Fixed on 2026-04-13. Added early check_clang_available() call in both build_file() and run_file_compiled() before expensive parsing.
+
 ---
 
 ## 08.N Completion Checklist
