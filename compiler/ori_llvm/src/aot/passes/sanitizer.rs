@@ -11,8 +11,75 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
 
-use super::config::SanitizerMode;
 use super::OptimizationError;
+
+/// Sanitizer instrumentation modes for generated code.
+///
+/// Controls which sanitizer passes are applied (via Clang delegation)
+/// and which sanitizer runtime libraries are linked.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SanitizerMode {
+    /// `AddressSanitizer`: use-after-free, buffer overflow, stack overflow.
+    pub address: bool,
+    /// `UndefinedBehaviorSanitizer`: signed overflow, null deref, misaligned access.
+    pub undefined: bool,
+}
+
+impl SanitizerMode {
+    /// No sanitizers (default).
+    pub const NONE: Self = Self {
+        address: false,
+        undefined: false,
+    };
+
+    /// Parse from `ORI_SANITIZE` env var value.
+    ///
+    /// Format: comma-separated list of `"address"`, `"undefined"`.
+    /// Example: `"address,undefined"` or `"address"` or `"undefined"`.
+    /// Unknown sanitizer names are logged as warnings and ignored.
+    pub fn from_env_value(value: &str) -> Self {
+        let mut mode = Self::NONE;
+        for part in value.split(',') {
+            match part.trim() {
+                "address" => mode.address = true,
+                "undefined" => mode.undefined = true,
+                other if !other.is_empty() => {
+                    tracing::warn!(
+                        sanitizer = other,
+                        "unknown sanitizer in ORI_SANITIZE, ignoring"
+                    );
+                }
+                _ => {}
+            }
+        }
+        mode
+    }
+
+    /// Whether any sanitizer is enabled.
+    #[must_use]
+    pub fn any_enabled(&self) -> bool {
+        self.address || self.undefined
+    }
+
+    /// Return the Clang-compatible `-fsanitize=...` flag value.
+    ///
+    /// Returns `None` if no sanitizers are enabled.
+    #[must_use]
+    pub fn clang_flag_value(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if self.address {
+            parts.push("address");
+        }
+        if self.undefined {
+            parts.push("undefined");
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(","))
+        }
+    }
+}
 
 /// Candidates for the Clang binary, tried in order.
 ///
@@ -155,17 +222,17 @@ pub fn clang_sanitize_object(
     sanitizer: &SanitizerMode,
     opt_level: &str,
     target_triple: &str,
-) -> Result<(), crate::aot::object::ModulePipelineError> {
+) -> Result<(), crate::aot::emit_error::ModulePipelineError> {
     // Use a distinct suffix to avoid collision when output_path is already .ll
     let ir_path = output_path.with_extension("sanitizer-tmp.ll");
 
     emitter
         .emit_llvm_ir(module, &ir_path)
-        .map_err(crate::aot::object::ModulePipelineError::Emission)?;
+        .map_err(crate::aot::emit_error::ModulePipelineError::Emission)?;
 
     let result =
         clang_compile_with_sanitizers(&ir_path, output_path, sanitizer, opt_level, target_triple)
-            .map_err(crate::aot::object::ModulePipelineError::Optimization);
+            .map_err(crate::aot::emit_error::ModulePipelineError::Optimization);
 
     // Always clean up the intermediate IR file, even on failure
     let _ = std::fs::remove_file(&ir_path);
