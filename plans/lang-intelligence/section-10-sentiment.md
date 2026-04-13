@@ -463,6 +463,8 @@ Add sentiment-specific Ori presets and verify that all existing skill integratio
 
 - [ ] Update `intel-query.sh` help text (if the `status` subcommand or no-args help lists available commands) to mention `sentiment` and `landscape`.
 
+- [ ] Add Ori sync metadata to `intel-query.sh status` output (last sync time, staleness indicator from `sync-ori-graph.sh --health`). <!-- unblocks:09.4 -->
+
 ### Integration verification
 
 - [ ] Verify Tier 1 integration contract compliance (established in Sections 03-04):
