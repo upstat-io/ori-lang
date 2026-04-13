@@ -27,40 +27,42 @@ impl LinkerDriver {
         }
 
         // Select linker flavor (with cross-compilation-aware fallback)
-        let flavor = if input.sanitizer.any_enabled() {
-            // Sanitizers require Clang as the linker driver — GCC and Clang
-            // ship incompatible sanitizer runtime libraries. Using GCC to link
-            // Clang-instrumented objects causes missing symbols or ABI mismatches.
-            LinkerFlavor::Gcc // create_linker() will use clang via with_path
-        } else if let Some(explicit) = input.linker {
-            // User explicitly chose a linker — respect it
-            explicit
-        } else {
-            let preferred = LinkerFlavor::for_target(self.target.components());
-            if LinkerDetection::is_available_for_target(preferred, &self.target) {
-                preferred
+        let flavor =
+            if input.sanitizer.any_enabled() && !self.target.is_windows() && !self.target.is_wasm()
+            {
+                // Sanitizers require Clang as the linker driver on Unix — GCC and Clang
+                // ship incompatible sanitizer runtime libraries. Windows/WASM use their
+                // own linker flavors (MSVC/WasmLd) which are not Clang-compatible.
+                LinkerFlavor::Gcc // create_linker() will use clang via with_path
+            } else if let Some(explicit) = input.linker {
+                // User explicitly chose a linker — respect it
+                explicit
             } else {
-                // Fall back to next available linker for this target,
-                // using cross-compilation-aware detection.
-                let detection = LinkerDetection::detect_for_target(&self.target);
-                if let Some(fallback) = detection.preferred() {
-                    fallback
-                } else if LinkerDetection::is_cross_compiling(&self.target) {
-                    // No suitable cross-linker found — fail early with clear error.
-                    return Err(LinkerDetection::cross_compilation_error(&self.target));
+                let preferred = LinkerFlavor::for_target(self.target.components());
+                if LinkerDetection::is_available_for_target(preferred, &self.target) {
+                    preferred
                 } else {
-                    // Native compilation but no linker at all.
-                    return Err(LinkerError::LinkerNotFound {
-                        linker: format!("{preferred:?}"),
-                        message: format!(
-                            "no linker found for native target '{}'. \
+                    // Fall back to next available linker for this target,
+                    // using cross-compilation-aware detection.
+                    let detection = LinkerDetection::detect_for_target(&self.target);
+                    if let Some(fallback) = detection.preferred() {
+                        fallback
+                    } else if LinkerDetection::is_cross_compiling(&self.target) {
+                        // No suitable cross-linker found — fail early with clear error.
+                        return Err(LinkerDetection::cross_compilation_error(&self.target));
+                    } else {
+                        // Native compilation but no linker at all.
+                        return Err(LinkerError::LinkerNotFound {
+                            linker: format!("{preferred:?}"),
+                            message: format!(
+                                "no linker found for native target '{}'. \
                              Install a C compiler (gcc or clang) to enable linking.",
-                            self.target.triple()
-                        ),
-                    });
+                                self.target.triple()
+                            ),
+                        });
+                    }
                 }
-            }
-        };
+            };
 
         // Create the appropriate linker using enum dispatch (not trait objects)
         // This provides exhaustiveness checking, static dispatch, and no heap allocation
