@@ -18,7 +18,7 @@ reroute: false
 | 06 | Code Graph: Symbol Extraction | complete | 05 |
 | 07 | Code Graph: Import Pipeline | complete | 06 |
 | 08 | Issue-to-Code Bridge | complete | 07 |
-| 09 | Ori Live Sync | in-progress | 06, 07 |
+| 09 | Ori Live Sync | complete | 06, 07 |
 | 10 | Sentiment & Issue Signals | not-started | 01 |
 
 ## Keyword Clusters
