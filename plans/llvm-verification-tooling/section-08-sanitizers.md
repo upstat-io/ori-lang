@@ -235,6 +235,7 @@ Add a `SanitizerMode` field to `OptimizationConfig` and wire it to the `ORI_SANI
   - [x] `timeout 150 ./test-all.sh` green (no regressions)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -370,6 +371,7 @@ This is the same strategy used by Rust's `-Zsanitizer` flag (which uses a C++ sh
   - [x] `timeout 150 ./test-all.sh` green (sanitizers OFF)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -462,6 +464,7 @@ When sanitizers are enabled, the linker must link the sanitizer runtime librarie
   - [x] `timeout 150 ./test-all.sh` green (sanitizers OFF)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -559,6 +562,7 @@ If only Ori-generated LLVM IR is sanitized but `ori_rt` is compiled normally, th
   - [x] `timeout 150 ./test-all.sh` green (sanitizers OFF)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -841,6 +845,7 @@ Create a curated smoke test subset for PR CI and configure full nightly runs. **
   - [ ] `timeout 150 ./test-all.sh` green (sanitizers OFF — no regressions to normal builds)
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 

@@ -63,6 +63,7 @@ All support `--help`, `--no-color`/`--color`.
 | `debug-release-compare.sh` | Debug vs release comparison | `--verbose` |
 | `valgrind-aot.sh` | Valgrind memory errors | defaults to `tests/valgrind/` |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | |
+| `repo-hygiene.sh` | Detect/clean untracked temp files | `--check`, `--clean`, `--gitignore` |
 | `self-test.sh` | Self-test all scripts against fixtures | |
 
 **Data sources:**

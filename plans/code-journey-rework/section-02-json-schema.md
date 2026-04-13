@@ -182,6 +182,7 @@ Design the complete JSON structure based on consensus from two tp-help consultat
   - [ ] All tasks above are `[x]` and schema design reviewed
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -198,6 +199,7 @@ Design the complete JSON structure based on consensus from two tp-help consultat
   - [ ] All tasks above are `[x]` and schema file validates
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 

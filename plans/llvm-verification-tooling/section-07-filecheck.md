@@ -116,6 +116,7 @@ sections:
   - [x] All tasks above are `[x]` and verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.0: no tooling gaps — test-infrastructure refactoring used cargo test/clippy/test-all.sh, all sufficient
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -152,6 +153,7 @@ Instead, evolve `ir_checks.rs` to use `run_test_directory()` for automatic test 
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.1: no tooling gaps — trait implementation used standard cargo test/clippy, all sufficient
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -263,6 +265,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.2: no tooling gaps. ORI_DEBUG_LLVM=1 dump + grep was sufficient for symbol verification. FileCheck runner error messages clear and diagnostic.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -411,6 +414,7 @@ Closure tests pin capture patterns, environment layout, and RC for captured valu
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.3: no tooling gaps. Adapted nested closure test (compiler limitation discovered — closure-returning-closure call syntax unsupported; filed as context, not a blocker for IR testing).
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -600,6 +604,7 @@ Tests that verify codegen correctness at feature boundaries — where compilers 
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.4: no tooling gaps. Learned CHECK-LABEL exact-mode semantics (search starts AFTER label line); FileCheck error messages correctly diagnosed the mismatch.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
