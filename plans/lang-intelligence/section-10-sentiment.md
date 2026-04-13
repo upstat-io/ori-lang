@@ -79,7 +79,7 @@ The raw GitHub JSON already contains per-emoji reaction data for every issue and
 
 ### Schema changes
 
-- [ ] Add 8 per-emoji reaction properties to Issue node documentation in `schema.cypher`:
+- [x] Add 8 per-emoji reaction properties to Issue node documentation in `schema.cypher`:
   ```cypher
   // Issue reactions (per-emoji breakdown from GitHub API)
   // reaction_plus1, reaction_minus1, reaction_laugh, reaction_hooray,
@@ -87,7 +87,7 @@ The raw GitHub JSON already contains per-emoji reaction data for every issue and
   // Original total_count preserved as 'reactions' for backward compat
   ```
 
-- [ ] Add reaction properties, `author_association`, and `author_type` to Comment node documentation:
+- [x] Add reaction properties, `author_association`, and `author_type` to Comment node documentation:
   ```cypher
   // Comment: {github_id, body, created_at, updated_at, position,
   //           author_association, author_type,
@@ -96,7 +96,7 @@ The raw GitHub JSON already contains per-emoji reaction data for every issue and
   // author_type: "User" | "Bot" | "Organization" | "" (from GitHub user.type)
   ```
 
-- [ ] Add performance indexes for sentiment queries:
+- [x] Add performance indexes for sentiment queries:
   ```cypher
   CREATE INDEX IF NOT EXISTS issue_reaction_minus1 FOR (i:Issue) ON (i.reaction_minus1);
   CREATE INDEX IF NOT EXISTS issue_reaction_confused FOR (i:Issue) ON (i.reaction_confused);
@@ -106,7 +106,7 @@ The raw GitHub JSON already contains per-emoji reaction data for every issue and
 
 ### Import pipeline changes
 
-- [ ] Modify `import_issue_batch()` (import_graph.py:48-151) to store per-emoji reaction data:
+- [x] Modify `import_issue_batch()` (import_graph.py:48-151) to store per-emoji reaction data:
   ```python
   # Current (L68-69):
   reactions = item.get("reactions", {})
@@ -125,7 +125,7 @@ The raw GitHub JSON already contains per-emoji reaction data for every issue and
   reaction_eyes = reactions.get("eyes", 0)
   ```
 
-- [ ] Update the Issue MERGE Cypher (import_graph.py:76-98) to SET all 8 reaction properties plus keep existing `reactions` field:
+- [x] Update the Issue MERGE Cypher (import_graph.py:76-98) to SET all 8 reaction properties plus keep existing `reactions` field:
   ```cypher
   SET i.reactions = $reactions,
       i.reaction_plus1 = $reaction_plus1,
@@ -138,7 +138,7 @@ The raw GitHub JSON already contains per-emoji reaction data for every issue and
       i.reaction_eyes = $reaction_eyes
   ```
 
-- [ ] Modify `import_comments_batch()` (import_graph.py:154-179) to store per-emoji reactions, `author_association`, and `author_type`:
+- [x] Modify `import_comments_batch()` (import_graph.py:154-179) to store per-emoji reactions, `author_association`, and `author_type`:
   ```python
   # Current: only body, created_at, updated_at, position
   # New: add author_association, author_type + 8 reaction fields
@@ -150,11 +150,11 @@ The raw GitHub JSON already contains per-emoji reaction data for every issue and
 
   **Bot identification:** GitHub bots have `user.type == "Bot"` but `author_association` is typically `"NONE"` (not `"BOT"`). The `author_type` field is required for reliable bot filtering in 10.2's sentiment aggregation. Store it as `c.author_type` on Comment nodes.
 
-- [ ] Verify: existing `Issue.reactions` (total_count) field preserved for backward compatibility — `cmd_hot()` at query_graph.py:451 uses `i.reactions` and must continue to work unchanged.
+- [x] Verify: existing `Issue.reactions` (total_count) field preserved for backward compatibility — `cmd_hot()` at query_graph.py:451 uses `i.reactions` and must continue to work unchanged.
 
 ### Backfill
 
-- [ ] **Prerequisite: Verify comment corpus completeness.** The comment fetch in `fetch_repo.sh` stops when GitHub rate limit drops below 50, so the local comment corpus is knowingly partial for large repos (e.g., Go has ~74K issues with comments but only ~1K comment JSON files on disk). Before backfilling:
+- [x] **Prerequisite: Verify comment corpus completeness.** The comment fetch in `fetch_repo.sh` stops when GitHub rate limit drops below 50, so the local comment corpus is knowingly partial for large repos (e.g., Go has ~74K issues with comments but only ~1K comment JSON files on disk). Before backfilling:
   1. Run a per-repo coverage check: for each repo, count issues with `comments > 0` vs. comment JSON files on disk
   2. If coverage is below 80% for any repo, run `fetch_repo.sh <repo> <github_org/repo>` to complete the comment fetch (may require multiple runs due to rate limits)
   3. Document actual per-repo coverage in a verification artifact — thread-level aggregation in 10.2 is only meaningful when comment data is substantially complete
@@ -196,8 +196,8 @@ The raw GitHub JSON already contains per-emoji reaction data for every issue and
 | Backward compat | cmd_hot still works with i.reactions (total_count) |
 
 - [ ] **Semantic pin**: After backfill, Go #15292 must have `reaction_plus1 = 1997`, `reaction_minus1 = 152` (verified against raw JSON).
-- [ ] **Negative pin**: An issue whose raw JSON has no `reactions` dict (malformed/missing) must get all 8 reaction fields set to 0, not crash or leave them NULL.
-- [ ] **Negative pin**: A comment whose `user` is null or missing must get `author_type = ""`, not crash.
+- [x] **Negative pin**: An issue whose raw JSON has no `reactions` dict (malformed/missing) must get all 8 reaction fields set to 0, not crash or leave them NULL.
+- [x] **Negative pin**: A comment whose `user` is null or missing must get `author_type = ""`, not crash.
 
 - [ ] **Subsection close-out (10.1)** — MANDATORY before starting 10.2:
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
@@ -217,7 +217,7 @@ Additionally, `import_graph.py` processes Issues (Phase 1) before Comments (Phas
 
 ### Schema changes
 
-- [ ] Add materialized sentiment indexes to `schema.cypher`:
+- [x] Add materialized sentiment indexes to `schema.cypher`:
   ```cypher
   CREATE INDEX IF NOT EXISTS issue_pain_score FOR (i:Issue) ON (i.pain_score);
   CREATE INDEX IF NOT EXISTS issue_controversy_score FOR (i:Issue) ON (i.controversy_score);
@@ -229,7 +229,7 @@ Additionally, `import_graph.py` processes Issues (Phase 1) before Comments (Phas
 
 ### Enrichment script
 
-- [ ] Create `~/projects/lang_intelligence/neo4j/enrich_sentiment.py` with the following responsibilities:
+- [x] Create `~/projects/lang_intelligence/neo4j/enrich_sentiment.py` with the following responsibilities:
   1. **Issue-level sentiment**: Compute scores from Issue's own per-emoji reactions
   2. **Thread-level aggregation**: Sum comment reactions per issue (excluding bots: `WHERE c.author_type <> 'Bot'`), add to issue's own reactions. Note: GitHub bots have `user.type == "Bot"` but `author_association` is typically `"NONE"`, so `author_type` (stored from `user.type` in 10.1) is the reliable bot discriminator.
   3. **Score formulas** (absolute magnitude, not ratios):
@@ -251,7 +251,7 @@ Additionally, `import_graph.py` processes Issues (Phase 1) before Comments (Phas
   4. **Within-repo percentile bands**: After computing raw scores, compute percentile rank within each repo. Store as `i.pain_pctile`, `i.controversy_pctile`, `i.excitement_pctile` (integer 0-100). This enables cross-repo comparison: "top 5% most painful issues in Go" is comparable to "top 5% in Rust" even though Go has 76K issues and Rust has 15K.
   5. **Idempotency**: Script must be re-runnable. Use `SET` (not `+=`) on all properties.
 
-- [ ] Wire enrichment into ALL import entrypoints to prevent DRIFT between raw reactions and materialized scores:
+- [x] Wire enrichment into ALL import entrypoints to prevent DRIFT between raw reactions and materialized scores:
   1. **`fetch-all.sh`** — after all repos are imported, run enrichment:
      ```bash
      # At end of fetch-all.sh, after all imports complete:
@@ -289,7 +289,7 @@ Additionally, `import_graph.py` processes Issues (Phase 1) before Comments (Phas
 | Percentile | Repo with 1 issue, repo with 76K issues |
 | Idempotency | Run twice — same results |
 
-- [ ] Create `~/projects/lang_intelligence/tests/test_enrich_sentiment.py` with unit tests:
+- [x] Create `~/projects/lang_intelligence/tests/test_enrich_sentiment.py` with unit tests:
   - Pure formula tests: `controversy(0, 0) == 0`, `controversy(100, 100) > controversy(100, 1)`, `pain(0, 0) == 0`, `excitement(0, 0) == 0`
   - Edge cases: all-zero reactions, single-emoji reactions, large values
   - Idempotency: running enrichment twice produces identical scores
@@ -316,7 +316,7 @@ Add two query commands and modify the output formatter to show sentiment signals
 
 ### New commands
 
-- [ ] Add `cmd_sentiment(args, json_mode=False)` to `query_graph.py`:
+- [x] Add `cmd_sentiment(args, json_mode=False)` to `query_graph.py`:
   ```python
   # Usage: query_graph.py sentiment <type> [--repo X] [--limit N]
   # <type> is one of: pain, controversy, excitement
@@ -341,7 +341,7 @@ Add two query commands and modify the output formatter to show sentiment signals
   ```
   Where `{score_field}` maps: pain→`pain_score`, controversy→`controversy_score`, excitement→`excitement_score`. **Input validation:** the `<type>` argument must be one of {pain, controversy, excitement}. Any other value must produce a clear error message (not a Cypher injection or silent empty result). Use a hardcoded allowlist dict, not string interpolation of raw user input.
 
-- [ ] Add `cmd_landscape(args, json_mode=False)` to `query_graph.py`:
+- [x] Add `cmd_landscape(args, json_mode=False)` to `query_graph.py`:
   ```python
   # Usage: query_graph.py landscape [--repo X] [--limit N]
   # Returns per-label aggregated sentiment statistics
@@ -361,7 +361,7 @@ Add two query commands and modify the output formatter to show sentiment signals
   ORDER BY avg_pain DESC LIMIT $limit
   ```
 
-- [ ] Register both commands in the `commands` dict (query_graph.py:714-727):
+- [x] Register both commands in the `commands` dict (query_graph.py:714-727):
   ```python
   "sentiment": cmd_sentiment,
   "landscape": cmd_landscape,
@@ -369,7 +369,7 @@ Add two query commands and modify the output formatter to show sentiment signals
 
 ### Output formatting
 
-- [ ] Modify `_print_issue()` (query_graph.py:105-121) to show threshold-based sentiment tags:
+- [x] Modify `_print_issue()` (query_graph.py:105-121) to show threshold-based sentiment tags:
   ```python
   def _print_issue(rec):
       kind = "PR" if rec.get("is_pr") else "issue"
@@ -407,16 +407,16 @@ Add two query commands and modify the output formatter to show sentiment signals
   ```
   **Key design**: tags only appear when scores are returned by the query. Existing queries (search, fixed, hot) don't return `pain_score` etc., so their output is unchanged. The `sentiment` and `landscape` commands DO return these fields, so tags appear naturally. No `--sentiment` flag needed — the query itself controls what data is available.
 
-- [ ] Add `_print_landscape_row()` formatter for the `landscape` command. Unlike `_print_issue()` which formats individual issues, `landscape` returns per-label aggregations. Format:
+- [x] Add `_print_landscape_row()` formatter for the `landscape` command. Unlike `_print_issue()` which formats individual issues, `landscape` returns per-label aggregations. Format:
   ```
     label-name (42 issues)
       avg pain: 12.3  avg controversy: 5.7  avg excitement: 8.1
   ```
   This is a separate formatter because `landscape` results have a different shape (label + aggregates) than individual issue results.
 
-- [ ] Update JSON output for sentiment commands to include all score fields.
+- [x] Update JSON output for sentiment commands to include all score fields.
 
-- [ ] Verify backward compatibility: existing `cmd_search`, `cmd_fixed`, `cmd_hot` output unchanged (they don't return sentiment fields, so tags never appear).
+- [x] Verify backward compatibility: existing `cmd_search`, `cmd_fixed`, `cmd_hot` output unchanged (they don't return sentiment fields, so tags never appear).
 
 ### Test matrix
 
@@ -431,7 +431,7 @@ Add two query commands and modify the output formatter to show sentiment signals
 | Negative | Invalid sentiment type (e.g., "anger") → clear error message |
 | Negative | `landscape` on repo with no labeled issues → empty result, no crash |
 
-- [ ] **Negative pin**: `python3 neo4j/query_graph.py sentiment anger` must produce a clear error (not a Cypher injection or KeyError).
+- [x] **Negative pin**: `python3 neo4j/query_graph.py sentiment anger` must produce a clear error (not a Cypher injection or KeyError).
 - [ ] **Semantic pin**: `python3 neo4j/query_graph.py sentiment pain --repo go --limit 1` must return Go #32825 or another issue with the highest pain_score in Go.
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 10.1–10.3 implementation work
@@ -452,7 +452,7 @@ Add sentiment-specific Ori presets and verify that all existing skill integratio
 
 ### Preset
 
-- [ ] Add `ori-sentiment` to `ORI_PRESETS` (query_graph.py:661-675). Unlike the existing presets (which use `cmd_search` with curated terms), this preset routes to `cmd_sentiment` with preset type + repo filter:
+- [x] Add `ori-sentiment` to `ORI_PRESETS` (query_graph.py:661-675). Unlike the existing presets (which use `cmd_search` with curated terms), this preset routes to `cmd_sentiment` with preset type + repo filter:
   ```python
   # In the ori-preset handler (cmd_ori_preset, L678-685):
   # Special case: ori-sentiment routes to cmd_sentiment, not cmd_search
@@ -461,7 +461,7 @@ Add sentiment-specific Ori presets and verify that all existing skill integratio
   ```
   This shows the highest-pain issues across Ori-relevant repos (rust, swift, koka, lean4, roc — the ARC/memory-focused reference compilers). The results are NOT filtered to ARC/memory topics specifically — they show all high-pain issues in those repos, which is still useful because the repo selection is itself a topical filter.
 
-- [ ] Update `intel-query.sh` help text (if the `status` subcommand or no-args help lists available commands) to mention `sentiment` and `landscape`.
+- [x] Update `intel-query.sh` help text (if the `status` subcommand or no-args help lists available commands) to mention `sentiment` and `landscape`.
 
 - [ ] Add Ori sync metadata to `intel-query.sh status` output (last sync time, staleness indicator from `sync-ori-graph.sh --health`). <!-- unblocks:09.4 -->
 

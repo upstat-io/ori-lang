@@ -1217,6 +1217,9 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
 - [x] **Implement**: Block expression parsing (`{ block_body }`) — semicolons as separators (2026-02-20)
   - [x] **Rust Tests**: `ori_parse/src/tests/parser.rs` — `test_parse_block_expr`
   - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori`
+- [ ] **Implement**: Optional semicolon after `}`-ending expression statements — `for...do { }`, `while...do { }`, `loop { }`, `if...then...else { }`, `match { }` no longer require trailing `;` when used as statements. Approved proposal: `optional-semicolon-after-block-expressions-proposal.md`. Grammar updated (`grammar.ebnf` `block_ending_expression` production). Parser change in `blocks.rs`: after parsing an expression, if last token is `}`, consume `;` if present but don't require it.
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — `test_optional_semicolon_after_block_expression`
+  - [ ] **Ori Tests**: `tests/spec/expressions/` — block expressions without trailing `;`
 - [x] **Implement**: Block vs map vs struct disambiguation (2-token lookahead) (2026-02-20)
   - [x] **Rust Tests**: `ori_parse/src/tests/parser.rs` — block/map disambiguation
   - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori`

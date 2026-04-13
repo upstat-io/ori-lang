@@ -120,4 +120,5 @@ venv/
 #claude
 .claude/discussions
 .claude/worktrees/
+.claude/.spec-proposal-active
 scratchpad
