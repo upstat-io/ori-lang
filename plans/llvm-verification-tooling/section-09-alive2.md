@@ -1,7 +1,7 @@
 ---
 section: "09"
 title: "Alive2 Formal Verification"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Integrate Alive2's alive-tv translation validator to formally verify that LLVM optimization passes preserve the semantics of Ori's emitted IR — running a curated subset of pure/arithmetic functions on every CI nightly build and a full sweep weekly"
 success_criteria:
@@ -41,7 +41,7 @@ sections:
     status: not-started
   - id: "09.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "09.N"
     title: "Completion Checklist"
     status: not-started
@@ -227,14 +227,18 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
   /// Compute output path for a capture file.
   pub fn capture_path(source_path: &str, suffix: &str) -> PathBuf {
       if crate::dbg_set!(crate::debug_flags::ORI_ALIVE2_CAPTURE) {
-          // Structured directory for Alive2
+          // Structured directory for Alive2 — encode repo-relative path
+          // to guarantee uniqueness (multiple test files share basenames
+          // like traits.ori, collections.ori across different directories)
           let dir = Path::new("build/alive2-results");
           std::fs::create_dir_all(dir).ok();
-          let stem = Path::new(source_path)
-              .file_stem()
-              .and_then(|s| s.to_str())
-              .unwrap_or("module");
-          dir.join(format!("{stem}{suffix}"))
+          // Sanitize repo-relative path: replace / with _ to create flat unique names
+          // e.g., "tests/spec/traits/iterator/map.ori" -> "tests_spec_traits_iterator_map"
+          let sanitized = source_path
+              .trim_start_matches("./")
+              .replace('/', "_")
+              .replace(".ori", "");
+          dir.join(format!("{sanitized}{suffix}"))
       } else {
           // Alongside the source file
           Path::new(source_path).with_extension(suffix.trim_start_matches('.'))
@@ -346,10 +350,9 @@ Build the diagnostic script that orchestrates alive-tv verification and curate t
 - [ ] Curate the initial function corpus (`tests/alive2/curated-corpus.txt`). Selection criteria:
   - **Include**: Pure arithmetic functions, simple control flow (no loops or loops with small bounds), no runtime calls (`_ori_rc_inc`, `_ori_rc_dec`, `_ori_alloc`, `_ori_panic`), no exception handling (`invoke`/`landingpad`), no indirect calls (closures)
   - **Exclude**: Functions with `call void @_ori_rc_*` (RC operations), functions with `invoke` (exception handling), functions calling external runtime (`_ori_*`), functions with large loop nests (>256 iterations), functions with `va_arg` or variadics, functions with `_ori_is_unique` calls (COW branches), functions with checked-overflow intrinsics that branch to panic blocks
-  - **Survival requirement**: Each corpus entry must survive `-O2` optimization (not be fully inlined away). Verify with `--check-survival` during corpus creation. If a function is inlined at `-O2`, either replace it with a function that naturally survives, or mark it with `noinline` in the corpus metadata — which triggers the `CaptureHooks` pre_opt hook to inject the `noinline` LLVM attribute on the function BEFORE optimization runs (via the existing `compiler/ori_llvm/src/codegen/ir_builder/attributes.rs:53-60` infrastructure). The attribute must be applied at compile time, not by editing the captured `.preopt.ll` file — editing the captured file cannot retroactively affect the optimizer that already produced `.postopt.ll`.
-  - **Source**: Start from `compiler/ori_llvm/tests/codegen/` (Section 07's FileCheck tests) — functions that have clean CHECK patterns are good Alive2 candidates. Also include pure functions from `tests/spec/` that compile to small LLVM IR.
-  - Format: one line per entry: `<ori_file_path> <function_name> [noinline]`
-    - Optional `noinline` marker tells the build to inject the `noinline` LLVM attribute at compile time (before optimization runs), via the `CaptureHooks` pre_opt path. Do NOT use `optnone` — it disables ALL optimizations, causing alive-tv to compare unoptimized-vs-unoptimized IR (silently invalidating verification). `noinline` only prevents inlining while allowing all other optimizations to proceed. The attribute is applied to the live module before `run_optimization_passes`, NOT to the captured `.preopt.ll` file after the fact.
+  - **Survival requirement**: Each corpus entry must **naturally** survive `-O2` optimization (not be fully inlined away). Verify with `--check-survival` during corpus creation. If a function is inlined at `-O2`, **replace it** with one that survives — do NOT attempt to inject `noinline` attributes, as there is no clean transport mechanism from the corpus file to the compiler's codegen path (CaptureHooks are module-level IO hooks, not per-function attribute injectors). The `--check-survival` filter is the enforcement mechanism: any entry that fails survival is flagged as an error during `--corpus` runs, forcing the maintainer to find a replacement.
+  - **Source**: Start from `compiler/ori_llvm/tests/codegen/` (Section 07's FileCheck tests) — functions that have clean CHECK patterns are good Alive2 candidates. Also include pure functions from `tests/spec/` that compile to small LLVM IR. Prefer functions with `external` linkage or `@main`-like entry points that the optimizer cannot fully inline.
+  - Format: one line per entry: `<ori_file_path> <function_name>`
   **WHERE:** `tests/alive2/curated-corpus.txt` (new file)
 
 - [ ] Create `tests/alive2/` directory with the corpus file and a README explaining the selection criteria, survival requirements, and how to add new entries.
@@ -628,6 +631,13 @@ When all findings are triaged:
 - [x] `[TPR-09-008-gemini][high]` `section-09-alive2.md:242` — Same as TPR-09-007-codex (pipeline duplication in body).
   Resolved: Fixed on 2026-04-13 (iter 2). Same fix as [TPR-09-007-codex].
 
+**Iteration 3 findings (all resolved):**
+
+- [x] `[TPR-09-011-codex][medium]` `section-09-alive2.md:349` — No transport mechanism for `[noinline]` corpus entries to reach compiler hooks.
+  Resolved: Fixed on 2026-04-13 (iter 3). Removed noinline corpus metadata entirely; corpus entries must naturally survive -O2. --check-survival is the enforcement mechanism. Simplest correct design — no phantom transport needed.
+- [x] `[TPR-09-012-codex][medium]` `section-09-alive2.md:233` — Duplicate basenames in build/alive2-results/ from different directories.
+  Resolved: Fixed on 2026-04-13 (iter 3). Changed capture_path() to encode repo-relative path (/ -> _) for guaranteed uniqueness.
+
 ---
 
 ## 09.N Completion Checklist
@@ -643,7 +653,8 @@ When all findings are triaged:
 - [ ] `diagnostics/alive2-verify.sh` passes `--help` and follows diagnostic conventions
 - [ ] `--check-survival` flag detects functions inlined away by optimization
 - [ ] `--all-codegen` flag discovers and verifies all `.ori` files in `compiler/ori_llvm/tests/codegen/`
-- [ ] `noinline` (NOT `optnone`) used for survival injection — `optnone` would defeat optimization verification
+- [ ] Corpus entries all naturally survive `-O2` (no noinline injection — replaced with survival-mandatory policy)
+- [ ] Capture filenames encode repo-relative paths to prevent basename collisions across test directories
 - [ ] Curated corpus in `tests/alive2/curated-corpus.txt` with >=15 functions, all surviving `-O2`
 - [ ] All curated corpus functions pass alive-tv refinement checking
 - [ ] Suppression file `tests/alive2/suppressed.json` documents all false positives with 9 categories
