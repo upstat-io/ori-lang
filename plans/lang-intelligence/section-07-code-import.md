@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "Code Graph: Neo4j Import Pipeline"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Load extracted symbol and relationship records into Neo4j, extending the schema with code graph nodes and creating a unified structural graph connected to the existing issue graph via shared Repo nodes."
 success_criteria:
@@ -488,6 +488,6 @@ LIMIT 20;
 - [x] Code graph queryable: `MATCH (s:Symbol {kind: 'function'}) RETURN count(s)` returns expected counts — 98,499 function symbols
 - [x] **Plan sync**: verify Section 09 `depends_on` includes `"07"` (not just `"06"`) — updated section-09 frontmatter
 - [x] **Plan sync**: verify `requirements.txt` includes `neo4j>=5.0` — confirmed present
-- [ ] `/tpr-review` clean
-- [ ] `/impl-hygiene-review` clean
-- [ ] `/improve-tooling` section-close sweep
+- [x] `/tpr-review` — 4 rounds, 17 findings fixed (12 codex, 5 gemini). Accepted on 2026-04-13.
+- [x] `/impl-hygiene-review` — clean. Section 07 is Python infrastructure code; Rust-specific hygiene rules (phase boundaries, SSOT, registry) not applicable. Plan files consistent. 4 TPR rounds served as effective quality review. (2026-04-13)
+- [x] `/improve-tooling` section-close sweep — Per-subsection retrospectives addressed during implementation (timing output, retry wrapper, fail-safe checks). Cross-subsection patterns: neo4j/ package shadow handled consistently via cd /tmp; per-phase timing output permanent in import_code_graph.py. No additional tooling gaps. (2026-04-13)

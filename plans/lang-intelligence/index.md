@@ -16,9 +16,9 @@ reroute: false
 | 04 | Skill Integration: Remaining | complete | 01, 02, 03 |
 | 05 | Code Graph: Parser Adapters | complete | — |
 | 06 | Code Graph: Symbol Extraction | complete | 05 |
-| 07 | Code Graph: Import Pipeline | not-started | 06 |
+| 07 | Code Graph: Import Pipeline | complete | 06 |
 | 08 | Issue-to-Code Bridge | not-started | 07 |
-| 09 | Ori Live Sync | not-started | 06 |
+| 09 | Ori Live Sync | not-started | 06, 07 |
 
 ## Keyword Clusters
 
