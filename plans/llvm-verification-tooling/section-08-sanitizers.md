@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Sanitizer Integration"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Integrate ASan and UBSan into AOT-compiled Ori binaries via Clang driver delegation, with ASan-instrumented ori_rt, gated by ORI_SANITIZE env var, with a smoke subset for PR CI and full sweep nightly — catching memory errors and undefined behavior in generated code AND runtime library code that verification gates and FileCheck tests cannot detect"
 success_criteria:
@@ -45,7 +45,7 @@ sections:
     status: complete
   - id: "08.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 08: Sanitizer Integration
@@ -1106,7 +1106,7 @@ When all findings are triaged:
   - [x] `00-overview.md` mission success criteria checkbox updated (Section 08 checked)
   - [x] `index.md` — table has no status column, no update needed
 - [x] `/tpr-review` passed (final, full-section) — clean on iteration 4 after fixing 10 findings across iterations 1-3 (6+3+1). Both Codex and Gemini returned zero actionable findings with thorough verification (gemini ran test-all.sh + sanitizer-smoke.sh; codex read 27 files + 23 rules + ran 7 tests).
-- [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
-- [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
+- [x] `/impl-hygiene-review` passed — SSOT trace clean, no Section 08-specific LEAK/DRIFT/GAP findings. 2 minor notes (borderline fn-length in run/mod.rs, false-positive swallowed-error lint). 53 pre-existing findings in unrelated subsystems (wasm, fmt, incremental) do not block close-out.
+- [x] `/improve-tooling` **section-close sweep** — per-subsection retrospectives verified for all 6 subsections (08.0-08.5, all `[x]`). Documentation awareness audit found 3 sanitizer scripts missing from CLAUDE.md §Commands — fixed. No cross-subsection tooling patterns beyond what per-subsection captures covered.
 
 **Exit Criteria:** `ORI_SANITIZE=address,undefined ori build file.ori` compiles with Clang-delegated sanitizer instrumentation. The generated binary runs with ASan/UBSan runtime checking active. When `libori_rt_asan.a` is available, the runtime library is also sanitized — providing full coverage of both generated code and RC/container operations. `scripts/sanitizer-smoke.sh` completes within 60 seconds and passes all <=20 smoke tests including at least one semantic pin and one negative pin. `.github/workflows/nightly-verification.yml` runs `@main`-capable spec files with sanitizers enabled (sharded); full attached-test coverage requires harness-backed sanitizer runs tracked in `plans/roadmap/section-11-ffi.md` §11.12. `timeout 150 ./test-all.sh` (without sanitizers) passes with 0 regressions.
