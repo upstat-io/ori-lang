@@ -374,6 +374,29 @@ This ensures:
 - When reviewing a blocked item, `grep 'blocked-by:'` shows what prerequisite is missing
 - **Every blocker has a resolution path** — no open-ended blockers accumulate silently
 
+### Step 2.1: CONDITIONAL — Intelligence Context for Focus Section
+
+After determining the focus section in Step 2, optionally query the intelligence graph for cross-language context relevant to this section's domain. This step runs at most ONCE per section focus within the current conversation session — if the focus section hasn't changed since the last query in this session, skip (the results are still in Claude's context). No cross-session persistence is needed; a new session starts fresh.
+
+1. **Check availability**: Run `scripts/intel-query.sh status` via Bash and parse the JSON output. If the `status` field is not `"ok"`, skip silently.
+
+2. **Extract query terms** from the focus section's frontmatter:
+   - Use the `title` field as the primary search term (always valid for `search` queries)
+   - Use the `goal` field for additional context keywords
+   - **Preset mapping is opportunistic**: `.claude/rules/intelligence.md` §Subsystem Mapping maps *file path patterns* (e.g., `compiler/ori_arc/`) to presets, not section titles. If the section title clearly maps to a subsystem (e.g., "ARC Optimization" → `ori-arc`, "Type Inference" → `ori-inference`), use the preset. Otherwise, `search "<title>"` is sufficient.
+
+3. **Skip condition**: If the section title indicates infrastructure or tooling work (e.g., contains "CLI", "Tooling", "Testing Framework", "Build System", "Documentation") rather than a compiler/language feature, skip this step — cross-compiler intelligence has low relevance for project-specific infrastructure.
+
+4. **Run query** (output visible in Claude's context — do NOT capture into shell variables):
+   ```
+   scripts/intel-query.sh --human search "<title keywords>" --limit 5
+   ```
+   If a preset was identified: `scripts/intel-query.sh --human <preset> --limit 5`
+
+5. Hold results as "Cross-language context for Section {NN}:" — use when making design decisions within the section. Do NOT inject into every subsection prompt; reference as needed.
+
+If unavailable or empty, skip silently. Section work proceeds normally.
+
 ### Step 2.5: Blocker Chain Resolution
 
 When the scanner shows blocked items, analyze the blocker chain:

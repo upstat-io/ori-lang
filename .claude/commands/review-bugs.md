@@ -143,7 +143,30 @@ For each bug marked `- [x]` since the last review, verify that the fix followed 
  - Clusters of bugs in the same file/function (fix together via single fix section)
  - In-progress fix sections that should be completed
 }
+
+### Intelligence Cross-Reference (CONDITIONAL)
+{If the intelligence graph is available, cross-reference high-priority bugs
+ against reference compiler issues — see Step 5.5 below for details}
 ```
+
+### Step 5.5: CONDITIONAL — Intelligence Cross-Reference
+
+If the intelligence graph is available, cross-reference recommended bugs against reference compiler issues to enrich recommendations with fix-approach confidence.
+
+1. **Check availability**: Run `scripts/intel-query.sh status` via Bash and parse the JSON output. If the `status` field is not `"ok"`, skip — present recommendations without intelligence enrichment.
+
+2. **For each high-priority bug** being recommended for fixing, run:
+   ```
+   scripts/intel-query.sh --human search "<bug title keywords>" --limit 5
+   scripts/intel-query.sh --human fixed "<bug category>" --repo rust,swift,koka,lean4 --limit 5
+   ```
+
+3. Use results to enrich the `### Recommended Actions` section:
+   - Bugs where 2+ reference compilers hit the same failure mode → higher confidence the fix approach is known (mention in recommendation)
+   - Bugs matching "fixed" issues in reference compilers → note the fix approach for the implementer's benefit
+   - Bug clusters (multiple Ori bugs matching the same reference compiler issue class) → recommend fixing together via a single fix section
+
+4. If unavailable or empty, present recommendations without intelligence enrichment — the prioritization logic works without it.
 
 ### Step 6: Ask What to Do
 

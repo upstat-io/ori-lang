@@ -58,6 +58,31 @@ Search `docs/ori_lang/proposals/approved/` for any proposals the new one depends
 
 Present the purity assessment to the user. If the analysis suggests the feature belongs in stdlib rather than the compiler, use `AskUserQuestion` to confirm the user still wants a proposal (vs. just implementing the library feature directly).
 
+### Step 4.5: CONDITIONAL — Intelligence Prior Art Query
+
+Query the intelligence graph for cross-language prior art relevant to the proposed feature. Results populate a DRAFT Prior Art section that must be verified before inclusion.
+
+1. **Check availability**: Run `scripts/intel-query.sh status` via Bash and parse the JSON output. If the `status` field is not `"ok"`, skip to Step 5 — omit the Prior Art section or populate it manually.
+
+2. **Run queries** (output visible in Claude's context — do NOT capture into shell variables):
+   ```
+   scripts/intel-query.sh --human search "<proposal topic>" --limit 5
+   scripts/intel-query.sh --human compare "<feature concept>" --limit 5
+   ```
+
+3. From the results, draft a `## Prior Art` section with structured entries:
+   - Which languages implemented this feature
+   - What issues arose (link to specific issue numbers from results)
+   - What approaches were rejected and why
+
+4. **MANDATORY VERIFICATION** — The drafted Prior Art section is a STARTING POINT, not a finished product. Before including it in the proposal:
+   - Verify each referenced issue/PR actually exists and says what the summary claims (intelligence results are for DISCOVERY, not replacement — per `.claude/rules/intelligence.md`)
+   - Check referenced source files in `~/projects/reference_repos/lang_repos/` to confirm implementation details
+   - Remove any entries that cannot be verified
+   - Add entries discovered through manual inspection that intelligence missed
+
+If intelligence is unavailable or returns no results, skip silently. The Prior Art section can be populated manually or omitted for small proposals.
+
 ### Step 5: Generate the Proposal
 
 Create the file at `docs/ori_lang/proposals/drafts/<topic>-proposal.md`.
