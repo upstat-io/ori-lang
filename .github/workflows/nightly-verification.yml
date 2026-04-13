@@ -9,6 +9,7 @@ on:
       - 'scripts/sanitizer-smoke.sh'
       - 'scripts/sanitizer-full.sh'
       - 'scripts/build-rt-asan.sh'
+      - '.github/workflows/nightly-verification.yml'
   schedule:
     - cron: '30 2 * * *'  # 2:30 AM UTC (after nightly release PR at midnight)
   workflow_dispatch:

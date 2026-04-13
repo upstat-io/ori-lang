@@ -45,6 +45,23 @@ fn has_imports(content: &str) -> bool {
     false
 }
 
+/// Fail fast if sanitizers are requested but Clang is not available.
+///
+/// Shared by `build_file` and `run_file_compiled` — the single canonical
+/// check point for sanitizer → Clang availability validation.
+/// Uses `SanitizerMode::from_env_value` so the check agrees with the
+/// actual config that `build_optimization_config()` will produce later.
+#[cfg(feature = "llvm")]
+pub(crate) fn check_clang_for_sanitizers(sanitizer_env: Option<&str>) {
+    if let Some(v) = sanitizer_env {
+        if ori_llvm::aot::SanitizerMode::from_env_value(v).any_enabled() {
+            if let Err(e) = ori_llvm::aot::check_clang_available() {
+                crate::problem::codegen::report_codegen_error(e);
+            }
+        }
+    }
+}
+
 /// Build an Ori source file to a native executable.
 ///
 /// This performs the full AOT compilation pipeline:
@@ -61,16 +78,7 @@ pub fn build_file(path: &str, options: &BuildOptions) {
 
     let start = Instant::now();
 
-    // Fail fast if sanitizers are requested but Clang is not available.
-    // Uses the canonical SanitizerMode parser so the check agrees with the
-    // actual config that build_optimization_config() will produce later.
-    if let Ok(v) = std::env::var(crate::debug_flags::ORI_SANITIZE) {
-        if ori_llvm::aot::SanitizerMode::from_env_value(&v).any_enabled() {
-            if let Err(e) = ori_llvm::aot::check_clang_available() {
-                crate::problem::codegen::report_codegen_error(e);
-            }
-        }
-    }
+    check_clang_for_sanitizers(options.sanitizer_env.as_deref());
 
     // Read the source file
     let content = read_file(path);
@@ -174,10 +182,10 @@ pub(crate) fn build_optimization_config(
     let lint_enabled = std::env::var(crate::debug_flags::ORI_LLVM_LINT).is_ok_and(|v| v != "0")
         || std::env::var(crate::debug_flags::ORI_AUDIT_CODEGEN).is_ok_and(|v| v != "0");
 
-    let sanitizer = std::env::var(crate::debug_flags::ORI_SANITIZE)
-        .ok()
-        .filter(|v| v != "0")
-        .map_or(SanitizerMode::NONE, |v| SanitizerMode::from_env_value(&v));
+    let sanitizer = options
+        .sanitizer_env
+        .as_deref()
+        .map_or(SanitizerMode::NONE, SanitizerMode::from_env_value);
 
     OptimizationConfig::new(level)
         .with_lto(lto)

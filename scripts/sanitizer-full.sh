@@ -86,8 +86,13 @@ for (( i=START; i<END; i++ )); do
         PASS_COUNT=$((PASS_COUNT + 1))
     else
         exit_code=$?
+        # Timeout (exit 124) is always a failure — a hung binary under ASan likely
+        # indicates memory corruption causing an infinite loop or deadlock.
+        if [ "$exit_code" -eq 124 ]; then
+            echo "FAIL (timeout): $test_file (killed after 10s)"
+            FAIL_COUNT=$((FAIL_COUNT + 1))
         # Check if this is a sanitizer hit (ASan/UBSan report on stderr)
-        if grep -q "Sanitizer\|ERROR:.*Sanitizer\|SUMMARY:.*Sanitizer" "$TMPDIR/stderr_$name" 2>/dev/null; then
+        elif grep -q "Sanitizer\|ERROR:.*Sanitizer\|SUMMARY:.*Sanitizer" "$TMPDIR/stderr_$name" 2>/dev/null; then
             echo "FAIL (sanitizer): $test_file (exit $exit_code)"
             head -5 "$TMPDIR/stderr_$name" >&2
             FAIL_COUNT=$((FAIL_COUNT + 1))
