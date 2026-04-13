@@ -220,4 +220,4 @@ Intelligence AUGMENTS manual inspection — it does NOT replace it. The intellig
 - [x] Update `00-overview.md` Quick Reference table for section 03
 - [x] Update `index.md` section 03 status
 - [x] Clean up any plan annotations from section 03 in source code (none exist — markdown-only changes)
-- [x] Verify section 04 `depends_on` is correct (depends on 01, 02 — same as 03, no change needed)
+- [x] Verify section 04 `depends_on` is correct (updated to 01, 02, 03 — section 04 references Tier 1 contract from section 03)
