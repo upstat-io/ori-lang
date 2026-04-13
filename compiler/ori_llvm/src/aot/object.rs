@@ -91,6 +91,22 @@ impl OutputFormat {
     }
 }
 
+/// Closure type for IR capture hooks.
+pub type CaptureHook<'a> = Option<Box<dyn FnOnce(&Module<'_>) -> Result<(), String> + 'a>>;
+
+/// Optional hooks for IR capture at pipeline boundaries.
+///
+/// Closures perform IO in the caller's crate (oric), not in `ori_llvm`,
+/// preserving phase purity. Used by the Alive2 translation validation
+/// pipeline to capture pre-opt and post-opt IR.
+#[derive(Default)]
+pub struct CaptureHooks<'a> {
+    /// Called after module verification succeeds, before optimization.
+    pub pre_opt: CaptureHook<'a>,
+    /// Called after optimization completes, before object emission.
+    pub post_opt: CaptureHook<'a>,
+}
+
 /// Object file emitter for a specific target.
 ///
 /// Wraps an LLVM `TargetMachine` and provides methods to emit various output formats.
@@ -278,7 +294,9 @@ impl ObjectEmitter {
     ///
     /// Pipeline:
     /// 1. Verify module IR (unconditional — catches codegen bugs early)
+    ///    1.5. Pre-opt capture hook (if provided)
     /// 2. Run optimization passes (per `OptimizationConfig`)
+    ///    2.5. Post-opt capture hook (if provided) + audit histogram
     /// 3. Emit to the requested output format
     ///
     /// # Arguments
@@ -287,6 +305,8 @@ impl ObjectEmitter {
     /// * `opt_config` - Optimization configuration (level, LTO, vectorization, etc.)
     /// * `path` - Output file path
     /// * `format` - Output format (object, assembly, bitcode, LLVM IR)
+    /// * `hooks` - Optional IR capture hooks for Alive2 translation validation.
+    ///   Closures perform IO in the caller's crate (oric), keeping `ori_llvm` pure.
     ///
     /// # Errors
     ///
@@ -297,6 +317,7 @@ impl ObjectEmitter {
         opt_config: &super::passes::OptimizationConfig,
         path: &Path,
         format: OutputFormat,
+        hooks: CaptureHooks<'_>,
     ) -> Result<(), ModulePipelineError> {
         // Step 0: Early Clang availability check when sanitizers are enabled
         if opt_config.sanitizer.any_enabled() {
@@ -308,11 +329,21 @@ impl ObjectEmitter {
             return Err(ModulePipelineError::Verification(msg.to_string()));
         }
 
+        // Step 1.5: Pre-optimization IR capture (after verify, before opt)
+        if let Some(pre_opt) = hooks.pre_opt {
+            pre_opt(module).map_err(ModulePipelineError::Capture)?;
+        }
+
         // Step 2: Optimize
         super::passes::run_optimization_passes(module, &self.machine, opt_config)
             .map_err(ModulePipelineError::Optimization)?;
 
-        // Step 2.5: Post-optimization RC histogram (gated behind audit flag).
+        // Step 2.5a: Post-optimization IR capture (after opt, before emit)
+        if let Some(post_opt) = hooks.post_opt {
+            post_opt(module).map_err(ModulePipelineError::Capture)?;
+        }
+
+        // Step 2.5b: Post-optimization RC histogram (gated behind audit flag).
         if crate::verify::audit_requested() {
             let options = crate::verify::AuditOptions::from_env();
             let stats = crate::verify::audit_module_histogram_only(module, &options);

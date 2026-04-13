@@ -116,11 +116,13 @@ pub(super) fn build_file_single(
         eprintln!("  Emitting object to {}", obj_path.display());
     }
 
+    let hooks = super::ir_capture::build_hooks(path);
     if let Err(e) = emitter.verify_optimize_emit(
         &llvm_module,
         &opt_config,
         &obj_path,
         ori_llvm::aot::OutputFormat::Object,
+        hooks,
     ) {
         report_codegen_error(e);
     }

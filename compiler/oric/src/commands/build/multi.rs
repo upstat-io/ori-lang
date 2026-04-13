@@ -322,7 +322,7 @@ fn compile_single_module(
     };
 
     // Configure target, optimize, and emit object/bitcode
-    let obj_path = emit_module_artifact(ctx, &llvm_module, &module_name)?;
+    let obj_path = emit_module_artifact(ctx, &llvm_module, &module_name, &source_path_str)?;
 
     // Transitive metadata forwarding now happens in the type checker
     // (generate_exported_type_metadata merges imported metadata at finish_with_pool).

@@ -123,6 +123,29 @@ flags! {
     /// Usage: `ORI_NO_REPR_OPT=1 ori build file.ori`
     ORI_NO_REPR_OPT
 
+    // === Alive2 IR Capture ===
+
+    /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.
+    ///
+    /// Produces machine-readable IR suitable for alive-tv input.
+    /// Distinct from `ORI_DUMP_AFTER_LLVM` which dumps annotated IR to stderr
+    /// for human debugging (and before verification).
+    /// Usage: `ORI_DUMP_PREOPT_LLVM=1 ori build file.ori`
+    ORI_DUMP_PREOPT_LLVM
+
+    /// Dump raw LLVM IR to a `.postopt.ll` file after optimization, before emission.
+    ///
+    /// Produces machine-readable IR suitable for alive-tv input.
+    /// Usage: `ORI_DUMP_POSTOPT_LLVM=1 ori build file.ori`
+    ORI_DUMP_POSTOPT_LLVM
+
+    /// Enable Alive2 IR capture: dumps both pre-opt and post-opt IR.
+    ///
+    /// Convenience flag that enables both `ORI_DUMP_PREOPT_LLVM` and
+    /// `ORI_DUMP_POSTOPT_LLVM` and places output in `build/alive2-results/`.
+    /// Usage: `ORI_ALIVE2_CAPTURE=1 ori build file.ori`
+    ORI_ALIVE2_CAPTURE
+
     // === Verification ===
 
     /// Enable ARC IR verification after the AIMS pipeline.
