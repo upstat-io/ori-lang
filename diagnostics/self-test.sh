@@ -486,6 +486,21 @@ else
 fi
 echo ""
 
+# ─── alive2-verify.sh ─────────────────────────────────────────────
+# Only run if alive-tv is available (not in CI by default)
+if [[ -x "$ROOT_DIR/build/alive2/alive-tv" ]]; then
+    printf "${C_BOLD}alive2-verify.sh${C_NC}\n"
+    run_test "pure_arithmetic.ori verifies clean" \
+        "$SCRIPT_DIR/alive2-verify.sh" --no-color "$ROOT_DIR/tests/alive2/pure_arithmetic.ori" --function _ori_add
+    run_test_output_contains "alive2-verify.sh --help shows usage" "Usage:" \
+        "$SCRIPT_DIR/alive2-verify.sh" --help
+    run_test_expect_fail "alive2-verify.sh with no args" \
+        "$SCRIPT_DIR/alive2-verify.sh" --no-color
+    echo ""
+else
+    printf "${C_BOLD}alive2-verify.sh${C_NC} ${C_YELLOW}(SKIPPED — alive-tv not built)${C_NC}\n\n"
+fi
+
 # ─── Error handling ───────────────────────────────────────────────
 printf "${C_BOLD}Error handling${C_NC}\n"
 run_test_expect_fail "codegen-audit.sh with no args" \
