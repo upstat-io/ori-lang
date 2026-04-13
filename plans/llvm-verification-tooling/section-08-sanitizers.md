@@ -1000,6 +1000,14 @@ When all findings are triaged:
 - [x] `[TPR-08-002-gemini][medium]` `compiler/ori_llvm/src/aot/runtime.rs:276` — DRY between detect() and candidate_directories().
   Resolved: Fixed on 2026-04-13. Refactored `detect()` to use `candidate_directories()` as its search source. Moved ORI_WORKSPACE_DIR into candidate_directories(). detect() is now 10 lines.
 
+**Post-implementation review (2026-04-13), iteration 10:**
+- [x] `[TPR-08-001-codex][high]` `scripts/sanitizer-full.sh:75` — Compile regressions silently skipped in full sweep.
+  Resolved: Fixed on 2026-04-13. Added compile-failure threshold (>90% = regression error, exits 1).
+- [x] `[TPR-08-002-codex][medium]` `compiler/ori_llvm/src/aot/passes/sanitizer/tests.rs:27` — Unit test doesn't verify ASan instrumentation.
+  Resolved: Fixed on 2026-04-13. Added `__asan_` symbol assertion to the object file, pinning the -fsanitize flag plumbing.
+- [x] `[TPR-08-001-gemini][low]` `tests/sanitizer/closure_capture.ori:1` — Rename files to kebab-case.
+  Resolved: Rejected. tests.md kebab-case rule applies to spec tests (`tests/spec/`). These are standalone `@main` programs in `tests/sanitizer/`, not spec tests. snake_case is appropriate for standalone programs.
+
 ---
 
 ## 08.N Completion Checklist
