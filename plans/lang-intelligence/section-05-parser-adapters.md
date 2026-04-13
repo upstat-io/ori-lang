@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Code Graph: Parser Adapters"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Set up tree-sitter parsing infrastructure for all 11 repos with per-language adapters, query file families, adapter API contract, and validation matrix."
 success_criteria:
@@ -43,7 +43,7 @@ sections:
     status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # 05 Code Graph: Parser Adapters

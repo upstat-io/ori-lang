@@ -57,7 +57,7 @@ Lineage: Lean 4 borrow inference, OxCaml modality.
 | `Affine` | May be dropped without use | Dec may be needed, no inc |
 | `Unrestricted` | Freely copied and dropped | Full RC (inc on copy, dec on drop) |
 
-Order: `Dead < Linear < Affine < Unrestricted`. Join: `max`. Height: 3. Note: `join(Dead, Linear) = Linear` — DP-7 additionally gates on `Cardinality = Once` to prevent unsound RC skip on conditionally-consumed parameters (where one path is Dead and another Linear — the join is Linear but Cardinality from CN-1 ensures the variable is consistently consumed).
+Order: `Dead < Linear < Affine < Unrestricted`. Join: `max`. Height: 3. Note: `join(Dead, Linear) = Linear`. DP-7 gates on `Consumption = Linear AND Cardinality = Once`, but this does NOT prevent unsound RC skip on conditionally-consumed parameters — `(Dead, Absent) ⊔ (Linear, Once) = (Linear, Once)` passes both gates. The safety for DP-7 comes from the INTERPROCEDURAL contract: the SCC fixpoint (IC-2/IC-3) joins parameter states across ALL call sites, so a parameter that is Dead on one path and Linear on another converges to Linear+Once only if ALL callers consistently consume it. If any caller does not consume, the parameter contract remains at a weaker level.
 Lineage: Chirimar et al. (substructural RC), QTT semiring.
 
 ### §1.3 Cardinality — Forward Usage Count
@@ -301,7 +301,7 @@ Transfer functions define how each ARC IR instruction updates the lattice state.
 
 Every `ArcInstr` and `ArcTerminator` variant that defines a `dst` variable has an explicit forward transfer rule below. Instructions that produce no definition (side-effect-only) are listed as `N/A`. This list SHALL be exhaustive — adding a new instruction variant without a corresponding TF rule is a spec gap.
 
-**TF-1** — Scalar literal (`Let { value = Literal }`): `dst.state := SCALAR`. Int, float, bool, char, byte, duration, size — no RC.
+**TF-1** — Scalar literal (`Let { value = Literal }`): `dst.state := SCALAR`. Int, float, bool, char, byte, duration, size, Ordering, unit, Never — no RC.
 
 **TF-2** — Variable binding (`Let { value = Var(v) }`): `dst.state := state(v)`. Inherits source state.
 
@@ -354,9 +354,9 @@ Dimensions NOT narrowed by `refine`: Access (stays `Owned` — call results are 
 **TF-N/A** — Side-effect-only instructions produce no definition:
 - `RcInc`: increments refcount of existing variable. No `dst`.
 - `RcDec`: decrements refcount of existing variable. No `dst`.
-**TF-15** — `Set { dst, obj, field, val }`: field mutation with COW. Forward: `dst := state(obj)`. IA-5 step (1): `obj` receives `dst`'s accumulated demand via seq_add (transparent mutation alias — the result IS the mutated base). `val.access := Owned` (unconditional — the stored value is owned by the aggregate for field cleanup). `val.locality := max(val.locality, obj.locality)`. Backward demand (TF-11): `(obj, Once, Linear)` + `(val, Once, Linear)`.
+**TF-15** — `Set { dst, obj, field, val }`: field mutation with COW. Forward: `dst := state(obj)`. IA-5 step (1): `obj` receives `dst`'s accumulated demand via seq_add (transparent mutation alias). `val.access := Owned`, `val.locality := max(val.locality, obj.locality)`. Backward demand (TF-11): `(val, Once, Linear)` ONLY — `obj` demand is suppressed (IA-5 step 1 handles it via alias transfer, same as Let Var/Project suppression).
 
-**TF-15a** — `SetTag { dst, obj }`: tag mutation. Forward: `dst := state(obj)`. IA-5 step (1): same as TF-15 for `obj` (transparent mutation alias). Backward: `(obj, Once, Linear)`.
+**TF-15a** — `SetTag { dst, obj }`: tag mutation. Forward: `dst := state(obj)`. IA-5 step (1): same as TF-15 for `obj`. Backward: NONE for `obj` (suppressed — IA-5 handles via alias transfer).
 
 ### Backward (Demand)
 
@@ -373,8 +373,8 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 | `Project { value }` | NONE — IA-5 step (1) transfers demand from dst to source via TF-14 (cardinality + locality). Additional TF-11 demand would double-count (same rationale as Let Var suppression). |
 | `Apply { args }` | `(arg, cardinality=Once, consumption=Linear)` per arg; refined by callee contract (IC-3): Borrowed `Absent` → zero demand; Owned `Absent` → `(arg, Once, Linear)` (ownership transfer for RL-5 dec); ALL non-Absent params: `arg.locality := max(arg.locality, param.locality)`; ALL Owned params (including Absent): `arg.locality := max(arg.locality, ArgEscaping)`, `arg.access := Owned` (Owned Absent still needs header for RL-5 dec); Borrowed with `may_share = true`: `arg.uniqueness := MaybeShared` |
 | `ApplyIndirect { closure, args }` | `(closure, Once)`, `(arg, Once)` per arg |
-| `Set { base, value }` | `(base, Once)`, `(value, Once)` |
-| `SetTag { base }` | `(base, Once)` |
+| `Set { dst, obj, field, val }` | `(val, Once, Linear)` only — `obj` demand suppressed (IA-5 step 1 alias transfer) |
+| `SetTag { dst, obj }` | NONE — `obj` demand suppressed (IA-5 step 1 alias transfer) |
 | `IsShared { var }` | `(var, Once)` |
 | `Reset { var }` | `(var, Once)` |
 | `Reuse { token, args }` | `(arg, Once)` per arg. Note: NO demand on `token` — the token is SCALAR (TF-10a) and L-9 excludes scalars from the demand system. Token availability is structurally guaranteed by the `Reset`/`Reuse` pairing (see TF-10a rationale). |
@@ -405,7 +405,7 @@ Each operand of each instruction generates a `(variable, cardinality)` demand. T
 
 **TF-13 SHALL be monotone**: if `a ≤ b` then `capture_state_update(a, c) ≤ capture_state_update(b, c)`.
 
-**TF-14** — Project backward demand propagation: `src.locality := max(src.locality, dst.locality)`, `src.cardinality := seq_add(src.cardinality, dst.cardinality)`. No access promotion — Owned promotion is handled by ESCAPING instructions (Construct/Set via IA-5 step 1, IA-6 for returns) and TF-13 for closures. CN-8 clamps Borrowed states to FunctionLocal, so `dst.locality >= HeapEscaping` is unreachable for canonical Borrowed states. Without this propagation, `src` can be freed or stack-allocated while a reference to its projected field escapes or outlives it.
+**TF-14** — Project backward demand propagation: `src.locality := max(src.locality, dst.locality)`, `src.cardinality := seq_add(src.cardinality, dst.cardinality)`, `src.consumption := max(src.consumption, Affine)` (keeps source alive — without consumption propagation, CN-1 would erase the source's cardinality). No access promotion. Without this propagation, `src` can be freed or stack-allocated while a reference to its projected field escapes or outlives it.
 
 ---
 
@@ -445,8 +445,9 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 **DP-8** — `is_local(s) ⟺ s.locality ∈ {BlockLocal, FunctionLocal}`.
 `ArgEscaping` is explicitly NOT local — the value escapes the defining function's scope (into a callee). While `ArgEscaping` values don't reach the heap, they cross the function boundary, which means the caller's inc/dec pair cannot be unconditionally elided (the callee may store the reference in a callee-local structure that outlives the call in unwinding scenarios). DP-7 (RC skip) requires `is_local()` precisely because local values never cross function boundaries. `ArgEscaping` values get their optimization through stack promotion in the caller (RL-15a), not through RC elision.
 
-**DP-9** — `cow_mode(s)`:
-- `Unique ⟹ StaticUnique` (in-place, no check)
+**DP-9** — `cow_mode(s, var, field, point)`:
+- `Unique AND can_mutate_in_place(s, var, field, point) ⟹ StaticUnique` (in-place, no check)
+- `Unique AND NOT can_mutate_in_place ⟹ Dynamic` (active overlapping borrow blocks static path)
 - `MaybeShared ⟹ Dynamic` (runtime IsShared check)
 - `Shared ⟹ StaticShared` (unconditional copy)
 
@@ -501,7 +502,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 **Step (1) detail — backward transfer depends on instruction type:**
 - **`Let { Var(v) }` (transparent alias)**: the destination's accumulated demand transfers to the source. Cardinality and Consumption use `seq_add` (Once + Once = Many, Linear + Linear = Unrestricted — per TF-11's additive accumulation rule). Locality uses `max` (join). This ensures a variable used both directly AND through an alias is correctly counted as Many.
-- **`Project` (borrow — NOT a transparent alias)**: `src.cardinality := seq_add(src.cardinality, dst.cardinality)`, `src.locality := max(src.locality, dst.locality)` (via TF-14). No access promotion (CN-8 clamps Borrowed to FunctionLocal). No TF-11 demand (suppressed to avoid double-counting — step (1) transfer already captures the demand).
+- **`Project` (borrow — NOT a transparent alias)**: `src.cardinality := seq_add(src.cardinality, dst.cardinality)`, `src.locality := max(src.locality, dst.locality)`, `src.consumption := max(src.consumption, Affine)` (via TF-14 — keeps source alive). No TF-11 demand (suppressed to avoid double-counting).
 - **`Select` (conditional alias)**: the destination's full accumulated demand transfers to BOTH `true_val` and `false_val` via `seq_add` (same as Let Var — additive accumulation for cardinality/consumption, max for locality) — because at runtime, one of them IS the destination. E.g., if `%5 = Select(cond, %3, %4)` and `%5` has `Many` cardinality, both `%3` and `%4` receive `Many`. This is the backward interpretation of TF-8: `dst := state(true_val) ⊔ state(false_val)` means both operands should absorb `dst`'s demand. `cond` receives only the TF-11 demand `(cond, Once)` (it's a boolean control input, not an alias).
 - **`Construct`, `Reuse`, `CollectionReuse` (aggregate builders)**: the destination's LOCALITY transfers to all arguments: `arg.locality := max(arg.locality, dst.locality)`. Arguments SHALL ALWAYS be promoted to `access := Owned` (regardless of destination locality). Even for local structs, field cleanup at scope exit requires `RcDec` on fields, which requires the fields to be Owned. Without unconditional Owned promotion, field decs would underflow on Borrowed values. This prevents the "dangling stack-to-heap pointer" problem. Arguments also receive their standard TF-11 `(arg, Once)` demand from step (2). Cardinality is NOT transferred — the Construct uses each argument once regardless of how many times the result is used.
 - **`Set`/`SetTag` (transparent mutation alias)**: `obj` receives `dst`'s accumulated demand via seq_add (the result IS the mutated base). `val.access := Owned` (unconditional — stored values are owned by the aggregate). `val.locality := max(val.locality, obj.locality)`.
@@ -610,7 +611,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 ### Stack Promotion
 
-**RL-14** — Non-escaping allocations (`Locality ≤ FunctionLocal ∧ Uniqueness = Unique`) with fixed size SHALL be stack-allocated via `alloca`. No RC header. No RC operations. Stack deallocation at scope exit. The `Uniqueness = Unique` requirement is load-bearing: a `MaybeShared` value that is stack-promoted without a header would crash on `IsShared` (DP-4). **Heap children**: if a headerless stack allocation contains OWNED reference-type fields, the emission phase SHALL emit explicit `RcDec` for each Owned field at scope exit AND on CFG edges where the parent dies. Borrowed fields do NOT receive field drops (no RC obligation). VF-1 exempts field-drop Project+RcDec sequences from DecOnBorrowed.
+**RL-14** — Non-escaping allocations (`Locality ≤ FunctionLocal ∧ Uniqueness = Unique`) with fixed size SHALL be stack-allocated via `alloca`. No RC header. No RC operations. Stack deallocation at scope exit. The `Uniqueness = Unique` requirement is load-bearing: a `MaybeShared` value that is stack-promoted without a header would crash on `IsShared` (DP-4). **Heap children**: if a headerless stack allocation contains OWNED reference-type fields, the emission phase SHALL emit explicit `RcDec` for each Owned field in REVERSE DECLARATION ORDER at scope exit AND on CFG edges where the parent dies. Borrowed fields do NOT receive field drops. VF-1 exempts field-drop Project+RcDec sequences from DecOnBorrowed.
 
 **RL-14a** — Non-escaping fixed-size allocations with `Uniqueness ≠ Unique` (`Locality ≤ FunctionLocal`) SHALL be stack-allocated via `alloca` WITH RC header initialized to `MAX_REFCOUNT` (immortal — prevents free on stack pointer). **Heap children**: field-level `RcDec` at scope exit per RL-14.
 
