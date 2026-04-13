@@ -184,6 +184,18 @@ flags! {
     /// Usage: `ORI_DEBUG_LLVM=1 ori check file.ori`
     ORI_DEBUG_LLVM
 
+    // === Sanitizer Flags ===
+
+    /// Enable sanitizer instrumentation on generated AOT binaries.
+    ///
+    /// Value: comma-separated sanitizer names (`address`, `undefined`).
+    /// Example: `ORI_SANITIZE=address,undefined ori build file.ori`
+    ///
+    /// Requires Clang on PATH (used as compilation driver for sanitizer passes).
+    /// For full coverage, also recompiles `ori_rt` with sanitizer flags (nightly Rust).
+    /// Significant performance impact (2-10x slower). Not for main test suite.
+    ORI_SANITIZE
+
     // === Runtime Trace Flags ===
     // Note: These are checked directly in `ori_rt` (which can't depend on `oric`).
     // Defined here for documentation and `check-debug-flags.sh` consistency.
