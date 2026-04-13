@@ -19,6 +19,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-072][medium]` **CN-3 canonicalize_single_pass only demotes ReusableCtor shapes — spec requires all non-NonReusable**
+  Repro: A `Shared` variable with `CollectionBuffer` or `ContextHole` shape passes through `canonicalize_single_pass` without demotion. Line 325: `matches!(self.shape, ShapeClass::ReusableCtor(_))` misses CollectionBuffer/ContextHole.
+  Subsystem: `compiler/ori_arc/src/aims/lattice/mod.rs:325`
+  Found: 2026-04-13 | Source: tpr-review
+  Reviewer: gemini
+  Fix: Change `matches!(self.shape, ShapeClass::ReusableCtor(_))` to `!matches!(self.shape, ShapeClass::NonReusable)` per aims-rules.md CN-3 (updated TPR iter-52).
+
 - [ ] `[BUG-04-071][critical]` **Iterator map with repr-opt narrowed list: element size mismatch causes memory corruption**
   Repro: `[1,2,3,4,5].iter().map(transform: x -> x * 2).collect()` — repr-opt narrows `[int]` literal to i8 (values fit in 1 byte), so `ori_iter_map` receives `elem_size=1`. But the map lambda `x -> x * 2` returns i64 (8 bytes). The trampoline `_ori_tramp_0` does `store i64 %result, ptr %slot, align 8`, writing 8 bytes into a 1-byte slot. Downstream `ori_iter_collect` allocates a buffer with 1-byte slots. Passes by coincidence for short arrays on little-endian; will corrupt data with larger arrays or specific element counts.
   Subsystem: `ori_llvm` (repr-opt + iterator codegen interaction)
