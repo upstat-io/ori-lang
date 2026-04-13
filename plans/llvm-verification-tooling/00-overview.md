@@ -238,7 +238,7 @@ Enabling `ORI_VERIFY_ARC=1` and `ORI_VERIFY_EACH=1` is specifically designed to 
 | 03 AIMS Pass-Level Snapshots | ~1,500 | Medium | 02 |
 | 04 AIMS Lattice Properties | ~1,200 | Medium | — |
 | 05 Contract Coherence Oracle | ~1,500 | High | 03, 04 |
-| 06 Protocol Builtin Matrix | ~800 | In Progress | 01 |
+| 06 Protocol Builtin Matrix | ~800 | Complete | 01 |
 | 07 FileCheck IR Assertions | ~2,500 | High | 02 |
 | 08 Sanitizer Integration | ~1,200 | Medium | 01 |
 | 09 Alive2 Formal Verification | ~2,000 | Very High | 07 |

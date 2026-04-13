@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Protocol Builtin Verification Matrix"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Verify that ProtocolBuiltin ownership values are correctly defined (ori_ir) and consumed (ori_arc borrow inference and AIMS contract seeding), with end-to-end validation through AOT leak checks (ori_llvm) across a type x pattern matrix. Note: ori_llvm does not directly consume arg_ownership() — it dispatches on from_name() and type info; ownership correctness flows through ori_arc's RC annotations."
 success_criteria:
@@ -37,7 +37,7 @@ sections:
     status: complete
   - id: "06.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 06: Protocol Builtin Verification Matrix
@@ -453,12 +453,12 @@ When all findings are triaged:
 - [x] `timeout 150 ./clippy-all.sh` green
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan llvm-verification-tooling` returns 0 annotations
 - [x] All intermediate TPR checkpoint findings resolved (TPR-06-001 convergent finding fixed, TPR-06-002 rejected)
-- [ ] **Plan sync** — update plan metadata (deferred until close-out gates pass):
-  - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
+- [x] **Plan sync** — update plan metadata:
+  - [x] This section's frontmatter `status` -> `complete`, subsection statuses updated
   - [x] `00-overview.md` Quick Reference updated (effort table + section reference + success criterion)
   - [x] `index.md` section status updated
-- [ ] `/tpr-review` passed (final, full-section)
-- [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
-- [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
+- [x] `/tpr-review` passed (final, full-section) — clean on iteration 4 (2026-04-12). Iterations 1-3 found and fixed: missing __iter_next borrow test, Set<int> fixture → crash discovery (BUG-04-065), plan text drift, duplicate BUG ID, stale annotation. Iteration 4 clean (codex findings were stale-worktree artifacts from parallel session).
+- [x] `/impl-hygiene-review` passed (2026-04-12) — Auto Mode, scoped to 8992b03c^..HEAD. Zero LEAK/SSOT/DRY/DRIFT/GAP findings in Section 06 changes. Automated lint: 15 findings all pre-existing (3 test-weak in collections_ext.rs, 12 #[ignore] in iter_rc_matrix.rs). Manual review: annotate.rs dispatch cascade clean, well-documented ordering invariant.
+- [x] `/improve-tooling` **section-close sweep** (2026-04-12) — Per-subsection retrospectives: 06.2 no gaps, 06.3 ORI_AUDIT_CODEGEN evaluation surfaced BUG-04-062 (38 unwind-path failures), 06.4 no gaps. Cross-subsection pattern: no repeated command sequences, no integration test message issues, no cross-referencing friction. Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling.
 
 **Exit Criteria:** Protocol builtin ownership is verified at all three layers: IR definition (existing tests audited), ori_arc consumers (new MemoryContract field-level tests + negative pins), and LLVM codegen (AOT type x pattern matrix with `ORI_CHECK_LEAKS=1`). An exhaustiveness guard ensures new variants cannot be added without test coverage. `timeout 150 ./test-all.sh` passes with all new tests included.
