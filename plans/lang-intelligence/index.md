@@ -32,7 +32,7 @@ intelligence.md, query-intel, rules, skills, tpr-review, fix-bug, design-pattern
 concept, failure-mode, compiler-phase, design-decision, taxonomy, IMPLEMENTS_CONCEPT, INTRODUCES_FAILURE_MODE, REJECTS_APPROACH, SUPERSEDES_DECISION, code-reference, staleness
 
 ### Code Graph
-tree-sitter, parser-adapter, fallback-ladder, symbol-extraction, structural-graph, Module, Function, Struct, Trait, Method, CALLS, IMPORTS, IMPLEMENTS, tags.scm, languages.yaml
+tree-sitter, parser-adapter, query-families, decls.scm, calls.scm, imports.scm, impls.scm, symbol-extraction, structural-graph, Module, Function, Struct, Trait, Method, CALLS, IMPORTS, IMPLEMENTS, ParseResult, query-handles, languages.yaml
 
 ### Issue Bridge
 code-reference, MENTIONS_CODE, RESOLVES_TO, confidence, provenance, backtick-extraction, file-path-extraction, qualified-name

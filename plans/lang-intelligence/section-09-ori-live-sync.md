@@ -103,7 +103,7 @@ For Ori, we have a choice: tree-sitter or Ori's own Rust parser. The research fo
 
 **Decision**: Use Option B for now — accuracy matters more than speed for Ori's own codebase. tree-sitter grammar can be added later if incremental performance is insufficient.
 
-- [ ] Create a thin Python wrapper that calls `cargo run -- check --dump-symbols <file>` (or equivalent)
+- [ ] Create a thin Python wrapper that calls `cargo run -- check --dump-symbols <file>` (or equivalent) <!-- unblocks:05 -->
 - [ ] If no symbol dump mode exists in the Ori CLI, add a `--dump-symbols` flag that outputs the same JSONL format as `extract_symbols.py`
 - [ ] For incremental: re-run the parser on changed files only (Ori's Salsa-based incremental compilation helps here)
 - [ ] Fallback: if the Rust parser fails (compilation error), mark file as `parse_status: 'error'` and retain last-good state

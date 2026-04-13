@@ -75,12 +75,12 @@ Outputs: JSONL with one record per symbol or relationship
  "repo": "rust", "file": "compiler/rustc_parse/src/parser/expr.rs", "line": 67}
 ```
 
-- [ ] Implement per-language extractors that walk tree-sitter ASTs
-- [ ] Use tags.scm queries where available (Rust, Go, TypeScript, C++, Swift)
-- [ ] Use custom tree-walking for languages without tags.scm
-- [ ] Extract CALLS relationships by finding call_expression nodes and resolving the callee name
-- [ ] Extract IMPORTS relationships by finding use/import statements
-- [ ] Extract IMPLEMENTS relationships by finding impl/instance/conformance blocks
+- [ ] Implement per-language extractors that consume `ParseResult.query_handles` from `parser_adapter.py`
+- [ ] Use `query_handles["decls"]` for declaration extraction (all languages have this family)
+- [ ] Use `query_handles["calls"]` for CALLS relationships (official captures for Rust/Go; custom for others)
+- [ ] Use `query_handles["imports"]` for IMPORTS relationships
+- [ ] Use `query_handles["impls"]` for IMPLEMENTS relationships (empty stubs for Go/Zig/C++ return zero captures — this is expected)
+- [ ] Fall back to programmatic tree walking against `ParseResult.tree` only when a query family is intentionally stubbed/partial or the adapter is native/custom (Ori)
 - [ ] Compute qualified_name by walking parent module/namespace chain
 - [ ] Compute signature_hash as a stable fingerprint for change detection (used by live sync)
 - [ ] Output JSONL (streaming, not buffered) for memory efficiency on large repos
