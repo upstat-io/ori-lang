@@ -147,7 +147,14 @@ impl LinkerDriver {
                     // Use find_clang() for consistency with the compilation path (supports
                     // versioned names like clang-17 on Debian/Ubuntu).
                     let clang_bin = super::super::passes::find_clang().unwrap_or("clang");
-                    LinkerImpl::Gcc(GccLinker::with_path(&self.target, clang_bin))
+                    let mut gcc = GccLinker::with_path(&self.target, clang_bin);
+                    // Cross-compilation: tell Clang which target triple to link for.
+                    // Without --target, Clang defaults to the host triple and produces
+                    // incompatible executables.
+                    if cross {
+                        gcc.cmd().arg(format!("--target={}", self.target.triple()));
+                    }
+                    LinkerImpl::Gcc(gcc)
                 } else if cross {
                     // Use the target-prefixed cross-compiler (e.g., aarch64-linux-gnu-gcc)
                     if let Some(name) =

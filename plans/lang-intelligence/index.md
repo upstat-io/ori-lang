@@ -19,6 +19,7 @@ reroute: false
 | 07 | Code Graph: Import Pipeline | complete | 06 |
 | 08 | Issue-to-Code Bridge | not-started | 07 |
 | 09 | Ori Live Sync | not-started | 06, 07 |
+| 10 | Sentiment & Issue Signals | not-started | 01 |
 
 ## Keyword Clusters
 
@@ -39,6 +40,9 @@ code-reference, MENTIONS_CODE, RESOLVES_TO, confidence, provenance, backtick-ext
 
 ### Live Sync
 lefthook, post-commit, incremental-parse, file-watcher, debounce, sub-500ms, dependency-refresh, async-enqueue
+
+### Sentiment & Issue Signals
+reaction_plus1, reaction_minus1, reaction_confused, reaction_heart, reaction_rocket, reaction_eyes, reaction_laugh, reaction_hooray, pain_score, controversy_score, excitement_score, enrich_sentiment.py, sentiment, landscape, _print_issue, percentile, threshold, bot-filtering, author_association, Wilson-score, materialized-metrics, cross-repo-normalization
 
 ### Languages
 rust, go, zig, typescript, haskell, swift, cpp, lean, koka, ori, tree-sitter-rust, tree-sitter-go, alex-pinkus

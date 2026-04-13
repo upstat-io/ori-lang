@@ -972,6 +972,24 @@ When all findings are triaged:
 - [x] `[TPR-08-003-gemini][low]` `compiler/ori_llvm/src/aot/passes/sanitizer.rs:129` — check_clang_available not called early in CLI.
   Resolved: Fixed on 2026-04-13. Added early check_clang_available() call in both build_file() and run_file_compiled() before expensive parsing.
 
+**Post-implementation review (2026-04-13), iteration 8 (re-review after iter 7 fixes):**
+- [x] `[TPR-08-001-codex][high]` `compiler/ori_llvm/src/aot/linker/driver.rs:150` — Pass --target for cross-compilation sanitizer links.
+  Resolved: Fixed on 2026-04-13. Added `--target={triple}` to clang linker invocation when cross-compiling with sanitizers.
+- [x] `[TPR-08-002-codex][medium]` `compiler/ori_llvm/src/aot/runtime.rs:256` — Search all candidate directories for ASan archive.
+  Resolved: Fixed on 2026-04-13. Extracted `candidate_directories()` method; `validate_sanitizer()` now searches all paths.
+- [x] `[TPR-08-003-codex][medium]` `compiler/oric/src/commands/run/mod.rs:316` — Build compiled-run config through shared helper.
+  Resolved: Fixed on 2026-04-13. Made `build_optimization_config()` pub(crate); run/mod.rs now uses it.
+- [x] `[TPR-08-001-gemini][high]` `compiler/oric/src/commands/build/single.rs:136` — Deduplicate clang delegation into canonical function.
+  Resolved: Fixed on 2026-04-13. Created `clang_sanitize_object()` in sanitizer.rs; all 3 sites (object.rs, single.rs, multi_emission.rs) now call it.
+- [x] `[TPR-08-002-gemini][high]` `compiler/ori_llvm/src/aot/object.rs:417` — IR temp files not cleaned on clang failure.
+  Resolved: Fixed on 2026-04-13. `clang_sanitize_object()` uses result-before-cleanup pattern ensuring .ll file is always deleted.
+- [x] `[TPR-08-003-gemini][medium]` `compiler/ori_llvm/src/aot/linker/driver.rs:135` — Preserve -fuse-ld=lld when sanitizers force clang.
+  Resolved: Rejected. The use_clang branch is inside LinkerFlavor::Gcc, where -fuse-ld=lld is NOT wanted. Only the Lld flavor adds it.
+- [x] `[TPR-08-004-gemini][medium]` `compiler/oric/src/commands/build/mod.rs:265` — Centralize ASan error message into RuntimeNotFound::Display.
+  Resolved: Fixed on 2026-04-13. Added `asan_variant` field to `RuntimeNotFound`; Display impl includes full ASan context.
+- [x] `[TPR-08-005-gemini][low]` `compiler/ori_llvm/src/aot/passes/sanitizer.rs:74` — Deduplicate Clang missing error string.
+  Resolved: Fixed on 2026-04-13. Extracted `clang_not_found_error()` helper; both functions call it.
+
 ---
 
 ## 08.N Completion Checklist

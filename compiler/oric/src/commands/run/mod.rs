@@ -309,20 +309,13 @@ fn compile_and_cache(
         eprintln!("warning: could not create cache directory: {e}");
     }
 
-    // Verify → optimize → emit object file via unified pipeline (O2 for good performance)
-    let verify_each = std::env::var(crate::debug_flags::ORI_VERIFY_EACH).is_ok_and(|v| v != "0");
-    let lint_enabled = std::env::var(crate::debug_flags::ORI_LLVM_LINT).is_ok_and(|v| v != "0")
-        || std::env::var(crate::debug_flags::ORI_AUDIT_CODEGEN).is_ok_and(|v| v != "0");
-    let sanitizer = std::env::var(crate::debug_flags::ORI_SANITIZE)
-        .ok()
-        .filter(|v| v != "0")
-        .map_or(ori_llvm::aot::SanitizerMode::NONE, |v| {
-            ori_llvm::aot::SanitizerMode::from_env_value(&v)
-        });
-    let opt_config = ori_llvm::aot::OptimizationConfig::new(ori_llvm::aot::OptimizationLevel::O2)
-        .with_verify_each(verify_each)
-        .with_lint(lint_enabled)
-        .with_sanitizer(sanitizer);
+    // Build optimization config via shared helper (same env var handling as `ori build`).
+    // Uses O2 for compiled-run since performance matters more than debug cycle time.
+    let run_options = crate::commands::build::BuildOptions {
+        opt_level: crate::commands::build::OptLevel::O2,
+        ..Default::default()
+    };
+    let opt_config = crate::commands::build::build_optimization_config(&run_options);
     let obj_path = cache_dir.join(format!("{binary_name}.o"));
 
     if let Err(e) =
@@ -342,10 +335,9 @@ fn compile_and_cache(
         }
     };
 
+    // RuntimeNotFound::Display includes the full context (searched paths, fix instructions).
     if let Err(e) = runtime_config.validate_sanitizer(&opt_config.sanitizer) {
-        eprintln!(
-            "error: {e}\nRun `./scripts/build-rt-asan.sh` to build the ASan-instrumented runtime."
-        );
+        eprintln!("error: {e}");
         std::process::exit(1);
     }
 

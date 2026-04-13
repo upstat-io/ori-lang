@@ -192,13 +192,10 @@ fn emit_sanitized_object(
     use crate::problem::codegen::report_codegen_error;
 
     let emit_path = output_path.with_extension("o");
-    let ir_path = emit_path.with_extension("ll");
-    if let Err(e) = emitter.emit(llvm_module, &ir_path, ori_llvm::aot::OutputFormat::LlvmIr) {
-        report_codegen_error(e);
-    }
-    let target = emitter.machine().get_triple().to_string();
-    if let Err(e) = ori_llvm::aot::clang_compile_with_sanitizers(
-        &ir_path,
+    let target = emitter.config().triple().to_string();
+    if let Err(e) = ori_llvm::aot::clang_sanitize_object(
+        emitter,
+        llvm_module,
         &emit_path,
         &opt_config.sanitizer,
         opt_config.level.as_clang_flag(),
@@ -206,7 +203,6 @@ fn emit_sanitized_object(
     ) {
         report_codegen_error(e);
     }
-    let _ = std::fs::remove_file(&ir_path);
     if options.verbose {
         eprintln!(
             "  Finished {} (sanitized) in {:.2}s",
