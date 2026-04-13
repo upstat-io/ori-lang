@@ -318,6 +318,16 @@ fn compile_and_cache(
         }
     };
 
+    // Validate ASan runtime availability
+    if opt_config.sanitizer.address && !runtime_config.has_asan_variant() {
+        eprintln!(
+            "error: ORI_SANITIZE=address is set but {} was not found.",
+            ori_llvm::aot::RuntimeConfig::lib_name_asan(),
+        );
+        eprintln!("Run `./scripts/build-rt-asan.sh` to build the ASan-instrumented runtime.");
+        std::process::exit(1);
+    }
+
     let mut link_input = LinkInput {
         objects: vec![obj_path.clone()],
         output: binary_path.to_path_buf(),

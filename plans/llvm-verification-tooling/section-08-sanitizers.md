@@ -36,7 +36,7 @@ sections:
     status: complete
   - id: "08.4"
     title: "ori_rt ASan Instrumentation"
-    status: not-started
+    status: complete
   - id: "08.5"
     title: "Smoke Test Suite and CI Configuration"
     status: not-started
@@ -481,7 +481,7 @@ If only Ori-generated LLVM IR is sanitized but `ori_rt` is compiled normally, th
 1. **Runtime recompilation (preferred):** `scripts/build-rt-asan.sh` recompiles `ori_rt` with `RUSTFLAGS="-Zsanitizer=address"` using nightly Rust, producing `libori_rt_asan.a` alongside `libori_rt.a`. The build command detects `ORI_SANITIZE` and links the asan variant instead.
 2. **Pre-built variant in CI:** CI nightly job builds both variants and caches them.
 
-- [ ] Create `scripts/build-rt-asan.sh`:
+- [x] Create `scripts/build-rt-asan.sh`:
   ```bash
   #!/usr/bin/env bash
   # Build ori_rt with AddressSanitizer instrumentation.
@@ -538,7 +538,7 @@ If only Ori-generated LLVM IR is sanitized but `ori_rt` is compiled normally, th
   echo "ASan-instrumented runtime: $DEST"
   ```
 
-- [ ] Modify the runtime discovery logic to look for `libori_rt_asan.a` when `ORI_SANITIZE` includes `address`. If the asan variant is NOT found, emit a **hard error** (not a warning):
+- [x] Modify the runtime discovery logic to look for `libori_rt_asan.a` when `ORI_SANITIZE` includes `address`. If the asan variant is NOT found, emit a **hard error** (not a warning):
   ```
   error: ORI_SANITIZE=address is set but libori_rt_asan.a was not found.
   Without ASan-instrumented ori_rt, memory bugs in RC operations and containers
@@ -547,18 +547,18 @@ If only Ori-generated LLVM IR is sanitized but `ori_rt` is compiled normally, th
   ```
   **This MUST be a hard error, not a warning.** The section's mission statement explicitly says ori_rt coverage is essential and that the PRIMARY goal fails without it. A warning that allows partial coverage contradicts the success criteria and would let the section mark complete without actually achieving its stated goal. The fallback to `ORI_SANITIZE=undefined` (UBSan only, no ASan) does not require ori_rt re-instrumentation and works with the standard `libori_rt.a`.
 
-- [ ] Add a `--sanitize-rt` flag to the build script or detect automatically: if `ORI_SANITIZE` includes `address` AND nightly Rust is available, automatically run the rt rebuild as part of `ori build`. If nightly is NOT available, fail with a clear message about the nightly requirement.
+- [x] Add a `--sanitize-rt` flag to the build script or detect automatically: if `ORI_SANITIZE` includes `address` AND nightly Rust is available, automatically run the rt rebuild as part of `ori build`. If nightly is NOT available, fail with a clear message about the nightly requirement.
 
-- [ ] Add tests (AAA naming: `<subject>_<scenario>_<expected>`):
+- [x] Add tests (AAA naming: `<subject>_<scenario>_<expected>`):
   - `build_rt_asan_script_with_nightly_produces_library` — run the script and verify the output file exists (requires nightly; `#[ignore]` if nightly not available, with plan item for CI enforcement)
   - `runtime_discovery_with_sanitize_address_prefers_asan_variant` — mock the discovery to verify preference logic
   - `runtime_discovery_missing_asan_variant_with_address_returns_hard_error` — verify hard error (not warning) when `ORI_SANITIZE=address` but no `libori_rt_asan.a`
 
-- [ ] **Subsection close-out (08.4)** — MANDATORY before starting 08.5:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] `timeout 150 ./test-all.sh` green (sanitizers OFF)
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (08.4)** — MANDATORY before starting 08.5:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] `timeout 150 ./test-all.sh` green (sanitizers OFF)
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 
