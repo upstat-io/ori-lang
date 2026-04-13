@@ -1,0 +1,12 @@
+// FileCheck test: enumerate produces (int, T) tuples.
+// The enumerate iterator adapter wraps each element with its index.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_iter_from_list
+
+@main () -> void = {
+    let xs = ["a", "b", "c"];
+    for (i, x) in xs.iter().enumerate() do {
+        print(msg: `{i}: {x}`)
+    }
+}

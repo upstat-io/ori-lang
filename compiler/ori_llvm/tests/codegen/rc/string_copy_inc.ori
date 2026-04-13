@@ -1,0 +1,13 @@
+// FileCheck test: string copy produces RC increment.
+// When a string is copied and both the original and copy are used,
+// an ori_str_rc_inc is emitted for the sharing operation.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_str_rc_inc
+
+@main () -> void = {
+    let s = "hello";
+    let t = s;
+    print(msg: t);
+    print(msg: s)
+}

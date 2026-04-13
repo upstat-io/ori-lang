@@ -1,0 +1,12 @@
+// FileCheck test: unique owner mutation skips copy (negative pin).
+// When a list has only one owner, mutation should not trigger a memcpy
+// for copy-on-write — the mutation happens in-place.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK-NOT: memcpy
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    xs[0] = 42;
+    print(msg: xs[0].to_str())
+}

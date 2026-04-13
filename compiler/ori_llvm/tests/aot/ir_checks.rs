@@ -252,23 +252,33 @@ mod tests {
         assert_eq!(determine_check_mode(&directives), CheckMode::Matches);
     }
 
+    fn count_ori_files(dir: &Path) -> usize {
+        let mut count = 0;
+        for entry in std::fs::read_dir(dir).expect("read dir") {
+            let entry = entry.expect("dir entry");
+            let path = entry.path();
+            if path.is_dir() {
+                count += count_ori_files(&path);
+            } else if path.extension().is_some_and(|ext| ext == "ori") {
+                count += 1;
+            }
+        }
+        count
+    }
+
     #[test]
     fn filecheck_strategy_discovers_all_codegen_tests() {
-        // Verify that the codegen directory exists and contains .ori files.
+        // Verify that the codegen directory exists and contains .ori files
+        // in both the flat root and subdirectories (rc/, cow/, closures/, etc.).
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
         let codegen_dir = manifest.join("tests/codegen");
         assert!(codegen_dir.exists(), "codegen test directory must exist");
 
-        let ori_files: Vec<_> = std::fs::read_dir(&codegen_dir)
-            .expect("read codegen dir")
-            .filter_map(Result::ok)
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "ori"))
-            .collect();
+        let count = count_ori_files(&codegen_dir);
 
         assert!(
-            ori_files.len() >= 12,
-            "expected at least 12 codegen test files, found {}",
-            ori_files.len()
+            count >= 30,
+            "expected at least 30 codegen test files, found {count}",
         );
     }
 }

@@ -1,0 +1,15 @@
+// FileCheck test: large struct returned via sret pointer.
+// Structs exceeding 16 bytes (> 2 machine words) use sret return convention.
+// Uses .matches mode (no CHECK-LABEL) since sret appears on the define line.
+//
+// @function: _ori_make_triple
+// CHECK: sret
+
+type Triple = { a: int, b: int, c: int }
+
+@make_triple (a: int, b: int, c: int) -> Triple = Triple { a, b, c };
+
+@main () -> void = {
+    let t = make_triple(a: 1, b: 2, c: 3);
+    print(msg: t.a.to_str())
+}
