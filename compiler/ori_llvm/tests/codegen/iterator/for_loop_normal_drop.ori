@@ -1,0 +1,11 @@
+// FileCheck test: normal for loop exit triggers iter_drop.
+// After a for loop completes normally, the iterator must be dropped
+// via ori_iter_drop to clean up the iterator state.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_iter_drop
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    for x in xs do print(msg: x.to_str())
+}

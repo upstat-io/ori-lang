@@ -1,0 +1,15 @@
+// FileCheck test: borrowed param passed without RC operations.
+// A list parameter passed to a function that only reads it should not
+// trigger any RC increment or decrement in the callee.
+//
+// @function: _ori_helper
+// CHECK-LABEL: define
+// CHECK-NOT: ori_rc_inc
+// CHECK-NOT: ori_rc_dec
+
+@helper (xs: [int]) -> int = xs.len();
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    print(msg: helper(xs:).to_str())
+}

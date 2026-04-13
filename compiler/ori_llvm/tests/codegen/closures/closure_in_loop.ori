@@ -1,0 +1,16 @@
+// FileCheck test: closure created inside loop allocates env per iteration.
+// Each loop iteration creates a new closure environment. The iterator
+// lifecycle (ori_iter_from_list, ori_iter_drop) must be present alongside
+// the per-iteration env allocation (ori_rc_alloc).
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_rc_alloc
+// CHECK: ori_iter_drop
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    for x in xs do {
+        let f = () -> str = x.to_str();
+        print(msg: f())
+    }
+}

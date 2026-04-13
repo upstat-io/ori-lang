@@ -1,0 +1,13 @@
+// FileCheck test: scalar int/bool have no RC operations (negative pin).
+// Pure scalar arithmetic should never produce any RC-related calls.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK-NOT: ori_rc_inc
+// CHECK-NOT: ori_rc_dec
+// CHECK-NOT: ori_buffer_rc
+
+@main () -> void = {
+    let x = 42;
+    let y = x + 1;
+    print(msg: y.to_str())
+}

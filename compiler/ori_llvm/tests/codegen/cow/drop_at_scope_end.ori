@@ -1,0 +1,12 @@
+// FileCheck test: drop emitted for COW values at scope end.
+// When a list is shared (let ys = xs), cleanup via ori_buffer_rc_dec
+// must happen when the values leave scope.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_buffer_rc_dec
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    let ys = xs;
+    print(msg: ys.len().to_str())
+}

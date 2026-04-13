@@ -1,0 +1,12 @@
+// FileCheck test: chained iterator methods produce composed iteration.
+// filter() + collect() should involve the iterator lifecycle
+// (ori_iter_from_list for the source list).
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_iter_from_list
+
+@main () -> void = {
+    let xs = [1, 2, 3, 4, 5];
+    let ys = xs.iter().filter(predicate: x -> x > 2).collect();
+    print(msg: ys.len().to_str())
+}

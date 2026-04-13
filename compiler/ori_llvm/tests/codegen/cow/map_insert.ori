@@ -1,0 +1,13 @@
+// FileCheck test: map mutation via .insert() uses COW insert path.
+// When a shared map is mutated, ori_map_insert_cow is the COW-aware
+// insertion that handles the copy-on-write protocol.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_map_insert_cow
+
+@main () -> void = {
+    let m = {"a": 1, "b": 2};
+    let m2 = m;
+    m2.insert(key: "a", value: 42);
+    print(msg: m2.len().to_str())
+}

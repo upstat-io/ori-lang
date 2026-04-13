@@ -1,0 +1,11 @@
+// FileCheck test: multiple params with mixed types.
+// Function with int (i64), str (ptr), and bool (i1) parameters.
+//
+// @function: _ori_mixed
+// CHECK-LABEL: define
+
+@mixed (n: int, s: str, b: bool) -> void = {
+    if b then print(msg: s) else print(msg: n.to_str())
+}
+
+@main () -> void = mixed(n: 42, s: "hello", b: true);

@@ -1,0 +1,11 @@
+// FileCheck test: scalar params passed directly (not via pointer).
+// Integer params are passed as i64 values, not sret pointers.
+//
+// @function: _ori_add
+// CHECK-LABEL: define
+// CHECK: i64
+// CHECK-NOT: sret
+
+@add (a: int, b: int) -> int = a + b;
+
+@main () -> void = print(msg: add(a: 1, b: 2).to_str());

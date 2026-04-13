@@ -1,0 +1,15 @@
+// FileCheck test: closure passed as function argument allocates env.
+// When a closure with captures is passed to a function, the env is
+// allocated via ori_rc_alloc and cleaned up via ori_rc_dec after the call.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_rc_alloc
+// CHECK: ori_rc_dec
+
+@apply (f: () -> int) -> int = f();
+
+@main () -> void = {
+    let x = 10;
+    let result = apply(f: () -> int = x * 2);
+    print(msg: result.to_str())
+}

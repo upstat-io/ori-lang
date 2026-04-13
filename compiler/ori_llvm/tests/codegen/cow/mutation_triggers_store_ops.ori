@@ -1,0 +1,13 @@
+// FileCheck test: list mutation via index assignment emits store operations.
+// The ori_buffer_store_elem_dec call registers element destructors during
+// list construction, and ori_buffer_store_elem_count sets the live count.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_buffer_store_elem_dec
+// CHECK: ori_buffer_store_elem_count
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    xs[0] = 42;
+    print(msg: xs[0].to_str())
+}

@@ -1,0 +1,12 @@
+// FileCheck test: collect materializes iterator into list.
+// After map() + collect(), the result is a materialized list that requires
+// buffer allocation (ori_list_alloc_data).
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_list_alloc_data
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    let doubled = xs.iter().map(transform: x -> x * 2).collect();
+    print(msg: doubled.len().to_str())
+}

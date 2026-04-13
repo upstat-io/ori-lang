@@ -1,0 +1,12 @@
+// FileCheck test: unique owner consumed linearly — no RC increment ops.
+// A list used only by its original owner should not trigger any RC increment.
+// Cleanup (ori_buffer_rc_dec) is expected; sharing (ori_rc_inc) is not.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK-NOT: ori_rc_inc
+// CHECK-NOT: ori_str_rc_inc
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    print(msg: xs.len().to_str())
+}
