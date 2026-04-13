@@ -185,6 +185,20 @@ use std.testing { assert_eq }
     assert_eq(actual: result, expected: [3, 2, 1])
 }
 
+@test_narrowed_zip tests @target () -> void = {
+    let sum = 0;
+    for pair in [1, 2, 3].iter().zip(other: [10, 20, 30].iter()) do {
+        let (a, b) = pair;
+        sum = sum + a + b
+    };
+    assert_eq(actual: sum, expected: 66)
+}
+
+@test_narrowed_cycle_take tests @target () -> void = {
+    let result = [1, 2].iter().cycle().take(count: 5).collect();
+    assert_eq(actual: result, expected: [1, 2, 1, 2, 1])
+}
+
 // ---------------------------------------------------------------------------
 // Negative pin — narrowing still works for direct list access
 // ---------------------------------------------------------------------------

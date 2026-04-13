@@ -639,14 +639,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let buf_elem_llvm_ty = self.resolve_type(elem_ty);
         let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "elem");
 
-        // Widen narrowed ints to i64 for the runtime function.
-        // Only int elements can be narrowed (float/bool/char are fixed-width).
-        let elem_val = if tag == Tag::Int {
-            let i64_ty = self.builder.i64_type();
-            self.builder.sext(raw, i64_ty, "elem.sext")
-        } else {
-            raw
-        };
+        // With canonical types (BUG-04-071), buf_elem_llvm_ty is already the
+        // canonical type (i64 for int). No sext needed — the load produces
+        // the correct canonical value directly.
+        let elem_val = raw;
 
         // Call the runtime conversion function with out_ptr as sret.
         // Runtime functions returning OriStr (24 bytes) use sret pattern:
