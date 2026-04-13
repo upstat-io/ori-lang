@@ -1,0 +1,12 @@
+// FileCheck test: closure with captures creates env allocation.
+// A closure that captures a variable must allocate an environment
+// via ori_rc_alloc to hold the captured values.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_rc_alloc
+
+@main () -> void = {
+    let x = "hello";
+    let f = () -> str = x;
+    print(msg: f())
+}

@@ -1,0 +1,10 @@
+// FileCheck test: closure without captures has no env allocation (negative pin).
+// A closure that captures nothing should not produce ori_rc_alloc.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK-NOT: ori_rc_alloc
+
+@main () -> void = {
+    let f = (x: int) -> int = x + 1;
+    print(msg: f(x: 5).to_str())
+}

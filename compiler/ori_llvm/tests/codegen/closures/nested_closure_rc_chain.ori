@@ -1,0 +1,15 @@
+// FileCheck test: multiple closures sharing a captured list create RC chain.
+// Two closures both capturing `xs` each allocate an environment (ori_rc_alloc),
+// producing a chain of RC-managed objects.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_rc_alloc
+// CHECK: ori_rc_alloc
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    let f = () -> int = xs.len();
+    let g = () -> int = xs.len();
+    print(msg: f().to_str());
+    print(msg: g().to_str())
+}

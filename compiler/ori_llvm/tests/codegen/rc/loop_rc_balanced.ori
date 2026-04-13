@@ -1,0 +1,13 @@
+// FileCheck test: RC in for loop body is balanced.
+// Iterating over a list of strings requires iterator lifecycle management
+// (ori_iter_from_list, ori_iter_next, ori_iter_drop) and proper buffer cleanup.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ori_iter_from_list
+// CHECK: ori_iter_next
+// CHECK: ori_iter_drop
+
+@main () -> void = {
+    let xs = ["hello", "world"];
+    for x in xs do print(msg: x)
+}

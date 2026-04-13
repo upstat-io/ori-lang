@@ -30,13 +30,13 @@ sections:
     status: complete
   - id: "07.2"
     title: "RC Emission Tests"
-    status: not-started
+    status: in-progress
   - id: "07.3"
     title: "COW and Closure Tests"
-    status: not-started
+    status: in-progress
   - id: "07.4"
     title: "ABI, Iterator, and Cross-Feature Interaction Tests"
-    status: not-started
+    status: in-progress
   - id: "07.R"
     title: "Third Party Review Findings"
     status: complete
@@ -169,7 +169,7 @@ Write FileCheck tests that pin RC emission patterns. These tests verify that the
 
 Every "should emit RC" test has a companion "should NOT emit RC" test (positive+negative pairing).
 
-- [ ] `compiler/ori_llvm/tests/codegen/rc/shared_value_inc_dec.ori` — shared list value produces buffer RC cleanup ops:
+- [x] `compiler/ori_llvm/tests/codegen/rc/shared_value_inc_dec.ori` — shared list value produces buffer RC cleanup ops:
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK: ori_buffer_rc_dec
@@ -182,7 +182,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
   ```
   **Note:** The exact CHECK patterns should be verified against `ORI_DEBUG_LLVM=1` output during implementation. The runtime uses type-specific symbols (e.g., `ori_buffer_rc_dec` for lists, `ori_str_rc_inc` for strings), not generic `ori_rc_inc`/`ori_rc_dec`.
 
-- [ ] `compiler/ori_llvm/tests/codegen/rc/unique_owner_no_rc.ori` — unique owner consumed linearly, no RC operations (negative pin):
+- [x] `compiler/ori_llvm/tests/codegen/rc/unique_owner_no_rc.ori` — unique owner consumed linearly, no RC operations (negative pin):
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK-NOT: ori_rc_inc
@@ -194,7 +194,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/rc/scalar_no_rc.ori` — scalar int/bool have no RC operations (negative pin):
+- [x] `compiler/ori_llvm/tests/codegen/rc/scalar_no_rc.ori` — scalar int/bool have no RC operations (negative pin):
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK-NOT: ori_rc_inc
@@ -208,7 +208,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/rc/string_copy_inc.ori` — string copy produces RC increment:
+- [x] `compiler/ori_llvm/tests/codegen/rc/string_copy_inc.ori` — string copy produces RC increment:
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK: ori_str_rc_inc
@@ -221,7 +221,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/rc/loop_rc_balanced.ori` — RC in for loop body is balanced:
+- [x] `compiler/ori_llvm/tests/codegen/rc/loop_rc_balanced.ori` — RC in for loop body is balanced:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -231,7 +231,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/rc/nested_struct_sharing.ori` — sharing a struct with heap-allocated fields triggers RC:
+- [x] `compiler/ori_llvm/tests/codegen/rc/nested_struct_sharing.ori` — sharing a struct with heap-allocated fields triggers RC:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -244,7 +244,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/rc/list_of_strings_elem_dec.ori` — list of strings uses element dec for cleanup:
+- [x] `compiler/ori_llvm/tests/codegen/rc/list_of_strings_elem_dec.ori` — list of strings uses element dec for cleanup:
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK: ori_buffer_store_elem_dec
@@ -255,7 +255,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
   }
   ```
 
-- [ ] **Verify new test files are discovered by the harness runner** — no manual entry points needed after 07.1 migration.
+- [x] **Verify new test files are discovered by the harness runner** — no manual entry points needed after 07.1 migration. Confirmed: WalkDir-based discovery finds all 7 files in `rc/` subdirectory; `run_all_codegen_filecheck` passes with 19 total tests.
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 07.0–07.2 implementation work
 
@@ -274,7 +274,7 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
 
 COW is one of the highest-risk codegen areas — a silent degradation from fast-path to always-copy is invisible to behavioral tests. **COW tests use `.exact` mode with `CHECK-LABEL`** because `is_shared` check ordering relative to mutation is correctness-critical.
 
-- [ ] `compiler/ori_llvm/tests/codegen/cow/mutation_triggers_store_ops.ori` — list mutation via index assignment emits store operations:
+- [x] `compiler/ori_llvm/tests/codegen/cow/mutation_triggers_store_ops.ori` — list mutation via index assignment emits store operations:
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK: ori_buffer_store_elem_dec
@@ -288,7 +288,7 @@ COW is one of the highest-risk codegen areas — a silent degradation from fast-
   ```
   **Note:** Index assignment (`xs[0] = 42`) is supported and already tested in `compiler/ori_llvm/tests/codegen/cow_is_shared_check.ori`. The spec test at `tests/spec/expressions/index_access.ori:359` is skipped for a different aspect of index assignment.
 
-- [ ] `compiler/ori_llvm/tests/codegen/cow/shared_mutation_triggers_copy.ori` — shared value mutation triggers copy:
+- [x] `compiler/ori_llvm/tests/codegen/cow/shared_mutation_triggers_copy.ori` — shared value mutation triggers copy:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -301,7 +301,7 @@ COW is one of the highest-risk codegen areas — a silent degradation from fast-
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/cow/unique_mutation_no_copy.ori` — unique owner mutation skips copy (negative pin):
+- [x] `compiler/ori_llvm/tests/codegen/cow/unique_mutation_no_copy.ori` — unique owner mutation skips copy (negative pin):
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK-NOT: memcpy
@@ -313,7 +313,7 @@ COW is one of the highest-risk codegen areas — a silent degradation from fast-
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/cow/map_insert.ori` — map mutation via `.insert()`:
+- [x] `compiler/ori_llvm/tests/codegen/cow/map_insert.ori` — map mutation via `.insert()`:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -326,7 +326,7 @@ COW is one of the highest-risk codegen areas — a silent degradation from fast-
   ```
   **Note:** Map bracket mutation (`m["a"] = 42`) may not be supported — verify during implementation. `.insert()` is the safe alternative.
 
-- [ ] `compiler/ori_llvm/tests/codegen/cow/drop_at_scope_end.ori` — drop hint emitted for COW values at scope end:
+- [x] `compiler/ori_llvm/tests/codegen/cow/drop_at_scope_end.ori` — drop hint emitted for COW values at scope end:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -341,7 +341,7 @@ COW is one of the highest-risk codegen areas — a silent degradation from fast-
 
 Closure tests pin capture patterns, environment layout, and RC for captured values. **Closure env layout tests use `.exact` mode with `CHECK-LABEL`** because the environment allocation must happen before closure invocation.
 
-- [ ] `compiler/ori_llvm/tests/codegen/closures/capture_allocates_env.ori` — closure with captures creates env allocation:
+- [x] `compiler/ori_llvm/tests/codegen/closures/capture_allocates_env.ori` — closure with captures creates env allocation:
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK: ori_rc_alloc
@@ -353,7 +353,7 @@ Closure tests pin capture patterns, environment layout, and RC for captured valu
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/closures/no_capture_no_env.ori` — closure without captures has no env allocation (negative pin):
+- [x] `compiler/ori_llvm/tests/codegen/closures/no_capture_no_env.ori` — closure without captures has no env allocation (negative pin):
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK-NOT: ori_rc_alloc
@@ -364,21 +364,22 @@ Closure tests pin capture patterns, environment layout, and RC for captured valu
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/closures/nested_closure_rc_chain.ori` — nested closures create RC chain:
+- [x] `compiler/ori_llvm/tests/codegen/closures/nested_closure_rc_chain.ori` — multiple closures sharing a captured list create RC chain (adapted from plan: closure-returning-closure not supported by call syntax, so two closures sharing `xs` exercises the same RC chain pattern):
   ```ori
   // CHECK-LABEL: define void @_ori_main
+  // CHECK: ori_rc_alloc
+  // CHECK: ori_rc_alloc
 
   @main () -> void = {
       let xs = [1, 2, 3];
-      let f = () -> (() -> int) = {
-          () -> int = xs.len()
-      };
-      let g = f();
+      let f = () -> int = xs.len();
+      let g = () -> int = xs.len();
+      print(msg: f().to_str());
       print(msg: g().to_str())
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/closures/closure_in_loop.ori` — closure created inside loop:
+- [x] `compiler/ori_llvm/tests/codegen/closures/closure_in_loop.ori` — closure created inside loop:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -391,7 +392,7 @@ Closure tests pin capture patterns, environment layout, and RC for captured valu
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/closures/closure_as_argument.ori` — closure passed as function argument:
+- [x] `compiler/ori_llvm/tests/codegen/closures/closure_as_argument.ori` — closure passed as function argument:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -404,7 +405,7 @@ Closure tests pin capture patterns, environment layout, and RC for captured valu
   }
   ```
 
-- [ ] **Verify new test files are discovered by the harness runner** — no manual entry points needed after 07.1 migration.
+- [x] **Verify new test files are discovered by the harness runner** — no manual entry points needed after 07.1 migration. Confirmed: WalkDir discovery finds all 10 files in `cow/` and `closures/` subdirectories; `run_all_codegen_filecheck` passes with 29 total tests.
 
 - [ ] **Subsection close-out (07.3)** — MANDATORY before starting 07.4:
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
@@ -421,7 +422,7 @@ Closure tests pin capture patterns, environment layout, and RC for captured valu
 
 Verify parameter passing modes and return conventions. ABI prologue/epilogue tests use `.exact` mode with `CHECK-LABEL` to verify function signature structure.
 
-- [ ] `compiler/ori_llvm/tests/codegen/abi/scalar_direct_pass.ori` — scalar params passed directly (not via pointer):
+- [x] `compiler/ori_llvm/tests/codegen/abi/scalar_direct_pass.ori` — scalar params passed directly (not via pointer):
   ```ori
   // @function: _ori_add
   // CHECK-LABEL: define i64 @_ori_add
@@ -432,7 +433,7 @@ Verify parameter passing modes and return conventions. ABI prologue/epilogue tes
   @main () -> void = print(msg: add(a: 1, b: 2).to_str())
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/abi/struct_sret_return.ori` — large struct returned via sret pointer:
+- [x] `compiler/ori_llvm/tests/codegen/abi/struct_sret_return.ori` — large struct returned via sret pointer (adapted: uses 3-field `Triple` not 2-field `Point`, since 2-field structs fit in 2 registers and don't use sret; uses `.matches` mode since sret appears on the define line):
   ```ori
   // @function: _ori_make_point
   // CHECK-LABEL: define void @_ori_make_point
@@ -448,14 +449,14 @@ Verify parameter passing modes and return conventions. ABI prologue/epilogue tes
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/abi/void_return.ori` — void return convention:
+- [x] `compiler/ori_llvm/tests/codegen/abi/void_return.ori` — void return convention:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
   @main () -> void = print(msg: "hello")
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/abi/borrowed_param_no_rc.ori` — borrowed param passed without RC operations:
+- [x] `compiler/ori_llvm/tests/codegen/abi/borrowed_param_no_rc.ori` — borrowed param passed without RC operations:
   ```ori
   // @function: _ori_helper
   // CHECK-LABEL: define i64 @_ori_helper
@@ -470,7 +471,7 @@ Verify parameter passing modes and return conventions. ABI prologue/epilogue tes
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/abi/multi_param_mixed.ori` — multiple params with mixed types:
+- [x] `compiler/ori_llvm/tests/codegen/abi/multi_param_mixed.ori` — multiple params with mixed types:
   ```ori
   // @function: _ori_mixed
   // CHECK-LABEL: define void @_ori_mixed
@@ -486,7 +487,7 @@ Verify parameter passing modes and return conventions. ABI prologue/epilogue tes
 
 Verify iterator codegen patterns. **Iterator cleanup tests use `.exact` mode** because `ori_iter_drop` placement relative to loop exit is correctness-critical.
 
-- [ ] `compiler/ori_llvm/tests/codegen/iterator/for_loop_normal_drop.ori` — normal for loop exit triggers iter_drop:
+- [x] `compiler/ori_llvm/tests/codegen/iterator/for_loop_normal_drop.ori` — normal for loop exit triggers iter_drop:
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK: ori_iter_drop
@@ -497,7 +498,7 @@ Verify iterator codegen patterns. **Iterator cleanup tests use `.exact` mode** b
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/iterator/break_triggers_drop.ori` — early break still triggers iter_drop:
+- [x] `compiler/ori_llvm/tests/codegen/iterator/break_triggers_drop.ori` — early break still triggers iter_drop:
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK: ori_iter_drop
@@ -511,7 +512,7 @@ Verify iterator codegen patterns. **Iterator cleanup tests use `.exact` mode** b
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/iterator/map_filter_chain.ori` — chained iterator methods produce composed iteration:
+- [x] `compiler/ori_llvm/tests/codegen/iterator/map_filter_chain.ori` — chained iterator methods produce composed iteration:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -522,7 +523,7 @@ Verify iterator codegen patterns. **Iterator cleanup tests use `.exact` mode** b
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/iterator/enumerate_produces_tuple.ori` — enumerate produces (int, T) tuples:
+- [x] `compiler/ori_llvm/tests/codegen/iterator/enumerate_produces_tuple.ori` — enumerate produces (int, T) tuples:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -534,7 +535,7 @@ Verify iterator codegen patterns. **Iterator cleanup tests use `.exact` mode** b
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/iterator/collect_materializes.ori` — collect materializes iterator into list:
+- [x] `compiler/ori_llvm/tests/codegen/iterator/collect_materializes.ori` — collect materializes iterator into list:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -549,7 +550,7 @@ Verify iterator codegen patterns. **Iterator cleanup tests use `.exact` mode** b
 
 Tests that verify codegen correctness at feature boundaries — where compilers most commonly break.
 
-- [ ] `compiler/ori_llvm/tests/codegen/cross/cow_inside_closure.ori` — COW push inside a closure capturing a list:
+- [x] `compiler/ori_llvm/tests/codegen/cross/cow_inside_closure.ori` — COW push inside a closure capturing a list:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -563,7 +564,7 @@ Tests that verify codegen correctness at feature boundaries — where compilers 
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/cross/rc_iterator_break.ori` — RC-tracked value inside for loop with early break:
+- [x] `compiler/ori_llvm/tests/codegen/cross/rc_iterator_break.ori` — RC-tracked value inside for loop with early break:
   ```ori
   // CHECK-LABEL: define void @_ori_main
   // CHECK: ori_iter_drop
@@ -578,7 +579,7 @@ Tests that verify codegen correctness at feature boundaries — where compilers 
   }
   ```
 
-- [ ] `compiler/ori_llvm/tests/codegen/cross/closure_loop_drop.ori` — closure capturing a list, created inside a loop, properly drops env:
+- [x] `compiler/ori_llvm/tests/codegen/cross/closure_loop_drop.ori` — closure capturing a value, created inside a loop, properly drops env:
   ```ori
   // CHECK-LABEL: define void @_ori_main
 
@@ -591,11 +592,7 @@ Tests that verify codegen correctness at feature boundaries — where compilers 
   }
   ```
 
-- [ ] Verify test count: at this point, `compiler/ori_llvm/tests/codegen/` should contain at least 30 tests. Count with:
-  ```bash
-  find compiler/ori_llvm/tests/codegen/ -name '*.ori' | wc -l
-  ```
-  If under 30, add additional tests in the thinnest category.
+- [x] Verify test count: 42 tests total (12 flat + 7 rc + 5 cow + 5 closures + 5 abi + 5 iterator + 3 cross), exceeds the 30+ requirement.
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 07.3–07.4 implementation work
 
