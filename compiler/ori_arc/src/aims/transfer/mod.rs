@@ -425,11 +425,18 @@ pub enum CowModeFromAims {
 
 // Constraint predicates
 
-/// Whether a variable can be mutated in place (`Set`/`SetTag`).
+/// Lattice-level subset of DP-5: checks `Owned + Unique` only.
 ///
-/// Mutation requires `(Owned, *, *, Unique)` — owned and uniquely
-/// referenced. `MaybeShared` needs a COW check first; `Shared` must
-/// copy.
+/// This is NOT the full DP-5 predicate — the full decision also requires
+/// `no_active_overlapping_borrows(var, field, point)` (checked by
+/// `has_borrows_from_aggregate()` + `is_borrow_disjoint_from_siblings()`
+/// in `emit_rc/cow.rs`). The full DP-5 decision lives in `decide_cow()`
+/// (`realize/decide.rs`), which gates on this lattice check plus the
+/// borrow overlap check.
+///
+/// Used by lattice property tests and proptests for the lattice-level
+/// invariant: `Owned + Unique` is necessary (but not sufficient) for
+/// in-place mutation.
 pub fn can_mutate_in_place(state: &AimsState) -> bool {
     state.access == AccessClass::Owned && state.uniqueness == Uniqueness::Unique
 }

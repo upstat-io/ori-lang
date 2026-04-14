@@ -11,6 +11,18 @@ use crate::ir::{ArcBlockId, ArcVarId};
 #[cfg(test)]
 mod tests;
 
+/// Check if any borrow from the given aggregate exists anywhere in the function.
+///
+/// Spec DP-5 requires `no_active_overlapping_borrows` for in-place mutation.
+/// This is a FUNCTION-WIDE conservative check: if ANY `BorrowSource::Exact`
+/// entry has `source == aggregate`, return `true`. No block or instruction
+/// liveness parameter — maximally conservative to avoid the block-entry
+/// liveness unsoundness (backward analysis removes variables at definition,
+/// making mid-block borrows invisible at block entry).
+pub(crate) fn has_borrows_from_aggregate(state_map: &AimsStateMap, aggregate: ArcVarId) -> bool {
+    state_map.borrows_from_source(aggregate).next().is_some()
+}
+
 /// Check if a receiver's borrow is disjoint from all sibling borrows.
 ///
 /// Spec §DP-5 + §RL-10 (local field-disjoint mutation) require that the
@@ -49,8 +61,8 @@ pub(crate) fn is_borrow_disjoint_from_siblings(
     // AT THE RECEIVER'S ACTUAL PROGRAM POINT — not at function entry. A
     // source may be Unique at entry but become MaybeShared later via
     // RcInc; using the entry state would incorrectly promote a MaybeShared
-    // receiver to StaticUnique (pre-existing bug TPR-04-001-codex-phase5,
-    // exposed by BUG-04-059 removal of the `is_cow_aware_unique` fallback).
+    // receiver to StaticUnique (pre-existing bug
+    // exposed by removal of the `is_cow_aware_unique` fallback).
     let source_state = state_map.var_state_at_block_entry(block, source);
     if source_state.uniqueness != Uniqueness::Unique {
         return false;
