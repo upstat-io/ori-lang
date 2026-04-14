@@ -371,6 +371,17 @@ Both reviewers ran against the implementation diff (`511b5f31..ad2b3134`).
 
 **Phase 5 TPR re-run not performed** — remaining unfixed findings (helper unit tests, dead-code fields) are filed as concrete follow-up bugs (BUG-04-080, BUG-04-081), so a re-run would only verify the already-applied items. Future reviewers can verify the closure against this commit chain.
 
+### Phase 5 impl-hygiene-review — CLEAN PASS
+
+Ran `/impl-hygiene-review Auto Mode` on the 8-file work arc. All 4 passes (LEAK/SSOT, Algorithmic DRY, Boundary/Flow, Surface Hygiene) reported clean. Automated tools (`hygiene-lint.py`, `plan-annotations.sh`) found 3 surface items — all pre-existing (2 nesting-depth in untouched functions) or tool false-positive (1 pseudo-IR in test doc comment). Test function naming compliant with `<subject>_<scenario>_<expected>` shape; provenance in `///` doc comments per rule. **0 hygiene findings attributable to BUG-04-059.**
+
+### Phase 5 /improve-tooling retrospective
+
+Reflected on 6 pain points surfaced during this fix. Filter outcome:
+- **1 accepted** — `merge-findings.py` crashed with `KeyError: 'title'` when gemini emitted `description` instead (Round 5); also surfaced empty `scope_actually_reviewed` in Round 7. Fixed with defensive normalization (alias `description` → `title`, default empty string for missing field). Verified on both previously-crashing envelopes + existing fixture tests. Commit: `build(dual-tpr): merge-findings defensive normalization for gemini schema drift`.
+- **1 tracked as follow-up** — AimsStateMap test fixture infrastructure (scope extension to BUG-04-080).
+- **4 rejected** — Plan TPR round count driven by my triage error not tool gap; rust-analyzer is external; hygiene-lint pseudo-IR false-positive is marginal; intel-query pattern search covered by existing `symbols`/`similar` + grep.
+
 ---
 
 ## 4. Completion Checklist
