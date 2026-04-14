@@ -26,13 +26,13 @@ sections:
     status: complete
   - id: "09.2"
     title: "IR Capture Pipeline in oric (Phase-Pure)"
-    status: complete
+    status: in-progress
   - id: "09.3"
     title: "Diagnostic Script, Function Selection, and Inlining Survival"
     status: complete
   - id: "09.4"
     title: "False Positive Management (9 Categories)"
-    status: complete
+    status: in-progress
   - id: "09.5"
     title: "CI Integration via nightly-verification.yml"
     status: complete
