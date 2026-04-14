@@ -1800,6 +1800,94 @@ def run_classifiers_with_precedence(dag: Dag, corpus) -> list:
     return apply_precedence(raw)
 
 
+# ---------------------------------------------------------------------------
+# §02.5 Handoff Contract with §03 — DagReport
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DagReport:
+    """Stable schema consumed by §03's Findings Report + Write-Back phase.
+
+    Constructed by build_dag_report(corpus) — a thin wrapper over
+    build_dag + run_classifiers_with_precedence + compute_minimum_unblock_set
+    that produces a single deterministic object §03 can import.
+
+    - `findings`: deduplicated, precedence-ordered, source-kind-tagged
+      (Option A: typed dependency_chain + source_kind on every Finding).
+    - `inversions`: enriched BLOCKED findings with full chains to root
+      blockers (§02.3 — detect_priority_inversions).
+    - `unblock_sets`: one Finding per connected BLOCKED component whose
+      dependency_chain holds the minimum unblock set (§02.3 —
+      compute_minimum_unblock_set).
+    - `dag_json`: the underlying Dag.to_json() for diagnostic rendering.
+    - `stats`: per-classifier finding counts, source-kind counts, node
+      counts. Useful for §03's summary table and `/continue-roadmap`
+      health-signals rollup.
+    """
+
+    findings: list
+    inversions: list
+    unblock_sets: list
+    dag_json: dict
+    stats: dict
+
+    def to_json(self) -> dict:
+        """Stable JSON schema — §03 imports this, no re-parsing."""
+        return {
+            "findings": [f.to_json() for f in self.findings],
+            "inversions": [f.to_json() for f in self.inversions],
+            "unblock_sets": [f.to_json() for f in self.unblock_sets],
+            "dag": self.dag_json,
+            "stats": self.stats,
+        }
+
+
+def build_dag_report(corpus) -> DagReport:
+    """Full §02 pipeline: discover-ready Corpus -> DagReport.
+
+    This is the single entry point §03 should call. All §02 decisions
+    (classifier ordering, severity ladder, precedence dedup, priority
+    inversion enrichment, minimum unblock set) land in one typed object.
+    """
+    from collections import Counter
+
+    dag = build_dag(corpus)
+    findings = run_classifiers_with_precedence(dag, corpus)
+    inversions = detect_priority_inversions(dag, corpus)
+    unblock_sets = compute_minimum_unblock_set(dag, corpus)
+
+    source_kind_counts: Counter = Counter()
+    for f in findings:
+        sk = f.source_kind.value if f.source_kind else "none"
+        source_kind_counts[sk] += 1
+
+    classifier_counts: Counter = Counter()
+    for f in findings:
+        classifier_counts[f.subtype.value] += 1
+
+    stats = {
+        "nodes": len(dag.nodes),
+        "edges": len(dag.edges),
+        "references": len(dag.references),
+        "subsystems": len(dag.subsystem_to_nodes),
+        "resolution_findings": len(dag.resolution_findings),
+        "findings_total": len(findings),
+        "inversions": len(inversions),
+        "unblock_sets": len(unblock_sets),
+        "by_subtype": dict(classifier_counts),
+        "by_source_kind": dict(source_kind_counts),
+    }
+
+    return DagReport(
+        findings=findings,
+        inversions=inversions,
+        unblock_sets=unblock_sets,
+        dag_json=dag.to_json(),
+        stats=stats,
+    )
+
+
 def compute_minimum_unblock_set(dag: Dag, corpus) -> list:
     """Per §02.3: for each connected component of BLOCKED findings,
     compute the minimum set of nodes whose status change would unblock
@@ -1898,4 +1986,7 @@ __all__ = [
     "apply_precedence",
     "apply_source_kind_severity",
     "run_classifiers_with_precedence",
+    # §02.5
+    "DagReport",
+    "build_dag_report",
 ]
