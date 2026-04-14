@@ -54,7 +54,7 @@ frontmatter/body contradiction, status drift, date drift
 ---
 
 ### Section 02: DAG Builder & Conflict Classifier
-**File:** `section-02-dag-builder.md` | **Status:** Not Started
+**File:** `section-02-dag-builder.md` | **Status:** Complete
 
 ```
 DAG, dependency graph, cycle detection, SCC, Tarjan
