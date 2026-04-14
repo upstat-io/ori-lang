@@ -18,8 +18,8 @@ inspired_by:
   - "Rust LLVM CI (rust-lang/rust .github/workflows/) — nightly verification jobs separate from PR CI"
 depends_on: ["07"]
 third_party_review:
-  status: resolved
-  updated: 2026-04-13
+  status: findings
+  updated: 2026-04-14
 sections:
   - id: "09.1"
     title: "Build Alive2 from Pinned Source with Z3 Dependencies"
@@ -668,6 +668,43 @@ When all findings are triaged:
   Resolved: Fixed on 2026-04-13 (iter 4). Changed to Path::with_extension("") for safe suffix-only stripping.
 - [x] `[TPR-09-014-gemini][medium]` `section-09-alive2.md:115` — cmake missing explicit build directory (in-source build fails).
   Resolved: Fixed on 2026-04-13 (iter 4). Changed to `cmake -B build -S .` with `ninja -C build` for modern out-of-source build.
+
+**Iteration 5 — Final section TPR findings (2026-04-14):**
+
+- [x] `[TPR-09-015-codex][high]` `.github/workflows/nightly-verification.yml:94` — Missing LLVM 21 install in alive2 CI jobs.
+  Resolved: Fixed on 2026-04-14. Added LLVM 21 install block (matching ci.yml pattern) to all 3 alive2 jobs.
+- [x] `[TPR-09-015-gemini][high]` `.github/workflows/nightly-verification.yml:94` — Same as TPR-09-015-codex (agreement).
+  Resolved: Fixed on 2026-04-14. Same fix.
+- [x] `[TPR-09-016-codex][high]` `.github/workflows/nightly-verification.yml:155` — CI jobs missing --json flag for results.json.
+  Resolved: Fixed on 2026-04-14. Added --json to both alive2-curated and alive2-full-sweep jobs.
+- [x] `[TPR-09-017-codex][high]` `diagnostics/alive2-verify.sh:297` — Missing function treated as "inlined" instead of error.
+  Resolved: Fixed on 2026-04-14. Added pre-opt presence check; missing functions now fail with MISSING status.
+- [x] `[TPR-09-017-gemini][high]` `diagnostics/alive2-verify.sh:241` — --check-survival doesn't fail on inlined functions.
+  Resolved: Fixed on 2026-04-14. When CHECK_SURVIVAL is true, inlined functions now increment FAILED.
+- [x] `[TPR-09-018-codex][medium]` `diagnostics/alive2-verify.sh:204` — Subshell counter loss in review_suppressions.
+  Resolved: Fixed on 2026-04-14. Changed pipe to process substitution to keep counters in main shell.
+- [x] `[TPR-09-019-codex][low]` `diagnostics/alive2-verify.sh:10` — --review-suppressions not in help block.
+  Resolved: Fixed on 2026-04-14. Added to help comment block.
+- [x] `[TPR-09-020-codex][medium]` `diagnostics/alive2-verify.sh:406` — grep -P non-portable for LLVM version extraction.
+  Resolved: Fixed on 2026-04-14. Replaced with portable sed + explicit warning on parse failure.
+- [x] `[TPR-09-020-gemini][medium]` `diagnostics/alive2-verify.sh:318` — Same issue (grep -P non-portable). Agreement.
+  Resolved: Fixed on 2026-04-14. Same fix.
+- [x] `[TPR-09-021-gemini][medium]` `compiler/oric/src/commands/build/ir_capture.rs:49` — Windows path separator not handled.
+  Resolved: Fixed on 2026-04-14. Added backslash replacement to path sanitization.
+- [ ] `[TPR-09-022-codex][high]` `diagnostics/alive2-verify.sh:287` — Suppressions skip alive-tv entirely (stale not detected).
+  Deferred: suppressed.json is currently empty (0 entries); suppression-aware verification requires redesign.
+- [ ] `[TPR-09-023-codex][high]` `diagnostics/alive2-verify.sh:376` — Absolute vs relative path inconsistency in artifact naming.
+  Deferred: requires ir_capture.rs path normalization redesign; captured by Section 11 path contract.
+- [ ] `[TPR-09-024-codex][medium]` `tests/alive2/results-schema.json:34` — Schema missing suppression-stale status.
+  Deferred: depends on suppression redesign (TPR-09-022).
+- [ ] `[TPR-09-025-codex][medium]` `scripts/build-alive2.sh:155` — --cached does not verify freshness against pinned commit.
+  Deferred: low impact (CI always rebuilds from cache key), tracked for Section 11 CI hardening.
+- [ ] `[TPR-09-026-codex][medium]` `compiler/oric/src/commands/build/single.rs:84` — --emit path bypasses CaptureHooks.
+  Deferred: --emit is a developer-facing path; alive2 capture not expected there. Section 11 integration.
+- [ ] `[TPR-09-027-codex][medium]` `scripts/build-alive2.sh:109` — Z3 CLI detection insufficient for dev files.
+  Deferred: cmake FindZ3 handles actual build-time discovery; preflight is advisory.
+- [ ] `[TPR-09-028-gemini][high]` `diagnostics/alive2-verify.sh:156` — review_suppressions path mismatch with ir_capture.
+  Resolved: Fixed on 2026-04-14. Changed to cd $ROOT_DIR + relative path for consistent capture naming.
 
 ---
 
