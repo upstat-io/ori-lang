@@ -16,9 +16,10 @@ paths:
 - **Lexer**: scanning with minimal local state (nesting depth, mode stack); produces `(tag, len)`. No semantic state (names, types, scopes).
 - **Parser**: syntax only; builds AST from tokens; no name resolution or semantic validation
 - **Type Checker**: consumes AST, produces typed IR; no re-parsing, no codegen. Salsa queries must be pure.
-- **Evaluator**: interprets typed IR; no re-type-checking, no codegen
-- **ARC Pass**: analyzes ownership on IR; no codegen, no interpretation
-- **LLVM Codegen**: emits LLVM IR from typed IR; no interpretation, no re-type-checking
+- **Canonicalizer**: consumes typed IR, produces `CanExpr`; no re-type-checking, no codegen
+- **Evaluator**: interprets `CanExpr`; no re-type-checking, no codegen
+- **ARC Pass**: lowers `CanExpr` to ARC IR, analyzes ownership; no codegen, no interpretation
+- **LLVM Codegen**: emits LLVM IR from realized ARC IR; no interpretation, no re-type-checking
 - **Diagnostics**: formats and renders errors; no phase logic, no semantic analysis
 - **Optimization Passes**: reads IR, produces transformed IR; analysis is pass-local
 
@@ -164,7 +165,7 @@ See CLAUDE.md §Stabilization Discipline for the full narrow-the-front principle
 ## Key Patterns
 
 - **TypeChecker (V2)**: InferEngine, Pool, Registries, ModuleChecker
-- **Method Dispatch**: BuiltinMethods → InherentImpl → TraitImpl (via MethodRegistry)
+- **Method Dispatch**: builtin-first via `resolve_builtin_method()` → impl lookup via `TraitRegistry::lookup_method()`. `MethodRegistry` is a future thin wrapper for trait lookup only; builtin dispatch currently bypasses it.
 
 ## Crates (19 workspace members)
 

@@ -850,7 +850,7 @@ On successful check, the typed IR SHALL satisfy (mirrors `TYPES:PC-2`):
 - No `Tag::Projection` (all normalized)
 - No `Tag::SelfType` (all substituted)
 - All `Tag::Named` resolved to `TypeRegistry` entries
-- All method calls resolved to a concrete `MethodRegistry` entry (no "lookup at runtime")
+- All method calls resolved statically via builtin-first `resolve_builtin_method()` or `TraitRegistry::lookup_method()` — no runtime lookup remains (`TYPES:§RG-3`)
 - All capability requirements satisfied at their use sites
 
 Consumers SHALL `debug_assert!` these on entry. Release builds SHALL produce an internal compiler error (not silent miscompilation) on violation.

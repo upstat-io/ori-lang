@@ -220,7 +220,7 @@ Four forms are valid:
 | `#repr("c")` | `ReprKind::C` | Field order = declaration order (NO `RP-20` reorder); padding per platform C ABI; alignment = max field alignment |
 | `#repr("packed")` | `ReprKind::Packed` | Field order = declaration order; alignment = 1; zero padding |
 | `#repr("transparent")` | `ReprKind::Transparent` | Struct has exactly one field; inner type's `ReprPlan` is used verbatim |
-| `#repr("aligned", N)` | `ReprKind::Aligned(N)` | Default layout plus forced minimum alignment `N`; `N` SHALL be a power of two and `>= abi_alignment` computed by `RP-20` |
+| `#repr("aligned", N)` | `ReprKind::Aligned(N)` | Default layout plus forced minimum alignment `N`; `N` SHALL be a power of two. If `N < abi_alignment`, the actual alignment remains `abi_alignment` (the attribute is a floor, not an override) |
 
 ### RP-31 — Attribute validation
 
@@ -229,7 +229,7 @@ Attribute validation is owned by the type checker (`CHK:` §Diagnostics catalog,
 - Unknown attribute value (e.g., `#repr("custom")`) — `E2041`.
 - `#repr(...)` on a non-struct declaration (sum type, tuple, or direct newtype) — `E2041`.
 - `#repr("transparent")` on a struct without exactly one field — `E2041`.
-- `#repr("aligned", N)` where `N` is not a power of two, `N < 1`, or `N < default abi_alignment` — `E2041`.
+- `#repr("aligned", N)` where `N` is not a power of two or `N < 1` — `E2041`. Note: `N < abi_alignment` is valid (the attribute is a minimum-alignment floor; smaller values are accepted but have no effect).
 - `#repr("packed")` combined with a field whose type requires natural alignment (e.g., a fat-pointer field, a type carrying an RC header reference) — `E2041`.
 
 ### RP-32 — Multi-attribute combinations
