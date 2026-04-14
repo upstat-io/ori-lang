@@ -408,7 +408,7 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
 
     match ctx.uniqueness {
         Uniqueness::Unique => {
-            // Spec DP-5/DP-9: Unique AND NOT can_mutate_in_place → StaticShared.
+            // Spec DP-5/DP-9: Unique AND NOT is_owned_and_unique+no_borrows → StaticShared.
             // IsShared on a Unique value always returns false, so a runtime
             // Dynamic check cannot distinguish "unique but borrowed" from
             // "unique and safe to mutate." Must copy unconditionally.

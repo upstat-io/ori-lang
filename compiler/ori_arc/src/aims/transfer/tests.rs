@@ -658,7 +658,7 @@ fn can_mutate_owned_unique() {
         uniqueness: Uniqueness::Unique,
         ..AimsState::FRESH
     };
-    assert!(can_mutate_in_place(&state));
+    assert!(is_owned_and_unique(&state));
 }
 
 #[test]
@@ -668,7 +668,7 @@ fn cannot_mutate_borrowed() {
         uniqueness: Uniqueness::Unique,
         ..AimsState::FRESH
     };
-    assert!(!can_mutate_in_place(&state));
+    assert!(!is_owned_and_unique(&state));
 }
 
 #[test]
@@ -678,7 +678,7 @@ fn cannot_mutate_shared() {
         uniqueness: Uniqueness::Shared,
         ..AimsState::FRESH
     };
-    assert!(!can_mutate_in_place(&state));
+    assert!(!is_owned_and_unique(&state));
 }
 
 #[test]
@@ -688,7 +688,7 @@ fn cannot_mutate_maybe_shared() {
         uniqueness: Uniqueness::MaybeShared,
         ..AimsState::FRESH
     };
-    assert!(!can_mutate_in_place(&state));
+    assert!(!is_owned_and_unique(&state));
 }
 
 // Capture state update
