@@ -1547,6 +1547,150 @@ CLASSIFIERS = (
 )
 
 
+# ---------------------------------------------------------------------------
+# §02.3 Priority Inversion Detection
+# ---------------------------------------------------------------------------
+
+
+def _build_adjacency(dag: Dag) -> dict[NodeId, list[NodeId]]:
+    adj: dict[NodeId, list[NodeId]] = {}
+    for e in dag.edges:
+        adj.setdefault(e.from_node, []).append(e.to_node)
+    return adj
+
+
+def _deepest_blocked_chain(
+    start: NodeId, adj: dict[NodeId, list[NodeId]],
+    blocked_statuses: dict[NodeId, str | None],
+) -> tuple[Path, ...]:
+    """DFS from `start` along edges. Record the deepest chain whose terminal
+    node's status is in the blocked-equivalent set. Returns tuple of Paths."""
+    best: list[NodeId] = []
+
+    def dfs(path: list[NodeId]) -> None:
+        nonlocal best
+        cur = path[-1]
+        children = adj.get(cur, [])
+        if not children:
+            # Leaf — only record if blocked.
+            if blocked_statuses.get(cur) in ("queued", "research", "not-started"):
+                if len(path) > len(best):
+                    best = list(path)
+            return
+        for nxt in children:
+            if nxt in path:
+                continue  # cycle avoidance
+            dfs(path + [nxt])
+
+    dfs([start])
+    return tuple(n.path for n in best) if best else (start.path,)
+
+
+def detect_priority_inversions(dag: Dag, corpus) -> list:
+    """Enrich BLOCKED findings with full transitive chains to the root blocker.
+
+    For each BLOCKED finding from classify_blocked, compute the deepest chain
+    from the active source to a leaf blocked node via DFS on EXPLICIT_DEPENDS_ON
+    edges. Replace the original finding's dependency_chain with the enriched
+    chain. Uses typed Finding.dependency_chain field (Option A — no string
+    flattening across the §02→§03 phase boundary, TPR-02-001-gemini r4).
+    """
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+
+    base_blocked = classify_blocked(dag, corpus)
+    if not base_blocked:
+        return []
+
+    adj = _build_adjacency(dag)
+    # Precompute statuses for leaf check.
+    all_statuses: dict[NodeId, str | None] = {
+        n: _node_status(dag, corpus, n) for n in dag.nodes
+    }
+
+    enriched: list = []
+    seen_ids: set[str] = set()
+    for f in base_blocked:
+        # Find the source NodeId from the Finding's source path.
+        source_node = next((n for n in dag.nodes if n.path == f.source), None)
+        if source_node is None:
+            enriched.append(f)
+            continue
+        chain = _deepest_blocked_chain(source_node, adj, all_statuses)
+        new_f = Finding(
+            category=f.category,
+            subtype=f.subtype,
+            severity=f.severity,
+            source=f.source,
+            source_line=f.source_line,
+            source_column=f.source_column,
+            target=f.target,
+            target_line=f.target_line,
+            description=f.description,
+            recommended_fix=f.recommended_fix,
+            evidence=f.evidence,
+            dependency_chain=chain,
+            source_kind=f.source_kind,
+        )
+        if new_f.id in seen_ids:
+            continue
+        seen_ids.add(new_f.id)
+        enriched.append(new_f)
+    return enriched
+
+
+def compute_minimum_unblock_set(dag: Dag, corpus) -> list:
+    """Per §02.3: for each connected component of BLOCKED findings,
+    compute the minimum set of nodes whose status change would unblock
+    the chain. The set = the root-blocker leaves across the component.
+
+    Emits one Finding(BLOCKED) per connected component with
+    dependency_chain populated with the unblock-set paths (typed field,
+    Option A — no evidence-tuple residue per TPR-02-001-gemini r4).
+    """
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+
+    inversions = detect_priority_inversions(dag, corpus)
+    if not inversions:
+        return []
+
+    # Build undirected components over BLOCKED findings' source/target pairs.
+    # Two findings are in the same component if they share a root blocker.
+    # Simple heuristic: group by the last element of dependency_chain.
+    groups: dict[Path, list] = {}
+    for f in inversions:
+        if not f.dependency_chain:
+            continue
+        root = f.dependency_chain[-1]
+        groups.setdefault(root, []).append(f)
+
+    out: list = []
+    for root, group in groups.items():
+        # Unblock-set paths for this component: the root + every distinct
+        # intermediate that is also blocked.
+        all_chain_paths: set[Path] = set()
+        for f in group:
+            all_chain_paths.update(f.dependency_chain)
+        # Keep only the root blocker and any non-terminal paths leading to
+        # it that are themselves blocked. For the typed unblock-set, the
+        # minimum is just {root}.
+        unblock_set = tuple(sorted(all_chain_paths, key=str))
+        out.append(Finding(
+            category=FindingCategory.DAG_CONFLICT,
+            subtype=FindingSubtype.BLOCKED,
+            severity=Severity.HIGH,
+            source=group[0].source,
+            target=root,
+            description=(
+                f"root blocker {root.name} gates {len(group)} dependent findings; "
+                f"unblock set has {len(unblock_set)} node(s)"
+            ),
+            recommended_fix=f"Unblock {root.name} to release the dependent chain",
+            dependency_chain=unblock_set,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+        ))
+    return out
+
+
 def run_classifiers(dag: Dag, corpus) -> list:
     """Run every classifier in registration order, flatten the findings."""
     out: list = []
@@ -1585,4 +1729,7 @@ __all__ = [
     "classify_orphaned_plan",
     "CLASSIFIERS",
     "run_classifiers",
+    # §02.3
+    "detect_priority_inversions",
+    "compute_minimum_unblock_set",
 ]
