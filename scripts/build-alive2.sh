@@ -103,15 +103,21 @@ if [ "$RTTI" != "YES" ]; then
 fi
 
 # --- Check Z3 ---
+# Use pkg-config for portable Z3 discovery (no hardcoded paths).
+# CMake's FindZ3 handles the actual build-time discovery; this is a
+# pre-flight check to give a clear error before cloning Alive2.
 if pkg-config --exists z3 2>/dev/null; then
     Z3_VERSION=$(pkg-config --modversion z3)
     echo "Z3: $Z3_VERSION (via pkg-config)" >&2
-elif [ -f /usr/include/z3.h ]; then
-    echo "Z3: found /usr/include/z3.h" >&2
+elif command -v z3 &>/dev/null; then
+    Z3_VERSION=$(z3 --version 2>/dev/null | head -1)
+    echo "Z3: $Z3_VERSION (via z3 binary on PATH)" >&2
 else
     echo "ERROR: Z3 development files not found" >&2
+    echo "  pkg-config could not find z3, and z3 is not on PATH." >&2
     echo "  Ubuntu/Debian: sudo apt-get install libz3-dev" >&2
     echo "  macOS:         brew install z3" >&2
+    echo "  From source:   https://github.com/Z3Prover/z3" >&2
     exit 1
 fi
 
