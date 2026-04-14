@@ -27,7 +27,7 @@ third_party_review:
 sections:
   - id: "02.0"
     title: "Node Model & Source-Kind Taxonomy"
-    status: not-started
+    status: complete
   - id: "02.1"
     title: "DAG Construction"
     status: not-started
@@ -88,32 +88,32 @@ Two meta-risks motivate §02.0 and §02.4 before the classifier work in §02.2:
 
 This subsection lays the structural foundation for §02.1–02.4. It must be complete BEFORE the DAG is built, because node coverage and source-kind tagging are load-bearing for every classifier downstream.
 
-- [ ] Define `NodeKind(Enum)` covering all seven §01.2 schema classes:
+- [x] Define `NodeKind(Enum)` covering all seven §01.2 schema classes:
   - `PLAN_INDEX | PLAN_SECTION | ROADMAP_SECTION | OVERVIEW | BUG_TRACKER_SECTION | FIX_BUG | COMPLETED_INDEX`
   - One-to-one with `FileClass` in `scripts/plan_corpus/schema.py:60-68`
   - Every `Corpus` bucket (`indexes`, `plan_sections`, `roadmap_sections`, `overviews`, `bug_sections`, `fix_bug_files`, `completed_indexes`) contributes nodes
 
-- [ ] Define `NodeId` as a frozen dataclass `(kind: NodeKind, path: Path)`:
+- [x] Define `NodeId` as a frozen dataclass `(kind: NodeKind, path: Path)`:
   - Hashable and comparable for graph use
   - Equality = same file class AND same resolved path
   - Include a helper `NodeId.from_validated_file(vf: ValidatedFile) -> NodeId` that maps `FileClass` → `NodeKind` via a lookup table (no re-classification)
 
-- [ ] Define `SourceKind(Enum)` — the taxonomy used by every reference and edge. **Home: `scripts/plan_corpus/types.py`** (alongside `Finding` — see the §02.0 "File(s)" note and TPR-02-001-gemini round 2 rationale for why this CANNOT live in `dag.py`):
+- [x] Define `SourceKind(Enum)` — the taxonomy used by every reference and edge. **Home: `scripts/plan_corpus/types.py`** (alongside `Finding` — see the §02.0 "File(s)" note and TPR-02-001-gemini round 2 rationale for why this CANNOT live in `dag.py`):
   - `EXPLICIT_DEPENDS_ON` — frontmatter `depends_on: [...]` entries (the only DAG-edge source)
   - `HTML_COMMENT_CONVENTION` — structured HTML comments (`<!-- blocked-by:ID -->`, `<!-- unblocks:ID -->`, `<!-- supersedes:ID -->`, `<!-- resolves:ID -->`)
   - `YAML_COMMENT` — comments inside YAML frontmatter (`status: in-progress  # TPR done; hygiene blocked by BUG-05-003 → plans/iterator-element-ownership/`)
   - `PROSE_VERB` — body prose using one of `depends on`, `requires`, `blocked by`, `prerequisite`, `unblocks`, `supersedes`, `rewrites`, `obsoletes`, `see also`, `related`, `inspired by`, `cf.` (verb-bearing references; some feed MISSING_DEPENDENCY, others are informational)
   - `CODE_FENCE_EXAMPLE` — anything inside a fenced code block (``` ... ```) or indented code block (4+ leading spaces)
 
-- [ ] Define `Reference` dataclass `(from_node: NodeId, target: str, source_kind: SourceKind, source_line: int, source_column: int | None, raw_text: str)`:
+- [x] Define `Reference` dataclass `(from_node: NodeId, target: str, source_kind: SourceKind, source_line: int, source_column: int | None, raw_text: str)`:
   - Every reference carries enough info to disambiguate `Finding.id` collisions (Finding J): the `source_column` field plus the raw_text hash serve as tie-breakers
   - `target` is the raw string as it appears in the file (not yet resolved); resolution happens via `plan_corpus.resolve_dep` in §02.1
 
-- [ ] Define `Edge` dataclass `(from_node: NodeId, to_node: NodeId, source_kind: SourceKind, reference: Reference)`:
+- [x] Define `Edge` dataclass `(from_node: NodeId, to_node: NodeId, source_kind: SourceKind, reference: Reference)`:
   - Edges are ONLY created from `SourceKind.EXPLICIT_DEPENDS_ON` references (per the SSOT rule below)
   - `source_kind` on an `Edge` is always `EXPLICIT_DEPENDS_ON`; it is carried on `Edge` only for debugging symmetry with `Reference`
 
-- [ ] **Explicit SSOT rule — body-inferred references do NOT add edges:**
+- [x] **Explicit SSOT rule — body-inferred references do NOT add edges:**
   - `EXPLICIT_DEPENDS_ON` is the sole edge source. Body-inferred references (`HTML_COMMENT_CONVENTION`, `YAML_COMMENT`, `PROSE_VERB`) are collected as `Reference` records but are never promoted to `Edge`.
   - If a `PROSE_VERB` / `HTML_COMMENT_CONVENTION` / `YAML_COMMENT` reference names a node that is NOT in the DAG as a `depends_on` successor of the current node, it is emitted as a `DAG_CONFLICT / MISSING_DEPENDENCY` finding.
   - This makes the DAG deterministic and frontmatter the SSOT: authors fix by adding a `depends_on` entry, not by the tool silently injecting shadow edges.
@@ -124,18 +124,18 @@ This subsection lays the structural foundation for §02.1–02.4. It must be com
   - Expose `normalize_subsystem(raw: str) -> str | None`; `None` for unrecognized tokens (they do NOT contribute to shared-subsystem mapping)
   - Unit test: every workspace crate's display name appears in the normalized output
 
-- [ ] Define code-fence/indented-code-block exclusion helper `strip_code_blocks(body: str) -> list[tuple[int, int, str]]`:
+- [x] Define code-fence/indented-code-block exclusion helper `strip_code_blocks(body: str) -> list[tuple[int, int, str]]`:
   - Returns a list of `(start_line, end_line, kind)` tuples describing code-fence regions (`kind` ∈ `{"fenced", "indented"}`)
   - Used by §02.1 body scanners to mask out code-fence regions before heuristic matching
   - Fenced detection: lines matching `^```` (optional language tag); matched pairs
   - Indented detection: lines starting with 4+ spaces that are preceded by a blank line (loose but matches CommonMark indented-code-block semantics)
 
-- [ ] Define YAML frontmatter raw-text helper `extract_yaml_comments(text: str, body_offset: int) -> list[tuple[int, int, str]]`:
+- [x] Define YAML frontmatter raw-text helper `extract_yaml_comments(text: str, body_offset: int) -> list[tuple[int, int, str]]`:
   - Returns `(line_number, column, comment_text)` tuples for every `# ...` comment found on frontmatter lines
   - `body_offset` from `split_frontmatter_strict` bounds the scan to the `---` ... `---` region only
   - PyYAML strips comments at parse time, so this is a raw-text post-parse pass
 
-- [ ] Define HTML comment grammar helper `parse_html_comments(body: str) -> list[Reference]`:
+- [x] Define HTML comment grammar helper `parse_html_comments(body: str) -> list[Reference]`:
   - Matches `<!--\s*(blocked-by|unblocks|supersedes|resolves|rewrites|update-complete|updated-by)\s*:\s*([^ \t\r\n,]+(?:,[^ \t\r\n,]+)*)\s*-->` — hyphens ARE allowed in target tokens (plan slugs are hyphenated, e.g. `jit-exception-handling/04B`, `iterator-element-ownership`); only whitespace and the `,` separator are excluded from each comma-separated target. Extended per TPR-02-001-codex-r3 to include the three verbs §02.2 SUPERSEDED case (ii) consumes. TPR-02-003-codex semantic pin: the live case (h) `<!-- unblocks:jit-exception-handling/04B,05,06 -->` MUST parse into three targets (`jit-exception-handling/04B`, `05`, `06`), not zero.
   - Verbs → semantic:
     - `blocked-by:ID` → forward reference (current node blocked by ID)
@@ -148,12 +148,12 @@ This subsection lays the structural foundation for §02.1–02.4. It must be com
   - Excludes any comment whose start position falls inside a `strip_code_blocks` region
   - The verb vocabulary is reserved; malformed `<!-- blocked-by: foo bar -->` (space inside value) emits a low-severity `SCHEMA_VIOLATION / CROSS_FIELD_INVARIANT` finding via §02.1's body scanner (invariant: HTML-comment metadata follows the grammar)
 
-- [ ] **Subsection close-out (02.0)** — MANDATORY before starting 02.1:
-  - [ ] Write failing test fixtures FIRST (TDD) — one per `SourceKind` × `NodeKind` cell that §02.1/§02.2 will consume
-  - [ ] All tasks above are `[x]` and unit tests for `NodeId`, `SourceKind`, `strip_code_blocks`, `extract_yaml_comments`, `parse_html_comments`, and `normalize_subsystem` pass
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Run `/sync-claude` on THIS subsection** — check whether changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md` claims. If no changes, document briefly. Fix any drift NOW.
+- [x] **Subsection close-out (02.0)** — MANDATORY before starting 02.1:
+  - [x] Write failing test fixtures FIRST (TDD) — one per `SourceKind` × `NodeKind` cell that §02.1/§02.2 will consume — `tests/plan-audit/test_dag.py` (27 tests, all classes) + `test_dag_types.py` (16 tests). Tests written before implementation; verified failing at `ImportError: cannot import name 'SourceKind'` before types.py/dag.py were written.
+  - [x] All tasks above are `[x]` and unit tests for `NodeId`, `SourceKind`, `strip_code_blocks`, `extract_yaml_comments`, `parse_html_comments`, and `normalize_subsystem` pass — 141 plan-audit tests green (`timeout 60 python -m pytest tests/plan-audit/ -q`)
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — No tooling gaps surfaced. pytest covered every case cleanly; fixture-authoring for `test_dag.py` was friction-free (inline strings sufficed, no need for `tests/plan-audit/fixtures/dag/` subdir yet). §02.1 will need real markdown fixture files — if friction appears there, capture at §02.1 close-out.
+  - [x] **Run `/sync-claude` on THIS subsection** — No CLAUDE.md / rules / canon drift: `dag.py` is a new module that imports `SourceKind` from `types.py` (canonical home per `impl-hygiene.md` §SSOT); `NodeKind` is an internal mapping to `FileClass` with no user-visible surface. No new scripts/conventions to document globally. `.claude/rules/canon.md` §6 SSOT table does not need to list `dag.py` yet — it is still §02-internal; §02.N sweep will add a row once `DagReport` is part of the public API.
 
 ---
 
