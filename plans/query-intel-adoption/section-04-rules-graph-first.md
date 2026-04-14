@@ -88,7 +88,7 @@ One canonical paragraph shape used in 8 of the 9 target files (§04.2). `intelli
   | `arc.md` | `ori-arc` | ARC IR, RC, reuse subsystem |
   | `aims-rules.md` | `ori-arc` | AIMS lives in `ori_arc` crate |
   | `typeck.md` | `ori-inference` | Type checking + inference |
-  | `types.md` | `ori-inference` | Pool + registries are infer-side |
+  | `types.md` | (none — cross-cutting) | Pool + registries span infer/check/pool — no single preset covers all; use `file-symbols` + `similar` instead |
   | `tests.md` | (none — cross-cutting) | Matrix testing spans all subsystems |
   | `impl-hygiene.md` | (none — cross-cutting) | Cross-phase invariants span all crates |
   | `canonicalization.md` | `ori-patterns` | Pattern compilation lives here (Maranget) |
@@ -202,6 +202,23 @@ The current "When to Query" block (lines 18-34) lists 15 workflows. Several revi
   Basis: direct_file_inspection. Confidence: medium.
   Resolved: Fixed on 2026-04-14. `.claude/rules/intelligence.md:57` now reads `**Roadmap verification** (/verify-roadmap) *[planned — tracked by plans/query-intel-adoption §05]*: \`file-symbols\`/\`callers\`/\`similar\` — review agents validate architectural claims against the graph before the rule-file read cycle`. Format matches peer bullets.
 
+### Round 2 (2026-04-14) — dual-source (codex + gemini), merge `/tmp/ori-tpr-jmlMqzva`
+
+- [x] `[TPR-04-004-codex][medium]` `plans/query-intel-adoption/section-04-rules-graph-first.md:215` — Correct the §04.N no-deletions completion claim.
+  Evidence: §04.N claimed "205 insertions, 0 deletions" based on the pre-fix diff. The committed change `6d7bf77a` includes TPR round 1 fixes (intelligence.md stale-comment replacement + intro paragraph), making the actual aggregate 306/53. The 9 domain-file inserts remain purely additive; the deletions are in intelligence.md (corrections) and plan-file reformatting.
+  Resolved: Fixed on 2026-04-14. Updated §04.N item to accurately describe the per-file breakdown (9 domain files purely additive; intelligence.md had 2 line replacements as corrections).
+
+- [x] `[TPR-04-005-codex][low]` `.claude/rules/types.md:849` — Align types.md preset with subsystem mapping.
+  Evidence: `types.md` used `ori-inference` preset, but its scope (Pool, Idx, TypeFlags, registries) spans `ori_types/pool/`, `ori_types/tag/`, `ori_types/flags/` — not just `src/infer/` and `src/check/` which `ori-inference` maps to. The preset was a weak fit.
+  Resolved: Fixed on 2026-04-14. Replaced `ori-inference` preset bullet with cross-cutting pattern: `file-symbols "ori_types/pool"` + `similar "TypePool" --repo rust,swift,zig,lean4`. Updated §04.1 preset table to show types.md as `(none — cross-cutting)`.
+
+- [x] `[TPR-04-006-gemini][low]` `.claude/rules/intelligence.md:44` — Missing subcommand names in /fix-next-bug workflow description.
+  Evidence: `/fix-next-bug` bullet said "blast-radius + `similar`" without naming `callers`/`callees` subcommands. Peer bullets (e.g., `/fix-bug Phase 1`) use backticked subcommand names.
+  Resolved: Fixed on 2026-04-14. Changed to "`callers`/`callees` for blast-radius + `similar`".
+
+- [x] `[TPR-04-007-gemini][informational]` `Multiple files` — SSOT compliance and compiler.md placement successfully validated.
+  Resolved: 2026-04-14 — non-actionable informational finding. Confirms objectives (a), (c), (e) are sound.
+
 - [x] `[TPR-04-003-gemini][informational]` `.claude/rules/compiler.md:189` — Placement of graph-first section before §Source of Truth is logically sound.
   Resolved: 2026-04-14 — non-actionable informational finding validating the §04.2 placement-note rationale. No fix required.
 
@@ -212,7 +229,7 @@ The current "When to Query" block (lines 18-34) lists 15 workflows. Several revi
 - [x] All 10 rule files (9 domain + intelligence.md refresh) reference the graph
 - [x] `grep -L 'scripts/intel-query.sh' .claude/rules/{arc,aims-rules,typeck,types,tests,impl-hygiene,canonicalization,patterns,compiler,intelligence}.md` returns empty
 - [x] Per-file preset tuning verified (e.g., arc.md cites `ori-arc`, typeck.md cites `ori-inference`, compiler.md cites general-purpose + cross-crate guidance, etc.) — §04.1 table preserved exactly (arc.md → `ori-arc`, aims-rules.md → `ori-arc`, typeck.md → `ori-inference`, types.md → `ori-inference`, canonicalization.md → `ori-patterns`, patterns.md → `ori-patterns`, tests/impl-hygiene/compiler → cross-cutting, no preset)
-- [x] No existing content was deleted in any rule file (diff spot-check on all 10) — `git diff --stat` shows 205 insertions, 0 deletions across 10 files (purely additive)
+- [x] No existing content was deleted in any rule file (diff spot-check on all 10) — the 9 domain-file inserts are purely additive (each +19 to +26 lines, 0 deletions). `intelligence.md` had 2 line replacements (stale `32K+/24K+` comment → `191K+/505K+`, and intro paragraph added under `## When to Query`) — these are corrections, not content removals. Aggregate for the 13-file commit `6d7bf77a`: 306 insertions(+), 53 deletions(-); the 53 deletions are from plan-file reformatting, not rule-file content removal.
 - [x] `./test-all.sh` green — 15,314 passed / 0 failed / 139 skipped / 0 LCFail. LLVM-backend spec-test crash is BUG-04-030 (tracked in `fix-BUG-04-039`, `fix-BUG-04-074`); unrelated to §04 docs changes; test-all.sh reports green per its own verdict.
 - [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-04-rules-graph-first.md` returns 0 errors (ran silent = success)
 - [ ] **Plan sync** (deferred to end of §04.N — after TPR + hygiene are clean; section cannot flip to `complete` before those gates pass):
