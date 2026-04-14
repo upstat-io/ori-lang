@@ -421,7 +421,7 @@ The direct/indirect ABI classification at `CG:AB-1` consumes `ReprPlan.abi_size`
 
 ### RP-51 — Repr does not decide calling conventions
 
-The representation layer SHALL NOT decide calling conventions, parameter passing modes, register allocation, or the `sret` attribute. Those decisions live in `codegen-rules.md §2 AB-*` and §§4 TM-*, §6 RE-*, §8 AT-*. repr.md provides the inputs (`abi_size`, `abi_alignment`, `layout`, narrowing map); it does not consume them.
+The representation layer SHALL NOT decide calling conventions, parameter passing modes, register allocation, or the `sret` attribute. Those decisions live in `codegen-rules.md §2 AB-*` and §§4 TM-*, §5 RE-*, §8 AT-*. repr.md provides the inputs (`abi_size`, `abi_alignment`, `layout`, narrowing map); it does not consume them.
 
 ### RP-52 — Narrowing does not cross the ABI
 
@@ -554,10 +554,10 @@ These are the load-bearing facts of the representation layer; each is (or will b
 - **Type checker**: `typeck.md` (attribute validation, error catalog entry `E2041`, phase contracts §PC, soundness lemma `SL-1`).
 - **Type pool**: `types.md` §TY (storage), §RG (registries), §TL (type surface), §PC (contracts).
 - **AIMS**: `aims-rules.md` §1 (lattice dimensions; §1.5 Locality, §1.6 Shape), §5 (contracts), §8 (realization), §1.8 (lattice properties; `L-9` scalar sentinel).
-- **Codegen**: `codegen-rules.md` §1 `TR-*` (type mapping, fat pointer, closure), §2 `AB-*` (ABI), §3 `NR-*` (narrowing emission), §4 `TM-*` (trampolines), §5 `IT-*` (iterators), §6 `RE-*` (RC emission), §7 `RT-*` (runtime contract; `RT-2` is the RC header SSOT), §8 `AT-*` (LLVM attributes), §9 `VR-*` (verification).
+- **Codegen**: `codegen-rules.md` §1 `TR-*` (type mapping, fat pointer, closure), §2 `AB-*` (ABI), §3 `NR-*` (narrowing emission), §4 `TM-*` (trampolines), §5 `RE-*` (RC emission), §6 `IT-*` (iterators), §7 `RT-*` (runtime contract; `RT-2` is the RC header SSOT), §8 `AT-*` (LLVM attributes), §9 `VR-*` (verification).
 - **LLVM**: `llvm.md` (IR shape and verification).
 - **Runtime**: `runtime.md` (`ori_rt` internals consuming the `CG:RT-2` header schema and the `CG:TR-4` fat-pointer shape).
-- **Hygiene**: `impl-hygiene.md` §SSOT, §No Side Logic, §Canonical Homes, §Phase Boundaries, §Finding Categories (LEAK / DRIFT / GAP / WASTE).
+- **Hygiene**: `impl-hygiene.md` §Single Source of Truth (SSOT), §Side Logic — Root of Architectural Decay, §Phase Boundaries, §Finding Categories (LEAK / DRIFT / GAP / WASTE).
 - **Language surface**: `.claude/rules/ori-syntax.md` §FFI (`#repr`), §Types (primitives), §Fixed-Capacity Lists, §Existential Types, §Prelude (`Value`).
 - **Spec**: `docs/ori_lang/v2026/spec/` — Clause 8.1 Primitive Types (with 8.1.1, 8.1.2, 8.1.3), Clause 8.2 Compound Types (List, Fixed-Capacity List, Map, Set, Tuple, Function, Range), Clause 8.4 Built-in Types (Ordering), Clause 8.6 User-Defined Types (Struct, Sum Type, Newtype, Derive), Clause 8.8 Trait Objects, Clause 21 Memory Model, Clause 26.4.9 `#repr` attribute, Annex E §Numeric Types, §Strings, §Collections, §Representation Optimization (with §Canonical Representations, §Permitted Optimizations, §Guarantees, §Non-Guarantees), §ARC Runtime (with §Heap Object Layout, §Runtime Functions, §Drop Functions, §Built-in Type Representations).
 
