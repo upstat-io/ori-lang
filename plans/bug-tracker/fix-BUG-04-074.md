@@ -3,7 +3,8 @@ bug: "BUG-04-074"
 title: "AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure"
 severity: "high"
 status: in-progress
-goal: "Empty container literals (`[]`, `Set<T>`, `{}`) with element types inferred solely from downstream usage compile cleanly through AOT, with `resolve_fully()` producing concrete element types for codegen."
+resume_point: "Phase 2.5 Plan TPR round 2 — the revised plan (committed b1f2c354) needs to be re-reviewed by /tpr-review in custom objective mode. Previous Plan TPR run: /tmp/ori-tpr-DZNWHvXU (round 1, codex 436s, gemini 232s, 10 actionable findings, all resolved in §R). Re-run command: invoke /tpr-review with objective 'Re-review the BUG-04-074 fix plan at plans/bug-tracker/fix-BUG-04-074.md after round 1 revisions. Focus on §1.5 Final agreed approach, §2 TDD Matrix (revised), §3 Implementation (§3.3 narrowly-scoped validation pass is the most substantial revision), and §R resolutions. Confirm round 1 findings are all addressed AND surface any new issues introduced by the revisions. Strict mode — expect another round of findings because §3.3 was substantially rewritten.' Continue /fix-bug workflow from Phase 3 (TDD) once Plan TPR is clean."
+goal: "Empty list literals (`[]`) with element types inferred solely from downstream usage compile cleanly through AOT, with `resolve_fully()` producing concrete element types for codegen. Ambiguous empty-list bindings emit spec-mandated E2005 (14-expressions.md:1224-1228) at type check time, not codegen."
 success_criteria:
   - "The exact repro `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` compiles via `ori build` and runs successfully"
   - "No `unresolved type variable at codegen` errors from `ori_llvm::codegen::type_info::store` for empty-list-with-inferred-element cases"
