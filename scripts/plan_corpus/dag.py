@@ -1638,6 +1638,168 @@ def detect_priority_inversions(dag: Dag, corpus) -> list:
     return enriched
 
 
+# ---------------------------------------------------------------------------
+# §02.4 Classifier Precedence & Determinism
+# ---------------------------------------------------------------------------
+
+
+# Precedence ladder — highest priority = lowest rank. When multiple findings
+# collide on the same (source, source_line, target) key, only the highest-
+# precedence one is kept; the rest are recorded under `suppressed_by_precedence`
+# evidence. Per §02.4 table:
+#   1. PARSE_ERROR (not in DAG classifier output — filtered upstream)
+#   2. DEAD_REFERENCE
+#   3. CYCLE
+#   4. BLOCKED
+#   5. CONFLICT
+#   6. SUPERSEDED
+#   7. CROSS_EDGE_TEMPORAL_DRIFT
+#   8. MISSING_DEPENDENCY
+#   9. REDUNDANT_DEPENDENCY
+#   10. ORPHANED_PLAN
+#
+# DEAD_REFERENCE uses its own (source, subtype) set — we don't have a single
+# FindingSubtype for it since the subtypes are PLAN_DIRECTORY_NOT_FOUND,
+# SECTION_FILE_NOT_FOUND, etc. We assign all DEAD_REFERENCE subtypes rank 2.
+def _precedence_rank_for(category, subtype) -> int:
+    """Return precedence rank (lower = higher priority)."""
+    from .types import FindingCategory, FindingSubtype
+
+    if category is FindingCategory.PARSE_ERROR:
+        return 1
+    if category is FindingCategory.DEAD_REFERENCE:
+        return 2
+    # DAG_CONFLICT subtypes.
+    dag_ranks = {
+        FindingSubtype.CYCLE: 3,
+        FindingSubtype.BLOCKED: 4,
+        FindingSubtype.CONFLICT: 5,
+        FindingSubtype.SUPERSEDED: 6,
+        FindingSubtype.MISSING_DEPENDENCY: 8,
+        FindingSubtype.REDUNDANT_DEPENDENCY: 9,
+        FindingSubtype.ORPHANED_PLAN: 10,
+    }
+    if subtype in dag_ranks:
+        return dag_ranks[subtype]
+    if category is FindingCategory.STATUS_CONTRADICTION and subtype is FindingSubtype.CROSS_EDGE_TEMPORAL_DRIFT:
+        return 7
+    return 99  # unknown — lowest priority
+
+
+def apply_precedence(findings: list) -> list:
+    """Deduplicate findings by (source, source_line, target), keeping only
+    the highest-precedence finding per group. Lower-precedence findings'
+    subtype names are concatenated into the kept finding's evidence as
+    `suppressed_by_precedence:<name1>,<name2>,...` (typed data: the list
+    of suppressed subtype values is deterministic and alphabetized).
+    """
+    from .types import Finding
+
+    groups: dict[tuple, list] = {}
+    for f in findings:
+        key = (str(f.source), f.source_line, str(f.target) if f.target else None)
+        groups.setdefault(key, []).append(f)
+
+    out: list = []
+    for key, group in groups.items():
+        # Sort by precedence rank; stable tie-break by (subtype.value, id).
+        group.sort(key=lambda x: (
+            _precedence_rank_for(x.category, x.subtype),
+            x.subtype.value,
+            x.id,
+        ))
+        kept = group[0]
+        if len(group) == 1:
+            out.append(kept)
+            continue
+        suppressed = sorted(set(f.subtype.value for f in group[1:]))
+        new_evidence = tuple(kept.evidence) + (
+            f"suppressed_by_precedence:{','.join(suppressed)}",
+        )
+        out.append(Finding(
+            category=kept.category,
+            subtype=kept.subtype,
+            severity=kept.severity,
+            source=kept.source,
+            source_line=kept.source_line,
+            source_column=kept.source_column,
+            target=kept.target,
+            target_line=kept.target_line,
+            description=kept.description,
+            recommended_fix=kept.recommended_fix,
+            evidence=new_evidence,
+            dependency_chain=kept.dependency_chain,
+            source_kind=kept.source_kind,
+        ))
+    # Deterministic output order: by (source, source_line, subtype).
+    out.sort(key=lambda f: (str(f.source), f.source_line or 0, f.subtype.value))
+    return out
+
+
+# Source-kind severity ladder — each classifier already sets severity per the
+# rules in its bullet, but a uniform adjustment pass enforces the contract
+# globally: EXPLICIT_DEPENDS_ON=HIGH, HTML/YAML=MEDIUM, PROSE_VERB=LOW.
+# CODE_FENCE_EXAMPLE never produces findings (excluded before classifier run).
+_SOURCE_KIND_SEVERITY: dict = {}
+
+
+def apply_source_kind_severity(findings: list) -> list:
+    """Enforce severity-ladder per source_kind on every DAG_CONFLICT finding
+    that carries a source_kind. Classifiers already set severity per bullet;
+    this pass is a post-hoc guard that catches any drift.
+
+    NOTE: CONFLICT and ORPHANED_PLAN have source_kind=None (they're aggregate
+    findings, not reference-driven) — this function leaves them untouched.
+    """
+    from .types import Finding, Severity
+
+    out: list = []
+    for f in findings:
+        if f.source_kind is None:
+            out.append(f)
+            continue
+        if f.source_kind is SourceKind.EXPLICIT_DEPENDS_ON:
+            target_sev = Severity.HIGH
+        elif f.source_kind in (SourceKind.HTML_COMMENT_CONVENTION, SourceKind.YAML_COMMENT):
+            target_sev = Severity.MEDIUM
+        elif f.source_kind is SourceKind.PROSE_VERB:
+            target_sev = Severity.LOW
+        else:
+            out.append(f)
+            continue
+        if f.severity is target_sev:
+            out.append(f)
+            continue
+        out.append(Finding(
+            category=f.category,
+            subtype=f.subtype,
+            severity=target_sev,
+            source=f.source,
+            source_line=f.source_line,
+            source_column=f.source_column,
+            target=f.target,
+            target_line=f.target_line,
+            description=f.description,
+            recommended_fix=f.recommended_fix,
+            evidence=f.evidence,
+            dependency_chain=f.dependency_chain,
+            source_kind=f.source_kind,
+        ))
+    return out
+
+
+def run_classifiers_with_precedence(dag: Dag, corpus) -> list:
+    """Full §02.4 pipeline: run classifiers, apply source-kind severity,
+    dedupe by precedence, sort deterministically. This is the function
+    §03's DagReport consumes.
+
+    Also includes CYCLE findings from build_dag (dag.findings).
+    """
+    raw = list(dag.findings) + run_classifiers(dag, corpus)
+    raw = apply_source_kind_severity(raw)
+    return apply_precedence(raw)
+
+
 def compute_minimum_unblock_set(dag: Dag, corpus) -> list:
     """Per §02.3: for each connected component of BLOCKED findings,
     compute the minimum set of nodes whose status change would unblock
@@ -1732,4 +1894,8 @@ __all__ = [
     # §02.3
     "detect_priority_inversions",
     "compute_minimum_unblock_set",
+    # §02.4
+    "apply_precedence",
+    "apply_source_kind_severity",
+    "run_classifiers_with_precedence",
 ]
