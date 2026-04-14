@@ -422,6 +422,17 @@ Algorithmic DRY is the complement of SSOT:
 
 When both apply (e.g., a dispatch table that encodes both facts and routing), fix the SSOT violation first (centralize the data), then the algorithmic violation (consolidate the routing logic that queries it). The data-driven dispatch pattern often fixes both at once.
 
+### Precedents — SSOT-via-@-include for Skill Protocols
+
+For skill/command protocols (multi-step procedures referenced by many consumers), the canonical fix for `LEAK:algorithmic-duplication` is to extract the protocol into a sibling `.md` file and have every consumer `@`-include it. The Claude harness splices the included file into the prompt at expansion time — no runtime duplication, updates propagate automatically, and the SSOT invariant becomes `grep`-verifiable.
+
+Two precedents live in `.claude/skills/dual-tpr/`:
+
+- **`polling-protocol.md`** (early April 2026) — consolidated three inlined polling blocks (`/tpr-review`, `/review-work`, `/tp-help`) after the tp-help copy drifted slightly from the others. Surfaced empirically during `plans/dual-tpr-gemini` §07.3 Scenario 1.
+- **`compose-intel-summary.md`** (2026-04-14, `plans/query-intel-adoption` §03) — consolidated 18 inlined intel-pre-query blocks across every review-family skill and 12 wider skills that use the intelligence graph. Surfaced by a dual-source TPR `LEAK:algorithmic-duplication [high]` finding plus a grep-based scope audit.
+
+The invariant for each SSOT is: `grep -l '<unique-pattern>' .claude/ -r` returns at most N files — the SSOT itself plus any legitimate teaching surfaces that reference the pattern by name (e.g., `.claude/rules/<rule>.md` describing the command). All consumers acquire the protocol via `@`-include.
+
 ## File Organization
 
 - **500-line limit**: source files (excluding tests); exceeding = **BLOAT** finding
