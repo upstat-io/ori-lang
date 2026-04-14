@@ -17,8 +17,8 @@ inspired_by:
   - "Ori `body_captures_outer` precedent at `compiler/ori_types/src/infer/expr/blocks.rs:79-89` — the codebase ALREADY uses AST-based Lambda detection to distinguish non-capturing from capturing closures. `should_generalize` extends this exact pattern to the generalization decision itself."
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-14
 sections:
   - id: "01.1"
     title: "Extract `should_generalize` SSOT helper"
@@ -118,15 +118,21 @@ constants — are monomorphic and must not generalize their type variables.
   to make generalization conditional on the result.
 
 **Note on `body_captures_outer` completeness:** The existing `body_captures_outer`
-function (L249-286 in `blocks.rs`) is documented as an over-approximation: it
-conservatively returns `false` for expression kinds it does not explicitly walk (the
-`_ => false` catch-all at L284). This means it may MISS captures in some expression
-forms (e.g., call arguments, method arguments beyond the receiver, nested forms), which
-would cause `should_generalize` to return `true` when it should return `false`. This is
-the safe direction: it may incorrectly generalize some capturing lambdas, but it will
-never incorrectly refuse to generalize a non-capturing one. The AOT backend catches the
-unsafe direction (codegen verification failure), so the over-approximation is tolerable.
-Improving `body_captures_outer` completeness is desirable but orthogonal to this plan.
+function (L249-286 in `blocks.rs`) is an **under-approximation**: the `_ => false`
+catch-all at L284 skips expression forms it does not explicitly walk (call arguments,
+method arguments beyond the receiver, list/tuple/map subexpressions). This means it
+may MISS captures in some expressions, causing `should_generalize` to return `true`
+when it should return `false` — incorrectly generalizing a capturing lambda. This is
+the **unsafe direction** (the function's own comment at L281-283 acknowledges "might
+miss captures, which means we'll generalize when we shouldn't — codegen will catch
+it"). The safety net is the AOT backend: if a capturing lambda IS incorrectly
+generalized, the resulting polymorphic scheme hits codegen with unresolvable type
+variables, which triggers a verification failure. The under-approximation is tolerable
+in practice because: (1) the common capture forms (identifiers, binary ops, unary ops,
+method receivers, call targets, if/else) ARE walked; (2) the AOT backend catches any
+leak. Improving `body_captures_outer` to walk all expression forms is desirable but
+orthogonal to this plan — the function's behavior is pre-existing and unchanged by
+this section.
 
 **Depends on:** None (independent of Sections 02–06).
 
@@ -178,6 +184,11 @@ via the `pub(super) use blocks::*;` re-exports at `mod.rs:53`.
   - `test_conditional_lambda_does_not_generalize` — verifies that
     `let f = if true then (x -> x) else (y -> y)` does NOT produce a `Tag::Scheme`
     (negative pin for the conditional-lambda blindspot).
+  - `test_capturing_lambda_does_not_generalize` — verifies that a lambda which
+    captures an outer variable (`let outer = 1; let f = x -> x + outer`) does NOT
+    produce a `Tag::Scheme` (negative pin for the capture-sensitive boundary in
+    `body_captures_outer`). This is the policy boundary between the positive pin
+    (`test_let_polymorphism_for_lambda` — non-capturing) and this test (capturing).
 
 - [ ] Add `pub(super) fn should_generalize` to `blocks.rs` immediately above
   `body_captures_outer` (currently at L249):
@@ -568,7 +579,20 @@ When all findings are triaged:
 - `third_party_review.status` becomes `resolved` or `none`
 -->
 
-- None.
+- [x] `[TPR-01-001-codex][high]` `section-02-validator-module.md:265` — GAP: Recurse into applied nominal types in the validator.
+  Resolved: Valid finding, filed in Section 02's scope. Section 02 must walk `Tag::Applied` arguments.
+- [x] `[TPR-01-002-codex][high]` `section-01-value-restriction.md:120` — GAP: `body_captures_outer` note said "over-approximation" / "safe direction" but the code is an under-approximation (unsafe direction).
+  Resolved: Fixed on 2026-04-14. Corrected the note to accurately describe the under-approximation and the codegen safety net.
+- [x] `[TPR-01-003-codex][medium]` `section-05-test-matrix.md:121` — GAP: Missing negative pin for direct capturing lambda.
+  Resolved: Fixed on 2026-04-14. Added `test_capturing_lambda_does_not_generalize` to 01.1 test stubs and 01.N completion checklist.
+- [x] `[TPR-01-004-codex][medium]` `section-03-bodies-pass-integration.md:255` — DRIFT: Placeholder span lookup in Section 03.
+  Resolved: Valid finding, filed in Section 03's scope. Section 03 must use `ExprId::raw() as usize`.
+- [x] `[TPR-01-005-codex][low]` `00-overview.md:27` — DRIFT: Overview/index stale test paths.
+  Resolved: Fixed on 2026-04-14. Updated overview L27 and L179 from `blocks/tests.rs` to `tests.rs`.
+- [x] `[TPR-01-001-gemini][medium]` `section-05-test-matrix.md:120` — Add negative pin tests to Section 05.1.1.
+  Resolved: Valid finding, filed in Section 05's scope. Section 05 must include the negative pin tests.
+- [x] `[TPR-01-002-gemini][medium]` `section-01-value-restriction.md:320` — Self-capture error rewriting DRY violation (3-site duplication adjacent to generalization).
+  Resolved: Valid observation. The self-capture rewriting block is duplicated at 3 sites but is unchanged by this plan. Tracked as a follow-up: this is an existing `impl-hygiene.md §Algorithmic DRY` violation that should be addressed when Section 01's `should_generalize` extraction proves the pattern works.
 
 ---
 
@@ -585,6 +609,7 @@ When all findings are triaged:
   - `test_block_wrapped_lambda_does_not_generalize`
   - `test_variable_alias_does_not_generalize`
   - `test_conditional_lambda_does_not_generalize`
+  - `test_capturing_lambda_does_not_generalize`
 - [ ] All tests live in `compiler/ori_types/src/infer/expr/tests.rs` — no `blocks/tests.rs` or `sequences/tests.rs` created (those paths do not match the existing module layout)
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 01` returns 0 ephemeral annotations — the `# Plan` doc comment in `should_generalize` referencing this section is intentional scaffolding to be removed at Section 07 close-out (per `00-overview.md §Known Bugs` close-out note)
 - [ ] All intermediate subsection close-out tasks complete (01.1–01.4)
@@ -610,4 +635,4 @@ When all findings are triaged:
   Fix any drift and commit. Document result.
 - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` clean before final commit
 
-**Exit Criteria:** All 4 subsections complete. Single `should_generalize` SSOT in `blocks.rs`. Three `engine.generalize` calls each gated by `if should_generalize(...)`. Seven new tests pass: 4 positive/semantic pins (lambda polymorphism, empty list, let-expr, try-block) + 3 negative pins (block-wrapped, aliased, conditional). `test_let_polymorphism_for_lambda` passes unchanged (semantic pin). `timeout 150 ./test-all.sh` green in debug and release. `/tpr-review` and `/impl-hygiene-review` clean. `typeck.md §GN-3` updated to reflect the Value Restriction policy. Section 03 can now assume the 3 generalization sites are correctly gated and that empty-list element Vars flow as Unbound `Tag::Var` into the validator.
+**Exit Criteria:** All 4 subsections complete. Single `should_generalize` SSOT in `blocks.rs`. Three `engine.generalize` calls each gated by `if should_generalize(...)`. Eight new tests pass: 4 positive/semantic pins (lambda polymorphism, empty list, let-expr, try-block) + 4 negative pins (block-wrapped, aliased, conditional, capturing lambda). `test_let_polymorphism_for_lambda` passes unchanged (semantic pin). `timeout 150 ./test-all.sh` green in debug and release. `/tpr-review` and `/impl-hygiene-review` clean. `typeck.md §GN-3` updated to reflect the Value Restriction policy. Section 03 can now assume the 3 generalization sites are correctly gated and that empty-list element Vars flow as Unbound `Tag::Var` into the validator.
