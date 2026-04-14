@@ -118,7 +118,7 @@ This subsection lays the structural foundation for §02.1–02.4. It must be com
   - If a `PROSE_VERB` / `HTML_COMMENT_CONVENTION` / `YAML_COMMENT` reference names a node that is NOT in the DAG as a `depends_on` successor of the current node, it is emitted as a `DAG_CONFLICT / MISSING_DEPENDENCY` finding.
   - This makes the DAG deterministic and frontmatter the SSOT: authors fix by adding a `depends_on` entry, not by the tool silently injecting shadow edges.
 
-- [ ] Define `SUBSYSTEM_ALIASES: dict[str, str]` — the canonical name-normalization table:
+- [x] Define `SUBSYSTEM_ALIASES: dict[str, str]` — the canonical name-normalization table:
   - Source (A): auto-populate from `Cargo.toml` workspace members (e.g. `compiler/ori_arc` → `ori_arc`, `compiler/ori_llvm` → `ori_llvm`)
   - Source (B): hand-maintained logical aliases (e.g. `ArcClassifier` → `ori_arc`, `AIMS` → `ori_arc`, `Tag::Var` → `ori_types`, `ReprPlan` → `ori_repr`)
   - Expose `normalize_subsystem(raw: str) -> str | None`; `None` for unrecognized tokens (they do NOT contribute to shared-subsystem mapping)
