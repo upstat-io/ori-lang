@@ -37,6 +37,7 @@ from .types import (
     Severity,
     FindingCategory,
     FindingSubtype,
+    SourceKind,
     _CATEGORY_SUBTYPES,
     Finding,
     CorpusParseError,
@@ -122,6 +123,7 @@ __all__ = [
     "Severity",
     "FindingCategory",
     "FindingSubtype",
+    "SourceKind",
     "Finding",
     "CorpusParseError",
     # Parser
