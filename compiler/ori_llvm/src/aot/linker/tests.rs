@@ -294,3 +294,119 @@ fn test_link_output_extension_macos_versioned() {
     );
     assert_eq!(LinkOutput::StaticLibrary.extension(&target), "a");
 }
+
+// Sanitizer linker integration tests
+
+#[test]
+fn link_input_default_has_no_sanitizer() {
+    let input = LinkInput::default();
+    assert_eq!(
+        input.sanitizer,
+        crate::aot::SanitizerMode::NONE,
+        "default LinkInput should have no sanitizers"
+    );
+}
+
+#[test]
+fn configure_linker_adds_fsanitize_when_address_enabled() {
+    let target = TargetConfig::native().unwrap();
+    let input = LinkInput {
+        sanitizer: crate::aot::SanitizerMode {
+            address: true,
+            undefined: false,
+        },
+        output: std::path::PathBuf::from("/tmp/test_output"),
+        ..Default::default()
+    };
+
+    let mut linker = LinkerImpl::Gcc(GccLinker::new(&target));
+    LinkerDriver::configure_linker(&mut linker, &input).unwrap();
+    let cmd = linker.finalize();
+    let args: Vec<String> = cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
+    assert!(
+        args.iter().any(|a| a == "-fsanitize=address"),
+        "should contain -fsanitize=address, got: {args:?}"
+    );
+}
+
+#[test]
+fn configure_linker_adds_fsanitize_when_both_enabled() {
+    let target = TargetConfig::native().unwrap();
+    let input = LinkInput {
+        sanitizer: crate::aot::SanitizerMode {
+            address: true,
+            undefined: true,
+        },
+        output: std::path::PathBuf::from("/tmp/test_output"),
+        ..Default::default()
+    };
+
+    let mut linker = LinkerImpl::Gcc(GccLinker::new(&target));
+    LinkerDriver::configure_linker(&mut linker, &input).unwrap();
+    let cmd = linker.finalize();
+    let args: Vec<String> = cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
+    assert!(
+        args.iter().any(|a| a == "-fsanitize=address,undefined"),
+        "should contain -fsanitize=address,undefined, got: {args:?}"
+    );
+}
+
+#[test]
+fn configure_linker_no_fsanitize_when_disabled() {
+    let target = TargetConfig::native().unwrap();
+    let input = LinkInput {
+        output: std::path::PathBuf::from("/tmp/test_output"),
+        ..Default::default()
+    };
+
+    let mut linker = LinkerImpl::Gcc(GccLinker::new(&target));
+    LinkerDriver::configure_linker(&mut linker, &input).unwrap();
+    let cmd = linker.finalize();
+    let args: Vec<String> = cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
+    assert!(
+        !args.iter().any(|a| a.starts_with("-fsanitize")),
+        "should NOT contain -fsanitize when disabled, got: {args:?}"
+    );
+}
+
+#[test]
+fn sanitizer_flag_before_extra_args() {
+    let target = TargetConfig::native().unwrap();
+    let input = LinkInput {
+        sanitizer: crate::aot::SanitizerMode {
+            address: true,
+            undefined: false,
+        },
+        extra_args: vec!["-Wl,--custom-flag".to_string()],
+        output: std::path::PathBuf::from("/tmp/test_output"),
+        ..Default::default()
+    };
+
+    let mut linker = LinkerImpl::Gcc(GccLinker::new(&target));
+    LinkerDriver::configure_linker(&mut linker, &input).unwrap();
+    let cmd = linker.finalize();
+    let args: Vec<String> = cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
+
+    let sanitizer_pos = args.iter().position(|a| a.starts_with("-fsanitize"));
+    let extra_pos = args.iter().position(|a| a == "-Wl,--custom-flag");
+    assert!(
+        sanitizer_pos.is_some() && extra_pos.is_some(),
+        "both args should be present: {args:?}"
+    );
+    assert!(
+        sanitizer_pos.unwrap() < extra_pos.unwrap(),
+        "sanitizer flag should come before extra args: {args:?}"
+    );
+}

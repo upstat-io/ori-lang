@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use super::sanitizer::SanitizerMode;
+
 /// Optimization level for the pass pipeline.
 ///
 /// These map directly to LLVM's `OptimizationLevel` enum and the
@@ -55,6 +57,21 @@ impl OptimizationLevel {
             Self::O3 => "default<O3>",
             Self::Os => "default<Os>",
             Self::Oz => "default<Oz>",
+        }
+    }
+
+    /// Get the Clang `-O` flag string corresponding to this optimization level.
+    ///
+    /// Used when delegating compilation to Clang (e.g., for sanitizer instrumentation).
+    #[must_use]
+    pub fn as_clang_flag(&self) -> &'static str {
+        match self {
+            Self::O0 => "-O0",
+            Self::O1 => "-O1",
+            Self::O2 => "-O2",
+            Self::O3 => "-O3",
+            Self::Os => "-Os",
+            Self::Oz => "-Oz",
         }
     }
 
@@ -220,6 +237,13 @@ pub struct OptimizationConfig {
     /// Gated by `ORI_LLVM_LINT=1`. Auto-enabled when `ORI_AUDIT_CODEGEN=1`.
     pub lint_enabled: bool,
 
+    /// Sanitizer instrumentation for generated code.
+    ///
+    /// When enabled, the AOT pipeline delegates to Clang for sanitizer pass
+    /// insertion rather than using LLVM's C API directly (which doesn't expose
+    /// sanitizer pass configuration in LLVM 21).
+    pub sanitizer: SanitizerMode,
+
     /// Additional custom passes to run (comma-separated).
     /// Example: "instcombine,simplifycfg,dce"
     pub extra_passes: Option<String>,
@@ -242,6 +266,7 @@ impl OptimizationConfig {
             verify_each: false,
             debug_logging: false,
             lint_enabled: false,
+            sanitizer: SanitizerMode::NONE,
             extra_passes: None,
         }
     }
@@ -346,6 +371,16 @@ impl OptimizationConfig {
     #[must_use]
     pub fn with_lint(mut self, enable: bool) -> Self {
         self.lint_enabled = enable;
+        self
+    }
+
+    /// Set sanitizer mode (builder pattern).
+    ///
+    /// When sanitizers are enabled, the AOT pipeline delegates compilation
+    /// to Clang with appropriate `-fsanitize=` flags.
+    #[must_use]
+    pub fn with_sanitizer(mut self, mode: SanitizerMode) -> Self {
+        self.sanitizer = mode;
         self
     }
 

@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "FileCheck-Style IR Pattern Matching"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Expand the existing FileCheck IR assertion framework in compiler/ori_llvm/tests/ to >=30 directive-based tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns — using .exact mode with function-scoped IR slicing (via extract_function_ir) for all order-sensitive categories, fixing known harness bugs, and splitting the over-limit aot.rs helper file"
 success_criteria:
@@ -42,7 +42,7 @@ sections:
     status: complete
   - id: "07.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 07: FileCheck-Style IR Pattern Matching
@@ -52,13 +52,13 @@ sections:
 
 **Success Criteria:**
 
-- [ ] 30+ FileCheck tests in `compiler/ori_llvm/tests/codegen/` — satisfies mission criterion: "FileCheck IR assertions"
-- [ ] `.exact` mode with function-scoped IR slicing (via `extract_function_ir()`) for order-sensitive tests — correctness over convenience
-- [ ] `.matches` mode reserved for existence/absence-only checks — avoids the multiple-match flaw
-- [ ] No regex syntax (`{{.*}}`) in CHECK patterns — engine uses literal substring matching only
-- [ ] Every "should optimize" test has a "should NOT optimize" companion — positive+negative pairing
-- [ ] 5+ tests per category — satisfies mission criterion: "comprehensive IR coverage"
-- [ ] `aot.rs` split below 500-line limit — per impl-hygiene.md file size rule
+- [x] 30+ FileCheck tests in `compiler/ori_llvm/tests/codegen/` — satisfies mission criterion: "FileCheck IR assertions" (44 total)
+- [x] `.exact` mode with function-scoped IR slicing (via `extract_function_ir()`) for order-sensitive tests — correctness over convenience
+- [x] `.matches` mode reserved for existence/absence-only checks — avoids the multiple-match flaw
+- [x] No regex syntax (`{{.*}}`) in CHECK patterns — engine uses literal substring matching only
+- [x] Every "should optimize" test has a "should NOT optimize" companion — positive+negative pairing
+- [x] 5+ tests per category — satisfies mission criterion: "comprehensive IR coverage" (7 rc + 5 cow + 5 closures + 5 abi + 5 iterator + 3 cross)
+- [x] `aot.rs` split below 500-line limit — per impl-hygiene.md file size rule (completed in 07.0)
 
 **Context:** Behavioral tests (Ori spec tests) verify that programs produce correct output but cannot catch codegen quality regressions. A program that leaks memory due to missing `RcDec` still produces correct stdout. A COW fast path that silently degrades to always-copy still produces correct output. FileCheck-style tests pin the LLVM IR patterns that indicate correct codegen, catching regressions at the IR level before they manifest as runtime bugs.
 
@@ -116,6 +116,7 @@ sections:
   - [x] All tasks above are `[x]` and verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.0: no tooling gaps — test-infrastructure refactoring used cargo test/clippy/test-all.sh, all sufficient
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -152,6 +153,7 @@ Instead, evolve `ir_checks.rs` to use `run_test_directory()` for automatic test 
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.1: no tooling gaps — trait implementation used standard cargo test/clippy, all sufficient
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -257,12 +259,13 @@ Every "should emit RC" test has a companion "should NOT emit RC" test (positive+
 
 - [x] **Verify new test files are discovered by the harness runner** — no manual entry points needed after 07.1 migration. Confirmed: WalkDir-based discovery finds all 7 files in `rc/` subdirectory; `run_all_codegen_filecheck` passes with 19 total tests.
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 07.0–07.2 implementation work
+- [x] **TPR checkpoint** — `/tpr-review` covering 07.0–07.2 implementation work (superseded by final full-section TPR, iteration 6 clean)
 
 - [x] **Subsection close-out (07.2)** — MANDATORY before starting 07.3:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.2: no tooling gaps. ORI_DEBUG_LLVM=1 dump + grep was sufficient for symbol verification. FileCheck runner error messages clear and diagnostic.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -411,6 +414,7 @@ Closure tests pin capture patterns, environment layout, and RC for captured valu
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.3: no tooling gaps. Adapted nested closure test (compiler limitation discovered — closure-returning-closure call syntax unsupported; filed as context, not a blocker for IR testing).
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -594,12 +598,13 @@ Tests that verify codegen correctness at feature boundaries — where compilers 
 
 - [x] Verify test count: 42 tests total (12 flat + 7 rc + 5 cow + 5 closures + 5 abi + 5 iterator + 3 cross), exceeds the 30+ requirement.
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 07.3–07.4 implementation work
+- [x] **TPR checkpoint** — `/tpr-review` covering 07.3–07.4 implementation work (superseded by final full-section TPR, iteration 6 clean)
 
 - [x] **Subsection close-out (07.4)** — MANDATORY before starting 07.N:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.4: no tooling gaps. Learned CHECK-LABEL exact-mode semantics (search starts AFTER label line); FileCheck error messages correctly diagnosed the mismatch.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -704,13 +709,13 @@ When all findings are triaged:
 - [x] `timeout 150 ./clippy-all.sh` green — passed during pre-commit hook
 - [x] Plan annotation cleanup: no stale section-07 annotations in source code (scanner reported 0)
 - [x] All intermediate TPR checkpoint findings resolved — Round 3 (9 findings) all fixed: COW tests rewritten for .push(), CHECK patterns tightened, 2 new tests added
-- [ ] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
-  - [ ] `00-overview.md` Quick Reference updated
-  - [ ] `00-overview.md` mission success criteria checkboxes updated
-  - [ ] `index.md` section status updated
-- [ ] `/tpr-review` passed (final, full-section)
-- [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
-- [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
+- [x] **Plan sync** — update plan metadata:
+  - [x] This section's frontmatter `status` -> `complete`, subsection statuses updated
+  - [x] `00-overview.md` Quick Reference updated
+  - [x] `00-overview.md` mission success criteria checkboxes updated
+  - [x] `index.md` section status updated
+- [x] `/tpr-review` passed (final, full-section) — clean on iteration 6 after 5 fix rounds (20 findings fixed, 2 bugs filed: BUG-04-070, BUG-04-071)
+- [x] `/impl-hygiene-review` passed — 0 LEAK/DRIFT/GAP; 2 minor pre-existing BLOAT in check.rs nesting, 1 minor WASTE (.copied().cloned())
+- [x] `/improve-tooling` **section-close sweep** — all 4 subsection retrospectives documented (07.0–07.4). Cross-subsection pattern: ORI_DEBUG_LLVM=1 workflow sufficient for all categories; FileCheck error messages diagnostic. No cross-cutting tooling gaps.
 
 **Exit Criteria:** `compiler/ori_llvm/tests/codegen/` contains 30+ FileCheck-style tests covering RC emission, COW patterns, closure codegen, ABI, iterator patterns, and cross-feature interactions. All tests pass via `timeout 150 cargo test -p ori_llvm --test aot -- ir_checks`. Order-sensitive tests use `.exact` mode with `CHECK-LABEL` function scoping. Pure existence/absence tests use `.matches` mode. No regex patterns. Every positive pin has a negative companion. A deliberately introduced codegen regression (e.g., removing an RC dec) causes the corresponding FileCheck test to fail.

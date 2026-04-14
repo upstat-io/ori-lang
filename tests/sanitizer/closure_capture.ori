@@ -1,0 +1,13 @@
+// Sanitizer smoke: Closure environment RC — capture by value, env lifetime.
+// Closures capture values by value; the closure env is RC'd.
+
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let offset = 10;
+    let scale = 3;
+    let transform = x -> x * scale + offset;
+    let result = apply(f: transform, x: 5);
+    // 5 * 3 + 10 = 25
+    if result == 25 then 0 else 1
+}

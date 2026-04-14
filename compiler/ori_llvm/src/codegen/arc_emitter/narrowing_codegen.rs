@@ -130,17 +130,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         None
     }
 
-    /// Get narrowed element size for int-typed elements, with no collection context.
-    ///
-    /// Falls back to canonical `element_store_size` for non-narrowed or non-int elements.
-    pub(crate) fn int_element_store_size(&self, elem_ty: Idx) -> u64 {
-        if self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int {
-            if let Some(width) = self.narrowed_int_collection_element_width() {
-                return u64::from(width.size_bytes());
-            }
-        }
-        self.element_store_size(elem_ty)
-    }
+    // NOTE: `int_element_store_size` was removed here (BUG-04-071). It was a
+    // global heuristic that applied per-collection narrowing to any `int` type,
+    // causing memory corruption in the iterator pipeline (trampolines, scratch
+    // buffers, collect allocation). Narrowing is now confined to the list
+    // storage boundary (emit_list_iter injects a sext widening trampoline).
+    // For list-specific narrowing, use `collection_elem_size(collection_idx, elem_ty)`.
 
     /// Get narrowed LLVM type for int-typed elements, with no collection context.
     pub(super) fn int_element_llvm_type(&mut self, elem_ty: Idx) -> LLVMTypeId {

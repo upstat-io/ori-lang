@@ -179,6 +179,7 @@ The FIP structural checks at `compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.1: no tooling gaps. Work was type-system refactoring (`()` → `Result` return types) with compile-time TDD. No diagnostic scripts needed, no confusing output, no repeated command sequences. clippy-all.sh caught all lint issues effectively.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -314,6 +315,7 @@ Function-level `fn_val.verify()` must run after EVERY function's codegen complet
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.2: no tooling gaps. `ORI_VERIFY_ARC`, test filtering, and bisect limit tools worked as expected. No repeated sequences, no confusing output, no missing flags.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -350,6 +352,7 @@ LLVM's `opt -lint` pass detects likely-undefined behavior that the standard IR v
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.3: no tooling gaps. `check-debug-flags.sh` caught missing CLAUDE.md docs immediately. Lint found real sret bug (BUG-04-055) on first run.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -390,6 +393,7 @@ The verification gates from 01.1-01.3 must be ON by default in all test runs. Ho
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.4: no tooling gaps. Measurement step directly answered the budget question (54s, 36% of 150s limit). No additional tooling needed.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 

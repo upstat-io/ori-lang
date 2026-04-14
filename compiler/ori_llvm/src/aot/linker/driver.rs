@@ -27,39 +27,46 @@ impl LinkerDriver {
         }
 
         // Select linker flavor (with cross-compilation-aware fallback)
-        let flavor = if let Some(explicit) = input.linker {
-            // User explicitly chose a linker — respect it
-            explicit
-        } else {
-            let preferred = LinkerFlavor::for_target(self.target.components());
-            if LinkerDetection::is_available_for_target(preferred, &self.target) {
-                preferred
+        let flavor =
+            if input.sanitizer.any_enabled() && !self.target.is_windows() && !self.target.is_wasm()
+            {
+                // Sanitizers require Clang as the linker driver on Unix — GCC and Clang
+                // ship incompatible sanitizer runtime libraries. Windows/WASM use their
+                // own linker flavors (MSVC/WasmLd) which are not Clang-compatible.
+                LinkerFlavor::Gcc // create_linker() will use clang via with_path
+            } else if let Some(explicit) = input.linker {
+                // User explicitly chose a linker — respect it
+                explicit
             } else {
-                // Fall back to next available linker for this target,
-                // using cross-compilation-aware detection.
-                let detection = LinkerDetection::detect_for_target(&self.target);
-                if let Some(fallback) = detection.preferred() {
-                    fallback
-                } else if LinkerDetection::is_cross_compiling(&self.target) {
-                    // No suitable cross-linker found — fail early with clear error.
-                    return Err(LinkerDetection::cross_compilation_error(&self.target));
+                let preferred = LinkerFlavor::for_target(self.target.components());
+                if LinkerDetection::is_available_for_target(preferred, &self.target) {
+                    preferred
                 } else {
-                    // Native compilation but no linker at all.
-                    return Err(LinkerError::LinkerNotFound {
-                        linker: format!("{preferred:?}"),
-                        message: format!(
-                            "no linker found for native target '{}'. \
+                    // Fall back to next available linker for this target,
+                    // using cross-compilation-aware detection.
+                    let detection = LinkerDetection::detect_for_target(&self.target);
+                    if let Some(fallback) = detection.preferred() {
+                        fallback
+                    } else if LinkerDetection::is_cross_compiling(&self.target) {
+                        // No suitable cross-linker found — fail early with clear error.
+                        return Err(LinkerDetection::cross_compilation_error(&self.target));
+                    } else {
+                        // Native compilation but no linker at all.
+                        return Err(LinkerError::LinkerNotFound {
+                            linker: format!("{preferred:?}"),
+                            message: format!(
+                                "no linker found for native target '{}'. \
                              Install a C compiler (gcc or clang) to enable linking.",
-                            self.target.triple()
-                        ),
-                    });
+                                self.target.triple()
+                            ),
+                        });
+                    }
                 }
-            }
-        };
+            };
 
         // Create the appropriate linker using enum dispatch (not trait objects)
         // This provides exhaustiveness checking, static dispatch, and no heap allocation
-        let mut linker = self.create_linker(flavor);
+        let mut linker = self.create_linker(flavor, input.sanitizer.any_enabled());
 
         // Configure linker
         Self::configure_linker(&mut linker, input)?;
@@ -108,6 +115,11 @@ impl LinkerDriver {
             linker.export_symbols(&input.exported_symbols);
         }
 
+        // Sanitizer runtime linkage (before extra_args for ordering)
+        if let Some(fsanitize) = input.sanitizer.clang_flag_value() {
+            linker.add_arg(&format!("-fsanitize={fsanitize}"));
+        }
+
         // Add extra arguments
         for arg in &input.extra_args {
             linker.add_arg(arg);
@@ -120,12 +132,32 @@ impl LinkerDriver {
     }
 
     /// Create the appropriate linker implementation for the given flavor.
-    fn create_linker(&self, flavor: LinkerFlavor) -> LinkerImpl {
+    ///
+    /// When `use_clang` is true (sanitizers enabled), forces `clang` as the
+    /// GCC-flavor driver instead of the default `cc`. GCC and Clang ship
+    /// incompatible sanitizer runtime libraries — linking Clang-instrumented
+    /// objects with GCC's `-fsanitize` causes missing symbols.
+    fn create_linker(&self, flavor: LinkerFlavor, use_clang: bool) -> LinkerImpl {
         let cross = LinkerDetection::is_cross_compiling(&self.target);
 
         match flavor {
             LinkerFlavor::Gcc => {
-                if cross {
+                if use_clang {
+                    // Sanitizers require Clang as the linker driver.
+                    // GCC and Clang ship incompatible sanitizer runtime libraries —
+                    // linking Clang-instrumented objects with GCC causes missing symbols.
+                    // Use find_clang() for consistency with the compilation path (supports
+                    // versioned names like clang-17 on Debian/Ubuntu).
+                    let clang_bin = super::super::passes::find_clang().unwrap_or("clang");
+                    let mut gcc = GccLinker::with_path(&self.target, clang_bin);
+                    // Cross-compilation: tell Clang which target triple to link for.
+                    // Without --target, Clang defaults to the host triple and produces
+                    // incompatible executables.
+                    if cross {
+                        gcc.cmd().arg(format!("--target={}", self.target.triple()));
+                    }
+                    LinkerImpl::Gcc(gcc)
+                } else if cross {
                     // Use the target-prefixed cross-compiler (e.g., aarch64-linux-gnu-gcc)
                     if let Some(name) =
                         LinkerDetection::gcc_cross_compiler_name(self.target.components())
@@ -144,8 +176,9 @@ impl LinkerDriver {
                 } else if self.target.is_wasm() {
                     LinkerImpl::Wasm(WasmLinker::new(&self.target))
                 } else {
-                    // Use clang with -fuse-ld=lld
-                    let mut gcc = GccLinker::with_path(&self.target, "clang");
+                    // Use clang with -fuse-ld=lld (supports versioned Clang)
+                    let clang_bin = super::super::passes::find_clang().unwrap_or("clang");
+                    let mut gcc = GccLinker::with_path(&self.target, clang_bin);
                     gcc.cmd().arg("-fuse-ld=lld");
                     LinkerImpl::Gcc(gcc)
                 }
@@ -264,7 +297,7 @@ impl LinkerDriver {
                     .unwrap_or(preferred)
             }
         });
-        let mut linker = self.create_linker(flavor);
+        let mut linker = self.create_linker(flavor, adjusted.sanitizer.any_enabled());
         Self::configure_linker(&mut linker, &adjusted)?;
         let cmd = linker.finalize();
         self.execute_with_retry(cmd, &adjusted, true)

@@ -72,6 +72,53 @@ mod llvm_tests {
         );
     }
 
+    /// Regression: compiled-run path must thread `sanitizer_env` into `BuildOptions`
+    /// so that `build_optimization_config()` produces a `SanitizerMode` with the
+    /// correct flags. Previously, `..Default::default()` left `sanitizer_env: None`,
+    /// silently dropping sanitizer instrumentation.
+    /// See: plans/llvm-verification-tooling/section-08-sanitizers.md §08.R iter 13
+    #[test]
+    fn test_build_optimization_config_reads_sanitizer_env() {
+        use crate::commands::build::{build_optimization_config, BuildOptions, OptLevel};
+
+        // When sanitizer_env is None, sanitizer should be disabled
+        let options_none = BuildOptions {
+            opt_level: OptLevel::O2,
+            ..Default::default()
+        };
+        let config_none = build_optimization_config(&options_none);
+        assert!(
+            !config_none.sanitizer.any_enabled(),
+            "sanitizer should be disabled when sanitizer_env is None"
+        );
+
+        // When sanitizer_env is set to "address", ASan should be enabled
+        let options_asan = BuildOptions {
+            opt_level: OptLevel::O2,
+            sanitizer_env: Some("address".to_string()),
+            ..Default::default()
+        };
+        let config_asan = build_optimization_config(&options_asan);
+        assert!(
+            config_asan.sanitizer.address,
+            "ASan should be enabled when sanitizer_env contains 'address'"
+        );
+        assert!(
+            !config_asan.sanitizer.undefined,
+            "UBSan should NOT be enabled when sanitizer_env is only 'address'"
+        );
+
+        // When sanitizer_env is "address,undefined", both should be enabled
+        let options_both = BuildOptions {
+            opt_level: OptLevel::O2,
+            sanitizer_env: Some("address,undefined".to_string()),
+            ..Default::default()
+        };
+        let config_both = build_optimization_config(&options_both);
+        assert!(config_both.sanitizer.address, "ASan should be enabled");
+        assert!(config_both.sanitizer.undefined, "UBSan should be enabled");
+    }
+
     #[test]
     fn test_binary_name_format() {
         let source_name = "hello";

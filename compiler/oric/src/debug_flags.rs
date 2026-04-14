@@ -123,6 +123,29 @@ flags! {
     /// Usage: `ORI_NO_REPR_OPT=1 ori build file.ori`
     ORI_NO_REPR_OPT
 
+    // === Alive2 IR Capture ===
+
+    /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.
+    ///
+    /// Produces machine-readable IR suitable for alive-tv input.
+    /// Distinct from `ORI_DUMP_AFTER_LLVM` which dumps annotated IR to stderr
+    /// for human debugging (and before verification).
+    /// Usage: `ORI_DUMP_PREOPT_LLVM=1 ori build file.ori`
+    ORI_DUMP_PREOPT_LLVM
+
+    /// Dump raw LLVM IR to a `.postopt.ll` file after optimization, before emission.
+    ///
+    /// Produces machine-readable IR suitable for alive-tv input.
+    /// Usage: `ORI_DUMP_POSTOPT_LLVM=1 ori build file.ori`
+    ORI_DUMP_POSTOPT_LLVM
+
+    /// Enable Alive2 IR capture: dumps both pre-opt and post-opt IR.
+    ///
+    /// Convenience flag that enables both `ORI_DUMP_PREOPT_LLVM` and
+    /// `ORI_DUMP_POSTOPT_LLVM` and places output in `build/alive2-results/`.
+    /// Usage: `ORI_ALIVE2_CAPTURE=1 ori build file.ori`
+    ORI_ALIVE2_CAPTURE
+
     // === Verification ===
 
     /// Enable ARC IR verification after the AIMS pipeline.
@@ -183,6 +206,18 @@ flags! {
     /// Legacy flag — `ORI_DUMP_AFTER_LLVM` is the preferred replacement.
     /// Usage: `ORI_DEBUG_LLVM=1 ori check file.ori`
     ORI_DEBUG_LLVM
+
+    // === Sanitizer Flags ===
+
+    /// Enable sanitizer instrumentation on generated AOT binaries.
+    ///
+    /// Value: comma-separated sanitizer names (`address`, `undefined`).
+    /// Example: `ORI_SANITIZE=address,undefined ori build file.ori`
+    ///
+    /// Requires Clang on PATH (used as compilation driver for sanitizer passes).
+    /// For full coverage, also recompiles `ori_rt` with sanitizer flags (nightly Rust).
+    /// Significant performance impact (2-10x slower). Not for main test suite.
+    ORI_SANITIZE
 
     // === Runtime Trace Flags ===
     // Note: These are checked directly in `ori_rt` (which can't depend on `oric`).

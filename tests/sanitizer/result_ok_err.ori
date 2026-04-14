@@ -1,0 +1,15 @@
+// Sanitizer smoke: Result RC handling — Ok(rc_value) and Err paths.
+// Tests that Result variants correctly manage inner value RC.
+
+@divide (a: int, b: int) -> Result<int, str> = {
+    if b == 0 then Err("division by zero")
+    else Ok(a / b)
+}
+
+@main () -> int = {
+    let ok_result = divide(a: 10, b: 2);
+    let err_result = divide(a: 10, b: 0);
+    let ok = ok_result == Ok(5)
+        && err_result.is_err();
+    if ok then 0 else 1
+}

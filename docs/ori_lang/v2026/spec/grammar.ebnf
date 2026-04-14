@@ -384,11 +384,21 @@ primary       = literal | identifier | "self" | "Self"
 
 // --- Block Expression ---
 // See: proposals/approved/block-expression-syntax.md
+// Amended by: proposals/approved/optional-semicolon-after-block-expressions-proposal.md
 // Semicolons terminate statements inside blocks. The last expression without ";"
 // is the block's value. A block where every expression has ";" returns void.
+// Semicolons are optional after expression statements whose last token is "}".
 
 block_expr  = "{" { statement } [ expression ] "}" .
-statement   = ( let_expr | assignment | expression ) ";" .
+statement   = let_expr ";"
+            | assignment ";"
+            | block_ending_expression [ ";" ]
+            | expression ";" .
+
+// An expression whose last token is "}" — semicolon is optional when used as a statement.
+// The rule is purely syntactic: check whether the last token is "}".
+block_ending_expression = for_do_expr | while_do_expr | loop_expr | if_expr
+                        | match_expr | unsafe_expr | labeled_block | block_expr .
 
 // --- Labeled Block ---
 // See: 16-control-flow.md § Labeled Blocks

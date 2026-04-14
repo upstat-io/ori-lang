@@ -1,0 +1,211 @@
+// Regression: BUG-04-071 — repr-opt narrows [int] to i8, but iterator map
+// produces canonical i64 values. The narrowing must not leak into the
+// iterator pipeline (trampolines, scratch buffers, collect allocation).
+//
+// The narrowing boundary is at iter() — once elements enter the iterator
+// pipeline, they are canonical. This test matrix verifies that invariant
+// across types, patterns, and adapter combinations.
+
+use std.testing { assert_eq }
+
+// ---------------------------------------------------------------------------
+// Exact failing case
+// ---------------------------------------------------------------------------
+
+@test_map_collect_narrowed_int tests @target () -> void = {
+    let result = [1, 2, 3, 4, 5].iter().map((x) -> x * 2).collect();
+    assert_eq(actual: result, expected: [2, 4, 6, 8, 10])
+}
+
+// ---------------------------------------------------------------------------
+// Signed-int boundary tests (sext correctness)
+// ---------------------------------------------------------------------------
+
+@test_map_negative_values tests @target () -> void = {
+    let result = [-1, 0, 1].iter().map((x) -> x * 2).collect();
+    assert_eq(actual: result, expected: [-2, 0, 2])
+}
+
+@test_map_i8_boundary_values tests @target () -> void = {
+    // -128 and 127 are the i8 min/max — these exercise the sign-extension boundary
+    let result = [-128, 127].iter().map((x) -> x).collect();
+    assert_eq(actual: result, expected: [-128, 127])
+}
+
+@test_map_negative_overflow_i8_range tests @target () -> void = {
+    let result = [-1, 0, 1].iter().map((x) -> x * 1000).collect();
+    assert_eq(actual: result, expected: [-1000, 0, 1000])
+}
+
+// ---------------------------------------------------------------------------
+// Edge cases
+// ---------------------------------------------------------------------------
+
+@test_map_single_element tests @target () -> void = {
+    let result = [1].iter().map((x) -> x + 100).collect();
+    assert_eq(actual: result, expected: [101])
+}
+
+@test_map_empty_list tests @target () -> void = {
+    let xs: [int] = [];
+    let result = xs.iter().map((x) -> x * 2).collect();
+    assert_eq(actual: result, expected: [])
+}
+
+@test_map_values_exceeding_i8 tests @target () -> void = {
+    let result = [100].iter().map((x) -> x * 2).collect();
+    assert_eq(actual: result, expected: [200])
+}
+
+// ---------------------------------------------------------------------------
+// Semantic pin — values exceed i8 range, would be truncated without fix
+// ---------------------------------------------------------------------------
+
+@test_map_semantic_pin_large_values tests @target () -> void = {
+    let result = [1, 2, 3, 4, 5].iter().map((x) -> x * 1000).collect();
+    assert_eq(actual: result, expected: [1000, 2000, 3000, 4000, 5000])
+}
+
+@test_map_semantic_pin_sign_extension tests @target () -> void = {
+    // Without sign extension, -1 stored as i8 (0xFF) would become 255
+    let result = [-1].iter().map((x) -> x).collect();
+    assert_eq(actual: result, expected: [-1])
+}
+
+// ---------------------------------------------------------------------------
+// Cross-pattern coverage
+// ---------------------------------------------------------------------------
+
+@test_map_for_loop tests @target () -> void = {
+    // For-loop path uses emit_iter_next scratch alloca
+    let sum = 0;
+    for x in [1, 2, 3].iter().map((x) -> x * 10) do {
+        sum = sum + x
+    };
+    assert_eq(actual: sum, expected: 60)
+}
+
+@test_map_chained tests @target () -> void = {
+    let result = [1, 2, 3].iter()
+        .map((x) -> x * 2)
+        .map((x) -> x + 1)
+        .collect();
+    assert_eq(actual: result, expected: [3, 5, 7])
+}
+
+@test_map_chained_signed tests @target () -> void = {
+    let result = [-1].iter()
+        .map((x) -> x * 2)
+        .map((x) -> x - 1)
+        .collect();
+    assert_eq(actual: result, expected: [-3])
+}
+
+@test_map_filter_collect tests @target () -> void = {
+    let result = [1, 2, 3, 4, 5].iter()
+        .map((x) -> x * 2)
+        .filter((x) -> x > 4)
+        .collect();
+    assert_eq(actual: result, expected: [6, 8, 10])
+}
+
+@test_map_take_collect tests @target () -> void = {
+    let result = [1, 2, 3, 4, 5].iter()
+        .map((x) -> x * 100)
+        .take(count: 3)
+        .collect();
+    assert_eq(actual: result, expected: [100, 200, 300])
+}
+
+// ---------------------------------------------------------------------------
+// Cross-type coverage (non-narrowed — verify no regression)
+// ---------------------------------------------------------------------------
+
+@test_map_str_no_regression tests @target () -> void = {
+    let result = ["a", "b"].iter().map((x) -> x).collect();
+    assert_eq(actual: result, expected: ["a", "b"])
+}
+
+// ---------------------------------------------------------------------------
+// Closure capturing
+// ---------------------------------------------------------------------------
+
+@test_map_with_captured_variable tests @target () -> void = {
+    let $factor = 100;
+    let result = [1, 2, 3].iter().map((x) -> x * factor).collect();
+    assert_eq(actual: result, expected: [100, 200, 300])
+}
+
+// ---------------------------------------------------------------------------
+// Range iterator control (never narrowed)
+// ---------------------------------------------------------------------------
+
+@test_range_map_no_narrowing tests @target () -> void = {
+    let result = (0..5).iter().map((x) -> x * 2).collect();
+    assert_eq(actual: result, expected: [0, 2, 4, 6, 8])
+}
+
+// ---------------------------------------------------------------------------
+// Adapter-boundary coverage (TPR-04-002 finding)
+// ---------------------------------------------------------------------------
+
+@test_narrowed_enumerate tests @target () -> void = {
+    // enumerate on narrowed list — tuple construction with narrowed element
+    let sum = 0;
+    for pair in [10, 20, 30].iter().enumerate() do {
+        let (i, x) = pair;
+        sum = sum + i + x
+    };
+    // indices: 0+1+2 = 3, values: 10+20+30 = 60, total = 63
+    assert_eq(actual: sum, expected: 63)
+}
+
+@test_narrowed_take tests @target () -> void = {
+    let result = [1, 2, 3, 4, 5].iter().take(count: 3).collect();
+    assert_eq(actual: result, expected: [1, 2, 3])
+}
+
+@test_narrowed_skip tests @target () -> void = {
+    let result = [1, 2, 3, 4, 5].iter().skip(count: 2).collect();
+    assert_eq(actual: result, expected: [3, 4, 5])
+}
+
+@test_narrowed_filter tests @target () -> void = {
+    let result = [1, 2, 3, 4, 5].iter().filter((x) -> x > 3).collect();
+    assert_eq(actual: result, expected: [4, 5])
+}
+
+@test_narrowed_chain tests @target () -> void = {
+    let result = [1, 2].iter().chain(other: [3, 4].iter()).collect();
+    assert_eq(actual: result, expected: [1, 2, 3, 4])
+}
+
+@test_narrowed_rev tests @target () -> void = {
+    let result = [1, 2, 3].iter().rev().collect();
+    assert_eq(actual: result, expected: [3, 2, 1])
+}
+
+@test_narrowed_zip tests @target () -> void = {
+    let sum = 0;
+    for pair in [1, 2, 3].iter().zip(other: [10, 20, 30].iter()) do {
+        let (a, b) = pair;
+        sum = sum + a + b
+    };
+    assert_eq(actual: sum, expected: 66)
+}
+
+@test_narrowed_cycle_take tests @target () -> void = {
+    let result = [1, 2].iter().cycle().take(count: 5).collect();
+    assert_eq(actual: result, expected: [1, 2, 1, 2, 1])
+}
+
+// ---------------------------------------------------------------------------
+// Negative pin — narrowing still works for direct list access
+// ---------------------------------------------------------------------------
+
+@test_narrowed_list_direct_access tests @target () -> void = {
+    // Direct list access should still work with narrowed storage
+    let xs = [1, 2, 3, 4, 5];
+    assert_eq(actual: xs[0], expected: 1);
+    assert_eq(actual: xs[4], expected: 5)
+}

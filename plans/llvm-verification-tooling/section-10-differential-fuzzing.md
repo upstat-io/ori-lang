@@ -136,6 +136,7 @@ Set up the fuzzing infrastructure using cargo-fuzz conventions. The fuzz crate d
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey for 10.1 specifically: nightly Rust setup issues, cargo-fuzz version compatibility, workspace exclude behavior. Implement every accepted improvement NOW and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(fuzz): ...`).
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -204,6 +205,7 @@ The core of the differential fuzzer: a structured program generator that produce
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 10.1's close-out, scoped to 10.2's debugging journey. Commit improvements separately using a valid conventional-commit type.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -264,6 +266,7 @@ These are the simpler fuzz targets that find crashes (panics, OOM, infinite loop
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -400,6 +403,7 @@ The flagship fuzz target: generates a random typed Ori program, executes it thro
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -466,6 +470,7 @@ Bootstrap the fuzzer with existing test programs and run initial fuzzing campaig
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 

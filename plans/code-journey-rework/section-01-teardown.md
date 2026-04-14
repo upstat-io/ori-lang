@@ -101,6 +101,7 @@ Delete ALL Python files, their tests, and supporting data:
   - [ ] All tasks above are `[x]` and deletions verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -128,6 +129,7 @@ The current SKILL.md (692 lines) has reusable infrastructure (Steps 0-2: build r
   - [ ] All tasks above are `[x]` and SKILL.md skeleton verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
