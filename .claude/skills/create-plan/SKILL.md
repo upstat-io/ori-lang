@@ -61,6 +61,61 @@ These principles govern the entire plan creation process. When in doubt, consult
 
 ---
 
+## Phase 0: Fork Decision — Heavy Plan vs. Light Plan (RUN FIRST, BEFORE ANYTHING ELSE)
+
+**Before reading CLAUDE.md or doing any Phase 1 work, decide which path this plan takes.** The heavy `/create-plan` workflow (Phases 1–5 below) is calibrated for compiler work where correctness invariants — phase purity, ARC soundness, AIMS lattice coherence, spec conformance — are load-bearing. For non-compiler work that has already reached design consensus, that rigor is overkill and actively slows useful work.
+
+### The Fork Gate — ALL THREE must be true to take the light path
+
+1. **Scope check — non-compiler only.** The work touches ONLY files outside the compiler/runtime/spec surface:
+   - **Eligible domains**: `.claude/skills/`, `.claude/rules/`, `.claude/hooks/`, `.claude/commands/`, `diagnostics/`, `scripts/`, `.codex/`, `.gemini/`, top-level workflow files (`lefthook.yml`, `.github/workflows/`, etc.), non-spec documentation (`README.md`, `docs/development/`, `docs/compiler/design/` prose-only changes).
+   - **Ineligible domains** (force heavy path): any file under `compiler/`, `library/std/`, `docs/ori_lang/v2026/spec/`, `tests/spec/`, `tests/valgrind/`, `tests/alive2/`, `runtime/`, `tests/benchmarks/`.
+   - **Mixed changes force heavy path.** If the work touches even one ineligible file, use the heavy path. Do not split a coherent mission across two paths to qualify for light.
+
+2. **Rigor check — no correctness-critical invariants.** The work does NOT:
+   - introduce or modify phase-purity rules, ARC soundness invariants, AIMS lattice dimensions, or any `impl-hygiene.md` cross-phase contract
+   - alter test-gate behavior (`test-all.sh`, `clippy-all.sh`, `fmt-all.sh`, `build-all.sh`, `llvm-test.sh`, `full-check.sh`, or pre-commit / commit-msg hooks that enforce correctness)
+   - change how bug fixes are enforced (`/fix-bug` phase structure, hygiene review, TPR gates)
+   - modify the plan schema itself (`plan-schema.md`, plan-audit rules) — meta-plan-system changes go through heavy path
+
+3. **Design consensus check — `/tpr-review` already reached full consensus.** The approach has completed a `/tpr-review` round (the full dual-source skill with rule briefing, iterating to consensus), and both reviewers agreed on the design. This means:
+   - The design question is answered — the plan's job is now to *sequence execution*, not to *discover* what to do.
+   - `/tp-help` consensus alone is NOT sufficient — `/tp-help` is a single consult, not an iterated-to-consensus loop with rule briefing. If only `/tp-help` has run, either run `/tpr-review` to close consensus OR take the heavy path.
+   - The TPR artifact (merged envelope, run directory under `.dual-tpr/runs/`, or equivalent) MUST be cited by the light plan so the approved design is traceable.
+
+If any of the three is false, fall through to Phase 1 (heavy path) below.
+
+### Hard blocks — force heavy path even if the gate appears to open
+
+Even when all three criteria above are true, FORCE the heavy path if ANY of these holds:
+
+- The user explicitly says "this is big", "use the full plan", or "do this properly" — user override beats the gate
+- The work introduces a NEW cross-cutting invariant that will need `debug_assert!` / test enforcement (correctness infrastructure always goes heavy)
+- The work will require changes that span more than 3 distinct directory roots among the eligible domains (coordination complexity argues for section-level planning)
+- The estimated execution will require `AskUserQuestion` for design decisions mid-execution (if design isn't settled, consensus wasn't reached — re-run `/tpr-review`)
+
+### The Light Path — `ExitPlanMode` only, no `plans/` file
+
+When the gate opens and no hard block fires, the light path is:
+
+1. **Prepare the inline plan.** Draft a concrete execution plan covering:
+   - **Mission**: one or two sentences stating what this plan delivers
+   - **TPR consensus reference**: point at the `/tpr-review` run (directory path, merged envelope, or summary citation) that established design consensus
+   - **Changes**: a flat checklist of the actual file edits / script creations / skill updates, in execution order
+   - **Verification**: how you'll confirm the work landed (e.g., "re-run `/tpr-review` on the diff", "run the improved script against the original friction", "visual confirmation of rendered output")
+   - **Out of scope**: any adjacent things explicitly deferred, with where they're tracked (bug-tracker entry, roadmap line, another plan) — same no-deferral-without-an-anchor rule as the heavy path (`CLAUDE.md` §Ownership & Deferral)
+2. **Call `ExitPlanMode`** with that inline plan. Wait for user approval.
+3. **Execute** against the approved plan. No `plans/{name}/` directory is created. No `overview`, no section files, no research passes, no `/review-plan`.
+4. **Commit with provenance.** When committing the executed work, cite the TPR run (e.g., `refs #tpr-run-2026-04-14-xyz` in the body) so the design trail is durable even though the plan itself was inline.
+
+The light path trades durability for speed. If mid-execution you realize the work is bigger than expected, or a correctness invariant surfaces, or the user redirects the scope — STOP and escalate to the heavy path. Partial execution of a light plan followed by partial heavy plan is worse than one coherent heavy plan; better to re-plan properly.
+
+### When in doubt, take the heavy path
+
+The heavy path is the default. The light path is an explicit opt-out for a narrow class of work. If you can't confidently answer "yes" to all three gate criteria and "no" to all hard blocks, Phase 1 is the answer. The cost of an unnecessary heavy plan is a few extra minutes of research; the cost of an unjustified light plan is shipping a skipped design step.
+
+---
+
 ## Phase 1: Prerequisites
 
 ### Step 0: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS)
