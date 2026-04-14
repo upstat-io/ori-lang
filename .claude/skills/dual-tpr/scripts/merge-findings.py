@@ -56,15 +56,27 @@ def main():
     with open(args.gemini) as f:
         gemini_env = json.load(f)
 
+    # Normalize gemini findings: gemini has been observed to emit "description"
+    # instead of "title" (tracked on 2026-04-14 during BUG-04-059 Phase 5 code
+    # TPR). Alias "description" → "title" so cross-reviewer matching by
+    # (location, title) still works. Also default "title" to empty string for
+    # findings that lack both — don't crash the merge on schema drift.
+    for f in gemini_env.get("findings", []):
+        if "title" not in f:
+            f["title"] = f.get("description", "")
+    for f in codex_env.get("findings", []):
+        if "title" not in f:
+            f["title"] = f.get("description", "")
+
     # Build (location, title) → finding maps for cross-reviewer lookup
     gemini_by_loctitle = {}
     for f in gemini_env.get("findings", []):
-        key = (f["location"], f["title"])
+        key = (f.get("location", ""), f["title"])
         gemini_by_loctitle[key] = f
 
     codex_by_loctitle = {}
     for f in codex_env.get("findings", []):
-        key = (f["location"], f["title"])
+        key = (f.get("location", ""), f["title"])
         codex_by_loctitle[key] = f
 
     merged = []
