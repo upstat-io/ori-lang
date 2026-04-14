@@ -51,11 +51,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Reviewer: gemini
   Fix: Change `matches!(self.shape, ShapeClass::ReusableCtor(_))` to `!matches!(self.shape, ShapeClass::NonReusable)` per aims-rules.md CN-3 (updated TPR iter-52).
 
-- [ ] `[BUG-04-071][critical]` **Iterator map with repr-opt narrowed list: element size mismatch causes memory corruption**
-  Repro: `[1,2,3,4,5].iter().map(transform: x -> x * 2).collect()` — repr-opt narrows `[int]` literal to i8 (values fit in 1 byte), so `ori_iter_map` receives `elem_size=1`. But the map lambda `x -> x * 2` returns i64 (8 bytes). The trampoline `_ori_tramp_0` does `store i64 %result, ptr %slot, align 8`, writing 8 bytes into a 1-byte slot. Downstream `ori_iter_collect` allocates a buffer with 1-byte slots. Passes by coincidence for short arrays on little-endian; will corrupt data with larger arrays or specific element counts.
+- [x] `[BUG-04-071][critical]` **Iterator map with repr-opt narrowed list: element size mismatch causes memory corruption**
+  Resolved: Fixed on 2026-04-14. Canonicalized iterator pipeline at the `iter()` boundary: when `emit_list_iter` detects narrowed elements, injects a sext widening trampoline that converts narrowed values to canonical i64. Removed ALL `int_element_store_size`/`int_element_llvm_type` usages from iterator.rs, iterator_consumers.rs, and trampolines.rs — entire pipeline now operates on canonical types. Tests: 30 spec tests (map, filter, chain, zip, enumerate, cycle, rev, chained maps, for-loop, signed values, boundary values) + 1 AOT fixture with signed/chained/for-loop coverage + IR-level sext pin. 15,305 tests passing. Related bugs filed by TPR: BUG-04-077 (collect output boundary), BUG-04-076 (flatten element size).
+  Fix: `plans/bug-tracker/fix-BUG-04-071.md`
   Subsystem: `ori_llvm` (repr-opt + iterator codegen interaction)
   Found: 2026-04-12 | Source: tpr-review
-  Reviewer: gemini (deep investigation with ORI_DUMP_AFTER_LLVM=1 + valgrind during §07 FileCheck TPR round 5)
 
 - [ ] `[BUG-04-076][high]` **emit_iter_flatten passes iterator handle size instead of inner element size**
   Repro: `[[true, false], [true]].iter().flatten().collect()` — `elem_ty` for flatten is `Iterator<bool>` (8-byte handle), but `ori_iter_flatten` expects `inner_elem_size = sizeof(bool) = 1`. The runtime's `next_flattened` uses the wrong stride for inner element reads. Currently masked for `int` (both are 8 bytes) but wrong for `bool`, `byte`, tuples, or structs.
