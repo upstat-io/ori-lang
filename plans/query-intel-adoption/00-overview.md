@@ -19,7 +19,7 @@ Drive deep, ambient adoption of the Neo4j-backed intelligence graph (`/query-int
 - [x] `/query-intel` is a Skill (`.claude/skills/query-intel/SKILL.md`) the harness can auto-trigger; the 14-line command file remains as a thin alias. (§01)
 - [x] `CLAUDE.md` teaches the graph in the Commands, Key Paths, Reference Repos, Ownership & Deferral, and Compiler Coding Guidelines sections — all verified insertion points from the 2026-04-14 TPR. (§02)
 - [x] Exactly ONE canonical intel-summary helper exists at `.claude/skills/dual-tpr/compose-intel-summary.md`; all 18 inlined copies (6 review-family + 12 wider-skill consumers discovered mid-execution) are replaced with `@`-includes. Zero LEAK:algorithmic-duplication for the intel-pre-query pattern. Invariant verified: `grep -l 'scripts/intel-query.sh status' .claude/ -r` returns exactly 3 files (SSOT + 2 legitimate teaching surfaces: `intelligence.md` rule, `query-intel.md` command). (§03)
-- [ ] All 10 rule files that cite cross-repo prior art (`arc.md`, `aims-rules.md`, `typeck.md`, `types.md`, `tests.md`, `impl-hygiene.md`, `canonicalization.md`, `patterns.md`, `compiler.md`, plus `intelligence.md` index refresh) include a graph-first paragraph before their manual-browsing guidance. (§04)
+- [x] All 10 rule files that cite cross-repo prior art (`arc.md`, `aims-rules.md`, `typeck.md`, `types.md`, `tests.md`, `impl-hygiene.md`, `canonicalization.md`, `patterns.md`, `compiler.md`, plus `intelligence.md` index refresh) include a graph-first paragraph before their manual-browsing guidance. (§04)
 - [ ] The 4 gap skills (`verify-tpr`, `sync-claude`, `fix-next-bug`, `tp-help`) and 3 gap commands (`sync-spec`, `sync-grammar`, `verify-roadmap`) each include a concrete graph-query workflow step (not a token bullet) that `@`-includes §03's helper. (§05)
 - [ ] `.claude/skills/create-plan/plan-schema.md` mandates a `{NN}.0 Intelligence Reconnaissance` subsection in every new plan section; `scripts/plan_corpus.py check` emits a transition-period WARNING when the subsection is missing. Retrofit applied per the user-chosen policy (Option A/B/C). (§06)
 - [ ] `.claude/hooks/pre-review-intel.sh` fires on `UserPromptSubmit` for review-family slash-commands, injects a bounded Intelligence Summary via `hookSpecificOutput.additionalContext`, and degrades silently when the graph is unavailable. Registered in `.claude/settings.json`. (§07)
@@ -228,7 +228,7 @@ None. This plan does not modify compiler code; no test failures are expected. `.
 | 01 | Promote /query-intel to an auto-triggerable Skill | `section-01-promote-to-skill.md` | Complete |
 | 02 | CLAUDE.md expansion | `section-02-claude-md-expansion.md` | Complete |
 | 03 | SSOT: compose-intel-summary helper | `section-03-compose-intel-summary-ssot.md` | Complete |
-| 04 | Rule files: graph-first guidance | `section-04-rules-graph-first.md` | In Progress (subsections 04.1–04.3 complete; awaiting /tpr-review + /impl-hygiene-review gates) |
+| 04 | Rule files: graph-first guidance | `section-04-rules-graph-first.md` | Complete |
 | 05 | Missing-trigger skills & commands | `section-05-missing-trigger-skills.md` | Not Started |
 | 06 | Plan schema: mandatory Intelligence Reconnaissance | `section-06-plan-schema-recon.md` | Not Started |
 | 07 | Hook-heavy ambient automation | `section-07-pre-review-intel-hook.md` | Not Started |
