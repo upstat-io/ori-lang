@@ -64,6 +64,24 @@ class FindingCategory(enum.Enum):
     GAP = "gap"
 
 
+class SourceKind(enum.Enum):
+    """Reference source taxonomy used by the §02 DAG builder.
+
+    Lives in types.py (NOT dag.py) because Finding.source_kind is a typed field
+    on the canonical Finding dataclass — homing SourceKind in dag.py would
+    create a circular import (types.py -> dag.py -> types.py). See §02.0
+    File(s) note and TPR-02-001-gemini round 2.
+
+    Only EXPLICIT_DEPENDS_ON references become DAG edges; the other kinds feed
+    MISSING_DEPENDENCY / DEAD_REFERENCE classifiers but never add shadow edges.
+    """
+    EXPLICIT_DEPENDS_ON = "explicit_depends_on"
+    HTML_COMMENT_CONVENTION = "html_comment_convention"
+    YAML_COMMENT = "yaml_comment"
+    PROSE_VERB = "prose_verb"
+    CODE_FENCE_EXAMPLE = "code_fence_example"
+
+
 class FindingSubtype(enum.Enum):
     """Fine-grained subtype scoped per FindingCategory."""
 
@@ -107,6 +125,8 @@ class FindingSubtype(enum.Enum):
     BLOCKED = "blocked"
     MISSING_DEPENDENCY = "missing_dependency"
     CYCLE = "cycle"
+    REDUNDANT_DEPENDENCY = "redundant_dependency"
+    ORPHANED_PLAN = "orphaned_plan"
 
     # DEAD_REFERENCE subtypes
     PLAN_DIRECTORY_NOT_FOUND = "plan_directory_not_found"
@@ -171,6 +191,8 @@ _CATEGORY_SUBTYPES: dict[FindingCategory, frozenset[FindingSubtype]] = {
         FindingSubtype.BLOCKED,
         FindingSubtype.MISSING_DEPENDENCY,
         FindingSubtype.CYCLE,
+        FindingSubtype.REDUNDANT_DEPENDENCY,
+        FindingSubtype.ORPHANED_PLAN,
     }),
     FindingCategory.DEAD_REFERENCE: frozenset({
         FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
@@ -197,7 +219,19 @@ _CATEGORY_SUBTYPES: dict[FindingCategory, frozenset[FindingSubtype]] = {
 
 @dataclass(frozen=True)
 class Finding:
-    """A single diagnostic finding. Frozen and hashable for deduplication."""
+    """A single diagnostic finding. Frozen and hashable for deduplication.
+
+    §02 extensions (Option A, typed phase-boundary per TPR-02-006-codex):
+      - `dependency_chain`: ordered path sequence for multi-hop findings
+        (BLOCKED chains, CYCLE paths, REDUNDANT_DEPENDENCY triples).
+      - `source_kind`: reference classification for §03 SafeFix/ExposureReview
+        routing without string-parsing `evidence`.
+      - `source_column`: disambiguates multiple findings on the same line
+        (Concern J — Finding.id collision guard).
+
+    Finding.id backward-compat: source_column and target are only hashed when
+    non-None, so legacy findings retain their pre-extension IDs.
+    """
 
     category: FindingCategory
     subtype: FindingSubtype
@@ -206,9 +240,12 @@ class Finding:
     description: str
     recommended_fix: str
     source_line: int | None = None
+    source_column: int | None = None
     target: Path | None = None
     target_line: int | None = None
     evidence: tuple[str, ...] = ()
+    dependency_chain: tuple[Path, ...] = ()
+    source_kind: "SourceKind | None" = None
 
     def __post_init__(self) -> None:
         allowed = _CATEGORY_SUBTYPES.get(self.category, frozenset())
@@ -221,6 +258,12 @@ class Finding:
     @property
     def id(self) -> str:
         content = f"{self.category.value}:{self.subtype.value}:{self.source}:{self.source_line}"
+        # Conditional append preserves backward-compat: legacy findings that
+        # never populate source_column or target produce the pre-extension hash.
+        if self.source_column is not None:
+            content += f":{self.source_column}"
+        if self.target is not None:
+            content += f":{self.target}"
         return "VR-" + hashlib.sha256(content.encode()).hexdigest()[:6]
 
     def to_json(self) -> dict[str, Any]:
@@ -231,11 +274,14 @@ class Finding:
             "severity": self.severity.name.lower(),
             "source": str(self.source),
             "source_line": self.source_line,
+            "source_column": self.source_column,
             "target": str(self.target) if self.target else None,
             "target_line": self.target_line,
             "description": self.description,
             "recommended_fix": self.recommended_fix,
             "evidence": list(self.evidence),
+            "dependency_chain": [str(p) for p in self.dependency_chain],
+            "source_kind": self.source_kind.value if self.source_kind else None,
         }
 
     def to_markdown(self) -> str:

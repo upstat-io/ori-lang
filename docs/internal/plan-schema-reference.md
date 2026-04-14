@@ -91,6 +91,8 @@ Auto-generated from Python dataclass definitions in `scripts/plan_corpus/schemas
 - `conflict`
 - `cycle`
 - `missing_dependency`
+- `orphaned_plan`
+- `redundant_dependency`
 - `superseded`
 
 ### dead_reference
