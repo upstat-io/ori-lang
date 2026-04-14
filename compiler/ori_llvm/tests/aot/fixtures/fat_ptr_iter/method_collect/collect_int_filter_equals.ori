@@ -1,0 +1,6 @@
+// BUG-04-077: filter + collect exercises adapter chain before collect boundary
+@main () -> int = {
+    let collected = [1, 2, 3, 4, 5].iter().filter(x -> x > 2).collect();
+    let literal = [3, 4, 5];
+    if collected == literal then 0 else 1
+}

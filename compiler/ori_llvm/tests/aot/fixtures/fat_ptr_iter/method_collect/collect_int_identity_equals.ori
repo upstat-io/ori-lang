@@ -1,0 +1,6 @@
+// BUG-04-077: identity collect — [1,2,3].iter().collect() == [1,2,3]
+@main () -> int = {
+    let collected = [1, 2, 3].iter().collect();
+    let literal = [1, 2, 3];
+    if collected == literal then 0 else 1
+}
