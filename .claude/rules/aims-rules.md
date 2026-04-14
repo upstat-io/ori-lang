@@ -724,6 +724,26 @@ The verification stack is **layered**. Each layer catches a different class of i
 
 ---
 
+## §9.5 Graph-first, manual second
+
+Before reading §10's reference-repo citations, query the intelligence graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,koka,lean4 --limit 5`
+  — semantic equivalents across reference compilers in sub-second time
+- `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — blast radius
+  for changes in this domain
+- `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori` — the
+  module inventory before editing
+- `scripts/intel-query.sh --human ori-arc --limit 5` — pre-curated subsystem view
+  for AIMS lattice / RC / reuse / FBIP / TRMC questions
+
+The graph covers Ori plus 10 reference compilers, synced on every commit. Manual reference-repo reading
+stays authoritative — but only AFTER the graph narrows the search. Never
+cite a graph result without verifying against the actual source. See
+`.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
+`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+query protocol used by review-family skills.
+
 ## §10 Prior Art Cross-Reference
 
 AIMS draws from multiple traditions. No single prior system has this combination.

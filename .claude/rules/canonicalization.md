@@ -34,6 +34,27 @@ These are distinct from the 7 surface desugars (performed earlier in parser/type
 | 6 | `MapWithSpread` | Method calls (insert/extend) |
 | 7 | `StructWithSpread` | Method calls (field-by-field copy + overrides) |
 
+## Graph-first, manual second
+
+Before reading the Maranget citation and cross-crate references below, query
+the intelligence graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,gleam,elm,roc,koka --limit 5`
+  — semantic equivalents in functional-first pattern-compilation reference compilers
+- `scripts/intel-query.sh --human callers "compile_multi_clause_patterns" --repo ori`
+  — all callers of the unified pattern-compilation entry point
+- `scripts/intel-query.sh --human file-symbols "patterns/" --repo ori` — the
+  module inventory before editing the Maranget entry point
+- `scripts/intel-query.sh --human ori-patterns --limit 5` — pre-curated subsystem
+  view for pattern compilation + decision tree work
+
+The graph covers Ori plus 10 reference compilers, synced on every commit. Manual reference-repo reading
+stays authoritative — but only AFTER the graph narrows the search. Never
+cite a graph result without verifying against the actual source. See
+`.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
+`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+query protocol used by review-family skills.
+
 ## Pattern Compilation — Maranget
 
 Luc Maranget, "Compiling Pattern Matching to Good Decision Trees" (2008). Invocation: `compiler/ori_canon/src/patterns/`. Core primitives: `compiler/ori_arc/src/decision_tree/` (temporary location — migration target per module docs).

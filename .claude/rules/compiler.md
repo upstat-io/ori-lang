@@ -186,6 +186,30 @@ See CLAUDE.md §Stabilization Discipline for the full narrow-the-front principle
 - Method: `ori_types/registry/methods/` | `ori_eval/interpreter/method_dispatch/`
 - Derive: see `ir.md` §DerivedTrait for canonical sync point list
 
+## Graph-first, manual second
+
+Before opening any path in `~/projects/reference_repos/lang_repos/` by hand,
+query the intelligence graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,zig,lean4 --limit 5`
+  — semantic equivalents across large-compiler architectures (crate boundaries,
+  Salsa-style incremental, phase ordering)
+- `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — blast radius
+  across all 19 workspace crates (see §Crates above)
+- `scripts/intel-query.sh --human file-symbols "<crate-name>" --repo ori` — the
+  symbol surface of a single crate before refactoring across its boundary
+- `scripts/intel-query.sh --human callees "<entry-point>" --repo ori` — the
+  downstream dependency tree for a function (useful when tracing `oric` →
+  `ori_types/eval` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic` flow)
+
+Compiler-architecture work is cross-crate by nature — no single subsystem
+preset covers it; use the bare `callers`/`file-symbols` form scoped to the
+relevant crate(s). The graph covers Ori plus 10 reference compilers, synced on every commit. Manual
+reference-repo reading stays authoritative — but only AFTER the graph
+narrows the search. Never cite a graph result without verifying against the
+actual source. See `.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and `.claude/skills/dual-tpr/compose-intel-summary.md` for the
+canonical query protocol used by review-family skills.
+
 ## Source of Truth
 
 1. `docs/ori_lang/v2026/spec/` — authoritative

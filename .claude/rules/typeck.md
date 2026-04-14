@@ -954,6 +954,26 @@ Cross-reference: `HYG:§Tracing & Logging`.
 
 ---
 
+## §15.5 Graph-first, manual second
+
+Before reading §16's reference-repo citations, query the intelligence graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,koka,lean4,gleam --limit 5`
+  — semantic equivalents across HM / bidirectional reference compilers
+- `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — blast radius
+  for changes in this domain
+- `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori` — the
+  module inventory before editing
+- `scripts/intel-query.sh --human ori-inference --limit 5` — pre-curated subsystem
+  view for inference, unification, trait resolution, capability checking
+
+The graph covers Ori plus 10 reference compilers, synced on every commit. Manual reference-repo reading
+stays authoritative — but only AFTER the graph narrows the search. Never
+cite a graph result without verifying against the actual source. See
+`.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
+`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+query protocol used by review-family skills.
+
 ## §16 Prior Art Cross-Reference
 
 | System | Relevant Pattern | Ori Correspondence |

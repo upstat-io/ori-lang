@@ -24,6 +24,27 @@ paths:
 
 **No `type_check` method.** Type-checking of patterns is done elsewhere — the trait is evaluation-only.
 
+## Graph-first, manual second
+
+Before reading the registry and dispatch details below, query the
+intelligence graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,gleam,elm,roc,koka --limit 5`
+  — semantic equivalents in functional-first pattern-dispatch reference compilers
+- `scripts/intel-query.sh --human callers "<pattern-symbol>" --repo ori` — blast
+  radius for changes to a pattern's evaluation contract
+- `scripts/intel-query.sh --human file-symbols "patterns/" --repo ori` — the
+  module inventory before editing
+- `scripts/intel-query.sh --human ori-patterns --limit 5` — pre-curated subsystem
+  view for pattern definitions + registry + executor
+
+The graph covers Ori plus 10 reference compilers, synced on every commit. Manual reference-repo reading
+stays authoritative — but only AFTER the graph narrows the search. Never
+cite a graph result without verifying against the actual source. See
+`.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
+`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+query protocol used by review-family skills.
+
 ## Registry
 
 - Static ZST dispatch via `Pattern` enum — no vtable, no trait objects

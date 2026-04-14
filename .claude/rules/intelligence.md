@@ -32,12 +32,19 @@ it via `@`-include.
 
 ## When to Query
 
-Query the intelligence graph proactively in these workflows:
+Query the intelligence graph proactively in these workflows.
+Entries tagged *[planned — tracked by plans/query-intel-adoption §05]* document
+the intended graph usage for workflows that have not yet been migrated —
+their skill/command files do not currently invoke `scripts/intel-query.sh`;
+§05 of `plans/query-intel-adoption` will wire them in. Untagged entries are
+live consumers that query the graph today.
 
 - **Design decisions**: Before choosing an approach, query `similar` for how reference compilers handled it
 - **Bug investigation** (/fix-bug Phase 1): `callers`/`callees` for blast radius, `similar` for reference fixes
+- **Bug autopilot** (/fix-next-bug) *[planned — tracked by plans/query-intel-adoption §05]*: blast-radius + `similar` on the selected bug's repro symbol before handing to /fix-bug
 - **Bug triage** (/review-bugs, /add-bug): `callers` to assess blast radius, `file-symbols` to cluster related bugs
 - **TPR reviews** (/tpr-review Step 0.75): `file-symbols` + `callers`/`callees` for module inventory + blast radius
+- **TPR triage** (/verify-tpr) *[planned — tracked by plans/query-intel-adoption §05]*: `callers`/`callees` for blast-radius on each finding before accept/reject decision
 - **Code reviews** (/review-work, /independent-review): `file-symbols` for module context, `callers` for impact
 - **Hygiene reviews** (/impl-hygiene-review): `callers`/`callees` for flow mapping, `similar` for cross-backend mirrors
 - **Plan reviews** (/review-plan): `symbols`/`file-symbols` to validate plan assumptions against actual code
@@ -47,7 +54,11 @@ Query the intelligence graph proactively in these workflows:
 - **Pattern review** (/design-pattern-review): `similar` for instant cross-repo equivalents, `callers`/`callees` for Ori dispatch mapping
 - **Third-party help** (/tp-help): `callers`/`callees`/`similar` to enrich context package for reviewers
 - **Roadmap** (/continue-roadmap): `file-symbols`/`callers`/`callees`/`similar` for section-relevant code surface
+- **Roadmap verification** (/verify-roadmap) *[planned — tracked by plans/query-intel-adoption §05]*: `file-symbols`/`callers`/`similar` — review agents validate architectural claims against the graph before the rule-file read cycle
 - **Execution tracing** (/code-journey, /rosetta-test): `callers`/`callees` to map exercised paths, `similar` for cross-repo equivalents
+- **Doc sync** (/sync-claude) *[planned — tracked by plans/query-intel-adoption §05]*: `file-symbols` on changed crates to confirm rules / canonical docs still match
+- **Spec sync** (/sync-spec) *[planned — tracked by plans/query-intel-adoption §05]*: `callers` of affected symbols before spec edits
+- **Grammar sync** (/sync-grammar) *[planned — tracked by plans/query-intel-adoption §05]*: `symbols` lookup for grammar-adjacent types
 - **Tooling** (/improve-tooling): `symbols` to check if similar tools already exist before creating new ones
 
 ## How to Query
@@ -64,7 +75,7 @@ scripts/intel-query.sh sentiment pain --repo go         # rank by pain/controver
 scripts/intel-query.sh landscape --repo rust            # per-label sentiment aggregation
 scripts/intel-query.sh ori-sentiment                    # highest-pain in ARC-relevant repos
 
-# Code symbol queries (Ori + reference repos — 32K+ symbols, 24K+ call edges)
+# Code symbol queries (Ori + reference repos — 191K+ symbols, 505K+ CALLS edges)
 scripts/intel-query.sh symbols "IteratorValue" --repo ori              # find symbols by name
 scripts/intel-query.sh symbols "iter" --repo ori --kind function       # filter by kind (function|type|sum_type|...)
 scripts/intel-query.sh callers "eval_iter_next" --repo ori             # who calls this function?

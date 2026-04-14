@@ -240,6 +240,27 @@ Meet operation at control flow joins. `KnownSafe` flag when nested retains guara
 ### Tail Call Preservation
 Never insert `RcDec` after a tail call — breaks TCO. Transfer ownership instead: mark callee param as `Owned` when call-site arg is owned, eliminating the inc/dec pair. Pattern from Lean 4 (`ownParamsUsingArgs`).
 
+## Graph-first, manual second
+
+Before reading the reference-repo paths cited below, query the intelligence
+graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,koka,lean4 --limit 5`
+  — semantic equivalents across reference compilers in sub-second time
+- `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — blast radius
+  for changes in this domain
+- `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori` — the
+  module inventory before editing
+- `scripts/intel-query.sh --human ori-arc --limit 5` — pre-curated subsystem view
+  for ARC / RC / reuse questions
+
+The graph covers Ori plus 10 reference compilers, synced on every commit. Manual reference-repo reading
+stays authoritative — but only AFTER the graph narrows the search. Never
+cite a graph result without verifying against the actual source. See
+`.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
+`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+query protocol used by review-family skills.
+
 ## Reference Repos
 
 - **Lean 4**: `lean4/src/Lean/Compiler/IR/RC.lean` (RC insertion), `Borrow.lean` (borrow inference), `ExpandResetReuse.lean` (reuse)

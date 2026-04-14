@@ -311,6 +311,25 @@ All identifiers, types, and expressions that are compared for equality or used a
 - **Violation detection**: grep for `== "identifier_name"` in non-test code. Any string comparison that should be a `Name` comparison is a LEAK:scattered-knowledge — the interning layer is being bypassed.
 - **Pre-interned constants**: frequently-used names (keywords, builtins, common method names) should be pre-interned at startup for O(1) lookup. If the same string is interned per-call-site, that's a WASTE.
 
+### Graph-first, manual second
+
+Before reading the reference-compiler patterns below, query the intelligence graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,zig,lean4 --limit 5`
+  — semantic equivalents for the pattern / invariant you're investigating
+- `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — blast radius
+  when tightening a hygiene rule
+- `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori` — the
+  module inventory before a cross-phase refactor
+
+Implementation hygiene is cross-cutting — no single subsystem preset covers
+it. The graph covers Ori plus 10 reference compilers, synced on every commit. Manual reference-repo
+reading stays authoritative — but only AFTER the graph narrows the search.
+Never cite a graph result without verifying against the actual source. See
+`.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
+`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+query protocol used by review-family skills.
+
 ### Aspirational Patterns (from Reference Compilers)
 
 Patterns used by established compilers that Ori should grow toward. Not current violations — these are architectural north stars for future hygiene reviews to measure against.
