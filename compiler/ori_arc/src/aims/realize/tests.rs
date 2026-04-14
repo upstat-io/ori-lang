@@ -180,7 +180,7 @@ fn decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_uniqu
 // DP-5/DP-9 borrow overlap tests for Unique path
 
 /// Semantic pin: Unique aggregate with active borrows → `StaticShared` per DP-9.
-/// Spec: `Unique AND NOT can_mutate_in_place → StaticShared` because `IsShared`
+/// Spec: `Unique AND NOT (is_owned_and_unique + no_borrows) → StaticShared` because `IsShared`
 /// on a Unique value always returns false — runtime check cannot distinguish
 /// "unique but borrowed" from "unique and safe to mutate."
 /// See: plans/bug-tracker/fix-BUG-04-064.md
