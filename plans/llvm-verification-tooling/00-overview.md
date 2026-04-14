@@ -241,7 +241,7 @@ Enabling `ORI_VERIFY_ARC=1` and `ORI_VERIFY_EACH=1` is specifically designed to 
 | 06 Protocol Builtin Matrix | ~800 | Complete | 01 |
 | 07 FileCheck IR Assertions | ~2,500 | Complete | 02 |
 | 08 Sanitizer Integration | ~1,200 | Complete | 01 |
-| 09 Alive2 Formal Verification | ~2,000 | Very High | 07 |
+| 09 Alive2 Formal Verification | ~2,000 | Complete | 07 |
 | 10 Differential Oracle Fuzzing | ~2,500 | Very High | 01 |
 | 11 CI Integration & ARC Parity | ~1,500 | Medium | all |
 | 12 Regression Dashboard | ~1,000 | Medium | 11 |
@@ -274,7 +274,7 @@ Note: §09 (Alive2) and §10 (fuzzing) estimates include tool installation, corp
 | 06 | Protocol Builtin Verification Matrix | `section-06-protocol-builtins.md` | Complete |
 | 07 | FileCheck-Style IR Pattern Matching | `section-07-filecheck.md` | Complete |
 | 08 | Sanitizer Integration | `section-08-sanitizers.md` | Complete |
-| 09 | Alive2 Formal Verification | `section-09-alive2.md` | Not Started |
+| 09 | Alive2 Formal Verification | `section-09-alive2.md` | Complete |
 | 10 | Differential Oracle Fuzzing | `section-10-differential-fuzzing.md` | Not Started |
 | 11 | CI Integration & ARC IR Parity | `section-11-ci-integration.md` | Not Started |
 | 12 | Verification Dashboard & Regression Tracking | `section-12-regression-dashboard.md` | Not Started |

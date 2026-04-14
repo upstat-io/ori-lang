@@ -76,7 +76,7 @@ dimensions.rs, lattice/mod.rs, transfer/mod.rs
 ---
 
 ### Section 05: Contract Coherence Oracle
-**File:** `section-05-contract-oracle.md` | **Status:** Not Started
+**File:** `section-05-contract-oracle.md` | **Status:** Complete
 
 ```
 MemoryContract, ParamContract, contract coherence
@@ -91,7 +91,7 @@ contract vs realization, non-negotiable invariant
 ---
 
 ### Section 06: Protocol Builtin Verification Matrix
-**File:** `section-06-protocol-builtins.md` | **Status:** In Progress
+**File:** `section-06-protocol-builtins.md` | **Status:** Complete
 
 ```
 ProtocolBuiltin, __index, iter, __iter_next
@@ -120,7 +120,7 @@ Rust compiletest, codegen tests, ir-dump.sh
 ---
 
 ### Section 08: Sanitizer Integration
-**File:** `section-08-sanitizers.md` | **Status:** Not Started
+**File:** `section-08-sanitizers.md` | **Status:** Complete
 
 ```
 ASan, UBSan, AddressSanitizer, UndefinedBehaviorSanitizer
@@ -137,7 +137,7 @@ scripts/sanitizer-smoke.sh, scripts/build-rt-asan.sh
 ---
 
 ### Section 09: Alive2 Formal Verification
-**File:** `section-09-alive2.md` | **Status:** Not Started
+**File:** `section-09-alive2.md` | **Status:** Complete
 
 ```
 Alive2, alive-tv, translation validation, SMT

@@ -1,7 +1,7 @@
 ---
 section: "09"
 title: "Alive2 Formal Verification"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Integrate Alive2's alive-tv translation validator to formally verify that LLVM optimization passes preserve the semantics of Ori's emitted IR — running a curated subset of pure/arithmetic functions on every CI nightly build and a full sweep weekly"
 success_criteria:
@@ -18,7 +18,7 @@ inspired_by:
   - "Rust LLVM CI (rust-lang/rust .github/workflows/) — nightly verification jobs separate from PR CI"
 depends_on: ["07"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-14
 sections:
   - id: "09.1"
@@ -737,13 +737,13 @@ When all findings are triaged:
 - [x] `timeout 150 ./clippy-all.sh` green (2026-04-14)
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 09` returns 0 annotations (2026-04-14)
 - [x] All intermediate TPR checkpoint findings resolved (subsumed by 09.R — 4 iterations, 14 findings, all resolved 2026-04-13)
-- [ ] **Plan sync** — update plan metadata to reflect this section's completion:
-  - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
-  - [ ] `00-overview.md` Quick Reference table status updated for this section
-  - [ ] `00-overview.md` mission success criteria checkboxes updated
-  - [ ] `index.md` section status updated
-- [ ] `/tpr-review` passed (final, full-section)
-- [ ] `/impl-hygiene-review` passed -- AFTER `/tpr-review` is clean
-- [ ] `/improve-tooling` **section-close sweep** -- verify per-subsection retrospectives ran, add cross-cutting items.
+- [x] **Plan sync** — update plan metadata to reflect this section's completion:
+  - [x] This section's frontmatter `status` -> `complete`, subsection statuses updated
+  - [x] `00-overview.md` Quick Reference table status updated for this section (2026-04-14)
+  - [x] `00-overview.md` mission success criteria checkboxes updated (2026-04-14)
+  - [x] `index.md` section status updated (2026-04-14, also fixed stale §05/§06/§08 statuses)
+- [x] `/tpr-review` passed (final, full-section) — iteration 5: 17 findings, 12 fixed, 5 deferred to Section 11 (user accepted 2026-04-14)
+- [x] `/impl-hygiene-review` passed -- AFTER `/tpr-review` is clean (2026-04-14, zero new findings — Rust code architecturally sound, script issues caught by TPR)
+- [x] `/improve-tooling` **section-close sweep** -- all 6 per-subsection retrospectives verified (09.1-09.6). Cross-cutting pattern: portability cluster (grep -P, Windows paths) caught by TPR, not subsection retrospectives (expected — dev machine is Linux). No new cross-subsection tooling gaps.
 
 **Exit Criteria:** `diagnostics/alive2-verify.sh --corpus` passes with zero unresolved failures on the curated corpus of >=15 pure/arithmetic functions that survive `-O2` optimization. All false positives are documented in the suppression file with 9 categories and rationale. Nightly CI runs the curated corpus; weekly CI runs the full `compiler/ori_llvm/tests/codegen/` set — both within the existing `nightly-verification.yml` workflow. The `alive-tv` binary is built from a pinned commit and cached in CI. Pre-opt IR is captured AFTER module verification (producing valid IR for alive-tv) and post-opt IR is captured AFTER optimization (before emission). All capture logic lives in `oric` per phase purity. Machine-readable results in `build/alive2-results/results.json` conform to a versioned schema consumed by Sections 11 and 12. No capture logic was added to `passes/mod.rs` (438 lines, approaching limit).
