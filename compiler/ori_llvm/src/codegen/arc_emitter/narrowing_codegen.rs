@@ -106,13 +106,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Check if int elements in any collection are narrowed.
     ///
-    /// Used in iterator paths where the source collection type is not directly
-    /// available. Scans the `ReprPlan` for any collection type with narrowed int
-    /// elements. Returns the narrowed width if found.
+    /// Used in list trait operations (equals, compare, hash) and debug formatting
+    /// where the source collection index is not directly available. Scans the
+    /// `ReprPlan` for any collection type with narrowed int elements.
     ///
-    /// This is safe because (1) the pool interns types — there is at most one
-    /// `List<int>` type, and (2) sets are excluded from Phase C narrowing
-    /// (eq/hash thunks are not narrowing-aware), so only list types contribute.
+    /// LIMITATION: This is a global heuristic — it applies to ALL `List<int>` in
+    /// the function, including those created by `collect()` which may have
+    /// canonical (non-narrowed) stride. See BUG-04-072 for the collect output
+    /// boundary mismatch.
     pub(super) fn narrowed_int_collection_element_width(&self) -> Option<ori_repr::IntWidth> {
         use ori_repr::{FatRepr, IntWidth, MachineRepr};
         let plan = self.repr_plan?;
