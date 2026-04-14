@@ -19,20 +19,16 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
-- [ ] `[BUG-04-078][medium]` **set_builtins.rs sorted_keys/sorted_values builds List<T> with canonical stride instead of narrowed — same boundary mismatch class as BUG-04-077**
-  Repro: `Set<int>` sorted_keys/sorted_values produces a list with canonical i64 stride while list readers use narrowed stride. Same class as BUG-04-077 but for Set's list-producing methods.
+- [x] `[BUG-04-078][medium]` **set_builtins.rs sorted_keys/sorted_values builds List<T> with canonical stride instead of narrowed — same boundary mismatch class as BUG-04-077**
+  Resolved: OBE on 2026-04-14. Collection element narrowing (Phase C) was disabled at the repr level as part of BUG-04-077 mitigation (`ori_repr/src/narrowing/int.rs:204-208`). With narrowing disabled, all list producers (including set sorted_keys/sorted_values) and all list consumers use canonical stride — no mismatch possible. Re-enablement tracked at `plans/repr-opt/section-11-collection-spec.md:230`.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/set_builtins.rs:284`
   Found: 2026-04-14 | Source: fix-bug
-  Reviewer: codex (found during BUG-04-077 /tp-help design consensus)
-  Note: Same root cause class as BUG-04-077 — `element_store_size()` used at a storage boundary instead of `collection_elem_size()`.
 
-- [ ] `[BUG-04-077][critical]` **Collect output boundary ABI mismatch: collected List<int> has canonical i64 stride but list_traits/debug_helpers read with narrowed i8 stride**
-  Repro: `[1,2,3].iter().map((x) -> x * 1000).collect() == [1000,2000,3000]` returns false in AOT. `str([1,2,3].iter().map((x) -> x * 1000).collect())` produces wrong output. `collect()` uses `element_store_size(int)` = 8 (canonical), but `list_traits.rs` (equals/compare/hash) and `debug_helpers.rs` use `int_element_llvm_type(int)` = i8 (narrowed global heuristic). GEP advances by 1 byte instead of 8, reading wrong memory locations.
-  Subsystem: `ori_llvm` (narrowing_codegen.rs, list_traits.rs, debug_helpers.rs, iterator_consumers.rs)
+- [x] `[BUG-04-077][critical]` **Collect output boundary ABI mismatch: collected List<int> has canonical i64 stride but list_traits/debug_helpers read with narrowed i8 stride**
+  Resolved: Fixed on 2026-04-14 by disabling collection element narrowing (Phase C) at the repr level (`ori_repr/src/narrowing/int.rs:184-208`). The narrowing analysis only sees literal construction sites but `collect()` can produce computed values exceeding the narrowed range. Since all `List<int>` share one ReprPlan entry, the stride mismatch caused silent data corruption. With narrowing disabled, all list operations use canonical stride — no mismatch. Struct field and local variable narrowing unaffected. Re-enablement requires extending the narrowing analysis to account for ALL value sources (collect output, map/filter pipelines); tracked at `plans/repr-opt/section-11-collection-spec.md:230`. 7 Phase C unit tests `#[ignore = "BUG-04-077"]` await re-enablement.
+  Fix: `plans/bug-tracker/fix-BUG-04-077.md`
+  Subsystem: `ori_repr` (narrowing/int.rs), `ori_llvm` (narrowing_codegen.rs, list_traits.rs, debug_helpers.rs, iterator_consumers.rs)
   Found: 2026-04-14 | Source: tpr-review
-  Reviewer: codex (confirmed with live AOT reproducer, exit code 1). Gemini independently identified the same boundary mismatch.
-  Root cause: narrowing is per-type (all `List<int>` share one ReprPlan entry) but collect creates per-instance stride differences. Consequence of BUG-04-071 fix canonicalizing the iterator pipeline without handling the collect output boundary.
-  Note: Extends BUG-04-071 scope. Active fix section at `plans/bug-tracker/fix-BUG-04-071.md`.
 
 - [ ] `[BUG-04-075][critical→medium]` **ARC drop order: tail-expression temporaries in blocks outlive local bindings (Rust RFC 3606 class)**
   Reclassified 2026-04-14: critical→medium. Investigation reveals no observable correctness impact today — user-defined `Drop` is unimplemented (no `DerivedTrait::Drop`, no evaluator dispatch, no `@drop` in any test), so drop ordering produces no side effects. ARC ensures memory safety regardless of order. No concrete repro showing wrong behavior. Future concern when Drop is implemented.
