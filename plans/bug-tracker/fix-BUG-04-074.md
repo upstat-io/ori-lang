@@ -3,7 +3,7 @@ bug: "BUG-04-074"
 title: "AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure"
 severity: "high"
 status: in-progress
-resume_point: "Phase 2.5 Plan TPR round 4 — the round-3-revised plan needs another adversarial review after substantial architectural simplification. Round 3 run: /tmp/ori-tpr-N7XgRiDB (codex 431s, gemini 333s, 9 actionable findings — all resolved in §R Phase 2.5 Round 3). Critical round-3 architectural changes: (1) validator REDESIGNED to sweep ALL body expr_types, not just LetBindingRecord — catches non-let ambiguous expressions like [].len() standalone; (2) FxHashSet bound-vars dance REMOVED — VarState is the SSOT (per gemini's insight: generalize() mutates VarState::Generalized in-place, so pool.var_state(var_id) directly distinguishes Unbound vs Generalized); (3) Tag::Scheme special-cased BEFORE HAS_VAR fast-path because Pool::compute_flags doesn't propagate HAS_VAR through schemes (pool/mod.rs:651-652); (4) Real Pool accessor names — pool.struct_fields() returning Vec<(Name,Idx)> destructured as (_,field_ty); pool.enum_variants() returning Vec<(Name,Vec<Idx>)> with nested iteration; (5) per-child resolve_fully() at every recursive step, not just at top-level entry; (6) §3.6 broadened to a pre-codegen validation pass covering all codegen consumer surfaces (TypeInfoStore + monomorphize::encode_type), with the original TypeInfoStore debug_assert retained as defense-in-depth. Re-run command: invoke /tpr-review with objective 'Round-4 re-review of BUG-04-074 fix plan after round-3 architectural simplification. Verify: (a) the new VarState-based has_unbound_var correctly handles ALL VarState variants (Unbound/Link/Rigid/Generalized) — especially confirm Tag::Var with VarState::Link is short-circuited by resolve_fully and doesn\\'t reach the var_state check; (b) sweeping all expr_types at body exit doesn\\'t now over-emit on legitimate cases the round-2 LetBindingRecord approach narrowly avoided (e.g., transient sub-expression types in lambda bodies BEFORE generalize() propagates Generalized state to outer scope); (c) the Scheme special-case at the top of has_unbound_var correctly handles nested schemes (∀α. (α) -> ∀β. List<β>); (d) the pre-codegen validation pass in §3.6 covers all monomorphize entry points, not just encode_type — verify against the actual ori_llvm crate structure; (e) deduplication via FxHashSet<Idx> in validate_body_types is correct (no false-negative skips for distinct expressions sharing a type Idx that legitimately differ in span); (f) the new design preserves cascade suppression — multiple expressions with the same root unbound var produce ONE diagnostic, not N; (g) audit §R round-3 entries for cosmetic-vs-real claims. Strict mode — expect 3-5 findings as the architecture continues converging.' Continue /fix-bug workflow from Phase 3 (TDD) once Plan TPR is clean."
+resume_point: "Phase 2.5 Plan TPR round 5 — after round-4 integration corrections. Round 4 run: /tmp/ori-tpr-VQvihlPG (codex 450s, gemini 376s, 9 actionable + 3 informational CONFIRMATIONS — all actionable resolved, informational affirm round-3 design). Round 4 revealed NO architectural rollbacks — only integration plumbing: (a) validator signature uses ExprIndex (usize from infer/mod.rs:56) NOT ExprId; arena passed explicitly; span via arena.get_expr(ExprId::from_raw(idx as u32)).span; (b) sort by ExprIndex before iterate (FxHashMap non-deterministic); (c) §3.6 REWRITTEN — ori_llvm validates ArcFunction.var_types NOT typeck body_expr_types; split into §3.6a pre-collect-mono at compile.rs:230 + §3.6b per-function validator over arc_func.var_types/params/return_type; (d) public validator module ori_types::check::validators with lib.rs re-export (ori_llvm needs public import); (e) loop binders drop & (Vec<Idx> not &[Idx]); (f) SUPERSEDED suffixes added to round-1 §R entries; (g) round 4 emitted 3 informational confirmations affirming VarState SSOT + Tag::Scheme special-case + architectural simplification are sound. Note: the round-4 scratch dir /tmp/ori-tpr-VQvihlPG was accidentally reused by a redundant transport launch at 16:07; authoritative round-4 data preserved at /tmp/ori-tpr-VQvihlPG/merged.round4-backup.json. Re-run command: invoke /tpr-review with objective 'Round-5 re-review of BUG-04-074 fix plan after round-4 integration corrections. Verify: (a) §3.3 validator signature (pool, arena, body_expr_types: &FxHashMap<ExprIndex, Idx>, record_error: &mut dyn FnMut(TypeCheckError)) is implementable against the real InferEngine API — does engine.expr_types() return &FxHashMap<ExprIndex, Idx>? is arena available at the bodies-pass call site per check/bodies/mod.rs?; (b) sort-by-ExprIndex guarantee — ExprIndex is source-order stable per EN-3 deterministic allocation, confirm sort produces reproducible diagnostic selection; (c) §3.6a runs at compile.rs:230 in compile_all_functions (JIT path) — is there a similar pre-mono entry in the AOT path (oric/src/commands/build.rs or similar) that needs the same validator? Verify against the AOT pipeline; (d) §3.6b uses arc_func.var_types (Vec<Idx>) indexed by ArcVarId::index() per arc.md Key Types table — confirm enumerate() over Vec<Idx> gives valid (var_id, Idx) pairs; (e) closure pattern &mut dyn FnMut(TypeCheckError) — is there a simpler collect-errors-return-Vec API used elsewhere in ori_types?; (f) public module location check/validators/mod.rs — compare to existing public surfaces like check/exports.rs or type_error/ to pick the most idiomatic location; (g) round-1 §R supersession annotations preserve full audit trail and are accurate; (h) verify ALL 9 round-4 fixes are resolved with actual plan edits (not cosmetic). Strict mode — round 5 should find 0-3 findings as convergence accelerates.' Continue /fix-bug workflow from Phase 3 (TDD) once Plan TPR is clean."
 goal: "Empty list literals (`[]`) with element types inferred solely from downstream usage compile cleanly through AOT, with `resolve_fully()` producing concrete element types for codegen. Ambiguous empty-list bindings emit spec-mandated E2005 (14-expressions.md:1224-1228) at type check time, not codegen."
 success_criteria:
   - "The exact repro `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` compiles via `ori build` and runs successfully"
@@ -343,11 +343,21 @@ if should_generalize(arena, *init) {
 
 **Correct round-3 approach**: validate at the END of each Bodies-group pass (passes 2–5 per `typeck.md CK-1`) by sweeping ALL expression types in the body's `expr_types` map. Use `pool.var_state(var_id)` to classify each `Tag::Var` encountered. By body exit, all in-scope unification AND generalization have fired — VarState correctly reflects which vars are bound.
 
-**Implementation shape (round 3)**:
+**Implementation shape (ROUND 4 — corrected against real InferEngine API)**:
 
-No side-table is needed. At the end of each Bodies-group pass (in `check/bodies/mod.rs` functions `check_function_bodies`, `check_test_bodies`, `check_impl_bodies`, `check_def_impl_bodies`), after the body's `infer_*` call returns but BEFORE releasing the per-body context, invoke:
+No side-table is needed. At the end of each Bodies-group pass (in `check/bodies/mod.rs` functions `check_function_bodies`, `check_test_bodies`, `check_impl_bodies`, `check_def_impl_bodies`), after the body's `infer_*` call returns but BEFORE releasing the per-body context, invoke `validate_body_types`. The helper lives in a PUBLIC `ori_types` validator module (not the private `infer/expr/`) so that `ori_llvm`'s pre-codegen pass (§3.6) can share the `has_unbound_var` helper.
+
+**Module location** (REVISED round 4 per TPR-04-002-codex-r4): place the validator helpers in `compiler/ori_types/src/check/validators/mod.rs` (new module) with a `pub` re-export through `ori_types/src/lib.rs`. The shipped `lib.rs` already re-exports selected top-level items (per the crate layout); add `pub use check::validators::{has_unbound_var, OffendingVar};` so `ori_llvm` can import the helper directly.
 
 ```rust
+// In compiler/ori_types/src/check/validators/mod.rs (NEW public module):
+
+use rustc_hash::{FxHashMap, FxHashSet};
+use ori_ir::{ExprArena, ExprId, Span};
+use crate::{Idx, Pool, Tag, TypeFlags, VarState};
+use crate::infer::ExprIndex;  // re-exported; currently pub type ExprIndex = usize
+use crate::type_error::check_error::TypeCheckError;
+
 /// Sweep ALL expr_types for the body and emit E2005 for any expression
 /// whose final type carries an unresolved Tag::Var (VarState::Unbound)
 /// after all in-body unification AND generalization have fired.
@@ -362,33 +372,54 @@ No side-table is needed. At the end of each Bodies-group pass (in `check/bodies/
 /// LetBindingRecord side-table missed (TPR-04-005-codex-r3 +
 /// TPR-04-002-gemini-r3).
 ///
+/// Determinism: iterate sorted entries to ensure a stable diagnostic
+/// selection when multiple expressions share an ambiguous type Idx.
+/// FxHashMap iteration is non-deterministic (impl-hygiene.md §Pass
+/// determinism); sorting by ExprIndex fixes which expression's span
+/// gets the diagnostic (TPR-04-004-codex-r4 + TPR-04-002-gemini-r4).
+///
 /// Cascade suppression: skip when the expression's resolved type carries
 /// TypeFlags::HAS_ERROR. Per typeck.md UN-4, Tag::Error unifies with
 /// anything silently; emitting a second diagnostic violates recovery
 /// monotonicity. Per-type local gate, NOT module-wide engine.has_errors().
 ///
 /// Fix: BUG-04-074
-pub(crate) fn validate_body_types(engine: &mut InferEngine<'_>, body_expr_types: &FxHashMap<ExprId, Idx>) {
-    // Deduplicate: many expressions share the same type Idx (e.g., every
-    // int literal hits Idx::INT). Dedupe by Idx to avoid emitting N
+pub fn validate_body_types(
+    pool: &Pool,
+    arena: &ExprArena,
+    body_expr_types: &FxHashMap<ExprIndex, Idx>,
+    record_error: &mut dyn FnMut(TypeCheckError),
+) {
+    // Deduplicate by resolved Idx: many expressions share the same type
+    // (e.g., every int literal hits Idx::INT). Dedupe avoids emitting N
     // identical diagnostics.
     let mut seen: FxHashSet<Idx> = FxHashSet::default();
 
-    for (expr_id, &raw_ty) in body_expr_types.iter() {
-        let resolved = engine.pool().resolve_fully(raw_ty);
+    // Collect sorted entries for DETERMINISTIC diagnostic selection.
+    // FxHashMap iteration order is non-deterministic — sorting by the
+    // source-stable ExprIndex key ensures the FIRST expression (lowest
+    // ExprIndex) receives the diagnostic every run.
+    let mut entries: Vec<(ExprIndex, Idx)> =
+        body_expr_types.iter().map(|(&k, &v)| (k, v)).collect();
+    entries.sort_by_key(|&(idx, _)| idx);
+
+    for (expr_index, raw_ty) in entries {
+        let resolved = pool.resolve_fully(raw_ty);
 
         if !seen.insert(resolved) {
             continue;
         }
 
         // Cascade suppression: skip if this expression's type is already poisoned.
-        if engine.pool().flags(resolved).contains(TypeFlags::HAS_ERROR) {
+        if pool.flags(resolved).contains(TypeFlags::HAS_ERROR) {
             continue;
         }
 
-        if let Some(offender) = has_unbound_var(engine.pool(), resolved) {
-            let span = engine.expr_span(*expr_id);
-            engine.push_error(TypeCheckError::ambiguous_type(
+        if let Some(offender) = has_unbound_var(pool, resolved) {
+            // ExprIndex (usize) → ExprId (u32 newtype) for arena lookup.
+            let expr_id = ExprId::from_raw(expr_index as u32);
+            let span = arena.get_expr(expr_id).span;
+            record_error(TypeCheckError::ambiguous_type(
                 span,
                 offender.var_id,
                 "expression type".to_string(),
@@ -397,21 +428,24 @@ pub(crate) fn validate_body_types(engine: &mut InferEngine<'_>, body_expr_types:
     }
 }
 
-pub(crate) struct OffendingVar {
+pub struct OffendingVar {
     pub var_id: u32,
 }
 
 /// Recursively find the first unresolved Tag::Var in `ty` whose VarState is
 /// VarState::Unbound (not Linked, Rigid, or Generalized).
 ///
-/// Round-3 design: NO bound-vars side table. VarState IS the SSOT for binding
-/// status — generalize() mutates VarState in-place from Unbound to Generalized
-/// when constructing a scheme (generalization.rs:47-54), so we don't need
-/// scheme push/pop. Just inspect var_state directly.
+/// Round-3 design preserved: NO bound-vars side table. VarState IS the SSOT
+/// for binding status — generalize() mutates VarState in-place from Unbound
+/// to Generalized when constructing a scheme (generalization.rs:47-54).
+/// Just inspect var_state directly.
 ///
-/// CRITICAL: each recursive call resolves its child via pool.resolve_fully()
-/// before classifying — children may have their own VarState::Link chains.
-fn has_unbound_var(pool: &Pool, ty: Idx) -> Option<OffendingVar> {
+/// Round-4 corrections:
+/// - Each recursive call resolves its child via pool.resolve_fully() —
+///   children may have their own VarState::Link chains.
+/// - Real Pool accessor names (struct_fields, enum_variants) with Vec<Idx>
+///   loop binders (no `&` prefix — accessors return owned Vec, not slices).
+pub fn has_unbound_var(pool: &Pool, ty: Idx) -> Option<OffendingVar> {
     // Schemes don't propagate HAS_VAR (Pool::compute_flags maps Tag::Scheme to
     // IS_SCHEME only — pool/mod.rs:651-652). So we must NOT trust the HAS_VAR
     // fast-path for schemes; recurse into the body unconditionally.
@@ -457,10 +491,11 @@ fn has_unbound_var(pool: &Pool, ty: Idx) -> Option<OffendingVar> {
             has_unbound_var(pool, pool.resolve_fully(pool.result_ok(ty)))
                 .or_else(|| has_unbound_var(pool, pool.resolve_fully(pool.result_err(ty))))
         }
-        // Complex types — use REAL Pool accessor names (verified at
-        // pool/accessors.rs).
+        // Complex types — real Pool accessor names.
+        // function_params returns Vec<Idx> (not &[Idx]); drop the `&` in the
+        // loop binder.
         Tag::Function => {
-            for &param in pool.function_params(ty) {
+            for param in pool.function_params(ty) {
                 if let Some(off) = has_unbound_var(pool, pool.resolve_fully(param)) {
                     return Some(off);
                 }
@@ -468,7 +503,7 @@ fn has_unbound_var(pool: &Pool, ty: Idx) -> Option<OffendingVar> {
             has_unbound_var(pool, pool.resolve_fully(pool.function_return(ty)))
         }
         Tag::Tuple => {
-            for &elem in pool.tuple_elems(ty) {
+            for elem in pool.tuple_elems(ty) {
                 if let Some(off) = has_unbound_var(pool, pool.resolve_fully(elem)) {
                     return Some(off);
                 }
@@ -496,7 +531,7 @@ fn has_unbound_var(pool: &Pool, ty: Idx) -> Option<OffendingVar> {
             None
         }
         Tag::Applied => {
-            for &arg in pool.applied_args(ty) {
+            for arg in pool.applied_args(ty) {
                 if let Some(off) = has_unbound_var(pool, pool.resolve_fully(arg)) {
                     return Some(off);
                 }
@@ -517,30 +552,63 @@ fn has_unbound_var(pool: &Pool, ty: Idx) -> Option<OffendingVar> {
 }
 ```
 
-**Key differences from round-2 pseudocode**:
+**Call-site shape** (in `check/bodies/mod.rs`):
 
-1. **`LetBindingRecord` side-table is GONE.** The body-exit sweep walks ALL `expr_types`, not just let bindings. This catches non-let ambiguous expressions like `[].len()` standalone (round-2's gap per [TPR-04-005-codex-r3] + [TPR-04-002-gemini-r3]).
-2. **`FxHashSet<u32>` push/pop is GONE.** `pool.var_state(var_id)` IS the SSOT for binding status. After `generalize()` runs (which it does for every let-binding by body exit), bound vars carry `VarState::Generalized` in-place — direct inspection is sufficient. Per [TPR-04-001-gemini-r3].
-3. **`pool.resolve_fully()` at every recursive step.** Not just at the top-level. Per-child resolution makes the walker robust against per-child Link chains. Per [TPR-04-001-codex-r3].
-4. **`Tag::Scheme` special-cased BEFORE the HAS_VAR fast-path.** Because `Pool::compute_flags()` doesn't propagate HAS_VAR through schemes (`pool/mod.rs:651-652`), the early-exit would silently skip schemes. Schemes always recurse into their body. Per [TPR-04-003-codex-r3].
-5. **Real Pool accessor names.** `pool.struct_fields(ty)` returning `Vec<(Name, Idx)>` (destructured); `pool.enum_variants(ty)` returning `Vec<(Name, Vec<Idx>)>` (nested iteration). NOT the fictional `struct_field_types` / `enum_variant_payloads`. Per [TPR-04-002-codex-r3] + [TPR-04-001-gemini-r3-naming].
-6. **Lambda polymorphism is preserved by construction.** Round-2 worried that sweeping all `expr_types` would regress polymorphism. Round 3 obviates that concern: by body exit, `generalize()` has run, so every polymorphic-lambda's free vars carry `VarState::Generalized`. The VarState check returns `None` for them. No false positives on `let id = x -> x; id(1); id("hello")`.
-7. **Cascade gate tightened (preserved from round 2).** Per-resolved-type `TypeFlags::HAS_ERROR` only. No module-wide `engine.has_errors()`.
-8. **Deduplication via `seen: FxHashSet<Idx>`.** Many expressions share the same `Idx` (e.g., every `int` literal). Deduplicate to avoid emitting N identical diagnostics for the same type.
+```rust
+// In check_function_bodies / check_test_bodies / check_impl_bodies /
+// check_def_impl_bodies, after the body's infer_* call returns:
 
-**Helper module location** (preserved):
-- Place `should_generalize` (§3.1) + `validate_body_types` + `has_unbound_var` + `OffendingVar` in a new module `compiler/ori_types/src/infer/expr/generalization_policy.rs`.
-- Use `pub(crate)` visibility so `infer_block`, `infer_let`, `sequences.rs`, and `check/bodies/mod.rs` can all call across sibling module boundaries.
+crate::check::validators::validate_body_types(
+    engine.pool(),
+    arena,
+    engine.expr_types(),
+    &mut |err| engine.push_error(err),
+);
+```
 
-**Pool accessor verification** — VERIFIED in round 3:
+The `InferEngine` exposes `pool()`, `expr_types()` (returning `&FxHashMap<ExprIndex, Idx>`), and `push_error(TypeCheckError)`. The closure form `&mut dyn FnMut(TypeCheckError)` is used because `validate_body_types` must not hold a mutable borrow of the full engine while walking the pool (which is inside the engine). The closure captures `engine` and calls `push_error` only when an error is produced.
+
+**Key differences across all rounds**:
+
+*From round-2 pseudocode (removed in round 3)*:
+1. `LetBindingRecord` side-table — GONE. Sweeps ALL `expr_types`; catches non-let ambiguities.
+2. `FxHashSet<u32>` push/pop for scheme vars — GONE. `pool.var_state(var_id)` IS the SSOT.
+3. Top-level-only `resolve_fully` — REPLACED by per-child `resolve_fully` at every recursive step.
+4. Fictional `pool.struct_field_types` / `pool.enum_variant_payloads` — REPLACED with real accessors.
+
+*New in round 4 (corrections to round-3 design)*:
+5. **Signature: `FxHashMap<ExprIndex, Idx>`, NOT `FxHashMap<ExprId, Idx>`.** `ExprIndex = usize` per `infer/mod.rs:56`. Per [TPR-04-003-codex-r4] + [TPR-04-001-gemini-r4].
+6. **Span retrieval via `arena.get_expr(ExprId::from_raw(idx as u32)).span`**, NOT via a non-existent `engine.expr_span()`. The validator takes `arena: &ExprArena` as a parameter. Per [TPR-04-003-codex-r4] + [TPR-04-001-gemini-r4].
+7. **Sort entries by `ExprIndex` before iteration** for DETERMINISM. `FxHashMap` iteration order is non-deterministic per `impl-hygiene.md §Pass determinism`; sorting ensures the lowest-ExprIndex (earliest-in-source) expression gets the diagnostic every run. Per [TPR-04-004-codex-r4] + [TPR-04-002-gemini-r4].
+8. **Loop binder `for param in ...`**, NOT `for &param in ...`. `pool.function_params(ty)`, `pool.tuple_elems(ty)`, `pool.applied_args(ty)` return owned `Vec<Idx>`, not slices. `&param` would be a compilation error. Per [TPR-04-004-gemini-r4].
+9. **Public validator module, NOT private `infer/expr/generalization_policy.rs`.** The helper moves to `compiler/ori_types/src/check/validators/mod.rs` with `pub` re-export through `lib.rs` so `ori_llvm` can consume it for pre-codegen validation (§3.6). Per [TPR-04-002-codex-r4].
+10. **Call-site via closure `&mut dyn FnMut(TypeCheckError)`**, NOT a direct `engine.push_error()` inside the validator. The validator must not hold a mutable borrow on the full engine while walking the pool; closure-based error recording sidesteps the borrow constraint.
+
+*Preserved architectural properties*:
+- Lambda polymorphism is preserved by construction (VarState::Generalized after `generalize()` runs).
+- Cascade gate: per-resolved-type `TypeFlags::HAS_ERROR` only; no module-wide gate.
+- Deduplication via `seen: FxHashSet<Idx>` to avoid N diagnostics for the same ambiguous type.
+
+**Helper module location** (REVISED round 4):
+- Place `validate_body_types` + `has_unbound_var` + `OffendingVar` in `compiler/ori_types/src/check/validators/mod.rs` (new module).
+- `should_generalize` (§3.1) stays in `compiler/ori_types/src/infer/expr/generalization_policy.rs` — it's AST-based and internal to the inference layer; no downstream consumer outside `ori_types`.
+- Add `pub use check::validators::{has_unbound_var, OffendingVar};` to `compiler/ori_types/src/lib.rs` so `ori_llvm` can import for §3.6.
+
+**Pool accessor verification** — VERIFIED IN ROUND 3 or EARLIER:
 - `pool.resolve_fully(idx) -> Idx` — `pool/accessors.rs:412-491`
 - `pool.struct_fields(idx) -> Vec<(Name, Idx)>` — `pool/accessors.rs:538-551`
 - `pool.enum_variants(idx) -> Vec<(Name, Vec<Idx>)>` — `pool/accessors.rs:606-629`
 - `pool.var_state(var_id) -> &VarState` — referenced consistently across `unify/`, `pool/`, `infer/`
-- `pool.scheme_body(idx) -> Idx`, `pool.scheme_vars(idx) -> &[u32]` — round-2 verification (must reconfirm in implementation)
-- `pool.function_params(idx)`, `pool.function_return(idx)`, `pool.tuple_elems(idx)`, `pool.applied_args(idx)`, `pool.map_key(idx)`, `pool.map_value(idx)`, `pool.result_ok(idx)`, `pool.result_err(idx)` — must be confirmed during Phase 3 TDD via `scripts/intel-query.sh symbols "<name>" --repo ori`. If any are misnamed (round 3 caught two — `struct_field_types` and `enum_variant_payloads`), correct in the same commit.
 
-If any accessor is missing AND demonstrably needed by the typed-IR layer per `types.md TL-2`, add it as a thin wrapper with a `#[cfg(test)]` unit test in `ori_types/src/pool/tests.rs`. Adding a missing typed accessor is NOT scope creep — it's the natural completion of the `types.md TL-2` contract that this fix's correctness depends on.
+VERIFICATION PENDING at implementation time (confirm via `scripts/intel-query.sh symbols "<name>" --repo ori` in Phase 3):
+- `pool.scheme_body(idx) -> Idx`, `pool.scheme_vars(idx) -> &[u32]`
+- `pool.function_params(idx) -> Vec<Idx>`, `pool.function_return(idx) -> Idx`
+- `pool.tuple_elems(idx) -> Vec<Idx>`
+- `pool.applied_args(idx) -> Vec<Idx>`
+- `pool.map_key(idx) -> Idx`, `pool.map_value(idx) -> Idx`
+- `pool.result_ok(idx) -> Idx`, `pool.result_err(idx) -> Idx`
+
+Round 3 caught `struct_field_types` / `enum_variant_payloads` as fictional; round 4 must verify the remaining accessors before implementation. If any is missing OR has a different signature than assumed, either correct §3.3 or add the missing accessor as a thin wrapper with a `#[cfg(test)]` unit test in `ori_types/src/pool/tests.rs`. Missing accessors are in-scope for this fix — the natural completion of the `types.md TL-2` contract.
 
 ### 3.4 Test updates (broadened per TPR-04-005-codex)
 
@@ -558,61 +626,140 @@ The three let-binding sites (`infer_block`, `infer_let`, `sequences.rs`) have du
 **Concrete tracking artifact** (required per CLAUDE.md "future improvement" rule — must not be a nebulous deferral):
 - [ ] Action: file `BUG-04-{next}` via `/add-bug` at close-out of BUG-04-074 with title "Consolidate let-binding inference across infer_block/infer_let/sequences.rs into shared helper" and subsystem `ori_types`. Severity: `low` (code hygiene, not correctness).
 
-### 3.6 Consumer-side invariant check at LLVM codegen entry (REVISED round 3 — per TPR-04-004-codex-r3)
+### 3.6 Pre-codegen invariant validation (REVISED round 4 — per TPR-04-003-gemini-r4 + TPR-04-001-codex-r4)
 
-Round-2 placed the invariant check ONLY in `TypeInfoStore::get_or_compute_type_info` at `compiler/ori_llvm/src/codegen/type_info/store.rs:341`. Round-3 surfaced that other codegen consumers (notably `monomorphize::encode_type()` in `compiler/ori_llvm/src/monomorphize/`) read `Pool` types directly WITHOUT going through `TypeInfoStore`. A `Tag::Var` could reach those direct-read paths and silently miscompile.
+Round-2 placed the check in `TypeInfoStore::get_or_compute_type_info`. Round-3 broadened to a pre-codegen pass using `body_expr_types`. **Round-4 caught both as architecturally wrong**:
 
-**Round-3 design**: a single pre-codegen validation pass that walks every type reachable from a function's signature and body BEFORE LLVM emission begins for that function. The pass uses the same `has_unbound_var` helper from §3.3 to ensure consistency between typeck and codegen on what counts as "resolved." The TypeInfoStore-level `debug_assert!` is retained as defense in depth.
+1. **`ori_llvm` does NOT have access to typeck AST structures** ([TPR-04-003-gemini-r4]). The ARC pipeline consumes `ori_arc::ArcFunction`, which stores per-variable types in `var_types: Vec<Idx>` (see `ori_arc/src/ir/mod.rs:375-387`). The caller-typecheck `expr_types` map is gone by the time codegen runs — it was in `InferEngine`, not threaded into `ArcFunction`. The round-3 validator signature (`body_expr_types: &FxHashMap<ExprId, Idx>`) is unimplementable as written.
+
+2. **Placement at `FunctionCompiler::compile` is TOO LATE** ([TPR-04-001-codex-r4]). The JIT pipeline calls `collect_mono_functions()` at `compiler/ori_llvm/src/evaluator/compile.rs:230-243` BEFORE any `FunctionCompiler` is constructed. `collect_mono_functions` walks mono instances and their type arguments directly. A Tag::Var in a mono instance's type args would reach name mangling and LLVM type construction before any per-function validator runs.
+
+**Round-4 design**: split into two validation points, both using the same `has_unbound_var` helper from §3.3 (now publicly exported from `ori_types::check::validators`):
+
+**3.6a — Pre-collect-mono validation (in `compile_all_functions`, BEFORE `collect_mono_functions`)**:
 
 ```rust
-// In ori_llvm at the per-function codegen entry (e.g., FunctionCompiler::compile
-// or equivalent), BEFORE any LLVM type construction or instruction emission:
+// In compiler/ori_llvm/src/evaluator/compile.rs, immediately before the
+// collect_mono_functions call at line 230:
 
 #[cfg(debug_assertions)]
-fn validate_function_types_resolved(pool: &Pool, sig: &FunctionSig, body_expr_types: &FxHashMap<ExprId, Idx>) {
-    use ori_types::infer::expr::generalization_policy::has_unbound_var;
+validate_mono_inputs_resolved(self.pool, mono_instances, function_sigs);
 
-    // Validate signature.
-    for &param_ty in &sig.param_types {
-        let resolved = pool.resolve_fully(param_ty);
-        if let Some(off) = has_unbound_var(pool, resolved) {
-            panic!(
-                "Tag::Var reached LLVM codegen in function signature — typeck.md PC-2 violation. \
-                 fn={:?}, param_ty={:?}, var_id={}",
-                sig.name, resolved, off.var_id,
-            );
+let mut mono_functions = crate::monomorphize::collect_mono_functions(
+    mono_instances, function_sigs, interner, self.pool,
+);
+
+// ...
+
+#[cfg(debug_assertions)]
+fn validate_mono_inputs_resolved(
+    pool: &Pool,
+    mono_instances: &[MonoInstance],
+    function_sigs: &FunctionSigMap,
+) {
+    use ori_types::check::validators::has_unbound_var;
+
+    // Every monomorphic instance's type arguments must be fully resolved —
+    // they drive name mangling and LLVM type construction. A Tag::Var here
+    // produces poisoned mangled names that silently alias unrelated types.
+    for inst in mono_instances {
+        for &ty_arg in &inst.type_args {
+            let resolved = pool.resolve_fully(ty_arg);
+            if let Some(off) = has_unbound_var(pool, resolved) {
+                panic!(
+                    "Tag::Var reached LLVM monomorphization — typeck.md PC-2 violation. \
+                     mono_instance={:?}, ty_arg={:?}, var_id={}",
+                    inst, resolved, off.var_id,
+                );
+            }
         }
     }
-    let return_resolved = pool.resolve_fully(sig.return_type);
-    if let Some(off) = has_unbound_var(pool, return_resolved) {
-        panic!(
-            "Tag::Var reached LLVM codegen in return type — typeck.md PC-2 violation. \
-             fn={:?}, return_ty={:?}, var_id={}",
-            sig.name, return_resolved, off.var_id,
-        );
-    }
 
-    // Validate body expr types.
-    for (expr_id, &raw_ty) in body_expr_types.iter() {
-        let resolved = pool.resolve_fully(raw_ty);
-        if let Some(off) = has_unbound_var(pool, resolved) {
+    // Every function signature type must be fully resolved — signatures are
+    // consumed by collect_mono_functions → mangle_mono_name and by ABI
+    // classification, both of which require concrete types.
+    for (name, sig) in function_sigs.iter() {
+        for &param_ty in &sig.param_types {
+            let resolved = pool.resolve_fully(param_ty);
+            if let Some(off) = has_unbound_var(pool, resolved) {
+                panic!(
+                    "Tag::Var in function signature reached monomorphization — typeck.md PC-2 violation. \
+                     fn={:?}, param_ty={:?}, var_id={}",
+                    name, resolved, off.var_id,
+                );
+            }
+        }
+        let return_resolved = pool.resolve_fully(sig.return_type);
+        if let Some(off) = has_unbound_var(pool, return_resolved) {
             panic!(
-                "Tag::Var reached LLVM codegen in body — typeck.md PC-2 violation. \
-                 fn={:?}, expr={:?}, ty={:?}, var_id={}",
-                sig.name, expr_id, resolved, off.var_id,
+                "Tag::Var in function return type reached monomorphization — typeck.md PC-2 violation. \
+                 fn={:?}, return_ty={:?}, var_id={}",
+                name, return_resolved, off.var_id,
             );
         }
     }
 }
 ```
 
-The validation runs ONCE per function at codegen entry, BEFORE any IR emission. Cost is bounded: O(function-size) per function, in debug builds only. Release builds skip it entirely (`#[cfg(debug_assertions)]`).
+**3.6b — Per-function ArcFunction validation (BEFORE `FunctionCompiler::compile` runs for each function)**:
 
-**Defense-in-depth retained**: the per-call-site `debug_assert!` at `TypeInfoStore::get_or_compute_type_info` (round-2 location) ALSO stays. Two layers catch different failure modes:
-- Pre-codegen pass catches Tag::Var leaks from typeck across ALL codegen consumer surfaces, in one early failure point.
-- TypeInfoStore-local check catches any future codegen consumer that incorrectly synthesizes a Tag::Var DURING codegen (e.g., a future bug in monomorphization).
+```rust
+// In the per-function compilation loop — either at the top of
+// FunctionCompiler::compile(&arc_func) or just before it's invoked.
+// Uses arc_func.var_types (Vec<Idx>) — the ARC IR's SSOT for per-variable
+// types, NOT the typeck body_expr_types map which is not accessible here.
 
-The existing release-mode `TypeInfo::Error` return path in TypeInfoStore is also retained as a final-resort production safety net. The combined defense ensures: in debug builds, leaks crash loudly at the earliest point; in release builds, leaks fail gracefully with `TypeInfo::Error` rather than generating wrong LLVM IR.
+#[cfg(debug_assertions)]
+fn validate_arc_function_types_resolved(pool: &Pool, arc_func: &ArcFunction) {
+    use ori_types::check::validators::has_unbound_var;
+
+    // arc_func.var_types is indexed by ArcVarId::index() and contains the
+    // resolved Idx for every variable in the function body. ArcFunction is
+    // produced AFTER typeck, so if the typeck→ARC pipeline is sound these
+    // are all fully resolved. The debug_assert catches typeck bugs that
+    // let a Var slip through.
+    for (var_id, &raw_ty) in arc_func.var_types.iter().enumerate() {
+        let resolved = pool.resolve_fully(raw_ty);
+        if let Some(off) = has_unbound_var(pool, resolved) {
+            panic!(
+                "Tag::Var reached LLVM codegen in ArcFunction body — typeck.md PC-2 violation. \
+                 fn={:?}, var_id={}, ty={:?}, ambiguous_var_id={}",
+                arc_func.name, var_id, resolved, off.var_id,
+            );
+        }
+    }
+
+    // Validate signature params and return as well — defense-in-depth
+    // overlap with 3.6a catches any regression in the collect_mono path.
+    for param in &arc_func.params {
+        let resolved = pool.resolve_fully(param.ty);
+        if let Some(off) = has_unbound_var(pool, resolved) {
+            panic!(
+                "Tag::Var in ArcFunction param — typeck.md PC-2 violation. \
+                 fn={:?}, param_ty={:?}, var_id={}",
+                arc_func.name, resolved, off.var_id,
+            );
+        }
+    }
+    let return_resolved = pool.resolve_fully(arc_func.return_type);
+    if let Some(off) = has_unbound_var(pool, return_resolved) {
+        panic!(
+            "Tag::Var in ArcFunction return type — typeck.md PC-2 violation. \
+             fn={:?}, return_ty={:?}, var_id={}",
+            arc_func.name, return_resolved, off.var_id,
+        );
+    }
+}
+```
+
+Cost is bounded: O(function-size) per function, in debug builds only. Release builds skip both validators entirely (`#[cfg(debug_assertions)]`).
+
+**Defense-in-depth retained**: the per-call-site `debug_assert!` at `TypeInfoStore::get_or_compute_type_info` (round-2 location) ALSO stays. Three layers now catch different failure modes:
+- **3.6a** catches Tag::Var leaks at the monomorphization input boundary (earliest possible failure point).
+- **3.6b** catches Tag::Var leaks in ArcFunction body variable types (per-function failure, pinpoints offending function).
+- **TypeInfoStore-local check** catches any future codegen consumer that synthesizes a Tag::Var DURING codegen (future-bug defense).
+
+The existing release-mode `TypeInfo::Error` return path in TypeInfoStore is also retained as a final-resort production safety net. In debug builds, leaks crash loudly at the earliest of the three points they can be detected; in release builds, leaks fail gracefully with `TypeInfo::Error` rather than generating wrong LLVM IR.
 
 ### 3.7 Implementation order
 
@@ -889,6 +1036,82 @@ The round-3 findings are not patches — they reveal that round-2's design had m
 6. **§3.6 broadened** to a pre-codegen validation pass covering all codegen consumer surfaces, not just `TypeInfoStore`.
 
 7. **§R historical entries marked superseded** where round-2/3 changed the behavior they describe.
+
+### Phase 2.5 — Plan TPR Round 4 (2026-04-14)
+
+Plan TPR round 4 run `/tmp/ori-tpr-VQvihlPG`. Codex walltime 450s (213 events, 11643-byte envelope). Gemini walltime 376s (155 events, 5006-byte envelope). ASYMMETRY MODERATE (bytes 12.1x codex narration overhead; walltime 1.2x LOW; events 1.4x LOW). **12 total findings: 9 actionable + 3 informational CONFIRMATIONS** — round 4's most important signal is the appearance of informational findings affirming round-3's architectural design. No architectural rollbacks required; all actionable findings are integration-level (API name corrections, determinism fix, placement corrections, module visibility, span retrieval API).
+
+**Informational confirmations** (round-3 design held up under adversarial review):
+- `[TPR-04-005-gemini-r4][informational]` — "VarState SSOT design is fundamentally sound and correctly models generalization" — verified against `generalization.rs:47-54`.
+- `[TPR-04-006-gemini-r4][informational]` — "Tag::Scheme bypass of HAS_VAR early-exit is correct" — verified against `pool/mod.rs:651-652`.
+- `[TPR-04-006-codex-r4][informational]` — "Keep the round-3 VarState simplification ... No semantic rollback is needed" — verified against `generalization.rs:29-58`.
+
+**Actionable findings** (all resolved in this commit via §3.3 + §3.6 rewrites):
+
+- [x] `[TPR-04-003-codex-r4][high]` + `[TPR-04-001-gemini-r4][high]` `plans/bug-tracker/fix-BUG-04-074.md:371,320` — Rewrite `validate_body_types` against the actual `InferEngine` API (content-agreement finding from both reviewers).
+  Resolved: §3.3 rewritten on 2026-04-14. Validator signature changed to `(pool: &Pool, arena: &ExprArena, body_expr_types: &FxHashMap<ExprIndex, Idx>, record_error: &mut dyn FnMut(TypeCheckError))`. Span retrieval uses `arena.get_expr(ExprId::from_raw(expr_index as u32)).span`. No `engine.expr_span()` call. `InferEngine` exposes `pool()`, `expr_types()`, and `push_error()`; the closure pattern sidesteps borrow constraints between the validator's pool walk and the engine's error recording.
+  Evidence: `compiler/ori_types/src/infer/mod.rs:52-56` defines `pub type ExprIndex = usize;` (NOT `ori_ir::ExprId`). `compiler/ori_types/src/infer/mod.rs:84-85` stores `expr_types: FxHashMap<ExprIndex, Idx>`. `compiler/ori_types/src/infer/context.rs:77` shows `InferEngine` holds no `ExprArena` reference and has no `expr_span()` method.
+  Required plan update: Change signature + call path per above. Done.
+  Basis: fresh_verification. Confidence: high.
+
+- [x] `[TPR-04-004-codex-r4][low]` + `[TPR-04-002-gemini-r4][high]` `plans/bug-tracker/fix-BUG-04-074.md:377,323` — Sort expr_types before deduping for DETERMINISM (content-agreement finding).
+  Resolved: §3.3 rewritten on 2026-04-14. `validate_body_types` now collects entries into `Vec<(ExprIndex, Idx)>` and sorts by `ExprIndex` before iteration. The `seen: FxHashSet<Idx>` dedup is applied AFTER sorting, so the lowest-ExprIndex (earliest-in-source) expression with an ambiguous type always wins the diagnostic slot deterministically.
+  Evidence: `FxHashMap` iteration order is non-deterministic per `impl-hygiene.md §Pass Composition — Pass determinism`. Without sort, which expression's span receives the E2005 diagnostic varies across compilation runs — a determinism violation.
+  Required plan update: Insert sort step before iteration. Done.
+  Basis: direct_file_inspection. Confidence: high.
+
+- [x] `[TPR-04-003-gemini-r4][high]` `plans/bug-tracker/fix-BUG-04-074.md:570` — LLVM codegen lacks `body_expr_types`; must validate `ArcFunction.var_types` instead.
+  Resolved: §3.6 COMPLETELY REWRITTEN on 2026-04-14. New design has TWO validation points:
+  - **§3.6a**: pre-collect-mono validation walks `mono_instances` type args + `function_sigs` param/return types at `compiler/ori_llvm/src/evaluator/compile.rs:230` (before `collect_mono_functions` runs).
+  - **§3.6b**: per-function validation walks `arc_func.var_types: Vec<Idx>`, `arc_func.params`, and `arc_func.return_type` at the `FunctionCompiler::compile` entry.
+  NEITHER uses `body_expr_types` — ori_llvm has no access to typeck AST structures.
+  Evidence: `compiler/ori_arc/src/ir/mod.rs:375-387` defines `ArcFunction` with `var_types: Vec<Idx>` at line 387. ori_llvm's codegen operates on ArcFunction, not InferEngine's expr_types.
+  Required plan update: Replace `body_expr_types` parameter with ArcFunction traversal. Done.
+  Basis: fresh_verification. Confidence: high.
+
+- [x] `[TPR-04-001-codex-r4][high]` `plans/bug-tracker/fix-BUG-04-074.md:565` — Move the LLVM validator ahead of monomorphization.
+  Resolved: §3.6 split into §3.6a (pre-collect-mono) + §3.6b (per-function) on 2026-04-14. §3.6a runs immediately BEFORE `collect_mono_functions()` at `compile.rs:230`, catching Tag::Var leaks in the monomorphization inputs (type args + signatures) at the earliest possible failure point. §3.6b runs per-function as a defense-in-depth layer.
+  Evidence: `compiler/ori_llvm/src/evaluator/compile.rs:230-243` calls `crate::monomorphize::collect_mono_functions(mono_instances, function_sigs, interner, self.pool)` BEFORE any `FunctionCompiler` is constructed (line 243). A Tag::Var in a mono instance's type args would reach name mangling before any per-function validator could catch it.
+  Required plan update: Add pre-mono validation step. Done.
+  Basis: direct_file_inspection. Confidence: high.
+
+- [x] `[TPR-04-002-codex-r4][medium]` `plans/bug-tracker/fix-BUG-04-074.md:572` — Create a public validator boundary; current `ori_types::infer::expr::generalization_policy` is private.
+  Resolved: §3.3 helper module location REVISED on 2026-04-14. Helpers (`validate_body_types`, `has_unbound_var`, `OffendingVar`) moved to NEW public module `compiler/ori_types/src/check/validators/mod.rs` with a `pub use check::validators::{has_unbound_var, OffendingVar};` re-export added to `compiler/ori_types/src/lib.rs`. This establishes a STABLE public API boundary that `ori_llvm` can import. `should_generalize` (§3.1) stays in the private `infer/expr/generalization_policy.rs` because it's AST-based and has no downstream consumer outside `ori_types`.
+  Evidence: `compiler/ori_types/src/lib.rs:16-19` declares `mod infer;` as private. Attempting `use ori_types::infer::expr::generalization_policy::has_unbound_var` from `ori_llvm` would fail to compile.
+  Required plan update: Move public surface to `check/validators/`; add re-export. Done.
+  Basis: direct_file_inspection. Confidence: high.
+
+- [x] `[TPR-04-004-gemini-r4][low]` `plans/bug-tracker/fix-BUG-04-074.md:435` — Compilation error — incorrect loop binders for Vec accessors.
+  Resolved: §3.3 pseudocode updated on 2026-04-14. Loop binders changed from `for &param in pool.function_params(ty)` to `for param in pool.function_params(ty)` (and analogously for `tuple_elems`, `applied_args`). These accessors return owned `Vec<Idx>`, not `&[Idx]`, so the reference-pattern `&param` would be a compilation error.
+  Evidence: Consistent with round-3's verified `struct_fields(ty) -> Vec<(Name, Idx)>` and `enum_variants(ty) -> Vec<(Name, Vec<Idx>)>` — the Pool accessor family returns owned Vecs, not slices.
+  Required plan update: Drop `&` from all loop binders on these accessors. Done.
+  Basis: direct_file_inspection. Confidence: high.
+
+- [x] `[TPR-04-005-codex-r4][low]` `plans/bug-tracker/fix-BUG-04-074.md:869` — Add the promised supersession suffixes directly to the round-1 entries.
+  Resolved: Round-1 §R entries directly annotated with `(SUPERSEDED-BY-ROUND-2/3: ...)` suffixes on 2026-04-14 (see next section below for the applied annotations). Prior round-3 summary described the supersession work but never made the per-entry edits — correctly caught as cosmetic by this finding.
+  Evidence: The round-3 revisions summary at lines 869-872 + 891 claimed supersession suffixes were added to round-1 entries at lines 638-700, but those bullets remained unchanged plain `Resolved:` entries.
+  Required plan update: Actually edit the affected round-1 bullets. Done (this commit).
+  Basis: direct_file_inspection. Confidence: high.
+
+### Round-1 §R supersession annotations (applied round 4 per TPR-04-005-codex-r4)
+
+The following round-1 entries are historically accurate snapshots of round-1 resolutions, but describe behavior that round-2 or round-3 subsequently changed. They remain in place for audit-trail completeness with supersession markers:
+
+- `[TPR-04-001-codex]` round 1: "resolved via narrowly-scoped validation with `engine.has_errors()` + `HAS_ERROR` flag cascade guards" — **SUPERSEDED-BY-ROUND-2** ([TPR-04-003-codex-r2] dropped the `engine.has_errors()` gate; cascade now relies on `TypeFlags::HAS_ERROR` local check only).
+- `[TPR-04-002-codex]` round 1: "recursive `contains_var` negative pin" — **SUPERSEDED-BY-ROUND-3** (round-3 redesigned `has_unbound_var` entirely; the separate `contains_var` helper is no longer referenced; the negative pin now uses `has_unbound_var` directly from the public validator API).
+- `[TPR-04-007-codex]` round 1: "helper extraction and per-body hook are structurally sound" — **SUPERSEDED-BY-ROUND-3-AND-4** (round-3 moved from per-body-hook-at-let-sites to body-exit sweep; round-4 moved the helper from `infer/expr/generalization_policy.rs` to public `check/validators/mod.rs`; the "per-body hook" description no longer matches).
+- `[TPR-04-004-gemini]` round 1: "E2005 suggestion tailored by container kind — moot after scope narrowing" — **STILL VALID** (no supersession — scope narrowing was itself later revised in round 2 to honest broadening, but the underlying conclusion "don't over-specialize the message" remains correct).
+- Other round-1 entries are accurate as-of-round-2 and are preserved without supersession markers.
+
+### Round 4 corrections applied
+
+1. **Validator signature matches real API** — `(pool, arena, body_expr_types: &FxHashMap<ExprIndex, Idx>, record_error: &mut dyn FnMut(TypeCheckError))`. Per [TPR-04-003-codex-r4] + [TPR-04-001-gemini-r4].
+2. **Sort-before-iterate for determinism** — entries collected into `Vec<(ExprIndex, Idx)>` and sorted by ExprIndex before the dedup+walk. Per [TPR-04-004-codex-r4] + [TPR-04-002-gemini-r4].
+3. **§3.6 uses `ArcFunction.var_types`, NOT typeck AST** — ori_llvm has no access to InferEngine's expr_types map. The ARC-IR layer is the SSOT for per-variable types at codegen time. Per [TPR-04-003-gemini-r4].
+4. **§3.6a runs BEFORE `collect_mono_functions()`** — monomorphization input validation. §3.6b runs per-function for defense-in-depth. Per [TPR-04-001-codex-r4].
+5. **Public validator module `ori_types::check::validators`** — with re-export through `lib.rs`. `should_generalize` stays private (AST-internal). Per [TPR-04-002-codex-r4].
+6. **Loop binders drop `&`** — `pool.function_params/tuple_elems/applied_args` return `Vec<Idx>`, not slices. Per [TPR-04-004-gemini-r4].
+7. **Round-1 §R entries actually annotated with SUPERSEDED markers** — per [TPR-04-005-codex-r4].
 
 ---
 
