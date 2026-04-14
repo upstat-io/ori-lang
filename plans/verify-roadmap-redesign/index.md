@@ -57,14 +57,32 @@ frontmatter/body contradiction, status drift, date drift
 **File:** `section-02-dag-builder.md` | **Status:** Not Started
 
 ```
-DAG, dependency graph, topological sort, cycle detection
-depends_on, cross-plan reference, shared subsystem
-CONFLICT, SUPERSEDED, BLOCKED, STATUS_CONTRADICTION
-MISSING_DEPENDENCY, DEAD_REFERENCE, priority inversion
-repr-opt, locality-representation-unification, prerequisite
-plans/ori_lsp, dead reference, nonexistent directory
-test-suite-health, roadmap section-21A, supersession
-BUG-04-039, iterator-element-ownership, status incoherence
+DAG, dependency graph, cycle detection, SCC, Tarjan
+scripts/plan_corpus/dag.py, NodeKind, NodeId, Reference, Edge, Dag, DagReport
+seven schema classes as nodes: PLAN_INDEX, PLAN_SECTION, ROADMAP_SECTION, OVERVIEW
+BUG_TRACKER_SECTION, FIX_BUG, COMPLETED_INDEX
+source-kind taxonomy, SourceKind enum
+EXPLICIT_DEPENDS_ON, HTML_COMMENT_CONVENTION, YAML_COMMENT, PROSE_VERB, CODE_FENCE_EXAMPLE
+depends_on SSOT, no shadow edges, MISSING_DEPENDENCY force-to-frontmatter
+code_fence_exclusion, strip_code_blocks, indented_code_blocks
+html_comment_grammar, blocked-by, unblocks, supersedes, resolves, rewrites, obsoletes
+yaml_frontmatter_comment, extract_yaml_comments, raw-text post-YAML-parse
+prose verb expansion: depends on, requires, blocked by, prerequisite, unblocks, supersedes, rewrites, obsoletes
+informational verbs: see also, related, inspired by, cf.
+subsystem normalization, normalize_subsystem, SUBSYSTEM_ALIASES, Cargo.toml workspace
+8 classifiers: CONFLICT, SUPERSEDED (reroute + in-place-rewrite), BLOCKED, STATUS_CONTRADICTION
+CROSS_EDGE_TEMPORAL_DRIFT (§02 only; TPR_STALE_VS_EDIT moved to §03)
+MISSING_DEPENDENCY, DEAD_REFERENCE, REDUNDANT_DEPENDENCY, ORPHANED_PLAN
+classifier precedence ladder, PRECEDENCE_RANK, deterministic ordering
+source-kind severity ladder: EXPLICIT HIGH, HTML/YAML MEDIUM, PROSE LOW
+priority inversion, transitive chains, root blocker identification, minimum unblock set
+topological sort CUT (no consumer; Finding L)
+handoff contract with §03, chain encoding Option C, source_column disambiguator
+enrich_resolve_dep_finding, Finding.id collision mitigation
+repr-opt, locality-representation-unification, prerequisite edge short-circuit
+plans/ori_lsp, dead reference, plans/completed/ resolution
+test-suite-health, roadmap section-21A, in-place-rewrite detection
+BUG-04-039, iterator-element-ownership, YAML comment inference
 ```
 
 ---
