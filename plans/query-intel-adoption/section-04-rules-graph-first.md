@@ -69,17 +69,20 @@ One canonical paragraph shape used in 8 of the 9 target files (§04.2). `intelli
     for changes in this domain
   - `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori` — the
     module inventory before editing
+  [+ optional per-file preset bullet, e.g. `ori-arc --limit 5` for ARC-scoped files]
 
-  The graph indexes 191K+ symbols and 505K+ CALLS edges across Ori plus 10
-  reference compilers, synced on every commit. Manual reference-repo reading
-  stays authoritative — but only AFTER the graph narrows the search. Never
-  cite a graph result without verifying against the actual source. See
-  `.claude/rules/intelligence.md` for the full workflow inventory and
+  The graph covers Ori plus 10 reference compilers, synced on every commit.
+  Manual reference-repo reading stays authoritative — but only AFTER the
+  graph narrows the search. Never cite a graph result without verifying
+  against the actual source. See `.claude/rules/intelligence.md` for the
+  canonical when-to-query workflow and subcommand reference, and
   `.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
-  summary template used by review-family skills.
+  query protocol used by review-family skills.
   ```
 
-- [x] Draft the template (accepted verbatim from plan lines 60-80 as canonical).
+  **Note:** The fenced template above is the FINAL shipped form (post-TPR round 1 fixes: stats removed, footer labels retargeted). The original pre-TPR draft had hardcoded `191K+/505K+` stats and `full workflow inventory` / `summary template` labels; those were fixed per TPR findings TPR-04-001-gemini and TPR-04-002-codex.
+
+- [x] Draft the template (original draft accepted; final form reflects TPR round 1 corrections above).
 
 - [x] Note per-file tuning — per-file preset mapping decided:
 
@@ -123,7 +126,7 @@ Per-file insertion point (verified line numbers from TPR; `compiler.md` added 20
 - [x] For EACH file in the list:
   - [x] Re-read the target line to confirm the insertion point still fits — all 9 verified (minor drift: impl-hygiene.md +1 line from plan's 313 to actual 314; others exact)
   - [x] Insert the §04.1 template with file-appropriate preset mentioned in the bullet list — per the §04.1 preset table; reference-repo lists also tuned per-file (arc/aims-rules → `rust,swift,koka,lean4`; typeck → + `gleam`; types → `rust,swift,zig,lean4`; tests → `rust,go,zig,swift,koka,lean4`; impl-hygiene → `rust,swift,zig,lean4`; canonicalization/patterns → `rust,gleam,elm,roc,koka`; compiler → `rust,swift,zig,lean4`)
-  - [x] Diff: net change is one `## Graph-first, manual second` section added per file; no existing content deleted (line-count deltas: +22/+21/+21/+21/+24/+20/+22/+22/+26 = +199 total, all positive)
+  - [x] Diff: net change is one `## Graph-first, manual second` section added per file; no existing content deleted in the 9 domain files (all purely additive). Post-TPR line-count deltas differ from the initial +199 due to round 1 fixes (stats removal, footer rewording); see commit `6d7bf77a` for the authoritative diff.
 
 - [x] Verify all 9 land: `grep -L 'scripts/intel-query.sh' .claude/rules/{arc,aims-rules,typeck,types,tests,impl-hygiene,canonicalization,patterns,compiler}.md` returns empty. ✓
 
@@ -142,7 +145,7 @@ Per-file insertion point (verified line numbers from TPR; `compiler.md` added 20
 
 **File(s):** `.claude/rules/intelligence.md`
 
-The current "When to Query" block (lines 18-34) lists 15 workflows. Several review-family skills and commands added since that block was last refreshed are missing (verify-tpr, sync-claude, fix-next-bug, tp-help, sync-spec, sync-grammar, verify-roadmap). After §05 lands, those workflows will query the graph — the `intelligence.md` inventory should document that.
+The current "When to Query" block (lines 18-34) lists 15 workflows. Several review-family skills and commands added since that block was last refreshed are missing (verify-tpr, sync-claude, fix-next-bug, sync-spec, sync-grammar, verify-roadmap — 6 total; `/tp-help` was already present). After §05 lands, those workflows will query the graph — the `intelligence.md` inventory should document that.
 
 - [x] Update the "When to Query" bullet list in `.claude/rules/intelligence.md` to add 6 workflows (not 7 — `/tp-help` was already present on line 48; plan's list overlapped by one):
   - `/verify-tpr` — placed next to `/tpr-review` ("TPR triage")
@@ -222,13 +225,47 @@ The current "When to Query" block (lines 18-34) lists 15 workflows. Several revi
 - [x] `[TPR-04-003-gemini][informational]` `.claude/rules/compiler.md:189` — Placement of graph-first section before §Source of Truth is logically sound.
   Resolved: 2026-04-14 — non-actionable informational finding validating the §04.2 placement-note rationale. No fix required.
 
+### Round 3 (2026-04-14) — dual-source (codex + gemini), merge `/tmp/ori-tpr-DeZ7thTo`
+
+- [x] `[TPR-04-008-codex][medium]` `.claude/rules/intelligence.md:61` — Align /sync-grammar bullet with §05 `file-symbols` design.
+  Evidence: Bullet said `symbols` lookup but §05 design (section-05:156-168) specifies `file-symbols "compiler/ori_parse/"` and `file-symbols "compiler/ori_lexer/"`. DRIFT.
+  Resolved: Fixed on 2026-04-14. Changed to `file-symbols` on `compiler/ori_parse/` and `compiler/ori_lexer/`.
+
+- [x] `[TPR-04-009-codex][low]` `section-04:73` — Refresh §04.1 template snapshot to shipped form.
+  Evidence: Template at lines 61-79 still showed pre-TPR wording (hardcoded stats, old footer labels). Shipped paragraphs differ.
+  Resolved: Fixed on 2026-04-14. Updated fenced template to final shipped form + added post-TPR note.
+
+- [x] `[TPR-04-010-codex][low]` `section-04:129` — Correct stale +199 line-count breakdown.
+  Evidence: Post-TPR line deltas differ from the initial +199 (stats removal changed each paragraph by -1 line).
+  Resolved: Fixed on 2026-04-14. Replaced specific arithmetic with reference to authoritative commit diff.
+
+- [x] `[TPR-04-011-codex][low]` `section-04:148` — Remove stale /tp-help from missing-workflows list.
+  Evidence: Introduction lists 7 workflows as missing but implementation correctly added only 6 (/tp-help was already present).
+  Resolved: Fixed on 2026-04-14. Removed `/tp-help` from the missing list, added "(6 total; `/tp-help` was already present)".
+
+- [x] `[TPR-04-012-codex][low]` `section-04:234` — Update §04.N preset reference to match post-round-2 state.
+  Evidence: Completion checklist still listed "types.md → ori-inference" but round 2 changed to cross-cutting.
+  Resolved: Fixed on 2026-04-14. Updated to match current §04.1 table showing types.md as cross-cutting.
+
+- [x] `[TPR-04-013-codex][informational]` — Rule-file insertions validated: slim, redirecting, no LEAK:algorithmic-duplication.
+  Resolved: 2026-04-14 — non-actionable. Confirms core implementation is sound; remaining issues are plan-doc drift only.
+
+- [x] `[TPR-04-014-gemini][informational]` — types.md preset deviation is architecturally sound.
+  Resolved: 2026-04-14 — non-actionable. Confirms the round 2 cross-cutting change is correct.
+
+- [x] `[TPR-04-015-gemini][informational]` — compiler.md placement and SSOT compliance re-validated.
+  Resolved: 2026-04-14 — non-actionable. Third consecutive confirmation.
+
+- [x] `[TPR-04-016-gemini][informational]` — Workflow inventory and SSOT compliance verified successfully.
+  Resolved: 2026-04-14 — non-actionable.
+
 ---
 
 ## 04.N Completion Checklist
 
 - [x] All 10 rule files (9 domain + intelligence.md refresh) reference the graph
 - [x] `grep -L 'scripts/intel-query.sh' .claude/rules/{arc,aims-rules,typeck,types,tests,impl-hygiene,canonicalization,patterns,compiler,intelligence}.md` returns empty
-- [x] Per-file preset tuning verified (e.g., arc.md cites `ori-arc`, typeck.md cites `ori-inference`, compiler.md cites general-purpose + cross-crate guidance, etc.) — §04.1 table preserved exactly (arc.md → `ori-arc`, aims-rules.md → `ori-arc`, typeck.md → `ori-inference`, types.md → `ori-inference`, canonicalization.md → `ori-patterns`, patterns.md → `ori-patterns`, tests/impl-hygiene/compiler → cross-cutting, no preset)
+- [x] Per-file preset tuning verified — matches the §04.1 table (post-TPR round 2 correction: types.md changed from `ori-inference` to cross-cutting pattern per TPR-04-005-codex). Current mapping: arc.md → `ori-arc`, aims-rules.md → `ori-arc`, typeck.md → `ori-inference`, types.md → cross-cutting (`file-symbols "ori_types/pool"` + `similar "TypePool"`), canonicalization.md → `ori-patterns`, patterns.md → `ori-patterns`, tests/impl-hygiene/compiler → cross-cutting (no preset).
 - [x] No existing content was deleted in any rule file (diff spot-check on all 10) — the 9 domain-file inserts are purely additive (each +19 to +26 lines, 0 deletions). `intelligence.md` had 2 line replacements (stale `32K+/24K+` comment → `191K+/505K+`, and intro paragraph added under `## When to Query`) — these are corrections, not content removals. Aggregate for the 13-file commit `6d7bf77a`: 306 insertions(+), 53 deletions(-); the 53 deletions are from plan-file reformatting, not rule-file content removal.
 - [x] `./test-all.sh` green — 15,314 passed / 0 failed / 139 skipped / 0 LCFail. LLVM-backend spec-test crash is BUG-04-030 (tracked in `fix-BUG-04-039`, `fix-BUG-04-074`); unrelated to §04 docs changes; test-all.sh reports green per its own verdict.
 - [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-04-rules-graph-first.md` returns 0 errors (ran silent = success)
