@@ -183,7 +183,6 @@ fn decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_uniqu
 /// Spec: `Unique AND NOT (is_owned_and_unique + no_borrows) → StaticShared` because `IsShared`
 /// on a Unique value always returns false — runtime check cannot distinguish
 /// "unique but borrowed" from "unique and safe to mutate."
-/// See: plans/bug-tracker/fix-BUG-04-064.md
 #[test]
 fn decide_cow_unique_with_active_borrows_returns_static_shared() {
     let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
@@ -192,7 +191,6 @@ fn decide_cow_unique_with_active_borrows_returns_static_shared() {
 }
 
 /// Negative pin: Unique aggregate with NO borrows → `StaticUnique` (preserved).
-/// See: plans/bug-tracker/fix-BUG-04-064.md
 #[test]
 fn decide_cow_unique_without_borrows_returns_static_unique() {
     let ctx = cow_ctx(var(0), Uniqueness::Unique);
@@ -201,7 +199,6 @@ fn decide_cow_unique_without_borrows_returns_static_unique() {
 }
 
 /// Edge: RC-incremented Unique with no borrows → `Dynamic` (RC guard fires first).
-/// See: plans/bug-tracker/fix-BUG-04-064.md
 #[test]
 fn decide_cow_unique_rc_incremented_with_no_borrows_returns_dynamic() {
     let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
@@ -211,7 +208,6 @@ fn decide_cow_unique_rc_incremented_with_no_borrows_returns_dynamic() {
 }
 
 /// Edge: RC-incremented Unique WITH borrows → `Dynamic` (RC guard supersedes).
-/// See: plans/bug-tracker/fix-BUG-04-064.md
 #[test]
 fn decide_cow_unique_rc_incremented_with_borrows_returns_dynamic() {
     let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
