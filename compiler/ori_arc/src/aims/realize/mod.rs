@@ -273,7 +273,9 @@ fn annotate_block(
     drop_hints: &mut DropHints,
     synergy: &mut metrics::SynergyMetrics,
 ) {
-    use crate::aims::emit_rc::{is_borrow_disjoint_from_siblings, is_collection_var};
+    use crate::aims::emit_rc::{
+        has_borrows_from_aggregate, is_borrow_disjoint_from_siblings, is_collection_var,
+    };
     use crate::aims::realize::decide::{decide_annotations, AnnotationSiteContext};
 
     for (instr_idx, instr) in block.body.iter().enumerate() {
@@ -309,6 +311,7 @@ fn annotate_block(
             cardinality: state.cardinality,
             shape: ctx.state_map.var_shape(var),
             is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, var, blk),
+            has_active_borrows: has_borrows_from_aggregate(ctx.state_map, var),
             is_collection: is_collection_var(ctx.func, var, ctx.pool),
         };
 
@@ -352,6 +355,7 @@ fn annotate_block(
                 cardinality: state.cardinality,
                 shape: ctx.state_map.var_shape(receiver),
                 is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, receiver, blk),
+                has_active_borrows: has_borrows_from_aggregate(ctx.state_map, receiver),
                 is_collection: is_collection_var(ctx.func, receiver, ctx.pool),
             };
 
