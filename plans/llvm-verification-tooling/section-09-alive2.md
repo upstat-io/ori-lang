@@ -44,7 +44,7 @@ sections:
     status: complete
   - id: "09.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 09: Alive2 Formal Verification
@@ -691,19 +691,19 @@ When all findings are triaged:
   Resolved: Fixed on 2026-04-14. Same fix.
 - [x] `[TPR-09-021-gemini][medium]` `compiler/oric/src/commands/build/ir_capture.rs:49` — Windows path separator not handled.
   Resolved: Fixed on 2026-04-14. Added backslash replacement to path sanitization.
-- [ ] `[TPR-09-022-codex][high]` `diagnostics/alive2-verify.sh:287` — Suppressions skip alive-tv entirely (stale not detected).
-  Deferred: suppressed.json is currently empty (0 entries); suppression-aware verification requires redesign.
-- [ ] `[TPR-09-023-codex][high]` `diagnostics/alive2-verify.sh:376` — Absolute vs relative path inconsistency in artifact naming.
-  Deferred: requires ir_capture.rs path normalization redesign; captured by Section 11 path contract.
-- [ ] `[TPR-09-024-codex][medium]` `tests/alive2/results-schema.json:34` — Schema missing suppression-stale status.
-  Deferred: depends on suppression redesign (TPR-09-022).
-- [ ] `[TPR-09-025-codex][medium]` `scripts/build-alive2.sh:155` — --cached does not verify freshness against pinned commit.
-  Deferred: low impact (CI always rebuilds from cache key), tracked for Section 11 CI hardening.
-- [ ] `[TPR-09-026-codex][medium]` `compiler/oric/src/commands/build/single.rs:84` — --emit path bypasses CaptureHooks.
-  Deferred: --emit is a developer-facing path; alive2 capture not expected there. Section 11 integration.
-- [ ] `[TPR-09-027-codex][medium]` `scripts/build-alive2.sh:109` — Z3 CLI detection insufficient for dev files.
-  Deferred: cmake FindZ3 handles actual build-time discovery; preflight is advisory.
-- [ ] `[TPR-09-028-gemini][high]` `diagnostics/alive2-verify.sh:156` — review_suppressions path mismatch with ir_capture.
+- [x] `[TPR-09-022-codex][high]` `diagnostics/alive2-verify.sh:287` — Suppressions skip alive-tv entirely (stale not detected).
+  Resolved: Deferred to Section 11.2 with concrete anchor (`- [ ] Harden Alive2 suppression workflow` → TPR-09-022 item). User accepted 2026-04-14.
+- [x] `[TPR-09-023-codex][high]` `diagnostics/alive2-verify.sh:376` — Absolute vs relative path inconsistency in artifact naming.
+  Resolved: Deferred to Section 11.2 with concrete anchor (`- [ ] Harden Alive2 suppression workflow` → TPR-09-023 item). User accepted 2026-04-14.
+- [x] `[TPR-09-024-codex][medium]` `tests/alive2/results-schema.json:34` — Schema missing suppression-stale status.
+  Resolved: Deferred to Section 11.2 with concrete anchor (depends on TPR-09-022 item). User accepted 2026-04-14.
+- [x] `[TPR-09-025-codex][medium]` `scripts/build-alive2.sh:155` — --cached does not verify freshness against pinned commit.
+  Resolved: Deferred to Section 11.2 with concrete anchor (`- [ ] Harden Alive2 suppression workflow` → TPR-09-025 item). User accepted 2026-04-14.
+- [x] `[TPR-09-026-codex][medium]` `compiler/oric/src/commands/build/single.rs:84` — --emit path bypasses CaptureHooks.
+  Resolved: Deferred to Section 11.1 with concrete anchor (`- [ ] Ensure --emit build path runs CaptureHooks`). User accepted 2026-04-14.
+- [x] `[TPR-09-027-codex][medium]` `scripts/build-alive2.sh:109` — Z3 CLI detection insufficient for dev files.
+  Resolved: Deferred to Section 11.2 with concrete anchor (`- [ ] Harden Alive2 suppression workflow` → TPR-09-027 item). User accepted 2026-04-14.
+- [x] `[TPR-09-028-gemini][high]` `diagnostics/alive2-verify.sh:156` — review_suppressions path mismatch with ir_capture.
   Resolved: Fixed on 2026-04-14. Changed to cd $ROOT_DIR + relative path for consistent capture naming.
 
 ---

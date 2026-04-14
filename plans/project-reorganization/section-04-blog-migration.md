@@ -170,6 +170,10 @@ Before touching either repo, verify the current state matches the plan's assumpt
         surfaced by project-reorganization/section-04.1 retrospective`.
         Otherwise: "Retrospective 04.1: one-time cross-repo checks; no
         reusable tooling warranted."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -236,6 +240,10 @@ Note: this subsection (content create) deliberately runs BEFORE the loader updat
         The friction is intentional. Document: "Retrospective 04.2: per-file
         approval friction is intentional per projects/CLAUDE.md; no tooling
         change warranted."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -288,6 +296,10 @@ Change the blog collection loader's glob base from the cross-repo `'../ori_lang/
         provides AskUserQuestion as the canonical approval mechanism; no
         alternative exists. Document: "Retrospective 04.3: no tooling gaps —
         AskUserQuestion is the canonical cross-repo approval mechanism."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -338,6 +350,10 @@ Now that the website reads from the new local path, delete the source files from
         (git does auto-remove empty dirs in most cases, so this was likely
         unnecessary.) No tooling gap. Document: "Retrospective 04.4: no
         tooling gaps — git rm handled directory cleanup automatically."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -427,6 +443,10 @@ Refs: ../ori_lang/plans/project-reorganization/section-04-blog-migration.md"
         cross-repo content moves in/out? Probably not — this is a one-time
         migration. Document: "Retrospective 04.5: one-time cross-repo
         verification; no reusable tooling warranted."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -462,5 +482,6 @@ Refs: ../ori_lang/plans/project-reorganization/section-04-blog-migration.md"
 - [ ] `/tpr-review` passed — cross-repo section, review should check ordering discipline (04.2 content BEFORE 04.3 loader BEFORE 04.4 delete) and byte-equality verification
 - [ ] `/impl-hygiene-review` passed (AFTER TPR clean)
 - [ ] `/improve-tooling` **section-close sweep** — per-subsection retrospectives (04.1-04.5) should already be committed. Cross-subsection pattern check: the entire 5-subsection flow was fundamentally "cross-repo migration sequence" — is there a reusable pattern for future cross-repo work (orijs, warpkit)? Unlikely since each cross-repo move has different coupling semantics. Document: "Section-04 close sweep: per-subsection retrospectives covered everything; each cross-repo migration is unique enough that no reusable tooling is warranted."
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 **Exit Criteria:** `sha256sum` of `ori-lang-website/src/content/blog/*.md` matches the pre-migration hashes of `ori_lang/blog/*.md` captured in §01.1 baseline. `ori-lang-website/src/content.config.ts:86` reads `base: './content/blog'`. `git ls-files blog/` in ori_lang returns empty. Astro dev/build succeeds in the website repo with all 3 blog posts rendered. `./test-all.sh` green in ori_lang. Mission success criterion "Blog is served from website" is satisfied.

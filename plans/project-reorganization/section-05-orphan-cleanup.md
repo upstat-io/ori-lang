@@ -102,6 +102,10 @@ sections:
         on the trivially-simple operation. `rmdir` on an empty directory is
         about as basic as it gets — no tooling gap possible. Document:
         "Retrospective 05.1: trivial operation; no tooling gap."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -160,6 +164,10 @@ Decision: delete the `.gitkeep` AND let the directory be untracked. Anyone who w
         find-phantom-dirs.sh — surfaced by project-reorganization/section-05.2
         retrospective`. If not: "Retrospective 05.2: one-time phantom
         cleanup; no reusable tooling warranted."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -236,6 +244,10 @@ Refs: plans/project-reorganization/section-05-orphan-cleanup.md"
         was built: "Retrospective 05.3: the grep-filter-investigate pattern
         was already documented in 02.3 retrospective; no additional tooling
         needed."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -270,5 +282,6 @@ Refs: plans/project-reorganization/section-05-orphan-cleanup.md"
 - [ ] `/tpr-review` passed — trivial section; review brief
 - [ ] `/impl-hygiene-review` passed (AFTER TPR clean)
 - [ ] `/improve-tooling` **section-close sweep** — per-subsection retrospectives (05.1, 05.2, 05.3) should already be committed. Cross-subsection pattern check: all three deletions share the "verify orphan → delete → verify gone" pattern. Is there a single `scripts/dev/delete-orphan.sh <path>` helper that standardizes the "check-refs, git-rm, verify, commit" sequence? Probably overkill — `git rm + commit` is already minimal. Document: "Section-05 close sweep: per-subsection retrospectives covered everything; git rm is already the minimal tool."
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 **Exit Criteria:** Three orphan entries are gone from the repository. `ls /home/eric/projects/ori_lang/` no longer shows `samples/` or `rebuild-playground.sh`. `git ls-files compiler/ori_lsp/` is empty. Zero references to any deleted entry survive in the repo (verified by post-commit rg). A single `chore(plan):` commit documents the cleanup. `./test-all.sh` green. §06 is unblocked — it can now focus exclusively on `tools/ori-lsp/` without also handling the phantom `.gitkeep`.

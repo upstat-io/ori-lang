@@ -126,6 +126,10 @@ The directory `website/public/` no longer exists in `ori_lang/`. When a develope
         surfaced by project-reorganization/section-02.1 retrospective`.
         Otherwise document: "Retrospective 02.1: no tooling gaps — direct
         Edit of a single line was the right tool."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -179,6 +183,10 @@ Pass 1 research identified that `docs/development/versioning.md:53` references `
         surfaced by project-reorganization/section-02.2 retrospective`.
         Otherwise: "Retrospective 02.2: no tooling gaps — line 53 was
         accurate; one-line edit sufficient."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -249,6 +257,10 @@ Refs: plans/project-reorganization/section-02-website-paths.md"
         capability at much larger scale. If added: commit via
         `build(scripts): add plan-ref-sweep.sh — surfaced by
         project-reorganization/section-02.3 retrospective`.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -278,5 +290,6 @@ Refs: plans/project-reorganization/section-02-website-paths.md"
 - [ ] `/tpr-review` passed — low-risk section; review should be brief
 - [ ] `/impl-hygiene-review` passed (AFTER TPR clean)
 - [ ] `/improve-tooling` **section-close sweep** — per-subsection retrospectives (02.1, 02.2, 02.3) should already be committed. Cross-subsection pattern check: 02.1 and 02.2 are both "find a specific line and apply a one-line fix" — was there friction in locating the exact lines from Pass 1 research? If so, the `verify-plan-references.sh` helper from 02.2's retrospective may subsume this. Verify the helper (if built) covers both cases. If no cross-cutting gap: document "Section-02 close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling."
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 **Exit Criteria:** `rg 'website/' ori_lang/ --type sh --type md --type toml --type yaml` returns only documentation references to the sibling repo. `./test-all.sh` green, `./test-all.sh --json` writes to `target/test-all-results.json` successfully. A single atomic commit (`fix(plan): repair stale website/ path references`) contains exactly two file edits. Subsequent sections (§04 blog migration, §09 verification) can cite this commit as proof that the website boundary is no longer drifting within ori_lang.

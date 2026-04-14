@@ -73,7 +73,9 @@ sections:
 - [ ] `/tpr-review` passed (final, full-plan)
 - [ ] `/impl-hygiene-review` passed (must run AFTER `/tpr-review` is clean)
 - [ ] `/improve-tooling` retrospective completed (mandatory at every section close, even if no gaps)
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 - [ ] Connects upward to mission criteria: "test-all.sh green", "clippy-all.sh green", "/tpr-review + /impl-hygiene-review + /improve-tooling retrospective complete"
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 **Context:** Sections 00–04 each have their own completion criteria and test gates. Section 05 is the **integration verification** — it confirms that the whole plan composes correctly. Specifically:
 
@@ -450,6 +452,7 @@ The retrospective for this plan should specifically reflect on:
 5. **Section 05 (verification)**: Were the test matrix coverage, plan annotation scan, and module doc update each catchable by existing diagnostics, or did the implementer need new tools?
 
 - [ ] Invoke `/improve-tooling` in retrospective mode with the section reference `locality-representation-unification §05.8`
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 - [ ] Wait for the retrospective to complete
 - [ ] For each suggested improvement:
   - **Implement NOW** (zero deferral per CLAUDE.md). Each improvement gets a SEPARATE `/commit-push` from this plan's implementation work.
@@ -486,6 +489,7 @@ The retrospective for this plan should specifically reflect on:
 - [ ] `/tpr-review` (05.6) passed — Codex review found no critical or major issues, or all findings triaged
 - [ ] `/impl-hygiene-review` (05.7) passed — must run AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` (05.8) retrospective completed — every accepted improvement implemented NOW (zero deferral) with separate `/commit-push`
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 - [ ] **Plan sync — final**:
   - [ ] This section's frontmatter `status` → `complete`, all subsection statuses → complete
   - [ ] `00-overview.md` Quick Reference table: all 6 sections show status `complete`
