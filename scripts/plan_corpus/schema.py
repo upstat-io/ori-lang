@@ -1,12 +1,12 @@
 """Schema definitions and validation for the seven plan file classes.
 
-Contains FileClass, classify_file, status enums, dataclass-typed schema SSOTs,
-all _check_* helpers, all _validate_* per-schema functions, and validate().
+Contains FileClass, classify_file, the FILE_CLASS_META registry (pattern /
+display-name / schema class / validator / status-enum), all _check_*
+helpers, all _validate_* per-schema functions, and validate().
 
-The seven `@dataclass(frozen=True)` schema classes (PlanIndexSchema etc.) are
-the single source of truth for required/allowed field sets. Required fields
-have no default; optional fields default to None. Validators derive the
-required list and allowed set from `dataclasses.fields()` at call time.
+Dataclass schema shapes and status enums are homed in `.schemas` (the SSOT
+for schema *shape* and constraint *values*). This module owns the *file
+classification* + *validation dispatch* built on top of those shapes.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .types import (
     Finding,
@@ -39,6 +39,14 @@ from .schemas import (
     FixBugSchema,
     CompletedIndexSchema,
     SubsectionEntry,
+    TprInfo,
+    PLAN_STATUSES,
+    SECTION_STATUSES,
+    OVERVIEW_STATUSES,
+    FIX_STATUSES,
+    TPR_STATUSES,
+    SEVERITY_VALUES,
+    COMPLETED_STATUSES,
     _schema_required_fields,
     _schema_allowed_fields,
 )
@@ -96,30 +104,6 @@ def classify_file(path: Path) -> FileClass | None:
         return FileClass.PLAN_SECTION
 
     return None
-
-
-# ---------------------------------------------------------------------------
-# Status enums (corpus-derived)
-# ---------------------------------------------------------------------------
-
-PLAN_STATUSES = frozenset({"active", "queued", "resolved", "not-started", "research"})
-SECTION_STATUSES = frozenset({"not-started", "in-progress", "complete"})
-OVERVIEW_STATUSES = frozenset({"not-started", "in-progress", "research", "complete"})
-FIX_STATUSES = frozenset({"not-started", "in-progress", "complete"})
-TPR_STATUSES = frozenset({"none", "findings", "resolved", "clean"})
-SEVERITY_VALUES = frozenset({"critical", "high", "medium", "low"})
-COMPLETED_STATUSES = frozenset({"resolved"})
-
-
-# ---------------------------------------------------------------------------
-# Schema helper types
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class TprInfo:
-    status: str
-    updated: str | None
 
 
 def _validate_sections(data: dict, path: Path) -> list[Finding]:
@@ -444,18 +428,50 @@ def _validate_completed_index(data: dict, path: Path) -> list[Finding]:
     return findings
 
 
+# ---------------------------------------------------------------------------
+# FileClass metadata registry (SSOT for per-class display / pattern / schema /
+# validator — queried by docgen.py, validate(), and any other consumer)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FileClassMeta:
+    """Per-FileClass metadata used by validation, docgen, and discovery.
+
+    `display_name` and `pattern` drive human-readable documentation; `schema_cls`
+    is the dataclass SSOT for fields; `validator` performs per-class semantic
+    checks on parsed frontmatter.
+    """
+    display_name: str
+    pattern: str
+    schema_cls: type
+    validator: Callable[[dict, Path], list[Finding]]
+
+
+FILE_CLASS_META: dict[FileClass, FileClassMeta] = {
+    FileClass.PLAN_INDEX: FileClassMeta(
+        "Plan Index", "plans/*/index.md", PlanIndexSchema, _validate_plan_index),
+    FileClass.PLAN_SECTION: FileClassMeta(
+        "Plan Section", "plans/*/section-*.md", PlanSectionSchema, _validate_plan_section),
+    FileClass.ROADMAP_SECTION: FileClassMeta(
+        "Roadmap Section", "plans/roadmap/section-*.md", RoadmapSectionSchema,
+        _validate_roadmap_section),
+    FileClass.OVERVIEW: FileClassMeta(
+        "Overview", "plans/*/00-overview.md", OverviewSchema, _validate_overview),
+    FileClass.BUG_TRACKER_SECTION: FileClassMeta(
+        "Bug Tracker Section", "plans/bug-tracker/section-*.md",
+        BugTrackerSectionSchema, _validate_bug_section),
+    FileClass.FIX_BUG: FileClassMeta(
+        "Fix Bug", "plans/bug-tracker/fix-BUG-*.md", FixBugSchema, _validate_fix_bug),
+    FileClass.COMPLETED_INDEX: FileClassMeta(
+        "Completed Index", "plans/completed/*/index.md", CompletedIndexSchema,
+        _validate_completed_index),
+}
+
+
 def validate(file_class: FileClass, data: dict, path: Path) -> list[Finding]:
     """Validate parsed frontmatter against the schema for the given file class."""
-    validators = {
-        FileClass.PLAN_INDEX: _validate_plan_index,
-        FileClass.PLAN_SECTION: _validate_plan_section,
-        FileClass.ROADMAP_SECTION: _validate_roadmap_section,
-        FileClass.OVERVIEW: _validate_overview,
-        FileClass.BUG_TRACKER_SECTION: _validate_bug_section,
-        FileClass.FIX_BUG: _validate_fix_bug,
-        FileClass.COMPLETED_INDEX: _validate_completed_index,
-    }
-    validator = validators.get(file_class)
-    if validator is None:
+    meta = FILE_CLASS_META.get(file_class)
+    if meta is None:
         return []
-    return validator(data, path)
+    return meta.validator(data, path)

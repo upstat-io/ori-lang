@@ -48,10 +48,8 @@ from .parser import (
     split_frontmatter_strict,
 )
 
-# Schema
-from .schema import (
-    FileClass,
-    classify_file,
+# Dataclass schema SSOTs (shape + status enum constants)
+from .schemas import (
     PLAN_STATUSES,
     SECTION_STATUSES,
     OVERVIEW_STATUSES,
@@ -68,6 +66,14 @@ from .schema import (
     BugTrackerSectionSchema,
     FixBugSchema,
     CompletedIndexSchema,
+)
+
+# FileClass + classification + validation dispatch
+from .schema import (
+    FileClass,
+    classify_file,
+    FileClassMeta,
+    FILE_CLASS_META,
     validate,
 )
 
@@ -93,8 +99,6 @@ from .normalizer import (
 from .docgen import (
     resolve_dep,
     generate_schema_reference,
-    SchemaReference,
-    SchemaField,
 )
 
 __all__ = [
@@ -118,7 +122,6 @@ __all__ = [
     "Severity",
     "FindingCategory",
     "FindingSubtype",
-    "_CATEGORY_SUBTYPES",
     "Finding",
     "CorpusParseError",
     # Parser
@@ -127,6 +130,8 @@ __all__ = [
     # Schema
     "FileClass",
     "classify_file",
+    "FileClassMeta",
+    "FILE_CLASS_META",
     "PLAN_STATUSES",
     "SECTION_STATUSES",
     "OVERVIEW_STATUSES",
@@ -159,6 +164,4 @@ __all__ = [
     # Docgen
     "resolve_dep",
     "generate_schema_reference",
-    "SchemaReference",
-    "SchemaField",
 ]

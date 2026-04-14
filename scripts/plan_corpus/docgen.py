@@ -3,15 +3,15 @@
 Contains resolve_dep, _find_section_file, and generate_schema_reference.
 
 The schema reference is derived from the `@dataclass` schemas in
-`schema.py` via `dataclasses.fields()` — no parallel allowlist of
-required/optional field names. Updating a dataclass regenerates the
-docs on the next `docgen --check` run.
+`schemas.py` via `dataclasses.fields()` and the `FILE_CLASS_META` registry
+in `schema.py` — no parallel allowlist of required/optional field names
+or per-class (pattern, display_name, schema_cls) tuples. Updating a
+dataclass or adding a FileClass entry regenerates the docs on the next
+`docgen --check` run.
 """
 
 from __future__ import annotations
 
-import dataclasses
-from dataclasses import dataclass
 from pathlib import Path
 
 from .types import (
@@ -23,43 +23,18 @@ from .types import (
     CROSS_PLAN_DEP_RE,
     _CATEGORY_SUBTYPES,
 )
-from .schema import (
+from .schemas import (
     PLAN_STATUSES,
     SECTION_STATUSES,
     OVERVIEW_STATUSES,
     FIX_STATUSES,
     TPR_STATUSES,
     COMPLETED_STATUSES,
-    PlanIndexSchema,
-    PlanSectionSchema,
-    RoadmapSectionSchema,
-    OverviewSchema,
-    BugTrackerSectionSchema,
-    FixBugSchema,
-    CompletedIndexSchema,
+    _schema_required_fields,
+    _schema_allowed_fields,
 )
+from .schema import FILE_CLASS_META
 from .discovery import Corpus
-
-
-# ---------------------------------------------------------------------------
-# Public stubs retained for API parity
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class SchemaField:
-    """Metadata for a single schema field (for introspection)."""
-    name: str
-    required: bool
-
-
-@dataclass(frozen=True)
-class SchemaReference:
-    """A reference rendering of a single file-class schema."""
-    name: str
-    pattern: str
-    required: tuple[str, ...]
-    optional: tuple[str, ...]
 
 
 # ---------------------------------------------------------------------------
@@ -125,32 +100,24 @@ def _find_section_file(plan_dir: Path, section_id: str) -> Path | Finding:
 def _partition_fields(cls) -> tuple[list[str], list[str]]:
     """Split a dataclass's fields into (required, optional) by default presence.
 
-    Field order within each partition follows the dataclass declaration order,
-    which matches how the schemas are authored. Optional fields are sorted
-    alphabetically in the emitted markdown for stable diffs.
+    Delegates to the canonical schemas.py helpers to avoid LEAK:algorithmic-duplication.
+    Required fields preserve declaration order; optional fields are sorted alphabetically
+    for stable markdown diffs.
     """
-    required: list[str] = []
-    optional: list[str] = []
-    for f in dataclasses.fields(cls):
-        has_default = (
-            f.default is not dataclasses.MISSING
-            or f.default_factory is not dataclasses.MISSING
-        )
-        if has_default:
-            optional.append(f.name)
-        else:
-            required.append(f.name)
-    return required, sorted(optional)
+    required = _schema_required_fields(cls)
+    all_fields = _schema_allowed_fields(cls)
+    optional = sorted(all_fields - set(required))
+    return required, optional
 
 
 def generate_schema_reference() -> str:
     """Generate markdown documentation from the dataclass schemas."""
     lines = [
-        "<!-- GENERATED from scripts/plan_corpus.py — do not edit -->",
+        "<!-- GENERATED from scripts/plan_corpus/ — do not edit -->",
         "",
         "# Plan Schema Reference",
         "",
-        "Auto-generated from Python dataclass definitions in `scripts/plan_corpus.py`.",
+        "Auto-generated from Python dataclass definitions in `scripts/plan_corpus/schemas.py`.",
         "",
         "## Status Enums",
         "",
@@ -165,20 +132,12 @@ def generate_schema_reference() -> str:
         "",
     ]
 
-    schemas = [
-        ("Plan Index", "plans/*/index.md", PlanIndexSchema),
-        ("Plan Section", "plans/*/section-*.md", PlanSectionSchema),
-        ("Roadmap Section", "plans/roadmap/section-*.md", RoadmapSectionSchema),
-        ("Overview", "plans/*/00-overview.md", OverviewSchema),
-        ("Bug Tracker Section", "plans/bug-tracker/section-*.md", BugTrackerSectionSchema),
-        ("Fix Bug", "plans/bug-tracker/fix-BUG-*.md", FixBugSchema),
-        ("Completed Index", "plans/completed/*/index.md", CompletedIndexSchema),
-    ]
-
-    for name, pattern, cls in schemas:
-        required, optional = _partition_fields(cls)
-        lines.append(f"### {name}")
-        lines.append(f"**Pattern**: `{pattern}`")
+    # Render in FILE_CLASS_META declaration order — matches FileClass enum order,
+    # which matches the classify_file() decision order.
+    for _file_class, meta in FILE_CLASS_META.items():
+        required, optional = _partition_fields(meta.schema_cls)
+        lines.append(f"### {meta.display_name}")
+        lines.append(f"**Pattern**: `{meta.pattern}`")
         lines.append(f"**Required**: {', '.join(f'`{r}`' for r in required)}")
         if optional:
             lines.append(f"**Optional**: {', '.join(f'`{o}`' for o in optional)}")
