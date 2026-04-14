@@ -15,7 +15,7 @@ inspired_by:
   - "TPR findings codex-007 [high] LEAK:algorithmic-duplication, gemini-003 [medium]"
 depends_on: ["01"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-14
 sections:
   - id: "03.1"
@@ -292,6 +292,15 @@ Re-review after fixes landed in commit `dc1086ce`. Dual-source run: codex wallti
   Resolved: Fixed on 2026-04-14. Step F `/create-plan` entry now lists the `callers`/`callees`/`similar` queries verbatim with the `--repo rust,swift,go,koka` override explicitly noted, plus a parenthetical explaining why `koka` is included (plan reconnaissance benefits from Koka's effect-system prior art).
   Basis: direct_file_inspection. Confidence: high.
 - [x] `[TPR-03-003-gemini][informational]` — Round 2 clean-pass confirmation. Gemini verified all 5 round-1 fixes hold, confirmed the 3-file / 18-file invariants via shell queries, and recommended "§03 may proceed to closure." Non-actionable.
+
+### Round 3 findings (2026-04-14, `/tmp/ori-tpr-cFZdEzZU`) — CLEAN PASS
+
+Final re-review after round 2 fix landed in commit `a54af6b6`. Dual-source run: codex walltime 127s (7 files read, 3 rules, 5 diagnostics, `basis: fresh_verification`), gemini walltime 70s (confidence 100, needs_escalation: false). `ASYMMETRY: MODERATE` — acceptable for the narrow round-2-only scope. Merge summary: 0 actionable findings, 2 informational positive confirmations (one from each reviewer). Both reviewers independently confirm: `/create-plan` Step F entry now documents the koka override verbatim, consumer matches, invariants hold (3 teaching-surface files + 18 standalone `@`-include splice lines). TPR loop complete — both reviewers report full consensus that §03 is architecturally clean.
+
+- [x] `[TPR-03-006-codex][informational]` — Round 3 clean-pass confirmation. Codex verified the round-2 Step F /create-plan fix is isolated and invariants still hold; "On the SSOT/consumer/invariant axis, §03 is clean; remaining work is close-out bookkeeping rather than another repair cycle." `basis: fresh_verification`. Non-actionable.
+- [x] `[TPR-03-004-gemini][informational]` — Round 3 clean-pass confirmation. Gemini verified the `/create-plan` Step F entry matches consumer perfectly. Invariant counts match (3 files / 18 splice lines). "`plans/query-intel-adoption` is fully clean." Non-actionable.
+
+**TPR verdict:** Full consensus clean across 2 rounds of fixing + 1 final confirmation round. `third_party_review.status` → `resolved`.
 
 ---
 
