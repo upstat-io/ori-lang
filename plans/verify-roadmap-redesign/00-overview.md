@@ -25,9 +25,9 @@ Redesign the `/verify-roadmap` skill from a section-local item verifier into a c
 - [ ] `depends_on` convention standardized: intra-plan `"NN"`, cross-plan `"plan-name#NN"` resolving against the target plan's `name:` field (stable across directory renames); full paths AND directory-slug-style cross-plan IDs rejected (Section 01)
 - [ ] Two-level Finding taxonomy (`FindingCategory × FindingSubtype`) OWNED by Section 01.3; Phase 4 (Section 04) `ITEM_VERIFICATION` subtypes live there, not in Section 04 (no shadow taxonomy)
 - [ ] `plan_corpus.py` is a pure library — no git queries, no I/O outside explicit file reads; `SafeFix`/`ExposureReview` classification lives in Section 03 (write-back phase) consuming caller-supplied `has_recent_commits` signal
-- [ ] DAG construction detects priority inversions (active plan depending on queued prerequisite) using the logical-ID resolver from Section 01 and covers ALL seven §01.2 schema classes as nodes (plan index, plan section, roadmap section, overview, bug-tracker section, fix-BUG file, completed-plan index) — Section 02
-- [ ] Dead references to nonexistent `plans/*/` directories are flagged as DEAD_REFERENCE (Section 02), with code-fence examples and indented-code blocks excluded and HTML-comment + YAML-frontmatter-comment references scanned for reverse-edge signal (`unblocks`, `supersedes`, `rewrites`, `obsoletes`)
-- [ ] Classifier stack is deterministic: source-kind tagging (`EXPLICIT_DEPENDS_ON | HTML_COMMENT_CONVENTION | YAML_COMMENT | PROSE_VERB | CODE_FENCE_EXAMPLE`), documented precedence ladder (PARSE_ERROR > DEAD_REFERENCE > CYCLE > BLOCKED > CONFLICT > SUPERSEDED > STATUS_CONTRADICTION > MISSING_DEPENDENCY > REDUNDANT_DEPENDENCY > ORPHANED_PLAN), and TDD-enforced ordering (Section 02)
+- [x] DAG construction detects priority inversions (active plan depending on queued prerequisite) using the logical-ID resolver from Section 01 and covers ALL seven §01.2 schema classes as nodes (plan index, plan section, roadmap section, overview, bug-tracker section, fix-BUG file, completed-plan index) — Section 02
+- [x] Dead references to nonexistent `plans/*/` directories are flagged as DEAD_REFERENCE (Section 02), with code-fence examples and indented-code blocks excluded and HTML-comment + YAML-frontmatter-comment references scanned for reverse-edge signal (`unblocks`, `supersedes`, `rewrites`, `obsoletes`)
+- [x] Classifier stack is deterministic: source-kind tagging (`EXPLICIT_DEPENDS_ON | HTML_COMMENT_CONVENTION | YAML_COMMENT | PROSE_VERB | CODE_FENCE_EXAMPLE`), documented precedence ladder (PARSE_ERROR > DEAD_REFERENCE > CYCLE > BLOCKED > CONFLICT > SUPERSEDED > STATUS_CONTRADICTION > MISSING_DEPENDENCY > REDUNDANT_DEPENDENCY > ORPHANED_PLAN), and TDD-enforced ordering (Section 02)
 - [ ] Frontmatter/body status contradictions are detected via the canonical status normalizer (Section 01.4, pure fact-producer); Section 03 classifies findings into `SafeFix` / `ExposureReview` at write-back time and auto-fixes only the `SafeFix` class (Sections 01, 03)
 - [ ] The existing item-level verification (matrix coverage, semantic pins, hygiene) still works for specific sections (Section 04)
 - [ ] Full-corpus migration to the canonical schema is completed by the single-ownership sweep (Section 05.3)
@@ -187,14 +187,14 @@ These are the 8 test cases discovered during the dual-source TPR review (2026-04
 
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
-| (a) repr-opt active, locality prerequisite queued | Priority inversion -- no DAG validation | Section 02 | Not Started |
-| (b) Roadmap 22.2 references `plans/ori_lsp/` (nonexistent) | Dead reference -- no path validation | Section 02 | Not Started |
-| (c) test-suite-health 02 says rewrite roadmap 21A, not done | Supersession drift -- no cross-plan tracking | Section 02 | Not Started |
+| (a) repr-opt active, locality prerequisite queued | Priority inversion -- no DAG validation | Section 02 | Implemented (route A/B split documented) |
+| (b) Roadmap 22.2 references `plans/ori_lsp/` (nonexistent) | Dead reference -- no path validation | Section 02 | Implemented |
+| (c) test-suite-health 02 says rewrite roadmap 21A, not done | Supersession drift -- no cross-plan tracking | Section 02 | Implemented (structural SUPERSEDED case (ii)) |
 | (d) 5+ plans marked active, all sections Not Started | Stale metadata -- no status reconciliation | Section 01 | Not Started |
 | (e) section-01 frontmatter `in-progress`, body `COMPLETE` | Intra-file contradiction -- no validation | Section 01 | Not Started |
 | (f) Plan indexes use `reroute`/`plan`/`parallel` inconsistently | Schema violation -- no canonical schema | Section 01 | Not Started |
-| (g) BUG-04-039 in-progress but blocked by queued plan | Status incoherence across dependency chain | Section 02 | Not Started |
-| (h) Section 21A stale "unblocks JIT Exception Handling" ref | Dead reference to completed plan | Section 02 | Not Started |
+| (g) BUG-04-039 in-progress but blocked by queued plan | Status incoherence across dependency chain | Section 02 | Implemented (route A/B split documented) |
+| (h) Section 21A stale "unblocks JIT Exception Handling" ref | Dead reference to completed plan | Section 02 | Implemented (LOW-severity plans/completed/ resolution) |
 
 ## Metrics (Current State)
 
@@ -223,7 +223,7 @@ Section 01's scope grew because the original "Schema Definition" + "Validation S
 | ID | Title | File | Status |
 |----|-------|------|--------|
 | 01 | Frontmatter Schema, Strict Parser & Shared Types | `section-01-frontmatter-schema.md` | Complete |
-| 02 | DAG Builder & Conflict Classifier | `section-02-dag-builder.md` | Not Started |
+| 02 | DAG Builder & Conflict Classifier | `section-02-dag-builder.md` | Complete |
 | 03 | Findings Report & Write-Back | `section-03-findings-report.md` | Not Started |
 | 04 | Item-Level Verifier Preservation | `section-04-item-verifier.md` | Not Started |
 | 05 | Validation, Sweep & Skill Promotion | `section-05-validation.md` | Not Started |
