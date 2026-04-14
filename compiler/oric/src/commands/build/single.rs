@@ -81,23 +81,13 @@ pub(super) fn build_file_single(
     let output_path = determine_output_path(path, options);
 
     // Step 6: Emit based on emit type (--emit flag)
-    // For --emit, we still verify+optimize first, then emit in the requested format.
     if let Some(emit_type) = options.emit {
-        if let Err(e) = ori_llvm::aot::optimize_module(&llvm_module, emitter.machine(), &opt_config)
-        {
-            report_codegen_error(e);
-        }
-        // Post-optimization RC histogram (gated behind audit flag).
-        if ori_llvm::verify::audit_requested() {
-            let audit_opts = ori_llvm::verify::AuditOptions::from_env();
-            let stats = ori_llvm::verify::audit_module_histogram_only(&llvm_module, &audit_opts);
-            stats.emit_to_stderr();
-        }
-        emit_and_finish(
+        handle_emit_type(
             &llvm_module,
             &emitter,
             &output_path,
             emit_type,
+            &opt_config,
             options,
             start,
         );
@@ -126,18 +116,107 @@ pub(super) fn build_file_single(
         eprintln!("  Emitting object to {}", obj_path.display());
     }
 
+    let hooks = super::ir_capture::build_hooks(path);
     if let Err(e) = emitter.verify_optimize_emit(
         &llvm_module,
         &opt_config,
         &obj_path,
         ori_llvm::aot::OutputFormat::Object,
+        hooks,
     ) {
         report_codegen_error(e);
     }
 
     // Step 8: Link into executable
     // Note: temp_dir must stay alive until linking completes (auto-cleaned on drop)
-    link_and_finish(vec![obj_path], &output_path, &target, options, start);
+    link_and_finish(
+        vec![obj_path],
+        &output_path,
+        &target,
+        options,
+        &opt_config.sanitizer,
+        start,
+    );
+}
+
+/// Handle `--emit` flag: optimize then emit in the requested format.
+/// When sanitizers are enabled and emit type is Object, routes through Clang delegation.
+fn handle_emit_type(
+    llvm_module: &ori_llvm::inkwell::module::Module<'_>,
+    emitter: &ori_llvm::aot::ObjectEmitter,
+    output_path: &Path,
+    emit_type: EmitType,
+    opt_config: &ori_llvm::aot::OptimizationConfig,
+    options: &BuildOptions,
+    start: std::time::Instant,
+) {
+    use crate::problem::codegen::report_codegen_error;
+
+    if let Err(e) = ori_llvm::aot::optimize_module(llvm_module, emitter.machine(), opt_config) {
+        report_codegen_error(e);
+    }
+    if ori_llvm::verify::audit_requested() {
+        let audit_opts = ori_llvm::verify::AuditOptions::from_env();
+        let stats = ori_llvm::verify::audit_module_histogram_only(llvm_module, &audit_opts);
+        stats.emit_to_stderr();
+    }
+    if opt_config.sanitizer.any_enabled() {
+        if emit_type == EmitType::Object {
+            emit_sanitized_object(
+                llvm_module,
+                emitter,
+                output_path,
+                opt_config,
+                options,
+                start,
+            );
+            return;
+        }
+        // Warn: --emit ir/asm/bc with sanitizers produces uninstrumented output.
+        // Sanitizer passes are added by Clang during object compilation, not by LLVM.
+        eprintln!(
+            "warning: --emit {emit_type:?} with ORI_SANITIZE produces pre-sanitizer output. \
+             Sanitizer instrumentation is only visible in --emit object."
+        );
+    }
+    emit_and_finish(llvm_module, emitter, output_path, emit_type, options, start);
+}
+
+/// Emit a sanitizer-instrumented object via Clang delegation (used for --emit object with sanitizers).
+fn emit_sanitized_object(
+    llvm_module: &ori_llvm::inkwell::module::Module<'_>,
+    emitter: &ori_llvm::aot::ObjectEmitter,
+    output_path: &Path,
+    opt_config: &ori_llvm::aot::OptimizationConfig,
+    options: &BuildOptions,
+    start: std::time::Instant,
+) {
+    use crate::problem::codegen::report_codegen_error;
+
+    // Use the output path as-is (respects user's -o flag) with object extension
+    let emit_path = if output_path.extension().is_some() {
+        output_path.to_path_buf()
+    } else {
+        output_path.with_extension("o")
+    };
+    let target = emitter.config().triple().to_string();
+    if let Err(e) = ori_llvm::aot::clang_sanitize_object(
+        emitter,
+        llvm_module,
+        &emit_path,
+        &opt_config.sanitizer,
+        opt_config.level.as_clang_flag(),
+        &target,
+    ) {
+        report_codegen_error(e);
+    }
+    if options.verbose {
+        eprintln!(
+            "  Finished {} (sanitized) in {:.2}s",
+            emit_path.display(),
+            start.elapsed().as_secs_f64()
+        );
+    }
 }
 
 /// Emit a module and finish (used for --emit flag).

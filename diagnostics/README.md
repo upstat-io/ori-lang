@@ -20,6 +20,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `bisect-passes.sh` | Identify which AIMS pipeline phase introduced an RC or structural change | After `diagnose-aot.sh` finds a leak/crash (`--function`, `--rc-only`) |
 | `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
+| `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
 | `self-test.sh` | Self-test all scripts against fixtures | After modifying any diagnostic script |
 
 ## Usage
@@ -166,6 +167,17 @@ diagnostics/check-debug-flags.sh                   # Validate all ORI_* flags
 ```
 
 Checks: stale flags (defined but unused), orphan checks (used but undefined), undocumented flags (missing from CLAUDE.md).
+
+### repo-hygiene.sh — Worktree Cleanliness
+
+```bash
+diagnostics/repo-hygiene.sh                        # List detected temp/scratch files
+diagnostics/repo-hygiene.sh --check                # Exit 1 if temp files found (CI/skill gate)
+diagnostics/repo-hygiene.sh --clean                # Remove detected temp files
+diagnostics/repo-hygiene.sh --gitignore            # Suggest .gitignore patterns for detected files
+```
+
+Detects untracked temp files by category: **DUMP** (debug/IR dumps), **SCRATCH** (one-off test scripts), **BACKUP** (editor merge artifacts), **ARTIFACT** (stray build outputs), **STALE** (core dumps). Integrated into `/continue-roadmap` subsection close-out and section completion checklists.
 
 ### self-test.sh — Script Self-Test
 

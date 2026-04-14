@@ -232,6 +232,7 @@ mod tests {
             gc_sections: true,
             extra_args: vec!["-v".to_string()],
             linker: Some(LinkerFlavor::Lld),
+            sanitizer: ori_llvm::aot::SanitizerMode::NONE,
         };
 
         assert_eq!(input.objects.len(), 1);

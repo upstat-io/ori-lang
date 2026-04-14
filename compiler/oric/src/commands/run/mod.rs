@@ -141,15 +141,37 @@ pub fn run_file_compiled(path: &str) {
 
     let start = Instant::now();
 
+    // Fail fast if sanitizers are requested but Clang is not available.
+    let sanitizer_env = std::env::var(crate::debug_flags::ORI_SANITIZE)
+        .ok()
+        .filter(|v| v != "0" && !v.is_empty());
+    crate::commands::build::check_clang_for_sanitizers(sanitizer_env.as_deref());
+
     // Read source file
     let content = read_file(path);
 
-    // Compute content hash for caching
+    // Compute content hash for caching.
+    // Includes env vars that affect codegen so cache hits don't serve stale binaries.
     let content_hash = {
         let mut hasher = DefaultHasher::new();
         content.hash(&mut hasher);
-        // Include compiler version in hash for cache invalidation
         env!("CARGO_PKG_VERSION").hash(&mut hasher);
+        // Include verification/sanitizer env vars — these change the emitted binary
+        std::env::var(crate::debug_flags::ORI_SANITIZE)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        std::env::var(crate::debug_flags::ORI_VERIFY_EACH)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        std::env::var(crate::debug_flags::ORI_LLVM_LINT)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        std::env::var(crate::debug_flags::ORI_AUDIT_CODEGEN)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        std::env::var(crate::debug_flags::ORI_NO_REPR_OPT)
+            .unwrap_or_default()
+            .hash(&mut hasher);
         hasher.finish()
     };
 
@@ -193,7 +215,14 @@ pub fn run_file_compiled(path: &str) {
     // Cache miss - need to compile
     eprintln!("  Compiling {path} (first run)...");
 
-    compile_and_cache(path, content, &cache_dir, &binary_name, &binary_path);
+    compile_and_cache(
+        path,
+        content,
+        &cache_dir,
+        &binary_name,
+        &binary_path,
+        sanitizer_env.as_deref(),
+    );
 
     let compile_time = start.elapsed();
     eprintln!("  Compiled in {:.2}s", compile_time.as_secs_f64());
@@ -224,6 +253,7 @@ fn compile_and_cache(
     cache_dir: &std::path::Path,
     binary_name: &str,
     binary_path: &std::path::Path,
+    sanitizer_env: Option<&str>,
 ) {
     use ori_llvm::aot::{
         LinkInput, LinkOutput, LinkerDriver, ObjectEmitter, OutputFormat, RuntimeConfig,
@@ -285,18 +315,23 @@ fn compile_and_cache(
         eprintln!("warning: could not create cache directory: {e}");
     }
 
-    // Verify → optimize → emit object file via unified pipeline (O2 for good performance)
-    let verify_each = std::env::var(crate::debug_flags::ORI_VERIFY_EACH).is_ok_and(|v| v != "0");
-    let lint_enabled = std::env::var(crate::debug_flags::ORI_LLVM_LINT).is_ok_and(|v| v != "0")
-        || std::env::var(crate::debug_flags::ORI_AUDIT_CODEGEN).is_ok_and(|v| v != "0");
-    let opt_config = ori_llvm::aot::OptimizationConfig::new(ori_llvm::aot::OptimizationLevel::O2)
-        .with_verify_each(verify_each)
-        .with_lint(lint_enabled);
+    // Build optimization config via shared helper (same env var handling as `ori build`).
+    // Uses O2 for compiled-run since performance matters more than debug cycle time.
+    let run_options = crate::commands::build::BuildOptions {
+        opt_level: crate::commands::build::OptLevel::O2,
+        sanitizer_env: sanitizer_env.map(str::to_owned),
+        ..Default::default()
+    };
+    let opt_config = crate::commands::build::build_optimization_config(&run_options);
     let obj_path = cache_dir.join(format!("{binary_name}.o"));
 
-    if let Err(e) =
-        emitter.verify_optimize_emit(&llvm_module, &opt_config, &obj_path, OutputFormat::Object)
-    {
+    if let Err(e) = emitter.verify_optimize_emit(
+        &llvm_module,
+        &opt_config,
+        &obj_path,
+        OutputFormat::Object,
+        ori_llvm::aot::CaptureHooks::default(),
+    ) {
         crate::problem::codegen::report_codegen_error(e);
     }
 
@@ -311,11 +346,18 @@ fn compile_and_cache(
         }
     };
 
+    // RuntimeNotFound::Display includes the full context (searched paths, fix instructions).
+    if let Err(e) = runtime_config.validate_sanitizer(&opt_config.sanitizer) {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
+
     let mut link_input = LinkInput {
         objects: vec![obj_path.clone()],
         output: binary_path.to_path_buf(),
         output_kind: LinkOutput::Executable,
         gc_sections: true, // Remove unused sections
+        sanitizer: opt_config.sanitizer.clone(),
         ..Default::default()
     };
 

@@ -31,6 +31,7 @@
 
 use std::path::{Path, PathBuf};
 
+use super::passes::SanitizerMode;
 use super::{LibraryKind, LinkInput, LinkLibrary};
 
 /// Strip Windows extended-length path prefix after `canonicalize()`.
@@ -70,27 +71,53 @@ pub struct RuntimeConfig {
 pub struct RuntimeNotFound {
     /// Paths that were searched.
     pub searched_paths: Vec<PathBuf>,
+    /// Whether this error is specifically about the ASan-instrumented variant.
+    pub asan_variant: bool,
 }
 
 impl std::fmt::Display for RuntimeNotFound {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let lib_name = RuntimeConfig::lib_name();
-        writeln!(f, "Ori runtime library ({lib_name}) not found.")?;
-        writeln!(f)?;
-        writeln!(f, "Searched paths:")?;
-        for path in &self.searched_paths {
-            writeln!(f, "  - {}", path.display())?;
+        if self.asan_variant {
+            let lib_name = RuntimeConfig::lib_name_asan();
+            writeln!(f, "ASan-instrumented Ori runtime ({lib_name}) not found.")?;
+            writeln!(f)?;
+            writeln!(f, "Searched paths:")?;
+            for path in &self.searched_paths {
+                writeln!(f, "  - {}", path.display())?;
+            }
+            writeln!(f)?;
+            writeln!(
+                f,
+                "Without ASan-instrumented ori_rt, memory bugs in RC operations and containers"
+            )?;
+            writeln!(
+                f,
+                "will NOT be detected — defeating the primary goal of sanitizer integration."
+            )?;
+            writeln!(f)?;
+            writeln!(
+                f,
+                "Run `./scripts/build-rt-asan.sh` to build the ASan-instrumented runtime."
+            )?;
+        } else {
+            let lib_name = RuntimeConfig::lib_name();
+            writeln!(f, "Ori runtime library ({lib_name}) not found.")?;
+            writeln!(f)?;
+            writeln!(f, "Searched paths:")?;
+            for path in &self.searched_paths {
+                writeln!(f, "  - {}", path.display())?;
+            }
+            writeln!(f)?;
+            writeln!(f, "To fix this, either:")?;
+            writeln!(
+                f,
+                "  1. Reinstall Ori: curl -fsSL https://ori-lang.com/install.sh | sh"
+            )?;
+            writeln!(
+                f,
+                "  2. Specify path: ori build --runtime-path=/path/to/lib"
+            )?;
         }
-        writeln!(f)?;
-        writeln!(f, "To fix this, either:")?;
-        writeln!(
-            f,
-            "  1. Reinstall Ori: curl -fsSL https://ori-lang.com/install.sh | sh"
-        )?;
-        writeln!(
-            f,
-            "  2. Specify path: ori build --runtime-path=/path/to/lib"
-        )?;
         Ok(())
     }
 }
@@ -117,6 +144,16 @@ impl RuntimeConfig {
         }
     }
 
+    /// Get platform-specific ASan-instrumented library filename.
+    #[must_use]
+    pub fn lib_name_asan() -> &'static str {
+        if cfg!(windows) {
+            "ori_rt_asan.lib"
+        } else {
+            "libori_rt_asan.a"
+        }
+    }
+
     /// Check if runtime library exists in directory.
     fn lib_exists(dir: &Path, lib_name: &str) -> bool {
         dir.join(lib_name).exists()
@@ -136,87 +173,19 @@ impl RuntimeConfig {
     ///
     /// Returns `RuntimeNotFound` if the library cannot be found.
     pub fn detect() -> Result<Self, RuntimeNotFound> {
-        let mut searched = Vec::new();
         let lib_name = Self::lib_name();
+        let candidates = Self::candidate_directories();
 
-        // 1. Check relative to current executable (like rustc's sysroot discovery)
-        if let Ok(exe_path) = std::env::current_exe() {
-            // Canonicalize to resolve symlinks (like rustc does), then strip
-            // Windows extended-length prefix so MSVC linker gets valid paths.
-            let exe_path = normalize_path(exe_path.canonicalize().unwrap_or(exe_path));
-
-            if let Some(exe_dir) = exe_path.parent() {
-                // Dev layout: same directory as executable (target/release/)
-                // This is the most common case during development
-                if Self::lib_exists(exe_dir, lib_name) {
-                    return Ok(Self::new(exe_dir.to_path_buf()));
-                }
-                searched.push(exe_dir.to_path_buf());
-
-                // Sibling profile: target/debug/ori -> check target/release/ (and vice versa).
-                // Handles the common case where `cargo build` (debug) builds the compiler but
-                // `libori_rt.a` was built in release (or vice versa).
-                if let Some(target_dir) = exe_dir.parent() {
-                    for profile in &["release", "debug"] {
-                        let sibling = target_dir.join(profile);
-                        if sibling != exe_dir && Self::lib_exists(&sibling, lib_name) {
-                            return Ok(Self::new(sibling));
-                        }
-                        if sibling != *exe_dir {
-                            searched.push(sibling);
-                        }
-                    }
-                }
-
-                // Installed layout: bin/ori -> ../lib/libori_rt.a
-                // Standard FHS: /usr/local/bin/ori -> /usr/local/lib/libori_rt.a
-                let lib_path = exe_dir.join("../lib");
-                if Self::lib_exists(&lib_path, lib_name) {
-                    return Ok(Self::new(normalize_path(
-                        lib_path.canonicalize().unwrap_or(lib_path),
-                    )));
-                }
-                searched.push(lib_path);
-            }
-        }
-
-        // 2. Check ori_rt's standalone build directory.
-        // ori_rt is excluded from the workspace, so `cargo build --manifest-path
-        // compiler/ori_rt/Cargo.toml` puts the staticlib in compiler/ori_rt/target/.
-        // Detect the workspace root by walking up from the executable.
-        if let Ok(exe_path) = std::env::current_exe() {
-            let exe_path = normalize_path(exe_path.canonicalize().unwrap_or(exe_path));
-            // exe is at <workspace>/target/<profile>/ori → workspace = exe/../../../
-            if let Some(workspace_root) = exe_path
-                .parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.parent())
-            {
-                let ori_rt_target = workspace_root.join("compiler/ori_rt/target");
-                for profile in ["release", "debug"] {
-                    let path = ori_rt_target.join(profile);
-                    if Self::lib_exists(&path, lib_name) {
-                        return Ok(Self::new(path));
-                    }
-                    searched.push(path);
-                }
-            }
-        }
-
-        // 3. Check workspace directory (for `cargo run` during development)
-        // ORI_WORKSPACE_DIR is set by the build system when running via cargo
-        if let Ok(workspace) = std::env::var("ORI_WORKSPACE_DIR") {
-            for profile in ["release", "debug"] {
-                let path = PathBuf::from(&workspace).join("target").join(profile);
-                if Self::lib_exists(&path, lib_name) {
-                    return Ok(Self::new(path));
-                }
-                searched.push(path);
+        // Search candidates in order — first match wins
+        for dir in &candidates {
+            if Self::lib_exists(dir, lib_name) {
+                return Ok(Self::new(dir.clone()));
             }
         }
 
         Err(RuntimeNotFound {
-            searched_paths: searched,
+            searched_paths: candidates.iter().map(|d| d.join(lib_name)).collect(),
+            asan_variant: false,
         })
     }
 
@@ -227,18 +196,142 @@ impl RuntimeConfig {
         self
     }
 
+    /// Check whether the ASan-instrumented runtime variant is available.
+    #[must_use]
+    pub fn has_asan_variant(&self) -> bool {
+        Self::lib_exists(&self.library_path, Self::lib_name_asan())
+    }
+
+    /// Collect all candidate runtime directories using the same search strategy
+    /// as `detect()`. Used by `validate_sanitizer()` to search all directories
+    /// for the `ASan` variant, not just the one where the base runtime was found.
+    fn candidate_directories() -> Vec<PathBuf> {
+        let mut candidates = Vec::new();
+
+        if let Ok(exe_path) = std::env::current_exe() {
+            let exe_path = normalize_path(exe_path.canonicalize().unwrap_or(exe_path));
+            if let Some(exe_dir) = exe_path.parent() {
+                candidates.push(exe_dir.to_path_buf());
+                if let Some(target_dir) = exe_dir.parent() {
+                    for profile in &["release", "debug"] {
+                        let sibling = target_dir.join(profile);
+                        if sibling != exe_dir {
+                            candidates.push(sibling);
+                        }
+                    }
+                }
+                candidates.push(exe_dir.join("../lib"));
+            }
+
+            // Standalone ori_rt build directory
+            if let Some(workspace_root) = exe_path
+                .parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+            {
+                let ori_rt_target = workspace_root.join("compiler/ori_rt/target");
+                for profile in ["release", "debug"] {
+                    candidates.push(ori_rt_target.join(profile));
+                }
+            }
+        }
+
+        // Workspace directory (for cargo run during development)
+        if let Ok(workspace) = std::env::var("ORI_WORKSPACE_DIR") {
+            for profile in ["release", "debug"] {
+                candidates.push(PathBuf::from(&workspace).join("target").join(profile));
+            }
+        }
+
+        candidates
+    }
+
+    /// Validate that the runtime configuration is consistent with the
+    /// requested sanitizer mode. Returns an error if `ASan` is requested
+    /// but the `ASan`-instrumented runtime is not available.
+    ///
+    /// Searches all candidate runtime directories (not just the one where
+    /// the base runtime was found) for the ASan-instrumented variant.
+    ///
+    /// # Errors
+    ///
+    /// Returns a hard error (not a warning) when `ORI_SANITIZE=address`
+    /// but `libori_rt_asan.a` is not found — the primary goal of sanitizer
+    /// integration (catching RC memory bugs) fails without it.
+    pub fn validate_sanitizer(&self, sanitizer: &SanitizerMode) -> Result<(), RuntimeNotFound> {
+        if !sanitizer.address {
+            return Ok(());
+        }
+
+        // First check the directory where the base runtime was found
+        if self.has_asan_variant() {
+            return Ok(());
+        }
+
+        // Search all candidate directories for the ASan variant
+        let asan_name = Self::lib_name_asan();
+        let candidates = Self::candidate_directories();
+        for dir in &candidates {
+            if Self::lib_exists(dir, asan_name) {
+                return Ok(());
+            }
+        }
+
+        // Report all searched paths for diagnostic clarity
+        let mut searched = vec![self.library_path.join(asan_name)];
+        for dir in &candidates {
+            let path = dir.join(asan_name);
+            if !searched.contains(&path) {
+                searched.push(path);
+            }
+        }
+
+        Err(RuntimeNotFound {
+            searched_paths: searched,
+            asan_variant: true,
+        })
+    }
+
     /// Configure link input with runtime library.
     ///
-    /// Adds the library path and library to the link input.
+    /// When the sanitizer mode includes `ASan` and the `ASan`-instrumented
+    /// runtime variant is available, links `ori_rt_asan` instead of `ori_rt`.
     pub fn configure_link(&self, input: &mut LinkInput) {
         // Add library search path
         input.library_paths.push(self.library_path.clone());
 
+        // Select the appropriate runtime variant.
+        // When ASan is requested, search all candidate directories for the ASan
+        // variant (not just self.library_path) to handle split-directory layouts.
+        let rt_name = if input.sanitizer.address {
+            let asan_name = Self::lib_name_asan();
+            if Self::lib_exists(&self.library_path, asan_name) {
+                "ori_rt_asan"
+            } else {
+                // Search candidate directories for ASan variant
+                let mut found_asan = false;
+                for dir in Self::candidate_directories() {
+                    if Self::lib_exists(&dir, asan_name) {
+                        input.library_paths.push(dir);
+                        found_asan = true;
+                        break;
+                    }
+                }
+                if found_asan {
+                    "ori_rt_asan"
+                } else {
+                    "ori_rt"
+                }
+            }
+        } else {
+            "ori_rt"
+        };
+
         // Add the runtime library
         let lib = if self.static_link {
-            LinkLibrary::new("ori_rt").static_lib()
+            LinkLibrary::new(rt_name).static_lib()
         } else {
-            LinkLibrary::new("ori_rt").dynamic_lib()
+            LinkLibrary::new(rt_name).dynamic_lib()
         };
         input.libraries.push(lib);
 
@@ -267,6 +360,9 @@ impl RuntimeConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Strip the Windows extended-length path prefix (`\\?\`).
 ///

@@ -181,6 +181,7 @@ fn test_linker_error_from() {
 fn test_runtime_not_found_from() {
     let err = ori_llvm::aot::RuntimeNotFound {
         searched_paths: vec!["/usr/lib".into()],
+        asan_variant: false,
     };
     let codegen: CodegenProblem = err.into();
     let diag = codegen.into_diagnostic();

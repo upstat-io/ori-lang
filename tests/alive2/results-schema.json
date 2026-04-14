@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Alive2 Verification Results",
+  "description": "Machine-readable output from diagnostics/alive2-verify.sh --json. Consumed by Sections 11 (CI Integration) and 12 (Regression Dashboard).",
+  "type": "object",
+  "required": ["version", "timestamp", "llvm_version", "alive2_commit", "mode", "summary", "functions"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "llvm_version": { "type": "integer" },
+    "alive2_commit": { "type": "string" },
+    "mode": { "enum": ["curated", "full-sweep", "single-file"] },
+    "summary": {
+      "type": "object",
+      "required": ["verified", "failed", "timeout", "suppressed", "inlined", "errors", "total"],
+      "properties": {
+        "verified": { "type": "integer" },
+        "failed": { "type": "integer" },
+        "timeout": { "type": "integer" },
+        "suppressed": { "type": "integer" },
+        "inlined": { "type": "integer" },
+        "errors": { "type": "integer" },
+        "total": { "type": "integer" }
+      }
+    },
+    "functions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file", "function", "status"],
+        "properties": {
+          "file": { "type": "string" },
+          "function": { "type": "string" },
+          "status": { "enum": ["verified", "failed", "timeout", "suppressed", "inlined", "error"] },
+          "suppression_category": { "type": "string" },
+          "duration_seconds": { "type": "number" },
+          "alive2_output": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -105,7 +105,7 @@ aims/builtins/tests.rs, AnnotatedSig
 ---
 
 ### Section 07: FileCheck-Style IR Pattern Matching
-**File:** `section-07-filecheck.md` | **Status:** Not Started
+**File:** `section-07-filecheck.md` | **Status:** Complete
 
 ```
 FileCheck, CHECK:, CHECK-LABEL:, CHECK-NOT:
@@ -124,11 +124,14 @@ Rust compiletest, codegen tests, ir-dump.sh
 
 ```
 ASan, UBSan, AddressSanitizer, UndefinedBehaviorSanitizer
-ORI_SANITIZE, generated code, AOT binary
-LLVM pass pipeline, asan-module, SanitizerMode
-separate CI job, smoke subset, nightly full sweep
-sharding, 150s timeout, buffer overflow, use-after-free
-linker integration, libasan, libubsan, -fsanitize
+ORI_SANITIZE, generated code, AOT binary, ori_rt
+Clang delegation, clang_compile_with_sanitizers, SanitizerMode
+linker/mod.rs split, LinkerDetection, detect.rs
+LinkInput.sanitizer, GccLinker, -fsanitize, linker integration
+ori_rt ASan, libori_rt_asan.a, nightly Rust, -Zsanitizer=address
+separate CI job, smoke subset, nightly-verification.yml
+sharding, semantic pin, negative pin, buffer overflow, use-after-free
+scripts/sanitizer-smoke.sh, scripts/build-rt-asan.sh
 ```
 
 ---

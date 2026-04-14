@@ -97,6 +97,7 @@ third_party_review:
   - Negative pin: `compute_enum_layout_info` for `Option<[int]>` does NOT use niche (empty list = null data ptr)
 
 - [ ] **Subsection close-out (01.1)** — Run `/improve-tooling` retrospectively on this subsection's work. Commit improvements separately via `/commit-push`.
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -125,6 +126,7 @@ third_party_review:
 - [ ] **Rust unit tests**: boundary-value tests for `slot_padded_size`: 0→0, 1→8, 7→8, 8→8, 9→16, 16→16, 24→24, 25→32. And `slot_count`: 0→0, 1→1, 8→1, 9→2, 16→2, 24→3.
 
 - [ ] **Subsection close-out (01.2)** — Run `/improve-tooling` retrospectively. Commit improvements separately.
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 

@@ -78,6 +78,13 @@ pub struct BuildOptions {
     pub link_mode_explicit: bool,
     /// Whether `jobs` was explicitly set via `--jobs=` or `-j`.
     pub jobs_explicit: bool,
+    /// Raw `ORI_SANITIZE` env value (e.g. `"address,undefined"`).
+    ///
+    /// Populated by [`accumulate_build_options_with_env`] from the `ORI_SANITIZE`
+    /// env var. Consumers parse this via `SanitizerMode::from_env_value()`.
+    /// Storing the raw string avoids a compile-time dependency on `ori_llvm` in
+    /// `BuildOptions` (which is used in non-LLVM builds too).
+    pub sanitizer_env: Option<String>,
 }
 
 impl Default for BuildOptions {
@@ -109,6 +116,7 @@ impl Default for BuildOptions {
             narrowing_policy_explicit: false,
             link_mode_explicit: false,
             jobs_explicit: false,
+            sanitizer_env: None,
         }
     }
 }
@@ -395,6 +403,14 @@ pub fn accumulate_build_options_with_env(args: &[String], env_disabled: bool) ->
     // Only applies if no explicit policy was set via CLI flags.
     if !options.narrowing_policy_explicit && env_disabled {
         options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
+    }
+
+    // Apply ORI_SANITIZE env var — centralized here as the single read point.
+    // Consumers access `options.sanitizer_env` instead of re-reading the env var.
+    if let Ok(v) = std::env::var(crate::debug_flags::ORI_SANITIZE) {
+        if v != "0" && !v.is_empty() {
+            options.sanitizer_env = Some(v);
+        }
     }
 
     options

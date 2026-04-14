@@ -21,6 +21,21 @@ pre-commit:
       glob: "docs/ori_lang/v2026/spec/**"
       run: .lefthook/check-spec-proposal-gate.sh
 
+post-commit:
+  commands:
+    intel-sync:
+      run: |
+        if [ -x ../lang_intelligence/scripts/sync-ori-graph.sh ]; then
+          CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD -- 'compiler/*.rs' 'library/*.ori' 'library/*.rs')
+          if [ -n "$CHANGED" ]; then
+            mkdir -p ../lang_intelligence/logs
+            ../lang_intelligence/scripts/sync-ori-graph.sh --changed "$CHANGED" >> ../lang_intelligence/logs/ori-sync.log 2>&1 &
+          fi
+        fi
+      # Fire-and-forget: returns immediately, sync runs in background
+      # If lang_intelligence doesn't exist, the -x test fails silently
+      # Scoped to compiler/ and library/ per repos.yaml include roots
+
 commit-msg:
   commands:
     conventional-commit:

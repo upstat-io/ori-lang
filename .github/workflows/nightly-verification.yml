@@ -1,0 +1,208 @@
+name: Nightly Verification
+
+on:
+  pull_request:
+    paths:
+      - 'compiler/**'
+      - 'library/**'
+      - 'tests/sanitizer/**'
+      - 'scripts/sanitizer-smoke.sh'
+      - 'scripts/sanitizer-full.sh'
+      - 'scripts/build-rt-asan.sh'
+      - 'scripts/build-alive2.sh'
+      - 'tests/alive2/**'
+      - 'diagnostics/alive2-verify.sh'
+      - '.github/workflows/nightly-verification.yml'
+  schedule:
+    - cron: '30 2 * * *'  # 2:30 AM UTC nightly (after nightly release PR at midnight)
+    - cron: '0 4 * * 0'   # 4:00 AM UTC weekly (Sunday — Alive2 full sweep)
+  workflow_dispatch:
+
+jobs:
+  sanitizer-smoke:
+    name: Sanitizer Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-rt-dev
+
+      - name: Install Rust nightly (for ori_rt ASan)
+        run: rustup toolchain install nightly
+
+      - name: Build compiler
+        run: cargo build --release
+
+      - name: Build ASan-instrumented ori_rt
+        run: ./scripts/build-rt-asan.sh --release
+
+      - name: Sanitizer smoke (debug/O0)
+        env:
+          ORI_SANITIZE: "address,undefined"
+        run: timeout 150 ./scripts/sanitizer-smoke.sh
+
+      - name: Sanitizer smoke (release/O2)
+        env:
+          ORI_SANITIZE: "address,undefined"
+          ORI_RELEASE: "1"
+        run: timeout 150 ./scripts/sanitizer-smoke.sh
+
+  sanitizer-full:
+    name: Sanitizer Full Sweep (shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: sanitizer-smoke  # Only run full sweep if smoke passes
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-rt-dev
+
+      - name: Install Rust nightly
+        run: rustup toolchain install nightly
+
+      - name: Build compiler
+        run: cargo build --release
+
+      - name: Build ASan-instrumented ori_rt
+        run: ./scripts/build-rt-asan.sh --release
+
+      - name: Run shard
+        env:
+          ORI_SANITIZE: "address,undefined"
+          TEST_SHARD: "${{ matrix.shard }}"
+          TEST_TOTAL_SHARDS: "4"
+        run: ./scripts/sanitizer-full.sh
+
+  alive2-build:
+    name: Build alive-tv
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Alive2 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libz3-dev re2c cmake
+
+      - name: Extract Alive2 cache key
+        id: alive2-key
+        run: |
+          # Cache key includes LLVM version, pinned commit, and script hash
+          LLVM_MAJOR=$(llvm-config-21 --version | cut -d. -f1)
+          ALIVE2_COMMIT=$(grep 'ALIVE2_COMMIT=' scripts/build-alive2.sh | head -1 | cut -d'"' -f2)
+          echo "key=alive2-llvm${LLVM_MAJOR}-${ALIVE2_COMMIT}-${{ hashFiles('scripts/build-alive2.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache alive-tv binary
+        id: alive2-cache
+        uses: actions/cache@v4
+        with:
+          path: build/alive2/alive-tv
+          key: ${{ steps.alive2-key.outputs.key }}
+
+      - name: Build alive-tv
+        if: steps.alive2-cache.outputs.cache-hit != 'true'
+        run: ./scripts/build-alive2.sh
+
+      - name: Verify alive-tv
+        run: |
+          tmpfile="$(mktemp --suffix=.ll)"
+          echo 'define i64 @f(i64 %x) { ret i64 %x }' > "$tmpfile"
+          build/alive2/alive-tv "$tmpfile" --passes=instcombine 2>&1 | grep -q "Transformation seems to be correct"
+          rm -f "$tmpfile"
+          echo "alive-tv verification passed"
+
+  alive2-curated:
+    name: Alive2 Curated Corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: alive2-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Alive2 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libz3-dev re2c cmake
+
+      - name: Extract Alive2 cache key
+        id: alive2-key
+        run: |
+          LLVM_MAJOR=$(llvm-config-21 --version | cut -d. -f1)
+          ALIVE2_COMMIT=$(grep 'ALIVE2_COMMIT=' scripts/build-alive2.sh | head -1 | cut -d'"' -f2)
+          echo "key=alive2-llvm${LLVM_MAJOR}-${ALIVE2_COMMIT}-${{ hashFiles('scripts/build-alive2.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore alive-tv binary
+        uses: actions/cache@v4
+        with:
+          path: build/alive2/alive-tv
+          key: ${{ steps.alive2-key.outputs.key }}
+
+      - name: Build Ori compiler
+        run: cargo build
+
+      - name: Run Alive2 on curated corpus
+        run: diagnostics/alive2-verify.sh --corpus --timeout 60 --check-survival
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: alive2-curated-results
+          path: build/alive2-results/
+          retention-days: 30
+
+  # <!-- plan-sync: Section 11.3 may relocate this job to weekly-verification.yml -->
+  alive2-full-sweep:
+    name: Alive2 Full Sweep (Weekly)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    needs: alive2-curated
+    if: github.event_name == 'schedule' && github.event.schedule == '0 4 * * 0'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Alive2 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libz3-dev re2c cmake
+
+      - name: Extract Alive2 cache key
+        id: alive2-key
+        run: |
+          LLVM_MAJOR=$(llvm-config-21 --version | cut -d. -f1)
+          ALIVE2_COMMIT=$(grep 'ALIVE2_COMMIT=' scripts/build-alive2.sh | head -1 | cut -d'"' -f2)
+          echo "key=alive2-llvm${LLVM_MAJOR}-${ALIVE2_COMMIT}-${{ hashFiles('scripts/build-alive2.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore alive-tv binary
+        uses: actions/cache@v4
+        with:
+          path: build/alive2/alive-tv
+          key: ${{ steps.alive2-key.outputs.key }}
+
+      - name: Build Ori compiler
+        run: cargo build
+
+      - name: Run Alive2 on all codegen tests
+        run: |
+          diagnostics/alive2-verify.sh --all-codegen --timeout 120 \
+            --suppress tests/alive2/suppressed.json --check-survival
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: alive2-full-results
+          path: build/alive2-results/
+          retention-days: 90

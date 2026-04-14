@@ -1,0 +1,31 @@
+# Alive2 curated function corpus for translation validation.
+#
+# Format: <ori_file_path> [function_name]
+#   - If function_name is omitted, all _ori_* functions are verified.
+#   - Lines starting with # are comments.
+#   - Paths are relative to the repo root.
+#
+# Selection criteria:
+#   INCLUDE: Pure arithmetic, simple control flow, no runtime calls,
+#            no invoke/landingpad, no indirect calls (closures).
+#   EXCLUDE: Functions with _ori_rc_*, invoke, _ori_alloc, _ori_panic,
+#            _ori_is_unique (COW), large loop nests, va_arg.
+#   SURVIVAL: Each entry MUST survive -O2 optimization (not inlined away).
+#            Verify with: diagnostics/alive2-verify.sh --check-survival <file>
+#
+# To add entries: write a pure .ori function, build with ORI_ALIVE2_CAPTURE=1
+# and --opt=2, verify it appears in both preopt.ll and postopt.ll.
+
+# Pure arithmetic — int operations
+tests/alive2/pure_arithmetic.ori _ori_add
+tests/alive2/pure_arithmetic.ori _ori_multiply
+tests/alive2/pure_arithmetic.ori _ori_abs_val
+tests/alive2/pure_arithmetic.ori _ori_max_of_three
+tests/alive2/pure_arithmetic.ori _ori_factorial
+
+# Pure boolean logic
+tests/alive2/pure_arithmetic.ori _ori_is_even
+
+# Codegen tests — pure scalar (no RC)
+compiler/ori_llvm/tests/codegen/rc_no_ops_for_int.ori _ori_main
+compiler/ori_llvm/tests/codegen/rc_no_ops_for_bool.ori _ori_main

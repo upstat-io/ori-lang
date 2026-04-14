@@ -1,0 +1,15 @@
+// Sanitizer smoke: RC in loop back-edges — repeated inc/dec in loop body.
+// Loops are the #1 source of RC bugs (back-edge re-enters body with stale refs).
+
+@main () -> int = {
+    let sum = 0;
+    let i = 0;
+    loop {
+        if i >= 100 then break;
+        let name = "iteration";
+        sum = sum + name.len();
+        i = i + 1
+    };
+    // "iteration".len() = 9, 100 iterations = 900
+    if sum == 900 then 0 else 1
+}

@@ -1,0 +1,45 @@
+// Regression: BUG-04-071 — repr-opt narrows [int] to i8, but iterator map
+// produces canonical i64 values. Narrowing must not leak into the iterator
+// pipeline. Exit code 0 = pass, nonzero = specific failure.
+@main () -> int = {
+    // Narrowed list: all values fit in i8
+    let xs = [1, 2, 3, 4, 5];
+
+    // Map produces canonical i64 values (x * 1000 exceeds i8 range)
+    let result = xs.iter().map((x) -> x * 1000).collect();
+
+    // Check values — these would be truncated/corrupted without the fix
+    if result[0] != 1000 then 1
+    else if result[1] != 2000 then 2
+    else if result[2] != 3000 then 3
+    else if result[3] != 4000 then 4
+    else if result[4] != 5000 then 5
+    else {
+        // Sign extension correctness: -1 stored as i8 (0xFF)
+        // must become -1 (0xFFFFFFFFFFFFFFFF), not 255 (0x00000000000000FF)
+        let neg = [-1, 0, 1];
+        let neg_result = neg.iter().map((x) -> x * 2).collect();
+        if neg_result[0] != -2 then 10
+        else if neg_result[1] != 0 then 11
+        else if neg_result[2] != 2 then 12
+        else {
+            // Chained map — second trampoline must use canonical types
+            let chained = [1, 2, 3].iter()
+                .map((x) -> x * 100)
+                .map((x) -> x + 1)
+                .collect();
+            if chained[0] != 101 then 20
+            else if chained[1] != 201 then 21
+            else if chained[2] != 301 then 22
+            else {
+                // For-loop path — scratch alloca must be canonical size
+                let sum = 0;
+                for x in [10, 20, 30].iter().map((x) -> x * 100) do {
+                    sum = sum + x
+                };
+                if sum != 6000 then 30
+                else 0
+            }
+        }
+    }
+}

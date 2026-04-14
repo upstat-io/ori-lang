@@ -1,0 +1,13 @@
+// Sanitizer smoke: List buffer management — push, index, slice.
+// Tests dynamic array growth and element access.
+
+@main () -> int = {
+    let list = [1, 2, 3];
+    let list = list.push(value: 4);
+    let list = list.push(value: 5);
+    let first = list[0];
+    let last = list[4];
+    let len = list.len();
+    let ok = first == 1 && last == 5 && len == 5;
+    if ok then 0 else 1
+}

@@ -83,6 +83,7 @@ When a code journey produces findings with severity >= medium from tool-based so
   - [ ] All tasks above are `[x]` and auto-filing tested
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -113,6 +114,7 @@ Generate `-results.md` deterministically from `-results.json`. The markdown serv
   - [ ] All tasks above are `[x]` and markdown generation tested
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
@@ -144,6 +146,7 @@ Generate `-results.md` deterministically from `-results.json`. The markdown serv
   - [ ] All tasks above are `[x]` and batch mode + overview verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
