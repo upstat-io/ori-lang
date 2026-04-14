@@ -36,7 +36,7 @@ sections:
     status: complete
   - id: "02.3"
     title: "Priority Inversion Detection"
-    status: not-started
+    status: complete
   - id: "02.4"
     title: "Classifier Precedence & Determinism Tests"
     status: not-started
@@ -334,34 +334,34 @@ Implement the full classifier stack: the six mission classifiers plus `REDUNDANT
 
 Specialized analysis that extends the BLOCKED classifier (§02.2) with transitive chain reporting and root-blocker identification. The topological-sort recommendation from the prior §02.3 draft is CUT here and re-scoped as a §03 consumer — see NOTE below.
 
-- [ ] Implement transitive priority inversion detection:
+- [x] Implement transitive priority inversion detection:
   - For each BLOCKED finding from §02.2, compute the full dependency chain `A → B → ... → root_blocker` via DFS on `Dag.edges`.
   - `root_blocker` = the deepest queued/not-started node in the chain.
   - Emit one Finding per chain using Option A (typed boundary per TPR-02-006-codex and TPR-02-004-gemini): populate `Finding.dependency_chain: tuple[Path, ...]` and `Finding.source_kind: SourceKind` — both fields added to `scripts/plan_corpus/types.py` as part of §02.N's cross-section extension (see §02.5 Concern I). The `evidence` field is reserved for short textual notes; structured chain data MUST NOT be flattened into strings across the §02→§03 phase boundary (EXPOSURE guard per `impl-hygiene.md`).
   - Replace the §02.2 BLOCKED finding with the chain-enriched version (dedup by `Finding.id`).
 
-- [ ] Identify the minimum unblock set:
+- [x] Identify the minimum unblock set:
   - For each connected component of BLOCKED findings, compute the minimum set of nodes whose status change would unblock the chain.
   - Emit using the existing `FindingCategory.DAG_CONFLICT / BLOCKED` subtype with the typed `Finding.dependency_chain: tuple[Path, ...]` field carrying the unblock-set paths (per TPR-02-001-gemini-r4 — no evidence-tuple residue). `source_kind=SourceKind.EXPLICIT_DEPENDS_ON` because the unblock-set members are on dependency edges. `evidence` is reserved for short human-readable rationale ONLY; structured unblock-set data goes in `dependency_chain`.
   - **NOTE for /tpr-review:** the "minimum unblock set" is a §03 consumer concern — §03's report groups BLOCKED findings by shared `dependency_chain` prefixes and presents the root blocker as a single actionable item. §02 computes the data as a typed field; §03 reads the typed field and renders.
 
-- [ ] **CUT (Finding L): topological-sort execution-order recommendation is NOT emitted by §02.**
+- [x] **CUT (Finding L): topological-sort execution-order recommendation is NOT emitted by §02.**
   - The prior §02.3 draft computed a topological sort and labeled plans "active out of order". §03's `/continue-roadmap` integration only consumes BLOCKED/CONFLICT/DEAD_REFERENCE quick-checks; §04 consumes flagged sections. There is no §03 or §04 consumer for a topo-sort output.
   - The topo-sort code is CUT from §02 entirely (per TPR-02-005-gemini — no soft-deferral, no "just-in-case" architectural concessions). `dag.edges` remains because real classifiers consume it (BLOCKED, REDUNDANT_DEPENDENCY, CONFLICT short-circuit); the transitive closure is computed inside REDUNDANT_DEPENDENCY's classifier body, not exported as a general-purpose structure. If a future plan proposes topo-sort rendering, the new plan specifies its consumer and may extend §02 via a proper new subsection at that time — the proposal workflow is the gating mechanism, not speculative scaffolding.
 
-- [ ] Validate against known test cases (concrete assertions for §05.2):
+- [x] Validate against known test cases (concrete assertions for §05.2):
   - Test case (a): `plans/repr-opt/index.md` active, body-prose references `plans/locality-representation-unification/` queued. Mirrors case (g): in the CURRENT corpus state, `plans/repr-opt/index.md` has NO `depends_on` entry → emits MISSING_DEPENDENCY (not BLOCKED). Once the author adds `depends_on: ["Locality SSOT#NN"]` (the name-based cross-plan ID from `plans/locality-representation-unification/index.md:name`; directory slug REJECTED by §01's DepId validator), re-runs produce a BLOCKED finding with chain `Repr Opt → Locality SSOT`. §02.2's BLOCKED "Known cases" block documents this as the route-A/route-B split.
   - Test case (g): `plans/bug-tracker/fix-BUG-04-039.md` in-progress, YAML_COMMENT references `plans/iterator-element-ownership/` as blocker → emits a MISSING_DEPENDENCY (no frontmatter `depends_on` entry) AND, once the author adds `depends_on: ["Iter Ownership#NN"]` (the name-based cross-plan ID; directory slug `iterator-element-ownership` is REJECTED by §01's DepId validator), re-runs produce a BLOCKED finding. §02 does NOT auto-promote YAML comments to edges (per §02.0 SSOT rule).
   - Test case (b): DEAD_REFERENCE for `plans/ori_lsp/` in `plans/roadmap/section-22-tooling.md`.
   - Test case (c): SUPERSEDED (case (ii) — in-place-rewrite-claimed-but-not-done) for `plans/test-suite-health/section-02-roadmap-reprioritization.md` → `plans/roadmap/section-21A-llvm.md`.
   - Test case (h): DEAD_REFERENCE (LOW severity, HTML_COMMENT_CONVENTION source) for `plans/roadmap/section-21A-llvm.md:83` `<!-- unblocks:jit-exception-handling/04B,05,06 -->` — target resolves to `plans/completed/jit-exception-handling/` → annotation is stale.
 
-- [ ] **Subsection close-out (02.3)** — MANDATORY before starting 02.4:
-  - [ ] Write failing test fixtures FIRST for each known test case (a), (b), (c), (g), (h) — one fixture file per case, reproducing the exact live-corpus scenario
-  - [ ] All tasks above are `[x]` and known test cases validate
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Run `/sync-claude` on THIS subsection** — check whether changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md` claims. If no changes, document briefly. Fix any drift NOW.
+- [x] **Subsection close-out (02.3)** — MANDATORY before starting 02.4:
+  - [x] Write failing test fixtures FIRST for each known test case (a), (b), (c), (g), (h) — one fixture file per case, reproducing the exact live-corpus scenario
+  - [x] All tasks above are `[x]` and known test cases validate
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — No tooling gaps. detect_priority_inversions reuses classify_blocked + _node_status cache; recursion depth limit is a risk on deep chains but the DFS has cycle avoidance via `if nxt in path: continue`.
+  - [x] **Run `/sync-claude` on THIS subsection** — No global rules drift. Priority inversion remains §02-internal until §02.5 exposes DagReport.
 
 ---
 
