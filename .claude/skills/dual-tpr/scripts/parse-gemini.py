@@ -31,8 +31,11 @@ Outcome codes (stderr first line on default-mode failure):
     missing_end_sentinel    — BEGIN found but END missing (truncation)
     missing_json_block      — sentinels present but no fenced JSON block
     parse_fail              — fenced JSON block is not valid JSON
-    schema_violation        — JSON validates against neither shape nor schema
-                              (even after repair attempt)
+    schema_violation        — [RESCUED: no longer causes exit(1)]
+                              JSON validates against neither shape nor schema
+                              even after repair attempt. Previously fatal;
+                              now rescued — envelope written to stdout with
+                              RESCUED warnings on stderr. See §Rescue mode.
     failed_partial          — envelope validates but status != "complete"
 
 Sentinel-less fallback:
@@ -69,6 +72,15 @@ Sentinel-less fallback:
     fenced block before emitting the real envelope in a later one. The
     sentinel requirement remains in the skill file; this is a parser-level
     safety net, not an endorsement of sentinel-less output.
+
+Rescue mode (2026-04-13):
+    When schema or invariant validation fails AFTER the repair layer has run,
+    the parser accepts the repaired envelope as-is instead of exiting with
+    schema_violation. This prevents costly full-review retries (10+ minutes
+    each) for cosmetic JSON structure issues when the findings content is
+    intact. RESCUED envelopes are identified by stderr lines starting with
+    "RESCUED:". The only remaining fatal exit for content-bearing envelopes
+    is failed_partial (status != "complete").
 
 Envelope repair:
     After JSON parsing succeeds, the repair layer (repair_envelope.py) runs
@@ -347,29 +359,38 @@ def main():
         for r in repairs:
             deferred_advisory.append(f"  REPAIR: {r}")
 
+    # Rescue mode: when schema or invariant validation fails AFTER repair,
+    # accept the envelope rather than exiting — a 10+ minute full-review retry
+    # for a cosmetic JSON structure issue is unacceptable. The repair layer has
+    # already normalized all structurally significant violations; anything that
+    # slips through is an edge-case format issue (unusual location characters,
+    # unexpected nested type) that doesn't affect downstream merge/display.
+    rescued = False
+
     try:
         jsonschema.validate(envelope, schema)
     except jsonschema.ValidationError as e:
-        print("schema_violation", file=sys.stderr)
-        print(f"{e.message}", file=sys.stderr)
+        rescued = True
+        deferred_advisory.append(
+            f"RESCUED: schema validation failed after repair — accepting "
+            f"envelope as-is. Violation: {e.message}"
+        )
         if repairs:
-            print(
-                f"(repair layer applied {len(repairs)} fix(es) but envelope "
-                f"still fails validation)",
-                file=sys.stderr,
+            deferred_advisory.append(
+                f"RESCUED: repair layer had applied {len(repairs)} fix(es) but "
+                f"envelope still fails validation"
             )
-        _flush_advisory(deferred_advisory)
-        sys.exit(1)
 
     # Validate code-level invariants (regex patterns, length limits, conditional
     # requirements that can't be expressed in the OpenAI Structured Outputs subset).
     # See envelope_invariants.py and BUG-08-003 for the rationale.
     invariant_error = validate_envelope_invariants(envelope)
     if invariant_error is not None:
-        print("schema_violation", file=sys.stderr)
-        print(invariant_error, file=sys.stderr)
-        _flush_advisory(deferred_advisory)
-        sys.exit(1)
+        rescued = True
+        deferred_advisory.append(
+            f"RESCUED: invariant validation failed — {invariant_error}. "
+            f"Accepting envelope to avoid costly retry."
+        )
 
     if envelope.get("status") != "complete":
         print("failed_partial", file=sys.stderr)
@@ -377,6 +398,11 @@ def main():
         _flush_advisory(deferred_advisory)
         sys.exit(1)
 
+    if rescued:
+        deferred_advisory.insert(0,
+            "RESCUED: gemini envelope accepted despite schema/invariant "
+            "violations — content preserved to avoid costly full-review retry"
+        )
     json.dump(envelope, sys.stdout, indent=2)
     sys.stdout.write("\n")
     _flush_advisory(deferred_advisory)

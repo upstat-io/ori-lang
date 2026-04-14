@@ -188,6 +188,13 @@ For full project mode or when 3+ crates are in scope, spawn an agent to trace th
 
 This agent produces a **flow map** — a brief summary of how each major data category crosses the phase boundaries. This map is passed to all subsequent review agents as context.
 
+#### Intelligence-assisted map (before agent dispatch)
+If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`):
+- For each in-scope crate, run `scripts/intel-query.sh --human file-symbols "<crate/path>" --repo ori`
+- For each major dispatch or boundary symbol, run `scripts/intel-query.sh --human callers "<symbol>" --repo ori` and `callees "<symbol>" --repo ori`
+- For cross-backend or prior-art checks, run `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,lean4 --limit 5`
+Use this map as input to Pass 1 and Pass 2 so the review starts from actual call-graph structure.
+
 ### Phase 3: Deep Analysis (Multi-Pass, Multi-Lens)
 
 This is the "go deep" phase. Each review unit gets **multiple analysis passes**, each with a different lens. This catches issues that a single-pass review misses because different violation types require different reading strategies.

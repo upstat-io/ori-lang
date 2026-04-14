@@ -393,6 +393,11 @@ After determining the focus section in Step 2, optionally query the intelligence
    ```
    If a preset was identified: `scripts/intel-query.sh --human <preset> --limit 5`
 
+   If the section body contains concrete file paths or symbol names:
+   - `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori`
+   - `scripts/intel-query.sh --human callers "<symbol>" --repo ori` and `callees "<symbol>" --repo ori`
+   - `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5`
+
 5. Hold results as "Cross-language context for Section {NN}:" — use when making design decisions within the section. Do NOT inject into every subsection prompt; reference as needed.
 
 6. **Discovery, not replacement**: Intelligence results are pointers to investigate, not authoritative claims. Before using any result to influence design decisions or plan text, verify it against the referenced source code or issue (per `.claude/rules/intelligence.md`).
@@ -545,7 +550,8 @@ Present to the user:
 1. All subsection tasks are `[x]` and the subsection's behavior is verified.
 2. Update the subsection's `status` in section frontmatter to `complete`.
 3. **Run `/improve-tooling` retrospectively on THIS subsection** — invoke the skill in per-subsection mode (see `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"). Reflect on this subsection's debugging journey: which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement every accepted improvement NOW (zero deferral). Commit each via SEPARATE `/commit-push` using a valid conventional-commit type (e.g., `build(diagnostics): add X to Y.sh — surfaced by {plan}/section-{NN}.M retrospective` — use `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs; do NOT use `tools(...)` — the lefthook commit-msg hook rejects any type outside the standard set `feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`). Verify each improvement against the original friction. If genuinely no gaps, document briefly: "Retrospective {NN}.M: no tooling gaps". Mandatory even when nothing felt painful — that is exactly when blind spots accumulate. **Do NOT batch this to section close** — pain memory has already decayed by then.
-4. `/commit-push` for the subsection's implementation work (separate from any tooling commits in step 3).
+4. **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`. If temp files detected (debug dumps, one-off test scripts, editor backups), run `diagnostics/repo-hygiene.sh --clean` to remove them before committing. This keeps the worktree free of detritus that obscures real changes in `git status`.
+5. `/commit-push` for the subsection's implementation work (separate from any tooling commits in step 3).
 
 **Then** apply the pacing choice:
 - If user chose "Full section", proceed directly to the next subsection (the close-out above already ran).
@@ -880,6 +886,7 @@ When completing a roadmap item:
   - [ ] Update `00-overview.md` effort table and Quick Reference table
   - [ ] Update `index.md` section status and Quick Reference table
   - [ ] If plan complete: run "Plan Completion Frontmatter Gate" (see below), then move to `plans/completed/`
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`. If temp files detected, run `--clean` to remove debug dumps, scratch scripts, editor backups, and other detritus before final commit.
 - [ ] Run `/commit-push` — NEVER commit directly with `git commit`
 
 ---

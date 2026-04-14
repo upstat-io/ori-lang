@@ -19,11 +19,41 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-075][critical]` **ARC drop order: tail-expression temporaries in blocks outlive local bindings (Rust RFC 3606 class)**
+  Repro: Any block where a tail expression creates an ARC-managed temporary while local bindings also hold ARC references — the temporary's RC dec happens after the locals' RC decs instead of before. Same class as Rust's RFC 3606 / Edition 2024 fix. Ori should drop tail-expression temporaries immediately after evaluation, before block-local bindings are dropped.
+  Subsystem: `ori_arc` (AIMS pipeline / realization / drop ordering)
+  Found: 2026-04-13 | Source: tp-help (dual-source design consultation — both Codex and Gemini independently identified this)
+  Note: Cross-language precedent: Rust required RFC 3606, a migration lint (#130836 — massive false positives), and a full Edition change (Rust 2024) to fix this. Ori should implement correct drop order natively since it's pre-1.0.
+
+- [ ] `[BUG-04-074][high]` **AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure**
+  Repro: `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` — passes in interpreter, AOT fails with "unresolved type variable at codegen — type inference bug". The empty list `[]` element type is never propagated to LLVM codegen even though `push(value: 10)` provides int context.
+  Subsystem: `ori_llvm` / `ori_types` (type variable resolution before codegen)
+  Found: 2026-04-13 | Source: continue-roadmap
+
+- [ ] `[BUG-04-073][high]` **AOT codegen: `iter().find()` on list causes double-free (`ori_rc_dec` on already-freed allocation)**
+  Repro: `let found = [10, 20, 30, 40, 50].iter().find(where: x -> x == 30); if found == Some(30) then 0 else 1` — passes in interpreter, AOT binary crashes with `FATAL — ori_rc_dec called on already-freed allocation`. Compiled via `cargo run -- build tests/sanitizer/option_some_none.ori -o /tmp/test`.
+  Subsystem: `ori_llvm` (iterator find + Option RC handling)
+  Found: 2026-04-13 | Source: continue-roadmap
+  Note: Active work in `plans/llvm-verification-tooling` §08.5 (sanitizer smoke tests) exercises this code path.
+
+- [ ] `[BUG-04-072][medium]` **CN-3 canonicalize_single_pass only demotes ReusableCtor shapes — spec requires all non-NonReusable**
+  Repro: A `Shared` variable with `CollectionBuffer` or `ContextHole` shape passes through `canonicalize_single_pass` without demotion. Line 325: `matches!(self.shape, ShapeClass::ReusableCtor(_))` misses CollectionBuffer/ContextHole.
+  Subsystem: `compiler/ori_arc/src/aims/lattice/mod.rs:325`
+  Found: 2026-04-13 | Source: tpr-review
+  Reviewer: gemini
+  Fix: Change `matches!(self.shape, ShapeClass::ReusableCtor(_))` to `!matches!(self.shape, ShapeClass::NonReusable)` per aims-rules.md CN-3 (updated TPR iter-52).
+
 - [ ] `[BUG-04-071][critical]` **Iterator map with repr-opt narrowed list: element size mismatch causes memory corruption**
   Repro: `[1,2,3,4,5].iter().map(transform: x -> x * 2).collect()` — repr-opt narrows `[int]` literal to i8 (values fit in 1 byte), so `ori_iter_map` receives `elem_size=1`. But the map lambda `x -> x * 2` returns i64 (8 bytes). The trampoline `_ori_tramp_0` does `store i64 %result, ptr %slot, align 8`, writing 8 bytes into a 1-byte slot. Downstream `ori_iter_collect` allocates a buffer with 1-byte slots. Passes by coincidence for short arrays on little-endian; will corrupt data with larger arrays or specific element counts.
   Subsystem: `ori_llvm` (repr-opt + iterator codegen interaction)
   Found: 2026-04-12 | Source: tpr-review
   Reviewer: gemini (deep investigation with ORI_DUMP_AFTER_LLVM=1 + valgrind during §07 FileCheck TPR round 5)
+
+- [ ] `[BUG-04-076][high]` **emit_iter_flatten passes iterator handle size instead of inner element size**
+  Repro: `[[true, false], [true]].iter().flatten().collect()` — `elem_ty` for flatten is `Iterator<bool>` (8-byte handle), but `ori_iter_flatten` expects `inner_elem_size = sizeof(bool) = 1`. The runtime's `next_flattened` uses the wrong stride for inner element reads. Currently masked for `int` (both are 8 bytes) but wrong for `bool`, `byte`, tuples, or structs.
+  Subsystem: `ori_llvm` (iterator codegen — `emit_iter_flatten`, `emit_iter_flat_map`)
+  Found: 2026-04-13 | Source: tpr-review
+  Reviewers: codex + gemini (near-agreement during BUG-04-071 fix TPR round 1)
 
 - [ ] `[BUG-04-070][high]` **E4003: Index assignment (`xs[0] = 42`) hits ARC internal error before desugaring**
   Repro: Any `.ori` file with `xs[0] = value` emits `error[E4003]: ARC internal error: index assignment reached ARC lowering before desugaring`. The compilation continues and produces LLVM IR, but the mutation op is silently dropped — the emitted IR only contains list creation ops, not mutation ops. FileCheck tests that rely on index assignment produce false-green results.

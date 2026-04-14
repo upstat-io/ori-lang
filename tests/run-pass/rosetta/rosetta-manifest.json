@@ -1,0 +1,530 @@
+{
+  "$schema": "Rosetta Code Compiler Stress Test — per-program manifest",
+  "programs": {
+    "001_100_doors": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "002_100_prisoners": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "003_15_puzzle_game": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "004_15_puzzle_solver": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "005_2048": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "006_21_game": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "007_24_game": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "008_24_game_Solve": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "009_4_rings_or_4_squares_puzzle": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "010_9_billion_names_of_God_the_integer": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "011_99_bottles_of_beer": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "012_A_B": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "013_Abbreviations_automatic": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "014_Abbreviations_easy": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    },
+    "015_Abbreviations_simple": {
+      "status": "not-started",
+      "tier": 1,
+      "features": [],
+      "has_main": false,
+      "has_tests": false,
+      "aot_eligible": null,
+      "skip_reason": null,
+      "bugs_filed": [],
+      "language_findings": [],
+      "perf": {
+        "interp_ms": null,
+        "aot_debug_ms": null,
+        "aot_release_ms": null,
+        "compile_debug_ms": null,
+        "compile_release_ms": null,
+        "aot_vs_interp_speedup": null,
+        "debug_vs_release_speedup": null
+      },
+      "binary_sizes": {
+        "debug_bytes": null,
+        "release_bytes": null,
+        "stripped_bytes": null
+      },
+      "verification": {
+        "dual_exec_match": null,
+        "debug_release_match": null,
+        "leak_free": null,
+        "codegen_audit_clean": null,
+        "codegen_audit_strict_clean": null,
+        "arc_verify_clean": null,
+        "llvm_lint_clean": null,
+        "dwarf_symbols_present": null
+      }
+    }
+  }
+}

@@ -646,3 +646,9 @@ Data from experiments: 43 immutable bindings (`let $`), 3 mutable bindings (`let
 ## Errata (added 2026-02-20)
 
 > **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.
+
+## Errata (added 2026-04-13)
+
+> **Amended by [optional-semicolon-after-block-expressions-proposal](optional-semicolon-after-block-expressions-proposal.md)**: This proposal's grammar production `statement = ( let_expr | assignment | expression ) ";" .` required `;` unconditionally on all expression statements, including those ending with `}`. The amending proposal makes `;` optional after expression statements whose last token is `}`, aligning the grammar with the documented rule ("Ends with `}`? No `;`"). The `block_expr` and block-value rules are unchanged.
+>
+> Affected sections: "Grammar" (`statement` production at line 391 of `grammar.ebnf`), parser implementation in `blocks.rs`.

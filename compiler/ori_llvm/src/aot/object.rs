@@ -38,103 +38,8 @@ use std::path::Path;
 use inkwell::module::Module;
 use inkwell::targets::{FileType, TargetMachine};
 
+use super::emit_error::{EmitError, ModulePipelineError};
 use super::target::TargetConfig;
-use super::target_features::TargetError;
-
-/// Error type for object file emission operations.
-#[derive(Debug, Clone)]
-pub enum EmitError {
-    /// Failed to create target machine.
-    TargetMachine(TargetError),
-    /// Failed to configure module with target settings.
-    ModuleConfiguration(TargetError),
-    /// Failed to emit object file.
-    ObjectEmission { path: String, message: String },
-    /// Failed to emit assembly file.
-    AssemblyEmission { path: String, message: String },
-    /// Failed to emit LLVM bitcode.
-    BitcodeEmission { path: String, message: String },
-    /// Failed to emit LLVM IR text.
-    LlvmIrEmission { path: String, message: String },
-    /// Output path is not valid.
-    InvalidPath { path: String, reason: String },
-}
-
-impl fmt::Display for EmitError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TargetMachine(err) => {
-                write!(f, "failed to create target machine: {err}")
-            }
-            Self::ModuleConfiguration(err) => {
-                write!(f, "failed to configure module: {err}")
-            }
-            Self::ObjectEmission { path, message } => {
-                write!(f, "failed to emit object file '{path}': {message}")
-            }
-            Self::AssemblyEmission { path, message } => {
-                write!(f, "failed to emit assembly file '{path}': {message}")
-            }
-            Self::BitcodeEmission { path, message } => {
-                write!(f, "failed to emit bitcode file '{path}': {message}")
-            }
-            Self::LlvmIrEmission { path, message } => {
-                write!(f, "failed to emit LLVM IR file '{path}': {message}")
-            }
-            Self::InvalidPath { path, reason } => {
-                write!(f, "invalid output path '{path}': {reason}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for EmitError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::TargetMachine(err) | Self::ModuleConfiguration(err) => Some(err),
-            _ => None,
-        }
-    }
-}
-
-impl From<TargetError> for EmitError {
-    fn from(err: TargetError) -> Self {
-        Self::TargetMachine(err)
-    }
-}
-
-/// Error type for the full verify → optimize → emit pipeline.
-///
-/// Wraps the individual error types from each pipeline stage.
-#[derive(Debug, Clone)]
-pub enum ModulePipelineError {
-    /// LLVM IR verification failed (compiler bug).
-    Verification(String),
-    /// Optimization pass pipeline failed.
-    Optimization(super::passes::OptimizationError),
-    /// Object/bitcode/IR emission failed.
-    Emission(EmitError),
-}
-
-impl fmt::Display for ModulePipelineError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Verification(msg) => write!(f, "LLVM IR verification failed: {msg}"),
-            Self::Optimization(err) => write!(f, "optimization failed: {err}"),
-            Self::Emission(err) => write!(f, "emission failed: {err}"),
-        }
-    }
-}
-
-impl std::error::Error for ModulePipelineError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Verification(_) => None,
-            Self::Optimization(err) => Some(err),
-            Self::Emission(err) => Some(err),
-        }
-    }
-}
 
 /// Validate that the parent directory exists for an output path.
 fn validate_parent_exists(path: &Path) -> Result<(), EmitError> {
@@ -184,6 +89,22 @@ impl OutputFormat {
             Self::LlvmIr => "LLVM IR text",
         }
     }
+}
+
+/// Closure type for IR capture hooks.
+pub type CaptureHook<'a> = Option<Box<dyn FnOnce(&Module<'_>) -> Result<(), String> + 'a>>;
+
+/// Optional hooks for IR capture at pipeline boundaries.
+///
+/// Closures perform IO in the caller's crate (oric), not in `ori_llvm`,
+/// preserving phase purity. Used by the Alive2 translation validation
+/// pipeline to capture pre-opt and post-opt IR.
+#[derive(Default)]
+pub struct CaptureHooks<'a> {
+    /// Called after module verification succeeds, before optimization.
+    pub pre_opt: CaptureHook<'a>,
+    /// Called after optimization completes, before object emission.
+    pub post_opt: CaptureHook<'a>,
 }
 
 /// Object file emitter for a specific target.
@@ -373,7 +294,9 @@ impl ObjectEmitter {
     ///
     /// Pipeline:
     /// 1. Verify module IR (unconditional — catches codegen bugs early)
+    ///    1.5. Pre-opt capture hook (if provided)
     /// 2. Run optimization passes (per `OptimizationConfig`)
+    ///    2.5. Post-opt capture hook (if provided) + audit histogram
     /// 3. Emit to the requested output format
     ///
     /// # Arguments
@@ -382,6 +305,8 @@ impl ObjectEmitter {
     /// * `opt_config` - Optimization configuration (level, LTO, vectorization, etc.)
     /// * `path` - Output file path
     /// * `format` - Output format (object, assembly, bitcode, LLVM IR)
+    /// * `hooks` - Optional IR capture hooks for Alive2 translation validation.
+    ///   Closures perform IO in the caller's crate (oric), keeping `ori_llvm` pure.
     ///
     /// # Errors
     ///
@@ -392,26 +317,56 @@ impl ObjectEmitter {
         opt_config: &super::passes::OptimizationConfig,
         path: &Path,
         format: OutputFormat,
+        hooks: CaptureHooks<'_>,
     ) -> Result<(), ModulePipelineError> {
+        // Step 0: Early Clang availability check when sanitizers are enabled
+        if opt_config.sanitizer.any_enabled() {
+            super::passes::check_clang_available().map_err(ModulePipelineError::Optimization)?;
+        }
+
         // Step 1: Verify
         if let Err(msg) = module.verify() {
             return Err(ModulePipelineError::Verification(msg.to_string()));
+        }
+
+        // Step 1.5: Pre-optimization IR capture (after verify, before opt)
+        if let Some(pre_opt) = hooks.pre_opt {
+            pre_opt(module).map_err(ModulePipelineError::Capture)?;
         }
 
         // Step 2: Optimize
         super::passes::run_optimization_passes(module, &self.machine, opt_config)
             .map_err(ModulePipelineError::Optimization)?;
 
-        // Step 2.5: Post-optimization RC histogram (gated behind audit flag).
+        // Step 2.5a: Post-optimization IR capture (after opt, before emit)
+        if let Some(post_opt) = hooks.post_opt {
+            post_opt(module).map_err(ModulePipelineError::Capture)?;
+        }
+
+        // Step 2.5b: Post-optimization RC histogram (gated behind audit flag).
         if crate::verify::audit_requested() {
             let options = crate::verify::AuditOptions::from_env();
             let stats = crate::verify::audit_module_histogram_only(module, &options);
             stats.emit_to_stderr();
         }
 
-        // Step 3: Emit
-        self.emit(module, path, format)
-            .map_err(ModulePipelineError::Emission)?;
+        // Step 3: Emit (with optional sanitizer delegation)
+        if opt_config.sanitizer.any_enabled() && format == OutputFormat::Object {
+            // Sanitizer path: emit LLVM IR, invoke Clang with -fsanitize,
+            // clean up intermediate IR (handled by clang_sanitize_object).
+            super::passes::clang_sanitize_object(
+                self,
+                module,
+                path,
+                &opt_config.sanitizer,
+                opt_config.level.as_clang_flag(),
+                self.config.triple(),
+            )?;
+        } else {
+            // Normal path: emit directly via LLVM
+            self.emit(module, path, format)
+                .map_err(ModulePipelineError::Emission)?;
+        }
 
         Ok(())
     }

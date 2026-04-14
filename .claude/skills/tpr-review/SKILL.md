@@ -1,15 +1,18 @@
 ---
 name: tpr-review
-description: "Run an independent dual-source (codex + gemini) third-party review of your work in parallel, then fix findings and re-run until BOTH reviewers come back clean — TRIGGER proactively after completing ANY non-trivial work: bug fixes, new features, refactors, multi-file changes, compiler changes, codegen changes, test additions, plan implementations, or anything touching correctness-sensitive code. When in doubt, run it. The cost of an unnecessary review is near zero; the cost of a missed bug is high."
+description: "Run an independent dual-source (codex + gemini) third-party review in parallel, then fix findings and re-run until BOTH reviewers come back clean (full consensus). Reviews ANYTHING — code, plans, skills, docs, designs, tooling, processes, or any custom objective. TRIGGER proactively after completing ANY non-trivial work, OR when you want iterative improvement driven by multi-agent consensus. When in doubt, run it. The cost of an unnecessary review is near zero; the cost of a missed bug is high."
 ---
 
 # Dual-Source TPR Review (Codex + Gemini)
 
-Run BOTH the Codex CLI AND the Gemini CLI non-interactively in parallel to perform independent review passes, merge their findings with reviewer tagging, then fix any findings and re-run until BOTH reviewers return zero actionable findings. Codex and Gemini each have their own context, rules, and skills — they figure out scope on their own.
+Run BOTH the Codex CLI AND the Gemini CLI non-interactively in parallel to perform independent review passes, merge their findings with reviewer tagging, then fix any findings and re-run until BOTH reviewers return zero actionable findings (full consensus). Codex and Gemini each have their own context, rules, and skills — they figure out scope on their own.
 
-**Two reviewer skill modes** (selected via `ARGS`):
-- **Default (`review-work`)**: reviewers use their `review-work` skill — code-oriented review
+**This is a GENERAL-PURPOSE third-party review.** The name is "TPR" — Third-Party Review — not "Third-Party Code Review." It reviews ANYTHING: code, plans, skills, docs, designs, tooling, processes, or any custom objective the user provides. The loop runs until full consensus across all agents.
+
+**Three reviewer modes** (selected via `ARGS`):
+- **Default (`review-work`)**: no ARGS, or explicit `--skill review-work` — reviewers use their `review-work` skill for code-oriented review
 - **Plan review (`--skill review-plan`)**: reviewers use their `review-plan` skill — plan-oriented review (mission criteria, cross-section coherence, executability). Invoked by `/review-plan`.
+- **Custom objective (any other ARGS)**: ARGS text becomes the reviewer's objective directly — general-purpose review of anything. Reviewers do NOT activate a fixed skill; they receive the objective inline with envelope-emission instructions. Use this for iterative improvement, skill refinement, doc quality, design review, or any non-code/non-plan review task. The loop iterates until BOTH reviewers report zero issues (full consensus).
 
 This wrapper is built on the Section 02 dual-source transport utility. All launching, parsing, schema validation, worktree-guarding, and infra retry logic lives in `.claude/skills/dual-tpr/scripts/` — this skill is purely the **semantic** fix-and-re-run loop that consumes merged findings. See `.claude/skills/dual-tpr/transport.md` for the transport contract.
 
@@ -21,7 +24,9 @@ This wrapper is built on the Section 02 dual-source transport utility. All launc
 Read CLAUDE.md (the project root one)
 ```
 
-## Step 0.5 — MANDATORY: Spec/Grammar Proposal Gate Audit
+## Step 0.5 — MANDATORY (code/plan modes only): Spec/Grammar Proposal Gate Audit
+
+**Skip this step entirely in custom objective mode** — custom objectives are not scoped to git diffs. Proceed directly to Step 1.
 
 **Before launching reviewers, check whether the diff touches spec or grammar files.** Run:
 
@@ -52,7 +57,12 @@ Bash:
 
 ## Step 0.75 — CONDITIONAL: Intelligence Pre-Query
 
-Query the intelligence graph for cross-language prior art relevant to the code under review. This step runs when the graph is available and produces results; it is skipped silently when the graph is unavailable or returns no hits.
+Query the intelligence graph for context relevant to the review. The graph contains THREE capabilities — use whichever apply to the review mode:
+1. **Code symbol queries** (`symbols`, `callers`, `callees`, `file-symbols`) — 32K+ Ori symbols + 24K+ call edges, synced on every commit. ~100x faster than grep for finding code symbols, call graphs, and file inventories. Useful in ALL review modes when the subject references Ori code.
+2. **Cross-language issue/PR search** (`search`, `compare`, `fixed`, `hot`) — prior art from 10 reference compiler repos. Most useful in code review mode.
+3. **Semantic similarity** (`similar`) — vector-embedding equivalence across repos. Useful when comparing implementations.
+
+This step runs when the graph is available and produces results; it is skipped silently when the graph is unavailable or returns no hits. **In custom objective mode**, use the intelligence graph if the objective involves any Ori code, skills, or compiler artifacts — the symbol index is the fastest way to resolve references.
 
 1. **Check availability** via the `status` subcommand (returns JSON):
    ```
@@ -61,7 +71,7 @@ Query the intelligence graph for cross-language prior art relevant to the code u
    ```
    Parse the JSON output: if the `status` field is not `"ok"`, skip this step silently. Do not mention intelligence in prompts.
 
-2. **Identify subsystem(s)** from the review scope. Use the same git range as the review (e.g., `git diff --name-only HEAD~5..HEAD` for committed changes, or `git diff --name-only` for unstaged changes — match the scope from Step 0.5). Map subsystems to presets per `.claude/rules/intelligence.md` §Subsystem Mapping. Do NOT hardcode the mapping here — always reference the rule file.
+2. **Identify subsystem(s)** from the review scope. For code/plan modes, use the same git range as the review (e.g., `git diff --name-only HEAD~5..HEAD` for committed changes, or `git diff --name-only` for unstaged changes — match the scope from Step 0.5). For custom objective mode, extract relevant file paths or symbol names from the objective text. Map subsystems to presets per `.claude/rules/intelligence.md` §Subsystem Mapping. For custom objectives that reference specific files or symbols, use `symbols` or `file-symbols` queries directly. Do NOT hardcode the mapping here — always reference the rule file.
 
 3. **Run the query** (output is visible in Claude's context — do NOT capture into a variable):
    ```
@@ -70,12 +80,19 @@ Query the intelligence graph for cross-language prior art relevant to the code u
    ```
    Read the output. If empty or only unavailability messages, skip silently.
 
+   3a. **Map the reviewed code surface** — For the top 3-5 changed files or touched symbols:
+      - `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori`
+      - `scripts/intel-query.sh --human callers "<symbol>" --repo ori`
+      - `scripts/intel-query.sh --human callees "<symbol>" --repo ori`
+      - `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5`
+      Use this output to enrich the Intelligence Summary with blast radius and reference-repo equivalents, not just issue/PR prior art.
+
 4. **Condense** the query results into a bounded Intelligence Summary (max 500 chars):
    ```
-   **Intelligence Summary (from cross-language graph):**
+   **Intelligence Summary (from intelligence graph):**
    - [rust#12345] Similar ARC bug in iterator early-exit (fixed, 45 comments)
    - [swift#6789] Protocol witness table leak on break (fixed, 12 comments)
-   - Pattern appears in 3/10 reference compilers
+   - [ori] eval_iter_next called by 14 sites — call graph available via `callers`
    ```
 
 5. **Hold the summary in context.** In Step 2 (Write both reviewer prompts), write the summary directly into BOTH `codex.prompt.md` and `gemini.prompt.md`, after the `## Scope:` header. Do NOT use shell variable interpolation — the prompts use single-quoted heredocs (`<<'PROMPT'`) which suppress expansion. Instead, assemble the prompt content programmatically (e.g., using the Write tool or a double-quoted heredoc for the section that includes the summary). Reviewers should use the intelligence summary as a pointer to investigate, not as authoritative evidence.
@@ -134,11 +151,17 @@ If intelligence is unavailable or returns no results, skip silently — do not i
 - Stdlib or registry changes
 - Changes to error handling or diagnostics
 
-**Also run when:**
+**Also run when (code/plan mode):**
 - You're unsure whether the change warrants review (default: run it)
 - The work involved multiple steps or non-obvious decisions
 - The change touches code paths shared across subsystems
 - You fixed something that was interfering with other code
+
+**Run with a custom objective when:**
+- The user wants iterative improvement of any artifact (skills, docs, tooling, config, designs)
+- The user wants multi-agent consensus on quality ("make this perfect")
+- The subject is not code or a plan — e.g., reviewing a skill file, a diagnostic script, a doc, a process
+- The user explicitly provides an objective that doesn't fit code-review or plan-review scope
 
 **The only time NOT to run:** purely cosmetic single-line changes (typo fixes, comment edits, formatting-only).
 
@@ -315,18 +338,40 @@ Bash:
   echo "$RUN"
 ```
 
+**This MUST be a separate foreground Bash call.** The `$RUN` path must be visible in Claude's context before Steps 2-3 run. If `$RUN` is created inside a `run_in_background: true` compound command, Claude never sees the path and will poll the wrong directory — potentially a parallel session's directory from a different project.
+
 Each semantic iteration gets a fresh `$RUN` (e.g. `/tmp/ori-tpr-XXXXXXXX`). Reuse across iterations is forbidden — a stale envelope from the previous round would corrupt the merge.
 
 ### 2. Write both reviewer prompts
 
 The codex and gemini prompts share the same evidence packet but differ in their activation preamble. See `.claude/skills/dual-tpr/transport.md` for the canonical preambles.
 
-**Reviewer skill selection** — default is `review-work` (code review). When invoked from a plan-review context (e.g. `/review-plan`), use `review-plan` preambles instead. The caller communicates this via `ARGS`:
-- Default (`review-work`): use preambles below as-is
-- Plan-review (`review-plan`): substitute `review-plan` for `review-work` in both preambles — see `transport.md` §Codex/Gemini preamble sections
+**Reviewer mode selection** — determines how the reviewer prompts are constructed. Three modes:
 
+1. **Default (`review-work`)**: no ARGS, or explicit `--skill review-work`. Reviewers activate their `review-work` skill. Use preambles below as-is.
+2. **Plan review (`--skill review-plan`)**: ARGS contains `--skill review-plan`. Reviewers activate their `review-plan` skill. Substitute `review-plan` for `review-work` in both preambles — see `transport.md` §Codex/Gemini preamble sections.
+3. **Custom objective**: ARGS is non-empty AND does NOT start with `--skill`. The entire ARGS text IS the objective. Reviewers do NOT activate any fixed skill — the objective and envelope instructions are given inline in the prompt. Use the **custom objective prompt templates** below instead of the skill-dispatch templates.
+
+**Mode detection logic** (Claude evaluates this at the start of Step 2):
+```
+if ARGS is empty or ARGS == "--skill review-work":
+    mode = "review-work"
+elif ARGS starts with "--skill review-plan":
+    mode = "review-plan"
+else:
+    mode = "custom"
+    objective = ARGS  # the raw text IS the objective
+```
+
+**For `review-work` and `review-plan` modes:**
 - **Codex prompt** MUST include the literal keyword `envelope-only` in its first 500 characters — this dispatches `.codex/skills/review-work/SKILL.md` (or `.codex/skills/review-plan/SKILL.md` for plan review) into envelope-only mode.
 - **Gemini prompt** MUST start with the literal activation phrase `Activate the review-work skill and follow its instructions exactly.` (or `Activate the review-plan skill and follow its instructions exactly.` for plan review) — gemini does NOT auto-activate from description matching; the phrase is load-bearing.
+
+**For `custom` mode:**
+- **Neither prompt activates a fixed skill.** The objective and envelope-emission instructions are given inline. This is what allows `/tpr-review` to review ANYTHING — not just code or plans.
+- **Both prompts still include the grounding block** (CLAUDE.md, rules files) — reviewers need project context regardless of the objective.
+- **Both prompts still require envelope output** — the envelope schema is the contract. Findings represent issues/gaps/improvements identified against the objective.
+- **The `--skill` parameter to the transport** should be `custom` for logging purposes.
 
 #### Mandatory Grounding Block
 
@@ -339,7 +384,9 @@ The grounding block is IDENTICAL for both reviewers and MUST list:
 3. `.claude/rules/tests.md` — matrix testing rule, interaction testing, negative pin protocol, regression discipline
 4. Any `.claude/rules/*.md` file relevant to the files under review (e.g. `parse.md`, `arc.md`, `registry.md`) — list the specific ones in the prompt
 
-Write both prompts to the scratch dir:
+Write both prompts to the scratch dir. **Use the template matching the active mode:**
+
+#### Prompt templates for `review-work` and `review-plan` modes (skill-dispatch)
 
 ```
 Bash:
@@ -394,6 +441,126 @@ Bash:
   PROMPT
 ```
 
+#### Prompt templates for `custom` mode (objective-direct — NO skill dispatch)
+
+In custom mode, the ARGS text IS the objective. The prompts give the objective directly and include inline envelope-emission instructions. Neither prompt activates a reviewer skill — the reviewers operate on the objective alone.
+
+**CRITICAL for codex**: The codex prompt must still include the keyword `envelope-only` in the first 500 characters. Even though no skill is being dispatched, codex's output parser (`parse-codex.py`) expects the final agent message to be raw JSON. The keyword signals this contract.
+
+**CRITICAL for gemini**: The gemini prompt must still instruct sentinel-wrapped envelope output. Without sentinels, `parse-gemini.py` rejects the response.
+
+```
+Bash:
+  cat > "$RUN/codex.prompt.md" <<'PROMPT'
+  You are performing a third-party review in envelope-only mode.
+  Do NOT activate any skill. Follow these instructions directly.
+
+  ## Objective
+
+  {objective}
+
+  ## Your task
+
+  Thoroughly assess the objective above. Read ALL relevant files,
+  understand the current state, and identify EVERY issue, gap,
+  inconsistency, missing element, or improvement needed to make the
+  subject of the objective as good as it can be. Be exhaustive and
+  specific — vague observations are not findings.
+
+  For each issue found, produce a finding with:
+  - severity (critical / high / medium / low / informational)
+  - location (file path and line number, or file path if line N/A)
+  - title (one-line summary)
+  - evidence (what you observed, what's wrong, why it matters)
+  - required_plan_update (the specific fix or improvement needed)
+
+  If after thorough investigation you find ZERO issues, that is a
+  valid outcome — but emit at least one `informational` finding
+  describing what you verified and why the subject is sound.
+
+  ## Grounding — read these files FIRST
+
+  Before investigating, read these files so you understand the
+  project's rules and conventions:
+
+  1. CLAUDE.md (project root)
+  2. .claude/rules/impl-hygiene.md
+  3. .claude/rules/tests.md
+  4. <any other .claude/rules/*.md relevant to the objective>
+
+  <If Step 0.75 produced an Intelligence Summary, insert it here>
+
+  ## Envelope output
+
+  Your ENTIRE final message must be a single JSON object conforming
+  to .claude/skills/dual-tpr/findings-schema.json. No markdown, no
+  prose wrapper — just the raw JSON envelope. Read the schema file
+  and .claude/skills/dual-tpr/envelope-format.md for field semantics.
+
+  Set "skill" to "custom" in the envelope.
+  PROMPT
+
+  cat > "$RUN/gemini.prompt.md" <<'PROMPT'
+  You are performing a third-party review. Do NOT activate any skill.
+  Follow these instructions directly.
+
+  ## Objective
+
+  {objective}
+
+  ## Your task
+
+  Thoroughly assess the objective above. Read ALL relevant files,
+  understand the current state, and identify EVERY issue, gap,
+  inconsistency, missing element, or improvement needed to make the
+  subject of the objective as good as it can be. Be exhaustive and
+  specific — vague observations are not findings.
+
+  For each issue found, produce a finding with:
+  - severity (critical / high / medium / low / informational)
+  - location (file path and line number, or file path if line N/A)
+  - title (one-line summary)
+  - evidence (what you observed, what's wrong, why it matters)
+  - required_plan_update (the specific fix or improvement needed)
+
+  If after thorough investigation you find ZERO issues, that is a
+  valid outcome — but emit at least one `informational` finding
+  describing what you verified and why the subject is sound.
+
+  ## Grounding — read these files FIRST
+
+  Before investigating, read these files so you understand the
+  project's rules and conventions:
+
+  1. CLAUDE.md (project root)
+  2. .claude/rules/impl-hygiene.md
+  3. .claude/rules/tests.md
+  4. <any other .claude/rules/*.md relevant to the objective>
+
+  <If Step 0.75 produced an Intelligence Summary, insert it here>
+
+  ## Envelope output — MANDATORY SENTINELS
+
+  Your response MUST end with a JSON envelope bracketed by sentinels.
+  Without the sentinels, parse-gemini.py rejects your entire response
+  and the review is wasted.
+
+  Format:
+  (free-form prose about what you investigated and why)
+
+  <!-- BEGIN-ORI-DUAL-TPR-V1 -->
+  ```json
+  { ...complete envelope per .claude/skills/dual-tpr/findings-schema.json... }
+  ```
+  <!-- END-ORI-DUAL-TPR-V1 -->
+
+  Read the schema file and .claude/skills/dual-tpr/envelope-format.md
+  for field semantics. Set "skill" to "custom" in the envelope.
+  PROMPT
+```
+
+**Custom mode evidence packet**: Unlike code/plan modes which use git diffs as the evidence packet, custom mode's "evidence" is the objective itself plus any files Claude identifies as relevant. Claude should add a brief context section after the objective in both prompts listing the specific files the reviewers should focus on (e.g., "The primary file under review is `.claude/skills/tpr-review/SKILL.md`. Also relevant: `.claude/skills/dual-tpr/transport.md`"). This helps reviewers scope their investigation without being restrictive.
+
 The evidence packet is INFORMATIONAL, not authoritative — reviewers expand scope as they see fit. The GROUNDING block, in contrast, is AUTHORITATIVE — reviewers that skip it produce noise and their envelopes should be treated with extra scrutiny.
 
 ### 3. Invoke the dual-source transport in the background
@@ -402,7 +569,7 @@ The transport launches both reviewers in parallel, handles infra retries (3 per 
 
 Running the transport in the Bash foreground either hits the 2-minute tool timeout or gets auto-backgrounded with output truncated. Always use `run_in_background: true`. The `.claude/hooks/block-banned-commands.sh` hook explicitly allows backgrounded codex and gemini commands.
 
-The `--skill` parameter controls both the transport log label and which reviewer preambles were used. Default: `review-work`. If `ARGS` contains `--skill review-plan`, use `review-plan` instead.
+The `--skill` parameter controls the transport log label. Default: `review-work`. If `ARGS` contains `--skill review-plan`, use `review-plan`. For custom objective mode, use `custom`.
 
 ```
 Bash (run_in_background: true):
@@ -420,6 +587,8 @@ Bash (run_in_background: true):
 - Wrap the transport in an Agent subagent — the subagent cannot itself be backgrounded, so it reintroduces the foreground cap.
 - Poll `$RUN/*.envelope.json` or `$RUN/merged.json` — those files use atomic-write semantics and reading them mid-stream can see a partial file.
 - Add a trailing `echo "transport_exit=$?"` (or any other trailing command). The bash script's overall exit code is the exit code of the LAST executed command — a trailing echo ALWAYS exits 0 and masks the transport's real failure (BUG-08-007). The task notification's reported exit code is the source of truth.
+- **Combine `scratch-dir.sh` + prompt writing + transport launch in a single `run_in_background` call.** The `$RUN` path is lost — Claude never sees it and will poll the wrong directory. Steps 1-2 MUST be foreground; only Step 3 (the transport itself) runs in the background. Incident: 2026-04-13 §08 iteration 8 merged oriterm findings because `$RUN` was created inside a background compound command and polling used filesystem discovery (`ls | tail -1`) which picked a parallel session's directory.
+- **Use filesystem discovery (`ls -d /tmp/ori-tpr-* | sort | tail -1`) to find `$RUN`.** Multiple sessions (different projects) create `/tmp/ori-tpr-*` directories concurrently. The `$RUN` value from Step 1 is the ONLY reliable identifier. If you lose `$RUN`, the round is invalid — re-create from Step 1.
 
 ### Polling Protocol — Canonical SSOT
 
@@ -464,7 +633,7 @@ For each merged finding:
 
 1. **Read the cited code** — open the file at the cited line number, read the surrounding context (not just the one line)
 2. **Confirm the claim matches reality** — does the code actually say what the finding claims? Does it actually behave the way the finding describes?
-3. **Trace the reasoning** — if the finding says "X is unreachable" / "Y is broken" / "Z is missing", prove it by walking the code yourself. Grep for the symbol, follow the call chain, check the test coverage.
+3. **Trace the reasoning** — if the finding says "X is unreachable" / "Y is broken" / "Z is missing", prove it by walking the code yourself. Use `scripts/intel-query.sh callers "<symbol>" --repo ori` and `callees` to trace the call chain (faster and more complete than grep), then check the test coverage.
 4. **Check the required_plan_update** — does the proposed fix actually address the root cause, or is it a surface patch that would leave the underlying issue?
 
 If verification proves the finding is wrong, mark it `[x]` with a verification note explaining what you checked and what you found — this is the ONLY valid way to reject a finding. Rejecting without verification is banned; accepting without verification is banned.

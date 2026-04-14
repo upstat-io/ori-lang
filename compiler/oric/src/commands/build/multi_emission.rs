@@ -71,9 +71,21 @@ pub(super) fn lto_merge(
         report_codegen_error(e);
     }
 
-    // Emit final object
+    // Emit final object (with optional sanitizer delegation)
     let final_obj = obj_dir.join("merged_lto.o");
-    if let Err(e) = emitter.emit_object(&merged_module, &final_obj) {
+    if opt_config.sanitizer.any_enabled() {
+        // Sanitizer path: emit IR → Clang -fsanitize → object (with cleanup).
+        if let Err(e) = ori_llvm::aot::clang_sanitize_object(
+            &emitter,
+            &merged_module,
+            &final_obj,
+            &opt_config.sanitizer,
+            opt_config.level.as_clang_flag(),
+            target.triple(),
+        ) {
+            report_codegen_error(e);
+        }
+    } else if let Err(e) = emitter.emit_object(&merged_module, &final_obj) {
         report_codegen_error(CodegenProblem::EmissionFailed {
             format: "LTO object".into(),
             path: final_obj.display().to_string(),
@@ -96,6 +108,7 @@ pub(super) fn emit_module_artifact(
     ctx: &ModuleCompileContext<'_>,
     llvm_module: &ori_llvm::inkwell::module::Module<'_>,
     module_name: &str,
+    source_path: &str,
 ) -> Option<PathBuf> {
     use ori_llvm::aot::ObjectEmitter;
 
@@ -152,11 +165,13 @@ pub(super) fn emit_module_artifact(
         eprintln!("    Emitting object to {}", obj_path.display());
     }
 
+    let hooks = super::ir_capture::build_hooks(source_path);
     if let Err(e) = emitter.verify_optimize_emit(
         llvm_module,
         ctx.opt_config,
         &obj_path,
         ori_llvm::aot::OutputFormat::Object,
+        hooks,
     ) {
         let mut acc = CodegenDiagnostics::new();
         acc.push(e.into());

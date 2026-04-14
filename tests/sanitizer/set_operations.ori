@@ -1,0 +1,12 @@
+// Sanitizer smoke: Nested collection RC — lists inside maps.
+// Tests RC correctness for compound collection structures.
+// NOTE: Set<T> iteration blocked by BUG-04-065 (SIGSEGV in AOT).
+// This test exercises the nested-collection-drop pattern instead.
+
+@main () -> int = {
+    let m = {"nums": [1, 2, 3], "more": [4, 5, 6]};
+    let nums = m["nums"];
+    let more = m["more"];
+    let ok = nums == Some([1, 2, 3]) && more == Some([4, 5, 6]);
+    if ok then 0 else 1
+}

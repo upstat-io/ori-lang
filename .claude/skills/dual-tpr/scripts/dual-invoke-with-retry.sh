@@ -109,17 +109,12 @@ fi
 #
 # Retryable categories — could be transient, worth another attempt:
 #
-#   gemini_schema_violation        — gemini emitted JSON that fails schema
-#                                    validation even after the repair layer
-#                                    (repair_envelope.py) attempted to fix
-#                                    common violations. Previously terminal,
-#                                    reclassified as retryable because a fresh
-#                                    gemini invocation may produce different
-#                                    output that IS repairable. The 3-attempt
-#                                    budget bounds the cost for systematic
-#                                    failures. Codex schema_violation remains
-#                                    terminal because codex's JSON compliance
-#                                    is more reliable.
+#   gemini_schema_violation        — [EFFECTIVELY DEAD CODE as of 2026-04-13]
+#                                    parse-gemini.py now RESCUES schema-invalid
+#                                    envelopes (exits 0 with RESCUED warnings)
+#                                    instead of emitting this category. Kept in
+#                                    the classifier as a safety net in case a
+#                                    future parser change re-introduces it.
 #   launch_or_exit_fail            — dual-invoke.sh returned non-zero. This
 #                                    collapses ALL launch-time failures into
 #                                    one category because dual-invoke.sh

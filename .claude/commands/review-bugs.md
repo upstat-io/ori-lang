@@ -168,9 +168,14 @@ If the intelligence graph is available, cross-reference recommended bugs against
    - Bugs matching "fixed" issues in reference compilers → note the fix approach for the implementer's benefit
    - Bug clusters (multiple Ori bugs matching the same reference compiler issue class) → recommend fixing together via a single fix section
 
-5. **Opportunistic preset mapping** — If the bug's subsystem maps to an intelligence preset per `.claude/rules/intelligence.md` §Subsystem Mapping (e.g., `ori_arc` bugs → `ori-arc` preset), use the preset query in addition to `search`/`fixed` for more targeted results.
+5. **Map blast radius and find reference fixes** — For each high-priority bug, also run:
+   - `scripts/intel-query.sh --human callers "<repro symbol>" --repo ori` — map blast radius
+   - `scripts/intel-query.sh --human file-symbols "<subsystem path>" --repo ori` — cluster related bugs by module
+   - `scripts/intel-query.sh --human similar "<buggy function>" --repo rust,swift,koka,lean4 --limit 5` — find reference fixes
 
-6. If unavailable or empty, present recommendations without intelligence enrichment — the prioritization logic works without it.
+6. **Opportunistic preset mapping** — If the bug's subsystem maps to an intelligence preset per `.claude/rules/intelligence.md` §Subsystem Mapping (e.g., `ori_arc` bugs → `ori-arc` preset), use the preset query in addition to `search`/`fixed` for more targeted results.
+
+7. If unavailable or empty, present recommendations without intelligence enrichment — the prioritization logic works without it.
 
 ### Step 6: Ask What to Do
 

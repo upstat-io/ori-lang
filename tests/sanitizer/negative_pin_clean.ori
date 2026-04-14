@@ -1,0 +1,96 @@
+// Negative pin: complex but memory-correct program.
+// Must pass cleanly with ALL sanitizers enabled — no false positives.
+// Exercises: nested structs, closures, iterators, COW, enums, string ops, maps.
+// NOTE: avoids empty list literal `[]` (BUG-04-074) and iter().find() (BUG-04-073).
+
+type Person = { name: str, age: int }
+type Team = { members: [Person], label: str }
+
+type Status = Active(since: int) | Inactive | Named(label: str);
+
+@make_team (label: str) -> Team = {
+    let members = [
+        Person { name: "Alice", age: 30 },
+        Person { name: "Bob", age: 25 },
+        Person { name: "Charlie", age: 35 }
+    ];
+    Team { members: members, label: label }
+}
+
+@total_age (team: Team) -> int = {
+    let sum = 0;
+    for person in team.members do {
+        sum = sum + person.age
+    };
+    sum
+}
+
+@apply_bonus (age: int, bonus: int) -> int = age + bonus;
+
+@status_value (s: Status) -> int = match s {
+    Active(since:) -> since,
+    Inactive -> 0,
+    Named(label:) -> label.len()
+}
+
+@safe_divide (a: int, b: int) -> int = {
+    if b == 0 then -1
+    else a / b
+}
+
+@main () -> int = {
+    // Nested structs + COW (shared reference + independent copy)
+    let team = make_team(label: "Engineering");
+    let team_copy = team;
+    let age_sum = total_age(team: team);
+    let age_sum_copy = total_age(team: team_copy);
+
+    // Closure capturing values via helper function
+    let bonus_ages = [
+        apply_bonus(age: 30, bonus: 5),
+        apply_bonus(age: 25, bonus: 5),
+        apply_bonus(age: 35, bonus: 5)
+    ];
+
+    // Iterator with break
+    let first_over_30 = 0;
+    for a in bonus_ages do {
+        if a > 35 then {
+            first_over_30 = a;
+            break
+        }
+    };
+
+    // Enum variants with RC payloads
+    let sv1 = status_value(s: Active(since: 2020));
+    let sv2 = status_value(s: Named(label: "custom"));
+    let sv3 = status_value(s: Inactive);
+
+    // String operations
+    let s1 = "hello" + " " + "world";
+    let s2 = `Team {team.label}`;
+
+    // Map operations
+    let m = {"key1": 100, "key2": 200};
+    let v1 = m["key1"];
+    let v2 = m["missing"];
+
+    // Arithmetic
+    let d = safe_divide(a: age_sum, b: 3);
+
+    // Verify all results
+    let ok = age_sum == 90
+        && age_sum_copy == 90
+        && bonus_ages.len() == 3
+        && first_over_30 == 40
+        && sv1 == 2020
+        && sv2 == 6
+        && sv3 == 0
+        && s1 == "hello world"
+        && s2.len() > 0
+        && v1 == Some(100)
+        && v2 == None
+        && d == 30;
+
+    if ok then 0 else 1
+}

@@ -109,6 +109,13 @@ This gives you all existing scenarios and which ones have results files.
 
 5. **When a feature area fails to compile**: Try a DIFFERENT feature area. Do NOT get stuck on one broken area.
 
+### Intelligence map for the journey (CONDITIONAL)
+If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`):
+1. Run `scripts/intel-query.sh --human symbols "<feature keyword>" --repo ori --limit 15`
+2. Run `scripts/intel-query.sh --human callers "<main exercised symbol>" --repo ori` and `callees`
+3. Run `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5`
+Pass the resulting symbol list and similar hits into the background agent prompt.
+
 ### Step 1: Run Both Paths (Output to Temp Files)
 
 **IMPORTANT — Shell variable limitation:** The Bash tool does NOT persist shell state between calls. Variables like `JTMP=...` vanish after each call. **Always use the literal path `/tmp/journey_N`** (with N replaced by the journey number) in every command. Never rely on `$JTMP` across separate Bash calls.

@@ -1,0 +1,27 @@
+// Sanitizer smoke: Nested struct drops — deep struct with RC fields.
+// Drop ordering must be correct for nested structures.
+
+type Inner = { name: str, value: int }
+type Middle = { data: Inner, tag: str }
+type Outer = { left: Middle, right: Middle, label: str }
+
+@build () -> Outer = {
+    let left = Middle {
+        data: Inner { name: "left", value: 1 },
+        tag: "L"
+    };
+    let right = Middle {
+        data: Inner { name: "right", value: 2 },
+        tag: "R"
+    };
+    Outer { left: left, right: right, label: "root" }
+}
+
+@main () -> int = {
+    let outer = build();
+    let sum = outer.left.data.value + outer.right.data.value;
+    let ok = sum == 3
+        && outer.label == "root"
+        && outer.left.tag == "L";
+    if ok then 0 else 1
+}

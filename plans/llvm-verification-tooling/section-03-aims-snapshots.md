@@ -173,6 +173,7 @@ Extend the existing `trace_pipeline_checkpoint()` with an optional observer call
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 03.1: no tooling gaps. `bisect-passes.sh` already consumes observer tracing for per-phase RC analysis. Observer designed alongside diagnostic tooling.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -228,6 +229,7 @@ The ARC IR formatter (`dump_function`) currently lives in `compiler/oric/src/arc
   - [x] `compiler/oric/src/arc_dump/mod.rs` delegates to `ori_arc::ir::format` — no duplicated formatting logic
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 03.2: no tooling gaps. SSOT relocation means format changes auto-propagate to `arc_dump` and snapshot tests. `ORI_DUMP_AFTER_ARC=1` uses the same canonical formatter.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -298,6 +300,7 @@ Wire the snapshot capture into cargo tests using the shared harness (§02). Test
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 03.3: no tooling gaps. Test strategy accumulates all mismatches with self-diagnosing file paths (function + pass encoded). Bless mode handles baseline updates.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 
@@ -360,6 +363,7 @@ Create the initial corpus of snapshot tests covering the 5 priority passes. Each
   - [x] Every priority pass has at least one semantic pin and one negative pin
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 03.4: no tooling gaps. 22 tests across 5 passes with 50 baselines; auto-discovery by test runner; per-pass directories self-contained.
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 

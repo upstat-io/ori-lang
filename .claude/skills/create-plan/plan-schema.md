@@ -366,6 +366,11 @@ and how it fits into the section's overall goal.}
         {NN}.1: no tooling gaps — relied on existing scripts X, Y." Do not
         silently skip. See `.claude/skills/improve-tooling/SKILL.md`
         "Per-Subsection Workflow" for the full protocol.
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and
+        clean any temp/scratch files (debug dumps, one-off test scripts, editor
+        backups) that accumulated during this subsection. If files are found,
+        run `diagnostics/repo-hygiene.sh --clean` to remove them. This keeps the
+        worktree free of detritus that obscures real changes in `git status`.
 
 ---
 
@@ -419,6 +424,8 @@ acceptable interim if {condition}.
         `build(diagnostics): ... — surfaced by {plan}/section-{NN}.2
         retrospective` (or `test(...)`, `chore(...)`, etc — see {NN}.1's
         close-out for the type rules).
+  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and
+        clean any detected temp files (see {NN}.1's close-out for details).
 
 ### {Sub-topic within the subsection}
 
@@ -476,6 +483,7 @@ When all findings are triaged:
 - [ ] `/tpr-review` passed (final, full-section) — independent dual-source review (Codex + Gemini) found no critical or major issues (or all findings from both reviewers triaged)
 - [ ] `/impl-hygiene-review` passed — implementation hygiene review found no critical or major findings (or all findings triaged and fixed). MUST run AFTER `/tpr-review` is clean.
 - [ ] `/improve-tooling` **section-close sweep** — MANDATORY safety net after both reviews are clean. The PRIMARY tooling capture happens per-subsection (see each subsection's close-out block above) — by section close those captures should already be committed. The sweep does TWO things: (1) **Verify** every subsection in this section has either an "improvements made" entry (with commits) or a documented "no gaps" negative finding from its own per-subsection retrospective; if any subsection skipped its retrospective, STOP and run it now — the sweep cannot substitute for missed per-subsection captures. (2) **Look for cross-subsection patterns** invisible at per-item scope: command sequences repeated when transitioning between *different* subsections, integration test failures with worse messages than within-subsection failures, mental cross-referencing across files no tool combined, instrumentation that only became obvious after seeing all subsections together. Add ONLY new items that emerged from these cross-cutting patterns — do not duplicate per-subsection findings. Implement immediately (zero deferral), commit separately using a valid conventional-commit type (`build(diagnostics): add X — surfaced by section-{NN} close sweep` — use `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs; the lefthook commit-msg hook rejects any non-standard type), verify against the original scenario. Most sweeps produce zero new findings when per-subsection captures are thorough — that is the expected, healthy outcome and must be documented: "Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling." Do not silently skip.
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`. If temp files detected, run `--clean` to remove debug dumps, scratch scripts, editor backups, and other detritus before final commit.
 
 **Exit Criteria:** {Paragraph describing the measurable, testable condition
 that proves this section is complete. Include specific commands, test names,

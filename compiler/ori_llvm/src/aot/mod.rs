@@ -78,6 +78,7 @@
 //! - `linker`: Platform-agnostic linker driver
 
 pub mod debug;
+pub mod emit_error;
 pub mod incremental;
 pub mod linker;
 pub mod mangle;
@@ -99,8 +100,9 @@ pub use target_features::{
     HostPlatform, TargetError, TargetTripleComponents, SUPPORTED_TARGETS,
 };
 
-// Re-export key types from object
-pub use object::{EmitError, ModulePipelineError, ObjectEmitter, OutputFormat};
+// Re-export key types from object and emit_error
+pub use emit_error::{EmitError, ModulePipelineError};
+pub use object::{CaptureHook, CaptureHooks, ObjectEmitter, OutputFormat};
 
 // Re-export key types from mangle
 pub use mangle::{demangle, is_ori_symbol, Mangler, MANGLE_PREFIX};
@@ -113,8 +115,10 @@ pub use debug::{
 
 // Re-export key types from passes
 pub use passes::{
+    check_clang_available, clang_compile_with_sanitizers, clang_sanitize_object, find_clang,
     optimize_module, prelink_and_emit_bitcode, run_custom_pipeline, run_lto_pipeline,
     run_optimization_passes, LtoMode, OptimizationConfig, OptimizationError, OptimizationLevel,
+    SanitizerMode,
 };
 
 // Re-export key types from linker

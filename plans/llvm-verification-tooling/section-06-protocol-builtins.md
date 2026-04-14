@@ -340,6 +340,7 @@ Verify RC balance through the full LLVM codegen pipeline for programs exercising
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 06.3: The `ORI_AUDIT_CODEGEN=1` evaluation exposed 38 unwind-path RC failures (filed as BUG-04-062) — this surfaced a real issue class. The `unwrap()` monomorphization gap was caught by a test exercising complex generic types (filed as BUG-04-061). No diagnostic scripts needed; targeted `cargo test` with specific filters was sufficient. No tooling gaps — the AOT harness's `ORI_CHECK_LEAKS=1` integration provided immediate, actionable feedback (exit code 2 = leak).
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files. Verified clean 2026-04-13.
 
 ---
 

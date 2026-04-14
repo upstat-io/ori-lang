@@ -1,0 +1,16 @@
+// Sanitizer smoke: Option RC handling — Some(rc_value) and None paths.
+// Tests that Option variants correctly manage inner value RC.
+// NOTE: iter().find() avoided — triggers BUG-04-073 (double-free in AOT).
+
+@safe_get (items: [int], idx: int) -> Option<int> = {
+    if idx >= 0 && idx < items.len() then Some(items[idx])
+    else None
+}
+
+@main () -> int = {
+    let items = [10, 20, 30, 40, 50];
+    let found = safe_get(items: items, idx: 2);
+    let missing = safe_get(items: items, idx: 99);
+    let ok = found == Some(30) && missing == None;
+    if ok then 0 else 1
+}

@@ -147,11 +147,20 @@ shell variables):
   scripts/intel-query.sh --human search "{DOMAIN}" --limit 5
   # If a preset was identified: scripts/intel-query.sh --human <preset> --limit 5
 
+  # Map Ori's current implementation for this domain:
+  scripts/intel-query.sh --human symbols "{DOMAIN keyword}" --repo ori --kind function --limit 15
+  scripts/intel-query.sh --human file-symbols "{relevant/path}" --repo ori
+  scripts/intel-query.sh --human callers "{DOMAIN entry symbol}" --repo ori
+  scripts/intel-query.sh --human callees "{DOMAIN entry symbol}" --repo ori
+  scripts/intel-query.sh --human similar "{DOMAIN entry symbol}" --repo rust,swift,zig,gleam --limit 5
+
 Use results to:
 - Identify which of your assigned 2-3 repos have the most relevant prior art
   (read those FIRST in Step 2)
 - Note specific issue/PR numbers worth examining alongside source code
 - Flag cross-compiler patterns (2+ repos hit same design challenge)
+- Map Ori's existing implementation surface for the domain (via symbol queries)
+- Pick specific reference-repo files for Step 2 from the top `similar` hits before any manual repo trawl
 
 If unavailable or empty, proceed to Step 2 normally — the repo shortlist from
 the file map below is sufficient without intelligence ranking.

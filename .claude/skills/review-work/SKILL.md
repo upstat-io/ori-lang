@@ -248,6 +248,16 @@ Bash:
 
 Each semantic iteration gets a fresh `$RUN` (e.g. `/tmp/ori-tpr-XXXXXXXX`). Reuse across iterations is forbidden — a stale envelope from the previous round would corrupt the merge.
 
+### 1.5. CONDITIONAL — Intelligence Pre-Query
+
+If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`):
+1. For 3-5 changed files, run `scripts/intel-query.sh --human file-symbols "<path>" --repo ori`
+2. For each touched public symbol, run `scripts/intel-query.sh --human callers "<symbol>" --repo ori` and `callees`
+3. For the highest-signal symbols, run `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5`
+4. Condense results into an Intelligence Summary and inject into both reviewer prompts.
+
+If unavailable or empty, skip silently.
+
 ### 2. Write both reviewer prompts
 
 The codex and gemini prompts share the same evidence packet but differ in their activation preamble. See `.claude/skills/dual-tpr/transport.md` for the canonical preambles.
@@ -383,7 +393,7 @@ For each merged finding:
 
 1. **Read the cited code** — open the file at the cited line number, read the surrounding context (not just the one line)
 2. **Confirm the claim matches reality** — does the code actually say what the finding claims? Does it actually behave the way the finding describes?
-3. **Trace the reasoning** — if the finding says "X is unreachable" / "Y is broken" / "Z is missing", prove it by walking the code yourself. Grep for the symbol, follow the call chain, check the test coverage.
+3. **Trace the reasoning** — if the finding says "X is unreachable" / "Y is broken" / "Z is missing", prove it by walking the code yourself. Use `scripts/intel-query.sh callers "<symbol>" --repo ori` and `callees` to trace the call chain (faster and more complete than grep), then check the test coverage.
 4. **Check the required_plan_update** — does the proposed fix actually address the root cause, or is it a surface patch that would leave the underlying issue?
 
 If verification proves the finding is wrong, mark it `[x]` with a verification note explaining what you checked and what you found — this is the ONLY valid way to reject a finding. Rejecting without verification is banned; accepting without verification is banned.

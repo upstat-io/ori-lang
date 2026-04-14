@@ -105,6 +105,29 @@ paths:
 - `#[tracing::instrument]` on public API entry points | `skip_all` or `skip(arena, engine)` for large/non-Debug args
 - Salsa `#[tracked]` functions: manual `tracing::debug!()` events (not `#[instrument]`)
 
+## Verification Test Suites — FROM LLVM VERIFICATION TOOLING PLAN
+
+These test suites were built by `plans/llvm-verification-tooling/` and verify deep compiler properties. Use them when touching ARC, LLVM codegen, or optimization passes.
+
+| Suite | Command | What it verifies |
+|-------|---------|-----------------|
+| **AIMS Snapshots** | `cargo test -p oric --test aims_snapshots` | Per-pass ARC IR snapshots (22 tests, 6 pass categories). Bless: `ORI_BLESS=1` |
+| **FileCheck IR** | `cargo test -p ori_llvm --test codegen_checks` | LLVM IR pattern assertions (44+ tests: RC, COW, ABI, iterators, closures) |
+| **Lattice Properties** | `cargo test -p ori_arc -- lattice::prop_tests` | Join laws, partial-order axioms, fixpoint convergence (36 tests) |
+| **Contract Oracle** | `cargo test -p ori_arc -- oracle` | Re-derives MemoryContract from realized IR, detects analysis/realization mismatches (8 tests) |
+| **Protocol Builtins** | `cargo test -p ori_arc -- builtins::tests` | Protocol builtin ownership matrix (11 consumer tests) |
+| **Sanitizer Smoke** | `scripts/sanitizer-smoke.sh` | ASan/UBSan on 17 programs (O0+O2 matrix). Requires Clang. |
+| **Alive2 Curated** | `diagnostics/alive2-verify.sh --corpus` | Formal translation validation: 8 pure functions verified via Z3 SMT solver (proves optimization correctness for ALL inputs). Requires `alive-tv` (`scripts/build-alive2.sh`). |
+| **Alive2 Full Sweep** | `diagnostics/alive2-verify.sh --all-codegen` | Weekly: all codegen tests through alive-tv with false positive suppression. |
+
+### Shared Test Harness (`ori_test_harness` crate)
+
+The `compiler/ori_test_harness/` crate provides shared infrastructure for snapshot/baseline tests:
+- **Directives**: `// CHECK:`, `// CHECK-NOT:`, `// CHECK-LABEL:`, `// CHECK-NEXT:`, `// @revisions:`
+- **Bless mode**: `ORI_BLESS=1` writes actual output as new baseline (only `"1"` accepted)
+- **Runner**: `run_test_directory(path, strategy, bless) → TestSummary`
+- **Test corpus locations**: `compiler/oric/tests/aims-snapshots/` (AIMS), `compiler/ori_llvm/tests/codegen/` (FileCheck), `tests/alive2/` (Alive2 corpus)
+
 ## Diagnostic Scripts — USE THESE
 
 **Before reading code line-by-line, run the diagnostic scripts.** See @diagnostic.md §Diagnostic Scripts for the full table with all flags.

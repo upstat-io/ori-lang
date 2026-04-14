@@ -91,7 +91,20 @@ Read file: /tmp/plan-audit-output.json
 - Auto-fixed: list what was corrected
 - Remaining findings (not auto-fixable): verbatim list with location and message — these are passed to the agent
 
-Report to the user: "Phase 1: N findings (X critical, Y major, Z minor), M auto-fixed. Running /tp-help..."
+Report to the user: "Phase 1: N findings (X critical, Y major, Z minor), M auto-fixed. Running intelligence pre-query..."
+
+### Step 3.5: CONDITIONAL — Intelligence pre-query
+
+If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`):
+1. Extract 3-5 high-signal file paths and symbol names from the plan's checklist items.
+2. Run `scripts/intel-query.sh --human file-symbols "<path>" --repo ori` for each.
+3. Run `scripts/intel-query.sh --human callers "<symbol>" --repo ori` and `callees` for key symbols.
+4. Run `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5` for cross-repo context.
+5. Pass results into subsequent steps as intelligence context.
+
+If unavailable or empty, skip silently and proceed.
+
+Report to the user: "Intelligence pre-query complete. Running /tp-help..."
 
 ### Step 4: Phase 2 — `/tp-help` Blind Spot Analysis
 

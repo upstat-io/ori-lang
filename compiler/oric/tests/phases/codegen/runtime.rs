@@ -46,6 +46,7 @@ fn test_lib_name_unix() {
 fn test_runtime_not_found_display() {
     let err = RuntimeNotFound {
         searched_paths: vec![PathBuf::from("/path/1"), PathBuf::from("/path/2")],
+        asan_variant: false,
     };
 
     let msg = err.to_string();
