@@ -126,12 +126,16 @@ Per TPR-04-003-codex, the actual regression surface introduced by removing `is_c
 **Integration test (end-to-end: receiver with disjoint borrow reaches `decide_cow()` with correct flag):**
 - [ ] `decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique` — receiver's `is_borrow_disjoint_from_siblings()` returns true (Unique source, disjoint field) → `is_borrow_disjoint=true` → `decide_cow` returns StaticUnique (preserved positive, per TPR-04-002-gemini)
 
-### §2.4 Synergy-counter removal — assertion tests must be DELETED, not updated
+### §2.4 Synergy-counter removal — TRIM tests, don't wholesale delete (Round 2 correction per TPR-04-002-codex-r2)
 
-Per TPR-04-001-codex, `realize/tests.rs:1237-1309` contains tests asserting `cow_upgrades` / `cross_dim_reuse` field values via `cross_dim_evidence_total()`. After removal, these tests reference NONEXISTENT fields. They must be DELETED (not renamed) — the behavior they pin is gone, not merely renamed.
+`realize/tests.rs:1237-1309` contains 5 synergy-metrics tests. Per the Round 2 Plan TPR finding (TPR-04-002-codex), only the test(s) whose entire behavior is tied to removed fields should be deleted wholesale. Mixed tests must be TRIMMED to preserve coverage of surviving fields. The `reuse_percent()` and `has_cross_dim_evidence()` helpers remain LIVE APIs after this fix (per `metrics.rs:63-90`); `reuse_decisions`, `total_rc_decisions`, `total_cow_decisions`, `natural_fip`, `canonicalize_cross_fires` remain as `SynergyMetrics` fields.
 
-- [ ] Delete `synergy_metrics_cross_dim_evidence_total_*` tests (all)
-- [ ] Delete any `canonicalize_cross_fires + cross_dim_reuse + cow_upgrades` sum assertions
+Per-test disposition:
+- [ ] `synergy_metrics_default_is_zero` (tests.rs:1237-1247) — TRIM: remove `cow_upgrades` and `cross_dim_reuse` field assertions; keep assertions on surviving fields (`total_rc_decisions`, `reuse_decisions`, `total_cow_decisions`, `natural_fip`, `canonicalize_cross_fires`).
+- [ ] `synergy_metrics_merge_additive` (tests.rs:1249-1277) — TRIM: remove `cow_upgrades` / `cross_dim_reuse` from the struct-literal initialization AND from merge-result assertions; keep the surviving-field behavior (tests `reuse_decisions`, `total_rc_decisions`, `total_cow_decisions`, `natural_fip`, `canonicalize_cross_fires` merge correctly).
+- [ ] `synergy_metrics_reuse_percent` (tests.rs:1279-1288) — PRESERVE unchanged (uses only `reuse_decisions` + `total_rc_decisions`).
+- [ ] `synergy_metrics_percent_zero_total` (tests.rs:1290-1294) — PRESERVE unchanged (uses only `Default::default()`).
+- [ ] `synergy_metrics_cross_dim_evidence` (tests.rs:1296-1310) — DELETE entirely (tests `cross_dim_evidence_total()` and `has_cross_dim_evidence()` helpers on removed fields; if `cross_dim_evidence_total()` is kept after counter removal its behavior on removed fields is meaningless — the method itself must also be removed or refactored to sum only surviving canonicalize-stage counters).
 
 ### Verify tests fail before fix
 
@@ -158,21 +162,37 @@ Per TPR-04-001-codex, `realize/tests.rs:1237-1309` contains tests asserting `cow
 - **[TPR-04-002-codex][medium]** `fix-BUG-04-059.md:73` — TDD matrix missing shape variants and boundary cells. **VERIFIED**: `aims-rules.md` §1.6 distinguishes `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`, `CollectionBuffer`, `ContextHole`; existing tests only cover Struct + one CollectionBuffer cell. **Action**: §2.1/§2.2 expanded to cover all four shape variants plus `is_param + Owned + Affine + Once` boundary and `is_param=false + Owned + Linear + Once` proof-of-irrelevance.
 - **[TPR-04-003-codex][medium]** `fix-BUG-04-059.md:78` — Borrow-disjoint test on wrong layer. **VERIFIED**: existing test at `realize/tests.rs:122-125` manually sets `ctx.is_borrow_disjoint = true` and tests `decide_cow()`. The change is in `is_borrow_disjoint_from_siblings()` which POPULATES the flag — a pure `decide_cow()` test doesn't cover the regression surface. **Action**: §2.3 replaces the direct decide_cow test with helper-layer tests on `is_borrow_disjoint_from_siblings()` plus an integration-layer preserved-positive test.
 - **[TPR-04-004-codex][low]** `fix-BUG-04-059.md:114` — Rename stale unsound test names. **VERIFIED**: current tests `cow_param_cow_aware_unique`, `cow_cross_dim_collection_buffer_once`, `cow_cross_dim_reusable_ctor_once`, `decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse` describe removed behavior. Per `impl-hygiene.md` §Test Function Naming, names must describe CURRENT behavior. **Action**: §3 step 6 updated to require rename-or-replace for these four tests.
-- **[TPR-04-005-codex][low]** `fix-BUG-04-059.md:121` — Tracker block formatting concern. **PARTIALLY VERIFIED**: BUG-04-079 scope confirmed complete in `section-04-codegen-llvm.md:587-592`. Codex claims BUG-04-069's note "resumes at 593-596" — inspection shows BUG-04-069 is a one-line entry with no continuation text; BUG-04-079's body (lines 588-592) follows BUG-04-069's one-line entry cleanly. No malformation. **Action**: REJECTED as false positive — one-line entry has no continuation to misattach. Documented here for audit trail.
+- **[TPR-04-005-codex][low]** `fix-BUG-04-059.md:121` — Tracker block formatting. **Round 1 triage: initially REJECTED as false positive (my inspection missed lines 594-597 of BUG-04-069's continuation text that had been orphaned by BUG-04-079 insertion). Round 2 CORRECTION**: verified by both Round 2 reviewers (codex TPR-04-001-codex-r2 + gemini TPR-04-001-gemini-r2) — BUG-04-069 DID have a multi-line body (Repro/Subsystem/Found/Note) that was orphaned below the newly-inserted BUG-04-079 entry at lines 594-597. Codex Round 1 was CORRECT. My Round 1 rejection was a triage error. **Action (applied Round 2)**: reordered entries so BUG-04-069 header+body appears as a contiguous bullet BEFORE BUG-04-079. Audit trail preserved: this entry is now reclassified from "rejected" to "ACCEPTED (applied Round 2)".
 - **[TPR-04-001-gemini][high→medium]** `interprocedural/mod.rs:285` — BUG-04-069 launders the unsoundness. **PARTIALLY VERIFIED**: Gemini's claim that `tighten_uniqueness_from_callers` produces `ParamContract.uniqueness = Unique` via the unsound IC-8 pattern is correct. BUT codex's independent verification (TPR-04-005-codex) shows `AnnotationSiteContext` has NO `param_contract` field and `decide_cow()` does NOT read `ParamContract.uniqueness` today. The laundering path is DORMANT — it only activates when BUG-04-079 implements the ParamContract plumbing. **Severity downgrade**: high→medium (coupling is future-tense, not current). **Action**: §Capability regression tracking strengthened with explicit BUG-04-079 ⇒ BUG-04-069 dependency. BUG-04-079 tracker entry annotated `<!-- blocked-by:BUG-04-069 -->`. NO immediate fix to `tighten_uniqueness_from_callers` required for this bug.
 - **[TPR-04-002-gemini][medium]** `fix-BUG-04-059.md:95` — Add positive pin for preserved disjoint borrow. **VERIFIED**: §2.2 pre-expansion had only the negative pin. **Action**: §2.3 integration test `decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique` added (converges with codex's TPR-04-003).
 - **[TPR-04-003-gemini][informational]** — Test rename recommendation. Duplicates TPR-04-004-codex. **Action**: same as TPR-04-004-codex (no separate action).
 - **[TPR-04-004-gemini][informational]** — Preserved `is_borrow_disjoint` path soundness verified. No action.
 - **[TPR-04-005-gemini][informational]** — Synergy-counter removal scope verification (INCOMPLETE per TPR-04-001-codex). **Action**: codex's more-complete finding supersedes; gemini's partial verification is noted but not relied upon.
 
-### Round 1 outcome
+### Round 1 outcome (corrected per Round 2 findings)
 
-- **Accepted findings (6)**: TPR-04-001-codex, TPR-04-002-codex, TPR-04-003-codex, TPR-04-004-codex, TPR-04-001-gemini (downgraded to medium), TPR-04-002-gemini
-- **Rejected findings (1)**: TPR-04-005-codex (false positive — no malformation to fix)
+- **Accepted findings (7)**: TPR-04-001-codex, TPR-04-002-codex, TPR-04-003-codex, TPR-04-004-codex, **TPR-04-005-codex (reclassified from rejected to accepted after Round 2 reviewers confirmed the split was real)**, TPR-04-001-gemini (downgraded to medium), TPR-04-002-gemini
+- **Rejected findings (0)**: none
 - **Informational (3)**: TPR-04-003-gemini (duplicate), TPR-04-004-gemini, TPR-04-005-gemini (superseded)
-- **Plan changes applied**: §1 (affected files expanded), §2.1/§2.2/§2.3/§2.4 (TDD matrix restructured), §3 step 6-7 (rename strategy + full 4-file counter removal), §Capability regression (BUG-04-069 coupling), BUG-04-079 entry (blocked-by annotation)
+- **Plan changes applied (Round 1)**: §1 (affected files expanded), §2.1/§2.2/§2.3/§2.4 (TDD matrix restructured), §3 step 6-7 (rename strategy + full 4-file counter removal), §Capability regression (BUG-04-069 coupling), BUG-04-079 entry (blocked-by annotation). **Round 1 triage error**: TPR-04-005-codex tracker-split was rejected but actually true; corrected in Round 2.
 
-Round 2 TPR re-verification pending after plan updates land.
+### Round 2 — dual-source re-verification
+
+**Run:** `/tmp/ori-tpr-BeIbeYZ2` (2026-04-14, custom-mode verification of Round 1 fixes)
+
+- **Codex** (rc=0, 286s, 71 events): 2 actionable + 1 informational. Flagged the Round 1 triage error (TPR-04-001-codex-r2: BUG-04-069 IS split at section-04-codegen-llvm.md:586/594-597) AND a new over-deletion concern in §3 step 7 (TPR-04-002-codex-r2: `synergy_metrics_reuse_percent` and `synergy_metrics_percent_zero_total` tests cover surviving `reuse_percent()` behavior — wholesale deletion discards valid coverage). Informational confirmation (TPR-04-003-codex-r2) that all other Round 1 changes landed correctly and `<!-- blocked-by:BUG-04-069 -->` format matches existing tracker conventions.
+- **Gemini** (rc=0, 92s, 35 events): 1 actionable + 1 informational. Agreed (title differs but same issue) with codex's BUG-04-069-split finding. Informational confirmation of Round 1 findings.
+- **Thoroughness**: ASYMMETRY: HIGH (3.1x walltime, 18x bytes — codex notably deeper). But gemini's thin review DID catch the BUG-04-069 split (agreement with codex's independent finding). Findings-present thin round ⇒ NOT wasted; counter reset; strengthening flag remains true for Round 3.
+
+### Round 2 findings triage
+
+- **[TPR-04-001-codex-r2][medium]** — Reclassify TPR-04-005-codex and fix the split. **VERIFIED**: reading section-04-codegen-llvm.md lines 586-597 confirms BUG-04-069's multi-line body (Repro/Subsystem/Found/Note at lines 594-597) sits AFTER the inserted BUG-04-079 block (lines 587-593). **Action**: reordered so BUG-04-069 header + body is a contiguous bullet before BUG-04-079. Round 1 TPR-04-005-codex triage reclassified to ACCEPTED (applied Round 2). This §2.5 section updated with corrected counts.
+- **[TPR-04-002-codex-r2][medium]** — Synergy-metrics test deletion too aggressive. **VERIFIED**: reading tests.rs:1237-1310 confirms 5 synergy tests, of which 2 (`synergy_metrics_reuse_percent`, `synergy_metrics_percent_zero_total`) use ONLY surviving fields, 2 (`synergy_metrics_default_is_zero`, `synergy_metrics_merge_additive`) mix removable+surviving assertions, and 1 (`synergy_metrics_cross_dim_evidence`) is exclusively on removed `cross_dim_evidence_total()` behavior. **Action**: §2.4 rewritten with per-test disposition (trim vs preserve vs delete).
+- **[TPR-04-001-gemini-r2][high]** — Agreement with TPR-04-001-codex-r2 on BUG-04-069 split. Same resolution.
+- **[TPR-04-003-codex-r2][informational]** — Confirmation that other Round 1 changes landed correctly. No action.
+- **[TPR-04-002-gemini-r2][informational]** — Confirmation all 6 Round 1 accepted findings remediated. No action.
+
+Round 3 TPR re-verification pending after these Round 2 fixes land.
 
 ---
 
@@ -228,8 +248,9 @@ This fix disables four `MaybeShared → StaticUnique/StaticReuse` upgrade paths 
 - [ ] `timeout 150 ./clippy-all.sh` green
 - [ ] `cargo test -p ori_arc` green
 - [ ] `/commit-push` — commit all changes before review
-- [x] Plan TPR (Phase 2.5) Round 1 — complete, 6 findings accepted + plan updated, 1 rejected, 3 informational
-- [ ] Plan TPR (Phase 2.5) Round 2 — re-verify plan updates are complete/correct
+- [x] Plan TPR (Phase 2.5) Round 1 — complete, 7 findings accepted (1 was reclassified from rejected after Round 2), 3 informational
+- [x] Plan TPR (Phase 2.5) Round 2 — complete, 2 new actionable findings applied (BUG-04-069/079 split repair + synergy-metrics test-deletion refinement), 2 informational confirmations
+- [ ] Plan TPR (Phase 2.5) Round 3 — re-verify Round 2 fixes landed correctly
 - [ ] `/tpr-review` (Phase 5 — code review) passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] `/improve-tooling` retrospective completed
