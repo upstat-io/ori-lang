@@ -24,7 +24,7 @@ Close the empty-container typeck phase-contract enforcement gap: empty list lite
 - [ ] The original repro `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` REJECTS at type check with `E2005: cannot infer type for empty list — add a type annotation like 'let ages: [int] = []'`, NOT at codegen. Verified by a Rust unit test in `compiler/ori_types/src/check/validators/tests.rs` asserting the diagnostic code and span.
 - [ ] With an explicit annotation `let ages: [int] = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` compiles via `ori build` and runs with exit code 0 through both the JIT (`ori run`) and AOT (`ori build`) pipelines. Verified by AOT integration tests in `compiler/ori_llvm/tests/aot/`.
 - [ ] Interpreter and LLVM produce identical observable results (dual-execution parity) for every test program in the matrix. Verified by `diagnostics/dual-exec-verify.sh`.
-- [ ] Let-polymorphism for non-capturing lambdas is preserved: `let id = x -> x; id(1); id("hello")` continues to compile and run correctly (Rust unit test `test_let_polymorphism_for_lambda` in `compiler/ori_types/src/infer/expr/blocks/tests.rs`). Verified that reverting the Value Restriction change fails this test.
+- [ ] Let-polymorphism for non-capturing lambdas is preserved: `let id = x -> x; id(1); id("hello")` continues to compile and run correctly (Rust unit test `test_let_polymorphism_for_lambda` in `compiler/ori_types/src/infer/expr/tests.rs`). Verified that reverting the Value Restriction change fails this test.
 - [ ] No `unresolved type variable at codegen` error path in `compiler/ori_llvm/src/codegen/type_info/store.rs:341-363` fires on any program in `tests/spec/` (positive attestation via a diagnostic script `diagnostics/detect-tag-var-at-codegen.sh` or equivalent). If the assertion fires in a debug build, the producer-side validator has a gap — the failing ArcFunction name identifies the regression.
 - [ ] No regressions in `timeout 150 ./test-all.sh`, `timeout 150 ./clippy-all.sh`, or `./llvm-test.sh`. Matrix tests across empty-list × element-type × usage-pattern all pass in debug and release builds.
 - [ ] `/tpr-review` on the full plan diff returns clean across both codex and gemini with no actionable findings.
@@ -176,7 +176,7 @@ Phase 6 — Close-out (Section 07)
 
 - **`test_empty_list_let_binding_emits_e2005`** (in `check/validators/tests.rs`) — fails in Phase 0 (no validator exists); passes in Phase 2/3. Root cause: validator module doesn't exist yet. Do NOT investigate as a separate bug — this is the target behavior.
 - **`test_empty_list_with_push_and_len_compiles_with_annotation`** (AOT test in `ori_llvm/tests/aot/`) — fails in Phase 0 (codegen-time error); passes in Phase 3+ (clean typeck → clean codegen). Root cause: Tag::Var reaches codegen. Resolves when Section 03 lands.
-- **`test_let_polymorphism_for_lambda`** (in `blocks/tests.rs`) — PASSES in Phase 0 (current behavior); may transiently FAIL during Section 01 implementation if `should_generalize` is incorrectly narrowed. Semantic pin for Section 01.
+- **`test_let_polymorphism_for_lambda`** (in `compiler/ori_types/src/infer/expr/tests.rs`) — PASSES in Phase 0 (current behavior); may transiently FAIL during Section 01 implementation if `should_generalize` is incorrectly narrowed. Semantic pin for Section 01.
 
 Do NOT attempt to fix these tests individually until the section that owns them is active.
 
