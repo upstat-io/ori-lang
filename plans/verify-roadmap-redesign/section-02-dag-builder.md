@@ -678,6 +678,22 @@ Dual-source /tpr-review round 5 on 2026-04-14 (run `/tmp/ori-tpr-WqphM8AP`). 4 a
 
 ---
 
+Dual-source /tpr-review round 6 on 2026-04-14 (run `/tmp/ori-tpr-SpMK3Y3k`). 2 actionable findings (codex 2, gemini 0 — gemini clean). Both are regressions introduced by round-5 fixes; verified against live corpus and fixed in the same pass.
+
+- [x] `[TPR-02-001-codex][medium]` `scripts/plan_corpus/dag.py:1429` — Resolve roadmap section shorthand before dead-reference classification.
+  Evidence: Round-5 fix 1 added `_ROADMAP_SECTION_RE` so "Reorder Section 21A" prose emits PROSE_VERB refs targeting `plans/roadmap/section-21A`. SUPERSEDED case (ii) now fires correctly on live case (c). But `classify_dead_reference` extracts slug from `plans/<slug>/...` as `target[len("plans/"):].split("/")[0]` = "roadmap", then checks if "roadmap" is in `active_slugs`. Because `plans/roadmap/` has no `index.md` (it's a conventional home, not a plan directory), "roadmap" was missing from `active_slugs`, so every valid roadmap-section shorthand emitted a spurious DEAD_REFERENCE/PLAN_DIRECTORY_NOT_FOUND. Live corpus showed SUPERSEDED + DEAD_REFERENCE both firing on the same sentence — round-5 fix was half-fixed.
+  Impact: Noisy classifier output; valid roadmap prose looked invalid.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-14 in `classify_dead_reference`. (1) Added the conventional special-home slugs to `active_slugs`: "roadmap" when `corpus.roadmap_sections` is non-empty, "bug-tracker" when `corpus.bug_sections or corpus.fix_bug_files` is non-empty. (2) Added a post-check that skips DEAD_REFERENCE emission for any target that resolves to an actual DAG node path (defense-in-depth against similar future shorthand schemes). Regression pin added: `test_roadmap_section_shorthand_is_not_dead_reference`.
+
+- [x] `[TPR-02-002-codex][low]` `scripts/plan_corpus/dag.py:1796` — Preserve completed-plan dead-reference LOW severity through the post-pass.
+  Evidence: Round-5 fix 2 correctly removed the bare `05`/`06` DEAD_REFERENCE false positives. classify_dead_reference now correctly assigns LOW severity to the completed-plan `jit-exception-handling` annotation on Section 21A (per the case-(h) severity ladder: completed-plan stale annotation → LOW regardless of source_kind). However, the final `run_classifiers_with_precedence()` output rewrote that LOW severity back to MEDIUM: `apply_source_kind_severity` enforces HTML_COMMENT_CONVENTION=MEDIUM uniformly on every finding with a source_kind, overwriting the DEAD_REFERENCE-specific ladder.
+  Impact: User-visible report mis-severities the exact case (h) finding that §02 was designed to emit at LOW.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-14 in `apply_source_kind_severity`. Added category guard at function top: `if f.category is FindingCategory.DEAD_REFERENCE: out.append(f); continue` — DEAD_REFERENCE carries its own classifier-chosen severity ladder (completed-plan LOW, explicit-edge HIGH, body-kind MEDIUM/LOW per source), and the post-pass must not overwrite it. Docstring updated to document the exclusion explicitly. Regression pin added: `test_dead_reference_severity_preserved_through_post_pass`.
+
+---
+
 ## 02.N Completion Checklist
 
 - [x] §02.0 Node model covers all seven schema classes; source-kind taxonomy defined and unit-tested
