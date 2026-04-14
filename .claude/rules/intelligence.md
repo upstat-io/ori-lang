@@ -13,6 +13,23 @@ scripts/intel-query.sh status
 ```
 If unavailable, proceed normally — intelligence is additive, never blocking.
 
+## Canonical Pre-Query Protocol (SSOT)
+
+Skills and commands that run a pre-query / intel-summary-injection workflow
+MUST `@`-include `.claude/skills/dual-tpr/compose-intel-summary.md` — the
+single source of truth for the availability-check → `file-symbols` → `callers`
+→ `callees` → `similar` → bounded ≤500-char summary protocol. Inlining the
+pattern instead of `@`-including the SSOT is an **Algorithmic DRY violation**
+(`impl-hygiene.md` §SSOT). Domain-specific extensions (e.g., `/review-bugs`
+using `search`/`fixed`, `/fix-bug` using `similar` on the repro symbol) live
+in SSOT Step F or in the consumer's own section after the `@`-include; they
+do NOT replace the base protocol.
+
+The SSOT supplies the availability check too — only the SSOT file, this rule
+file, and `.claude/commands/query-intel.md` are permitted to contain the
+literal `scripts/intel-query.sh status` string. All other consumers acquire
+it via `@`-include.
+
 ## When to Query
 
 Query the intelligence graph proactively in these workflows:

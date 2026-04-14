@@ -87,7 +87,7 @@ Do just enough to write a useful bug entry. DO NOT deep-dive — the code may ch
 1. Confirm the bug exists (quick grep or test run if trivial)
 2. Identify the approximate location (crate + file, not exact line)
 3. Note any obvious repro (existing test file, or 2-3 line Ori snippet)
-4. If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`), run `scripts/intel-query.sh --human callers "<buggy function>" --repo ori` to assess blast radius and `scripts/intel-query.sh --human file-symbols "<subsystem path>" --repo ori` to identify related code.
+4. Intelligence graph blast-radius check — follow the canonical protocol: @.claude/skills/dual-tpr/compose-intel-summary.md (per SSOT Step F — /add-bug uses `callers` on the buggy function + `file-symbols` on the subsystem path)
 
 ### Step 5: Write the Bug Entry
 

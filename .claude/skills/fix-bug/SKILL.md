@@ -102,22 +102,18 @@ Spending time checking out old commits to see if something "was already broken" 
 
 5. **Check reference compilers** (if the bug involves a design question):
 
-   **5a. Intelligence Graph Query** — If the intelligence graph is available, query for similar bugs:
-   1. Check availability: run `scripts/intel-query.sh status` and parse the JSON `status` field. If not `"ok"`, skip to 5b.
-   2. Map the bug's subsystem to a preset per `.claude/rules/intelligence.md` §Subsystem Mapping.
-   3. Run preset and search queries (output visible in Claude's context — do NOT capture into variables):
-      - `scripts/intel-query.sh --human <preset> --limit 5`
-      - `scripts/intel-query.sh --human search "<bug description keywords>" --limit 5`
-      - `scripts/intel-query.sh --human fixed "<bug category>" --repo rust,swift,koka,lean4 --limit 5`
-   4. **Map affected code paths** — Use code symbol queries to understand the blast radius in Ori's own codebase:
-      - `scripts/intel-query.sh --human callers "<function_name>" --repo ori` — who calls the buggy function?
-      - `scripts/intel-query.sh --human callees "<function_name>" --repo ori` — what does it depend on?
-      - `scripts/intel-query.sh --human symbols "<keyword>" --repo ori --kind function` — find related functions
-      - `scripts/intel-query.sh --human file-symbols "<path/fragment>" --repo ori` — inventory of a module
-      - `scripts/intel-query.sh --human similar "<buggy function or concept>" --repo rust,swift,koka,lean4 --limit 5` — find the nearest reference-repo equivalents before opening source files.
-   5. Look for: same failure mode in 2+ compilers, how they fixed it, what regressions it caused.
-   6. Record relevant findings in the fix section's investigation notes.
-   If intelligence is unavailable, skip 5a entirely and proceed to 5b.
+   **5a. Intelligence Graph Query** — If the intelligence graph is available, query for similar bugs.
+
+   Follow the canonical intel-summary injection protocol:
+
+   @.claude/skills/dual-tpr/compose-intel-summary.md
+
+   **Fix-bug extension** (per SSOT Step F — Phase 1 investigation), additional queries beyond the SSOT base set:
+   - `scripts/intel-query.sh --human search "<bug description keywords>" --limit 5`
+   - `scripts/intel-query.sh --human fixed "<bug category>" --repo rust,swift,koka,lean4 --limit 5`
+   - `scripts/intel-query.sh --human similar "<buggy function or concept>" --repo rust,swift,koka,lean4 --limit 5`
+
+   Look for: same failure mode in 2+ compilers, how they fixed it, what regressions it caused. Record relevant findings in the fix section's investigation notes. If intelligence is unavailable, skip 5a entirely and proceed to 5b.
 
    **5b. Manual Reference Compiler Inspection** — Consult `~/projects/reference_repos/lang_repos/` for prior art. Start with the repos and symbol hits returned by `similar` in 5a, then inspect the actual source code around those matches. Intelligence results from 5a narrow the search — check the repos and issues it flagged first — but always inspect the actual source code. This sub-step is MANDATORY for design-question bugs regardless of whether 5a produced results.
 

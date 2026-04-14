@@ -57,47 +57,13 @@ Bash:
 
 ## Step 0.75 — CONDITIONAL: Intelligence Pre-Query
 
-Query the intelligence graph for context relevant to the review. The graph contains THREE capabilities — use whichever apply to the review mode:
-1. **Code symbol queries** (`symbols`, `callers`, `callees`, `file-symbols`) — 32K+ Ori symbols + 24K+ call edges, synced on every commit. ~100x faster than grep for finding code symbols, call graphs, and file inventories. Useful in ALL review modes when the subject references Ori code.
-2. **Cross-language issue/PR search** (`search`, `compare`, `fixed`, `hot`) — prior art from 10 reference compiler repos. Most useful in code review mode.
-3. **Semantic similarity** (`similar`) — vector-embedding equivalence across repos. Useful when comparing implementations.
+Query the intelligence graph for context relevant to the review. **In custom objective mode**, use the intelligence graph if the objective involves any Ori code, skills, or compiler artifacts — the symbol index is the fastest way to resolve references.
 
-This step runs when the graph is available and produces results; it is skipped silently when the graph is unavailable or returns no hits. **In custom objective mode**, use the intelligence graph if the objective involves any Ori code, skills, or compiler artifacts — the symbol index is the fastest way to resolve references.
+Follow the canonical intel-summary injection protocol:
 
-1. **Check availability** via the `status` subcommand (returns JSON):
-   ```
-   Bash:
-     scripts/intel-query.sh status
-   ```
-   Parse the JSON output: if the `status` field is not `"ok"`, skip this step silently. Do not mention intelligence in prompts.
+@.claude/skills/dual-tpr/compose-intel-summary.md
 
-2. **Identify subsystem(s)** from the review scope. For code/plan modes, use the same git range as the review (e.g., `git diff --name-only HEAD~5..HEAD` for committed changes, or `git diff --name-only` for unstaged changes — match the scope from Step 0.5). For custom objective mode, extract relevant file paths or symbol names from the objective text. Map subsystems to presets per `.claude/rules/intelligence.md` §Subsystem Mapping. For custom objectives that reference specific files or symbols, use `symbols` or `file-symbols` queries directly. Do NOT hardcode the mapping here — always reference the rule file.
-
-3. **Run the query** (output is visible in Claude's context — do NOT capture into a variable):
-   ```
-   Bash:
-     scripts/intel-query.sh --human <preset-or-search> --limit 5
-   ```
-   Read the output. If empty or only unavailability messages, skip silently.
-
-   3a. **Map the reviewed code surface** — For the top 3-5 changed files or touched symbols:
-      - `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori`
-      - `scripts/intel-query.sh --human callers "<symbol>" --repo ori`
-      - `scripts/intel-query.sh --human callees "<symbol>" --repo ori`
-      - `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5`
-      Use this output to enrich the Intelligence Summary with blast radius and reference-repo equivalents, not just issue/PR prior art.
-
-4. **Condense** the query results into a bounded Intelligence Summary (max 500 chars):
-   ```
-   **Intelligence Summary (from intelligence graph):**
-   - [rust#12345] Similar ARC bug in iterator early-exit (fixed, 45 comments)
-   - [swift#6789] Protocol witness table leak on break (fixed, 12 comments)
-   - [ori] eval_iter_next called by 14 sites — call graph available via `callers`
-   ```
-
-5. **Hold the summary in context.** In Step 2 (Write both reviewer prompts), write the summary directly into BOTH `codex.prompt.md` and `gemini.prompt.md`, after the `## Scope:` header. Do NOT use shell variable interpolation — the prompts use single-quoted heredocs (`<<'PROMPT'`) which suppress expansion. Instead, assemble the prompt content programmatically (e.g., using the Write tool or a double-quoted heredoc for the section that includes the summary). Reviewers should use the intelligence summary as a pointer to investigate, not as authoritative evidence.
-
-If intelligence is unavailable or returns no results, skip silently — do not include an empty intelligence section or "no results found" in the prompts.
+**Placement for dual-source review prompts**: In Step 2 (Write both reviewer prompts), write the summary directly into BOTH `codex.prompt.md` and `gemini.prompt.md`, after the `## Scope:` header. Do NOT use shell variable interpolation — the prompts use single-quoted heredocs (`<<'PROMPT'`) which suppress expansion. Instead, assemble the prompt content programmatically (e.g., using the Write tool or a double-quoted heredoc for the section that includes the summary). Reviewers should use the intelligence summary as a pointer to investigate, not as authoritative evidence.
 
 ## ABSOLUTE: You May NEVER Reason Out of Findings
 

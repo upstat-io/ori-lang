@@ -62,17 +62,18 @@ Present the purity assessment to the user. If the analysis suggests the feature 
 
 Query the intelligence graph for cross-language prior art relevant to the proposed feature. Results populate a DRAFT Prior Art section that must be verified before inclusion.
 
-1. **Check availability**: Run `scripts/intel-query.sh status` via Bash and parse the JSON output. If the `status` field is not `"ok"`, skip to Step 5 — omit the Prior Art section or populate it manually.
+Follow the canonical intel-summary injection protocol:
 
-2. **Run queries** (output visible in Claude's context — do NOT capture into shell variables):
-   ```
-   scripts/intel-query.sh --human search "<proposal topic>" --limit 5
-   scripts/intel-query.sh --human compare "<feature concept>" --limit 5
-   scripts/intel-query.sh --human symbols "<Ori keyword>" --repo ori --limit 15
-   scripts/intel-query.sh --human file-symbols "<likely path fragment>" --repo ori
-   scripts/intel-query.sh --human similar "<feature concept or Ori symbol>" --repo rust,swift,go,koka --limit 5
-   ```
-   Use `symbols` and `file-symbols` to map current Ori surface area and `similar` to find concrete reference implementations to verify in Step 4.5.4.
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
+**Create-draft-proposal extension** (per SSOT Step F — prior-art reconnaissance), additional queries beyond the SSOT base set:
+
+- `scripts/intel-query.sh --human search "<proposal topic>" --limit 5`
+- `scripts/intel-query.sh --human compare "<feature concept>" --limit 5`
+- `scripts/intel-query.sh --human symbols "<Ori keyword>" --repo ori --limit 15`
+- `scripts/intel-query.sh --human similar "<feature concept or Ori symbol>" --repo rust,swift,go,koka --limit 5`
+
+Use `symbols` and `file-symbols` to map current Ori surface area and `similar` to find concrete reference implementations to verify in Step 4.5.4.
 
 3. From the results, draft a `## Prior Art` section with structured entries:
    - Which languages implemented this feature

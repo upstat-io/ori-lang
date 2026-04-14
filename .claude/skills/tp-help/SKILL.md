@@ -95,7 +95,7 @@ Gather the relevant context for the question. Be specific — both Codex and Gem
 - The two approaches you're deciding between
 - The spec section that defines expected behavior
 - Recent git diff showing what you changed
-- If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`), enrich the context with `scripts/intel-query.sh --human callers "<symbol>" --repo ori`, `callees`, and `similar "<symbol>" --repo rust,swift,go --limit 5` to provide precise cross-file dependency and prior-art context.
+- Intelligence graph enrichment — follow the canonical protocol: @.claude/skills/dual-tpr/compose-intel-summary.md (per SSOT Step F — /tp-help uses `callers`/`callees`/`similar` on the discussed symbols)
 
 ### Step 2: Create the Scratch Dir and Snapshot the Worktree
 
