@@ -278,14 +278,21 @@ class TestParseHtmlComments:
         assert ref.raw_text.startswith("<!-- blocked-by:")
 
     def test_parses_unblocks_multi_target(self):
-        """Semantic pin for live case (h) — TPR-02-003-codex r1:
-        `<!-- unblocks:jit-exception-handling/04B,05,06 -->` MUST parse into 3 targets."""
+        """Semantic pin for live case (h) — TPR-02-003-codex r1 +
+        TPR-02-002-codex (r2): `<!-- unblocks:jit-exception-handling/04B,05,06 -->`
+        MUST parse into 3 targets, all carrying the inherited plan slug
+        `jit-exception-handling` (shorthand section tokens inherit the first
+        target's plan prefix; bare `05`/`06` would be false positives for
+        DEAD_REFERENCE)."""
         body = "<!-- unblocks:jit-exception-handling/04B,05,06 -->"
         refs = parse_html_comments(body)
         targets = [r.target for r in refs]
         assert "jit-exception-handling/04B" in targets
-        assert "05" in targets
-        assert "06" in targets
+        assert "jit-exception-handling/05" in targets
+        assert "jit-exception-handling/06" in targets
+        # Negative: bare shorthand MUST NOT leak through.
+        assert "05" not in targets
+        assert "06" not in targets
 
     def test_hyphenated_targets_preserved(self):
         """TPR-02-003-codex r1: hyphens are allowed in target tokens."""
@@ -333,3 +340,27 @@ class TestParseHtmlComments:
         refs = parse_html_comments(body)
         assert len(refs) == 1
         assert refs[0].source_line == 3
+
+    def test_shorthand_section_tokens_inherit_first_targets_plan_slug(self):
+        """TPR-02-002-codex regression pin: `<!-- unblocks:jit-exception-
+        handling/04B,05,06 -->` must yield targets with the shared plan
+        slug propagated to shorthand tokens `05` and `06`, not bare
+        numerics. Otherwise DEAD_REFERENCE treats `05`/`06` as nonexistent
+        plan directories and emits false positives."""
+        body = "<!-- unblocks:jit-exception-handling/04B,05,06 -->"
+        refs = parse_html_comments(body)
+        targets = [r.target for r in refs]
+        assert "jit-exception-handling/04B" in targets
+        assert "jit-exception-handling/05" in targets
+        assert "jit-exception-handling/06" in targets
+        # Negative pin: bare shorthand must NOT leak through.
+        assert "05" not in targets
+        assert "06" not in targets
+
+    def test_shorthand_inheritance_only_when_first_target_has_slash(self):
+        """Negative pin: when the first target has no slash, shorthand
+        propagation must not fire — there's no plan slug to inherit."""
+        body = "<!-- blocked-by:plan-a,plan-b,plan-c -->"
+        refs = parse_html_comments(body)
+        targets = [r.target for r in refs]
+        assert set(targets) == {"plan-a", "plan-b", "plan-c"}

@@ -173,6 +173,35 @@ class TestDagConstructionYamlComment:
         )
 
 
+class TestRoadmapSectionProseReference:
+    """TPR-02-001-codex regression pin: body prose like "Reorder Section 21A"
+    must produce a PROSE_VERB Reference resolving to plans/roadmap/section-21A*.
+    Without this, live case (c) (test-suite-health section-02 reprioritizing
+    roadmap 21A) is a false negative for SUPERSEDED case (ii)."""
+
+    def test_section_prose_reference_emitted_with_reprioritize_verb(self, tmp_path: Path):
+        plans = tmp_path / "plans"
+        body = "This section will reorder Section 21A subsections by impact.\n"
+        _write(plans / "roadmap" / "section-21A-llvm.md",
+               _basic_section("21A", "LLVM"))
+        _write(plans / "rewriter" / "index.md", _basic_index("Rewriter"))
+        _write(plans / "rewriter" / "section-02.md",
+               _basic_section("02", "reprior", body_extra=body))
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+
+        prose_refs = [
+            r for r in dag.references
+            if r.source_kind is SourceKind.PROSE_VERB
+            and "section-21A" in r.target
+        ]
+        assert len(prose_refs) >= 1, (
+            f"expected at least one Section 21A PROSE_VERB ref, "
+            f"got {[(r.target, r.source_kind) for r in dag.references if r.source_kind is SourceKind.PROSE_VERB]}"
+        )
+
+
 class TestDagConstructionHtmlUnblocks:
     """Finding B semantic pin for case (h): <!-- unblocks:X -->."""
 
@@ -186,10 +215,15 @@ class TestDagConstructionHtmlUnblocks:
 
         html_refs = [r for r in dag.references if r.source_kind is SourceKind.HTML_COMMENT_CONVENTION]
         targets = {r.target for r in html_refs}
-        # Three targets from the multi-target unblocks comment.
+        # Three targets from the multi-target unblocks comment — all
+        # carrying the inherited `jit-exception-handling` plan slug
+        # (TPR-02-002-codex r2: shorthand section tokens propagate).
         assert "jit-exception-handling/04B" in targets
-        assert "05" in targets
-        assert "06" in targets
+        assert "jit-exception-handling/05" in targets
+        assert "jit-exception-handling/06" in targets
+        # Negative: raw shorthand tokens must NOT leak through.
+        assert "05" not in targets
+        assert "06" not in targets
 
 
 class TestDagNodeCoverage:

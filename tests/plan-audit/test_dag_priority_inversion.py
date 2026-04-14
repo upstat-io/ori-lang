@@ -133,6 +133,37 @@ class TestComputeMinimumUnblockSet:
         # Dependency chain carries the unblock set (typed field).
         assert len(f.dependency_chain) >= 1
 
+    def test_minimum_unblock_set_is_only_root_not_full_chain(self, tmp_path: Path):
+        """TPR-02-003-codex regression pin: the minimum unblock set for a
+        transitive chain A -> B -> C must be just {C}, not {A, B, C}.
+
+        Unblocking the root cascades to unblock intermediates; including
+        them in the minimum set over-states the work needed."""
+        plans = tmp_path / "plans"
+        _write(plans / "a" / "index.md", _index("A"))
+        _write(plans / "a" / "section-01.md",
+               _section("01", "a", status="in-progress",
+                        depends_on=["B#01"]))
+        _write(plans / "b" / "index.md", _index("B", status="queued"))
+        _write(plans / "b" / "section-01.md",
+               _section("01", "b", status="not-started",
+                        depends_on=["C#01"]))
+        _write(plans / "c" / "index.md", _index("C", status="queued"))
+        _write(plans / "c" / "section-01.md",
+               _section("01", "c", status="not-started"))
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        findings = compute_minimum_unblock_set(dag, corpus)
+        assert len(findings) >= 1
+        f = findings[0]
+        # Minimum set is exactly one path — the root leaf (c/section-01.md).
+        assert len(f.dependency_chain) == 1, (
+            f"minimum unblock set must be just the root, got "
+            f"{[p for p in f.dependency_chain]}"
+        )
+        assert f.dependency_chain[0].parent.name == "c"
+
 
 class TestNoInversionsWhenNotBlocked:
     def test_all_active_produces_zero_inversions(self, tmp_path: Path):
