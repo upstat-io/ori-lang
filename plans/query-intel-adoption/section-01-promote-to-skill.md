@@ -25,15 +25,15 @@ sections:
     status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 01: Promote /query-intel to an auto-triggerable Skill
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** `/query-intel` must be discoverable to the Claude Code harness as a Skill so its description can trigger auto-activation in relevant contexts (design discussions, debugging with unknown symbols, review prompts). The existing 14-line command file becomes a thin alias that forwards to the Skill, preserving explicit `/query-intel <args>` invocation.
 
 **Context:** Today `/query-intel` exists only at `.claude/commands/query-intel.md` (14 lines). The Claude Code harness auto-triggers Skills (files matching `.claude/skills/*/SKILL.md` with a `description` frontmatter) based on context matching; it cannot auto-trigger commands. This is the single largest contributor to the underuse reported by the operator — even when Claude is about to grep for a symbol or read a reference-repo file, no ambient prompt surfaces the graph. Verified in the 2026-04-14 TPR: codex confirmed `.claude/skills/query-intel/` does not exist (`if [[ -d .claude/skills/query-intel ]]; then echo exists; else echo missing; fi` → missing).

@@ -5,10 +5,10 @@ status: not-started
 reviewed: false
 goal: "Add a graph-first paragraph to every .claude/rules/*.md file that cites cross-repo prior art without pointing at the intelligence graph first"
 success_criteria:
-  - "9 rule files (arc.md, aims-rules.md, typeck.md, types.md, tests.md, impl-hygiene.md, canonicalization.md, patterns.md, intelligence.md) each contain a graph-first paragraph near their prior-art references"
+  - "10 rule files (arc.md, aims-rules.md, typeck.md, types.md, tests.md, impl-hygiene.md, canonicalization.md, patterns.md, compiler.md, intelligence.md) each contain a graph-first paragraph near their prior-art references"
   - "`.claude/rules/intelligence.md` workflow inventory refreshed to include verify-tpr, sync-claude, fix-next-bug, tp-help, sync-spec, sync-grammar, verify-roadmap as covered workflows"
-  - "`grep -L 'scripts/intel-query.sh' .claude/rules/{arc,aims-rules,typeck,types,tests,impl-hygiene,canonicalization,patterns,intelligence}.md` returns empty (all 9 now reference the graph)"
-  - "Satisfies mission criterion: all 9 rule files include graph-first paragraph"
+  - "`grep -L 'scripts/intel-query.sh' .claude/rules/{arc,aims-rules,typeck,types,tests,impl-hygiene,canonicalization,patterns,compiler,intelligence}.md` returns empty (all 10 now reference the graph)"
+  - "Satisfies mission criterion: all 10 rule files include graph-first paragraph"
 inspired_by:
   - "`.claude/rules/intelligence.md` §Symbol-First Workflow — existing graph-first language; template source"
   - "TPR findings codex-005, 020, 021, 022, 023, 024, 025, 026, 027, gemini-004 [medium]"
@@ -21,7 +21,7 @@ sections:
     title: "Draft the graph-first paragraph template"
     status: not-started
   - id: "04.2"
-    title: "Insert into 8 domain rule files"
+    title: "Insert into 9 domain rule files"
     status: not-started
   - id: "04.3"
     title: "Refresh intelligence.md workflow inventory"
@@ -90,11 +90,11 @@ One canonical paragraph shape used in 8 of the 9 target files (§04.2). `intelli
 
 ---
 
-## 04.2 Insert into 8 domain rule files
+## 04.2 Insert into 9 domain rule files
 
-**File(s):** 8 files to modify with the template from §04.1
+**File(s):** 9 files to modify with the template from §04.1
 
-Per-file insertion point (verified line numbers from TPR):
+Per-file insertion point (verified line numbers from TPR; `compiler.md` added 2026-04-14 during §02.2 sync-claude retrospective):
 
 1. `.claude/rules/arc.md` (268 lines) — after the cross-backend mirrors discussion near line 243
 2. `.claude/rules/aims-rules.md` (918 lines) — after the reference compilers block near line 727
@@ -104,16 +104,17 @@ Per-file insertion point (verified line numbers from TPR):
 6. `.claude/rules/impl-hygiene.md` (720 lines) — after the aspirational patterns block citing Rust/Zig/Roc near line 313
 7. `.claude/rules/canonicalization.md` — after the Maranget / DecisionTree consumer citations near line 37
 8. `.claude/rules/patterns.md` — after the registry + dispatch prior-art references near line 27
+9. `.claude/rules/compiler.md` (192 lines) — after the `## Source of Truth` section's 10-repo reference list near line 192 (pair with the "Graph reconnaissance — USE FIRST" bullet in CLAUDE.md Compiler Coding Guidelines added in §02.2)
 
 - [ ] For EACH file in the list:
   - [ ] Re-read the target line to confirm the insertion point still fits (files may have drifted; the TPR was 2026-04-14)
   - [ ] Insert the §04.1 template with file-appropriate preset mentioned in the bullet list (e.g., `arc.md` → add `ori-arc` preset; `typeck.md` → `ori-inference`; `canonicalization.md` → `ori-patterns`; etc. per the mapping in `intelligence.md` §Subsystem Mapping)
   - [ ] Diff: net change is one `## Graph-first, manual second` section added; no existing content deleted
 
-- [ ] Verify all 8 land: `grep -L 'scripts/intel-query.sh' .claude/rules/{arc,aims-rules,typeck,types,tests,impl-hygiene,canonicalization,patterns}.md` returns empty.
+- [ ] Verify all 9 land: `grep -L 'scripts/intel-query.sh' .claude/rules/{arc,aims-rules,typeck,types,tests,impl-hygiene,canonicalization,patterns,compiler}.md` returns empty.
 
 - [ ] **Subsection close-out (04.2)**:
-  - [ ] All 8 inserts verified
+  - [ ] All 9 inserts verified
   - [ ] Update `04.2` status to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on 04.2** — did inserting 8 nearly-identical paragraphs feel mechanical enough that a `scripts/inject-graph-first.py <file>` helper could automate future rule-file additions? If matured, commit via `build(tooling): ...`. If the 8-file set is one-shot and unlikely to repeat, document negative finding.
   - [ ] **Run `/sync-claude` on 04.2** — 8 rule files changed. `canon.md` indexes rule files; verify no line numbers referenced in `canon.md` shifted. Commit any drift via `docs(rules): ...`.
@@ -155,10 +156,10 @@ The current "When to Query" block (lines 18-34) lists 15 workflows. Several revi
 
 ## 04.N Completion Checklist
 
-- [ ] All 9 rule files (8 domain + intelligence.md refresh) reference the graph
-- [ ] `grep -L 'scripts/intel-query.sh' .claude/rules/{arc,aims-rules,typeck,types,tests,impl-hygiene,canonicalization,patterns,intelligence}.md` returns empty
-- [ ] Per-file preset tuning verified (e.g., arc.md cites `ori-arc`, typeck.md cites `ori-inference`, etc.)
-- [ ] No existing content was deleted in any rule file (diff spot-check on all 9)
+- [ ] All 10 rule files (9 domain + intelligence.md refresh) reference the graph
+- [ ] `grep -L 'scripts/intel-query.sh' .claude/rules/{arc,aims-rules,typeck,types,tests,impl-hygiene,canonicalization,patterns,compiler,intelligence}.md` returns empty
+- [ ] Per-file preset tuning verified (e.g., arc.md cites `ori-arc`, typeck.md cites `ori-inference`, compiler.md cites general-purpose + cross-crate guidance, etc.)
+- [ ] No existing content was deleted in any rule file (diff spot-check on all 10)
 - [ ] `./test-all.sh` green
 - [ ] `python scripts/plan_corpus.py check plans/query-intel-adoption/section-04-rules-graph-first.md` returns 0 errors
 - [ ] **Plan sync**:
@@ -166,7 +167,7 @@ The current "When to Query" block (lines 18-34) lists 15 workflows. Several revi
   - [ ] `00-overview.md` Quick Reference and mission criterion updated
   - [ ] `index.md` updated
 - [ ] `/tpr-review` passed — verify reviewers agree the insertions POINT at the graph rather than duplicate its subcommand reference
-- [ ] `/impl-hygiene-review` passed — the 8 paragraphs are near-identical by design but each points at the SSOT (`intelligence.md` + `compose-intel-summary.md`); confirm this is not LEAK:algorithmic-duplication (the paragraphs are user-facing prose tuned per-file; the canonical query pattern itself lives in §03's SSOT)
+- [ ] `/impl-hygiene-review` passed — the 9 paragraphs are near-identical by design but each points at the SSOT (`intelligence.md` + `compose-intel-summary.md`); confirm this is not LEAK:algorithmic-duplication (the paragraphs are user-facing prose tuned per-file; the canonical query pattern itself lives in §03's SSOT)
 - [ ] `/improve-tooling` section-close sweep
 - [ ] `/sync-claude` section-close doc sync
 - [ ] `diagnostics/repo-hygiene.sh --check`

@@ -41,7 +41,7 @@ ori-syntax SKILL.md reference pattern
 ---
 
 ### Section 02: CLAUDE.md expansion
-**File:** `section-02-claude-md-expansion.md` | **Status:** Not Started
+**File:** `section-02-claude-md-expansion.md` | **Status:** Complete
 
 ```
 CLAUDE.md, Commands section (line 140), Key Paths (line 182)
