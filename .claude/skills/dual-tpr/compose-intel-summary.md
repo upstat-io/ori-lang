@@ -17,7 +17,8 @@ inlining the pattern.
 
 **Planned future consumers (not yet migrated):**
 
-- `/verify-tpr`, `/sync-claude`, `/fix-next-bug` — these skills do not
+- `/verify-tpr`, `/sync-claude`, `/fix-next-bug`, `/sync-spec`,
+  `/sync-grammar`, `/verify-roadmap` — these skills/commands do not
   currently query the intel graph. They will `@`-include this SSOT when
   they add intel reconnaissance (tracked by `plans/query-intel-adoption`
   §05 "Missing-trigger skills & commands").

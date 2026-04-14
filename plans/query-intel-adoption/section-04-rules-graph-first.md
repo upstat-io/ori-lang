@@ -1,11 +1,11 @@
 ---
 section: "04"
-title: "Rule files — graph-first guidance at every cross-repo prior-art reference"
+title: "Rule files — graph-first guidance in 9 domain rule files + intelligence.md refresh"
 status: in-progress
 reviewed: false
-goal: "Add a graph-first paragraph to every .claude/rules/*.md file that cites cross-repo prior art without pointing at the intelligence graph first"
+goal: "Add graph-first paragraphs to 9 domain rule files (arc, aims-rules, typeck, types, tests, impl-hygiene, canonicalization, patterns, compiler) and refresh intelligence.md workflow inventory — the 10 files identified by the original TPR as citing cross-repo prior art without graph-first guidance"
 success_criteria:
-  - "10 rule files (arc.md, aims-rules.md, typeck.md, types.md, tests.md, impl-hygiene.md, canonicalization.md, patterns.md, compiler.md, intelligence.md) each contain a graph-first paragraph near their prior-art references"
+  - "9 domain rule files (arc.md, aims-rules.md, typeck.md, types.md, tests.md, impl-hygiene.md, canonicalization.md, patterns.md, compiler.md) each contain a graph-first paragraph near their prior-art references; intelligence.md gets a workflow inventory refresh instead of a paragraph insert"
   - "`.claude/rules/intelligence.md` workflow inventory refreshed to include verify-tpr, sync-claude, fix-next-bug, tp-help, sync-spec, sync-grammar, verify-roadmap as covered workflows"
   - "`grep -L 'scripts/intel-query.sh' .claude/rules/{arc,aims-rules,typeck,types,tests,impl-hygiene,canonicalization,patterns,compiler,intelligence}.md` returns empty (all 10 now reference the graph)"
   - "Satisfies mission criterion: all 10 rule files include graph-first paragraph"
@@ -34,12 +34,12 @@ sections:
     status: not-started
 ---
 
-# Section 04: Rule files — graph-first guidance
+# Section 04: Rule files — graph-first guidance in 9 domain rule files
 
-**Status:** Not Started
-**Goal:** Every rule file that cites cross-repo prior art (Rust, Swift, Koka, Lean4, Gleam, Elm, Roc, Zig, Go, TS) must point the reader at the intelligence graph BEFORE naming the manual file paths. This turns 27 domain rule files from "manual-first" into "graph-first, manual-second."
+**Status:** In Progress
+**Goal:** The 9 domain rule files identified by the original TPR (arc.md, aims-rules.md, typeck.md, types.md, tests.md, impl-hygiene.md, canonicalization.md, patterns.md, compiler.md) each receive a graph-first paragraph. intelligence.md receives a workflow inventory refresh. Other rule files (canon.md, codegen-rules.md, parse.md, llvm.md, etc.) may also benefit from graph-first guidance but were not in the original TPR's finding scope — they are tracked for future coverage.
 
-**Context:** Per the 2026-04-14 TPR verification, 27 of 28 rule files cite reference-repo paths and implementation patterns without a single mention of the intelligence graph. The graph indexes all 10 reference repos with 24K+ call edges and vector embeddings for semantic similarity — it resolves cross-repo equivalents in sub-second time. A reader following today's rule-file guidance would open 5 reference repos manually and grep; after §04 lands, the same reader runs one graph query, narrows to 2 concrete files, and then opens those. LEAK:scattered-knowledge is the finding category (codex finding IDs TPR-XX-020 through TPR-XX-025 plus 026/027).
+**Context:** Per the 2026-04-14 TPR verification, the original TPR findings (codex-020 through codex-027, gemini-004) identified 9 specific domain rule files that cite reference-repo paths without mentioning the intelligence graph. The graph indexes all 10 reference repos with 24K+ call edges and vector embeddings for semantic similarity — it resolves cross-repo equivalents in sub-second time. A reader following today's rule-file guidance would open 5 reference repos manually and grep; after §04 lands, the same reader runs one graph query, narrows to 2 concrete files, and then opens those. LEAK:scattered-knowledge is the finding category (codex finding IDs TPR-XX-020 through TPR-XX-025 plus 026/027).
 
 **Reference implementations:**
 - **Ori** `.claude/rules/intelligence.md:66-75` (Symbol-First Workflow): existing canonical paragraph, adapted here for insertion at other sites
@@ -257,6 +257,26 @@ The current "When to Query" block (lines 18-34) lists 15 workflows. Several revi
   Resolved: 2026-04-14 — non-actionable. Third consecutive confirmation.
 
 - [x] `[TPR-04-016-gemini][informational]` — Workflow inventory and SSOT compliance verified successfully.
+  Resolved: 2026-04-14 — non-actionable.
+
+### Round 4 (2026-04-14) — dual-source (codex + gemini), merge `/tmp/ori-tpr-8heRkxq8`
+
+- [x] `[TPR-04-017-codex][medium]` `section-04:3` — Narrow section scope to the 9+1 files actually covered.
+  Evidence: Section title/goal claimed "every cross-repo prior-art reference" but only 9 domain files got paragraphs + 1 (intelligence.md) got a workflow refresh. At least 7 other rule files also cite reference repos without graph-first guidance (canon.md, codegen-rules.md, parse.md, llvm.md, etc.) — beyond the original TPR findings' scope.
+  Resolved: Fixed on 2026-04-14. Rescoped title, goal, and success criteria to match the 9+1 file set identified by the original TPR. Other rule files noted as future coverage opportunity.
+
+- [x] `[TPR-04-018-codex][low]` `.claude/rules/canonicalization.md:48` — Add `ori_canon/src/patterns/` to Subsystem Mapping.
+  Evidence: `canonicalization.md` uses `ori-patterns` preset but the Subsystem Mapping table didn't cover `compiler/ori_canon/src/patterns/`.
+  Resolved: Fixed on 2026-04-14. Added `compiler/ori_canon/src/patterns/` to the `ori-patterns` row in `.claude/rules/intelligence.md` §Subsystem Mapping.
+
+- [x] `[TPR-04-019-codex][low]` `.claude/skills/dual-tpr/compose-intel-summary.md:20` — Add 3 missing planned consumers to SSOT registry.
+  Evidence: SSOT listed only 3 planned consumers but intelligence.md §04.3 added 6. `/sync-spec`, `/sync-grammar`, `/verify-roadmap` were missing.
+  Resolved: Fixed on 2026-04-14. Added all 3 to the planned-consumer list in `compose-intel-summary.md:20`.
+
+- [x] `[TPR-04-020-codex][informational]` — Core paragraph implementation validated: slim, redirecting, no LEAK.
+  Resolved: 2026-04-14 — non-actionable. Fourth consecutive informational confirming sound implementation.
+
+- [x] `[TPR-04-021-gemini][informational]` — Zero actionable issues verified across all 5 review objectives.
   Resolved: 2026-04-14 — non-actionable.
 
 ---

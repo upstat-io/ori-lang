@@ -111,7 +111,7 @@ Map file paths or bug subsystems to intelligence presets:
 | `compiler/ori_arc/`, `compiler/ori_rt/src/rc/` | `ori-arc` |
 | `compiler/ori_types/src/infer/`, `compiler/ori_types/src/check/` | `ori-inference` |
 | `compiler/ori_llvm/` | `ori-codegen` |
-| `compiler/ori_patterns/`, `compiler/ori_eval/src/methods/` | `ori-patterns` |
+| `compiler/ori_patterns/`, `compiler/ori_eval/src/methods/`, `compiler/ori_canon/src/patterns/` | `ori-patterns` |
 | `compiler/ori_diagnostic/`, `compiler/oric/src/diagnostic/` | `ori-diagnostics` |
 | Other / mixed | `search "<key terms from diff>"` |
 
