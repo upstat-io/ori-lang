@@ -584,6 +584,10 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Note: SSOT violation — Locality dimension is the canonical source for escape classification per spec. Dual representation risks drift.
 
 - [ ] `[BUG-04-069][medium]` **`tighten_uniqueness_from_callers()` still runs — spec says IC-8 removed as unsound**
+  Repro: Spec IC-8 is explicitly marked `~~REMOVED (unsound — same root cause as DP-10)~~`. Code still contains and runs `tighten_uniqueness_from_callers()` in the interprocedural pass. This function derives parameter uniqueness from caller consumption patterns, which is unsound per spec rationale.
+  Subsystem: `compiler/ori_arc/src/aims/interprocedural/`
+  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 4 — unfiled drift)
+  Note: Unsound by spec analysis — a caller with `MaybeShared` argument used linearly still has RC > 1 from upstream aliases. Parameter uniqueness should be established only by SCC fixpoint (IC-2/IC-3).
 - [ ] `[BUG-04-079][medium]` **Implement spec-approved DP-9 `MaybeShared + IC-3 ParamContract.uniqueness = Unique → StaticUnique` path (re-enablement of COW fast-path for parameters)** <!-- blocked-by:BUG-04-069 -->
   **Blocked:** BUG-04-069 must be fixed first. BUG-04-069's `tighten_uniqueness_from_callers` uses the unsound IC-8 pattern (Owned+Linear+Once → Unique) to produce `ParamContract.uniqueness = Unique`. Today this is dormant because no realization site reads `ParamContract.uniqueness`. But BUG-04-079 plumbs it into `AnnotationSiteContext` for consumption by `decide_cow()` — so fixing BUG-04-079 without BUG-04-069 would launder the exact unsoundness BUG-04-059 just removed through a different channel.
   Repro: none yet (capability gap, not a regression). After BUG-04-059 fix, MaybeShared parameters always take `Dynamic` (runtime IsShared). Spec DP-9 permits `StaticUnique` when the interprocedural contract proves caller-side uniqueness — a PAST guarantee from the SCC fixpoint, not future-use inference.
@@ -591,7 +595,3 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Scope: plumb `ParamContract.uniqueness` into `AnnotationSiteContext` for parameter variables, add guarded subcase to `decide_cow()`: `MaybeShared + is_param + param_contract.uniqueness = Unique → StaticUnique`. Add positive test (param with Unique contract) + negative test (param with MaybeShared contract stays Dynamic) + SCC fixpoint test (caller aliases demote contract).
   Found: 2026-04-14 | Source: fix-BUG-04-059 (capability regression tracking per CLAUDE.md ABSOLUTE rule) + Plan TPR round 1 (TPR-04-001-gemini identified BUG-04-069 coupling)
   Note: This is the sound re-enablement path for the COW fast-path capability disabled by BUG-04-059. Unblocks a measurable performance optimization for parameter-mediated COW patterns. Dependency chain: BUG-04-059 → BUG-04-069 → BUG-04-079.
-  Repro: Spec IC-8 is explicitly marked `~~REMOVED (unsound — same root cause as DP-10)~~`. Code still contains and runs `tighten_uniqueness_from_callers()` in the interprocedural pass. This function derives parameter uniqueness from caller consumption patterns, which is unsound per spec rationale.
-  Subsystem: `compiler/ori_arc/src/aims/interprocedural/`
-  Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 4 — unfiled drift)
-  Note: Unsound by spec analysis — a caller with `MaybeShared` argument used linearly still has RC > 1 from upstream aliases. Parameter uniqueness should be established only by SCC fixpoint (IC-2/IC-3).
