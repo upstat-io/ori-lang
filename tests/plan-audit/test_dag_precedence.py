@@ -180,6 +180,30 @@ class TestSourceKindSeverity:
         adjusted = apply_source_kind_severity([f])
         assert adjusted[0].severity is Severity.HIGH
 
+    def test_dead_reference_severity_preserved_through_post_pass(self):
+        """TPR-02-002-codex r2 regression pin: DEAD_REFERENCE findings carry
+        their own severity ladder (completed-plan LOW; explicit-edge HIGH).
+        apply_source_kind_severity must NOT overwrite classify_dead_
+        reference's choices — case (h) specifies LOW severity for a
+        completed-plan target regardless of source_kind."""
+        src = Path("plans/roadmap/section-21A-llvm.md")
+        f = Finding(
+            category=FindingCategory.DEAD_REFERENCE,
+            subtype=FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            severity=Severity.LOW,  # intentional: completed-plan target
+            source=src, source_line=83,
+            description="reference points at completed plan jit-exception-handling",
+            recommended_fix="Update or remove the stale annotation",
+            source_kind=SourceKind.HTML_COMMENT_CONVENTION,
+        )
+        adjusted = apply_source_kind_severity([f])
+        # HTML_COMMENT_CONVENTION would normally force MEDIUM, but
+        # DEAD_REFERENCE is excluded from the ladder.
+        assert adjusted[0].severity is Severity.LOW, (
+            "DEAD_REFERENCE severity must be preserved through the post-pass; "
+            "classify_dead_reference owns its own ladder"
+        )
+
 
 class TestDeterministicOrder:
     def test_full_pipeline_idempotent(self, tmp_path: Path):
