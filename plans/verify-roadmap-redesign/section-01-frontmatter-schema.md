@@ -672,6 +672,20 @@ PILOT, not full sweep. Full-corpus migration is the sole responsibility of Secti
 - [x] `[TPR-01-006-gemini][medium][round 5]` `scripts/plan_corpus.py` (1,465 lines) — BLOAT: file exceeded the 500-line limit by nearly 3x, mixing CLI implementation, walker logic, strict YAML parsing, schema declaration, status normalization, and docgen in a single monolith.
   Resolved: Fixed on 2026-04-14. Converted to a Python package `scripts/plan_corpus/` with 8 submodules, all under 500 lines: `types.py` (273), `parser.py` (184), `schema.py` (471), `schemas.py` (130), `discovery.py` (304), `normalizer.py` (169), `docgen.py` (196), `__init__.py` (164 — re-exports), `__main__.py` (104 — CLI). Backward compatibility preserved: `from scripts.plan_corpus import X` continues to work for all previously-public names. CLI invocation changed from `python scripts/plan_corpus.py ...` to `python -m scripts.plan_corpus ...`; updated `CLAUDE.md` §Commands and §Key Paths.
 
+<!-- Round 6 (2026-04-14, /tmp/ori-tpr-PJHFqQBq): 4 follow-up findings surfaced verifying round-5 fixes. 2 codex, 2 gemini, 0 agreements. All addressed. -->
+
+- [x] `[TPR-01-001-codex][medium][round 6]` `scripts/plan_corpus/schema.py:131` — Nested section validation hardcoded `_SECTION_ENTRY_ALLOWED` / `_SECTION_ENTRY_REQUIRED` sets instead of deriving from `SubsectionEntry` dataclass. Drift vector: schema-field allowlists must live only in the dataclass SSOT.
+  Resolved: Fixed on 2026-04-14. Moved `SubsectionEntry` from schema.py into schemas.py alongside the 7 file-class schemas. `_validate_sections()` now uses `_schema_required_fields(SubsectionEntry)` / `_schema_allowed_fields(SubsectionEntry)` — same introspection helpers as the top-level schemas. Deleted `_SECTION_ENTRY_ALLOWED` and `_SECTION_ENTRY_REQUIRED` constants.
+
+- [x] `[TPR-01-002-codex][medium][round 6]` `tests/plan-audit/test_plan_corpus.py` — Missing regression pins for two round-5 fix paths: `_classify_and_store` LEAK:swallowed-error resolution (discovery never feeds malformed files through the path), and `_validate_sections` nested-entry validation (no tests for malformed entries).
+  Resolved: Fixed on 2026-04-14. Added 6 regression pins: `test_discover_corpus_malformed_file_surfaces_parse_error_finding` (semantic pin via tmp_path), `test_discover_corpus_valid_file_produces_no_parse_error` (negative pin), plus 4 sections[] entry tests — `test_nested_sections_entry_missing_required_field_flagged`, `test_nested_sections_entry_unknown_field_flagged`, `test_nested_sections_entry_invalid_status_flagged`, `test_nested_sections_valid_entry_produces_no_findings`. Test count: 94 → 100.
+
+- [x] `[TPR-01-001-gemini][high][round 6]` `scripts/plan_corpus/discovery.py:141-171` — LEAK:algorithmic-duplication: same 10-line loop used twice consecutively to iterate `corpus.indexes.items()` and `corpus.completed_indexes.items()` populating `name_index` and flagging `DUPLICATE_PLAN_NAME`.
+  Resolved: Fixed on 2026-04-14. Consolidated into a single loop using `itertools.chain(corpus.indexes.items(), corpus.completed_indexes.items())`. One SSOT for DUPLICATE_PLAN_NAME detection across both index sources; halves the code size.
+
+- [x] `[TPR-01-002-gemini][low][round 6]` `tests/plan-audit/test_plan_corpus.py:97` — Misleading test name: `test_multi_document_separator_within_frontmatter_rejected` asserted `data == {"doc1": True}` (acceptance), contradicting the `_rejected` suffix.
+  Resolved: Fixed on 2026-04-14. Renamed to `test_multi_document_separator_handled_as_boundary` and updated the docstring to explain the distinction between this boundary-detection test and the adjacent `test_multi_document_within_frontmatter_rejected` (which uses `...` within frontmatter to trigger actual rejection).
+
 ---
 
 ## 01.N Completion Checklist
