@@ -28,7 +28,7 @@ order: 999
 ## Keyword Clusters by Section
 
 ### Section 01: Promote /query-intel to an auto-triggerable Skill
-**File:** `section-01-promote-to-skill.md` | **Status:** Not Started
+**File:** `section-01-promote-to-skill.md` | **Status:** Complete
 
 ```
 /query-intel, query-intel SKILL.md, .claude/skills/query-intel/
