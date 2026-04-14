@@ -350,7 +350,12 @@ Update the fix section: check off each test as written, note test file paths.
 3. If tests need modification after the fix, either the tests were wrong or the fix was wrong — investigate
 4. **Run the full suite**: `timeout 150 ./test-all.sh`
 5. **If test-all reveals new failures unrelated to this fix** — invoke `/add-bug` for each one immediately. These are bugs your fix surfaced (interference) or pre-existing bugs you're now seeing. File them, don't ignore them.
-6. **Commit via `/commit-push`** — NEVER commit directly with `git commit`. All changes must be committed before review.
+6. **Capability regression check — MANDATORY.** Ask: "Did this fix **disable, remove, or weaken** any existing capability — an optimization, analysis pass, feature, or code path — to achieve soundness?" If YES:
+   - The disabled capability MUST have a concrete re-enablement path tracked as a `- [ ]` checkbox in the owning plan (e.g., `plans/repr-opt/`, `plans/perf-engineering/`). If no owning plan exists, create a bug-tracker entry via `/add-bug` with the re-enablement scope.
+   - The fix section's §3 Implementation MUST document: (a) what was disabled, (b) why (the soundness argument), (c) the tracked re-enablement item (plan path + section + checkbox text).
+   - Any `#[ignore]`'d tests MUST reference the re-enablement item so they are un-ignored when the capability returns.
+   - **A fix that disables a capability without tracking re-enablement is a deferral** — it violates CLAUDE.md §Zero Deferral. "Fixed the bug" is not complete when the fix regressed a design goal. The tracking artifact IS part of the fix.
+7. **Commit via `/commit-push`** — NEVER commit directly with `git commit`. All changes must be committed before review.
 
 Update the fix section: check off implementation tasks, note any discoveries.
 
@@ -363,10 +368,12 @@ Work through the completion checklist in order. **Reviews MUST complete before b
 3. **Handle code TPR findings** — fix any issues found, re-run until clean
 4. **Run `/impl-hygiene-review`** — AFTER code TPR is clean
 5. **Run `/improve-tooling` retrospectively** — MANDATORY at fix close, AFTER both reviews are clean. Bug fixes are the richest source of tooling gaps because you've just spent time fighting the diagnostic surface during root cause analysis. Reflect on: which `diagnostics/` scripts you ran, where you added ad-hoc `dbg!`/`tracing` calls (and what each one was looking for), where the original failure message was unhelpful, where matrix tests were tedious because helpers were missing, what instrumentation would have made the bug obvious in 1 minute instead of 30. Capture every gap you noticed. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (e.g., `build(diagnostics): add --bb-level RC tracking — surfaced by BUG-XX-NNN retrospective` — use `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs; do NOT use `tools(...)` — the lefthook commit-msg hook rejects any type outside the standard set `feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`). The retrospective is mandatory even when nothing felt painful — this is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full look-back protocol.
-6. **Update the bug entry** in the section file — mark `- [x]` with resolution details using the canonical format from `plans/bug-tracker/00-overview.md`
-7. **Update the fix section** — set status to `complete`, fill in exit criteria
-8. **Update the overview** — adjust open bug count in `plans/bug-tracker/00-overview.md`
-9. **Final commit gate** — run `/commit-push` to commit the closure artifacts (bug entry, fix section status, overview count). A fix reported as complete but with uncommitted closure updates creates drift between the tracker and git history.
+6. **Capability regression gate** — if Phase 4 step 6 identified a disabled capability, verify BEFORE closure: (a) the re-enablement `- [ ]` item exists in the owning plan, (b) the fix section §3 documents the soundness argument + re-enablement path, (c) any `#[ignore]`'d tests reference the re-enablement item. A fix that closes without these artifacts is incomplete — the regression is untracked.
+7. **Update the bug entry** in the section file — mark `- [x]` with resolution details using the canonical format from `plans/bug-tracker/00-overview.md`
+8. **Update the fix section** — set status to `complete`, fill in exit criteria
+9. **Update the overview** — adjust open bug count in `plans/bug-tracker/00-overview.md`
+10. **`/sync-claude` doc sync** — MANDATORY. Bug fixes often touch code paths documented in `CLAUDE.md`, `.claude/rules/*.md`, or `canon.md`. Run `/sync-claude` to verify all Claude artifacts are consistent with the code changes. Especially critical when the fix: (a) adds/removes/renames a public API, enum variant, or command, (b) changes pipeline phase boundaries or pass ordering, (c) modifies the spec or grammar, (d) touches a subsystem whose rules file (`arc.md`, `codegen-rules.md`, `repr.md`, etc.) describes the affected code path. A fix that changes codegen behavior without updating `codegen-rules.md` is a DRIFT violation waiting to happen.
+11. **Final commit gate** — run `/commit-push` to commit the closure artifacts (bug entry, fix section status, overview count, any doc sync updates). A fix reported as complete but with uncommitted closure updates creates drift between the tracker and git history.
 
 ### Phase 6: Report
 
