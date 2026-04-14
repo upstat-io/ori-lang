@@ -28,12 +28,12 @@ Auto-generated from Python dataclass definitions in `scripts/plan_corpus.py`.
 ### Roadmap Section
 **Pattern**: `plans/roadmap/section-*.md`
 **Required**: `section`, `title`, `status`, `reviewed`, `goal`, `sections`
-**Optional**: `depends_on`, `last_verified`, `spec`, `third_party_review`, `tier`
+**Optional**: `depends_on`, `last_verified`, `spec`, `third_party_review`, `tier`, `tpr_findings`, `verification_summary`
 
 ### Overview
 **Pattern**: `plans/*/00-overview.md`
 **Required**: `plan`, `title`, `status`
-**Optional**: `references`, `supersedes`
+**Optional**: `references`, `reviewed`, `supersedes`
 
 ### Bug Tracker Section
 **Pattern**: `plans/bug-tracker/section-*.md`

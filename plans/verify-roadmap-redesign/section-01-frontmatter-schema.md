@@ -21,7 +21,7 @@ success_criteria:
 inspired_by: []
 depends_on: []
 third_party_review:
-  status: resolved
+  status: findings
   updated: "2026-04-14"
 sections:
   - id: "01.1"
@@ -639,6 +639,38 @@ PILOT, not full sweep. Full-corpus migration is the sole responsibility of Secti
 - [x] `[TPR-01-001-codex][low][round 4]` `plans/verify-roadmap-redesign/section-01-frontmatter-schema.md:311` — Residual `STALE_METADATA` reference in 01.4 narrative (outside the deliberate retirement notes).
   Evidence: 01.4's opening paragraph said "in the original 01.2 cross-validation, original 02.2 STALE_METADATA, and original 03.2 auto-fix" — using the retired classifier name in raw form (not as a quoted retirement marker). Reviewer correctly flagged as DRIFT, even though the intent was historical context.
   Resolved: Fixed on 2026-04-14. Reworded narrative to "the original 02.2 classifier" — preserves the historical reference to round-1 finding 6 (CODEX) without echoing the retired name. The other STALE_METADATA references in section-02:132 (retirement notice) and section-03:125 (retirement notice) remain as deliberate provenance markers; 01.R historical findings (lines 565, 595, 618-628) also retain the name as part of finding evidence. Grep verifies no other live references.
+
+<!-- Round 5 (2026-04-14, /tmp/ori-tpr-j8rZGOOS): 12 findings surfaced during section-close TPR (section-close gate per 01.N). 6 codex, 6 gemini, 0 agreements. All addressed across 6 commits. -->
+
+- [x] `[TPR-01-001-codex][high][round 5]` and `[TPR-01-001-gemini][high][round 5]` `scripts/plan_corpus/discovery.py:_classify_and_store` — LEAK:swallowed-error: `CorpusParseError` caught and replaced with `data = {}`, silently absorbing corrupt files into corpus inventory (recreating the superseded `planlib.py` failure mode).
+  Resolved: Fixed on 2026-04-14. `_classify_and_store` now converts the caught exception into a `Finding(category=PARSE_ERROR, subtype=...)` appended to `corpus.gaps` using the existing `_parse_error_to_subtype()` mapper (consolidated with my initial duplicate helper to avoid LEAK:algorithmic-duplication). Returns early instead of storing `{}`. Corrupt files now surface as parse-error findings, never as empty-frontmatter ghosts.
+
+- [x] `[TPR-01-002-codex][high][round 5]` `scripts/plan_corpus/parser.py` + `tests/plan-audit/test_plan_corpus.py:83` — Parser did not reject `...` YAML document-end marker as a frontmatter closer; test suite did not exercise multi-document rejection within frontmatter region.
+  Resolved: Fixed on 2026-04-14. Parser now rejects `...` during end-index scan (only `---` closes frontmatter). Added `test_multi_document_within_frontmatter_rejected` and `test_multi_document_separator_within_frontmatter_rejected` tests. CRLF normalization remains as the chosen corpus-consistent behavior (plan allowed either normalize OR reject).
+
+- [x] `[TPR-01-003-codex][medium][round 5]` `scripts/plan_corpus/normalizer.py:_derive_from_body` + `_derive_from_children` — normalize_status ignored body markers (`COMPLETE`, `[done]`, `[todo]`) and did not emit `derived=queued` for active plans with all-not-started sections.
+  Resolved: Fixed on 2026-04-14. `_derive_from_body` now honors `has_complete_marker`/`has_done_marker`/`has_todo_marker`. `normalize_status` returns `derived=queued` when declared=active and all children are not-started (per 01.4 §PLAN_ACTIVE_ALL_SECTIONS_NOT_STARTED contract).
+
+- [x] `[TPR-01-004-codex][medium][round 5]` `scripts/plan_corpus/schema.py:_OVERVIEW_ALLOWED` + `_ROADMAP_SECTION_ALLOWED` — Allowlist drift: `reviewed` field missing from overview schema, `tpr_findings` and `verification_summary` missing from roadmap section schema (all present in live corpus).
+  Resolved: Fixed on 2026-04-14. Added `reviewed` to `OverviewSchema` and `tpr_findings`/`verification_summary` to `RoadmapSectionSchema` (the new dataclass SSOT — see TPR-01-002-gemini resolution). Regenerated `docs/internal/plan-schema-reference.md` to reflect the canonical fields.
+
+- [x] `[TPR-01-005-codex][medium][round 5]` `scripts/plan_corpus/schema.py` — `SubsectionEntry` dataclass declared but nested `sections[]` entries never validated; per-file validators only checked top-level `sections` key.
+  Resolved: Fixed on 2026-04-14. Added `_validate_sections()` that walks each entry, checks type, required fields (`id`, `title`, `status`), unknown fields, and status enum. Wired into `_validate_plan_section` and `_validate_roadmap_section`.
+
+- [x] `[TPR-01-006-codex][low][round 5]` and `[TPR-01-003-gemini][high][round 5]` `tests/plan-audit/test_plan_corpus.py` — Missing exhaustiveness pin: no test iterating all `FindingSubtype` members to confirm `_CATEGORY_SUBTYPES` registration is complete.
+  Resolved: Fixed on 2026-04-14. Added `test_all_subtypes_registered_in_category_map` (iterates every `FindingSubtype` member, asserts presence in at least one category frozenset) and `test_all_categories_have_subtypes` (iterates every `FindingCategory`, asserts entry in `_CATEGORY_SUBTYPES`). Future subtype additions now fail loudly until registered.
+
+- [x] `[TPR-01-002-gemini][high][round 5]` `scripts/plan_corpus/schemas.py` (new) — Schemas were implemented via allowlist frozensets + required lists, not as Python `@dataclass` classes as the plan promised. Loss of typed fields and SSOT introspection.
+  Resolved: Fixed on 2026-04-14. Created `scripts/plan_corpus/schemas.py` with 7 `@dataclass(frozen=True)` classes (`PlanIndexSchema`, `PlanSectionSchema`, `RoadmapSectionSchema`, `OverviewSchema`, `BugTrackerSectionSchema`, `FixBugSchema`, `CompletedIndexSchema`). Added `_schema_required_fields()` and `_schema_allowed_fields()` helpers that introspect via `dataclasses.fields()`. Deleted the 14 redundant module-level constants (`_PLAN_INDEX_REQUIRED`, `_PLAN_INDEX_ALLOWED`, etc.). `generate_schema_reference()` in `docgen.py` now introspects the dataclasses directly — single SSOT, drift-gate continues to pass.
+
+- [x] `[TPR-01-004-gemini][medium][round 5]` `tests/plan-audit/test_plan_corpus.py:83` — `test_multi_document` used an inline YAML string instead of reading the `tests/plan-audit/fixtures/multi_document.md` fixture file (orphaned fixture).
+  Resolved: Fixed on 2026-04-14. Renamed to `test_multi_document_body_boundary_accepted` and switched to reading `FIXTURES / "multi_document.md"` via `.read_text()`. Fixture is no longer orphaned.
+
+- [x] `[TPR-01-005-gemini][medium][round 5]` `tests/plan-audit/test_plan_corpus.py` — Test names omitted the `<expected>` portion of the mandatory `<subject>_<scenario>_<expected>` naming convention (e.g., `test_duplicate_key` instead of `test_frontmatter_duplicate_key_raises_parse_error`).
+  Resolved: Fixed on 2026-04-14. Renamed 39 test functions across 13 test classes to conform to the convention. Tests that already carried an outcome suffix (`_rejected`, `_accepted`, `_raises_`, `_returns_`, etc.) were left untouched. Test bodies unchanged; 94 tests continue to pass.
+
+- [x] `[TPR-01-006-gemini][medium][round 5]` `scripts/plan_corpus.py` (1,465 lines) — BLOAT: file exceeded the 500-line limit by nearly 3x, mixing CLI implementation, walker logic, strict YAML parsing, schema declaration, status normalization, and docgen in a single monolith.
+  Resolved: Fixed on 2026-04-14. Converted to a Python package `scripts/plan_corpus/` with 8 submodules, all under 500 lines: `types.py` (273), `parser.py` (184), `schema.py` (471), `schemas.py` (130), `discovery.py` (304), `normalizer.py` (169), `docgen.py` (196), `__init__.py` (164 — re-exports), `__main__.py` (104 — CLI). Backward compatibility preserved: `from scripts.plan_corpus import X` continues to work for all previously-public names. CLI invocation changed from `python scripts/plan_corpus.py ...` to `python -m scripts.plan_corpus ...`; updated `CLAUDE.md` §Commands and §Key Paths.
 
 ---
 

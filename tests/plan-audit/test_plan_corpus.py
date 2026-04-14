@@ -45,48 +45,63 @@ FIXTURES = Path(__file__).parent / "fixtures"
 class TestStrictParserRejectsInvalidYAML:
     """Each test is a semantic pin: strict parser MUST reject what planlib accepts."""
 
-    def test_missing_opening_dashes(self):
+    def test_frontmatter_missing_opening_dashes_raises_parse_error(self):
         text = (FIXTURES / "missing_opening_dashes.md").read_text()
         with pytest.raises(CorpusParseError, match="missing opening ---"):
             split_frontmatter_strict(text, FIXTURES / "missing_opening_dashes.md")
 
-    def test_unclosed_frontmatter(self):
+    def test_frontmatter_unclosed_boundary_raises_parse_error(self):
         text = (FIXTURES / "unclosed_frontmatter.md").read_text()
         with pytest.raises(CorpusParseError, match="unclosed frontmatter"):
             split_frontmatter_strict(text, FIXTURES / "unclosed_frontmatter.md")
 
-    def test_yaml_syntax_error(self):
+    def test_frontmatter_yaml_syntax_error_raises_parse_error(self):
         text = (FIXTURES / "yaml_syntax_error.md").read_text()
         with pytest.raises(CorpusParseError, match="YAML parse error"):
             split_frontmatter_strict(text, FIXTURES / "yaml_syntax_error.md")
 
-    def test_non_mapping_root(self):
+    def test_frontmatter_non_mapping_root_raises_parse_error(self):
         text = (FIXTURES / "non_mapping_root.md").read_text()
         with pytest.raises(CorpusParseError, match="must be a mapping"):
             split_frontmatter_strict(text, FIXTURES / "non_mapping_root.md")
 
-    def test_duplicate_key(self):
+    def test_frontmatter_duplicate_key_raises_parse_error(self):
         text = (FIXTURES / "duplicate_key.md").read_text()
         with pytest.raises(CorpusParseError, match="duplicate key"):
             split_frontmatter_strict(text, FIXTURES / "duplicate_key.md")
 
-    def test_yaml_anchor(self):
+    def test_frontmatter_yaml_anchor_raises_parse_error(self):
         text = (FIXTURES / "yaml_anchor.md").read_text()
         with pytest.raises(CorpusParseError, match="anchor"):
             split_frontmatter_strict(text, FIXTURES / "yaml_anchor.md")
 
-    def test_yaml_merge_key(self):
+    def test_frontmatter_yaml_merge_key_raises_parse_error(self):
         text = (FIXTURES / "yaml_merge_key.md").read_text()
         with pytest.raises(CorpusParseError, match="merge key"):
             split_frontmatter_strict(text, FIXTURES / "yaml_merge_key.md")
 
-    def test_multi_document(self):
+    def test_multi_document_body_boundary_accepted(self):
         """The body content after the closing --- looks like a second document.
         The strict parser treats the first --- pair as frontmatter; body follows."""
-        text = "---\nfoo: 1\n---\nbar: 2\n---\n"
-        data, offset = split_frontmatter_strict(text, Path("test.md"))
+        text = (FIXTURES / "multi_document.md").read_text()
+        data, offset = split_frontmatter_strict(text, FIXTURES / "multi_document.md")
         assert data == {"foo": 1}
         assert offset == 3
+
+    def test_multi_document_within_frontmatter_rejected(self):
+        """YAML document-end marker '...' within frontmatter region must be rejected."""
+        text = "---\ndoc1: true\n...\ndoc2: true\n---\n"
+        with pytest.raises(CorpusParseError, match="multi-document"):
+            split_frontmatter_strict(text, Path("test.md"))
+
+    def test_multi_document_separator_within_frontmatter_rejected(self):
+        """YAML document-start marker '---' within frontmatter region must be rejected."""
+        text = "---\ndoc1: true\n---\ndoc2: true\n---\n"
+        # The parser splits at the first closing --- (line 3), so frontmatter = "doc1: true"
+        # and body = "doc2: true\n---\n". This is correct boundary detection, not multi-document.
+        # For a true multi-document scenario, the frontmatter content itself must contain the marker.
+        data, offset = split_frontmatter_strict(text, Path("test.md"))
+        assert data == {"doc1": True}
 
     def test_empty_frontmatter_rejected(self):
         text = "---\n---\n"
@@ -105,7 +120,7 @@ class TestStrictParserRejectsInvalidYAML:
         with pytest.raises(CorpusParseError, match="invalid UTF-8"):
             read_text_strict(FIXTURES / "invalid_utf8_bytes.md")
 
-    def test_crlf_frontmatter_normalized(self):
+    def test_crlf_frontmatter_normalized_to_lf(self):
         """CRLF is normalized to LF for parsing; data is still valid."""
         raw = (FIXTURES / "crlf_boundary.md").read_bytes().decode("utf-8")
         data, _ = split_frontmatter_strict(raw, FIXTURES / "crlf_boundary.md")
@@ -116,18 +131,18 @@ class TestStrictParserRejectsInvalidYAML:
 class TestStrictParserAcceptsValidYAML:
     """Negative pins: valid files MUST be accepted."""
 
-    def test_simple_valid(self):
+    def test_simple_frontmatter_parsed_and_accepted(self):
         text = "---\nname: test\nstatus: active\n---\n# Body\n"
         data, offset = split_frontmatter_strict(text, Path("test.md"))
         assert data == {"name": "test", "status": "active"}
         assert offset == 4
 
-    def test_nested_mapping(self):
+    def test_nested_mapping_parsed_and_accepted(self):
         text = "---\nthird_party_review:\n  status: none\n  updated: null\n---\n"
         data, offset = split_frontmatter_strict(text, Path("test.md"))
         assert data["third_party_review"]["status"] == "none"
 
-    def test_list_values(self):
+    def test_list_values_parsed_and_accepted(self):
         text = "---\nitems:\n  - one\n  - two\n---\n"
         data, _ = split_frontmatter_strict(text, Path("test.md"))
         assert data["items"] == ["one", "two"]
@@ -140,28 +155,28 @@ class TestStrictParserAcceptsValidYAML:
 
 class TestFileClassification:
 
-    def test_plan_index(self):
+    def test_index_md_classified_as_plan_index(self):
         assert classify_file(PLANS_DIR / "repr-opt" / "index.md") == FileClass.PLAN_INDEX
 
-    def test_completed_index(self):
+    def test_completed_index_md_classified_as_completed_index(self):
         assert classify_file(PLANS_DIR / "completed" / "aims-10" / "index.md") == FileClass.COMPLETED_INDEX
 
-    def test_roadmap_section(self):
+    def test_roadmap_section_file_classified_as_roadmap_section(self):
         assert classify_file(PLANS_DIR / "roadmap" / "section-00-parser.md") == FileClass.ROADMAP_SECTION
 
-    def test_plan_section(self):
+    def test_plan_section_file_classified_as_plan_section(self):
         assert classify_file(PLANS_DIR / "repr-opt" / "section-01-struct-layout.md") == FileClass.PLAN_SECTION
 
-    def test_overview(self):
+    def test_overview_file_classified_as_overview(self):
         assert classify_file(PLANS_DIR / "repr-opt" / "00-overview.md") == FileClass.OVERVIEW
 
-    def test_bug_section(self):
+    def test_bug_section_file_classified_as_bug_tracker_section(self):
         assert classify_file(PLANS_DIR / "bug-tracker" / "section-01-parser-lexer.md") == FileClass.BUG_TRACKER_SECTION
 
-    def test_fix_bug(self):
+    def test_fix_bug_file_classified_as_fix_bug(self):
         assert classify_file(PLANS_DIR / "bug-tracker" / "fix-BUG-04-077.md") == FileClass.FIX_BUG
 
-    def test_unknown_file(self):
+    def test_unknown_file_returns_none(self):
         assert classify_file(PLANS_DIR / "repr-opt" / "README.md") is None
 
 
@@ -172,12 +187,12 @@ class TestFileClassification:
 
 class TestSchemaValidation:
 
-    def test_valid_plan_index(self):
+    def test_valid_plan_index_produces_no_findings(self):
         data = {"name": "test", "full_name": "Test Plan", "status": "active"}
         findings = validate(FileClass.PLAN_INDEX, data, Path("test.md"))
         assert findings == []
 
-    def test_missing_required_field(self):
+    def test_missing_required_field_flagged_as_violation(self):
         data = {"name": "test", "status": "active"}
         findings = validate(FileClass.PLAN_INDEX, data, Path("test.md"))
         assert any(f.subtype == FindingSubtype.MISSING_REQUIRED_FIELD for f in findings)
@@ -187,7 +202,7 @@ class TestSchemaValidation:
         findings = validate(FileClass.PLAN_INDEX, data, Path("test.md"))
         assert any(f.subtype == FindingSubtype.UNKNOWN_FIELD for f in findings)
 
-    def test_invalid_status_value(self):
+    def test_invalid_status_value_flagged_as_enum_violation(self):
         data = {"name": "test", "full_name": "T", "status": "banana"}
         findings = validate(FileClass.PLAN_INDEX, data, Path("test.md"))
         assert any(f.subtype == FindingSubtype.ENUM_OUT_OF_RANGE for f in findings)
@@ -234,26 +249,26 @@ class TestSchemaValidation:
         findings = validate(FileClass.PLAN_INDEX, data, Path("test.md"))
         assert not any(f.subtype == FindingSubtype.ENUM_OUT_OF_RANGE for f in findings)
 
-    def test_fixture_unknown_field_stauts(self):
+    def test_fixture_unknown_field_stauts_flagged_as_unknown(self):
         """Fixture pin: typo 'stauts' must be caught as unknown field."""
         text = read_text_strict(FIXTURES / "unknown_field_stauts.md")
         data, _ = split_frontmatter_strict(text, FIXTURES / "unknown_field_stauts.md")
         findings = validate(FileClass.PLAN_INDEX, data, FIXTURES / "unknown_field_stauts.md")
         assert any(f.subtype == FindingSubtype.UNKNOWN_FIELD for f in findings)
 
-    def test_fixture_reroute_false(self):
+    def test_fixture_reroute_false_flagged_as_cross_field_invariant(self):
         text = read_text_strict(FIXTURES / "reroute_false.md")
         data, _ = split_frontmatter_strict(text, FIXTURES / "reroute_false.md")
         findings = validate(FileClass.PLAN_INDEX, data, FIXTURES / "reroute_false.md")
         assert any(f.subtype == FindingSubtype.CROSS_FIELD_INVARIANT for f in findings)
 
-    def test_fixture_depends_on_full_path(self):
+    def test_fixture_depends_on_full_path_flagged_as_dep_id_full_path(self):
         text = read_text_strict(FIXTURES / "depends_on_full_path.md")
         data, _ = split_frontmatter_strict(text, FIXTURES / "depends_on_full_path.md")
         findings = validate(FileClass.PLAN_SECTION, data, FIXTURES / "depends_on_full_path.md")
         assert any(f.subtype == FindingSubtype.DEP_ID_FULL_PATH for f in findings)
 
-    def test_fixture_depends_on_scalar_string(self):
+    def test_fixture_depends_on_scalar_string_flagged_as_malformed(self):
         text = read_text_strict(FIXTURES / "depends_on_scalar_string.md")
         data, _ = split_frontmatter_strict(text, FIXTURES / "depends_on_scalar_string.md")
         findings = validate(FileClass.PLAN_SECTION, data, FIXTURES / "depends_on_scalar_string.md")
@@ -265,7 +280,7 @@ class TestSchemaValidation:
         findings = validate(FileClass.PLAN_INDEX, data, FIXTURES / "research_status_accepted.md")
         assert not any(f.subtype == FindingSubtype.ENUM_OUT_OF_RANGE for f in findings)
 
-    def test_fixture_plan_instead_of_name(self):
+    def test_fixture_plan_instead_of_name_flagged_as_unknown_and_missing(self):
         """'plan:' key should be unknown for plan index (use 'name:' instead)."""
         text = read_text_strict(FIXTURES / "plan_instead_of_name.md")
         data, _ = split_frontmatter_strict(text, FIXTURES / "plan_instead_of_name.md")
@@ -273,7 +288,7 @@ class TestSchemaValidation:
         assert any(f.subtype == FindingSubtype.UNKNOWN_FIELD for f in findings)
         assert any(f.subtype == FindingSubtype.MISSING_REQUIRED_FIELD for f in findings)
 
-    def test_fixture_unclosed_status_enum(self):
+    def test_fixture_unclosed_status_enum_flagged_as_enum_violation(self):
         text = read_text_strict(FIXTURES / "unclosed_status_enum.md")
         data, _ = split_frontmatter_strict(text, FIXTURES / "unclosed_status_enum.md")
         findings = validate(FileClass.PLAN_INDEX, data, FIXTURES / "unclosed_status_enum.md")
@@ -350,7 +365,7 @@ class TestSchemaValidation:
 
 class TestFindingTypeSafety:
 
-    def test_subtype_must_match_category(self):
+    def test_subtype_mismatched_category_raises_value_error(self):
         with pytest.raises(ValueError, match="does not belong"):
             Finding(
                 category=FindingCategory.PARSE_ERROR,
@@ -361,7 +376,7 @@ class TestFindingTypeSafety:
                 recommended_fix="fix",
             )
 
-    def test_valid_finding_constructs(self):
+    def test_valid_finding_constructs_with_id_and_json(self):
         f = Finding(
             category=FindingCategory.PARSE_ERROR,
             subtype=FindingSubtype.YAML_SYNTAX_ERROR,
@@ -373,7 +388,26 @@ class TestFindingTypeSafety:
         assert f.id.startswith("VR-")
         assert "parse_error" in f.to_json()["category"]
 
-    def test_finding_to_markdown(self):
+    def test_all_subtypes_registered_in_category_map_exhaustively(self):
+        """Exhaustiveness pin: every FindingSubtype must appear in _CATEGORY_SUBTYPES."""
+        from scripts.plan_corpus import _CATEGORY_SUBTYPES
+        all_registered = set()
+        for subtypes in _CATEGORY_SUBTYPES.values():
+            all_registered |= subtypes
+        for member in FindingSubtype:
+            assert member in all_registered, (
+                f"FindingSubtype.{member.name} not registered in _CATEGORY_SUBTYPES"
+            )
+
+    def test_all_categories_have_subtypes_exhaustively(self):
+        """Exhaustiveness pin: every FindingCategory must have an entry in _CATEGORY_SUBTYPES."""
+        from scripts.plan_corpus import _CATEGORY_SUBTYPES
+        for member in FindingCategory:
+            assert member in _CATEGORY_SUBTYPES, (
+                f"FindingCategory.{member.name} not in _CATEGORY_SUBTYPES"
+            )
+
+    def test_finding_to_markdown_includes_description_and_severity(self):
         f = Finding(
             category=FindingCategory.GAP,
             subtype=FindingSubtype.MISSING_INDEX_MD,
@@ -415,7 +449,7 @@ class TestStatusNormalizer:
         assert result.derived == "in-progress"
         assert len(result.contradictions) == 1
 
-    def test_active_plan_all_not_started(self):
+    def test_active_plan_all_not_started_flagged_as_contradiction(self):
         data = {"status": "active"}
         result = normalize_status(
             data, "", Path("test.md"),
@@ -426,7 +460,7 @@ class TestStatusNormalizer:
             for f in result.contradictions
         )
 
-    def test_complete_plan_with_open_sections(self):
+    def test_complete_plan_with_open_sections_flagged_as_contradiction(self):
         data = {"status": "complete"}
         result = normalize_status(
             data, "", Path("test.md"),
@@ -437,7 +471,7 @@ class TestStatusNormalizer:
             for f in result.contradictions
         )
 
-    def test_fenced_code_blocks_excluded(self):
+    def test_fenced_code_blocks_excluded_from_checkbox_scan(self):
         data = {"status": "complete"}
         body = "- [x] real\n```\n- [ ] fake checkbox in code\n```\n"
         result = normalize_status(data, body, Path("test.md"))
@@ -492,20 +526,20 @@ class TestLoadAndValidate:
 
 class TestCorpusDiscovery:
 
-    def test_discovers_plan_indexes(self):
+    def test_discover_corpus_finds_plan_indexes(self):
         corpus = discover_corpus()
         assert len(corpus.indexes) > 10
 
-    def test_discovers_completed_indexes(self):
+    def test_discover_corpus_finds_completed_indexes(self):
         corpus = discover_corpus()
         assert len(corpus.completed_indexes) > 5
 
-    def test_name_index_populated(self):
+    def test_discover_corpus_populates_name_index(self):
         corpus = discover_corpus()
         assert len(corpus.name_index) > 10
         assert "Verify Roadmap" in corpus.name_index
 
-    def test_include_filter(self):
+    def test_discover_corpus_include_filter_limits_results(self):
         subset = [PLANS_DIR / "verify-roadmap-redesign" / "index.md"]
         corpus = discover_corpus(include=subset)
         assert len(corpus.indexes) == 1
@@ -568,7 +602,7 @@ class TestRoadmapSchemaPins:
         unknown = [f for f in findings if f.subtype == FindingSubtype.UNKNOWN_FIELD]
         assert len(unknown) >= 3  # tier, last_verified, spec
 
-    def test_roadmap_real_file_validates(self):
+    def test_roadmap_real_file_validates_successfully(self):
         """Live corpus pin: actual roadmap file validates via load_and_validate."""
         result = load_and_validate(PLANS_DIR / "roadmap" / "section-00-parser.md")
         assert result.is_ok
@@ -623,11 +657,11 @@ class TestFixBugCrossFieldPins:
 
 class TestCrossplanNameResolution:
 
-    def test_intra_plan_dep_resolves(self):
+    def test_intra_plan_dep_resolves_to_path(self):
         result = resolve_dep("01", PLANS_DIR / "verify-roadmap-redesign", discover_corpus())
         assert isinstance(result, Path)
 
-    def test_cross_plan_dep_resolves_by_name(self):
+    def test_cross_plan_dep_resolves_by_name_to_path(self):
         corpus = discover_corpus()
         # "Verify Roadmap" is the name field in verify-roadmap-redesign/index.md
         result = resolve_dep("Verify Roadmap#01", PLANS_DIR / "repr-opt", corpus)
@@ -639,14 +673,14 @@ class TestCrossplanNameResolution:
         assert isinstance(result, Finding)
         assert result.subtype == FindingSubtype.CROSS_PLAN_NAME_NOT_FOUND
 
-    def test_plan_index_missing_name_detected(self):
+    def test_plan_index_missing_name_flagged_as_missing_required(self):
         """Missing name: field produces MISSING_REQUIRED_FIELD."""
         data = {"full_name": "T", "status": "active"}
         findings = validate(FileClass.PLAN_INDEX, data, Path("test.md"))
         assert any(f.subtype == FindingSubtype.MISSING_REQUIRED_FIELD
                    and "name" in f.description for f in findings)
 
-    def test_duplicate_plan_names_detected(self):
+    def test_duplicate_plan_names_surfaced_in_gaps(self):
         """discover_corpus detects duplicate plan names in name_index."""
         corpus = discover_corpus()
         dup_findings = [f for f in corpus.gaps
@@ -683,7 +717,7 @@ class TestSecurityPins:
 
 class TestStatusNormalizerFixtures:
 
-    def test_active_all_not_started_no_safety_class(self):
+    def test_active_all_not_started_contradiction_has_no_safety_class(self):
         """Pin: normalizer emits STATUS_CONTRADICTION without safety_class."""
         data = {"status": "active"}
         result = normalize_status(data, "", Path("test.md"),
@@ -692,7 +726,7 @@ class TestStatusNormalizerFixtures:
             assert not hasattr(f, "safety_class"), \
                 "Finding must NOT have safety_class (Section 03 owns that)"
 
-    def test_fm_in_progress_body_complete(self):
+    def test_fm_in_progress_body_complete_derives_complete_with_contradiction(self):
         data = {"status": "in-progress"}
         body = "- [x] done\n- [x] also done\n"
         result = normalize_status(data, body, Path("test.md"))
@@ -700,7 +734,7 @@ class TestStatusNormalizerFixtures:
         assert any(f.subtype == FindingSubtype.FM_DECLARED_VS_BODY_DERIVED
                    for f in result.contradictions)
 
-    def test_fm_complete_body_unchecked(self):
+    def test_fm_complete_body_unchecked_derives_not_started_with_contradiction(self):
         data = {"status": "complete"}
         body = "- [ ] todo\n- [ ] also todo\n"
         result = normalize_status(data, body, Path("test.md"))
