@@ -43,7 +43,7 @@ paths:
   - `ori_types/check/registration/` -- trait + impl registration
   - `ori_eval/interpreter/derived_methods.rs` -- runtime dispatch
   - `ori_eval/derives/mod.rs` -- derive processing pipeline
-  - `ori_llvm/codegen/derive_codegen.rs` -- LLVM IR generation
+  - `ori_llvm/codegen/derive_codegen/mod.rs` -- LLVM IR generation
 - **DO NOT** modify without updating all sync points
 
 ## Tracing

@@ -5,6 +5,8 @@ paths:
 
 # AIMS — The ARC Intelligence Layer (ori_arc)
 
+**Relationship to `aims-rules.md`**: This file describes the **current shipped surface** of AIMS — what is implemented and working today. `aims-rules.md` describes the **complete target system** including unshipped rules and partially-implemented subsystems. When reading about AIMS behavior, use this file for "what works now" and `aims-rules.md` for "what the target spec says." Invariants, pipeline steps, and verification layers documented in BOTH files represent shared current-state facts; roadmap material appears only in the "Where AIMS is HEADED" section below.
+
 ## Mission — READ THIS FIRST
 
 **ARC is the runtime substrate. AIMS is the compile-time intelligence layer.** ARC is the refcount header, the atomic inc/dec primitives, the drop functions, the uniqueness check — the machinery that ships in `ori_rt` and executes at runtime. AIMS is everything in `ori_arc/src/aims/` + the surrounding passes (`borrow/`, `drop/`, `fbip/`, `uniqueness/`, `classify/`) that decide **at compile time** when RC operations are unnecessary and elides them. Plain ARC without AIMS would be a mediocre memory model; AIMS is what makes the substrate competitive. **The goal is RC rareness in emitted code, not RC speed.** Reasoning about AIMS as "RC placement" misses the point — placement is the fallback for the leftovers after elimination.

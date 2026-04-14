@@ -6,7 +6,7 @@ paths:
 
 # AIMS Formal Ruleset
 
-This document defines the **laws** of AIMS — the ARC Intelligent Memory System. The implementation is judged against this document, not the other way around. If the code violates a rule stated here, the code has a bug. Rules marked with pending plan references (RL-14 through RL-31, post-pipeline passes, KnownSafe) describe the COMPLETE target system — the implementation may not have shipped all of them yet. `arc.md` describes the CURRENT shipped surface; this document describes the FULL target. The verification layers (VF-1 through VF-8) similarly describe the full verification stack — `arc.md` may report fewer active checks than this document mandates.
+This document defines the **laws** of AIMS — the ARC Intelligent Memory System. It describes the COMPLETE TARGET system — both shipped and unshipped rules. The implementation is judged against this document; code divergences from shipped rules are bugs to file. **However, this document is NOT a current-state SSOT** — it includes target-only rules that are not yet implemented. `arc.md` describes the CURRENT shipped surface; this document describes the FULL target including unshipped subsystems. See the "Target-only and partially-shipped subsystems" section below for the explicit shipped/unshipped inventory.
 
 **Target-only and partially-shipped subsystems** — the spec describes the COMPLETE target system. The following areas are either not yet shipped or only partially implemented. The spec is authoritative (code divergences are bugs to file), but these annotations prevent reviewers from re-flagging known implementation gaps as spec issues:
 

@@ -7,7 +7,7 @@ paths:
 
 ## Architecture
 
-- **Deps**: `oric` → `ori_types/eval/patterns` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic`
+- **Deps**: `oric` → `ori_llvm` → `ori_arc/ori_repr` → `ori_canon` → `ori_types/eval/patterns` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic`. Support: `ori_compiler` (pure facade), `ori_registry`, `ori_stack`, `ori_fmt`, `ori_test_harness`, `ori_rt`
 - **IO**: only in `oric`; core crates pure
 - **No phase bleeding**: parser != type-check, lexer != parse
 
@@ -166,17 +166,17 @@ See CLAUDE.md §Stabilization Discipline for the full narrow-the-front principle
 - **TypeChecker (V2)**: InferEngine, Pool, Registries, ModuleChecker
 - **Method Dispatch**: BuiltinMethods → InherentImpl → TraitImpl (via MethodRegistry)
 
-## Crates (17 total)
+## Crates (19 workspace members)
 
-- `oric`: CLI, Salsa orchestration | `ori_compiler`: compiler orchestration facade
+- `oric`: CLI, Salsa orchestration | `ori_compiler`: compiler orchestration facade (pure, no Salsa, no IO — for WASM)
 - `ori_ir`: AST, spans, TypeId, DerivedTrait | `ori_lexer_core`: core lexer types/interfaces | `ori_lexer`: tokenization
 - `ori_parse`: parser | `ori_types`: type checking (V2 — Pool, InferEngine, registries)
 - `ori_eval`: interpreter | `ori_patterns`: pattern system
 - `ori_canon`: canonicalization (AST → CanExpr) | `ori_arc`: ARC/AIMS pipeline
-- `ori_repr`: representation optimization | `ori_stack`: stack management
-- `ori_llvm`: LLVM backend | `ori_rt`: AOT runtime
+- `ori_repr`: representation optimization | `ori_stack`: stack overflow protection
+- `ori_llvm`: LLVM backend | `ori_rt`: AOT runtime (C-ABI static library)
 - `ori_registry`: builtin type behavior (pure data) | `ori_diagnostic`: error reporting
-- `ori_fmt`: Ori source formatter
+- `ori_fmt`: Ori source formatter | `ori_test_harness`: test runner orchestration
 
 ## Change Locations
 
