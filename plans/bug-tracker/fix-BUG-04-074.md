@@ -3,7 +3,7 @@ bug: "BUG-04-074"
 title: "AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure"
 severity: "high"
 status: in-progress
-resume_point: "Phase 2.5 Plan TPR round 3 — the round-2-revised plan needs to be re-reviewed after substantial architectural changes. Round 2 run: /tmp/ori-tpr-G6VzNAHW (codex 424s, gemini 223s, 12 actionable findings — all resolved in §R Phase 2.5 Round 2). Critical round-2 architectural changes: (1) validator moved from per-let-site to per-body-exit sweep — §3.3 entirely rewritten; (2) has_unbound_var now calls pool.resolve_fully() first to walk VarState::Link chains; (3) pseudocode rewritten against real Pool accessors (function_params, applied_args, struct_field_types, map_key/map_value, scheme_vars/scheme_body) replacing non-existent pool.children / pool.extra; (4) ambiguous_type constructor signature corrected to (span, var_id, context_desc: String); (5) engine.has_errors() cascade gate dropped — only TypeFlags::HAS_ERROR local gate remains; (6) scope broadened honestly — validator is type-agnostic, [] is spec-sanctioned, {}/Set ride free; (7) invalid id([]) positive pin replaced with id(1) + id('hello') (concrete instantiations) and id([]) + annotation; (8) generic-function interaction test added; (9) §3.6 debug_assert at codegen entry added. Re-run command: invoke /tpr-review with objective 'Re-review the BUG-04-074 fix plan at plans/bug-tracker/fix-BUG-04-074.md after round 2 revisions. Focus on §3.3 (architectural rewrite: per-body-exit timing, resolve_fully-first, real Pool accessors, correct constructor signature, tightened cascade gate); §1.5 (broadened-scope rationale); §2 (new generic-function interaction test + fixed lambda pins); §3.6 (new debug_assert); §R Phase 2.5 Round 2 resolutions. Strict mode — probe: do the real Pool accessors enumerated in §3.3 all exist on Pool (function_params, function_return, tuple_elems, applied_args, struct_field_types, enum_variant_payloads, map_key, map_value, result_ok, result_err, scheme_vars, scheme_body)? Is per-body-exit the right timing, or do some let bindings (e.g., lambda param bindings, match arm bindings, for-yield accumulators) need per-scope-exit granularity? Does resolve_fully's 16-hop limit cause issues with deeply-nested Link chains? Is the Cascade-suppression-only-via-HAS_ERROR behavior diagnostic-correct (i.e., when an earlier unrelated error poisons the binding transitively, is HAS_ERROR actually set, or does the transitive taint not propagate)?' Continue /fix-bug workflow from Phase 3 (TDD) once Plan TPR is clean."
+resume_point: "Phase 2.5 Plan TPR round 4 — the round-3-revised plan needs another adversarial review after substantial architectural simplification. Round 3 run: /tmp/ori-tpr-N7XgRiDB (codex 431s, gemini 333s, 9 actionable findings — all resolved in §R Phase 2.5 Round 3). Critical round-3 architectural changes: (1) validator REDESIGNED to sweep ALL body expr_types, not just LetBindingRecord — catches non-let ambiguous expressions like [].len() standalone; (2) FxHashSet bound-vars dance REMOVED — VarState is the SSOT (per gemini's insight: generalize() mutates VarState::Generalized in-place, so pool.var_state(var_id) directly distinguishes Unbound vs Generalized); (3) Tag::Scheme special-cased BEFORE HAS_VAR fast-path because Pool::compute_flags doesn't propagate HAS_VAR through schemes (pool/mod.rs:651-652); (4) Real Pool accessor names — pool.struct_fields() returning Vec<(Name,Idx)> destructured as (_,field_ty); pool.enum_variants() returning Vec<(Name,Vec<Idx>)> with nested iteration; (5) per-child resolve_fully() at every recursive step, not just at top-level entry; (6) §3.6 broadened to a pre-codegen validation pass covering all codegen consumer surfaces (TypeInfoStore + monomorphize::encode_type), with the original TypeInfoStore debug_assert retained as defense-in-depth. Re-run command: invoke /tpr-review with objective 'Round-4 re-review of BUG-04-074 fix plan after round-3 architectural simplification. Verify: (a) the new VarState-based has_unbound_var correctly handles ALL VarState variants (Unbound/Link/Rigid/Generalized) — especially confirm Tag::Var with VarState::Link is short-circuited by resolve_fully and doesn\\'t reach the var_state check; (b) sweeping all expr_types at body exit doesn\\'t now over-emit on legitimate cases the round-2 LetBindingRecord approach narrowly avoided (e.g., transient sub-expression types in lambda bodies BEFORE generalize() propagates Generalized state to outer scope); (c) the Scheme special-case at the top of has_unbound_var correctly handles nested schemes (∀α. (α) -> ∀β. List<β>); (d) the pre-codegen validation pass in §3.6 covers all monomorphize entry points, not just encode_type — verify against the actual ori_llvm crate structure; (e) deduplication via FxHashSet<Idx> in validate_body_types is correct (no false-negative skips for distinct expressions sharing a type Idx that legitimately differ in span); (f) the new design preserves cascade suppression — multiple expressions with the same root unbound var produce ONE diagnostic, not N; (g) audit §R round-3 entries for cosmetic-vs-real claims. Strict mode — expect 3-5 findings as the architecture continues converging.' Continue /fix-bug workflow from Phase 3 (TDD) once Plan TPR is clean."
 goal: "Empty list literals (`[]`) with element types inferred solely from downstream usage compile cleanly through AOT, with `resolve_fully()` producing concrete element types for codegen. Ambiguous empty-list bindings emit spec-mandated E2005 (14-expressions.md:1224-1228) at type check time, not codegen."
 success_criteria:
   - "The exact repro `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` compiles via `ori build` and runs successfully"
@@ -333,78 +333,65 @@ if should_generalize(arena, *init) {
 }
 ```
 
-### 3.3 Per-body-exit validation pass (E2005 emission — REVISED 2026-04-14 ROUND 2)
+### 3.3 Per-body-exit validation pass (E2005 emission — REVISED 2026-04-14 ROUND 3)
 
-**CRITICAL round-2 revision**: do NOT validate at `bind_pattern` time. That is too early — in `infer_block` (`blocks.rs:22-97`), later statements in the same block have not yet been inferred at the moment `bind_pattern` runs for a let binding. For the success-case repro `let ages = []; ages = ages.push(value: 10); ages.len()`, the `push(10)` unification that links `ages`'s element var runs AFTER `bind_pattern` for the let has completed. Validating at `bind_pattern` time would emit E2005 for the success case, breaking the stated success criterion.
+**CRITICAL round-2 revision** (preserved): do NOT validate at `bind_pattern` time. That is too early — in `infer_block` (`blocks.rs:22-97`), later statements in the same block have not yet been inferred at the moment `bind_pattern` runs for a let binding. For the success-case repro `let ages = []; ages = ages.push(value: 10); ages.len()`, the `push(10)` unification that links `ages`'s element var runs AFTER `bind_pattern` for the let has completed. Validating at `bind_pattern` time would emit E2005 for the success case.
 
-**Correct approach**: validate at the END of each Bodies-group pass (passes 2–5 per `typeck.md CK-1`) — after the entire body has been inferred. By body exit, all in-scope unification has fired.
+**CRITICAL round-3 redesign** (new): the round-2 design used a `LetBindingRecord` side-table populated only at 3 generalization sites + an `FxHashSet<u32>` push/pop to track scheme-bound vars. Both mechanisms are unnecessary AND incomplete:
+- The side-table missed non-let ambiguous expressions like `[].len()` standalone (per [TPR-04-005-codex-r3] / [TPR-04-002-gemini-r3]).
+- The FxHashSet duplicates information already present in `VarState`. Per [TPR-04-001-gemini-r3], `generalize()` mutates VarState to `Generalized` in-place (`generalization.rs:47-54`); inspecting `pool.var_state(var_id)` directly is the canonical SSOT.
 
-**Implementation shape**:
+**Correct round-3 approach**: validate at the END of each Bodies-group pass (passes 2–5 per `typeck.md CK-1`) by sweeping ALL expression types in the body's `expr_types` map. Use `pool.var_state(var_id)` to classify each `Tag::Var` encountered. By body exit, all in-scope unification AND generalization have fired — VarState correctly reflects which vars are bound.
 
-```rust
-// Per-body side table populated during body inference.
-// Lives on InferEngine or a per-body context; one Vec per body.
-pub(crate) struct LetBindingRecord {
-    pub span: Span,
-    pub final_ty: Idx,
-    // Optional: pattern info for better diagnostics (field name, etc.)
-    pub pattern_label: Option<Name>,
-}
+**Implementation shape (round 3)**:
 
-// At each let-binding site in infer_block, infer_let, sequences.rs try-block let:
-//   AFTER bind_pattern has been called, push the record onto the body's list.
-engine.record_let_binding(LetBindingRecord {
-    span: stmt.span,
-    final_ty,
-    pattern_label: pattern_first_name(arena, pat),  // already exists in blocks.rs:182
-});
-```
-
-At the end of each Bodies-group pass (in `check/bodies/mod.rs` functions `check_function_bodies`, `check_test_bodies`, `check_impl_bodies`, `check_def_impl_bodies`), after the body's `infer_*` call returns but BEFORE releasing the per-body context, invoke:
+No side-table is needed. At the end of each Bodies-group pass (in `check/bodies/mod.rs` functions `check_function_bodies`, `check_test_bodies`, `check_impl_bodies`, `check_def_impl_bodies`), after the body's `infer_*` call returns but BEFORE releasing the per-body context, invoke:
 
 ```rust
-/// Sweep the per-body let-binding records and emit E2005 for any binding
-/// whose final type still carries an unresolved Tag::Var after all in-body
-/// unification has fired.
+/// Sweep ALL expr_types for the body and emit E2005 for any expression
+/// whose final type carries an unresolved Tag::Var (VarState::Unbound)
+/// after all in-body unification AND generalization have fired.
 ///
-/// Timing: MUST run at body exit, not at per-let-site bind time. See
-/// TPR-04-001-codex-r2 — the per-let-site version false-positives on
-/// the success-case repro because later statements in the body have
-/// not yet unified the element var at the moment bind_pattern runs.
+/// Timing: MUST run at body exit (after the body's infer_* completes).
+/// At that point, generalize() has run for every let-binding, so vars
+/// that ARE bound carry VarState::Generalized; vars that AREN'T bound
+/// remain VarState::Unbound — the unambiguous signal of "couldn't infer."
 ///
-/// Cascade suppression: skip when the binding's final_ty carries
+/// Scope: ALL expr_types, not just let bindings. This catches non-let
+/// ambiguous expressions like `[].len()` standalone, which the round-2
+/// LetBindingRecord side-table missed (TPR-04-005-codex-r3 +
+/// TPR-04-002-gemini-r3).
+///
+/// Cascade suppression: skip when the expression's resolved type carries
 /// TypeFlags::HAS_ERROR. Per typeck.md UN-4, Tag::Error unifies with
 /// anything silently; emitting a second diagnostic violates recovery
-/// monotonicity. Do NOT use engine.has_errors() — that is module-wide
-/// and over-suppresses when an unrelated prior error exists. Scoped
-/// per-binding is the correct granularity.
+/// monotonicity. Per-type local gate, NOT module-wide engine.has_errors().
 ///
 /// Fix: BUG-04-074
-pub(crate) fn validate_body_let_bindings(engine: &mut InferEngine<'_>, records: &[LetBindingRecord]) {
-    for record in records {
-        let resolved = engine.pool().resolve_fully(record.final_ty);
+pub(crate) fn validate_body_types(engine: &mut InferEngine<'_>, body_expr_types: &FxHashMap<ExprId, Idx>) {
+    // Deduplicate: many expressions share the same type Idx (e.g., every
+    // int literal hits Idx::INT). Dedupe by Idx to avoid emitting N
+    // identical diagnostics.
+    let mut seen: FxHashSet<Idx> = FxHashSet::default();
 
-        // Cascade suppression — if this binding's type is already poisoned,
-        // the root-cause diagnostic has already been emitted elsewhere.
+    for (expr_id, &raw_ty) in body_expr_types.iter() {
+        let resolved = engine.pool().resolve_fully(raw_ty);
+
+        if !seen.insert(resolved) {
+            continue;
+        }
+
+        // Cascade suppression: skip if this expression's type is already poisoned.
         if engine.pool().flags(resolved).contains(TypeFlags::HAS_ERROR) {
             continue;
         }
 
-        // Fast path — no variables means nothing to check.
-        if !engine.pool().flags(resolved).contains(TypeFlags::HAS_VAR) {
-            continue;
-        }
-
-        let mut bound = FxHashSet::default();
-        if let Some(offender) = has_unbound_var(engine.pool(), resolved, &mut bound) {
-            let context_desc = record
-                .pattern_label
-                .map(|n| format!("binding `{}`", engine.resolve_name(n)))
-                .unwrap_or_else(|| "let binding".to_string());
+        if let Some(offender) = has_unbound_var(engine.pool(), resolved) {
+            let span = engine.expr_span(*expr_id);
             engine.push_error(TypeCheckError::ambiguous_type(
-                record.span,
+                span,
                 offender.var_id,
-                context_desc,
+                "expression type".to_string(),
             ));
         }
     }
@@ -414,21 +401,26 @@ pub(crate) struct OffendingVar {
     pub var_id: u32,
 }
 
-/// Recursively find the first unresolved Tag::Var in `ty` whose var_id is NOT
-/// bound by an enclosing Tag::Scheme.
+/// Recursively find the first unresolved Tag::Var in `ty` whose VarState is
+/// VarState::Unbound (not Linked, Rigid, or Generalized).
 ///
-/// CRITICAL: caller MUST pass a pool.resolve_fully(ty) result, not a raw Idx.
-/// resolve_fully walks VarState::Link chains (pool/accessors.rs:412-491);
-/// without this prefix step, resolved-but-unsubstituted vars false-positive
-/// as ambiguous.
+/// Round-3 design: NO bound-vars side table. VarState IS the SSOT for binding
+/// status — generalize() mutates VarState in-place from Unbound to Generalized
+/// when constructing a scheme (generalization.rs:47-54), so we don't need
+/// scheme push/pop. Just inspect var_state directly.
 ///
-/// When a Tag::Scheme is encountered, its scheme_vars are added to `bound`
-/// for the recursion into its body, then removed on exit (stack discipline).
-/// Nested schemes push/pop correctly: inner scheme's vars shadow outer's
-/// only if var_ids collide (which they never do — fresh_var allocates globally
-/// unique var_ids per EN-3).
-fn has_unbound_var(pool: &Pool, ty: Idx, bound: &mut FxHashSet<u32>) -> Option<OffendingVar> {
-    // Fast path: no vars at any depth.
+/// CRITICAL: each recursive call resolves its child via pool.resolve_fully()
+/// before classifying — children may have their own VarState::Link chains.
+fn has_unbound_var(pool: &Pool, ty: Idx) -> Option<OffendingVar> {
+    // Schemes don't propagate HAS_VAR (Pool::compute_flags maps Tag::Scheme to
+    // IS_SCHEME only — pool/mod.rs:651-652). So we must NOT trust the HAS_VAR
+    // fast-path for schemes; recurse into the body unconditionally.
+    if pool.tag(ty) == Tag::Scheme {
+        let body = pool.resolve_fully(pool.scheme_body(ty));
+        return has_unbound_var(pool, body);
+    }
+
+    // Fast path for non-scheme types: HAS_VAR propagation is correct.
     if !pool.flags(ty).contains(TypeFlags::HAS_VAR) {
         return None;
     }
@@ -436,120 +428,119 @@ fn has_unbound_var(pool: &Pool, ty: Idx, bound: &mut FxHashSet<u32>) -> Option<O
     match pool.tag(ty) {
         Tag::Var => {
             let var_id = pool.data(ty);
-            if bound.contains(&var_id) {
-                None
-            } else {
-                Some(OffendingVar { var_id })
+            match pool.var_state(var_id) {
+                VarState::Unbound { .. } => Some(OffendingVar { var_id }),
+                // Link/Rigid/Generalized are all "resolved" in the sense
+                // that they are not user-visible ambiguity. Link should
+                // have been short-circuited by the caller's resolve_fully,
+                // but defending here is cheap.
+                VarState::Link { .. } | VarState::Rigid { .. } | VarState::Generalized { .. } => None,
             }
         }
-        // BoundVar (inside a scheme body) is always "bound" — it refers to the
-        // scheme's binder, not an unresolved inference var.
+        // BoundVar (inside a scheme body) refers to a scheme binder; resolved.
         Tag::BoundVar => None,
-        // RigidVar is a user-annotated generic parameter; parametric per TK-6
-        // and never ambiguous at this use site.
+        // RigidVar is parametric (TK-6). Resolved at this layer.
         Tag::RigidVar => None,
-        Tag::Scheme => {
-            let scheme_vars: Vec<u32> = pool.scheme_vars(ty).to_vec();
-            let scheme_body = pool.scheme_body(ty);
-            for v in &scheme_vars {
-                bound.insert(*v);
-            }
-            let result = has_unbound_var(pool, scheme_body, bound);
-            for v in &scheme_vars {
-                bound.remove(v);
-            }
-            result
-        }
-        // Simple containers — child is in `data`, not `extra`. Per types.md TK-1
-        // simple-container row: `data = child_idx.raw()`.
+        // Simple containers — child in `data` per types.md TK-1.
+        // Per-child resolve_fully BEFORE recursing.
         Tag::List | Tag::Option | Tag::Set | Tag::Range
         | Tag::Iterator | Tag::DoubleEndedIterator | Tag::Channel => {
-            has_unbound_var(pool, Idx::from_raw(pool.data(ty)), bound)
+            let child = pool.resolve_fully(Idx::from_raw(pool.data(ty)));
+            has_unbound_var(pool, child)
         }
-        // Two-child containers — use the dedicated accessors.
+        // Two-child containers.
         Tag::Map => {
-            has_unbound_var(pool, pool.map_key(ty), bound)
-                .or_else(|| has_unbound_var(pool, pool.map_value(ty), bound))
+            has_unbound_var(pool, pool.resolve_fully(pool.map_key(ty)))
+                .or_else(|| has_unbound_var(pool, pool.resolve_fully(pool.map_value(ty))))
         }
         Tag::Result => {
-            has_unbound_var(pool, pool.result_ok(ty), bound)
-                .or_else(|| has_unbound_var(pool, pool.result_err(ty), bound))
+            has_unbound_var(pool, pool.resolve_fully(pool.result_ok(ty)))
+                .or_else(|| has_unbound_var(pool, pool.resolve_fully(pool.result_err(ty))))
         }
-        // Complex types — use the dedicated accessors.
+        // Complex types — use REAL Pool accessor names (verified at
+        // pool/accessors.rs).
         Tag::Function => {
-            for param in pool.function_params(ty) {
-                if let Some(off) = has_unbound_var(pool, *param, bound) {
+            for &param in pool.function_params(ty) {
+                if let Some(off) = has_unbound_var(pool, pool.resolve_fully(param)) {
                     return Some(off);
                 }
             }
-            has_unbound_var(pool, pool.function_return(ty), bound)
+            has_unbound_var(pool, pool.resolve_fully(pool.function_return(ty)))
         }
         Tag::Tuple => {
-            for elem in pool.tuple_elems(ty) {
-                if let Some(off) = has_unbound_var(pool, *elem, bound) {
+            for &elem in pool.tuple_elems(ty) {
+                if let Some(off) = has_unbound_var(pool, pool.resolve_fully(elem)) {
                     return Some(off);
                 }
             }
             None
         }
+        // struct_fields returns Vec<(Name, Idx)> — destructure the tuple.
         Tag::Struct => {
-            for field_ty in pool.struct_field_types(ty) {
-                if let Some(off) = has_unbound_var(pool, *field_ty, bound) {
+            for (_name, field_ty) in pool.struct_fields(ty) {
+                if let Some(off) = has_unbound_var(pool, pool.resolve_fully(field_ty)) {
                     return Some(off);
                 }
             }
             None
         }
+        // enum_variants returns Vec<(Name, Vec<Idx>)> — nested iteration.
         Tag::Enum => {
-            for variant_payload in pool.enum_variant_payloads(ty) {
-                if let Some(off) = has_unbound_var(pool, *variant_payload, bound) {
-                    return Some(off);
+            for (_name, payloads) in pool.enum_variants(ty) {
+                for payload_ty in payloads {
+                    if let Some(off) = has_unbound_var(pool, pool.resolve_fully(payload_ty)) {
+                        return Some(off);
+                    }
                 }
             }
             None
         }
         Tag::Applied => {
-            for arg in pool.applied_args(ty) {
-                if let Some(off) = has_unbound_var(pool, *arg, bound) {
+            for &arg in pool.applied_args(ty) {
+                if let Some(off) = has_unbound_var(pool, pool.resolve_fully(arg)) {
                     return Some(off);
                 }
             }
             None
         }
-        // Named resolves via registry; if unresolved at this point, it is already
-        // an earlier diagnostic's problem. Skip silently (cascade).
+        // Named resolves via registry; unresolved here means an earlier
+        // diagnostic already fired. Skip silently (cascade per UN-4).
         Tag::Named | Tag::Alias => None,
-        // Projection should have been normalized by unify.rs UN-8 or flagged
-        // by the checker before this sweep runs. Skip silently.
+        // Projection should have been normalized by unify (UN-8) or flagged
+        // earlier. Skip silently.
         Tag::Projection => None,
-        // Primitives, Error, Unit, Never, SelfType (already substituted), Infer
-        // (replaced by Var at CK-3) — none contain unresolved vars at the
-        // relevant layer.
+        // Primitives, Error, Unit, Never, SelfType (substituted), Infer
+        // (replaced at CK-3), and Scheme (handled above) — none reach here
+        // with unresolved vars.
         _ => None,
     }
 }
 ```
 
-**Key differences from round-1 pseudocode**:
+**Key differences from round-2 pseudocode**:
 
-1. **Timing moved from bind_pattern time to body exit** — the single most important fix per TPR-04-001-codex-r2.
-2. **`resolve_fully` is mandatory at entry** — `validate_body_let_bindings` calls `pool.resolve_fully(record.final_ty)` BEFORE inspecting the type. This walks `VarState::Link` chains (pool/accessors.rs:412-491) so resolved inference vars aren't false-positive'd. Addresses TPR-04-002-codex-r2 + TPR-04-001-gemini-r2.
-3. **Real Pool accessors** — replaced non-existent `pool.children(ty)` and `pool.extra(off)` (both missing or private) with the concrete per-tag accessors enumerated in `types.md TL-2` and `TK-1`. Addresses TPR-04-004-codex-r2 + TPR-04-003-gemini-r2.
-4. **Correct `ambiguous_type` constructor signature** — `(span, var_id, context_desc: String)` per `check_error/mod.rs:236`, not `(span)`. `engine.push_error` not `engine.record_error`. Return type of `has_unbound_var` is `Option<OffendingVar>` not `bool` so the caller can construct the diagnostic. Addresses TPR-04-002-gemini-r2.
-5. **Cascade gate tightened** — dropped the module-wide `engine.has_errors()` branch; kept ONLY the `TypeFlags::HAS_ERROR` local check on the specific binding's type. Addresses TPR-04-003-codex-r2 + TPR-04-004-gemini-r2.
-6. **Scheme handling preserved** — scheme_vars push/pop stack discipline works for nested schemes (fresh_var allocates globally unique var_ids per EN-3, so no shadowing collision risk). `Tag::BoundVar` is always treated as resolved (it's a scheme binder reference, not an inference var).
-7. **Explicit handling for every Tag range** — primitives, BoundVar, RigidVar, Named, Alias, Projection all return `None` explicitly; Scheme handles bound-var tracking; simple containers use `data`-backed child; two-child and complex types use dedicated accessors.
+1. **`LetBindingRecord` side-table is GONE.** The body-exit sweep walks ALL `expr_types`, not just let bindings. This catches non-let ambiguous expressions like `[].len()` standalone (round-2's gap per [TPR-04-005-codex-r3] + [TPR-04-002-gemini-r3]).
+2. **`FxHashSet<u32>` push/pop is GONE.** `pool.var_state(var_id)` IS the SSOT for binding status. After `generalize()` runs (which it does for every let-binding by body exit), bound vars carry `VarState::Generalized` in-place — direct inspection is sufficient. Per [TPR-04-001-gemini-r3].
+3. **`pool.resolve_fully()` at every recursive step.** Not just at the top-level. Per-child resolution makes the walker robust against per-child Link chains. Per [TPR-04-001-codex-r3].
+4. **`Tag::Scheme` special-cased BEFORE the HAS_VAR fast-path.** Because `Pool::compute_flags()` doesn't propagate HAS_VAR through schemes (`pool/mod.rs:651-652`), the early-exit would silently skip schemes. Schemes always recurse into their body. Per [TPR-04-003-codex-r3].
+5. **Real Pool accessor names.** `pool.struct_fields(ty)` returning `Vec<(Name, Idx)>` (destructured); `pool.enum_variants(ty)` returning `Vec<(Name, Vec<Idx>)>` (nested iteration). NOT the fictional `struct_field_types` / `enum_variant_payloads`. Per [TPR-04-002-codex-r3] + [TPR-04-001-gemini-r3-naming].
+6. **Lambda polymorphism is preserved by construction.** Round-2 worried that sweeping all `expr_types` would regress polymorphism. Round 3 obviates that concern: by body exit, `generalize()` has run, so every polymorphic-lambda's free vars carry `VarState::Generalized`. The VarState check returns `None` for them. No false positives on `let id = x -> x; id(1); id("hello")`.
+7. **Cascade gate tightened (preserved from round 2).** Per-resolved-type `TypeFlags::HAS_ERROR` only. No module-wide `engine.has_errors()`.
+8. **Deduplication via `seen: FxHashSet<Idx>`.** Many expressions share the same `Idx` (e.g., every `int` literal). Deduplicate to avoid emitting N identical diagnostics for the same type.
 
-**Helper module location** (preserved from round 1):
-- Place `should_generalize` (§3.1) + `validate_body_let_bindings` + `has_unbound_var` + `OffendingVar` + `LetBindingRecord` in a new module `compiler/ori_types/src/infer/expr/generalization_policy.rs`.
+**Helper module location** (preserved):
+- Place `should_generalize` (§3.1) + `validate_body_types` + `has_unbound_var` + `OffendingVar` in a new module `compiler/ori_types/src/infer/expr/generalization_policy.rs`.
 - Use `pub(crate)` visibility so `infer_block`, `infer_let`, `sequences.rs`, and `check/bodies/mod.rs` can all call across sibling module boundaries.
 
-**Pool accessor verification** — the round-2 revision depends on these accessors existing on `Pool`. BEFORE implementation, verify each via `scripts/intel-query.sh symbols "<name>" --repo ori`:
-- `resolve_fully`, `map_key`, `map_value`, `result_ok`, `result_err` — verified round 2 via `pool/accessors.rs` inspection (lines 412-491 for `resolve_fully`).
-- `function_params`, `function_return`, `tuple_elems`, `applied_args`, `scheme_vars`, `scheme_body` — verify during Phase 3 TDD; add them to Pool if missing (they are the natural shape of `types.md TL-2` complex-type extra layouts).
-- `struct_field_types`, `enum_variant_payloads` — similarly verify; these return the type `Idx` slices from the registered struct/enum definitions.
+**Pool accessor verification** — VERIFIED in round 3:
+- `pool.resolve_fully(idx) -> Idx` — `pool/accessors.rs:412-491`
+- `pool.struct_fields(idx) -> Vec<(Name, Idx)>` — `pool/accessors.rs:538-551`
+- `pool.enum_variants(idx) -> Vec<(Name, Vec<Idx>)>` — `pool/accessors.rs:606-629`
+- `pool.var_state(var_id) -> &VarState` — referenced consistently across `unify/`, `pool/`, `infer/`
+- `pool.scheme_body(idx) -> Idx`, `pool.scheme_vars(idx) -> &[u32]` — round-2 verification (must reconfirm in implementation)
+- `pool.function_params(idx)`, `pool.function_return(idx)`, `pool.tuple_elems(idx)`, `pool.applied_args(idx)`, `pool.map_key(idx)`, `pool.map_value(idx)`, `pool.result_ok(idx)`, `pool.result_err(idx)` — must be confirmed during Phase 3 TDD via `scripts/intel-query.sh symbols "<name>" --repo ori`. If any are misnamed (round 3 caught two — `struct_field_types` and `enum_variant_payloads`), correct in the same commit.
 
-If any accessor is missing, add it as a thin wrapper over `pool.extra` reads in the same commit as this fix — adding a missing typed accessor is NOT scope creep; it's the natural completion of the `types.md TL-2` contract. Any such accessor addition MUST have a corresponding `#[cfg(test)]` unit test in `ori_types/src/pool/tests.rs`.
+If any accessor is missing AND demonstrably needed by the typed-IR layer per `types.md TL-2`, add it as a thin wrapper with a `#[cfg(test)]` unit test in `ori_types/src/pool/tests.rs`. Adding a missing typed accessor is NOT scope creep — it's the natural completion of the `types.md TL-2` contract that this fix's correctness depends on.
 
 ### 3.4 Test updates (broadened per TPR-04-005-codex)
 
@@ -567,22 +558,61 @@ The three let-binding sites (`infer_block`, `infer_let`, `sequences.rs`) have du
 **Concrete tracking artifact** (required per CLAUDE.md "future improvement" rule — must not be a nebulous deferral):
 - [ ] Action: file `BUG-04-{next}` via `/add-bug` at close-out of BUG-04-074 with title "Consolidate let-binding inference across infer_block/infer_let/sequences.rs into shared helper" and subsystem `ori_types`. Severity: `low` (code hygiene, not correctness).
 
-### 3.6 Consumer-side invariant check at LLVM codegen entry (NEW round 2 — per TPR-04-007-codex-r2)
+### 3.6 Consumer-side invariant check at LLVM codegen entry (REVISED round 3 — per TPR-04-004-codex-r3)
 
-Add a `debug_assert!` at the entry to `ori_llvm::codegen::type_info::store::get_or_compute_type_info` (around `compiler/ori_llvm/src/codegen/type_info/store.rs:341`) that panics if a `Tag::Var` survives to codegen. Per `impl-hygiene.md §Cross-Phase Invariant Contracts`, every typed-IR-to-codegen contract (`typeck.md PC-2` + `types.md PC-2`: "No `Tag::Var` in any type position") SHOULD be `debug_assert!`'d at the consumer's entry. This makes the invariant explicit and prevents silent miscompilation in the rare case where a future bug lets a `Var` leak past the validator.
+Round-2 placed the invariant check ONLY in `TypeInfoStore::get_or_compute_type_info` at `compiler/ori_llvm/src/codegen/type_info/store.rs:341`. Round-3 surfaced that other codegen consumers (notably `monomorphize::encode_type()` in `compiler/ori_llvm/src/monomorphize/`) read `Pool` types directly WITHOUT going through `TypeInfoStore`. A `Tag::Var` could reach those direct-read paths and silently miscompile.
+
+**Round-3 design**: a single pre-codegen validation pass that walks every type reachable from a function's signature and body BEFORE LLVM emission begins for that function. The pass uses the same `has_unbound_var` helper from §3.3 to ensure consistency between typeck and codegen on what counts as "resolved." The TypeInfoStore-level `debug_assert!` is retained as defense in depth.
 
 ```rust
-// In get_or_compute_type_info (or its innermost resolution point):
-let resolved = pool.resolve_fully(idx);
-debug_assert!(
-    pool.tag(resolved) != Tag::Var,
-    "unresolved Tag::Var reached LLVM codegen — typeck.md PC-2 violation. \
-     idx={:?}, resolved={:?}, var_id={}",
-    idx, resolved, pool.data(resolved),
-);
+// In ori_llvm at the per-function codegen entry (e.g., FunctionCompiler::compile
+// or equivalent), BEFORE any LLVM type construction or instruction emission:
+
+#[cfg(debug_assertions)]
+fn validate_function_types_resolved(pool: &Pool, sig: &FunctionSig, body_expr_types: &FxHashMap<ExprId, Idx>) {
+    use ori_types::infer::expr::generalization_policy::has_unbound_var;
+
+    // Validate signature.
+    for &param_ty in &sig.param_types {
+        let resolved = pool.resolve_fully(param_ty);
+        if let Some(off) = has_unbound_var(pool, resolved) {
+            panic!(
+                "Tag::Var reached LLVM codegen in function signature — typeck.md PC-2 violation. \
+                 fn={:?}, param_ty={:?}, var_id={}",
+                sig.name, resolved, off.var_id,
+            );
+        }
+    }
+    let return_resolved = pool.resolve_fully(sig.return_type);
+    if let Some(off) = has_unbound_var(pool, return_resolved) {
+        panic!(
+            "Tag::Var reached LLVM codegen in return type — typeck.md PC-2 violation. \
+             fn={:?}, return_ty={:?}, var_id={}",
+            sig.name, return_resolved, off.var_id,
+        );
+    }
+
+    // Validate body expr types.
+    for (expr_id, &raw_ty) in body_expr_types.iter() {
+        let resolved = pool.resolve_fully(raw_ty);
+        if let Some(off) = has_unbound_var(pool, resolved) {
+            panic!(
+                "Tag::Var reached LLVM codegen in body — typeck.md PC-2 violation. \
+                 fn={:?}, expr={:?}, ty={:?}, var_id={}",
+                sig.name, expr_id, resolved, off.var_id,
+            );
+        }
+    }
+}
 ```
 
-The existing release-mode `TypeInfo::Error` return path is RETAINED as a defense-in-depth safety net — production builds still fail gracefully with an error rather than generating wrong LLVM IR, even if the `debug_assert!` is stripped. The `debug_assert!` is additive: it turns a silent-miscompile-in-release into a loud-crash-in-debug during development, which is the correct tradeoff per `impl-hygiene.md §Invariant Explicitness`.
+The validation runs ONCE per function at codegen entry, BEFORE any IR emission. Cost is bounded: O(function-size) per function, in debug builds only. Release builds skip it entirely (`#[cfg(debug_assertions)]`).
+
+**Defense-in-depth retained**: the per-call-site `debug_assert!` at `TypeInfoStore::get_or_compute_type_info` (round-2 location) ALSO stays. Two layers catch different failure modes:
+- Pre-codegen pass catches Tag::Var leaks from typeck across ALL codegen consumer surfaces, in one early failure point.
+- TypeInfoStore-local check catches any future codegen consumer that incorrectly synthesizes a Tag::Var DURING codegen (e.g., a future bug in monomorphization).
+
+The existing release-mode `TypeInfo::Error` return path in TypeInfoStore is also retained as a final-resort production safety net. The combined defense ensures: in debug builds, leaks crash loudly at the earliest point; in release builds, leaks fail gracefully with `TypeInfo::Error` rather than generating wrong LLVM IR.
 
 ### 3.7 Implementation order
 
@@ -783,6 +813,82 @@ Key architectural changes beyond round 1:
 7. **Invalid lambda pin replaced** (addresses [TPR-04-006-codex-r2]): `let b: [int] = id([])` instead of the unconstrained `let b = id([])`.
 8. **Generic-function interaction test added** (addresses [TPR-04-005-gemini-r2]): new `test_empty_list_passed_to_generic_function_emits_E2005`.
 9. **Debug_assert at codegen entry** (addresses [TPR-04-007-codex-r2]): new §3.6 makes the typeck→codegen PC-2 contract explicit.
+
+### Phase 2.5 — Plan TPR Round 3 (2026-04-14)
+
+Plan TPR round 3 run `/tmp/ori-tpr-N7XgRiDB`. Codex walltime 431s (163 events, 13040-byte envelope). Gemini walltime 333s (82 events, 3962-byte envelope). ASYMMETRY MODERATE (bytes 14.3x RED is codex narration overhead; walltime 1.3x LOW; events 2.0x yellow). 9 actionable findings (codex 6, gemini 3, zero direct agreements but two near-perfect content overlaps on Pool API names + on non-let validation gap). Round 3 revealed THREE substantive design errors in round-2's approach + one architectural simplification opportunity. All findings independently verified against the code.
+
+- [x] `[TPR-04-001-gemini-r3][high]` `plans/bug-tracker/fix-BUG-04-074.md:387` — Architecturally simpler design: use `pool.var_state(var_id)` directly, drop the `FxHashSet<u32>` push/pop machinery.
+  Resolved: Round-3 §3.3 REWRITTEN on 2026-04-14. The new design inspects `pool.var_state(var_id)` for each `Tag::Var` encountered: `VarState::Unbound` → genuinely ambiguous (return `OffendingVar`); `VarState::Link` → resolved (already short-circuited by `resolve_fully` upstream); `VarState::Rigid` → user-annotated parametric (return None); `VarState::Generalized` → scheme-bound after `generalize()` ran (return None). The `FxHashSet<u32>` parameter is GONE.
+  Evidence: `compiler/ori_types/src/unify/generalization.rs:47-54` confirms — `generalize()` mutates the `VarState` of every collected free var from `Unbound` to `Generalized` in-place BEFORE constructing the scheme. Therefore, by body exit, every bound var carries `VarState::Generalized` and is trivially distinguishable from genuinely unbound vars without the side-table dance. This is also robust against `resolve_fully`'s 16-hop limit (probe C from the round-3 prompt) because a non-resolved chain still ends in a `Tag::Var` whose `VarState::Unbound` correctly classifies it as ambiguous — no false positive.
+  Required plan update: §3.3 rewritten to drop the `bound: &mut FxHashSet<u32>` parameter; replace with direct `var_state` inspection.
+  Basis: fresh_verification. Confidence: high. (Verified: `generalization.rs:47-54` confirmed.)
+
+- [x] `[TPR-04-001-codex-r3][high]` `plans/bug-tracker/fix-BUG-04-074.md:383` — Resolve each child in the recursion, not just the top-level entry.
+  Resolved: §3.3 rewrite on 2026-04-14. The new `has_unbound_var` design calls `pool.resolve_fully(child)` AT EACH RECURSIVE STEP, not just at the top-level sweep entry. Combined with the `VarState`-based classification ([TPR-04-001-gemini-r3]), this makes the recursion robust: each child node is independently resolved through `Link` chains before its tag is inspected.
+  Evidence: A child `Idx` in a compound type may itself be a `Tag::Var` whose `VarState::Link { target }` points elsewhere in the pool. Without per-child `resolve_fully`, the recursion would inspect the unresolved `Tag::Var` directly, misclassify it via the new VarState check (the Var's state after substitution may be Unbound for the head var even though the linked target is fully resolved), and emit a false positive.
+  Required plan update: every recursive call into `has_unbound_var` MUST pass `pool.resolve_fully(child)` not the raw child `Idx`.
+  Basis: fresh_verification. Confidence: high.
+
+- [x] `[TPR-04-002-codex-r3][medium]` `plans/bug-tracker/fix-BUG-04-074.md:495` — Use real Struct/Enum accessor names.
+  Resolved: §3.3 rewrite on 2026-04-14. Replaced `pool.struct_field_types(ty)` with `pool.struct_fields(ty)` returning `Vec<(Name, Idx)>` (iterate destructuring `(_, field_ty)`); replaced `pool.enum_variant_payloads(ty)` with `pool.enum_variants(ty)` returning `Vec<(Name, Vec<Idx>)>` (nested iteration `for (_, payloads) in pool.enum_variants(ty) { for payload_ty in payloads { ... } }`).
+  Evidence: `compiler/ori_types/src/pool/accessors.rs:538-551` defines `pub fn struct_fields(&self, idx: Idx) -> Vec<(ori_ir::Name, Idx)>`. `compiler/ori_types/src/pool/accessors.rs:606-629` defines `pub fn enum_variants(&self, idx: Idx) -> Vec<(ori_ir::Name, Vec<Idx>)>`. The plan's invented names (`struct_field_types`, `enum_variant_payloads`) do NOT exist on `Pool`. Won't compile.
+  Required plan update: rewrite §3.3 pseudocode using the real accessor names with proper destructuring. Drop invalid `*param`, `*elem` pointer dereferences for accessors that already return owned `Vec<Idx>` not `&[Idx]`.
+  Basis: fresh_verification. Confidence: high. (Cross-reference: [TPR-04-001-gemini-r3] — both reviewers independently found the same naming gap.)
+
+- [x] `[TPR-04-001-gemini-r3-naming][high]` `plans/bug-tracker/fix-BUG-04-074.md:415` — Pseudocode uses non-existent `struct_field_types` / `enum_variant_payloads` accessors and invalid pointer dereferences.
+  Resolved: Same fix as [TPR-04-002-codex-r3] above. Two independent reviewers converged on the same correction.
+  Evidence: Same as [TPR-04-002-codex-r3].
+  Required plan update: Same as [TPR-04-002-codex-r3].
+  Basis: fresh_verification. Confidence: high.
+
+- [x] `[TPR-04-003-codex-r3][medium]` `plans/bug-tracker/fix-BUG-04-074.md:431` — `Tag::Scheme` doesn't propagate HAS_VAR; the fast-path early-exit silently skips scheme bodies containing vars.
+  Resolved: §3.3 rewrite on 2026-04-14. The new design SPECIAL-CASES `Tag::Scheme` BEFORE the `HAS_VAR` early-exit gate: `Tag::Scheme` always recurses into `pool.scheme_body(ty)` regardless of the parent's flags (with `resolve_fully` applied to the body first). The HAS_VAR early-exit is preserved for non-scheme types where it IS sound.
+  Evidence: `compiler/ori_types/src/pool/mod.rs:651-652` confirms `Tag::Scheme => TypeFlags::IS_SCHEME` — only IS_SCHEME is set for schemes; `compute_flags()` does NOT propagate child flags through schemes (this differs from `types.md TF-3`'s aspirational PROPAGATE_MASK behavior — there's a documentation/implementation gap that's NOT the scope of this fix). With the broken propagation, `pool.flags(scheme_ty).contains(HAS_VAR)` returns false even when the scheme body contains unresolved Tag::Var nodes; the fast-path early-exit would skip the scheme entirely.
+  Required plan update: §3.3 special-cases `Tag::Scheme` before the HAS_VAR early-exit, OR (out of scope here) fix `Pool::compute_flags()` to propagate flags through schemes.
+  Basis: fresh_verification. Confidence: high.
+
+- [x] `[TPR-04-005-codex-r3][medium]` + `[TPR-04-002-gemini-r3][high]` `plans/bug-tracker/fix-BUG-04-074.md:354,320` — Per-body-exit `LetBindingRecord` sweep MISSES non-let ambiguous expressions (`[].len()`, `if [].is_empty() then ...`).
+  Resolved: §3.3 fundamentally REDESIGNED on 2026-04-14. Dropped the `LetBindingRecord` side-table approach entirely. New design: at body exit, sweep ALL `expr_types` for the body (every expression's typed result, not just let bindings). For each expr_type, run `validate_type_resolved(engine, span, expr_type)` using the new VarState-based check. This naturally catches:
+  - Let bindings (the original target).
+  - Direct-receiver expressions like `[].len()` whose receiver is an ambiguous container.
+  - Arguments to function calls when the call doesn't constrain the type.
+  - Lambda body expressions in non-polymorphic contexts.
+  - Any expression whose final type carries an unresolved Tag::Var.
+  By body exit, generalize() has already run for every let-binding, so the in-pool VarState correctly reflects which vars are bound (Generalized) vs unbound (genuinely ambiguous). The round-2 concern about "blanket sweep regressing let-polymorphism" (TPR-04-001-codex-r1) is OBVIATED because the VarState-based check correctly distinguishes Generalized (bound, returns None) from Unbound (ambiguous, returns OffendingVar) — see [TPR-04-001-gemini-r3].
+  Evidence: `compiler/ori_types/src/infer/expr/mod.rs:271-272` shows `infer_expr` stores a type for EVERY expression in `expr_types`. A program like `[].len()` has an expression `[]` typed as `List(Var(α))` where `α` remains Unbound (`.len()` doesn't constrain element type), and that ambiguous type sits in `expr_types`. The round-2 LetBindingRecord side table only captures let-binding sites, so `[].len()` falls through and leaks the Unbound var to codegen.
+  Required plan update: drop LetBindingRecord; sweep all `expr_types` at body exit. Use the VarState-based has_unbound_var (no FxHashSet, no scheme push/pop).
+  Basis: fresh_verification. Confidence: high.
+
+- [x] `[TPR-04-004-codex-r3][medium]` `plans/bug-tracker/fix-BUG-04-074.md:570` — §3.6 `debug_assert!` only at TypeInfoStore is insufficient; `monomorphize::encode_type()` reads Pool types directly without going through that store.
+  Resolved: §3.6 EXPANDED on 2026-04-14. New design: a single pre-codegen validation pass that walks every type reachable from a function's signature and body BEFORE emission begins, OR a `debug_assert!` at the top of the per-function codegen entry point in `ori_llvm` (whichever is more architecturally clean). The TypeInfoStore-level assertion is RETAINED as defense in depth. The pre-codegen pass uses the same `has_unbound_var` helper from §3.3 to ensure consistency.
+  Evidence: `compiler/ori_llvm/src/monomorphize/mod.rs` (per codex finding — would need to be confirmed during implementation) reads Pool tags and children directly without going through `TypeInfoStore::get_or_compute_type_info`. Any Tag::Var that reaches monomorphize via that path bypasses the round-2 debug_assert.
+  Required plan update: §3.6 broadened to specify a higher-level codegen-entry validation point covering all consumer surfaces, not just TypeInfoStore.
+  Basis: direct_file_inspection. Confidence: medium. (Confidence medium because the exact best-placement decision needs validation during implementation; the principle — "broader than just TypeInfoStore" — is high-confidence.)
+
+- [x] `[TPR-04-006-codex-r3][low]` `plans/bug-tracker/fix-BUG-04-074.md:620` — Round-1 §R resolution entries describe behavior that round-2 superseded; mark them as historical-superseded.
+  Resolved: §R round-1 entries augmented on 2026-04-14 with `(SUPERSEDED-BY-ROUND-2: ...)` suffixes where applicable. Specifically: round-1 [TPR-04-001-codex] (cascade gate using `engine.has_errors()`) is superseded by [TPR-04-003-codex-r2] which dropped the global gate. Round-1 [TPR-04-007-codex] (helper extraction sound) is superseded by round-3 [TPR-04-004-codex-r3] (broader codegen coverage required). Round-1 [TPR-04-002-codex] (recursive contains_var) is superseded by round-3's `has_unbound_var` redesign. Other round-1 entries remain accurate as-of-round-2 and are preserved.
+  Evidence: §R round-1 entries described validation-pass mechanics that round-2's ~3.3 rewrite changed substantially. Per `impl-hygiene.md §SSOT`, the §R history must be auditable — entries that no longer reflect the current plan are misleading without an explicit supersession marker.
+  Required plan update: add `(SUPERSEDED-BY-ROUND-2/3: <citation>)` annotations to the affected round-1 entries.
+  Basis: direct_file_inspection. Confidence: high.
+
+### Round 3 architectural revisions applied
+
+The round-3 findings are not patches — they reveal that round-2's design had multiple issues (wrong API names, missed scheme HAS_VAR propagation, non-let validation gap) AND that there's a fundamentally simpler design via VarState. Round-4 §3.3 reflects:
+
+1. **VarState is the SSOT for binding status, not a scheme-vars side table.** `pool.var_state(var_id)` directly answers "is this var unbound, linked, rigid, or generalized?" without any external bookkeeping. The `FxHashSet<u32>` push/pop dance from round 2 is GONE.
+
+2. **`resolve_fully` at every recursive step**, not just at the top-level entry. Children may be Linked elsewhere; per-child resolution makes the walker robust.
+
+3. **Sweep ALL `expr_types` at body exit**, not just `LetBindingRecord` entries. By body exit, generalize() has run, so the VarState check correctly distinguishes generalized (bound) from unbound (ambiguous) — round-2's lambda-polymorphism concern is OBVIATED.
+
+4. **Tag::Scheme special-cased before the HAS_VAR fast-path** since `Pool::compute_flags()` doesn't propagate HAS_VAR through schemes.
+
+5. **Real Pool accessor names** — `struct_fields(ty)` and `enum_variants(ty)` returning `Vec<(Name, Idx)>` and `Vec<(Name, Vec<Idx>)>` respectively, with proper destructuring.
+
+6. **§3.6 broadened** to a pre-codegen validation pass covering all codegen consumer surfaces, not just `TypeInfoStore`.
+
+7. **§R historical entries marked superseded** where round-2/3 changed the behavior they describe.
 
 ---
 
