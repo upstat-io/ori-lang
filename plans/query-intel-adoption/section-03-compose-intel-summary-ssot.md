@@ -1,8 +1,8 @@
 ---
 section: "03"
 title: "SSOT: compose-intel-summary helper"
-status: in-progress
-reviewed: false
+status: complete
+reviewed: true
 goal: "Create one canonical intel-summary injection template and replace every inlined copy across review-family skills, wider skill consumers, and command files with @-includes (18 consumers migrated, 3 legitimate teaching surfaces preserved)"
 success_criteria:
   - "`.claude/skills/dual-tpr/compose-intel-summary.md` exists as the sole source of the availability-check → file-symbols → callers → callees → similar → bounded-summary template, with Step F as a maintained registry of per-consumer extensions"
@@ -29,15 +29,15 @@ sections:
     status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 03: SSOT — compose-intel-summary helper
 
-**Status:** In Progress (§03.1 / §03.2 / §03.3 complete; §03.R triage in progress; §03.N pending).
+**Status:** Complete (2026-04-14) — all subsections complete, 3-round TPR converged clean, impl-hygiene review clean, section-close sweep identified 1 cross-subsection tooling opportunity tracked in §07.4.
 **Goal:** Establish `.claude/skills/dual-tpr/compose-intel-summary.md` as the ONE canonical source for the intel-pre-query template. Every current consumer (18 files: 6 review-family + 12 wider-skill consumers) `@`-includes it. Additional migrations are planned per §05 (`/verify-tpr`, `/sync-claude`, `/fix-next-bug` — these skills will add intel reconnaissance) and §07 (`.claude/hooks/pre-review-intel.sh` — a hook-family consumer that does not yet exist). The harness splices the included file into the prompt at expansion time — so updates to the template automatically propagate to all consumers without drift.
 
 **Context:** The 2026-04-14 TPR (codex finding TPR-XX-007, severity high, category LEAK:algorithmic-duplication) confirmed that the availability-check → file-symbols → callers → callees → similar → bounded-summary pattern is inlined in 6 separate files today. This is a textbook SSOT violation per `.claude/rules/impl-hygiene.md` §Algorithmic DRY. The existing `polling-protocol.md` in the same directory is the canonical precedent — it consolidated three near-identical inlined polling blocks into one `@`-include after a similar drift-driven surfacing in early April 2026. This section repeats that consolidation for the intel-pre-query pattern.
@@ -311,14 +311,14 @@ Final re-review after round 2 fix landed in commit `a54af6b6`. Dual-source run: 
 - [x] Invariant check: `grep -l 'scripts/intel-query.sh status' .claude/ -r` returns exactly 3 files — the SSOT itself plus `.claude/rules/intelligence.md` and `.claude/commands/query-intel.md` (legitimate teaching surfaces; no consumer copies remain)
 - [x] `./test-all.sh` green (modulo pre-existing BUG-04-030 LLVM backend crash, orthogonal to §03's doc-only scope)
 - [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-03-compose-intel-summary-ssot.md` returns 0 errors
-- [ ] **Plan sync**:
-  - [ ] Section frontmatter `status` → `complete` (pending: triage completion + final re-review)
-  - [ ] `00-overview.md` Quick Reference and mission criterion updated
-  - [ ] `index.md` updated
-  - [ ] §05, §06, §07 `depends_on` verified — the SSOT they rely on now exists
-- [ ] `/tpr-review` passed clean — dual-source review confirms all 18 consumer files point at the same SSOT, Step F matches consumer code, and no DRIFT findings remain (first round 2026-04-14 surfaced 4 actionable findings — triaged in §03.R; re-review pending after fixes land)
-- [ ] `/impl-hygiene-review` passed — the new file IS a canonical home, not a duplicate (validated against `.claude/rules/impl-hygiene.md` §SSOT)
-- [ ] `/improve-tooling` section-close sweep
+- [x] **Plan sync**:
+  - [x] Section frontmatter `status` → `complete` (triage clean, 3 TPR rounds converged, hygiene clean)
+  - [x] `00-overview.md` Quick Reference and mission criterion updated (18-consumer scope, §03 status Complete)
+  - [x] `index.md` updated (§03 status Complete)
+  - [x] §05, §06, §07 `depends_on: ["03"]` verified — SSOT exists and is stable. §07.4 added as new close-out work surfaced by section-close sweep.
+- [x] `/tpr-review` passed clean — dual-source review converged across 3 rounds (round 1: 5 findings fixed; round 2: 1 Step F drift fixed; round 3: 0 actionable findings, both reviewers confirmed clean). All 18 consumers point at the same SSOT, Step F matches consumer code verbatim, invariants hold.
+- [x] `/impl-hygiene-review` passed — 1 cosmetic DRIFT:style-consistency finding fixed inline (`## Banned patterns` → `## Banned Patterns` to match polling-protocol.md precedent). All 4 hygiene passes (LEAK/SSOT, Algorithmic DRY, Boundary/Flow, Surface Hygiene) clean after the fix.
+- [x] `/improve-tooling` section-close sweep — Per-subsection retrospectives covered tooling gaps within each subsection (§03.2 filed a "scope-audit helper" opportunity). Cross-subsection pattern identified at sweep scope: a **SSOT-registry drift detector tool** would have caught 4 of the 6 total TPR findings across 3 rounds (Step F vs consumer query-set mismatches) in a single automated pass. Concrete implementation anchor created: `plans/query-intel-adoption` §07.4 "SSOT registry drift detector (`scripts/ssot-registry-audit.py`)". The Registry Contract clause in §03's SSOT commits this contract in prose; §07.4 commits it in code. Zero-deferral rule satisfied — cross-subsection finding has a concrete `- [ ]` anchor in §07.4.
 - [x] `/sync-claude` section-close doc sync — `.claude/rules/impl-hygiene.md` §Algorithmic DRY §Precedents subsection cites the compose-intel-summary SSOT alongside polling-protocol.md
 - [x] `diagnostics/repo-hygiene.sh --check` (clean modulo user's `test.py` scratch file, tracked by user separately)
 

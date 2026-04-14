@@ -29,6 +29,9 @@ sections:
   - id: "07.3"
     title: "Graceful-degradation verification"
     status: not-started
+  - id: "07.4"
+    title: "SSOT registry drift detector (scripts/ssot-registry-audit.py)"
+    status: not-started
   - id: "07.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -229,6 +232,32 @@ sections:
   - [ ] **Run `/improve-tooling` retrospectively on 07.3** — is there a way to make graph-availability state visible to the operator without being noisy? (E.g., a status-line indicator?) Cross-reference `.claude/skills/update-config/` — that's where status-line configuration lives.
   - [ ] **Run `/sync-claude` on 07.3** — hook coverage is now stable; verify `.claude/rules/intelligence.md` §Availability section still accurately describes the degradation contract.
   - [ ] **Repo hygiene check**.
+
+---
+
+## 07.4 SSOT registry drift detector (`scripts/ssot-registry-audit.py`)
+
+**File(s):** `scripts/ssot-registry-audit.py` (new).
+
+**Surfaced by:** `plans/query-intel-adoption` §03 section-close sweep (2026-04-14). The §03 SSOT consolidation used a per-consumer registry (Step F in `compose-intel-summary.md`) documenting each consumer's exact `scripts/intel-query.sh` query set. Across 3 TPR rounds, 4 of the 6 total findings were Step F vs consumer query-set mismatches — a single automated audit would have caught them all in one pass. The Registry Contract clause in §03's SSOT commits this contract in prose; §07.4 commits it in code.
+
+- [ ] Create `scripts/ssot-registry-audit.py`:
+  - Reads an SSOT registry file (default: `.claude/skills/dual-tpr/compose-intel-summary.md`)
+  - Parses Step F (or any designated registry section) to extract per-consumer query sets
+  - For each listed consumer, opens the consumer file and greps for `scripts/intel-query.sh --human <subcommand>` invocations
+  - Compares the registry's documented query set against the consumer's actual invocations
+  - Reports mismatches: queries in registry not in consumer (over-documentation), queries in consumer not in registry (DRIFT).
+- [ ] Output shape: human by default, `--json` for CI/hook consumption. Exit 0 if all entries match; non-zero with a mismatch count otherwise.
+- [ ] `--registry <path>` flag to audit registries other than `compose-intel-summary.md` (future SSOTs may adopt the same pattern).
+- [ ] `--fix` flag (stretch): auto-update the registry to match consumer reality (with `--dry-run` preview). Dangerous — gate behind explicit `--apply`.
+- [ ] Rust/Python: Python is fine; this runs pre-commit, not in the compiler hot path.
+- [ ] Integration options (pick one in close-out): (a) invoke from §07.1's hook as an additional pre-submission check, (b) lefthook pre-commit entry matching `.claude/skills/dual-tpr/compose-intel-summary.md` or any Step F-style section, (c) a standalone script invoked manually + in CI.
+
+- [ ] **Subsection close-out (07.4)**:
+  - [ ] Audit detects the 2026-04-14 TPR findings if the SSOT is reverted to pre-`dc1086ce` state (regression safety check).
+  - [ ] Update `07.4` status to `complete`.
+  - [ ] `/improve-tooling` retrospective — did writing this tool surface other SSOT patterns worth auto-auditing? (e.g., operator-trait mappings, derive-strategy tables).
+  - [ ] `/sync-claude` — `.claude/rules/impl-hygiene.md` §Algorithmic DRY §Precedents subsection may gain a third entry: "invariant enforced by `scripts/ssot-registry-audit.py` (§07.4 of `plans/query-intel-adoption`)."
 
 ---
 
