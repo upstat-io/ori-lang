@@ -200,7 +200,7 @@ summary is OMITTED. Do NOT emit an empty "Intelligence Summary: no
 results" block — that's noise. The consumer's prompt should be
 syntactically valid whether or not the summary appears.
 
-## Banned patterns
+## Banned Patterns
 
 - Inlining this template in any consumer instead of `@`-including it
 - Open-coding Neo4j access (bypassing `scripts/intel-query.sh`)
