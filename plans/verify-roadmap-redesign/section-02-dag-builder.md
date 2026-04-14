@@ -48,7 +48,7 @@ sections:
     status: complete
   - id: "02.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 02: DAG Builder & Conflict Classifier
@@ -57,11 +57,11 @@ sections:
 **Goal:** Build a dependency DAG across ALL seven schema classes in the corpus (not just plan sections) and implement a classifier stack — six mission classifiers plus two informational ones — with deterministic precedence and explicit source-kind tagging, so the mission test cases (a), (b), (c), (g), (h) are caught exactly as specified in the overview without false positives on code fences, prerequisite coordination, or YAML anchor-like syntactic noise.
 
 **Success Criteria:**
-- [ ] Node model covers all seven §01.2 schema classes
-- [ ] Source-kind taxonomy defined and every reference carries its source_kind
-- [ ] EXPLICIT_DEPENDS_ON is the sole SSOT for DAG edges; body-inferred references emit MISSING_DEPENDENCY findings, never shadow edges
-- [ ] 8 classifiers implemented with documented precedence and deterministic order
-- [ ] Known test cases (a), (b), (c), (g), (h) caught by the exact classifier/subtype documented in §05.2
+- [x] Node model covers all seven §01.2 schema classes
+- [x] Source-kind taxonomy defined and every reference carries its source_kind
+- [x] EXPLICIT_DEPENDS_ON is the sole SSOT for DAG edges; body-inferred references emit MISSING_DEPENDENCY findings, never shadow edges
+- [x] 8 classifiers implemented with documented precedence and deterministic order
+- [x] Known test cases (a), (b), (c), (g), (h) caught by the exact classifier/subtype documented in §05.2
 
 **Context:** The current `/verify-roadmap` command operates on individual roadmap sections in isolation. It has zero awareness of reroute plans, cross-plan dependencies, or shared subsystem ownership. As a result, it misses entire classes of bugs: priority inversions (repr-opt active but its locality prerequisite is queued), dead references (roadmap section 22.2 references nonexistent `plans/ori_lsp/`), and supersession drift (test-suite-health section 02 claims to rewrite roadmap 21A but the rewrite never happened). The DAG builder creates the graph structure that makes these detectable.
 
@@ -646,28 +646,28 @@ Dual-source /tpr-review round 4 on 2026-04-14 (run `/tmp/ori-tpr-uBF4cxeb`). 3 a
 
 ## 02.N Completion Checklist
 
-- [ ] §02.0 Node model covers all seven schema classes; source-kind taxonomy defined and unit-tested
-- [ ] §02.1 DAG construction: EXPLICIT_DEPENDS_ON edges only; HTML/YAML/PROSE references collected without promoting to edges; code-fence regions excluded from body scans
-- [ ] §02.2 All 8 classifiers implemented: CONFLICT, SUPERSEDED (two cases), BLOCKED, STATUS_CONTRADICTION/CROSS_EDGE_TEMPORAL_DRIFT, MISSING_DEPENDENCY, DEAD_REFERENCE, REDUNDANT_DEPENDENCY, ORPHANED_PLAN
-- [ ] §02.2 Cross-section edits to §01.3's `scripts/plan_corpus/types.py` (authorized; all must land together in §02.N sweep):
+- [x] §02.0 Node model covers all seven schema classes; source-kind taxonomy defined and unit-tested
+- [x] §02.1 DAG construction: EXPLICIT_DEPENDS_ON edges only; HTML/YAML/PROSE references collected without promoting to edges; code-fence regions excluded from body scans
+- [x] §02.2 All 8 classifiers implemented: CONFLICT, SUPERSEDED (two cases), BLOCKED, STATUS_CONTRADICTION/CROSS_EDGE_TEMPORAL_DRIFT, MISSING_DEPENDENCY, DEAD_REFERENCE, REDUNDANT_DEPENDENCY, ORPHANED_PLAN
+- [x] §02.2 Cross-section edits to §01.3's `scripts/plan_corpus/types.py` (authorized; all must land together in §02.N sweep):
   - `SourceKind(Enum)` defined (taxonomy lives in types.py alongside Finding to avoid circular import with dag.py — TPR-02-001-gemini round 2)
   - `FindingSubtype.REDUNDANT_DEPENDENCY` and `FindingSubtype.ORPHANED_PLAN` added to `DAG_CONFLICT` category
   - `Finding.dependency_chain: tuple[Path, ...] = ()` optional field added (Option A per TPR-02-006/04 — structured chain-typed boundary, not string-flattened)
   - `Finding.source_kind: SourceKind | None = None` optional field added (structured source-kind facet for §03's downstream routing)
   - `Finding.id` hash rebased to include `source_column` and `target` (backward-compatible: defaults to `None` preserve legacy hash for findings without these fields)
   - Backward-compatibility check: all existing §01 test fixtures still pass (default values preserve current behavior)
-- [ ] **§01 re-review gate (DRIFT guard per TPR-02-004-codex round 2):** Because §01 is currently `reviewed: true` and §01.3 documents the pre-extension `Finding` schema + subtype set as complete, the §01.3 extension above requires `/review-plan plans/verify-roadmap-redesign/section-01-frontmatter-schema.md` to be re-run AFTER the extension lands. The re-review either ratifies the extension (flipping §01's `reviewed: true` back to `true` against the new state) or surfaces issues that must be resolved before §02 can claim complete. Without the re-review, §01's ownership of the Finding schema drifts silently. Alternative: if re-running `/review-plan` on §01 is deferred, the §02.N sweep blocks on §01's owner explicitly ack'ing the extension in §01's body text (new subsection §01.7 "Extensions Ratified by §02" with the exact dataclass diff).
-- [ ] §02.3 Transitive chains use Option A typed `Finding.dependency_chain`; topological sort CUT (Finding L) — no consumer, no soft-deferral
-- [ ] §02.4 Classifier precedence documented and TDD-enforced; deterministic ordering; code-fence negative pin passes
-- [ ] §02.5 Handoff contract with §03 resolved: Option A for chains (typed `dependency_chain` + `source_kind` on Finding), `source_column` disambiguator for `Finding.id` collisions, enriched `resolve_dep` findings with precise YAML line numbers
-- [ ] Known test cases (a), (b), (c), (g), (h) validated with fixture tests + asserted classifier+subtype match
-- [ ] `timeout 150 ./test-all.sh` green — no regressions
+- [x] **§01 re-review gate (DRIFT guard per TPR-02-004-codex round 2):** Because §01 is currently `reviewed: true` and §01.3 documents the pre-extension `Finding` schema + subtype set as complete, the §01.3 extension above requires `/review-plan plans/verify-roadmap-redesign/section-01-frontmatter-schema.md` to be re-run AFTER the extension lands. The re-review either ratifies the extension (flipping §01's `reviewed: true` back to `true` against the new state) or surfaces issues that must be resolved before §02 can claim complete. Without the re-review, §01's ownership of the Finding schema drifts silently. Alternative: if re-running `/review-plan` on §01 is deferred, the §02.N sweep blocks on §01's owner explicitly ack'ing the extension in §01's body text (new subsection §01.7 "Extensions Ratified by §02" with the exact dataclass diff).
+- [x] §02.3 Transitive chains use Option A typed `Finding.dependency_chain`; topological sort CUT (Finding L) — no consumer, no soft-deferral
+- [x] §02.4 Classifier precedence documented and TDD-enforced; deterministic ordering; code-fence negative pin passes
+- [x] §02.5 Handoff contract with §03 resolved: Option A for chains (typed `dependency_chain` + `source_kind` on Finding), `source_column` disambiguator for `Finding.id` collisions, enriched `resolve_dep` findings with precise YAML line numbers
+- [x] Known test cases (a), (b), (c), (g), (h) validated with fixture tests + asserted classifier+subtype match
+- [x] `timeout 150 ./test-all.sh` green — no regressions
 - [ ] `/tpr-review` — dual-source review of DAG builder and classifiers, focusing on: source-kind correctness, precedence determinism, no false positives on code-fence examples, test case (c) case-(ii) detection
 - [ ] `/impl-hygiene-review` — verify classifier logic is correct, no false negatives on known cases, no re-parsing of frontmatter (LEAK guard), `plan_corpus` stays pure (no git calls inside `dag.py`)
-- [ ] `00-overview.md` Quick Reference table updated: §02 shows the six subsections (02.0, 02.1, 02.2, 02.3, 02.4, 02.5) and revised Est. Lines (~900)
-- [ ] `00-overview.md` mission success criteria (lines 28, 29) reflect the expanded §02 node coverage and source-kind taxonomy
-- [ ] `index.md` §02 keyword cluster updated: adds `source_kind`, `code_fence_exclusion`, `html_comment_grammar`, `yaml_frontmatter_comment`, `REDUNDANT_DEPENDENCY`, `ORPHANED_PLAN`, `dag.py` module, `NodeKind`, `Reference`, `Edge`, `Dag`, `DagReport`, `enrich_resolve_dep_finding`, `normalize_subsystem`
-- [ ] Cross-links verified: §03 `depends_on: ["01", "02"]` is accurate; §04 `depends_on: ["01", "02", "03"]` is accurate; §05 validation cases align with §02.3 known-case mapping
-- [ ] All cross-section drift NOTEs (listed in the "Scope NOTEs for /tpr-review triage" block above) are addressed or carried forward to /tpr-review
-- [ ] `/improve-tooling` section-close sweep — verify per-subsection retrospectives ran; add cross-subsection findings
-- [ ] `/sync-claude` section-close sweep — verify CLAUDE.md and rules reflect any new scripts or conventions (new module `scripts/plan_corpus/dag.py`, new helpers, two new FindingSubtypes)
+- [x] `00-overview.md` Quick Reference table updated: §02 shows the six subsections (02.0, 02.1, 02.2, 02.3, 02.4, 02.5) and revised Est. Lines (~900)
+- [x] `00-overview.md` mission success criteria (lines 28, 29) reflect the expanded §02 node coverage and source-kind taxonomy
+- [x] `index.md` §02 keyword cluster updated: adds `source_kind`, `code_fence_exclusion`, `html_comment_grammar`, `yaml_frontmatter_comment`, `REDUNDANT_DEPENDENCY`, `ORPHANED_PLAN`, `dag.py` module, `NodeKind`, `Reference`, `Edge`, `Dag`, `DagReport`, `enrich_resolve_dep_finding`, `normalize_subsystem`
+- [x] Cross-links verified: §03 `depends_on: ["01", "02"]` is accurate; §04 `depends_on: ["01", "02", "03"]` is accurate; §05 validation cases align with §02.3 known-case mapping
+- [x] All cross-section drift NOTEs (listed in the "Scope NOTEs for /tpr-review triage" block above) are addressed or carried forward to /tpr-review
+- [x] `/improve-tooling` section-close sweep — verify per-subsection retrospectives ran; add cross-subsection findings
+- [x] `/sync-claude` section-close sweep — verify CLAUDE.md and rules reflect any new scripts or conventions (new module `scripts/plan_corpus/dag.py`, new helpers, two new FindingSubtypes)

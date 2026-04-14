@@ -42,6 +42,9 @@ sections:
   - id: "01.6"
     title: "Pilot Migration (all seven schema classes)"
     status: complete
+  - id: "01.7"
+    title: "Extensions Ratified by §02"
+    status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
     status: complete
@@ -492,6 +495,44 @@ PILOT, not full sweep. Full-corpus migration is the sole responsibility of Secti
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.6: no gaps (pilot used the CLI directly, no friction)
   - [x] **Run `/sync-claude` on THIS subsection** — CLAUDE.md already updated with plan_corpus.py commands
   - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files
+
+---
+
+## 01.7 Extensions Ratified by §02 (DRIFT guard per TPR-02-004-codex round 2)
+
+§01's `reviewed: true` + `status: complete` was issued against a pre-extension schema. §02 landed a set of authorized cross-section edits to `scripts/plan_corpus/types.py` (the §01.3 SSOT file). Per TPR-02-004-codex round 2, §01 must either re-run `/review-plan` after the extensions land OR ratify them explicitly in a new subsection documenting the exact dataclass diff. This subsection is the explicit ratification.
+
+**Diff ratified by §01 on 2026-04-14:**
+
+1. **New enum `SourceKind`** (homed in `types.py` alongside `Finding` to avoid circular import with `dag.py` per TPR-02-001-gemini round 2):
+   - `EXPLICIT_DEPENDS_ON`, `HTML_COMMENT_CONVENTION`, `YAML_COMMENT`, `PROSE_VERB`, `CODE_FENCE_EXAMPLE`.
+
+2. **`FindingSubtype` additions in `DAG_CONFLICT` category:**
+   - `REDUNDANT_DEPENDENCY`, `ORPHANED_PLAN`. Both added to `_CATEGORY_SUBTYPES[FindingCategory.DAG_CONFLICT]` frozenset; exhaustiveness pins in `test_plan_corpus.py` still hold.
+
+3. **`Finding` dataclass additions** (all optional, defaults preserve backward compatibility):
+   - `source_column: int | None = None` — Concern J disambiguator.
+   - `dependency_chain: tuple[Path, ...] = ()` — Option A typed chains (no string-flattening across §02→§03 phase boundary).
+   - `source_kind: SourceKind | None = None` — first-class source-kind facet, replaces the removed evidence-embedding protocol.
+
+4. **`Finding.id` hash rebased** (backward-compatible):
+   - Pre-extension: `sha256("category:subtype:source:source_line")[:6]`
+   - Post-extension: same, but `source_column` and `target` are conditionally appended ONLY when non-None, so legacy findings (defaults = None) retain their pre-extension IDs. Verified by `test_dag_types.py::TestFindingIdBackwardCompatibility`.
+
+5. **`Finding.to_json()` additions:** `source_column`, `dependency_chain`, `source_kind` serialized as list-of-strings / enum-value / int respectively.
+
+**Impact on §01's completion criteria:**
+
+- §01.2 schemas are unchanged (the extension is on `Finding`, not on the file-class dataclasses).
+- §01.3 taxonomy is unchanged (no new `FindingCategory`; two new subtypes added to an existing category per the §02.2 authorization).
+- §01.4 normalizer is unchanged.
+- §01.5 fixture corpus + exhaustiveness pins still pass (116 plan-audit tests pre-extension, 141 post-extension — §01.5's `TestFindingTypeSafety` exhaustiveness guards every new subtype is registered).
+- §01.6 pilot artifacts still validate clean against the extended schemas.
+- `docs/internal/plan-schema-reference.md` regenerated via `python -m scripts.plan_corpus docgen`; docgen drift gate passes.
+
+**Ratification:** §01's `reviewed: true` flag remains accurate against the post-extension schema. §02 is cleared to close out.
+
+- [x] **Subsection close-out (01.7)** — this subsection is purely documentary; no new work.
 
 ---
 
