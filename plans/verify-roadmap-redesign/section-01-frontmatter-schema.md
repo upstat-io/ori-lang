@@ -47,7 +47,7 @@ sections:
     status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 01: Frontmatter Schema, Strict Parser & Shared Types
@@ -234,8 +234,8 @@ Section-level enum: `not-started | in-progress | complete`. Plan-level enum: `ac
   - Wired into `./test-all.sh` as a new test family (added in 01.5's runner bootstrap and in 01.N CI enforcement) — CI fails if generated docs drift from the Python SSOT
   - Prevents the "generated file becomes a second source of truth" LEAK (editors manually edit the markdown, Python types drift, nobody notices)
 
-- [ ] **Subsection close-out (01.2)** -- MANDATORY before starting 01.3:
-  - [ ] All tasks above are `[x]`; schema dispatch covers all seven file classes (plan index, plan section, roadmap section, overview, bug-tracker section, fix-BUG, completed-plan index)
+- [x] **Subsection close-out (01.2)** -- MANDATORY before starting 01.3:
+  - [x] All tasks above are `[x]`; schema dispatch covers all seven file classes (plan index, plan section, roadmap section, overview, bug-tracker section, fix-BUG, completed-plan index)
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.2: no gaps
   - [x] **Run `/sync-claude` on THIS subsection** — CLAUDE.md §Key Paths updated
@@ -421,8 +421,8 @@ TDD per CLAUDE.md §TDD: fixtures and failing tests come FIRST; implementation (
   - [x] `fm_complete_body_unchecked.md` fixture — emits contradiction finding; NO `safety_class`
 
   **DAG-only STATUS_CONTRADICTION subtypes (Section 02 classifier — fixtures live here per 01.3 SSOT, exercised by 02's tests):**
-  - [ ] `cross_edge_temporal_drift_corpus.json` fixture — minimal two-plan corpus where plan A is `status: complete` and depends on plan B which is `status: in-progress`; Section 02's DAG classifier emits `Finding(STATUS_CONTRADICTION, CROSS_EDGE_TEMPORAL_DRIFT)` with source=A, target=B. Negative pin: a corpus where both plans are `complete` produces NO finding. Cross-link: 03.2's `classify_safety` default branch must wrap this as `ExposureReview` (no SafeFix rule for cross-edge temporal drift).
-  - [ ] `tpr_stale_vs_edit_corpus.json` fixture — minimal corpus where plan A's `third_party_review.updated: "2026-01-01"` and plan A depends on plan B whose latest section file mtime is `2026-04-01` (≥ 90 days newer); Section 02 emits `Finding(STATUS_CONTRADICTION, TPR_STALE_VS_EDIT)` with source=A, evidence carrying both timestamps. Negative pin: plan A's `updated` ≥ plan B's mtime produces NO finding. Cross-link: 05.2 validation case asserts the (g)/(h) bug-tracker scenarios are caught via this subtype.
+  - [x] `cross_edge_temporal_drift_corpus.json` fixture — minimal two-plan corpus where plan A is `status: complete` and depends on plan B which is `status: in-progress`; Section 02's DAG classifier emits `Finding(STATUS_CONTRADICTION, CROSS_EDGE_TEMPORAL_DRIFT)` with source=A, target=B. Negative pin: a corpus where both plans are `complete` produces NO finding. Cross-link: 03.2's `classify_safety` default branch must wrap this as `ExposureReview` (no SafeFix rule for cross-edge temporal drift).
+  - [x] `tpr_stale_vs_edit_corpus.json` fixture — minimal corpus where plan A's `third_party_review.updated: "2026-01-01"` and plan A depends on plan B whose latest section file mtime is `2026-04-01` (≥ 90 days newer); Section 02 emits `Finding(STATUS_CONTRADICTION, TPR_STALE_VS_EDIT)` with source=A, evidence carrying both timestamps. Negative pin: plan A's `updated` ≥ plan B's mtime produces NO finding. Cross-link: 05.2 validation case asserts the (g)/(h) bug-tracker scenarios are caught via this subtype.
 
   **Semantic pin (ONLY passes under strict mode):**
   - [x] `silent_corruption.md` — file with invalid UTF-8 in middle of YAML; `errors="replace"` parser would parse around `\uFFFD` and produce garbage frontmatter; strict parser raises. Test asserts strict behavior; test fails loudly if anyone reintroduces `errors="replace"`.
