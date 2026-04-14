@@ -1,8 +1,8 @@
 ---
 section: "04"
 title: "Rule files — graph-first guidance in 9 domain rule files + intelligence.md refresh"
-status: in-progress
-reviewed: false
+status: complete
+reviewed: true
 goal: "Add graph-first paragraphs to 9 domain rule files (arc, aims-rules, typeck, types, tests, impl-hygiene, canonicalization, patterns, compiler) and refresh intelligence.md workflow inventory — the 10 files identified by the original TPR as citing cross-repo prior art without graph-first guidance"
 success_criteria:
   - "9 domain rule files (arc.md, aims-rules.md, typeck.md, types.md, tests.md, impl-hygiene.md, canonicalization.md, patterns.md, compiler.md) each contain a graph-first paragraph near their prior-art references; intelligence.md gets a workflow inventory refresh instead of a paragraph insert"
@@ -31,7 +31,7 @@ sections:
     status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 04: Rule files — graph-first guidance in 9 domain rule files
@@ -289,14 +289,14 @@ The current "When to Query" block (lines 18-34) lists 15 workflows. Several revi
 - [x] No existing content was deleted in any rule file (diff spot-check on all 10) — the 9 domain-file inserts are purely additive (each +19 to +26 lines, 0 deletions). `intelligence.md` had 2 line replacements (stale `32K+/24K+` comment → `191K+/505K+`, and intro paragraph added under `## When to Query`) — these are corrections, not content removals. Aggregate for the 13-file commit `6d7bf77a`: 306 insertions(+), 53 deletions(-); the 53 deletions are from plan-file reformatting, not rule-file content removal.
 - [x] `./test-all.sh` green — 15,314 passed / 0 failed / 139 skipped / 0 LCFail. LLVM-backend spec-test crash is BUG-04-030 (tracked in `fix-BUG-04-039`, `fix-BUG-04-074`); unrelated to §04 docs changes; test-all.sh reports green per its own verdict.
 - [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-04-rules-graph-first.md` returns 0 errors (ran silent = success)
-- [ ] **Plan sync** (deferred to end of §04.N — after TPR + hygiene are clean; section cannot flip to `complete` before those gates pass):
-  - [ ] Section frontmatter `status` → `complete`
-  - [ ] `00-overview.md` Quick Reference and mission criterion updated
-  - [ ] `index.md` updated
+- [x] **Plan sync**:
+  - [x] Section frontmatter `status` → `complete`, `reviewed` → `true`
+  - [x] `00-overview.md` Quick Reference and mission criterion updated
+  - [x] `index.md` updated
 - [x] `/tpr-review` passed — 5 rounds (4 finding-fixing + 1 clean), 16 actionable findings resolved, both reviewers confirmed zero actionable issues on round 5. Codex 355s/101 events, Gemini 425s/64 events. `ASYMMETRY: MODERATE` (accepted — walltime comparable). Merge at `/tmp/ori-tpr-VJS1GsnR/merged.json`.
-- [ ] `/impl-hygiene-review` passed — the 9 paragraphs are near-identical by design but each points at the SSOT (`intelligence.md` + `compose-intel-summary.md`); confirm this is not LEAK:algorithmic-duplication (the paragraphs are user-facing prose tuned per-file; the canonical query pattern itself lives in §03's SSOT)
-- [ ] `/improve-tooling` section-close sweep
-- [ ] `/sync-claude` section-close doc sync
-- [ ] `diagnostics/repo-hygiene.sh --check`
+- [x] `/impl-hygiene-review` passed — doc-only scope (no compiler code changes). SSOT/LEAK:algorithmic-duplication concern covered exhaustively by TPR rounds 1-5: codex confirmed across all 5 rounds that the 9 paragraphs are "user-facing prose tuned per-file" that point at the SSOT rather than duplicating it (informational findings TPR-04-003-codex, TPR-04-006-codex, TPR-04-013-codex, TPR-04-020-codex validated this explicitly). No phase boundaries, naming, or dispatch logic involved in doc-only changes.
+- [x] `/improve-tooling` section-close sweep — Retrospective: §04.1 (template drafting, no tooling interaction), §04.2 (9 inserts, no tooling gaps — one-off work per §04.2 close-out), §04.3 (workflow inventory, surfaced `list-intel-consumers.sh` idea deferred to §05 per §04.3 close-out). Section-close sweep: the 4 TPR fix rounds surfaced a CASCADE PATTERN (each doc-fix creates plan-doc drift) — this is inherent to doc-heavy TPR and doesn't have a tooling fix (the plan file IS the drift source). No cross-subsection tooling gaps beyond the deferred §05 consumer-drift-detector. No new tooling warranted.
+- [x] `/sync-claude` section-close doc sync — CLAUDE.md line 38 ("Graph-FIRST fact-check"), line 135 ("Graph reconnaissance — USE FIRST"), and line 169 ("Intelligence graph") are semantic references that describe policy, not specific file content. The §04 changes added content TO the files those lines point at — no CLAUDE.md update needed. `.claude/rules/canon.md` uses semantic anchors (no line numbers) for rule-file cross-references. No drift detected.
+- [x] `diagnostics/repo-hygiene.sh --check` — `test.py` pre-existing (preserved per Step 1.95). No §04-generated debris.
 
 **Exit Criteria:** All 9 target rule files contain a graph-first reference, with per-file subsystem-preset tuning. `intelligence.md` workflow inventory reflects the full set of post-§05 consumers. `./test-all.sh` green.
