@@ -80,11 +80,13 @@ Every AST type reference carrying `Tag::Infer` SHALL be replaced by a fresh unif
 
 Rationale: The checker operates on `Var`s; `Infer` is the parser's placeholder. Mixing them is a `TYPES:TK-5` violation.
 
-### CK-4 — Trivial Signature Hoisting
+### CK-4 — Signature Contract at Bodies Entry
 
-Every function/method signature SHALL be fully resolved by end of the Signatures pass (#1). Signatures SHALL NOT contain `Tag::Var`, `Tag::Infer`, or unnormalized `Tag::Projection` when the Bodies group begins (pass #2).
+By end of the Signatures pass (#1), every function / method signature SHALL carry pool-resolved `Idx` values for each parameter type and the return type. Signatures SHALL NOT contain `Tag::Infer` (parser placeholders for user-elided annotations — these are replaced by fresh `Tag::Var`s at signature-collection time per `CK-3`), unnormalized `Tag::Projection`, or unresolved `Tag::Named` references.
 
-A signature reaching the Bodies group with unresolved variables is a `PC-2` (output contract) violation of the signatures sub-phase, not of the whole checker.
+Fresh `Tag::Var`s for unannotated parameters or unannotated return types ARE permitted in `FunctionSig`; they are the checker-owned unification targets that the Bodies group resolves. Source: `compiler/ori_types/src/check/signatures/mod.rs` (`collect_signatures`) allocates a fresh `Var` for any parameter without an annotation. The Bodies pass for that function then unifies those fresh `Var`s against call-site and body constraints before emission.
+
+A signature reaching the Bodies group with `Tag::Infer`, `Tag::Projection`, or unresolved `Tag::Named` is a `PC-2` (output contract) violation of the signatures sub-phase. A signature carrying a fresh `Tag::Var` is NOT — that is the normal hand-off shape.
 
 Rationale: Body-checking relies on knowing call-site types. Unresolved signatures would create an ordering dependency between bodies, making the Bodies-group passes non-parallelizable and non-Salsa-cacheable.
 
@@ -172,7 +174,7 @@ Rationale: Tag-driven dispatch reuses the pool's existing structural vocabulary.
 
 Cross-reference: `TYPES:TK-4`.
 
-Spec: Clause 8.1.8 (Never).
+Spec: Clause 8.1.1 (Never Semantics).
 
 ### UN-4 — Error Absorbs
 
@@ -253,7 +255,7 @@ Cross-reference: `HYG:§Error Handling — Expected context`.
 
 ### BD-5 — Mode Discipline
 
-Mixing `Synth` and `Check` within one expression typing function without an explicit switch is a correctness risk. Each case of each expression form SHALL declare its mode. A function that ambiguously mixes modes is a `HYG:§Bidirectional mode discipline` violation.
+Mixing `Synth` and `Check` within one expression typing function without an explicit switch is a correctness risk. Each case of each expression form SHALL declare its mode. A function that ambiguously mixes modes inverts the error-direction convention (BD-3) and is a correctness bug.
 
 ---
 
@@ -344,9 +346,7 @@ Spec: Clause 14.3, `spec/operator-rules.md`.
 4. Verify capability set (`CP-2`).
 5. Result type is `R`.
 
-Named arguments (`f(x: 1, y: 2)`) SHALL match the function's parameter names from the signature; order at the call site is independent. Punning (`f(x:)` = `f(x: x)`) SHALL match only when `x` is in scope with the matching name.
-
-Variadic parameters (`...int`) SHALL collect all remaining positional arguments into `[T]`. Spread (`sum(...list)`) SHALL unpack `[T]` into variadic positions; mixing spreads and positional in the variadic slot is an `E2004` (arity).
+**(Target-only)** Spec Clauses 10 / 14.5 specify named-argument matching by parameter name (`f(x: 1, y: 2)`, order independent), argument punning (`f(x:)` = `f(x: x)`), variadic collection (`...int` collects remaining positional arguments into `[T]`), and spread (`sum(...list)`). The shipped call checker validates arguments positionally (`compiler/ori_types/src/infer/expr/calls/call_inference.rs`, `compiler/ori_types/src/infer/expr/calls/method_call.rs`); argument names flow into diagnostics but not into matching logic. The AST preserves `Param.is_variadic` and `CallArg.is_spread` fields for the parser's benefit, but `ori_types` does not yet consume them during inference.
 
 Spec: Clauses 10, 14.5.
 
@@ -431,12 +431,15 @@ Spec: Clause 15.
 
 ### EX-10 — Loop Expressions
 
-- `while c do body` — Check `c` with `Check(bool)`; check `body` with expected type `()`; result type is `()`.
+Shipped loop typing covers `for` and `loop`:
+
 - `for x in iter do body` — Synthesize `iter`'s type; require `Iterable`; bind `x : Iter.Item`; check body with expected `()`; result type is `()`.
 - `for x in iter yield e` — analogous, but collect each yielded `e` into a result collection; result type is `[E]` (or `{K: V}` if `e` is `(K, V)`).
 - `loop { body }` — Check body; allow `break value` to supply the loop's result type via the loop-break stack (`EN-1`); result type is inferred from `break value`s (or `Never` if none).
 
-`while` / `for-do` SHALL NOT support `break value` (`E0860` from parse per `PARSE:DI` — the checker does not re-emit).
+`for-do` SHALL NOT support `break value` (`E0860` from parse per `PARSE:DI` — the checker does not re-emit).
+
+**(Target-only)** Spec defines `while c do body` — `Check(c, bool)`, body `Check(())`, result `()`, `break value` forbidden — and the parser reference (`PARSE:CF` target-only annotations) marks the `while` production target-only. No `While` AST node or inference entry point exists in `ori_types` today; the shipped checker does not type `while` expressions.
 
 Spec: Clause 16.
 
@@ -493,7 +496,7 @@ Spec: Clause 14.10 (struct literals).
 - `{k: v}` — keys unified; values unified; result `{K: V}`; `K` must satisfy `Hashable` (`E2031`).
 - `{[expr]: v}` — computed-key form; `expr` typed as `K`.
 
-Fixed-capacity literal `[1, 2, 3]: [int, max 4]` SHALL be typed via bidirectional expected-type propagation (`BD-2`). The annotation `[int, max 4]` becomes the expected type on the literal, propagating `Check(int)` to each element. The checker does NOT infer a wider `[T]` and then subtype — `TYPES:PT-2` only allows widening from `[V, max N]` to `[V]`, not the reverse, and `TYPES:PT-3` mandates invariance. Expected-type propagation gives the element-count and element-type constraints directly.
+**(Target-only — fixed-capacity)** Spec supports `[1, 2, 3]: [int, max 4]` fixed-capacity annotations; the spec-target typing is bidirectional expected-type propagation where `Check([int, max 4])` propagates `Check(int)` to each element and the capacity is checked at the literal. Today the shipped checker erases `[T, max N]` to `[T]` at type resolution (`TYPES:PT-2`), so a fixed-capacity-annotated literal is checked as an ordinary `[int]` literal; no capacity-aware bidirectional path is active. The target bidirectional path activates when fixed-capacity erasure is lifted.
 
 Spec: Clause 14.11.
 
@@ -542,15 +545,15 @@ Blanket impls (`impl<T: Bound> T: Trait`) SHALL NOT overlap with specific impls 
 
 ### TR-3 — Specificity
 
-When multiple impls match a call site (e.g., a blanket and a specific), the more specific SHALL win. Specificity order (from most to least specific):
+When multiple impls match a call site (e.g., a blanket and a specific), the more specific SHALL win. The shipped specificity model has three levels, stored as `ImplSpecificity::{Generic, Constrained, Concrete}` in `compiler/ori_types/src/registry/traits/mod.rs`:
 
-1. Concrete type without generic parameters
-2. Applied type with some generic parameters (e.g., `Option<int>`)
-3. Fully generic applied type (e.g., `Option<T>`)
-4. Type parameter with bounds (e.g., `T: Eq`)
-5. Type parameter without bounds (e.g., `T`)
+1. **Concrete** — no type parameters and no `where` clause (most specific).
+2. **Constrained** — type parameters present AND a `where` clause or bound constrains them.
+3. **Generic** — type parameters present with no additional constraints (least specific).
 
-Ties produce `E2021` (ambiguous specificity).
+Specificity is computed from `type_params.is_empty()` and `where_clause.is_empty()` at registration (`check/registration/impls.rs`); competing impls are resolved by taking the `max` of the three-level `ImplSpecificity`. Ties at the same level produce `E2021` (overlapping implementations).
+
+**(Target-only)** Finer specificity distinctions — e.g., separating `Applied(T, concrete_args)` from fully-generic `Applied(T, type_params)`, or ordering bound-constrained parameters by bound count — are specified but not yet modeled. Finer ranking ships together with richer impl metadata.
 
 ### TR-4 — Bound Satisfaction
 
@@ -606,7 +609,7 @@ Source: `ori_types/src/infer/mod.rs` (capability fields), `ori_types/src/infer/e
 
 ### CP-1 — Capability Set Propagation
 
-Every function type SHALL carry a capability set (the `uses Cap1, Cap2` clause). Capability sets SHALL propagate in the `TypeFlags::HAS_CAPABILITY` bit (`TYPES:TF-3`) — any compound type containing a function with non-empty capabilities inherits the flag.
+Every function declaration SHALL carry a capability set (the `uses Cap1, Cap2` clause). In the shipped representation, the capability set lives on `FunctionSig.capabilities` as a metadata sidecar — the pool entry for `Tag::Function` stores only `[param_count, param_tys..., return_ty]` (`TYPES:TL-2`) with no capability payload. **(Target-only)** In-pool capability encoding and `TypeFlags::HAS_CAPABILITY` propagation (`TYPES:TF-1`, `TYPES:TF-3`) are specified but not yet shipped; when they do, compound types containing a function with non-empty capabilities will inherit the flag.
 
 ### CP-2 — Call-Site Capability Requirement
 
@@ -700,22 +703,23 @@ Spec: Clause 15.4, Clause 16.
 
 Guards do NOT contribute to exhaustiveness coverage. A guarded arm `P if cond -> e` is treated as if `cond` could fail, so the exhaustiveness checker considers the arm unreachable under that guard. A match with only guarded arms SHALL require a `_` catch-all.
 
-### CF-5 — Conditional Compilation
+### CF-5 — Conditional Compilation (driver-layer pruning)
 
-`#target(os: "linux")` and `#cfg(debug)` attributes at declaration sites SHALL gate the declaration at parse/check time:
+Per Spec Clause 25, `#target(os: "linux")` and `#cfg(debug)` attributes at declaration sites SHALL gate the declaration at the parse/driver boundary: unsatisfied branches are dropped before type checking begins; satisfied branches enter the normal `ori_types` pipeline. The `ori_types` checker SHALL assume its input `Module` has already been filtered — it does NOT walk `target_attr` / `cfg_attr` fields during any `CK-1` pass.
 
-- Unsatisfied branches SHALL NOT be type-checked — the false branch is dropped before signature collection.
-- Satisfied branches enter the normal pipeline.
+**(Target-only)** The driver-layer / parser-layer pruning pass that removes unsatisfied branches is not yet wired into the shipped `ori_types` entry path (`compiler/ori_types/src/check/api/mod.rs` walks `module.types`, `module.impls`, `module.functions`, `module.tests` unconditionally). When it ships, pruning runs before the Registration group (pass 0a) and is transparent to every rule below.
 
-The `$target_os`, `$target_arch`, `$target_family`, `$debug`, `$release` constants SHALL have type `str` or `bool` as appropriate and SHALL be compile-time foldable.
+The `$target_os`, `$target_arch`, `$target_family`, `$debug`, `$release` constants SHALL have type `str` or `bool` as appropriate and SHALL be compile-time foldable (ownership: const-evaluator / driver, not `ori_types`).
 
 Spec: Clause 25 (conditional compilation).
 
 ### CF-6 — Test Declarations
 
-`@t tests @fn () -> void` (attached test) and `tests _` (floating test) SHALL be checked as normal function bodies but tagged in the typed IR for test-harness consumption.
+`@t tests @fn () -> void` (attached test) and `tests _` (floating test) SHALL be checked as normal function bodies but tagged in the typed IR for test-harness consumption (`check/bodies/mod.rs` `check_test_bodies`, pass 3 per `CK-1`).
 
-`#skip("reason")` SHALL NOT suppress type errors — only type-correct bodies are skippable. `#compile_fail("expected_error")` SHALL type-check and assert the expected error code was produced.
+`#skip("reason")` SHALL NOT suppress type errors — only type-correct bodies are skippable.
+
+`#compile_fail("expected_error")` expectation matching is owned by the test harness (`oric`'s test runner), not the `ori_types` checker. Per Spec Clause 19, a `#compile_fail` test passes when compilation fails with a diagnostic whose message contains the requested substring. `ori_types` type-checks the test body as any normal body; failure-expectation comparison happens at the harness layer that consumes the checker's emitted diagnostics.
 
 Spec: Clause 19 (testing).
 

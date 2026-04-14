@@ -301,7 +301,7 @@ The complete `TypeFlags` bitset SHALL be:
 | 17 | `IS_RESOLVED` | Optimization | Fully resolved — no variables, no projections |
 | 18 | `IS_MONO` | Optimization | Monomorphic — no generic parameters |
 | 19 | `IS_COPYABLE` | Optimization | Known to be bit-copyable (Value trait) |
-| 24 | `HAS_CAPABILITY` | Capability | Contains a function type that `uses` at least one capability |
+| 24 | `HAS_CAPABILITY` | Capability | **(Target-only)** Bit reserved for "contains a function type that `uses` at least one capability". Today `Tag::Function` pool entries do not store capability sets — capabilities are carried on `FunctionSig.capabilities` alongside the pool `Idx` (see `CHK:CP-1`). Propagation via this flag activates when in-pool capability encoding ships. |
 | 25 | `IS_PURE` | Capability | Guaranteed pure (no effects) |
 | 26 | `HAS_IO` | Capability | Contains a function with IO effects |
 | 27 | `HAS_ASYNC` | Capability | Contains a function with async / `Suspend` effects |
@@ -369,7 +369,7 @@ The following primitive types SHALL be supported with the tag mapping from TY-5:
 | `Size` | `Size` | `i64` (bytes, non-negative) |
 | `Ordering` | `Ordering` | `i8` (Less=0, Equal=1, Greater=2) |
 
-Spec: Clauses 8.1.1 through 8.1.11.
+Spec: Clause 8.1 (primitive table) plus subclauses 8.1.1 (Never Semantics), 8.1.2 (Duration), 8.1.3 (Size).
 
 ### TL-2 — Compound Types
 
@@ -378,14 +378,14 @@ The following compound types SHALL be representable:
 | Ori syntax | Tag | Pool encoding |
 |------------|-----|---------------|
 | `(T1, T2, ...)` | `Tuple` | extra: `[len, T1, T2, ...]` |
-| `(T) -> R uses Caps` | `Function` | extra: `[arity, param_tys..., return_ty, capability_set]` |
+| `(T) -> R` | `Function` | extra: `[param_count, param_tys..., return_ty]` |
 | `[T]` | `List` | data: `T.raw()` |
-| `[T, max N]` | `List` + ReprPlan hint (target-only for fixed-capacity fast path) | data: `T.raw()` + capacity in layout |
+| `[T, max N]` | Erased to `Tag::List` with no capacity payload (shipped) | See `PT-2` target-only note — capacity-preserving encoding not yet shipped |
 | `{K: V}` | `Map` | extra: `[K, V]` |
 | `Set<T>` | `Set` | data: `T.raw()` |
 | struct | `Struct` | extra: `[field_count, name_id, field_name_id_1, field_ty_1, ...]` |
 | enum | `Enum` | extra: `[variant_count, name_id, variant_name_id_1, variant_payload_1, ...]` |
-| trait object | `Applied` over a `Named` trait | extra: `[trait_name, concrete_args]` |
+| trait object | shipped as first-bound placeholder `Idx` | See TL-7 — placeholder representation today; dedicated pool encoding is target-only |
 
 Spec: Clause 8.2.
 
@@ -393,7 +393,7 @@ Spec: Clause 8.2.
 
 Generic parameters SHALL be represented as `RigidVar` inside a surrounding `Scheme` (SC-1). Applied generics (`Option<int>`, `Result<T, Error>`) SHALL be represented as `Applied(named, [args...])` where `Applied`'s `extra` lists the argument `Idx`s in declaration order. Bounds (`T: Eq + Clone`) SHALL be stored in the `TraitRegistry` associated with the scheme's binding site, not in the pool.
 
-Const generics (`$N: int`) SHALL be represented as bound values carried alongside rigid type vars; the pool representation records the kind (type vs const) per bound var.
+Const generics (`$N: int`) SHALL be tracked separately from type parameters. The shipped checker filters const params out of type-parameter collection (`compiler/ori_types/src/check/signatures/mod.rs`, `compiler/ori_types/src/check/registration/type_resolution.rs`) and stores them on `FunctionSig.const_params` as a metadata sidecar. The pool's `Tag::Scheme` layout carries plain type-variable ids only — `[var_count, var_id_1, ..., var_id_N, body_idx]` — with no kind discriminator for const-vs-type. **(Target-only)** A kind-tagged scheme-binder representation would unify type and const generics in one pool layout, but is not yet shipped.
 
 Spec: Clause 8.3.
 
@@ -446,7 +446,9 @@ Spec: Clauses 8.6 (user-defined types, including 8.6.3 newtype), 8.7 (nominal ty
 
 ### TL-7 — Trait Objects
 
-Trait object types SHALL be representable as `Applied(trait_name, concrete_args)` when used at value positions (argument, return, field). Trait objects SHALL be rejected for traits that are not object-safe (TR-6); the check runs at registration time, not at use time.
+Trait objects at value positions (argument, return, field) are written in source as `ParsedType::TraitBounds` carrying one or more bound trait names. The shipped checker resolves each bound for object-safety verification (TR-6, `CHK:TR-6`) at registration time, then returns the FIRST bound as a placeholder `Idx` from type-resolution (`compiler/ori_types/src/check/signatures/mod.rs`, `compiler/ori_types/src/check/registration/type_resolution.rs`). The placeholder pool `Idx` is the shipped representation of a trait-object typed position today.
+
+**(Target-only)** The full spec-target encoding is a dedicated trait-object pool entry — likely `Applied(trait_name, concrete_args)` or an object-safe-marked `Named` variant — that is structurally distinct from a concrete type satisfying the trait. That encoding is not yet in the pool; consumers downstream of the placeholder `Idx` rely on object-safety enforcement at registration rather than a distinct runtime representation.
 
 Spec: Clause 8.8 (trait objects).
 
@@ -490,10 +492,11 @@ A value of type `T` is assignable to type `U` iff:
 
 - `T == U` (identical), OR
 - `T = Never` (bottom coerces to anything — TK-4), OR
-- `T = [V, max N]` and `U = [V]` (fixed-capacity widens to dynamic; narrowing from `[V]` to `[V, max N]` is NOT a subtyping relationship — a list literal assigned to a fixed-capacity-annotated binding is typed via bidirectional checking with `Check([V, max N])` propagated inward, NOT via post-hoc narrowing), OR
 - A user-defined `Into<U>` impl exists on `T` and the conversion is explicit at the call site via `.into()` (the checker SHALL NOT insert implicit `.into()` calls).
 
 The checker SHALL reject all other assignments with `E2001`. Ori SHALL NOT perform implicit numeric widening (`int` to `float`), implicit pointer decay, or implicit trait-object coercion.
+
+**(Target-only)** Spec Clause 8.2.2 specifies a one-way widening from fixed-capacity lists `[V, max N]` to dynamic `[V]`. The shipped checker ERASES `ParsedType::FixedList` to `[V]` during registration / signature / expression type resolution (`compiler/ori_types/src/check/registration/type_resolution.rs`, `compiler/ori_types/src/check/signatures/mod.rs`, `compiler/ori_types/src/infer/expr/type_resolution.rs`), so no capacity-aware subtyping rule is enforced today — both `[V, max N]` and `[V]` hit the pool as the same `[V]` shape. A capacity-preserving pool encoding and the one-way widening assignability rule are target-only until fixed-capacity erasure is lifted.
 
 Spec: Clause 9.2.
 
@@ -839,7 +842,7 @@ Cross-reference: `compiler.md §Phase Dumps` for the complete list.
 | **TypeScript `Type` interface** | `flags: TypeFlags` bitset on every type | `TypeFlags` on every pool entry (TF-1) |
 | **Roc `Symbol = (ModuleId, IdentId)`** | Packed symbol for O(1) equality | Aspirational — `HYG:§Aspirational Patterns` |
 | **Gleam `Type`** | Enum-based type representation, structural HM | `Tag` discriminated union (TK-1) |
-| **Koka type rep.** | Effect-typed functions with capability sets | `Function` tag carrying capability set (TL-2) |
+| **Koka type rep.** | Effect-typed functions with capability sets | Capabilities tracked on `FunctionSig` metadata (not in `Tag::Function` pool entry) |
 | **Lean 4 `InternPool`** | Interned types with Merkle hashing | TI-3 Merkle classification |
 
 ### Interface with typeck.md
