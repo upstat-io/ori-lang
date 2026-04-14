@@ -69,9 +69,24 @@ class FileClass(enum.Enum):
 
 
 def classify_file(path: Path) -> FileClass | None:
-    """Classify a plan file into one of the seven schema classes."""
+    """Classify a plan file into one of the seven schema classes.
+
+    Anchors on the first `plans` segment in the resolved path so the
+    classifier works both on real PLANS_DIR paths AND on synthetic
+    tmp_path corpora used by tests. Falls back to path.parts when no
+    `plans` segment exists (exact pre-refactor behavior).
+    """
     path = path.resolve()
-    parts = path.relative_to(PLANS_DIR).parts if path.is_relative_to(PLANS_DIR) else path.parts
+    if path.is_relative_to(PLANS_DIR):
+        parts = path.relative_to(PLANS_DIR).parts
+    else:
+        full_parts = path.parts
+        # Scan for the first 'plans' segment and take everything after it.
+        try:
+            idx = full_parts.index("plans")
+            parts = full_parts[idx + 1:]
+        except ValueError:
+            parts = full_parts
 
     name = path.name
 

@@ -30,7 +30,7 @@ sections:
     status: complete
   - id: "02.1"
     title: "DAG Construction"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Conflict Classifiers"
     status: not-started
@@ -163,7 +163,7 @@ This subsection lays the structural foundation for §02.1–02.4. It must be com
 
 Build a directed acyclic graph where nodes are instances of all seven §01.2 schema classes and edges come exclusively from `EXPLICIT_DEPENDS_ON` references. Body-text and HTML/YAML-comment references are collected as `Reference` records but are NOT promoted to edges — they feed the MISSING_DEPENDENCY classifier in §02.2.
 
-- [ ] Populate nodes from `Corpus`:
+- [x] Populate nodes from `Corpus`:
   - One `NodeId(NodeKind.PLAN_INDEX, path)` per entry in `corpus.indexes`
   - One `NodeId(NodeKind.PLAN_SECTION, path)` per entry in `corpus.plan_sections`
   - One `NodeId(NodeKind.ROADMAP_SECTION, path)` per entry in `corpus.roadmap_sections`
@@ -173,14 +173,14 @@ Build a directed acyclic graph where nodes are instances of all seven §01.2 sch
   - One `NodeId(NodeKind.COMPLETED_INDEX, path)` per entry in `corpus.completed_indexes`
   - Every node's metadata includes (a) its file-class `status` field, (b) `reviewed`, (c) `goal` (if present), (d) parent-plan index for section-class nodes
 
-- [ ] Parse explicit dependencies from `depends_on` frontmatter fields (consumes §01.3 SSOT — no path-based resolution):
+- [x] Parse explicit dependencies from `depends_on` frontmatter fields (consumes §01.3 SSOT — no path-based resolution):
   - §01's parser has already validated `depends_on` as logical-ID values (`DepId`): intra-plan `"NN"` or cross-plan `"plan-name#NN"`. Full paths are rejected at parse time and never reach §02.
   - Resolve every `DepId` through `plan_corpus.docgen.resolve_dep(dep_id, source_plan_dir, corpus)` which uses `Corpus.name_index` to map `plan-name#NN` → target plan directory → target section file. Intra-plan `"NN"` resolves within the source plan.
   - If `resolve_dep` returns a `Finding` (DEAD_REFERENCE or SCHEMA_VIOLATION), §02 propagates it unchanged — §02 does not re-validate.
   - If `resolve_dep` returns a `Path`, create a `Reference(source_kind=SourceKind.EXPLICIT_DEPENDS_ON, source_line=<depends_on item line>, ...)` and promote it to an `Edge` from the declaring node to the resolved node.
   - **NOTE (handoff to §03 — Finding K):** `resolve_dep` currently returns `source=plan_dir / "index.md"` on unresolved cross-plan names and `source=plan_dir` on missing section files (see `scripts/plan_corpus/docgen.py:54,85`). For §03 SafeFix to remove the exact offending `depends_on` entry, §02 must enrich the returned Finding with `source_line` (the YAML line of the offending list item) and `evidence=(dep_id,)`. Add an `enrich_resolve_dep_finding(finding, dep_id, dep_line) -> Finding` helper that rebuilds the Finding with the precise location.
 
-- [ ] Collect body-text, HTML-comment, and YAML-comment references (NO edges created):
+- [x] Collect body-text, HTML-comment, and YAML-comment references (NO edges created):
   - For each node's body (`ValidatedFile.body`):
     - Compute `code_block_regions = strip_code_blocks(body)` once
     - For each `plans/*/` path match that falls OUTSIDE the code-block regions, emit a `Reference(source_kind=SourceKind.PROSE_VERB, ...)` if preceded by a verb from the `DEPENDENCY_VERBS` set, otherwise `source_kind=SourceKind.PROSE_VERB` with `verb=None` (informational, does not feed MISSING_DEPENDENCY).
@@ -191,13 +191,13 @@ Build a directed acyclic graph where nodes are instances of all seven §01.2 sch
     - Call `extract_yaml_comments(text, body_offset)` and scan each comment for any `DEPENDENCY_VERBS` member OR `plans/*/` path OR bug ID (`BUG-\d{2}-\d{3}`); matches become `Reference(source_kind=SourceKind.YAML_COMMENT, ...)`.
   - Scope constraint: this body-fact extractor reads `ValidatedFile.body` and raw frontmatter only. It does NOT re-parse the frontmatter mapping (§01's parser is the SSOT for that) and it does NOT re-validate schemas (§01's validators are the SSOT). The helper is permitted to read the original file bytes ONLY for the raw-frontmatter comment scan.
 
-- [ ] Map shared subsystems using the §02.0 normalization table:
+- [x] Map shared subsystems using the §02.0 normalization table:
   - For each node, extract a set of subsystem references from its body (crate paths like `compiler/ori_arc`, type names like `AIMS`, `ArcClassifier`, etc.) and its success criteria.
   - Normalize every extracted token via `normalize_subsystem`; drop `None` results.
   - Build `subsystem_to_nodes: dict[str, set[NodeId]]`.
   - Record this mapping on the `Dag` object — it is input to the CONFLICT and MISSING_DEPENDENCY classifiers (§02.2), NOT an edge source.
 
-- [ ] Assemble the `Dag` dataclass:
+- [x] Assemble the `Dag` dataclass:
   - `nodes: set[NodeId]`
   - `edges: list[Edge]` — EXPLICIT_DEPENDS_ON only
   - `references: list[Reference]` — all source kinds (used by classifiers)
@@ -206,22 +206,22 @@ Build a directed acyclic graph where nodes are instances of all seven §01.2 sch
   - `name_index: dict[str, Path]` — a reference to `Corpus.name_index` for classifier reuse
   - Provide `Dag.to_json() -> dict` for serialization; serialization is lossless round-trip
 
-- [ ] Detect and report cycles via Tarjan SCC:
+- [x] Detect and report cycles via Tarjan SCC:
   - For each non-trivial SCC (size > 1 or self-loop), emit one `Finding(category=DAG_CONFLICT, subtype=CYCLE, severity=HIGH, dependency_chain=tuple(node.path for node in scc_path), source_kind=SourceKind.EXPLICIT_DEPENDS_ON)` — cycles are edge-based so all members carry EXPLICIT_DEPENDS_ON. Chain is structured (typed `dependency_chain`), NOT string-formatted into `evidence` — per Option A (TPR-02-006-codex + TPR-02-003-gemini-r3)
   - Cycles indicate a mutual dependency that cannot be resolved by execution order — severity is HIGH because the graph is unusable downstream
 
-- [ ] **Subsection close-out (02.1)** — MANDATORY before starting 02.2:
-  - [ ] Write failing test fixtures FIRST (TDD):
-    - `fixture_dag_basic.yaml` — two plans, one `depends_on` the other — verify one edge
-    - `fixture_dag_code_fence.md` — a body with `plans/ori_lsp/` inside ``` ... ``` — verify no reference emitted (Finding D semantic pin)
-    - `fixture_dag_yaml_comment.md` — fix-BUG frontmatter with `status: in-progress  # blocked by plans/iterator-element-ownership/` — verify YAML_COMMENT reference emitted (Finding F semantic pin)
-    - `fixture_dag_html_unblocks.md` — roadmap section with `<!-- unblocks:jit-exception-handling/04B -->` — verify HTML_COMMENT_CONVENTION reference emitted with reverse direction (Finding B semantic pin for test case (h))
-    - `fixture_dag_fix_bug_node.md` — a fix-BUG file — verify it appears as a node with `NodeKind.FIX_BUG` (Finding C/G semantic pin for test case (g))
-    - `fixture_dag_completed_index_node.md` — a `plans/completed/*/index.md` file — verify it appears as a node with `NodeKind.COMPLETED_INDEX` (Finding G semantic pin for test case (h))
-  - [ ] All tasks above are `[x]` and `build_dag(corpus)` runs on the live corpus without Python exceptions
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Run `/sync-claude` on THIS subsection** — check whether changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md` claims. If no changes, document briefly. Fix any drift NOW.
+- [x] **Subsection close-out (02.1)** — MANDATORY before starting 02.2:
+  - [x] Write failing test fixtures FIRST (TDD): implemented as programmatic tmp_path mini-corpora in `tests/plan-audit/test_dag_construction.py` (11 tests, all fixtures inline) — one mini-corpus per fixture name. Committing tiny .md fixtures would duplicate setup in multiple tests; inline tmp_path keeps the live corpus pristine.
+    - [x] `fixture_dag_basic` — `TestDagConstructionBasic::test_two_plans_with_depends_on_yields_one_edge`
+    - [x] `fixture_dag_code_fence` (Finding D) — `TestDagConstructionCodeFence::test_code_fence_path_does_not_produce_reference`
+    - [x] `fixture_dag_yaml_comment` (Finding F) — `TestDagConstructionYamlComment::test_yaml_comment_in_frontmatter_emits_reference`
+    - [x] `fixture_dag_html_unblocks` (Finding B, case (h)) — `TestDagConstructionHtmlUnblocks::test_html_unblocks_comment_emits_html_reference`
+    - [x] `fixture_dag_fix_bug_node` (Finding C/G, case (g)) — `TestDagNodeCoverage::test_fix_bug_file_appears_as_fix_bug_node`
+    - [x] `fixture_dag_completed_index_node` (Finding G, case (h)) — `TestDagNodeCoverage::test_completed_index_appears_as_completed_index_node`
+  - [x] All tasks above are `[x]` and `build_dag(corpus)` runs on the live corpus without Python exceptions — verified: 375 nodes, 338 edges, 441 references, 18 subsystems, 16 resolution findings, 1 cycle finding.
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — One tooling-surface improvement surfaced and landed in this subsection itself: `classify_file` was refactored to anchor on the first `plans/` segment in resolved paths instead of requiring `PLANS_DIR`, so synthetic `tmp_path` corpora work in tests without patching globals. Backward-compatible (PLANS_DIR callers take the same branch as before).
+  - [x] **Run `/sync-claude` on THIS subsection** — No global CLAUDE.md / rules / canon drift. `dag.py` consumes types.py (canonical home); `classify_file` signature is unchanged. `.claude/rules/canon.md` §6 SSOT table will be updated at §02.N sweep once `DagReport` joins the public API surface.
 
 ---
 
