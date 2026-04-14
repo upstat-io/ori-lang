@@ -135,7 +135,7 @@ Per-test disposition:
 - [ ] `synergy_metrics_merge_additive` (tests.rs:1249-1277) — TRIM: remove `cow_upgrades` / `cross_dim_reuse` from the struct-literal initialization AND from merge-result assertions; keep the surviving-field behavior (tests `reuse_decisions`, `total_rc_decisions`, `total_cow_decisions`, `natural_fip`, `canonicalize_cross_fires` merge correctly).
 - [ ] `synergy_metrics_reuse_percent` (tests.rs:1279-1288) — PRESERVE unchanged (uses only `reuse_decisions` + `total_rc_decisions`).
 - [ ] `synergy_metrics_percent_zero_total` (tests.rs:1290-1294) — PRESERVE unchanged (uses only `Default::default()`).
-- [ ] `synergy_metrics_cross_dim_evidence` (tests.rs:1296-1310) — DELETE entirely (tests `cross_dim_evidence_total()` and `has_cross_dim_evidence()` helpers on removed fields; if `cross_dim_evidence_total()` is kept after counter removal its behavior on removed fields is meaningless — the method itself must also be removed or refactored to sum only surviving canonicalize-stage counters).
+- [ ] `synergy_metrics_cross_dim_evidence` (tests.rs:1296-1310) — TRIM (per TPR-04-001-codex-r3 + TPR-04-002-gemini-r3): the test initializes `canonicalize_cross_fires: 100` (SURVIVING field) alongside `cross_dim_reuse: 5` and `cow_upgrades: 3` (REMOVED). `cross_dim_evidence_total()` aggregates all three; `has_cross_dim_evidence()` checks total > 0. After counter removal, `cross_dim_evidence_total()` must be refactored to sum only surviving canonicalize-stage counters (currently just `canonicalize_cross_fires`). Trim the test to: (a) remove `cow_upgrades` and `cross_dim_reuse` from the struct initialization, (b) update assertion to `assert_eq!(m.cross_dim_evidence_total(), 100)` (only `canonicalize_cross_fires` remains), (c) keep `has_cross_dim_evidence()` assertion — still valid on trimmed input. This preserves coverage for BOTH surviving helpers (`cross_dim_evidence_total()` and `has_cross_dim_evidence()`).
 
 ### Verify tests fail before fix
 
@@ -194,6 +194,23 @@ Per-test disposition:
 
 Round 3 TPR re-verification pending after these Round 2 fixes land.
 
+### Round 3 — dual-source re-verification with strengthened thoroughness directive
+
+**Run:** `/tmp/ori-tpr-ia9vmUBG` (2026-04-14, custom-mode verification of Round 2 fixes with Thoroughness Re-review Directive)
+
+- **Codex** (rc=0, 294s, 89 events): 2 actionable + 1 informational. Caught that §3 step 7 references a nonexistent `Display` impl (TPR-04-002-codex-r3) and that `has_cross_dim_evidence()` helper coverage would be lost if `synergy_metrics_cross_dim_evidence` is deleted outright (TPR-04-001-codex-r3).
+- **Gemini** (rc=0, 216s, 69 events — 2.3x deeper than Round 2): 2 actionable + 1 informational. Wrote a Python script parsing all 8 bug-tracker section files for orphaned body patterns — found none outside BUG-04-047's benign duplicate. Caught §3 step 7 vs §2.4 contradiction (TPR-04-001-gemini-r3) and convergent over-deletion concern on `synergy_metrics_cross_dim_evidence` preserving `canonicalize_cross_fires` coverage (TPR-04-002-gemini-r3).
+- **Thoroughness**: ASYMMETRY: MODERATE (walltime 1.4x, events 1.3x — notably improved from Round 2's 3.1x/2.0x; byte ratio 21x is just codex's verbosity). Strengthened directive worked — both reviewers ran diagnostics, both read rules, both populated `scope_actually_reviewed` fully. Thoroughness judgment: ACCEPTED.
+
+### Round 3 findings triage
+
+- **[TPR-04-001-codex-r3][medium]** + **[TPR-04-002-gemini-r3][medium]** — `synergy_metrics_cross_dim_evidence` over-deletion (converge). **VERIFIED**: test at tests.rs:1296-1310 mixes removed fields (`cow_upgrades: 3`, `cross_dim_reuse: 5`) with surviving field (`canonicalize_cross_fires: 100`) and asserts on both `cross_dim_evidence_total()` (returns 108, aggregates all 3) and `has_cross_dim_evidence()` (returns true when total > 0). After removal, `cross_dim_evidence_total()` must be refactored to sum only `canonicalize_cross_fires`; trimmed test then asserts 100 instead of 108. **Action**: §2.4 disposition changed from "DELETE entirely" to "TRIM" with explicit trimmed-assertion shape.
+- **[TPR-04-002-codex-r3][low]** — §3 step 7 references nonexistent `Display` impl. **VERIFIED**: `rg 'impl .*Display.*SynergyMetrics' compiler/ori_arc/src/aims/realize/metrics.rs` returns no matches. Actual surfaces are doc comments (lines 16-20, 76-81) and `report()` method (lines 107-123) which still logs removed fields via structured `tracing` fields. **Action**: §3 step 7 rewritten with the accurate surfaces list.
+- **[TPR-04-001-gemini-r3][medium]** — §3 step 7 contradicts §2.4. **VERIFIED**: old step 7 said "DELETE all tests... (lines 1242-1309)" which conflicts with §2.4's per-test disposition. **Action**: §3 step 7 now references §2.4's precise guidance explicitly, no inline DELETE instruction.
+- **[TPR-04-003-codex-r3][informational]** + **[TPR-04-003-gemini-r3][informational]** — Both reviewers confirm Round 2 fixes (BUG-04-069 split repair, audit-trail counts, §4 completion checklist) are consistent and no other orphan patterns exist in bug-tracker. **No action**.
+
+Round 4 TPR re-verification pending after Round 3 fixes land.
+
 ---
 
 ## 3. Implementation
@@ -214,11 +231,17 @@ Round 3 TPR re-verification pending after these Round 2 fixes land.
    - `cow_cross_dim_reusable_ctor_once` (tests.rs:114) → delete; replaced by `decide_cow_maybe_shared_reusable_ctor_struct_once_returns_dynamic`
    - `decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse` (tests.rs:537) → delete; replaced by `decide_reuse_maybe_shared_reusable_ctor_struct_once_returns_dynamic_reuse`
    - Keep (unchanged): `cow_borrow_disjoint_maybe_shared` (tests.rs:122) still valid for `decide_cow()` direct-flag path; adjust to only test preserved-positive behavior, move regression surface tests to helper layer per §2.3.
-7. **Remove synergy counters ENTIRELY** (per TPR-04-001-codex) across ALL four files:
-   - `realize/metrics.rs`: remove `cow_upgrades` and `cross_dim_reuse` fields from the synergy struct, remove references in `cross_dim_evidence_total()`, `merge()`, and `Display` impl
+7. **Remove `cow_upgrades` + `cross_dim_reuse` fields and their increment sites** (per TPR-04-001-codex + TPR-04-002-codex-r3) across ALL four files. Preserve surviving helpers (`cross_dim_evidence_total()`, `has_cross_dim_evidence()`, `reuse_percent()`) with refactored bodies so they operate only on surviving fields.
+   - `realize/metrics.rs` (actual surfaces — there is NO `Display` impl; remove "Display impl" reference and instead point at):
+     - The `cow_upgrades` field and `cross_dim_reuse` field themselves (remove from struct definition)
+     - Doc comments at lines 16-20 and 76-81 (remove mentions of removed fields; retain doc for surviving fields and helpers)
+     - `cross_dim_evidence_total()` method (refactor to `self.canonicalize_cross_fires` only — removes the `+ self.cross_dim_reuse + self.cow_upgrades` terms)
+     - `has_cross_dim_evidence()` method (unchanged signature; body still `self.cross_dim_evidence_total() > 0` works after refactor)
+     - `merge()` method (remove `self.cow_upgrades += other.cow_upgrades` and `self.cross_dim_reuse += other.cross_dim_reuse`)
+     - `report()` method at lines 107-123 (remove `cow_upgrades = self.cow_upgrades` and `cross_dim_reuse = self.cross_dim_reuse` from the structured log fields; keep the method itself and all other fields)
    - `realize/mod.rs`: remove `synergy.cow_upgrades += 1` at lines 325, 372
    - `realize/walk_dec.rs`: remove `is_cross_dim_reuse_candidate` gate and `metrics.cross_dim_reuse += 1` at lines 164-186
-   - `realize/tests.rs`: DELETE all tests asserting on `cow_upgrades` / `cross_dim_reuse` / `cross_dim_evidence_total()` (lines 1242-1309)
+   - `realize/tests.rs`: apply per-test disposition per §2.4 (TRIM `synergy_metrics_default_is_zero`, `synergy_metrics_merge_additive`, `synergy_metrics_cross_dim_evidence`; PRESERVE unchanged `synergy_metrics_reuse_percent` and `synergy_metrics_percent_zero_total`). Do NOT delete the entire 1237-1310 block — follow §2.4's precise guidance.
 
 ### Capability regression tracking
 
@@ -250,7 +273,8 @@ This fix disables four `MaybeShared → StaticUnique/StaticReuse` upgrade paths 
 - [ ] `/commit-push` — commit all changes before review
 - [x] Plan TPR (Phase 2.5) Round 1 — complete, 7 findings accepted (1 was reclassified from rejected after Round 2), 3 informational
 - [x] Plan TPR (Phase 2.5) Round 2 — complete, 2 new actionable findings applied (BUG-04-069/079 split repair + synergy-metrics test-deletion refinement), 2 informational confirmations
-- [ ] Plan TPR (Phase 2.5) Round 3 — re-verify Round 2 fixes landed correctly
+- [x] Plan TPR (Phase 2.5) Round 3 — complete (with strengthened thoroughness directive), 4 actionable findings applied (synergy_metrics_cross_dim_evidence trim vs delete + §3 step 7 precision on metrics.rs surfaces + §3 step 7 vs §2.4 consistency), 2 informational confirmations
+- [ ] Plan TPR (Phase 2.5) Round 4 — re-verify Round 3 fixes landed correctly
 - [ ] `/tpr-review` (Phase 5 — code review) passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] `/improve-tooling` retrospective completed
