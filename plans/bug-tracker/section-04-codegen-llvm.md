@@ -605,6 +605,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_arc/src/aims/emit_rc/cow.rs`
   Found: 2026-04-14 | Source: fix-bug (BUG-04-064 Phase 1.75 tp-help consensus)
   Reviewers: codex + gemini (both independently flagged during BUG-04-064 design consensus)
+- [ ] `[BUG-04-083][medium]` **DP-5 `has_borrows_from_aggregate` omits `project_alias_sources` — transitive aliases of borrows not checked**
+  Repro: If `%3 = Project %2.0` and `%4 = Let Var(%3)`, then `borrows_from_source(%2)` returns only `%3`, missing `%4` (a transitive alias). If `%3` is dead but `%4` is live at a COW site on `%2`, the borrow overlap check passes incorrectly. `project_alias_sources` is computed during intraprocedural analysis but not stored on `AimsStateMap`.
+  Subsystem: `compiler/ori_arc/src/aims/emit_rc/cow.rs`, `compiler/ori_arc/src/aims/intraprocedural/state_map.rs`
+  Found: 2026-04-14 | Source: tpr-review (BUG-04-064 Phase 5 code TPR)
+  Reviewer: gemini (TPR-04-002-gemini)
+  Note: Requires storing `project_alias_sources` on `AimsStateMap` or recomputing at realization time. Architecture change beyond BUG-04-064 point fix scope.
 - [ ] `[BUG-04-079][medium]` **Implement spec-approved DP-9 `MaybeShared + IC-3 ParamContract.uniqueness = Unique → StaticUnique` path (re-enablement of COW fast-path for parameters)** <!-- blocked-by:BUG-04-069 -->
   **Blocked:** BUG-04-069 must be fixed first. BUG-04-069's `tighten_uniqueness_from_callers` uses the unsound IC-8 pattern (Owned+Linear+Once → Unique) to produce `ParamContract.uniqueness = Unique`. Today this is dormant because no realization site reads `ParamContract.uniqueness`. But BUG-04-079 plumbs it into `AnnotationSiteContext` for consumption by `decide_cow()` — so fixing BUG-04-079 without BUG-04-069 would launder the exact unsoundness BUG-04-059 just removed through a different channel.
   Repro: none yet (capability gap, not a regression). After BUG-04-059 fix, MaybeShared parameters always take `Dynamic` (runtime IsShared). Spec DP-9 permits `StaticUnique` when the interprocedural contract proves caller-side uniqueness — a PAST guarantee from the SCC fixpoint, not future-use inference.

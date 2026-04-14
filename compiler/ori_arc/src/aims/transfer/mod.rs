@@ -425,7 +425,7 @@ pub enum CowModeFromAims {
 
 // Constraint predicates
 
-/// Lattice-level subset of DP-5: checks `Owned + Unique` only.
+/// Lattice-level prerequisite for in-place mutation: `Owned + Unique`.
 ///
 /// This is NOT the full DP-5 predicate — the full decision also requires
 /// `no_active_overlapping_borrows(var, field, point)` (checked by
@@ -437,7 +437,7 @@ pub enum CowModeFromAims {
 /// Used by lattice property tests and proptests for the lattice-level
 /// invariant: `Owned + Unique` is necessary (but not sufficient) for
 /// in-place mutation.
-pub fn can_mutate_in_place(state: &AimsState) -> bool {
+pub fn is_owned_and_unique(state: &AimsState) -> bool {
     state.access == AccessClass::Owned && state.uniqueness == Uniqueness::Unique
 }
 
