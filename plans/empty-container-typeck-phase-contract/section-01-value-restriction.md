@@ -2,7 +2,7 @@
 section: "01"
 title: "AST-based Value Restriction"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Extract a single SSOT `should_generalize` helper and migrate all 3 let-generalization sites to call it, so only direct non-capturing lambda initializers generalize — all other initializers (including empty lists, block-wrapped lambdas, variable aliases, conditionals producing functions) become monomorphic."
 success_criteria:
   - "Single `pub(super) fn should_generalize(arena: &ExprArena, init: ExprId) -> bool` exists in `compiler/ori_types/src/infer/expr/blocks.rs` — verifiable via `grep -n 'pub(super) fn should_generalize' compiler/ori_types/src/infer/expr/blocks.rs` returning exactly one hit."
