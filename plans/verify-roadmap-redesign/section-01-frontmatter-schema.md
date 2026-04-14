@@ -21,7 +21,7 @@ success_criteria:
 inspired_by: []
 depends_on: []
 third_party_review:
-  status: findings
+  status: resolved
   updated: "2026-04-14"
 sections:
   - id: "01.1"
@@ -686,6 +686,8 @@ PILOT, not full sweep. Full-corpus migration is the sole responsibility of Secti
 - [x] `[TPR-01-002-gemini][low][round 6]` `tests/plan-audit/test_plan_corpus.py:97` — Misleading test name: `test_multi_document_separator_within_frontmatter_rejected` asserted `data == {"doc1": True}` (acceptance), contradicting the `_rejected` suffix.
   Resolved: Fixed on 2026-04-14. Renamed to `test_multi_document_separator_handled_as_boundary` and updated the docstring to explain the distinction between this boundary-detection test and the adjacent `test_multi_document_within_frontmatter_rejected` (which uses `...` within frontmatter to trigger actual rejection).
 
+<!-- Round 7 (2026-04-14, /tmp/ori-tpr-R1wy25Or): CLEAN PASS verification round. Both reviewers examined the round-6 fixes against the round-5 baseline. Codex (245s, 54 events, 472KB, thorough investigation) emitted 2 informational findings confirming SSOT compliance (keep-as-is notes for SubsectionEntry + consolidated chained loop). Gemini (113s, 46 events, 13KB, files_read covered all 7 submodules + test file + 3 rule files) emitted 1 finding mis-labeled as "low" severity but with content "Round 3 clean pass verified / No actionable issues found / None required" — a verification note, not a defect. Final: zero actionable findings, thoroughness adequate, section TPR gate PASSED. third_party_review.status: resolved. -->
+
 ---
 
 ## 01.N Completion Checklist
@@ -711,7 +713,7 @@ PILOT, not full sweep. Full-corpus migration is the sole responsibility of Secti
 - [x] Plan-sync: `index.md` keyword clusters updated for new subsection structure (01.1–01.6) and seven schemas
 - [x] Plan-sync: Section 02/03/04/05 `depends_on` frontmatter migrated to logical IDs (cascade from 01.3); Section 03.2 owns the migrated `SafeFix`/`ExposureReview` taxonomy; Section 04.2 references 01.3's `ITEM_VERIFICATION` subtypes (no shadow enum)
 - [x] `timeout 150 ./test-all.sh` green — no regressions
-- [ ] `/tpr-review` — dual-source review of `plan_corpus.py` (schema correctness, parser strictness, no LEAK regressions)
+- [x] `/tpr-review` — dual-source review of `plan_corpus.py` (schema correctness, parser strictness, no LEAK regressions). Completed 2026-04-14 across 3 rounds (12 → 4 → 0 actionable findings). Round 3 clean pass; both reviewers confirmed SSOT compliance, parser strictness, and test coverage.
 - [ ] `/impl-hygiene-review` — verify no drift between dataclass SSOT and any downstream usage; verify no `errors="replace"` remaining in any plan-parsing code; verify no git queries in `plan_corpus.py`
 - [ ] `/improve-tooling` section-close sweep — verify per-subsection retrospectives ran; add cross-subsection findings
 - [ ] `/sync-claude` section-close sweep — verify CLAUDE.md §Commands / §Key Paths reflect `scripts/plan_corpus.py`; verify `.claude/rules/impl-hygiene.md` cross-links the new SSOT
