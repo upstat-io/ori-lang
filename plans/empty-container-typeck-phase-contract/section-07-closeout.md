@@ -8,13 +8,14 @@ goal: >
   of `plans/bug-tracker/fix-BUG-04-074.md`. This section marks BUG-04-074 as resolved
   and closes the empty-container typeck phase-contract enforcement plan.
 success_criteria:
-  - "All plan annotations referencing this plan are removed from compiler source and spec tests — verifiable via `rg 'BUG-04-074|empty-container-typeck' compiler/ --include=\"*.rs\"` and `rg 'BUG-04-074|empty-container-typeck' tests/ --include=\"*.ori\"` both returning zero hits."
+  - "All plan annotations removed from all four trees — verifiable via: `rg 'BUG-04-074|empty-container-typeck' compiler/ --glob '*.rs'`, `rg 'BUG-04-074|empty-container-typeck' compiler/ --glob '*.ori'`, `rg 'BUG-04-074|empty-container-typeck' tests/ --glob '*.ori'`, and `rg 'BUG-04-074|empty-container-typeck' library/ --glob '*.ori'` — all four returning zero hits."
+  - "07.3 (TPR + hygiene) passes with zero actionable findings BEFORE any bug-tracker entries are updated to `complete`."
   - "`plans/bug-tracker/fix-BUG-04-074.md` status is updated to `complete` with a pointer to this plan."
   - "`plans/bug-tracker/00-overview.md` reflects the reduced open-bug count."
   - "`plans/bug-tracker/section-04-codegen-llvm.md` entry for BUG-04-074 updated to resolved."
   - "Final `/tpr-review` (whole plan arc) passes with zero actionable findings."
   - "`/impl-hygiene-review` on the full work arc (all sections) passes."
-  - "`timeout 150 ./test-all.sh` green (debug). `timeout 150 cargo test --release -p ori_types` green (release)."
+  - "`timeout 150 ./test-all.sh` green (debug). `timeout 150 cargo test --release -p ori_types` and `timeout 150 cargo test --release -p ori_llvm` green (release)."
 depends_on: ["01", "02", "03", "04", "05", "06"]
 third_party_review:
   status: none
@@ -27,10 +28,10 @@ sections:
     title: "Plan annotation cleanup sweep"
     status: not-started
   - id: "07.3"
-    title: "Bug-tracker updates"
+    title: "Final TPR + hygiene review gate"
     status: not-started
   - id: "07.4"
-    title: "Final TPR + hygiene review gate"
+    title: "Bug-tracker updates (runs AFTER 07.3 validation passes)"
     status: not-started
   - id: "07.R"
     title: "Third Party Review Findings"
@@ -72,15 +73,22 @@ diagnostics/dual-exec-verify.sh tests/spec/types/collections/empty_list/empty_li
 Per `CLAUDE.md §Compiler Coding Guidelines`: "Plan annotations are temporary scaffolding.
 They MUST be removed when the plan completes."
 
-Run the sweep over **both** the compiler tree and the test tree, using only this plan's
-specific markers (not generic `§NN` tokens that match unrelated plans):
+Run the sweep over **all three trees** (compiler source, spec tests, and stdlib), using
+only this plan's specific markers (not generic `§NN` tokens that match unrelated plans):
 
 ```bash
-# Plan-specific markers in compiler source — must return zero hits
-rg 'BUG-04-074|empty-container-typeck' compiler/ --include="*.rs"
+# Plan-specific markers in compiler source (Rust files) — must return zero hits
+rg 'BUG-04-074|empty-container-typeck' compiler/ --glob '*.rs'
+
+# Plan-specific markers in AOT fixture files (Ori files in compiler tree) — must return zero hits
+# These are created in §05.3 at compiler/ori_llvm/tests/aot/fixtures/empty_list/*.ori
+rg 'BUG-04-074|empty-container-typeck' compiler/ --glob '*.ori'
 
 # Plan-specific markers in spec tests (regression comments added in §06.2)
-rg 'BUG-04-074|empty-container-typeck' tests/ --include="*.ori"
+rg 'BUG-04-074|empty-container-typeck' tests/ --glob '*.ori'
+
+# Plan-specific markers in stdlib (edits made in §06.3)
+rg 'BUG-04-074|empty-container-typeck' library/ --glob '*.ori'
 ```
 
 Note: Generic `§NN` tokens (e.g. `§01`, `§03`) are intentionally excluded from the
@@ -94,24 +102,11 @@ Every hit must be removed or converted to a permanent spec comment
 
 ---
 
-## 07.3 Bug-Tracker Updates
+## 07.3 Final TPR + Hygiene Gate
 
-1. Update `plans/bug-tracker/fix-BUG-04-074.md`:
-   - Set `status: complete`
-   - Add pointer: `"Superseded by plans/empty-container-typeck-phase-contract/"`
-   - Set `resolved_in:` to the commit SHA of the Section 03 landing
-
-2. Update `plans/bug-tracker/00-overview.md`:
-   - Move BUG-04-074 from open to closed
-   - Decrement open bug count
-
-3. Update `plans/bug-tracker/section-04-codegen-llvm.md` (or wherever BUG-04-074
-   is tracked in the section-scoped trackers):
-   - Mark as resolved
-
----
-
-## 07.4 Final TPR + Hygiene Gate
+**Run this BEFORE updating any external bug trackers.** All validation gates must pass
+before declaring BUG-04-074 resolved — marking the bug complete before gates pass leaves
+the tracker out of sync if a gate fails.
 
 First, validate the entire plan directory against the plan corpus schema:
 
@@ -138,6 +133,26 @@ Run hygiene review:
 ```
 
 Auto-scope mode covers the full work arc. Must pass.
+
+---
+
+## 07.4 Bug-Tracker Updates
+
+**Only update bug trackers AFTER 07.3 validation gates pass.** This sequencing ensures
+the bug is not prematurely marked complete.
+
+1. Update `plans/bug-tracker/fix-BUG-04-074.md`:
+   - Set `status: complete`
+   - Add pointer: `"Superseded by plans/empty-container-typeck-phase-contract/"`
+   - Set `resolved_in:` to the commit SHA of the Section 03 landing
+
+2. Update `plans/bug-tracker/00-overview.md`:
+   - Move BUG-04-074 from open to closed
+   - Decrement open bug count
+
+3. Update `plans/bug-tracker/section-04-codegen-llvm.md` (or wherever BUG-04-074
+   is tracked in the section-scoped trackers):
+   - Mark as resolved
 
 ---
 
@@ -198,14 +213,76 @@ is still schema-invalid to the plan tooling.
 as the first step in 07.4. The gate must pass before TPR or hygiene review proceeds.
 Also added to the 07.N checklist as an explicit `- [ ]` item.
 
+Round 3 — Dual-source TPR on sections 05, 06, 07 (Codex + Gemini). Findings addressed
+in this revision.
+
+### [[TPR-07-004-codex]] [MEDIUM] Sweep library/ directory for plan markers during close-out
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-07-closeout.md:§07.2`
+**Reviewer:** Codex | **Status:** Fixed
+
+**Evidence:** Section 06.3 directs implementers to annotate `library/std/` code. Section 07.2
+only swept `compiler/` (with `*.rs` filter, missing `.ori` AOT fixtures) and `tests/`. The
+`library/` tree was entirely missing from the cleanup sweep.
+
+**Fix:** Added two new sweep commands: one for `compiler/ --glob '*.ori'` (AOT fixtures) and
+one for `library/ --glob '*.ori'` (stdlib). Updated success_criteria to reference all four
+trees. Updated 07.N checklist to explicitly call out all four trees.
+
+---
+
+### [[TPR-07-005-codex]] [MEDIUM] Add release ori_llvm test and section-04 tracker update to 07.N
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-07-closeout.md:§07.N`
+**Reviewer:** Codex | **Status:** Fixed
+
+**Evidence:** Section 07.1 specifies `cargo test --release -p ori_llvm` but the 07.N checklist
+item for "07.1 complete" only said "`./test-all.sh` green debug + release". Section 07.3 (now
+07.4) step 3 requires updating `plans/bug-tracker/section-04-codegen-llvm.md` but the 07.N
+checklist for "07.3 complete" (now "07.4 complete") omitted this.
+
+**Fix:** Updated 07.N "07.1 complete" item to include `cargo test --release -p ori_llvm`. Updated
+"07.4 complete" item to explicitly include `plans/bug-tracker/section-04-codegen-llvm.md` resolution.
+
+---
+
+### [[TPR-07-006-gemini]] [HIGH] Reorder 07.3/07.4 so validation gates run before bug-tracker closure
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-07-closeout.md:§07.3/07.4`
+**Reviewer:** Gemini | **Status:** Fixed
+
+**Evidence:** Section 07.3 was "Bug-Tracker Updates" (marks BUG-04-074 complete) and 07.4 was
+"Final TPR + Hygiene Gate". This ordering allows the bug to be declared resolved in external
+trackers before the final `/tpr-review` and `/impl-hygiene-review` pass. If a gate fails after
+the tracker is updated, the tracker is out of sync.
+
+**Fix:** Swapped 07.3 and 07.4: 07.3 is now "Final TPR + Hygiene Gate" and 07.4 is
+"Bug-Tracker Updates (runs AFTER 07.3 validation passes)". Added explicit note in 07.4 header
+that bug trackers must only be updated after 07.3 passes. Updated frontmatter sections list
+and success_criteria to reflect the new ordering.
+
+---
+
+### [[TPR-07-007-gemini]] [LOW] section-04-codegen-llvm.md missing from 07.N 07.3 checklist item
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-07-closeout.md:§07.N`
+**Reviewer:** Gemini | **Status:** Fixed (subsumed by TPR-07-005-codex)
+
+**Evidence:** The 07.N completion checklist for the bug-tracker step only listed
+`fix-BUG-04-074.md` and `00-overview.md`, omitting the `section-04-codegen-llvm.md` update
+that step 3 of the bug-tracker section explicitly requires.
+
+**Fix:** Same as TPR-07-005-codex — the updated 07.N checklist for "07.4 complete" now
+explicitly includes `plans/bug-tracker/section-04-codegen-llvm.md entry resolved`.
+
 ---
 
 ## 07.N Completion Checklist
 
-- [ ] **07.1 complete** — `./test-all.sh` green debug + release; dual-exec parity verified
-- [ ] **07.2 complete** — zero `BUG-04-074|empty-container-typeck` hits in `compiler/` and `tests/`
-- [ ] **07.3 complete** — `fix-BUG-04-074.md` status `complete`; `00-overview.md` updated
-- [ ] **07.4 complete** — `plan_corpus check plans/empty-container-typeck-phase-contract/` passes; final `/tpr-review` clean; `/impl-hygiene-review` clean
+- [ ] **07.1 complete** — `./test-all.sh` green debug + release; `cargo test --release -p ori_llvm` green; dual-exec parity verified on ≥3 spec files
+- [ ] **07.2 complete** — zero `BUG-04-074|empty-container-typeck` hits in all four trees: `compiler/*.rs`, `compiler/*.ori` (AOT fixtures), `tests/*.ori`, `library/*.ori`
+- [ ] **07.3 complete** — `plan_corpus check plans/empty-container-typeck-phase-contract/` passes; final `/tpr-review` clean; `/impl-hygiene-review` clean
+- [ ] **07.4 complete** — `fix-BUG-04-074.md` status `complete`; `00-overview.md` updated; `plans/bug-tracker/section-04-codegen-llvm.md` entry resolved
 - [ ] This section's own status set to `complete` in frontmatter
 - [ ] `plans/empty-container-typeck-phase-contract/` plan index updated: all sections complete
 
