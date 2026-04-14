@@ -339,6 +339,12 @@ pub struct AnnotationSiteContext<'a> {
     /// Whether this variable's borrow is disjoint from all sibling borrows
     /// (uniqueness-preserving borrows, Section 07.3.2).
     pub is_borrow_disjoint: bool,
+    /// Whether any borrow from this variable (as an aggregate source) exists
+    /// anywhere in the function. Used by DP-5/DP-9: Unique aggregates with
+    /// active borrows must use `StaticShared`, not `StaticUnique`. Function-wide
+    /// check — conservative (may block `StaticUnique` when borrows are dead at
+    /// the COW site, but never permits unsafe in-place mutation).
+    pub has_active_borrows: bool,
     /// Whether this variable's type is a collection (List/Map/Set) —
     /// required for drop hint eligibility.
     pub is_collection: bool,
@@ -401,7 +407,17 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
     }
 
     match ctx.uniqueness {
-        Uniqueness::Unique => CowMode::StaticUnique,
+        Uniqueness::Unique => {
+            // Spec DP-5/DP-9: Unique AND NOT can_mutate_in_place → StaticShared.
+            // IsShared on a Unique value always returns false, so a runtime
+            // Dynamic check cannot distinguish "unique but borrowed" from
+            // "unique and safe to mutate." Must copy unconditionally.
+            if ctx.has_active_borrows {
+                CowMode::StaticShared
+            } else {
+                CowMode::StaticUnique
+            }
+        }
 
         Uniqueness::MaybeShared => {
             // Uniqueness-preserving local mutation (spec §DP-5/§RL-10):
