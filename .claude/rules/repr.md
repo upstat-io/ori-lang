@@ -32,7 +32,7 @@ paths: ["compiler/ori_llvm/**", "compiler/ori_arc/**", "compiler/ori_rt/**", "co
 
 ## §1 Pipeline Position
 
-Representation is NOT a distinct phase in `CANON:§1`. It is the sub-layer inside phase 7 (LLVM codegen, owner crate `ori_llvm`) that executes immediately after ARC realization (phase 6) and immediately before LLVM IR emission. The crossing point is the single source of truth on which side of the boundary types are logical versus physical:
+Representation is NOT a distinct phase in `CANON:§1`. It is the sub-layer inside phase 8 (LLVM codegen, owner crate `ori_llvm`) that executes immediately after ARC realization (phase 7) and immediately before LLVM IR emission. The crossing point is the single source of truth on which side of the boundary types are logical versus physical:
 
 | Phase | Type model | Characteristic operations |
 |-------|-----------|--------------------------|
@@ -45,7 +45,7 @@ Representation is NOT a distinct phase in `CANON:§1`. It is the sub-layer insid
 | 7b LLVM emission | Physical LLVM type + IR | `codegen-rules.md §1 TR-*` (type mapping) + §§2–8 (ABI, narrowing, trampolines, RC, runtime, attributes, verification) |
 | 8 Optimize & emit | Physical LLVM IR | `aot.md` |
 
-Phase purity (`CANON:§5`, `compiler.md §Phase-Specific Purity`) applies: repr consumes realized ARC IR (post phase 6), the type pool (`TYPES:§1`), and the converged AIMS state (`CANON:§4.4`); it produces `ReprPlan` entries keyed by `Idx` and a narrowing map keyed by SSA variable. Repr SHALL NOT re-type-check, re-canonicalize, re-run AIMS, or emit LLVM instructions itself — it prepares layout data that `codegen-rules.md` rules consume.
+Phase purity (`CANON:§5`, `compiler.md §Phase-Specific Purity`) applies: repr consumes realized ARC IR (post phase 7), the type pool (`TYPES:§1`), and the converged AIMS state (`CANON:§4.4`); it produces `ReprPlan` entries keyed by `Idx` and a narrowing map keyed by SSA variable. Repr SHALL NOT re-type-check, re-canonicalize, re-run AIMS, or emit LLVM instructions itself — it prepares layout data that `codegen-rules.md` rules consume.
 
 ---
 
@@ -100,7 +100,7 @@ For a given `Idx` in the frozen type pool (`TYPES:TY-6`), there SHALL be at most
 
 ### RP-3 — Determinism
 
-Given the same type pool, the same `#repr` annotations, and the same target triple, `ReprPlan` computation SHALL produce byte-identical output across runs. Field ordering (`RP-20`), padding insertion (`RP-20`), discriminant assignment (`RP-22`), and niche selection (§7) are deterministic functions of their inputs; they SHALL NOT depend on `HashMap` iteration order, thread interleaving, or other sources of non-determinism (`CHK:SL-1`, `HYG:` §Determinism).
+Given the same type pool, the same `#repr` annotations, and the same target triple, `ReprPlan` computation SHALL produce byte-identical output across runs. Field ordering (`RP-20`), padding insertion (`RP-20`), discriminant assignment (`RP-22`), and niche selection (§7) are deterministic functions of their inputs; they SHALL NOT depend on `HashMap` iteration order, thread interleaving, or other sources of non-determinism (`CHK:SL-1`, `HYG:` §Pass Composition — Pass determinism).
 
 ### RP-4 — Imperative computation (NOT Salsa)
 
@@ -433,7 +433,7 @@ Per `RN-3`, narrowing is suppressed at ABI boundaries. A narrowed local variable
 
 ### RV-1 — Input contract (repr-layer entry)
 
-On entry to the representation layer (phase 7a):
+On entry to the representation layer (pre-phase-8 sub-layer):
 
 - The type pool is frozen for this compilation session (`TYPES:TY-6`). No new type indices are created.
 - Every `Idx` reachable from the ARC IR is fully resolvable via `pool.resolve_fully(idx)` (no `Tag::Var`, no `Tag::Infer`, no `Tag::Projection`, no `Tag::SelfType`, no unresolved `Tag::Named`; `CANON:§4.2`).
