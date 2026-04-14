@@ -137,6 +137,10 @@ Capture the starting state of `ori_lang/` as immutable, committed artifacts that
         "Retrospective 01.1: no tooling gaps — direct bash capture sufficient."
         Do not silently skip. See `.claude/skills/improve-tooling/SKILL.md`
         "Per-Subsection Workflow" for the full protocol.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -184,6 +188,10 @@ Re-run the exact `ripgrep` command the Pass 1 research used and commit the resul
         project-reorganization/section-01.2 retrospective`. If no: document
         "Retrospective 01.2: no tooling gaps — per-script `rg -c` loop
         adequate for one-time baseline."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -267,6 +275,10 @@ to detect mid-execution drift."
         project-reorganization/section-01.3 retrospective`. If no: document
         "Retrospective 01.3: one-time baseline check; no reusable tooling
         warranted." Either way, do not silently skip.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -306,5 +318,6 @@ to detect mid-execution drift."
 - [ ] `/tpr-review` passed (final, full-section) — independent dual-source review (Codex + Gemini) found no critical or major issues. **Note**: §01 is an extremely low-risk section (capture artifacts only, no file moves or deletions). TPR should be a rapid review; anything beyond minor wording feedback indicates the section is overcomplicated.
 - [ ] `/impl-hygiene-review` passed — hygiene review found no critical or major findings. MUST run AFTER `/tpr-review` is clean.
 - [ ] `/improve-tooling` **section-close sweep** — MANDATORY safety net. Per-subsection retrospectives (01.1, 01.2, 01.3) should already be committed. Verify each has either an "improvements made" entry OR a documented "no gaps" negative finding. Cross-subsection pattern check: was there friction in running three separate bash captures that a single `scripts/dev/freeze-plan-baseline.sh <plan-name>` helper would eliminate? If yes, add it now as a reusable helper for future multi-commit plans and commit via `build(scripts): add freeze-plan-baseline.sh — surfaced by project-reorganization/section-01 close sweep`. If no cross-cutting gaps: document "Section-01 close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling."
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 **Exit Criteria:** The `plans/project-reorganization/baseline/` directory contains 7+ files recording the exact starting state of the repository. `git log --oneline -1` shows `docs(plan): freeze project-reorganization baseline`. Every subsequent section (§02-§09) can cite this commit's hash as T=0 and `git diff <baseline-commit>..HEAD` will show the cumulative effect of the reorganization. The baseline commit is immutable — it is NEVER amended, reverted, or squashed. If the baseline proves wrong mid-execution (e.g., a reference count was miscounted), a follow-up `docs(plan): amend project-reorganization baseline` commit adds corrected data; the original baseline commit stays in history.

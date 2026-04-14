@@ -98,6 +98,7 @@ third_party_review:
 - [ ] **Verify all 16+ existing `iterator_drop` AOT tests pass** in both debug and release. Zero regressions from the reconciliation pass.
 
 - [ ] **Subsection close-out (03.1)** — Run `/improve-tooling` retrospectively. Commit separately.
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -131,6 +132,7 @@ third_party_review:
   - This makes the predicate correct for ALL tag encodings (niche, tagged-ptr, none), not just explicit-tag
 
 - [ ] **Subsection close-out (03.2)** — Run `/improve-tooling` retrospectively. Commit separately.
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
