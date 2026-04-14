@@ -1,8 +1,8 @@
-<!-- GENERATED from scripts/plan_corpus.py — do not edit -->
+<!-- GENERATED from scripts/plan_corpus/ — do not edit -->
 
 # Plan Schema Reference
 
-Auto-generated from Python dataclass definitions in `scripts/plan_corpus.py`.
+Auto-generated from Python dataclass definitions in `scripts/plan_corpus/schemas.py`.
 
 ## Status Enums
 
