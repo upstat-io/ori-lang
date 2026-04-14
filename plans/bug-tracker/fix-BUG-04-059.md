@@ -145,18 +145,18 @@ Per TPR-04-002-codex-r4: only tests that EXERCISE a removed unsound path need to
 - `decide_cow_maybe_shared_param_owned_linear_once_returns_dynamic` (today: StaticUnique via `is_cow_aware_unique`)
 - `decide_cow_maybe_shared_collection_buffer_once_returns_dynamic` (today: StaticUnique via non-param CollectionBuffer branch)
 - `decide_cow_maybe_shared_reusable_ctor_struct_once_returns_dynamic` (today: StaticUnique via non-param ReusableCtor branch)
+- `decide_cow_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic` (today: StaticUnique — `decide_cow()` uses `matches!(shape, ShapeClass::ReusableCtor(_))` which matches BOTH `ReusableCtor(Struct)` AND `ReusableCtor(EnumVariant)`; per TPR-04-001-codex-r5 verified against `decide.rs:425-429`)
 - `decide_reuse_maybe_shared_reusable_ctor_struct_once_returns_dynamic_reuse` (today: StaticReuse via cross-dim branch)
+- `decide_reuse_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic_reuse` (today: StaticReuse — `decide_reuse()` at `decide.rs:278-287` also uses `matches!(shape, ShapeClass::ReusableCtor(_))`, matches EnumVariant)
 - All four `decide_cow_rejects_cross_dimensional_*` and `decide_reuse_rejects_cross_dimensional_*` negative pins (today: current code returns the removed StaticUnique/StaticReuse that the negative pins assert is NOT produced)
 - `is_borrow_disjoint_from_siblings_maybe_shared_source_rejects_cross_dim_uniqueness` (today: returns true via `is_cow_aware_unique`)
 
 **Already pass against current HEAD (boundary + preservation pins — verify they REMAIN passing after fix):**
-- `decide_cow_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic` — current code does hit this branch (ReusableCtor is matched with `matches!(shape, ShapeClass::ReusableCtor(_))`, so EnumVariant also hits the removed path — upgrade to bug-exposing if verified); otherwise preservation
-- `decide_cow_maybe_shared_context_hole_once_returns_dynamic` — ContextHole is not in the removed `is_param`/`!is_param` CollectionBuffer/ReusableCtor gates; already returns Dynamic → preservation
+- `decide_cow_maybe_shared_context_hole_once_returns_dynamic` — `ContextHole` is NOT a `ReusableCtor(_)` variant; `matches!(shape, ShapeClass::ReusableCtor(_))` does not match `ShapeClass::ContextHole`; already returns Dynamic → preservation
 - `decide_cow_maybe_shared_param_owned_affine_once_returns_dynamic` — `is_cow_aware_unique` requires Linear, so Affine already bypasses → preservation
 - `decide_cow_maybe_shared_nonparam_owned_linear_once_returns_dynamic` — `is_cow_aware_unique` is gated on `is_param=true`, so non-param already bypasses → preservation
 - `is_borrow_disjoint_from_siblings_unique_source_disjoint_fields_returns_true` — Uniqueness::Unique source already passes the strict check → preservation
-- `decide_reuse_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic_reuse` — `matches!(shape, ShapeClass::ReusableCtor(_))` matches EnumVariant; already promotes to StaticReuse → upgrade to bug-exposing
-- `decide_reuse_maybe_shared_context_hole_once_returns_dynamic_reuse` — ContextHole is not a `ReusableCtor(_)` variant, already returns DynamicReuse → preservation
+- `decide_reuse_maybe_shared_context_hole_once_returns_dynamic_reuse` — `ContextHole` is not a `ReusableCtor(_)` variant, already returns DynamicReuse → preservation
 - `decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique` (integration) — Unique source + disjoint borrow → StaticUnique today → preservation
 
 ---
@@ -244,6 +244,20 @@ Round 4 TPR re-verification pending after Round 3 fixes land.
 
 Round 5 TPR re-verification pending after Round 4 fixes land.
 
+### Round 5 — dual-source re-verification
+
+**Run:** `/tmp/ori-tpr-cRh7Vi3W` (2026-04-14, verification of Round 4 fixes)
+
+- **Codex** (rc=0, 213s, 70 events): 1 medium finding (TPR-04-001-codex-r5: EnumVariant cells ambiguously placed with "upgrade to bug-exposing if verified" hedge; verified against code that EnumVariant DOES hit removed `ReusableCtor(_)` patterns in both `decide_cow()` and `decide_reuse()`).
+- **Gemini** (rc=0, 233s, 26 events): 1 informational finding confirming plan clean. Note: gemini's envelope used `description` instead of `title` field (schema-nonconformant), which caused `merge-findings.py` to crash — content was still informational-only.
+- **Thoroughness**: ASYMMETRY: MODERATE (walltime 1.1x — balanced, events 2.7x — codex more events, bytes 30.7x — codex verbose). Both reviewers invested substantial time. Depth sufficient.
+
+### Round 5 findings triage
+
+- **[TPR-04-001-codex-r5][medium]** — EnumVariant cells need unambiguous placement. **VERIFIED**: `decide_cow()` at `decide.rs:425-429` uses `matches!(shape, ShapeClass::ReusableCtor(_))` which matches BOTH `ReusableCtor(Struct)` AND `ReusableCtor(EnumVariant)` (and `ReusableCtor(ContextHole)` — wait, `ShapeClass` has `ContextHole` as a separate variant, not nested inside `ReusableCtor(_)`; spec `aims-rules.md §1.6` lists `ContextHole` as a distinct top-level shape variant). Confirmed EnumVariant hits the removed path; ContextHole does NOT. **Action**: moved both EnumVariant cells from "already pass" bucket to "must fail against HEAD" bucket with explicit code-location verification. Removed the "upgrade to bug-exposing if verified" hedge text. Re-confirmed ContextHole stays in preservation bucket.
+
+Round 6 TPR re-verification pending after Round 5 fix lands.
+
 ---
 
 ## 3. Implementation
@@ -313,7 +327,8 @@ This fix disables four `MaybeShared → StaticUnique/StaticReuse` upgrade paths 
 - [x] Plan TPR (Phase 2.5) Round 2 — complete, 2 new actionable findings applied (BUG-04-069/079 split repair + synergy-metrics test-deletion refinement), 2 informational confirmations
 - [x] Plan TPR (Phase 2.5) Round 3 — complete (with strengthened thoroughness directive), 4 actionable findings applied (synergy_metrics_cross_dim_evidence trim vs delete + §3 step 7 precision on metrics.rs surfaces + §3 step 7 vs §2.4 consistency), 2 informational confirmations
 - [x] Plan TPR (Phase 2.5) Round 4 — complete, 2 new actionable findings applied (§3 step 5a for §2.3 helper-test home creation + §2 "Verify tests fail before fix" split into bug-exposing vs preservation), 1 informational (gemini agrees plan is clean)
-- [ ] Plan TPR (Phase 2.5) Round 5 — re-verify Round 4 fixes landed correctly
+- [x] Plan TPR (Phase 2.5) Round 5 — complete, 1 actionable finding applied (EnumVariant cells moved from hedged-preservation to bug-exposing after code verification against decide.rs:425-429), 1 informational (gemini confirms plan clean)
+- [ ] Plan TPR (Phase 2.5) Round 6 — re-verify Round 5 fix landed correctly
 - [ ] `/tpr-review` (Phase 5 — code review) passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] `/improve-tooling` retrospective completed
