@@ -77,7 +77,7 @@ classifier precedence ladder, PRECEDENCE_RANK, deterministic ordering
 source-kind severity ladder: EXPLICIT HIGH, HTML/YAML MEDIUM, PROSE LOW
 priority inversion, transitive chains, root blocker identification, minimum unblock set
 topological sort CUT (no consumer; Finding L)
-handoff contract with §03, chain encoding Option C, source_column disambiguator
+handoff contract with §03, chain encoding Option A (typed Finding.dependency_chain + Finding.source_kind), source_column disambiguator
 enrich_resolve_dep_finding, Finding.id collision mitigation
 repr-opt, locality-representation-unification, prerequisite edge short-circuit
 plans/ori_lsp, dead reference, plans/completed/ resolution

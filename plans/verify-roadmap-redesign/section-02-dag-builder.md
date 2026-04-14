@@ -644,6 +644,40 @@ Dual-source /tpr-review round 4 on 2026-04-14 (run `/tmp/ori-tpr-uBF4cxeb`). 3 a
 
 ---
 
+Dual-source /tpr-review round 5 on 2026-04-14 (run `/tmp/ori-tpr-WqphM8AP`). 4 actionable findings (codex 4, gemini 0, 0 agreements) + 2 informational (codex 1, gemini 1 — both on accepted BLOAT tradeoff). All actionable findings verified against live corpus and fixed in the same pass.
+
+- [x] `[TPR-02-001-codex][high]` `scripts/plan_corpus/dag.py:449` — Teach superseded detection to resolve Section 21A style references.
+  Evidence: `_scan_body_for_references` scans only `plans/<slug>/...` paths. Case (c) body text in `plans/test-suite-health/section-02-roadmap-reprioritization.md` says "Reorder Section 21A subsections" and "update Section 21A" — never using a `plans/` prefix. Live verification (`build_dag()` on the full corpus) confirmed zero PROSE_VERB references to Section 21A from test-suite-health, so `classify_superseded` case (ii) never fires on the exact mission drift it was designed to catch. Known mission case (c) is a false negative.
+  Impact: §02 completion claims that case (c) is implemented, but the classifier misses the live-corpus drift. §05.2's acceptance test would fail at route-A/B split time.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-14. Added `_ROADMAP_SECTION_RE = re.compile(r"\b(?:[Ss]ection|[Rr]oadmap\s+section)\s+(\d+[A-Z]?)\b")` alongside `_PLAN_PATH_RE`. `_scan_body_for_references` now runs both scanners; matches preceded by any DEPENDENCY_VERB produce PROSE_VERB references targeting `plans/roadmap/section-<NN>`. Semantic pin added: `TestRoadmapSectionProseReference::test_section_prose_reference_emitted_with_reprioritize_verb`.
+
+- [x] `[TPR-02-002-codex][medium]` `scripts/plan_corpus/dag.py:1377` — Stop treating shorthand HTML targets as standalone plan slugs.
+  Evidence: `parse_html_comments` correctly splits `<!-- unblocks:jit-exception-handling/04B,05,06 -->` into three references but emits targets `jit-exception-handling/04B`, `05`, `06`. `classify_dead_reference` then extracts slug via `target[len("plans/"):].split("/")[0]` on each, treating bare `05`/`06` as plan slugs — neither is in `active_slugs` or `completed_slugs`, so both emit PLAN_DIRECTORY_NOT_FOUND false positives. Live verification showed 2 spurious MEDIUM findings per multi-target unblocks comment.
+  Impact: Severity counts inflated; real stale-reference findings harder to trust.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-14 in `parse_html_comments`. When the first token of a multi-target comment contains `/`, its plan slug is inferred and propagated to subsequent shorthand tokens (those without `/`). `<!-- unblocks:jit-exception-handling/04B,05,06 -->` now yields targets `jit-exception-handling/04B`, `jit-exception-handling/05`, `jit-exception-handling/06`. Updated existing `test_parses_unblocks_multi_target` + `test_html_unblocks_comment_emits_html_reference` to pin the new behavior and added negative pin `test_shorthand_inheritance_only_when_first_target_has_slash` to verify propagation doesn't fire when the first token has no slash.
+
+- [x] `[TPR-02-003-codex][medium]` `scripts/plan_corpus/dag.py:1926` — Emit only root blockers in the minimum unblock set.
+  Evidence: `compute_minimum_unblock_set` docstring says "the minimum is just `{root}`", but the implementation unioned `all_chain_paths` across every grouped inversion, returning the full chain. Fresh verification with a synthetic `A -> B -> C` transitive blocker chain produced `dependency_chain=(a/section-01, b/section-01, c/section-01)` instead of `(c/section-01)`. Contract bug: any §03 consumer trusting `unblock_sets` would overstate the work needed.
+  Impact: §03's root-blocker renderer would list all intermediates as things to unblock, when the minimum is just the root. Misleading in plan audit output.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-14. Replaced the `all_chain_paths.update(...)` accumulator with `unblock_set: tuple[Path, ...] = (root,)` — just the root path. Added semantic pin `test_minimum_unblock_set_is_only_root_not_full_chain` asserting `len(f.dependency_chain) == 1` and `f.dependency_chain[0].parent.name == "c"` on the A→B→C chain.
+
+- [x] `[TPR-02-004-codex][low]` `plans/verify-roadmap-redesign/index.md:80` — Update Section 02 summaries to the Option A typed handoff.
+  Evidence: `index.md:80` keyword cluster still said "chain encoding Option C"; `00-overview.md:162-163` phase-pipeline diagram still described "source_kind evidence-embedding". Option A was ratified in §02's rounds 1-4 (typed `Finding.dependency_chain` + `Finding.source_kind`), so both sites were stale.
+  Impact: Plan packet contains stale contract text pointing later sections back at the Option C evidence-string protocol Section 02 explicitly removed. Avoidable DRIFT.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-14 at both sites. `index.md:80` now says "chain encoding Option A (typed Finding.dependency_chain + Finding.source_kind), source_column disambiguator". `00-overview.md:162-163` now says "Handoff contract with §03 (Option A typed fields: Finding.dependency_chain + Finding.source_kind; Finding.id disambiguation via source_column; enriched resolve_dep findings with precise YAML line numbers)".
+
+- **[TPR-02-005-codex][informational]** `scripts/plan_corpus/dag.py:1` — Keep dag.py as one public SSOT even if you split it internally.
+  Evidence: dag.py at ~1992 lines exceeds compiler.md's 500-line rule, but the single-module home for node model + classifiers + precedence + inversion + DagReport avoids shadow-SSOT failure. Accepted tradeoff; if the module grows again, the safe direction is an internal `scripts/plan_corpus/dag/` split behind one stable import surface, not re-spreading across sibling modules. Recorded as accepted BLOAT exception.
+
+- **[TPR-02-001-gemini][informational]** `scripts/plan_corpus/dag.py:1` — Acceptable BLOAT tradeoff for single-file SSOT.
+  Evidence: Same observation as TPR-02-005-codex (independent flag). dag.py at ~1400 LOC exceeds the 500-line rule but consolidates all DAG machinery into one canonical module without parallel definitions. Splitting would fragment SSOT; preserving maintains architectural coherence at the cost of file size. No action required.
+
+---
+
 ## 02.N Completion Checklist
 
 - [x] §02.0 Node model covers all seven schema classes; source-kind taxonomy defined and unit-tested
