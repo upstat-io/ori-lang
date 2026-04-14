@@ -84,6 +84,12 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
   Reviewer: gemini (TPR round 4: [TPR-03-001-gemini-impl-r4], [TPR-03-002-gemini-impl-r4])
   Note: Active work in repr-opt plan touches this area.
 
+- [ ] `[BUG-07-011][low]` **`plan-annotations.sh --fix` produces grammatically broken output for prose-embedded annotation IDs**
+  Repro: With `// Note: exercises list collect (not __collect_set) — Set<[int]> crashes (BUG-04-065).` where `BUG-04-065` is `[x]` resolved, running `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --fix` strips only the bare token `(BUG-04-065)`, leaving the surrounding sentence broken. Worse case from incident: `// E7 (Set<int>) is blocked by BUG-04-065 (Set<int> iteration crashes in AOT).` becomes `// E7 (Set<int>) is blocked by (Set<int> iteration crashes in AOT).` — doubled parenthetical, "blocked by (" is broken grammar. `// ...blocked by BUG-04-065; these exercise...` becomes `// ...blocked by ; these exercise...` — dangling "blocked by ;".
+  Subsystem: `.claude/skills/impl-hygiene-review/plan-annotations.sh` + `.claude/skills/impl-hygiene-review/plan-annotations.py`
+  Found: 2026-04-14 | Source: continue-roadmap
+  Note: Discovered during query-intel-adoption section 01 pre-flight stale-annotation cleanup. The 5 stale BUG-04-065 refs (2 in `fat_ptr_iter/method_collect.rs`, 3 in `iter_rc_matrix.rs`) were cleaned by hand in commit 178f117b after rejecting the --fix preview. Expected: when bare token stripping would produce broken prose (ID preceded by "by ", "in ", "for ", followed by "; ", ". ", or `(ID)` adjacent to another paren group), the tool should either (a) skip the line and flag it for manual review, (b) strip the surrounding load-bearing prose fragment too, or (c) emit an informative diagnostic. Today --fix claims success but the output is unusable. Suggested direction: lightweight regex/heuristic detection of dependent prose, fall back to skip+warn; optional LLM-assisted rewrite for flagged cases.
+
 ---
 
 ## Resolved Bugs
