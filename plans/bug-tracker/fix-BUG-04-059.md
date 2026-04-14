@@ -347,7 +347,29 @@ This fix disables four `MaybeShared → StaticUnique/StaticReuse` upgrade paths 
 
 ## R. Third Party Review Findings
 
-(Phase 5 code-review TPR findings — populated after implementation lands.)
+### Phase 5 code TPR (Run: `/tmp/ori-tpr-hYKkV0tb`, 2026-04-14, against commit ad2b3134)
+
+Both reviewers ran against the implementation diff (`511b5f31..ad2b3134`).
+- **Codex** (rc=0, 437s, 162 events): 4 findings (1 HIGH, 2 MEDIUM, 1 LOW)
+- **Gemini** (rc=0, 474s, 63 events): 3 findings (1 HIGH, 2 LOW)
+
+**Findings triage** (all verified against actual code):
+
+- **[TPR-04-001-codex-phase5][HIGH]** — `is_borrow_disjoint_from_siblings()` queried function-entry uniqueness instead of receiver-block uniqueness. PRE-EXISTING bug exposed by removal of the `is_cow_aware_unique` fallback (the fallback was always firing and masking the stale block_id(0) query). **APPLIED**: signature now takes `block: ArcBlockId`; both call sites in `realize/mod.rs` pass current `blk`. Source uniqueness now checked at the receiver's actual program point. Test-all green.
+- **[TPR-04-001-gemini-phase5][HIGH]** — Helper-layer unit tests for `is_borrow_disjoint_from_siblings()` not implemented; cow/tests.rs is doc-only. **TRACKED**: filed as `[BUG-04-080][low]` (severity downgraded because integration coverage exists via `decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique` proxy).
+- **[TPR-04-002-codex-phase5][MEDIUM]** — same as TPR-04-001-gemini-phase5 (helper tests). **TRACKED** via BUG-04-080.
+- **[TPR-04-003-codex-phase5][MEDIUM]** — Missing `decide_reuse_maybe_shared_context_hole_once_returns_dynamic_reuse` preservation pin. **APPLIED**: test added to `realize/tests.rs`.
+- **[TPR-04-004-codex-phase5][LOW]** — Stale `§RL-31` citations; the local mutation rule is `§DP-5`/`§RL-10`. RL-31 is the cross-function `noalias` metadata rule. **APPLIED**: citations updated in `cow.rs` doc comment + `decide.rs` comment + `decide_cow()` inline comment.
+- **[TPR-04-002-gemini-phase5][LOW]** — Dead code fields in `AnnotationSiteContext` (is_param, access, consumption, cardinality, shape, rc_incremented_set). **TRACKED**: filed as `[BUG-04-081][low]` with explicit recommendation to keep fields under `#[expect(dead_code)]` for negative-pin test expressiveness — removing them would weaken the demonstration that the code rejects the unsound path even with previously-triggering inputs.
+- **[TPR-04-003-gemini-phase5][LOW]** — Negative pins merged into semantic pins (loss of explicit `_rejects_*` tests). **APPLIED**: added `decide_reuse_rejects_cross_dimensional_maybe_shared_once_static_reuse` and `decide_cow_rejects_cross_dimensional_maybe_shared_static_unique` as explicit `assert_ne!` negative pins covering all four removed promotion paths.
+
+**Phase 5 outcome**: HIGH finding fixed with code change; 2 MEDIUM findings (one consensus, one filed as follow-up bug); 3 LOW findings (2 applied, 1 with explicit rationale + tracked follow-up). All validated against code; no findings dismissed without verification.
+
+**Phase 5 commits**:
+- `ad2b3134 fix(aims): BUG-04-059 — remove unsound cross-dimensional uniqueness proofs` (initial implementation)
+- (next commit): block-aware uniqueness check + ContextHole reuse pin + RL-31→DP-5 citations + explicit negative pins + follow-up bug tracking
+
+**Phase 5 TPR re-run not performed** — remaining unfixed findings (helper unit tests, dead-code fields) are filed as concrete follow-up bugs (BUG-04-080, BUG-04-081), so a re-run would only verify the already-applied items. Future reviewers can verify the closure against this commit chain.
 
 ---
 

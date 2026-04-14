@@ -308,7 +308,7 @@ fn annotate_block(
             consumption: state.consumption,
             cardinality: state.cardinality,
             shape: ctx.state_map.var_shape(var),
-            is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, var),
+            is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, var, blk),
             is_collection: is_collection_var(ctx.func, var, ctx.pool),
         };
 
@@ -351,7 +351,7 @@ fn annotate_block(
                 consumption: state.consumption,
                 cardinality: state.cardinality,
                 shape: ctx.state_map.var_shape(receiver),
-                is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, receiver),
+                is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, receiver, blk),
                 is_collection: is_collection_var(ctx.func, receiver, ctx.pool),
             };
 
