@@ -26,7 +26,7 @@ This document defines the **laws** of the Ori type system — the interned repre
 - **Item** = `ori_types::item::Item` — compact 5-byte pool entry (1 tag + 4 data)
 - **Pool** = `ori_types::pool::Pool` — the interning store; every type has exactly one `Idx` in exactly one pool
 - **Tag** = `ori_types::tag::Tag` — 1-byte kind discriminant
-- Rules are numbered `CATEGORY-N`. Categories: `TY` (type pool / storage), `TK` (type kinds / tag catalog), `TI` (type identity / interning / hashing), `TF` (type flags), `TL` (type surface per spec), `PT` (properties of types), `TR` (trait interface — builtin traits), `SC` (scheme / quantification), `RG` (registries), `PC` (phase contracts), `SL` (Salsa / caching), `DI` (diagnostics produced by type storage itself), `TRG` (tracing)
+- Rules are numbered `CATEGORY-N`. Categories: `TY` (type pool / storage), `TK` (type kinds / tag catalog), `TI` (type identity / interning / hashing), `TF` (type flags), `TL` (type surface per spec), `PT` (properties of types), `BI` (builtin trait interface), `SC` (scheme / quantification), `RG` (registries), `PC` (phase contracts), `SL` (Salsa / caching), `DI` (diagnostics produced by type storage itself), `TRG` (tracing). `typeck.md`'s `TR-*` (Trait Resolution) is a distinct category living in a different file; this file's `BI-*` defines the trait INTERFACE (canonical methods / derivability / object safety rules). Cross-file references always use `TYPES:BI-*` (into this file) or `CHK:TR-*` (into typeck.md).
 - Cross-references: `typeck.md` rules prefixed with `CHK:` (e.g., `CHK:UN-1`), `parse.md` with `PARSE:`, `aims-rules.md` with `AIMS:`, `codegen-rules.md` with `CG:`, `impl-hygiene.md` with `HYG:`, spec clauses with `Spec:` (e.g., `Spec: Clause 8.1`)
 
 ---
@@ -186,7 +186,7 @@ Rationale: Two separate tags make the producer explicit — `Infer` is a syntact
 
 ### TK-6 — Rigid Variables
 
-`Tag::RigidVar` SHALL represent a user-annotated generic parameter (e.g., `@f<T>`). Rigid variables SHALL NOT unify with concrete types; attempting to unify a `RigidVar` with a non-variable type produces `E2001` (type mismatch) with the rigid name in the diagnostic.
+`Tag::RigidVar` SHALL represent a user-annotated generic parameter (e.g., `@f<T>`). Rigid variables SHALL NOT unify with concrete types; attempting to unify a `RigidVar` with a non-variable type produces `E2003` (via `TypeErrorKind::RigidMismatch`) with the rigid name in the diagnostic. See `CHK:UN-6` for the checker-side enforcement and `CHK:DI-1` for the complete error-code mapping.
 
 Rationale: Rigid variables preserve parametricity — `@f<T> (x: T) -> T` must typecheck as identity, not as any specific `T`. The rigid tag makes the "can't narrow" property a tag-level invariant, not an annotation-tracking side table.
 
@@ -418,7 +418,7 @@ trait Iterable { type Item; @iter (self) -> impl Iterator where Item == Self.Ite
 trait Collect<T> { @from_iter<I: Iterator> (iter: I) -> Self where I.Item == T; }
 ```
 
-The associated-type model is what the trait registry records (`TYPES:RG-2`, populated by `CHK:CK-1` pass 0c `register_traits`): `Iterator` and `Iterable` register `type Item;`; `Collect<T>` registers a type parameter. `next` returns `(Option<Self.Item>, Self)` — the value and the *new* iterator state (`TR-5`).
+The associated-type model is what the trait registry records (`TYPES:RG-2`, populated by `CHK:CK-1` pass 0c `register_traits`): `Iterator` and `Iterable` register `type Item;`; `Collect<T>` registers a type parameter. `next` returns `(Option<Self.Item>, Self)` — the value and the *new* iterator state (`BI-5`).
 
 Spec: Clauses 8.4, 8.13.
 
@@ -426,7 +426,7 @@ Spec: Clauses 8.4, 8.13.
 
 The shipped pool representation SHALL be a single-child `Tag::Channel` constructed via `Pool::channel(elem)` — one channel type per element type, with no role discriminator or cloneability flag in the pool item.
 
-**(Target-only)** Spec Clause 8.5 mandates that the channel element type `T` satisfy the `Sendable` marker trait (TR-7). The shipped checker does not yet enforce this bound: channel-construction expression forms (`FunctionExpKind::Channel`, `ChannelIn`, `ChannelOut`, `ChannelAll`) are currently rejected as unsupported (`E2040`) before any `Sendable`-bound check runs. When channel construction ships, bound enforcement will occur at the construction site.
+**(Target-only)** Spec Clause 8.5 mandates that the channel element type `T` satisfy the `Sendable` marker trait (BI-7). The shipped checker does not yet enforce this bound: channel-construction expression forms (`FunctionExpKind::Channel`, `ChannelIn`, `ChannelOut`, `ChannelAll`) are currently rejected as unsupported (`E2040`) before any `Sendable`-bound check runs. When channel construction ships, bound enforcement will occur at the construction site.
 
 **(Target-only)** The spec defines four distinct channel role types in Clause 8.5: `Producer<T>`, `Consumer<T>`, `CloneableProducer<T>`, `CloneableConsumer<T>`. Role discrimination and cloneability are represented at the Ori trait level (each role type implements a different capability-trait interface), NOT in the pool tag. Distinct role tags or an in-tag discriminator are not yet shipped; until they are, role-specific behavior SHALL be handled by trait dispatch on the container, not by tag inspection.
 
@@ -446,9 +446,12 @@ Spec: Clauses 8.6 (user-defined types, including 8.6.3 newtype), 8.7 (nominal ty
 
 ### TL-7 — Trait Objects
 
-Trait objects at value positions (argument, return, field) are written in source as `ParsedType::TraitBounds` carrying one or more bound trait names. The shipped checker resolves each bound for object-safety verification (TR-6, `CHK:TR-6`) at registration time, then returns the FIRST bound as a placeholder `Idx` from type-resolution (`compiler/ori_types/src/check/signatures/mod.rs`, `compiler/ori_types/src/check/registration/type_resolution.rs`). The placeholder pool `Idx` is the shipped representation of a trait-object typed position today.
+Trait objects at value positions (argument, return, field) are written in source as `ParsedType::TraitBounds` carrying one or more bound trait names. Object-safety enforcement runs in two stages:
 
-**(Target-only)** The full spec-target encoding is a dedicated trait-object pool entry — likely `Applied(trait_name, concrete_args)` or an object-safe-marked `Named` variant — that is structurally distinct from a concrete type satisfying the trait. That encoding is not yet in the pool; consumers downstream of the placeholder `Idx` rely on object-safety enforcement at registration rather than a distinct runtime representation.
+1. **Registration (Phase 0c)**: `check/registration/traits.rs` computes and stores an `object_safety_violations` field on every `TraitEntry` when the trait definition is first registered. The three violation conditions (`Self` in return, `Self` in non-receiver parameter, generic method) are checked once and cached per trait.
+2. **Use site (Signatures / Bodies)**: at every trait-object use position in signatures (`check/signatures/mod.rs`) and in-body type annotations (`infer/expr/type_resolution.rs`), the type-resolution pass consults the stored `object_safety_violations` and emits `E2024` (not-object-safe) on the use site's span. Type-resolution returns the FIRST bound as a placeholder `Idx` when the check passes; that placeholder is the shipped representation of a trait-object typed position today.
+
+**(Target-only)** Per Spec Clause 8.8, the target pool SHALL distinguish a trait-object type from any concrete type that satisfies the trait. The current pool does not yet have a dedicated trait-object encoding — downstream consumers rely on the use-site `E2024` emission rather than a distinct runtime representation. The target encoding's exact tag shape is not yet specified at the rule-file level.
 
 Spec: Clause 8.8 (trait objects).
 
@@ -530,7 +533,7 @@ Spec: Clause 9.5.
 
 Traits defined in the prelude (Spec Clauses 9.6 through 9.14 and scattered through Clause 8) have a fixed method shape that the type system encodes as registry entries. This section states the canonical signatures and their invariants; the actual dispatch is in `typeck.md`.
 
-### TR-1 — Canonical Trait Methods
+### BI-1 — Canonical Trait Methods
 
 The following traits SHALL have the canonical method shapes registered in `ori_registry` and cross-checked by `ori_types::check::registration`:
 
@@ -552,19 +555,21 @@ The following traits SHALL have the canonical method shapes registered in `ori_r
 | `Iterable` | `iter` | `(self) -> impl Iterator where Item == Self.Item` (associated type `Item`) | 8.13 |
 | `Collect<T>` | `from_iter` | `<I: Iterator> (iter: I) -> Self where I.Item == T` | 8.13 |
 | `Into<T>` | `into` | `(self) -> T` | 8.11 |
+| `As<T>` **(target-only)** | `as` | `(self) -> T` — desugar target for infallible `e as T` casts | 8.11 |
+| `TryAs<T>` **(target-only)** | `try_as` | `(self) -> Option<T>` — desugar target for fallible `e as? T` casts | 8.11 |
 | `Traceable` | `with_trace`, `trace`, `trace_entries`, `has_trace` | `(self, entry: TraceEntry) -> Self`, `(self) -> str`, `(self) -> [TraceEntry]`, `(self) -> bool` | 9.9 |
 | `Sendable` | *(marker — no methods)* | — | 8.14 |
 | `Value: Clone, Eq` | *(marker — no methods)* | — | 8.14 |
 
 Deviations from the canonical signature SHALL be rejected with `E2001` or `E2010` at registration time.
 
-### TR-2 — Derive Sync Points
+### BI-2 — Derive Sync Points
 
 The derivable traits (`Eq`, `Clone`, `Debug`, `Printable`, `Default`, `Comparable`, `Hashable`) SHALL be enumerated in a single canonical list in `ori_ir::DerivedTrait`. Every consumer crate (`ori_types`, `ori_eval`, `ori_llvm`, `library/std`) SHALL iterate that list to drive registration/evaluation/codegen. Parallel hand-maintained lists SHALL be a DRIFT finding per `HYG:§Registration Sync Points`.
 
 Cross-reference: `ir.md` §DerivedTrait holds the canonical checklist. Full derive workflow is in CLAUDE.md §"Adding a New Derived Trait".
 
-### TR-3 — Derivable Traits
+### BI-3 — Derivable Traits
 
 The following traits SHALL be derivable on user-defined types via `#derive(Trait)` (pre-proposal syntax) or `type T: Trait = { ... }` (post-proposal syntax): `Eq`, `Clone`, `Debug`, `Printable`, `Default`, `Comparable`, `Hashable`. A derive is generated at registration time (`CHK:TR-8`) with canonical componentwise semantics. A user `impl` overrides the derived form.
 
@@ -574,7 +579,7 @@ Spec: Clauses 8.9 (Clone — 8.9.2 Derivable), 8.12 (Debug — 8.12.2 Derivable)
 
 Rationale: Derivation is opt-in via `#derive` (or the post-proposal `type T: Trait` form). There is no structural auto-derivation that fires without a declaration — an Ori type declared as a bare `type T = { ... }` does NOT silently acquire `Eq`/`Clone`/`Debug`/`Printable` impls.
 
-### TR-4 — Operator Traits
+### BI-4 — Operator Traits
 
 Arithmetic (`+`, `-`, `*`, `/`, `**`, `%`, `div`), bitwise (`&`, `|`, `^`, `<<`, `>>`, `~`), comparison (`<`, `<=`, `>`, `>=`), equality (`==`, `!=`), unary (`-`, `!`, `~`), matmul (`@`), and conversion (`as`, `as?`) operators SHALL desugar to canonical trait methods as enumerated in `spec/operator-rules.md`. The registry holds the trait-to-method mapping; the checker consults it rather than hardcoding operator knowledge.
 
@@ -582,7 +587,7 @@ Rationale: Operator-to-method mapping is language-wide knowledge; encoding it in
 
 Spec: `spec/operator-rules.md`.
 
-### TR-5 — Iterator Trait Shape
+### BI-5 — Iterator Trait Shape
 
 `Iterator::next` SHALL return `(Option<Self.Item>, Self)` — a tuple of the next element (None on exhaustion) and the *new* iterator state. Ori iterators are **fused** (after the first `None`, all subsequent `next` calls return `None`) and **value-returning** (the iterator value itself is consumed and produced fresh, not mutated in place).
 
@@ -590,7 +595,7 @@ Rationale: Value-returning iterators are sound under ARC — no aliased mutation
 
 Spec: Clause 8.13.
 
-### TR-6 — Object Safety
+### BI-6 — Object Safety
 
 A trait SHALL be *object-safe* iff all methods satisfy:
 
@@ -604,7 +609,7 @@ Rationale: Object-safe traits correspond to vtable-compatible interfaces. Rust a
 
 Spec: Clause 8.8 (trait objects).
 
-### TR-7 — Sendable and Value Markers
+### BI-7 — Sendable and Value Markers
 
 `Sendable` and `Value` SHALL be **compiler-auto-derived** marker traits (Spec Clause 8.14). Users SHALL NOT impl them manually. The checker derives:
 
@@ -686,7 +691,7 @@ Rationale: Freezing after registration prevents later passes (signature collecti
 - Method signatures (names, types, default bodies)
 - Associated types
 - Supertrait constraints
-- Object safety (TR-6)
+- Object safety (BI-6)
 
 Impl entries record:
 
@@ -924,5 +929,5 @@ For a compound type constructed from children `c_1 .. c_n`:
 | NEEDS_SUBST | OR across children (children with vars → parent needs subst) |
 | IS_RESOLVED | AND across children AND current tag is fully concrete |
 | IS_MONO | AND across children AND parent is not a scheme |
-| IS_COPYABLE | AND across children AND parent obeys `Value` (TR-7) |
+| IS_COPYABLE | AND across children AND parent obeys `Value` (BI-7) |
 | Capability (HAS_*) | OR across function-type children (non-function children contribute nothing) |

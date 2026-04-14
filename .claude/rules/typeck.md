@@ -190,9 +190,9 @@ Path compression during union-find SHALL NOT bypass the occurs check. Compressed
 
 ### UN-6 — Rigid Variable Rejection
 
-Unifying `Tag::RigidVar(α)` with a non-variable type SHALL fail with `E2001` (type mismatch). Rigid variables are parametric — they cannot be narrowed to a concrete type, only to themselves or another rigid variable of matching identity.
+Unifying `Tag::RigidVar(α)` with a non-variable type SHALL fail with `E2003` (via `TypeErrorKind::RigidMismatch`; see `message.rs` mapping at `compiler/ori_types/src/type_error/check_error/message.rs`). Rigid variables are parametric — they cannot be narrowed to a concrete type, only to themselves or another rigid variable of matching identity.
 
-Two distinct rigid variables SHALL NOT unify with each other. A `RigidVar(α)` and a `RigidVar(β)` where `α != β` is a `E2001` mismatch (parametricity violation).
+Two distinct rigid variables SHALL NOT unify with each other. A `RigidVar(α)` and a `RigidVar(β)` where `α != β` is a `E2003` `RigidMismatch` (parametricity violation).
 
 Cross-reference: `TYPES:TK-6`.
 
@@ -325,7 +325,7 @@ Spec: Clause 14.2.
 
 Binary operator expressions SHALL desugar to trait method calls per `spec/operator-rules.md`:
 
-- `a + b` → `Add::add(a, b)` (trait method from the registry — `TYPES:TR-4`)
+- `a + b` → `Add::add(a, b)` (trait method from the registry — `TYPES:BI-4`)
 - `a == b` → `Eq::equals(a, b)`
 - `a < b` → `Comparable::compare(a, b).is_less()`
 - `a & b` → `BitAnd::bit_and(a, b)` (on operator-supporting types)
@@ -460,20 +460,28 @@ Spec: Clause 14.7 (closures).
 
 ### EX-12 — Cast Expressions
 
-- `e as T` — infallible coercion. Valid only when the checker can prove the coercion is lossless (int → float always, `[T, max N]` → `[T]` always, user-defined `As<T>` impl). Otherwise `E2001`.
-- `e as? T` — fallible coercion. Valid only when a user-defined `TryAs<T>` impl exists or when the source type is `str` and target is a parseable primitive. Result type is `Option<T>`.
+Shipped behavior: `infer_cast` in `compiler/ori_types/src/infer/expr/operators.rs` resolves the target type annotation and returns that type (for `e as T`) or `Option<T>` (for `e as? T`). The shipped checker does NOT validate that the cast is legal — the in-source comment "we don't check cast validity here" documents the absence. All casts type-check today regardless of whether the source/target pair is a lossless primitive coercion, a supported `As`/`TryAs` impl, or a nonsensical pair.
 
-Implicit coercion SHALL NOT be inserted by the checker — casts are always explicit.
+Implicit coercion SHALL NOT be inserted by the checker — casts are always explicit (`e as T` / `e as? T`).
+
+**(Target-only)** Per Spec Clause 14.9 and Clause 8.11, full cast typing validates:
+
+- `e as T` (infallible) — legal when the conversion is a spec-listed built-in (e.g. `int → float`, `char → int`, numeric widening) OR when a user-defined `As<T>` impl exists on `e`'s type. Otherwise `E2001` (type mismatch).
+- `e as? T` (fallible) — legal when a built-in fallible conversion table entry exists (e.g. `int → byte` with range check, `str → int` via parsing) OR when a user-defined `TryAs<T>` impl exists. Result type is `Option<T>`.
+
+The full built-in conversion table is in Spec Clause 14.9 subclauses. `As` and `TryAs` trait definitions are Spec Clause 8.11; their registration in `ori_registry` is pending.
 
 Spec: Clause 14.9 (conversions), Clause 8.11 (conversion traits).
 
-### EX-13 — Pipe Expressions
+### EX-13 — Pipe Expressions (target-only)
 
-`x |> f(a: v)` SHALL desugar in the checker to `{ let $_tmp = x; f(a: v, _pipe_slot: _tmp) }` where `_pipe_slot` is the function's first parameter that lacks a value AND lacks a default. If no such parameter exists, `E2040`. If multiple exist, `E2027` (ambiguous).
+**(Target-only)** Per Spec Clause 14.8 and the parser reference (`PARSE:` — `|>` is marked target-only and not yet lexed/parsed), the pipe operator SHALL desugar as follows:
 
-`x |> .method()` SHALL desugar to `_tmp.method()` with the same temporary binding.
+- `x |> f(a: v)` — desugar to `{ let $_tmp = x; f(a: v, _pipe_slot: _tmp) }` where `_pipe_slot` is the function's first parameter that lacks both a value AND a default. Missing parameter is a diagnostic (error code to be assigned when the feature ships — reusing `E2040` or `E2027` is NOT correct; those codes are already bound to `UnsupportedFeature` and `AmbiguousIndex`). Multiple matching parameters is a separate diagnostic (likewise, code to be assigned at ship time).
+- `x |> .method()` — desugar to `_tmp.method()` with the same temporary binding.
+- `x |> (y -> e)` — apply the lambda to `x`.
 
-`x |> (y -> e)` SHALL apply the lambda to `x`.
+No pipe production is shipped in the parser today, and `compiler/ori_types/src/infer/expr/mod.rs` has no pipe `ExprKind` arm — the entire EX-13 surface activates only when the parser ships `|>`.
 
 Spec: Clause 14.8.
 
@@ -511,9 +519,9 @@ Mixing `Result?` and `Option?` in one function is `E2001` at the second kind's u
 
 Spec: Clause 17 (errors and panics).
 
-### EX-17 — Assignment as Expression (Value-Returning)
+### EX-17 — Assignment Statements
 
-`x = v` SHALL type as `()` (void) and require `x` to be a mutable binding — immutable `let $x` rejects with `E2039` (assign to immutable). Compound assignment (`x += y`) desugars to `x = x + y` at parse time (`PARSE:PR-5`); the checker types the desugared form.
+`x = v` SHALL type as `()` (void — the statement form per Spec Clause 16) and require `x` to be a mutable binding — immutable `let $x` rejects with `E2039` (assign to immutable). Compound assignment (`x += y`) desugars to `x = x + y` at parse time (`PARSE:PR-5`); the checker types the desugared form.
 
 Index assignment (`list[i] = v`) SHALL desugar to `list = list.updated(key: i, value: v)`; field assignment (`state.f = v`) desugars to `state = { ...state, f: v }`. The root binding must be mutable.
 
@@ -567,7 +575,7 @@ Coherence (TR-2) SHALL be enforced during the Registration group at pass 0c (`CK
 
 ### TR-6 — Object Safety Check
 
-A trait used at a trait-object position (argument, return, field) SHALL be verified object-safe (`TYPES:TR-6`). Non-object-safe traits (`Clone`, `Eq`, `Iterator`, `Comparable`, `Hashable`) produce `E2024`. `Into<T>` IS object-safe — the generic parameter is on the trait, not the method; `into(self) -> T` has a `self` receiver and returns `T` (not `Self`); all three object-safety rules hold.
+A trait used at a trait-object position (argument, return, field) SHALL be verified object-safe (`TYPES:BI-6`). Non-object-safe traits (`Clone`, `Eq`, `Iterator`, `Comparable`, `Hashable`) produce `E2024`. `Into<T>` IS object-safe — the generic parameter is on the trait, not the method; `into(self) -> T` has a `self` receiver and returns `T` (not `Self`); all three object-safety rules hold.
 
 ### TR-7 — Default Implementations
 
@@ -577,7 +585,7 @@ A stateless `def impl` SHALL be unique per `(trait, module)` pair — multiple `
 
 ### TR-8 — Derived Implementations
 
-Derived trait impls (`#derive(Eq, Clone)` pre-proposal syntax; `type T: Eq, Clone = {...}` post-proposal) SHALL generate registered impls with canonical field-by-field semantics (`TYPES:TR-3`):
+Derived trait impls (`#derive(Eq, Clone)` pre-proposal syntax; `type T: Eq, Clone = {...}` post-proposal) SHALL generate registered impls with canonical field-by-field semantics (`TYPES:BI-3`):
 
 - `Eq` — all fields `Eq`; compare componentwise
 - `Clone` — all fields `Clone`; clone componentwise
@@ -1058,7 +1066,7 @@ For each language construct, which pass (from the `CK-1` table) is responsible:
 | Impl blocks (inherent, trait, default) | 0c (Registration) | CK-1, TR-2 | Coherence checked at registration (CK-5) |
 | Derived impls (Eq, Clone, etc.) | 0d (Registration) | TR-8 | Generated once with canonical componentwise semantics |
 | Module-level constants | 0e (Registration) + 1 (Signatures) | CK-1 | Declarations first, then RHS typed |
-| Function / method signatures | 1 (Signatures) | CK-4 | No `Var` allowed at Bodies-group entry |
+| Function / method signatures | 1 (Signatures) | CK-4 | Fresh `Tag::Var` permitted for elided annotations (checker-owned, resolved by Bodies); no `Tag::Infer` / `Tag::Projection` / unresolved `Tag::Named` allowed |
 | Function bodies | 2 (Bodies — functions) | CK-1 | Uses frozen registries + signatures |
 | Contracts (pre/post) | 2 (Bodies — functions) | CF-7 | Typed in function-body scope |
 | Attached / floating tests | 3 (Bodies — tests) | CF-6 | Bodies like any function |
