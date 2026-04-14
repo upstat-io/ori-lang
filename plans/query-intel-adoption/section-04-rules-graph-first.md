@@ -14,7 +14,7 @@ inspired_by:
   - "TPR findings codex-005, 020, 021, 022, 023, 024, 025, 026, 027, gemini-004 [medium]"
 depends_on: ["03"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-14
 sections:
   - id: "04.1"
@@ -28,10 +28,10 @@ sections:
     status: complete
   - id: "04.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 04: Rule files — graph-first guidance in 9 domain rule files
@@ -293,7 +293,7 @@ The current "When to Query" block (lines 18-34) lists 15 workflows. Several revi
   - [ ] Section frontmatter `status` → `complete`
   - [ ] `00-overview.md` Quick Reference and mission criterion updated
   - [ ] `index.md` updated
-- [ ] `/tpr-review` passed — verify reviewers agree the insertions POINT at the graph rather than duplicate its subcommand reference
+- [x] `/tpr-review` passed — 5 rounds (4 finding-fixing + 1 clean), 16 actionable findings resolved, both reviewers confirmed zero actionable issues on round 5. Codex 355s/101 events, Gemini 425s/64 events. `ASYMMETRY: MODERATE` (accepted — walltime comparable). Merge at `/tmp/ori-tpr-VJS1GsnR/merged.json`.
 - [ ] `/impl-hygiene-review` passed — the 9 paragraphs are near-identical by design but each points at the SSOT (`intelligence.md` + `compose-intel-summary.md`); confirm this is not LEAK:algorithmic-duplication (the paragraphs are user-facing prose tuned per-file; the canonical query pattern itself lives in §03's SSOT)
 - [ ] `/improve-tooling` section-close sweep
 - [ ] `/sync-claude` section-close doc sync

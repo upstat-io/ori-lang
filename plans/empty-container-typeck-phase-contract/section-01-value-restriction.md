@@ -3,12 +3,13 @@ section: "01"
 title: "AST-based Value Restriction"
 status: not-started
 reviewed: false
-goal: "Extract a single SSOT `should_generalize` helper and migrate all 3 let-generalization sites to call it, so non-lambda initializers (including empty lists) no longer generalize their element type variables."
+goal: "Extract a single SSOT `should_generalize` helper and migrate all 3 let-generalization sites to call it, so only direct non-capturing lambda initializers generalize — all other initializers (including empty lists, block-wrapped lambdas, variable aliases, conditionals producing functions) become monomorphic."
 success_criteria:
   - "Single `pub(super) fn should_generalize(arena: &ExprArena, init: ExprId) -> bool` exists in `compiler/ori_types/src/infer/expr/blocks.rs` — verifiable via `grep -n 'pub(super) fn should_generalize' compiler/ori_types/src/infer/expr/blocks.rs` returning exactly one hit."
   - "All 3 generalization sites call `should_generalize` — NOT a type-tag heuristic, NOT inlined duplicated logic. Verifiable: `grep -n 'engine.generalize' compiler/ori_types/src/infer/expr/blocks.rs compiler/ori_types/src/infer/expr/sequences.rs` returns exactly 3 call sites each preceded by `if should_generalize(...)`."
-  - "`let id = x -> x; id(1); id(\"hello\")` type-checks and runs correctly in both interpreter and LLVM — regression pin for let-polymorphism preservation. Test `test_let_polymorphism_for_lambda` in `compiler/ori_types/src/infer/expr/blocks/tests.rs` passes BEFORE and AFTER the change; reverting `should_generalize` must break it."
+  - "`let id = x -> x; id(1); id(\"hello\")` type-checks and runs correctly in both interpreter and LLVM — regression pin for let-polymorphism preservation. Test `test_let_polymorphism_for_lambda` in `compiler/ori_types/src/infer/expr/tests.rs` passes BEFORE and AFTER the change; reverting `should_generalize` must break it."
   - "`let x = []` no longer generalizes the element Var — `Tag::Var` stays Unbound after the block-statement let path returns, ready for Section 02's validator to catch. Verifiable via a unit test `test_empty_list_let_binding_does_not_generalize_element_var` in the same tests file."
+  - "Patterns that become intentionally monomorphic are tested as negative pins: `let f = { x -> x }` (block-wrapped lambda), `let alias = id` (variable aliasing a polymorphic binding), `let f = if true then (x -> x) else (y -> y)` (conditional producing a function) — all produce monomorphic bindings under the new policy, and negative pin tests verify this."
   - "`timeout 150 ./test-all.sh` remains green (debug and release builds) after the migration — no regressions in existing spec tests."
 inspired_by:
   - "Rust `rustc_hir_typeck` — no let-polymorphism for local bindings; all local bindings are monomorphic. Every `let x = e` in a function body constrains `e`'s type variable to the inferred monotype rather than generalizing it."
@@ -44,9 +45,29 @@ sections:
 **Status:** Not Started
 **Goal:** Replace unconditional generalization at 3 let-binding sites with a single SSOT
 `should_generalize(arena, init_expr_id) -> bool` helper that returns `true` only for
-non-capturing `ExprKind::Lambda` initializers. Preserves let-polymorphism for
+direct, non-capturing `ExprKind::Lambda` initializers. Preserves let-polymorphism for
 `let id = x -> x` while preventing empty-list element Vars from being prematurely
 generalized into Schemes.
+
+**Semantic scope of this change:** This change restricts Ori's let-polymorphism to ONLY
+direct non-capturing lambda bindings. The following patterns that were previously
+polymorphic become **intentionally monomorphic** under the new policy:
+
+- `let f = { x -> x }` — block wrapping a lambda: `should_generalize` sees
+  `ExprKind::Block`, not `ExprKind::Lambda`, so returns `false`.
+- `let alias = id` — variable aliasing a polymorphic binding: `should_generalize`
+  sees `ExprKind::Ident`, returns `false`. `alias` gets the instantiated monotype.
+- `let f = if c then (x -> x) else (y -> y)` — conditional producing a function:
+  `should_generalize` sees `ExprKind::If`, returns `false`.
+- `let x = []` — empty list: sees `ExprKind::List`, returns `false`.
+- `let m = {}` — empty map: sees `ExprKind::Map`, returns `false`.
+- Any non-lambda expression: function calls, struct literals, constants, etc.
+
+This is a deliberate design choice matching Rust's approach (no let-polymorphism for
+locals) while preserving the most common polymorphic use case (`let id = x -> x`).
+The choice is AST-based rather than type-based because type-tag heuristics fail when
+the resolved type is still `Tag::Var` awaiting bi-directional unification (per Gemini
+Round 1 TPR finding on the original fix-section).
 
 **Success Criteria:**
 
@@ -54,7 +75,19 @@ generalized into Schemes.
 - [ ] All 3 `engine.generalize()` calls are gated by `if should_generalize(...)` — grep verifiable
 - [ ] `test_let_polymorphism_for_lambda` passes before and after; reverting the change breaks it
 - [ ] `test_empty_list_let_binding_does_not_generalize_element_var` passes after migration
+- [ ] Negative pins for intentionally monomorphic patterns pass (block-wrapped, aliased, conditional)
 - [ ] `timeout 150 ./test-all.sh` green (debug + release)
+
+**Cross-section contract (Section 01 -> Sections 02/03):** After Section 01 completes,
+`infer_expr` stores expression types BEFORE the generalization step in `infer_block` /
+`infer_let`. For non-lambda initializers, the element `Tag::Var` stays Unbound in the
+type pool but IS stored in `engine.expr_types()` during `infer_expr`. Section 02's
+validator (`validate_body_types`) runs AFTER body inference and inspects `expr_types` —
+it is the validator that surfaces `E2005` on these remaining Unbound vars. Section 01
+alone does not reject programs; it prepares the ground for Section 02/03 to do so.
+Without Section 02, the Unbound vars would silently flow to codegen (the pre-existing
+bug). Without Section 01, the validator would falsely reject polymorphic lambda bindings.
+Both sections are required for correctness.
 
 **Context:** BUG-04-074 traced the "unresolved type variable at codegen" failure to three
 unconditional `engine.generalize()` calls in the typeck let-binding paths. Generalizing
@@ -62,17 +95,17 @@ an empty-list element's `Tag::Var` turns it into a `Tag::Scheme` whose bound var
 never instantiated to a concrete type — downstream use sites like `.len()` don't constrain
 the element type, so the Scheme persists unresolved through canonicalization, ARC lowering,
 and into LLVM codegen where it triggers a verification failure. The fix is AST-based Value
-Restriction: only non-capturing lambdas (`x -> x`) qualify for generalization; all other
-initializers — including `[]`, `{}`, struct literals, and constants — are monomorphic and
-must not generalize their type variables.
+Restriction: only direct non-capturing lambdas (`x -> x`) qualify for generalization; all
+other initializers — including `[]`, `{}`, block-wrapped lambdas, variable aliases, and
+constants — are monomorphic and must not generalize their type variables.
 
 **Reference implementations:**
 
 - **Rust** `compiler/rustc_hir_typeck/src/expr.rs`: no let-polymorphism for local let
   bindings — Rust's type checker never generalizes locally-bound types into schemes; every
   `let x = e` in a function body is monomorphic. Ori's design differs (it supports
-  `let id = x -> x` with genuine polymorphism for non-capturing lambdas), but the lesson
-  is clear: unrestricted generalization of arbitrary initializers is unsound.
+  `let id = x -> x` with genuine polymorphism for direct non-capturing lambdas), but the
+  lesson is clear: unrestricted generalization of arbitrary initializers is unsound.
 
 - **Haskell** `ghc/compiler/GHC/Tc/Gen/Bind.hs`: the monomorphism restriction
   motivates why even a purely functional language needs Value Restriction — functions
@@ -83,6 +116,17 @@ must not generalize their type variables.
   precedent — the codebase already performs AST-based Lambda detection + capture analysis
   to decide whether a lambda is capturing. `should_generalize` extends this exact check
   to make generalization conditional on the result.
+
+**Note on `body_captures_outer` completeness:** The existing `body_captures_outer`
+function (L249-286 in `blocks.rs`) is documented as an over-approximation: it
+conservatively returns `false` for expression kinds it does not explicitly walk (the
+`_ => false` catch-all at L284). This means it may MISS captures in some expression
+forms (e.g., call arguments, method arguments beyond the receiver, nested forms), which
+would cause `should_generalize` to return `true` when it should return `false`. This is
+the safe direction: it may incorrectly generalize some capturing lambdas, but it will
+never incorrectly refuse to generalize a non-capturing one. The AOT backend catches the
+unsafe direction (codegen verification failure), so the over-approximation is tolerable.
+Improving `body_captures_outer` completeness is desirable but orthogonal to this plan.
 
 **Depends on:** None (independent of Sections 02–06).
 
@@ -110,14 +154,30 @@ change). Also confirm that a new stub `test_empty_list_let_binding_does_not_gene
 fails with current behavior (empty list IS currently generalized — the test expects it NOT
 to be). Only after both tests are in the right state should implementation begin.
 
-- [ ] Write test stubs in `compiler/ori_types/src/infer/expr/blocks/tests.rs`
-  (create the `tests.rs` sibling file if it does not yet exist — follow the
-  `blocks.rs` → `blocks/tests.rs` pattern from `compiler.md §Testing`):
+**Test file location:** `compiler/ori_types/src/infer/expr/tests.rs`. This is the
+existing test file for the `expr` module, declared at `mod.rs:477-480` as
+`#[cfg(test)] mod tests;`. Both `blocks.rs` and `sequences.rs` are flat files (not
+directories), so the `foo.rs → foo/tests.rs` pattern from `compiler.md §Testing` does
+not apply. All tests for the `expr` module — regardless of which submodule's code
+they exercise — live in this single `tests.rs` file, which accesses submodule internals
+via the `pub(super) use blocks::*;` re-exports at `mod.rs:53`.
+
+- [ ] Write test stubs in `compiler/ori_types/src/infer/expr/tests.rs`:
   - `test_let_polymorphism_for_lambda` — verifies `let id = x -> x` produces a `Tag::Scheme`
-    (currently passes; must continue to pass after migration)
+    (currently passes; must continue to pass after migration). Semantic pin.
   - `test_empty_list_let_binding_does_not_generalize_element_var` — verifies that the element
     type of `let xs = []` is NOT wrapped in a `Tag::Scheme` (currently FAILS — the test
-    documents the target behavior before implementation)
+    documents the target behavior before implementation). Semantic pin.
+  - `test_block_wrapped_lambda_does_not_generalize` — verifies that `let f = { x -> x }`
+    does NOT produce a `Tag::Scheme` under the new policy (negative pin for the
+    block-wrapping blindspot). Currently FAILS — becomes monomorphic after migration.
+  - `test_variable_alias_does_not_generalize` — verifies that `let alias = id` (where
+    `id` is a polymorphic binding) does NOT re-generalize into a new `Tag::Scheme`
+    (negative pin for the variable-aliasing blindspot). `alias` gets the instantiated
+    monotype from `id`'s scheme at the use site.
+  - `test_conditional_lambda_does_not_generalize` — verifies that
+    `let f = if true then (x -> x) else (y -> y)` does NOT produce a `Tag::Scheme`
+    (negative pin for the conditional-lambda blindspot).
 
 - [ ] Add `pub(super) fn should_generalize` to `blocks.rs` immediately above
   `body_captures_outer` (currently at L249):
@@ -158,8 +218,9 @@ to be). Only after both tests are in the right state should implementation begin
   }
   ```
 
-- [ ] Verify `should_generalize` is visible from sibling `tests.rs` via `use super::*` (the
-  existing `pub(super) use blocks::*;` re-export in `mod.rs` covers this automatically).
+- [ ] Verify `should_generalize` is visible from `tests.rs` via `use super::*` (the
+  existing `pub(super) use blocks::*;` re-export at `mod.rs:53` covers this automatically
+  since the test module is `mod tests;` declared at `mod.rs:477-480`).
 
 - [ ] Run `timeout 150 cargo test -p ori_types` — `test_let_polymorphism_for_lambda` must
   still pass (the helper alone changes nothing); `test_empty_list_let_binding_does_not_generalize_element_var`
@@ -343,7 +404,7 @@ dispatched from `infer_expr_inner` in `mod.rs` (L160-173). Its no-annotation bra
 ```
 
 - [ ] **TDD first** — add a targeted test `test_let_expr_non_lambda_does_not_generalize`
-  to `blocks/tests.rs` that exercises the `ExprKind::Let` path specifically (the
+  to `compiler/ori_types/src/infer/expr/tests.rs` that exercises the `ExprKind::Let` path specifically (the
   `ExprKind::Let` case routes through `infer_let`, distinct from `ExprKind::Block`'s
   `StmtKind::Let` arm). This test must fail before the change and pass after.
 
@@ -443,9 +504,9 @@ Import `should_generalize` at the top of `sequences.rs`. The function is `pub(su
 Verify the import compiles cleanly.
 
 - [ ] **TDD first** — add `test_try_block_let_non_lambda_does_not_generalize` to
-  `compiler/ori_types/src/infer/expr/sequences/tests.rs` (create the sibling file if
-  absent — `sequences.rs` → `sequences/tests.rs`). Test must fail before the change and
-  pass after.
+  `compiler/ori_types/src/infer/expr/tests.rs` (the shared test file for the `expr`
+  module; `sequences.rs` is a flat file, not a directory, so there is no
+  `sequences/tests.rs`). Test must fail before the change and pass after.
 
 - [ ] Replace L247 (unconditional `engine.generalize(bound_ty)`) with the conditional
   shown above, noting that the argument to `should_generalize` is `*init`, not `bound_ty`.
@@ -475,14 +536,20 @@ Verify the import compiles cleanly.
         `build(diagnostics): ... — surfaced by empty-container-contract/section-01.4
         retrospective`.
   - [ ] **Run `/sync-claude` on THIS subsection** — 01.4 is the final migration subsection.
-        After 01.4, the generalization policy has changed across all 3 sites. Check whether
-        `typeck.md §GN-1` / `§GN-3` or `CLAUDE.md §Type Checker Patterns` need updating to
-        document the new Value Restriction policy. If `typeck.md §GN-3` (currently states
-        "all let-bindings are generalizable") now diverges from the shipped behavior, update
-        it: the rule is now "only non-capturing lambda initializers are generalizable for
-        local let bindings." If all three are "no," document: "Claude artifact sync 01.4:
-        updated typeck.md §GN-3 to reflect Value Restriction shipping." Fix any drift NOW
-        and commit via `/commit-push`. Do not silently skip.
+        After 01.4, the generalization policy has changed across all 3 sites. Check ALL of:
+        - `typeck.md §GN-3` (currently states "all let-bindings are generalizable") — MUST be
+          updated to: "only direct non-capturing lambda initializers are generalizable for
+          local let bindings; all other initializers are monomorphic."
+        - `typeck.md §EX-8` step 4 ("Generalize Te to a scheme") — MUST add a note that
+          generalization is gated by Value Restriction (`should_generalize`).
+        - `typeck.md §BD-1` row for `let x = e` ("Synth(e), then generalize") — MUST add a
+          note that generalization is conditional on Value Restriction.
+        - `CLAUDE.md §Type Checker Patterns` — verify no stale generalization claims.
+        - `docs/compiler/design/05-type-system/index.md` — if it describes the generalization
+          policy, update it.
+        - `canon.md §4.2` — verify the typed IR output invariants still hold under the new
+          policy (they should, since Section 02's validator enforces PC-2).
+        Fix any drift NOW and commit via `/commit-push`. Do not silently skip.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any
         detected temp files.
 
@@ -510,10 +577,15 @@ When all findings are triaged:
 - [ ] Single `pub(super) fn should_generalize` exists in `blocks.rs` — `grep -n 'pub(super) fn should_generalize' compiler/ori_types/src/infer/expr/blocks.rs` returns exactly one hit
 - [ ] All 3 `engine.generalize` calls gated by `if should_generalize(...)` — `grep -n 'engine.generalize' compiler/ori_types/src/infer/expr/blocks.rs compiler/ori_types/src/infer/expr/sequences.rs` returns exactly 3 hits
 - [ ] No inlined Lambda-detection logic duplicating `should_generalize`'s behavior remains — `grep -n 'ExprKind::Lambda' compiler/ori_types/src/infer/expr/blocks.rs` shows only the self-capture detection arm and `should_generalize`'s own body
-- [ ] `test_let_polymorphism_for_lambda` passes in `compiler/ori_types/src/infer/expr/blocks/tests.rs`
+- [ ] `test_let_polymorphism_for_lambda` passes in `compiler/ori_types/src/infer/expr/tests.rs`
 - [ ] `test_empty_list_let_binding_does_not_generalize_element_var` passes
 - [ ] `test_let_expr_non_lambda_does_not_generalize` passes
-- [ ] `test_try_block_let_non_lambda_does_not_generalize` passes in `compiler/ori_types/src/infer/expr/sequences/tests.rs`
+- [ ] `test_try_block_let_non_lambda_does_not_generalize` passes
+- [ ] Negative pin tests for intentionally monomorphic patterns pass (all in `tests.rs`):
+  - `test_block_wrapped_lambda_does_not_generalize`
+  - `test_variable_alias_does_not_generalize`
+  - `test_conditional_lambda_does_not_generalize`
+- [ ] All tests live in `compiler/ori_types/src/infer/expr/tests.rs` — no `blocks/tests.rs` or `sequences/tests.rs` created (those paths do not match the existing module layout)
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 01` returns 0 ephemeral annotations — the `# Plan` doc comment in `should_generalize` referencing this section is intentional scaffolding to be removed at Section 07 close-out (per `00-overview.md §Known Bugs` close-out note)
 - [ ] All intermediate subsection close-out tasks complete (01.1–01.4)
 - [ ] **Plan sync** — update plan metadata to reflect section completion:
@@ -528,7 +600,14 @@ When all findings are triaged:
 - [ ] `/tpr-review` passed (final, full-section) — independent dual-source review (Codex + Gemini) found no critical or major issues (or all findings from both reviewers triaged and recorded in 01.R)
 - [ ] `/impl-hygiene-review` passed — implementation hygiene review found no critical or major findings (or all findings triaged and fixed). MUST run AFTER `/tpr-review` is clean.
 - [ ] `/improve-tooling` **section-close sweep** — verify every subsection (01.1–01.4) has either an "improvements made" entry (with commits) or a documented "no gaps" negative finding from its per-subsection retrospective. Look for cross-subsection patterns invisible at per-item scope. Add only new items from cross-cutting patterns; implement immediately, commit separately. If no new patterns found, document: "Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling."
-- [ ] `/sync-claude` **section-close doc sync** — run across all commits in Section 01 (`git diff --name-only <section-start>..HEAD`). Map changed files to rules (primarily `typeck.md §GN-3` for the Value Restriction policy change). Verify CLAUDE.md §Type Checker Patterns still accurate. Fix any drift and commit. Document result.
+- [ ] `/sync-claude` **section-close doc sync** — run across all commits in Section 01 (`git diff --name-only <section-start>..HEAD`). Map changed files to rules. Required updates:
+  - `typeck.md §GN-3` — MUST be updated (see 01.4 close-out for exact wording)
+  - `typeck.md §EX-8` step 4 — add Value Restriction note
+  - `typeck.md §BD-1` `let x = e` row — add conditional generalization note
+  - `CLAUDE.md §Type Checker Patterns` — verify accuracy
+  - `docs/compiler/design/05-type-system/index.md` — update if present
+  - `canon.md §4.2` — verify typed IR invariants still hold
+  Fix any drift and commit. Document result.
 - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` clean before final commit
 
-**Exit Criteria:** All 4 subsections complete. Single `should_generalize` SSOT in `blocks.rs`. Three `engine.generalize` calls each gated by `if should_generalize(...)`. Four new tests pass. `test_let_polymorphism_for_lambda` passes unchanged (semantic pin). `timeout 150 ./test-all.sh` green in debug and release. `/tpr-review` and `/impl-hygiene-review` clean. Section 03 can now assume the 3 generalization sites are correctly gated and that empty-list element Vars flow as Unbound `Tag::Var` into the validator.
+**Exit Criteria:** All 4 subsections complete. Single `should_generalize` SSOT in `blocks.rs`. Three `engine.generalize` calls each gated by `if should_generalize(...)`. Seven new tests pass: 4 positive/semantic pins (lambda polymorphism, empty list, let-expr, try-block) + 3 negative pins (block-wrapped, aliased, conditional). `test_let_polymorphism_for_lambda` passes unchanged (semantic pin). `timeout 150 ./test-all.sh` green in debug and release. `/tpr-review` and `/impl-hygiene-review` clean. `typeck.md §GN-3` updated to reflect the Value Restriction policy. Section 03 can now assume the 3 generalization sites are correctly gated and that empty-list element Vars flow as Unbound `Tag::Var` into the validator.
