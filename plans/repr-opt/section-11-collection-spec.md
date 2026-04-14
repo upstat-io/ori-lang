@@ -227,6 +227,13 @@ When §04 narrows an element type (e.g., `int` → `i8`), the collection's backi
   - `{int: str}` where keys are 0..100 → i8 key array
   - Requires hash function to work on narrow type (hash the canonical value)
 
+- [ ] **Sound collection narrowing re-enablement (BUG-04-077 follow-up — BLOCKED on this item)**:
+  - Collection element narrowing (Phase C in `ori_repr/narrowing/int.rs`) was **disabled** by BUG-04-077 fix because the range analysis only sees literal construction sites but `collect()` can produce computed values exceeding the narrowed range (e.g., `map(x -> x * 1000)` on a `[1,2,3]` list). All `List<int>` share one `ReprPlan` entry, so the stride mismatch caused silent data corruption.
+  - **AOT path (option C)**: Extend range analysis to track ALL value sources for collection element types — not just literal construction sites. Must include: (a) `collect()` output via closure output range inference (analyze `map` closure body to determine output range), (b) `push()` values (already handled — BUG-05-001), (c) cross-function returns of `[int]`. When ANY source produces values outside the narrowed range, widen to canonical. This is interprocedural range analysis through closures — same framework as §03 but extended to closure bodies.
+  - **JIT path (option D)**: Speculative narrowing with runtime deoptimization. Start narrowed, add a guard at store sites. If value exceeds range → reallocate at wider stride, copy, continue. Natural fit for the bytecode VM in `plans/perf-engineering/` §04-05. See tracked item there.
+  - **Re-enable**: Once option C lands, un-ignore the 7 Phase C unit tests in `ori_repr/narrowing/tests.rs` (currently `#[ignore = "BUG-04-077: collection element narrowing disabled"]`) and re-enable `narrow_collection_elements()` in `ori_repr/narrowing/int.rs`.
+  - Motivation: AIMS mission requires memory management *superior to hand-coded C*. Without collection narrowing, every `[int]` uses 8 bytes per element regardless of value range — 8x worse than `int8_t arr[]` in C for small-valued lists.
+
 - [ ] Per-construction-site collection element narrowing (TPR-04-036 follow-up):
   - Current §04 Phase C narrows per-type (one `List<int>` Idx shared across all uses)
   - A single public `[int]` signature in the module suppresses ALL `[int]` narrowing (conservative)
