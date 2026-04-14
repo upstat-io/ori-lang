@@ -94,12 +94,15 @@ class TestStrictParserRejectsInvalidYAML:
         with pytest.raises(CorpusParseError, match="multi-document"):
             split_frontmatter_strict(text, Path("test.md"))
 
-    def test_multi_document_separator_within_frontmatter_rejected(self):
-        """YAML document-start marker '---' within frontmatter region must be rejected."""
+    def test_multi_document_separator_handled_as_boundary(self):
+        """YAML document-start marker '---' is treated as the frontmatter closing boundary.
+
+        The parser splits at the first closing --- (line 3), so frontmatter = "doc1: true"
+        and body = "doc2: true\\n---\\n". This is correct boundary detection, not multi-document
+        rejection. For a true multi-document rejection test, see
+        test_multi_document_within_frontmatter_rejected above (uses '...' marker inside).
+        """
         text = "---\ndoc1: true\n---\ndoc2: true\n---\n"
-        # The parser splits at the first closing --- (line 3), so frontmatter = "doc1: true"
-        # and body = "doc2: true\n---\n". This is correct boundary detection, not multi-document.
-        # For a true multi-document scenario, the frontmatter content itself must contain the marker.
         data, offset = split_frontmatter_strict(text, Path("test.md"))
         assert data == {"doc1": True}
 
@@ -211,6 +214,67 @@ class TestSchemaValidation:
         data = {"name": "t", "full_name": "T", "status": "active", "reroute": False}
         findings = validate(FileClass.PLAN_INDEX, data, Path("test.md"))
         assert any(f.subtype == FindingSubtype.CROSS_FIELD_INVARIANT for f in findings)
+
+    def test_nested_sections_entry_missing_required_field_flagged(self):
+        """Regression pin for round-5 _validate_sections fix.
+
+        Semantic pin: a sections[] entry missing a required field (id/title/status)
+        must emit MISSING_REQUIRED_FIELD. Reverts of _validate_sections will fail.
+        """
+        data = {
+            "section": "01", "title": "T", "status": "in-progress",
+            "reviewed": True, "goal": "G", "success_criteria": [],
+            "sections": [{"id": "01.1", "status": "in-progress"}],
+            "third_party_review": {"status": "none", "updated": None},
+        }
+        findings = validate(FileClass.PLAN_SECTION, data, Path("test.md"))
+        assert any(
+            f.subtype == FindingSubtype.MISSING_REQUIRED_FIELD
+            and "sections[0]" in f.description
+            for f in findings
+        )
+
+    def test_nested_sections_entry_unknown_field_flagged(self):
+        """Regression pin: unknown field in sections[] entry must emit UNKNOWN_FIELD."""
+        data = {
+            "section": "01", "title": "T", "status": "in-progress",
+            "reviewed": True, "goal": "G", "success_criteria": [],
+            "sections": [{"id": "01.1", "title": "X", "status": "complete", "bogus": 1}],
+            "third_party_review": {"status": "none", "updated": None},
+        }
+        findings = validate(FileClass.PLAN_SECTION, data, Path("test.md"))
+        assert any(
+            f.subtype == FindingSubtype.UNKNOWN_FIELD
+            and "sections[0]" in f.description
+            for f in findings
+        )
+
+    def test_nested_sections_entry_invalid_status_flagged(self):
+        """Regression pin: bad status in sections[] entry must emit ENUM_OUT_OF_RANGE."""
+        data = {
+            "section": "01", "title": "T", "status": "in-progress",
+            "reviewed": True, "goal": "G", "success_criteria": [],
+            "sections": [{"id": "01.1", "title": "X", "status": "banana"}],
+            "third_party_review": {"status": "none", "updated": None},
+        }
+        findings = validate(FileClass.PLAN_SECTION, data, Path("test.md"))
+        assert any(
+            f.subtype == FindingSubtype.ENUM_OUT_OF_RANGE
+            and "sections[0]" in f.description
+            for f in findings
+        )
+
+    def test_nested_sections_valid_entry_produces_no_findings(self):
+        """Negative pin: a well-formed sections[] entry must not produce findings."""
+        data = {
+            "section": "01", "title": "T", "status": "in-progress",
+            "reviewed": True, "goal": "G", "success_criteria": [],
+            "sections": [{"id": "01.1", "title": "X", "status": "complete"}],
+            "third_party_review": {"status": "none", "updated": None},
+        }
+        findings = validate(FileClass.PLAN_SECTION, data, Path("test.md"))
+        section_findings = [f for f in findings if "sections[" in f.description]
+        assert not section_findings
 
     def test_depends_on_bare_string_rejected(self):
         data = {
@@ -569,6 +633,40 @@ class TestCorpusDiscovery:
                         if f.subtype == FindingSubtype.UNCLASSIFIED_DIRECTORY]
         # We know compiler-research-blueprint, code-journeys, deep-safety exist
         assert len(unclassified) >= 1
+
+    def test_discover_corpus_malformed_file_surfaces_parse_error_finding(self, tmp_path):
+        """Regression pin for round-5 LEAK:swallowed-error fix in _classify_and_store.
+
+        Semantic pin: a malformed index.md file discovered during corpus walk must
+        surface as a PARSE_ERROR Finding in corpus.gaps, NOT be silently stored
+        with empty frontmatter. Reverts of the _classify_and_store fix will fail
+        this test.
+        """
+        plans = tmp_path / "plans"
+        bad = plans / "bad-plan"
+        bad.mkdir(parents=True)
+        # Invalid YAML: unclosed list after opening ---
+        (bad / "index.md").write_text("---\nname: [unclosed\n---\n")
+
+        corpus = discover_corpus(include=[bad / "index.md"])
+        parse_errors = [g for g in corpus.gaps
+                        if g.category == FindingCategory.PARSE_ERROR]
+        assert parse_errors, "parse errors should surface as gaps, not be swallowed"
+        # The bad file must NOT appear as an empty-frontmatter success
+        assert bad / "index.md" not in corpus.indexes
+
+    def test_discover_corpus_valid_file_produces_no_parse_error(self, tmp_path):
+        """Negative pin: well-formed frontmatter produces no PARSE_ERROR finding."""
+        plans = tmp_path / "plans"
+        good = plans / "good-plan"
+        good.mkdir(parents=True)
+        (good / "index.md").write_text(
+            "---\nname: Good\nfull_name: Good Plan\nstatus: active\n---\n"
+        )
+        corpus = discover_corpus(include=[good / "index.md"])
+        parse_errors = [g for g in corpus.gaps
+                        if g.category == FindingCategory.PARSE_ERROR]
+        assert not parse_errors, "well-formed frontmatter must not produce parse errors"
 
 
 # ---------------------------------------------------------------------------

@@ -137,38 +137,27 @@ def discover_corpus(
             fpath = dirpath / fname
             _classify_and_store(fpath, corpus)
 
-    # Build name_index from plan indexes
-    for path, data in corpus.indexes.items():
+    # Build name_index from plan + completed indexes (shared loop — one SSOT for
+    # DUPLICATE_PLAN_NAME detection across both index sources).
+    import itertools
+    for path, data in itertools.chain(
+        corpus.indexes.items(), corpus.completed_indexes.items()
+    ):
         name = data.get("name")
-        if name:
-            if name in corpus.name_index:
-                corpus.gaps.append(Finding(
-                    category=FindingCategory.SCHEMA_VIOLATION,
-                    subtype=FindingSubtype.DUPLICATE_PLAN_NAME,
-                    severity=Severity.HIGH,
-                    source=path,
-                    target=corpus.name_index[name],
-                    description=f"duplicate plan name: {name!r}",
-                    recommended_fix="Each plan's name: field must be unique",
-                ))
-            else:
-                corpus.name_index[name] = path.parent
-
-    for path, data in corpus.completed_indexes.items():
-        name = data.get("name")
-        if name:
-            if name in corpus.name_index:
-                corpus.gaps.append(Finding(
-                    category=FindingCategory.SCHEMA_VIOLATION,
-                    subtype=FindingSubtype.DUPLICATE_PLAN_NAME,
-                    severity=Severity.HIGH,
-                    source=path,
-                    target=corpus.name_index[name],
-                    description=f"duplicate plan name: {name!r}",
-                    recommended_fix="Each plan's name: field must be unique",
-                ))
-            else:
-                corpus.name_index[name] = path.parent
+        if not name:
+            continue
+        if name in corpus.name_index:
+            corpus.gaps.append(Finding(
+                category=FindingCategory.SCHEMA_VIOLATION,
+                subtype=FindingSubtype.DUPLICATE_PLAN_NAME,
+                severity=Severity.HIGH,
+                source=path,
+                target=corpus.name_index[name],
+                description=f"duplicate plan name: {name!r}",
+                recommended_fix="Each plan's name: field must be unique",
+            ))
+        else:
+            corpus.name_index[name] = path.parent
 
     return corpus
 
