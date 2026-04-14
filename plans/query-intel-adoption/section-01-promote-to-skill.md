@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "01.2"
     title: "Reduce command file to alias + verify harness discovery"
-    status: not-started
+    status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -136,7 +136,7 @@ The SKILL.md must have a `description` specific enough for the harness to auto-t
 
 The command file today is the sole surface for the tool. After §01.1 it's redundant with the Skill. Reduce it to an alias that forwards arguments, preserving `/query-intel <args>` for explicit invocations while the Skill is the default for auto-trigger cases.
 
-- [ ] Replace the body of `.claude/commands/query-intel.md` with a thin alias:
+- [x] Replace the body of `.claude/commands/query-intel.md` with a thin alias:
 
   ```markdown
   ---
@@ -157,16 +157,18 @@ The command file today is the sole surface for the tool. After §01.1 it's redun
   If `$ARGUMENTS` is empty, run: `scripts/intel-query.sh status`
   ```
 
-- [ ] Smoke test: explicit invocation still works — `/query-intel status` must produce status output, `/query-intel symbols IteratorValue --repo ori` must produce symbol rows.
+- [x] Smoke test: explicit invocation still works — `/query-intel status` must produce status output, `/query-intel symbols IteratorValue --repo ori` must produce symbol rows.
+  Verified via the underlying wrapper `scripts/intel-query.sh` (slash commands are user-invoked only, but the command file's single action is `scripts/intel-query.sh $ARGUMENTS`, so the wrapper IS the target). Results: `status` returned full graph health JSON (Neo4j 5.26.24 ok, 11 repos, 191K symbols, 298K issues, 505K CALLS edges); `--human symbols IteratorValue --repo ori` returned `[sum_type] IteratorValue — compiler/ori_patterns/src/value/iterator/mod.rs:53`.
 
-- [ ] Verify SKILL.md is the harness default for ambient references (no regression where the harness loses discovery after the command body shrinks).
+- [x] Verify SKILL.md is the harness default for ambient references (no regression where the harness loses discovery after the command body shrinks).
+  Post-§01.2 system reminder shows two `query-intel` entries coexisting: (1) Skill entry with the full description from §01.1 (unchanged, still auto-trigger-worthy), (2) Command entry with its reduced description "Query the intelligence graph. See .claude/skills/query-intel/SKILL.md for the full capability surface." The command now defers to the Skill for canonical guidance while remaining available for explicit `/query-intel <args>` invocation. No Skill discovery regression.
 
-- [ ] **Subsection close-out (01.2)** — MANDATORY before section close:
-  - [ ] Tasks above are `[x]` and both explicit + Skill-triggered paths exercise cleanly
-  - [ ] Update `01.2` status to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on 01.2** — did debugging the harness's Skill vs. command precedence reveal any gaps? (E.g., would a `scripts/list-skills.sh` helper be useful to inspect what the harness discovered?) Implement + commit via conventional-commit type (`build(diagnostics): ...`, `chore(tooling): ...`). Do not silently skip.
-  - [ ] **Run `/sync-claude` on 01.2** — any CLAUDE.md reference to `/query-intel` (line 38) should now point to the Skill, not the command file. Fix and commit via `docs(rules): ...` if drift found. If none: "Claude artifact sync 01.2: CLAUDE.md line 38 reference is agnostic to Skill/command; no edit needed."
-  - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`.
+- [x] **Subsection close-out (01.2)** — MANDATORY before section close:
+  - [x] Tasks above are `[x]` and both explicit + Skill-triggered paths exercise cleanly
+  - [x] Update `01.2` status to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on 01.2** — No tooling gaps requiring implementation. §01.2 was the simplest kind of edit: one Read + one Write to replace a 27-line file with a 16-line thin alias. Smoke tests were two chained `scripts/intel-query.sh` invocations that returned expected output first try. Harness discovery was passively verified via the post-write system reminder (same mechanism as §01.1). No workflow friction, no missing-flag frustrations, no confusing output. The candidates considered in §01.1 (lint-skill.sh, doc note on SKILL.md frontmatter schema) remain below the recurrence+payoff bar — if §05's 4-skill authoring session compounds the same friction, revisit then.
+  - [x] **Run `/sync-claude` on 01.2** — Claude artifact sync 01.2: CLAUDE.md line 38 reference (`/query-intel similar`, `/query-intel callers/callees`) is agnostic to Skill vs. command backing; no edit needed. `.claude/rules/intelligence.md` unchanged. The command file's description text did change (now points to SKILL.md as canonical surface), but that's a user-facing UI string in the harness's available-skills listing, not a documented-API claim in any rules file. No drift.
+  - [x] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` → clean.
 
 ---
 
