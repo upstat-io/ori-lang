@@ -116,6 +116,32 @@ Update each artifact that has drifted. Follow these rules:
 - **canon.md**: Maintain the existing section structure. Update tables and invariant lists precisely. Cross-reference §numbers must stay consistent.
 - **ori-syntax.md**: Ultra-dense reference format. No prose — keywords, operators, types, syntax forms.
 
+**ABSOLUTE: Rules files describe IDEAL SPEC-DRIVEN BEHAVIOR — not current code state.**
+
+Rules files (`.claude/rules/*.md`) describe how the system SHOULD work — the ideal, spec-driven target behavior. They are NOT a mirror of current code. This distinction is load-bearing:
+
+- **When code is fixed to match the spec**: REMOVE any "shipped divergence" annotation that described the old broken behavior. The spec rules already describe the correct behavior — once code matches, the annotation is stale. Do NOT replace a "code diverges" annotation with a "code now matches" annotation — that's documentation of a bug fix, which belongs in the bug tracker, not in the rules.
+- **When code still diverges from spec**: the preamble "partially-shipped" annotations in files like `aims-rules.md` may note the divergence factually ("Shipped: X. Spec: Y."). These are status annotations, NOT rules. They exist so reviewers don't re-flag known implementation gaps as spec issues.
+- **NEVER add bug IDs, fix dates, commit hashes, or tracking references to rules files.** Bug provenance belongs in `plans/bug-tracker/`, commit messages, and fix-section files — never in `.claude/rules/*.md`.
+- **NEVER add "not yet implemented" or "tracked as BUG-XX-NNN" to rules files.** Unimplemented spec features are just the spec — the rules already describe the ideal. Implementation gaps are tracked in the bug tracker.
+- **The test**: after your edit, read the rules file as if you've never seen the codebase. Does every statement describe how the system SHOULD work? Or does it describe what's broken, what was fixed, or what's planned? If the latter, it doesn't belong in a rules file.
+
+**ABSOLUTE: Before removing ANY rule, anchor, or named element from a rules file, search for references.**
+
+Rules files contain named anchors (DP-9, RL-13, CN-3, TR-2, etc.), section references (§4.5, §1.9), and named concepts (e.g., `is_cow_aware_unique`, `cross_dim_evidence_total`) that may be referenced from:
+- **Code** — comments citing spec rules (`// Spec: DP-6 + RL-11`), `#[expect]` reason strings, doc comments
+- **Other rules files** — cross-references between `aims-rules.md`, `arc.md`, `canon.md`, `codegen-rules.md`, etc.
+- **Plan files** — `plans/` sections referencing spec rules in their analysis
+- **Test files** — test doc comments citing the rule being tested
+- **CLAUDE.md** — top-level rule summaries
+
+Before removing or renaming any named element:
+1. `grep -rn "ELEMENT_NAME" compiler/ .claude/rules/ plans/ CLAUDE.md tests/` (or use `rg`)
+2. For each hit: is it a reference that would become dangling? If yes, update the reference first.
+3. Only then remove the element from the rules file.
+
+Removing a rule anchor without checking references creates invisible broken cross-refs that mislead future readers and reviewers. This applies even when removing a "shipped divergence" annotation — the annotation itself may be cross-referenced.
+
 ### Step 5: Verify Fixes
 
 After updating, re-read each modified artifact to confirm:
@@ -123,6 +149,7 @@ After updating, re-read each modified artifact to confirm:
 - No stale cross-references (§numbers, file paths)
 - No contradictions with other artifacts
 - The change is self-consistent
+- No dangling references to removed elements (run the grep from the removal rule above)
 
 ## What This Skill Does NOT Do
 
