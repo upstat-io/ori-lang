@@ -46,7 +46,7 @@ Every piece of knowledge in the compiler has exactly **one canonical home**. All
 | Memory analysis facts (ownership, borrowing) | AIMS (`ori_arc`) | Borrow/ownership annotations on IR |
 | Representation decisions (layout, ABI) | repr-opt (`ori_llvm`) | Codegen queries |
 | Language semantics | Spec (`docs/ori_lang/v2026/spec/`) | Developer reference |
-| Syntax | Grammar (`spec/grammar.ebnf`) | Parser implementation |
+| Syntax | Grammar (`docs/ori_lang/v2026/spec/grammar.ebnf`) | Parser implementation |
 | Diagnostic identity | Error codes (`ori_diagnostic`) | Code-based matching |
 | Incremental computation | Salsa DB | Memoized query results |
 

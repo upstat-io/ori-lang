@@ -7,11 +7,11 @@ paths:
 
 ## Architecture
 
-Tree-walking interpreter over canonical IR (`CanExpr`). All evaluation goes through `eval_can(CanId)` in `can_eval.rs`. The canonical IR is the sole evaluation representation — the legacy `eval(ExprId)` path on `PatternExecutor` returns an error if called. The interpreter is portable (native + WASM contexts). For the full Salsa-integrated evaluator, see `oric::Evaluator`.
+Tree-walking interpreter over canonical IR (`CanExpr`). All evaluation goes through `eval_can(CanId)` in `can_eval/mod.rs`. The canonical IR is the sole evaluation representation — the legacy `eval(ExprId)` path on `PatternExecutor` returns an error if called. The interpreter is portable (native + WASM contexts). For the full Salsa-integrated evaluator, see `oric::Evaluator`.
 
 - **Arena threading**: functions carry their own `SharedArena`; callee's arena is used (not caller's) for thread safety in parallel evaluation
 - **Enum dispatch** for fixed sets (no vtable overhead)
-- **Spec references**: `docs/ori_lang/v2026/spec/operator-rules.md`, `docs/ori_lang/v2026/spec/09-expressions.md`
+- **Spec references**: `docs/ori_lang/v2026/spec/operator-rules.md`, `docs/ori_lang/v2026/spec/14-expressions.md`
 
 ## Input
 
@@ -55,11 +55,11 @@ See `ir.md` §DerivedTrait for the canonical sync point list. This crate's sync 
 
 ## Key Files
 - `lib.rs`: Interpreter, eval dispatch
-- `interpreter/can_eval.rs`: Core `eval_can(CanId)` — sole evaluation entry point
+- `interpreter/can_eval/mod.rs`: Core `eval_can(CanId)` — sole evaluation entry point
 - `interpreter/resolvers/`: MethodDispatcher (priority chain)
 - `interpreter/method_dispatch/`: Method dispatch implementation + iterator methods
 - `interpreter/derived_methods.rs`: Derived trait method dispatch (sync point)
 - `methods/`: Built-in method implementations (collections, numeric, compare, etc.)
 - `derives/mod.rs`: Derive processing pipeline
-- `environment.rs`: Environment, scopes
+- `environment/mod.rs`: Environment, scopes
 - `function_val.rs`: Built-in function registrations (prelude)

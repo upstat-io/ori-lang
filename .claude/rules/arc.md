@@ -5,7 +5,10 @@ paths:
 
 # AIMS — The ARC Intelligence Layer (ori_arc)
 
-**Relationship to `aims-rules.md`**: This file describes the **current shipped surface** of AIMS — what is implemented and working today. `aims-rules.md` describes the **complete target system** including unshipped rules and partially-implemented subsystems. When reading about AIMS behavior, use this file for "what works now" and `aims-rules.md` for "what the target spec says." Invariants, pipeline steps, and verification layers documented in BOTH files represent shared current-state facts; roadmap material appears only in the "Where AIMS is HEADED" section below.
+**Relationship to `aims-rules.md`**: The ARC/AIMS subsystem uses a two-file design because `aims-rules.md` is ~900 lines of formal target-system rules (including substantial unshipped subsystems). Merging would create a single file too large for effective navigation. The split is:
+- **`arc.md` (this file)**: shipped surface overview — what is implemented today, verification stack, key invariants. Use this for quick orientation and "what works now."
+- **`aims-rules.md`**: complete formal target-system spec — all rules including unshipped. Use this for normative rule lookup, lattice definitions, and analysis contracts.
+- **Shared facts** (invariants, pipeline steps, verification) appear in both; `aims-rules.md` is authoritative when they conflict. Other phases (parse.md, typeck.md) use inline `(target-only)` annotations because their unshipped surface is small; AIMS's unshipped surface is too large for that pattern.
 
 ## Mission — READ THIS FIRST
 
