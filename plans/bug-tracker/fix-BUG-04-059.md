@@ -272,6 +272,29 @@ Round 6 TPR re-verification pending after Round 5 fix lands.
 
 Round 7 TPR re-verification pending after Round 6 fix lands.
 
+### Round 7 — dual-source re-verification (CLEAN PASS)
+
+**Run:** `/tmp/ori-tpr-ddce2jV0` (2026-04-14, verification of Round 6 wording fix)
+
+- **Codex** (rc=0, 77s, 44 events): **0 findings**. Rich scope: read 10 files including decide.rs + dimensions.rs for ShapeClass verification. Confirms the Round 6 rewrite is code-consistent.
+- **Gemini** (rc=0, 32s, 9 events): **0 findings**. Scope fields empty in envelope (schema-compliance artifact), but free-form prose explicitly confirms "plan is verified clean, coherent, and ready for Phase 3 Implementation."
+- **Thoroughness**: Codex rich; gemini thin but narrow scope justified (Round 6 was a 1-line wording fix). Judgment: ACCEPTED as CLEAN PASS.
+
+### CLEAN PASS outcome
+
+Both reviewers returned zero actionable findings after 7 rounds of convergence. Plan TPR (Phase 2.5) is COMPLETE. Proceeding to Phase 3 Implementation.
+
+**Convergence trajectory**:
+- Round 1: 10 findings (7 actionable + 3 informational) — core plan gaps
+- Round 2: 4 findings (2 actionable) — Round 1 triage error + test-deletion scope
+- Round 3: 6 findings (4 actionable) — plan/code contradiction refinements
+- Round 4: 3 findings (2 actionable) — test-home creation + preservation-vs-bug-exposing split
+- Round 5: 2 findings (1 actionable) — EnumVariant bucket placement
+- Round 6: 2 findings (1 LOW) — Round 5 wording self-correction
+- Round 7: 0 findings — CLEAN PASS
+
+Total actionable findings applied across all rounds: **17** (plus 1 originally-rejected / reclassified-accepted from Round 1's TPR-04-005-codex).
+
 ---
 
 ## 3. Implementation
@@ -343,7 +366,7 @@ This fix disables four `MaybeShared → StaticUnique/StaticReuse` upgrade paths 
 - [x] Plan TPR (Phase 2.5) Round 4 — complete, 2 new actionable findings applied (§3 step 5a for §2.3 helper-test home creation + §2 "Verify tests fail before fix" split into bug-exposing vs preservation), 1 informational (gemini agrees plan is clean)
 - [x] Plan TPR (Phase 2.5) Round 5 — complete, 1 actionable finding applied (EnumVariant cells moved from hedged-preservation to bug-exposing after code verification against decide.rs:425-429), 1 informational (gemini confirms plan clean)
 - [x] Plan TPR (Phase 2.5) Round 6 — complete, 1 LOW-severity wording fix applied (Round 5 triage note self-correction removed), gemini 0 findings (first fully clean gemini envelope)
-- [ ] Plan TPR (Phase 2.5) Round 7 — re-verify Round 6 wording fix
+- [x] Plan TPR (Phase 2.5) Round 7 — **CLEAN PASS** — both reviewers 0 actionable findings. Plan TPR COMPLETE (7 rounds, 17 actionable findings applied, convergence achieved).
 - [ ] `/tpr-review` (Phase 5 — code review) passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] `/improve-tooling` retrospective completed
