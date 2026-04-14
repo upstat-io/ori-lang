@@ -2,7 +2,7 @@
 bug: "BUG-04-064"
 title: "DP-5 can_mutate_in_place does not check overlapping borrows or project_alias_sources"
 severity: "high"
-status: in-progress
+status: complete
 goal: "Unique COW sites correctly fall back to StaticShared when active borrows from the aggregate exist"
 success_criteria:
   - "decide_cow() for Unique variables checks active borrows before returning StaticUnique"
@@ -19,7 +19,7 @@ third_party_review:
 
 # Fix: BUG-04-064 — DP-5 can_mutate_in_place does not check overlapping borrows
 
-**Status:** In Progress
+**Status:** Complete
 **Severity:** high
 **Goal:** Unique COW sites correctly fall back to StaticShared when active borrows from the aggregate exist, per spec DP-5 + DP-9.
 
