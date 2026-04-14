@@ -49,6 +49,7 @@ Every piece of knowledge in the compiler has exactly **one canonical home**. All
 | Syntax | Grammar (`docs/ori_lang/v2026/spec/grammar.ebnf`) | Parser implementation |
 | Diagnostic identity | Error codes (`ori_diagnostic`) | Code-based matching |
 | Incremental computation | Salsa DB | Memoized query results |
+| Plan schema + corpus parsing | `scripts/plan_corpus/` package (`schemas.py` dataclass SSOTs + `parser.py` strict YAML + `FILE_CLASS_META` registry in `schema.py`) | `from scripts.plan_corpus import ...` — all plan-audit tooling; no shadow parsers or schema definitions elsewhere |
 
 **Three failure modes:**
 

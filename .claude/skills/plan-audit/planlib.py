@@ -247,19 +247,19 @@ class PlanInfo:
 
 
 def read_text(path: Path) -> str:
-    # TODO(vr-redesign): SUPERSEDED by scripts/plan_corpus.py read_text_strict().
+    # TODO(vr-redesign): SUPERSEDED by scripts/plan_corpus/parser.py read_text_strict().
     # This uses errors="replace" which silently masks invalid UTF-8 (LEAK:swallowed-error).
-    # Migrate callers to plan_corpus.read_text_strict() (Section 05.3).
+    # Migrate callers to `from scripts.plan_corpus import read_text_strict` (Section 05.3).
     return path.read_text(encoding="utf-8", errors="replace")
 
 
 def split_frontmatter(text: str) -> tuple[dict[str, Any], int]:
     """Parse YAML frontmatter. Returns (parsed_dict_or_empty, body_line_offset).
 
-    TODO(vr-redesign): SUPERSEDED by scripts/plan_corpus.py split_frontmatter_strict().
+    TODO(vr-redesign): SUPERSEDED by scripts/plan_corpus/parser.py split_frontmatter_strict().
     This silently returns {} on parse errors (LEAK:swallowed-error) and allows
     anchors, merge keys, duplicate keys, and non-mapping roots.
-    Migrate callers to plan_corpus.split_frontmatter_strict() (Section 05.3).
+    Migrate callers to `from scripts.plan_corpus import split_frontmatter_strict` (Section 05.3).
     """
     lines = text.splitlines()
     if not lines or not FRONTMATTER_RE.match(lines[0]):
