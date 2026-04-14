@@ -254,9 +254,23 @@ Round 5 TPR re-verification pending after Round 4 fixes land.
 
 ### Round 5 findings triage
 
-- **[TPR-04-001-codex-r5][medium]** — EnumVariant cells need unambiguous placement. **VERIFIED**: `decide_cow()` at `decide.rs:425-429` uses `matches!(shape, ShapeClass::ReusableCtor(_))` which matches BOTH `ReusableCtor(Struct)` AND `ReusableCtor(EnumVariant)` (and `ReusableCtor(ContextHole)` — wait, `ShapeClass` has `ContextHole` as a separate variant, not nested inside `ReusableCtor(_)`; spec `aims-rules.md §1.6` lists `ContextHole` as a distinct top-level shape variant). Confirmed EnumVariant hits the removed path; ContextHole does NOT. **Action**: moved both EnumVariant cells from "already pass" bucket to "must fail against HEAD" bucket with explicit code-location verification. Removed the "upgrade to bug-exposing if verified" hedge text. Re-confirmed ContextHole stays in preservation bucket.
+- **[TPR-04-001-codex-r5][medium]** — EnumVariant cells need unambiguous placement. **VERIFIED**: `decide_cow()` at `decide.rs:425-429` and `decide_reuse()` at `decide.rs:278-287` both use `matches!(shape, ShapeClass::ReusableCtor(_))`, which matches `ReusableCtor(Struct)` and `ReusableCtor(EnumVariant)` but NOT `ContextHole` — per spec `aims-rules.md §1.6`, `ContextHole` is a distinct top-level `ShapeClass` variant, not nested inside `ReusableCtor(_)`. Therefore EnumVariant hits the removed unsound path; ContextHole does not. **Action**: moved both EnumVariant cells from "already pass" bucket to "must fail against HEAD" bucket with explicit code-location verification. Removed the "upgrade to bug-exposing if verified" hedge text. ContextHole remains in preservation bucket.
 
 Round 6 TPR re-verification pending after Round 5 fix lands.
+
+### Round 6 — dual-source re-verification
+
+**Run:** `/tmp/ori-tpr-N9Z8Dc90` (2026-04-14, verification of Round 5 fix)
+
+- **Codex** (rc=0, 165s, 57 events): 1 LOW finding (TPR-04-001-codex-r6: Round 5 triage note contained a self-correcting parenthetical — wording quality, not correctness). All substantive verifications passed.
+- **Gemini** (rc=0, 62s, 23 events): **0 findings** (first fully clean gemini envelope) — all 4 Round 5 verification checks passed, no contradictions remain.
+- **Thoroughness**: ASYMMETRY: MODERATE (walltime 2.7x, events 2.5x). Gemini faster but verified all 4 specific Round 5 checks + cross-referenced against `lattice/dimensions.rs` for ShapeClass variants.
+
+### Round 6 findings triage
+
+- **[TPR-04-001-codex-r6][low]** — Round 5 triage self-correcting parenthetical. **Action**: rewrote the Round 5 triage note with a clean direct statement (no mid-sentence self-correction). Purely wording; no semantic change.
+
+Round 7 TPR re-verification pending after Round 6 fix lands.
 
 ---
 
@@ -328,7 +342,8 @@ This fix disables four `MaybeShared → StaticUnique/StaticReuse` upgrade paths 
 - [x] Plan TPR (Phase 2.5) Round 3 — complete (with strengthened thoroughness directive), 4 actionable findings applied (synergy_metrics_cross_dim_evidence trim vs delete + §3 step 7 precision on metrics.rs surfaces + §3 step 7 vs §2.4 consistency), 2 informational confirmations
 - [x] Plan TPR (Phase 2.5) Round 4 — complete, 2 new actionable findings applied (§3 step 5a for §2.3 helper-test home creation + §2 "Verify tests fail before fix" split into bug-exposing vs preservation), 1 informational (gemini agrees plan is clean)
 - [x] Plan TPR (Phase 2.5) Round 5 — complete, 1 actionable finding applied (EnumVariant cells moved from hedged-preservation to bug-exposing after code verification against decide.rs:425-429), 1 informational (gemini confirms plan clean)
-- [ ] Plan TPR (Phase 2.5) Round 6 — re-verify Round 5 fix landed correctly
+- [x] Plan TPR (Phase 2.5) Round 6 — complete, 1 LOW-severity wording fix applied (Round 5 triage note self-correction removed), gemini 0 findings (first fully clean gemini envelope)
+- [ ] Plan TPR (Phase 2.5) Round 7 — re-verify Round 6 wording fix
 - [ ] `/tpr-review` (Phase 5 — code review) passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] `/improve-tooling` retrospective completed
