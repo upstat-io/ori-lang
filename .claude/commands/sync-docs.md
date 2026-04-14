@@ -29,6 +29,21 @@ Reconcile EVERY document in the repository against the actual codebase and spec.
 
 **Rules files are FACTS about ideal behavior** — they describe how the system is SUPPOSED to work according to the spec. They are not plans, not bug reports, not wishlists. When implementation doesn't match spec, that's a bug to file via `/add-bug`, not something to paper over in the rules.
 
+## The Second Rule: COMPACT WITHOUT INFORMATION LOSS
+
+**Every document must be as compact as possible without losing information.** These files are loaded into Claude's context window — bloat wastes tokens, slows every interaction, and risks truncation. Compactness is not optional; it is a quality dimension alongside accuracy.
+
+**Compaction techniques:**
+- **Bullet points over prose** — "Arena: `ExprArena` + `ExprId`, not `Box<Expr>`" beats a paragraph
+- **Tables over lists** — structured info (file→purpose, type→trait, etc.) goes in tables
+- **Eliminate redundancy** — if two documents say the same thing, one should point to the other
+- **No motivation in rules** — "why" belongs in design docs, not rules files. Rules say WHAT and HOW.
+- **Remove "this means that"** — if the bullet already says X, don't follow with "in other words, X"
+- **Size targets** — rules files: 50-120 lines. Design docs: no hard cap but audit for bloat. CLAUDE.md: every section must justify its byte count.
+- **Condense, never delete** — when trimming, compress the information into fewer words, don't remove it. The goal is density, not omission.
+
+**Test**: for every paragraph in a rules file, ask "could this be a bullet point?" If yes, make it one.
+
 ### Verification Ledger (MANDATORY)
 
 Every documentation edit MUST be tracked in a verification ledger. At the end of the run, the commit message body includes a section listing each modified file with its verification sources:
