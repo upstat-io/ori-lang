@@ -10,7 +10,7 @@ goal: >
   after Sections 01–04 land.
 success_criteria:
   - "E2005 diagnostic message reads: 'cannot infer the type of this empty list; add a type annotation like `let x: [int] = []`' — verifiable via the E2005 message test in `check/validators/tests.rs`."
-  - "`rg 'let.*=\\s*\\[\\s*\\]' tests/ library/` and `rg '\\[\\]\\.' tests/spec/` return zero hits that would produce E2005 (all existing unannotated empty lists are either annotated or in #compile_fail tests) — verified by running the sweep and inspecting each hit."
+  - "`rg '\\[\\s*\\]' tests/spec/ library/ --glob '*.ori'` returns zero unannotated empty-list hits that would produce E2005 — all existing empty-list positions are either type-annotated, already in `#compile_fail` tests, or in pattern-match arms that are exempt. Verified by running the comprehensive sweep and inspecting each hit."
   - "All files in `tests/spec/traits/iterator/` and `tests/spec/collections/cow/` that contain empty-list patterns compile clean after the fix — verified by `timeout 150 cargo st tests/spec/traits/iterator/` and `timeout 150 cargo st tests/spec/collections/cow/`."
   - "`timeout 150 ./test-all.sh` is green (debug build) after the annotation sweep."
 depends_on: ["01", "02", "03", "04", "05"]
@@ -67,20 +67,43 @@ not to the `let` binding or the `push` call.
 
 ## 06.2 Annotation Sweep — tests/spec/
 
-Run a broad sweep covering both `let`-binding forms and expression-position empty lists:
+Run a comprehensive sweep covering all syntactic positions where an empty list literal
+can appear without a type annotation:
 
 ```bash
-# Matches let-binding forms (tolerates any whitespace around = and inside [])
-rg 'let.*=\s*\[\s*\]' tests/spec/ --include="*.ori"
-# Matches expression-position bare [] used as receiver or in other positions
-rg '\[\]\.' tests/spec/ --include="*.ori"
+# Full empty-list sweep — covers let-bindings, argument position, operator/concat forms,
+# for..in [] forms, return-from-block, nested literals, and receiver-chains.
+# Inspect every hit manually to determine whether type context is present.
+rg '\[\s*\]' tests/spec/ library/ --glob '*.ori'
 ```
 
+The two narrower patterns from earlier rounds are subsumed by this single command and
+are shown here for reference:
+
+```bash
+# Narrower forms (subsumed — kept for documentation)
+rg 'let.*=\s*\[\s*\]' tests/spec/ library/ --glob '*.ori'  # let-binding forms
+rg '\[\]\.' tests/spec/ --glob '*.ori'                       # receiver-chain forms
+```
+
+Do NOT use the narrower greps as the sole audit sweep — they miss:
+- Argument position: `foo(items: [])`
+- Operator/concat position: `[] + [1, 2, 3]`
+- `for...in` position: `for x in [] yield x`
+- Pattern context: `match e { [] -> ... }` (patterns are irrefutable; no E2005 needed)
+- Return-from-block: `{ [] }`
+- Nested literals: `[[]]`, `Some([])`
+
 For each unannotated empty list found:
-1. If the test SHOULD compile → add `let x: [T] = []` annotation (T from context)
+1. If the test SHOULD compile → add `let x: [T] = []` annotation (T from context);
+   for argument positions, either annotate at the call site or annotate the binding
+   before the call
 2. If the test SHOULD fail with E2005 → add `#compile_fail(code: "E2005")` attribute
 3. If the test is in a file that is already marked `#compile_fail` for another reason →
    document that E2005 would also fire (multi-error case)
+4. Pattern-position hits (`[] -> ...` arms) are irrefutable pattern matching — these
+   do NOT produce E2005 because the scrutinee type constrains the pattern; document
+   and skip
 
 Known hits to investigate (verified via repo sweep):
 - `tests/spec/traits/iterator/double_ended.ori` — unannotated `let result = []` usage
@@ -91,6 +114,11 @@ Known hits to investigate (verified via repo sweep):
 - `tests/spec/traits/into/set_to_list.ori` — `[].iter().collect()` (line ~24)
 - `tests/spec/lexical/delimiters.ori` — `[].len()` expression position (line ~151)
 - `tests/spec/lexical/keywords.ori` — `[].len()` expression position (line ~222)
+- `tests/spec/extensions/list_methods.ori` — `get_count(items: [])` and
+  `is_empty(items: [])` argument position
+- `tests/spec/traits/iterator/for_loop.ori` — `for x in [] yield x * 2` and
+  `for x in [] do` forms
+- `tests/valgrind/cow/cow_list_concat.ori` — `[] + [1, 2, 3]` operator position
 
 For expression-position hits (bare `[].method()` with no type context), determine whether
 the call chain provides enough type context to infer the element type. If not, the fix
@@ -100,10 +128,11 @@ is to assign to an annotated binding: `let result: [T] = [].method()...`.
 
 ## 06.3 Annotation Sweep — library/std/
 
-Run: `rg 'let.*=\s*\[\s*\]' library/std/ --include="*.ori"` and inspect each hit.
+Run: `rg '\[\s*\]' library/std/ --glob '*.ori'` and inspect each hit.
 
 Stdlib code using unannotated empty lists must be annotated, as the stdlib is compiled
-through the same typeck pipeline.
+through the same typeck pipeline. The broader `\[\s*\]` pattern covers argument position,
+operator position, and `for...in []` in addition to let-binding forms.
 
 ---
 
@@ -161,6 +190,24 @@ would be silently missed.
 
 **Fix:** Changed to `rg 'let.*=\s*\[\s*\]'` (allows any whitespace around `=` and inside
 `[]`). Also updated the success_criteria regex in the frontmatter to match.
+
+Round 3 — Dual-source TPR on sections 05, 06, 07 (Codex + Gemini). Findings addressed
+in this revision.
+
+### [[TPR-06-R3-001-codex+gemini]] [HIGH] Broaden sweep beyond let-bindings and receiver chains
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-06-diagnostics-audit.md:§06.2`
+**Reviewers:** Codex + Gemini | **Status:** Fixed
+
+**Evidence:** The two-command sweep (`let.*=\s*\[\s*\]` + `\[\]\.`) was added in Round 2 to
+catch let-binding forms and receiver chains. Both reviewers independently verified via repo
+grep that this still misses empty-list usage in argument position (`foo(items: [])`), operator/
+concatenation position (`[] + [1, 2, 3]`), `for...in []` position, and return-from-block. Codex
+additionally found: `tests/spec/extensions/list_methods.ori` (argument position),
+`tests/spec/traits/iterator/for_loop.ori` (`for...in []`), `tests/valgrind/cow/cow_list_concat.ori`
+(operator position). None of these are matched by the prior two-command sweep.
+
+**Fix:** Replaced the two-command sweep with a single comprehensive `rg '\[\s*\]' tests/spec/ library/ --glob '*.ori'` that covers all syntactic positions. Added documentation explaining which positions the narrower patterns missed and guidance on which hits (pattern-match arms) are exempt from E2005. Updated the success_criteria in the frontmatter to use the broader pattern. Updated 06.3 to use the same broader pattern.
 
 ---
 

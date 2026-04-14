@@ -32,6 +32,9 @@ sections:
   - id: "05.2"
     title: "Ori spec test corpus — 12+ files in tests/spec/types/collections/empty_list/"
     status: not-started
+    # Note: 05.2 interaction tests total 18 files (items 11–17 + 16a); item 16a is the
+    # negative-pin companion for trait-bounds interaction (split from item 16 which is
+    # positive-only).
   - id: "05.3"
     title: "AOT integration tests + dual-execution parity"
     status: not-started
@@ -746,10 +749,18 @@ Required additions — 5 interaction spec test files:
 
 16. **`empty_list_trait_bound_interaction.ori`** — empty list used where element type is
     constrained by a trait bound: `@process<T: Printable> (xs: [T]) -> int = xs.len()`.
-    Annotated `let xs: [str] = []` passed to `process` compiles clean. Unannotated
-    `let xs = []` passed to `process` emits `#compile_fail(code: "E2005")`. Exercises
-    type inference × trait bounds (the remaining mandatory interaction from
-    `tests.md §Interaction Testing`).
+    Annotated `let xs: [str] = []` passed to `process` must compile clean.
+    Expected: no compile error. Exercises the positive pin for type inference × trait bounds.
+
+    **Note**: A single `.ori` file cannot be both a compile-clean test and a
+    `#compile_fail` test — `#compile_fail` is a file-level attribute. The negative pin
+    lives in a companion file (item 16a).
+
+16a. **`empty_list_unannotated_trait_bound_interaction.ori`** — unannotated empty list
+    passed to a trait-bound generic function without annotation context:
+    `let xs = []; process(xs: xs)` where `@process<T: Printable>`.
+    Expected: `#compile_fail(code: "E2005")`. Exercises the negative pin for type
+    inference × trait bounds (companion to item 16).
 
 ### Fault tolerance (tests.md §Cross-Phase Verification #3 MANDATORY)
 
@@ -783,7 +794,9 @@ The following additional spec test files MUST be created to satisfy matrix compl
    `.iter().map().filter().collect()`, assert length. Uses `@test` + `assert_eq`.
    Fills C=iter.map.filter.collect cell.
 
-Plus items 5–17 from the bodies-pass and interaction testing sections above.
+Plus items 5–17 and item 16a from the bodies-pass and interaction testing sections above.
+(Item 16a is the negative-pin companion for the trait-bounds interaction; it is separate
+from the original 17-item count, bringing the total to 18 interaction/bodies-pass spec files.)
 
 ### Completeness audit checklist
 
@@ -814,7 +827,7 @@ Plus items 5–17 from the bodies-pass and interaction testing sections above.
 - [ ] Interaction: type inference × generics — requires items 12 + 15
 - [ ] Interaction: type inference × closures — requires item 13
 - [ ] Interaction: type inference × `?` operator — requires item 14
-- [ ] Interaction: type inference × trait bounds — requires item 16
+- [ ] Interaction: type inference × trait bounds — requires items 16 + 16a
 - [ ] Fault tolerance: multi-error compile_fail — requires item 17
 - [ ] Semantic pin SP-1 (`test_let_polymorphism_for_lambda`) ✓
 - [ ] Semantic pin SP-2 (`test_empty_list_emits_e2005_not_codegen_error`) ✓
@@ -1070,6 +1083,26 @@ contains neither neighbor module.
 cite the real alphabetical neighbors: "after `elem_dec_scope`, before `enum_discriminant`"
 (verified against `compiler/ori_llvm/tests/aot/main.rs`).
 
+Round 3 — Dual-source TPR on sections 05, 06, 07 (Codex + Gemini). Findings addressed
+in this revision.
+
+### [[TPR-05-R3-001-codex]] [HIGH] Split trait-bounds interaction into separate positive and negative files
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-05-test-matrix.md:747`
+**Reviewer:** Codex | **Status:** Fixed
+
+**Evidence:** Item 16 specified a single `empty_list_trait_bound_interaction.ori` that both
+"compiles clean" (for the annotated case) and "emits `#compile_fail(code: \"E2005\")`" (for
+the unannotated case). Since `#compile_fail` is a file-level attribute, a single `.ori` file
+cannot simultaneously be a passing test and a compile-fail test. The generics interaction
+(item 12 + item 15) already demonstrated the correct split pattern — item 12 is positive-only
+and item 15 is the negative companion. Item 16 failed to follow this pattern.
+
+**Fix:** Kept item 16 as a positive-only file (`empty_list_trait_bound_interaction.ori`).
+Added item 16a (`empty_list_unannotated_trait_bound_interaction.ori`) as the negative-pin
+companion. Updated completeness audit checklist row to reference both items 16 and 16a.
+Updated 05.N 05.4 checklist to name 18 total additional spec test files (was 17).
+
 ---
 
 ## 05.N Completion Checklist
@@ -1090,13 +1123,14 @@ passing, spec tests passing) are verified at Section 07 close-out, not here.
   `compiler/ori_llvm/tests/aot/main.rs`; `dual-exec-verify.sh` invocation documented
 - [ ] **05.4 complete** — matrix completeness audit checklist fully populated; 4 missing
   B/C cells identified; 6 bodies-pass integration coverage files identified; 6 interaction
-  files identified; 1 fault-tolerance file identified; all 17 additional spec test files
+  files identified (trait-bounds split into items 16 + 16a); 1 fault-tolerance file
+  identified; all 18 additional spec test files
   (`element_str`, `element_bool`, `push_map`, `iter_chain`, `unannotated_in_test`,
   `annotated_in_test`, `unannotated_in_impl`, `annotated_in_impl`,
   `unannotated_in_def_impl`, `annotated_in_def_impl`, `pattern_match_interaction`,
   `generic_function_interaction`, `closure_capture_interaction`,
   `question_mark_interaction`, `unannotated_generic_interaction`,
-  `trait_bound_interaction`,
+  `trait_bound_interaction`, `unannotated_trait_bound_interaction`,
   `multiple_unannotated`) created to fill missing cells; all cells checked
 - [ ] `timeout 150 cargo test -p ori_types` runs (some tests fail as expected by the
   Known Failing Tests table; no UNEXPECTED failures)
