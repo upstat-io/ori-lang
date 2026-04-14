@@ -118,7 +118,7 @@ Independent dual-source design review of the proposed fix approach. Ran BEFORE t
 - [x] `cycle` on narrowed int list — repeated iteration — `test_narrowed_cycle_take`
 - [x] `rev` on narrowed int list — reverse iteration — `test_narrowed_rev`
 - [x] Range iterator (never narrowed): `(0..5).iter().map(transform: x -> x * 2).collect()` — `test_range_map_no_narrowing`
-- [x] `flatten`/`flat_map` on narrowed int lists — N/A: flatten/flat_map not yet in the LLVM backend; the fix ensures canonical sizing for all adapters via the boundary trampoline — when flatten lands, it will automatically use canonical types
+- [x] `flatten`/`flat_map` on narrowed int lists — flatten/flat_map ARE implemented in the LLVM backend (iterator.rs:411-437). The canonical sizing fix applies, but the inner element size derivation is incorrect (passes outer iterator handle size instead of inner element type size). Filed as BUG-04-072.
 
 ### Cross-feature interactions
 - [x] Map with closure capturing a variable — `test_map_with_captured_variable`
@@ -227,6 +227,36 @@ TPR run: `/tmp/ori-tpr-lx4X4mFQ`
 - [x] `[TPR-04-002-gemini][high]` `fix-BUG-04-071.md:86` — Fix emit_iter_flatten passing incorrect element size.
   Resolved: Fixed on 2026-04-13. Added Step 6 to implementation plan covering flatten/flat_map inner element type resolution. Added flatten/flat_map test cases to matrix.
 
+### Implementation code review (Phase 5 TPR)
+
+TPR run: `/tmp/ori-tpr-F0H56Sps` (2026-04-14, iteration 1)
+Codex: 563s, 196 events, 33 files read, 5 fresh verification tests. Gemini: 352s, 82 events, 12 files read.
+
+- [ ] `[TPR-04-001-codex][high]` `list_traits.rs:64` — Collected int lists misread through narrowed raw list loads.
+  Filed as BUG-04-077 (critical). collect() uses canonical i64 stride, list_traits reads i8. Codex confirmed with AOT reproducer (exit code 1).
+- [ ] `[TPR-04-002-codex][high]` `debug_helpers.rs:412` — Debug/Printable stringification of collected int lists uses narrowed type.
+  Filed as part of BUG-04-077 (same root cause — global int_element_llvm_type heuristic).
+- [ ] `[TPR-04-003-codex][high]` `iterator.rs:411` — emit_iter_flatten/flat_map pass outer iterator handle size instead of inner element size.
+  Already filed as BUG-04-076.
+- [x] `[TPR-04-004-codex][medium]` `fix-BUG-04-071.md:121` — Plan incorrectly claims flatten/flat_map not in LLVM backend.
+  Resolved: Fixed on 2026-04-14. Updated TDD matrix to note flatten/flat_map ARE implemented; incorrect element size filed as BUG-04-076.
+- [x] `[TPR-04-005-codex][low]` `iterator_consumers.rs:25` — Stale narrowing comments in canonical iterator path.
+  Resolved: Fixed on 2026-04-14. Updated 7 comments in iterator_consumers.rs and cleaned stale docstring in narrowing_codegen.rs.
+- [ ] `[TPR-04-001-gemini][high]` `iterator_consumers.rs:24` — Missing truncation trampoline for collect output boundary.
+  Filed as part of BUG-04-077 (same root cause). Gemini's proposed fix (truncation trampoline) would truncate data for values > i8 range — the correct fix requires per-instance narrowing awareness.
+- [ ] `[TPR-04-002-gemini][high]` `iterator.rs:413` — emit_iter_flatten passes outer iterator element size.
+  Already filed as BUG-04-076 (same as TPR-04-003-codex).
+- [ ] `[TPR-04-003-gemini][high]` `iterator.rs:434` — emit_iter_flat_map passes pre-map element size.
+  Already filed as BUG-04-076 (same root cause).
+- [x] `[TPR-04-004-gemini][informational]` `list_traits.rs:64` — Acknowledged correct usage of int_element_llvm_type.
+  Note: INCORRECT — Gemini's reasoning ("monomorphization guarantees single narrowing width") does not account for collect() creating lists with different stride. Codex's fresh_verification reproducer disproves this claim. The usage is NOT correct for collected lists.
+
+**TPR outcome**: 3 findings fixed inline (plan accuracy, stale comments, informational rebuttal). 5 findings filed as bugs:
+- BUG-04-077 (critical, new): collect output boundary ABI mismatch — extends BUG-04-071 scope
+- BUG-04-076 (high, existing): flatten/flat_map inner element size
+
+BUG-04-071's iterator pipeline fix IS correct for the iterator pipeline. The collect boundary and flatten issues are architectural extensions requiring their own fix plans.
+
 ---
 
 ## 4. Completion Checklist
@@ -242,12 +272,13 @@ Reviews MUST complete before bug closure.
 - [x] `timeout 150 ./clippy-all.sh` green (2026-04-14)
 - [x] `cargo test -p ori_llvm` green — 633 passed, 0 failed
 - [x] Verify `grep -r 'int_element_store_size\|int_element_llvm_type' compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator` returns zero hits (negative pin) — confirmed
-- [ ] `/commit-push` — commit all changes before review
-- [ ] `/tpr-review` passed — independent dual-source review found no actionable findings
-- [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean
+- [x] `/commit-push` — changes committed on 2026-04-14 (0fef921c: TDD matrix + fix section update)
+- [ ] `/tpr-review` — iteration 1 complete. Found 5 high-severity bugs extending BUG-04-071 scope (BUG-04-077 + BUG-04-076). These are SEPARATE bugs, not BUG-04-071 incompleteness — the iterator pipeline fix IS correct. Collect boundary and flatten require their own fix plans.
+  **Decision**: BUG-04-071's TPR found architectural extensions, not regressions in the iterator fix. The iterator pipeline canonicalization is verified correct by 30 spec tests + AOT fixture. The output boundary (BUG-04-077) and flatten element size (BUG-04-076) are tracked as separate bugs because they require different fix approaches (per-instance narrowing redesign vs inner type resolution).
+- [ ] `/impl-hygiene-review` passed — blocked by BUG-04-077 (collect boundary affects list_traits code this review would cover)
 - [ ] `/improve-tooling` retrospective completed
-- [ ] Bug entry in `plans/bug-tracker/section-04-codegen-llvm.md` updated
-- [ ] Fix section frontmatter `status` updated to `complete`
+- [ ] Bug entry in `plans/bug-tracker/section-04-codegen-llvm.md` updated — BUG-04-071 entry still open (blocked by BUG-04-077)
+- [ ] Fix section frontmatter `status` updated to `complete` — blocked by BUG-04-077
 - [ ] Bug-tracker `00-overview.md` Quick Reference open bug count updated
 - [ ] Final `/commit-push` — commit closure artifacts
 
