@@ -58,7 +58,7 @@ live consumers that query the graph today.
 - **Execution tracing** (/code-journey, /rosetta-test): `callers`/`callees` to map exercised paths, `similar` for cross-repo equivalents
 - **Doc sync** (/sync-claude) *[planned — tracked by plans/query-intel-adoption §05]*: `file-symbols` on changed crates to confirm rules / canonical docs still match
 - **Spec sync** (/sync-spec) *[planned — tracked by plans/query-intel-adoption §05]*: `callers` of affected symbols before spec edits
-- **Grammar sync** (/sync-grammar) *[planned — tracked by plans/query-intel-adoption §05]*: `symbols` lookup for grammar-adjacent types
+- **Grammar sync** (/sync-grammar) *[planned — tracked by plans/query-intel-adoption §05]*: `file-symbols` on `compiler/ori_parse/` and `compiler/ori_lexer/` to inventory parser/lexer types that consume the grammar
 - **Tooling** (/improve-tooling): `symbols` to check if similar tools already exist before creating new ones
 
 ## How to Query
