@@ -15,12 +15,12 @@
 //! - Fields with `Top` range are left at I64 (safe default)
 //! - Fields with `Bottom` range get I8 (unreachable — smallest valid)
 
-use ori_types::{Idx, Pool, Tag};
+use ori_types::{Idx, Pool};
 
 use super::{commit_narrowing_decision, is_narrowing_candidate};
 use crate::plan::{DecisionReason, DecisionSource, ReprPlan};
 use crate::repr::{IntWidth, MachineRepr};
-use crate::struct_repr::{FatRepr, FieldRepr};
+use crate::struct_repr::FieldRepr;
 
 /// Apply integer narrowing to struct and tuple fields in the `ReprPlan`.
 ///
@@ -183,100 +183,26 @@ enum CandidateKind {
 
 /// Apply integer narrowing to collection element types (Phase C).
 ///
-/// Iterates all types with `FatPointer(Collection { element_repr })` where
-/// the element is canonical `Int { I64, signed: true }`. When the element
-/// range (from `ElementSummaryTable`) fits in a smaller width, narrows the
-/// `element_repr` field.
+/// **DISABLED (BUG-04-077)**: Collection element narrowing is unsound when
+/// `collect()` produces lists with computed values that exceed the narrowed
+/// range. The narrowing analysis bases its decision on literal construction
+/// sites (e.g., `[1,2,3]` fits in i8), but `iter().map(x -> x * 1000).collect()`
+/// produces values (1000, 2000, ...) that exceed i8. Since all `List<int>`
+/// share one `ReprPlan` entry, readers (equality, hash, display) and writers
+/// (literal construction, collect, indexing) must agree on ONE stride. With
+/// collect using canonical stride and the analysis only seeing literals,
+/// narrowing creates a stride mismatch: silent data corruption in equality,
+/// comparison, hashing, and display of collected lists.
 ///
-/// Conservatism rules (same as struct field narrowing):
-/// - Public collection types are not narrowed (ABI contract)
-/// - `NarrowingPolicy::Disabled` suppresses all narrowing
-/// - Collections with no observed construction sites stay at I64 (`Top`)
-/// - Only `[int]` is a candidate (maps and sets not yet supported)
+/// Collection element narrowing is disabled until the analysis accounts for
+/// ALL value sources (including collect output from iterator pipelines with
+/// map/filter/etc. that can produce arbitrary values). Struct field narrowing
+/// and local variable narrowing are unaffected.
 ///
-/// Sets are excluded because the eq/hash thunks generated for set hash
-/// table operations always load the canonical LLVM type (`i64` for `int`)
-/// from element pointers. Narrowing set elements would cause the thunks
-/// to read past the narrowed slot (e.g., reading 8 bytes from a 1-byte
-/// element), producing garbage comparisons and hashes. Set narrowing
-/// requires narrowing-aware thunks — tracked separately.
-pub(crate) fn narrow_collection_elements(plan: &mut ReprPlan, pool: &Pool) {
-    let policy = plan.narrowing_policy();
-    if policy == crate::plan::NarrowingPolicy::Disabled {
-        return;
-    }
-
-    let mut narrowed_count: u32 = 0;
-
-    // Collect collection type indices with FatPointer(Collection) reprs
-    // whose element type is canonical i64.
-    let candidates: Vec<(Idx, FatRepr)> = plan
-        .decision_indices()
-        .filter_map(|idx| {
-            let repr = plan.get_repr(idx)?;
-            if let MachineRepr::FatPointer(fat @ FatRepr::Collection { ref element_repr }) = repr {
-                if is_canonical_int(element_repr) {
-                    return Some((idx, fat.clone()));
-                }
-            }
-            None
-        })
-        .collect();
-
-    for (idx, _fat) in candidates {
-        // Skip sets — eq/hash thunks load canonical-width values from element
-        // pointers; narrowing set elements causes them to read past the slot.
-        if pool.tag(idx) == Tag::Set {
-            tracing::trace!(
-                ?idx,
-                "skipping collection narrowing — set type (thunks not narrowing-aware)"
-            );
-            continue;
-        }
-
-        // Skip types ineligible for narrowing (fixed layout / public ABI).
-        if !is_narrowing_candidate(plan, idx) {
-            tracing::trace!(?idx, "skipping collection narrowing — not a candidate");
-            continue;
-        }
-
-        let element_range = plan.element_range(idx);
-        let min_width = element_range.min_width();
-
-        if min_width == IntWidth::I64 {
-            continue;
-        }
-
-        tracing::debug!(
-            ?idx,
-            ?element_range,
-            ?min_width,
-            "narrowing collection element type"
-        );
-
-        let new_element_repr = MachineRepr::Int {
-            width: min_width,
-            signed: true,
-        };
-        let new_repr = MachineRepr::FatPointer(FatRepr::Collection {
-            element_repr: Box::new(new_element_repr),
-        });
-
-        let reason = format!("element narrowing: {element_range:?} → {min_width:?}");
-        commit_narrowing_decision(
-            plan,
-            pool,
-            idx,
-            DecisionSource::IntegerNarrowing,
-            new_repr,
-            DecisionReason::Custom(reason),
-        );
-
-        narrowed_count += 1;
-    }
-
-    tracing::debug!(
-        narrowed_count,
-        "integer narrowing complete (collection elements)"
-    );
+/// Prior to this fix, sets were already excluded for a similar reason (eq/hash
+/// thunks load canonical-width values from element pointers).
+pub(crate) fn narrow_collection_elements(_plan: &mut ReprPlan, _pool: &Pool) {
+    // BUG-04-077: disabled — see doc comment above.
+    // When the narrowing analysis is extended to account for collect() output
+    // values (not just literal construction sites), this can be re-enabled.
 }

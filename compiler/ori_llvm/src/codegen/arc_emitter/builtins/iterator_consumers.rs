@@ -22,7 +22,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_collect");
 
-        // Canonical element size — narrowing confined to list storage boundary (BUG-04-071).
+        // Canonical element size — collect outputs use canonical stride.
+        // BUG-04-077: narrowing is disabled for collection element storage
+        // at the repr level — all List<int> use canonical i64 stride, so
+        // collect, indexing, equality, hash, and display all agree.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);

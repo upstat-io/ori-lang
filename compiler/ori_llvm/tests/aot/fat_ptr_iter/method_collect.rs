@@ -46,3 +46,42 @@ fn test_iter_collect_map_elements() {
         "iter_collect_map_elements",
     );
 }
+
+// BUG-04-077 regression tests: collected List<int> stride must match literal stride
+
+/// Semantic pin: map + collect equality with literal.
+/// Fails if collect stores at canonical stride but readers use narrowed stride.
+#[test]
+fn test_collect_int_map_result_equals_literal() {
+    assert_aot_success(
+        include_str!("../fixtures/fat_ptr_iter/method_collect/collect_int_map_equals_literal.ori"),
+        "collect_int_map_equals_literal",
+    );
+}
+
+/// Identity collect: `[1,2,3].iter().collect() == [1,2,3]`
+#[test]
+fn test_collect_int_identity_equals_literal() {
+    assert_aot_success(
+        include_str!("../fixtures/fat_ptr_iter/method_collect/collect_int_identity_equals.ori"),
+        "collect_int_identity_equals",
+    );
+}
+
+/// Signed narrowing boundary: negative values through collect.
+#[test]
+fn test_collect_int_negative_values_equals_literal() {
+    assert_aot_success(
+        include_str!("../fixtures/fat_ptr_iter/method_collect/collect_int_negative_values.ori"),
+        "collect_int_negative_values",
+    );
+}
+
+/// Adapter chain (filter) before collect.
+#[test]
+fn test_collect_int_filter_result_equals_literal() {
+    assert_aot_success(
+        include_str!("../fixtures/fat_ptr_iter/method_collect/collect_int_filter_equals.ori"),
+        "collect_int_filter_equals",
+    );
+}
