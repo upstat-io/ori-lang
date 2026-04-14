@@ -25,8 +25,9 @@ Redesign the `/verify-roadmap` skill from a section-local item verifier into a c
 - [ ] `depends_on` convention standardized: intra-plan `"NN"`, cross-plan `"plan-name#NN"` resolving against the target plan's `name:` field (stable across directory renames); full paths AND directory-slug-style cross-plan IDs rejected (Section 01)
 - [ ] Two-level Finding taxonomy (`FindingCategory × FindingSubtype`) OWNED by Section 01.3; Phase 4 (Section 04) `ITEM_VERIFICATION` subtypes live there, not in Section 04 (no shadow taxonomy)
 - [ ] `plan_corpus.py` is a pure library — no git queries, no I/O outside explicit file reads; `SafeFix`/`ExposureReview` classification lives in Section 03 (write-back phase) consuming caller-supplied `has_recent_commits` signal
-- [ ] DAG construction detects priority inversions (active plan depending on queued prerequisite) using the logical-ID resolver from Section 01 (Section 02)
-- [ ] Dead references to nonexistent `plans/*/` directories are flagged as DEAD_REFERENCE (Section 02)
+- [ ] DAG construction detects priority inversions (active plan depending on queued prerequisite) using the logical-ID resolver from Section 01 and covers ALL seven §01.2 schema classes as nodes (plan index, plan section, roadmap section, overview, bug-tracker section, fix-BUG file, completed-plan index) — Section 02
+- [ ] Dead references to nonexistent `plans/*/` directories are flagged as DEAD_REFERENCE (Section 02), with code-fence examples and indented-code blocks excluded and HTML-comment + YAML-frontmatter-comment references scanned for reverse-edge signal (`unblocks`, `supersedes`, `rewrites`, `obsoletes`)
+- [ ] Classifier stack is deterministic: source-kind tagging (`EXPLICIT_DEPENDS_ON | HTML_COMMENT_CONVENTION | YAML_COMMENT | PROSE_VERB | CODE_FENCE_EXAMPLE`), documented precedence ladder (PARSE_ERROR > DEAD_REFERENCE > CYCLE > BLOCKED > CONFLICT > SUPERSEDED > STATUS_CONTRADICTION > MISSING_DEPENDENCY > REDUNDANT_DEPENDENCY > ORPHANED_PLAN), and TDD-enforced ordering (Section 02)
 - [ ] Frontmatter/body status contradictions are detected via the canonical status normalizer (Section 01.4, pure fact-producer); Section 03 classifies findings into `SafeFix` / `ExposureReview` at write-back time and auto-fixes only the `SafeFix` class (Sections 01, 03)
 - [ ] The existing item-level verification (matrix coverage, semantic pins, hygiene) still works for specific sections (Section 04)
 - [ ] Full-corpus migration to the canonical schema is completed by the single-ownership sweep (Section 05.3)
@@ -150,8 +151,16 @@ Phase 1 - Foundation
           canonical status normalizer, fixture corpus, pilot migration (all seven schema classes)
 
 Phase 2 - Core
-  +-- 02: Build DAG from depends_on (logical IDs) + cross-references
-  +-- 02: Implement conflict classifiers (importing `FindingCategory` / `FindingSubtype` two-level taxonomy from 01.3 — no shadow enum)
+  +-- 02.0: Node model (all seven §01.2 schema classes) + source-kind taxonomy
+  +-- 02.1: Build DAG from depends_on (logical IDs) — EXPLICIT_DEPENDS_ON edges only;
+            body-inferred references collected but NOT promoted to shadow edges
+  +-- 02.2: Implement 8 conflict classifiers (CONFLICT, SUPERSEDED [two cases],
+            BLOCKED, CROSS_EDGE_TEMPORAL_DRIFT, MISSING_DEPENDENCY, DEAD_REFERENCE,
+            REDUNDANT_DEPENDENCY, ORPHANED_PLAN) importing types from 01.3
+  +-- 02.3: Transitive priority inversion chains + root blocker identification
+  +-- 02.4: Classifier precedence ladder + TDD-enforced determinism tests
+  +-- 02.5: Handoff contract with §03 (chain encoding, Finding.id disambiguation,
+            enriched resolve_dep findings, source_kind evidence-embedding)
 
 Phase 3 - Integration
   +-- 03: Report format (Finding.to_json / Finding.to_markdown from 01)
@@ -201,7 +210,7 @@ These are the 8 test cases discovered during the dual-source TPR review (2026-04
 | Section | Est. Lines | Complexity | Depends On (logical IDs) |
 |---------|-----------|------------|--------------------------|
 | 01 Frontmatter Schema, Strict Parser & Shared Types | ~500 | High | -- |
-| 02 DAG Builder & Classifier | ~400 | High | `"01"` |
+| 02 DAG Builder & Classifier | ~900 | High | `"01"` |
 | 03 Findings Report | ~200 | Medium | `"01", "02"` |
 | 04 Item Verifier Preservation | ~300 | Medium | `"01", "02", "03"` |
 | 05 Validation, Sweep & Skill Promotion | ~300 | Medium | `"01", "02", "03", "04"` |
