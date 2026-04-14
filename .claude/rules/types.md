@@ -26,7 +26,7 @@ This document defines the **laws** of the Ori type system — the interned repre
 - **Item** = `ori_types::item::Item` — compact 5-byte pool entry (1 tag + 4 data)
 - **Pool** = `ori_types::pool::Pool` — the interning store; every type has exactly one `Idx` in exactly one pool
 - **Tag** = `ori_types::tag::Tag` — 1-byte kind discriminant
-- Rules are numbered `CATEGORY-N`. Categories: `TY` (type pool / storage), `TK` (type kinds / tag catalog), `TI` (type identity / interning / hashing), `TF` (type flags), `TL` (type surface per spec), `PT` (properties of types), `TR` (trait interface — builtin traits), `SC` (scheme / quantification), `RG` (registries), `PC` (phase contracts), `SL` (Salsa / caching), `DI` (diagnostics produced by type storage itself)
+- Rules are numbered `CATEGORY-N`. Categories: `TY` (type pool / storage), `TK` (type kinds / tag catalog), `TI` (type identity / interning / hashing), `TF` (type flags), `TL` (type surface per spec), `PT` (properties of types), `TR` (trait interface — builtin traits), `SC` (scheme / quantification), `RG` (registries), `PC` (phase contracts), `SL` (Salsa / caching), `DI` (diagnostics produced by type storage itself), `TRG` (tracing)
 - Cross-references: `typeck.md` rules prefixed with `CHK:` (e.g., `CHK:UN-1`), `parse.md` with `PARSE:`, `aims-rules.md` with `AIMS:`, `codegen-rules.md` with `CG:`, `impl-hygiene.md` with `HYG:`, spec clauses with `Spec:` (e.g., `Spec: Clause 8.1`)
 
 ---
@@ -45,27 +45,35 @@ Rationale: A single 32-bit handle makes type equality O(1) (integer compare), en
 
 ### TY-2 — Pool Storage Layout
 
-The pool SHALL store types in parallel column arrays keyed by `Idx.raw() as usize`. The columns:
+The pool SHALL store types in parallel column arrays plus auxiliary maps/vectors. The parallel columns — one entry per `Idx.raw() as usize` — are:
 
 | Column | Type | Purpose |
 |--------|------|---------|
-| `items` | `Vec<Item>` | (tag, data) pair — 5 bytes per entry |
-| `extra` | `Vec<u32>` | Variable-length data for types that need more than 4 bytes |
+| `items` | `Vec<Item>` | `(tag, data)` pair per type |
 | `flags` | `Vec<TypeFlags>` | Pre-computed metadata (TF-1) |
 | `hashes` | `Vec<u64>` | Structural Merkle hash for deduplication |
-| `interner` | `HashMap<u64, Idx>` | Hash → Idx map for O(1) re-interning |
 
-The `items` column is the primary index. All other columns are parallel: `items.len() == flags.len() == hashes.len()` SHALL hold as a pool invariant.
+The auxiliary (non-parallel) state:
 
-Rationale: Column storage beats struct-of-arrays for cache behavior on the common access pattern (tag-dispatch then optional data read). Items at 5 bytes keeps the primary column dense.
+| Field | Type | Purpose |
+|-------|------|---------|
+| `extra` | `Vec<u32>` | Variable-length payload for types that need more than 4 bytes of data |
+| `intern_map` | `FxHashMap<u64, Idx>` | Hash → Idx map for O(1) re-interning |
+| `resolutions` | `FxHashMap<Idx, Idx>` | Named/Applied → concrete Struct/Enum mapping populated during registration |
+| `var_states` | `Vec<VarState>` | Per-variable state (Unbound / Link / Rigid / Generalized); indexed by `var_id`, NOT by `Idx` |
+| `next_var_id` | `u32` | Counter for fresh type-variable ids (`CHK:EN-3`) |
+
+`items.len() == flags.len() == hashes.len()` SHALL hold as a pool invariant. `var_states` is NOT parallel to `items` — variable state is indexed by `var_id` carried in a variable item's `data` field (`TK-1` Type Variables row).
+
+Rationale: Parallel columns give cache-friendly tag-dispatch-then-data reads. Auxiliary maps (intern, resolutions) are rebuilt in place; variable state lives in its own vector because the `var_id` identity is rank-scoped rather than pool-scoped.
 
 ### TY-3 — Item Representation
 
-`Item` SHALL be exactly 5 bytes: 1 byte `Tag` + 4 bytes `data: u32`. The interpretation of `data` is tag-dependent, documented per-tag in `TK-1`. Adding a new variant SHALL NOT grow `Item` beyond 5 bytes without updating this rule.
+`Item` SHALL carry a 5-byte logical payload: 1 byte `Tag` + 4 bytes `data: u32`. The struct is `#[repr(C)]`; the ABI size is 5 to 8 bytes depending on target alignment. Adding a new variant SHALL NOT grow the logical payload beyond 5 bytes — widening the logical payload invalidates all fixed-width pool assumptions downstream.
 
-A compile-time size assertion (`const _: () = assert!(size_of::<Item>() == 5);`) SHALL guard this invariant.
+A test-time assertion (`const _: () = { assert!(size_of::<Item>() >= 5); assert!(size_of::<Item>() <= 8); };`) SHALL guard the bounded ABI range.
 
-Rationale: 5-byte items fit 12+ per cache line. Widening the item doubles pool memory for every interned type.
+Rationale: 5-byte logical payload keeps item data dense while `#[repr(C)]` gives a predictable (possibly padded) ABI layout. A strict `== 5` assertion would require `repr(packed)`, which the pool does not use.
 
 ### TY-4 — Extra Array Discipline
 
@@ -81,28 +89,32 @@ Tags whose payload exceeds 4 bytes (two-child containers, complex types, named t
 
 Rationale: Uniform 5-byte items with variable-length extra keeps the hot column dense and pushes variable cost to cold paths.
 
-### TY-5 — Pre-Interned Primitives
+### TY-5 — Pre-Interned Primitives and Reserved Range
 
-Primitive types SHALL occupy `Idx(0)` through `Idx(11)` in every pool, in this fixed order:
+The primitive *named constants* SHALL occupy `Idx(0)` through `Idx(11)` in every pool, in this fixed order:
 
-| Idx | Type | Tag |
-|-----|------|-----|
-| 0 | `int` | `Tag::Int` |
-| 1 | `float` | `Tag::Float` |
-| 2 | `bool` | `Tag::Bool` |
-| 3 | `str` | `Tag::Str` |
-| 4 | `char` | `Tag::Char` |
-| 5 | `byte` | `Tag::Byte` |
-| 6 | `()` (unit) | `Tag::Unit` |
-| 7 | `Never` | `Tag::Never` |
-| 8 | `<error>` | `Tag::Error` |
-| 9 | `Duration` | `Tag::Duration` |
-| 10 | `Size` | `Tag::Size` |
-| 11 | `Ordering` | `Tag::Ordering` |
+| Idx | Type | Tag | `Idx` constant |
+|-----|------|-----|----------------|
+| 0 | `int` | `Tag::Int` | `Idx::INT` |
+| 1 | `float` | `Tag::Float` | `Idx::FLOAT` |
+| 2 | `bool` | `Tag::Bool` | `Idx::BOOL` |
+| 3 | `str` | `Tag::Str` | `Idx::STR` |
+| 4 | `char` | `Tag::Char` | `Idx::CHAR` |
+| 5 | `byte` | `Tag::Byte` | `Idx::BYTE` |
+| 6 | `()` (unit) | `Tag::Unit` | `Idx::UNIT` |
+| 7 | `Never` | `Tag::Never` | `Idx::NEVER` |
+| 8 | `<error>` | `Tag::Error` | `Idx::ERROR` |
+| 9 | `Duration` | `Tag::Duration` | `Idx::DURATION` |
+| 10 | `Size` | `Tag::Size` | `Idx::SIZE` |
+| 11 | `Ordering` | `Tag::Ordering` | `Idx::ORDERING` |
 
-Pre-interning SHALL happen during `Pool::new()`. Pool users SHALL NOT construct primitive `Idx` values manually; they SHALL use the named constants (`Idx::INT`, `Idx::FLOAT`, …) or `Pool::primitive(tag)`.
+The entire pre-interned range is `Idx(0)` through `Idx(Idx::FIRST_DYNAMIC - 1)` with `FIRST_DYNAMIC = 64`. Indices 12..64 are RESERVED for future primitives and are padded at pool construction with `Item::primitive(Tag::Error)` placeholders carrying `TypeFlags::HAS_ERROR`. Dynamically-interned types begin at `Idx::FIRST_DYNAMIC`.
 
-Rationale: Fixed indices allow `TypeId` (parser-level) and `Idx` (pool-level) to be identical for primitives, eliminating a lookup step on every primitive type reference. Tags 12–15 are reserved for future primitives.
+`Idx::is_primitive()` SHALL be implemented as `self.0 < Idx::FIRST_DYNAMIC` — any index below the boundary is treated as pre-reserved, including the padded slots.
+
+Pre-interning SHALL happen in `Pool::intern_primitives()` during `Pool::new()`. Pool users SHALL NOT construct primitive `Idx` values manually; they SHALL use the named `Idx::*` constants. There is no `Pool::primitive(tag)` public API — primitive items are constructed internally via `Item::primitive(tag)` at pool initialization.
+
+Rationale: Fixed indices allow `TypeId` (parser-level) and `Idx` (pool-level) to be identical for primitives, eliminating a lookup step on every primitive type reference. Padding the reserved range keeps `FIRST_DYNAMIC` stable even when new primitives are added — consumers of dynamic indices never see a discontinuity.
 
 Spec: Clause 8.1 (primitive types).
 
@@ -164,7 +176,7 @@ Rationale: Poisoning keeps error recovery monotone — a single user mistake doe
 
 `Tag::Never` SHALL represent the bottom type `Never`. `Never` coerces into any other type (`CHK:UN-3`), is uninhabited at runtime, and may appear as a sum-variant payload but never as a struct field.
 
-Spec: Clause 8.1.3 (Never type), Clause 8.2 (compound types — no-field rule).
+Spec: Clause 8.1 primitive table, Clause 8.1.1 (Never Semantics — coercion, producers, inference), Clause 8.6 (user-defined types — struct fields SHALL NOT be `Never` per uninhabited-field rule surfaced as `E2019`).
 
 ### TK-5 — Infer vs Var
 
@@ -192,15 +204,15 @@ Spec: Clause 8.8 (trait objects), Clause 8.6 (user-defined types).
 
 Spec: Clause 8.13 (Iterator traits), Clause 8.6.3 (user-defined traits).
 
-### TK-9 — Alias and Applied
+### TK-9 — Named, Applied, and Alias
 
-- `Tag::Alias` SHALL represent a transparent type alias `type N = Existing`. Aliases SHALL NOT introduce a new identity; unification treats `Alias(N)` and the underlying type as equal.
-- `Tag::Named` SHALL represent a reference to a user-defined nominal type by name, pre-resolution.
+- `Tag::Named` SHALL represent a reference to a user-defined nominal type by name, pre-resolution. Every `type N = { ... }` struct, `type N = A | B` sum, and `type N = ExistingType` newtype produces a `Tag::Named` entry — all three are the parser's `TypeDeclKind::Struct | Sum | Newtype` variants, all landing in the pool as `Named`.
 - `Tag::Applied` SHALL represent `Named(args...)` — a nominal type instantiated with generic arguments.
+- `Tag::Alias` is reserved in the tag catalog for compiler-internal transparent references (import aliases, well-known-type re-exposures). The Ori surface syntax `type N = ExistingType` is parsed as `TypeDeclKind::Newtype` — NOT as a transparent alias — so `Tag::Alias` SHALL NOT be produced from the user-writable `type` declaration surface.
 
-A `Named` that is a newtype (`type UserId = int`) introduces a fresh nominal identity under `TI-5`; an alias does not. The distinction is recorded in the `TypeRegistry`, not in the tag itself.
+Nominal identity comes from the `Tag::Named` entry under `TI-5`; the distinction between Struct/Sum/Newtype shape is recorded in the `TypeRegistry`, not in the tag itself.
 
-Spec: Clauses 8.6 (user-defined types), 8.7 (nominal typing).
+Spec: Clauses 8.6 (user-defined types, including 8.6.3 newtype section), 8.7 (nominal typing).
 
 ---
 
@@ -387,21 +399,34 @@ Spec: Clause 8.3.
 
 ### TL-4 — Built-in Generic Types
 
-The following spec-defined generic types SHALL be representable as prelude types whose trait implementations are registered by `check/registration/derived.rs`:
+The following spec-defined generic types SHALL be representable. Iterator-family traits (`Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`) use associated types, not generic parameters — the tag catalog's `Iterator` / `DoubleEndedIterator` entries are *container shapes* carrying a single child element type, distinct from the trait definitions.
 
-| Type | Tag | Notes |
-|------|-----|-------|
+| Ori surface | Tag (when used as container) | Notes |
+|-------------|------------------------------|-------|
 | `Option<T>` | `Option` | Simple container, child = `T` |
 | `Result<T, E>` | `Result` | Two-child container |
-| `Range<T>` | `Range` | Simple container; `T` is always `int` in shipped surface |
-| `Iterator<T>` | `Iterator` | Object-unsafe (TR-6) |
-| `DoubleEndedIterator<T>` | `DoubleEndedIterator` | Subtype of `Iterator` in the trait hierarchy |
+| `Range<T>` | `Range` | Simple container; `T` is `int` in shipped surface (`Range<float>` does NOT impl `Iterable` per spec 8.13) |
+| `impl Iterator` (container shape) | `Iterator` | Opaque iterator handle carrying the element type `T` as a child `Idx`; realises `trait Iterator { type Item; }` with the container's child as `Self.Item` |
+| `impl DoubleEndedIterator` | `DoubleEndedIterator` | Subtype of `Iterator`; registered with supertrait-inherited methods |
 
-Spec: Clause 8.4.
+Iterator trait *definitions* are:
+
+```ori
+trait Iterator { type Item; @next (self) -> (Option<Self.Item>, Self); }
+trait DoubleEndedIterator: Iterator { @next_back (self) -> (Option<Self.Item>, Self); }
+trait Iterable { type Item; @iter (self) -> impl Iterator where Item == Self.Item; }
+trait Collect<T> { @from_iter<I: Iterator> (iter: I) -> Self where I.Item == T; }
+```
+
+The associated-type model is what the trait registry records (`CHK:RG-2` / `TYPES:RG-2`): `Iterator` and `Iterable` register `type Item;`; `Collect<T>` registers a type parameter. `next` returns `(Option<Self.Item>, Self)` — the value and the *new* iterator state (`TR-5`).
+
+Spec: Clauses 8.4, 8.13.
 
 ### TL-5 — Channel Types
 
-`Producer<T>`, `Consumer<T>`, `CloneableProducer<T>`, `CloneableConsumer<T>` SHALL be representable as `Channel`-tagged types, with an extra field discriminating producer/consumer and cloneability. The element type `T` SHALL satisfy the `Sendable` marker trait (TR-7) — the checker enforces this bound at channel construction sites.
+The shipped pool representation SHALL be a single-child `Tag::Channel` constructed via `Pool::channel(elem)` — one channel type per element type, with no role discriminator or cloneability flag in the pool item. The element type `T` SHALL satisfy the `Sendable` marker trait (TR-7); the checker enforces this bound at channel-construction sites.
+
+**(Target-only)** The spec defines four distinct channel role types in Clause 8.5: `Producer<T>`, `Consumer<T>`, `CloneableProducer<T>`, `CloneableConsumer<T>`. Role discrimination and cloneability are represented at the Ori trait level (each role type implements a different capability-trait interface), NOT in the pool tag. Distinct role tags or an in-tag discriminator are not yet shipped; until they are, role-specific behavior SHALL be handled by trait dispatch on the container, not by tag inspection.
 
 Spec: Clause 8.5.
 
@@ -463,8 +488,8 @@ A value of type `T` is assignable to type `U` iff:
 
 - `T == U` (identical), OR
 - `T = Never` (bottom coerces to anything — TK-4), OR
-- `T = [V, max N]` and `U = [V]` (fixed-capacity widens to dynamic), OR
-- A user-defined `Into<U>` impl exists on `T` and the conversion is explicit at the call site (the checker SHALL NOT insert implicit `.into()` calls).
+- `T = [V, max N]` and `U = [V]` (fixed-capacity widens to dynamic; narrowing from `[V]` to `[V, max N]` is NOT a subtyping relationship — a list literal assigned to a fixed-capacity-annotated binding is typed via bidirectional checking with `Check([V, max N])` propagated inward, NOT via post-hoc narrowing), OR
+- A user-defined `Into<U>` impl exists on `T` and the conversion is explicit at the call site via `.into()` (the checker SHALL NOT insert implicit `.into()` calls).
 
 The checker SHALL reject all other assignments with `E2001`. Ori SHALL NOT perform implicit numeric widening (`int` to `float`), implicit pointer decay, or implicit trait-object coercion.
 
@@ -480,7 +505,7 @@ Spec: Clause 9.3.
 
 ### PT-4 — Type Constraints
 
-Trait bounds on type parameters SHALL be stored in the `TraitRegistry` indexed by the binding site. The checker SHALL verify, at instantiation time, that the supplied concrete type satisfies every declared bound (`CHK:TR-3`).
+Trait bounds on type parameters SHALL be stored in the `TraitRegistry` indexed by the binding site. The checker SHALL verify, at instantiation time, that the supplied concrete type satisfies every declared bound (`CHK:TR-4`).
 
 A bound failure SHALL produce `E2001` (type mismatch) or the trait-specific code (e.g., `E2029` for derive-supertrait missing) depending on the context.
 
@@ -517,10 +542,12 @@ The following traits SHALL have the canonical method shapes registered in `ori_r
 | `Drop` | `drop` | `(self) -> void` | 8.10 |
 | `Len` | `len` | `(self) -> int` | 9.10 |
 | `IsEmpty` | `is_empty` | `(self) -> bool` | 9.11 |
-| `Iterator` | `next` | `(self) -> (Option<Item>, Self)` | 8.13 |
-| `DoubleEndedIterator: Iterator` | `next_back` | `(self) -> (Option<Item>, Self)` | 8.13 |
-| `Iterable` | `iter` | `(self) -> impl Iterator` | 8.13 |
+| `Iterator` | `next` | `(self) -> (Option<Self.Item>, Self)` (associated type `Item`) | 8.13 |
+| `DoubleEndedIterator: Iterator` | `next_back` | `(self) -> (Option<Self.Item>, Self)` | 8.13 |
+| `Iterable` | `iter` | `(self) -> impl Iterator where Item == Self.Item` (associated type `Item`) | 8.13 |
+| `Collect<T>` | `from_iter` | `<I: Iterator> (iter: I) -> Self where I.Item == T` | 8.13 |
 | `Into<T>` | `into` | `(self) -> T` | 8.11 |
+| `Traceable` | `with_trace`, `trace`, `trace_entries`, `has_trace` | `(self, entry: TraceEntry) -> Self`, `(self) -> str`, `(self) -> [TraceEntry]`, `(self) -> bool` | 9.9 |
 | `Sendable` | *(marker — no methods)* | — | 8.14 |
 | `Value: Clone, Eq` | *(marker — no methods)* | — | 8.14 |
 
@@ -532,13 +559,15 @@ The derivable traits (`Eq`, `Clone`, `Debug`, `Printable`, `Default`, `Comparabl
 
 Cross-reference: `ir.md` §DerivedTrait holds the canonical checklist. Full derive workflow is in CLAUDE.md §"Adding a New Derived Trait".
 
-### TR-3 — Structural Defaults
+### TR-3 — Derivable Traits
 
-`Eq`, `Clone`, `Debug`, `Printable` SHALL have structural default implementations that fire without a declaration on `type T = { ... }`. A user declaration SHALL override the structural default. `Comparable`, `Hashable`, `Default` SHALL require explicit declaration — there is no structural default for ordering, hashing, or default values.
+The following traits SHALL be derivable on user-defined types via `#derive(Trait)` (pre-proposal syntax) or `type T: Trait = { ... }` (post-proposal syntax): `Eq`, `Clone`, `Debug`, `Printable`, `Default`, `Comparable`, `Hashable`. A derive is generated at registration time (`CHK:TR-8`) with canonical componentwise semantics. A user `impl` overrides the derived form.
 
-Rationale: Structural equality / cloning / formatting is unambiguous; ordering and hashing are not (Swift and Rust both require opt-in for the same reason).
+Non-derivable: traits whose method bodies depend on user intent (`Drop`, `Iterator`, `Into<T>`, `Iterable`). Derive of a non-derivable trait produces `E2033`.
 
-Spec: Clauses 8.9 (Clone), 8.12 (Debug), 9.6 (Printable), 9.12 (Comparable), 9.13 (Hashable).
+Spec: Clauses 8.9 (Clone — 8.9.2 Derivable), 8.12 (Debug — 8.12.2 Derivable), 9.6 (Printable), 9.8 (Default), 9.12 (Comparable), 9.13 (Hashable).
+
+Rationale: Derivation is opt-in via `#derive` (or the post-proposal `type T: Trait` form). There is no structural auto-derivation that fires without a declaration — an Ori type declared as a bare `type T = { ... }` does NOT silently acquire `Eq`/`Clone`/`Debug`/`Printable` impls.
 
 ### TR-4 — Operator Traits
 
@@ -564,7 +593,7 @@ A trait SHALL be *object-safe* iff all methods satisfy:
 - No `Self` in non-receiver parameter
 - No generic type parameter on the method
 
-Object safety SHALL be checked at trait-registration time (`CHK:TR-6`). Non-object-safe traits (`Clone`, `Eq`, `Iterator`, `Comparable`, `Hashable`, `Into`) SHALL NOT be usable at trait-object positions (`E2024`).
+Object safety SHALL be checked at trait-registration time (`CHK:TR-6`). Non-object-safe traits (`Clone`, `Eq`, `Iterator`, `Comparable`, `Hashable`) SHALL NOT be usable at trait-object positions (`E2024`). `Into<T>` satisfies all three rules (`into(self) -> T` — `self` receiver, `T` return is not `Self`, no method-level generic parameters) and IS object-safe.
 
 Rationale: Object-safe traits correspond to vtable-compatible interfaces. Rust and Swift both enforce the same rules.
 
@@ -641,9 +670,9 @@ Source: `ori_types/src/registry/`.
 - Visibility
 - Attributes (`#repr`, `#derive`, etc.)
 
-The registry SHALL be populated by `check/registration/user_types.rs` during Phase 1 of `check_module` (`CHK:CK-1`). It SHALL be frozen at Phase 2 entry — later phases query, never mutate.
+The registry SHALL be populated during the Registration-group passes (0a–0e) of `check_module_impl` (`CHK:CK-1`). It SHALL be frozen at Signatures-pass entry — later passes query, never mutate.
 
-Rationale: Freezing after registration prevents Phase 3 signature-check or Phase 4 body-check from accidentally introducing new nominal identities via side effects.
+Rationale: Freezing after registration prevents later passes (signature collection, body checking) from accidentally introducing new nominal identities via side effects. See `CHK:CK-1` for the full pass order.
 
 ### RG-2 — TraitRegistry
 
@@ -663,23 +692,28 @@ Impl entries record:
 
 Coherence SHALL be checked at registration time (`CHK:TR-5`). Two non-overlapping impls for the same `(trait, impl_type)` SHALL produce `E2010` (conflicting impl / coherence violation).
 
-### RG-3 — MethodRegistry
+### RG-3 — Method Lookup Partition
 
-`MethodRegistry` SHALL provide unified method lookup across three dispatch tiers, in priority order:
+Method lookup in `ori_types` SHALL be partitioned across two distinct resolution paths, each with a single canonical entry point:
 
-1. **Builtin methods** — registered from `ori_registry` at module startup (e.g., `str.len`, `int.to_str`).
-2. **Inherent impls** — methods defined in `impl Type { ... }` blocks.
-3. **Trait impls** — methods from `impl Type: Trait { ... }` blocks.
+1. **Builtin method resolution** — `resolve_builtin_method()` in `infer/expr/methods/` consults `ori_registry::BUILTIN_TYPES` (pure-data crate; see `.claude/rules/registry.md`). This path answers "does this primitive / built-in container have a method named `m`?" and produces a method descriptor in `ori_registry`'s vocabulary (`MethodDef`).
+2. **User-defined method resolution** — `TraitRegistry::lookup_method()` in `registry/traits/mod.rs` answers "does `receiver_ty` have an `impl` or trait-impl entry for `m`?". The registry SHALL check *inherent* impls first, then trait impls; ambiguous trait-impl matches produce `E2023`.
 
-A call `receiver.method(args)` SHALL resolve to the first matching entry in priority order. Ambiguity between trait impls produces `E2023` (ambiguous method); a user disambiguates with qualified syntax (`Trait.method(receiver, ...)`).
+`MethodRegistry` is a thin wrapper reserved for a future unified entry point. In the shipped surface, `MethodRegistry::lookup_trait_method()` delegates directly to `TraitRegistry::lookup_method()`; builtin lookup is NOT routed through `MethodRegistry`.
 
-The registry SHALL expose method entries with stable, alphabetically-ordered method lists per type (cross-reference: the `registry_methods_sorted_per_type` test enforces this).
+A call `receiver.method(args)` SHALL dispatch in this order at the checker call-site (`CHK:TR-1`): builtin-first via `resolve_builtin_method()`, then user-defined via the trait registry (inherent-then-trait). The aggregate order — builtin → inherent → trait — SHALL be consistent across every call site; diverging orderings are a LEAK per `HYG:§Side Logic`.
+
+The registry SHALL expose method entries with stable, alphabetically-ordered method lists per type (the `registry_methods_sorted_per_type` test enforces this for `ori_registry`).
+
+**(Target-only)** `MethodRegistry` is reserved for a future unified-dispatch implementation that would integrate builtin + inherent + trait lookup behind one entry point. Until that ships, the two paths remain distinct.
 
 ### RG-4 — Registry as SSOT for Builtin Behavior
 
-Knowledge about builtin type behavior (method presence, method signatures, trait impls for primitives, operator desugaring) SHALL live exclusively in `ori_registry` and be read through `MethodRegistry`. Any consumer (`ori_types`, `ori_eval`, `ori_llvm`) that hardcodes knowledge like `if type == str { special_case }` outside `ori_registry` is a LEAK per `HYG:§Side Logic`.
+Knowledge about builtin type behavior (method presence, method signatures, trait impls for primitives, operator desugaring) SHALL live exclusively in `ori_registry` (the pure-data crate) and be read via `find_type(TypeTag)`, `find_method(TypeTag, name)`, and `OpDefs`. Any consumer (`ori_types`, `ori_eval`, `ori_llvm`) that hardcodes knowledge like `if type == str { special_case }` outside `ori_registry` is a LEAK per `HYG:§Side Logic`.
 
-Cross-reference: `.claude/rules/registry.md`.
+There is no extension-dispatch path in the shipped `ori_types` method-resolution surface. Spec-level `extend T { @m }` extensions are a language feature; their registration in the trait / method registries has not yet been threaded through `ori_types::registry`, so method-resolution `CHK:TR-9` rules about extension dispatch are **(target-only)** until the registration pass ships.
+
+Cross-reference: `.claude/rules/registry.md` for the full `ori_registry` data-model surface.
 
 ---
 
@@ -743,7 +777,7 @@ No `Arc<Mutex<T>>`, no `fn` pointers, no `dyn Trait` in Salsa output types.
 
 ### SL-4 — Error Accumulation
 
-Type errors SHALL be accumulated via Salsa's diagnostic accumulator, not returned through `Result`. Phase 1 / 2 / 3 / 4 of `check_module` each append to the accumulator; callers collect at the end.
+Type errors SHALL be accumulated via Salsa's diagnostic accumulator, not returned through `Result`. Every pass of `check_module_impl` (`CHK:CK-1`) appends to the accumulator; the driver collects them via `finish()` / `finish_with_pool()`.
 
 Rationale: Accumulation preserves error-recovery behavior — a single mistake does not abort the whole module check.
 
@@ -847,18 +881,19 @@ Cross-reference: `compiler.md §Phase Dumps` for the complete list.
 
 | Idx | Tag | Ori name | Spec reference |
 |-----|-----|----------|----------------|
-| 0 | `Int` | `int` | Clause 8.1.1 |
-| 1 | `Float` | `float` | Clause 8.1.2 |
-| 2 | `Bool` | `bool` | Clause 8.1.3 |
-| 3 | `Str` | `str` | Clause 8.1.4 |
-| 4 | `Char` | `char` | Clause 8.1.5 |
-| 5 | `Byte` | `byte` | Clause 8.1.6 |
-| 6 | `Unit` | `()` | Clause 8.1.7 |
-| 7 | `Never` | `Never` | Clause 8.1.8 |
-| 8 | `Error` | `<error>` | Internal (poison) |
-| 9 | `Duration` | `Duration` | Clause 8.1.9 |
-| 10 | `Size` | `Size` | Clause 8.1.10 |
-| 11 | `Ordering` | `Ordering` | Clause 8.1.11 |
+| 0 | `Int` | `int` | Clause 8.1 primitive table |
+| 1 | `Float` | `float` | Clause 8.1 primitive table |
+| 2 | `Bool` | `bool` | Clause 8.1 primitive table |
+| 3 | `Str` | `str` | Clause 8.1 primitive table |
+| 4 | `Char` | `char` | Clause 8.1 primitive table |
+| 5 | `Byte` | `byte` | Clause 8.1 primitive table |
+| 6 | `Unit` | `()` | Clause 8.1 primitive table (`void` alias) |
+| 7 | `Never` | `Never` | Clause 8.1.1 Never Semantics |
+| 8 | `Error` | `<error>` | Internal (poison) — no spec surface |
+| 9 | `Duration` | `Duration` | Clause 8.1.2 Duration |
+| 10 | `Size` | `Size` | Clause 8.1.3 Size |
+| 11 | `Ordering` | `Ordering` | Clause 9 Ordering (via Comparable — see Clause 9.12) |
+| 12..63 | reserved | — | Padded with `Item::primitive(Tag::Error)` per TY-5 |
 
 ## Appendix B: Tag-to-Data Decoding Table
 

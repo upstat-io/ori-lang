@@ -28,31 +28,38 @@ This document defines the **laws** of the Ori type checker — the algorithm tha
 - **Expected<T>** = checker-mode context with an expected type; `Infer` = inference-mode context
 - **Synth(e) → T** = synthesis: infer type of `e` bottom-up
 - **Check(e, T)** = checking: verify `e` has type `T` with `T` propagated inward
-- Rules are numbered `CATEGORY-N`. Categories: `CK` (module checker / pipeline), `EN` (inference engine state), `UN` (unification), `BD` (bidirectional checking), `GN` (generalization & instantiation), `EX` (expression typing), `TR` (trait resolution), `CP` (capability checking), `CF` (control flow / patterns / cfg), `RG` (registration passes), `ER` (error recovery), `DI` (diagnostics catalog), `PC` (phase contracts), `SG` (scope guards / RAII), `SL` (Salsa), `TRG` (tracing)
+- Rules are numbered `CATEGORY-N`. Categories: `CK` (module checker / pipeline), `EN` (inference engine state), `UN` (unification), `BD` (bidirectional checking), `GN` (generalization & instantiation), `EX` (expression typing), `TR` (trait resolution), `CP` (capability checking), `CF` (control flow / patterns / cfg), `ER` (error recovery), `DI` (diagnostics catalog), `PC` (phase contracts), `SG` (scope / save-restore helpers), `SL` (Salsa), `TRG` (tracing). Registration-pass rules live in `types.md` under `TYPES:RG-*` — this crate reads, never re-registers.
 - Cross-references: `types.md` rules prefixed with `TYPES:` (e.g., `TYPES:TI-2`), `parse.md` with `PARSE:`, `aims-rules.md` with `AIMS:`, `codegen-rules.md` with `CG:`, `impl-hygiene.md` with `HYG:`, spec clauses with `Spec:`
 
 ---
 
 ## §1 Module Check Pipeline
 
-Type checking a module is a four-phase pipeline driven by `check_module()`. Phases are strictly ordered — no phase reads state that a later phase produces. Within a phase, work is order-independent; across phases, ordering is load-bearing.
+Type checking a module is a strictly-ordered multi-pass pipeline driven by `check_module_impl()`. Passes are organized into three groups — registration, signatures, bodies — followed by export finalization through `finish()` / `finish_with_pool()`. Passes within a group are ordered; no pass reads state that a later pass produces.
 
-Source: `ori_types/src/check/mod.rs`, `ori_types/src/check/api/`.
+Source: `ori_types/src/check/api/mod.rs` (`check_module_impl`), `ori_types/src/check/mod.rs` (`ModuleChecker`, `finish`).
 
-### CK-1 — Four-Phase Order
+### CK-1 — Pass Order
 
-`check_module()` SHALL execute these phases in order:
+`check_module_impl()` SHALL execute these passes in order. Each row names the pass, its source file, and the group it belongs to:
 
-| Phase | Name | Purpose | Source |
-|-------|------|---------|--------|
-| 1 | **Registration** | Register types, traits, impls, derived signatures | `check/registration/` |
-| 2 | **Signatures** | Collect function/method/constant signatures | `check/signatures/` |
-| 3 | **Bodies** | Check function/method bodies against signatures | `check/bodies/` |
-| 4 | **Export** | Emit typed IR + accumulated diagnostics | `check/exports.rs` |
+| # | Pass | Group | Purpose | Source |
+|---|------|-------|---------|--------|
+| 0a | `register_builtin_types` | Registration | Register prelude / builtin types (str, int, List, Option, …) | `check/registration/builtin_types.rs` |
+| 0b | `register_user_types` | Registration | Register struct / sum / newtype declarations into `TypeRegistry` | `check/registration/user_types.rs` |
+| 0c | `register_traits` + `register_impls` | Registration | Register trait defs and `impl` blocks; run coherence (`TR-2`) | `check/registration/traits.rs`, `check/registration/impls.rs` |
+| 0d | `register_derived_impls` | Registration | Generate derived trait impls (`TR-8`) | `check/registration/derived.rs` |
+| 0e | `register_consts` | Registration | Register module-level constants | `check/registration/consts.rs` |
+| 1 | `collect_signatures` | Signatures | Collect function / method signatures; enforce `CK-4` no-Var | `check/signatures/mod.rs` |
+| 2 | `check_function_bodies` | Bodies | Check top-level function bodies | `check/bodies/mod.rs` |
+| 3 | `check_test_bodies` | Bodies | Check `@t tests @f` and `tests _` bodies (`CF-6`) | `check/bodies/mod.rs` |
+| 4 | `check_impl_bodies` | Bodies | Check method bodies in `impl Type { @m }` and `impl Type: Trait { @m }` | `check/bodies/mod.rs` |
+| 5 | `check_def_impl_bodies` | Bodies | Check method bodies in `def impl Trait { @m }` | `check/bodies/mod.rs` |
+| — | `finish()` / `finish_with_pool()` | Export | Collect typed IR, diagnostics, registries into `TypeCheckResult` | `check/mod.rs` |
 
-A later phase SHALL NOT add registry entries (Phase 1 output is frozen). A later phase SHALL NOT change signatures (Phase 2 output is frozen). Each phase reads its predecessors' output through explicit accessors — no hidden mutation.
+The Registration group (0a–0e) SHALL freeze the registries before Signatures begins; a later pass SHALL NOT add registry entries. The Signatures pass SHALL freeze signatures before Bodies begins. Each pass reads its predecessors' output through explicit accessors — no hidden mutation. Export finalization (`finish`) is invoked by the driver AFTER `check_module_impl` completes; it does not participate in type checking itself, only in packaging output.
 
-Rationale: Freezing earlier phases turns "what a later phase sees" into a deterministic function of "what an earlier phase produced" — the foundation for Salsa caching and for reasoning about the checker's fixpoints.
+Rationale: Freezing earlier groups turns "what a later pass sees" into a deterministic function of "what an earlier pass produced" — the foundation for Salsa caching and for reasoning about the checker's fixpoints. Splitting body-checking into four passes (functions / tests / impl methods / def-impl methods) lets each pass operate on a homogeneous input and keeps trace output grouped by the construct being checked.
 
 ### CK-2 — Rank Discipline
 
@@ -75,15 +82,15 @@ Rationale: The checker operates on `Var`s; `Infer` is the parser's placeholder. 
 
 ### CK-4 — Trivial Signature Hoisting
 
-Every function/method signature SHALL be fully resolved by end of Phase 2. Signatures SHALL NOT contain `Tag::Var`, `Tag::Infer`, or unnormalized `Tag::Projection` when Phase 3 begins.
+Every function/method signature SHALL be fully resolved by end of the Signatures pass (#1). Signatures SHALL NOT contain `Tag::Var`, `Tag::Infer`, or unnormalized `Tag::Projection` when the Bodies group begins (pass #2).
 
-A signature reaching Phase 3 with unresolved variables is a `PC-2` (output contract) violation of the signatures sub-phase, not of the whole checker.
+A signature reaching the Bodies group with unresolved variables is a `PC-2` (output contract) violation of the signatures sub-phase, not of the whole checker.
 
-Rationale: Body-checking relies on knowing call-site types. Unresolved signatures would create an ordering dependency between bodies, making Phase 3 non-parallelizable and non-Salsa-cacheable.
+Rationale: Body-checking relies on knowing call-site types. Unresolved signatures would create an ordering dependency between bodies, making the Bodies-group passes non-parallelizable and non-Salsa-cacheable.
 
 ### CK-5 — Coherence Check Location
 
-Coherence (no-overlap of impls) SHALL be enforced during Phase 1, at registration time (`TR-5`). Coherence violations discovered later (in Phase 3 body-checking) are bugs in the registration pass, not new findings — the registration pass is the SSOT for impl coherence.
+Coherence (no-overlap of impls) SHALL be enforced during the Registration group, pass 0c, at registration time (`TR-5`). Coherence violations discovered later (in the Bodies group) are bugs in the `register_impls` pass, not new findings — the registration pass is the SSOT for impl coherence.
 
 ---
 
@@ -102,7 +109,7 @@ Source: `ori_types/src/infer/mod.rs`, `ori_types/src/infer/env/`, `ori_types/src
 | `Pool` | Type storage (`TYPES:§1`) | `&mut` borrow (one pool per engine lifetime) |
 | `TypeEnv` | `Name → Idx` bindings, scoped | owned field |
 | `UnifyEngine` | Union-find, fresh var allocation | owned field |
-| `TraitRegistry` / `TypeRegistry` / signature map / const map | Phase 1/2 output | `&` borrows |
+| `TraitRegistry` / `TypeRegistry` / signature map / const map | Registration + Signatures output | `&` borrows |
 | `StringInterner` | `Name` interning | `&` borrow |
 | Capability sets | current required / provided | owned fields |
 | Self / impl-self types | `Self` scope | owned `Option<Idx>` stack |
@@ -115,7 +122,7 @@ Rationale: Single-threaded, single-pool scope keeps all checker state on one bor
 
 One `InferEngine` SHALL serve exactly one module-checking session. Reusing an engine across modules leaks state (loop break stack, capability sets, self types) and is forbidden.
 
-Rationale: Phase 1/2 output is module-scoped. Mixing modules into one engine breaks Salsa caching per `HYG:§Salsa & Caching` (SL-3 in `types.md`).
+Rationale: Registration + Signatures output is module-scoped. Mixing modules into one engine breaks Salsa caching per `HYG:§Salsa & Caching` (SL-3 in `types.md`).
 
 ### EN-3 — Fresh Variable Allocation
 
@@ -125,7 +132,7 @@ Rationale: Deterministic allocation makes snapshot tests stable and makes pool o
 
 ### EN-4 — No Interior Mutability on Registry Borrows
 
-Registry borrows (`TypeRegistry`, `TraitRegistry`, signature map) SHALL be immutable `&` references. The engine SHALL NOT mutate registries mid-checking. Phase 1 freezes registries; Phase 3 may only read.
+Registry borrows (`TypeRegistry`, `TraitRegistry`, signature map) SHALL be immutable `&` references. The engine SHALL NOT mutate registries mid-checking. The Registration group (passes 0a–0e) freezes registries; the Bodies group (passes 2–5) may only read.
 
 Cross-reference: `TYPES:RG-1`, `TYPES:RG-2`.
 
@@ -195,7 +202,7 @@ Rationale: Rank-weighted union keeps later generalization correct (CK-2) by bias
 
 ### UN-8 — Projection Normalization
 
-Before unifying a type containing `Tag::Projection`, the checker SHALL attempt to normalize the projection: if the receiver's concrete type has a registered trait impl with the relevant associated type, replace the projection with the impl's binding. Unresolved projections at unification time are kept symbolic and carried forward; they SHALL be resolved by end of Phase 3 or rejected with `E2003`.
+Before unifying a type containing `Tag::Projection`, the checker SHALL attempt to normalize the projection: if the receiver's concrete type has a registered trait impl with the relevant associated type, replace the projection with the impl's binding. Unresolved projections at unification time are kept symbolic and carried forward; they SHALL be resolved by end of the Bodies group or rejected with `E2003`.
 
 Cross-reference: `TYPES:TK-8`.
 
@@ -307,7 +314,8 @@ Source: `ori_types/src/infer/expr/` (per-form files).
 | byte literal `b'x'` | `byte` | same |
 | duration literal `1s` | `Duration` | same |
 | size literal `1kb` | `Size` | same |
-| interpolated string `` `{x}` `` | `str`; requires `T: Printable` on each interpolant | checked via `MethodRegistry` |
+| interpolated string `` `{x}` `` (no format spec) | `str`; requires `T: Printable` on each interpolant | checked via `resolve_builtin_method` / `TraitRegistry` (TR-1, `TYPES:RG-3`) |
+| interpolated string `` `{x:spec}` `` (format spec present) | `str`; requires `T: Formattable` on the interpolant — validates the spec per Spec Clause 14.18 / Annex D | produces `E2034` on invalid spec, `E2035` on spec/type mismatch, `E2038` on missing `Printable` for the no-spec form |
 
 Spec: Clause 14.2.
 
@@ -482,7 +490,7 @@ Spec: Clause 14.10 (struct literals).
 - `{k: v}` — keys unified; values unified; result `{K: V}`; `K` must satisfy `Hashable` (`E2031`).
 - `{[expr]: v}` — computed-key form; `expr` typed as `K`.
 
-Fixed-capacity literal `[1, 2, 3]: [int, max 4]` uses annotation-driven narrowing; the checker infers the widest `[T]` then subtypes into `[T, max N]` at the annotation (`TYPES:PT-2`).
+Fixed-capacity literal `[1, 2, 3]: [int, max 4]` SHALL be typed via bidirectional expected-type propagation (`BD-2`). The annotation `[int, max 4]` becomes the expected type on the literal, propagating `Check(int)` to each element. The checker does NOT infer a wider `[T]` and then subtype — `TYPES:PT-2` only allows widening from `[V, max N]` to `[V]`, not the reverse, and `TYPES:PT-3` mandates invariance. Expected-type propagation gives the element-count and element-type constraints directly.
 
 Spec: Clause 14.11.
 
@@ -548,7 +556,7 @@ Bound satisfaction is transitively resolved: if `T: Hashable`, then `T: Eq` (Has
 
 ### TR-5 — Coherence at Registration Time
 
-Coherence (TR-2) SHALL be enforced during Phase 1 registration (`CK-1`, `CK-5`). A coherence violation discovered during body-checking is a registration bug — the registration pass failed to catch a conflict it should have caught at registration time.
+Coherence (TR-2) SHALL be enforced during the Registration group at pass 0c (`CK-1`, `CK-5`). A coherence violation discovered during body-checking is a registration bug — the registration pass failed to catch a conflict it should have caught at registration time.
 
 ### TR-6 — Object Safety Check
 
@@ -759,11 +767,11 @@ Source: `ori_types/src/type_error/check_error/`.
 | E2004 | Error | Arity mismatch (call expects N args, got M) | `ArityMismatch` |
 | E2005 | Error | Ambiguous type (inference stuck) | `AmbiguousType` |
 | E2008 | Error | Infinite type (occurs check failure) | `InfiniteType` |
-| E2010 | Error | Duplicate impl / missing associated type | `OverlappingImpls`, `MissingAssocType` |
+| E2010 | Error | Duplicate impl / duplicate field / missing associated type | `DuplicateImpl`, `DuplicateField`, `MissingAssocType` |
 | E2014 | Error | Missing capability | `MissingCapability` |
 | E2019 | Error | Uninhabited struct field (`Never` as field) | `UninhabitedStructField` |
 | E2020 | Error | Unsupported operator for type | `UnsupportedOperator` |
-| E2021 | Error | Overlapping impl specificity | `OverlappingImpls` (specificity subcase) |
+| E2021 | Error | Overlapping implementations | `OverlappingImpls` |
 | E2022 | Error | Conflicting default implementations | `ConflictingDefaults` |
 | E2023 | Error | Ambiguous method | `AmbiguousMethod` |
 | E2024 | Error | Trait not object-safe | `NotObjectSafe` |
@@ -860,37 +868,43 @@ Keys used by tracked queries (names, type ids, span-derived keys) SHALL have sta
 
 ---
 
-## §14 Scope Guards (RAII)
+## §14 Scope / Save-Restore Helpers
 
-Mutable scope context is managed by RAII guards that restore state on exit. Manual scope manipulation (push without pop, pop without push) is forbidden.
+Mutable scope context in `ModuleChecker` is managed by closure-based save/restore helpers. These are NOT RAII guard objects (no `Drop` impl); they are `with_*` methods that save prior state, invoke a closure, then restore state after the closure returns. Panic safety is NOT guaranteed — an unwinding panic inside the closure will NOT restore the saved state. Manual scope manipulation outside these helpers is forbidden.
 
-Source: `ori_types/src/check/scope.rs`.
+Source: `ori_types/src/check/scope.rs` (module-checker helpers), `ori_types/src/infer/mod.rs` (inference-engine helpers), `ori_types/src/unify/mod.rs` (unify-engine scope).
 
 ### SG-1 — Function Scope
 
-`with_function_scope<T, F>(self, signature, f: F) -> T` SHALL:
+`ModuleChecker::with_function_scope<T, F>(self, fn_type: Idx, capabilities: FxHashSet<Name>, f: F) -> T` SHALL:
 
-1. Push a new type environment scope.
-2. Push a rank (CK-2).
-3. Bind each parameter in the new scope.
-4. Call `f`.
-5. Pop rank.
-6. Pop scope.
-7. Return `f`'s result.
+1. Save `current_function` and `current_capabilities`.
+2. Set them to the supplied values.
+3. Invoke `f(self)`.
+4. After `f` returns, restore the saved values.
+5. Return `f`'s result.
 
-The guard SHALL restore the pre-entry state on any exit path including panic.
+This helper manages ONLY the `current_function` and `current_capabilities` fields. It does NOT push a type-environment scope, does NOT push a rank, and does NOT bind parameters. Environment-scope push/pop lives in SG-4; rank push/pop lives in SG-5; parameter binding is the responsibility of the caller's body-checking entry point.
 
 ### SG-2 — Impl Scope
 
-`with_impl_scope<T, F>(self, self_ty: Idx, f: F) -> T` SHALL set the `impl_self_type` for the scope, call `f`, and restore the prior `impl_self_type` on exit. `self` references inside `f` resolve to `self_ty`.
+`ModuleChecker::with_impl_scope<T, F>(self, self_ty: Idx, f: F) -> T` SHALL save the prior `current_impl_self`, set it to `self_ty`, invoke `f`, restore the saved value, and return `f`'s result. `self` references inside `f` resolve to `self_ty`.
 
 ### SG-3 — Provided-Capabilities Scope
 
-`with_provided_capabilities<T, F>(self, caps: FxHashSet<Name>, f: F) -> T` SHALL add `caps` to the provided-capability set, call `f`, and remove them on exit. Used to implement `with Cap = handler in expr`.
+`ModuleChecker::with_provided_capabilities<T, F>(self, caps: FxHashSet<Name>, f: F) -> T` SHALL save the prior `provided_capabilities`, replace it with `caps`, invoke `f`, restore the saved set, and return `f`'s result. Used to implement `with Cap = handler in expr`.
 
-### SG-4 — Rank Scope
+### SG-4 — Environment Scope (InferEngine)
 
-Rank scopes SHALL be managed through `enter_rank_scope` / `exit_rank_scope` pairs, preferably wrapped in a RAII guard used by SG-1. Manual push/pop SHALL match one-to-one; a dangling push is a monomorphism bug.
+`InferEngine::enter_scope(self)` SHALL push a new scope onto the underlying `TypeEnv`; `InferEngine::exit_scope(self)` SHALL pop it. These calls SHALL match one-to-one. A push without a matching pop leaks bindings into the enclosing scope; a pop without a matching push is a scope-underflow bug.
+
+This is NOT a closure-based helper — callers are responsible for manual pairing. Body-checking entry points typically enter a scope at the start and exit it on completion; the error-recovery rule (`ER-1`) SHALL NOT skip the matching `exit_scope` call when recovering from a nested error.
+
+### SG-5 — Rank Scope (InferEngine + UnifyEngine)
+
+`InferEngine::enter_rank_scope(self)` SHALL push the rank counter (`CK-2`); `InferEngine::exit_rank_scope(self)` SHALL pop it. The rank scope for unification lives separately at `UnifyEngine::enter_scope(self)` / `UnifyEngine::exit_scope(self)`, which tracks the rank of unification-variable introductions.
+
+Calls SHALL match one-to-one across both layers. A dangling rank push is a monomorphism bug (over-eager generalization); a dangling rank pop is a soundness bug (skolem escape per `GN-1`).
 
 ---
 
@@ -941,7 +955,7 @@ Cross-reference: `HYG:§Tracing & Logging`.
 | `TR-*` (trait resolution) | `TYPES:RG-2`, `TYPES:RG-3` | Dispatches through registries |
 | `CP-*` (capability checking) | `TYPES:TL-2`, `TYPES:TF-1 HAS_CAPABILITY` | Reads capability sets from function types |
 | `PC-*` (phase contracts) | `TYPES:PC-1`, `TYPES:PC-2` | Output contract enforced here |
-| `CK-*` (pipeline) | `TYPES:RG-1` (freeze after Phase 1) | Registry lifecycle contract |
+| `CK-*` (pipeline) | `TYPES:RG-1` (freeze after Registration group, passes 0a–0e) | Registry lifecycle contract |
 
 ### Interface with aims-rules.md
 
@@ -949,7 +963,7 @@ Cross-reference: `HYG:§Tracing & Logging`.
 |------------------------|----------------------------|------|
 | `AIMS:IC-5` (EffectSummary) | CP-1, CP-7 | Capability set + purity → effect base |
 | `AIMS:§1.3 Cardinality` | EX-10 (for loops) | Loop structure informs once/many classification |
-| `AIMS:§1.8 ShapeClass` | EX-14, EX-15 | Struct / collection construction shape |
+| `AIMS:§1.6 Shape` | EX-14, EX-15 | Struct / collection construction shape |
 | `AIMS:§7 Pipeline` | PC-2 | Typed IR with resolved types is AIMS' input |
 
 ### Interface with codegen-rules.md
@@ -969,18 +983,18 @@ Cross-reference: `HYG:§Tracing & Logging`.
 |------|------|
 | `ori_types/src/check/mod.rs` | `check_module` entry point, phase coordination (CK-1) |
 | `ori_types/src/check/api/` | Public query surface for the driver |
-| `ori_types/src/check/registration/mod.rs` | Phase 1 dispatch |
-| `ori_types/src/check/registration/user_types.rs` | Register struct / sum / newtype / alias (TYPES:RG-1) |
+| `ori_types/src/check/registration/mod.rs` | Registration-group dispatch (passes 0a–0e) |
+| `ori_types/src/check/registration/user_types.rs` | Register struct / sum / newtype user types (`TYPES:RG-1`) — note: user surface does not include transparent aliases |
 | `ori_types/src/check/registration/traits.rs` | Register trait definitions (TYPES:RG-2) |
 | `ori_types/src/check/registration/impls.rs` | Register impls with coherence check (TR-2, TR-5) |
 | `ori_types/src/check/registration/derived.rs` | Register derived trait impls (TR-8) |
 | `ori_types/src/check/registration/consts.rs` | Register module constants |
 | `ori_types/src/check/registration/builtin_types.rs` | Register builtin methods / prelude traits (TYPES:RG-3) |
 | `ori_types/src/check/registration/type_resolution.rs` | Resolve `Tag::Named` to `TypeRegistry` entries |
-| `ori_types/src/check/signatures/mod.rs` | Phase 2 — collect function / method signatures (CK-4) |
-| `ori_types/src/check/bodies/mod.rs` | Phase 3 — body checking |
+| `ori_types/src/check/signatures/mod.rs` | Signatures pass 1 — collect function / method signatures (CK-4) |
+| `ori_types/src/check/bodies/mod.rs` | Bodies-group passes 2–5 — function / test / impl / def-impl body checking |
 | `ori_types/src/check/scope.rs` | RAII scope guards (SG-1..SG-4) |
-| `ori_types/src/check/exports.rs` | Phase 4 — typed IR emission (PC-2) |
+| `ori_types/src/check/exports.rs` | Typed IR emission after `check_module_impl` via `finish()` / `finish_with_pool()` (PC-2) |
 | `ori_types/src/check/imports.rs` | Import resolution |
 | `ori_types/src/check/object_safety.rs` | Object-safety check (TR-6) |
 | `ori_types/src/check/well_known/` | Well-known type / trait identifiers |
@@ -1017,22 +1031,25 @@ Cross-reference: `HYG:§Tracing & Logging`.
 
 ---
 
-## Appendix A: Four-Phase Pipeline Decision Table
+## Appendix A: Pipeline Pass Decision Table
 
-For each language construct, which phase is responsible:
+For each language construct, which pass (from the `CK-1` table) is responsible:
 
-| Construct | Phase | Rule | Rationale |
-|-----------|-------|------|-----------|
-| Struct / sum / newtype / alias type declarations | 1 (Registration) | CK-1, RG-1 | Registry frozen before signatures |
-| Trait declarations + default methods | 1 (Registration) | CK-1, RG-2 | Registry frozen before signatures |
-| Impl blocks (inherent, trait, default, extension) | 1 (Registration) | CK-1, TR-2 | Coherence checked at registration |
-| Derived impls (Eq, Clone, etc.) | 1 (Registration) | TR-8 | Generated once with canonical semantics |
-| Module-level constants | 1 (Registration) + 2 (Signatures) | CK-1 | Declarations then RHS types |
-| Function / method signatures | 2 (Signatures) | CK-4 | No Var allowed at Phase 3 entry |
-| Function / method bodies | 3 (Bodies) | CK-1 | Uses frozen registry + signatures |
-| Contracts (pre/post) | 3 (Bodies) | CF-7 | Typed in function-body scope |
-| Attached / floating tests | 3 (Bodies) | CF-6 | Bodies like any function |
-| Typed IR emission | 4 (Export) | CK-1, PC-2 | Validates output contract |
+| Construct | Pass(es) | Rule | Rationale |
+|-----------|----------|------|-----------|
+| Built-in / prelude types | 0a (Registration) | CK-1, `TYPES:RG-1` | Must be registered before user types reference them |
+| Struct / sum / newtype declarations | 0b (Registration) | CK-1, `TYPES:RG-1` | `TypeRegistry` frozen before Signatures |
+| Trait declarations + default methods | 0c (Registration) | CK-1, `TYPES:RG-2` | `TraitRegistry` frozen before Signatures |
+| Impl blocks (inherent, trait, default) | 0c (Registration) | CK-1, TR-2 | Coherence checked at registration (CK-5) |
+| Derived impls (Eq, Clone, etc.) | 0d (Registration) | TR-8 | Generated once with canonical componentwise semantics |
+| Module-level constants | 0e (Registration) + 1 (Signatures) | CK-1 | Declarations first, then RHS typed |
+| Function / method signatures | 1 (Signatures) | CK-4 | No `Var` allowed at Bodies-group entry |
+| Function bodies | 2 (Bodies — functions) | CK-1 | Uses frozen registries + signatures |
+| Contracts (pre/post) | 2 (Bodies — functions) | CF-7 | Typed in function-body scope |
+| Attached / floating tests | 3 (Bodies — tests) | CF-6 | Bodies like any function |
+| Method bodies in `impl Type { ... }` and `impl Type: Trait { ... }` | 4 (Bodies — impl) | CK-1 | Typed with `Self` bound via SG-2 |
+| Method bodies in `def impl Trait { ... }` | 5 (Bodies — def impl) | CK-1, TR-7 | Stateless default bodies typed last |
+| Typed IR packaging | `finish()` / `finish_with_pool()` | CK-1, PC-2 | Validates output contract at driver boundary |
 
 ## Appendix B: Error Code Catalog — Quick Reference
 
