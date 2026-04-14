@@ -112,7 +112,7 @@ For each artifact identified in Step 2:
 Update each artifact that has drifted. Follow these rules:
 
 - **CLAUDE.md**: Keep entries concise. Match the existing style (tables, bullet lists, pipe-separated commands).
-- **Rules files**: Follow `/sync-rules` conventions — concise bullets, tables for structured data, 50-80 line target.
+- **Rules files**: Concise bullets, tables for structured data. Every line must earn its place. Complex subsystems (typeck, AIMS) legitimately need hundreds of lines.
 - **canon.md**: Maintain the existing section structure. Update tables and invariant lists precisely. Cross-reference §numbers must stay consistent.
 - **ori-syntax.md**: Ultra-dense reference format. No prose — keywords, operators, types, syntax forms.
 
@@ -129,7 +129,7 @@ After updating, re-read each modified artifact to confirm:
 - **Does not sync design docs** — use `/sync-docs` for `docs/compiler/design/`
 - **Does not sync spec** — use `/sync-spec` for `docs/ori_lang/v2026/spec/`
 - **Does not sync grammar** — use `/sync-grammar` for `grammar.ebnf`
-- **Does not audit rules file size/format** — use `/sync-rules` for that
+- **Does not audit rules file size/format** — use `/sync-docs` nightly for comprehensive audits
 - **Does not save memories** — if a project fact changed, update the memory file directly
 
 ## Retrospective Integration
@@ -157,7 +157,7 @@ At section close, after `/improve-tooling` sweep, do a broader pass:
 - **"Docs are someone else's job"** — if you changed the code, the doc sync is YOUR work
 - **"It's a minor change"** — minor code changes cause major doc drift when accumulated
 - **"I'll update docs at the end"** — by section close, you've forgotten what you changed in subsection .1
-- **"The rules file is already too long"** — that's a `/sync-rules` concern; this skill's job is accuracy, not size
+- **"The rules file is already too long"** — that's a `/sync-docs` nightly concern; this skill's job is accuracy, not size
 - **"CLAUDE.md doesn't need this level of detail"** — if it's in CLAUDE.md already, it must be accurate; if it shouldn't be there, remove it cleanly
 - **Silently skipping the check** — every subsection close-out must either update artifacts or document "no changes needed"
 

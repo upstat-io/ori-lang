@@ -116,7 +116,7 @@ The grammar.ebnf is organized into these sections:
 ## Key Things to Check
 
 ### Lexical Grammar
-- All reserved keywords listed (check `03-lexical-elements.md`)
+- All reserved keywords listed (check `07-lexical-elements.md`)
 - Context-sensitive keywords (patterns) listed separately
 - All operators with correct precedence comments
 - All literal forms (int, float, string, char, bool, duration, size)

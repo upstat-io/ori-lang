@@ -10,7 +10,7 @@ Reconcile EVERY document in the repository against the actual codebase and spec.
 
 **This command runs fully automated.** No pauses for user confirmation. Execute each phase to completion. Commit and report at the end.
 
-**This command supersedes `/sync-rules`, `/sync-claude`, `/sync-docs-full`.** Those commands are redirects to this one. There is ONE documentation sync command, not four.
+**This is the comprehensive nightly sync.** `/sync-claude` remains a separate lightweight skill for delta syncs at subsection close-outs — it covers CLAUDE.md + rules affected by a specific code change. This command does the full audit.
 
 ## The One Rule: FACT-BOUND
 
@@ -39,7 +39,7 @@ Reconcile EVERY document in the repository against the actual codebase and spec.
 - **Eliminate redundancy** — if two documents say the same thing, one should point to the other
 - **No motivation in rules** — "why" belongs in design docs, not rules files. Rules say WHAT and HOW.
 - **Remove "this means that"** — if the bullet already says X, don't follow with "in other words, X"
-- **Size targets** — rules files: 50-120 lines. Design docs: no hard cap but audit for bloat. CLAUDE.md: every section must justify its byte count.
+- **Size awareness** — rules files range from 16 lines (roadmap.md) to 1125 lines (typeck.md). Complex subsystems (type checker, AIMS, impl-hygiene) legitimately need hundreds of lines — never truncate these to hit an arbitrary target. But all files should be audited: every line must earn its place. If a section can be a table, make it a table. If a paragraph can be a bullet, make it a bullet. CLAUDE.md: every section must justify its byte count.
 - **Condense, never delete** — when trimming, compress the information into fewer words, don't remove it. The goal is density, not omission.
 
 **Test**: for every paragraph in a rules file, ask "could this be a bullet point?" If yes, make it one.
@@ -136,7 +136,7 @@ Rules files are loaded into every Claude conversation. Stale rules cause wrong b
 
 - **Fact-based**: describe how the system works, verified against code
 - **Spec-driven**: describe ideal behavior per the spec, not bug workarounds
-- **Concise**: bullet format, tables for structured info, 50-120 lines target
+- **Concise**: bullet format, tables for structured info. Every line must earn its place.
 - **Present tense**: "The lexer produces X" not "The lexer was changed to produce X"
 - **No plans**: rules are not roadmaps. Unimplemented features don't belong in rules.
 - **No volatile metrics**: no test counts, no coverage percentages
