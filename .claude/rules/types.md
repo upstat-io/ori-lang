@@ -418,13 +418,15 @@ trait Iterable { type Item; @iter (self) -> impl Iterator where Item == Self.Ite
 trait Collect<T> { @from_iter<I: Iterator> (iter: I) -> Self where I.Item == T; }
 ```
 
-The associated-type model is what the trait registry records (`CHK:RG-2` / `TYPES:RG-2`): `Iterator` and `Iterable` register `type Item;`; `Collect<T>` registers a type parameter. `next` returns `(Option<Self.Item>, Self)` — the value and the *new* iterator state (`TR-5`).
+The associated-type model is what the trait registry records (`TYPES:RG-2`, populated by `CHK:CK-1` pass 0c `register_traits`): `Iterator` and `Iterable` register `type Item;`; `Collect<T>` registers a type parameter. `next` returns `(Option<Self.Item>, Self)` — the value and the *new* iterator state (`TR-5`).
 
 Spec: Clauses 8.4, 8.13.
 
 ### TL-5 — Channel Types
 
-The shipped pool representation SHALL be a single-child `Tag::Channel` constructed via `Pool::channel(elem)` — one channel type per element type, with no role discriminator or cloneability flag in the pool item. The element type `T` SHALL satisfy the `Sendable` marker trait (TR-7); the checker enforces this bound at channel-construction sites.
+The shipped pool representation SHALL be a single-child `Tag::Channel` constructed via `Pool::channel(elem)` — one channel type per element type, with no role discriminator or cloneability flag in the pool item.
+
+**(Target-only)** Spec Clause 8.5 mandates that the channel element type `T` satisfy the `Sendable` marker trait (TR-7). The shipped checker does not yet enforce this bound: channel-construction expression forms (`FunctionExpKind::Channel`, `ChannelIn`, `ChannelOut`, `ChannelAll`) are currently rejected as unsupported (`E2040`) before any `Sendable`-bound check runs. When channel construction ships, bound enforcement will occur at the construction site.
 
 **(Target-only)** The spec defines four distinct channel role types in Clause 8.5: `Producer<T>`, `Consumer<T>`, `CloneableProducer<T>`, `CloneableConsumer<T>`. Role discrimination and cloneability are represented at the Ori trait level (each role type implements a different capability-trait interface), NOT in the pool tag. Distinct role tags or an in-tag discriminator are not yet shipped; until they are, role-specific behavior SHALL be handled by trait dispatch on the container, not by tag inspection.
 
@@ -438,9 +440,9 @@ The three user-defined shapes SHALL be:
 2. **Sum** (`type N = A | B(T)`) — Tag `Enum`, nominal identity, variant order preserved from source.
 3. **Newtype** (`type N = Existing`) — Tag `Named` wrapping the underlying type, distinct identity from the underlying.
 
-A transparent alias (`type Alias = Existing` registered as an alias, not a newtype) SHALL use `Tag::Alias` and SHALL NOT introduce a new identity.
+The user-writable surface does NOT include a transparent alias — the parser represents every `type N = ...` declaration as one of the three shapes above via `TypeDeclKind::{Struct, Sum, Newtype}` (`compiler/ori_ir/src/ast/items/types.rs`). `Tag::Alias` exists in the tag catalog (`TK-9`) for compiler-internal transparent references (import aliases, well-known-type re-exposures), but is never produced from user-writable `type` declarations.
 
-Spec: Clauses 8.6 (user-defined types), 8.7 (nominal typing).
+Spec: Clauses 8.6 (user-defined types, including 8.6.3 newtype), 8.7 (nominal typing).
 
 ### TL-7 — Trait Objects
 
@@ -601,14 +603,14 @@ Spec: Clause 8.8 (trait objects).
 
 ### TR-7 — Sendable and Value Markers
 
-`Sendable` and `Value` SHALL be **compiler-auto-derived** marker traits. Users SHALL NOT impl them manually. The checker derives:
+`Sendable` and `Value` SHALL be **compiler-auto-derived** marker traits (Spec Clause 8.14). Users SHALL NOT impl them manually. The checker derives:
 
-- `Sendable` iff all fields are `Sendable` AND the type has no interior mutability AND captures no non-`Sendable` values
-- `Value` iff all fields are `Value` AND the type is ≤ 512 bytes (warn at > 256 bytes)
+- `Sendable` iff all fields are `Sendable` AND the type has no interior mutability AND captures no non-`Sendable` values.
+- `Value` iff all fields are `Value` AND the type is ≤ 512 bytes (warn at > 256 bytes) AND has no `Drop` impl AND is non-recursive (Spec Clause 8.14.2).
 
-A manual `impl` of `Sendable` or `Value` SHALL be rejected with `E2033` ("trait not derivable").
+`E2033` ("trait not derivable") SHALL be emitted by the derive-registration path when a user attempts to derive `Sendable` or `Value` explicitly via `#derive(Sendable)` (pre-proposal) or `type T: Sendable = { ... }` (post-proposal). **(Target-only)** Rejection of bare `impl T: Sendable { ... }` (i.e., a manual hand-written impl) is specified but not yet enforced by the shipped checker — today the derive path is where `E2033` surfaces.
 
-Spec: Clause 8.14.
+Spec: Clause 8.14 (Sendable / Value — marker semantics, forbidden manual impls).
 
 ---
 
@@ -690,7 +692,7 @@ Impl entries record:
 - Generic parameters and bounds
 - Coherence metadata (orphan status, overlap group)
 
-Coherence SHALL be checked at registration time (`CHK:TR-5`). Two non-overlapping impls for the same `(trait, impl_type)` SHALL produce `E2010` (conflicting impl / coherence violation).
+Coherence SHALL be checked at registration time (`CHK:TR-5`). Two impls with identical `(trait, impl_type)` keys (duplicates) produce `E2010` (duplicate implementation). Two distinct impls whose domains overlap without specificity ranking — blanket vs specific — produce `E2021` (overlapping implementations).
 
 ### RG-3 — Method Lookup Partition
 
@@ -801,7 +803,7 @@ Diagnostics emitted by the pool itself (as opposed to the checker) are rare but 
 
 ### DI-4 — Trait Not Derivable
 
-`E2033` — user attempted to manually `impl` a marker trait (`Sendable`, `Value`) or attempted to derive a trait that is not derivable (e.g., `Iterator`).
+`E2033` — the derive-registration path rejected an attempted derive. Fires when the user writes `#derive(Trait)` or `type T: Trait = { ... }` for a trait that is not derivable — this includes marker traits (`Sendable`, `Value`) and traits whose bodies depend on user intent (`Iterator`, `Into`, `Drop`, `Iterable`). **(Target-only)** Rejection of bare manual `impl Type: Sendable { ... }` forms is specified but not yet emitted from a separate impl-registration path.
 
 Additional diagnostics produced by the checker live in `typeck.md §Diagnostics` with the full `E2001..E2041` catalog. This section covers only the subset whose root cause is a pool-level query.
 

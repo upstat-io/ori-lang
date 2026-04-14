@@ -292,7 +292,7 @@ Per the spec, Ori does not have mutable references, so the classical value restr
 
 ### GN-4 — Rank Restoration
 
-On scope exit, the checker SHALL restore the pre-entry rank. Failure to restore produces spurious generalization in unrelated expressions. The restoration SHALL be RAII-guarded via `SG-2`.
+On scope exit, the checker SHALL restore the pre-entry rank. Failure to restore produces spurious generalization in unrelated expressions. The restoration SHALL be enforced by matching `enter_rank_scope` / `exit_rank_scope` calls per `SG-5` (and the dual `UnifyEngine::enter_scope` / `exit_scope` pair). These are manually-paired helpers, NOT RAII guards — a dangling push is a monomorphism bug; a dangling pop is a skolem-escape bug per `GN-1`.
 
 ---
 
@@ -352,16 +352,19 @@ Spec: Clauses 10, 14.5.
 
 ### EX-4 — Method Calls
 
-`x.m(args)` SHALL resolve through `MethodRegistry` (`TYPES:RG-3`):
+`x.m(args)` SHALL resolve through the split method-lookup surface defined in `TYPES:RG-3`:
 
 1. Compute receiver type `Tx`.
-2. Look up `m` on `Tx` in the builtin → inherent → trait priority order.
-3. On trait methods, verify `Tx` satisfies the trait's bounds (`TR-4`).
-4. Instantiate the method's scheme (if generic).
-5. Check each argument as in `EX-3`.
-6. Result type is the resolved method's return type.
+2. Try **builtin** resolution first via `resolve_builtin_method()` consulting `ori_registry::BUILTIN_TYPES`. On hit, return the builtin method's return type.
+3. On miss, consult `TraitRegistry::lookup_method()` for **inherent** impls (`impl Tx { @m }`) first, then **trait** impls (`impl Tx: Trait { @m }`).
+4. On trait-method hit, verify `Tx` satisfies the trait's bounds (`TR-4`).
+5. Instantiate the method's scheme (if generic).
+6. Check each argument as in `EX-3`.
+7. Result type is the resolved method's return type.
 
-Ambiguity between multiple matching trait impls produces `E2023` (ambiguous method); user disambiguates with `Trait.method(x, args)`.
+Aggregate resolution order is therefore **builtin → inherent → trait**, identical across every call site and matching `TYPES:RG-3`. Ambiguity between multiple matching trait impls produces `E2023` (ambiguous method); user disambiguates with `Trait.method(x, args)`.
+
+Extension dispatch (`extend T { @m }`) is **(target-only)** — extension registration has not yet been threaded through `ori_types::registry`, so no extension-method path executes today.
 
 Spec: Clause 14.6.
 
@@ -521,20 +524,21 @@ Trait resolution picks an `impl` at each method-call site, respecting coherence 
 
 ### TR-1 — Dispatch Priority
 
-Method-call resolution SHALL follow this priority (identical to `TYPES:RG-3`):
+Method-call resolution SHALL follow this priority, identical to `TYPES:RG-3` and to the `resolve_builtin_method()` + `TraitRegistry::lookup_method()` two-path split:
 
-1. **Inherent methods** — `impl T { @m }` blocks — take precedence.
-2. **Trait methods** — `impl T: Trait { @m }` blocks — ambiguity between concurrent trait impls is `E2023`.
-3. **Extensions** — `extend T { @m }` blocks — lowest priority, and explicitly module-scoped.
-4. **Builtin methods** — fall back to `ori_registry` for primitive / collection types (also consulted at priority 1 for builtin types).
+1. **Builtin methods** — `resolve_builtin_method()` consulting `ori_registry::BUILTIN_TYPES` — highest priority. Builtin method resolution runs before any user-defined lookup.
+2. **Inherent methods** — `impl T { @m }` blocks — consulted via `TraitRegistry::lookup_method()` after builtin miss.
+3. **Trait methods** — `impl T: Trait { @m }` blocks — consulted within the same trait-registry call; ambiguity between concurrent trait impls is `E2023`.
 
 A `Trait.method(receiver, args)` qualified form disambiguates across tiers.
 
+**(Target-only)** Extensions (`extend T { @m }`) are a language-level feature not yet threaded into the type-checker's method-resolution surface. When shipped, they will sit at priority 4 (below trait impls).
+
 ### TR-2 — Coherence
 
-For each `(Trait, ImplType)` pair, at most one impl SHALL be registered per module. Duplicate impls are `E2010` (overlapping implementations, checked at `CK-5`).
+For each `(Trait, ImplType)` pair, at most one impl SHALL be registered per module. Duplicate impls (two impls with identical keys) produce `E2010` (duplicate implementation / DuplicateImpl, checked at `CK-5`). Overlapping but non-duplicate impls (two impls whose keys are distinct but whose domains intersect — blanket vs specific without specificity ranking) produce `E2021` (OverlappingImpls).
 
-Blanket impls (`impl<T: Bound> T: Trait`) SHALL NOT overlap with specific impls without an explicit specificity ranking — ambiguity produces `E2021`.
+Blanket impls (`impl<T: Bound> T: Trait`) SHALL NOT overlap with specific impls without an explicit specificity ranking — overlap produces `E2021`.
 
 ### TR-3 — Specificity
 
@@ -560,7 +564,7 @@ Coherence (TR-2) SHALL be enforced during the Registration group at pass 0c (`CK
 
 ### TR-6 — Object Safety Check
 
-A trait used at a trait-object position (argument, return, field) SHALL be verified object-safe (`TYPES:TR-6`). Non-object-safe traits (`Clone`, `Eq`, `Iterator`, `Comparable`, `Hashable`, `Into`) produce `E2024`.
+A trait used at a trait-object position (argument, return, field) SHALL be verified object-safe (`TYPES:TR-6`). Non-object-safe traits (`Clone`, `Eq`, `Iterator`, `Comparable`, `Hashable`) produce `E2024`. `Into<T>` IS object-safe — the generic parameter is on the trait, not the method; `into(self) -> T` has a `self` receiver and returns `T` (not `Self`); all three object-safety rules hold.
 
 ### TR-7 — Default Implementations
 
@@ -582,11 +586,13 @@ Derived trait impls (`#derive(Eq, Clone)` pre-proposal syntax; `type T: Eq, Clon
 
 A missing field trait produces `E2032` (field missing trait in derive).
 
-### TR-9 — Extensions
+### TR-9 — Extensions (target-only)
 
-`extend T { @m }` SHALL add `m` to `T`'s method surface at module-local priority 3 (TR-1). Extensions SHALL NOT add fields, SHALL NOT override existing methods, and SHALL NOT declare static methods on `T`.
+**(Target-only)** Extensions (`extend T { @m }`) are defined in Spec Clause 8.8 but are not yet registered or dispatched by the shipped `ori_types` registry surface. When the feature ships, extensions will:
 
-Extensions cross traits via `extend<T: Bound> [T]` — valid only when the bound does not create impl ambiguity with pre-existing impls.
+- Add `m` to `T`'s method surface at module-local priority 4 (below builtin / inherent / trait in TR-1).
+- SHALL NOT add fields, SHALL NOT override existing methods, and SHALL NOT declare static methods on `T`.
+- Cross traits via `extend<T: Bound> [T]` — valid only when the bound does not create impl ambiguity with pre-existing impls.
 
 Spec: Clause 8.8 (extensions section).
 
@@ -608,43 +614,48 @@ A call `f(...)` where `f : ... uses Caps` SHALL require that every capability in
 
 Missing capabilities produce `E2014` (missing capability) with the unavailable cap names listed in the diagnostic.
 
-### CP-3 — Handler Provision
+### CP-3 — Handler Provision (shipped surface)
 
-`with Cap = handler in expr` SHALL:
+`with Cap = provider in expr` SHALL, as shipped:
 
-1. Verify `handler` implements the trait methods of `Cap` (per the capability's trait declaration).
-2. Add `Cap` to the provided-capability set for the scope of `expr`.
-3. Type `expr`; result is `expr`'s type (handlers do not wrap the result).
+1. Infer `provider`'s type (validating the provider expression).
+2. Enter a child environment scope and bind the capability name to the provider type (so the body can reference `Cap` as an identifier).
+3. Add `Cap` to the provided-capability set for the duration of `expr` via `with_provided_capability` (SG-3's inference-engine variant).
+4. Type `expr`; the result is `expr`'s type — handlers do not wrap the result.
+5. Exit the child scope.
 
-Stateful handlers (`with Cap = handler(state: init) { op: (s) -> (s', val), ... } in expr`) SHALL bind state per-handler; each operation SHALL have type `(S) -> (S', R)`.
+Source: `ori_types/src/infer/expr/constructors.rs::infer_with_capability`.
+
+**(Target-only)** Full spec semantics of `with Cap = handler in expr` additionally include:
+
+- Verifying `handler` implements every trait method of `Cap` (trait-shape validation).
+- Stateful handlers `with Cap = handler(state: init) { op: (s) -> (s', val), ... } in expr` where state replaces `self` and each operation has type `(S) -> (S', R)` (Spec Clause 20, errors E1204–E1207).
+
+These checks are defined in Spec Clause 20 but are not yet performed by `infer_with_capability`.
 
 Spec: Clause 20 (capabilities).
 
-### CP-4 — Capset Expansion
+### CP-4 — Capset Expansion (target-only)
 
-A capset declaration `capset Net = Http, Dns, Tls` SHALL expand to its member capabilities wherever it appears in a `uses` clause. Expansion happens before type checking — the checker sees the expanded set, not the capset name.
-
-Capsets SHALL NOT be implemented via `impl` — they are structural aliases, not traits. A `with Net = handler` form SHALL be rejected; the user provides each member capability separately.
+**(Target-only)** Spec Clause 20 defines capsets — `capset Net = Http, Dns, Tls` — as structural aliases expanded before type checking, and forbids `impl` or `with Net = handler` forms on capsets. `ori_types` does not yet contain a capset expansion pass; a `uses Net` clause today is parsed as a single capability name with no member resolution. Capset support is target-only until the expansion pass ships.
 
 Spec: Clause 20 (capsets).
 
-### CP-5 — Unsafe Capability
+### CP-5 — Unsafe Capability (target-only)
 
-`uses Unsafe` SHALL be a marker capability — it cannot be bound via `with...in`. Its presence on a function marks that function as using `unsafe { ... }` blocks. Propagation follows CP-1; the caller inherits the requirement.
+**(Target-only)** Spec declares `uses Unsafe` as a marker capability that cannot be bound via `with...in` — its presence marks a function as using `unsafe { ... }` blocks, and propagation follows CP-1. The shipped checker treats `Unsafe` as a plain capability name with no special marker-rejection for `with Unsafe = ...` forms.
 
-### CP-6 — Suspend Capability
+### CP-6 — Suspend Capability (target-only)
 
-`uses Suspend` SHALL mark async-capable functions. A non-`Suspend` function SHALL NOT call a `Suspend` function directly. Concurrency combinators (`parallel(tasks:)`, `nursery(body:)`) SHALL provide the `Suspend` capability to their bodies.
+**(Target-only)** Spec mandates that non-`Suspend` functions SHALL NOT call `Suspend` functions directly, and that concurrency combinators (`parallel(tasks:)`, `nursery(body:)`) SHALL provide `Suspend` to their bodies. The shipped checker does not yet enforce this calling-context discipline, and the relevant function-expression kinds (`Parallel`, `Nursery`) are currently rejected with `E2040` as unsupported.
 
-### CP-7 — Purity Inference
+### CP-7 — Purity Inference (target-only)
 
-A function with no `uses` clause and no calls to capability-requiring callees SHALL be inferred pure and flagged `IS_PURE` (`TYPES:TF-1`). Purity is NOT surface syntax — users don't write `pure`; the checker derives it.
+**(Target-only)** Per the spec, a function with no `uses` clause and no calls to capability-requiring callees can be inferred pure and flagged `IS_PURE` (`TYPES:TF-1`). The `TypeFlags::IS_PURE` bit exists in the flags schema (`TYPES:TF-1`) but the shipped checker does not yet compute or set it — purity inference is target-only. When shipped, purity will be used by `aims-rules.md` (effect classification) and `codegen-rules.md` (`CG:AT-3` purity attributes).
 
-Purity is used by `aims-rules.md` (effect classification) and `codegen-rules.md` (`CG:AT-3` purity attributes).
+### CP-8 — FFI Capability (target-only)
 
-### CP-8 — FFI Capability
-
-`uses FFI` / `uses FFI("lib")` SHALL be required by any function that calls into `extern "c"` / `extern "js"` blocks. Per-library capabilities (`FFI("sqlite3")`) are distinct from the general `FFI` marker.
+**(Target-only)** Spec Clause 26 defines `uses FFI` / `uses FFI("lib")` as required by functions that call into `extern "c"` / `extern "js"` blocks, with per-library capabilities (`FFI("sqlite3")`) distinct from the general `FFI` marker. The shipped checker does not yet enforce FFI capability requirements at extern-call sites; FFI capability support is target-only.
 
 Spec: Clause 26 (FFI).
 
@@ -762,9 +773,9 @@ Source: `ori_types/src/type_error/check_error/`.
 
 | Code | Kind | Meaning | Source variant |
 |------|------|---------|----------------|
-| E2001 | Error | Type mismatch (including failed unification and unsatisfied bounds) | `TypeErrorKind::Mismatch`, `UnsatisfiedBound`, `NumericTypeExpected` |
-| E2003 | Error | Unknown identifier / undefined field / not-a-struct | `UnknownName`, `UndefinedField`, `NotAStruct` |
-| E2004 | Error | Arity mismatch (call expects N args, got M) | `ArityMismatch` |
+| E2001 | Error | Type mismatch (including failed unification, pattern mismatch, non-exhaustive match, unsatisfied bounds) | `TypeErrorKind::Mismatch`, `PatternMismatch`, `NonExhaustiveMatch`, `UnsatisfiedBound` |
+| E2003 | Error | Unknown identifier / undefined field / rigid mismatch / import error / not-a-struct | `UnknownIdent`, `UndefinedField`, `RigidMismatch`, `ImportError`, `NotAStruct` |
+| E2004 | Error | Arity mismatch (call expects N args, got M) / missing struct fields | `ArityMismatch`, `MissingFields` |
 | E2005 | Error | Ambiguous type (inference stuck) | `AmbiguousType` |
 | E2008 | Error | Infinite type (occurs check failure) | `InfiniteType` |
 | E2010 | Error | Duplicate impl / duplicate field / missing associated type | `DuplicateImpl`, `DuplicateField`, `MissingAssocType` |
@@ -783,7 +794,7 @@ Source: `ori_types/src/type_error/check_error/`.
 | E2030 | Warning | Hash invariant violation (Hashable/Eq skew) | `HashInvariantViolation` |
 | E2031 | Error | Non-hashable map key type | `NonHashableMapKey` |
 | E2032 | Error | Field missing required trait in derive | `FieldMissingTraitInDerive` |
-| E2033 | Error | Trait not derivable (manual impl of marker) | `TraitNotDerivable` |
+| E2033 | Error | Trait not derivable — emitted by the derive-registration path for traits that cannot be derived (markers `Sendable`/`Value`, intent-dependent traits `Iterator`/`Into`/`Drop`/`Iterable`) | `TraitNotDerivable` |
 | E2034 | Error | Invalid format specification | `InvalidFormatSpec` |
 | E2035 | Error | Format type mismatch | `FormatTypeMismatch` |
 | E2036 | Error | `Into<T>` not implemented | `IntoNotImplemented` |
@@ -961,7 +972,7 @@ Cross-reference: `HYG:§Tracing & Logging`.
 
 | aims-rules.md consumer | Produced by typeck.md rule | Data |
 |------------------------|----------------------------|------|
-| `AIMS:IC-5` (EffectSummary) | CP-1, CP-7 | Capability set + purity → effect base |
+| `AIMS:§5 IC-5` (EffectSummary, inline under `§5 Interprocedural Contracts`) | CP-1, CP-7 | Capability set + purity → effect base |
 | `AIMS:§1.3 Cardinality` | EX-10 (for loops) | Loop structure informs once/many classification |
 | `AIMS:§1.6 Shape` | EX-14, EX-15 | Struct / collection construction shape |
 | `AIMS:§7 Pipeline` | PC-2 | Typed IR with resolved types is AIMS' input |
@@ -993,7 +1004,7 @@ Cross-reference: `HYG:§Tracing & Logging`.
 | `ori_types/src/check/registration/type_resolution.rs` | Resolve `Tag::Named` to `TypeRegistry` entries |
 | `ori_types/src/check/signatures/mod.rs` | Signatures pass 1 — collect function / method signatures (CK-4) |
 | `ori_types/src/check/bodies/mod.rs` | Bodies-group passes 2–5 — function / test / impl / def-impl body checking |
-| `ori_types/src/check/scope.rs` | RAII scope guards (SG-1..SG-4) |
+| `ori_types/src/check/scope.rs` | Closure-based save/restore scope helpers for `ModuleChecker` (SG-1..SG-3); NOT RAII guards |
 | `ori_types/src/check/exports.rs` | Typed IR emission after `check_module_impl` via `finish()` / `finish_with_pool()` (PC-2) |
 | `ori_types/src/check/imports.rs` | Import resolution |
 | `ori_types/src/check/object_safety.rs` | Object-safety check (TR-6) |
