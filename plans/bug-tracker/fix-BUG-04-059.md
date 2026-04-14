@@ -137,10 +137,27 @@ Per-test disposition:
 - [ ] `synergy_metrics_percent_zero_total` (tests.rs:1290-1294) — PRESERVE unchanged (uses only `Default::default()`).
 - [ ] `synergy_metrics_cross_dim_evidence` (tests.rs:1296-1310) — TRIM (per TPR-04-001-codex-r3 + TPR-04-002-gemini-r3): the test initializes `canonicalize_cross_fires: 100` (SURVIVING field) alongside `cross_dim_reuse: 5` and `cow_upgrades: 3` (REMOVED). `cross_dim_evidence_total()` aggregates all three; `has_cross_dim_evidence()` checks total > 0. After counter removal, `cross_dim_evidence_total()` must be refactored to sum only surviving canonicalize-stage counters (currently just `canonicalize_cross_fires`). Trim the test to: (a) remove `cow_upgrades` and `cross_dim_reuse` from the struct initialization, (b) update assertion to `assert_eq!(m.cross_dim_evidence_total(), 100)` (only `canonicalize_cross_fires` remains), (c) keep `has_cross_dim_evidence()` assertion — still valid on trimmed input. This preserves coverage for BOTH surviving helpers (`cross_dim_evidence_total()` and `has_cross_dim_evidence()`).
 
-### Verify tests fail before fix
+### Verify tests fail before fix (bug-exposing semantic pins only)
 
-- [ ] All new semantic/negative pins fail against current HEAD (proves they test the bug)
-- [ ] All preserved-behavior pins already pass against current HEAD (proves they capture existing sound behavior)
+Per TPR-04-002-codex-r4: only tests that EXERCISE a removed unsound path need to fail before the fix. Boundary cells and shape variants that aren't currently hit by the unsound code already pass against HEAD — they are preservation tests, not regression tests.
+
+**Must fail against current HEAD (bug-exposing semantic + negative pins):**
+- `decide_cow_maybe_shared_param_owned_linear_once_returns_dynamic` (today: StaticUnique via `is_cow_aware_unique`)
+- `decide_cow_maybe_shared_collection_buffer_once_returns_dynamic` (today: StaticUnique via non-param CollectionBuffer branch)
+- `decide_cow_maybe_shared_reusable_ctor_struct_once_returns_dynamic` (today: StaticUnique via non-param ReusableCtor branch)
+- `decide_reuse_maybe_shared_reusable_ctor_struct_once_returns_dynamic_reuse` (today: StaticReuse via cross-dim branch)
+- All four `decide_cow_rejects_cross_dimensional_*` and `decide_reuse_rejects_cross_dimensional_*` negative pins (today: current code returns the removed StaticUnique/StaticReuse that the negative pins assert is NOT produced)
+- `is_borrow_disjoint_from_siblings_maybe_shared_source_rejects_cross_dim_uniqueness` (today: returns true via `is_cow_aware_unique`)
+
+**Already pass against current HEAD (boundary + preservation pins — verify they REMAIN passing after fix):**
+- `decide_cow_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic` — current code does hit this branch (ReusableCtor is matched with `matches!(shape, ShapeClass::ReusableCtor(_))`, so EnumVariant also hits the removed path — upgrade to bug-exposing if verified); otherwise preservation
+- `decide_cow_maybe_shared_context_hole_once_returns_dynamic` — ContextHole is not in the removed `is_param`/`!is_param` CollectionBuffer/ReusableCtor gates; already returns Dynamic → preservation
+- `decide_cow_maybe_shared_param_owned_affine_once_returns_dynamic` — `is_cow_aware_unique` requires Linear, so Affine already bypasses → preservation
+- `decide_cow_maybe_shared_nonparam_owned_linear_once_returns_dynamic` — `is_cow_aware_unique` is gated on `is_param=true`, so non-param already bypasses → preservation
+- `is_borrow_disjoint_from_siblings_unique_source_disjoint_fields_returns_true` — Uniqueness::Unique source already passes the strict check → preservation
+- `decide_reuse_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic_reuse` — `matches!(shape, ShapeClass::ReusableCtor(_))` matches EnumVariant; already promotes to StaticReuse → upgrade to bug-exposing
+- `decide_reuse_maybe_shared_context_hole_once_returns_dynamic_reuse` — ContextHole is not a `ReusableCtor(_)` variant, already returns DynamicReuse → preservation
+- `decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique` (integration) — Unique source + disjoint borrow → StaticUnique today → preservation
 
 ---
 
@@ -211,6 +228,22 @@ Round 3 TPR re-verification pending after these Round 2 fixes land.
 
 Round 4 TPR re-verification pending after Round 3 fixes land.
 
+### Round 4 — dual-source re-verification
+
+**Run:** `/tmp/ori-tpr-aJxlMKfO` (2026-04-14, verification of Round 3 fixes)
+
+- **Codex** (rc=0, 224s, 75 events): 2 actionable + 0 informational. Caught §3 missing explicit step for §2.3 helper-layer test home creation (TPR-04-001-codex-r4) and boundary-cell classification drift in §2 "Verify tests fail before fix" (TPR-04-002-codex-r4).
+- **Gemini** (rc=0, 86s, 33 events): 0 actionable + 1 informational. Reports plan verified clean and ready for Phase 3 Implementation.
+- **Thoroughness**: ASYMMETRY: MODERATE (walltime 2.6x, events 2.3x — gemini thinner). Gemini missed the findings codex caught; codex's investigation found real issues. Findings-present round is NOT wasted; counter reset; strengthening flag stays True because gemini thinness persists.
+
+### Round 4 findings triage
+
+- **[TPR-04-001-codex-r4][medium]** — §3 missing explicit step for §2.3 helper-layer tests. **VERIFIED**: `rg '#\[cfg\(test\)\]|mod tests;' compiler/ori_arc/src/aims/emit_rc/cow.rs` returns nothing. §3 step 5 only removes logic from cow.rs; §3 step 6 discusses only tests in realize/tests.rs. The §2.3 helper/integration tests have no implementation home specified. **Action**: §3 step 5a added — creates `compiler/ori_arc/src/aims/emit_rc/cow/tests.rs` + `#[cfg(test)] mod tests;` declaration + maps all §2.3 tests there. Legacy `cow_borrow_disjoint_maybe_shared` renamed to `decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique` and moved to new home. §3 step 6 MOVE+RENAME note added.
+- **[TPR-04-002-codex-r4][low]** — "All semantic pins fail before fix" assertion too strong. **VERIFIED**: inspecting current `decide_cow()` code shows `is_cow_aware_unique` requires `is_param + Linear`, so param+Affine already bypasses → Dynamic → test already passes. Similarly ContextHole isn't matched by `ReusableCtor(_)` patterns → already Dynamic. But `matches!(shape, ShapeClass::ReusableCtor(_))` DOES match EnumVariant → EnumVariant cells DO fail before fix (upgraded to bug-exposing). **Action**: §2 "Verify tests fail before fix" section split into two buckets: "must fail against HEAD" (bug-exposing) and "already pass against HEAD" (preservation). Each cell explicitly classified per current-code inspection.
+- **[TPR-04-001-gemini-r4][informational]** — Plan verified clean. No action.
+
+Round 5 TPR re-verification pending after Round 4 fixes land.
+
 ---
 
 ## 3. Implementation
@@ -225,12 +258,17 @@ Round 4 TPR re-verification pending after Round 3 fixes land.
 3. **`is_cow_aware_unique()` in `decide.rs`**: Remove (dead code after step 2)
 4. **`detect.rs`**: Simplify `is_static` to only check `death.uniqueness == Uniqueness::Unique`
 5. **`cow.rs`**: Remove `is_cow_aware_unique()` and its use in `is_borrow_disjoint_from_siblings()` — only accept `Uniqueness::Unique`
+5a. **Create `compiler/ori_arc/src/aims/emit_rc/cow/tests.rs`** (per TPR-04-001-codex-r4) — cow.rs currently has no `#[cfg(test)] mod tests;` declaration and no sibling `tests.rs`. To implement the §2.3 helper-layer tests, create the test home following `impl-hygiene.md` §Test Hygiene ("Rust tests in sibling `tests.rs`: `#[cfg(test)] mod tests;` in source, body in `tests.rs`"):
+   - Add `#[cfg(test)] mod tests;` declaration to `compiler/ori_arc/src/aims/emit_rc/cow.rs`
+   - Convert `cow.rs` into `cow/mod.rs` (or equivalent module form) if required by the project's existing emit_rc layout — match the pattern of sibling emit_rc submodules
+   - Create `compiler/ori_arc/src/aims/emit_rc/cow/tests.rs` containing the four §2.3 helper-layer tests plus the §2.3 integration test `decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique`
+   - Existing `realize/tests.rs::cow_borrow_disjoint_maybe_shared` (line 122) is RENAMED and MOVED to the new home as the integration test — keeping the preservation semantics but under the correct name matching the new scenario
 6. **Test maintenance — RENAME-OR-REPLACE, not assertion flip** (per TPR-04-004-codex + TPR-04-003-gemini): the following tests have names that describe REMOVED behavior. Delete or rename each; do NOT merely flip their assertions.
    - `cow_param_cow_aware_unique` (tests.rs:90) → delete; replaced by `decide_cow_maybe_shared_param_owned_linear_once_returns_dynamic`
    - `cow_cross_dim_collection_buffer_once` (tests.rs:106) → delete; replaced by `decide_cow_maybe_shared_collection_buffer_once_returns_dynamic`
    - `cow_cross_dim_reusable_ctor_once` (tests.rs:114) → delete; replaced by `decide_cow_maybe_shared_reusable_ctor_struct_once_returns_dynamic`
    - `decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse` (tests.rs:537) → delete; replaced by `decide_reuse_maybe_shared_reusable_ctor_struct_once_returns_dynamic_reuse`
-   - Keep (unchanged): `cow_borrow_disjoint_maybe_shared` (tests.rs:122) still valid for `decide_cow()` direct-flag path; adjust to only test preserved-positive behavior, move regression surface tests to helper layer per §2.3.
+   - MOVE + RENAME (per TPR-04-001-codex-r4): `cow_borrow_disjoint_maybe_shared` (realize/tests.rs:122) → rename to `decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique` AND move to the new `compiler/ori_arc/src/aims/emit_rc/cow/tests.rs` as the §2.3 integration test. This is a rename (not deletion) because the preservation semantics are the same — the name change reflects the post-fix scenario precisely.
 7. **Remove `cow_upgrades` + `cross_dim_reuse` fields and their increment sites** (per TPR-04-001-codex + TPR-04-002-codex-r3) across ALL four files. Preserve surviving helpers (`cross_dim_evidence_total()`, `has_cross_dim_evidence()`, `reuse_percent()`) with refactored bodies so they operate only on surviving fields.
    - `realize/metrics.rs` (actual surfaces — there is NO `Display` impl; remove "Display impl" reference and instead point at):
      - The `cow_upgrades` field and `cross_dim_reuse` field themselves (remove from struct definition)
@@ -274,7 +312,8 @@ This fix disables four `MaybeShared → StaticUnique/StaticReuse` upgrade paths 
 - [x] Plan TPR (Phase 2.5) Round 1 — complete, 7 findings accepted (1 was reclassified from rejected after Round 2), 3 informational
 - [x] Plan TPR (Phase 2.5) Round 2 — complete, 2 new actionable findings applied (BUG-04-069/079 split repair + synergy-metrics test-deletion refinement), 2 informational confirmations
 - [x] Plan TPR (Phase 2.5) Round 3 — complete (with strengthened thoroughness directive), 4 actionable findings applied (synergy_metrics_cross_dim_evidence trim vs delete + §3 step 7 precision on metrics.rs surfaces + §3 step 7 vs §2.4 consistency), 2 informational confirmations
-- [ ] Plan TPR (Phase 2.5) Round 4 — re-verify Round 3 fixes landed correctly
+- [x] Plan TPR (Phase 2.5) Round 4 — complete, 2 new actionable findings applied (§3 step 5a for §2.3 helper-test home creation + §2 "Verify tests fail before fix" split into bug-exposing vs preservation), 1 informational (gemini agrees plan is clean)
+- [ ] Plan TPR (Phase 2.5) Round 5 — re-verify Round 4 fixes landed correctly
 - [ ] `/tpr-review` (Phase 5 — code review) passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] `/improve-tooling` retrospective completed
