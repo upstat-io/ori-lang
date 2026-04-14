@@ -228,7 +228,7 @@ None. This plan does not modify compiler code; no test failures are expected. `.
 | 01 | Promote /query-intel to an auto-triggerable Skill | `section-01-promote-to-skill.md` | Complete |
 | 02 | CLAUDE.md expansion | `section-02-claude-md-expansion.md` | Complete |
 | 03 | SSOT: compose-intel-summary helper | `section-03-compose-intel-summary-ssot.md` | Complete |
-| 04 | Rule files: graph-first guidance | `section-04-rules-graph-first.md` | Not Started |
+| 04 | Rule files: graph-first guidance | `section-04-rules-graph-first.md` | In Progress (subsections 04.1–04.3 complete; awaiting /tpr-review + /impl-hygiene-review gates) |
 | 05 | Missing-trigger skills & commands | `section-05-missing-trigger-skills.md` | Not Started |
 | 06 | Plan schema: mandatory Intelligence Reconnaissance | `section-06-plan-schema-recon.md` | Not Started |
 | 07 | Hook-heavy ambient automation | `section-07-pre-review-intel-hook.md` | Not Started |
