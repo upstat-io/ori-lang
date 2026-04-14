@@ -15,7 +15,7 @@ success_criteria:
   - "Semantic pin `test_empty_list_emits_e2005_not_codegen_error` passes only after Section 03 is correctly integrated — reverting Section 03 must break it."
   - "Three negative pins reject broken behaviors — verified by attempting each broken state and confirming pin failure."
   - "Dual-execution parity: annotated empty-list programs produce identical output via `ori run` and `ori build` + exec, verified by `diagnostics/dual-exec-verify.sh` on ≥3 programs."
-  - "All spec tests in `tests/spec/types/collections/empty_list/` round-trip via `cargo st` with the expected `#compile_fail(code: \"E2005\")` annotations AFTER Sections 01–03 land."
+  - "All spec tests in `tests/spec/types/collections/empty_list/` round-trip via `cargo st` with the expected `#compile_fail(code: \"E2005\")` annotations AFTER Sections 01–03 land. Verified by: (1) `ls tests/spec/types/collections/empty_list/*.ori` confirms the corpus exists, then (2) `cargo st tests/spec/types/collections/empty_list/` reports expected failures only. (Note: cargo st returns exit 0 for non-existent paths; the ls gate prevents false-pass on a missing corpus.)"
   - "AOT tests in `compiler/ori_llvm/tests/aot/empty_list.rs` pass via `timeout 150 cargo test -p ori_llvm` AFTER Sections 01–04 land."
 inspired_by:
   - "Rust `compiletest` with `#[ui]` error-snapshot tests — pinning exact diagnostic codes and messages on #compile_fail cases; the `tests/ui/` suite uses one file per error scenario, exactly the pattern used in 05.2."
@@ -732,8 +732,8 @@ Required additions — 5 interaction spec test files:
 
 12. **`empty_list_generic_function_interaction.ori`** — empty list passed to a generic
     function `@take_list<T> (xs: [T]) -> int = xs.len()`. Annotated `[int]` form
-    compiles; unannotated form emits `#compile_fail(code: "E2005")`. Exercises type
-    inference × generics.
+    compiles clean. Exercises type inference × generics (positive pin; item 15 is the
+    negative companion).
 
 13. **`empty_list_closure_capture_interaction.ori`** — closure that captures an annotated
     empty list and pushes into it: `let xs: [int] = []; let push_fn = v -> xs.push(value: v)`.
@@ -1105,6 +1105,57 @@ Updated 05.N 05.4 checklist to name 18 total additional spec test files (was 17)
 
 ---
 
+Round 4 — Dual-source TPR on sections 05, 06, 07 (Codex + Gemini). Findings addressed
+in this revision.
+
+### [[TPR-05-R4-001-codex+gemini]] [MEDIUM] Item 12 description contradicts file-level #compile_fail rule
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-05-test-matrix.md:733`
+**Reviewers:** Codex + Gemini | **Status:** Fixed
+
+**Evidence:** Item 12 (`empty_list_generic_function_interaction.ori`) was described as
+"Annotated `[int]` form compiles; unannotated form emits `#compile_fail(code: \"E2005\")`."
+This contradicts the file-level `#compile_fail` rule established in TPR-05-R3-001: a single
+`.ori` file cannot simultaneously be a passing test and a compile-fail test. Item 15 is
+already the designated negative companion for item 12.
+
+**Fix:** Rewrote item 12 description to describe only the positive pin scenario: "Annotated
+`[int]` form compiles clean. Exercises type inference × generics (positive pin; item 15 is
+the negative companion)."
+
+---
+
+### [[TPR-05-R4-002-codex]] [MEDIUM] 05.N interaction-file count reads 6 after trait-bounds split added 7th file
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-05-test-matrix.md:1124`
+**Reviewer:** Codex | **Status:** Fixed
+
+**Evidence:** The R3 fix added item 16a (7th interaction file) but the 05.N 05.4 checklist
+text still said "6 interaction files identified". The file enumeration in the same item
+correctly listed 7 files (items 11–16 + 16a), but the count was stale.
+
+**Fix:** Updated the count from "6 interaction files identified" to "7 interaction files
+identified (items 11–16 + 16a; trait-bounds split into items 16 and 16a)".
+
+---
+
+### [[TPR-05-R4-003-codex]] [HIGH] cargo st returns exit 0 for non-existent target paths
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-05-test-matrix.md:1137`
+**Reviewer:** Codex | **Status:** Fixed
+
+**Evidence:** Fresh verification showed `timeout 150 cargo st does/not/exist/` exits 0 with
+a global test summary (all 4444 tests). The path argument is silently ignored; there is no
+corpus-existence guarantee. The success criteria and 05.N gate for
+`tests/spec/types/collections/empty_list/` were therefore not mechanically verifiable — the
+gate could pass with an empty or missing corpus.
+
+**Fix:** Updated the success_criteria to mandate an `ls` gate: `ls tests/spec/types/
+collections/empty_list/*.ori` confirms corpus exists BEFORE `cargo st` is run. Updated the
+05.N checklist item to document this two-step verification requirement.
+
+---
+
 ## 05.N Completion Checklist
 
 This section is complete when ALL of the following are true. Note: Section 05 completion
@@ -1122,8 +1173,8 @@ passing, spec tests passing) are verified at Section 07 close-out, not here.
   4 test stubs + 3 fixture files; `pub mod empty_list;` added to
   `compiler/ori_llvm/tests/aot/main.rs`; `dual-exec-verify.sh` invocation documented
 - [ ] **05.4 complete** — matrix completeness audit checklist fully populated; 4 missing
-  B/C cells identified; 6 bodies-pass integration coverage files identified; 6 interaction
-  files identified (trait-bounds split into items 16 + 16a); 1 fault-tolerance file
+  B/C cells identified; 6 bodies-pass integration coverage files identified; 7 interaction
+  files identified (items 11–16 + 16a; trait-bounds split into items 16 and 16a); 1 fault-tolerance file
   identified; all 18 additional spec test files
   (`element_str`, `element_bool`, `push_map`, `iter_chain`, `unannotated_in_test`,
   `annotated_in_test`, `unannotated_in_impl`, `annotated_in_impl`,
@@ -1134,7 +1185,7 @@ passing, spec tests passing) are verified at Section 07 close-out, not here.
   `multiple_unannotated`) created to fill missing cells; all cells checked
 - [ ] `timeout 150 cargo test -p ori_types` runs (some tests fail as expected by the
   Known Failing Tests table; no UNEXPECTED failures)
-- [ ] `cargo st tests/spec/types/collections/empty_list/` runs (expected failures only)
+- [ ] `tests/spec/types/collections/empty_list/` corpus directory exists AND `cargo st tests/spec/types/collections/empty_list/` reports failures only from the known expected-fail list (verify with `ls tests/spec/types/collections/empty_list/*.ori` before running; a non-existent path returns exit 0 from cargo st without selecting any tests)
 - [ ] `/tpr-review` passed on the test scaffold — independent dual-source review
   (Codex + Gemini) clean or all findings triaged and recorded in 05.R. Run BEFORE
   any implementation section to catch gaps with a fresh perspective.
