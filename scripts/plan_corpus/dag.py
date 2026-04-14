@@ -1451,22 +1451,23 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
         `nps_set` with a proper path-component boundary.
 
         Node paths are absolute and POSIX-normalized (via Path.as_posix());
-        `target` is the relative form from the body scan. The match must
-        anchor at a `/` path component AND end at end-of-string, `.md`,
-        `-`, or `/` — so `plans/x` does NOT match `plans/xyz` (TPR round 3
-        boundary regression pin).
+        `target` is the relative form from the body scan. The algorithm is
+        strictly anchored at `/` boundaries with no substring/endswith
+        fallbacks — `map` does NOT match `roadmap` (TPR round 5 finding).
+
+        Targets may carry trailing `/` from PROSE scanners (e.g.
+        `plans/foo/`); stripped before matching (TPR round 5 finding).
         """
+        target = target.rstrip("/")
+        if not target:
+            return False
+        search = "/" + target
         for nps in nps_set:
-            idx = nps.rfind("/" + target)
+            idx = nps.rfind(search)
             if idx < 0:
-                if nps.endswith(target):
-                    idx = len(nps) - len(target)
-                elif nps.endswith(target + ".md"):
-                    return True
-                else:
-                    continue
-            else:
-                idx += 1  # Advance past the leading "/".
+                continue
+            # Advance past the "/" anchor.
+            idx += 1
             rest = nps[idx + len(target):]
             if rest == "" or rest.startswith(".md") or rest.startswith("-") or rest.startswith("/"):
                 return True
@@ -1478,16 +1479,20 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
 
     # Per-NodeId paths (posix-normalized) partitioned into active vs
     # completed cohorts — used to route completed-plan resolution to LOW
-    # severity instead of silent skip.
+    # severity instead of silent skip. Partition uses NodeKind (structural
+    # classification from classify_file), NOT path-string substring — a
+    # repo cloned into a directory named "completed" would cause every
+    # absolute path to match "/completed/" (TPR-02-001-gemini round 5).
+    completed_kinds = frozenset({NodeKind.COMPLETED_INDEX})
     active_node_paths = {
         n.path.as_posix()
         for n in dag.nodes
-        if "/completed/" not in n.path.as_posix()
+        if n.kind not in completed_kinds
     }
     completed_plan_node_paths = {
         n.path.as_posix()
         for n in dag.nodes
-        if "/completed/" in n.path.as_posix()
+        if n.kind in completed_kinds
     }
 
     def _target_resolves_to_completed_plan(target: str) -> bool:
