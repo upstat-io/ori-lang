@@ -575,8 +575,8 @@ The AOT suite is driven through an explicit `pub mod` list in `main.rs`. Creatin
 ```rust
 pub mod empty_list;
 ```
-to `compiler/ori_llvm/tests/aot/main.rs` in alphabetical order (after `double_ended`,
-before `expressions`).
+to `compiler/ori_llvm/tests/aot/main.rs` in alphabetical order (after `elem_dec_scope`,
+before `enum_discriminant`).
 
 ```rust
 //! Empty List AOT Integration Tests
@@ -593,7 +593,7 @@ use crate::util::assert_aot_success;
 
 **Test 1 — `test_annotated_empty_list_with_push_exits_zero`**
 
-Compiles `empty_list_annotated_push.ori` (annotated `[int]`, push + len check) via AOT
+Compiles `annotated_push.ori` (annotated `[int]`, push + len check) via AOT
 and asserts exit 0. This is the core AOT regression pin for BUG-04-074.
 
 **Test 2 — `test_annotated_empty_list_with_multiple_pushes`**
@@ -744,6 +744,13 @@ Required additions — 5 interaction spec test files:
     to a generic function without constraint propagation. Expected:
     `#compile_fail(code: "E2005")`. Exercises the negative pin for generics interaction.
 
+16. **`empty_list_trait_bound_interaction.ori`** — empty list used where element type is
+    constrained by a trait bound: `@process<T: Printable> (xs: [T]) -> int = xs.len()`.
+    Annotated `let xs: [str] = []` passed to `process` compiles clean. Unannotated
+    `let xs = []` passed to `process` emits `#compile_fail(code: "E2005")`. Exercises
+    type inference × trait bounds (the remaining mandatory interaction from
+    `tests.md §Interaction Testing`).
+
 ### Fault tolerance (tests.md §Cross-Phase Verification #3 MANDATORY)
 
 Per `tests.md §Cross-Phase Verification` fault tolerance rule: "Write multi-error
@@ -751,7 +758,7 @@ Per `tests.md §Cross-Phase Verification` fault tolerance rule: "Write multi-err
 
 Required addition — 1 fault-tolerance spec test file:
 
-16. **`empty_list_multiple_unannotated.ori`** — multiple unannotated empty lists in the
+17. **`empty_list_multiple_unannotated.ori`** — multiple unannotated empty lists in the
     same body: `let xs = []; let ys = []; xs.len() + ys.len()`. Expected:
     `#compile_fail(code: "E2005")`. Verifies the validator reports both errors and does
     not bail after the first. If the validator bails after the first error, the test still
@@ -776,7 +783,7 @@ The following additional spec test files MUST be created to satisfy matrix compl
    `.iter().map().filter().collect()`, assert length. Uses `@test` + `assert_eq`.
    Fills C=iter.map.filter.collect cell.
 
-Plus items 5–16 from the bodies-pass and interaction testing sections above.
+Plus items 5–17 from the bodies-pass and interaction testing sections above.
 
 ### Completeness audit checklist
 
@@ -807,7 +814,8 @@ Plus items 5–16 from the bodies-pass and interaction testing sections above.
 - [ ] Interaction: type inference × generics — requires items 12 + 15
 - [ ] Interaction: type inference × closures — requires item 13
 - [ ] Interaction: type inference × `?` operator — requires item 14
-- [ ] Fault tolerance: multi-error compile_fail — requires item 16
+- [ ] Interaction: type inference × trait bounds — requires item 16
+- [ ] Fault tolerance: multi-error compile_fail — requires item 17
 - [ ] Semantic pin SP-1 (`test_let_polymorphism_for_lambda`) ✓
 - [ ] Semantic pin SP-2 (`test_empty_list_emits_e2005_not_codegen_error`) ✓
 - [ ] Negative pin NP-1 (`test_unannotated_empty_list_with_len_is_rejected_at_typeck`) ✓
@@ -1024,6 +1032,46 @@ The test still exercises the unannotated empty list E2005 path while having a va
 
 ---
 
+Round 2 — Dual-source TPR on sections 05, 06, 07 (Codex + Gemini). Findings addressed
+in this revision.
+
+### [[TPR-05-R2-001-codex]] [MEDIUM] Add the missing trait-bounds interaction cell
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-05-test-matrix.md:721`
+**Reviewer:** Codex | **Status:** Fixed
+
+**Evidence:** The interaction test list cited `tests.md`'s mandatory interaction list
+verbatim: "Generics, closures, trait bounds, `?` operator, pattern matching." The
+required additions (items 11–15) scheduled pattern matching, generics, closures, and `?`,
+but contained no bounded-generic or trait-constrained scenario. There was no
+`T: Trait`-boundary test anywhere in the interaction list or the matrix audit.
+
+**Fix:** Added item 16 (`empty_list_trait_bound_interaction.ori`) — a test where the
+empty list element type is constrained by a `T: Printable` bound. Both a positive
+(annotated `[str]` passed to the generic function) and a negative (`#compile_fail(code: "E2005")`
+for unannotated form) are covered. Completeness audit checklist updated to include the
+trait-bounds interaction row. 05.N updated from 16 to 17 total additional spec test files.
+
+---
+
+### [[TPR-05-R2-002-codex]] [LOW] Align the AOT scaffold with the real fixture and module inventory
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-05-test-matrix.md:596`
+**Reviewer:** Codex | **Status:** Fixed
+
+**Evidence:** Section 05 said Test 1 compiles `empty_list_annotated_push.ori`, but the
+fixture inventory in the same subsection (05.3.2) defined `annotated_push.ori` — an
+inconsistency. The registration instruction also said to add `pub mod empty_list;`
+"after `double_ended`, before `expressions`", while `compiler/ori_llvm/tests/aot/main.rs`
+contains neither neighbor module.
+
+**Fix:** Canonicalized the fixture filename to `annotated_push.ori` throughout section
+05.3.1 (matches the 05.3.2 fixture definition). Updated the registration instruction to
+cite the real alphabetical neighbors: "after `elem_dec_scope`, before `enum_discriminant`"
+(verified against `compiler/ori_llvm/tests/aot/main.rs`).
+
+---
+
 ## 05.N Completion Checklist
 
 This section is complete when ALL of the following are true. Note: Section 05 completion
@@ -1041,13 +1089,14 @@ passing, spec tests passing) are verified at Section 07 close-out, not here.
   4 test stubs + 3 fixture files; `pub mod empty_list;` added to
   `compiler/ori_llvm/tests/aot/main.rs`; `dual-exec-verify.sh` invocation documented
 - [ ] **05.4 complete** — matrix completeness audit checklist fully populated; 4 missing
-  B/C cells identified; 6 bodies-pass integration coverage files identified; 5 interaction
-  files identified; 1 fault-tolerance file identified; all 16 additional spec test files
+  B/C cells identified; 6 bodies-pass integration coverage files identified; 6 interaction
+  files identified; 1 fault-tolerance file identified; all 17 additional spec test files
   (`element_str`, `element_bool`, `push_map`, `iter_chain`, `unannotated_in_test`,
   `annotated_in_test`, `unannotated_in_impl`, `annotated_in_impl`,
   `unannotated_in_def_impl`, `annotated_in_def_impl`, `pattern_match_interaction`,
   `generic_function_interaction`, `closure_capture_interaction`,
   `question_mark_interaction`, `unannotated_generic_interaction`,
+  `trait_bound_interaction`,
   `multiple_unannotated`) created to fill missing cells; all cells checked
 - [ ] `timeout 150 cargo test -p ori_types` runs (some tests fail as expected by the
   Known Failing Tests table; no UNEXPECTED failures)
