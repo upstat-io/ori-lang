@@ -95,7 +95,11 @@ Gather the relevant context for the question. Be specific — both Codex and Gem
 - The two approaches you're deciding between
 - The spec section that defines expected behavior
 - Recent git diff showing what you changed
-- Intelligence graph enrichment — follow the canonical protocol: @.claude/skills/dual-tpr/compose-intel-summary.md (per SSOT Step F — /tp-help uses `callers`/`callees`/`similar` on the discussed symbols)
+Additionally, enrich the context packet with intelligence-graph signals. Follow the canonical intel-summary injection protocol:
+
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
+Per SSOT Step F — /tp-help uses `callers`/`callees`/`similar` on the discussed symbols to provide precise cross-file dependency and prior-art context.
 
 ### Step 2: Create the Scratch Dir and Snapshot the Worktree
 

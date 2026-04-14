@@ -1,11 +1,29 @@
 # Intelligence Summary Injection — Canonical SSOT
 
-**Single source of truth** for pre-query / summary-injection behavior across
-ALL consumers: /tpr-review Step 0.75, /review-work Step 1.5, /review-plan,
-/independent-review, /review-bugs, /tp-help, /verify-tpr, /sync-claude,
-/fix-next-bug, /fix-bug, and the .claude/hooks/pre-review-intel.sh hook.
-Every such consumer MUST @-include this file from its intel section rather
-than inlining the pattern.
+**Single source of truth** for pre-query / summary-injection behavior. Every
+current consumer `@`-includes this file from its intel section rather than
+inlining the pattern.
+
+**Current consumers (18, all `@`-including this file):**
+
+- Review-family skills/commands (6): `/tpr-review` (Step 0.75),
+  `/review-work` skill (Step 1.5), `/review-plan` (Step 3.5),
+  `/review-work` command (Intelligence map), `/independent-review`
+  (Phase B), `/review-bugs` (Step 5.5).
+- Wider skill consumers (12): `/tp-help`, `/add-bug`, `/improve-tooling`,
+  `/design-pattern-review`, `/create-draft-proposal`, `/fix-bug`,
+  `/impl-hygiene-review`, `/review-draft-proposal`, `/create-plan`,
+  `/rosetta-test`, `/code-journey`, `/continue-roadmap`.
+
+**Planned future consumers (not yet migrated):**
+
+- `/verify-tpr`, `/sync-claude`, `/fix-next-bug` — these skills do not
+  currently query the intel graph. They will `@`-include this SSOT when
+  they add intel reconnaissance (tracked by `plans/query-intel-adoption`
+  §05 "Missing-trigger skills & commands").
+- `.claude/hooks/pre-review-intel.sh` — this hook does not yet exist.
+  It will be created by `plans/query-intel-adoption` §07 "Hook-heavy
+  ambient automation" and will call this SSOT's protocol inline.
 
 ## Protocol
 
@@ -72,50 +90,108 @@ template (e.g., after the `## Scope:` header in a reviewer prompt,
 after the objective in a custom-objective prompt). This helper produces
 the summary text; the consumer chooses where to place it.
 
-### Step F — Optional domain-specific extensions
+### Step F — Consumer extension registry
 
-Some consumers extend Step C with workflow-specific queries. Extensions
-layer on top of the base protocol; they do NOT replace any step above.
+Step F is the canonical registry of per-consumer extensions that go beyond
+the base SSOT protocol (Steps A-E). Each entry MUST match the consumer's
+actual `scripts/intel-query.sh` invocations verbatim — drift between Step F
+and the consumer file is a `DRIFT:intel-extension-registry` finding.
+Extensions layer on top of the base protocol; they do NOT replace any step
+above.
 
-**Review-family:**
-- **`/review-bugs`** — for each high-priority bug:
+**Review-family (no extensions — base protocol only):**
+
+The 6 review-family consumers (`/tpr-review` Step 0.75, `/review-work` skill
+Step 1.5, `/review-plan` Step 3.5, `/review-work` command Intelligence map,
+`/independent-review` Phase B, `/review-bugs` Step 5.5 availability-check
+portion) use Steps A-E of the base protocol without workflow-specific
+extensions. They inject the Intelligence Summary into reviewer prompts or
+use it to prioritize adjacent-file reads. `/review-bugs` ADDITIONALLY uses
+the bug-workflow extension below.
+
+**Bug-workflow consumers:**
+
+- **`/review-bugs`** (Step 5.5) — bug cross-reference enrichment:
   - `search "<bug title keywords>" --limit 5`
   - `fixed "<bug category>" --repo rust,swift,koka,lean4 --limit 5`
-  - Enrich `### Recommended Actions` with fix-approach confidence.
-- **`/fix-bug`** Phase 1 investigation:
-  - `callers <repro_symbol>` for blast radius
-  - `similar <repro_symbol> --repo rust,swift,koka,lean4` for reference fixes
-- **`/impl-hygiene-review`** flow map:
-  - `file-symbols "<crate/path>" --repo ori` per in-scope crate
-  - `similar "<boundary symbol>" --repo rust,swift,lean4` for prior art
+  - `callers "<repro symbol>" --repo ori` (blast radius)
+  - `file-symbols "<subsystem path>" --repo ori` (bug clustering)
+  - `similar "<buggy function>" --repo rust,swift,koka,lean4 --limit 5` (reference fixes)
 
-**Planning/proposal:**
-- **`/create-plan`**, **`/create-draft-proposal`** — prior-art reconnaissance:
-  - `symbols "<topic>" --repo ori --limit 15-20`
-  - `search "<topic>" --limit 5`, `compare "<feature concept>" --limit 5`
-- **`/review-draft-proposal`** — conflict + purity analysis:
+- **`/fix-bug`** (5a Intelligence Graph Query) — bug investigation:
+  - `search "<bug description keywords>" --limit 5`
+  - `fixed "<bug category>" --repo rust,swift,koka,lean4 --limit 5`
+  - `similar "<buggy function or concept>" --repo rust,swift,koka,lean4 --limit 5`
+
+- **`/add-bug`** (Step 4) — lightweight blast-radius:
+  - `callers "<buggy function>" --repo ori`
+  - `file-symbols "<subsystem path>" --repo ori`
+
+**Planning/proposal consumers:**
+
+- **`/create-plan`** (Step 2.5) — plan reconnaissance:
+  - `symbols "<topic keyword>" --repo ori --limit 20`
+  - `file-symbols "<likely path>" --repo ori`
+  - Then Step C base queries on high-signal symbols.
+
+- **`/create-draft-proposal`** (Step 4.5) — prior-art reconnaissance:
+  - `search "<proposal topic>" --limit 5`
+  - `compare "<feature concept>" --limit 5`
+  - `symbols "<Ori keyword>" --repo ori --limit 15`
+  - `similar "<feature concept or Ori symbol>" --repo rust,swift,go,koka --limit 5`
+
+- **`/review-draft-proposal`** (CONDITIONAL Prior Art) — conflict + purity analysis:
   - `symbols "<proposal topic>" --repo ori --limit 15`
-  - `similar "<proposed feature>" --repo rust,swift,go --limit 5`
+  - `similar "<proposed feature concept>" --repo rust,swift,go --limit 5`
 
-**Traversal/testing:**
-- **`/code-journey`**, **`/rosetta-test`** — exercised-path mapping:
-  - `symbols "<feature keyword>" --repo ori`
-  - `callers "<main exercised symbol>"`, `callees`
+**Pattern/code-traversal consumers:**
+
+- **`/design-pattern-review`** (STEP 1.5) — prior-art + Ori implementation mapping:
+  - `compare "{DOMAIN}" --limit 5`
+  - `search "{DOMAIN}" --limit 5`
+  - Preset if `{DOMAIN}` maps per `.claude/rules/intelligence.md` §Subsystem Mapping
+  - `symbols "{DOMAIN keyword}" --repo ori --kind function --limit 15`
+  - `similar "{DOMAIN entry symbol}" --repo rust,swift,zig,gleam --limit 5`
+
+- **`/code-journey`** (Intelligence map) — journey planning:
+  - `symbols "<feature keyword>" --repo ori --limit 15`
+  - `callers "<main exercised symbol>" --repo ori`, `callees`
   - `similar "<symbol>" --repo rust,swift,go --limit 5`
 
-**Maintenance:**
-- **`/sync-claude`** — drift detection: `file-symbols` on `.claude/` paths
-- **`/improve-tooling`** — pre-create existence check: `symbols "<keyword>" --repo ori --kind function`
-- **`/add-bug`** — lightweight blast-radius: `callers "<buggy function>" --repo ori`
-- **`/tp-help`** — context enrichment: `callers`/`callees`/`similar` for the discussed symbols
-- **`/continue-roadmap`** — per-section reconnaissance: `search "<section title>"` + opportunistic preset
+- **`/rosetta-test`** (I. Cross-Language Intelligence) — stress-test context:
+  - `symbols "<feature keyword>" --repo ori --limit 15`
+  - `file-symbols "<suspect module path>" --repo ori`
+  - `callers "<failing symbol>" --repo ori`, `callees`
+  - `similar "<failing symbol>" --repo rust,swift,go --limit 5`
+  - `search "<failure mode>" --limit 5`
 
-Extensions stay bounded: each adds at most 2-3 bullets to the summary,
-keeping the 500-char / 5-bullet cap. Never cite an extension result as
-authoritative — verify-before-citing (Step D) applies to all queries.
-New consumers follow the same pattern: @-include the SSOT for
-availability check + Step B-D, then add domain-specific subcommands
-in their local section.
+**Analysis/maintenance consumers:**
+
+- **`/impl-hygiene-review`** (Intelligence-assisted map) — flow map:
+  - `file-symbols "<crate/path>" --repo ori` per in-scope crate
+  - `callers "<symbol>" --repo ori`, `callees` per major dispatch/boundary symbol
+  - `similar "<symbol>" --repo rust,swift,lean4 --limit 5`
+
+- **`/tp-help`** — context enrichment for third-party help:
+  - `callers`/`callees`/`similar` on the discussed symbols
+
+- **`/improve-tooling`** — pre-create existence check:
+  - `symbols "<keyword>" --repo ori --kind function --limit 10`
+
+- **`/continue-roadmap`** (Step 2.1) — per-section reconnaissance:
+  - `search "<title keywords>" --limit 5`
+  - Preset if the section title maps to a subsystem
+  - `file-symbols`, `callers`/`callees`, `similar` per Step C on section-body symbols
+
+**Registry contract:** when a consumer adds, removes, or changes queries in
+its extension, the maintainer MUST update this Step F entry in the same
+commit. This is an SSOT obligation — Step F is the single source of truth
+for consumer extensions. Extensions stay bounded: each adds at most 2-3
+bullets to the summary, keeping the 500-char / 5-bullet cap. Never cite an
+extension result as authoritative — verify-before-citing (Step D) applies
+to all queries. New consumers follow the same pattern: `@`-include the SSOT
+for availability check + Steps B-E, then add their domain-specific
+subcommands in their local section AND register them here.
 
 ## Graceful degradation
 
