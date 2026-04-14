@@ -91,10 +91,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Alive2 dependencies
+      - name: Install LLVM 21
         run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y libz3-dev re2c cmake
+          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Install Alive2 dependencies
+        run: sudo apt-get install -y --no-install-recommends libz3-dev re2c cmake
 
       - name: Extract Alive2 cache key
         id: alive2-key
@@ -131,10 +138,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Alive2 dependencies
+      - name: Install LLVM 21
         run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y libz3-dev re2c cmake
+          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Install Alive2 dependencies
+        run: sudo apt-get install -y --no-install-recommends libz3-dev re2c cmake
 
       - name: Extract Alive2 cache key
         id: alive2-key
@@ -153,7 +167,7 @@ jobs:
         run: cargo build
 
       - name: Run Alive2 on curated corpus
-        run: diagnostics/alive2-verify.sh --corpus --timeout 60 --check-survival
+        run: diagnostics/alive2-verify.sh --corpus --timeout 60 --check-survival --json
 
       - name: Upload results
         uses: actions/upload-artifact@v4
@@ -173,10 +187,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Alive2 dependencies
+      - name: Install LLVM 21
         run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y libz3-dev re2c cmake
+          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Install Alive2 dependencies
+        run: sudo apt-get install -y --no-install-recommends libz3-dev re2c cmake
 
       - name: Extract Alive2 cache key
         id: alive2-key
@@ -197,7 +218,7 @@ jobs:
       - name: Run Alive2 on all codegen tests
         run: |
           diagnostics/alive2-verify.sh --all-codegen --timeout 120 \
-            --suppress tests/alive2/suppressed.json --check-survival
+            --suppress tests/alive2/suppressed.json --check-survival --json
 
       - name: Upload results
         uses: actions/upload-artifact@v4
