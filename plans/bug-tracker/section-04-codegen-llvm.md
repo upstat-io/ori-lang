@@ -27,11 +27,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Root cause: narrowing is per-type (all `List<int>` share one ReprPlan entry) but collect creates per-instance stride differences. Consequence of BUG-04-071 fix canonicalizing the iterator pipeline without handling the collect output boundary.
   Note: Extends BUG-04-071 scope. Active fix section at `plans/bug-tracker/fix-BUG-04-071.md`.
 
-- [ ] `[BUG-04-075][critical]` **ARC drop order: tail-expression temporaries in blocks outlive local bindings (Rust RFC 3606 class)**
+- [ ] `[BUG-04-075][critical→medium]` **ARC drop order: tail-expression temporaries in blocks outlive local bindings (Rust RFC 3606 class)**
+  Reclassified 2026-04-14: critical→medium. Investigation reveals no observable correctness impact today — user-defined `Drop` is unimplemented (no `DerivedTrait::Drop`, no evaluator dispatch, no `@drop` in any test), so drop ordering produces no side effects. ARC ensures memory safety regardless of order. No concrete repro showing wrong behavior. Future concern when Drop is implemented.
   Repro: Any block where a tail expression creates an ARC-managed temporary while local bindings also hold ARC references — the temporary's RC dec happens after the locals' RC decs instead of before. Same class as Rust's RFC 3606 / Edition 2024 fix. Ori should drop tail-expression temporaries immediately after evaluation, before block-local bindings are dropped.
   Subsystem: `ori_arc` (AIMS pipeline / realization / drop ordering)
   Found: 2026-04-13 | Source: tp-help (dual-source design consultation — both Codex and Gemini independently identified this)
   Note: Cross-language precedent: Rust required RFC 3606, a migration lint (#130836 — massive false positives), and a full Edition change (Rust 2024) to fix this. Ori should implement correct drop order natively since it's pre-1.0.
+  Escalated: requires plan — ARC IR has no concept of "tail-expression temporary" vs "local binding" (all are flat SSA variables). Fix requires: (1) new metadata on ARC IR variables or block structure to track provenance, (2) modifications to lowering (`control_flow/mod.rs`) to annotate tail-expression vars, (3) modifications to realization (`walk.rs`, `walk_dec.rs`) to reorder drops, (4) AIMS analysis may need awareness of the new metadata. 4+ files in the complexity-elevated `ori_arc` subsystem. Cross-language precedent (Rust RFC 3606) confirms this is architecturally non-trivial.
 
 - [ ] `[BUG-04-074][high]` **AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure**
   Repro: `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` — passes in interpreter, AOT fails with "unresolved type variable at codegen — type inference bug". The empty list `[]` element type is never propagated to LLVM codegen even though `push(value: 10)` provides int context.
