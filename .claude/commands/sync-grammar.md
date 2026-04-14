@@ -12,14 +12,13 @@ Update `docs/ori_lang/v2026/spec/grammar.ebnf` to accurately reflect the current
 
 The grammar.ebnf file is the **single source of truth** for Ori's formal syntax. It must stay synchronized with the prose descriptions in the spec files.
 
-## Target Files
+## Target File
 
 ```
-docs/ori_lang/v2026/spec/grammar.ebnf      # Syntax (EBNF)
-docs/ori_lang/v2026/spec/operator-rules.md # Semantics (type/eval rules)
+docs/ori_lang/v2026/spec/grammar.ebnf      # Syntax (EBNF) — Annex A
 ```
 
-**Note:** If operator precedence, associativity, or type rules change, update BOTH files.
+**Note:** `operator-rules.md` (Annex B — type/eval rules) is owned by `/sync-spec`, not this command. If operator precedence or type rules change, use `/sync-spec` for `operator-rules.md` and this command for `grammar.ebnf`.
 
 ## Source Files
 

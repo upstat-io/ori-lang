@@ -75,6 +75,8 @@ This makes fact-binding auditable after the fact. A reviewer can check whether t
 | Development docs | `docs/development/*.md` | Developer guidelines, versioning |
 | Module docs | `docs/ori_lang/v2026/modules/**/*.md` | Stdlib module docs |
 | Language docs | `docs/ori_lang/*.md` (excl. spec/) | Language-level docs (README, versioning) |
+| Command files | `.claude/commands/*.md` | Sync command and other command definitions |
+| Skill docs | `.claude/skills/*/SKILL.md` | Skill documentation |
 | README files | `**/*.md` matching `*README*` (excl. build/, .claude/worktrees/) | Project and crate READMEs |
 
 ### OFF LIMITS — Do NOT modify these (file bugs instead)
@@ -134,8 +136,7 @@ Rules files are loaded into every Claude conversation. Stale rules cause wrong b
 
 ### Rules file principles:
 
-- **Fact-based**: describe how the system works, verified against code
-- **Spec-driven**: describe ideal behavior per the spec, not bug workarounds
+- **Spec-driven**: rules describe how the system SHOULD work per the spec. Implementation is evidence for what currently exists, but spec is authoritative for what's correct. When implementation diverges from spec, file a bug via `/add-bug` — don't adjust the rules file to match the broken implementation.
 - **Concise**: bullet format, tables for structured info. Every line must earn its place.
 - **Present tense**: "The lexer produces X" not "The lexer was changed to produce X"
 - **No plans**: rules are not roadmaps. Unimplemented features don't belong in rules.
