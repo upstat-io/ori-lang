@@ -608,6 +608,100 @@ fn decide_reuse_maybe_shared_reusable_ctor_struct_once_returns_dynamic_reuse() {
     assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
 }
 
+/// Preservation: `ContextHole` is not nested in `ReusableCtor(_)`; the
+/// removed cross-dim path never matched it. Already returned `DynamicReuse`
+/// before the fix; assert it still does.
+#[test]
+fn decide_reuse_maybe_shared_context_hole_once_returns_dynamic_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::ContextHole,
+                uniqueness: Uniqueness::MaybeShared,
+                cardinality: Cardinality::Once,
+            },
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
+}
+
+/// Negative pin (per fix-BUG-04-059 §2.2 + TPR-04-003-gemini-phase5):
+/// explicitly assert the removed `MaybeShared + Once + ReusableCtor → StaticReuse`
+/// branch is gone. Stronger than the corresponding semantic pin because it
+/// directly rejects the unsound output regardless of what other code path
+/// might produce it.
+#[test]
+fn decide_reuse_rejects_cross_dimensional_maybe_shared_once_static_reuse() {
+    for shape in [
+        ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+        ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
+        ShapeClass::CollectionBuffer,
+    ] {
+        let ctx = DecisionContext {
+            site: DecisionSite::LastUse {
+                is_consuming_primop: false,
+                is_ownership_transfer: false,
+                is_owned_call_position: false,
+                has_deferred_children: false,
+                reuse: ReuseContext {
+                    shape,
+                    uniqueness: Uniqueness::MaybeShared,
+                    cardinality: Cardinality::Once,
+                },
+            },
+            is_rc_managed: true,
+        };
+        let d = decide(&ctx);
+        // Must NOT be StaticReuse — that was the unsound DP-10/RL-13 output.
+        assert_ne!(
+            d.reuse,
+            ReuseDecision::StaticReuse,
+            "MaybeShared+Once+{shape:?} must not promote to StaticReuse (BUG-04-059)"
+        );
+    }
+}
+
+/// Negative pin: `decide_cow()` must NOT return `StaticUnique` for any
+/// `MaybeShared` input outside the spec-approved `is_borrow_disjoint=true`
+/// path. Explicitly rejects the four removed cross-dimensional promotion
+/// paths (per fix-BUG-04-059 §2.1 + TPR-04-003-gemini-phase5).
+#[test]
+fn decide_cow_rejects_cross_dimensional_maybe_shared_static_unique() {
+    let mut configs: Vec<AnnotationSiteContext<'static>> = Vec::new();
+    // Removed path 1: is_param + Owned + Linear + Once
+    let mut c1 = cow_ctx(var(0), Uniqueness::MaybeShared);
+    c1.is_param = true;
+    configs.push(c1);
+    // Removed path 2: !is_param + CollectionBuffer + Once
+    let mut c2 = cow_ctx(var(0), Uniqueness::MaybeShared);
+    c2.shape = ShapeClass::CollectionBuffer;
+    configs.push(c2);
+    // Removed path 3: !is_param + ReusableCtor(Struct) + Once
+    let mut c3 = cow_ctx(var(0), Uniqueness::MaybeShared);
+    c3.shape = ShapeClass::ReusableCtor(ReuseCtorKind::Struct);
+    configs.push(c3);
+    // Removed path 4: !is_param + ReusableCtor(EnumVariant) + Once
+    let mut c4 = cow_ctx(var(0), Uniqueness::MaybeShared);
+    c4.shape = ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant);
+    configs.push(c4);
+
+    for ctx in configs {
+        // is_borrow_disjoint=false (default), so the only StaticUnique source
+        // available is the spec-approved disjoint-borrow path — which this
+        // test does not enable. All four configurations must be Dynamic.
+        assert_ne!(decide_cow(&ctx), CowMode::StaticUnique,
+            "MaybeShared (var={:?}, shape={:?}, is_param={}) must not promote to StaticUnique (BUG-04-059)",
+            ctx.var, ctx.shape, ctx.is_param);
+    }
+}
+
 /// Regression: `EnumVariant` also hit the removed `matches!(shape,
 /// ShapeClass::ReusableCtor(_))` path; ensure it now returns `DynamicReuse`.
 #[test]
