@@ -1037,7 +1037,7 @@ Cross-reference: `HYG:§Tracing & Logging`.
 | `ori_types/src/infer/expr/structs/` | Struct literal / update typing (EX-14) |
 | `ori_types/src/infer/expr/concurrency.rs` | Nursery / parallel / spawn typing |
 | `ori_types/src/infer/expr/type_resolution.rs` | In-body type-reference resolution |
-| `ori_types/src/infer/expr/registry_bridge/` | Method dispatch bridge to `MethodRegistry` |
+| `ori_types/src/infer/expr/registry_bridge/` | Bridge from `Tag` to `ori_registry::TypeTag` for builtin registry queries (bypasses `MethodRegistry`) |
 | `ori_types/src/unify/mod.rs` | Unification driver (UN-1..UN-8) |
 | `ori_types/src/unify/generalization.rs` | Scheme construction (GN-1) |
 | `ori_types/src/unify/substitute.rs` | Body substitution during instantiation (GN-2) |

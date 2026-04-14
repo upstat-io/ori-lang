@@ -174,7 +174,7 @@ Hot: lexer scan loop, parser expression/statement parsing, type inference unific
 - **Expected context**: every "expected X, got Y" MUST include WHY — annotation, return type, parameter
 - **Deduplication**: deduplicate by (error code, primary span). Suppress follow-on: if error at span S produces TyError, suppress subsequent type errors involving TyError at child spans.
 - **Edit-distance suggestions**: Damerau-Levenshtein for "did you mean?" — threshold: `distance <= min(name.len() - 1, max(2, name.len() / 3))`
-- **Error codes are stable API**: once assigned, never reuse or change meaning. Ranges: E0xxx = parse, E1xxx = type check, E2xxx = semantic. Tests assert on error codes, not exact message text.
+- **Error codes are stable API**: once assigned, never reuse or change meaning. Ranges: E0xxx = lexer, E1xxx = parser, E2xxx = type check, E3xxx = pattern/semantic, E4xxx = ARC, E5xxx = codegen/LLVM, E6xxx = runtime/eval, E9xxx = internal; W1xxx/W2xxx = warnings. Tests assert on error codes, not exact message text.
 - **Anti-patterns**: `match err { Err(_) => Ok(default) }`, `if let Ok(x) = fallible` (silently drops error), `.unwrap_or_default()` on Result in production code
 
 ### Diagnostic Message Quality

@@ -7,7 +7,7 @@ paths:
 
 ## Architecture
 
-Tree-walking interpreter over canonical IR (`CanExpr`). All evaluation goes through `eval_can(CanId)` in `can_eval/mod.rs`. The canonical IR is the sole evaluation representation — the legacy `eval(ExprId)` path on `PatternExecutor` returns an error if called. The interpreter is portable (native + WASM contexts). For the full Salsa-integrated evaluator, see `oric::Evaluator`.
+Tree-walking interpreter over canonical IR (`CanExpr`). All evaluation goes through `eval_can(CanId)` in `interpreter/can_eval/mod.rs`. The canonical IR is the sole evaluation representation — the legacy `eval(ExprId)` path on `PatternExecutor` returns an error if called. The interpreter is portable (native + WASM contexts). For the full Salsa-integrated evaluator, see `oric::Evaluator`.
 
 - **Arena threading**: functions carry their own `SharedArena`; callee's arena is used (not caller's) for thread safety in parallel evaluation
 - **Enum dispatch** for fixed sets (no vtable overhead)

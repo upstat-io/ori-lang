@@ -6,7 +6,7 @@ paths:
 # Diagnostics
 
 ## Error Codes
-- **E0xxx**: Lexer | **E1xxx**: Parser | **E2xxx**: Type checker | **E3xxx**: Pattern | **E08xx**: Evaluator | **E9xxx**: Internal
+- **E0xxx**: Lexer | **E1xxx**: Parser | **E2xxx**: Type checker | **E3xxx**: Pattern/semantic | **E4xxx**: ARC | **E5xxx**: Codegen/LLVM | **E6xxx**: Runtime/eval | **E9xxx**: Internal | **W1xxx/W2xxx**: Warnings
 - New codes: increment within range, add doc in `errors/EXXX.md`
 
 ## Diagnostic Structure
