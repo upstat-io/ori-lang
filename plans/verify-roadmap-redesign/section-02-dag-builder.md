@@ -716,6 +716,28 @@ Dual-source /tpr-review round 7 on 2026-04-14 (run `/tmp/ori-tpr-8cfTWtcY`). 3 a
 
 ---
 
+Dual-source /tpr-review round 8 on 2026-04-14 (run `/tmp/ori-tpr-4U0C3Y8V`). 3 actionable findings (codex 1, gemini 2, 2 overlapping on the Windows path issue). All regressions in the round-7 `_target_resolves_to_node` rewrite; verified empirically and fixed in the same pass.
+
+- [x] `[TPR-02-001-codex][high]` `scripts/plan_corpus/dag.py:1460` — GAP: Windows path separator drift in _target_resolves_to_node.
+  Evidence: Round-7's `node_paths_str = {str(n.path) for n in dag.nodes}` uses `str(Path)` which emits backslashes on Windows (`C:\tmp\plans\roadmap\section-21A-llvm.md`). The resolver then does `nps.rfind("/" + target)` / `nps.endswith(target)` — all of which use forward slashes. On Windows, every SPECIAL_HOME_SLUGS reference would silently fail to resolve. Cross-platform violation per CLAUDE.md §Cross-Platform + `impl-hygiene.md` §Cross-Platform Parity.
+  Impact: Ori development or CI on Windows would produce a wall of false-positive DEAD_REFERENCE findings on every roadmap / bug-tracker / completed shorthand.
+  Basis: fresh_verification (empirical PureWindowsPath test). Confidence: high.
+  Resolved: Fixed on 2026-04-14. Changed `node_paths_str = {n.path.as_posix() for n in dag.nodes}` and use `as_posix()` in every sibling path-derived set (`active_node_paths`, `completed_plan_node_paths`). `Path.as_posix()` always emits forward slashes regardless of OS, so the resolver is separator-invariant.
+
+- [x] `[TPR-02-001-gemini][high]` `scripts/plan_corpus/dag.py:1455` — Fix Windows path separator drift in target resolution.
+  Evidence: Independent flag of the same issue as TPR-02-001-codex from gemini — `str(Path)` on Windows retains `\` but `_target_resolves_to_node` uses `/`. Verified via empirical `PureWindowsPath` test. Partial agreement with codex: same root cause, same location, same impact.
+  Impact: Same as TPR-02-001-codex (cross-platform false-positive DEAD_REFERENCEs on Windows).
+  Basis: direct_file_inspection + empirical test. Confidence: high.
+  Resolved: Fixed on 2026-04-14 — same code change as TPR-02-001-codex. Two independent flags converging on the same fix.
+
+- [x] `[TPR-02-002-gemini][medium]` `scripts/plan_corpus/dag.py:1506` — Completed-plan routing swallowed valid targets entirely.
+  Evidence: Round-7 put `completed` in SPECIAL_HOME_SLUGS and used `_target_resolves_to_node` to skip resolved targets. But a reference to a real completed plan (case (h) semantics: "plan X is archived, annotation is stale") was skipped entirely instead of being emitted as LOW severity. The original completed_slugs check at line 1515 was never reached for completed-home targets because the early `continue` bypassed it.
+  Impact: Case (h) — stale annotations pointing at archived plans — produced zero findings in the live output, defeating the stale-annotation detection the severity ladder was designed for.
+  Basis: direct_file_inspection + empirical test. Confidence: high.
+  Resolved: Fixed on 2026-04-14 by restructuring the routing in `classify_dead_reference`: (1) first check if target resolves to an ACTIVE node — if yes, skip. (2) Else if target resolves to a COMPLETED node OR slug is in completed_slugs — emit LOW "reference points at completed plan X; annotation is stale". (3) Else fall through to the standard PROSE_VERB=LOW / HTML|YAML=MEDIUM dead-ref ladder. Partitioned `node_paths_str` into `active_node_paths` and `completed_plan_node_paths` for the routing decision. Removed the dead `if slug in completed_slugs` branch in the severity ladder (now unreachable after the routing rewrite).
+
+---
+
 ## 02.N Completion Checklist
 
 - [x] §02.0 Node model covers all seven schema classes; source-kind taxonomy defined and unit-tested

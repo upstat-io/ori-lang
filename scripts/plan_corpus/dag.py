@@ -1440,26 +1440,25 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
     })
 
     # Canonical set of known-good DAG node path strings for precise matching.
-    node_paths_str = {str(n.path) for n in dag.nodes}
+    # Uses Path.as_posix() to normalize separators — on Windows, str(Path)
+    # emits backslashes while targets use forward slashes; without
+    # normalization, every SPECIAL_HOME_SLUGS reference silently fails to
+    # resolve on Windows (TPR round 4 findings TPR-02-001-codex / gemini).
+    node_paths_str = {n.path.as_posix() for n in dag.nodes}
 
-    def _target_resolves_to_node(target: str) -> bool:
-        """Return True iff `target` matches the tail of a real DAG node
-        path with a proper path-component boundary.
+    def _target_resolves_with_boundary(target: str, nps_set: set[str]) -> bool:
+        """Return True iff `target` matches the tail of some path in
+        `nps_set` with a proper path-component boundary.
 
-        Node paths are absolute (e.g. `/tmp/.../plans/roadmap/section-21A-
-        llvm.md`) while `target` is the relative form from the body scan
-        (e.g. `plans/roadmap/section-21A`). The match must anchor at a
-        path component and end at one of: end-of-string, `.md`, `-`, `/`
-        — otherwise `plans/x` would incorrectly match `plans/xyz` (TPR-
-        02-001-gemini round 3 regression pin).
+        Node paths are absolute and POSIX-normalized (via Path.as_posix());
+        `target` is the relative form from the body scan. The match must
+        anchor at a `/` path component AND end at end-of-string, `.md`,
+        `-`, or `/` — so `plans/x` does NOT match `plans/xyz` (TPR round 3
+        boundary regression pin).
         """
-        for nps in node_paths_str:
-            # Anchor at the last occurrence so we match the longest path
-            # tail (avoids false-positive short overlaps within absolute
-            # path prefixes).
+        for nps in nps_set:
             idx = nps.rfind("/" + target)
             if idx < 0:
-                # Target may also match as the leading-slash-less tail.
                 if nps.endswith(target):
                     idx = len(nps) - len(target)
                 elif nps.endswith(target + ".md"):
@@ -1467,14 +1466,35 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
                 else:
                     continue
             else:
-                # Advance past the leading "/" we matched on.
-                idx += 1
+                idx += 1  # Advance past the leading "/".
             rest = nps[idx + len(target):]
-            if rest == "" or rest == ".md":
-                return True
-            if rest.startswith(".md") or rest.startswith("-") or rest.startswith("/"):
+            if rest == "" or rest.startswith(".md") or rest.startswith("-") or rest.startswith("/"):
                 return True
         return False
+
+    def _target_resolves_to_node(target: str) -> bool:
+        """Resolve target against ALL live DAG node paths."""
+        return _target_resolves_with_boundary(target, node_paths_str)
+
+    # Per-NodeId paths (posix-normalized) partitioned into active vs
+    # completed cohorts — used to route completed-plan resolution to LOW
+    # severity instead of silent skip.
+    active_node_paths = {
+        n.path.as_posix()
+        for n in dag.nodes
+        if "/completed/" not in n.path.as_posix()
+    }
+    completed_plan_node_paths = {
+        n.path.as_posix()
+        for n in dag.nodes
+        if "/completed/" in n.path.as_posix()
+    }
+
+    def _target_resolves_to_completed_plan(target: str) -> bool:
+        return _target_resolves_with_boundary(target, completed_plan_node_paths)
+
+    def _target_resolves_to_active_plan(target: str) -> bool:
+        return _target_resolves_with_boundary(target, active_node_paths)
 
     for ref in dag.references:
         if ref.source_kind not in body_kinds:
@@ -1493,37 +1513,70 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
         # not plan directories.
         if re.match(r"BUG-\d{2}-\d{3}", slug):
             continue
-        # Special-home slugs (roadmap / bug-tracker / completed): must
-        # validate the full target against node paths — NO slug-level
-        # shortcut (round-6 regression).
+        # Routing decision for all targets — active vs completed vs dead:
+        #   - If the target resolves to an ACTIVE node (non-completed
+        #     path), it is a live reference; skip emission entirely.
+        #   - If the target resolves to a COMPLETED node, it is a STALE
+        #     ANNOTATION (case (h) semantics) — emit LOW-severity
+        #     DEAD_REFERENCE with the stale-annotation description.
+        #   - Otherwise fall through to the standard dead-reference
+        #     severity ladder.
+        # SPECIAL_HOME_SLUGS must validate through this resolver because a
+        # slug-level shortcut (e.g. "roadmap in active_slugs") swallows
+        # references to nonexistent sections under the special home.
+        if _target_resolves_to_active_plan(target):
+            continue
         if slug in SPECIAL_HOME_SLUGS:
-            if _target_resolves_to_node(target):
+            if _target_resolves_to_completed_plan(target):
+                # Stale annotation — LOW severity, route via dedicated
+                # description.
+                findings.append(Finding(
+                    category=FindingCategory.DEAD_REFERENCE,
+                    subtype=FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+                    severity=Severity.LOW,
+                    source=ref.from_node.path,
+                    source_line=ref.source_line,
+                    source_column=ref.source_column,
+                    description=f"reference points at completed plan {target!r}; annotation is stale",
+                    recommended_fix="Update or remove the annotation — the plan is archived",
+                    evidence=(ref.raw_text,),
+                    source_kind=ref.source_kind,
+                ))
                 continue
-            # fall through to the severity-ladder emission below — the
-            # slug is a real directory but the specific target (e.g.
-            # section-21 when only 21A exists) does not resolve.
+            # fall through to standard dead-ref emission
         else:
-            # Regular plan slug — skip if it matches a live plan directory
-            # (via corpus.indexes).
+            # Regular plan slug — skip if the first segment is a live plan.
             if slug in active_slugs:
                 continue
-            # Defense-in-depth: direct target-to-node resolution handles
-            # any corner case where the slug heuristic misses.
-            if _target_resolves_to_node(target):
+            # Completed-plan resolution at the slug level (e.g. a bare
+            # "jit-exception-handling" or "jit-exception-handling/04B"
+            # target from a pre-round-5 comment) routes to stale-annotation
+            # LOW severity — same semantics as the SPECIAL_HOME_SLUGS case.
+            if _target_resolves_to_completed_plan(target) or slug in completed_slugs:
+                findings.append(Finding(
+                    category=FindingCategory.DEAD_REFERENCE,
+                    subtype=FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+                    severity=Severity.LOW,
+                    source=ref.from_node.path,
+                    source_line=ref.source_line,
+                    source_column=ref.source_column,
+                    description=f"reference points at completed plan {slug!r}; annotation is stale",
+                    recommended_fix="Update or remove the annotation — the plan is archived",
+                    evidence=(ref.raw_text,),
+                    source_kind=ref.source_kind,
+                ))
                 continue
         # Severity ladder: EXPLICIT_DEPENDS_ON is already handled in
-        # resolution_findings (HIGH). Body-kind severity:
-        if slug in completed_slugs:
+        # resolution_findings (HIGH). Body-kind severity for genuinely
+        # dead references. Completed-plan routing happened above (LOW
+        # stale-annotation); this branch is only reached for truly
+        # nonexistent targets.
+        if ref.source_kind is SourceKind.PROSE_VERB:
             severity = Severity.LOW
-            desc = f"reference points at completed plan {slug!r}; annotation is stale"
-            fix = "Update or remove the annotation — the plan is archived"
         else:
-            if ref.source_kind is SourceKind.PROSE_VERB:
-                severity = Severity.LOW
-            else:
-                severity = Severity.MEDIUM
-            desc = f"reference to nonexistent plan directory {target!r}"
-            fix = "Check the plan slug or remove the reference"
+            severity = Severity.MEDIUM
+        desc = f"reference to nonexistent plan directory {target!r}"
+        fix = "Check the plan slug or remove the reference"
         findings.append(Finding(
             category=FindingCategory.DEAD_REFERENCE,
             subtype=FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
