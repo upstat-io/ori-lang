@@ -1420,27 +1420,68 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
         active_slugs.add(p.parent.name)
     for p in corpus.completed_indexes:
         completed_slugs.add(p.parent.name)
-    # The roadmap, bug-tracker, and completed directories are conventional
-    # special homes without an `index.md`. Treat them as active when the
-    # corpus has content from them — otherwise roadmap-section shorthand
-    # like `plans/roadmap/section-21A` (from _ROADMAP_SECTION_RE in §02.1)
-    # would be flagged DEAD_REFERENCE even though roadmap is a real
-    # directory. TPR-02-001-codex round 2 regression pin.
-    if corpus.roadmap_sections:
-        active_slugs.add("roadmap")
-    if corpus.bug_sections or corpus.fix_bug_files:
-        active_slugs.add("bug-tracker")
 
-    # Index of node paths for direct-target-resolution check — if the
-    # target already corresponds to an existing DAG node, there is no
-    # dead reference regardless of slug-segment heuristics.
-    node_path_strs = {str(n.path) for n in dag.nodes}
-    node_path_stems = {str(n.path).rsplit(".md", 1)[0] for n in dag.nodes}
+    # The roadmap, bug-tracker, and completed directories are conventional
+    # special homes — `plans/roadmap/`, `plans/bug-tracker/`, `plans/completed/`
+    # all exist without `index.md` at the special-home level, and their
+    # content lives one level deeper. Targets pointing at them must be
+    # validated by matching the FULL target against actual node paths —
+    # NOT by a slug-level shortcut, because `plans/roadmap/section-21`
+    # (a bad shorthand for a nonexistent section) would then be classified
+    # as live just because `roadmap` is a real directory.
+    #
+    # TPR round 6 (TPR-02-001-codex r2, TPR-02-001-gemini, TPR-02-002-gemini):
+    # the earlier shortcut treated any target whose first segment was
+    # "roadmap" / "bug-tracker" as live, swallowing real dead references;
+    # and the loose substring prefix check (`target in nps`) matched
+    # `plans/x` against `plans/xyz/index.md`. Both regressions removed.
+    SPECIAL_HOME_SLUGS: frozenset[str] = frozenset({
+        "roadmap", "bug-tracker", "completed",
+    })
+
+    # Canonical set of known-good DAG node path strings for precise matching.
+    node_paths_str = {str(n.path) for n in dag.nodes}
+
+    def _target_resolves_to_node(target: str) -> bool:
+        """Return True iff `target` matches the tail of a real DAG node
+        path with a proper path-component boundary.
+
+        Node paths are absolute (e.g. `/tmp/.../plans/roadmap/section-21A-
+        llvm.md`) while `target` is the relative form from the body scan
+        (e.g. `plans/roadmap/section-21A`). The match must anchor at a
+        path component and end at one of: end-of-string, `.md`, `-`, `/`
+        — otherwise `plans/x` would incorrectly match `plans/xyz` (TPR-
+        02-001-gemini round 3 regression pin).
+        """
+        for nps in node_paths_str:
+            # Anchor at the last occurrence so we match the longest path
+            # tail (avoids false-positive short overlaps within absolute
+            # path prefixes).
+            idx = nps.rfind("/" + target)
+            if idx < 0:
+                # Target may also match as the leading-slash-less tail.
+                if nps.endswith(target):
+                    idx = len(nps) - len(target)
+                elif nps.endswith(target + ".md"):
+                    return True
+                else:
+                    continue
+            else:
+                # Advance past the leading "/" we matched on.
+                idx += 1
+            rest = nps[idx + len(target):]
+            if rest == "" or rest == ".md":
+                return True
+            if rest.startswith(".md") or rest.startswith("-") or rest.startswith("/"):
+                return True
+        return False
 
     for ref in dag.references:
         if ref.source_kind not in body_kinds:
             continue
         target = ref.target
+        if not target:
+            continue
         # Expect plans/<slug>/ or plans/<slug>/<rest>
         if target.startswith("plans/"):
             slug = target[len("plans/"):].split("/")[0]
@@ -1448,15 +1489,28 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
             slug = target.split("/")[0]
         if not slug:
             continue
-        if slug in active_slugs:
-            continue
-        # Also skip references targeting BUG-\d+ etc. (not plans)
+        # Skip BUG-NN-NNN references — those target bug-tracker entries,
+        # not plan directories.
         if re.match(r"BUG-\d{2}-\d{3}", slug):
             continue
-        # If the target resolves to an actual DAG node (e.g. a roadmap
-        # section file whose full path matches the target prefix), skip.
-        if any(target in nps or nps.endswith(target) for nps in node_path_strs):
-            continue
+        # Special-home slugs (roadmap / bug-tracker / completed): must
+        # validate the full target against node paths — NO slug-level
+        # shortcut (round-6 regression).
+        if slug in SPECIAL_HOME_SLUGS:
+            if _target_resolves_to_node(target):
+                continue
+            # fall through to the severity-ladder emission below — the
+            # slug is a real directory but the specific target (e.g.
+            # section-21 when only 21A exists) does not resolve.
+        else:
+            # Regular plan slug — skip if it matches a live plan directory
+            # (via corpus.indexes).
+            if slug in active_slugs:
+                continue
+            # Defense-in-depth: direct target-to-node resolution handles
+            # any corner case where the slug heuristic misses.
+            if _target_resolves_to_node(target):
+                continue
         # Severity ladder: EXPLICIT_DEPENDS_ON is already handled in
         # resolution_findings (HIGH). Body-kind severity:
         if slug in completed_slugs:

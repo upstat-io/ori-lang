@@ -292,6 +292,83 @@ class TestClassifyDeadReference:
         fake = [f for f in findings if "fake_fenced_path" in f.description]
         assert len(fake) == 0
 
+    def test_nonexistent_roadmap_section_still_emits_dead_ref(self, tmp_path: Path):
+        """TPR round-7 [TPR-02-001-codex] regression pin: a roadmap shorthand
+        pointing to a section file that does NOT exist must still emit
+        DEAD_REFERENCE. The earlier slug-level shortcut on "roadmap" swallowed
+        these. Only real node resolution should bypass."""
+        plans = tmp_path / "plans"
+        body = "We need to reorder Section 99 — planned for later.\n"
+        _write(plans / "roadmap" / "section-01.md",
+               _section("01", "only section-01"))
+        _write(plans / "foo" / "index.md", _index("Foo"))
+        _write(plans / "foo" / "section-01.md",
+               _section("01", "foo", body_extra=body))
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        findings = classify_dead_reference(dag, corpus)
+        # Nonexistent Section 99 must be emitted as DEAD_REFERENCE.
+        bad = [f for f in findings if "section-99" in f.description.lower()]
+        assert len(bad) >= 1, (
+            f"nonexistent roadmap shorthand must not be swallowed; got {findings}"
+        )
+
+    def test_short_target_prefix_does_not_match_unrelated_plan(self, tmp_path: Path):
+        """TPR round-7 [TPR-02-001-gemini] regression pin: the node-path
+        resolution check must not match `plans/x` against `plans/xyz/...`.
+        Without boundary-aware matching, short or misspelled targets
+        falsely appear live."""
+        plans = tmp_path / "plans"
+        body = "Also depends on plans/foo/ which is a typo.\n"
+        # Real plan with slug that has "foo" as a prefix.
+        _write(plans / "foobar" / "index.md", _index("Foobar"))
+        _write(plans / "foobar" / "section-01.md", _section("01", "f"))
+        _write(plans / "me" / "index.md", _index("Me"))
+        _write(plans / "me" / "section-01.md",
+               _section("01", "m", body_extra=body))
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        findings = classify_dead_reference(dag, corpus)
+        # plans/foo/ must emit DEAD_REFERENCE (it's nonexistent) even
+        # though plans/foobar/index.md exists.
+        bad = [f for f in findings if "plans/foo/" in (f.description or "")]
+        assert len(bad) >= 1, (
+            f"short target must not be swallowed by a longer plan slug; got {findings}"
+        )
+
+    def test_completed_directory_target_is_not_dead_reference(self, tmp_path: Path):
+        """TPR round-7 [TPR-02-002-gemini] regression pin: `plans/completed/`
+        is a conventional special home. Targets pointing at real completed
+        plans must not emit DEAD_REFERENCE."""
+        plans = tmp_path / "plans"
+        body = "<!-- supersedes:done-plan -->\n"
+        _write(plans / "completed" / "done-plan" / "index.md",
+               "---\n"
+               'name: "Done"\n'
+               'full_name: "Done"\n'
+               'status: "resolved"\n'
+               "---\n\n")
+        _write(plans / "new-plan" / "index.md", _index("New"))
+        _write(plans / "new-plan" / "section-01.md",
+               _section("01", "n", body_extra=body))
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        findings = classify_dead_reference(dag, corpus)
+        # "done-plan" IS a completed plan (LOW severity) — not a missing directory.
+        missing = [
+            f for f in findings
+            if f.subtype is FindingSubtype.PLAN_DIRECTORY_NOT_FOUND
+            and "done-plan" in (f.description or "")
+            and f.severity is not Severity.LOW
+        ]
+        assert len(missing) == 0, (
+            f"completed plan target must be LOW-severity stale, not PLAN_DIRECTORY_NOT_FOUND; "
+            f"got {[(f.severity, f.description) for f in findings]}"
+        )
+
     def test_roadmap_section_shorthand_is_not_dead_reference(self, tmp_path: Path):
         """TPR-02-001-codex r2 regression pin: `plans/roadmap/section-21A`
         PROSE_VERB targets (produced by _ROADMAP_SECTION_RE in §02.1) must

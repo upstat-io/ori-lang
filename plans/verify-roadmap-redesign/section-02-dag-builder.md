@@ -694,6 +694,28 @@ Dual-source /tpr-review round 6 on 2026-04-14 (run `/tmp/ori-tpr-SpMK3Y3k`). 2 a
 
 ---
 
+Dual-source /tpr-review round 7 on 2026-04-14 (run `/tmp/ori-tpr-8cfTWtcY`). 3 actionable findings (codex 1, gemini 2). All regressions introduced by round-6 fix 1; verified against fresh tmp_path corpora and fixed in the same pass.
+
+- [x] `[TPR-02-001-codex][medium]` `scripts/plan_corpus/dag.py:1451` — Validate special-home targets beyond the directory slug.
+  Evidence: Round-6 added `"roadmap"` to `active_slugs` so `classify_dead_reference` short-circuited on the slug alone. That swallowed any truly dead roadmap shorthand (e.g. `plans/roadmap/section-99` when no section-99 file exists) because `slug == "roadmap"` hit the early-continue before the target suffix was validated. The same slug-only shortcut applied to `bug-tracker`, so invalid targets there silently passed classification.
+  Impact: Nonexistent sections in special homes became false negatives — the classifier refused to emit DEAD_REFERENCE on genuinely broken references.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-14. Replaced the active_slugs shortcut for roadmap/bug-tracker/completed with a `SPECIAL_HOME_SLUGS` frozenset and a `_target_resolves_to_node(target)` helper that does boundary-aware tail-match against actual DAG node paths. Special-home targets skip only when the full target resolves to a real node; otherwise they fall through to DEAD_REFERENCE emission. Regression pin: `test_nonexistent_roadmap_section_still_emits_dead_ref`.
+
+- [x] `[TPR-02-001-gemini][high]` `scripts/plan_corpus/dag.py:1457` — LEAK: substring check in node_path_strs swallows valid dead references.
+  Evidence: Round-6 used `any(target in nps or nps.endswith(target) for nps in node_path_strs)` as defense-in-depth. The `target in nps` substring check matched `plans/x` against `plans/xyz/index.md` (valid prefix but wrong plan), swallowing valid DEAD_REFERENCE findings for short or misspelled targets.
+  Impact: Short targets became false negatives; any one-character prefix of a real plan slug bypassed DEAD_REFERENCE entirely.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-14. `_target_resolves_to_node` helper now uses boundary-aware matching: accepts exact-match, exact-plus-".md", or path-component-aligned tail prefix where the match ends at `.md` / `-` / `/` (so `plans/roadmap/section-21A` matches `plans/roadmap/section-21A-llvm.md` but NOT `plans/foo/section-21Asomething.md`). Anchors at the last "/" occurrence so the boundary is always at a real path component. Regression pin: `test_short_target_prefix_does_not_match_unrelated_plan`.
+
+- [x] `[TPR-02-002-gemini][medium]` `scripts/plan_corpus/dag.py:1423` — DRIFT: completed directory omitted from active_slugs injection.
+  Evidence: Round-6 commented "The roadmap, bug-tracker, and completed directories are conventional special homes... Treat them as active when the corpus has content from them" but the code only added `"roadmap"` and `"bug-tracker"`. `"completed"` was omitted, so targets like `plans/completed/done-plan/01` (referring to a real completed plan via the `plans/completed/<slug>/...` path form) would emit DEAD_REFERENCE.
+  Impact: Completed-plan path targets would emit MEDIUM DEAD_REFERENCE instead of the intended LOW severity stale-annotation routing.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-14 as part of the round-7 SPECIAL_HOME_SLUGS rewrite. `completed` is included in SPECIAL_HOME_SLUGS and validated via `_target_resolves_to_node` — real completed-plan targets resolve to `corpus.completed_indexes` nodes and are skipped from DEAD_REFERENCE emission; missing completed-plan targets correctly fall through to DEAD_REFERENCE. Regression pin: `test_completed_directory_target_is_not_dead_reference`.
+
+---
+
 ## 02.N Completion Checklist
 
 - [x] §02.0 Node model covers all seven schema classes; source-kind taxonomy defined and unit-tested
