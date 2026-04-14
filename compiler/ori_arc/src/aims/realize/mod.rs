@@ -40,7 +40,7 @@ use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use crate::uniqueness::drop_hints::DropHints;
-use crate::uniqueness::{CowAnnotations, CowMode};
+use crate::uniqueness::CowAnnotations;
 
 /// Result of the unified realization — all outputs in one struct.
 ///
@@ -316,14 +316,6 @@ fn annotate_block(
 
         if let Some(mode) = decisions.cow {
             synergy.total_cow_decisions += 1;
-            // Cross-dim upgrade: MaybeShared uniqueness → StaticUnique via
-            // combined state proof (COW-aware borrowing, CollectionBuffer+Once,
-            // ReusableCtor+Once, disjoint borrow).
-            if site_ctx.uniqueness == crate::aims::lattice::Uniqueness::MaybeShared
-                && mode == CowMode::StaticUnique
-            {
-                synergy.cow_upgrades += 1;
-            }
             tracing::debug!(
                 block_idx,
                 instr_idx,
@@ -366,11 +358,6 @@ fn annotate_block(
             let decisions = decide_annotations(&site_ctx, true, false);
             if let Some(mode) = decisions.cow {
                 synergy.total_cow_decisions += 1;
-                if site_ctx.uniqueness == crate::aims::lattice::Uniqueness::MaybeShared
-                    && mode == CowMode::StaticUnique
-                {
-                    synergy.cow_upgrades += 1;
-                }
                 cow_annotations.set(block_idx, block.body.len(), mode);
             }
         }

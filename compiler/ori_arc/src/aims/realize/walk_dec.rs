@@ -8,7 +8,7 @@ use crate::aims::emit_rc::{
     BlockCtx, LastUse,
 };
 use crate::aims::emit_reuse::DeathEvent;
-use crate::aims::lattice::{Cardinality, ShapeClass, SizeClass, Uniqueness};
+use crate::aims::lattice::SizeClass;
 use crate::ir::{ArcInstr, ArcVarId, RcStrategy, ValueRepr};
 
 use super::decide::{
@@ -160,11 +160,6 @@ fn emit_last_use_decs(
         // Build reuse context from state map (single query per death site).
         let reuse_ctx = build_reuse_context(ctx, var);
 
-        // Snapshot reuse context for metrics before moving into DecisionContext.
-        let is_cross_dim_reuse_candidate = reuse_ctx.uniqueness == Uniqueness::MaybeShared
-            && reuse_ctx.cardinality == Cardinality::Once
-            && matches!(reuse_ctx.shape, ShapeClass::ReusableCtor(_));
-
         let decision = decide(&DecisionContext {
             site: DecisionSite::LastUse {
                 is_consuming_primop: false,
@@ -176,15 +171,15 @@ fn emit_last_use_decs(
             is_rc_managed: true,
         });
 
-        // Synergy metrics: count RC decisions and multi-dim reuse.
+        // Synergy metrics: count RC decisions. The former realization-stage
+        // cross-dimensional reuse counter (`cross_dim_reuse`) was removed
+        // together with the unsound path it tracked (BUG-04-059 —
+        // `aims-rules.md` §RL-13 removal).
         if decision.rc != RcDecision::None {
             metrics.total_rc_decisions += 1;
         }
         if decision.reuse != ReuseDecision::None {
             metrics.reuse_decisions += 1;
-            if decision.reuse == ReuseDecision::StaticReuse && is_cross_dim_reuse_candidate {
-                metrics.cross_dim_reuse += 1;
-            }
         }
 
         apply_last_use_decision(
