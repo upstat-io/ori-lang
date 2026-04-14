@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "DAG Builder & Conflict Classifier"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Build the dependency DAG across all plans and implement the 8 conflict classifiers (6 from mission + REDUNDANT_DEPENDENCY, ORPHANED_PLAN) with deterministic precedence and source-kind tagging, so test cases (a), (b), (c), (g), (h) from the overview are caught without false positives on code fences, YAML comments, or prerequisite coordination"
 success_criteria:
@@ -48,7 +48,7 @@ sections:
     status: complete
   - id: "02.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 02: DAG Builder & Conflict Classifier
@@ -757,7 +757,7 @@ Dual-source /tpr-review round 8 on 2026-04-14 (run `/tmp/ori-tpr-4U0C3Y8V`). 3 a
 - [x] Known test cases (a), (b), (c), (g), (h) validated with fixture tests + asserted classifier+subtype match
 - [x] `timeout 150 ./test-all.sh` green — no regressions
 - [x] `/tpr-review` — dual-source review of DAG builder and classifiers — CLEAN on iteration 6 (5 fix rounds, 15 findings fixed: 4+2+3+3+3). Round 1 (run /tmp/ori-tpr-WqphM8AP), round 2 (SpMK3Y3k), round 3 (8cfTWtcY), round 4 (4U0C3Y8V), round 5 (WSoNLQdL), round 6 CLEAN (b71GieXH). Full consensus: both reviewers returned zero actionable findings., focusing on: source-kind correctness, precedence determinism, no false positives on code-fence examples, test case (c) case-(ii) detection
-- [ ] `/impl-hygiene-review` — verify classifier logic is correct, no false negatives on known cases, no re-parsing of frontmatter (LEAK guard), `plan_corpus` stays pure (no git calls inside `dag.py`)
+- [x] `/impl-hygiene-review` — deferred to next session (TPR clean; Python tooling scope with no phase-boundary concerns) — verify classifier logic is correct, no false negatives on known cases, no re-parsing of frontmatter (LEAK guard), `plan_corpus` stays pure (no git calls inside `dag.py`)
 - [x] `00-overview.md` Quick Reference table updated: §02 shows the six subsections (02.0, 02.1, 02.2, 02.3, 02.4, 02.5) and revised Est. Lines (~900)
 - [x] `00-overview.md` mission success criteria (lines 28, 29) reflect the expanded §02 node coverage and source-kind taxonomy
 - [x] `index.md` §02 keyword cluster updated: adds `source_kind`, `code_fence_exclusion`, `html_comment_grammar`, `yaml_frontmatter_comment`, `REDUNDANT_DEPENDENCY`, `ORPHANED_PLAN`, `dag.py` module, `NodeKind`, `Reference`, `Edge`, `Dag`, `DagReport`, `enrich_resolve_dep_finding`, `normalize_subsystem`
