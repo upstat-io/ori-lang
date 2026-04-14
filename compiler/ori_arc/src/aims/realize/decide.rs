@@ -384,8 +384,9 @@ pub fn decide_annotations(
 /// 1. Excluded variables → `Dynamic` (safe fallback)
 /// 2. RC-incremented → `Dynamic` (physical refcount > logical uniqueness)
 /// 3. `Unique` → `StaticUnique`
-/// 4. `MaybeShared` + disjoint borrow → `StaticUnique` (spec §RL-31 —
-///    source uniqueness is enforced by `is_borrow_disjoint_from_siblings()`)
+/// 4. `MaybeShared` + disjoint borrow → `StaticUnique` (spec §DP-5/§RL-10 —
+///    source uniqueness at the receiver's block is enforced by
+///    `is_borrow_disjoint_from_siblings()`)
 /// 5. `MaybeShared` → `Dynamic` (runtime `IsShared` check)
 /// 6. `Shared` → `StaticShared`
 pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
@@ -403,10 +404,10 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
         Uniqueness::Unique => CowMode::StaticUnique,
 
         Uniqueness::MaybeShared => {
-            // Uniqueness-preserving borrows (spec §RL-31): receiver's borrow
-            // is disjoint from all sibling borrows of the SAME source, AND
-            // the source itself is `Uniqueness::Unique` (enforced by
-            // `is_borrow_disjoint_from_siblings()`).
+            // Uniqueness-preserving local mutation (spec §DP-5/§RL-10):
+            // receiver's borrow is disjoint from all sibling borrows of
+            // the SAME source, AND the source itself is `Uniqueness::Unique`
+            // at the receiver's block (enforced by `is_borrow_disjoint_from_siblings()`).
             if ctx.is_borrow_disjoint {
                 return CowMode::StaticUnique;
             }
