@@ -102,8 +102,8 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-11 | Source: continue-roadmap
   Resolved: Fixed on 2026-04-12 (3f7cf7c2) as part of BUG-04-057 fix. Rule 6 widened from `== HeapEscaping` to `>= HeapEscaping`. Both monotonicity proptests now pass. Fix section: `plans/bug-tracker/fix-BUG-04-057.md`.
 
-- [ ] `[BUG-04-065][high]` **AOT: Set iteration crashes with SIGSEGV for Set<int> and composite types (Set<[int]>, Set<{str: int}>)**
-  Repro: `@main () -> int = { let s: Set<int> = [10, 20, 30].iter().collect(); for x in s do {}; 0 }` → `ori build` succeeds, binary segfaults (exit 139). Same for `Set<[int]>` and `Set<{str: int}>`. `Set<str>` iteration works correctly (existing `sets.rs` AOT tests pass). Non-iteration Set operations (insert, length, contains) work for `Set<int>`. Issue is in Set iteration codegen for non-str element types.
+- [x] `[BUG-04-065][high]` **AOT: Set iteration crashes with SIGSEGV for Set<int> and composite types (Set<[int]>, Set<{str: int}>)**
+  Resolved: OBE on 2026-04-14. Set<int> iteration with non-empty body builds and runs correctly (exit 0). Verified: `let s: Set<int> = [10, 20, 30].iter().collect(); let total = 0; for x in s do { total = total + x; }; if total == 60 then 0 else 1` — compiles and runs via `ori build`, exit 0. Set<str> for-do also works. The original repro's empty `for x in s do {}` body triggers a different, general bug (unresolved type variables for empty for-do bodies in AOT — affects all collection types, not just Sets). Filed as BUG-04-084. The Set-specific SIGSEGV was likely resolved by BUG-04-071/BUG-04-077 narrowing canonicalization fixes.
   Subsystem: `compiler/ori_llvm/src/codegen/` (Set iterator codegen) or `compiler/ori_rt/` (Set runtime)
   Found: 2026-04-12 | Source: continue-roadmap
   Note: Blocks Set<int> iteration matrix (iter_rc_matrix E7) and CollectSet verification with non-str element types.
@@ -610,6 +610,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-14 | Source: tpr-review (BUG-04-064 Phase 5 code TPR)
   Reviewer: gemini (TPR-04-002-gemini)
   Note: Requires storing `project_alias_sources` on `AimsStateMap` or recomputing at realization time. Architecture change beyond BUG-04-064 point fix scope.
+- [ ] `[BUG-04-084][medium]` **AOT: empty `for x in collection do {}` body causes unresolved type variables at codegen**
+  Repro: `@main () -> int = { let items = [1, 2, 3]; for x in items do {}; 0 }` → `ori build` fails with `unresolved type variable at codegen — type inference bug`. Affects ALL collection types (List, Set, Map) — not Set-specific. Non-empty bodies work correctly. Interpreter handles empty bodies fine (`ori run` exits 0).
+  Subsystem: `compiler/ori_llvm/` (monomorphization / type variable resolution for empty for-do bodies)
+  Found: 2026-04-14 | Source: fix-bug (BUG-04-065 investigation — original repro used empty body, masking the actual OBE status)
+  Note: Discovered during BUG-04-065 OBE verification. The empty body produces an unused iterator element binding (`x`), and the type variable for that binding's `Item` associated type may not be resolved when no code in the body constrains it.
 - [ ] `[BUG-04-079][medium]` **Implement spec-approved DP-9 `MaybeShared + IC-3 ParamContract.uniqueness = Unique → StaticUnique` path (re-enablement of COW fast-path for parameters)** <!-- blocked-by:BUG-04-069 -->
   **Blocked:** BUG-04-069 must be fixed first. BUG-04-069's `tighten_uniqueness_from_callers` uses the unsound IC-8 pattern (Owned+Linear+Once → Unique) to produce `ParamContract.uniqueness = Unique`. Today this is dormant because no realization site reads `ParamContract.uniqueness`. But BUG-04-079 plumbs it into `AnnotationSiteContext` for consumption by `decide_cow()` — so fixing BUG-04-079 without BUG-04-069 would launder the exact unsoundness BUG-04-059 just removed through a different channel.
   Repro: none yet (capability gap, not a regression). After BUG-04-059 fix, MaybeShared parameters always take `Dynamic` (runtime IsShared). Spec DP-9 permits `StaticUnique` when the interprocedural contract proves caller-side uniqueness — a PAST guarantee from the SCC fixpoint, not future-use inference.
