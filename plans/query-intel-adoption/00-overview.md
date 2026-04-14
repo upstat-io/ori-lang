@@ -17,9 +17,9 @@ Drive deep, ambient adoption of the Neo4j-backed intelligence graph (`/query-int
 ## Mission Success Criteria
 
 - [x] `/query-intel` is a Skill (`.claude/skills/query-intel/SKILL.md`) the harness can auto-trigger; the 14-line command file remains as a thin alias. (§01)
-- [ ] `CLAUDE.md` teaches the graph in the Commands, Key Paths, Reference Repos, Ownership & Deferral, and Compiler Coding Guidelines sections — all verified insertion points from the 2026-04-14 TPR. (§02)
+- [x] `CLAUDE.md` teaches the graph in the Commands, Key Paths, Reference Repos, Ownership & Deferral, and Compiler Coding Guidelines sections — all verified insertion points from the 2026-04-14 TPR. (§02)
 - [ ] Exactly ONE canonical intel-summary helper exists at `.claude/skills/dual-tpr/compose-intel-summary.md`; the 6 currently-inlined copies in `tpr-review`, `review-work`, `review-plan`, `independent-review`, `review-bugs`, and the `review-work` SKILL are replaced with `@`-includes. Zero LEAK:algorithmic-duplication for the intel-pre-query pattern. (§03)
-- [ ] All 9 rule files that cite cross-repo prior art (`arc.md`, `aims-rules.md`, `typeck.md`, `types.md`, `tests.md`, `impl-hygiene.md`, `canonicalization.md`, `patterns.md`, plus `intelligence.md` index refresh) include a graph-first paragraph before their manual-browsing guidance. (§04)
+- [ ] All 10 rule files that cite cross-repo prior art (`arc.md`, `aims-rules.md`, `typeck.md`, `types.md`, `tests.md`, `impl-hygiene.md`, `canonicalization.md`, `patterns.md`, `compiler.md`, plus `intelligence.md` index refresh) include a graph-first paragraph before their manual-browsing guidance. (§04)
 - [ ] The 4 gap skills (`verify-tpr`, `sync-claude`, `fix-next-bug`, `tp-help`) and 3 gap commands (`sync-spec`, `sync-grammar`, `verify-roadmap`) each include a concrete graph-query workflow step (not a token bullet) that `@`-includes §03's helper. (§05)
 - [ ] `.claude/skills/create-plan/plan-schema.md` mandates a `{NN}.0 Intelligence Reconnaissance` subsection in every new plan section; `scripts/plan_corpus.py check` emits a transition-period WARNING when the subsection is missing. Retrofit applied per the user-chosen policy (Option A/B/C). (§06)
 - [ ] `.claude/hooks/pre-review-intel.sh` fires on `UserPromptSubmit` for review-family slash-commands, injects a bounded Intelligence Summary via `hookSpecificOutput.additionalContext`, and degrades silently when the graph is unavailable. Registered in `.claude/settings.json`. (§07)
@@ -138,7 +138,7 @@ Ambient teaching surface (CLAUDE.md §02 + rule files §04):
 - §01 and §02 are independent and parallelizable.
 - §03 requires §01 (lives under `.claude/skills/dual-tpr/` — confirms Skill promotion structural decisions).
 - §04, §05, §06, §07 all depend on §03 (they `@`-include the new SSOT helper).
-- §04 is additionally non-blocking with respect to §05–§07 (mechanical paragraph inserts into 9 rule files).
+- §04 is additionally non-blocking with respect to §05–§07 (mechanical paragraph inserts into 10 rule files).
 - §08 has no `.claude/` dependencies — touches only `scripts/intel-query.sh`, `.claude/commands/query-intel.md`, and `../lang_intelligence/neo4j/query_graph.py`.
 
 **Cross-section interactions (must be co-implemented):**
@@ -177,7 +177,7 @@ Phase 4 - Meta-validation
 **Why this order:**
 - Phase 0 is pure additions — new Skill file, new doc paragraphs. No behavioral change to existing workflows.
 - Phase 1 is the hinge. Migrating the 6 inlined copies to `@`-includes is where the LEAK is resolved; every later section depends on this SSOT existing.
-- Phase 2 is the fan-out where adoption surface multiplies — 9 rule files + 4 skills + 3 commands + plan-schema + hook. Can be parallelized because each lands in a different file.
+- Phase 2 is the fan-out where adoption surface multiplies — 10 rule files + 4 skills + 3 commands + plan-schema + hook. Can be parallelized because each lands in a different file.
 - Phase 3 is tool UX — orthogonal to prompt-surface changes. Could ship earlier but benefits most when Phase 2 consumers are exercising the tool.
 - Phase 4 is the integration test: does the whole thing actually make the graph ambient?
 
@@ -226,7 +226,7 @@ None. This plan does not modify compiler code; no test failures are expected. `.
 | ID | Title | File | Status |
 |----|-------|------|--------|
 | 01 | Promote /query-intel to an auto-triggerable Skill | `section-01-promote-to-skill.md` | Complete |
-| 02 | CLAUDE.md expansion | `section-02-claude-md-expansion.md` | Not Started |
+| 02 | CLAUDE.md expansion | `section-02-claude-md-expansion.md` | Complete |
 | 03 | SSOT: compose-intel-summary helper | `section-03-compose-intel-summary-ssot.md` | Not Started |
 | 04 | Rule files: graph-first guidance | `section-04-rules-graph-first.md` | Not Started |
 | 05 | Missing-trigger skills & commands | `section-05-missing-trigger-skills.md` | Not Started |
