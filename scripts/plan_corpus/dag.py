@@ -1420,6 +1420,22 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
         active_slugs.add(p.parent.name)
     for p in corpus.completed_indexes:
         completed_slugs.add(p.parent.name)
+    # The roadmap, bug-tracker, and completed directories are conventional
+    # special homes without an `index.md`. Treat them as active when the
+    # corpus has content from them — otherwise roadmap-section shorthand
+    # like `plans/roadmap/section-21A` (from _ROADMAP_SECTION_RE in §02.1)
+    # would be flagged DEAD_REFERENCE even though roadmap is a real
+    # directory. TPR-02-001-codex round 2 regression pin.
+    if corpus.roadmap_sections:
+        active_slugs.add("roadmap")
+    if corpus.bug_sections or corpus.fix_bug_files:
+        active_slugs.add("bug-tracker")
+
+    # Index of node paths for direct-target-resolution check — if the
+    # target already corresponds to an existing DAG node, there is no
+    # dead reference regardless of slug-segment heuristics.
+    node_path_strs = {str(n.path) for n in dag.nodes}
+    node_path_stems = {str(n.path).rsplit(".md", 1)[0] for n in dag.nodes}
 
     for ref in dag.references:
         if ref.source_kind not in body_kinds:
@@ -1436,6 +1452,10 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
             continue
         # Also skip references targeting BUG-\d+ etc. (not plans)
         if re.match(r"BUG-\d{2}-\d{3}", slug):
+            continue
+        # If the target resolves to an actual DAG node (e.g. a roadmap
+        # section file whose full path matches the target prefix), skip.
+        if any(target in nps or nps.endswith(target) for nps in node_path_strs):
             continue
         # Severity ladder: EXPLICIT_DEPENDS_ON is already handled in
         # resolution_findings (HIGH). Body-kind severity:
@@ -1794,17 +1814,29 @@ _SOURCE_KIND_SEVERITY: dict = {}
 
 
 def apply_source_kind_severity(findings: list) -> list:
-    """Enforce severity-ladder per source_kind on every DAG_CONFLICT finding
-    that carries a source_kind. Classifiers already set severity per bullet;
-    this pass is a post-hoc guard that catches any drift.
+    """Enforce severity-ladder per source_kind on DAG_CONFLICT findings only.
 
-    NOTE: CONFLICT and ORPHANED_PLAN have source_kind=None (they're aggregate
-    findings, not reference-driven) — this function leaves them untouched.
+    Classifiers already set severity per bullet; this pass is a post-hoc
+    guard that catches any drift against the EXPLICIT_DEPENDS_ON=HIGH /
+    HTML|YAML=MEDIUM / PROSE_VERB=LOW ladder.
+
+    Excluded:
+    - CONFLICT and ORPHANED_PLAN (source_kind=None — aggregate findings,
+      not reference-driven).
+    - DEAD_REFERENCE findings (FindingCategory.DEAD_REFERENCE). These carry
+      their OWN severity ladder from classify_dead_reference: completed-
+      plan targets get LOW regardless of source_kind (case (h), TPR-02-002-
+      codex round 2 regression pin), while explicit-edge failures are HIGH.
+      Applying the source-kind ladder uniformly would overwrite these
+      classifier-chosen severities — so DEAD_REFERENCE is left untouched.
     """
-    from .types import Finding, Severity
+    from .types import Finding, FindingCategory, Severity
 
     out: list = []
     for f in findings:
+        if f.category is FindingCategory.DEAD_REFERENCE:
+            out.append(f)
+            continue
         if f.source_kind is None:
             out.append(f)
             continue

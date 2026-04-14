@@ -292,6 +292,31 @@ class TestClassifyDeadReference:
         fake = [f for f in findings if "fake_fenced_path" in f.description]
         assert len(fake) == 0
 
+    def test_roadmap_section_shorthand_is_not_dead_reference(self, tmp_path: Path):
+        """TPR-02-001-codex r2 regression pin: `plans/roadmap/section-21A`
+        PROSE_VERB targets (produced by _ROADMAP_SECTION_RE in §02.1) must
+        NOT emit DEAD_REFERENCE just because `roadmap` has no index.md.
+        The roadmap directory is a real conventional home."""
+        plans = tmp_path / "plans"
+        body = "This section will reorder Section 21A subsections.\n"
+        _write(plans / "roadmap" / "section-21A-llvm.md",
+               _section("21A", "LLVM"))
+        _write(plans / "rewriter" / "index.md", _index("Rewriter"))
+        _write(plans / "rewriter" / "section-02.md",
+               _section("02", "reprior", body_extra=body))
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        findings = classify_dead_reference(dag, corpus)
+        roadmap_dead_refs = [
+            f for f in findings
+            if "roadmap" in str(f.source) + str(f.description)
+            and "section-21A" in f.description
+        ]
+        assert len(roadmap_dead_refs) == 0, (
+            f"roadmap shorthand must not produce DEAD_REFERENCE; got {roadmap_dead_refs}"
+        )
+
     def test_completed_plan_reference_is_low_severity_dead_ref(self, tmp_path: Path):
         plans = tmp_path / "plans"
         body = "<!-- unblocks:done-plan/01 -->\n"
