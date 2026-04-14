@@ -10,7 +10,7 @@ goal: >
   after Sections 01–04 land.
 success_criteria:
   - "E2005 diagnostic message reads: 'cannot infer the type of this empty list; add a type annotation like `let x: [int] = []`' — verifiable via the E2005 message test in `check/validators/tests.rs`."
-  - "`rg '\\[\\s*\\]' tests/spec/ library/ --glob '*.ori'` returns zero unannotated empty-list hits that would produce E2005 — all existing empty-list positions are either type-annotated, already in `#compile_fail` tests, or in pattern-match arms that are exempt. Verified by running the comprehensive sweep and inspecting each hit."
+  - "`rg '\\[\\s*\\]' tests/spec/ tests/valgrind/ library/ --glob '*.ori'` returns zero unannotated empty-list hits that would produce E2005 — all existing empty-list positions are either type-annotated, already in `#compile_fail` tests, or in positions where type context is supplied top-down (e.g. pattern-match arms, scrutinee-constrained contexts). Verified by running the comprehensive sweep and inspecting each hit."
   - "All files in `tests/spec/traits/iterator/` and `tests/spec/collections/cow/` that contain empty-list patterns compile clean after the fix — verified by `timeout 150 cargo st tests/spec/traits/iterator/` and `timeout 150 cargo st tests/spec/collections/cow/`."
   - "`timeout 150 ./test-all.sh` is green (debug build) after the annotation sweep."
 depends_on: ["01", "02", "03", "04", "05"]
@@ -73,8 +73,9 @@ can appear without a type annotation:
 ```bash
 # Full empty-list sweep — covers let-bindings, argument position, operator/concat forms,
 # for..in [] forms, return-from-block, nested literals, and receiver-chains.
+# Includes tests/valgrind/ to catch operator-position usages (e.g. cow_list_concat.ori).
 # Inspect every hit manually to determine whether type context is present.
-rg '\[\s*\]' tests/spec/ library/ --glob '*.ori'
+rg '\[\s*\]' tests/spec/ tests/valgrind/ library/ --glob '*.ori'
 ```
 
 The two narrower patterns from earlier rounds are subsumed by this single command and
@@ -82,15 +83,15 @@ are shown here for reference:
 
 ```bash
 # Narrower forms (subsumed — kept for documentation)
-rg 'let.*=\s*\[\s*\]' tests/spec/ library/ --glob '*.ori'  # let-binding forms
-rg '\[\]\.' tests/spec/ --glob '*.ori'                       # receiver-chain forms
+rg 'let.*=\s*\[\s*\]' tests/spec/ tests/valgrind/ library/ --glob '*.ori'  # let-binding forms
+rg '\[\]\.' tests/spec/ tests/valgrind/ --glob '*.ori'                       # receiver-chain forms
 ```
 
 Do NOT use the narrower greps as the sole audit sweep — they miss:
 - Argument position: `foo(items: [])`
 - Operator/concat position: `[] + [1, 2, 3]`
 - `for...in` position: `for x in [] yield x`
-- Pattern context: `match e { [] -> ... }` (patterns are irrefutable; no E2005 needed)
+- Pattern context: `match e { [] -> ... }` (pattern type is constrained by the scrutinee top-down; no E2005 needed)
 - Return-from-block: `{ [] }`
 - Nested literals: `[[]]`, `Some([])`
 
@@ -101,9 +102,11 @@ For each unannotated empty list found:
 2. If the test SHOULD fail with E2005 → add `#compile_fail(code: "E2005")` attribute
 3. If the test is in a file that is already marked `#compile_fail` for another reason →
    document that E2005 would also fire (multi-error case)
-4. Pattern-position hits (`[] -> ...` arms) are irrefutable pattern matching — these
-   do NOT produce E2005 because the scrutinee type constrains the pattern; document
-   and skip
+4. Pattern-position hits (`[] -> ...` arms) — these do NOT produce E2005 because the
+   pattern type is constrained top-down by the scrutinee type; document and skip.
+   (Note: empty-list patterns are refutable — `[] -> ...` fails to match a non-empty
+   list — but they are exempt from E2005 because type is resolved from context, not
+   inferred from the empty literal.)
 
 Known hits to investigate (verified via repo sweep):
 - `tests/spec/traits/iterator/double_ended.ori` — unannotated `let result = []` usage
@@ -208,6 +211,43 @@ additionally found: `tests/spec/extensions/list_methods.ori` (argument position)
 (operator position). None of these are matched by the prior two-command sweep.
 
 **Fix:** Replaced the two-command sweep with a single comprehensive `rg '\[\s*\]' tests/spec/ library/ --glob '*.ori'` that covers all syntactic positions. Added documentation explaining which positions the narrower patterns missed and guidance on which hits (pattern-match arms) are exempt from E2005. Updated the success_criteria in the frontmatter to use the broader pattern. Updated 06.3 to use the same broader pattern.
+
+---
+
+Round 4 — Dual-source TPR on sections 05, 06, 07 (Codex + Gemini). Findings addressed
+in this revision.
+
+### [[TPR-06-R4-001-codex]] [MEDIUM] Comprehensive sweep misses tests/valgrind/ operator-position hit
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-06-diagnostics-audit.md:77`
+**Reviewer:** Codex | **Status:** Fixed
+
+**Evidence:** The known-hit list already cited `tests/valgrind/cow/cow_list_concat.ori`
+(operator-position `[] + [1, 2, 3]`), but the comprehensive sweep command
+`rg '\[\s*\]' tests/spec/ library/ --glob '*.ori'` did not include `tests/valgrind/` as a
+search root. Fresh verification confirmed this is the only `[] +` hit in the repo and it
+sits outside the advertised sweep scope.
+
+**Fix:** Added `tests/valgrind/` to the comprehensive sweep command:
+`rg '\[\s*\]' tests/spec/ tests/valgrind/ library/ --glob '*.ori'`. Updated the
+success_criteria to use the three-root form. Updated the narrower reference patterns to
+also include `tests/valgrind/` for consistency.
+
+---
+
+### [[TPR-06-R4-002-gemini]] [LOW] Empty list pattern-match arms described as "irrefutable" — incorrect
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-06-diagnostics-audit.md:93,104`
+**Reviewer:** Gemini | **Status:** Fixed
+
+**Evidence:** Lines 93 and 104 described `[] -> ...` arms as "irrefutable pattern matching".
+This is incorrect: an empty-list pattern is refutable — it fails to match a non-empty list.
+The reason E2005 does not fire is that the pattern type is constrained top-down by the
+scrutinee type, not because the pattern is irrefutable.
+
+**Fix:** Changed line 93 to "pattern type is constrained by the scrutinee top-down; no
+E2005 needed." Expanded point 4 to clarify the refutability distinction and the correct
+reason for E2005 exemption.
 
 ---
 

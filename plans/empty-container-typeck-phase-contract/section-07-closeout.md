@@ -9,7 +9,7 @@ goal: >
   and closes the empty-container typeck phase-contract enforcement plan.
 success_criteria:
   - "All plan annotations removed from all four trees — verifiable via: `rg 'BUG-04-074|empty-container-typeck' compiler/ --glob '*.rs'`, `rg 'BUG-04-074|empty-container-typeck' compiler/ --glob '*.ori'`, `rg 'BUG-04-074|empty-container-typeck' tests/ --glob '*.ori'`, and `rg 'BUG-04-074|empty-container-typeck' library/ --glob '*.ori'` — all four returning zero hits."
-  - "07.3 (TPR + hygiene) passes with zero actionable findings BEFORE any bug-tracker entries are updated to `complete`."
+  - "07.3 (TPR + hygiene + tooling + sync) passes with zero actionable findings BEFORE any bug-tracker entries are updated to `complete`. Gate includes: `plan_corpus check`, `/tpr-review`, `/impl-hygiene-review`, `/improve-tooling` sweep, and `/sync-claude` sweep — all must be clean."
   - "`plans/bug-tracker/fix-BUG-04-074.md` status is updated to `complete` with a pointer to this plan."
   - "`plans/bug-tracker/00-overview.md` reflects the reduced open-bug count."
   - "`plans/bug-tracker/section-04-codegen-llvm.md` entry for BUG-04-074 updated to resolved."
@@ -133,6 +133,25 @@ Run hygiene review:
 ```
 
 Auto-scope mode covers the full work arc. Must pass.
+
+Run tooling improvement sweep:
+```bash
+/improve-tooling
+```
+
+Review any test harness, diagnostic script, or developer tooling gaps surfaced during
+the implementation arc (Sections 01–06). Flag gaps found in `dual-exec-verify.sh`,
+`test-all.sh`, or any diagnostic flag interactions.
+
+Run CLAUDE.md sync sweep:
+```bash
+/sync-claude
+```
+
+Verify no new APIs, commands, or invocation patterns were introduced by Sections 01–06
+that need documenting. If `diagnostics/dual-exec-verify.sh` behavior or any new
+`ORI_*` flags were added or changed, document the exact invocation pattern in
+CLAUDE.md §Commands if not already present.
 
 ---
 
@@ -277,11 +296,32 @@ explicitly includes `plans/bug-tracker/section-04-codegen-llvm.md entry resolved
 
 ---
 
+Round 4 — Dual-source TPR on sections 05, 06, 07 (Codex + Gemini). Findings addressed
+in this revision.
+
+### [[TPR-07-R4-001-codex]] [MEDIUM] /improve-tooling and /sync-claude dropped from 07.3 and 07.N
+
+**Location:** `plans/empty-container-typeck-phase-contract/section-07-closeout.md:§07.3`
+**Reviewer:** Codex | **Status:** Fixed
+
+**Evidence:** `00-overview.md:165` and `index.md:119` both specify Phase 6 / Section 07
+close-out as `/tpr-review` → `/impl-hygiene-review` → `/improve-tooling` sweep → `/sync-claude`.
+After the 07.3/07.4 reorder in Round 3, the implementation of 07.3 and the 07.N checklist
+only included `/tpr-review` and `/impl-hygiene-review`. Both `/improve-tooling` and
+`/sync-claude` were silently dropped, leaving the section cross-inconsistent with the
+approved overview and creating two unanchored mandatory close-out tasks.
+
+**Fix:** Added `/improve-tooling` and `/sync-claude` blocks to 07.3 body with instructions
+for each. Updated the success_criteria to name all five gates. Updated the 07.N "07.3
+complete" checklist item to explicitly list `/improve-tooling` and `/sync-claude`.
+
+---
+
 ## 07.N Completion Checklist
 
 - [ ] **07.1 complete** — `./test-all.sh` green debug + release; `cargo test --release -p ori_llvm` green; dual-exec parity verified on ≥3 spec files
 - [ ] **07.2 complete** — zero `BUG-04-074|empty-container-typeck` hits in all four trees: `compiler/*.rs`, `compiler/*.ori` (AOT fixtures), `tests/*.ori`, `library/*.ori`
-- [ ] **07.3 complete** — `plan_corpus check plans/empty-container-typeck-phase-contract/` passes; final `/tpr-review` clean; `/impl-hygiene-review` clean
+- [ ] **07.3 complete** — `plan_corpus check plans/empty-container-typeck-phase-contract/` passes; final `/tpr-review` clean; `/impl-hygiene-review` clean; `/improve-tooling` sweep clean; `/sync-claude` sweep clean
 - [ ] **07.4 complete** — `fix-BUG-04-074.md` status `complete`; `00-overview.md` updated; `plans/bug-tracker/section-04-codegen-llvm.md` entry resolved
 - [ ] This section's own status set to `complete` in frontmatter
 - [ ] `plans/empty-container-typeck-phase-contract/` plan index updated: all sections complete
