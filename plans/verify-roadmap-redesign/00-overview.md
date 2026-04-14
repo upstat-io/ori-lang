@@ -213,7 +213,7 @@ Section 01's scope grew because the original "Schema Definition" + "Validation S
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Frontmatter Schema, Strict Parser & Shared Types | `section-01-frontmatter-schema.md` | Not Started |
+| 01 | Frontmatter Schema, Strict Parser & Shared Types | `section-01-frontmatter-schema.md` | Complete |
 | 02 | DAG Builder & Conflict Classifier | `section-02-dag-builder.md` | Not Started |
 | 03 | Findings Report & Write-Back | `section-03-findings-report.md` | Not Started |
 | 04 | Item-Level Verifier Preservation | `section-04-item-verifier.md` | Not Started |
