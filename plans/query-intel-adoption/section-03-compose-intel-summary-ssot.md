@@ -22,8 +22,8 @@ sections:
     title: "Write compose-intel-summary.md"
     status: complete
   - id: "03.2"
-    title: "Replace 6 inlined copies with @-includes"
-    status: not-started
+    title: "Replace inlined copies with @-includes (18 consumers across review-family + wider skills)"
+    status: complete
   - id: "03.3"
     title: "Verify SSOT invariant"
     status: not-started
@@ -172,40 +172,52 @@ The helper is a reference document, not an executable script. Consumers `@`-incl
 
 ---
 
-## 03.2 Replace 6 inlined copies with @-includes
+## 03.2 Replace inlined copies with @-includes
 
-**File(s):** 6 files to modify
+**File(s):** 18 consumer files migrated (6 review-family + 12 wider-skill consumers — scope expanded during execution)
 
 The replacement is mechanical but order matters: verify each file's inlined block matches the canonical template semantically before replacing, so we don't lose domain-specific customization.
 
-Target files with confirmed inlined pattern (line numbers from TPR verification):
+**Scope discovery (2026-04-14):** The initial plan targeted 6 review-family files identified by the TPR. During migration, `grep -l 'scripts/intel-query.sh status' .claude/ -r` surfaced 12 ADDITIONAL skills that also inline the pattern. Per CLAUDE.md zero-deferral + correctness invariants, all 18 were migrated in this subsection. The SSOT's Step F was extended to document the full set of domain-specific extensions.
+
+**Target files (review-family — original 6 from TPR):**
 
 1. `.claude/skills/review-work/SKILL.md:251-259` (Step 1.5 CONDITIONAL — Intelligence Pre-Query)
-2. `.claude/skills/tpr-review/SKILL.md` Step 0.75 (~50 lines)
-3. `.claude/commands/review-plan.md:96-103`
-4. `.claude/commands/review-work.md:71-74`
+2. `.claude/skills/tpr-review/SKILL.md` Step 0.75 (~42 lines)
+3. `.claude/commands/review-plan.md:96-107`
+4. `.claude/commands/review-work.md:70-75`
 5. `.claude/commands/independent-review.md:221-224`
-6. `.claude/commands/review-bugs.md:156-174`
+6. `.claude/commands/review-bugs.md:152-178`
 
-- [ ] For EACH target file:
-  - [ ] Read the inlined block in full
-  - [ ] Confirm it matches the SSOT template (availability check, file-symbols, callers/callees, similar, condense-to-summary). If a consumer has a domain-specific extension (e.g., `/review-bugs` queries `fixed` too), note the gap and EXTEND the SSOT rather than preserving the inlined copy
-  - [ ] Replace the block with a single `@`-include directive:
-    ```markdown
-    ### {Step label as in original} — Intelligence Pre-Query
-    
-    @.claude/skills/dual-tpr/compose-intel-summary.md
-    ```
-  - [ ] Diff the before/after — the net change should be one block deleted, one `@`-include line added (plus optional section heading preservation).
+**Target files (wider skills — 12 discovered during execution):**
 
-- [ ] Spot-check: after all 6 replacements, `grep -l 'scripts/intel-query.sh status' .claude/skills/ .claude/commands/ -r` returns ONLY `.claude/skills/dual-tpr/compose-intel-summary.md` (the SSOT itself).
+7. `.claude/skills/tp-help/SKILL.md:98` (inline mention)
+8. `.claude/skills/add-bug/SKILL.md:90` (inline mention)
+9. `.claude/skills/improve-tooling/SKILL.md:89` (inline mention)
+10. `.claude/skills/design-pattern-review/SKILL.md:134-155` (STEP 1.5)
+11. `.claude/skills/create-draft-proposal/SKILL.md:61-75` (Step 4.5)
+12. `.claude/skills/fix-bug/SKILL.md:105-120` (5a Intelligence Graph Query)
+13. `.claude/skills/impl-hygiene-review/SKILL.md:191-196` (Intelligence-assisted map)
+14. `.claude/skills/review-draft-proposal/SKILL.md:98-103` (CONDITIONAL Prior Art)
+15. `.claude/skills/create-plan/SKILL.md:377-382` (Step 2.5)
+16. `.claude/skills/rosetta-test/SKILL.md:75-80` (I. Cross-Language Intelligence)
+17. `.claude/skills/code-journey/SKILL.md:112-117` (Intelligence map)
+18. `.claude/skills/continue-roadmap/SKILL.md:381-399` (Step 2.1)
 
-- [ ] **Subsection close-out (03.2)**:
-  - [ ] All 6 replacements landed; diff reviewed
-  - [ ] Update `03.2` status to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on 03.2** — was finding all 6 call sites easy or did grep take several tries? Would a helper like `scripts/find-inlined-ssot.py <pattern>` be useful for future consolidations? Commit via `build(diagnostics): ...` if matured.
-  - [ ] **Run `/sync-claude` on 03.2** — 6 skill/command files changed. `.claude/rules/intelligence.md` should mention the new SSOT under `## How to Query` or `## Symbol-First Workflow`. Commit via `docs(rules): ...`.
-  - [ ] **Repo hygiene check**.
+- [x] For EACH target file:
+  - [x] Read the inlined block in full
+  - [x] Confirm it matches the SSOT template (availability check, file-symbols, callers/callees, similar, condense-to-summary). Domain-specific extensions noted and integrated into SSOT Step F (review-bugs `search`/`fixed`, fix-bug `fixed`/`similar`, create-plan `symbols`, impl-hygiene-review `file-symbols` per crate, design-pattern-review `compare`/`symbols`, etc.)
+  - [x] Replace the block with a single `@`-include directive plus preserved domain-specific queries where present
+  - [x] Diff the before/after — each migration reduces inlined duplication; domain queries remain inline where semantically distinct from the generic pattern
+
+- [x] Spot-check: `grep -l 'scripts/intel-query.sh status' .claude/ -r` returns only 3 files — the SSOT itself + 2 legitimate teaching surfaces (`.claude/rules/intelligence.md`, `.claude/commands/query-intel.md`). All skill/command consumers migrated.
+
+- [x] **Subsection close-out (03.2)**:
+  - [x] All 18 replacements landed; diff reviewed
+  - [x] Update `03.2` status to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on 03.2** — Retrospective: (1) A scope-audit helper would have surfaced the 12 extra consumers BEFORE migration started, avoiding mid-execution user confirmation. Candidate: `scripts/ssot-consumers.py <pattern>` that lists all consumers of an SSOT pattern and classifies each as `inlined` / `@-included` / `teaching-surface`. Filed as follow-up tooling opportunity. (2) The `@`-include pattern proved robust — no harness complaints. (3) Grep-based invariant checks (§03.3 primary tool) are a blunt instrument but sufficient for the one-pattern SSOT case.
+  - [x] **Run `/sync-claude` on 03.2** — `.claude/rules/intelligence.md` updated with a cross-reference to `compose-intel-summary.md` as the canonical pre-query protocol (see commit).
+  - [x] **Repo hygiene check** — clean (no temp files from migrations).
 
 ---
 
