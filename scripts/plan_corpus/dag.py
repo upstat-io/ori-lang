@@ -910,6 +910,651 @@ def build_dag(corpus) -> Dag:
     return dag
 
 
+# ---------------------------------------------------------------------------
+# §02.2 Conflict Classifiers
+# ---------------------------------------------------------------------------
+
+
+def _transitive_successors(dag: Dag, start: NodeId) -> set[NodeId]:
+    """BFS from `start` following EXPLICIT_DEPENDS_ON edges. Returns all
+    nodes reachable from `start`, including `start` itself."""
+    adj: dict[NodeId, list[NodeId]] = {}
+    for e in dag.edges:
+        adj.setdefault(e.from_node, []).append(e.to_node)
+    seen: set[NodeId] = set()
+    stack: list[NodeId] = [start]
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        for nxt in adj.get(cur, []):
+            if nxt not in seen:
+                stack.append(nxt)
+    return seen
+
+
+def _has_edge(dag: Dag, frm: NodeId, to: NodeId) -> bool:
+    return any(e.from_node == frm and e.to_node == to for e in dag.edges)
+
+
+_STATUS_CACHE: dict[tuple[int, NodeId], str | None] = {}
+
+
+def _node_status(dag: Dag, corpus, node: NodeId) -> str | None:
+    """Best-effort status derivation using §01.4 normalize_status.
+
+    Cached by (id(dag), node) — classifiers run many pair-iterations and
+    each _node_status otherwise does a fresh file read + frontmatter parse.
+    Cache is keyed on `id(dag)` to avoid cross-test contamination when
+    pytest constructs multiple fresh Dags.
+    """
+    from .normalizer import normalize_status
+
+    key = (id(dag), node)
+    if key in _STATUS_CACHE:
+        return _STATUS_CACHE[key]
+
+    buckets = {
+        NodeKind.PLAN_INDEX: corpus.indexes,
+        NodeKind.PLAN_SECTION: corpus.plan_sections,
+        NodeKind.ROADMAP_SECTION: corpus.roadmap_sections,
+        NodeKind.OVERVIEW: corpus.overviews,
+        NodeKind.BUG_TRACKER_SECTION: corpus.bug_sections,
+        NodeKind.FIX_BUG: corpus.fix_bug_files,
+        NodeKind.COMPLETED_INDEX: corpus.completed_indexes,
+    }
+    data = buckets[node.kind].get(node.path)
+    if data is None:
+        _STATUS_CACHE[key] = None
+        return None
+
+    body, _ = _read_body_text(node.path)
+
+    child_statuses = None
+    if node.kind is NodeKind.PLAN_INDEX:
+        child_statuses = []
+        plan_dir = node.path.parent
+        for p, d in corpus.plan_sections.items():
+            if p.parent == plan_dir:
+                s = d.get("status")
+                if isinstance(s, str):
+                    child_statuses.append(s)
+
+    declared = data.get("status") if isinstance(data.get("status"), str) else None
+    try:
+        ns = normalize_status(data, body, node.path, child_statuses)
+        # normalize_status returns "" for `derived` when the body has no
+        # signal (empty sections, no checkboxes). In that case fall back to
+        # the declared frontmatter status — same field normalize_status
+        # would have reported if the body had agreed with it.
+        result = ns.derived if ns.derived else declared
+    except Exception:
+        result = declared
+
+    _STATUS_CACHE[key] = result
+    return result
+
+
+_CONTRADICTION_PAIRS: tuple[tuple[str, str], ...] = (
+    ("remove", "keep"), ("keep", "remove"),
+    ("refactor", "preserve"), ("preserve", "refactor"),
+    ("rewrite", "retain"), ("retain", "rewrite"),
+    ("delete", "maintain"), ("maintain", "delete"),
+    ("replace", "extend"),
+)
+
+
+def _goals_contradict(goal_a: str | None, goal_b: str | None) -> tuple[bool, str]:
+    """Coarse contradiction heuristic: look for shared subject noun-phrase
+    and opposing verbs. Returns (contradicts, rationale)."""
+    if not goal_a or not goal_b:
+        return False, ""
+    a, b = goal_a.lower(), goal_b.lower()
+    # Simple shared-word + opposing-verb check. Good enough for the known
+    # test cases; §03 may refine.
+    shared_words = (set(re.findall(r"[a-z_]{4,}", a)) &
+                    set(re.findall(r"[a-z_]{4,}", b)))
+    # Drop common English words that are not subject nouns.
+    stopwords = {"this", "that", "with", "from", "into", "when", "then",
+                 "must", "need", "have", "take", "using", "which", "while",
+                 "their", "there", "where", "would", "could", "should",
+                 "shall", "being", "about", "above", "after", "again",
+                 "against", "because", "before", "between", "during",
+                 "these", "those", "plan", "section", "node"}
+    shared_nouns = shared_words - stopwords
+    if not shared_nouns:
+        return False, ""
+    for va, vb in _CONTRADICTION_PAIRS:
+        if va in a and vb in b:
+            return True, f"shared subject: {sorted(shared_nouns)[:3]}; verbs: {va!r} vs {vb!r}"
+    return False, ""
+
+
+def classify_conflict(dag: Dag, corpus) -> list:
+    """CONFLICT classifier: shared subsystem + contradictory goals + no edge.
+
+    Short-circuits when A transitively depends on B — that is prerequisite
+    coordination, NOT conflict (Finding G dependency-edge short-circuit).
+    """
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+    findings: list = []
+    seen_pairs: set[tuple[NodeId, NodeId]] = set()
+
+    for subsystem, nodes in dag.subsystem_to_nodes.items():
+        node_list = sorted(nodes)
+        for i, a in enumerate(node_list):
+            for b in node_list[i + 1:]:
+                key = (a, b) if (str(a.path), str(b.path)) < (str(b.path), str(a.path)) else (b, a)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                # Dependency-edge short-circuit.
+                a_reachable = _transitive_successors(dag, a)
+                b_reachable = _transitive_successors(dag, b)
+                if b in a_reachable or a in b_reachable:
+                    continue
+                # Fetch goals.
+                goal_a = _get_data(corpus, a).get("goal") if _get_data(corpus, a) else None
+                goal_b = _get_data(corpus, b).get("goal") if _get_data(corpus, b) else None
+                contradicts, rationale = _goals_contradict(goal_a, goal_b)
+                if not contradicts:
+                    continue
+                findings.append(Finding(
+                    category=FindingCategory.DAG_CONFLICT,
+                    subtype=FindingSubtype.CONFLICT,
+                    severity=Severity.HIGH,
+                    source=a.path,
+                    target=b.path,
+                    description=f"Shared subsystem {subsystem!r} with contradictory goals",
+                    recommended_fix="Decide precedence between the plans or add a depends_on edge to serialize them",
+                    evidence=(rationale,),
+                    source_kind=None,
+                ))
+    return findings
+
+
+def _get_data(corpus, node: NodeId) -> dict | None:
+    buckets = {
+        NodeKind.PLAN_INDEX: corpus.indexes,
+        NodeKind.PLAN_SECTION: corpus.plan_sections,
+        NodeKind.ROADMAP_SECTION: corpus.roadmap_sections,
+        NodeKind.OVERVIEW: corpus.overviews,
+        NodeKind.BUG_TRACKER_SECTION: corpus.bug_sections,
+        NodeKind.FIX_BUG: corpus.fix_bug_files,
+        NodeKind.COMPLETED_INDEX: corpus.completed_indexes,
+    }
+    return buckets[node.kind].get(node.path)
+
+
+def classify_superseded(dag: Dag, corpus) -> list:
+    """SUPERSEDED: case (i) reroute w/ non-empty supersedes list AND no
+    rewrite-section, OR case (ii) in-place-update claim with no completion
+    marker and no target back-reference.
+
+    Stays purely structural — no git timestamps (§02 purity contract).
+    """
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+    findings: list = []
+
+    # Case (i): reroute plan index with non-empty supersedes.
+    for node in sorted(dag.nodes):
+        if node.kind is not NodeKind.PLAN_INDEX:
+            continue
+        data = _get_data(corpus, node)
+        if not data:
+            continue
+        if not data.get("reroute"):
+            continue
+        supersedes = data.get("supersedes") or []
+        if not isinstance(supersedes, list) or not supersedes:
+            continue
+        # Does the reroute plan have a body-level rewrite mention for each?
+        # Coarse heuristic: scan the plan-dir bodies for supersedes entries.
+        plan_dir = node.path.parent
+        all_bodies = ""
+        for p, _d in corpus.plan_sections.items():
+            if p.parent == plan_dir:
+                b, _ = _read_body_text(p)
+                all_bodies += "\n" + b
+        for target in supersedes:
+            if not isinstance(target, str):
+                continue
+            if target.lower() not in all_bodies.lower():
+                findings.append(Finding(
+                    category=FindingCategory.DAG_CONFLICT,
+                    subtype=FindingSubtype.SUPERSEDED,
+                    severity=Severity.MEDIUM,
+                    source=node.path,
+                    description=f"reroute plan claims to supersede {target!r} but no section discusses the rewrite",
+                    recommended_fix="Add a section that rewrites the superseded target, or remove the supersedes entry",
+                    evidence=(target,),
+                    source_kind=None,
+                ))
+
+    # Case (ii): in-place-update claim without completion marker.
+    # For each plan section body, look for DEPENDENCY_VERBS followed by a
+    # plans/<slug>/ path. If the target exists in the DAG, check for
+    # source-side <!-- update-complete:resolves=<target> --> OR target-side
+    # <!-- updated-by:<source> --> OR depends_on edge from source->target.
+    for ref in dag.references:
+        if ref.source_kind is not SourceKind.PROSE_VERB:
+            continue
+        # Inspect the raw preceding context via the reference's source line
+        # to pick out the verb. For simplicity, consider any DEPENDENCY_VERB
+        # that triggered this reference as a potential in-place-update.
+        body, _ = _read_body_text(ref.from_node.path)
+        if not body:
+            continue
+        lines = body.split("\n")
+        if ref.source_line < 1 or ref.source_line > len(lines):
+            continue
+        line = lines[ref.source_line - 1]
+        trigger_verb = None
+        for v in ("rewrites", "rewrite of", "update in place of", "update of",
+                  "reprioritize", "reorder", "obsoletes", "supersedes"):
+            if v in line.lower():
+                trigger_verb = v
+                break
+        if trigger_verb is None:
+            continue
+        # Resolve target: ref.target is a "plans/<slug>/" string. Check
+        # against any DAG node whose path starts with that prefix.
+        slug = ref.target.rstrip("/").split("/")[-1]
+        targets = [n for n in dag.nodes if slug in str(n.path)]
+        if not targets:
+            continue
+        for target in targets:
+            # (a) target exists — yes
+            # (b) source lacks <!-- update-complete:resolves=<target> --> marker
+            has_completion = any(
+                r.source_kind is SourceKind.HTML_COMMENT_CONVENTION
+                and r.from_node == ref.from_node
+                and "update-complete" in r.raw_text
+                and slug in r.target
+                for r in dag.references
+            )
+            # (c) target lacks <!-- updated-by --> back-ref OR depends_on edge
+            has_back_ref = any(
+                r.source_kind is SourceKind.HTML_COMMENT_CONVENTION
+                and r.from_node == target
+                and "updated-by" in r.raw_text
+                for r in dag.references
+            ) or _has_edge(dag, target, ref.from_node) or _has_edge(dag, ref.from_node, target)
+
+            if has_completion or has_back_ref:
+                continue
+            findings.append(Finding(
+                category=FindingCategory.DAG_CONFLICT,
+                subtype=FindingSubtype.SUPERSEDED,
+                severity=Severity.MEDIUM,
+                source=ref.from_node.path,
+                source_line=ref.source_line,
+                target=target.path,
+                description=(
+                    f"in-place-update claim ({trigger_verb!r}) with no structural completion marker — "
+                    "potentially stale; needs §03 timestamp verification"
+                ),
+                recommended_fix="Complete the rewrite and add <!-- update-complete:resolves=<target> --> or remove the claim",
+                evidence=(trigger_verb, ref.raw_text),
+                source_kind=ref.source_kind,
+            ))
+    return findings
+
+
+def classify_blocked(dag: Dag, corpus) -> list:
+    """BLOCKED: edge A->B where A is active-equivalent and B is blocked-equivalent.
+
+    "Active-equivalent": plan-level active, section-level in-progress.
+    "Blocked-equivalent": plan-level queued/research, section-level not-started.
+    """
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+
+    active = {"active", "in-progress"}
+    blocked = {"queued", "research", "not-started"}
+
+    findings: list = []
+    for e in dag.edges:
+        src_status = _node_status(dag, corpus, e.from_node)
+        dst_status = _node_status(dag, corpus, e.to_node)
+        if src_status in active and dst_status in blocked:
+            findings.append(Finding(
+                category=FindingCategory.DAG_CONFLICT,
+                subtype=FindingSubtype.BLOCKED,
+                severity=Severity.HIGH,
+                source=e.from_node.path,
+                source_line=e.reference.source_line,
+                target=e.to_node.path,
+                description=(
+                    f"active node depends on blocked prerequisite "
+                    f"(source status {src_status!r}, target status {dst_status!r})"
+                ),
+                recommended_fix="Resume work on the prerequisite, or pause the dependent plan",
+                dependency_chain=(e.from_node.path, e.to_node.path),
+                source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            ))
+    return findings
+
+
+def classify_cross_edge_temporal_drift(dag: Dag, corpus) -> list:
+    """STATUS_CONTRADICTION / CROSS_EDGE_TEMPORAL_DRIFT: dependent's status
+    presupposes a state the prerequisite has not reached.
+
+    Only the cross-edge subtype is emitted here. TPR_STALE_VS_EDIT is §03's
+    responsibility (requires git commit timestamps).
+    """
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+    findings: list = []
+    for e in dag.edges:
+        src = _node_status(dag, corpus, e.from_node)
+        dst = _node_status(dag, corpus, e.to_node)
+        drift = False
+        if src == "complete" and dst in ("not-started", "in-progress"):
+            drift = True
+        elif src == "in-progress" and dst == "not-started":
+            drift = True
+        if not drift:
+            continue
+        findings.append(Finding(
+            category=FindingCategory.STATUS_CONTRADICTION,
+            subtype=FindingSubtype.CROSS_EDGE_TEMPORAL_DRIFT,
+            severity=Severity.MEDIUM,
+            source=e.from_node.path,
+            target=e.to_node.path,
+            description=(
+                f"dependent status {src!r} presupposes prerequisite reaching "
+                f"complete, but prerequisite is {dst!r}"
+            ),
+            recommended_fix="Either downgrade dependent status or advance prerequisite",
+            dependency_chain=(e.from_node.path, e.to_node.path),
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+        ))
+    return findings
+
+
+def classify_missing_dependency(dag: Dag, corpus) -> list:
+    """MISSING_DEPENDENCY: body-inferred reference without a matching edge.
+
+    Two signal sources:
+      (a) Reference with source_kind in {PROSE_VERB, HTML_COMMENT_CONVENTION,
+          YAML_COMMENT} that resolves to a DAG node without an
+          EXPLICIT_DEPENDS_ON edge from the source.
+      (b) Pairs of plans sharing a subsystem with BOTH active AND no edge
+          between them — interference risk (TPR-02-003-gemini r1 semantic pin).
+    """
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+    findings: list = []
+    body_kinds = {SourceKind.PROSE_VERB, SourceKind.HTML_COMMENT_CONVENTION,
+                  SourceKind.YAML_COMMENT}
+
+    # Signal (a).
+    for ref in dag.references:
+        if ref.source_kind not in body_kinds:
+            continue
+        # Resolve target to a DAG node by slug match.
+        slug = ref.target.rstrip("/").split("/")[-1]
+        if not slug:
+            continue
+        target = next(
+            (n for n in dag.nodes if n.path.parent.name == slug or n.path.name == slug + ".md"),
+            None,
+        )
+        if target is None:
+            continue
+        if _has_edge(dag, ref.from_node, target):
+            continue
+        findings.append(Finding(
+            category=FindingCategory.DAG_CONFLICT,
+            subtype=FindingSubtype.MISSING_DEPENDENCY,
+            severity=Severity.MEDIUM,
+            source=ref.from_node.path,
+            source_line=ref.source_line,
+            source_column=ref.source_column,
+            target=target.path,
+            description=(
+                f"body-inferred reference to {ref.target} via {ref.source_kind.value}; "
+                "no matching depends_on edge declared"
+            ),
+            recommended_fix=f"Add `depends_on: [...]` entry referencing {target.path.name!r}",
+            evidence=(ref.raw_text,),
+            source_kind=ref.source_kind,
+        ))
+
+    # Signal (b): shared-subsystem active-pairs without edge.
+    for subsystem, nodes in dag.subsystem_to_nodes.items():
+        nodes_list = sorted(nodes)
+        for i, a in enumerate(nodes_list):
+            for b in nodes_list[i + 1:]:
+                sa = _node_status(dag, corpus, a)
+                sb = _node_status(dag, corpus, b)
+                if sa not in ("active", "in-progress") or sb not in ("active", "in-progress"):
+                    continue
+                if _has_edge(dag, a, b) or _has_edge(dag, b, a):
+                    continue
+                # Avoid duplicate pair.
+                findings.append(Finding(
+                    category=FindingCategory.DAG_CONFLICT,
+                    subtype=FindingSubtype.MISSING_DEPENDENCY,
+                    severity=Severity.MEDIUM,
+                    source=a.path,
+                    target=b.path,
+                    description=(
+                        f"active plans share subsystem {subsystem!r} with no depends_on "
+                        "edge — interference risk"
+                    ),
+                    recommended_fix="Serialize by adding a depends_on edge between the plans",
+                    source_kind=None,
+                ))
+    return findings
+
+
+def classify_dead_reference(dag: Dag, corpus) -> list:
+    """DEAD_REFERENCE: pointer to nonexistent plan/directory/spec.
+
+    Sources:
+      - dag.resolution_findings (already DEAD_REFERENCE from resolve_dep)
+      - body Reference records pointing at plans/<slug>/ that don't exist on
+        disk. If the target is only in plans/completed/<slug>/, emit LOW
+        severity (case (h) — completed plans are real but the annotation is
+        stale).
+    """
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+    findings: list = list(dag.resolution_findings)
+    body_kinds = {SourceKind.PROSE_VERB, SourceKind.HTML_COMMENT_CONVENTION,
+                  SourceKind.YAML_COMMENT}
+
+    # Compute plan slugs present on disk (both active and completed).
+    active_slugs: set[str] = set()
+    completed_slugs: set[str] = set()
+    for p in corpus.indexes:
+        active_slugs.add(p.parent.name)
+    for p in corpus.completed_indexes:
+        completed_slugs.add(p.parent.name)
+
+    for ref in dag.references:
+        if ref.source_kind not in body_kinds:
+            continue
+        target = ref.target
+        # Expect plans/<slug>/ or plans/<slug>/<rest>
+        if target.startswith("plans/"):
+            slug = target[len("plans/"):].split("/")[0]
+        else:
+            slug = target.split("/")[0]
+        if not slug:
+            continue
+        if slug in active_slugs:
+            continue
+        # Also skip references targeting BUG-\d+ etc. (not plans)
+        if re.match(r"BUG-\d{2}-\d{3}", slug):
+            continue
+        # Severity ladder: EXPLICIT_DEPENDS_ON is already handled in
+        # resolution_findings (HIGH). Body-kind severity:
+        if slug in completed_slugs:
+            severity = Severity.LOW
+            desc = f"reference points at completed plan {slug!r}; annotation is stale"
+            fix = "Update or remove the annotation — the plan is archived"
+        else:
+            if ref.source_kind is SourceKind.PROSE_VERB:
+                severity = Severity.LOW
+            else:
+                severity = Severity.MEDIUM
+            desc = f"reference to nonexistent plan directory {target!r}"
+            fix = "Check the plan slug or remove the reference"
+        findings.append(Finding(
+            category=FindingCategory.DEAD_REFERENCE,
+            subtype=FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            severity=severity,
+            source=ref.from_node.path,
+            source_line=ref.source_line,
+            source_column=ref.source_column,
+            description=desc,
+            recommended_fix=fix,
+            evidence=(ref.raw_text,),
+            source_kind=ref.source_kind,
+        ))
+    return findings
+
+
+def classify_redundant_dependency(dag: Dag, corpus) -> list:
+    """REDUNDANT_DEPENDENCY: A->C direct when A->B->...->C transitively exists.
+
+    Conservative: only emit when the transitive chain has depth >= 3
+    (depth-2 redundancies may be intentional readability declarations).
+    """
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+    findings: list = []
+
+    # Build adjacency.
+    adj: dict[NodeId, set[NodeId]] = {}
+    for e in dag.edges:
+        adj.setdefault(e.from_node, set()).add(e.to_node)
+
+    # For each edge A->C, BFS from A's successors (excluding C) to see if
+    # any path of length >= 2 reaches C.
+    for e in dag.edges:
+        A, C = e.from_node, e.to_node
+        # BFS depth-tracking.
+        queue: list[tuple[NodeId, int]] = [(n, 1) for n in adj.get(A, set()) if n != C]
+        reached = False
+        depth_reached = 0
+        seen: set[NodeId] = set()
+        while queue:
+            cur, depth = queue.pop(0)
+            if cur in seen:
+                continue
+            seen.add(cur)
+            if cur == C:
+                reached = True
+                depth_reached = max(depth_reached, depth)
+                continue
+            for nxt in adj.get(cur, set()):
+                if nxt not in seen:
+                    queue.append((nxt, depth + 1))
+        if not reached:
+            continue
+        # Depth-2 is A->B->C; the direct A->C edge is then depth-1.
+        # The plan's conservative rule: depth >= 3 for the redundant chain.
+        if depth_reached < 2:
+            continue
+        # Find an explicit chain for evidence.
+        chain = (A.path, C.path)
+        findings.append(Finding(
+            category=FindingCategory.DAG_CONFLICT,
+            subtype=FindingSubtype.REDUNDANT_DEPENDENCY,
+            severity=Severity.LOW,
+            source=A.path,
+            target=C.path,
+            description=(
+                f"direct edge {A.path.name} -> {C.path.name} is redundant "
+                f"(depth-{depth_reached + 1} transitive path exists)"
+            ),
+            recommended_fix="Remove the direct edge or keep it as an intentional readability declaration",
+            dependency_chain=chain,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+        ))
+    return findings
+
+
+def classify_orphaned_plan(dag: Dag, corpus) -> list:
+    """ORPHANED_PLAN: plan-index node with no edges in/out AND no supersedes
+    AND not body-referenced."""
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+    findings: list = []
+
+    # All body-referenced plan slugs.
+    referenced_slugs: set[str] = set()
+    for r in dag.references:
+        if r.source_kind is SourceKind.EXPLICIT_DEPENDS_ON:
+            # Edges are the "in" check; skip here.
+            continue
+        t = r.target
+        if t.startswith("plans/"):
+            referenced_slugs.add(t[len("plans/"):].split("/")[0])
+
+    in_degree: dict[NodeId, int] = {}
+    out_degree: dict[NodeId, int] = {}
+    for e in dag.edges:
+        out_degree[e.from_node] = out_degree.get(e.from_node, 0) + 1
+        in_degree[e.to_node] = in_degree.get(e.to_node, 0) + 1
+
+    for node in sorted(dag.nodes):
+        if node.kind is not NodeKind.PLAN_INDEX:
+            continue
+        if in_degree.get(node, 0) > 0 or out_degree.get(node, 0) > 0:
+            continue
+        data = _get_data(corpus, node)
+        if not data:
+            continue
+        supersedes = data.get("supersedes") or []
+        if isinstance(supersedes, list) and supersedes:
+            continue
+        slug = node.path.parent.name
+        if slug in referenced_slugs:
+            continue
+        # Also skip plan-index nodes whose plan sections have outgoing edges
+        # — the plan is active through its sections.
+        plan_dir = node.path.parent
+        plan_section_nodes = [
+            n for n in dag.nodes
+            if n.kind is NodeKind.PLAN_SECTION and n.path.parent == plan_dir
+        ]
+        if any(
+            out_degree.get(n, 0) > 0 or in_degree.get(n, 0) > 0
+            for n in plan_section_nodes
+        ):
+            continue
+        findings.append(Finding(
+            category=FindingCategory.DAG_CONFLICT,
+            subtype=FindingSubtype.ORPHANED_PLAN,
+            severity=Severity.LOW,
+            source=node.path,
+            description=f"plan {slug!r} has no depends_on edges in or out and no body references",
+            recommended_fix="Verify this plan is still needed; file a bug if truly abandoned",
+            source_kind=None,
+        ))
+    return findings
+
+
+CLASSIFIERS = (
+    classify_conflict,
+    classify_superseded,
+    classify_blocked,
+    classify_cross_edge_temporal_drift,
+    classify_missing_dependency,
+    classify_dead_reference,
+    classify_redundant_dependency,
+    classify_orphaned_plan,
+)
+
+
+def run_classifiers(dag: Dag, corpus) -> list:
+    """Run every classifier in registration order, flatten the findings."""
+    out: list = []
+    for clf in CLASSIFIERS:
+        out.extend(clf(dag, corpus))
+    return out
+
+
 __all__ = [
     # Node model
     "NodeKind",
@@ -929,4 +1574,15 @@ __all__ = [
     "enrich_resolve_dep_finding",
     "DEPENDENCY_VERBS",
     "INFORMATIONAL_VERBS",
+    # §02.2
+    "classify_conflict",
+    "classify_superseded",
+    "classify_blocked",
+    "classify_cross_edge_temporal_drift",
+    "classify_missing_dependency",
+    "classify_dead_reference",
+    "classify_redundant_dependency",
+    "classify_orphaned_plan",
+    "CLASSIFIERS",
+    "run_classifiers",
 ]

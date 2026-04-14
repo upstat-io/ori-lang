@@ -33,7 +33,7 @@ sections:
     status: complete
   - id: "02.2"
     title: "Conflict Classifiers"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "Priority Inversion Detection"
     status: not-started
@@ -231,17 +231,17 @@ Build a directed acyclic graph where nodes are instances of all seven §01.2 sch
 
 Implement the full classifier stack: the six mission classifiers plus `REDUNDANT_DEPENDENCY` and `ORPHANED_PLAN` informational classifiers. Classifier ordering and source-kind filtering are documented at the top of each classifier. Cross-classifier precedence lives in §02.4.
 
-- [ ] **Classifier registration table (at module top):**
+- [x] **Classifier registration table (at module top):**
   - `CLASSIFIERS: list[Callable[[Dag], list[Finding]]]` in execution order (per §02.4 precedence). Each classifier is pure and stateless. The `run_classifiers(dag) -> list[Finding]` entry point walks the table in order.
 
-- [ ] **CONFLICT** — contradictory goals for the same subsystem:
+- [x] **CONFLICT** — contradictory goals for the same subsystem:
   - Input: `dag.subsystem_to_nodes` + node goals
   - For each shared subsystem with ≥2 nodes, for each pair `(A, B)` of nodes:
     - **Dependency-edge short-circuit (Finding G):** if `A` transitively depends on `B` (or vice versa) via EXPLICIT_DEPENDS_ON edges, this is prerequisite coordination, NOT conflict. Skip the pair.
     - Otherwise compare their `goal` strings using a contradiction heuristic (shared subject noun-phrases + opposing verbs like `remove`/`keep`, `refactor`/`preserve`, `rewrite`/`retain`). The heuristic returns a boolean + rationale string.
     - If contradictory → emit `Finding(category=DAG_CONFLICT, subtype=CONFLICT, severity=HIGH, source=A.path, target=B.path, description=..., recommended_fix="Decide precedence between the plans or add a depends_on edge to serialize them", evidence=(rationale,))`.
 
-- [ ] **SUPERSEDED** — reroute claims OR in-place-rewrite claims with incomplete rewrites:
+- [x] **SUPERSEDED** — reroute claims OR in-place-rewrite claims with incomplete rewrites:
   - Case (i) — reroute plan with `supersedes` list: for each plan index node with `reroute: True` AND non-empty `supersedes`, check whether the reroute plan has at least one non-complete section targeting each supersedes entry (body text contains a reference with `SourceKind.HTML_COMMENT_CONVENTION` verb `supersedes` OR `rewrites`, or a section goal substring-matches the supersedes entry's logical ID/title). If not → emit finding.
   - Case (ii) — in-place-update claim (Finding A, broadened per TPR-02-002-codex round 1; de-phase-leaked per TPR-02-002-codex round 2): for each plan section whose body prose contains ANY in-place-update verb from the extended `DEPENDENCY_VERBS` — `"rewrites"`, `"rewrite of"`, `"update in place of"`, `"update of"`, `"reprioritize"`, `"reorder"`, `"supersedes"`, `"obsoletes"` — where the following noun-phrase resolves via `resolve_dep` to another plan/roadmap section, emit a structural SUPERSEDED finding based purely on static facts §02 can observe WITHOUT timestamps. Structural detection criteria (no mtime, no git queries — §02 stays pure per 00-overview:27):
     - (a) the target section exists in the DAG, AND
@@ -253,7 +253,7 @@ Implement the full classifier stack: the six mission classifiers plus `REDUNDANT
   - Known case (§05.2 (c)): `plans/test-suite-health/section-02-roadmap-reprioritization.md` claims to update/reprioritize `plans/roadmap/section-21A-llvm.md` but the update has not landed. `plans/test-suite-health/index.md:2` IS a reroute (`reroute: true`), but its `supersedes` field is absent AND `plans/test-suite-health/00-overview.md:5` has `supersedes: []` — so case (i) cannot fire. Case (ii) detects this via the extended verb vocabulary ("update", "reprioritize").
   - Emit `Finding(category=DAG_CONFLICT, subtype=SUPERSEDED, severity=MEDIUM, ...)`; recommended_fix: "Complete the rewrite or remove the claim".
 
-- [ ] **BLOCKED** — active node depends on queued/not-started node:
+- [x] **BLOCKED** — active node depends on queued/not-started node:
   - Walk the `Dag.edges` looking for edges `A → B` where:
     - `A.status` resolves to "active-equivalent" (plan-level `active`, section-level `in-progress`) AND
     - `B.status` resolves to "blocked-equivalent" (plan-level `queued` or `research`, section-level `not-started`)
@@ -267,19 +267,19 @@ Implement the full classifier stack: the six mission classifiers plus `REDUNDANT
     - /tpr-review MUST reconcile with §05.2:113,143 (the real line numbers in `plans/verify-roadmap-redesign/section-05-validation.md` where "Expected: BLOCKED finding" is asserted for cases (a) and (g) respectively — corrected in round 4 per TPR-02-002-gemini-r4; the earlier "142,146" reference in round-2 trail is stale). Route A is preferred because the `depends_on` edges are real corpus hygiene improvements; route B is a valid fallback if the blocking-plan owners cannot edit in time.
   - **Status resolution helper (per TPR-02-005-codex):** because §01.4 owns the canonical status normalizer, §02.2 imports `plan_corpus.normalizer.normalize_status(data, body, path, child_statuses) -> NormalizedStatus` (see `scripts/plan_corpus/normalizer.py:70-138`) and uses `NormalizedStatus.derived` (NOT raw `data["status"]`) for BLOCKED edge classification. For plan-index nodes, §02 passes each child section's declared status as `child_statuses`; for leaf/section nodes, §02 passes `None` and the normalizer derives from body signals. There is no `effective_status()` wrapper and §02 MUST NOT invent one — LEAK:scattered-knowledge guard per `impl-hygiene.md` §SSOT. If §02 needs a one-argument convenience (e.g. `derived_for(node)`), it lives as a private `_derived_for(node)` helper in `dag.py` that composes `normalize_status` inputs from the node's frontmatter and children; the composition helper is never re-exported as a public API because `normalize_status` itself IS the public API.
 
-- [ ] **STATUS_CONTRADICTION / CROSS_EDGE_TEMPORAL_DRIFT** — DAG-level status drift:
+- [x] **STATUS_CONTRADICTION / CROSS_EDGE_TEMPORAL_DRIFT** — DAG-level status drift:
   - §01.4's `normalize_status()` already produces per-file `STATUS_CONTRADICTION` findings (`FM_DECLARED_VS_BODY_DERIVED`, `PLAN_ACTIVE_ALL_SECTIONS_NOT_STARTED`, etc.). §02 consumes those facts; the DAG classifier adds ONLY the cross-edge subtype.
   - Walk `Dag.edges` and emit `Finding(category=STATUS_CONTRADICTION, subtype=CROSS_EDGE_TEMPORAL_DRIFT, severity=MEDIUM)` when a dependent node's declared status presupposes a state its prerequisite has not reached — e.g. dependent is `complete` but prerequisite is `not-started`; dependent is `in-progress` but prerequisite is `not-started` and its plan is `queued`.
   - `TPR_STALE_VS_EDIT` is NOT emitted from §02. It requires git commit timestamps (mtime is broken per Finding M) and is specialized by §03's write-back phase from a §02-emitted neutral `CROSS_EDGE_TEMPORAL_DRIFT` (if `WriteBackContext.has_recent_commits` is available).
 
-- [ ] **MISSING_DEPENDENCY** — body-inferred reference without a matching `depends_on` edge:
+- [x] **MISSING_DEPENDENCY** — body-inferred reference without a matching `depends_on` edge:
   - For each `Reference` with `source_kind` in `{PROSE_VERB, HTML_COMMENT_CONVENTION, YAML_COMMENT}` and verb in `DEPENDENCY_VERBS` (excluding informational verbs):
     - Resolve the target the same way §02.1's `resolve_dep` does
     - If the resolved target is a node in the DAG AND no `EXPLICIT_DEPENDS_ON` edge exists from `from_node` to the target → emit `Finding(category=DAG_CONFLICT, subtype=MISSING_DEPENDENCY, severity=MEDIUM, source=from_node.path, source_line=reference.source_line, target=target.path, source_kind=reference.source_kind, evidence=(reference.raw_text,))` — `source_kind` goes into the typed field (Option A), `evidence` carries only the short raw-text excerpt for human inspection.
   - Also walk `subsystem_to_nodes` (§02.1 map) for pairs of plans sharing a subsystem with BOTH in active/in-progress status AND no `EXPLICIT_DEPENDS_ON` edge between them — interference risk. Emit MISSING_DEPENDENCY for each unordered pair.
   - Recommended_fix: "Add `depends_on: [...]` entry referencing the inferred target".
 
-- [ ] **DEAD_REFERENCE** — pointer to nonexistent plan/directory/spec:
+- [x] **DEAD_REFERENCE** — pointer to nonexistent plan/directory/spec:
   - Input sources (all filtered through `SourceKind`, code-fence examples excluded):
     - `dag.resolution_findings` (DEAD_REFERENCE findings from §02.1)
     - For each `Reference` with `source_kind` in `{PROSE_VERB, HTML_COMMENT_CONVENTION, YAML_COMMENT}` that names a `plans/*/` path, check filesystem existence
@@ -290,23 +290,23 @@ Implement the full classifier stack: the six mission classifiers plus `REDUNDANT
     - (h) `plans/roadmap/section-21A-llvm.md:83` — `<!-- unblocks:jit-exception-handling/04B,05,06 -->` and prose "would unblock completion of the JIT Exception Handling plan" — the target is a completed plan (its entry lives under `plans/completed/jit-exception-handling/`, not `plans/jit-exception-handling/`). DEAD_REFERENCE must resolve against BOTH `plans/<slug>/` and `plans/completed/<slug>/` — if found only in `completed`, emit a LOW severity DEAD_REFERENCE recommending the annotation be updated or removed (not a hard error — completed plans are real).
   - Emit `Finding(category=DEAD_REFERENCE, subtype=PLAN_DIRECTORY_NOT_FOUND | SECTION_FILE_NOT_FOUND | CROSS_PLAN_NAME_NOT_FOUND | SPEC_FILE_NOT_FOUND, severity=HIGH for EXPLICIT_DEPENDS_ON, MEDIUM for HTML_COMMENT/YAML_COMMENT, LOW for PROSE_VERB)`. Severity ladder encodes source-kind trust.
 
-- [ ] **REDUNDANT_DEPENDENCY (informational)** — A depends on B, A depends on C, and B (transitively) depends on C:
+- [x] **REDUNDANT_DEPENDENCY (informational)** — A depends on B, A depends on C, and B (transitively) depends on C:
   - Compute transitive closure of `dag.edges`. For each edge `A → C`, if there exists a node `B` such that `A → B` and `B →* C`, the `A → C` edge is redundant.
   - Emit `Finding(category=DAG_CONFLICT, subtype=REDUNDANT_DEPENDENCY, severity=LOW, source=A.path, target=C.path, dependency_chain=tuple((A.path, B.path, C.path)), source_kind=SourceKind.EXPLICIT_DEPENDS_ON)` — chain is structured (typed `dependency_chain`), NOT string-flattened into `evidence` — per Option A (TPR-02-002-gemini-r3).
   - Check: `plans/verify-roadmap-redesign/00-overview.md:137` — Section 04 depends on `01, 02, 03`; Section 05 depends on `01, 02, 03, 04`. Since 02 transitively depends on 01 (02 → 01), 04's direct edge 04 → 01 is NOT redundant by this definition (redundancy requires the shorter path to be shorter than the longer one AND not a user-friendly explicit declaration). The classifier SHOULD be conservative: emit only when the redundant edge's target appears in a dependency of a dependency's dependency — depth ≥ 3 transitive chain. Depth-2 redundancies (A → B → C + A → C) are emitted at LOW severity because they may be intentional readability declarations.
 
-- [ ] **ORPHANED_PLAN (informational)** — plan with no incoming or outgoing dependency edges AND not actively superseding anything:
+- [x] **ORPHANED_PLAN (informational)** — plan with no incoming or outgoing dependency edges AND not actively superseding anything:
   - For each `PLAN_INDEX` node, compute in-degree and out-degree in `dag.edges`.
   - If in-degree == 0 AND out-degree == 0 AND the plan's `supersedes` list is empty AND the plan is not referenced by any body-inferred `Reference` → emit `Finding(category=DAG_CONFLICT, subtype=ORPHANED_PLAN, severity=LOW, ...)`.
   - Candidate: `plans/rosetta-stress-test/` may qualify — must be verified at runtime.
   - Recommended_fix: "Verify this plan is still needed; file a bug if it is truly abandoned."
 
-- [ ] **Classifier subtypes not declared in §01.3 require a §01.3 extension request:**
+- [x] **Classifier subtypes not declared in §01.3 require a §01.3 extension request:**
   - `REDUNDANT_DEPENDENCY` and `ORPHANED_PLAN` are NEW subtypes that must be added to `FindingCategory.DAG_CONFLICT` in `scripts/plan_corpus/types.py` `FindingSubtype` and `_CATEGORY_SUBTYPES[FindingCategory.DAG_CONFLICT]`.
   - NOTE for /tpr-review: because §01 is complete (reviewed: true in its frontmatter), this extension is filed as a scope NOTE here. Implementation sequencing: when §02 work begins, the first commit adds the two subtypes to `types.py` (§01.3's file) with a comment `# Added by §02.2 for REDUNDANT_DEPENDENCY / ORPHANED_PLAN classifiers`. This is the only permitted cross-section edit during §02 execution.
 
-- [ ] **Subsection close-out (02.2)** — MANDATORY before starting 02.3:
-  - [ ] Write failing test fixtures FIRST (TDD) — one per classifier × each live-corpus source-kind pattern:
+- [x] **Subsection close-out (02.2)** — MANDATORY before starting 02.3:
+  - [x] Write failing test fixtures FIRST (TDD) — one per classifier × each live-corpus source-kind pattern:
     - `fixture_conflict_shared_subsystem.yaml` — semantic pin: CONFLICT fires on unrelated plans sharing a subsystem; negative pin: CONFLICT does NOT fire when A depends on B (prereq coordination — Finding G)
     - `fixture_superseded_reroute.yaml` — semantic pin for case (i); `fixture_superseded_inplace.yaml` — semantic pin for case (ii) exactly mirroring test-suite-health §05.2 (c)
     - `fixture_blocked_live.yaml` — semantic pin for §05.2 (a) — and for (g) ONLY after route-A corpus edits land (§02.2 BLOCKED NOTE on cases (a)/(g)). Until the corpus edits land, cases (a) AND (g) are caught as MISSING_DEPENDENCY; cover that path in `fixture_missing_dep_yaml_comment.yaml` + a new `fixture_missing_dep_repr_opt_locality.yaml` that reproduces the case-(a) body-prose MISSING_DEPENDENCY scenario (per TPR-02-002-gemini round 2). Negative pin: no BLOCKED when both active.
@@ -320,11 +320,11 @@ Implement the full classifier stack: the six mission classifiers plus `REDUNDANT
     - `fixture_dead_ref_yaml_comment.yaml` — semantic pin: fix-BUG-04-039.md YAML comment → YAML_COMMENT reference → resolves to valid `plans/iterator-element-ownership/` (no DEAD_REFERENCE); mutant fixture: YAML comment pointing at missing dir → LOW-severity DEAD_REFERENCE
     - `fixture_redundant_dep.yaml` — semantic pin: A → B → C + A → C emits REDUNDANT_DEPENDENCY
     - `fixture_orphaned_plan.yaml` — semantic pin: standalone plan with no references → ORPHANED_PLAN; negative pin: same plan referenced by another plan's body → no finding
-  - [ ] All 8 classifiers pass against every live-corpus fixture; failing fixtures predate the implementation
-  - [ ] All tasks above are `[x]` and classifiers produce findings on the live corpus
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Run `/sync-claude` on THIS subsection** — check whether changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md` claims. If no changes, document briefly. Fix any drift NOW.
+  - [x] All 8 classifiers pass against every live-corpus fixture; failing fixtures predate the implementation
+  - [x] All tasks above are `[x]` and classifiers produce findings on the live corpus
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [x] **Run `/sync-claude` on THIS subsection** — check whether changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md` claims. If no changes, document briefly. Fix any drift NOW.
 
 ---
 
