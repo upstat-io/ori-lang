@@ -206,6 +206,10 @@ Run every verification command that exercises the reorganized state. Each must e
         `build(scripts): extend verify-everything.sh with version-sync and
         lefthook — surfaced by project-reorganization/section-09.1
         retrospective`.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -270,6 +274,10 @@ Compare the post-plan state against the §01 baseline to produce a complete befo
         for any plan that uses §01-style baselines. If yes, build and
         commit via `build(scripts): add plan-diff-summary.sh — surfaced by
         project-reorganization/section-09.2 retrospective`.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -332,6 +340,10 @@ If all checks pass, this PR is closed without merging and the branch is deleted.
         plan. If yes, build and commit via `build(scripts): add
         ci-dry-run.sh — surfaced by project-reorganization/section-09.3
         retrospective`.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -366,6 +378,10 @@ Run `/tpr-review` on the full plan directory. This is the mandatory independent 
         /tpr-review flow is already well-instrumented via the dual-tpr-gemini
         plan. No likely tooling gap at the per-subsection level. Document:
         "Retrospective 09.4: /tpr-review tooling is mature; no gaps."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -399,6 +415,10 @@ Run `/impl-hygiene-review` on the plan's scope. Per CLAUDE.md §Fix Completeness
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** —
         similar to 09.4, the impl-hygiene-review flow is mature. Document:
         "Retrospective 09.5: /impl-hygiene-review tooling is mature; no gaps."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -494,6 +514,10 @@ Refs: plans/project-reorganization/00-overview.md"
         command? Likely useful for every future plan. If yes, build and
         commit via `build(scripts): add plan-mark-complete.sh — surfaced
         by project-reorganization/section-09.6 retrospective`.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -533,5 +557,6 @@ Refs: plans/project-reorganization/00-overview.md"
 - [ ] `/tpr-review` passed (already executed in 09.4 — this is a self-reference for the completion checklist; the review IS the work of 09.4)
 - [ ] `/impl-hygiene-review` passed (already executed in 09.5)
 - [ ] `/improve-tooling` **section-close sweep** — per-subsection retrospectives (09.1-09.6) should already be committed. Cross-subsection pattern check: the biggest reusable helpers surfaced by §09 are `plan-diff-summary.sh` (09.2), `ci-dry-run.sh` (09.3), and `plan-mark-complete.sh` (09.6). Verify each was built (or the decision to not build was documented). ALSO: given this is the final section of the entire plan, do a **plan-wide tooling audit** — look across ALL 9 sections' retrospectives and identify the most valuable helpers to formalize. Commit any missed helpers via `build(scripts): finalize project-reorganization plan tooling — plan-wide close sweep`. The plan-wide audit is what makes `/improve-tooling` discipline compound across many plans.
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 **Exit Criteria:** The reorganization is complete. `00-overview.md` status is `complete`. Every mission success criterion is checked. `./test-all.sh` green, `./full-check.sh` green, `lefthook run pre-commit` green, `cargo c/cl/b/t/st` all green, `./scripts/sync-version.sh --check` green. CI dry-run PR was green and closed. `/tpr-review` and `/impl-hygiene-review` both came back clean (or all findings were triaged and resolved). Global grep sweep returns zero stale references (outside archival `plans/completed/`). The baseline reconciliation shows a coherent before/after diff matching the expected scope from the overview. The plan is ready for merge and §00 overview's `Quick Reference` table shows all 9 sections `Complete`. The project-reorganization plan directory can be moved to `plans/completed/project-reorganization/` in a follow-up maintenance commit (not part of this plan's scope, per the convention that plans self-archive to completed/ only after their merge).
