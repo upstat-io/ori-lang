@@ -53,7 +53,7 @@ Compiler Coding Guidelines, graph-reconnaissance bullet
 ---
 
 ### Section 03: SSOT — compose-intel-summary helper
-**File:** `section-03-compose-intel-summary-ssot.md` | **Status:** Not Started
+**File:** `section-03-compose-intel-summary-ssot.md` | **Status:** Complete
 
 ```
 compose-intel-summary.md, .claude/skills/dual-tpr/
