@@ -41,7 +41,7 @@ live consumers that query the graph today.
 
 - **Design decisions**: Before choosing an approach, query `similar` for how reference compilers handled it
 - **Bug investigation** (/fix-bug Phase 1): `callers`/`callees` for blast radius, `similar` for reference fixes
-- **Bug autopilot** (/fix-next-bug) *[planned — tracked by plans/query-intel-adoption §05]*: blast-radius + `similar` on the selected bug's repro symbol before handing to /fix-bug
+- **Bug autopilot** (/fix-next-bug) *[planned — tracked by plans/query-intel-adoption §05]*: `callers`/`callees` for blast-radius + `similar` on the selected bug's repro symbol before handing to /fix-bug
 - **Bug triage** (/review-bugs, /add-bug): `callers` to assess blast radius, `file-symbols` to cluster related bugs
 - **TPR reviews** (/tpr-review Step 0.75): `file-symbols` + `callers`/`callees` for module inventory + blast radius
 - **TPR triage** (/verify-tpr) *[planned — tracked by plans/query-intel-adoption §05]*: `callers`/`callees` for blast-radius on each finding before accept/reject decision

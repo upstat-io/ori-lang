@@ -846,8 +846,10 @@ Before reading §14's reference-repo citations, query the intelligence graph:
   for changes in this domain
 - `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori` — the
   module inventory before editing
-- `scripts/intel-query.sh --human ori-inference --limit 5` — pre-curated subsystem
-  view for Pool, Idx, TypeFlags, registries
+- `scripts/intel-query.sh --human file-symbols "ori_types/pool" --repo ori` — Pool
+  and interning symbol surface before refactoring
+- `scripts/intel-query.sh --human similar "TypePool" --repo rust,swift,zig,lean4 --limit 5`
+  — cross-repo equivalents for type pool / interning / representation
 
 The graph covers Ori plus 10 reference compilers, synced on every commit. Manual reference-repo reading
 stays authoritative — but only AFTER the graph narrows the search. Never
