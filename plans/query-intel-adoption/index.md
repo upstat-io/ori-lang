@@ -68,7 +68,7 @@ availability check, file-symbols, callers, callees, similar
 ---
 
 ### Section 04: Rule files — graph-first guidance
-**File:** `section-04-rules-graph-first.md` | **Status:** Not Started
+**File:** `section-04-rules-graph-first.md` | **Status:** In Progress (subsections 04.1–04.3 complete; awaiting /tpr-review + /impl-hygiene-review gates)
 
 ```
 .claude/rules/arc.md, aims-rules.md, typeck.md, types.md
