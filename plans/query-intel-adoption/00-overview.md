@@ -1,7 +1,7 @@
 ---
 plan: "query-intel-adoption"
 title: "Query-Intel Adoption: Exhaustive Implementation Plan"
-status: not-started
+status: in-progress
 references:
   - "plans/query-intel-adoption/tpr-2026-04-14-merged.json"
   - "plans/completed/lang-intelligence/"
@@ -16,7 +16,7 @@ Drive deep, ambient adoption of the Neo4j-backed intelligence graph (`/query-int
 
 ## Mission Success Criteria
 
-- [ ] `/query-intel` is a Skill (`.claude/skills/query-intel/SKILL.md`) the harness can auto-trigger; the 14-line command file remains as a thin alias. (§01)
+- [x] `/query-intel` is a Skill (`.claude/skills/query-intel/SKILL.md`) the harness can auto-trigger; the 14-line command file remains as a thin alias. (§01)
 - [ ] `CLAUDE.md` teaches the graph in the Commands, Key Paths, Reference Repos, Ownership & Deferral, and Compiler Coding Guidelines sections — all verified insertion points from the 2026-04-14 TPR. (§02)
 - [ ] Exactly ONE canonical intel-summary helper exists at `.claude/skills/dual-tpr/compose-intel-summary.md`; the 6 currently-inlined copies in `tpr-review`, `review-work`, `review-plan`, `independent-review`, `review-bugs`, and the `review-work` SKILL are replaced with `@`-includes. Zero LEAK:algorithmic-duplication for the intel-pre-query pattern. (§03)
 - [ ] All 9 rule files that cite cross-repo prior art (`arc.md`, `aims-rules.md`, `typeck.md`, `types.md`, `tests.md`, `impl-hygiene.md`, `canonicalization.md`, `patterns.md`, plus `intelligence.md` index refresh) include a graph-first paragraph before their manual-browsing guidance. (§04)
@@ -225,7 +225,7 @@ None. This plan does not modify compiler code; no test failures are expected. `.
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Promote /query-intel to an auto-triggerable Skill | `section-01-promote-to-skill.md` | Not Started |
+| 01 | Promote /query-intel to an auto-triggerable Skill | `section-01-promote-to-skill.md` | Complete |
 | 02 | CLAUDE.md expansion | `section-02-claude-md-expansion.md` | Not Started |
 | 03 | SSOT: compose-intel-summary helper | `section-03-compose-intel-summary-ssot.md` | Not Started |
 | 04 | Rule files: graph-first guidance | `section-04-rules-graph-first.md` | Not Started |
