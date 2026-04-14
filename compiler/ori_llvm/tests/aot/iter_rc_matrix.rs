@@ -10,8 +10,8 @@
 //!   Pattern: P1=full, P2=break, P3=yield-transform, P4=two-call, P5=nested,
 //!            P6=guard, P7=unwind, P8=continue
 //!
-//! E7 (Set<int>) is blocked by BUG-04-065 (Set<int> iteration crashes in AOT).
-//! The E7 fixtures exercise list collect + iteration as a positive regression guard;
+//! E7 (Set<int>) is covered via list-collect guards: the E7 fixtures
+//! exercise list collect + iteration as a positive regression guard;
 //! they do NOT exercise `__collect_set`. `Set<str>` iteration works (see `sets.rs`).
 //! E2×P5 for-yield excluded — nested yield of [int] collapses to flat int; covered by P1.
 
@@ -368,7 +368,7 @@ fn test_iter_rc_for_do_map_continue() {
     );
 }
 
-// E7: list-collect guard — Set<int> iteration blocked by BUG-04-065; these exercise list collect as regression guard
+// E7: list-collect guard — exercises list collect + iteration as a regression guard (not __collect_set)
 
 #[test]
 fn test_iter_rc_for_do_set_int_full() {
@@ -773,7 +773,7 @@ fn test_iter_rc_for_yield_map_continue() {
     );
 }
 
-// E7: list-collect guard — for-yield patterns (Set<int> blocked by BUG-04-065)
+// E7: list-collect guard — for-yield patterns exercising list collect + iteration
 
 #[test]
 fn test_iter_rc_for_yield_set_int_full() {
