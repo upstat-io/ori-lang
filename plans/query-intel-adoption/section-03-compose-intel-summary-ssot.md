@@ -282,6 +282,17 @@ Dual-source TPR run on 2026-04-14 (scratch dir `/tmp/ori-tpr-a4vtapRS`): codex w
   Basis: direct_file_inspection. Confidence: high.
 - [x] `[TPR-03-002-gemini][informational]` — Positive confirmation of invariant check (3 files contain the pattern: SSOT + 2 teaching surfaces). Non-actionable, no fix needed.
 
+### Round 2 findings (2026-04-14, `/tmp/ori-tpr-ZPNF2wWA`)
+
+Re-review after fixes landed in commit `dc1086ce`. Dual-source run: codex walltime 308s (33 files read, thorough), gemini walltime 96s (15 files read — up from 8 in round 1, rules consulted `CLAUDE.md` + both rules, scope materially broader per the Thoroughness Re-review Directive). `ASYMMETRY: HIGH` but gemini's floor is now adequate per §6b (rules complete, scope covers the meat of the change). Gemini emitted a clean-pass informational finding confirming fixes are sound. Codex caught 1 final low-severity DRIFT detail:
+
+- [x] `[TPR-03-005-codex][low]` `.claude/skills/dual-tpr/compose-intel-summary.md:132` — Align `/create-plan` Step F entry with consumer's verbatim query set.
+  Evidence: Step F `/create-plan` entry said "Then Step C base queries on high-signal symbols", deferring to Step C's default `--repo rust,swift,go`. But the consumer (`create-plan/SKILL.md:383`) uses `similar "<symbol>" --repo rust,swift,go,koka --limit 5` — the `koka` override was dropped from Step F's documentation.
+  Impact: DRIFT:intel-extension-registry (micro) — Step F under-documented `/create-plan`'s actual prior-art surface. Maintainers reading Step F as the registry could silently lose the Koka leg of reconnaissance.
+  Resolved: Fixed on 2026-04-14. Step F `/create-plan` entry now lists the `callers`/`callees`/`similar` queries verbatim with the `--repo rust,swift,go,koka` override explicitly noted, plus a parenthetical explaining why `koka` is included (plan reconnaissance benefits from Koka's effect-system prior art).
+  Basis: direct_file_inspection. Confidence: high.
+- [x] `[TPR-03-003-gemini][informational]` — Round 2 clean-pass confirmation. Gemini verified all 5 round-1 fixes hold, confirmed the 3-file / 18-file invariants via shell queries, and recommended "§03 may proceed to closure." Non-actionable.
+
 ---
 
 ## 03.N Completion Checklist
