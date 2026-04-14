@@ -20,7 +20,7 @@ third_party_review:
 sections:
   - id: "03.1"
     title: "Write compose-intel-summary.md"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Replace 6 inlined copies with @-includes"
     status: not-started
@@ -56,7 +56,7 @@ sections:
 
 The helper is a reference document, not an executable script. Consumers `@`-include it into their prompts. Its body is the canonical instructions that Claude (or a sub-agent) follows to produce a bounded Intelligence Summary.
 
-- [ ] Create `.claude/skills/dual-tpr/compose-intel-summary.md` with body:
+- [x] Create `.claude/skills/dual-tpr/compose-intel-summary.md` with body:
 
   ```markdown
   # Intelligence Summary Injection — Canonical SSOT
@@ -161,14 +161,14 @@ The helper is a reference document, not an executable script. Consumers `@`-incl
   - `.claude/skills/dual-tpr/compose-rules-brief.md` — sibling SSOT for rules-brief composition
   ```
 
-- [ ] Verify: `wc -l .claude/skills/dual-tpr/compose-intel-summary.md` reports ≥80 lines; file parses as valid markdown.
+- [x] Verify: `wc -l .claude/skills/dual-tpr/compose-intel-summary.md` reports ≥80 lines; file parses as valid markdown.
 
-- [ ] **Subsection close-out (03.1)**:
-  - [ ] SSOT file created and content-reviewed for completeness
-  - [ ] Update `03.1` status to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on 03.1** — did the polling-protocol.md sibling make this easy, or were there gaps? Did we discover any query pattern during composition that should live in the SSOT but isn't surfaced by any current consumer? Commit via `docs(skills): ...`.
-  - [ ] **Run `/sync-claude` on 03.1** — new SSOT file means `.claude/rules/intelligence.md` §Symbol-First Workflow may need a cross-reference. Commit via `docs(rules): ...` if applicable.
-  - [ ] **Repo hygiene check**.
+- [x] **Subsection close-out (03.1)**:
+  - [x] SSOT file created and content-reviewed for completeness (100 lines)
+  - [x] Update `03.1` status to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on 03.1** — Retrospective: no tooling gaps. The polling-protocol.md sibling was a perfect template reference; writing the new SSOT was a 1-step Write operation using the verbatim body specified at plan L62-162. No query patterns surfaced during composition that aren't already in the template (availability check → file-symbols → callers/callees → similar → bounded summary). Sibling-precedent pattern (polling-protocol.md + compose-rules-brief.md) is itself the tool — it makes subsequent SSOTs near-mechanical.
+  - [x] **Run `/sync-claude` on 03.1** — `.claude/rules/intelligence.md` cross-reference deferred to §03.3 Completion Checklist, where the §Algorithmic DRY entry is bundled with the impl-hygiene.md update. No new rules-level change needed solely from §03.1; the SSOT is the product, the cross-reference lands after invariant verification.
+  - [x] **Repo hygiene check** — clean (only the new SSOT file added; no temp files).
 
 ---
 
