@@ -13,7 +13,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::Idx;
 
-use crate::aims::lattice::{Cardinality, ShapeClass, Uniqueness};
+use crate::aims::lattice::{ShapeClass, Uniqueness};
 use crate::ir::{ArcBlockId, ArcFunction};
 
 use super::planner::ReusePlanner;
@@ -77,16 +77,13 @@ fn match_same_block(
         consumed_allocs.insert((alloc.block, alloc.instr_idx));
         consumed_deaths.insert((death.block, death.instr_idx));
 
-        // Cross-dimensional uniqueness proof (Section 09.2 Shape Activation):
-        // Once+ReusableCtor → static reuse without IsShared check.
-        // Fresh construction (ReusableCtor shape) gives refcount=1.
-        // Single use (Once cardinality) means no duplication occurred.
-        // Therefore, even if uniqueness says MaybeShared (conservative),
-        // the value is provably unique at its death point.
-        let is_static = death.uniqueness == Uniqueness::Unique
-            || (death.uniqueness == Uniqueness::MaybeShared
-                && death.cardinality == Cardinality::Once
-                && matches!(death.shape, ShapeClass::ReusableCtor(_)));
+        // Reuse eligibility is gated SOLELY by Uniqueness (spec §DP-6 +
+        // §RL-11/§RL-12). The former cross-dimensional path
+        // (`MaybeShared + Once + ReusableCtor → static reuse`) was removed
+        // as unsound per §RL-13 removal rationale — backward-analysis facts
+        // (consumption, cardinality) are FUTURE guarantees and cannot prove
+        // PAST uniqueness (the single use may be a store creating an alias).
+        let is_static = death.uniqueness == Uniqueness::Unique;
         opportunities.push(ReuseOpportunity {
             source_var: death.var,
             source_block: death.block,
