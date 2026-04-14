@@ -1,5 +1,5 @@
 //! Tests for `is_borrow_disjoint_from_siblings` — the helper-layer
-//! regression surface introduced by BUG-04-059.
+//! regression surface introduced by
 //!
 //! The helper now requires source `Uniqueness::Unique` exclusively — the former
 //! former cross-dimensional `Owned + Linear + Once` fallback (via

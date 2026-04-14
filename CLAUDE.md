@@ -162,6 +162,7 @@ Quick reference — full rules: `compiler.md` (architecture, tracing), `impl-hyg
 **AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed.
 **Always run `./test-all.sh` after compiler changes.**
 **Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh` | **Cargo cache**: `./scripts/cache-doctor.sh [--print-cleanup|--clean]` — detects root-owned files in `target/` that cargo cannot update (accidental `sudo cargo build`); refuses destructive actions by default
+**Rules for review**: `scripts/rules-for-review.py [--diff RANGE] [--files FILE...] [--mode json|list|paths]` — classifies changed files into subsystems and resolves which `.claude/rules/` files reviewers need. Used by `/tpr-review` and `/tp-help` to compose tailored rules briefs via Sonnet subagent (see `.claude/skills/dual-tpr/compose-rules-brief.md`).
 **Diagnostic scripts** (`diagnostics/`): see `.claude/rules/diagnostic.md` §Diagnostic Scripts for full table with flags. Key scripts: `rc-stats.sh` (`--block-level`, `--optimized`), `codegen-audit.sh` (`--strict`), `diagnose-aot.sh` (`--valgrind`), `dual-exec-debug.sh`, `ir-dump.sh`, `debug-release-compare.sh`, `bisect-passes.sh` (`--function`, `--rc-only`), `alive2-verify.sh` (`--corpus`, `--all-codegen`, `--json`), `repo-hygiene.sh` (`--check`, `--clean`) — detect/remove untracked temp files at subsection close-out
 
 ## Feature Flags

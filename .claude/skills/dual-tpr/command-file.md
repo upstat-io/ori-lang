@@ -147,7 +147,14 @@ file enforces.
 The review is not complete until the work has been checked against
 the repository standards.
 
-Always read:
+**If a Rules Brief was provided inline in the prompt** (from the
+dynamic composition pipeline — see `transport.md` §Mandatory
+Grounding Block), use it as your primary standards reference. The
+brief contains the specific rules, invariants, and finding vocabulary
+relevant to this review. For deeper context, read the full rule files
+listed in the "For full rule details" section of the brief.
+
+**If no Rules Brief was provided** (fallback mode), always read:
 
 - `CLAUDE.md`
 - `.claude/rules/tests.md`

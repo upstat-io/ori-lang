@@ -173,7 +173,7 @@ fn emit_last_use_decs(
 
         // Synergy metrics: count RC decisions. The former realization-stage
         // cross-dimensional reuse counter (`cross_dim_reuse`) was removed
-        // together with the unsound path it tracked (BUG-04-059 —
+        // together with the unsound path it tracked (—
         // `aims-rules.md` §RL-13 removal).
         if decision.rc != RcDecision::None {
             metrics.total_rc_decisions += 1;
