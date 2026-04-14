@@ -19,6 +19,14 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-077][critical]` **Collect output boundary ABI mismatch: collected List<int> has canonical i64 stride but list_traits/debug_helpers read with narrowed i8 stride**
+  Repro: `[1,2,3].iter().map((x) -> x * 1000).collect() == [1000,2000,3000]` returns false in AOT. `str([1,2,3].iter().map((x) -> x * 1000).collect())` produces wrong output. `collect()` uses `element_store_size(int)` = 8 (canonical), but `list_traits.rs` (equals/compare/hash) and `debug_helpers.rs` use `int_element_llvm_type(int)` = i8 (narrowed global heuristic). GEP advances by 1 byte instead of 8, reading wrong memory locations.
+  Subsystem: `ori_llvm` (narrowing_codegen.rs, list_traits.rs, debug_helpers.rs, iterator_consumers.rs)
+  Found: 2026-04-14 | Source: tpr-review
+  Reviewer: codex (confirmed with live AOT reproducer, exit code 1). Gemini independently identified the same boundary mismatch.
+  Root cause: narrowing is per-type (all `List<int>` share one ReprPlan entry) but collect creates per-instance stride differences. Consequence of BUG-04-071 fix canonicalizing the iterator pipeline without handling the collect output boundary.
+  Note: Extends BUG-04-071 scope. Active fix section at `plans/bug-tracker/fix-BUG-04-071.md`.
+
 - [ ] `[BUG-04-075][critical]` **ARC drop order: tail-expression temporaries in blocks outlive local bindings (Rust RFC 3606 class)**
   Repro: Any block where a tail expression creates an ARC-managed temporary while local bindings also hold ARC references — the temporary's RC dec happens after the locals' RC decs instead of before. Same class as Rust's RFC 3606 / Edition 2024 fix. Ori should drop tail-expression temporaries immediately after evaluation, before block-local bindings are dropped.
   Subsystem: `ori_arc` (AIMS pipeline / realization / drop ordering)
