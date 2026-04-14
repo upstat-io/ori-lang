@@ -262,7 +262,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Use canonical element size/type — narrowing is confined to the
         // list storage boundary (emit_list_iter), never the iterator pipeline.
-        // Spec: BUG-04-071 fix consensus.
+        // Spec: fix consensus.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -332,7 +332,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         let other = arg_vals[1];
-        // Use canonical element size — narrowing confined to list boundary (BUG-04-071).
+        // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let func_id = self.builder.runtime_fn("ori_iter_zip");
@@ -366,7 +366,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Map, result_ty);
 
-        // Use canonical element size — narrowing confined to list boundary (BUG-04-071).
+        // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -394,7 +394,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        // Use canonical element size — narrowing confined to list boundary (BUG-04-071).
+        // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -409,7 +409,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // New adapters (runtime-backed)
 
     fn emit_iter_flatten(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
-        // Use canonical element size — narrowing confined to list boundary (BUG-04-071).
+        // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let func_id = self.builder.runtime_fn("ori_iter_flatten");
@@ -430,7 +430,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // flat_map(f) = map(f).flatten()
         // First apply map, then flatten the result
         let mapped = self.emit_iter_map(iter_ptr, arg_vals, args, arc_func, elem_ty)?;
-        // Use canonical element size — narrowing confined to list boundary (BUG-04-071).
+        // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let func_id = self.builder.runtime_fn("ori_iter_flatten");
@@ -438,7 +438,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     fn emit_iter_cycle(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
-        // Use canonical element size — narrowing confined to list boundary (BUG-04-071).
+        // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let func_id = self.builder.runtime_fn("ori_iter_cycle");
@@ -446,7 +446,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     fn emit_iter_rev(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
-        // Use canonical element size — narrowing confined to list boundary (BUG-04-071).
+        // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let func_id = self.builder.runtime_fn("ori_iter_rev");

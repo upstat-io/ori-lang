@@ -239,7 +239,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
     /// `elem_dec_fn` from the V5 RC header at cleanup time (Section 02.1).
     ///
-    /// **Narrowing boundary (BUG-04-071):** when the list has narrowed int
+    /// **Narrowing boundary:** when the list has narrowed int
     /// elements (i8/i16/i32 via repr-opt), the list iterator yields narrowed
     /// bytes. To prevent the narrowing from leaking into the iterator pipeline
     /// (trampolines, scratch buffers, consumers), we inject a sext widening
@@ -266,7 +266,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // (i8/i16/i32) to canonical i64 so the entire iterator pipeline
         // operates on canonical types. Without this, downstream trampolines,
         // scratch buffers, and collect allocations would use the narrowed size
-        // and corrupt data (BUG-04-071).
+        // and corrupt data.
         let canonical_elem_size = self.element_store_size(elem_ty);
         if narrowed_elem_size < canonical_elem_size {
             if let Some(narrowed_width) = self.narrowed_collection_element_width(collection_idx) {

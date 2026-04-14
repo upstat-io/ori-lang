@@ -183,7 +183,7 @@ enum CandidateKind {
 
 /// Apply integer narrowing to collection element types (Phase C).
 ///
-/// **DISABLED (BUG-04-077)**: Collection element narrowing is unsound when
+/// **DISABLED**: Collection element narrowing is unsound when
 /// `collect()` produces lists with computed values that exceed the narrowed
 /// range. The narrowing analysis bases its decision on literal construction
 /// sites (e.g., `[1,2,3]` fits in i8), but `iter().map(x -> x * 1000).collect()`
@@ -202,7 +202,7 @@ enum CandidateKind {
 /// Prior to this fix, sets were already excluded for a similar reason (eq/hash
 /// thunks load canonical-width values from element pointers).
 pub(crate) fn narrow_collection_elements(_plan: &mut ReprPlan, _pool: &Pool) {
-    // BUG-04-077: disabled — see doc comment above.
+    // disabled — see doc comment above.
     // When the narrowing analysis is extended to account for collect() output
     // values (not just literal construction sites), this can be re-enabled.
 }

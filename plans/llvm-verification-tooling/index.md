@@ -3,7 +3,7 @@ reroute: true
 name: "LLVM Verify"
 full_name: "LLVM & AIMS Verification Tooling"
 status: active
-order: 1
+order: 2
 ---
 
 # LLVM & AIMS Verification Tooling Index
