@@ -132,7 +132,7 @@ the bug-workflow extension below.
 - **`/create-plan`** (Step 2.5) — plan reconnaissance:
   - `symbols "<topic keyword>" --repo ori --limit 20`
   - `file-symbols "<likely path>" --repo ori`
-  - Then Step C base queries on high-signal symbols.
+  - For high-signal symbols: `callers`, `callees`, `similar "<symbol>" --repo rust,swift,go,koka --limit 5` (note: `koka` is included in addition to Step C's base `rust,swift,go` because plan reconnaissance benefits from Koka's effect-system prior art)
 
 - **`/create-draft-proposal`** (Step 4.5) — prior-art reconnaissance:
   - `search "<proposal topic>" --limit 5`
