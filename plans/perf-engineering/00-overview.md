@@ -117,6 +117,19 @@ Phase 3 - Integration & Transition  [CRITICAL PATH]
 Phase 4 - Verification
   └─ 06: Full test suite parity + performance regression suite
   Gate: All spec tests pass, all benchmarks within 2x of baseline
+
+Phase 5 - VM-Enabled Optimizations  [POST-VM]
+  └─ Speculative collection element narrowing with runtime deoptimization (BUG-04-077 follow-up)
+    - Start collections at narrowed stride (i8/i16 based on literal value range)
+    - Add runtime guard at store sites (collect, push, assignment)
+    - If value exceeds range → reallocate at wider stride, copy, continue
+    - V8/GraalVM pattern: speculate narrow, deopt on overflow, never re-narrow
+    - Depends: Phase 2 (register VM provides deopt machinery)
+    - Cross-ref: `plans/repr-opt/section-11-collection-spec.md` §11.4 (AOT static path)
+    - Motivation: AIMS mission requires memory superior to C. Without narrowing,
+      [int] uses 8 bytes/element regardless of range — 8x worse than int8_t[].
+  Gate: Programs with small-valued int lists use narrowed storage; deopt triggered
+        only when computed values exceed range (e.g., map(x -> x * 1000))
 ```
 
 **Why this order:**
