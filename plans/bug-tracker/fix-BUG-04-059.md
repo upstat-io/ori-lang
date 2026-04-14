@@ -2,7 +2,7 @@
 bug: "BUG-04-059"
 title: "AIMS realization uses unsound cross-dimensional uniqueness proofs (DP-10/RL-13 pattern)"
 severity: "high"
-status: in-progress
+status: complete
 goal: "AIMS realization decisions use only the Uniqueness dimension (or IC-3 ParamContract) to determine RC==1 — never cross-dimensional consumption/cardinality inference"
 success_criteria:
   - "MaybeShared + Once + ReusableCtor → DynamicReuse (not StaticReuse)"
@@ -20,7 +20,7 @@ third_party_review:
 
 # Fix: BUG-04-059 — AIMS realization uses unsound cross-dimensional uniqueness proofs
 
-**Status:** In Progress
+**Status:** Complete (commit ad2b3134)
 **Severity:** High
 **Goal:** Remove all DP-10/RL-13 pattern usage from AIMS realization — uniqueness is established ONLY by the Uniqueness dimension directly or by IC-3 ParamContract from interprocedural analysis.
 
