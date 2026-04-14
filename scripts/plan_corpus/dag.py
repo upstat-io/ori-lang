@@ -399,13 +399,29 @@ def parse_html_comments(body: str) -> list[Reference]:
             targets_raw = m.group(2)
             column = m.start()
             raw = m.group(0)
-            for tok in targets_raw.split(","):
-                tok = tok.strip()
-                if not tok:
-                    continue
+            # Propagate the first target's plan slug to subsequent shorthand
+            # section tokens. Live case (h):
+            #   <!-- unblocks:jit-exception-handling/04B,05,06 -->
+            # The first target is `jit-exception-handling/04B`; `05` and `06`
+            # are section shorthand that inherit the `jit-exception-handling`
+            # slug. Without this, DEAD_REFERENCE sees bare `05`/`06` as
+            # nonexistent plan directories (TPR-02-002-codex). Slug inference
+            # runs only on multi-target comments where the first token
+            # contains a `/`.
+            tokens = [t.strip() for t in targets_raw.split(",") if t.strip()]
+            first_slug: str | None = None
+            if tokens and "/" in tokens[0]:
+                first_slug = tokens[0].split("/")[0]
+            for idx, tok in enumerate(tokens):
+                # Shorthand = no slash AND not the first token AND a plan
+                # slug was inferable from the first token.
+                if idx > 0 and "/" not in tok and first_slug is not None:
+                    expanded = f"{first_slug}/{tok}"
+                else:
+                    expanded = tok
                 refs.append(Reference(
                     from_node=placeholder,
-                    target=tok,
+                    target=expanded,
                     source_kind=SourceKind.HTML_COMMENT_CONVENTION,
                     source_line=line_no,
                     source_column=column,
@@ -447,6 +463,16 @@ INFORMATIONAL_VERBS: frozenset[str] = frozenset({
 # Plan-directory path reference regex (used by the PROSE_VERB scanner).
 # Captures `plans/<slug>/...` tokens.
 _PLAN_PATH_RE = re.compile(r"plans/([A-Za-z0-9_\-][A-Za-z0-9_\-/]*)")
+
+# Roadmap-section shorthand regex — matches "Section NN" or "Section 21A"
+# patterns that show up in body prose without a `plans/` prefix (TPR-02-001
+# -codex round 1). Live case (c): `plans/test-suite-health/section-02-
+# roadmap-reprioritization.md` says "Reorder Section 21A subsections" — the
+# `plans/...` scanner misses these, so a parallel scanner resolves them to
+# `plans/roadmap/section-<NN>*.md`.
+_ROADMAP_SECTION_RE = re.compile(
+    r"\b(?:[Ss]ection|[Rr]oadmap\s+section)\s+(\d+[A-Z]?)\b"
+)
 
 
 @dataclass
@@ -644,6 +670,30 @@ def _scan_body_for_references(
             refs.append(Reference(
                 from_node=from_node,
                 target=f"plans/{plan_slug}/",
+                source_kind=SourceKind.PROSE_VERB,
+                source_line=line_no,
+                source_column=match_start,
+                raw_text=m.group(0),
+            ))
+        # Also scan for "Section NN" / "Reorder Section 21A" shorthand that
+        # resolves to a roadmap section. TPR-02-001-codex r1: live case (c)
+        # uses "Reorder Section 21A" prose without a plans/ prefix, so the
+        # PROSE_VERB scanner above misses it entirely. Resolution target:
+        # plans/roadmap/section-<NN>-*.md — the classifier matches via slug.
+        for m in _ROADMAP_SECTION_RE.finditer(line):
+            match_start = m.start()
+            preceding = line[:match_start].lower()
+            matched_verb: str | None = None
+            for verb in DEPENDENCY_VERBS:
+                if preceding.rstrip().endswith(verb):
+                    matched_verb = verb
+                    break
+            if matched_verb is None:
+                continue
+            section_id = m.group(1)
+            refs.append(Reference(
+                from_node=from_node,
+                target=f"plans/roadmap/section-{section_id}",
                 source_kind=SourceKind.PROSE_VERB,
                 source_line=line_no,
                 source_column=match_start,
@@ -1915,15 +1965,14 @@ def compute_minimum_unblock_set(dag: Dag, corpus) -> list:
 
     out: list = []
     for root, group in groups.items():
-        # Unblock-set paths for this component: the root + every distinct
-        # intermediate that is also blocked.
-        all_chain_paths: set[Path] = set()
-        for f in group:
-            all_chain_paths.update(f.dependency_chain)
-        # Keep only the root blocker and any non-terminal paths leading to
-        # it that are themselves blocked. For the typed unblock-set, the
-        # minimum is just {root}.
-        unblock_set = tuple(sorted(all_chain_paths, key=str))
+        # Minimum unblock set for a chain A -> B -> C is just {C} (the root).
+        # Unblocking the root cascades: once C is unblocked, B's prerequisite
+        # is satisfied and becomes unblocked, then A's prerequisite, etc.
+        # So the minimum set of nodes whose status change unblocks the whole
+        # component is the single root blocker — not every path member.
+        # TPR-02-003-codex: the prior implementation unioned every chain path
+        # and returned the full tuple, which over-stated the work needed.
+        unblock_set: tuple[Path, ...] = (root,)
         out.append(Finding(
             category=FindingCategory.DAG_CONFLICT,
             subtype=FindingSubtype.BLOCKED,

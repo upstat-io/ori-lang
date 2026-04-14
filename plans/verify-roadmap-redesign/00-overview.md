@@ -159,8 +159,10 @@ Phase 2 - Core
             REDUNDANT_DEPENDENCY, ORPHANED_PLAN) importing types from 01.3
   +-- 02.3: Transitive priority inversion chains + root blocker identification
   +-- 02.4: Classifier precedence ladder + TDD-enforced determinism tests
-  +-- 02.5: Handoff contract with §03 (chain encoding, Finding.id disambiguation,
-            enriched resolve_dep findings, source_kind evidence-embedding)
+  +-- 02.5: Handoff contract with §03 (Option A typed fields:
+            Finding.dependency_chain + Finding.source_kind;
+            Finding.id disambiguation via source_column; enriched
+            resolve_dep findings with precise YAML line numbers)
 
 Phase 3 - Integration
   +-- 03: Report format (Finding.to_json / Finding.to_markdown from 01)
