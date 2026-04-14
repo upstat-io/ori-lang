@@ -2,7 +2,7 @@
 section: "02"
 title: "DAG Builder & Conflict Classifier"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Build the dependency DAG across all plans and implement the 8 conflict classifiers (6 from mission + REDUNDANT_DEPENDENCY, ORPHANED_PLAN) with deterministic precedence and source-kind tagging, so test cases (a), (b), (c), (g), (h) from the overview are caught without false positives on code fences, YAML comments, or prerequisite coordination"
 success_criteria:
   - "Node model covers all seven schema classes from §01.2 (plan index, plan section, roadmap section, overview, bug-tracker section, fix-BUG file, completed-plan index) — not just plan sections"
