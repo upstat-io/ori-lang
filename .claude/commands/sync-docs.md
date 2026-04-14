@@ -6,7 +6,7 @@ allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Agent, Skill
 
 # Sync All Documentation
 
-Reconcile EVERY document in the repository against the actual codebase and spec. This is a comprehensive nightly sync — it updates canon, all `.claude/rules/*.md` files, `CLAUDE.md`, design docs, guide docs, README files, and all other non-spec documentation to accurately reflect the current implementation.
+Reconcile all non-spec documentation in the repository against the actual codebase and spec. This is a comprehensive nightly sync — it updates canon, rules files, CLAUDE.md, command files, skill docs, design docs, guide docs, README files, and other documentation to accurately reflect the current implementation. Phase 0 uses a repo-wide glob to discover all `.md` files, then filters out off-limits paths — nothing is missed by pattern omission.
 
 **This command runs fully automated.** No pauses for user confirmation. Execute each phase to completion. Commit and report at the end.
 
@@ -78,6 +78,7 @@ This makes fact-binding auditable after the fact. A reviewer can check whether t
 | Command files | `.claude/commands/*.md` | Sync command and other command definitions |
 | Skill docs | `.claude/skills/*/SKILL.md` | Skill documentation |
 | README files | `**/*.md` matching `*README*` (excl. build/, .claude/worktrees/) | Project and crate READMEs |
+| Remaining `.md` | Any `.md` file found by Phase 0 glob not in the above rows or off-limits | Error code docs, skill internals, design one-offs, etc. |
 
 ### OFF LIMITS — Do NOT modify these (file bugs instead)
 

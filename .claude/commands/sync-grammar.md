@@ -154,24 +154,10 @@ If the spec adds a new pattern form like `timeout`:
 
 4. Update comments if the spec file reference changed
 
-## When to Update operator-rules.md
-
-Update `operator-rules.md` alongside `grammar.ebnf` when:
-- Operator precedence or associativity changes
-- New operators added
-- Operator type rules change (e.g., new type combinations)
-- Operator evaluation semantics change
-- Never type behavior changes
-
-The `operator-rules.md` file contains:
-- Type inference rules (premises → conclusion)
-- Evaluation rules (pattern ⇒ result)
-- Precedence table
-- Trait dispatch mapping
-
 ## Output
 
 After updating, report:
 - Productions added/modified/removed (grammar.ebnf)
-- Rules added/modified/removed (operator-rules.md)
-- Any inconsistencies found between spec, grammar, and rules
+- Any inconsistencies found between spec and grammar
+
+**Note:** `operator-rules.md` updates belong to `/sync-spec`, not this command.

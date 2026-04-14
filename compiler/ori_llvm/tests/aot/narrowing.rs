@@ -758,8 +758,10 @@ fn test_narrowing_policy_disabled_behavioral_correctness() {
 // element storage (i8/i16/i32) and that the narrowing is transparent to program
 // semantics — all operations produce identical results to canonical i64 storage.
 
-/// Semantic pin: list literal with bounded values uses narrowed i8 element storage.
-/// Verifies LLVM IR contains narrowed `elem_size` (1) instead of canonical (8).
+/// BUG-04-077: collection element narrowing is disabled (unsound when
+/// collect produces values outside the narrowed range). List elements
+/// always use canonical i64 stride. This test now verifies canonical
+/// element sizes in the emitted IR.
 #[test]
 fn test_narrowed_list_i8_ir_pin() {
     let ir = compile_and_capture_ir(include_str!(
@@ -767,25 +769,11 @@ fn test_narrowed_list_i8_ir_pin() {
     ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
-    // Construction: ori_list_alloc_data with elem_size=1 (i8), not 8 (i64)
+    // Construction: ori_list_alloc_data with canonical elem_size=8 (i64)
+    // (BUG-04-077: collection narrowing disabled — all List<int> use canonical stride)
     assert!(
-        main_ir.contains("@ori_list_alloc_data(i64 3, i64 1)"),
-        "Expected narrowed elem_size=1 in list construction IR.\nIR:\n{main_ir}"
-    );
-    // Element GEP should use i8 type (inbounds form)
-    assert!(
-        main_ir.contains("getelementptr inbounds i8,"),
-        "Expected i8 GEP type for narrowed list elements.\nIR:\n{main_ir}"
-    );
-    // Element store should use i8
-    assert!(
-        main_ir.contains("store i8 1,"),
-        "Expected i8 store for narrowed list elements.\nIR:\n{main_ir}"
-    );
-    // Element load should use i8 with sext to i64
-    assert!(
-        main_ir.contains("load i8,") && main_ir.contains("sext i8"),
-        "Expected i8 load + sext for narrowed element access.\nIR:\n{main_ir}"
+        main_ir.contains("@ori_list_alloc_data(i64 3, i64 8)"),
+        "Expected canonical elem_size=8 in list construction IR (BUG-04-077: collection narrowing disabled).\nIR:\n{main_ir}"
     );
 }
 
@@ -883,7 +871,8 @@ fn test_narrowed_list_disabled_ir_pin() {
 // in the same program are narrowed.
 
 /// Set operations work correctly when list narrowing is active.
-/// Sets are created via `.iter().collect()` — canonical element sizes.
+/// BUG-04-077: collection narrowing disabled. Both list and set now use
+/// canonical element sizes. This test verifies both use canonical stride.
 #[test]
 fn test_set_int_canonical_with_narrowed_list_ir() {
     let ir = compile_and_capture_ir(include_str!(
@@ -891,12 +880,12 @@ fn test_set_int_canonical_with_narrowed_list_ir() {
     ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
-    // List should be narrowed (elem_size=1 for i8)
+    // List uses canonical elem_size=8 (BUG-04-077: collection narrowing disabled)
     assert!(
-        main_ir.contains("@ori_list_alloc_data(i64 3, i64 1)"),
-        "Expected narrowed list elem_size=1 in IR.\nIR:\n{main_ir}"
+        main_ir.contains("@ori_list_alloc_data(i64 3, i64 8)"),
+        "Expected canonical list elem_size=8 in IR (BUG-04-077).\nIR:\n{main_ir}"
     );
-    // collect_set uses canonical elem_size=8 (not narrowed)
+    // collect_set also uses canonical elem_size=8
     assert!(
         main_ir.contains("i64 8") || main_ir.contains(", i64 8,"),
         "Expected canonical elem_size=8 for set collection.\nIR:\n{main_ir}"

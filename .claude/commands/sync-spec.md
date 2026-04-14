@@ -157,9 +157,9 @@ Without this, all Edit/Write calls to spec files will be **blocked by the hook**
    - Ensure constraints are listed in "Constraints" subsections
    - Mark informative content with `> **Note:**`
 
-4. **Update grammar.ebnf** if syntax changed (or note it needs updating)
+4. **Update operator-rules.md** if operator behavior changed (type rules, eval rules, precedence)
 
-5. **Update operator-rules.md** if operator behavior changed (type rules, eval rules, precedence)
+5. **Note grammar.ebnf** — if syntax changed, note that `/sync-grammar` needs to run (grammar.ebnf is owned by `/sync-grammar`, not this command)
 
 6. **Verify cross-references** within spec files are accurate
 
@@ -179,7 +179,7 @@ Without this, all Edit/Write calls to spec files will be **blocked by the hook**
 - [ ] Marked informative content with `> **Note:**`
 - [ ] Listed constraints explicitly
 - [ ] Updated cross-references
-- [ ] Updated grammar.ebnf if syntax changed
+- [ ] Noted if grammar.ebnf needs updating (owned by `/sync-grammar`)
 - [ ] Updated operator-rules.md if operator behavior changed
 
 ## Output
@@ -187,6 +187,6 @@ Without this, all Edit/Write calls to spec files will be **blocked by the hook**
 Report what was updated:
 - Which spec files were modified
 - Sections added or changed
-- Whether grammar.ebnf needs updating
-- Whether operator-rules.md needs updating
+- Whether grammar.ebnf needs updating (delegate to `/sync-grammar`)
+- Whether operator-rules.md was updated
 - Any cross-references updated
