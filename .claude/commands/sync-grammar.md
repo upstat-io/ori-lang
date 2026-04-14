@@ -27,21 +27,25 @@ Read these spec files to extract grammar information:
 
 | File | Grammar Sections |
 |------|------------------|
-| `02-source-code.md` | Source structure, Unicode |
-| `03-lexical-elements.md` | Tokens, keywords, operators, literals, comments |
-| `04-constants.md` | Config variables, const expressions |
-| `05-variables.md` | Let bindings, assignment, destructuring |
-| `06-types.md` | Type syntax, generics, function types |
-| `08-declarations.md` | Functions, types, traits, impls, tests |
-| `09-expressions.md` | All expression forms |
-| `10-patterns.md` | Match patterns, compiler patterns (run/try/match/etc.) |
-| `12-modules.md` | Imports, re-exports, extensions |
-| `13-testing.md` | Test declarations, attributes |
-| `14-capabilities.md` | Uses clauses, with expressions |
-| `18-program-execution.md` | @main signatures |
-| `19-control-flow.md` | break, continue, loops |
-| `20-errors-and-panics.md` | catch pattern |
-| `21-constant-expressions.md` | Const functions |
+| `06-source-code.md` | Source structure, Unicode |
+| `07-lexical-elements.md` | Tokens, keywords, operators, literals, comments |
+| `08-types.md` | Type syntax, generics, function types |
+| `09-properties-of-types.md` | Type properties, traits |
+| `10-declarations.md` | Functions, types, traits, impls, tests |
+| `12-constants.md` | Config variables, const expressions |
+| `13-variables.md` | Let bindings, assignment, destructuring |
+| `14-expressions.md` | All expression forms |
+| `15-patterns.md` | Match patterns, compiler patterns |
+| `16-control-flow.md` | break, continue, loops |
+| `17-errors-and-panics.md` | catch pattern |
+| `18-modules.md` | Imports, re-exports, extensions |
+| `19-testing.md` | Test declarations, attributes |
+| `20-capabilities.md` | Uses clauses, with expressions |
+| `23-program-execution.md` | @main signatures |
+| `24-constant-expressions.md` | Const functions |
+| `25-conditional-compilation.md` | Target/config attributes |
+| `26-ffi.md` | Foreign function interface |
+| `27-reflection.md` | Compile-time reflection |
 
 ## EBNF Notation
 
