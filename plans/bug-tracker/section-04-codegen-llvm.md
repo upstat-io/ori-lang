@@ -550,12 +550,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Reviewer: gemini
   Note: Blocks RL-15a caller-stack allocation optimization. When added, update `CHAIN_HEIGHT`, all proptest strategies in `prop_tests.rs`, and CN-8/DP-8 implementations.
 
-- [ ] `[BUG-04-064][high]` **DP-5 `can_mutate_in_place` does not check overlapping borrows or project_alias_sources**
-  Repro: `compiler/ori_arc/src/aims/transfer/mod.rs:433` — implementation checks `Owned + Unique` only, omitting `no_active_overlapping_borrows(s, var, field, point)` mandated by spec DP-5. Also: `emit_rc/cow.rs:23-52` and `realize/decide.rs:381-438` only inspect direct sibling borrows, never consult `project_alias_sources`, and do not intersect with point liveness. Could permit in-place mutations that corrupt active borrowed projections or aliases.
-  Subsystem: `compiler/ori_arc/src/aims/transfer/mod.rs`, `compiler/ori_arc/src/aims/emit_rc/cow.rs`, `compiler/ori_arc/src/aims/realize/decide.rs`
+- [x] `[BUG-04-064][high]` **DP-5 `can_mutate_in_place` does not check overlapping borrows or project_alias_sources**
+  Resolved: Fixed on 2026-04-14 (commits da89cea7, 407a8e54). Added `has_borrows_from_aggregate()` function-wide conservative borrow check to `emit_rc/cow.rs`. `decide_cow()` now returns `StaticShared` for Unique variables with active borrows per DP-9. Renamed `can_mutate_in_place` → `is_owned_and_unique` to resolve LEAK naming (TPR finding). Tests: 4 pin tests (semantic + negative + 2 edge cases). `project_alias_sources` gap tracked as BUG-04-083; block-entry uniqueness gap tracked as BUG-04-082. Fix section: `plans/bug-tracker/fix-BUG-04-064.md`. 15,314 tests passing.
+  Subsystem: `compiler/ori_arc/src/aims/realize/decide.rs`, `compiler/ori_arc/src/aims/emit_rc/cow.rs`
   Found: 2026-04-12 | Source: tpr-review
   Reviewers: codex + gemini (both independently flagged)
-  Note: Must check BOTH `borrow_sources` AND `project_alias_sources` (including transitive closure for nested Projects) intersected with live-variable set at mutation point per spec §1.9 + DP-5.
 
 - [ ] `[BUG-04-065][medium]` **TF-6 `refine()` not implemented — call results always get CONSERVATIVE state**
   Repro: `compiler/ori_arc/src/aims/transfer/mod.rs:75-80` routes `Apply` to `transfer_apply_conservative()`. `transfer/mod.rs:234-238` routes `Invoke` the same way. `intraprocedural/block.rs:439-480` refines argument DEMAND (parameter contracts), NOT the destination state. No inspected path reads `return_info.locality` or `return_info.shape` to refine call results per TF-6.
