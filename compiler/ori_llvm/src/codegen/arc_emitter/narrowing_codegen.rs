@@ -131,7 +131,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         None
     }
 
-    // NOTE: `int_element_store_size` was removed here (BUG-04-071). It was a
+    // NOTE: `int_element_store_size` was removed here. It was a
     // global heuristic that applied per-collection narrowing to any `int` type,
     // causing memory corruption in the iterator pipeline (trampolines, scratch
     // buffers, collect allocation). Narrowing is now confined to the list

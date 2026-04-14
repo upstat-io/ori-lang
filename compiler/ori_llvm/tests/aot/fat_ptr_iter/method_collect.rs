@@ -47,7 +47,7 @@ fn test_iter_collect_map_elements() {
     );
 }
 
-// BUG-04-077 regression tests: collected List<int> stride must match literal stride
+// regression tests: collected List<int> stride must match literal stride
 
 /// Semantic pin: map + collect equality with literal.
 /// Fails if collect stores at canonical stride but readers use narrowed stride.

@@ -3,7 +3,7 @@ reroute: true
 name: "Iter Ownership"
 full_name: "Iterator Element Ownership Protocol"
 status: queued
-order: 2
+order: 3
 ---
 
 # Iterator Element Ownership Protocol Index

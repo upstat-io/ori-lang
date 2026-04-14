@@ -758,7 +758,7 @@ fn test_narrowing_policy_disabled_behavioral_correctness() {
 // element storage (i8/i16/i32) and that the narrowing is transparent to program
 // semantics — all operations produce identical results to canonical i64 storage.
 
-/// BUG-04-077: collection element narrowing is disabled (unsound when
+/// collection element narrowing is disabled (unsound when
 /// collect produces values outside the narrowed range). List elements
 /// always use canonical i64 stride. This test now verifies canonical
 /// element sizes in the emitted IR.
@@ -770,10 +770,10 @@ fn test_narrowed_list_i8_ir_pin() {
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
     // Construction: ori_list_alloc_data with canonical elem_size=8 (i64)
-    // (BUG-04-077: collection narrowing disabled — all List<int> use canonical stride)
+    // (collection narrowing disabled — all List<int> use canonical stride)
     assert!(
         main_ir.contains("@ori_list_alloc_data(i64 3, i64 8)"),
-        "Expected canonical elem_size=8 in list construction IR (BUG-04-077: collection narrowing disabled).\nIR:\n{main_ir}"
+        "Expected canonical elem_size=8 in list construction IR (collection narrowing disabled).\nIR:\n{main_ir}"
     );
 }
 
@@ -871,7 +871,7 @@ fn test_narrowed_list_disabled_ir_pin() {
 // in the same program are narrowed.
 
 /// Set operations work correctly when list narrowing is active.
-/// BUG-04-077: collection narrowing disabled. Both list and set now use
+/// collection narrowing disabled. Both list and set now use
 /// canonical element sizes. This test verifies both use canonical stride.
 #[test]
 fn test_set_int_canonical_with_narrowed_list_ir() {
@@ -880,10 +880,10 @@ fn test_set_int_canonical_with_narrowed_list_ir() {
     ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
-    // List uses canonical elem_size=8 (BUG-04-077: collection narrowing disabled)
+    // List uses canonical elem_size=8 (collection narrowing disabled)
     assert!(
         main_ir.contains("@ori_list_alloc_data(i64 3, i64 8)"),
-        "Expected canonical list elem_size=8 in IR (BUG-04-077).\nIR:\n{main_ir}"
+        "Expected canonical list elem_size=8 in IR.\nIR:\n{main_ir}"
     );
     // collect_set also uses canonical elem_size=8
     assert!(
@@ -1337,7 +1337,7 @@ fn test_phase_c_push_large_values() {
     );
 }
 
-// Regression: BUG-04-071 — iterator map on narrowed [int]
+// Regression: iterator map on narrowed [int]
 //
 // repr-opt narrows [int] to i8 when all values fit. The iterator map
 // trampoline must produce canonical i64 output. Narrowing must not leak
