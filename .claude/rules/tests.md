@@ -154,8 +154,8 @@ Adapted from Swift (SIL ARC tests), Koka (PARC @dup/@drop golden files), and Lea
 
 For Rust tests:
 ```rust
-/// Regression: section-04.3 — iterator drop skipped nested closures
-/// See: plans/roadmap/section-04.md §4.3.2
+/// Regression: iterator drop skipped nested closures, causing a leak
+/// See: plans/bug-tracker/fix-BUG-04-045.md (example path)
 #[test]
 fn test_nested_closure_iter_drop() { ... }
 ```
@@ -185,7 +185,7 @@ fn test_nested_closure_iter_drop() { ... }
 
 4. **Stale test detection**: if a `#compile_fail` test starts PASSING (compiler no longer rejects the input), that is a regression — the compiler became too permissive. The test runner should detect this. Similarly, if a `#fail` test starts succeeding, either the runtime behavior changed or the test is no longer exercising the failure path.
 
-5. **Test file naming**: Ori spec tests use kebab-case matching the feature: `tests/spec/traits/iterator/map-filter-collect.ori`. Rust tests use snake_case: `test_map_filter_collect`. Both must be descriptive of what is being tested.
+5. **Test file naming**: Ori spec tests use snake_case matching the feature: `tests/spec/traits/iterator/collect.ori`. Rust tests use snake_case: `test_map_filter_collect`. Both must be descriptive of what is being tested.
 
 ## Cross-Platform Test Discipline
 - **Snapshot/bless comparisons must normalize line endings** to LF before comparing. `fs::read_to_string()` on Windows produces CRLF; committed baselines are LF. Normalize BOTH sides: `expected.replace("\r\n", "\n")` and `actual.replace("\r\n", "\n")`. The test harness (`ori_test_harness/src/bless/mod.rs`) is the canonical place for this normalization.

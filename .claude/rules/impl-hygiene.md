@@ -613,7 +613,7 @@ Inline comments on struct fields when purpose isn't obvious.
 - No test ordering dependencies; no shared mutable state between tests
 - Descriptive names — see §Test Function Naming below
 - No `#[ignore]` without a tracking issue/reason
-- **Test data**: fixtures in `tests/fixtures/` or `tests/spec/`. No hardcoded absolute paths — use relative paths or `CARGO_MANIFEST_DIR`. Test data committed to repo.
+- **Test data**: fixtures in `tests/spec/`, `diagnostics/fixtures/`, or crate-local fixture dirs (e.g., `compiler/ori_llvm/tests/aot/fixtures/`). No hardcoded absolute paths — use relative paths or `CARGO_MANIFEST_DIR`. Test data committed to repo.
 
 ### Test Function Naming
 
