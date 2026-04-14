@@ -38,6 +38,7 @@ from .schemas import (
     BugTrackerSectionSchema,
     FixBugSchema,
     CompletedIndexSchema,
+    SubsectionEntry,
     _schema_required_fields,
     _schema_allowed_fields,
 )
@@ -116,20 +117,9 @@ COMPLETED_STATUSES = frozenset({"resolved"})
 
 
 @dataclass(frozen=True)
-class SubsectionEntry:
-    id: str
-    title: str
-    status: str
-
-
-@dataclass(frozen=True)
 class TprInfo:
     status: str
     updated: str | None
-
-
-_SECTION_ENTRY_ALLOWED = frozenset({"id", "title", "status"})
-_SECTION_ENTRY_REQUIRED = frozenset({"id", "title", "status"})
 
 
 def _validate_sections(data: dict, path: Path) -> list[Finding]:
@@ -164,7 +154,7 @@ def _validate_sections(data: dict, path: Path) -> list[Finding]:
                 recommended_fix="Use a mapping with id/title/status keys",
             ))
             continue
-        for required_field in _SECTION_ENTRY_REQUIRED:
+        for required_field in _schema_required_fields(SubsectionEntry):
             if required_field not in entry:
                 findings.append(Finding(
                     category=FindingCategory.SCHEMA_VIOLATION,
@@ -175,7 +165,7 @@ def _validate_sections(data: dict, path: Path) -> list[Finding]:
                     recommended_fix=f"Add {required_field}: ... to the entry",
                 ))
         for key in entry:
-            if key not in _SECTION_ENTRY_ALLOWED:
+            if key not in _schema_allowed_fields(SubsectionEntry):
                 findings.append(Finding(
                     category=FindingCategory.SCHEMA_VIOLATION,
                     subtype=FindingSubtype.UNKNOWN_FIELD,

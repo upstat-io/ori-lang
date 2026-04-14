@@ -112,6 +112,19 @@ class CompletedIndexSchema:
     order: int | None = None
 
 
+@dataclass(frozen=True)
+class SubsectionEntry:
+    """Schema for each entry in a section's `sections: [...]` list.
+
+    Used by `_validate_sections` in schema.py — its required/allowed field
+    sets are derived from this dataclass via the same introspection helpers
+    as the top-level file schemas, so there is ONE SSOT for the shape.
+    """
+    id: str
+    title: str
+    status: str
+
+
 def _schema_required_fields(cls) -> list[str]:
     """Fields without defaults are required.
 
