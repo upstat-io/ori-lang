@@ -39,7 +39,7 @@ sections:
     status: complete
   - id: "02.4"
     title: "Classifier Precedence & Determinism Tests"
-    status: not-started
+    status: complete
   - id: "02.5"
     title: "Handoff Contract with §03"
     status: not-started
@@ -371,7 +371,7 @@ Specialized analysis that extends the BLOCKED classifier (§02.2) with transitiv
 
 Classifiers can fire on the same `(source, source_line)` pair. Without explicit precedence, the classifier stack is non-deterministic. This subsection makes ordering explicit, tested, and auditable.
 
-- [ ] Document the precedence ladder (highest priority first):
+- [x] Document the precedence ladder (highest priority first):
   1. `PARSE_ERROR` (§01 category) — fatal; if a file cannot be parsed, no §02 classifier runs against it. §02 consumes `Corpus.gaps` from §01 and skips any node whose source path is in the gaps.
   2. `DEAD_REFERENCE` — if a reference doesn't resolve, no other DAG classifier fires against that reference. A broken edge is not a "conflict with B", it is "B does not exist."
   3. `DAG_CONFLICT / CYCLE` — structural graph error; takes precedence over BLOCKED because a cycle makes BLOCKED meaningless.
@@ -383,18 +383,18 @@ Classifiers can fire on the same `(source, source_line)` pair. Without explicit 
   9. `DAG_CONFLICT / REDUNDANT_DEPENDENCY` — LOW severity informational.
   10. `DAG_CONFLICT / ORPHANED_PLAN` — LOW severity informational.
 
-- [ ] Implement precedence via a deduplication pass:
+- [x] Implement precedence via a deduplication pass:
   - After all classifiers run, group findings by `(source, source_line, target)`.
   - Within each group, keep ONLY the highest-precedence finding; emit the rest as `evidence` on the kept finding under key `suppressed_by_precedence`.
   - A finding's precedence rank is looked up from the ladder above via `PRECEDENCE_RANK: dict[FindingSubtype, int]`.
 
-- [ ] Source-kind precedence in the severity ladder:
+- [x] Source-kind precedence in the severity ladder:
   - EXPLICIT_DEPENDS_ON references produce HIGH severity
   - HTML_COMMENT_CONVENTION and YAML_COMMENT references produce MEDIUM severity
   - PROSE_VERB references produce LOW severity
   - CODE_FENCE_EXAMPLE references produce NO findings (excluded before classifier runs)
 
-- [ ] Write TDD determinism tests:
+- [x] Write TDD determinism tests:
   - `test_precedence_dead_ref_beats_missing_dep`: a prose reference to `plans/nonexistent/` emits exactly one DEAD_REFERENCE, NO MISSING_DEPENDENCY
   - `test_precedence_cycle_beats_blocked`: a cyclic dependency emits exactly one CYCLE, NO BLOCKED for the members of the cycle
   - `test_precedence_parse_error_suppresses_all`: a file with a PARSE_ERROR finding in `corpus.gaps` does NOT appear as a node; no DAG classifier fires
@@ -402,12 +402,12 @@ Classifiers can fire on the same `(source, source_line)` pair. Without explicit 
   - `test_code_fence_no_false_positive_with_fixture`: `fixture_dead_ref_code_fence_negative.yaml` runs all 8 classifiers, zero findings
   - `test_deterministic_order`: running `run_classifiers(dag)` twice produces identical output (list equality, including order)
 
-- [ ] **Subsection close-out (02.4)** — MANDATORY before starting 02.5:
-  - [ ] Write failing determinism tests FIRST; verify they fail before implementation
-  - [ ] All tasks above are `[x]` and determinism tests pass on the live corpus
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Run `/sync-claude` on THIS subsection** — check whether changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md` claims. If no changes, document briefly. Fix any drift NOW.
+- [x] **Subsection close-out (02.4)** — MANDATORY before starting 02.5:
+  - [x] Write failing determinism tests FIRST; verify they fail before implementation
+  - [x] All tasks above are `[x]` and determinism tests pass on the live corpus
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — No tooling gaps. apply_precedence uses deterministic sort keys and stable tie-break on Finding.id; testability is strong via synthetic Finding instances (no need for live corpus).
+  - [x] **Run `/sync-claude` on THIS subsection** — No global rules drift.
 
 ---
 
