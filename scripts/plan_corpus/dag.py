@@ -415,9 +415,499 @@ def parse_html_comments(body: str) -> list[Reference]:
 
 
 # ---------------------------------------------------------------------------
-# Placeholder surface for §02.1+ (Dag dataclass, build_dag, classifiers).
-# Kept empty here so §02.0 lands as a focused commit. §02.1 fills it.
+# §02.1 DAG Construction
 # ---------------------------------------------------------------------------
+
+
+# Dependency-verb lexicon consumed by the PROSE_VERB scanner. Includes
+# explicit rewrite markers AND in-place-update verbs from the live corpus
+# ("update in place of", "reprioritize", "reorder") — without the extended
+# verbs, test case (c) is unimplementable per TPR-02-002-codex-r1.
+DEPENDENCY_VERBS: frozenset[str] = frozenset({
+    "depends on",
+    "requires",
+    "blocked by",
+    "prerequisite",
+    "unblocks",
+    "supersedes",
+    "rewrites",
+    "rewrite of",
+    "obsoletes",
+    "update in place of",
+    "update of",
+    "reprioritize",
+    "reorder",
+})
+
+INFORMATIONAL_VERBS: frozenset[str] = frozenset({
+    "see also", "related", "inspired by", "cf.",
+})
+
+
+# Plan-directory path reference regex (used by the PROSE_VERB scanner).
+# Captures `plans/<slug>/...` tokens.
+_PLAN_PATH_RE = re.compile(r"plans/([A-Za-z0-9_\-][A-Za-z0-9_\-/]*)")
+
+
+@dataclass
+class Dag:
+    """The constructed dependency graph consumed by §02.2 classifiers and §03.
+
+    - `nodes`: set of NodeId across all seven schema classes.
+    - `edges`: EXPLICIT_DEPENDS_ON only; body-inferred references never appear.
+    - `references`: ALL source-kinds including PROSE_VERB, HTML_COMMENT_*, YAML_COMMENT.
+    - `subsystem_to_nodes`: normalized-subsystem -> set of owning nodes.
+    - `resolution_findings`: DEAD_REFERENCE / SCHEMA_VIOLATION findings from
+      resolve_dep, enriched with precise source_line.
+    - `findings`: All Findings produced during construction (currently only
+      CYCLE from SCC detection; §02.2 classifiers append to this list).
+    - `name_index`: reference to Corpus.name_index for classifier reuse.
+    """
+
+    nodes: set[NodeId] = field(default_factory=set)
+    edges: list[Edge] = field(default_factory=list)
+    references: list[Reference] = field(default_factory=list)
+    subsystem_to_nodes: dict[str, set[NodeId]] = field(default_factory=dict)
+    resolution_findings: list = field(default_factory=list)  # list[Finding]
+    findings: list = field(default_factory=list)  # list[Finding]
+    name_index: dict[str, Path] = field(default_factory=dict)
+
+    def to_json(self) -> dict:
+        """Stable JSON-serializable representation for diagnostic dumps."""
+        return {
+            "nodes": sorted(
+                [{"kind": n.kind.value, "path": str(n.path)} for n in self.nodes],
+                key=lambda d: (d["kind"], d["path"]),
+            ),
+            "edges": [
+                {
+                    "from": str(e.from_node.path),
+                    "to": str(e.to_node.path),
+                    "source_kind": e.source_kind.value,
+                }
+                for e in self.edges
+            ],
+            "references": [
+                {
+                    "from": str(r.from_node.path),
+                    "target": r.target,
+                    "source_kind": r.source_kind.value,
+                    "source_line": r.source_line,
+                }
+                for r in self.references
+            ],
+            "subsystem_to_nodes": {
+                subsystem: sorted(str(n.path) for n in nodes)
+                for subsystem, nodes in self.subsystem_to_nodes.items()
+            },
+        }
+
+
+def enrich_resolve_dep_finding(finding, dep_id: str, yaml_line: int,
+                                declaring_file: Path):
+    """Rebuild a resolve_dep-produced Finding with precise source_line + evidence.
+
+    Finding K: resolve_dep returns source=plan_dir/"index.md" or plan_dir on
+    failure. §03 SafeFix needs the exact YAML line of the offending depends_on
+    list item. This helper rebuilds the Finding with source=<declaring_file>,
+    source_line=yaml_line, evidence=(dep_id,) so SafeFix can apply
+    remove_yaml_list_entry(source, source_line, dep_id) without further parsing.
+    """
+    from .types import Finding
+    return Finding(
+        category=finding.category,
+        subtype=finding.subtype,
+        severity=finding.severity,
+        source=declaring_file,
+        source_line=yaml_line,
+        source_column=finding.source_column,
+        target=finding.target,
+        target_line=finding.target_line,
+        description=finding.description,
+        recommended_fix=finding.recommended_fix,
+        evidence=(dep_id,),
+        dependency_chain=finding.dependency_chain,
+        source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+    )
+
+
+def _node_kind_for_bucket(bucket_name: str) -> NodeKind:
+    return {
+        "indexes": NodeKind.PLAN_INDEX,
+        "plan_sections": NodeKind.PLAN_SECTION,
+        "roadmap_sections": NodeKind.ROADMAP_SECTION,
+        "overviews": NodeKind.OVERVIEW,
+        "bug_sections": NodeKind.BUG_TRACKER_SECTION,
+        "fix_bug_files": NodeKind.FIX_BUG,
+        "completed_indexes": NodeKind.COMPLETED_INDEX,
+    }[bucket_name]
+
+
+def _find_yaml_list_line(text: str, field_name: str, item_value: str) -> int | None:
+    """Best-effort: find the 1-indexed line of a `field_name:` list item.
+
+    Used to enrich resolve_dep findings with precise YAML line numbers (Finding K).
+    Returns None if the field or item cannot be located.
+    """
+    lines = text.split("\n")
+    in_field = False
+    field_re = re.compile(rf"^{re.escape(field_name)}\s*:\s*(.*)$")
+    item_re = re.compile(r"^\s*-\s*\"?([^\"]+?)\"?\s*$")
+    for i, line in enumerate(lines):
+        m = field_re.match(line)
+        if m:
+            in_field = True
+            rhs = m.group(1).strip()
+            # Inline scalar list (not our case for depends_on but handle
+            # gracefully).
+            if rhs and not rhs.startswith("["):
+                continue
+            continue
+        if in_field:
+            # Still inside the list if line starts with `- `/spaces+`-`
+            if item_re.match(line):
+                im = item_re.match(line)
+                if im.group(1).strip() == item_value:
+                    return i + 1
+                continue
+            # Non-list line ends the block if it's a new top-level key.
+            if line and not line.startswith(" ") and not line.startswith("-"):
+                break
+    return None
+
+
+def _read_body_text(path: Path) -> tuple[str, int]:
+    """Return (body_text, body_offset) — thin wrapper over read_text_strict
+    + split_frontmatter_strict. Returns empty-string body on parse failure
+    (caller already has a parse-error Finding in Corpus.gaps).
+    """
+    from .parser import read_text_strict, split_frontmatter_strict
+    from .types import CorpusParseError
+    try:
+        text = read_text_strict(path)
+        _, body_offset = split_frontmatter_strict(text, path)
+        lines = text.split("\n")
+        body = "\n".join(lines[body_offset:])
+        return body, body_offset
+    except CorpusParseError:
+        return "", 0
+
+
+def _scan_body_for_references(
+    from_node: NodeId, body: str, file_text: str, body_offset: int,
+) -> list[Reference]:
+    """Collect PROSE_VERB + HTML_COMMENT_CONVENTION + YAML_COMMENT references.
+
+    Code-fence regions in the body are masked out (Finding D semantic pin).
+    Informational verbs (see also, related, inspired by, cf.) do NOT produce
+    references — they are documentation noise, not dependency signal.
+    """
+    refs: list[Reference] = []
+
+    # HTML_COMMENT_CONVENTION — parse_html_comments handles code-fence exclusion.
+    html_refs = parse_html_comments(body)
+    for r in html_refs:
+        # Patch the placeholder from_node.
+        refs.append(Reference(
+            from_node=from_node,
+            target=r.target,
+            source_kind=r.source_kind,
+            source_line=r.source_line,
+            source_column=r.source_column,
+            raw_text=r.raw_text,
+        ))
+
+    # PROSE_VERB — plan-path tokens preceded by a dependency verb.
+    code_regions = strip_code_blocks(body)
+
+    def in_code(line_1idx: int) -> bool:
+        return any(s <= line_1idx <= e for s, e, _k in code_regions)
+
+    lines = body.split("\n")
+    for line_idx, line in enumerate(lines):
+        line_no = line_idx + 1
+        if in_code(line_no):
+            continue
+        # Walk each plan-path match and inspect preceding text for a verb.
+        for m in _PLAN_PATH_RE.finditer(line):
+            match_start = m.start()
+            preceding = line[:match_start].lower()
+            # Match any verb as a phrase-suffix of the preceding text.
+            matched_verb: str | None = None
+            for verb in DEPENDENCY_VERBS:
+                if preceding.rstrip().endswith(verb):
+                    matched_verb = verb
+                    break
+            if matched_verb is None:
+                continue
+            plan_slug = m.group(1).rstrip("/.,;: \t")
+            refs.append(Reference(
+                from_node=from_node,
+                target=f"plans/{plan_slug}/",
+                source_kind=SourceKind.PROSE_VERB,
+                source_line=line_no,
+                source_column=match_start,
+                raw_text=m.group(0),
+            ))
+
+    # YAML_COMMENT — scan the raw frontmatter text for `# comment` content
+    # containing a DEPENDENCY_VERB or plans/<slug>/ reference.
+    yaml_comments = extract_yaml_comments(file_text, body_offset)
+    for line_no, col, comment_text in yaml_comments:
+        # Look for plans/ path inside the comment.
+        for m in _PLAN_PATH_RE.finditer(comment_text):
+            plan_slug = m.group(1).rstrip("/.,;: \t")
+            refs.append(Reference(
+                from_node=from_node,
+                target=f"plans/{plan_slug}/",
+                source_kind=SourceKind.YAML_COMMENT,
+                source_line=line_no,
+                source_column=col,
+                raw_text=comment_text,
+            ))
+        # Also capture BUG-\d{2}-\d{3} references (bug-tracker scope).
+        for m in re.finditer(r"BUG-\d{2}-\d{3}", comment_text):
+            refs.append(Reference(
+                from_node=from_node,
+                target=m.group(0),
+                source_kind=SourceKind.YAML_COMMENT,
+                source_line=line_no,
+                source_column=col,
+                raw_text=comment_text,
+            ))
+
+    return refs
+
+
+def _extract_subsystem_tokens(body: str) -> set[str]:
+    """Extract candidate subsystem tokens from a body for normalization.
+
+    Scans for:
+      - `compiler/ori_X/...` path prefixes
+      - bare `ori_X` crate identifiers
+      - logical aliases registered in SUBSYSTEM_ALIASES (case-sensitive)
+    Code-fence regions are NOT excluded here — subsystem mapping is coarse
+    and code fences often contain the richest subsystem signals (symbol
+    names, struct refs, file paths).
+    """
+    tokens: set[str] = set()
+    for m in re.finditer(r"compiler/[A-Za-z_][A-Za-z0-9_]*", body):
+        tokens.add(m.group(0))
+    for m in re.finditer(r"\bori_[a-z_]+\b", body):
+        tokens.add(m.group(0))
+    # Logical aliases: scan for each alias as a whole word.
+    for alias in SUBSYSTEM_ALIASES:
+        if alias in ("AIMS", "ARC", "FIP", "COW", "TRMC"):
+            # Uppercase tokens — use word boundaries.
+            if re.search(rf"\b{re.escape(alias)}\b", body):
+                tokens.add(alias)
+        elif "::" in alias or "Plan" in alias or "Registry" in alias or "Def" in alias or "Tree" in alias or "Expr" in alias:
+            if alias in body:
+                tokens.add(alias)
+    return tokens
+
+
+def _tarjan_scc(nodes: Iterable[NodeId], edges: list[Edge]) -> list[list[NodeId]]:
+    """Return non-trivial strongly-connected components.
+
+    A non-trivial SCC has size > 1 OR is a self-loop. Trivial single-node
+    SCCs (the common case) are filtered out. Used by build_dag to emit
+    CYCLE findings.
+    """
+    adj: dict[NodeId, list[NodeId]] = {n: [] for n in nodes}
+    for e in edges:
+        if e.from_node in adj:
+            adj[e.from_node].append(e.to_node)
+
+    index_counter = [0]
+    stack: list[NodeId] = []
+    on_stack: set[NodeId] = set()
+    index: dict[NodeId, int] = {}
+    lowlink: dict[NodeId, int] = {}
+    result: list[list[NodeId]] = []
+
+    def strongconnect(v: NodeId) -> None:
+        index[v] = index_counter[0]
+        lowlink[v] = index_counter[0]
+        index_counter[0] += 1
+        stack.append(v)
+        on_stack.add(v)
+        for w in adj.get(v, []):
+            if w not in index:
+                strongconnect(w)
+                lowlink[v] = min(lowlink[v], lowlink[w])
+            elif w in on_stack:
+                lowlink[v] = min(lowlink[v], index[w])
+        if lowlink[v] == index[v]:
+            comp: list[NodeId] = []
+            while True:
+                w = stack.pop()
+                on_stack.discard(w)
+                comp.append(w)
+                if w == v:
+                    break
+            # Non-trivial only: size > 1 OR self-loop.
+            if len(comp) > 1 or any(w == v for w in adj.get(v, [])):
+                result.append(comp)
+
+    for n in list(adj.keys()):
+        if n not in index:
+            strongconnect(n)
+
+    return result
+
+
+def build_dag(corpus) -> Dag:
+    """Construct the Dag from a discovered Corpus.
+
+    Pipeline:
+      1. Populate nodes from all seven corpus buckets.
+      2. Parse EXPLICIT_DEPENDS_ON -> Edge (via resolve_dep, enriched).
+      3. Scan bodies for PROSE_VERB / HTML_COMMENT / YAML_COMMENT references
+         (Reference records only; no edges — §02.0 SSOT rule).
+      4. Build subsystem_to_nodes from body-token normalization.
+      5. Run Tarjan SCC on edges; emit CYCLE findings for non-trivial SCCs.
+    """
+    from .docgen import resolve_dep
+    from .types import (
+        Finding, FindingCategory, FindingSubtype, Severity,
+    )
+
+    dag = Dag(name_index=dict(corpus.name_index))
+
+    # 1. Populate nodes.
+    bucket_map = {
+        "indexes": corpus.indexes,
+        "plan_sections": corpus.plan_sections,
+        "roadmap_sections": corpus.roadmap_sections,
+        "overviews": corpus.overviews,
+        "bug_sections": corpus.bug_sections,
+        "fix_bug_files": corpus.fix_bug_files,
+        "completed_indexes": corpus.completed_indexes,
+    }
+    for bname, bucket in bucket_map.items():
+        nk = _node_kind_for_bucket(bname)
+        for path in bucket:
+            dag.nodes.add(NodeId(nk, path))
+
+    # 2. Parse depends_on edges.
+    # Plan-level depends_on comes from index.md files; section-level comes
+    # from section data. fix-BUG files can also have depends_on.
+    deps_sources: list[tuple[NodeId, Path, Path, dict]] = []
+    for path, data in corpus.indexes.items():
+        deps_sources.append((NodeId(NodeKind.PLAN_INDEX, path), path, path.parent, data))
+    for path, data in corpus.plan_sections.items():
+        deps_sources.append((NodeId(NodeKind.PLAN_SECTION, path), path, path.parent, data))
+    for path, data in corpus.roadmap_sections.items():
+        deps_sources.append((NodeId(NodeKind.ROADMAP_SECTION, path), path, path.parent, data))
+    for path, data in corpus.fix_bug_files.items():
+        deps_sources.append((NodeId(NodeKind.FIX_BUG, path), path, path.parent, data))
+
+    for from_node, declaring_file, plan_dir, data in deps_sources:
+        depends_on = data.get("depends_on") or []
+        if not isinstance(depends_on, list):
+            continue
+        for dep_id in depends_on:
+            if not isinstance(dep_id, str):
+                continue
+            # Find the YAML line of this specific list item for §03 SafeFix (Finding K).
+            from .parser import read_text_strict
+            try:
+                raw_text = read_text_strict(declaring_file)
+                yaml_line = _find_yaml_list_line(raw_text, "depends_on", dep_id)
+            except Exception:
+                yaml_line = None
+
+            resolved = resolve_dep(dep_id, plan_dir, corpus)
+            if isinstance(resolved, Path):
+                # Find the NodeId for the resolved path (it exists in one of
+                # the buckets already). If not found, the target is a file
+                # outside the corpus (e.g., the plan dir exists but the
+                # resolved section is missing) — propagate a Finding.
+                target_nid = next(
+                    (n for n in dag.nodes if n.path == resolved),
+                    None,
+                )
+                if target_nid is None:
+                    dag.resolution_findings.append(Finding(
+                        category=FindingCategory.DEAD_REFERENCE,
+                        subtype=FindingSubtype.SECTION_FILE_NOT_FOUND,
+                        severity=Severity.HIGH,
+                        source=declaring_file,
+                        source_line=yaml_line,
+                        description=f"depends_on target not in corpus: {dep_id}",
+                        recommended_fix="Ensure the target file exists and is classified",
+                        evidence=(dep_id,),
+                        source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+                    ))
+                    continue
+                ref = Reference(
+                    from_node=from_node,
+                    target=dep_id,
+                    source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+                    source_line=yaml_line if yaml_line else 0,
+                    source_column=None,
+                    raw_text=dep_id,
+                )
+                dag.references.append(ref)
+                dag.edges.append(Edge(
+                    from_node=from_node,
+                    to_node=target_nid,
+                    source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+                    reference=ref,
+                ))
+            else:
+                # resolve_dep returned a Finding (DEAD_REFERENCE or
+                # SCHEMA_VIOLATION). Enrich with precise line info.
+                enriched = enrich_resolve_dep_finding(
+                    resolved,
+                    dep_id=dep_id,
+                    yaml_line=yaml_line or 0,
+                    declaring_file=declaring_file,
+                )
+                dag.resolution_findings.append(enriched)
+
+    # 3. Scan bodies for body-inferred references.
+    for from_node in dag.nodes:
+        body, body_offset = _read_body_text(from_node.path)
+        if not body:
+            continue
+        from .parser import read_text_strict
+        try:
+            file_text = read_text_strict(from_node.path)
+        except Exception:
+            file_text = ""
+        body_refs = _scan_body_for_references(from_node, body, file_text, body_offset)
+        dag.references.extend(body_refs)
+
+    # 4. Build subsystem_to_nodes mapping.
+    for from_node in dag.nodes:
+        body, _ = _read_body_text(from_node.path)
+        if not body:
+            continue
+        tokens = _extract_subsystem_tokens(body)
+        for tok in tokens:
+            normalized = normalize_subsystem(tok)
+            if normalized is None:
+                continue
+            dag.subsystem_to_nodes.setdefault(normalized, set()).add(from_node)
+
+    # 5. Tarjan SCC for cycle detection.
+    sccs = _tarjan_scc(dag.nodes, dag.edges)
+    for scc in sccs:
+        scc_paths = tuple(n.path for n in scc)
+        dag.findings.append(Finding(
+            category=FindingCategory.DAG_CONFLICT,
+            subtype=FindingSubtype.CYCLE,
+            severity=Severity.HIGH,
+            source=scc[0].path,
+            description=f"cycle of {len(scc)} nodes in depends_on graph",
+            recommended_fix="Break the cycle by removing or restructuring one of the depends_on edges",
+            dependency_chain=scc_paths,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+        ))
+
+    return dag
 
 
 __all__ = [
@@ -433,4 +923,10 @@ __all__ = [
     "strip_code_blocks",
     "extract_yaml_comments",
     "parse_html_comments",
+    # §02.1
+    "Dag",
+    "build_dag",
+    "enrich_resolve_dep_finding",
+    "DEPENDENCY_VERBS",
+    "INFORMATIONAL_VERBS",
 ]
