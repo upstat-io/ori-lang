@@ -1,0 +1,130 @@
+"""Dataclass SSOTs for the seven plan file schemas.
+
+Each `@dataclass(frozen=True)` class is the sole source of truth for the
+required / allowed field sets of one file class. Required fields have no
+default; optional fields default to `None`.
+
+Consumers (`schema.py`, `docgen.py`) derive `required` / `allowed` from
+these dataclasses via `dataclasses.fields()` — do NOT maintain parallel
+allowlist constants.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class PlanIndexSchema:
+    """Schema for `plans/*/index.md`."""
+    name: str
+    full_name: str
+    status: str
+    reviewed: bool | None = None
+    reroute: bool | None = None
+    parallel: bool | None = None
+    order: int | None = None
+    supersedes: list[str] | None = None
+    references: list[str] | None = None
+    inspired_by: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class PlanSectionSchema:
+    """Schema for `plans/*/section-*.md` (non-roadmap plan sections)."""
+    section: str
+    title: str
+    status: str
+    reviewed: bool
+    goal: str
+    success_criteria: list[str]
+    sections: list[dict]
+    third_party_review: dict
+    depends_on: list[str] | None = None
+    inspired_by: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class RoadmapSectionSchema:
+    """Schema for `plans/roadmap/section-*.md`."""
+    section: str
+    title: str
+    status: str
+    reviewed: bool
+    goal: str
+    sections: list[dict]
+    tier: str | None = None
+    last_verified: str | None = None
+    spec: str | None = None
+    depends_on: list[str] | None = None
+    third_party_review: dict | None = None
+    tpr_findings: list[dict] | None = None
+    verification_summary: str | None = None
+
+
+@dataclass(frozen=True)
+class OverviewSchema:
+    """Schema for `plans/*/00-overview.md`."""
+    plan: str
+    title: str
+    status: str
+    reviewed: bool | None = None
+    supersedes: list[str] | None = None
+    references: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class BugTrackerSectionSchema:
+    """Schema for `plans/bug-tracker/section-*.md`."""
+    section: str
+    title: str
+    status: str
+    goal: str
+    sections: list[dict] | None = None
+
+
+@dataclass(frozen=True)
+class FixBugSchema:
+    """Schema for `plans/bug-tracker/fix-BUG-*.md`."""
+    bug: str
+    title: str
+    severity: str
+    status: str
+    goal: str
+    success_criteria: list[str]
+    subsystem: str
+    found: str
+    source: str
+    third_party_review: dict
+    sections: list[dict] | None = None
+    depends_on: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class CompletedIndexSchema:
+    """Schema for `plans/completed/*/index.md`."""
+    name: str
+    full_name: str
+    status: str
+    reroute: bool | None = None
+    parallel: bool | None = None
+    order: int | None = None
+
+
+def _schema_required_fields(cls) -> list[str]:
+    """Fields without defaults are required.
+
+    Preserves declaration order, so the resulting list is stable and
+    matches the order used in generated documentation.
+    """
+    return [
+        f.name for f in dataclasses.fields(cls)
+        if f.default is dataclasses.MISSING
+        and f.default_factory is dataclasses.MISSING
+    ]
+
+
+def _schema_allowed_fields(cls) -> frozenset[str]:
+    """All dataclass field names are allowed frontmatter keys."""
+    return frozenset(f.name for f in dataclasses.fields(cls))
