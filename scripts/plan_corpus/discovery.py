@@ -246,12 +246,22 @@ def load_and_validate(path: Path) -> LoadResult:
 
     fc = classify_file(path)
     if fc is None:
-        return LoadResult(ok=ValidatedFile(
-            path=path,
-            file_class=FileClass.PLAN_INDEX,  # fallback
-            data=data,
-            body_offset=body_offset,
-            body="\n".join(text.split("\n")[body_offset:]),
+        # Unclassified files are a GAP — the file is a valid .md with valid
+        # frontmatter, but its path doesn't match any of the seven schema
+        # classes. Fabricating PLAN_INDEX here would violate SSOT
+        # (classify_file is the canonical classifier). Surface as an Err.
+        return LoadResult(err=Finding(
+            category=FindingCategory.GAP,
+            subtype=FindingSubtype.UNCLASSIFIED_DIRECTORY,
+            severity=Severity.MEDIUM,
+            source=path,
+            description=f"file path does not match any of the seven schema classes: {path}",
+            recommended_fix=(
+                "Move the file to a directory that matches a known schema "
+                "(plans/*/index.md, plans/*/section-*.md, plans/*/00-overview.md, "
+                "plans/roadmap/section-*.md, plans/bug-tracker/section-*.md, "
+                "plans/bug-tracker/fix-BUG-*.md, or plans/completed/*/index.md)"
+            ),
         ))
 
     violations = validate(fc, data, path)

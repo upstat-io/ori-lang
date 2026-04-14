@@ -7,12 +7,34 @@ default; optional fields default to `None`.
 Consumers (`schema.py`, `docgen.py`) derive `required` / `allowed` from
 these dataclasses via `dataclasses.fields()` — do NOT maintain parallel
 allowlist constants.
+
+Status enum frozensets (`PLAN_STATUSES`, `SECTION_STATUSES`, …) are also
+homed here: they are schema constraints — the allowed values for enum
+fields — so they belong with the dataclass shapes they constrain.
 """
 
 from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
+
+
+# ---------------------------------------------------------------------------
+# Status enums (corpus-derived)
+# ---------------------------------------------------------------------------
+
+PLAN_STATUSES = frozenset({"active", "queued", "resolved", "not-started", "research"})
+SECTION_STATUSES = frozenset({"not-started", "in-progress", "complete"})
+OVERVIEW_STATUSES = frozenset({"not-started", "in-progress", "research", "complete"})
+FIX_STATUSES = frozenset({"not-started", "in-progress", "complete"})
+TPR_STATUSES = frozenset({"none", "findings", "resolved", "clean"})
+SEVERITY_VALUES = frozenset({"critical", "high", "medium", "low"})
+COMPLETED_STATUSES = frozenset({"resolved"})
+
+
+# ---------------------------------------------------------------------------
+# Top-level file-class schemas
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -112,6 +134,11 @@ class CompletedIndexSchema:
     order: int | None = None
 
 
+# ---------------------------------------------------------------------------
+# Shape helpers
+# ---------------------------------------------------------------------------
+
+
 @dataclass(frozen=True)
 class SubsectionEntry:
     """Schema for each entry in a section's `sections: [...]` list.
@@ -123,6 +150,13 @@ class SubsectionEntry:
     id: str
     title: str
     status: str
+
+
+@dataclass(frozen=True)
+class TprInfo:
+    """Parsed shape of a `third_party_review` block."""
+    status: str
+    updated: str | None
 
 
 def _schema_required_fields(cls) -> list[str]:
