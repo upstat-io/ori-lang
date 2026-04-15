@@ -272,4 +272,3 @@ Migrated in `plans/query-intel-adoption` §05.2 (3 commands):
 - `.claude/skills/query-intel/SKILL.md` — full capability surface
 - `scripts/intel-query.sh` — the canonical wrapper (206 lines; see §08 for planned UX improvements)
 - `.claude/skills/dual-tpr/polling-protocol.md` — sibling SSOT for dual-source polling
-- `.claude/skills/dual-tpr/compose-rules-brief.md` — sibling SSOT for rules-brief composition

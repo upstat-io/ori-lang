@@ -1,6 +1,6 @@
 ---
 name: verify-roadmap-tooling
-description: Programmatic cross-plan coherence checker. Two modes — --quick (fast pre-check, BLOCKED + DEAD_REFERENCE only) and --full (TBD; complete classifier sweep + auto-fix). Distinct from the agent-based /verify-roadmap slash command.
+description: Programmatic cross-plan coherence checker with integrated item-level verification. Five invocation modes — --quick (fast pre-check), --full (complete sweep + auto-fix), --deep-all (every section), --section <path> (targeted), --plan <name> (plan-scoped). Delegates Phase 4 item verification to .claude/skills/verify-roadmap/item-verifier.md. Distinct from the agent-based /verify-roadmap slash command.
 ---
 
 # Verify-Roadmap Tooling Skill
@@ -48,6 +48,40 @@ auto-fixes for `SafeFix` findings via the §03.4 patcher.
 
 For now, `--full` mode exits with code 2 and a clear "not implemented"
 message. Use `--quick` for the available pre-check surface.
+
+### `--deep-all` (item-level verification across every section)
+
+Runs Phase 4 (item-level verification) on every section in the corpus —
+this is the original behavior of `.claude/commands/verify-roadmap.md`.
+Dispatches review + update agents per section per the protocol in
+`.claude/skills/verify-roadmap/item-verifier.md`. Use when the goal is an
+exhaustive sweep of matrix coverage, semantic pins, and hygiene across
+every plan section, not just cross-plan coherence.
+
+### `--section <path>` (targeted item verification)
+
+Skips Phases 1–3 (cross-plan analysis). Runs Phase 4 item verification
+directly on the specified section file, then Phase 5 (reporting). Use
+after completing work on a single section:
+
+```
+python -m scripts.verify_roadmap --section plans/roadmap/section-05-traits.md
+```
+
+Accepts any section file in any plan directory — not just master roadmap
+sections (`plans/repr-opt/section-03-*.md`, `plans/pkg_mgmt/section-02-*.md`,
+etc. are all valid targets).
+
+### `--plan <name>` (plan-scoped sweep)
+
+Runs Phases 1–3 scoped to the named plan directory, then Phase 4 on all
+sections of that plan. Faster than `--full` for verifying a single plan's
+internal coherence. Useful when a reroute plan is about to close out and
+you want a final plan-internal sweep:
+
+```
+python -m scripts.verify_roadmap --plan repr-opt
+```
 
 ## Usage
 
