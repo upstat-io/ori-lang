@@ -30,6 +30,27 @@ Read the entire section file. Identify:
 
 If there are no unchecked findings, report "No open TPR findings" and exit.
 
+### Step 2.5: Blast-Radius Query on High-Signal Findings (MANDATORY)
+
+Before triaging findings in Step 3, identify which findings are high-severity
+or cite symbols whose blast radius is ambiguous (i.e., you cannot tell from
+the finding text alone whether the cited symbol is called by 2 or 200 sites).
+
+For each such finding, run the graph-first protocol:
+
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
+Query with the finding's cited symbol. Example: finding cites `resolve_fully`
+— run `scripts/intel-query.sh --human callers "resolve_fully" --repo ori` to
+see how many sites consume the behavior the finding questions. A finding
+against a symbol with 20+ callers deserves more scrutiny than one with 2
+callers. Use the result to CALIBRATE accept/reject decisions in Step 3 —
+not as authority.
+
+Skip this step for [low]-severity findings with clearly-scoped symbols
+(e.g., a test helper function, a local formatting issue). The goal is
+informed triage, not query exhaustion.
+
 ### Step 3: Triage Each Finding
 
 Process findings in priority order: `[high]` -> `[medium]` -> `[low]`.

@@ -90,6 +90,24 @@ Remaining queue ({N-1} bugs):
   ...
 ```
 
+### Step 4.5: Lightweight Blast-Radius Preview
+
+Before presenting the mode choice (Step 5), add blast-radius context to the
+bug presentation (Step 4's output). This helps the user gauge whether the bug
+is a localized fix or a cross-cutting concern:
+
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
+Target the bug's repro symbol (from the bug entry's Repro or Subsystem field).
+Run `callers` to see how many sites touch the buggy code path. Append a
+one-line blast-radius note to the Step 4 presentation:
+
+  Blast radius: <symbol> called by N sites across M modules
+
+This is a PREVIEW only — /fix-bug Phase 1 (investigation) runs its own
+full intelligence queries. The preview here helps the user decide between
+interactive vs. autopilot mode with better scope awareness.
+
 ### Step 5: Choose Mode
 
 Before fixing the first bug, use `AskUserQuestion` to ask:

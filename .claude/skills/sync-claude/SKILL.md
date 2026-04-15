@@ -72,6 +72,26 @@ git diff --name-only <section-start-commit>..HEAD
 git diff --name-only HEAD | grep -oP 'compiler/\w+' | sort -u
 ```
 
+### Step 1.5: Intelligence-Graph Symbol Inventory (MANDATORY when graph available)
+
+After identifying changed crates in Step 1, query the intelligence graph to
+get a complete symbol inventory for each changed crate. This reveals symbols
+that may have been added, renamed, or removed — and that doc artifacts might
+not reflect.
+
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
+Specifically: for each crate touched in the diff, run
+`scripts/intel-query.sh --human file-symbols "<crate-path-fragment>" --repo ori`
+to get the current symbol surface. Compare against the rules file's documented
+symbols (Step 2's mapping). Symbols present in the graph but absent from the
+rules file are likely new additions that need documentation. Symbols in the
+rules file but absent from the graph may have been removed or renamed.
+
+This step does NOT check whether a file's references to the intelligence
+graph are current — that is a different concern. This step checks whether
+the CODE SYMBOLS documented in rules files match the actual codebase.
+
 ### Step 2: Map Changes to Artifacts
 
 For each changed file/crate, consult the trigger table above. Build a checklist of artifacts to verify.

@@ -41,10 +41,10 @@ live consumers that query the graph today.
 
 - **Design decisions**: Before choosing an approach, query `similar` for how reference compilers handled it
 - **Bug investigation** (/fix-bug Phase 1): `callers`/`callees` for blast radius, `similar` for reference fixes
-- **Bug autopilot** (/fix-next-bug) *[planned — tracked by plans/query-intel-adoption §05]*: `callers`/`callees` for blast-radius + `similar` on the selected bug's repro symbol before handing to /fix-bug
+- **Bug autopilot** (/fix-next-bug): lightweight `callers`-only blast-radius preview on the selected bug's repro symbol to help gauge scope before choosing interactive vs. autopilot mode (Step 4.5 — /fix-bug Phase 1 runs its own full investigation)
 - **Bug triage** (/review-bugs, /add-bug): `callers` to assess blast radius, `file-symbols` to cluster related bugs
 - **TPR reviews** (/tpr-review Step 0.75): `file-symbols` + `callers`/`callees` for module inventory + blast radius
-- **TPR triage** (/verify-tpr) *[planned — tracked by plans/query-intel-adoption §05]*: `callers`/`callees` for blast-radius on each finding before accept/reject decision
+- **TPR triage** (/verify-tpr): `callers` for blast-radius on high-severity findings or findings where the blast radius is ambiguous (Step 2.5 — not every finding, to avoid query exhaustion; informs accept/reject decisions, does not replace them)
 - **Code reviews** (/review-work, /independent-review): `file-symbols` for module context, `callers` for impact
 - **Hygiene reviews** (/impl-hygiene-review): `callers`/`callees` for flow mapping, `similar` for cross-backend mirrors
 - **Plan reviews** (/review-plan): `symbols`/`file-symbols` to validate plan assumptions against actual code
@@ -56,7 +56,7 @@ live consumers that query the graph today.
 - **Roadmap** (/continue-roadmap): `file-symbols`/`callers`/`callees`/`similar` for section-relevant code surface
 - **Roadmap verification** (/verify-roadmap) *[planned — tracked by plans/query-intel-adoption §05]*: `file-symbols`/`callers`/`similar` — review agents validate architectural claims against the graph before the rule-file read cycle
 - **Execution tracing** (/code-journey, /rosetta-test): `callers`/`callees` to map exercised paths, `similar` for cross-repo equivalents
-- **Doc sync** (/sync-claude) *[planned — tracked by plans/query-intel-adoption §05]*: `file-symbols` on changed crates to confirm rules / canonical docs still match
+- **Doc sync** (/sync-claude): `file-symbols` on changed crates to detect doc-symbol drift — symbols present in the graph but missing from rules files (new additions), or symbols in rules files but absent from the graph (removed/renamed) (Step 1.5)
 - **Spec sync** (/sync-spec) *[planned — tracked by plans/query-intel-adoption §05]*: `callers` of affected symbols before spec edits
 - **Grammar sync** (/sync-grammar) *[planned — tracked by plans/query-intel-adoption §05]*: `file-symbols` on `compiler/ori_parse/` and `compiler/ori_lexer/` to inventory parser/lexer types that consume the grammar
 - **Tooling** (/improve-tooling): `symbols` to check if similar tools already exist before creating new ones
