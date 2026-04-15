@@ -5,7 +5,7 @@ use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 use super::super::InferEngine;
 use super::{
     check_match_pattern, infer_expr, infer_match, lookup_struct_field_types, pattern_first_name,
-    resolve_and_check_parsed_type,
+    resolve_and_check_parsed_type, should_generalize,
 };
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag, TypeCheckError};
 
@@ -242,9 +242,15 @@ pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, st
                 // Unwrap Result/Option for try semantics
                 let bound_ty = unwrap_result_or_option(engine, init_ty);
 
-                // Generalize free type variables for let-polymorphism
-                // This enables: `let id = x -> x, id(42), id("hello")`
-                engine.generalize(bound_ty)
+                // Value Restriction: only non-capturing lambdas may be generalized.
+                // Note: should_generalize tests the *original* init expression (before
+                // unwrapping), not bound_ty — the unwrap changes the type, not the kind.
+                // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
+                if should_generalize(arena, *init) {
+                    engine.generalize(bound_ty)
+                } else {
+                    bound_ty
+                }
             };
 
             // Exit rank scope before binding (generalization happens at current rank)
