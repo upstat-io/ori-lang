@@ -69,14 +69,14 @@ The choice is AST-based rather than type-based because type-tag heuristics fail 
 the resolved type is still `Tag::Var` awaiting bi-directional unification (per Gemini
 Round 1 TPR finding on the original fix-section).
 
-**Success Criteria:**
+**Success Criteria:** (authoritative copy in YAML `success_criteria:` frontmatter above; all verified at closeout 2026-04-14)
 
-- [ ] Single `pub(super) fn should_generalize` exists in `blocks.rs` — one grep hit
-- [ ] All 3 `engine.generalize()` calls are gated by `if should_generalize(...)` — grep verifiable
-- [ ] `test_let_polymorphism_for_lambda` passes before and after; reverting the change breaks it
-- [ ] `test_empty_list_let_binding_does_not_generalize_element_var` passes after migration
-- [ ] Negative pins for intentionally monomorphic patterns pass (block-wrapped, aliased, conditional)
-- [ ] `timeout 150 ./test-all.sh` green (debug + release)
+- [x] Single `pub(super) fn should_generalize` exists in `blocks.rs` — one grep hit
+- [x] All 3 `engine.generalize()` calls are gated by `if should_generalize(...)` — grep verifiable
+- [x] `test_let_polymorphism_for_lambda` passes before and after; reverting the change breaks it
+- [x] `test_empty_list_let_binding_does_not_generalize_element_var` passes after migration
+- [x] Negative pins for intentionally monomorphic patterns pass (block-wrapped, aliased, conditional)
+- [x] `timeout 150 ./test-all.sh` green (debug + release)
 
 **Cross-section contract (Section 01 -> Sections 02/03):** After Section 01 completes,
 `infer_expr` stores expression types BEFORE the generalization step in `infer_block` /
