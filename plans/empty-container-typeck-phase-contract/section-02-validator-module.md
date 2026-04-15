@@ -55,8 +55,8 @@ inspired_by:
   - "compiler/ori_types/src/infer/context.rs — take_errors() idiom used by the Bodies pass"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-15
 sections:
   - id: "02.0"
     title: "Pool scheme-flag propagation fix (prerequisite for §02.2 HAS_VAR gate)"
@@ -947,6 +947,38 @@ module, `impl-hygiene.md §SSOT`).
   **Resolution:** Tracked by §02.N sync checklist item — §03 span recipe will
   be updated with the concrete `ExprId::from_raw(expr_index as u32)` path
   when §02 implementation confirms the mapping contract.
+
+**TPR Round 4 findings (§02.N close-out review):**
+
+- [x] **[TPR-02-R4-001-codex][medium] Gate order drift: `collect_first_unbound_var` checks `!HAS_VAR` BEFORE `HAS_ERROR`, contradicting the documented `resolve_fully → HAS_ERROR → HAS_VAR` contract.**
+  `DRIFT [ER-4, TF-5]`: `compiler/ori_types/src/check/validators/mod.rs:161`
+  The fast-path gate at lines 161-164 returned on `!HAS_VAR` BEFORE
+  consulting `HAS_ERROR` at lines 166-168. The plan's §02.4 T8
+  description (line 736) and the Rules Brief both specified the
+  order `resolve_fully → HAS_ERROR → HAS_VAR` (cascade suppression
+  precedes the walk gate per `types.md §TK-3` + `typeck.md §ER-4`).
+  The T8 test cell (`Tuple(Var, Error)` — both flags set) passed
+  under either order because the two gates are semantically
+  equivalent when both flags are propagated — so the matrix could
+  not distinguish the implemented order from the contract. No type
+  exists that would emit under one order but not the other (any
+  leaf with HAS_ERROR has no reachable Var to emit about), so this
+  is DRIFT, not a correctness bug. But matching the contract is
+  required to keep cascade suppression robust against future
+  flag-propagation changes (e.g., if `HAS_VAR` stopped propagating
+  through error-typed compound nodes, the pre-fix order would
+  incorrectly walk into them before suppressing).
+  **Resolution:** Fixed on 2026-04-15 in `check/validators/mod.rs:156-180`.
+  Swapped the two gates so `HAS_ERROR` fires first. Expanded the
+  surrounding comment block into three numbered steps explaining
+  the contract (1: `resolve_fully` before flag reads for staleness
+  safety; 2: `HAS_ERROR` cascade suppression before walk; 3: `HAS_VAR`
+  fast-path). All 12 cells of the §02.4 matrix pass unchanged
+  (`cargo test -p ori_types --lib check::validators::tests` — 12/12
+  ok). Reviewer: codex (attempt 3+4 envelopes — gemini capacity
+  errors prevented dual-source confirmation on this round, but the
+  finding was independently verified against the actual code at
+  line 161 before being acted on, per `CLAUDE.md §Reviewer grounding`).
 
 ---
 
