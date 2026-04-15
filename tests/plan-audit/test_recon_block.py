@@ -832,23 +832,68 @@ class TestDiscoverReconCoverageReporter:
 
 
 class TestMatrixCompleteness:
-    """Proves every body-shape / FileClass cell has at least one test pin."""
+    """Proves every body-shape / FileClass cell has at least one test pin.
 
-    def test_stub_shapes_all_pinned_for_plan_section(self):
-        """Every STUB_SHAPES entry must have a not-started default + strict pin
-        and an in-progress pin in `TestPlanSectionStubBlocks`."""
-        expected = {s for s, _ in STUB_SHAPES}
-        # The parametrized test names encode the shape.
-        # Sanity check via introspection of the parametrize ids:
-        ids = [s for s, _ in STUB_SHAPES]
-        assert set(ids) == expected
-        # At least 7 distinct stub shapes are covered.
-        assert len(ids) >= 7
+    Per tests.md §Self-Verifying Matrix Completeness: a matrix loop that
+    silently skips cells is worse than no matrix. These tests drive the
+    expected cell counts from explicit cell tables and cross-check them
+    against the actual parametrize data + collected test names. If someone
+    removes a stub variant from `STUB_SHAPES` or a class from the exempt
+    list without updating the parametrized tests, this catches it.
+    """
+
+    # Explicit cell table — NOT derived from STUB_SHAPES so drift is
+    # visible. Each entry is `(shape_name, default_strict_divergence)` —
+    # divergence=True means default and strict emit different Outcomes.
+    _EXPECTED_STUB_SHAPES = [
+        ("stub_empty", True),
+        ("stub_placeholder", True),
+        ("stub_no_query", True),
+        ("stub_no_date", True),
+        ("stub_no_citation", True),
+        ("mixed_placeholder", True),
+        ("only_at_include", True),
+    ]
+
+    def test_stub_shape_set_matches_expected(self):
+        """The stub shapes covered by parametrize MUST equal the expected
+        explicit table, exactly — no silent additions or removals."""
+        expected_names = {n for n, _ in self._EXPECTED_STUB_SHAPES}
+        actual_names = {s for s, _ in STUB_SHAPES}
+        assert actual_names == expected_names, (
+            f"STUB_SHAPES drift: expected {expected_names}, "
+            f"got {actual_names}"
+        )
+
+    def test_stub_plan_section_cell_count_matches_expected(self):
+        """Count of parametrized invocations in TestPlanSectionStubBlocks
+        must equal len(STUB_SHAPES) * 3 test functions (default,
+        strict, in-progress). A missing cell = a missing regression guard."""
+        expected_cells = len(STUB_SHAPES) * 3
+        # Count by inspecting the class's parametrized functions directly.
+        import inspect
+        cls = TestPlanSectionStubBlocks
+        stub_test_methods = [
+            m for name, m in inspect.getmembers(cls, predicate=inspect.isfunction)
+            if name.startswith("test_stub_")
+            and hasattr(m, "pytestmark")
+        ]
+        total_cells = 0
+        for m in stub_test_methods:
+            for mark in m.pytestmark:
+                if mark.name == "parametrize":
+                    # parametrize("shape,body", STUB_SHAPES) — the second arg
+                    # is the data
+                    total_cells += len(mark.args[1])
+        assert total_cells == expected_cells, (
+            f"TestPlanSectionStubBlocks cell count {total_cells} != "
+            f"expected {expected_cells} (len(STUB_SHAPES)={len(STUB_SHAPES)} × 3 methods)"
+        )
 
     def test_exempt_classes_cover_representative_body_shapes(self):
-        """EXEMPT_BODY_SHAPES must include at least: absent, 2+ stub variants,
-        graph-unavailable, complete — enough to demonstrate the class exemption
-        is total regardless of body."""
+        """EXEMPT_BODY_SHAPES must include: absent, 3+ stub variants,
+        graph-unavailable, complete — enough to demonstrate the class
+        exemption is total regardless of body."""
         shapes = {s for s, _ in EXEMPT_BODY_SHAPES}
         assert "absent" in shapes
         assert "complete" in shapes
@@ -856,3 +901,351 @@ class TestMatrixCompleteness:
         # At least 3 distinct stub variants.
         stub_count = sum(1 for s, _ in EXEMPT_BODY_SHAPES if s.startswith("stub_"))
         assert stub_count >= 3
+
+
+# ---------------------------------------------------------------------------
+# Round-1 TPR regression tests (codex findings TPR-06-001..003)
+# ---------------------------------------------------------------------------
+
+
+class TestNaturalNoneAcceptedAfterCitation:
+    """Regression pin for TPR-06-001-codex: mixed-placeholder detection must
+    NOT false-positive on natural-English `None`/`n/a` usage after a citation."""
+
+    def test_ori_none_of_callers_prose_passes(self, tmp_path):
+        """`[ori] None of the callers of validate live outside...` is a
+        legitimate summary — `None` is a common English subject."""
+        body = textwrap.dedent("""\
+
+            ## Intelligence Reconnaissance
+
+            Queries run 2026-04-15:
+
+            - `scripts/intel-query.sh --human callers "validate" --repo ori`
+
+            [ori] None of the callers of validate live outside the package.
+            Verified by grepping scripts/ for the function.
+
+            ---
+        """)
+        p = write_plan_section(tmp_path, body, status="not-started")
+        assert _validate(p) == [], (
+            "Natural-English 'None of the callers' must not trigger "
+            "mixed-placeholder-after-citation (TPR-06-001-codex)"
+        )
+
+    def test_ori_n_a_in_natural_prose_passes(self, tmp_path):
+        """Similar regression guard for natural `N/A` usage in prose."""
+        body = textwrap.dedent("""\
+
+            ## Intelligence Reconnaissance
+
+            Queries run 2026-04-15:
+
+            - `scripts/intel-query.sh --human similar "foo" --repo rust`
+
+            [ori] Applied to foo; cross-repo N/A because there is no rust
+            equivalent. Confirmed by reading the lowering pass.
+
+            ---
+        """)
+        p = write_plan_section(tmp_path, body, status="not-started")
+        assert _validate(p) == [], (
+            "Natural-English 'N/A' in prose must not trigger "
+            "mixed-placeholder-after-citation (TPR-06-001-codex)"
+        )
+
+    def test_strict_stub_tokens_still_detected(self, tmp_path):
+        """Negative pin: `[ori] TBD` still fires — strict tokens are not
+        exempt. This is the ORIGINAL mixed-placeholder case the validator
+        was designed to catch."""
+        body = BODY_MIXED_PLACEHOLDER  # `[ori] TBD — will fill in later`
+        p = write_plan_section(tmp_path, body, status="not-started")
+        findings = _validate(p)
+        assert len(findings) == 1
+        assert findings[0].subtype == FindingSubtype.VALIDATION_BYPASS
+
+
+class TestRepoCitationGrammarStrict:
+    """Regression pin for TPR-06-002-codex: citation regex must enforce
+    Step D grammar exactly — `[repo#N]` requires integer N, `[repo:path]`
+    requires non-empty path."""
+
+    def test_malformed_issue_citation_rejected(self, tmp_path):
+        """`[rust#abc]` is NOT a valid Step D issue citation — issue IDs
+        are integers. A block with only this malformed citation must be
+        flagged as missing-citation, not accepted."""
+        body = textwrap.dedent("""\
+
+            ## Intelligence Reconnaissance
+
+            Queries run 2026-04-15:
+
+            - `scripts/intel-query.sh --human search "foo" --repo rust`
+
+            Summary [rust#abc]: Some prose. (Malformed — issue ID not numeric.)
+
+            ---
+        """)
+        p = write_plan_section(tmp_path, body, status="not-started")
+        findings = _validate(p)
+        assert len(findings) == 1, (
+            "[rust#abc] is not a valid Step D citation — block should "
+            "be flagged VALIDATION_BYPASS for missing citation "
+            "(TPR-06-002-codex)"
+        )
+        assert findings[0].subtype == FindingSubtype.VALIDATION_BYPASS
+        assert "citation" in findings[0].description.lower()
+
+    def test_empty_issue_citation_rejected(self, tmp_path):
+        """`[rust#]` (empty number) is malformed; must not count as citation."""
+        body = textwrap.dedent("""\
+
+            ## Intelligence Reconnaissance
+
+            Queries run 2026-04-15:
+
+            - `scripts/intel-query.sh --human search "foo" --repo rust`
+
+            Summary [rust#]: Bare hash, no issue id. Malformed.
+
+            ---
+        """)
+        p = write_plan_section(tmp_path, body, status="not-started")
+        findings = _validate(p)
+        assert len(findings) == 1
+        assert findings[0].subtype == FindingSubtype.VALIDATION_BYPASS
+
+    def test_empty_path_citation_rejected(self, tmp_path):
+        """`[rust:]` (empty path) is malformed; must not count as citation."""
+        body = textwrap.dedent("""\
+
+            ## Intelligence Reconnaissance
+
+            Queries run 2026-04-15:
+
+            - `scripts/intel-query.sh --human search "foo" --repo rust`
+
+            Summary [rust:] with empty symbol path. Malformed.
+
+            ---
+        """)
+        p = write_plan_section(tmp_path, body, status="not-started")
+        findings = _validate(p)
+        assert len(findings) == 1
+        assert findings[0].subtype == FindingSubtype.VALIDATION_BYPASS
+
+    def test_valid_numeric_issue_citation_accepted(self, tmp_path):
+        """Positive pin: `[rust#12345]` is the canonical issue citation."""
+        body = textwrap.dedent("""\
+
+            ## Intelligence Reconnaissance
+
+            Queries run 2026-04-15:
+
+            - `scripts/intel-query.sh --human search "lifetime" --repo rust --limit 5`
+
+            [rust#12345] Reference implementation — short phrase. Verified.
+
+            ---
+        """)
+        p = write_plan_section(tmp_path, body, status="not-started")
+        assert _validate(p) == []
+
+
+class TestGraphUnavailablePrecedenceNarrowed:
+    """Regression pin for TPR-06-003-codex: graph-unavailable must only fire
+    when the block is SUBSTITUTING for full recon (no query), not when the
+    phrase happens to appear in natural prose inside a complete block."""
+
+    def test_complete_block_mentioning_phrase_still_complete(self, tmp_path):
+        """A complete block (query + date + citation) that happens to use
+        the phrase 'graph unavailable' in natural prose must NOT be
+        downgraded to RECON_GRAPH_UNAVAILABLE."""
+        body = textwrap.dedent("""\
+
+            ## Intelligence Reconnaissance
+
+            Queries run 2026-04-15:
+
+            - `scripts/intel-query.sh --human search "retrofit" --limit 5`
+
+            [ori] This section discusses how graph unavailable notes should
+            be handled when authors run recon during a Neo4j outage.
+            Verified behavior at scripts/plan_corpus/schema.py.
+
+            ---
+        """)
+        p = write_plan_section(tmp_path, body, status="not-started")
+        assert _validate(p) == [], (
+            "Complete block mentioning 'graph unavailable' in prose must "
+            "NOT be downgraded — it has real query + date + citation "
+            "(TPR-06-003-codex)"
+        )
+
+    def test_genuine_graph_unavailable_still_detected(self, tmp_path):
+        """Negative pin: a block with NO query AND the unavailability
+        phrase still counts as RECON_GRAPH_UNAVAILABLE — the narrowing
+        must not break the legitimate case."""
+        body = BODY_GRAPH_UNAVAILABLE  # date + phrase, no query
+        p = write_plan_section(tmp_path, body, status="not-started")
+        findings = _validate(p)
+        assert len(findings) == 1
+        assert findings[0].subtype == FindingSubtype.RECON_GRAPH_UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# Extractor edge cases (TPR-06-004-codex):
+# `_extract_recon_block` is load-bearing — test HTML comments, next-header
+# truncation, multi-header bodies
+# ---------------------------------------------------------------------------
+
+
+class TestExtractorEdgeCases:
+    """Regression coverage for `_extract_recon_block` — HTML comments
+    stripped, next `## ` section truncates, multi-header keeps first only."""
+
+    def test_html_comments_stripped_before_content_checks(self, tmp_path):
+        """An HTML comment containing stub-like content must NOT influence
+        the content check — the extractor strips comments before
+        evaluation."""
+        body = textwrap.dedent("""\
+
+            ## Intelligence Reconnaissance
+
+            <!-- TODO: this note is not part of the content per the
+            extractor contract — comments are metadata. -->
+
+            Queries run 2026-04-15:
+
+            - `scripts/intel-query.sh --human search "foo"`
+
+            [ori] Real summary text after the comment.
+
+            ---
+        """)
+        p = write_plan_section(tmp_path, body, status="not-started")
+        # If the comment was not stripped, `TODO` would trigger
+        # mixed-placeholder or whole-body-placeholder detection. With the
+        # stripping, the block passes.
+        assert _validate(p) == []
+
+    def test_next_section_header_truncates_block(self, tmp_path):
+        """A `## NN.1` header after the recon block must terminate the
+        extractor — content in the next subsection is NOT part of the
+        recon block."""
+        body = textwrap.dedent("""\
+
+            ## Intelligence Reconnaissance
+
+            Queries run 2026-04-15:
+
+            - `scripts/intel-query.sh --human search "foo"`
+
+            [ori] Real summary.
+
+            ## 01.1 First Subsection
+
+            TBD — this placeholder is in 01.1, not the recon block.
+            If the extractor failed to truncate at the next `## `, the
+            recon block would falsely include this TBD and trigger
+            mixed-placeholder-after-citation.
+
+            ---
+        """)
+        p = write_plan_section(tmp_path, body, status="not-started")
+        assert _validate(p) == []
+
+    def test_only_first_recon_header_used(self, tmp_path):
+        """If the body contains two `## Intelligence Reconnaissance`
+        headers (e.g., authoring mistake), the extractor takes the FIRST
+        one. The validator then operates on the content between the first
+        header and the next `## ` — which is the second header. The second
+        header's content is NOT part of the block."""
+        body = textwrap.dedent("""\
+
+            ## Intelligence Reconnaissance
+
+            Queries run 2026-04-15:
+
+            - `scripts/intel-query.sh --human search "foo"`
+
+            [ori] First block is complete and valid.
+
+            ## Intelligence Reconnaissance
+
+            TBD — this second block's content should NOT be seen by the
+            validator because the first `## ` boundary terminated the
+            extractor. If it were seen, mixed-placeholder would fire.
+
+            ---
+        """)
+        p = write_plan_section(tmp_path, body, status="not-started")
+        # First block is complete — no finding.
+        assert _validate(p) == []
+
+
+# ---------------------------------------------------------------------------
+# Docgen byte-parity regression (TPR-06-008-codex)
+# ---------------------------------------------------------------------------
+
+
+class TestDocgenByteParityWithShellRedirect:
+    """Regression pin: `python -m scripts.plan_corpus docgen > file` must
+    produce bytes identical to `generate_schema_reference()`. Before the
+    `print(ref, end="")` fix, shell redirect appended an extra newline and
+    the next `docgen --check` run flagged self-drift."""
+
+    def test_shell_redirect_bytes_match_generator_output(self, tmp_path):
+        """Redirect docgen into a tmp file; compare bytes to the function's
+        return value."""
+        from scripts.plan_corpus.docgen import generate_schema_reference
+        expected = generate_schema_reference()
+        redirect_target = tmp_path / "out.md"
+        result = subprocess.run(
+            [sys.executable, "-m", "scripts.plan_corpus", "docgen"],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0
+        # The `print(ref, end="")` fix ensures stdout == expected bytes.
+        redirect_target.write_text(result.stdout)
+        actual = redirect_target.read_text()
+        assert actual == expected, (
+            f"docgen shell redirect drifted from generate_schema_reference(). "
+            f"expected {len(expected)} chars; got {len(actual)} chars. "
+            f"tail diff: expected ends with {expected[-20:]!r}, "
+            f"got {actual[-20:]!r}"
+        )
+
+    def test_docgen_check_immediately_after_regeneration_passes(self, tmp_path):
+        """End-to-end: regenerate via `docgen > file`, then run `docgen
+        --check`. Must pass. Before the fix, this sequence failed."""
+        gen = subprocess.run(
+            [sys.executable, "-m", "scripts.plan_corpus", "docgen"],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert gen.returncode == 0
+        # Write via the exact shell-redirect pattern.
+        target = REPO_ROOT / "docs" / "internal" / "plan-schema-reference.md"
+        original = target.read_text()
+        try:
+            target.write_text(gen.stdout)
+            check = subprocess.run(
+                [sys.executable, "-m", "scripts.plan_corpus", "docgen", "--check"],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert check.returncode == 0, (
+                f"docgen --check failed after regeneration: {check.stdout}"
+            )
+        finally:
+            # Restore the original committed file so this test is side-effect-free.
+            target.write_text(original)

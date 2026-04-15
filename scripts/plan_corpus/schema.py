@@ -493,24 +493,51 @@ _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _RECON_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _RECON_QUERY_RE = re.compile(r"\bscripts/intel-query\.sh\b")
 _RECON_ORI_CITATION_RE = re.compile(r"\[ori\]")
-# `[rust#123]` or `[repo:path/to/symbol]` — generic pattern matches any
-# reference-repo citation without hardcoding the repo list.
-_RECON_REPO_CITATION_RE = re.compile(r"\[[a-z][a-z0-9-]*[#:][^\]]+\]")
+# Step D grammar (compose-intel-summary.md):
+#   `[repo#N]` — issue/PR shorthand, N is a POSITIVE INTEGER
+#   `[repo:path]` — symbol path shorthand, path is non-empty
+# Split the two forms so the validator rejects malformed near-misses
+# (e.g. `[rust#abc]` is not a valid issue citation; `[rust:]` is not a
+# valid symbol citation). Repo name is `[a-z][a-z0-9-]*` — matches any
+# lowercase repo identifier without hardcoding the repo list.
+_RECON_REPO_ISSUE_CITATION_RE = re.compile(r"\[[a-z][a-z0-9-]*#\d+\]")
+_RECON_REPO_PATH_CITATION_RE = re.compile(r"\[[a-z][a-z0-9-]*:[^\]\s][^\]]*\]")
 _RECON_AT_INCLUDE_RE = re.compile(
     r"@\.claude/skills/dual-tpr/compose-intel-summary\.md",
 )
 
-# Placeholder tokens (case-insensitive, whole-token). Used both for the
-# "only-placeholders" check and the mixed-placeholder-after-citation scan.
-_RECON_PLACEHOLDER_PATTERN = (
+# Placeholder tokens (case-insensitive, whole-token). Used for the
+# "only-placeholders" whole-body check and the mixed-placeholder-after-
+# citation scan — BUT the two uses have different token lists.
+#
+# `_RECON_WHOLE_BODY_PLACEHOLDERS` — ALL placeholder tokens, including
+# natural-English words like `none` / `n/a`. When a block's ENTIRE body
+# consists of these tokens (after strip), it is a performative stub
+# regardless of which word the author used.
+#
+# `_RECON_MIXED_PLACEHOLDERS` — STRICT stub tokens only. Excludes `NONE`
+# and `N/A` because those words appear in natural prose (e.g.
+# `[ori] None of the callers of validate live outside the package.`
+# is a valid summary). Including them in the mixed-placeholder scan
+# would false-positive legitimate summaries that happen to start with
+# "None" — a high-severity correctness bug (TPR-06-001-codex).
+_RECON_WHOLE_BODY_PLACEHOLDER_PATTERN = (
     r"\bTBD\b|\bTODO\b|\bNONE\b|\bN/?A\b|\bXXX\b|\(empty\)|\.{3}|…"
 )
-_RECON_PLACEHOLDER_RE = re.compile(_RECON_PLACEHOLDER_PATTERN, re.IGNORECASE)
-# `[ori]` OR `[repo#` / `[repo:` — start of any citation marker.
+_RECON_MIXED_PLACEHOLDER_PATTERN = (
+    r"\bTBD\b|\bTODO\b|\bXXX\b|\(empty\)|\.{3}|…"
+)
+_RECON_PLACEHOLDER_RE = re.compile(
+    _RECON_WHOLE_BODY_PLACEHOLDER_PATTERN, re.IGNORECASE,
+)
+# `[ori]` OR `[repo#` / `[repo:` — start of any citation marker, followed
+# by optional punctuation/whitespace, then a STRICT stub token. The tight
+# `[^\n]{0,8}?` gap ensures only `[ori] TBD` / `[ori]: TODO` / `[repo#N] …`
+# shapes match; sentences like `[ori] Summary of what we found.` do not.
 _RECON_MIXED_CITATION_RE = re.compile(
     r"(\[ori\]|\[[a-z][a-z0-9-]*[#:])"
-    r"[^\n]{0,20}?"
-    r"(" + _RECON_PLACEHOLDER_PATTERN + r")",
+    r"[\s:;—–\-]{0,4}"
+    r"(?:" + _RECON_MIXED_PLACEHOLDER_PATTERN + r")",
     re.IGNORECASE,
 )
 
@@ -592,11 +619,23 @@ def _check_intel_recon_block(
     has_date = bool(_RECON_DATE_RE.search(block))
     lower = block.lower()
 
-    # Graph-unavailable takes precedence: legitimate documentation shape,
-    # distinct from stubs. Requires a date + one of the unavailability
-    # phrases so authors can't pass the check with a bare "unavailable"
-    # comment.
-    if has_date and any(p in lower for p in _RECON_GRAPH_UNAVAIL_PHRASES):
+    # Graph-unavailable takes precedence over stub checks, but ONLY when the
+    # block is genuinely substituting for full recon — not when the phrase
+    # happens to appear inside an otherwise complete block. Requires:
+    #   1. A date marker (so authors can't pass with a bare "unavailable" note)
+    #   2. One of the unavailability phrases
+    #   3. NO concrete query line (block is NOT running real queries)
+    #
+    # Rule 3 is what distinguishes a dedicated graph-unavailable note from
+    # a complete block that mentions the phrase in prose. Without it, a
+    # valid recon block containing e.g. "This section discusses how graph
+    # unavailable notes should be handled [ori]." would be misclassified
+    # as graph-unavailable, shadowing its real completeness (TPR-06-003-codex).
+    if (
+        has_date
+        and any(p in lower for p in _RECON_GRAPH_UNAVAIL_PHRASES)
+        and not _RECON_QUERY_RE.search(block)
+    ):
         return [Finding(
             category=FindingCategory.GAP,
             subtype=FindingSubtype.RECON_GRAPH_UNAVAILABLE,
@@ -677,11 +716,17 @@ def _check_intel_recon_block(
                 outcome=base_outcome,
             )]
 
-    # Concrete-content checks: query line, ISO date, citation marker.
+    # Concrete-content checks: query line, ISO date, citation marker. The
+    # citation check accepts three Step D forms: `[ori]`, `[repo#N]` where
+    # N is a positive integer (issue/PR shorthand), and `[repo:path]` where
+    # path is non-empty (symbol shorthand). Malformed near-misses like
+    # `[rust#abc]` or `[rust:]` do NOT satisfy the citation check — they are
+    # performative-ritual stubs per the Step D grammar (TPR-06-002-codex).
     has_query = bool(_RECON_QUERY_RE.search(block))
     has_citation = bool(
         _RECON_ORI_CITATION_RE.search(block)
-        or _RECON_REPO_CITATION_RE.search(block)
+        or _RECON_REPO_ISSUE_CITATION_RE.search(block)
+        or _RECON_REPO_PATH_CITATION_RE.search(block)
     )
     missing: list[str] = []
     if not has_query:

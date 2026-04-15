@@ -50,6 +50,24 @@ Auto-generated from Python dataclass definitions in `scripts/plan_corpus/schemas
 **Required**: `name`, `full_name`, `status`
 **Optional**: `order`, `parallel`, `reroute`
 
+## Finding Severity
+
+Impact classification — answers "how bad is this?". Set by the emitter at `Finding` construction time based on the finding's real-world significance. Ordered for comparison (IntEnum).
+
+- `low` (ordinal 0)
+- `medium` (ordinal 1)
+- `high` (ordinal 2)
+- `critical` (ordinal 3)
+
+## Finding Outcome
+
+Enforcement channel — answers "does this gate the check?". INDEPENDENT of Severity and set independently at emit time. `scripts/plan_corpus check` exits 1 iff any finding has `outcome == ERROR`; `WARNING` findings print but do not gate.
+
+- `warning`
+- `error`
+
+`Finding.outcome` defaults to `ERROR` — pre-existing call sites (schema violations, parse errors) gate CI unchanged. The `_check_intel_recon_block` body validator explicitly opts into `WARNING` for `status: not-started` / `in-progress` PLAN_SECTION findings; `--strict-recon` escalates `not-started` WARNINGs to ERRORs. `outcome` is NOT included in `Finding.id` hash — backward-compat with saved reports.
+
 ## Finding Categories
 
 ### parse_error
