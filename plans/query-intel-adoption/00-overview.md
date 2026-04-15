@@ -69,7 +69,7 @@ Consumers of the SSOT helper (§03 fans out):
 
   .claude/skills/dual-tpr/compose-intel-summary.md   ← NEW SSOT [§03]
         │
-        │ @-included by:
+        │ True @-include consumers (skill/command prompts harness-expanded):
         │
         ├── .claude/skills/tpr-review/SKILL.md                [§03]
         ├── .claude/skills/review-work/SKILL.md               [§03]
@@ -84,9 +84,14 @@ Consumers of the SSOT helper (§03 fans out):
         ├── .claude/commands/sync-spec.md                     [§05]
         ├── .claude/commands/sync-grammar.md                  [§05]
         ├── .claude/commands/verify-roadmap.md                [§05]
-        ├── .claude/skills/create-plan/plan-schema.md         [§06]
-        ├── scripts/plan_corpus/retrofit_recon.py             [§09]
         └── .claude/hooks/pre-review-intel.sh                 [§07]
+        │
+        │ Contract followers (follow the §03 format contract but are NOT
+        │ harness-expanded — they are tools/templates that reference the
+        │ SSOT's citation grammar and ≤500-char bound without @-including it):
+        │
+        ├── .claude/skills/create-plan/plan-schema.md         [§06]  ← template (markdown, not expanded)
+        └── scripts/plan_corpus/retrofit_recon.py             [§09]  ← Python tool (no @-include expansion)
 
 Ambient teaching surface (CLAUDE.md §02 + rule files §04):
 
