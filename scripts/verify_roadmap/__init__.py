@@ -42,6 +42,16 @@ from .auto_fix import (
     apply_fixes,
     FixApplyResult,
 )
+from .patcher import (
+    extract_frontmatter_slice,
+    reassemble_file,
+    rename_key,
+    remove_key,
+    replace_value,
+    insert_key,
+    remove_list_item,
+    apply_patch,
+)
 
 __all__ = [
     # Safety taxonomy (§03.1)
@@ -69,4 +79,13 @@ __all__ = [
     "build_fix_plans",
     "apply_fixes",
     "FixApplyResult",
+    # Frontmatter text patcher (§03.4)
+    "extract_frontmatter_slice",
+    "reassemble_file",
+    "rename_key",
+    "remove_key",
+    "replace_value",
+    "insert_key",
+    "remove_list_item",
+    "apply_patch",
 ]
