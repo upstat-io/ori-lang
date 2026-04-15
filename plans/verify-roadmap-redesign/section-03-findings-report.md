@@ -19,10 +19,10 @@ depends_on:
   - "01"
   - "02"
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-15
   rounds: 5
-  notes: "Round 5 iter 3: CLEAN PASS on §03 scope. 1 finding remains open (TPR-03-002-gemini-r4i4) — deferred to §05 for cross-section plan_corpus.dag.py structural plumbing. §03's own code work is complete."
+  notes: "Round 5 iter 3: CLEAN PASS on §03 scope. All findings resolved as of 2026-04-15 — TPR-03-002-gemini-r4i4 fixed in-place via structural Finding.target_value field across plan_corpus/types.py, plan_corpus/docgen.py, plan_corpus/dag.py, and verify_roadmap/auto_fix.py. Original §05 anchor also marked done. Prior to resolution a new independent /tpr-review pass (§03.N close-out) may surface follow-up findings; this field will flip back to 'findings' if so."
 sections:
   - id: "03.1"
     title: "Safety Taxonomy & Data Types"
@@ -41,7 +41,7 @@ sections:
     status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: in-progress
+    status: complete
   - id: "03.N"
     title: "Completion Checklist"
     status: in-progress
@@ -462,10 +462,10 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
 - [x] `[TPR-03-001-gemini-r4i4][high]` `scripts/verify_roadmap/auto_fix.py:99` — Remove prose-string fragility across auto_fix, pairing, and safety modules.
   Resolved: Fixed on 2026-04-15. Same fix as [TPR-03-001-codex-r4i4] — structural `target_key` field eliminates all prose-based field dispatch.
   Agreement: [TPR-03-001-codex-r4i4]
-- [ ] `[TPR-03-002-gemini-r4i4][high]` `scripts/verify_roadmap/auto_fix.py:165` — Remove fragile string splitting for dead reference extraction.
+- [x] `[TPR-03-002-gemini-r4i4][high]` `scripts/verify_roadmap/auto_fix.py:165` — Remove fragile string splitting for dead reference extraction.
   Evidence: `_dispatch_dead_reference` parses `f.description` via `rsplit(":", 1)[1].strip()` to extract the dead reference value. Comment notes this is "best-effort." Requires structural value passing from the upstream DAG validator — crosses into `plan_corpus/dag.py` which constructs the dead-reference findings.
   Impact: Prose-string fragility; any description format change breaks auto-fix.
-  Tracked: Concrete `- [ ]` item added to §05 for the dead-reference structural value plumbing. Cannot be fixed in §03 close-out without a larger `plan_corpus` refactor crossing section boundaries.
+  Resolved: Fixed on 2026-04-15 during §03 close-out. Scope estimate was overstated — the fix was ~30 lines across `plan_corpus/types.py` (new `Finding.target_value: str | None` field + id-hash + to_json), `plan_corpus/docgen.py` (2 DEAD_REFERENCE sites + `_find_section_file` signature), `plan_corpus/dag.py` (4 DEAD_REFERENCE construction sites), and `verify_roadmap/auto_fix.py` (structural read + defense-in-depth panic on missing target_value). 7 matrix regression tests added (`test_auto_fix.py::TestBuildFixPlanDeadReference`) covering positive pin, cross-plan-dep preservation, embedded-colon value preservation, description-format-change independence, None-panics defense-in-depth, and non-depends_on short-circuit — plus 1 dag-side pin in `test_dag_classifiers.py` verifying every `classify_dead_reference` finding carries `target_value == evidence[0]`. 616 plan-audit tests pass. §05:187 anchor item marked done.
 
 **Round 5 findings (2026-04-15 — section close-out dual-source review):**
 

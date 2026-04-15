@@ -275,6 +275,12 @@ class Finding:
     dependency_chain: tuple[Path, ...] = ()
     source_kind: "SourceKind | None" = None
     target_key: str | None = None
+    # Structural target-value carrier for list-item findings (e.g. DEAD_REFERENCE
+    # on a depends_on list item). Populated at finding-construction time so
+    # downstream consumers (auto_fix SafeFix dispatch, report rendering) read
+    # the value structurally instead of parsing `description`. Parallels
+    # `target_key` — hashed into `id` when non-None for backward-compat.
+    target_value: str | None = None
     # §06.2 — enforcement channel independent of Severity. Defaults to ERROR
     # so pre-existing call sites gate CI unchanged; recon-block emitters opt
     # into WARNING explicitly. NOT included in `id` hash — backward-compat
@@ -306,6 +312,13 @@ class Finding:
             # target_key='name' vs target_key='full_name'). Without this
             # discriminator, distinct findings collide on the same id.
             content += f":{self.target_key}"
+        if self.target_value is not None:
+            # target_value discriminates same-file same-subtype findings on
+            # the same line that differ only by which list item they target
+            # (e.g. two DEAD_REFERENCE findings on the same depends_on list
+            # line where one slug is dead and another is stale). Mirrors
+            # target_key's backward-compat conditional-hash pattern.
+            content += f":{self.target_value}"
         return "VR-" + hashlib.sha256(content.encode()).hexdigest()[:6]
 
     def to_json(self) -> dict[str, Any]:
@@ -321,6 +334,7 @@ class Finding:
             "target": str(self.target) if self.target else None,
             "target_line": self.target_line,
             "target_key": self.target_key,
+            "target_value": self.target_value,
             "description": self.description,
             "recommended_fix": self.recommended_fix,
             "evidence": list(self.evidence),
