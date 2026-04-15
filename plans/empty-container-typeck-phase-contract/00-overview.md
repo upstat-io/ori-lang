@@ -47,7 +47,7 @@ Type Checker (ori_types::check)  ── ENFORCEMENT PRODUCER
     │       │     ↓ Empty list's element Var stays Unbound/monomorphic
     │       │
     │       │ (2) AFTER body inference, BEFORE body exit:
-    │       │     ↓ validate_body_types(pool, arena, engine.expr_types(), &mut errors)
+    │       │     ↓ validate_body_types(pool, expr_types, sig, sig_span, span_of, errors)
     │       │       Section 02 — new `ori_types::check::validators` module
     │       │     ↓ Walks body_expr_types sorted by ExprIndex (deterministic)
     │       │     ↓ Skips types with HAS_ERROR (cascade suppression)
@@ -137,7 +137,7 @@ Phase 2 — Validator Module (Section 02)
   └─ 02.1: Validator signature, public contract, and narrow re-export (NO pub mod check)
   └─ 02.2: Core algorithm: tag-dispatch child recursion (reusing Pool::visit_children)
   └─ 02.3: lib.rs and check/mod.rs wiring (no pub mod check)
-  └─ 02.4: Unit test matrix (eleven cells)
+  └─ 02.4: Unit test matrix (twelve cells)
      Gate: Unit tests pass; validator emits E2005 for every unresolved Tag::Var
 
 Phase 3 — Bodies-Pass Integration (Section 03) — CRITICAL PATH

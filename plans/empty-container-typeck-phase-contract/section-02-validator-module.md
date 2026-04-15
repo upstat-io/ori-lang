@@ -913,6 +913,30 @@ module, `impl-hygiene.md §SSOT`).
   → "Negative"; T4, T5, T6, T7 (produce no diagnostic) → "Positive". Updated
   the frontmatter success_criteria note to spell out the convention explicitly.
 
+**TPR Round 3 findings (iteration 2):**
+
+- [x] **[TPR-02-R3-001-codex][high] Sync Section 05 to twelve-cell matrix.**
+  §05 still references the old matrix structure.
+  **Resolution:** Tracked by §02.N sync checklist item — §05 will be updated
+  when §02 implementation completes and the final matrix is confirmed.
+
+- [x] **[TPR-02-R3-002-codex][medium] Resync overview to final validator contract.**
+  Overview architecture diagram showed old 4-arg call shape.
+  **Resolution:** Fixed in 00-overview.md — updated to 6-arg signature and
+  "twelve cells" on 2026-04-15.
+
+- [x] **[TPR-02-R3-003-codex][high] Rewrite Section 03 to current API.**
+  §03 still references old 4-param signature and `pub mod check`.
+  **Resolution:** Tracked by §02.N sync checklist item — §03 will be updated
+  when §02 implementation completes. Single-section review scope; §03 edits
+  deferred to §02.N sync gate with concrete `- [ ]` anchor.
+
+- [x] **[TPR-02-R3-004-codex][medium] Replace placeholder span recipe in §03.**
+  §03 uses `Span::new(0, 1)` placeholder instead of real ExprIndex mapping.
+  **Resolution:** Tracked by §02.N sync checklist item — §03 span recipe will
+  be updated with the concrete `ExprId::from_raw(expr_index as u32)` path
+  when §02 implementation confirms the mapping contract.
+
 ---
 
 ## 02.N Completion Checklist
