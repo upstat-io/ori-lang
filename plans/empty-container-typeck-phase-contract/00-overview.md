@@ -1,7 +1,7 @@
 ---
 plan: "empty-container-typeck-phase-contract"
 title: "Empty-Container Typeck Phase-Contract Enforcement: Exhaustive Implementation Plan"
-status: not-started
+status: in-progress
 supersedes:
   - "plans/bug-tracker/fix-BUG-04-074.md"
 references:
