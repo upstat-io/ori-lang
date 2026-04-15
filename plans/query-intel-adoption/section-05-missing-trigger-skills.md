@@ -2,7 +2,7 @@
 section: "05"
 title: "Missing-trigger skills & commands"
 status: in-progress
-reviewed: false
+reviewed: true
 goal: "Add a concrete graph-query workflow step to every review/investigation skill and command currently lacking one"
 success_criteria:
   - "3 skills (verify-tpr, sync-claude, fix-next-bug) each have a numbered workflow step that runs graph queries — not a token bullet"
