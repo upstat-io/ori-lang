@@ -36,7 +36,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
 
       - name: Install Rust nightly (for ori_rt ASan)
-        run: rustup toolchain install nightly
+        run: rustup toolchain install nightly --component rust-src
 
       - name: Build compiler
         run: cargo build --release
@@ -81,7 +81,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
 
       - name: Install Rust nightly
-        run: rustup toolchain install nightly
+        run: rustup toolchain install nightly --component rust-src
 
       - name: Build compiler
         run: cargo build --release
