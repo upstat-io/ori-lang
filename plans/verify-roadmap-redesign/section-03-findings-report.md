@@ -47,16 +47,16 @@ sections:
 
 # Section 03: Findings Report & Write-Back
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Design the findings report format and implement the write-back mechanism that auto-fixes safe issues and flags issues requiring human decision. Connect the output to `/continue-roadmap` so cross-plan conflicts surface during active roadmap work.
 
 **Success Criteria:**
-- [ ] Safety taxonomy (`SafetyClass`, `ClassifiedFinding`, `WriteBackContext`) defined and tested
-- [ ] Findings report format defined and implemented (JSON + markdown + console)
-- [ ] Frontmatter text patcher operates on raw text (regex), never PyYAML dump/reload
-- [ ] Auto-fix engine handles safe issues without human intervention, with concurrent-session guards
-- [ ] Manual-review issues are flagged with clear context and recommended actions
-- [ ] Integration with `/continue-roadmap` surfaces findings during active work
+- [x] Safety taxonomy (`SafetyClass`, `ClassifiedFinding`, `WriteBackContext`) defined and tested
+- [x] Findings report format defined and implemented (JSON + markdown + console)
+- [x] Frontmatter text patcher operates on raw text (regex), never PyYAML dump/reload
+- [x] Auto-fix engine handles safe issues without human intervention, with concurrent-session guards
+- [x] Manual-review issues are flagged with clear context and recommended actions
+- [x] Integration with `/continue-roadmap` surfaces findings during active work
 
 **Context:** Sections 01 and 02 produce raw findings (schema violations, DAG conflicts, priority inversions). This section turns those findings into actionable output: a structured report for review, an auto-fix engine for safe corrections, and integration with the existing `/continue-roadmap` workflow so findings surface at the right time. The distinction between auto-fixable and manual-review issues is critical -- auto-fixing frontmatter field renames is safe; auto-resolving goal conflicts between plans is not.
 

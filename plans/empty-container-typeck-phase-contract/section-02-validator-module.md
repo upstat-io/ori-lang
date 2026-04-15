@@ -60,7 +60,7 @@ third_party_review:
 sections:
   - id: "02.0"
     title: "Pool scheme-flag propagation fix (prerequisite for §02.2 HAS_VAR gate)"
-    status: not-started
+    status: complete
   - id: "02.1"
     title: "Validator signature, public contract, and narrow re-export"
     status: not-started
@@ -214,7 +214,7 @@ in §02.2.
 
 ### 02.0.1 — Fix
 
-- [ ] In `compiler/ori_types/src/pool/mod.rs` `compute_flags`, replace the
+- [x] In `compiler/ori_types/src/pool/mod.rs` `compute_flags`, replace the
   `Tag::Scheme` arm with:
   ```rust
   // Scheme: propagate PROPAGATE_MASK from the body (types.md §TF-3)
@@ -235,14 +235,14 @@ in §02.2.
   re-wrapped by accessors, so it computes the offset directly from the
   extra slice rather than calling `scheme_body(idx)`.
 
-- [ ] Confirm that `propagate_from` exists and already masks to
+- [x] Confirm that `propagate_from` exists and already masks to
   `PROPAGATE_MASK` per `types.md §TF-3`. If it does not (or its mask is
   stale), update it in the same change — flag-propagation asymmetries between
   Scheme and other compound tags are themselves `DRIFT` findings.
 
 ### 02.0.2 — Regression test
 
-- [ ] Add to `compiler/ori_types/src/pool/tests.rs`:
+- [x] Add to `compiler/ori_types/src/pool/tests.rs`:
   ```rust
   #[test]
   fn scheme_wrapping_unbound_var_body_propagates_has_var() {
@@ -264,7 +264,7 @@ in §02.2.
   scheme, add one via `#[cfg(test)]` helper on `Pool` OR use the existing
   generalization path to build a scheme whose body is the unbound var.
 
-- [ ] Add a negative companion to prove that a resolved body no longer sets
+- [x] Add a negative companion to prove that a resolved body no longer sets
   `HAS_VAR` on the outer scheme:
   ```rust
   #[test]
@@ -278,11 +278,11 @@ in §02.2.
 
 ### 02.0.3 — Completion criteria
 
-- [ ] `cargo test -p ori_types --lib pool::tests` passes with both new tests.
-- [ ] `ORI_DUMP_AFTER_TYPECK=1` on any program containing a non-generalized
+- [x] `cargo test -p ori_types --lib pool::tests` passes with both new tests.
+- [x] `ORI_DUMP_AFTER_TYPECK=1` on any program containing a non-generalized
   scheme with an unbound body shows `HAS_VAR = true` on the scheme
   (observable via the flags column in the dump).
-- [ ] No other `compute_flags` arm regressed — `types.md §TF-3` compliance
+- [x] No other `compute_flags` arm regressed — `types.md §TF-3` compliance
   is uniform across every compound tag.
 
 ---

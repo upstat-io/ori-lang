@@ -648,8 +648,17 @@ impl Pool {
             // Named/Alias: no children to propagate from
             Tag::Named | Tag::Alias => TypeFlags::IS_NAMED,
 
-            // Scheme
-            Tag::Scheme => TypeFlags::IS_SCHEME,
+            // Scheme: propagate PROPAGATE_MASK from the body (types.md §TF-3)
+            // Spec: types.md §SC-1 — Scheme extra layout is
+            // [var_count, var_id_0, ..., var_id_{N-1}, body_idx].
+            // The body Idx is the LAST u32 in extra.
+            Tag::Scheme => {
+                let var_count = extra[0] as usize;
+                let body_idx = extra[1 + var_count] as usize;
+                let mut flags = TypeFlags::IS_SCHEME;
+                flags |= TypeFlags::propagate_from(self.flags[body_idx]);
+                flags
+            }
 
             // Special
             Tag::Projection => TypeFlags::HAS_PROJECTION,
