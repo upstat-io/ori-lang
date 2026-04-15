@@ -19,8 +19,8 @@ depends_on:
   - "01"
   - "02"
 third_party_review:
-  status: resolved
-  updated: 2026-04-14
+  status: findings
+  updated: 2026-04-15
 sections:
   - id: "03.1"
     title: "Safety Taxonomy & Data Types"
@@ -414,6 +414,23 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
   Resolved: Fixed on 2026-04-14. Changed verification step to use existing --full --no-auto-fix mode.
 - [x] `[TPR-03-005-codex-r3][medium]` `section-03:114` — Carry resolved_by_sibling through the report contract.
   Resolved: Fixed on 2026-04-14. Updated §03.2 JSON spec to include resolved_by_sibling field.
+
+**Round 4 findings (iteration 4, 2026-04-15 — close-out dual-source TPR):**
+
+- [x] `[TPR-03-001-codex-r4][high]` `scripts/verify_roadmap/patcher.py:306` — Refuse patch writes that escape the reviewed plan corpus.
+  Resolved: Fixed on 2026-04-15. Added required `corpus_root: Path` parameter to `apply_patch()`. Resolves to `relative_to()` check; refuses `PatchResult(applied=False)` when path escapes. 3 negative-pin tests added in `test_patcher.py::TestApplyPatchPathEscape`. Propagated to `apply_fixes()` + `PatcherFn` type + all test call sites.
+  Agreement: [TPR-03-001-gemini-r4] (same fix resolves both)
+- [x] `[TPR-03-001-gemini-r4][medium]` `scripts/verify_roadmap/patcher.py:166` — Missing path escape check in concurrent-session guards.
+  Resolved: Fixed on 2026-04-15. Same fix as [TPR-03-001-codex-r4] (agreement).
+  Agreement: [TPR-03-001-codex-r4] (same fix resolves both)
+- [x] `[TPR-03-002-codex-r4][medium]` `scripts/verify_roadmap/safety.py:286` — Implement sibling dedup for plan-to-name rename findings.
+  Resolved: Fixed on 2026-04-15. Created `scripts/verify_roadmap/pairing.py` (separate from safety.py per 500-line BLOAT rule). `pair_resolved_by_sibling()` detects UNKNOWN_FIELD(plan) SafeFix rename + MISSING_REQUIRED_FIELD(name) on same PlanIndex file and marks the dependent half with `resolved_by_sibling=<rename_id>`. Wired into `quick.py` after classify_safety list comp. 9 tests in `test_pairing.py` (3 positive + 6 negative pins). Exported from `__init__.py`.
+  Agreement: [TPR-03-002-gemini-r4] (same pairing concern; both layers addressed)
+- [x] `[TPR-03-002-gemini-r4][medium]` `scripts/verify_roadmap/auto_fix.py:202` — Auto-fix engine does not skip resolved_by_sibling findings.
+  Resolved: Fixed on 2026-04-15. Added `if cf.resolved_by_sibling is not None: continue` guard in `build_fix_plans()`. Regression test `test_skips_resolved_by_sibling` added in `test_auto_fix.py::TestBuildFixPlans`.
+  Agreement: [TPR-03-002-codex-r4] (same pairing concern; both layers addressed)
+- [x] `[TPR-03-003-codex-r4][low]` `.claude/skills/continue-roadmap/roadmap_scan.py:1482` — Log verify-quick degradation failures without requiring trace mode.
+  Resolved: Fixed on 2026-04-15. Changed exception handler from `trace(...)` (no-op without `--trace`) to `sys.stderr.write(f"[verify-quick] degradation: ...")` (unconditional stderr). Import-failure and banner-ordering integration tests are tracked for test_quick.py but deferred to §04/§05 implementation scope (the integration point is in `roadmap_scan.py` which is outside §03's owned modules).
 
 ---
 

@@ -333,6 +333,37 @@ class TestBuildFixPlans:
         for p in plans:
             assert p.path == path
 
+    def test_skips_resolved_by_sibling(self):
+        """NEGATIVE PIN: findings with non-None resolved_by_sibling are
+        skipped by build_fix_plans. Regression for TPR-03-002-{codex,gemini}-r4.
+        """
+        path = Path("plans/p1/index.md")
+        rename = _safe_fix(
+            _finding(
+                FindingCategory.SCHEMA_VIOLATION,
+                FindingSubtype.UNKNOWN_FIELD,
+                description="Unknown field: plan",
+                source=path,
+            ),
+            "rename plan: to name:",
+        )
+        dependent = ClassifiedFinding(
+            finding=_finding(
+                FindingCategory.SCHEMA_VIOLATION,
+                FindingSubtype.MISSING_REQUIRED_FIELD,
+                description="Missing required field: name",
+                source=path,
+            ),
+            safety_class=SafetyClass.SAFE_FIX,
+            rationale="insert name: (would be skipped)",
+            resolved_by_sibling=rename.finding.id,
+        )
+        plans = list(build_fix_plans([rename, dependent]))
+        # Only the rename half should produce a plan; the sibling-resolved
+        # dependent is skipped.
+        assert len(plans) == 1
+        assert plans[0].finding_id == rename.finding.id
+
 
 # ---------------------------------------------------------------------------
 # apply_fixes — orchestration with stub patcher
@@ -350,8 +381,9 @@ class _StubPatcher:
         path: Path,
         operations: list[FmOperation],
         preimage: PreimageRecord,
+        corpus_root: Path,
     ) -> PatchResult:
-        self.calls.append((path, list(operations), preimage))
+        self.calls.append((path, list(operations), preimage, corpus_root))
         if self.results:
             return self.results.pop(0)
         # Default: success
@@ -390,6 +422,7 @@ class TestApplyFixesNormalPath:
             patcher=patcher,
             preimages=preimages,
             output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
         )
         assert len(patcher.calls) == 1
         assert len(result.applied_findings) == 1
@@ -410,6 +443,7 @@ class TestApplyFixesNormalPath:
             patcher=patcher,
             preimages=preimages,
             output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
             dry_run=True,
         )
         assert len(patcher.calls) == 0
@@ -434,6 +468,7 @@ class TestApplyFixesDefenseInDepth:
                 patcher=patcher,
                 preimages={},
                 output_dir=tmp_path / "out",
+                corpus_root=tmp_path,
             )
 
     def test_fm_declared_vs_body_derived_safefix_panics(self, tmp_path):
@@ -451,6 +486,7 @@ class TestApplyFixesDefenseInDepth:
                 patcher=patcher,
                 preimages=preimages,
                 output_dir=tmp_path / "out",
+                corpus_root=tmp_path,
             )
 
 
@@ -515,6 +551,7 @@ class TestApplyFixesConcurrentModification:
             patcher=patcher,
             preimages=preimages,
             output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
         )
         assert len(result.applied_findings) == 0
         assert len(result.unapplied_results) == 1
@@ -544,7 +581,7 @@ class TestApplyFixesBackup:
         patcher = _StubPatcher()
         preimages = {f.source: _preimage(f.source)}
         out = tmp_path / "out"
-        apply_fixes([cf], patcher=patcher, preimages=preimages, output_dir=out)
+        apply_fixes([cf], patcher=patcher, preimages=preimages, output_dir=out, corpus_root=tmp_path)
         # Backup goes into out/backups/
         backups_dir = out / "backups"
         assert backups_dir.exists()
@@ -563,7 +600,7 @@ class TestApplyFixesBackup:
         patcher = _StubPatcher()
         preimages = {f.source: _preimage(f.source)}
         out = tmp_path / "out"
-        apply_fixes([cf], patcher=patcher, preimages=preimages, output_dir=out)
+        apply_fixes([cf], patcher=patcher, preimages=preimages, output_dir=out, corpus_root=tmp_path)
         audit_file = out / "fixes-applied.json"
         assert audit_file.exists()
         data = json.loads(audit_file.read_text())

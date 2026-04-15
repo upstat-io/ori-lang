@@ -1480,7 +1480,9 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stdout.write(render_console(report, color=False))
                 sys.stdout.write("\n\n")
         except Exception as e:  # noqa: BLE001 — pre-check must never crash scanner
-            trace(f"--verify-quick failed: {e}")
+            sys.stderr.write(
+                f"[verify-quick] degradation: pre-check skipped ({type(e).__name__}: {e})\n"
+            )
 
     sys.stdout.write(render_rich(ws, repo_root, args.quiet, args.no_bugs))
     return 0

@@ -33,6 +33,7 @@ from scripts.plan_corpus.dag import (
     classify_dead_reference,
 )
 
+from .pairing import pair_resolved_by_sibling
 from .report import Report, ReportMode
 from .safety import (
     ClassifiedFinding,
@@ -73,6 +74,15 @@ def run_quick(plans_root: Path | None = None) -> Report:
         classify_safety(f, context=None)
         for f in findings
     ]
+
+    # Step 4b: paired-finding dedup — mark MISSING_REQUIRED_FIELD(name)
+    # halves that are already resolved by a sibling UNKNOWN_FIELD(plan)
+    # rename. auto_fix.build_fix_plans skips non-None resolved_by_sibling.
+    # --quick mode never actually runs auto_fix (all findings are
+    # ExposureReview), but we still populate the field so the surfaced
+    # report reflects the true pairing and downstream --full mode
+    # behaves correctly without re-pairing.
+    classifieds = pair_resolved_by_sibling(classifieds)
 
     return Report(
         mode=ReportMode.QUICK,
