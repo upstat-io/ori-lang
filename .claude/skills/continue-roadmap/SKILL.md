@@ -1,7 +1,8 @@
 ---
 name: continue-roadmap
-description: Resume work on the Ori compiler roadmap, picking up where we left off
+description: Resume work on the Ori compiler roadmap, picking up where we left off. Sonnet-only — scans the roadmap, runs gates, presents the focus subsection, and asks the user what to execute next. Code execution hands off to `/roadmap-work` (Opus) at Step 6.
 argument-hint: "[section]"
+model: sonnet
 ---
 
 # Continue Roadmap
@@ -609,15 +610,28 @@ Present to the user:
 
 **Mandatory close-out steps (TPR, hygiene, improve-tooling sweep) are NEVER subject to user confirmation.** They are required by the completion checklist — just run them. Do not ask "Should I run /tpr-review now?" or "Ready for /impl-hygiene-review?" — execute them as part of the close-out workflow.
 
-### Step 6: Execute Work
+### Step 6: Hand Off Execution to `/roadmap-work` (Opus)
 
-Based on user choice:
-- **Start next task**: Begin implementing the first unblocked item, following the Implementation Guidelines below
-- **Show task details**: Read relevant spec sections, explore codebase for implementation location
-- **Pick different task**: List all unblocked incomplete items in the section, let user choose
-- **Resolve impediments**: Invoke `/create-plan` to add a subsection to the current plan that resolves the impediment (see Step 2.6). After the subsection is created and reviewed, implement it immediately. Then return to the previously-blocked items — they should now be unblocked.
-- **Tackle a blocker**: Switch to the blocker section and begin implementing its first unchecked item. When the blocker is complete, return to update the blocked items.
-- **Switch sections**: Ask which section to switch to
+**This skill runs on Sonnet** (`model: sonnet` in frontmatter). Code reading and code writing execute on Opus per the user's mandate in `feedback_continue_roadmap_model_split`. The handoff happens HERE, at the step boundary right after Step 5.5's pacing confirmation.
+
+Invoke `/roadmap-work` via the Skill tool, passing the approved subsection identifier as args. The harness switches the model to Opus for that skill's execution per its frontmatter (`model: opus`). When `/roadmap-work` returns, control comes back to this Sonnet session for the next subsection's close-out bookkeeping.
+
+```
+Skill: roadmap-work <plan-path>/<section-file> <subsection-id>
+```
+
+**The handoff decision (same options as before — pick based on user input in Step 5):**
+
+- **Start next task** → `Skill: roadmap-work <plan>/<section-file> <next-unblocked-subsection>`
+- **Show task details** → Read the relevant section file for the user's browsing BEFORE handing off. Spec sections and codebase exploration that change `/roadmap-work`'s plan happen here on Sonnet.
+- **Pick different task** → Confirm selection with AskUserQuestion, then `Skill: roadmap-work <plan>/<section-file> <selected-subsection>`
+- **Resolve impediments** → Invoke `/create-plan` (runs on its own model policy) to add a subsection that resolves the impediment. After the subsection exists, resume with `Skill: roadmap-work <plan>/<section-file> <new-subsection>`.
+- **Tackle a blocker** → `Skill: roadmap-work <blocker-plan>/<blocker-section-file> <blocker-subsection-id>`
+- **Switch sections** → Confirm via AskUserQuestion, then re-run the gates at Steps 1-5 against the new section, THEN hand off.
+
+**Why this boundary:** `/continue-roadmap` is pure reading, scanning, and gate-checking — Sonnet-appropriate work that costs little context. `/roadmap-work` is the code-reading + code-writing step, which per the user's empirical experience needs Opus to produce correct Ori compiler code. The Skill tool boundary is the ONLY mechanism Claude Code's harness honors for mid-workflow model switches, so putting the boundary at Step 6 is both architecturally clean and operationally enforced.
+
+**The Implementation Guidelines, ZERO DEFERRAL rules, Matrix Testing Rules, Plan Boundary Integrity, Completion Checklist, and close-out protocols below THIS step are owned by `/roadmap-work`** — `/continue-roadmap` no longer executes them directly. They are preserved here as reference because `/roadmap-work` reads this file to understand the full protocol (rather than duplicating it). Future refactor may extract them into a shared include.
 
 ---
 
