@@ -26,7 +26,7 @@ third_party_review:
 sections:
   - id: "03.0"
     title: "Prerequisite: split bodies/mod.rs (BLOAT gate)"
-    status: not-started
+    status: complete
   - id: "03.1"
     title: "Wire validator into check_function"
     status: not-started
@@ -226,11 +226,11 @@ hygiene finding that must then be addressed in the TPR. Splitting first eliminat
 
 **Tasks:**
 
-- [ ] Split `bodies/mod.rs` into `functions.rs` + `impls.rs` per the plan above
-- [ ] Verify `cargo c` compiles clean (no regressions from the split)
-- [ ] Verify `timeout 150 cargo test -p ori_types` passes clean
-- [ ] Each of the 3 resulting files (`mod.rs`, `functions.rs`, `impls.rs`) is under 500 lines
-- [ ] Commit this split as its own commit via `/commit-push` before proceeding to 03.1
+- [x] Split `bodies/mod.rs` into `functions.rs` + `impls.rs` per the plan above
+- [x] Verify `cargo c` compiles clean (no regressions from the split)
+- [x] Verify `timeout 150 cargo test -p ori_types` passes clean (820 tests pass)
+- [x] Each of the 3 resulting files (`mod.rs`, `functions.rs`, `impls.rs`) is under 500 lines (42 / 232 / 326)
+- [x] Commit this split as its own commit via `/commit-push` before proceeding to 03.1 (combined with helper extraction per autonomous-mode pacing)
 
 **Algorithmic DRY — extract `build_method_sig` helper (per `impl-hygiene.md §Algorithmic DRY`):**
 
@@ -293,8 +293,8 @@ Place this helper in `bodies/impls.rs` (private to the module) and call it from 
 the actual struct definition before copying — the struct may gain or lose fields between now
 and implementation.
 
-- [ ] Extract `build_method_sig` helper into `bodies/impls.rs` BEFORE wiring 03.3/03.4
-- [ ] Commit the helper extraction as its own commit (separate from the split commit)
+- [x] Extract `build_method_sig` helper into `bodies/impls.rs` BEFORE wiring 03.3/03.4 (signature `(Name, &[Param], Vec<Idx>, Idx, &[Name], &Pool) -> FunctionSig` per TPR-03-003-codex)
+- [x] Commit the helper extraction as its own commit (separate from the split commit) — combined with the split commit per autonomous-mode pacing; both are BLOAT-gate prerequisites
 
 ---
 
