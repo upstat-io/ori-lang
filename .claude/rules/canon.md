@@ -15,7 +15,7 @@ paths:
 
 ## §1 Pipeline Overview
 
-The Ori compiler is a strictly-ordered, layered pipeline. Each phase reads the prior phase's output and produces a new IR; no phase mutates an input IR in place.
+The Ori compiler is a strictly-ordered, layered pipeline. Each phase reads the prior phase's output and produces a new IR. Phases 1–4 produce distinct output IRs; the ARC/AIMS pipeline (phases 5–7) mutates `ArcFunction` in place while preserving strict phase ordering.
 
 | # | Phase | Crate | Input | Output | Authoritative home |
 |---|-------|-------|-------|--------|--------------------|
@@ -30,7 +30,7 @@ The Ori compiler is a strictly-ordered, layered pipeline. Each phase reads the p
 | 9 | Optimize & emit | `ori_llvm` | LLVM IR | Object / executable | `aot.md` |
 | — | Evaluator (parallel) | `ori_eval` | `CanExpr` + `DecisionTreePool` | Runtime values (for const-eval and `ori run`) | `eval.md` |
 
-Upstream crate dependency order per `compiler.md` §Architecture: `oric` → `ori_types / eval / patterns` → `ori_parse` → `ori_lexer` → `ori_ir / diagnostic`. IO lives only in `oric`; core crates are pure (`compiler.md` §Phase-Specific Purity).
+Upstream crate dependency order per `compiler.md` §Architecture: `oric` → `ori_llvm` → `ori_arc/ori_repr` → `ori_canon` → `ori_types/eval/patterns` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic`. Support crates: `ori_compiler` (pure facade), `ori_registry`, `ori_stack`, `ori_fmt`, `ori_test_harness`, `ori_rt`. IO lives only in `oric`; core crates are pure (`compiler.md` §Phase-Specific Purity).
 
 **Cross-crate note on pattern compilation.** Maranget pattern compilation is invoked from `ori_canon::patterns`, which currently delegates the core primitives to `ori_arc::decision_tree`. `ori_canon/Cargo.toml` declares `ori_arc` as a direct dependency; the `ori_arc::decision_tree` module notes that the primitives are temporarily housed there and consumed by `ori_canon`. This is the one non-upstream edge in the current pipeline — tracked as a migration target by its module documentation.
 
@@ -70,12 +70,12 @@ Ori compiles `match` expressions and multi-clause function definitions through t
 
 **Dual outputs — exhaustiveness and usefulness.** Both analyses fall out of the same traversal (`docs/compiler/design/07-canonicalization/pattern-compilation.md` §Integrated Exhaustiveness via Tree Walking, §Exhaustiveness and Usefulness):
 
-- **Non-exhaustiveness** — a reachable `Fail` node in the compiled tree. Emits `E2001` with the uncovered pattern shape (`typeck.md` §CF-3).
-- **Useless arm (redundancy)** — an arm index that never appears in any `Leaf`. Emits a warning; does not block codegen.
+- **Non-exhaustiveness** — a reachable `Fail` node in the compiled tree. Canonicalization records `PatternProblem::NonExhaustive`; the driver maps this to error `E3002` with the uncovered pattern shape (`compiler/oric/src/problem/semantic/mod.rs`).
+- **Useless arm (redundancy)** — an arm index that never appears in any `Leaf`. Canonicalization records `PatternProblem::RedundantArm`; the driver maps this to warning `E3003`.
 
 The compiled tree and the source patterns accept the same set of values, so the tree faithfully encodes the pattern matrix's coverage — one algorithm, two outputs.
 
-**Guards.** Guards do NOT contribute to exhaustiveness coverage (`typeck.md` §CF-4). A guarded arm `P if cond -> e` is treated as unreachable under its own guard, so a match whose arms are ALL guarded requires an explicit `_` catch-all; otherwise `E2001`.
+**Guards.** Guards do NOT contribute to exhaustiveness coverage (`typeck.md` §CF-4). A guarded arm `P if cond -> e` is treated as unreachable under its own guard, so a match whose arms are ALL guarded requires an explicit `_` catch-all; otherwise `E3002`.
 
 **Unified path.** Multi-clause function definitions lower to the same Maranget pipeline as explicit `match`. The shared entry point is `compile_multi_clause_patterns` in `compiler/ori_canon/src/patterns/mod.rs`, so there is exactly one code path for pattern compilation in the compiler.
 
@@ -85,7 +85,7 @@ The compiled tree and the source patterns accept the same set of values, so the 
 
 ## §4 Per-Phase Output Invariants
 
-Each phase's output is a contract. Consumers `debug_assert!` the invariants on entry; release builds raise an internal compiler error on violation, not silent miscompilation (`impl-hygiene.md` §Cross-Phase Invariant Contracts).
+Each phase's output is a contract. Invariant enforcement varies by phase: some checks are `debug_assert!` (debug-only), some are behind opt-in flags (`ORI_VERIFY_ARC=1`), and some are always-on. Canonicalization validation is debug-only (`#[cfg(debug_assertions)]` in `ori_canon::lower`); LLVM IR verification runs at `VR-1` checkpoints when `verify_arc` is enabled; AIMS verification runs when `verify_arc` is set in `AimsPipelineConfig`. The goal (`impl-hygiene.md` §Cross-Phase Invariant Contracts) is that release builds produce clear internal errors on violation — currently achieved for type-checking contracts (always-on) but opt-in for ARC/LLVM verification.
 
 ### §4.0 Lex output — `TokenList`
 
@@ -135,7 +135,7 @@ After Step 4 (`analyze_function`) in the AIMS pipeline (`aims-rules.md` §7):
 
 - Every SSA variable has a lattice tuple across all seven dimensions — `Access × Consumption × Cardinality × Uniqueness × Locality × Shape × Effect` (`aims-rules.md` §§1.1–1.7). CLAUDE.md's §AIMS refers to these same dimensions using the `AccessClass` / `ShapeClass` / `EffectClass` shorthand; the authoritative names used in analysis are the bare forms in `aims-rules.md`.
 - Every tuple is canonicalized per the cross-dimensional feasibility rules (`CN-1`, `CN-2`, `CN-3`, `CN-5`, `CN-6`, `CN-8`); fixed point is reached in one pass in practice, defended by a bounded (max 3-round) loop (`aims-rules.md` §2).
-- Every function has a converged `MemoryContract` — per-parameter `ParamContract` + `ReturnContract` + `EffectSummary` + `ContextBehavior` — produced by interprocedural analysis (`aims-rules.md` §5). `FipContract` is NOT produced by Step 4: it is computed post-realization in Step 5a (`aims-rules.md` §5 `IC-6`, §7) and is reported in §4.5 below.
+- Every function has a converged `MemoryContract` — per-parameter `ParamContract` + `ReturnContract` + `EffectSummary` + `ContextBehavior` + provisional `FipContract` — produced by interprocedural analysis (`aims-rules.md` §5). The `FipContract` field on `MemoryContract` is assigned during interprocedural extraction (`compiler/ori_arc/src/aims/interprocedural/extract.rs`); reuse emission reads this provisional value. Step 5a (`verify_fip_contract`) later verifies or downgrades it against the realized IR (`aims-rules.md` §5 `IC-6`, §7).
 - Analysis is backward (demand-based); interprocedural contracts are computed SCC-topologically, callees before callers (`aims-rules.md` §7, `PL-1a`).
 - No pass relies on a stale summary (`aims-rules.md` §7, `PL-5`; CLAUDE.md §AIMS invariant 3).
 
@@ -237,7 +237,7 @@ One canonical home per concern. Consumers are listed where they aid navigation b
 ### §7.4 Cross-Phase Invariant Contracts (impl-hygiene.md)
 
 - Every invariant crossing a phase boundary is validatable by a `debug_assert!` at the consumer's entry point or a dedicated validation pass (`impl-hygiene.md` §Cross-Phase Invariant Contracts).
-- Release builds produce a clear internal compiler error on contract violation, not silent miscompilation.
+- Release builds should produce a clear internal compiler error on contract violation. Currently: type-checker contracts are always-on; canonicalization validation is debug-only; ARC/LLVM verification is opt-in (`ORI_VERIFY_ARC=1`).
 - Implicit invariants become invisible regressions — every load-bearing property is either a `debug_assert!` or a test (CLAUDE.md §Stabilization Discipline).
 
 ---
