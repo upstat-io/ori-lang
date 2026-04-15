@@ -6,9 +6,26 @@ allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Agent, Skill, EnterWorktree,
 
 # Sync All Documentation (TPR-Verified)
 
-Reconcile all non-spec documentation against the actual codebase and spec using **dual-source TPR verification per batch**. Each batch of related doc files is verified by launching `/tpr-review` with a custom objective — Codex and Gemini independently cross-check every claim against code/spec, then Claude fixes findings and loops until both reviewers report clean.
+## ABSOLUTE: NEVER STOP UNTIL ALL 9 BATCHES ARE COMPLETE
 
-**This command runs fully automated.** No pauses for user confirmation. Execute each phase to completion. Commit and report at the end.
+**This command runs OVERNIGHT — for HOURS — with ZERO human interaction.** The user launches it and goes to sleep. If you stop after Batch 1, or "pause to report progress," or "exit the worktree to save context," or produce ANY final-sounding output before ALL 9 batches have converged, you have **broken the command's contract**.
+
+**MANDATORY: At the start of execution, create a task titled "NIGHTLY SYNC: DO NOT STOP — complete all 9 batches before reporting" and keep it in_progress until Phase 3 (final report).** This task is your reminder. Check it before every batch transition. If you feel the urge to pause, stop, summarize progress, or exit — READ THIS TASK and continue to the next batch instead.
+
+**Banned behaviors:**
+- Stopping after any batch < 9 to "report progress"
+- Exiting the worktree before all batches converge
+- Writing a "Batch N Report" that sounds like a final report
+- Saying "the remaining batches can be continued in a follow-up session"
+- Any form of "given the session length / context" as justification for stopping early
+
+**If a batch's TPR transport fails** (e.g., Gemini fails all retries): proceed with codex-only findings, fix them, commit, and move to the next batch. A partial review of one batch does NOT stop the entire sync.
+
+**If context is getting long**: the system handles compression automatically. Do NOT preemptively stop to "save context."
+
+---
+
+Reconcile all non-spec documentation against the actual codebase and spec using **dual-source TPR verification per batch**. Each batch of related doc files is verified by launching `/tpr-review` with a custom objective — Codex and Gemini independently cross-check every claim against code/spec, then Claude fixes findings and loops until both reviewers report clean.
 
 **This is the comprehensive nightly sync.** `/sync-claude` remains a separate lightweight skill for delta syncs at subsection close-outs.
 
@@ -309,9 +326,13 @@ For each batch (1 through 9), in order:
 3. **The TPR loop handles everything**: reviewer launch, finding merge, thoroughness judgment, fix-and-rerun until clean
 4. **After TPR converges (zero findings from both reviewers)**, record which files were modified and what was verified
 5. **Commit batch changes** via `/commit-push` before moving to the next batch
-6. **Proceed to next batch**
+6. **IMMEDIATELY proceed to next batch** — no summary, no pause, no report. Just start batch N+1.
+
+**After batch 9 completes** — and ONLY then — proceed to Phase 3 (Final Report).
 
 **Batches are sequential, not parallel.** Each batch's fixes may affect downstream batches (e.g., canon.md fixes inform rules file verification). Earlier batches cover higher-priority surfaces.
+
+**If a batch's TPR transport fails** (reviewer crashes, all retries exhausted): use whatever findings were captured (even codex-only), fix them, commit, and **move to the next batch**. A failed transport on one batch does NOT block the remaining batches. Log the failure in the final Phase 3 report.
 
 **If a batch's TPR finds spec/grammar issues:** File via `/add-bug` with subsystem `docs` and continue. Do NOT modify spec/grammar files.
 
@@ -360,15 +381,17 @@ git merge <worktree-branch-name>
 
 ## Automation Protocol
 
-This command is designed to run nightly without human intervention:
+This command runs nightly — the user launches it and LEAVES. It runs for hours unattended. **The ONLY output the user sees is the Phase 3 final report after all 9 batches.**
 
-1. **Worktree isolation first** — `EnterWorktree` before any work; `ExitWorktree(keep)` at the end
-2. **No `AskUserQuestion` calls** — make judgment calls and proceed
-3. **No pauses between batches** — execute sequentially to completion
-4. **File bugs, don't block** — when you find spec issues, file them and continue
-5. **Each batch commits separately** — via `/commit-push` after TPR convergence (commits stay on worktree branch)
-6. **No push from worktree** — user merges the worktree branch when ready
-7. **Report at the end** — summary of all batches + worktree branch name
+1. **Create the "DO NOT STOP" task first** — `TaskCreate: "NIGHTLY SYNC: DO NOT STOP — complete all 9 batches before reporting"`. Keep it `in_progress` until Phase 3. Check it before every batch transition.
+2. **Worktree isolation** — `EnterWorktree` before any work; `ExitWorktree(keep)` at the end
+3. **No `AskUserQuestion` calls** — make judgment calls and proceed
+4. **ZERO pauses between batches** — after committing batch N, IMMEDIATELY start batch N+1. No summaries, no progress reports, no "remaining batches" language.
+5. **File bugs, don't block** — when you find spec issues, file them and continue
+6. **Each batch commits separately** — via `/commit-push` after TPR convergence (commits stay on worktree branch)
+7. **Transport failures don't stop the sync** — use codex-only findings, fix, commit, next batch
+8. **No push from worktree** — user merges the worktree branch when ready
+9. **Report ONLY at the end** — Phase 3 final report after batch 9 converges. This is the FIRST user-visible output.
 
 ## User Input
 
