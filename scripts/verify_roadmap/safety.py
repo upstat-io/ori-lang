@@ -21,7 +21,8 @@ Design invariants:
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
+from collections import defaultdict
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from scripts.plan_corpus import (

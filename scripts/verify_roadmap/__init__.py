@@ -52,6 +52,7 @@ from .patcher import (
     remove_list_item,
     apply_patch,
 )
+from .pairing import pair_resolved_by_sibling
 
 __all__ = [
     # Safety taxonomy (§03.1)
@@ -88,4 +89,6 @@ __all__ = [
     "insert_key",
     "remove_list_item",
     "apply_patch",
+    # Paired-finding deduplication (§03.1 resolved_by_sibling)
+    "pair_resolved_by_sibling",
 ]

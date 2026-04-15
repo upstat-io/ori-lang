@@ -286,22 +286,56 @@ def apply_patch(
     path: Path,
     operations: list[FmOperation],
     preimage: PreimageRecord,
+    corpus_root: Path,
 ) -> PatchResult:
     """Apply frontmatter operations to path, with concurrent-session guard.
 
     Workflow (blind spot #6):
-      1. Re-read path; compute SHA256 of current contents
-      2. Compare against preimage.content_hash
-      3. If hashes differ -> refuse (PatchResult(applied=False, ...))
-      4. If hashes match: extract fm slice, apply ops, reassemble,
+      1. Refuse if path escapes corpus_root (4th refuse-on-conflict trigger)
+      2. Re-read path; compute SHA256 of current contents
+      3. Compare against preimage.content_hash
+      4. If hashes differ -> refuse (PatchResult(applied=False, ...))
+      5. If hashes match: extract fm slice, apply ops, reassemble,
          write to temp file, os.replace atomically
 
     The patcher NEVER touches the file outside the fm slice — body,
     fences, line endings, and trailing whitespace are preserved
     byte-for-byte.
+
+    corpus_root is the reviewed plans-directory root (typically
+    ``repo_root / "plans"``). Any ``path`` whose resolved form is not
+    under ``corpus_root.resolve()`` is refused before any read/write —
+    a bogus or drifted Finding.source must never drive writes to
+    arbitrary files outside the reviewed corpus.
     """
     # Synthetic finding_id from preimage (apply_fixes injects this)
     finding_id = "VR-patch"
+
+    # Path-escape refusal (refuse-on-conflict trigger #4, §03.4 blind spot).
+    # Resolve both sides so symlinks / `..` are normalized; use string
+    # prefix compare for compatibility with Python < 3.9 (is_relative_to).
+    try:
+        resolved_path = path.resolve(strict=False)
+        resolved_root = corpus_root.resolve(strict=False)
+    except (OSError, RuntimeError) as e:
+        return PatchResult(
+            applied=False,
+            reason=f"path resolution failed: {type(e).__name__}: {e}",
+            finding_id=finding_id,
+            path=path,
+        )
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError:
+        return PatchResult(
+            applied=False,
+            reason=(
+                f"path escapes corpus root: {resolved_path} is not under "
+                f"{resolved_root}"
+            ),
+            finding_id=finding_id,
+            path=path,
+        )
 
     if not path.exists():
         return PatchResult(

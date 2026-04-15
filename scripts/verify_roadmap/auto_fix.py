@@ -259,9 +259,16 @@ def build_fix_plan(cf: ClassifiedFinding) -> FixPlan | None:
 def build_fix_plans(
     classifieds: Iterable[ClassifiedFinding],
 ) -> Iterable[FixPlan]:
-    """Bulk build_fix_plan; filters Nones (ExposureReview / no handler)."""
+    """Bulk build_fix_plan; filters Nones (ExposureReview / no handler / sibling-resolved)."""
     for cf in classifieds:
         if cf.safety_class != SafetyClass.SAFE_FIX:
+            continue
+        # Paired-dedup guard: a finding whose sibling already carries the
+        # SafeFix has `resolved_by_sibling` set to the sibling's Finding.id.
+        # Applying both halves would double-write (e.g. both rename `plan:`
+        # AND insert `name:` when the rename alone resolves the missing-name
+        # error). Skip the dependent half.
+        if cf.resolved_by_sibling is not None:
             continue
         plan = build_fix_plan(cf)
         if plan is not None:
@@ -273,7 +280,9 @@ def build_fix_plans(
 # ---------------------------------------------------------------------------
 
 # The patcher signature — matches §03.4's apply_patch contract.
-PatcherFn = Callable[[Path, list[FmOperation], PreimageRecord], PatchResult]
+PatcherFn = Callable[
+    [Path, list[FmOperation], PreimageRecord, Path], PatchResult
+]
 
 
 def _backup_file(source: Path, backups_dir: Path) -> Path | None:
@@ -299,6 +308,7 @@ def apply_fixes(
     patcher: PatcherFn,
     preimages: dict[Path, PreimageRecord],
     output_dir: Path,
+    corpus_root: Path,
     dry_run: bool = False,
 ) -> FixApplyResult:
     """Apply auto-fixes for SafeFix ClassifiedFindings.
@@ -309,6 +319,9 @@ def apply_fixes(
         patcher: callable matching §03.4's apply_patch contract.
         preimages: PreimageRecord per source file (concurrent-session guard).
         output_dir: where backups/ + fixes-applied.json land.
+        corpus_root: the reviewed plans-directory root; forwarded to the
+            patcher for path-escape refusal. Paths outside this root are
+            refused at the patcher boundary, never written.
         dry_run: if True, plans are computed and reported but not applied.
 
     Returns FixApplyResult with planned/applied/unapplied/skipped buckets.
@@ -358,7 +371,9 @@ def apply_fixes(
                 scan_timestamp=0.0,
             )
 
-        patch_result = patcher(plan.path, list(plan.operations), preimage)
+        patch_result = patcher(
+            plan.path, list(plan.operations), preimage, corpus_root
+        )
 
         if patch_result.applied:
             result.applied_findings.append(cf)
