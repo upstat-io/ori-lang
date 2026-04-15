@@ -58,17 +58,29 @@ CAPACITY_BACKOFFS=(30 60 120 120 120)
 # where outputs go and which schema to validate against.
 RUN=""
 SCHEMA=""
+# SKILL is extracted so we can thread the transport's active review mode
+# into parse-codex.py / parse-gemini.py as --default-skill. Without this,
+# the parsers silently rewrite missing/invalid envelope `skill` fields to
+# "review-work" regardless of what the transport is actually running,
+# corrupting downstream provenance for `review-plan`, `tp-help`, or
+# `custom` rounds (TPR-XX-001).
+SKILL=""
 ARGS=("$@")
 for ((i=0; i<${#ARGS[@]}; i++)); do
   if [[ "${ARGS[$i]}" == "--run" ]]; then
     RUN="${ARGS[$((i+1))]}"
   elif [[ "${ARGS[$i]}" == "--schema" ]]; then
     SCHEMA="${ARGS[$((i+1))]}"
+  elif [[ "${ARGS[$i]}" == "--skill" ]]; then
+    SKILL="${ARGS[$((i+1))]}"
   fi
 done
 
 [[ -z "$RUN" ]] && { echo "missing --run arg" >&2; exit 2; }
 [[ -z "$SCHEMA" ]] && { echo "missing --schema arg" >&2; exit 2; }
+# SKILL falls back to review-work only when the caller omits --skill
+# (legacy / bare invocations). All first-party callers pass --skill.
+[[ -z "$SKILL" ]] && SKILL="review-work"
 
 # ORI_TPR_REVIEWERS runtime toggle (§07.2, moved from §08.2). When a
 # reviewer is excluded, dual-invoke.sh skips launching it — so the
@@ -399,7 +411,7 @@ classify_reviewer_outcome() {
   # return 0. On failure, classify via API error (preferred, richer) or
   # parser-reported category (fallback).
   if "$SCRIPT_DIR/parse-${reviewer}.py" --jsonl "$jsonl" --schema "$SCHEMA" \
-      > "$envelope" 2> "$parse_err"; then
+      --default-skill "$SKILL" > "$envelope" 2> "$parse_err"; then
     return 0
   fi
 

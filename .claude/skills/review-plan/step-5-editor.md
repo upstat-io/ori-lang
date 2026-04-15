@@ -173,7 +173,9 @@ After editing, commit via `Skill: commit-push` with message like `feat(plans): a
 
 ## Output
 
-Write `/tmp/review-plan-editor.json`:
+Write `/tmp/review-plan-editor.json`. The schema has two branches, keyed by `escalate`. Step 5 is an escalation-capable phase (listed in `review-plan/SKILL.md` §Escalation handling), so when `escalate: true` the payload MUST carry verbatim `question` + `options` fields the parent can feed directly into `AskUserQuestion` — prose-only escalations break the mechanical handoff contract.
+
+### Branch A — `escalate: false` (normal exit)
 
 ```json
 {
@@ -193,4 +195,37 @@ Write `/tmp/review-plan-editor.json`:
 }
 ```
 
-Escalate ONLY if the editor hits a case requiring human judgment (e.g., two sections describe contradictory designs and the plan doesn't indicate which is authoritative). Include the ambiguity details in the escalation payload.
+### Branch B — `escalate: true` (human judgment required)
+
+Escalate ONLY when the editor hits a case requiring human judgment — e.g., two sections describe contradictory designs and the plan doesn't indicate which is authoritative, or the mission itself is self-contradictory and cannot be resolved by reading spec + code.
+
+```json
+{
+  "structural_changes": [/* partial changes already applied, if any */],
+  "accuracy_fixes": 0,
+  "cohesion_fixes": 0,
+  "hygiene_items_woven": {"BLOAT": 0, "WASTE": 0, "DRIFT": 0, "EXPOSURE": 0},
+  "test_strategy_gaps_filled": 0,
+  "files_touched": ["plans/foo/section-03.md", "..."],
+  "summary": "Phase 3: N fixes applied; escalating ambiguity on <one-line description>",
+  "escalate": true,
+  "ambiguity": {
+    "location": "plans/foo/section-03.md:120 vs plans/foo/section-05.md:45",
+    "description": "Section 03 requires the lattice to be 7-dimensional; section 05 asserts a 5-dimensional lattice. Spec cites neither. Cannot pick canonically without user direction.",
+    "evidence": ["<quote or line reference>", "..."]
+  },
+  "question": "The plan has two contradictory designs for <X>: <one-sentence framing>. How should I resolve it?",
+  "options": [
+    {"key": "prefer-section-03", "label": "Authoritative is section 03 (<summary>); rewrite section 05 to match"},
+    {"key": "prefer-section-05", "label": "Authoritative is section 05 (<summary>); rewrite section 03 to match"},
+    {"key": "split-scope", "label": "Both are valid for different scopes — split/rename the sections to avoid the conflict"},
+    {"key": "abort-editor", "label": "Abort Step 5 and surface the ambiguity for manual plan work", "next_skill": null}
+  ]
+}
+```
+
+### Invariants
+
+- `question` and `options` MUST live INSIDE the JSON handoff when `escalate: true`. Prose-only escalations break the parent's mechanical `AskUserQuestion` dispatch.
+- When an option carries a follow-up skill dispatch, include a `next_skill` field (string skill name, or `null`). The parent invokes `Skill: <next_skill>` with any option-specific arguments when the user picks that option.
+- When `escalate: false`, `question`/`options`/`ambiguity` MUST be absent.

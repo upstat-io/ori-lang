@@ -92,7 +92,7 @@ After each Agent returns, read `/tmp/review-plan-{step}.json`. If `"escalate": t
 3. When the user picks `proceed` / `abort` / `leave-as-is`, honor that choice. If `abort`, stop the pipeline and emit a partial verdict at Step 9.
 4. Resume the next step only after the escalation resolves.
 
-Precheck is the most common escalation source; steps 3/6/8 can also escalate on non-convergence.
+Precheck is the most common escalation source; steps 3, 5, 6, and 7+8 can also escalate on non-convergence or human-judgment ambiguities. Every escalation-capable step's protocol file defines its own machine-readable escalation schema — see each `step-*.md` for the exact shape. Steps 2 (precheck) and 4 (blind-spots) never escalate.
 
 ## Step 8.5 — Cross-Plan Invalidation (parent, Opus)
 

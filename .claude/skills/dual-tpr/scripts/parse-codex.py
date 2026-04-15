@@ -65,6 +65,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jsonl", required=True)
     ap.add_argument("--schema", required=True)
+    # --default-skill threads the transport's actual review mode into the
+    # repair layer so a missing/invalid `skill` field in a custom or
+    # review-plan run is NOT silently rewritten to "review-work" (which
+    # would misclassify envelope provenance in downstream reports). The
+    # transport (dual-invoke-with-retry.sh) passes the active --skill
+    # verbatim; falls back to "review-work" only when the caller does not
+    # supply one (backward-compatible with legacy invocations).
+    ap.add_argument("--default-skill", default="review-work",
+                    help="skill name used as fallback when the envelope "
+                         "omits/mangles the 'skill' field (matches the "
+                         "transport's active --skill)")
     args = ap.parse_args()
 
     # deferred_advisory accumulates REPAIR lines that would otherwise corrupt
@@ -116,7 +127,7 @@ def main():
     # REPAIR lines are deferred to `deferred_advisory` so they don't violate
     # the stderr-first-line-is-category contract (see _flush_advisory).
     envelope, repairs = repair_envelope(
-        envelope, default_reviewer="codex", default_skill="review-work",
+        envelope, default_reviewer="codex", default_skill=args.default_skill,
     )
     if repairs:
         deferred_advisory.append(

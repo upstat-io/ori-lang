@@ -63,7 +63,14 @@ REVIEW_PLAN_MD="$REPO_ROOT/.claude/skills/review-plan/SKILL.md"
 # cross-checks the current blob hash against the baseline to catch
 # "drifted-and-reverted" transients; when absent, Scenario 3 skips the
 # baseline compare and relies on the git-diff --exit-code guard alone.
-SECTION_07_BASELINE="$REPO_ROOT/plans/dual-tpr-gemini/section-07-review-plan-baseline.sha1"
+# Baseline tracking the byte-identity of the refactored /review-plan SKILL.md.
+# The original §07.PRE baseline (for the deleted .claude/commands/review-plan.md)
+# is obsolete; this baseline pins the post-refactor SKILL.md blob hash so the
+# byte-identity guard stays meaningful after the command → skill migration.
+# Regenerate via:
+#   git hash-object .claude/skills/review-plan/SKILL.md \
+#     > .claude/skills/dual-tpr/fixtures/review-plan-skill-baseline.sha1
+SECTION_07_BASELINE="$DUAL_TPR_DIR/fixtures/review-plan-skill-baseline.sha1"
 
 # Source the canonical sentinel format (§07.3 SSOT fix). Provides
 # TP_HELP_SENTINEL_PREFIX (for cross-cutting leakage greps),
@@ -337,50 +344,51 @@ else
   fail_test "scenario 1 token pin: sentinels have inconsistent tokens (spoofing-resistance broken)"
 fi
 
-# ── Scenario 2: review-plan Step 3B + Midpoint Check (TWO calls) ─────
+# ── Scenario 2: review-plan Step 4 blind-spot check (ONE call) ─────
 #
-# Mirrors the call pattern of the /review-plan skill at
+# Mirrors the call pattern of the refactored /review-plan skill at
 # .claude/skills/review-plan/SKILL.md + its step-*.md protocols, which
-# invokes /tp-help TWICE during the pipeline: once at Step 4 (blind-spot
-# check via step-4-blind-spots.md) and once at a midpoint equivalent
-# inside the editor/TPR phases. Both calls should succeed with both stub
-# markers present, and the SKILL.md file MUST remain byte-identical
-# throughout.
+# invokes /tp-help ONCE during the pipeline: at Step 4 (blind-spot
+# analysis via step-4-blind-spots.md). The prior monolithic command
+# dispatched /tp-help twice (Step 3B + Midpoint); the multi-step skill
+# collapsed those into a single Step 4 dispatch, and the editor
+# (Step 5) no longer re-invokes /tp-help. This scenario must mirror
+# the real consumer's call count or the harness produces false
+# confidence. The SKILL.md file MUST remain byte-identical throughout.
 say ""
-say "--- Scenario 2: review-plan Step 3B + Midpoint Check (2 tp-help calls) ---"
+say "--- Scenario 2: review-plan Step 4 blind-spot check (1 tp-help call) ---"
 REVIEW_PLAN_BEFORE=$(git hash-object "$REVIEW_PLAN_MD")
 
 SCEN2_CAPTURE=$(mktemp -t tp-help-scen2-XXXXXX)
 RUNS_TO_CLEAN+=("$SCEN2_CAPTURE")
 
-# Call 1: Step 3B blind-spot check
-CONSUMER_CAPTURE_FILE="$SCEN2_CAPTURE" run_one_tp_help_call scenario-2-step3b \
+# Call 1: Step 4 blind-spot check (only /tp-help dispatch in the refactored skill)
+CONSUMER_CAPTURE_FILE="$SCEN2_CAPTURE" run_one_tp_help_call scenario-2-step4 \
   && scen2_call1_ok=1 || scen2_call1_ok=0
 
-# Call 2: Midpoint check (between Agent 2 and Agent 3)
-CONSUMER_CAPTURE_FILE="$SCEN2_CAPTURE" run_one_tp_help_call scenario-2-midpoint \
-  && scen2_call2_ok=1 || scen2_call2_ok=0
-
-if (( scen2_call1_ok && scen2_call2_ok )); then
-  pass_test "scenario 2: both tp-help calls (Step 3B + Midpoint) succeeded"
+if (( scen2_call1_ok )); then
+  pass_test "scenario 2: /tp-help call (Step 4 blind-spot) succeeded"
 else
-  fail_test "scenario 2: tp-help call failure (Step 3B=$scen2_call1_ok, Midpoint=$scen2_call2_ok)"
+  fail_test "scenario 2: tp-help call failure (Step 4 blind-spot)"
 fi
 
-# Both calls should produce TWO occurrences of each marker in the captured file
+# The single call should produce ONE occurrence of each marker in the
+# captured file. Both markers MUST be present — dual-source is the
+# contract; missing either is a regression that would let single-source
+# review-plan runs ship silently.
 codex_count=$(grep -c 'STUB_CODEX_RESPONSE_MARKER' "$SCEN2_CAPTURE" || true)
 gemini_count=$(grep -c 'STUB_GEMINI_RESPONSE_MARKER' "$SCEN2_CAPTURE" || true)
-if [[ "$codex_count" -ge 2 ]]; then
-  pass_test "scenario 2 positive pin: STUB_CODEX_RESPONSE_MARKER appears $codex_count times (>=2)"
+if [[ "$codex_count" -ge 1 ]]; then
+  pass_test "scenario 2 positive pin: STUB_CODEX_RESPONSE_MARKER appears $codex_count times (>=1)"
 else
-  fail_test "scenario 2 positive pin: STUB_CODEX_RESPONSE_MARKER count=$codex_count (expected >=2)" \
-    "one or both review-plan /tp-help calls didn't reach codex"
+  fail_test "scenario 2 positive pin: STUB_CODEX_RESPONSE_MARKER count=$codex_count (expected >=1)" \
+    "review-plan /tp-help Step 4 call didn't reach codex"
 fi
-if [[ "$gemini_count" -ge 2 ]]; then
-  pass_test "scenario 2 positive pin: STUB_GEMINI_RESPONSE_MARKER appears $gemini_count times (>=2, dual-source)"
+if [[ "$gemini_count" -ge 1 ]]; then
+  pass_test "scenario 2 positive pin: STUB_GEMINI_RESPONSE_MARKER appears $gemini_count times (>=1, dual-source)"
 else
-  fail_test "scenario 2 positive pin: STUB_GEMINI_RESPONSE_MARKER count=$gemini_count (expected >=2)" \
-    "one or both review-plan /tp-help calls didn't reach gemini — dual-source regression"
+  fail_test "scenario 2 positive pin: STUB_GEMINI_RESPONSE_MARKER count=$gemini_count (expected >=1)" \
+    "review-plan /tp-help Step 4 call didn't reach gemini — dual-source regression"
 fi
 
 REVIEW_PLAN_AFTER=$(git hash-object "$REVIEW_PLAN_MD")
@@ -391,26 +399,29 @@ else
     "pre=$REVIEW_PLAN_BEFORE post=$REVIEW_PLAN_AFTER — byte-identical contract broken"
 fi
 
-# ── Scenario 3: review-plan SKILL.md byte-identity vs §07.PRE baseline ──
+# ── Scenario 3: review-plan SKILL.md byte-identity vs frozen baseline ──
 #
-# Same check as live Scenario 3 — verifies the §07.PRE frozen baseline
-# still matches when present. This guards against "drifted-and-reverted"
-# transient changes that git diff alone wouldn't catch. If the baseline
-# file is absent (e.g., not regenerated after the skill refactor), the
-# baseline-compare is skipped and only the git-diff guard runs.
+# Verifies the refactored review-plan SKILL.md matches the frozen baseline
+# in .claude/skills/dual-tpr/fixtures/review-plan-skill-baseline.sha1.
+# This guards against "drifted-and-reverted" transient changes that
+# `git diff` alone wouldn't catch. The baseline is MANDATORY — a missing
+# baseline is a harness misconfiguration (fail loud, do not silently skip),
+# because the harness claim "byte-identity guard" requires something to
+# compare against.
 say ""
-say "--- Scenario 3: review-plan SKILL.md byte-identity vs §07.PRE baseline ---"
+say "--- Scenario 3: review-plan SKILL.md byte-identity vs frozen baseline ---"
 current=$(git hash-object "$REVIEW_PLAN_MD")
 if [[ -f "$SECTION_07_BASELINE" ]]; then
   baseline=$(head -1 "$SECTION_07_BASELINE")
   if [[ "$current" == "$baseline" ]]; then
-    pass_test "scenario 3: review-plan SKILL.md blob matches §07.PRE baseline ($current)"
+    pass_test "scenario 3: review-plan SKILL.md blob matches frozen baseline ($current)"
   else
-    fail_test "scenario 3: review-plan SKILL.md DRIFTED from §07.PRE baseline" \
-      "current=$current baseline=$baseline"
+    fail_test "scenario 3: review-plan SKILL.md DRIFTED from frozen baseline" \
+      "current=$current baseline=$baseline — if the drift is intentional, regenerate the baseline with: git hash-object .claude/skills/review-plan/SKILL.md > $SECTION_07_BASELINE"
   fi
 else
-  say "scenario 3: §07.PRE baseline file absent ($SECTION_07_BASELINE) — skipping baseline compare, git-diff guard still runs"
+  fail_test "scenario 3: frozen baseline file missing ($SECTION_07_BASELINE)" \
+    "the harness cannot enforce the byte-identity contract without a baseline — regenerate via: git hash-object .claude/skills/review-plan/SKILL.md > $SECTION_07_BASELINE"
 fi
 
 # Also verify git diff --exit-code is clean (catches current drift even if

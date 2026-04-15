@@ -29,31 +29,11 @@ After the loop exits (clean pass, cap hit, or transport failure), the coordinato
 
 **Model policy:** setup and final-report on Sonnet; triage on Opus. The triage agent's Opus dispatch is non-negotiable because Gemini confabulation detection requires independent verification against code — a weaker model silently accepts bad findings. The full rationale lives in `step-2-round-triage.md` §"Trust tiers (set verification depth, not pass/fail)" and in `.claude/rules/impl-hygiene.md` §"No Side Logic" (LOWER trust for gemini = mandatory FULL verification; HIGH trust for codex = spot-check). The invoker's session model is irrelevant; the dispatch boundary enforces the split.
 
-## ABSOLUTE: You May NEVER Reason Out of Findings
+## Finding-handling policy — SSOT reference
 
-**There is NO circumstance under which you may dismiss, rationalize, scope-note, or defer a TPR finding.** The ONLY valid responses to a finding are:
+Finding handling is entirely the triage sub-agent's responsibility. The canonical home for that policy — "You May NEVER Reason Out of Findings", banned response list, and "Correct Architectural Solutions Only" — lives in `step-2-round-triage.md` §ABSOLUTE blocks. The coordinator (this file) restates none of it; it dispatches the triage sub-agent, reads the resulting `triage.json`, and branches the loop. This single source of truth exists to prevent coordinator and triage semantics from drifting independently (the prior version duplicated the policy here, which is exactly the `impl-hygiene.md` §Algorithmic DRY violation this refactor eliminated).
 
-1. **Fix it NOW** — write code, write tests, verify, commit
-2. **Create a plan and execute it** — if too large for inline fix, create concrete implementation steps, then implement them
-3. **AskUserQuestion** — if genuinely blocked (need user decision, missing domain knowledge)
-
-**BANNED responses to findings — using ANY of these is a violation:**
-- "Pre-existing issue" / "was already broken"
-- "Architectural limitation" / "requires major refactor"
-- "Out of scope" / "not a §03 deliverable"
-- "Conservative/safe" / "only precision loss"
-- "Not a regression" / "not introduced by this work"
-- "Future improvement" / "tracked for later"
-- "Scoped as known limitation"
-- Marking `[x] Resolved:` with an explanation instead of a code fix
-
-**The size of the fix is irrelevant.** If the correct fix requires cross-crate refactoring across 10 files, that IS the work.
-
-**"Future improvement" requires a concrete artifact.** If you ever say something will be tracked, you MUST in the same response create: a bug-tracker entry (`/add-bug`), plan section `- [ ]` item, or roadmap checkbox.
-
-## ABSOLUTE: Correct Architectural Solutions Only
-
-The triage sub-agent is bound by `.claude/rules/impl-hygiene.md` — SSOT, No Side Logic, canonical homes, phase boundaries, finding categories (LEAK, DRIFT, GAP, etc.). Every fix must respect these principles. Quick fixes, workarounds, counters, flags, and hacks are banned. The correct fix may touch 10 files across 3 crates — that IS the fix.
+**Coordinator contract:** if `triage.round_summary` is missing or empty, that is a protocol violation — escalate to the user via `AskUserQuestion` rather than continuing silently (see the loop state machine below). The coordinator does NOT reinterpret or second-guess the triage sub-agent's accept/reject/fix disposition; its job is dispatch + branch, not policy.
 
 ## When to Trigger — Bias Toward Running
 
@@ -132,11 +112,26 @@ while iteration_counter < 10 and thoroughness_reject_counter < 3:
       `
     })
 
-    # Read only triage.json (small — a handful of fields)
+    # Read only triage.json (small — a handful of fields + round_summary markdown)
     triage = read {run_id}/round-{round_n}/triage.json
 
+    # ── USER-FACING ROUND RENDER (MANDATORY) ────────────────
+    # Print triage.round_summary verbatim to the user BEFORE the decision
+    # branches below. This is the only place the user sees per-finding
+    # disposition between rounds; the coordinator deliberately does not
+    # read merged.json, so if round_summary is missing or truncated the
+    # user cannot track progress across rounds. If triage.round_summary
+    # is absent, that is a contract violation by the triage sub-agent —
+    # escalate rather than continuing silently.
+    if "round_summary" not in triage or triage.round_summary is empty:
+        surface contract violation to user via AskUserQuestion
+        EXIT
+    print triage.round_summary
+
     if triage.actionable_after_triage == 0 and triage.thoroughness_ok:
-        # CLEAN PASS — exit
+        # CLEAN PASS — exit (final-report sub-agent will re-render a
+        # consolidated summary; the per-round print above is still
+        # shown so the user sees the last round's details immediately)
         break
 
     if triage.actionable_after_triage == 0 and not triage.thoroughness_ok:

@@ -13,13 +13,79 @@ The triage agent owns every judgment-writing step per `SKILL.md` §Model Policy:
   "strengthened_language_required": true | false,
   "fixes_committed": true | false,
   "escalate": false | true,
-  "escalation_reason": null | "cap-hit-findings" | "cap-hit-wasted" | "user-judgment-needed"
+  "escalation_reason": null | "cap-hit-findings" | "cap-hit-wasted" | "user-judgment-needed",
+  "round_summary": "…markdown string, see §Round Summary Rendering below…"
 }
 ```
 
-The coordinator uses these flags to decide whether to loop, exit clean, or escalate to the user.
+The coordinator uses the decision flags to decide whether to loop, exit clean, or escalate to the user. It prints `round_summary` verbatim to the user between rounds so the user sees a rich rendering of what each round surfaced and how it was disposed of — without the coordinator having to re-read `merged.json` itself.
 
----
+
+## Round Summary Rendering (MANDATORY field `round_summary`)
+
+After §7 completes (file + fix + commit), you MUST populate `round_summary` with a user-facing markdown block. This is the ONLY rendering of per-finding detail the user sees between rounds — the coordinator deliberately does NOT read `merged.json`, so if you omit detail here, the user is left with the bare counts from the other JSON fields and cannot track progress across rounds.
+
+### Required structure
+
+```md
+### Round {N} Summary
+
+**Dispatch**: codex {codex_findings} / gemini {gemini_findings} / agreements {agreements} / merged actionable {merged_actionable}
+**Thoroughness**: ASYMMETRY {LOW|MODERATE|HIGH} — {one-sentence rationale citing files_read / rules_consulted / verification basis}
+**Triage**: accepted {accepted} / rejected {rejected} / actionable after triage {actionable_after_triage}
+**Fix commit**: {commit_sha or "none — no actionable findings this round"}
+
+**Findings this round:**
+- `[ID][severity]` `path:line` — title. Disposition: {fixed in {sha} | rejected: {one-line verification note} | handed off to /fix-bug BUG-XX-NNN}.
+- … one bullet per merged finding entry (agreement findings produce ONE bullet, cross-referencing both halves) …
+
+**Next round will confirm**: {one sentence — what the next round should verify, e.g. "that the N fixes hold and no regressions were introduced" OR "that strengthened-language re-review surfaces the depth this round lacked" OR "loop exiting clean"}.
+```
+
+### Rules
+
+- **One bullet per merged finding.** For agreement findings, ONE bullet covering both halves (cite both reviewer-tagged IDs inline). Do NOT produce two bullets for the same agreement entry — that visually doubles the round's apparent size.
+- **Disposition is mandatory.** Every bullet MUST end with `Disposition:` stating exactly one of: `fixed in {commit_sha}`, `rejected: {verification note}`, or `handed off to /fix-bug BUG-XX-NNN`. A bullet without a disposition is a bug in this rendering — the whole point is that the user can see at a glance what happened to each finding.
+- **Rejections are rare and must be justified.** Per §5, the ONLY valid rejection is verification that proves the finding wrong. Quote the specific check that disproved it (one line max).
+- **Keep bullets terse.** One line per finding, ≤120 characters. The user can `cat merged.json` for full evidence — this rendering is the summary, not the dossier.
+- **Clean-pass rounds still render this block.** On a clean pass, the `Findings this round:` list is empty or says `(none — both reviewers returned zero actionable findings)`, and `Next round will confirm` becomes `loop exiting clean`. The user still wants to see the thoroughness verdict and the dispatch counts.
+- **Pure-waste rounds (zero findings + thin) MUST include the rejection rationale** in the Thoroughness line — cite the specific signals (walltime ratio, empty `rules_consulted`, etc.) that triggered `thoroughness_ok = False`. This is the same evidence §6e requires you to write down for eventual escalation; reusing it here costs nothing and makes the waste visible to the user in real time.
+
+### Example (findings + thorough round)
+
+```md
+### Round 0 Summary
+
+**Dispatch**: codex 7 / gemini 8 / agreements 3 / merged actionable 12
+**Thoroughness**: ASYMMETRY LOW — both envelopes read 11 files + CLAUDE.md/impl-hygiene.md/tests.md, codex ran ./test-all.sh, walltime ratio 1.3x.
+**Triage**: accepted 12 / rejected 0 / actionable after triage 12
+**Fix commit**: 353864a5
+
+**Findings this round:**
+- `[TPR-04-001-codex+gemini][high]` `ori_arc/src/lower/iter.rs:218` — missing dec on early-exit. Disposition: fixed in 353864a5.
+- `[TPR-04-002-gemini][medium]` `library/std/prelude.ori:5` — replace println with tracing::debug. Disposition: fixed in 353864a5.
+- `[TPR-04-003-codex][low]` `ori_parse/src/expr/binary.rs:142` — tighten operator-precedence error span. Disposition: fixed in 353864a5.
+- … (9 more) …
+
+**Next round will confirm**: that the 12 fixes hold and no regressions were introduced; strengthening flag cleared (thorough review).
+```
+
+### Example (zero findings + thin — pure waste)
+
+```md
+### Round 2 Summary
+
+**Dispatch**: codex 0 / gemini 0 / agreements 0 / merged actionable 0
+**Thoroughness**: ASYMMETRY HIGH — gemini walltime 3.8x codex, gemini rules_consulted empty, gemini files_read 2 on a 14-file diff.
+**Triage**: accepted 0 / rejected 0 / actionable after triage 0
+**Fix commit**: none — no actionable findings this round
+
+**Findings this round:** (none — both reviewers returned zero actionable findings, but gemini's review was skimming, not clean)
+
+**Next round will confirm**: that gemini actually investigates the scope when given the Thoroughness Re-review Directive (thoroughness_reject_counter now 2/3).
+```
+
+
 
 ## ABSOLUTE: You May NEVER Reason Out of Findings
 
@@ -59,7 +125,6 @@ The coordinator uses these flags to decide whether to loop, exit clean, or escal
 **The "quick fix" test**: if your fix would not survive a code review by someone who has read `impl-hygiene.md`, it's wrong. The correct fix may touch 10 files across 3 crates — that IS the fix. A workaround that passes tests is not a fix.
 
 
----
 
 ### 5. Classify merged findings (and VERIFY each one independently)
 
@@ -230,7 +295,6 @@ The net effect: thin-findings rounds make progress on the findings they DID catc
 
 **Why "wasted" is narrower than "thin".** The escalation cap should fire only when the loop is producing *nothing*, not when it's producing *some* things thinly. A round that caught even one bug on a thin review is forward progress — the counter resets. Only the zero-findings + thin cell (§6e) truly represents "we ran the loop and got nothing," which is the condition the 3-count cap is designed to catch.
 
----
 
 ### 7. If Actionable Findings Exist -> Fix and Re-run
 
@@ -330,7 +394,6 @@ Run `/commit-push` to commit the fixes. The commit message should reference the 
 
 Go back to Step 1. BOTH reviewers re-review the FIXED code to confirm the issues are actually resolved and no new issues were introduced by the fixes. **This re-run is not optional, and a partial re-run (only one reviewer) is not a valid clean pass.**
 
----
 
 ## Merged Finding Format
 

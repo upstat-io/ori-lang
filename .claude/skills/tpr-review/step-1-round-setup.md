@@ -6,7 +6,6 @@ The setup agent handles Steps 0–4 + polling + merge: CLAUDE.md re-read, spec/g
 
 If the transport exits non-zero, the setup agent follows the Transport Failure Handling section and returns an escalation payload; it never retries the transport inline.
 
----
 
 ## Step 0 — MANDATORY: Re-read CLAUDE.md
 
@@ -311,11 +310,14 @@ Bash:
   impl-hygiene.md (LEAK / DRIFT / GAP / WASTE / EXPOSURE / BLOAT /
   NOTE) and the specific rule anchor it violates.
 
-  1. CLAUDE.md (project root) — correctness, no deferral, phase purity
-  2. .claude/rules/impl-hygiene.md — finding vocabulary, SSOT, DRY
-  3. .claude/rules/tests.md — matrix testing, semantic/negative pins
-  4. .claude/rules/compiler.md — architecture, phase boundaries
-  <append any subsystem-specific rule file referenced by the objective>
+  Read ALL of these in full (the authoritative policy is "CLAUDE.md
+  + every .claude/rules/*.md file", mechanically enumerated — see
+  the Mandatory Grounding Block above for the exact list produced
+  by `ls .claude/rules/*.md | sort`). The enumeration IS the policy;
+  do not sub-select or trim to a convenient subset just because the
+  objective looks narrow. Custom objectives review the full repo
+  context, so the grounding must match.
+  <paste the full sorted enumeration from the Mandatory Grounding Block — CLAUDE.md plus every .claude/rules/*.md file>
 
   <If Step 0.75 produced an Intelligence Summary, insert it here>
 
@@ -364,11 +366,13 @@ Bash:
   impl-hygiene.md (LEAK / DRIFT / GAP / WASTE / EXPOSURE / BLOAT /
   NOTE) and the specific rule anchor it violates.
 
-  1. CLAUDE.md (project root) — correctness, no deferral, phase purity
-  2. .claude/rules/impl-hygiene.md — finding vocabulary, SSOT, DRY
-  3. .claude/rules/tests.md — matrix testing, semantic/negative pins
-  4. .claude/rules/compiler.md — architecture, phase boundaries
-  <same rule file list as codex prompt — CLAUDE.md + every .claude/rules/*.md>
+  Read ALL of these in full (the authoritative policy is "CLAUDE.md
+  + every .claude/rules/*.md file", mechanically enumerated — see
+  the Mandatory Grounding Block above for the exact list produced
+  by `ls .claude/rules/*.md | sort`). The enumeration IS the policy;
+  do not sub-select. Custom objectives review the full repo context,
+  so the grounding must match.
+  <paste the full sorted enumeration from the Mandatory Grounding Block — CLAUDE.md plus every .claude/rules/*.md file, identical to the codex prompt>
 
   <If Step 0.75 produced an Intelligence Summary, insert it here>
 
@@ -456,7 +460,6 @@ Bash:
 
 The `summary` block reports `codex_findings`, `gemini_findings`, `agreements`, `codex_only`, `gemini_only`.
 
----
 
 ## Thoroughness Re-review Directive (prepend when strengthened_language_required)
 
@@ -526,7 +529,6 @@ outcome is credible.
 
 The directive is inserted BEFORE the normal grounding block (which reminds the reviewer WHAT to read), so the reviewer sees the "why this time is different" framing before the reading list. Do not edit the grounding block itself — keep the two concerns separate.
 
----
 
 ## Transport Failure Handling
 
