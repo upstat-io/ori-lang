@@ -1,7 +1,7 @@
 ---
 name: sync-docs
 description: Sync ALL project documentation via batch TPR verification — dual-source (Codex + Gemini) review of every doc surface against actual code and spec. Nightly-ready, fully automated, fact-bound.
-allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Agent, Skill
+allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Agent, Skill, EnterWorktree, ExitWorktree
 ---
 
 # Sync All Documentation (TPR-Verified)
@@ -77,7 +77,18 @@ Reconcile all non-spec documentation against the actual codebase and spec using 
 
 **When you find a spec/grammar issue:** File it via `/add-bug` with subsystem `docs` and severity based on impact. Then continue — do NOT stop.
 
-## Phase 0: Discovery & Triage
+## Phase 0: Worktree Isolation (MANDATORY)
+
+**All sync work happens in an isolated git worktree.** This keeps the `dev` branch completely clean — if something goes wrong, the worktree can be discarded with zero impact.
+
+1. **Enter worktree** via `EnterWorktree` tool with name `sync-docs-YYYY-MM-DD` (use today's date)
+2. This creates a new branch based on HEAD inside `.claude/worktrees/`
+3. All subsequent phases run inside the worktree
+4. At the end (Phase 3), the worktree is kept for user review — the user decides when to merge
+
+**Do NOT skip this step.** Proceeding without worktree isolation is banned — the sync touches too many files to risk polluting the working branch.
+
+## Phase 0.5: Discovery & Triage
 
 1. Glob `**/*.md` from project root
 2. Filter out off-limits paths (spec, proposals, archived-design, plans, build, worktrees)
@@ -311,18 +322,27 @@ Throughout all batches, when TPR reviewers or Claude's own fixes encounter a dis
 1. **DO NOT modify spec or grammar files**
 2. **File via `/add-bug`** with subsystem `docs`, severity based on impact, the specific spec clause, and what's wrong
 
-## Phase 3: Final Commit & Report
+## Phase 3: Final Report & Worktree Handoff
 
 After all batches converge:
 
 1. Verify all changes are committed (each batch commits via `/commit-push`)
-2. Push all commits
+2. **Do NOT push from the worktree** — the worktree branch is local
+3. **Exit the worktree** via `ExitWorktree` with `action: "keep"` — preserves the branch and all commits
+4. Report the worktree branch name so the user can review and merge
 
 **Report:**
-1. **Batches completed**: list each batch with TPR iteration count and files modified
-2. **Verification sources**: for each modified file, which source files/spec clauses the TPR reviewers verified against
-3. **Bugs filed**: any spec/grammar issues filed via `/add-bug`
-4. **Total TPR rounds**: sum across all batches
+1. **Worktree branch**: the branch name created in Phase 0 (user merges when ready)
+2. **Batches completed**: list each batch with TPR iteration count and files modified
+3. **Verification sources**: for each modified file, which source files/spec clauses the TPR reviewers verified against
+4. **Bugs filed**: any spec/grammar issues filed via `/add-bug`
+5. **Total TPR rounds**: sum across all batches
+
+**Merge instruction for user:** After reviewing the worktree's commits, merge with:
+```bash
+git merge <worktree-branch-name>
+# or cherry-pick specific commits
+```
 
 ## Writing Style Matrix
 
@@ -342,11 +362,13 @@ After all batches converge:
 
 This command is designed to run nightly without human intervention:
 
-1. **No `AskUserQuestion` calls** — make judgment calls and proceed
-2. **No pauses between batches** — execute sequentially to completion
-3. **File bugs, don't block** — when you find spec issues, file them and continue
-4. **Each batch commits separately** — via `/commit-push` after TPR convergence
-5. **Report at the end** — summary of all batches
+1. **Worktree isolation first** — `EnterWorktree` before any work; `ExitWorktree(keep)` at the end
+2. **No `AskUserQuestion` calls** — make judgment calls and proceed
+3. **No pauses between batches** — execute sequentially to completion
+4. **File bugs, don't block** — when you find spec issues, file them and continue
+5. **Each batch commits separately** — via `/commit-push` after TPR convergence (commits stay on worktree branch)
+6. **No push from worktree** — user merges the worktree branch when ready
+7. **Report at the end** — summary of all batches + worktree branch name
 
 ## User Input
 
