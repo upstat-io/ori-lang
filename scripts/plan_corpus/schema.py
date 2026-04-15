@@ -257,6 +257,7 @@ def _check_required(
                 source=path,
                 description=f"missing required field: {key}",
                 recommended_fix=f"Add '{key}:' to frontmatter",
+                target_key=key,
             ))
     return findings
 
@@ -274,6 +275,7 @@ def _check_unknown_fields(
                 source=path,
                 description=f"unknown field: {key!r}",
                 recommended_fix=f"Remove '{key}' or check for typos. Allowed: {sorted(allowed)}",
+                target_key=key,
             ))
     return findings
 
