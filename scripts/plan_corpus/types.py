@@ -260,11 +260,19 @@ class Finding:
     def id(self) -> str:
         content = f"{self.category.value}:{self.subtype.value}:{self.source}:{self.source_line}"
         # Conditional append preserves backward-compat: legacy findings that
-        # never populate source_column or target produce the pre-extension hash.
+        # never populate source_column, target, or target_key produce the
+        # pre-extension hash.
         if self.source_column is not None:
             content += f":{self.source_column}"
         if self.target is not None:
             content += f":{self.target}"
+        if self.target_key is not None:
+            # target_key discriminates same-file same-subtype findings that
+            # differ only by which schema field they target (e.g. two
+            # MISSING_REQUIRED_FIELD findings on the same file with
+            # target_key='name' vs target_key='full_name'). Without this
+            # discriminator, distinct findings collide on the same id.
+            content += f":{self.target_key}"
         return "VR-" + hashlib.sha256(content.encode()).hexdigest()[:6]
 
     def to_json(self) -> dict[str, Any]:
@@ -278,6 +286,7 @@ class Finding:
             "source_column": self.source_column,
             "target": str(self.target) if self.target else None,
             "target_line": self.target_line,
+            "target_key": self.target_key,
             "description": self.description,
             "recommended_fix": self.recommended_fix,
             "evidence": list(self.evidence),

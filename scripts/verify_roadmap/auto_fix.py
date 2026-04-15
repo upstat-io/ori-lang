@@ -75,12 +75,18 @@ class FixApplyResult:
     - applied_findings: subset that the patcher reported applied=True
     - unapplied_results: PatchResults with applied=False — these get
       surfaced in the report's "unapplied fixes" group (TPR-03-003-codex)
+    - demoted_findings: SafeFix findings whose patch refused (concurrent
+      modification, malformed frontmatter, etc.) — re-classified as
+      ExposureReview with the refusal reason appended to the rationale,
+      so the report surfaces them as actionable manual-review items
+      alongside the raw unapplied_results entry (TPR-03-005-codex)
     - skipped_findings: SafeFix findings with no handler (build_fix_plan
       returned None) — defensive bucket, should be empty in production
     """
     planned_findings: list[ClassifiedFinding] = field(default_factory=list)
     applied_findings: list[ClassifiedFinding] = field(default_factory=list)
     unapplied_results: list[PatchResult] = field(default_factory=list)
+    demoted_findings: list[ClassifiedFinding] = field(default_factory=list)
     skipped_findings: list[ClassifiedFinding] = field(default_factory=list)
 
 
@@ -133,6 +139,25 @@ def _dispatch_missing_required_field(
             after_key="sections",
         ),)
 
+    return ()
+
+
+def _dispatch_cross_field_invariant(
+    cf: ClassifiedFinding,
+) -> tuple[FmOperation, ...]:
+    """SCHEMA_VIOLATION/CROSS_FIELD_INVARIANT SafeFix.
+
+    Currently shipped: ``reroute: false`` on plan-index files
+    (TPR-03-006-codex). Schema flags the field as default-equivalent;
+    removing it restores canonical state without semantic change. The
+    classifier has already gated this to SafeFix only when
+    ``target_key='reroute'`` (see safety._classify_cross_field_invariant);
+    we re-check defensively because reaching this dispatcher with any
+    other target_key would mean the classifier and dispatcher have
+    drifted.
+    """
+    if cf.finding.target_key == "reroute":
+        return (FmOperation.make(FmOperationKind.REMOVE_KEY, key="reroute"),)
     return ()
 
 
@@ -205,6 +230,8 @@ _DISPATCHERS: dict[
         _dispatch_unknown_field,
     (FindingCategory.SCHEMA_VIOLATION, FindingSubtype.MISSING_REQUIRED_FIELD):
         _dispatch_missing_required_field,
+    (FindingCategory.SCHEMA_VIOLATION, FindingSubtype.CROSS_FIELD_INVARIANT):
+        _dispatch_cross_field_invariant,
     # STATUS_CONTRADICTION (PLAN_ACTIVE_... + FM_... defense-in-depth panic)
     (FindingCategory.STATUS_CONTRADICTION,
      FindingSubtype.PLAN_ACTIVE_ALL_SECTIONS_NOT_STARTED):
@@ -277,9 +304,36 @@ def build_fix_plans(
 # ---------------------------------------------------------------------------
 
 # The patcher signature — matches §03.4's apply_patch contract.
+# `finding_id` is optional (None defaults to the patcher's "VR-patch"
+# sentinel for legacy direct callers / tests). apply_fixes ALWAYS passes
+# the originating Finding.id so unapplied_results carry useful provenance
+# (TPR-03-004-codex).
 PatcherFn = Callable[
-    [Path, list[FmOperation], PreimageRecord, Path], PatchResult
+    [Path, list[FmOperation], PreimageRecord, Path, str | None], PatchResult
 ]
+
+
+def _snippet_for_audit(
+    text: str | None,
+    *,
+    max_chars: int = 400,
+) -> str | None:
+    """Bounded-length excerpt of a frontmatter slice for audit logging.
+
+    Returns ``None`` when ``text`` is falsy. Truncated excerpts get an
+    ellipsis suffix so reviewers can tell the snippet was elided. Newlines
+    are preserved so ``diff``-style inspection works directly on the
+    serialized JSON value.
+
+    Used by `apply_fixes` to record before/after frontmatter snippets in
+    the per-fix audit log entries per the §03.3 spec contract
+    (TPR-03-009-codex).
+    """
+    if not text:
+        return None
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "..."
 
 
 def _backup_file(source: Path, backups_dir: Path) -> Path | None:
@@ -337,6 +391,13 @@ def apply_fixes(
     audit_entries: list[dict] = []
     backups_dir = output_dir / "backups"
 
+    # Local working copy of preimages: as each fix lands successfully on
+    # disk, we update this copy with the post-write hash so the NEXT
+    # finding for the same file uses the fresh hash. Without this, batches
+    # with multiple findings per file fail every fix after the first as
+    # "concurrent-session conflict" against itself (TPR-03-002-gemini).
+    working_preimages: dict[Path, PreimageRecord] = dict(preimages)
+
     for cf in classifieds:
         try:
             plan = build_fix_plan(cf)
@@ -354,11 +415,23 @@ def apply_fixes(
             # Dry run: plan only, no file mutation, no audit log entry
             continue
 
+        # Capture before-snippet from the live disk copy (post any prior
+        # in-batch patches against the same file) for audit logging
+        # (TPR-03-009-codex). Best-effort: failures are silently swallowed
+        # so audit logging never blocks the fix.
+        before_snippet: str | None = None
+        try:
+            before_snippet = _snippet_for_audit(
+                plan.path.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError):
+            before_snippet = None
+
         # Backup BEFORE invoking patcher
         backup_path = _backup_file(plan.path, backups_dir)
 
         # Look up preimage (None if caller didn't provide one)
-        preimage = preimages.get(plan.path)
+        preimage = working_preimages.get(plan.path)
         if preimage is None:
             # Defensive: synthesize a "missing preimage" marker that the
             # patcher will reject — better than skipping silently
@@ -368,15 +441,52 @@ def apply_fixes(
                 scan_timestamp=0.0,
             )
 
+        # Pass the originating finding_id so unapplied_results carry
+        # useful provenance (TPR-03-004-codex).
         patch_result = patcher(
-            plan.path, list(plan.operations), preimage, corpus_root
+            plan.path,
+            list(plan.operations),
+            preimage,
+            corpus_root,
+            plan.finding_id,
         )
 
+        after_snippet: str | None = None
         if patch_result.applied:
             result.applied_findings.append(cf)
+            # Roll the working preimage forward so the next finding for
+            # this file sees the fresh hash (TPR-03-002-gemini).
+            if patch_result.after_hash is not None:
+                working_preimages[plan.path] = PreimageRecord(
+                    path=plan.path,
+                    content_hash=patch_result.after_hash,
+                    scan_timestamp=datetime.now(timezone.utc).timestamp(),
+                )
+            try:
+                after_snippet = _snippet_for_audit(
+                    plan.path.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeDecodeError):
+                after_snippet = None
         else:
-            # Concurrent-modification: surface as unapplied, do NOT silently drop
+            # Concurrent-modification (or malformed FM, path-escape, etc.):
+            # surface BOTH as the raw PatchResult (for unapplied_fixes
+            # reporting) AND as a demoted ExposureReview ClassifiedFinding
+            # so reviewers see it as a manual-review item alongside the
+            # refusal record (TPR-03-005-codex).
             result.unapplied_results.append(patch_result)
+            demoted_rationale = (
+                f"{cf.rationale} [demoted from SafeFix: {patch_result.reason}]"
+            )
+            result.demoted_findings.append(
+                ClassifiedFinding(
+                    finding=cf.finding,
+                    safety_class=SafetyClass.EXPOSURE_REVIEW,
+                    rationale=demoted_rationale,
+                    pairing_tag=cf.pairing_tag,
+                    resolved_by_sibling=cf.resolved_by_sibling,
+                )
+            )
 
         audit_entries.append({
             "finding_id": plan.finding_id,
@@ -390,6 +500,8 @@ def apply_fixes(
             "reason": patch_result.reason,
             "before_hash": patch_result.before_hash,
             "after_hash": patch_result.after_hash,
+            "before_snippet": before_snippet,
+            "after_snippet": after_snippet,
             "backup_path": str(backup_path) if backup_path else None,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
