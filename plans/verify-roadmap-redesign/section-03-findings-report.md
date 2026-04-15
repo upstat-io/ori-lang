@@ -19,10 +19,15 @@ depends_on:
   - "01"
   - "02"
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-15
-  rounds: 5
-  notes: "Round 5 iter 3: CLEAN PASS on §03 scope. All findings resolved as of 2026-04-15 — TPR-03-002-gemini-r4i4 fixed in-place via structural Finding.target_value field across plan_corpus/types.py, plan_corpus/docgen.py, plan_corpus/dag.py, and verify_roadmap/auto_fix.py. Original §05 anchor also marked done. Prior to resolution a new independent /tpr-review pass (§03.N close-out) may surface follow-up findings; this field will flip back to 'findings' if so."
+  rounds: 6
+  notes: "Round 6 (§03.N close-out TPR on commit baa01833): 3 new actionable findings (2 codex, 1 gemini) — all DRIFT:missing-regression-pin against the new Finding.target_value field. TPR-03-002-codex-r6 and TPR-03-001-gemini-r6 are effectively-agreement at tests/plan-audit/test_dag_classifiers.py:418 (matrix coverage gap on dag-side target_value population). TPR-03-001-codex-r6 flags unpinned sync-points at test_plan_corpus.py:488 (target_value hash + to_json symmetry). Status flipped to 'findings' per round-6 intake; will flip back to 'resolved' after fixes + clean re-review."
+  update_history:
+    - round: 5
+      iter: 3
+      date: 2026-04-15
+      summary: "CLEAN PASS on §03 scope. All round-5 findings resolved. TPR-03-002-gemini-r4i4 fixed in-place via structural Finding.target_value field across plan_corpus/types.py, plan_corpus/docgen.py, plan_corpus/dag.py, and verify_roadmap/auto_fix.py."
 sections:
   - id: "03.1"
     title: "Safety Taxonomy & Data Types"
@@ -41,7 +46,7 @@ sections:
     status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "03.N"
     title: "Completion Checklist"
     status: in-progress
@@ -567,6 +572,24 @@ Dual-source verification of commit 3bccddd8. ZERO actionable findings, 3 informa
   Resolved: Verification-only. Acknowledges commit 3bccddd8 added 6 pins covering classifier_version, target_key JSON serialization, category/subtype markdown + console rendering, and source -> target rendering.
 - [x] `[TPR-03-001-gemini-r5i3][informational]` `tests/plan-audit/test_safety.py:394` — Acknowledge that commit 3bccddd8 successfully pins reroute auto-fix and report surfaces.
   Resolved: Verification-only. Gemini confirms the round-2 fixes are sound.
+
+**Round 6 findings (2026-04-15 — §03.N close-out TPR after commit baa01833):**
+
+Dual-source review of the structural `Finding.target_value` landing. Transport had infra friction (4 consecutive gemini capacity errors before attempt 5 succeeded) — semantic iteration budget untouched. Codex: 436s / 144 events / 6017-byte envelope. Gemini: 313s / 69 events / 2631-byte envelope, ran pytest as fresh_verification. 3 actionable findings, all `[medium]`, all DRIFT:missing-regression-pin against the new `target_value` field. No agreements tagged by the merger, but TPR-03-002-codex-r6 and TPR-03-001-gemini-r6 target identical location and identical root cause — effectively an agreement.
+
+- [x] `[TPR-03-001-codex-r6][medium]` `tests/plan-audit/test_plan_corpus.py:488` — Add target_value sync-point regression pins. `[DRIFT]`
+  Evidence: `scripts/plan_corpus/types.py:296-340` now conditionally hashes and serializes `target_value`, parallel to `target_key`. But `test_plan_corpus.py:488-564` pins only the four target_key cells (discriminator, legacy-None id preservation, to_json serialization, to_json null-for-legacy). No test would fail if `target_value` were removed from `Finding.id` or `Finding.to_json()`.
+  Impact: The `target_key`/`target_value` symmetry rule in the rules brief is unpinned at the shared-type sync points. A future regression could silently drop `target_value` from id-discrimination or JSON output, reintroducing duplicate IDs for same-line dead-list findings or breaking machine-readable report consumers.
+  Resolved: Fixed on 2026-04-15 during §03.N close-out round-6 loop. Added 4 sync-point pins in `TestFindingTypeSafety` parallel to the target_key quartet: `test_id_discriminates_by_target_value` (two DEAD_REFERENCE findings on the same line with different target_value values produce distinct ids), `test_id_unchanged_when_target_value_is_none` (legacy pre-extension hash preserved), `test_to_json_serializes_target_value` (JSON output includes the field), `test_to_json_target_value_null_for_legacy_findings` (legacy findings serialize as null, not absent).
+- [x] `[TPR-03-002-codex-r6][medium]` `tests/plan-audit/test_dag_classifiers.py:418` — Expand producer-side target_value matrix coverage. `[GAP]`
+  Evidence: `test_dead_ref_findings_carry_structural_target_value` exercises only the prose-reference path (`dag.py:1580` — `PLAN_DIRECTORY_NOT_FOUND` for truly nonexistent targets). It does NOT hit `dag.py:876` (EXPLICIT_DEPENDS_ON `SECTION_FILE_NOT_FOUND`), `dag.py:1532` (stale-annotation special-home), `dag.py:1555` (stale-annotation regular slug), or any of the `resolve_dep` / `_find_section_file` producers in `docgen.py:46-93`. No negative pin proves non-DEAD_REFERENCE findings have `target_value=None`.
+  Impact: Most of the producer surface feeding `_dispatch_dead_reference` structurally is unpinned. A future omission at one of those construction sites regresses real corpus findings to missing target_value while the hand-constructed auto_fix matrix continues to pass.
+  Resolved: Fixed on 2026-04-15 during §03.N close-out round-6 loop. Added 4 new matrix cells in `TestClassifyDeadReference`: `test_explicit_depends_on_dead_ref_carries_target_value` (dag.py EXPLICIT_DEPENDS_ON path via `depends_on=["99"]` pointing at nonexistent section; pins target_value == dep_id), `test_completed_plan_body_ref_carries_target_value` (dag.py stale-annotation regular-slug path via `<!-- unblocks:archived-plan/02 -->` pointing at `plans/completed/archived-plan/`), `test_cross_plan_unknown_name_carries_target_value` (docgen.py CROSS_PLAN_NAME_NOT_FOUND producer via `depends_on=["ghost-plan#03"]`), and the negative pin `test_non_dead_reference_finding_has_no_target_value` (asserts no classifier accidentally sets target_value on non-DEAD_REFERENCE findings). 624/624 plan-audit tests pass.
+- [x] `[TPR-03-001-gemini-r6][medium]` `tests/plan-audit/test_dag_classifiers.py:418` — GAP: Missing matrix cells and negative pin for dag-side target_value population. `[GAP]`
+  Evidence: Same root issue as TPR-03-002-codex-r6 — the `test_dead_ref_findings_carry_structural_target_value` pin covers only the body-prose `PLAN_DIRECTORY_NOT_FOUND` path. Other three dag.py construction sites (EXPLICIT_DEPENDS_ON, stale-annotation special-home, stale-annotation regular-slug) unpinned. No negative pin for non-DEAD_REFERENCE subtypes.
+  Impact: Silent regression if target_value population is dropped at one of the unpinned sites — would surface later as `AutoFixError` panic in the dispatcher rather than a targeted test failure.
+  Resolved: Fixed on 2026-04-15. Same fix as [TPR-03-002-codex-r6] (effective agreement — different titles, same location, same root cause).
+  Agreement (effective): [TPR-03-002-codex-r6] — same location, same root cause, different title (merger did not auto-detect agreement due to title mismatch; manually cross-referenced).
 
 ---
 
