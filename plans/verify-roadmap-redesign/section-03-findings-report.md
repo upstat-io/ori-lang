@@ -432,6 +432,14 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
 - [x] `[TPR-03-003-codex-r4][low]` `.claude/skills/continue-roadmap/roadmap_scan.py:1482` — Log verify-quick degradation failures without requiring trace mode.
   Resolved: Fixed on 2026-04-15. Changed exception handler from `trace(...)` (no-op without `--trace`) to `sys.stderr.write(f"[verify-quick] degradation: ...")` (unconditional stderr). Import-failure and banner-ordering integration tests are tracked for test_quick.py but deferred to §04/§05 implementation scope (the integration point is in `roadmap_scan.py` which is outside §03's owned modules).
 
+**Round 4 iteration 2 findings (2026-04-15 — re-review after round-4 fixes):**
+
+- [x] `[TPR-03-001-codex-r4i2][low]` `scripts/verify_roadmap/pairing.py:98` — Stop using the rationale string as pairing state.
+  Evidence: `pair_resolved_by_sibling` identified the rename sibling via `other.rationale.startswith(_RENAME_RATIONALE_PREFIX)`. Prose rationale is produced in `safety.py:300`; a wording edit would silently break pairing.
+  Impact: No structural source of truth for "this is the rename half" — fragile coupling through prose.
+  Resolved: Fixed on 2026-04-15. Added `PAIRING_TAG_PLAN_TO_NAME_RENAME` constant + `pairing_tag: str | None` field on `ClassifiedFinding`. Classifier sets the tag on the rename-case SafeFix. Pairing function matches `other.pairing_tag == PAIRING_TAG_PLAN_TO_NAME_RENAME` instead of rationale string. All 9 test_pairing.py tests updated to pass the tag.
+  Basis: direct_file_inspection. Confidence: high.
+
 ---
 
 ## 03.N Completion Checklist

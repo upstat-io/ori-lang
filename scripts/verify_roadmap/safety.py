@@ -47,6 +47,9 @@ class SafetyClass(enum.Enum):
     EXPOSURE_REVIEW = "exposure_review"
 
 
+PAIRING_TAG_PLAN_TO_NAME_RENAME = "plan_to_name_rename"
+
+
 @dataclass(frozen=True)
 class ClassifiedFinding:
     """A Finding wrapped with its safety classification.
@@ -59,6 +62,7 @@ class ClassifiedFinding:
     safety_class: SafetyClass
     rationale: str
     resolved_by_sibling: str | None = None
+    pairing_tag: str | None = None
 
 
 @dataclass(frozen=True)
@@ -298,6 +302,7 @@ def _classify_unknown_field(
                 finding=finding,
                 safety_class=SafetyClass.SAFE_FIX,
                 rationale="PlanIndexSchema: rename plan: to name: (preserving value)",
+                pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME,
             )
 
     # plan: on OverviewSchema is canonical — NOT a rename candidate
