@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Plan schema — mandatory Intelligence Reconnaissance block + validator"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Every new plan section carries an unnumbered `## Intelligence Reconnaissance` block — queries run + ≤500-char results summary + date — AND `python -m scripts.plan_corpus check` enforces it with a status-gated severity model: `status: not-started` missing recon → `Severity.HIGH`; `status: in-progress` → `Severity.MEDIUM`; `status: complete` → exempt. Scope is `FileClass.PLAN_SECTION` only; roadmap and bug-tracker sections keep their existing shape. Retrofit of `not-started` sections is handled by §09."
 success_criteria:
@@ -27,7 +27,7 @@ third_party_review:
 sections:
   - id: "06.1"
     title: "Plan-schema + create-plan SKILL.md edits (unnumbered recon block; SSOT cite; §03/§07 format-coupling contract)"
-    status: not-started
+    status: complete
   - id: "06.2"
     title: "plan_corpus validator: body_text propagation, warning/error outcome model, status-gated severity, anti-stub detection, matrix tests"
     status: not-started
@@ -109,7 +109,7 @@ See `.claude/skills/dual-tpr/compose-intel-summary.md` for the full query protoc
 
 Two surfaces describe section-level structural invariants today: `plan-schema.md` (Section File Template + "MANDATORY SUBSECTION STRUCTURE" HTML comment at lines 315-326) and `create-plan/SKILL.md:808` (which independently hardcodes `"EVERY subsection ({NN}.1, {NN}.2, ...)"`). Updating only one creates `DRIFT:scattered-knowledge`. §06.1 edits both — plan-schema.md as authoritative SSOT, SKILL.md as pointer.
 
-- [ ] **plan-schema.md — insert unnumbered recon block in the Section File Template.** After the `**Depends on:** Section {NN} ({why}).` line (currently line 311) and BEFORE the `---` separator preceding `## {NN}.1`, add a `---` separator and the following unnumbered block example:
+- [x] **plan-schema.md — insert unnumbered recon block in the Section File Template.** After the `**Depends on:** Section {NN} ({why}).` line (currently line 311) and BEFORE the `---` separator preceding `## {NN}.1`, add a `---` separator and the following unnumbered block example:
 
   ```markdown
   ---
@@ -132,7 +132,7 @@ Two surfaces describe section-level structural invariants today: `plan-schema.md
 
   **Format-coupling contract:** The shared contract enforced by `_check_intel_recon_block` covers: (a) presence of citation markers (`[ori]`, `[repo#N]`, `[repo:path]`), (b) presence of date marker (ISO YYYY-MM-DD), (c) presence of literal `scripts/intel-query.sh` command line, (d) absence of mixed-placeholder shapes (per Fix 1 — mixed-placeholder-after-citation emits `GAP:VALIDATION_BYPASS`). The ≤500-char bound and exact Step D output formatting are SOFT contracts — guidance for §07 hook authors and §06.1 template users, NOT enforced by the §06.2 validator. **NOTE:** Over-500-char blocks are NOT validator findings — they are flagged by `discover` as informational. §07 hook implementation owns its own length enforcement. Graceful degradation: §07 hook omits the summary entirely when graph is unavailable (per `compose-intel-summary.md` lines 222-227); §06 plan-resident artifact records the graph-unavailable state as freeform prose with a date (e.g. "Graph was unavailable at YYYY-MM-DD when this section was authored") — the validator recognizes this as `RECON_GRAPH_UNAVAILABLE` at `Severity.LOW` / `Outcome.WARNING` (intentional documentation, NOT a VALIDATION_BYPASS). Drift in the ≤500-char bound or citation vocabulary among the three surfaces is a `DRIFT:scattered-knowledge` finding (see §06 Design decision 7).
 
-- [ ] **plan-schema.md — replace the "MANDATORY SUBSECTION STRUCTURE" comment (currently lines 315-326) with "MANDATORY SECTION STRUCTURE"** covering both load-bearing invariants:
+- [x] **plan-schema.md — replace the "MANDATORY SUBSECTION STRUCTURE" comment (currently lines 315-326) with "MANDATORY SECTION STRUCTURE"** covering both load-bearing invariants:
 
   ```markdown
   <!-- == MANDATORY SECTION STRUCTURE ==
@@ -175,7 +175,7 @@ Two surfaces describe section-level structural invariants today: `plan-schema.md
   -->
   ```
 
-- [ ] **plan-schema.md — `sections:` frontmatter example stays unchanged.** The recon block is UNNUMBERED and does NOT appear in the `sections:` list. Add a one-line comment near the `sections:` example:
+- [x] **plan-schema.md — `sections:` frontmatter example stays unchanged.** The recon block is UNNUMBERED and does NOT appear in the `sections:` list. Add a one-line comment near the `sections:` example:
 
   ```yaml
   # Note: Intelligence Reconnaissance is an UNNUMBERED structural block
@@ -186,24 +186,24 @@ Two surfaces describe section-level structural invariants today: `plan-schema.md
       ...
   ```
 
-- [ ] **create-plan/SKILL.md:808 — replace re-assertion with citation.** Current text: `"**Per-subsection close-out blocks** — EVERY subsection ({NN}.1, {NN}.2, ...) MUST end with a 'Subsection close-out' block ..."`. New text:
+- [x] **create-plan/SKILL.md:808 — replace re-assertion with citation.** Current text: `"**Per-subsection close-out blocks** — EVERY subsection ({NN}.1, {NN}.2, ...) MUST end with a 'Subsection close-out' block ..."`. New text:
 
   ```markdown
   - **Section-level structural invariants** — see `.claude/skills/create-plan/plan-schema.md` "MANDATORY SECTION STRUCTURE" HTML comment for the two authoritative invariants: (1) unnumbered `## Intelligence Reconnaissance` block placed between section framing and `## {NN}.1` (PLAN_SECTION only; roadmap and bug-tracker sections are exempt); (2) per-subsection close-out blocks containing `/improve-tooling` + `/sync-claude` calls. `plan-schema.md` is the SSOT per `impl-hygiene.md` §SSOT; SKILL.md does NOT re-state the invariants — any drift between the two surfaces is a `DRIFT:scattered-knowledge` finding.
   ```
 
-- [ ] **Verify via `grep` that no other `.claude/` file independently re-asserts subsection structure.** Command: `grep -rn "EVERY subsection\|{NN}.1, {NN}.2" .claude/`. Expected post-edit: only `plan-schema.md` contains the authoritative assertion; SKILL.md contains only the citation. If additional re-assertion sites exist, update each to cite plan-schema.md. Document findings in the subsection close-out.
+- [x] **Verify via `grep` that no other `.claude/` file independently re-asserts subsection structure.** Command: `grep -rn "EVERY subsection\|{NN}.1, {NN}.2" .claude/`. Expected post-edit: only `plan-schema.md` contains the authoritative assertion; SKILL.md contains only the citation. If additional re-assertion sites exist, update each to cite plan-schema.md. Document findings in the subsection close-out.
 
-- [ ] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
-  - [ ] Template changes land; `plan-schema.md` renders with the unnumbered `## Intelligence Reconnaissance` block in the canonical example AND the scope note (PLAN_SECTION only) in the MANDATORY SECTION STRUCTURE comment
-  - [ ] `create-plan/SKILL.md:808` updated to cite plan-schema.md rather than re-state invariants, including the PLAN_SECTION-only scope note
-  - [ ] Format-coupling contract text is present in both the template block and the MANDATORY SECTION STRUCTURE comment; the `[ori]` / `[repo#N]` / `[repo:path]` citation grammar and graceful-degradation behavior (block omitted for §07 hook; freeform prose for §06 plan-resident artifact) are named explicitly
-  - [ ] `grep -rn "EVERY subsection\|{NN}.1, {NN}.2" .claude/` shows only plan-schema.md as authoritative site
-  - [ ] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-06-plan-schema-recon.md` still returns 0 (this file's own recon block above is already non-stub; 06.1 changes do not falsely trigger the not-yet-landed 06.2 validation)
-  - [ ] Update `06.1` status to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on 06.1** — was editing two SSOT surfaces in lockstep painful enough to warrant a small `scripts/` helper that diff-greps for subsection-structure re-assertions? If yes, add it. Commit via `build(tooling): add X — surfaced by query-intel-adoption/section-06.1 retrospective`. If no gaps, document: `"Retrospective 06.1: no tooling gaps — plan-schema.md and SKILL.md edits were mechanical."`
-  - [ ] **Run `/sync-claude` on 06.1** — `plan-schema.md` is the SSOT for plan shape. Verify CLAUDE.md §Commands "Plan corpus" bullet (line ~167) still matches the invocation form (`python -m scripts.plan_corpus check`). Verify no `.claude/rules/*.md` file references a pre-package `scripts/plan_corpus.py` path or the old `{NN}.0` proposal.
-  - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` → clean.
+- [x] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
+  - [x] Template changes land; `plan-schema.md` renders with the unnumbered `## Intelligence Reconnaissance` block in the canonical example AND the scope note (PLAN_SECTION only) in the MANDATORY SECTION STRUCTURE comment
+  - [x] `create-plan/SKILL.md:808` updated to cite plan-schema.md rather than re-state invariants, including the PLAN_SECTION-only scope note
+  - [x] Format-coupling contract text is present in both the template block and the MANDATORY SECTION STRUCTURE comment; the `[ori]` / `[repo#N]` / `[repo:path]` citation grammar and graceful-degradation behavior (block omitted for §07 hook; freeform prose for §06 plan-resident artifact) are named explicitly
+  - [x] `grep -rn "EVERY subsection\|{NN}.1, {NN}.2" .claude/` shows only plan-schema.md as authoritative site
+  - [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-06-plan-schema-recon.md` still returns 0 (this file's own recon block above is already non-stub; 06.1 changes do not falsely trigger the not-yet-landed 06.2 validation)
+  - [x] Update `06.1` status to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on 06.1** — was editing two SSOT surfaces in lockstep painful enough to warrant a small `scripts/` helper that diff-greps for subsection-structure re-assertions? If yes, add it. Commit via `build(tooling): add X — surfaced by query-intel-adoption/section-06.1 retrospective`. If no gaps, document: `"Retrospective 06.1: no tooling gaps — plan-schema.md and SKILL.md edits were mechanical."`
+  - [x] **Run `/sync-claude` on 06.1** — `plan-schema.md` is the SSOT for plan shape. Verify CLAUDE.md §Commands "Plan corpus" bullet (line ~167) still matches the invocation form (`python -m scripts.plan_corpus check`). Verify no `.claude/rules/*.md` file references a pre-package `scripts/plan_corpus.py` path or the old `{NN}.0` proposal.
+  - [x] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` → clean.
 
 ---
 
