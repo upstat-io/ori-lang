@@ -23,7 +23,7 @@ success_criteria:
   - "compiler/ori_types/src/check/validators/mod.rs exists and declares validate_body_types() with the signature in §02.1."
   - "validate_body_types() accepts body expr_types AND the body's FunctionSig (param_types slice + return_type) — signature-validation path per CHK:CK-4 hand-off shape."
   - "lib.rs keeps `mod check;` private; a single narrow re-export `pub use check::validators::validate_body_types;` is added (no `pub mod check`)."
-  - "check/mod.rs declares `pub mod validators;`."
+  - "check/mod.rs declares `pub(crate) mod validators;`."
   - "TF-5 fast-path: validator calls pool.resolve_fully(idx) before every HAS_VAR check at every walk step (not only the top level)."
   - "HAS_ERROR cascade suppression (types.md §TK-3): skip types with HAS_ERROR at the top-level gate."
   - "Tag-dispatch child recursion explicitly handles every compound variant (Applied, Scheme, Struct, Enum, Function, Tuple, List, Set, Map, Result, Range, Iterator, DoubleEndedIterator, Channel) — NO `_ => {}` catch-all silently dropping compound tags. Note: Tag::Projection is NOT included because typeck.md §PC-2 bullet 3 guarantees no Tag::Projection survives in the typed IR by the time the validator runs (all projections are normalized). The existing Pool::visit_children helper correctly treats Projection as a leaf."
@@ -157,7 +157,7 @@ surfaced under dual-source Plan TPR (Codex + Gemini) and six more via
    is 408 lines (under the 500-line limit per
    `compiler.md §File Organization`). New validator logic lands in
    `compiler/ori_types/src/check/validators/mod.rs`, a sibling submodule —
-   `check/mod.rs` gains exactly one line (`pub mod validators;`). No
+   `check/mod.rs` gains exactly one line (`pub(crate) mod validators;`). No
    refactor required.
 
 Other high-value findings woven in:
@@ -638,11 +638,11 @@ Existing submodule declarations (private): `accessors`, `api`, `bodies`,
 
 - [ ] Add, in alphabetical order immediately after `mod signatures;`:
   ```rust
-  pub mod validators;
+  pub(crate) mod validators;
   ```
   The `pub` here is load-bearing: the re-export at `lib.rs` is
   `pub use check::validators::validate_body_types;`, which requires at
-  least `pub(crate)` visibility on `validators`. Using `pub mod validators;`
+  least `pub(crate)` visibility on `validators`. Using `pub(crate) mod validators;`
   keeps the submodule callable from outside `ori_types` when the single
   re-exported function is accessed via its canonical path for testing.
 
@@ -947,9 +947,10 @@ At section completion (mirrors 01.N / 03.N shape), before flipping
 - [ ] `plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md`
   frontmatter `depends_on: ["01", "02"]` — confirm no new external blocker
   was introduced.
-- [ ] Sections 03 and 05 updated to reference the final 6-parameter
-  `validate_body_types` API (pool, expr_types, sig, sig_span, span_of,
-  errors), the private `mod check;` design (no `pub mod check`), and the
+- [ ] Sections 03, 05, `00-overview.md`, and `index.md` updated to reference
+  the final 6-parameter `validate_body_types` API (pool, expr_types, sig,
+  sig_span, span_of, errors), the private `mod check;` design (no
+  `pub mod check`), and the
   twelve-cell validator matrix (T1–T12).
 
 ---
@@ -966,7 +967,7 @@ dependency is noted to prevent merge conflicts and partial-state commits
 | `check/validators/tests.rs` | Created | §05 (adds matrix cells) | §02 creates with T1-T12; §05 may add additional end-to-end cells |
 | `pool/mod.rs` | §02.0 (compute_flags fix) | None in this plan | No contention |
 | `pool/descriptor.rs` | §02.2 (visibility promotion) | None in this plan | No contention |
-| `check/mod.rs` | §02.3 (`pub mod validators;`) | §03 (calls from bodies/) | §02 adds module declaration; §03 adds call sites in sibling bodies/ module |
+| `check/mod.rs` | §02.3 (`pub(crate) mod validators;`) | §03 (calls from bodies/) | §02 adds module declaration; §03 adds call sites in sibling bodies/ module |
 | `lib.rs` | §02.3 (narrow re-export) | None in this plan | No contention |
 
 ---
