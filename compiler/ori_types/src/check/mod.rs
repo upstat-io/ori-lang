@@ -74,6 +74,7 @@ mod object_safety;
 mod registration;
 mod scope;
 mod signatures;
+pub(crate) mod validators;
 mod well_known;
 
 // Re-export for use in sibling modules (e.g., infer::expr::type_resolution).
