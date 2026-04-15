@@ -213,6 +213,27 @@ class TestClassifySafetySchemaViolation:
         )
         assert result.safety_class == SafetyClass.SAFE_FIX
 
+    def test_unknown_field_plan_key_rename_emits_pairing_tag(self):
+        """INTEGRATION PIN: classify_safety sets pairing_tag on the rename SafeFix.
+
+        pair_resolved_by_sibling depends on this tag to link the
+        MISSING_REQUIRED_FIELD(name) sibling. If the tag assignment
+        regresses, sibling dedup breaks silently.
+        """
+        from scripts.verify_roadmap.safety import PAIRING_TAG_PLAN_TO_NAME_RENAME
+        finding = _make_finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.UNKNOWN_FIELD,
+            description="Unknown field: plan",
+            source=Path("plans/test-plan/index.md"),
+        )
+        fm_data = {"plan": "test-plan", "full_name": "Test Plan", "status": "active"}
+        result = classify_safety(
+            finding, _make_context(),
+            frontmatter_data=fm_data,
+        )
+        assert result.pairing_tag == PAIRING_TAG_PLAN_TO_NAME_RENAME
+
     def test_unknown_field_plan_key_on_overview_exposure_review(self):
         """plan: on OverviewSchema -> ExposureReview (plan: is canonical there)."""
         finding = _make_finding(
