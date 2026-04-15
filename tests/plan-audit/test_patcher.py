@@ -335,7 +335,7 @@ class TestApplyPatchHappyPath:
         ops = [FmOperation.make(
             FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
         )]
-        result = apply_patch(path, ops, pre)
+        result = apply_patch(path, ops, pre, tmp_path)
         assert result.applied is True
         # File now contains the rename
         assert "name: foo" in path.read_text()
@@ -348,7 +348,7 @@ class TestApplyPatchHappyPath:
         ops = [FmOperation.make(
             FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
         )]
-        result = apply_patch(path, ops, pre)
+        result = apply_patch(path, ops, pre, tmp_path)
         assert result.before_hash == pre.content_hash
         assert result.after_hash != pre.content_hash
 
@@ -367,7 +367,7 @@ class TestApplyPatchConcurrentGuard:
         ops = [FmOperation.make(
             FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
         )]
-        result = apply_patch(path, ops, pre)
+        result = apply_patch(path, ops, pre, tmp_path)
         assert result.applied is False
         assert "concurrent" in result.reason.lower() or "modified" in result.reason.lower()
         # File untouched (still bar from concurrent session)
@@ -382,7 +382,7 @@ class TestApplyPatchMalformed:
         path.write_text("# Just a body\nno frontmatter\n", encoding="utf-8")
         pre = _preimage(path)
         ops = [FmOperation.make(FmOperationKind.RENAME_KEY, old_key="plan", new_key="name")]
-        result = apply_patch(path, ops, pre)
+        result = apply_patch(path, ops, pre, tmp_path)
         assert result.applied is False
 
 
@@ -395,7 +395,7 @@ class TestApplyPatchAtomicity:
         ops = [FmOperation.make(
             FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
         )]
-        apply_patch(path, ops, pre)
+        apply_patch(path, ops, pre, tmp_path)
         # No .tmp / temp files lying around (os.replace is atomic)
         siblings = list(path.parent.iterdir())
         # Only the original file should remain
@@ -411,6 +411,81 @@ class TestApplyPatchAtomicity:
         modified_text = "---\nname: from-concurrent-session\n---\n"
         path.write_text(modified_text, encoding="utf-8")
         ops = [FmOperation.make(FmOperationKind.RENAME_KEY, old_key="plan", new_key="name")]
-        apply_patch(path, ops, pre)
+        apply_patch(path, ops, pre, tmp_path)
         # The concurrent session's content is preserved
         assert path.read_text() == modified_text
+
+
+# ---------------------------------------------------------------------------
+# apply_patch — path-escape refusal (4th concurrent-session guard)
+# Regression test for TPR-03-001-{codex,gemini}-r4 agreement finding.
+# ---------------------------------------------------------------------------
+
+class TestApplyPatchPathEscape:
+
+    def test_refuses_path_outside_corpus_root(self, tmp_path):
+        """NEGATIVE PIN: path outside corpus_root -> PatchResult(applied=False).
+
+        A bogus or drifted Finding.source that points outside the reviewed
+        plans/ directory must never drive apply_patch to rewrite arbitrary
+        files. This is the 4th refuse-on-conflict trigger required by the
+        §03.4 concurrent-session contract.
+        """
+        # corpus_root is an isolated subdir; target sits outside it.
+        corpus_root = tmp_path / "plans"
+        corpus_root.mkdir()
+        outside = tmp_path / "outside.md"
+        outside.write_text("---\nplan: foo\n---\n", encoding="utf-8")
+        pre = _preimage(outside)
+
+        ops = [FmOperation.make(
+            FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
+        )]
+        result = apply_patch(outside, ops, pre, corpus_root)
+
+        assert result.applied is False
+        assert "escape" in result.reason.lower() or "not under" in result.reason.lower()
+        # File is untouched — original "plan: foo" still there
+        assert "plan: foo" in outside.read_text()
+        assert "name: foo" not in outside.read_text()
+
+    def test_accepts_path_inside_corpus_root(self, tmp_path):
+        """POSITIVE PIN: path inside corpus_root -> proceeds normally."""
+        corpus_root = tmp_path / "plans"
+        corpus_root.mkdir()
+        inside = corpus_root / "p1" / "index.md"
+        inside.parent.mkdir()
+        inside.write_text("---\nplan: foo\n---\n", encoding="utf-8")
+        pre = _preimage(inside)
+
+        ops = [FmOperation.make(
+            FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
+        )]
+        result = apply_patch(inside, ops, pre, corpus_root)
+
+        assert result.applied is True
+        assert "name: foo" in inside.read_text()
+
+    def test_refuses_parent_traversal(self, tmp_path):
+        """NEGATIVE PIN: `..` traversal out of corpus_root is refused."""
+        corpus_root = tmp_path / "plans"
+        corpus_root.mkdir()
+        # File placed legitimately in tmp_path/plans, but path uses .. to escape
+        outside = tmp_path / "outside.md"
+        outside.write_text("---\nplan: foo\n---\n", encoding="utf-8")
+        # Construct a path with .. that resolves to tmp_path/outside.md
+        traversal_path = corpus_root / ".." / "outside.md"
+        pre = PreimageRecord(
+            path=traversal_path,
+            content_hash=hashlib.sha256(outside.read_bytes()).hexdigest(),
+            scan_timestamp=0.0,
+        )
+
+        ops = [FmOperation.make(
+            FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
+        )]
+        result = apply_patch(traversal_path, ops, pre, corpus_root)
+
+        assert result.applied is False
+        assert "escape" in result.reason.lower() or "not under" in result.reason.lower()
+        assert "plan: foo" in outside.read_text()
