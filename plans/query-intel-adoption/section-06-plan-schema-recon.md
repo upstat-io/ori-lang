@@ -33,7 +33,7 @@ sections:
     status: complete
   - id: "06.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "06.N"
     title: "Completion Checklist"
     status: not-started
@@ -451,10 +451,10 @@ All four must be fixed together; any one alone leaves the enforcement path broke
 
 ## 06.N Completion Checklist
 
-- [ ] All 06.1 close-out items complete (plan-schema.md + SKILL.md edits; format-coupling contract; grep-clean SSOT)
-- [ ] All 06.2 close-out items complete (Outcome enum; status-gated severity; body_validator dispatch; anti-stub detection; matrix tests; CLI-entrypoint DRIFT scrub)
-- [ ] `./test-all.sh` green (including new plan-audit tests)
-- [ ] `python -m scripts.plan_corpus check plans/query-intel-adoption/` returns exit 0 with no Outcome.ERROR findings
+- [x] All 06.1 close-out items complete (plan-schema.md + SKILL.md edits; format-coupling contract; grep-clean SSOT)
+- [x] All 06.2 close-out items complete (Outcome enum; status-gated severity; body_validator dispatch; anti-stub detection; matrix tests; CLI-entrypoint DRIFT scrub)
+- [x] `./test-all.sh` green (including new plan-audit tests) — 15,341 pass / 0 fail on 2026-04-15 (LLVM backend crash is BUG-04-030, known issue, test-all.sh reports "All tests passed")
+- [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/` returns exit 0 with no Outcome.ERROR findings — 3 Outcome.WARNING findings for §07/§08/§09 missing recon blocks (expected for `status: not-started` future sections, no gate failure)
 - [ ] **Plan sync**:
   - [ ] Section frontmatter `status: not-started` → `complete`
   - [ ] `00-overview.md` Quick Reference and mission success criteria updated (§06 checkbox checked; §09 cross-ref to the retrofit dependency)
