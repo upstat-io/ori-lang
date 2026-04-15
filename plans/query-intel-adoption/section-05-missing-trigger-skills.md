@@ -232,13 +232,13 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 
 ### Inventory updates (same-commit as the skill/command edits)
 
-- [ ] **`.claude/rules/intelligence.md`** — Remove `[planned -- tracked by plans/query-intel-adoption §05]` markers from the 6 entries that are being migrated in §05.1 and §05.2:
-  - Line ~38: `verify-tpr` — remove `*[planned]*` tag
-  - Line ~39: `sync-claude` — remove `*[planned]*` tag
-  - Line ~40: `fix-next-bug` — remove `*[planned]*` tag
-  - Line ~42: `sync-spec` — remove `*[planned]*` tag
-  - Line ~43: `sync-grammar` — remove `*[planned]*` tag
-  - Line ~44: `verify-roadmap` — remove `*[planned]*` tag
+- [ ] **`.claude/rules/intelligence.md`** — Remove `[planned -- tracked by plans/query-intel-adoption §05]` markers AND update the workflow descriptions to match the refined §05 designs:
+  - `verify-tpr` — remove `*[planned]*` tag; update description to match §05.1: blast-radius via `callers` on HIGH-SEVERITY findings only (not all findings, not `callees`/`similar`)
+  - `sync-claude` — remove `*[planned]*` tag; update description to match §05.1: `file-symbols` on changed crates for doc-symbol drift detection (not "intelligence-surface drift audit")
+  - `fix-next-bug` — remove `*[planned]*` tag; update description to match §05.1: lightweight `callers`-only blast-radius preview for scope assessment (not `callees`/`similar`)
+  - `sync-spec` — remove `*[planned]*` tag; update to match §05.2: `callers` on affected symbols before spec edits
+  - `sync-grammar` — remove `*[planned]*` tag; update to match §05.2: `file-symbols` on `ori_parse/`/`ori_lexer/` for parser/lexer type inventory
+  - `verify-roadmap` — remove `*[planned]*` tag; update to match §05.2: `file-symbols`/`callers`/`callees` on section scope crates (Phase 1 review agents only)
 
 - [ ] **`.claude/skills/dual-tpr/compose-intel-summary.md`** — Update the "Planned future consumers" list (lines 18-28):
   - Move `verify-tpr`, `sync-claude`, `fix-next-bug` from "Planned future consumers" to the "Wider skill consumers" list (or "Current consumers" header)
@@ -288,6 +288,8 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 
 - [ ] **`plans/query-intel-adoption/index.md`** — Update the Section 05 keyword cluster:
   - Remove line 90 (`tp-help/SKILL.md, elevate token bullet to Step 2 workflow`) — this work was completed in §03
+  - Update line 88: change `intelligence-surface drift` to `file-symbols crate-symbol inventory` (matches refined §05.1 sync-claude design)
+  - Update line 89: change `blast-radius + similar on repro symbol` to `callers-only lightweight blast-radius preview` (matches refined §05.1 fix-next-bug design)
   - The keyword cluster should reflect 3 skills + 3 commands, not 4 skills
 
 - [ ] **`.claude/skills/dual-tpr/compose-intel-summary.md` `## Consumers` section** — Document the full consumer list (the SSOT should know who uses it). Enumerate all 24 consumers by source section (§03 original 18 + §05's 6 additions).
@@ -296,7 +298,7 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 
 - [ ] **Subsection close-out (05.3)**:
   - [ ] Consumer list exhaustive; SSOT's Consumers section populated with all 24+ consumers
-  - [ ] All 4 inventory files updated (intelligence.md, compose-intel-summary.md header + Step F + Consumers section, 00-overview.md)
+  - [ ] All 5 inventory files updated (intelligence.md workflow descriptions, compose-intel-summary.md header + Step F + Consumers section, 00-overview.md, index.md keyword cluster)
   - [ ] Update `05.3` status to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on 05.3** — the grep invariant is running twice now (§03.3 and §05.3). Should this be a lefthook pre-commit hook that fails the commit if any `.claude/` file contains the pre-query pattern without the SSOT include? Commit via `build(ci): ...` if matured.
   - [ ] **Run `/sync-claude` on 05.3** — the SSOT Consumers section is a living artifact; future sections (§06, §07) will add themselves. Confirm the update process is documented (the SSOT should explain "how to add yourself as a consumer").
@@ -318,6 +320,10 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
   Resolved: Fixed on 2026-04-14. Changed instruction to MOVE tp-help from §05 to §03 group, not just remove.
 - [x] `[TPR-05-002-gemini][medium]` `section-05:145` — Fix verify-roadmap prompt injection to avoid list semantic collision.
   Resolved: Fixed on 2026-04-14. Changed to standalone block after the static file-reading list.
+- [x] `[TPR-05-001-codex-r2][medium]` `section-05:235` — Expand intelligence.md update to rewrite workflow descriptions, not just remove tags.
+  Resolved: Fixed on 2026-04-14. Task now updates workflow bullets to match refined §05 query designs.
+- [x] `[TPR-05-002-codex-r2][medium]` `section-05:289` — Refresh index.md keyword cluster descriptions and add to close-out checklist.
+  Resolved: Fixed on 2026-04-14. Task broadened + index.md added to close-out file count.
 
 ---
 
