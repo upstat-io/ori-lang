@@ -20,7 +20,7 @@ Drive deep, ambient adoption of the Neo4j-backed intelligence graph (`/query-int
 - [x] `CLAUDE.md` teaches the graph in the Commands, Key Paths, Reference Repos, Ownership & Deferral, and Compiler Coding Guidelines sections — all verified insertion points from the 2026-04-14 TPR. (§02)
 - [x] Exactly ONE canonical intel-summary helper exists at `.claude/skills/dual-tpr/compose-intel-summary.md`; all 18 inlined copies (6 review-family + 12 wider-skill consumers discovered mid-execution) are replaced with `@`-includes. Zero LEAK:algorithmic-duplication for the intel-pre-query pattern. Invariant verified: `grep -l 'scripts/intel-query.sh status' .claude/ -r` returns exactly 3 files (SSOT + 2 legitimate teaching surfaces: `intelligence.md` rule, `query-intel.md` command). (§03)
 - [x] All 10 rule files that cite cross-repo prior art (`arc.md`, `aims-rules.md`, `typeck.md`, `types.md`, `tests.md`, `impl-hygiene.md`, `canonicalization.md`, `patterns.md`, `compiler.md`, plus `intelligence.md` index refresh) include a graph-first paragraph before their manual-browsing guidance. (§04)
-- [ ] The 4 gap skills (`verify-tpr`, `sync-claude`, `fix-next-bug`, `tp-help`) and 3 gap commands (`sync-spec`, `sync-grammar`, `verify-roadmap`) each include a concrete graph-query workflow step (not a token bullet) that `@`-includes §03's helper. (§05)
+- [x] The 3 gap skills (`verify-tpr`, `sync-claude`, `fix-next-bug`) and 3 gap commands (`sync-spec`, `sync-grammar`, `verify-roadmap`) each include a concrete graph-query workflow step (not a token bullet) that `@`-includes §03's helper. (§05) — `tp-help` was already migrated in §03.
 - [ ] `.claude/skills/create-plan/plan-schema.md` mandates a `{NN}.0 Intelligence Reconnaissance` subsection in every new plan section; `scripts/plan_corpus.py check` emits a transition-period WARNING when the subsection is missing. Retrofit applied per the user-chosen policy (Option A/B/C). (§06)
 - [ ] `.claude/hooks/pre-review-intel.sh` fires on `UserPromptSubmit` for review-family slash-commands, injects a bounded Intelligence Summary via `hookSpecificOutput.additionalContext`, and degrades silently when the graph is unavailable. Registered in `.claude/settings.json`. (§07)
 - [ ] `scripts/intel-query.sh` supports `--help`, defaults to `--human` on tty, has a `blast-radius` composite subcommand, and a `--format md` mode. `../lang_intelligence/neo4j/query_graph.py` emits ASCII call-trees for callers/callees, grouped output for file-symbols, and clickable `file:line` deep-links. (§08)
@@ -76,10 +76,10 @@ Consumers of the SSOT helper (§03 fans out):
         ├── .claude/commands/review-work.md                   [§03]
         ├── .claude/commands/independent-review.md            [§03]
         ├── .claude/commands/review-bugs.md                   [§03]
+        ├── .claude/skills/tp-help/SKILL.md                   [§03]
         ├── .claude/skills/verify-tpr/SKILL.md                [§05]
         ├── .claude/skills/sync-claude/SKILL.md               [§05]
         ├── .claude/skills/fix-next-bug/SKILL.md              [§05]
-        ├── .claude/skills/tp-help/SKILL.md                   [§05]
         ├── .claude/commands/sync-spec.md                     [§05]
         ├── .claude/commands/sync-grammar.md                  [§05]
         ├── .claude/commands/verify-roadmap.md                [§05]

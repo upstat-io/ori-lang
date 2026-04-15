@@ -81,13 +81,12 @@ graph-first paragraph template, Swift SILOptimizer, Lean4 IR, rustc, Koka, Gleam
 ---
 
 ### Section 05: Missing-trigger skills & commands
-**File:** `section-05-missing-trigger-skills.md` | **Status:** Not Started
+**File:** `section-05-missing-trigger-skills.md` | **Status:** In Progress
 
 ```
 .claude/skills/verify-tpr/SKILL.md, blast-radius on findings
-.claude/skills/sync-claude/SKILL.md, intelligence-surface drift
-.claude/skills/fix-next-bug/SKILL.md, blast-radius + similar on repro symbol
-.claude/skills/tp-help/SKILL.md, elevate token bullet to Step 2 workflow
+.claude/skills/sync-claude/SKILL.md, file-symbols crate-symbol inventory
+.claude/skills/fix-next-bug/SKILL.md, callers-only lightweight blast-radius preview
 .claude/commands/sync-spec.md, sync-grammar.md, verify-roadmap.md
 GAP:missing-trigger, concrete workflow step, @-include §03
 ```
