@@ -415,8 +415,8 @@ Spec: Clauses 15 (patterns), 16.
 
 1. Enter a rank scope (`CK-2`, push rank).
 2. Synthesize `e`'s type `Te`.
-3. Exit the rank scope.
-4. If `should_generalize(arena, e)` returns `true` (per `GN-3` Value Restriction — only direct non-capturing lambdas qualify), generalize `Te` to a scheme (`GN-1`). Otherwise, `Te` remains a monotype.
+3. If `should_generalize(arena, e)` returns `true` (per `GN-3` Value Restriction — only direct non-capturing lambdas qualify), generalize `Te` to a scheme (`GN-1`) while still at the elevated rank. Otherwise, `Te` remains a monotype.
+4. Exit the rank scope.
 5. Bind `x : scheme_or_monotype` in the environment.
 
 `let x: T = e` SHALL check `e` against `T`, then bind `x : T`. (`T` may itself be generic; bound vars in `T` are rigid.)
