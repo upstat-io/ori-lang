@@ -440,6 +440,17 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
   Resolved: Fixed on 2026-04-15. Added `PAIRING_TAG_PLAN_TO_NAME_RENAME` constant + `pairing_tag: str | None` field on `ClassifiedFinding`. Classifier sets the tag on the rename-case SafeFix. Pairing function matches `other.pairing_tag == PAIRING_TAG_PLAN_TO_NAME_RENAME` instead of rationale string. All 9 test_pairing.py tests updated to pass the tag.
   Basis: direct_file_inspection. Confidence: high.
 
+**Round 4 iteration 3 findings (2026-04-15 — re-review after pairing_tag fix):**
+
+- [x] `[TPR-03-001-codex-r4i3][medium]` `scripts/verify_roadmap/auto_fix.py:102` — Replace rationale-string dispatch for unknown-field fixes with structural state.
+  Evidence: `_dispatch_unknown_field()` still chose between REMOVE_KEY and RENAME_KEY by inspecting `cf.rationale` for prose fragments. Same fragile-coupling pattern just fixed in pairing.py.
+  Resolved: Fixed on 2026-04-15. Replaced rationale-based dispatch with `if cf.pairing_tag == PAIRING_TAG_PLAN_TO_NAME_RENAME:` structural check. Imported the constant; updated test fixture `_safe_fix()` to accept pairing_tag.
+  Basis: direct_file_inspection. Confidence: high.
+- [x] `[TPR-03-002-codex-r4i3][low]` `tests/plan-audit/test_pairing.py:77` — Add integration pin for classify_safety emitting the pairing tag.
+  Evidence: Pairing tests hand-construct the tag; safety tests stop at asserting SafeFix. No test exercises the real classifier→pairing handoff.
+  Resolved: Fixed on 2026-04-15. Added `test_unknown_field_plan_key_rename_emits_pairing_tag` in test_safety.py — calls `classify_safety()` directly and asserts `result.pairing_tag == PAIRING_TAG_PLAN_TO_NAME_RENAME`. 289 tests now pass.
+  Basis: direct_file_inspection. Confidence: high.
+
 ---
 
 ## 03.N Completion Checklist

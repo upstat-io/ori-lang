@@ -73,11 +73,16 @@ def _finding(
     )
 
 
-def _safe_fix(finding: Finding, rationale: str = "test") -> ClassifiedFinding:
+def _safe_fix(
+    finding: Finding,
+    rationale: str = "test",
+    pairing_tag: str | None = None,
+) -> ClassifiedFinding:
     return ClassifiedFinding(
         finding=finding,
         safety_class=SafetyClass.SAFE_FIX,
         rationale=rationale,
+        pairing_tag=pairing_tag,
     )
 
 
@@ -125,13 +130,14 @@ class TestFmOperation:
 class TestBuildFixPlanSchemaViolation:
 
     def test_unknown_field_plan_rename_emits_rename_op(self):
+        from scripts.verify_roadmap.safety import PAIRING_TAG_PLAN_TO_NAME_RENAME
         f = _finding(
             FindingCategory.SCHEMA_VIOLATION,
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
         )
-        cf = _safe_fix(f, "rename plan: to name:")
+        cf = _safe_fix(f, "rename plan: to name:", pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME)
         plan = build_fix_plan(cf)
         assert plan is not None
         assert len(plan.operations) == 1

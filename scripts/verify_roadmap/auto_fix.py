@@ -42,6 +42,7 @@ from .safety import (
     ClassifiedFinding,
     FmOperation,
     FmOperationKind,
+    PAIRING_TAG_PLAN_TO_NAME_RENAME,
     PatchResult,
     PreimageRecord,
     SafetyClass,
@@ -99,16 +100,13 @@ class AutoFixError(RuntimeError):
 def _dispatch_unknown_field(cf: ClassifiedFinding) -> tuple[FmOperation, ...]:
     """SCHEMA_VIOLATION/UNKNOWN_FIELD: handle plan: -> name: rename + remove."""
     desc = cf.finding.description.lower()
-    rationale = cf.rationale.lower()
 
     if "plan" in desc:
-        # Collision-same-values rationale -> remove redundant plan: key
-        if "redundant" in rationale or "identical" in rationale:
-            return (FmOperation.make(FmOperationKind.REMOVE_KEY, key="plan"),)
-        # Standard rename
-        return (FmOperation.make(
-            FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
-        ),)
+        if cf.pairing_tag == PAIRING_TAG_PLAN_TO_NAME_RENAME:
+            return (FmOperation.make(
+                FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
+            ),)
+        return (FmOperation.make(FmOperationKind.REMOVE_KEY, key="plan"),)
 
     return ()
 
