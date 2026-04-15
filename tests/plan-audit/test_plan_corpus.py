@@ -709,7 +709,7 @@ class TestLoadAndValidate:
         assert result.err.category == FindingCategory.PARSE_ERROR
 
     def test_valid_file_returns_ok(self):
-        result = load_and_validate(PLANS_DIR / "verify-roadmap-redesign" / "index.md")
+        result = load_and_validate(PLANS_DIR / "repr-opt" / "index.md")
         assert result.is_ok
         assert result.ok.file_class == FileClass.PLAN_INDEX
 
@@ -757,7 +757,7 @@ class TestCorpusDiscovery:
         assert "Verify Roadmap" in corpus.name_index
 
     def test_discover_corpus_include_filter_limits_results(self):
-        subset = [PLANS_DIR / "verify-roadmap-redesign" / "index.md"]
+        subset = [PLANS_DIR / "repr-opt" / "index.md"]
         corpus = discover_corpus(include=subset)
         assert len(corpus.indexes) == 1
 
@@ -775,9 +775,31 @@ class TestCorpusDiscovery:
                        if f.subtype == FindingSubtype.MISSING_INDEX_MD)
 
     def test_roadmap_treated_as_plan_candidate(self):
-        """plans/roadmap/ has index.md; treated as plan candidate, not container."""
+        """plans/roadmap/ has index.md; discovered via roadmap_sections (not as
+        a generic plan index). The prior assertion `any("roadmap" in str(p) for p
+        in corpus.indexes)` was a false positive — it passed incidentally because
+        plan `verify-roadmap-redesign` happened to contain "roadmap" in its slug.
+        When that plan was archived into plans/completed/ the phantom match
+        disappeared and the test rightly began failing. Corrected assertion:
+        plans/roadmap/ is recognized as the roadmap corpus (roadmap_sections
+        bucket) and plans/roadmap/index.md does not get a missing-index finding.
+        """
         corpus = discover_corpus()
-        assert any("roadmap" in str(p) for p in corpus.indexes)
+        roadmap_paths = [str(p) for p in corpus.roadmap_sections]
+        assert any(p.endswith("plans/roadmap/section-00-parser.md") or
+                   "/plans/roadmap/" in p for p in roadmap_paths), (
+            f"expected plans/roadmap/ sections in corpus.roadmap_sections; got "
+            f"{roadmap_paths[:5]}..."
+        )
+        # Negative pin: plans/roadmap/ must NOT be flagged as a broken
+        # plan-candidate container (no MISSING_INDEX_MD on plans/roadmap/).
+        roadmap_gaps = [f for f in corpus.gaps
+                        if "/plans/roadmap" in str(f.source) and
+                        f.subtype == FindingSubtype.MISSING_INDEX_MD]
+        assert not roadmap_gaps, (
+            f"plans/roadmap/ must not be flagged as missing index; got "
+            f"{roadmap_gaps}"
+        )
 
     def test_unclassified_dir_gets_gap_finding(self):
         """Dirs with .md but no index.md get UNCLASSIFIED_DIRECTORY."""
@@ -909,14 +931,25 @@ class TestFixBugCrossFieldPins:
 class TestCrossplanNameResolution:
 
     def test_intra_plan_dep_resolves_to_path(self):
-        result = resolve_dep("01", PLANS_DIR / "verify-roadmap-redesign", discover_corpus())
+        result = resolve_dep("01", PLANS_DIR / "repr-opt", discover_corpus())
         assert isinstance(result, Path)
 
     def test_cross_plan_dep_resolves_by_name_to_path(self):
         corpus = discover_corpus()
-        # "Verify Roadmap" is the name field in verify-roadmap-redesign/index.md
-        result = resolve_dep("Verify Roadmap#01", PLANS_DIR / "repr-opt", corpus)
-        assert isinstance(result, Path)
+        # "Empty-Container Typeck Phase-Contract Enforcement" name resolves via
+        # empty-container-typeck-phase-contract/index.md — stable active reroute.
+        plan = next(p for p in corpus.indexes
+                    if "empty-container-typeck-phase-contract" in str(p))
+        # Find whatever name the active plan's index.md declares.
+        import yaml
+        fm_end_idx = plan.read_text().find("\n---\n", 3) + 5
+        data = yaml.safe_load(plan.read_text()[4:fm_end_idx - 5])
+        name = data["name"]
+        # Just verify name-based lookup round-trips to the same plan.
+        result = resolve_dep(f"{name}#01", PLANS_DIR / "repr-opt", corpus)
+        assert isinstance(result, Path), (
+            f"name-based cross-plan dep {name}#01 must resolve to Path; got {result}"
+        )
 
     def test_cross_plan_unknown_name_returns_finding(self):
         corpus = discover_corpus()
