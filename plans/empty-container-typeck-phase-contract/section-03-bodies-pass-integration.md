@@ -118,9 +118,27 @@ Round 5 research verified:
   lambda-typed bindings are still generalized (they do not produce `Tag::Var`s that the
   validator would spuriously flag) while empty-list element vars remain as Unbound `Tag::Var`
   after inference.
-- **Section 02** — provides `ori_types::check::validators::validate_body_types()` with the
-  verified `(pool: &Pool, expr_types: &FxHashMap<ExprIndex, Idx>, span_of: &dyn Fn(ExprIndex) -> Span, errors: &mut Vec<TypeCheckError>)` signature. The `pub mod validators` declaration in
-  `check/mod.rs` and the `pub mod check` promotion in `lib.rs` are assumed to have landed.
+- **Section 02** — provides `ori_types::check::validators::validate_body_types()`
+  with the shipped **six-parameter** signature (per `§02.1` + `§02.R` TPR-02-R3-003):
+  ```rust
+  pub fn validate_body_types(
+      pool: &Pool,
+      expr_types: &FxHashMap<ExprIndex, Idx>,
+      sig: &FunctionSig,
+      sig_span: Span,
+      span_of: &dyn Fn(ExprIndex) -> Span,
+      errors: &mut Vec<TypeCheckError>,
+  )
+  ```
+  The added `sig: &FunctionSig` + `sig_span: Span` parameters extend validator
+  scope to the signature (`param_types` + `return_type`) per `typeck.md §CK-4`
+  hand-off contract — unannotated params/returns ship from the Signatures pass
+  as fresh `Tag::Var` and the validator catches any that survive body inference.
+  Module wiring (per `§02.3` + `§02.R` TPR-02-R3-003): `check/mod.rs` declares
+  `pub(crate) mod validators;` (private to the crate, not `pub mod`); `lib.rs`
+  carries a **narrow re-export** `pub use check::validators::validate_body_types;`
+  without promoting `mod check` to `pub mod check` (keeping the entire internal
+  check-module layout out of the crate's public API).
 
 **What this section uses from each dependency:**
 
@@ -210,7 +228,8 @@ The call pattern inserts between the 6-tuple extraction (line 148 closing `});`)
 ```rust
         });  // closes with_function_scope
 
-    // Validate PC-2 contract: no unbound Tag::Var in body expr_types.
+    // Validate PC-2 contract: no unbound Tag::Var in body expr_types
+    // OR in the body's FunctionSig (param_types + return_type).
     // Runs after inference (expr_types fully populated) and before the types
     // are forwarded to the module-checker's map, so errors flow through the
     // normal push_error accumulator alongside inference errors.
@@ -219,20 +238,19 @@ The call pattern inserts between the 6-tuple extraction (line 148 closing `});`)
     {
         let arena = checker.arena();
         let pool = checker.pool();
+        let sig_span = arena.get_expr(fn_decl.expr_id).span; // function decl span
         let mut validation_errors = Vec::new();
         crate::check::validators::validate_body_types(
             pool,
             &expr_types,
+            sig,             // &FunctionSig from signatures pass
+            sig_span,        // function declaration span for sig-origin diagnostics
             &|expr_index| {
-                // ExprIndex is usize; the expr_types map keys are ExprIndex values
-                // recorded by the inference engine. We cannot go directly from
-                // ExprIndex to ExprId without the map — use a dummy span for
-                // expressions whose span is unavailable (i.e. not in the arena
-                // via a direct index). In practice, expr_types keys correspond to
-                // ExprId.raw() values written by InferEngine::record_expr_type().
-                // Verify this assumption against infer/mod.rs at implementation time.
-                let _ = arena; // lifetime extension
-                ori_ir::Span::new(0, 1) // TODO(03.1): replace with real span lookup
+                // ExprIndex is a usize alias for ExprId.raw() — the InferEngine
+                // records (ExprIndex, Idx) pairs keyed by the ExprId's raw u32
+                // value (verified at compiler/ori_types/src/infer/mod.rs:56).
+                // Convert back: ExprId::from_raw(expr_index as u32).
+                arena.get_expr(ori_ir::ExprId::from_raw(expr_index as u32)).span
             },
             &mut validation_errors,
         );

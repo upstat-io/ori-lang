@@ -209,7 +209,7 @@ Baseline measurements (pre-implementation) from the codebase as of plan creation
 |   ↳ 02.1 Validator signature + narrow re-export | ~60 | Low | 02.0 |
 |   ↳ 02.2 Core algorithm (reusing Pool::visit_children) | ~80 | Medium | 02.1 |
 |   ↳ 02.3 lib.rs + check/mod.rs wiring | ~10 | Low | 02.1 |
-|   ↳ 02.4 Unit test matrix (11 cells) | ~120 | Low | 02.2 |
+|   ↳ 02.4 Unit test matrix (12 cells) | ~120 | Low | 02.2 |
 | 03 Bodies-Pass Integration | ~80 (4×15 integration + 20 tests) | Low | 01, 02 |
 |   ↳ 03.1–03.4 4 integration sites | ~60 | Low | 02 |
 |   ↳ 03.5 End-to-end tests | ~20 | Low | 03.1–03.4 |
