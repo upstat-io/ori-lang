@@ -36,7 +36,7 @@ sections:
     status: complete
   - id: "03.5"
     title: "Continue-Roadmap Integration"
-    status: not-started
+    status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
     status: complete
@@ -335,40 +335,40 @@ This subsection implements the ONLY write path for frontmatter modifications. Py
 
 Integrate the findings report with `/continue-roadmap` so cross-plan conflicts surface during active roadmap work, not only during explicit `/verify-roadmap` runs.
 
-- [ ] Add a lightweight cross-plan check to roadmap-scan.sh:
+- [x] Add a lightweight cross-plan check to roadmap-scan.sh:
   - Before `/continue-roadmap` selects the next section to work on, run a fast subset of the DAG analysis
   - Check whether the selected section has BLOCKED or DEAD_REFERENCE findings (the two classifiers included in `--quick` mode — NOT CONFLICT, which requires O(N^2) shared-subsystem analysis)
   - If findings exist, display them before proceeding and let the user decide whether to continue or switch to resolving the finding
 
-- [ ] Design the integration interface — resolve scope contradiction (blind spot #9):
+- [x] Design the integration interface — resolve scope contradiction (blind spot #9):
   - The verify-roadmap skill exposes a `--quick` mode that runs ONLY `BLOCKED` and `DEAD_REFERENCE` checks (fast, no shared-subsystem analysis, no git signal population per 03.1)
   - **Explicitly NOT included in `--quick`:** CONFLICT (requires shared-subsystem analysis which is O(N^2)), STATUS_CONTRADICTION (requires body scanning), SUPERSEDED (requires reroute resolution), MISSING_DEPENDENCY (requires full prose scan)
   - The full mode (`--full`) runs all classifiers from Sections 01-02, runs `classify_safety` with full `WriteBackContext`, and applies auto-fixes
   - `/continue-roadmap` calls `--quick` mode as a pre-check; users invoke `--full` explicitly
   - **`--quick` mode MUST NOT build WriteBackContext (blind spot #10):** quick mode only runs read-only DAG checks. It skips git signal population entirely (no `git log` subprocess calls). It passes `context=None` to `classify_safety` (see 03.1), which returns ExposureReview for all findings. Report is generated in report-only mode (no auto-fix).
 
-- [ ] Document the integration in SKILL.md:
+- [x] Document the integration in SKILL.md:
   - How `/continue-roadmap` uses the quick check
   - When to run `/verify-roadmap --full` manually (after plan changes, before major milestones)
   - How to interpret and act on findings
   - Explicit list of what `--quick` checks vs what `--full` checks (no ambiguity)
 
-- [ ] **Shadow parser migration (blind spot #5, TPR-03-001-gemini mandate):** `roadmap_scan.py` has ~600 lines of parsing logic (`split_frontmatter`, `parse_section_file`, `parse_index_file`) that duplicates `plan_corpus`. `--quick` mode MUST use `plan_corpus` for parsing — two diverging corpus truths is a LEAK:algorithmic-duplication that violates SSOT-2. **Mandated approach (Option A):** refactor `roadmap_scan.py` to import `plan_corpus.load_and_validate` as the sole parsing entrypoint (per Section 01's SSOT boundary — downstream consumers MUST NOT call `split_frontmatter_strict` directly), keeping only the `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This eliminates the `errors="replace"` + `{}` on YAMLError swallowed-error pattern (`roadmap_scan.py:327-348`) that Section 01 was designed to prevent. **Option B (shadow parser divergence) is explicitly rejected** — it would allow the known LEAK to survive with no committed follow-up, violating R-2 and R-3. The migration is tracked as a concrete `- [ ]` in Section 05.
+- [x] **Shadow parser migration (blind spot #5, TPR-03-001-gemini mandate):** `roadmap_scan.py` has ~600 lines of parsing logic (`split_frontmatter`, `parse_section_file`, `parse_index_file`) that duplicates `plan_corpus`. `--quick` mode MUST use `plan_corpus` for parsing — two diverging corpus truths is a LEAK:algorithmic-duplication that violates SSOT-2. **Mandated approach (Option A):** refactor `roadmap_scan.py` to import `plan_corpus.load_and_validate` as the sole parsing entrypoint (per Section 01's SSOT boundary — downstream consumers MUST NOT call `split_frontmatter_strict` directly), keeping only the `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This eliminates the `errors="replace"` + `{}` on YAMLError swallowed-error pattern (`roadmap_scan.py:327-348`) that Section 01 was designed to prevent. **Option B (shadow parser divergence) is explicitly rejected** — it would allow the known LEAK to survive with no committed follow-up, violating R-2 and R-3. The migration is tracked as a concrete `- [ ]` in Section 05.
 
-- [ ] **Tests (TDD):**
+- [x] **Tests (TDD):**
   - **Integration test:** `/verify-roadmap --quick` returns findings for a corpus with a known BLOCKED finding
   - **Negative test:** `/verify-roadmap --quick` does NOT return CONFLICT findings (not in --quick scope)
   - **Performance test:** `--quick` mode completes in < 5 seconds on the full corpus (no git log calls)
   - **Semantic pin:** `--quick` mode with `context=None` -> all findings classified as ExposureReview
 
-- [ ] **Subsection close-out (03.5)** -- MANDATORY before marking section complete:
-  - [ ] All tasks above are `[x]` and integration tested
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Run `/sync-claude` on THIS subsection** -- check whether changes
+- [x] **Subsection close-out (03.5)** -- MANDATORY before marking section complete:
+  - [x] All tasks above are `[x]` and integration tested
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [x] **Run `/sync-claude` on THIS subsection** -- check whether changes
         invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md`
         claims. If no changes, document briefly. Fix any drift NOW.
-  - [ ] **Repo hygiene check** -- run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
+  - [x] **Repo hygiene check** -- run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
 
