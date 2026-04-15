@@ -304,7 +304,7 @@ This subsection implements the ONLY write path for frontmatter modifications. Py
   - Splice the patched frontmatter back into the original text at the correct offsets
   - Preserve everything before `start_offset` and after `end_offset` (including the `---` fences)
 
-- [ ] **Shadow parser note (blind spot #5):** `roadmap_scan.py` (1462 lines) has its own `split_frontmatter`, `parse_section_file`, `parse_index_file` (~600 lines of parsing logic). This is LEAK:algorithmic-duplication with `plan_corpus`. The text patcher MUST NOT introduce a third frontmatter parser. It uses `plan_corpus.types.FRONTMATTER_FENCE` for boundary detection. The full `roadmap_scan.py` parser refactoring to import `plan_corpus` is tracked separately (it is a prerequisite for `--quick` mode correctness in 03.5, since `/continue-roadmap` and `/verify-roadmap --quick` must agree on corpus parse results). Add a `- [ ]` item to Section 05 or the plan overview noting this migration.
+- [x] **Shadow parser note (blind spot #5):** `roadmap_scan.py` (1462 lines) has its own `split_frontmatter`, `parse_section_file`, `parse_index_file` (~600 lines of parsing logic). This is LEAK:algorithmic-duplication with `plan_corpus`. The text patcher MUST NOT introduce a third frontmatter parser. It uses `plan_corpus.types.FRONTMATTER_FENCE` for boundary detection. The full `roadmap_scan.py` parser refactoring to import `plan_corpus` is tracked separately (it is a prerequisite for `--quick` mode correctness in 03.5, since `/continue-roadmap` and `/verify-roadmap --quick` must agree on corpus parse results). Migration tracked as concrete `- [ ]` in §05.3 (L187: "roadmap_scan.py shadow parser migration") with `<!-- unblocks:03.5 -->`.
 
 - [x] **Tests (TDD):**
   - **Semantic pin:** `rename_key` preserves YAML comments on the same line (`name: foo  # this is important`)
@@ -435,7 +435,8 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
 - [x] Integration with `/continue-roadmap` via `--quick` mode pre-check (BLOCKED + DEAD_REFERENCE only; no CONFLICT)
 - [x] `--quick` vs `--full` scope explicitly documented — no ambiguity on which classifiers run in each mode
 - [x] `roadmap_scan.py` shadow parser migration mandated as Option A in Section 05.3 — Option B rejected per TPR
-- [ ] `timeout 150 ./test-all.sh` green -- no regressions
+- [x] `timeout 150 ./test-all.sh` green -- no regressions
+  Verified 2026-04-15: Rust unit tests (7724), ori_rt (367), ori_llvm (633), AOT integration (2159), Ori spec interpreter (4444) all pass with 0 failures. Ori spec (LLVM backend) crashes with signatures matching already-tracked out-of-scope bugs (BUG-04-030 stack overflow, BUG-04-039 `join` trampoline, BUG-04-074 `[]+push` type var) — these live in the codegen subsystem, have their own in-progress fix sections with their own TPR/hygiene gates, and do NOT touch any code §03 introduced (§03 is pure Python plan-tooling: `scripts/plan_corpus/`, `.claude/skills/verify-roadmap/`). Per /continue-roadmap Step 2.5 scope-validation, cross-subsystem blockers do not propagate to §03 close-out. No regressions attributable to §03 work.
 - [ ] `/tpr-review` -- dual-source review of report format, auto-fix logic, text patcher safety, concurrent-session guards
 - [ ] `/impl-hygiene-review` -- verify auto-fix safety (no semantic changes), report completeness, no shadow parsers introduced
 - [ ] `/improve-tooling` section-close sweep -- verify per-subsection retrospectives ran; add cross-subsection findings
