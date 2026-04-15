@@ -33,7 +33,7 @@ sections:
     status: complete
   - id: "03.4"
     title: "Frontmatter Text Patcher"
-    status: not-started
+    status: complete
   - id: "03.5"
     title: "Continue-Roadmap Integration"
     status: not-started
@@ -279,19 +279,19 @@ This subsection implements the ONLY write path for frontmatter modifications. Py
 
 **Rationale (blind spot #1):** PyYAML `safe_load` parses YAML into Python dicts (losing comments, key order, quoting style, trailing whitespace). If we were to modify the dict and `yaml.dump` it back, every comment in the frontmatter — including YAML comments that are DAG signal for Section 02's `YAML_COMMENT` source kind — would be destroyed. Additionally, key ordering changes produce noisy git diffs. The text patcher operates on the raw text between the `---` fences, using line-level regex replacements that preserve everything the fix does not explicitly target.
 
-- [ ] Implement `extract_frontmatter_slice(text: str) -> tuple[str, int, int]`:
+- [x] Implement `extract_frontmatter_slice(text: str) -> tuple[str, int, int]`:
   - Returns `(frontmatter_text, start_offset, end_offset)` — the raw text between `---` fences (exclusive of fences)
   - Uses the same boundary detection as `plan_corpus.parser.split_frontmatter_strict` (exact fence regex from `types.py:FRONTMATTER_FENCE`) — note: the actual API name is `split_frontmatter_strict`, NOT `split_frontmatter`
   - Returns empty/zero on malformed files (no fences) -- caller handles
 
-- [ ] Implement per-fix-type text operations (all operate on the frontmatter slice string):
+- [x] Implement per-fix-type text operations (all operate on the frontmatter slice string):
   - `rename_key(fm_text: str, old_key: str, new_key: str) -> str` — regex `^{old_key}(\s*:.*)$` -> `{new_key}\1` (preserves value, spacing, inline comments)
   - `remove_key(fm_text: str, key: str) -> str` — remove the entire line matching `^{key}\s*:.*$` (handles multi-line values by tracking indent)
   - `replace_value(fm_text: str, key: str, new_value: str) -> str` — regex `^({key}\s*:\s*).*$` -> `\1{new_value}` (preserves key formatting)
   - `insert_key(fm_text: str, key: str, value: str, after_key: str | None) -> str` — insert `{key}: {value}` on a new line after `after_key` (or at end of frontmatter if `after_key` is None)
   - `remove_list_item(fm_text: str, list_key: str, item_value: str) -> str` — remove a single `- "value"` entry from a YAML list under `list_key`, handling both inline `[a, b]` and block `- a\n- b` list styles
 
-- [ ] Implement `apply_patch(path: Path, fm_operations: list[FmOperation], preimage: PreimageRecord) -> PatchResult`:
+- [x] Implement `apply_patch(path: Path, fm_operations: list[FmOperation], preimage: PreimageRecord) -> PatchResult`:
   - `FmOperation` = `(operation_type, **kwargs)` matching the per-fix-type operations above
   - **Concurrent-session guard (blind spot #6):**
     1. Re-read `path` and compute `sha256(content)` 
@@ -300,13 +300,13 @@ This subsection implements the ONLY write path for frontmatter modifications. Py
     4. If hashes match: apply all operations to the frontmatter slice, reassemble full text, write to temp file (`path.with_suffix('.tmp')`) via `os.replace` for atomicity
   - Returns `PatchResult(applied: bool, reason: str, before_hash: str, after_hash: str)`
 
-- [ ] Implement `reassemble_file(original_text: str, patched_fm: str, start_offset: int, end_offset: int) -> str`:
+- [x] Implement `reassemble_file(original_text: str, patched_fm: str, start_offset: int, end_offset: int) -> str`:
   - Splice the patched frontmatter back into the original text at the correct offsets
   - Preserve everything before `start_offset` and after `end_offset` (including the `---` fences)
 
 - [ ] **Shadow parser note (blind spot #5):** `roadmap_scan.py` (1462 lines) has its own `split_frontmatter`, `parse_section_file`, `parse_index_file` (~600 lines of parsing logic). This is LEAK:algorithmic-duplication with `plan_corpus`. The text patcher MUST NOT introduce a third frontmatter parser. It uses `plan_corpus.types.FRONTMATTER_FENCE` for boundary detection. The full `roadmap_scan.py` parser refactoring to import `plan_corpus` is tracked separately (it is a prerequisite for `--quick` mode correctness in 03.5, since `/continue-roadmap` and `/verify-roadmap --quick` must agree on corpus parse results). Add a `- [ ]` item to Section 05 or the plan overview noting this migration.
 
-- [ ] **Tests (TDD):**
+- [x] **Tests (TDD):**
   - **Semantic pin:** `rename_key` preserves YAML comments on the same line (`name: foo  # this is important`)
   - **Semantic pin:** `rename_key` preserves YAML comments on adjacent lines
   - **Semantic pin:** `remove_key` handles multi-line YAML values (indented continuation lines)
@@ -319,11 +319,11 @@ This subsection implements the ONLY write path for frontmatter modifications. Py
   - **`remove_list_item` test:** both inline `[a, b]` and block `- a\n- b` list styles handled
   - **Collision guard integration test:** `plan:` exists and `name:` exists with different values -> ExposureReview classification -> patcher never invoked
 
-- [ ] **Subsection close-out (03.4)** -- MANDATORY before starting 03.5:
-  - [ ] All tasks above are `[x]` and text patcher tested with comment-preserving round-trips
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Run `/sync-claude` on THIS subsection** -- check whether changes
+- [x] **Subsection close-out (03.4)** -- MANDATORY before starting 03.5:
+  - [x] All tasks above are `[x]` and text patcher tested with comment-preserving round-trips
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [x] **Run `/sync-claude` on THIS subsection** -- check whether changes
         invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md`
         claims. If no changes, document briefly. Fix any drift NOW.
 
