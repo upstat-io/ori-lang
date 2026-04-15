@@ -1420,6 +1420,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-bugs", action="store_true", help="skip bug-tracker crawl")
     parser.add_argument("--trace", action="store_true", help="log decisions to stderr")
     parser.add_argument("--quiet", action="store_true", help="suppress health signals")
+    parser.add_argument(
+        "--verify-quick",
+        action="store_true",
+        help=(
+            "Run verify-roadmap --quick pre-check (BLOCKED + DEAD_REFERENCE) "
+            "and prepend findings before the workspace scan. "
+            "Degrades silently if verify_roadmap is unavailable."
+        ),
+    )
     args = parser.parse_args(argv)
 
     TRACE_ENABLED = args.trace
@@ -1453,6 +1462,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         sys.stdout.write(render_json(ws))
         return 0
+
+    # Optional --verify-quick pre-check (§03.5 integration).
+    # Degrades silently if scripts.verify_roadmap is unavailable so the
+    # scanner remains usable even when the verify-roadmap module is broken.
+    if args.verify_quick:
+        try:
+            # Ensure repo root is on sys.path so `scripts.verify_roadmap`
+            # resolves regardless of cwd at scanner invocation.
+            if str(repo_root) not in sys.path:
+                sys.path.insert(0, str(repo_root))
+            from scripts.verify_roadmap.quick import run_quick
+            from scripts.verify_roadmap.report import render_console
+            report = run_quick(plans_root=repo_root / "plans")
+            if report.findings:
+                sys.stdout.write("=== VERIFY-ROADMAP --quick ===\n")
+                sys.stdout.write(render_console(report, color=False))
+                sys.stdout.write("\n\n")
+        except Exception as e:  # noqa: BLE001 — pre-check must never crash scanner
+            trace(f"--verify-quick failed: {e}")
 
     sys.stdout.write(render_rich(ws, repo_root, args.quiet, args.no_bugs))
     return 0
