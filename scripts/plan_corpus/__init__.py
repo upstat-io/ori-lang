@@ -35,6 +35,7 @@ from .types import (
     SECTION_FILE_RE,
     OVERVIEW_RE,
     Severity,
+    Outcome,
     FindingCategory,
     FindingSubtype,
     SourceKind,
@@ -121,6 +122,7 @@ __all__ = [
     "OVERVIEW_RE",
     # Taxonomy
     "Severity",
+    "Outcome",
     "FindingCategory",
     "FindingSubtype",
     "SourceKind",

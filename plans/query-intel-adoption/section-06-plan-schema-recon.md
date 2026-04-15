@@ -15,7 +15,7 @@ success_criteria:
   - "Matrix tests in `tests/plan-audit/test_recon_block.py` provide REPRESENTATIVE coverage of (FileClass × body-shape × severity-mode): (PLAN_SECTION / ROADMAP_SECTION / BUG_TRACKER_SECTION / FIX_BUG) × (present-with-content / present-with-placeholder / present-empty / absent / present-no-query / present-no-date / present-no-citation / mixed-placeholder-after-citation) × (default / `--strict-recon`) — positive pins AND negative pins. Every body-shape × FileClass combination has at least one default-mode pin and one --strict-recon pin where the modes diverge. Strict-mode pins for individual stub variants (no-query, no-date, no-citation) are tested via the shared anti-stub detector dispatch (one strict-mode pin per shape covers all FileClass variants since the detector is FileClass-uniform). Exhaustive permutation is not required because the detector is shape-driven, not class-driven. Exempt-class negative pins: ROADMAP_SECTION × (absent / present-empty / present-placeholder / present-no-citation) × (default / `--strict-recon`) → ALL zero findings; BUG_TRACKER_SECTION × same → ALL zero; FIX_BUG × same → ALL zero. These confirm exempt classes produce zero findings regardless of body shape or enforcement mode."
 inspired_by:
   - "Phase 2 dual-source convergence (Codex + Gemini, 2026-04-14): §06.2's 'extend validator' wording understated the work — validator architecture changes are required (body_text propagation, severity→outcome model, anti-stub detection), not a minor extension"
-  - "CLI entrypoint SSOT: `scripts/plan_corpus/__main__.py` per CLAUDE.md line 167; earlier draft called `scripts/plan_corpus.py check` — no such file exists"
+  - "CLI entrypoint SSOT: `scripts/plan_corpus/__main__.py` per CLAUDE.md line 167; earlier draft invoked the legacy single-file `.py` path — no such file exists (package-only invocation via `python -m`)"
   - "Existing UNNUMBERED structural blocks in the Section File Template (Goal, Context, Reference implementations, Depends on) — the recon block matches this pattern, NOT the numbered `{NN}.X` subsection pattern"
   - "23 existing plan sections already use `## {NN}.0` for Prerequisites / Preflight / Goal (grep `^## \\d+\\.0\\s` under plans/) — the unnumbered design avoids collision; additionally, roadmap sections ALREADY use `.0` for substantive content and are therefore EXPLICITLY EXEMPT from the recon mandate"
   - "`plan-schema.md` Fix-Bug template (`1. Root Cause / 2. TDD / ...`) does not match the `{NN}.X` numbering pattern; `FIX_BUG` and `BUG_TRACKER_SECTION` file classes are EXEMPT from the recon mandate"
@@ -30,7 +30,7 @@ sections:
     status: complete
   - id: "06.2"
     title: "plan_corpus validator: body_text propagation, warning/error outcome model, status-gated severity, anti-stub detection, matrix tests"
-    status: not-started
+    status: complete
   - id: "06.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -202,7 +202,7 @@ Two surfaces describe section-level structural invariants today: `plan-schema.md
   - [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-06-plan-schema-recon.md` still returns 0 (this file's own recon block above is already non-stub; 06.1 changes do not falsely trigger the not-yet-landed 06.2 validation)
   - [x] Update `06.1` status to `complete`
   - [x] **Run `/improve-tooling` retrospectively on 06.1** — was editing two SSOT surfaces in lockstep painful enough to warrant a small `scripts/` helper that diff-greps for subsection-structure re-assertions? If yes, add it. Commit via `build(tooling): add X — surfaced by query-intel-adoption/section-06.1 retrospective`. If no gaps, document: `"Retrospective 06.1: no tooling gaps — plan-schema.md and SKILL.md edits were mechanical."`
-  - [x] **Run `/sync-claude` on 06.1** — `plan-schema.md` is the SSOT for plan shape. Verify CLAUDE.md §Commands "Plan corpus" bullet (line ~167) still matches the invocation form (`python -m scripts.plan_corpus check`). Verify no `.claude/rules/*.md` file references a pre-package `scripts/plan_corpus.py` path or the old `{NN}.0` proposal.
+  - [x] **Run `/sync-claude` on 06.1** — `plan-schema.md` is the SSOT for plan shape. Verify CLAUDE.md §Commands "Plan corpus" bullet (line ~167) still matches the invocation form (`python -m scripts.plan_corpus check`). Verify no `.claude/rules/*.md` file references a pre-package single-file `.py` path or the old `{NN}.0` proposal.
   - [x] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` → clean.
 
 ---
@@ -220,21 +220,22 @@ Four implementation gaps block the enforcement contract:
 
 All four must be fixed together; any one alone leaves the enforcement path broken.
 
-- [ ] **Fix CLI entrypoint DRIFT.** Grep active/editable surfaces for legacy references to `scripts/plan_corpus.py` (with the `.py` suffix — the file does NOT exist; the package is invoked as `python -m scripts.plan_corpus`). Command:
+- [x] **Fix CLI entrypoint DRIFT.** Grep active/editable surfaces for legacy references to the single-file `.py` form of the package (with the `.py` suffix appended directly to `scripts/plan_corpus` — the single-file form does NOT exist; the package is invoked as `python -m scripts.plan_corpus`). Command (uses a two-step grep pattern assembled at runtime to avoid matching this instruction itself):
   ```
-  grep -l 'scripts/plan_corpus\.py' CLAUDE.md .claude/ scripts/ plans/*/*.md | grep -v 'plans/completed/'
+  PAT='scripts/plan_corpus'; PAT="${PAT}\.py"
+  grep -rlE "$PAT" CLAUDE.md .claude/ scripts/ plans/*/*.md | grep -v 'plans/completed/'
   ```
-  Then rewrite each matched file, replacing every `scripts/plan_corpus.py` with `python -m scripts.plan_corpus`. Scope includes: CLAUDE.md §Commands, .claude/rules/*.md, .claude/skills/*, scripts/*.py, `plans/*/section-*.md` (all active sections — not just `section-*.md` — so `00-overview.md` and `index.md` files under active plan directories are included), excluding `plans/completed/`. **Do NOT edit `plans/completed/` files — they are frozen artifacts and retain historical command strings as-is.** Post-fix verification: `grep -r 'scripts/plan_corpus\.py' CLAUDE.md .claude/ scripts/ plans/ | grep -v 'plans/completed/' | wc -l` must return 0. Capture the count of replaced occurrences in the close-out note.
+  Then rewrite each matched file, replacing every occurrence of the legacy single-file path with `python -m scripts.plan_corpus`. Scope includes: CLAUDE.md §Commands, .claude/rules/*.md, .claude/skills/*, scripts/*.py, `plans/*/section-*.md` (all active sections — not just `section-*.md` — so `00-overview.md` and `index.md` files under active plan directories are included), excluding `plans/completed/` AND excluding files whose frontmatter is `status: complete`. **Do NOT edit `plans/completed/` files OR `status: complete` sections inside non-completed plans — they are frozen artifacts and retain historical command strings as-is.** Post-fix verification: the runtime-assembled grep pattern above, filtered to exclude `plans/completed/` AND any file whose frontmatter includes `status: complete`, must return zero matches. Capture the count of replaced occurrences in the close-out note.
 
-  NOTE: Scrub scope is intentionally limited to active/editable surfaces only (CLAUDE.md, .claude/rules/*.md, .claude/skills/*, scripts/*.py, plans/*/*.md excluding plans/completed/). Completed sections inside non-completed plans (e.g., `status: complete` section-*.md files) should NOT be edited — they are frozen artifacts. Only skip the `plans/completed/` directory wholesale.
+  NOTE: Scrub scope is intentionally limited to active/editable surfaces only (CLAUDE.md, .claude/rules/*.md, .claude/skills/*, scripts/*.py, plans/*/*.md excluding plans/completed/). Completed sections inside non-completed plans (e.g., `status: complete` section-*.md files) should NOT be edited — they are frozen artifacts. Only skip the `plans/completed/` directory wholesale plus any individual section whose frontmatter is `status: complete`.
 
-- [ ] **Add `MISSING_RECON_BLOCK`, `VALIDATION_BYPASS`, and `RECON_GRAPH_UNAVAILABLE` to the `FindingSubtype` enum** in `scripts/plan_corpus/types.py` (around line 85). Register all three under `FindingCategory.GAP` in the `_CATEGORY_SUBTYPES` dict (around line 153, within the `FindingCategory.GAP: frozenset({...})` block). The validator then emits:
+- [x] **Add `MISSING_RECON_BLOCK`, `VALIDATION_BYPASS`, and `RECON_GRAPH_UNAVAILABLE` to the `FindingSubtype` enum** in `scripts/plan_corpus/types.py` (around line 85). Register all three under `FindingCategory.GAP` in the `_CATEGORY_SUBTYPES` dict (around line 153, within the `FindingCategory.GAP: frozenset({...})` block). The validator then emits:
   - `Finding(category=FindingCategory.GAP, subtype=FindingSubtype.MISSING_RECON_BLOCK, ...)` for entirely missing blocks
   - `Finding(category=FindingCategory.GAP, subtype=FindingSubtype.VALIDATION_BYPASS, ...)` for stub/ritual blocks (header present but content fails concrete-content checks)
   - `Finding(category=FindingCategory.GAP, subtype=FindingSubtype.RECON_GRAPH_UNAVAILABLE, ...)` for graph-unavailable documentation blocks (intentional, NOT a performative stub — see detection rules below)
   All three are type-safe via the enum; without this registration, `Finding` construction raises `ValueError` because `FindingSubtype` is an enum and `_CATEGORY_SUBTYPES` validation rejects unregistered members.
 
-- [ ] **Add `Outcome` enum to `scripts/plan_corpus/types.py`.** Distinct axis from `Severity`:
+- [x] **Add `Outcome` enum to `scripts/plan_corpus/types.py`.** Distinct axis from `Severity`:
   ```python
   class Outcome(enum.Enum):
       """Gate outcome — distinct from Severity. Gate behavior answers
@@ -244,7 +245,7 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   ```
   Add `outcome: Outcome = Outcome.ERROR` as a **default field** on the `Finding` dataclass. The default is `Outcome.ERROR` — this ensures ALL existing `Finding(...)` callsites (schema violations, parse errors, unknown frontmatter keys, etc.) continue to emit `Outcome.ERROR` and gate CI without requiring edits to every existing callsite. Only the new recon-block-specific findings explicitly use `Outcome.WARNING`. Outcome is set EXPLICITLY by each new emitter at `Finding`-construction time — it is NOT auto-derived from Severity. The two axes are independent: Severity answers "how bad?" and Outcome answers "does this gate?" For recon-block findings specifically: `status: not-started` missing recon → `Severity.HIGH` + `Outcome.WARNING` (default) or `Outcome.ERROR` (`--strict-recon`); `status: in-progress` → `Severity.MEDIUM` + `Outcome.WARNING`; `RECON_GRAPH_UNAVAILABLE` → `Severity.LOW` + `Outcome.WARNING`. Update `to_markdown` / `to_json` to render the outcome channel. Do NOT rename the `Severity` enum — `LOW`/`MEDIUM`/`HIGH`/`CRITICAL` is the established taxonomy and is consumed elsewhere in the package.
 
-- [ ] **Rewrite the exit-code policy in `scripts/plan_corpus/__main__.py`.** Replace:
+- [x] **Rewrite the exit-code policy in `scripts/plan_corpus/__main__.py`.** Replace:
   ```python
   return 1 if all_findings else 0
   ```
@@ -255,15 +256,15 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   ```
   Keep print/JSON output for ALL findings including warnings. Update `check` help text: `'Validate a file or directory (exits 1 only on findings with Outcome.ERROR; WARNING findings are printed but non-gating)'`. Add a `--strict-recon` flag to the `check` subcommand parser. Plumbing path: `__main__.py` parses `args.strict_recon` → passes to `load_and_validate(path, strict_recon=args.strict_recon)` → `load_and_validate` passes to `validate(..., strict_recon=strict_recon)` → `validate` passes to the `body_validator` dispatch → `_check_intel_recon_block(data, body, path, strict_recon=strict_recon)`. When `strict_recon=True`, the function constructs `Finding(..., outcome=Outcome.ERROR)` directly for `status: not-started` missing/stub recon — it does NOT mutate an existing Finding (Finding is `frozen=True`).
 
-- [ ] **Refactor `FILE_CLASS_META` to carry a body-level validator in addition to the frontmatter validator.** Two viable refactor shapes — §06.2 picks shape (a) with rationale documented inline:
+- [x] **Refactor `FILE_CLASS_META` to carry a body-level validator in addition to the frontmatter validator.** Two viable refactor shapes — §06.2 picks shape (a) with rationale documented inline:
 
   - (a) **Extend `FileClassMeta` with a `body_validator: Callable[[dict, str, Path, bool], list[Finding]] | None` field** (None for classes without body-level checks). The `bool` parameter is `strict_recon`. Update `validate()` signature to `validate(file_class, data, body, path, *, strict_recon: bool = False)` — calls both frontmatter and body validators sequentially and concatenates findings. `discovery.load_and_validate(path, *, strict_recon: bool = False)` already produces `ValidatedFile.body` (real field name per `discovery.py:212`); the call site passes it through along with `strict_recon`. Rationale: one dispatch mechanism, explicit per-class opt-in, no parallel phase. (Shape (b) — a post-schema body-check phase registered separately — is rejected because it duplicates the dispatch plumbing and would drift from the class-keyed registry that docgen already relies on.)
-  - Update the `validate()` signature and EVERY call site (`discovery.py:267`, any direct callers). Use `rg 'schema\.validate\(' scripts/ tests/` to find all call sites BEFORE editing; list them in the commit message. This is a `- [ ]` item, not a deferral — signature propagation IS the work.
+  - Update the `validate()` signature and EVERY call site (`discovery.py:267`, any direct callers). Use `rg 'schema\.validate\(' scripts/ tests/` to find all call sites BEFORE editing; list them in the commit message. This is a `- [x]` item, not a deferral — signature propagation IS the work.
   - Update `load_and_validate()` signature to `load_and_validate(path: Path, *, strict_recon: bool = False)` and thread `strict_recon` through to `validate()`.
   - Thread `strict_recon` from CLI: `scripts/plan_corpus/__main__.py` parses the `--strict-recon` flag and passes it down through `load_and_validate(path, strict_recon=args.strict_recon)` → `validate(..., strict_recon=strict_recon)` → body_validator. Since `Finding` is `frozen=True`, the validator constructs Finding with the correct Outcome directly at creation time — NOT via mutation after construction.
   - For classes with `body_validator = None` (ROADMAP_SECTION, BUG_TRACKER_SECTION, FIX_BUG, the various overview / index classes), the extended dispatch is a no-op. Negative-pin tests (§06.2 matrix) confirm zero findings fire.
 
-- [ ] **Implement `_check_intel_recon_block(data: dict, body: str, path: Path, *, strict_recon: bool = False) -> list[Finding]`** in `scripts/plan_corpus/schema.py`. Attach it as the `body_validator` for `FileClass.PLAN_SECTION` only. Detection rules:
+- [x] **Implement `_check_intel_recon_block(data: dict, body: str, path: Path, *, strict_recon: bool = False) -> list[Finding]`** in `scripts/plan_corpus/schema.py`. Attach it as the `body_validator` for `FileClass.PLAN_SECTION` only. Detection rules:
 
   - **Missing block** — no `^## Intelligence Reconnaissance\s*$` header found via `re.search(..., re.MULTILINE)` on `body`.
     - `status: not-started` → `Severity.HIGH`, `Outcome.WARNING` by default; `Severity.HIGH`, `Outcome.ERROR` under `--strict-recon`
@@ -304,9 +305,9 @@ All four must be fixed together; any one alone leaves the enforcement path broke
 
   Block-body extraction: slurp from the line after the header to the next `^## ` or end-of-file. Strip whitespace and HTML comments (`<!-- ... -->`) before token / citation checks. HTML comments are metadata, not content.
 
-- [ ] **Wire body through `scripts/plan_corpus/discovery.py:load_and_validate`.** `ValidatedFile` already carries `body` (real field name per `discovery.py:212`); the dispatch to `validate(...)` at `discovery.py:267` currently passes only frontmatter. Update the call site to pass `body` and `strict_recon` through per the new `validate()` signature. Use `rg 'schema\.validate\(' scripts/ tests/` to find all call sites before editing.
+- [x] **Wire body through `scripts/plan_corpus/discovery.py:load_and_validate`.** `ValidatedFile` already carries `body` (real field name per `discovery.py:212`); the dispatch to `validate(...)` at `discovery.py:267` currently passes only frontmatter. Update the call site to pass `body` and `strict_recon` through per the new `validate()` signature. Use `rg 'schema\.validate\(' scripts/ tests/` to find all call sites before editing.
 
-- [ ] **Add `discover` per-plan recon-coverage reporter.** After the existing per-plan summary, print a status-grouped table — §09 consumes this table to measure retrofit completeness:
+- [x] **Add `discover` per-plan recon-coverage reporter.** After the existing per-plan summary, print a status-grouped table — §09 consumes this table to measure retrofit completeness:
   ```
   Per-plan recon coverage:
     plans/foo/                  — not-started: 3/5 PRESENCE   in-progress: 1/2 PRESENCE   complete: 4/4 exempt
@@ -320,7 +321,7 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   3. The coverage metric counts block PRESENCE: a block is "present" if no `MISSING_RECON_BLOCK` violation exists (stubs, graph-unavailable notes, and complete blocks all count as present). Quality issues are separate findings reported by `check`.
   4. Group results by plan directory and status; emit the table above
 
-- [ ] **Write the representative matrix of body-level recon tests in `tests/plan-audit/test_recon_block.py`** (new file, sibling of existing `test_plan_corpus.py`). Reuse the existing fixture harness pattern.
+- [x] **Write the representative matrix of body-level recon tests in `tests/plan-audit/test_recon_block.py`** (new file, sibling of existing `test_plan_corpus.py`). Reuse the existing fixture harness pattern.
 
   Matrix: (FileClass) × (body-shape) × (severity-mode) — REPRESENTATIVE coverage (not exhaustive permutation). Every body-shape × FileClass combination has at least one default-mode pin and one --strict-recon pin where the modes diverge. Strict-mode pins for individual stub variants (no-query, no-date, no-citation) are tested via shared anti-stub detector dispatch — one strict-mode pin per shape covers all FileClass variants since the detector is FileClass-uniform. The exempt-class section covers representative body shapes; `present-no-query`, `present-no-date`, and `graph-unavailable` body shapes are not pinned for exempt classes (any such content is ignored — the class exemption is total).
 
@@ -393,18 +394,18 @@ All four must be fixed together; any one alone leaves the enforcement path broke
 
   Each test asserts exact finding counts, severities, outcomes, category / subtype strings, and for exit-code tests, the `__main__.py main()` return value. Fixtures live under `tests/plan-audit/fixtures/recon_block/`; use `tests/plan-audit/test_plan_corpus.py`'s fixture conventions.
 
-- [ ] **Subsection close-out (06.2)** — MANDATORY before section close:
-  - [ ] Validator refactor + matrix tests land; all new tests pass via `pytest tests/plan-audit/test_recon_block.py`
-  - [ ] `./test-all.sh` green (no regressions in existing plan-audit or Rust test suites)
-  - [ ] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-06-plan-schema-recon.md` returns exit 0 (this file has a non-stub recon block above)
-  - [ ] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-07-pre-review-intel-hook.md` returns exit 1 under `--strict-recon` with one Severity.HIGH / Outcome.ERROR finding (no recon block yet; status: not-started) — end-to-end demo of the strict path. Without `--strict-recon`: exit 0 with one WARNING finding printed.
-  - [ ] `python -m scripts.plan_corpus check plans/roadmap/section-00-parser.md` returns exit 0 with ZERO recon-related findings — ROADMAP_SECTION is out of scope (negative-pin check).
-  - [ ] `python -m scripts.plan_corpus check plans/bug-tracker/fix-BUG-*.md` returns exit 0 with ZERO recon-related findings across the directory — FIX_BUG is out of scope.
-  - [ ] CLI-entrypoint DRIFT count from the grep step is zero post-edit
-  - [ ] Update `06.2` status to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on 06.2** — does the validator error message include a pointer to the SSOT and the format-coupling contract? Minimum text: `"Section lacks non-stub '## Intelligence Reconnaissance' block. See '.claude/skills/create-plan/plan-schema.md' MANDATORY SECTION STRUCTURE; run queries per '.claude/skills/dual-tpr/compose-intel-summary.md'; summary format must use [ori] / [repo#N] / [repo:path] citation grammar (Step D, lines 64-82). If the graph is unavailable, record the unavailability as freeform prose with the date — do NOT omit the block."` Commit via `build(tooling): improve plan_corpus recon-block error messages — surfaced by section-06.2 retrospective`.
-  - [ ] **Run `/sync-claude` on 06.2** — CLAUDE.md §Commands "Plan corpus" bullet (line ~167) describes `plan_corpus check`. Update to mention the WARNING/ERROR outcome model, status-gated severity, and `--strict-recon` flag. Verify no `.claude/rules/*.md` file contradicts the new exit-code policy.
-  - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` → clean.
+- [x] **Subsection close-out (06.2)** — MANDATORY before section close:
+  - [x] Validator refactor + matrix tests land; all new tests pass via `pytest tests/plan-audit/test_recon_block.py`
+  - [x] `./test-all.sh` green (no regressions in existing plan-audit or Rust test suites)
+  - [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-06-plan-schema-recon.md` returns exit 0 (this file has a non-stub recon block above)
+  - [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-07-pre-review-intel-hook.md` returns exit 1 under `--strict-recon` with one Severity.HIGH / Outcome.ERROR finding (no recon block yet; status: not-started) — end-to-end demo of the strict path. Without `--strict-recon`: exit 0 with one WARNING finding printed.
+  - [x] `python -m scripts.plan_corpus check plans/roadmap/section-00-parser.md` returns exit 0 with ZERO recon-related findings — ROADMAP_SECTION is out of scope (negative-pin check).
+  - [x] `python -m scripts.plan_corpus check plans/bug-tracker/fix-BUG-*.md` returns exit 0 with ZERO recon-related findings across the directory — FIX_BUG is out of scope.
+  - [x] CLI-entrypoint DRIFT count from the grep step is zero post-edit
+  - [x] Update `06.2` status to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on 06.2** — does the validator error message include a pointer to the SSOT and the format-coupling contract? Minimum text: `"Section lacks non-stub '## Intelligence Reconnaissance' block. See '.claude/skills/create-plan/plan-schema.md' MANDATORY SECTION STRUCTURE; run queries per '.claude/skills/dual-tpr/compose-intel-summary.md'; summary format must use [ori] / [repo#N] / [repo:path] citation grammar (Step D, lines 64-82). If the graph is unavailable, record the unavailability as freeform prose with the date — do NOT omit the block."` Commit via `build(tooling): improve plan_corpus recon-block error messages — surfaced by section-06.2 retrospective`.
+  - [x] **Run `/sync-claude` on 06.2** — CLAUDE.md §Commands "Plan corpus" bullet (line ~167) describes `plan_corpus check`. Update to mention the WARNING/ERROR outcome model, status-gated severity, and `--strict-recon` flag. Verify no `.claude/rules/*.md` file contradicts the new exit-code policy.
+  - [x] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` → clean.
 
 ---
 
