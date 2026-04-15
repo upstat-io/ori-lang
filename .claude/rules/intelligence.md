@@ -54,11 +54,11 @@ live consumers that query the graph today.
 - **Pattern review** (/design-pattern-review): `similar` for instant cross-repo equivalents, `callers`/`callees` for Ori dispatch mapping
 - **Third-party help** (/tp-help): `callers`/`callees`/`similar` to enrich context package for reviewers
 - **Roadmap** (/continue-roadmap): `file-symbols`/`callers`/`callees`/`similar` for section-relevant code surface
-- **Roadmap verification** (/verify-roadmap) *[planned — tracked by plans/query-intel-adoption §05]*: `file-symbols`/`callers`/`similar` — review agents validate architectural claims against the graph before the rule-file read cycle
+- **Roadmap verification** (/verify-roadmap): Phase 1 review agents only — `file-symbols` on section-scope crates and `callers`/`callees` on high-signal symbols; supplies ambient blast-radius context before verification starts (Phase 2 update agents do not query)
 - **Execution tracing** (/code-journey, /rosetta-test): `callers`/`callees` to map exercised paths, `similar` for cross-repo equivalents
 - **Doc sync** (/sync-claude): `file-symbols` on changed crates to detect doc-symbol drift — symbols present in the graph but missing from rules files (new additions), or symbols in rules files but absent from the graph (removed/renamed) (Step 1.5)
-- **Spec sync** (/sync-spec) *[planned — tracked by plans/query-intel-adoption §05]*: `callers` of affected symbols before spec edits
-- **Grammar sync** (/sync-grammar) *[planned — tracked by plans/query-intel-adoption §05]*: `file-symbols` on `compiler/ori_parse/` and `compiler/ori_lexer/` to inventory parser/lexer types that consume the grammar
+- **Spec sync** (/sync-spec): `callers` on every symbol referenced in the spec change as a blast-radius check before identifying spec files — prevents silent behavior drift when a spec edit ships without updating an implementation call site (Update Process item 1)
+- **Grammar sync** (/sync-grammar): `file-symbols "compiler/ori_parse/"` and `file-symbols "compiler/ori_lexer/"` to inventory parser/lexer types before reading grammar.ebnf; flags productions whose implementation symbol is not covered (parse-site gap) (Update Process item 1)
 - **Tooling** (/improve-tooling): `symbols` to check if similar tools already exist before creating new ones
 
 ## How to Query

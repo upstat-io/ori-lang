@@ -73,26 +73,36 @@ Without this, all Edit/Write calls to grammar files will be **blocked by the hoo
 
 ## Update Process
 
-1. **Read the current grammar.ebnf** to understand existing structure
+1. **Inventory parser/lexer types via the intelligence graph** — grammar
+   changes affect parser and lexer types. Before reading grammar.ebnf:
 
-2. **Read each spec file** and extract syntax definitions:
+   @.claude/skills/dual-tpr/compose-intel-summary.md
+
+   Query `file-symbols "compiler/ori_parse/"` and `file-symbols
+   "compiler/ori_lexer/"` to inventory parser/lexer types that consume the
+   grammar. Flag any grammar production whose implementation symbol is not
+   covered — that is a parse-site gap.
+
+2. **Read the current grammar.ebnf** to understand existing structure
+
+3. **Read each spec file** and extract syntax definitions:
    - Look for code blocks showing syntax
    - Look for prose describing valid syntax forms
    - Note any syntax changes from recent spec updates
 
-3. **Compare and identify discrepancies**:
+4. **Compare and identify discrepancies**:
    - Missing productions (spec has syntax not in grammar)
    - Outdated productions (grammar doesn't match spec)
    - Missing alternatives in existing productions
    - Incorrect cross-references in comments
 
-4. **Update grammar.ebnf**:
+5. **Update grammar.ebnf**:
    - Add new productions where needed
    - Update existing productions to match spec
    - Update section comments with correct file references
    - Maintain alphabetical order within sections where applicable
 
-5. **Verify consistency**:
+6. **Verify consistency**:
    - All productions referenced are defined
    - No orphan productions (defined but never referenced)
    - Cross-references to spec files are accurate

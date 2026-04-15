@@ -105,11 +105,8 @@ Do not start verifying items until you have read ALL of these files.
 1. /home/eric/projects/ori_lang/CLAUDE.md (ALL of it — contains testing requirements,
    coding standards, matrix coverage rules, semantic pin requirements)
 
-2. ALL 20 rules files in /home/eric/projects/ori_lang/.claude/rules/ — read every file,
-   every line:
-   - arc.md, aot.md, cargo.md, compiler.md, diagnostic.md, eval.md, impl-hygiene.md,
-     ir.md, llvm.md, ori-lang.md, ori-syntax.md, parse.md, patterns.md, registry.md,
-     roadmap.md, runtime.md, spec.md, tests.md, typeck.md, types.md
+2. ALL rules files in /home/eric/projects/ori_lang/.claude/rules/ — read every file,
+   every line.
 
 3. The spec files relevant to the section being verified (from docs/ori_lang/v2026/spec/)
 
@@ -117,11 +114,25 @@ These files contain CRITICAL context: matrix testing requirements, semantic pin 
 fix completeness criteria, type system rules, eval/codegen invariants, and test standards.
 An agent that skips reading these files WILL produce incorrect verification results.
 
+**Intelligence Reconnaissance (MANDATORY when graph available):**
+
+Before verifying items, run the intelligence graph protocol for the
+section's scope:
+
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
+Target the roadmap section's declared scope (crates / subsystems named in
+the section's title or description). Run `file-symbols` on those crates
+and `callers`/`callees` on high-signal symbols. This gives the review
+agent ambient blast-radius context before it starts verifying items, which
+shortens ramp-up and reveals cross-crate dependencies the section file
+may not list.
+
 After reading, report what you loaded at the top of your results file:
-  Context loaded: CLAUDE.md (read), rules/*.md (20 files read), spec/clause-N.md (read)
+  Context loaded: CLAUDE.md (read), rules/*.md (N files read), spec/clause-N.md (read)
 ```
 
-This is non-negotiable. An agent that skips reading these files will miss critical context about matrix testing requirements, semantic pin expectations, and fix completeness criteria. The supervisor MUST verify that agent results begin with the "Context loaded" line showing all files were read. If the line is missing or shows fewer than 20 rules files, the agent's results are unreliable — re-run the section.
+This is non-negotiable. An agent that skips reading these files will miss critical context about matrix testing requirements, semantic pin expectations, and fix completeness criteria. The supervisor MUST verify that agent results begin with the "Context loaded" line showing all files were read. If the line is missing or reports noticeably fewer rules files than the current count in `.claude/rules/`, the agent's results are unreliable — re-run the section.
 
 #### Step 3: Supervisor Monitoring
 

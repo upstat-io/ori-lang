@@ -147,21 +147,33 @@ Without this, all Edit/Write calls to spec files will be **blocked by the hook**
 
 ## Update Process
 
-1. **Identify affected spec files** based on what changed
+1. **Query the intelligence graph for affected symbols** — before identifying
+   spec files, run a blast-radius check on every symbol the spec-edit might
+   affect:
 
-2. **Read the relevant spec files** to understand current content
+   @.claude/skills/dual-tpr/compose-intel-summary.md
 
-3. **Update spec content** following the formal style:
+   Query `callers` on symbols referenced in the spec change. If the edit
+   changes operator-rules.md section X, run
+   `scripts/intel-query.sh --human callers "<relevant symbol>" --repo ori`
+   to see every site that interprets the rule. This prevents silent behavior
+   drift when a spec change ships without updating an implementation call site.
+
+2. **Identify affected spec files** based on what changed
+
+3. **Read the relevant spec files** to understand current content
+
+4. **Update spec content** following the formal style:
    - Add new sections for new language features
    - Update existing sections for modified behavior
    - Ensure constraints are listed in "Constraints" subsections
    - Mark informative content with `> **Note:**`
 
-4. **Update operator-rules.md** if operator behavior changed (type rules, eval rules, precedence)
+5. **Update operator-rules.md** if operator behavior changed (type rules, eval rules, precedence)
 
-5. **Note grammar.ebnf** — if syntax changed, note that `/sync-grammar` needs to run (grammar.ebnf is owned by `/sync-grammar`, not this command)
+6. **Note grammar.ebnf** — if syntax changed, note that `/sync-grammar` needs to run (grammar.ebnf is owned by `/sync-grammar`, not this command)
 
-6. **Verify cross-references** within spec files are accurate
+7. **Verify cross-references** within spec files are accurate
 
 ## Specification vs Design Docs
 
