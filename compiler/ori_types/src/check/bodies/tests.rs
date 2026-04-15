@@ -1,6 +1,6 @@
 use super::*;
 use crate::{check::ModuleChecker, TypeEnv};
-use ori_ir::{ExprArena, StringInterner};
+use ori_ir::{ExprArena, Module, StringInterner};
 
 #[test]
 fn check_empty_module_bodies() {
