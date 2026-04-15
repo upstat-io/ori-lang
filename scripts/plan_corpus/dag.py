@@ -883,6 +883,7 @@ def build_dag(corpus) -> Dag:
                         recommended_fix="Ensure the target file exists and is classified",
                         evidence=(dep_id,),
                         source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+                        target_value=dep_id,
                     ))
                     continue
                 ref = Reference(
@@ -1540,6 +1541,7 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
                     recommended_fix="Update or remove the annotation — the plan is archived",
                     evidence=(ref.raw_text,),
                     source_kind=ref.source_kind,
+                    target_value=ref.raw_text,
                 ))
                 continue
             # fall through to standard dead-ref emission
@@ -1563,6 +1565,7 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
                     recommended_fix="Update or remove the annotation — the plan is archived",
                     evidence=(ref.raw_text,),
                     source_kind=ref.source_kind,
+                    target_value=ref.raw_text,
                 ))
                 continue
         # Severity ladder: EXPLICIT_DEPENDS_ON is already handled in
@@ -1587,6 +1590,7 @@ def classify_dead_reference(dag: Dag, corpus) -> list:
             recommended_fix=fix,
             evidence=(ref.raw_text,),
             source_kind=ref.source_kind,
+            target_value=ref.raw_text,
         ))
     return findings
 

@@ -36,7 +36,7 @@ sections:
     status: complete
   - id: "06.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 06: Plan schema — mandatory Intelligence Reconnaissance block + validator

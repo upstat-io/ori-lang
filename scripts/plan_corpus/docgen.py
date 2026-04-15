@@ -59,11 +59,12 @@ def resolve_dep(
                 source=current_plan_dir / "index.md",
                 description=f"cross-plan dep references unknown plan name: {plan_name!r}",
                 recommended_fix=f"Known plan names: {sorted(corpus.name_index.keys())}",
+                target_value=dep_id,
             )
-        return _find_section_file(target_dir, section_id)
+        return _find_section_file(target_dir, section_id, target_value=dep_id)
 
     if INTRA_PLAN_DEP_RE.match(dep_id):
-        return _find_section_file(current_plan_dir, dep_id)
+        return _find_section_file(current_plan_dir, dep_id, target_value=dep_id)
 
     return Finding(
         category=FindingCategory.SCHEMA_VIOLATION,
@@ -72,11 +73,23 @@ def resolve_dep(
         source=current_plan_dir / "index.md",
         description=f"malformed dep ID: {dep_id!r}",
         recommended_fix="Use \"NN\" or \"plan-name#NN\"",
+        target_value=dep_id,
     )
 
 
-def _find_section_file(plan_dir: Path, section_id: str) -> Path | Finding:
-    """Find a section file by ID within a plan directory."""
+def _find_section_file(
+    plan_dir: Path,
+    section_id: str,
+    *,
+    target_value: str | None = None,
+) -> Path | Finding:
+    """Find a section file by ID within a plan directory.
+
+    When the section file is missing, returns a DEAD_REFERENCE Finding whose
+    `target_value` is the caller-supplied dep_id (the exact value to remove
+    from a depends_on list). Callers that are not resolving a depends_on dep
+    may pass `target_value=None` (the default).
+    """
     candidates = list(plan_dir.glob(f"section-{section_id}*.md"))
     if not candidates:
         padded = section_id.zfill(2)
@@ -90,6 +103,7 @@ def _find_section_file(plan_dir: Path, section_id: str) -> Path | Finding:
         source=plan_dir,
         description=f"no section file matching section-{section_id}*.md in {plan_dir}",
         recommended_fix="Check the section ID or create the missing file",
+        target_value=target_value,
     )
 
 

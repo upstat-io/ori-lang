@@ -194,6 +194,12 @@ def _dispatch_status_contradiction(
 def _dispatch_dead_reference(cf: ClassifiedFinding) -> tuple[FmOperation, ...]:
     """DEAD_REFERENCE SafeFix: remove from depends_on list.
 
+    Reads the dead list-item value structurally via `Finding.target_value`,
+    populated at DEAD_REFERENCE construction time in `plan_corpus.dag` and
+    `plan_corpus.docgen`. Prior rounds parsed `description` via rsplit(":",
+    1) — fragile against description changes and broken for several
+    description formats that embed repr quoting or trailing prose.
+
     Audit trail goes to fixes-applied.json, NOT inline HTML comments
     (would be re-scanned by HTML_COMMENT_CONVENTION parser — blind spot #8).
     """
@@ -204,16 +210,21 @@ def _dispatch_dead_reference(cf: ClassifiedFinding) -> tuple[FmOperation, ...]:
         # unexpected but defensive — return empty
         return ()
 
-    # Extract the dead reference value from the description.
-    # Description format: "Dead depends_on entry: <value>" (best-effort).
-    item_value = ""
-    if ":" in f.description:
-        item_value = f.description.rsplit(":", 1)[1].strip()
+    # target_value MUST be populated for EXPLICIT_DEPENDS_ON dead refs —
+    # every construction site in plan_corpus.dag and plan_corpus.docgen
+    # sets it. A None value here indicates a classifier regression.
+    if f.target_value is None:
+        raise AutoFixError(
+            "Defense-in-depth: EXPLICIT_DEPENDS_ON DEAD_REFERENCE finding "
+            "missing target_value. All depends_on dead-ref construction "
+            "sites in plan_corpus must populate target_value — see §03.R "
+            "TPR-03-002-gemini-r4i4 resolution."
+        )
 
     return (FmOperation.make(
         FmOperationKind.REMOVE_LIST_ITEM,
         list_key="depends_on",
-        item_value=item_value,
+        item_value=f.target_value,
     ),)
 
 
