@@ -61,6 +61,57 @@ These principles govern the entire plan creation process. When in doubt, consult
 
 ---
 
+## Model Policy
+
+Model selection is phase-dependent and already annotated inline at each Agent launch site. This section is the consolidated index for the **heavy-path workflow** (Phases 1–5). The **light path** (described in Phase 0) is a single Opus-session path — no subagent launches, no research passes, no section writing — so its model policy is trivially "whatever session model the user picked"; it is not indexed below.
+
+### Heuristic
+
+**Opus for judgment-writing; Sonnet for mechanical-writing and orchestration.**
+
+- **Judgment-writing** (Opus-only) = the output depends on a decision made in the same step: architecture synthesis, mission expansion, fork-gate evaluation, cross-plan invalidation reasoning, user-facing checkpoints, triage of reviewer findings.
+- **Mechanical-writing** (Sonnet-safe) = the output is determined by a decision already made elsewhere: expanding the Opus-authored architecture into a section template, updating an index from a known section list, flipping a frontmatter field.
+- **Orchestration / research reading** (Sonnet-safe) = structured code inventory, tracing analogous features, reference-repo reading, directory creation, shell launches, cohesion scanning.
+
+"Any plan-file mutation = Opus" is the wrong rule — it burns Opus on template expansion and index bookkeeping. The correct rule is "any *design decision* = Opus"; mechanical mutations of an already-decided architecture are safe under it.
+
+Row names below are LITERAL copies of the step headers later in this file — not paraphrases — so operators can check the classification against the workflow mechanically.
+
+### Heavy-path phase table
+
+| Phase | Step | Model | Why |
+|---|---|---|---|
+| 0 | Phase 0: Fork Decision — Heavy Plan vs. Light Plan | **Opus** (session) | Judgment: scope gate has architectural stakes |
+| 1 | Step 0: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS) | Sonnet | Orchestration: read + ground |
+| 1 | Step 1: Gather Initial Scope | Opus (session) | Judgment: understanding user intent |
+| 1 | Step 1B: Mission Expansion | **Opus** (session) | Judgment-writing: architectural synthesis of the mission |
+| 1 | Step 1C: Blocker Identification | Opus (session) | Judgment: cross-plan reasoning |
+| 1 | Step 1D: Dual-Source Consensus Loop — Codex + Gemini (MANDATORY — ITERATE UNTIL AGREEMENT) | codex + gemini (external); triage = **Opus** | Same rule as `/tpr-review` Step 5 — triage is judgment |
+| 1 | Step 1E: Mission Proposal to User | Opus (session) | Judgment: user-facing design decision |
+| 1 | Step 2: Read the Template & Hygiene Rules | Sonnet | Orchestration: read + ground |
+| 2 | Step 2.5: Intelligence reconnaissance (CONDITIONAL) | Sonnet | Orchestration: graph queries + file reads. NOTE: numbered 2.5 because it runs inside Phase 2 before Pass 1; the section happens to be inserted between Step 3 and Agent 2 in the file for placement-in-workflow reasons, but it executes before the Pass 1 agents launch. |
+| 2 | Step 3: Pass 1 — Breadth Scan (parallel Sonnet agents) | **Sonnet** (`model: "sonnet"`) | Orchestration / research reading — already annotated |
+| 2 | Step 4: Pass 2 — Deep Read (sequential, focused) | **Sonnet** (`model: "sonnet"`) | Orchestration / research reading — already annotated |
+| 2 | Step 5: Pass 3 — Pattern Study (single focused Sonnet agent) | **Sonnet** (`model: "sonnet"`) | Orchestration / research reading — already annotated |
+| 2 | Step 6: Pass 4 — Prior Art Study (single focused Sonnet agent) | **Sonnet** (`model: "sonnet"`) | Orchestration / research reading — already annotated |
+| 2 | Step 6B: Third-Party Architectural Consultation | → `/tp-help` Model Policy | Sonnet orchestration + external reviewers |
+| 3 | Step 7: Synthesize Research into Architecture | **Opus** (session) | **Judgment-writing**: architecture design |
+| 3 | Step 8: Write `00-overview.md` FIRST | **Opus** (session) | **Judgment-writing**: load-bearing design document |
+| 3 | Step 8B: Architecture Sanity Check via /tp-help | → `/tp-help` Model Policy | |
+| 3 | Step 9: User Review of Architecture (MANDATORY — DO NOT SKIP) | Opus (session) | Judgment: user-facing checkpoint |
+| 4 | Step 10: Create Directory Structure | Sonnet | Orchestration: shell / file creation |
+| 4 | Step 11: Write Sections Sequentially via Sonnet Subagents | **Sonnet** (`model: "sonnet"`) | Mechanical-writing: expand Opus-authored architecture into section templates — already annotated |
+| 4 | Step 12: Update Overview and Index | Sonnet | Mechanical-writing: index reflects the known section list decided in Phase 3 |
+| 5 | Step 13: Cohesion Check (NEW — before /review-plan) | **Sonnet** (`model: "sonnet"`) | Orchestration / research reading — already annotated |
+| 5 | Step 14: Self-Check Before Review | Opus (session) | Judgment: is the plan ready? |
+| 5 | Step 15: Report Progress | Sonnet | Mechanical-writing: summary from known state |
+| 5 | Step 16: Run /review-plan (MANDATORY — USE THE ACTUAL SKILL) | → `/review-plan` Model Policy | |
+| 5 | Step 17: Post-Review Summary | Opus (session) | Judgment: surface unresolved concerns to the user |
+| 5 | Step 18: Reroute Lifecycle Setup — MANDATORY | **Opus** (session) | Judgment-writing: plan-graph reordering |
+| 5 | Step 19: Cross-Plan Review Invalidation (MANDATORY) | **Opus** (session) | Judgment-writing: cross-plan reasoning |
+
+**Rule of thumb:** Opus decides the architecture; Sonnet subagents expand each section from the architecture Opus handed them. Step 11 writes section files, Step 12 updates the overview, and Step 15 writes the progress report — but all three mutate text whose shape was already fixed by the Opus phases (architecture + `00-overview.md` + section list). That's mechanical-writing, not judgment-writing, and running it on Opus would be Opus waste.
+
 ## Phase 0: Fork Decision — Heavy Plan vs. Light Plan (RUN FIRST, BEFORE ANYTHING ELSE)
 
 **Before reading CLAUDE.md or doing any Phase 1 work, decide which path this plan takes.** The heavy `/create-plan` workflow (Phases 1–5 below) is calibrated for compiler work where correctness invariants — phase purity, ARC soundness, AIMS lattice coherence, spec conformance — are load-bearing. For non-compiler work that has already reached design consensus, that rigor is overkill and actively slows useful work.

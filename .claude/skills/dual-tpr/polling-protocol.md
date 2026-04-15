@@ -8,7 +8,7 @@ This file replaces the pre-2026-04-08 pattern where each skill inlined its own c
 
 After launching a background dual-source transport (codex + gemini in parallel), the operator needs real-time visibility into reviewer state for the entire wait — which can span anywhere from ~20 seconds (trivial smoke-test prompts) up to ~45 minutes (deep code-review prompts where gemini reads many files). Two constraints are load-bearing and non-negotiable:
 
-1. **Visible heartbeats** — the operator MUST see regular output during the wait, not a silent period followed by a completion notification. The prior pattern used `sleep 300 && status-check.sh` with `run_in_background: true`, which produced **zero visible output for the entire 5-minute sleep**. Even worse, foreground Bash calls with `sleep 300` get auto-backgrounded at the 2-minute default timeout, with the same no-visibility result. The fix is SHORT FOREGROUND polls whose stdout lands in the conversation within the Bash foreground timeout window.
+1. **Visible heartbeats** — the operator MUST see regular output during the wait, not a silent period followed by a completion notification. The prior pattern used `sleep 300 && status-check.sh` with `run_in_background: true`, which produced **zero visible output for the entire 5-minute sleep**. Even worse, foreground Bash calls with `sleep 300` get auto-backgrounded at the 2-minute default timeout, with the same no-visibility result. The fix is FOREGROUND polls whose stdout lands in the conversation when the poll completes — and for sleeps longer than 90s, an explicit `timeout: <sleep_ms + 30000>` parameter on the Bash tool call keeps the poll in the foreground instead of auto-backgrounding.
 2. **Absolute wall-clock anchors** — every status update MUST include an absolute wall-clock timestamp (`HH:MM:SS TZ`), not relative "T+N min" style. Relative timestamps are unusable because the operator has no anchor for T=0 unless Claude recorded it and echoed it back. Absolute wall-clock is always interpretable.
 
 Both constraints were surfaced empirically during `plans/dual-tpr-gemini` §07.3 Scenario 1 execution on 2026-04-08: the prior protocol produced 5-minute silent periods with relative-only timestamps, and the operator reported zero real-time visibility. This file is the fix.
@@ -31,20 +31,22 @@ This is the "T=0" anchor. Every subsequent status update references this time. T
 Each poll MUST be a SINGLE FOREGROUND Bash call that sleeps briefly, then runs `status-check.sh`. The foreground-with-sleep pattern is load-bearing: background polls don't stream output, so the operator sees nothing until the poll ends, defeating the visibility goal. Foreground polls return their stdout to Claude as soon as the call completes, and Claude immediately surfaces it to the operator with a brief commentary.
 
 ```
-Bash (foreground, default 120s Bash timeout):
-  date "+WALLCLOCK %H:%M:%S %Z (sleeping 75s)" \
-    && sleep 75 \
+Bash (foreground, explicit timeout: 210000):
+  date "+WALLCLOCK %H:%M:%S %Z (sleeping 180s)" \
+    && sleep 180 \
     && date "+WALLCLOCK %H:%M:%S %Z (polling)" \
     && .claude/skills/dual-tpr/scripts/status-check.sh "$RUN" --events 5
 ```
 
-**Cadence target**: **~75-second intervals**. This produces ~10-20 status updates over a typical 15-25 min dual-source run — enough for real-time visibility without overwhelming the transcript.
+**Cadence target**: **~180-second intervals**. This produces ~5-10 status updates over a typical 15-25 min dual-source run — enough for real-time visibility without burning context on redundant polls. Previous target was 75s; raised to 180s on 2026-04-15 after empirical context-cost measurement showed each poll consumes ~500 tokens of status output, and 75s cadence produced ~8K tokens of polling overhead per review vs. ~3K tokens at 180s for equivalent visibility. The shorter cadence was inherited from a period when dual-source runs were shorter and less predictable; current reviewer behavior is well-characterized enough that 180s still catches both codex stalls (5-min floor) and gemini stalls (14-min floor) well within their respective safety windows.
 
-**Allowed range**: 30s to 90s sleeps.
-- **< 30s**: noise; the reviewers don't produce meaningful new events that fast.
-- **> 90s**: cuts too close to the 120s default Bash foreground timeout and risks auto-backgrounding, which reintroduces the silent-period problem.
+**Allowed range**: 60s to 300s sleeps.
+- **< 60s**: noise; the reviewers rarely produce meaningfully new events that fast, and each poll costs context.
+- **60s–90s**: acceptable for runs where detection latency matters (e.g., you're actively debugging the transport itself). Works with the Bash tool's default 120s foreground timeout without an explicit timeout parameter.
+- **90s–300s**: the default operational range. REQUIRES an explicit `timeout: <sleep_ms + 30000>` parameter on the Bash tool call because sleeps > 90s would otherwise exceed the 120s default Bash foreground timeout and get auto-backgrounded (reintroducing the silent-period problem). 180s sleep → `timeout: 210000`.
+- **> 300s**: tolerated only if the operator explicitly requests longer intervals. Stall-detection floors (codex 5 min, gemini 14 min) become the dominant latency.
 
-**Per-poll commentary requirement**: after each poll returns, Claude MUST surface the output to the operator WITH a brief explanation of what changed since the last poll (new events, changed walltime, reviewer completion status). A poll that returns without commentary is a missed visibility opportunity.
+**Per-poll commentary requirement**: after each poll returns, Claude MUST surface the output to the operator WITH a brief explanation of what changed since the last poll (new events, changed walltime, reviewer completion status). A poll that returns without commentary is a missed visibility opportunity. Fewer polls at 180s cadence make commentary MORE important, not less — each poll is a denser signal.
 
 ### Step C — Stopping condition
 

@@ -11,6 +11,41 @@ Get collaborative help from two independent models (Codex CLI + Gemini CLI) on w
 
 **Mode:** `/tp-help` uses **concatenation mode**, NOT the findings envelope schema used by `/tpr-review` and `/review-work`. The output is **both reviewers' raw responses concatenated with HTML-comment attribution sentinels**, not a merged findings list. The design rationale: when you're stuck asking for help, you want two independent perspectives — not a smoothed editorial synthesis that hides useful disagreement between the models.
 
+## Model Policy
+
+**This skill runs end-to-end on Sonnet.** The Claude-side work is pure orchestration — the "brains" are the external codex + gemini CLIs, and the skill contract is to return **both raw responses concatenated** with no synthesis. There is no triage, accept/reject, or code-writing step inside `/tp-help`.
+
+### Heuristic
+
+**Opus for judgment-writing; Sonnet for mechanical-writing and orchestration.**
+
+- **Judgment-writing** (Opus-only) = the output depends on a decision made in the same step: architecture synthesis, accept/reject triage of reviewer findings, fix implementation where content is not predetermined.
+- **Mechanical-writing** (Sonnet-safe) = the output is determined by a decision already made elsewhere: expanding a template, filing by a static routing rule, flipping a boolean frontmatter field, reformatting parser output.
+- **Orchestration** (Sonnet-safe) = shell launches, JSONL parsing, polling, merging envelopes by deterministic rule.
+
+"Any file mutation = Opus" is the wrong rule — it burns Opus on template expansion and frontmatter flips. The correct rule is "any *judgment* = Opus"; mechanical mutations are safe under it.
+
+### Callers
+
+`/tp-help` is invoked by `/fix-bug` (Phase 1.75 design consensus), `/create-plan` (Step 6B third-party consultation, Step 8B architecture sanity check), `/review-plan` (Step 4 blind spot analysis), and proactive auto-trigger conditions. The model policy is the same regardless of caller: Sonnet end-to-end, raw concat return. The *caller* decides what model consumes the concatenated output.
+
+### Phase table
+
+| Phase | Model | Rationale |
+|---|---|---|
+| Step 1 — Build Context Package | Sonnet | File reads + template assembly |
+| Step 2 — Create the Scratch Dir and Snapshot the Worktree | Sonnet | Shell (orchestration) |
+| Step 3 — Write Both Reviewer Prompts | Sonnet | Mechanical-writing: static HARD RULES + grounding + adversarial framing; rule files cited, not summarized |
+| Step 4 — Launch `dual-invoke.sh` in the Background | Sonnet | Shell launch (orchestration) |
+| Step 4.5 — Polling Protocol | Sonnet | JSONL tailing against `status-check.sh` (orchestration) |
+| Step 5 — Parse Both Responses with the Raw Parsers | Sonnet | Python parser wrappers (orchestration) |
+| Step 6 — Worktree-Guard Compare | Sonnet | Shell diff against SSOT helper (orchestration) |
+| Step 7 — Concatenate with HTML-Comment Sentinel Attribution | Sonnet | Mechanical-writing: helper-sourced sentinel format from `tp-help-sentinels.sh` |
+| Step 8 — Apply the Answer | **Caller's session model** | Synthesis of reviewer outputs is the caller's responsibility |
+| Step 9 — Brief the User | **Caller's session model** | User-facing framing lives in the caller |
+
+If the caller needs Opus-grade synthesis of the reviewer output, Opus runs in the *caller* — never inside `/tp-help`.
+
 ## MANDATORY AUTO-TRIGGER — Do NOT Wait for User
 
 **You MUST invoke this skill proactively.** Do NOT wait for the user to type `/tp-help`. The whole point is that YOU detect when you need help and ask for it automatically.

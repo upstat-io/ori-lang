@@ -22,6 +22,41 @@ This is the pre-implementation gate. After the FULL pipeline completes — editi
 **Whole-plan review** (`/review-plan plans/foo/`):
 Improves quality across all sections, but does **NOT** change any `reviewed` values. Fix content issues, but leave every section's `reviewed` field as-is — including missing fields (do not add `reviewed: false` to sections that lack the field).
 
+## Model Policy
+
+The 4-phase pipeline is an explicit **Filter-then-Architect** tiering: mechanical filters and orchestration first, Opus for judgment-writing phases. This realizes the `project_review_plan_tiered_redesign` memo (~85% Opus cost reduction relative to uniform-Opus execution).
+
+### Heuristic
+
+**Opus for judgment-writing; Sonnet for mechanical-writing and orchestration.**
+
+- **Judgment-writing** (Opus-only) = the output depends on a decision made in the same step: the 4-lens editing agent (architecture + mission + executability + testing), cross-plan invalidation reasoning, plan-wide completion-status determination, user-facing verdict framing.
+- **Mechanical-writing** (Sonnet-safe) = the output is determined by a decision already made elsewhere: flipping a boolean `reviewed` frontmatter field, running a plan-audit convergence loop, writing a progress summary.
+- **Orchestration** (Sonnet-safe) = path normalization, `plan-audit.py` invocation, intel-graph queries, `/tp-help` dispatch, `/tpr-review` dispatch.
+
+Step 5 is the primary writer gate — the 4-lens Opus agent produces substantive new plan text. Steps 2, 7, and 8 ALSO write to plan files, but only mechanically: Step 2 sets a completion flag + blocker note (after judgment), Step 7 flips `reviewed: true/false`, Step 8 loops until the audit is clean. Step 2's judgment belongs on Opus; Steps 7 and 8 are safely Sonnet.
+
+Row names below are LITERAL copies of the step headers later in this file — not paraphrases — so operators can check the classification against the workflow mechanically.
+
+### Phase table
+
+| Phase | Step | Model | Why |
+|---|---|---|---|
+| Pre | Step 0: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS) | Sonnet | Orchestration: read + ground |
+| Pre | Step 1: Determine Review Mode and Normalize Paths | Sonnet | Orchestration: path normalization |
+| Pre | Step 2: Plan-Wide Accuracy Pre-Check | **Opus** (session) | **Judgment-writing**: decide whether sections held open by external blockers should be marked complete with blocker notes. Per `feedback_plan_wide_accuracy_on_completion`, this requires reading section status metadata, upstream blockers, and cross-plan context before mutating. Sonnet-classifying this was a LEAK surfaced by the 2026-04-15 TPR round. |
+| 1 | Step 3: Phase 1 — Static Analysis via `plan-audit.py` | Sonnet | Orchestration: deterministic Python |
+| 1 | Step 3.5: CONDITIONAL — Intelligence pre-query | Sonnet | Orchestration: graph shell calls |
+| 2 | Step 4: Phase 2 — `/tp-help` Blind Spot Analysis | → `/tp-help` Model Policy | external reviewers + Sonnet dispatch |
+| **3** | **Step 5: Phase 3 — Editing Agent (All 4 Lenses Merged)** | **Opus** (`model: "opus"` — already annotated) | **Judgment-writing**: the primary architect that synthesizes filtered findings into plan-text mutation |
+| 4 | Step 6: Phase 4 — Run `/tpr-review` with `review-plan` Skill (MANDATORY) | → `/tpr-review` Model Policy | dispatch Sonnet; triage + fix Opus |
+| Post | Step 7: Flip `reviewed` Field (Single-Section Mode Only) | Sonnet | Mechanical-writing: boolean frontmatter flip after Phase 4 clean pass |
+| Post | Step 8: Post-Edit Verification (Loop Until Clean) | Sonnet | Orchestration: plan-audit convergence loop; any content changes route through `/review-plan` or `/fix-bug` which carry their own Opus gates |
+| Post | Step 8.5: Cross-Plan Review Invalidation | **Opus** (session) | **Judgment-writing**: cross-plan reasoning — can this change invalidate siblings? |
+| Post | Step 9: Present Verdict | **Opus** (session) | **Judgment-writing**: user-facing framing + unresolved-concern triage |
+
+**Design rationale — Filter-then-Architect:** Tier 0 `plan-audit.py` removes deterministic noise. Tier 1 Sonnet orchestration filters unverified reviewer claims against actual code (read-only). Tier 1.5 `/tp-help` surfaces blind spots. **Tier 2 Opus architect (Step 5) is the primary writer** — it receives the filtered signal and does the substantive mutation. Steps 2, 8.5, and 9 are additional Opus-judgment phases (status auditing, cross-plan reasoning, verdict). `/tpr-review` then adversarially attacks the result. Every tier outside those judgment phases runs on Sonnet.
+
 ## Usage
 
 ```

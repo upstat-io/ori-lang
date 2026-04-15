@@ -31,6 +31,58 @@ Use `plans/roadmap/index.md` to find sections by keyword. The index contains sea
 ---
 
 
+## Model Policy
+
+`/continue-roadmap` executes against plans that have already passed `/create-plan` and `/review-plan` — the architecture and section design were decided upstream. The execution-time work splits sharply:
+
+### Heuristic
+
+**Opus for all code reading and code writing. Sonnet for plan-doc updates, scanning, and orchestration.**
+
+- **Code reading & writing** (Opus-mandatory) = every compiler / runtime / test edit is a real engineering decision with correctness invariants (ARC soundness, phase purity, type-system rules, spec conformance). Pre-edit reads are inseparable from the edit decision — the same model must hold the code context and write the change, otherwise invariants get lost in the handoff.
+- **Plan-doc updates** (Sonnet-safe) = flipping `- [ ]` to `- [x]`, updating `updated:` timestamps, syncing `status:` fields, appending progress notes, bumping overview counts. These mutate plan text, but the *decisions* those mutations record were made by the already-approved plan — no new judgment is written into the plan file itself.
+- **Scanning & gates** (Sonnet-safe) = `roadmap-scan.sh`, schema checks, stale-frontmatter detection, blocker-chain scanning, intelligence-graph queries, working-tree checks.
+- **Nested skill dispatch** = inherits each skill's own Model Policy (`/fix-bug`, `/tpr-review`, `/impl-hygiene-review`, `/sync-claude`, `/commit-push`).
+
+"Any plan-file mutation = Opus" would burn Opus on every checkbox flip during roadmap execution — a massive Opus waste for tasks that are, literally, boolean bookkeeping. The user's explicit preference (Opus for code always, Sonnet for plan docs) is exactly the refined heuristic's answer.
+
+Row names below are LITERAL copies of the step headers later in this file.
+
+### Phase table
+
+| Step | Model | Why |
+|---|---|---|
+| Step -1: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS) | Sonnet | Orchestration: read + ground |
+| Step -1B: Re-read CLAUDE.md Between Tasks (MANDATORY) | Sonnet | Orchestration |
+| Step 0: Check for Active Reroute | Sonnet | Mechanical-reading: scan for reroute artifacts |
+| Step 1: Run the Scanner | Sonnet | Orchestration: `roadmap-scan.sh` / `roadmap_scan.py` |
+| Step 1.5: Fix Stale Frontmatter | Sonnet | Mechanical-writing: frontmatter sync to body state |
+| Step 1.55: Stale Plan Annotation Check | Sonnet | Mechanical-reading: detect code annotations from completed plans |
+| Step 1.6: Schema Compliance Check | Sonnet | Orchestration: `plan_corpus check` |
+| Step 1.7: Unreviewed Plan Gate | Sonnet | Mechanical-reading: check `reviewed:` fields |
+| Step 1.9: Third Party Review Triage Gate | → `/verify-tpr` Model Policy | Nested |
+| Step 1.92: Bug Tracker Check | Sonnet | Mechanical-reading: scan bug-tracker state |
+| Step 1.95: Clean Working Tree Gate | Sonnet | Orchestration: `git status` |
+| Step 2: Determine Focus Section | Sonnet | Mechanical-reading: apply ordering rules to scanner output |
+| Step 2.1: CONDITIONAL — Intelligence Context for Focus Section | Sonnet | Orchestration: graph queries |
+| Step 2.5: Blocker Chain Resolution | **Opus** (session) | **Judgment**: deciding whether an upstream blocker is genuinely blocking vs. a stale annotation |
+| Step 2.6: Impediment Resolution — No Unplanned Blockers | **Opus** (session) | **Judgment**: cross-plan reasoning about impediments |
+| Step 3: Load Section Details | Sonnet | Mechanical-reading |
+| Step 4: Present Summary | Sonnet | Mechanical-writing: render scanner state into a progress view |
+| Step 5: Decide What to Do | **Opus** (session) | **Judgment**: user-facing checkpoint + next-subsection selection |
+| Step 5.5: Subsection Pacing | Opus (session) | Judgment: pacing checkpoint with the user |
+| **Step 6: Execute Work** | **Opus** (session) | **Judgment-writing**: ALL code reading + ALL code writing + test writing lives here. This is the core engineering step and Opus is mandatory. Nested `/fix-bug`, `/tpr-review`, `/impl-hygiene-review` inherit their own Model Policies — the triage/fix phases stay Opus, the dispatch/parse phases drop to Sonnet automatically. |
+| Plan close-out body updates (§Update Body Checkboxes, §Update Frontmatter Immediately) | Sonnet | Mechanical-writing: boolean flips + metadata fields reflect decisions already made by the section's completion |
+| Close-out commits (via `/commit-push`) | → `/commit-push` | Orchestration |
+
+### Hard rules
+
+1. **Never read code on Sonnet before editing on Opus.** The pre-edit code read is part of the edit decision — same model holds both. If Step 6 fires, Opus owns the read and the write.
+2. **Plan-doc writes NEVER escalate to Opus unless the write encodes a new decision** (e.g., adding a newly-discovered blocker to a sibling plan's frontmatter requires Opus cross-plan reasoning first; the actual text edit is still Sonnet-safe once the decision is made).
+3. **Nested skills inherit their own Model Policy** — `/fix-bug`'s Phase 3 (TDD) and Phase 4 (Implementation) are Opus; `/commit-push` is Sonnet end-to-end; `/tpr-review`'s triage is Opus. Do not override nested policies from this skill.
+
+---
+
 ## Workflow
 
 ### ABSOLUTE RULE: Commits via /commit-push ONLY

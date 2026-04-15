@@ -16,6 +16,50 @@ Run BOTH the Codex CLI AND the Gemini CLI non-interactively in parallel to perfo
 
 This wrapper is built on the Section 02 dual-source transport utility. All launching, parsing, schema validation, worktree-guarding, and infra retry logic lives in `.claude/skills/dual-tpr/scripts/` — this skill is purely the **semantic** fix-and-re-run loop that consumes merged findings. See `.claude/skills/dual-tpr/transport.md` for the transport contract.
 
+## Model Policy
+
+This skill splits by phase: **orchestration (dispatch / polling / parse / merge) on Sonnet; finding verification, triage, and fix implementation on Opus.** Triage is where Gemini-confabulation risk concentrates — a weaker model will silently accept bad findings and either waste work or merge broken fixes.
+
+### Heuristic
+
+**Opus for judgment-writing; Sonnet for mechanical-writing and orchestration.**
+
+- **Judgment-writing** (Opus-only) = the output depends on a decision made in the same step: accept/reject triage of findings, fix implementation where content isn't predetermined, destination routing when the rule requires interpretation.
+- **Mechanical-writing** (Sonnet-safe) = the output is determined by a decision already made elsewhere: appending a static directive, committing with a formatted message, writing a final summary from already-triaged data.
+- **Orchestration** (Sonnet-safe) = shell launches, polling, JSONL parsing, merging envelopes by deterministic rule.
+
+"Any file mutation = Opus" is the wrong rule — it burns Opus on template prepends and commit messages. The correct rule is "any *judgment* = Opus."
+
+### Per-iteration phase table
+
+Row names below are LITERAL copies of the step headers later in this file — not paraphrases — so operators can check the classification against the workflow mechanically.
+
+| Step | Model | Rationale |
+|---|---|---|
+| 0 — Re-read CLAUDE.md | Sonnet | Read + ground (orchestration) |
+| 0.5 — Spec/Grammar Proposal Gate Audit (code/plan modes) | Sonnet | Mechanical filelist grep |
+| 0.75 — Intelligence Pre-Query (CONDITIONAL) | Sonnet | Graph shell calls (orchestration) |
+| 1. Create a per-run scratch directory | Sonnet | Shell (orchestration) |
+| 2. Write both reviewer prompts | Sonnet | Mechanical-writing: static template + grounding block; rule files cited, not summarized |
+| 3. Invoke the dual-source transport in the background | Sonnet | Shell launch (orchestration) |
+| Polling Protocol — Canonical SSOT | Sonnet | JSONL tailing against `status-check.sh` (orchestration) |
+| 4. On success: merge both envelopes | Sonnet | Deterministic JSON merge (orchestration) |
+| **5. Classify merged findings (and VERIFY each one independently)** | **Opus** | **Judgment-writing**: independent verification against code; Gemini-confabulation detection; accept/reject decision on every finding |
+| **6. Thoroughness Judgment (MANDATORY — runs EVERY round, regardless of findings)** | **Opus** | **Judgment-writing**: depth-of-review evaluation; `thoroughness_ok` boolean; strengthened-language decision |
+| 6.5. Thoroughness Re-review Directive (prepend to BOTH prompts when `strengthened_language_required`) | Sonnet | Mechanical-writing: prepend static directive text verbatim |
+| **7a. File Findings** | **Opus** | **Judgment-writing**: plan vs bug-tracker routing requires interpreting whether an owning plan section exists and mapping subsystems to section numbers. Not purely mechanical. |
+| **7b. Fix Each Finding — branch by destination** | **Opus** | **Judgment-writing**: code / plan text mutation with content determined by the triage from Step 5 |
+| 7c. Commit Fixes | Sonnet | Shell (orchestration) |
+| 7d. Re-run the Dual-Source Transport (GO TO STEP 1) | Sonnet | Loops back to Step 1 |
+| 8. User Escalation — Finding-Fixing Cap or Thoroughness-Reject Cap | **Opus** | **Judgment-writing**: surface tradeoffs and escalation rationale to the user |
+| Final Report (After Loop Exits) | Sonnet | Mechanical-writing: summary of counters already computed |
+
+**Why Opus at Step 5 is non-negotiable:** per `feedback_reviewer_grounding_and_trust`, Codex trust tier is HIGH (spot-check); Gemini LOWER (full verification — confabulation-prone). Accepting a bad finding wastes a fix cycle; rejecting a valid one misses a bug. Either error is high-cost and cannot be recovered by downstream Sonnet-grade work.
+
+**Custom-objective mode:** same split. The objective text is user-supplied prose, but reviewer triage against that objective still requires Opus.
+
+**Model control surface:** this skill does not launch its own `Agent` subagents — it dispatches external codex + gemini. Model selection at Sonnet steps is a signal to the user (or invoking skill) about what session model is sufficient; at Opus steps it is mandatory, and the invoking session MUST be Opus or the caller must spawn an Opus Agent for the triage + fix block.
+
 ## Step 0 — MANDATORY: Re-read CLAUDE.md
 
 **Before doing ANYTHING else, re-read the entire project CLAUDE.md.** This is non-negotiable. Even if you believe it is in memory, you MUST physically read it with the Read tool. Context compression may have dropped critical rules. Do this every single time this skill runs.
