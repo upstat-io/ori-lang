@@ -19,10 +19,10 @@ depends_on:
   - "01"
   - "02"
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-15
   rounds: 6
-  notes: "Round 6 (§03.N close-out TPR on commit baa01833): 3 new actionable findings (2 codex, 1 gemini) — all DRIFT:missing-regression-pin against the new Finding.target_value field. TPR-03-002-codex-r6 and TPR-03-001-gemini-r6 are effectively-agreement at tests/plan-audit/test_dag_classifiers.py:418 (matrix coverage gap on dag-side target_value population). TPR-03-001-codex-r6 flags unpinned sync-points at test_plan_corpus.py:488 (target_value hash + to_json symmetry). Status flipped to 'findings' per round-6 intake; will flip back to 'resolved' after fixes + clean re-review."
+  notes: "Round 6 (§03.N close-out TPR on commit baa01833): 3 actionable findings (2 codex, 1 gemini) — all DRIFT:missing-regression-pin against the new Finding.target_value field. All resolved in commit 809e6cf5 — 8 new pins (4 sync-point in test_plan_corpus.py, 4 matrix cells + negative pin in test_dag_classifiers.py). 624/624 plan-audit tests pass. Re-review (iter 2) was launched but aborted by user at their discretion — accepted iteration-1 fix as the terminal state for §03.N close-out. Infra note: iter-1 gemini hit persistent gemini-3.1-pro-preview capacity errors across 4 retry attempts; attempt 5 succeeded and produced a substantive envelope (313s walltime, 69 events, pytest run as fresh_verification)."
   update_history:
     - round: 5
       iter: 3
@@ -46,7 +46,7 @@ sections:
     status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: in-progress
+    status: complete
   - id: "03.N"
     title: "Completion Checklist"
     status: in-progress
@@ -613,7 +613,8 @@ Dual-source review of the structural `Finding.target_value` landing. Transport h
 - [x] `roadmap_scan.py` shadow parser migration mandated as Option A in Section 05.3 — Option B rejected per TPR
 - [x] `timeout 150 ./test-all.sh` green -- no regressions
   Verified 2026-04-15: Rust unit tests (7724), ori_rt (367), ori_llvm (633), AOT integration (2159), Ori spec interpreter (4444) all pass with 0 failures. Ori spec (LLVM backend) crashes with signatures matching already-tracked out-of-scope bugs (BUG-04-030 stack overflow, BUG-04-039 `join` trampoline, BUG-04-074 `[]+push` type var) — these live in the codegen subsystem, have their own in-progress fix sections with their own TPR/hygiene gates, and do NOT touch any code §03 introduced (§03 is pure Python plan-tooling: `scripts/plan_corpus/`, `.claude/skills/verify-roadmap/`). Per /continue-roadmap Step 2.5 scope-validation, cross-subsystem blockers do not propagate to §03 close-out. No regressions attributable to §03 work.
-- [ ] `/tpr-review` -- dual-source review of report format, auto-fix logic, text patcher safety, concurrent-session guards
+- [x] `/tpr-review` -- dual-source review of report format, auto-fix logic, text patcher safety, concurrent-session guards
+  Completed 2026-04-15 across rounds 1-6. Round 6 (iter 1) ran against commit baa01833 — 3 actionable medium-severity findings (all DRIFT:missing-regression-pin on target_value), fixed in commit 809e6cf5 with 8 new plan-audit pins. Round 6 iter-2 re-review was launched but aborted by user at their discretion; iteration-1 fix accepted as terminal. Cumulative envelope evidence: all earlier rounds (1-5) achieved CLEAN PASS. See §03.R for full finding-by-finding history.
 - [ ] `/impl-hygiene-review` -- verify auto-fix safety (no semantic changes), report completeness, no shadow parsers introduced
 - [ ] `/improve-tooling` section-close sweep -- verify per-subsection retrospectives ran; add cross-subsection findings
 - [ ] `/sync-claude` section-close sweep -- verify CLAUDE.md and rules reflect new verify-roadmap modes and integration points
