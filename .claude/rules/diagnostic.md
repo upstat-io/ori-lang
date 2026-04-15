@@ -65,6 +65,7 @@ All support `--help`, `--no-color`/`--color`.
 | `alive2-verify.sh` | Alive2 translation validation | `--corpus`, `--all-codegen`, `--function`, `--json`, `--check-survival`, `--review-suppressions`, `--strict` |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | `--check`, `--clean`, `--gitignore` |
+| `tpr-failure-summary.sh` | TPR failure patterns across runs | `--reviewer`, `--failures`, `--verbose`, `--json` |
 | `self-test.sh` | Self-test all scripts against fixtures | |
 
 **Data sources:**

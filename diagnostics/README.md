@@ -21,6 +21,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
+| `tpr-failure-summary.sh` | Summarize TPR failure patterns across runs | Investigating Gemini/Codex failures, capacity errors |
 | `self-test.sh` | Self-test all scripts against fixtures | After modifying any diagnostic script |
 
 ## Usage
@@ -185,6 +186,18 @@ Detects untracked temp files by category: **DUMP** (debug/IR dumps), **SCRATCH**
 diagnostics/self-test.sh                           # Run all fixture tests
 diagnostics/self-test.sh --verbose                  # Detailed output
 ```
+
+### tpr-failure-summary.sh — TPR Failure Patterns
+
+```bash
+diagnostics/tpr-failure-summary.sh                    # Full summary (both reviewers)
+diagnostics/tpr-failure-summary.sh --reviewer gemini  # Gemini only
+diagnostics/tpr-failure-summary.sh --failures         # Only failed runs
+diagnostics/tpr-failure-summary.sh --verbose          # Per-run failure details
+diagnostics/tpr-failure-summary.sh --reviewer gemini --verbose --failures  # All flags
+```
+
+Scans `/tmp/ori-tpr-*/` run directories for failure patterns. Reports success rates, API capacity errors, watchdog kills, envelope repair/rescue stats, and per-run failure details. Extracts the actual API error message from JSONL result events.
 
 ## Environment Variables
 
