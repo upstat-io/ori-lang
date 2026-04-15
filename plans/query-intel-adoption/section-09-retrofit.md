@@ -216,9 +216,11 @@ All four target sections are `status: not-started` at §09 land time. Meta-dogfo
 
 - [ ] All 09.1 close-out items complete (retrofit_recon.py + subcommand + matrix tests + complete-section silent-skip + --allow-reopen opt-in unlock + dry-run equivalence)
 - [ ] All 09.2 close-out items complete (§06/§07/§08/§09 recon blocks filled; §01-§05 untouched; discover coverage 4/4 on this plan's not-started slice)
-- [ ] `python -m scripts.plan_corpus discover` reports 100% recon-block coverage for the `not-started` slice of every active plan corpus-wide
+- [ ] `python -m scripts.plan_corpus discover` reports 100% recon-block **PRESENCE** for the `not-started` slice of every active plan corpus-wide (stubs count as "present" — this is the scaffolding goal, not the quality goal; see NOTE below)
 - [ ] `./test-all.sh` green (including new plan-audit tests)
-- [ ] `python -m scripts.plan_corpus check plans/` returns exit 0 (no Outcome.ERROR recon findings)
+- [ ] `python -m scripts.plan_corpus check plans/` returns exit 0 (no Outcome.ERROR recon findings — stubs emit `Outcome.WARNING` which does not gate the exit code in default mode; only `--strict-recon` would escalate `not-started` stubs to `Outcome.ERROR`)
+
+  **NOTE — §09 is a scaffolding pass, not a quality gate.** `retrofit_recon.py` injects stub recon blocks so no section is silently missing reconnaissance infrastructure. A stub is classified by §06's validator as `GAP:VALIDATION_BYPASS` at `Severity.HIGH` / `Outcome.WARNING` (default) — it is printed but does NOT gate exit code. Stub elimination (filling stubs with real reconnaissance) happens organically as each section enters implementation via `/continue-roadmap`, which runs the §06 template and requires the author to fill the block before subsection close-out. The success criterion "100% PRESENCE" is explicitly the scaffolding goal; quality (stub vs. complete) is tracked per-section by `check`, not by this plan's §09.N gate.
 - [ ] **Plan sync**:
   - [ ] Section frontmatter `status: not-started` → `complete`
   - [ ] `00-overview.md` Mission Success Criteria §09 checkbox checked; Quick Reference §09 row → Complete

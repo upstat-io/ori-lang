@@ -70,6 +70,8 @@ sections:
 
 **Design decision 7 — format coupling with §03 and §07 is a CONTRACT, not a convention.** `00-overview.md:144` already states "§07 hook output format MUST match §03's bounded summary template exactly." §06 extends this into a three-way coupling: §03 helper (source), §06 recon block (plan-body artifact), §07 hook injection (runtime prompt artifact) — all three use `.claude/skills/dual-tpr/compose-intel-summary.md` as the authoritative SSOT. The **≤500-char bound** and **`[ori]` / `[repo#N]` / `[repo:path]` citation vocabulary** are the contract; exact line-level formatting may vary per consumer's rendering context (§06 plan-resident blocks are static markdown artifacts; §07 hooks inject a bounded summary into a prompt payload; these rendering contexts differ legitimately). Graceful degradation: when `scripts/intel-query.sh status` returns unavailable, the §07 hook omits the summary entirely (per `compose-intel-summary.md` lines 222-227: "entire summary is OMITTED"), and the §06 plan-resident artifact records the graph-unavailable state as freeform prose (e.g. `"Graph was unavailable at YYYY-MM-DD when this section was authored"`) — NOT a sentinel string matched by the validator. Drift in the 500-char bound or citation vocabulary among the three surfaces is a `DRIFT:scattered-knowledge` finding; line-level formatting differences are not. §06.1's template text names this contract explicitly; §06.2's anti-stub detector enforces the citation-grammar half; §07's plan file cites §06's contract back.
 
+  **NOTE — §07 skeleton drift:** The current `section-07-pre-review-intel-hook.md` hook skeleton uses a placeholder `- [$FILE] $RESULT` output format that does NOT yet match this citation-grammar contract. This is a known inconsistency: §07 is not yet implemented, and the skeleton is scaffolding only. §07's implementation MUST rewrite the hook output to emit the Step D citation grammar (≤500 chars, `[ori]` / `[repo#N]` / `[repo:path]` markers) before §07 close-out. The coupling contract stated here is the target; §07's current skeleton is the delta that implementation will close.
+
 **Reference implementations:**
 - **Ori** `.claude/skills/create-plan/plan-schema.md` existing Section File Template (lines 236-508) — §06.1 edit target
 - **Ori** `.claude/skills/create-plan/SKILL.md:808` — second SSOT-ish surface that re-asserts subsection structure; §06.1 cites plan-schema.md instead
@@ -218,7 +220,9 @@ Four implementation gaps block the enforcement contract:
 
 All four must be fixed together; any one alone leaves the enforcement path broken.
 
-- [ ] **Fix CLI entrypoint DRIFT.** Grep the plan corpus and the `.claude/` tree for legacy references to `scripts/plan_corpus.py` (with the `.py` suffix — the file does NOT exist; the package is invoked as `python -m scripts.plan_corpus`). Command: `grep -rn "scripts/plan_corpus\.py" .claude/ plans/ docs/ scripts/`. Replace every hit with `python -m scripts.plan_corpus`. Include CLAUDE.md §Commands and this plan's own success-criteria lines. Capture the count of replaced occurrences in the close-out note.
+- [ ] **Fix CLI entrypoint DRIFT.** Grep active/editable surfaces for legacy references to `scripts/plan_corpus.py` (with the `.py` suffix — the file does NOT exist; the package is invoked as `python -m scripts.plan_corpus`). Command: `grep -rn "scripts/plan_corpus\.py" CLAUDE.md .claude/ scripts/ && grep -rn "scripts/plan_corpus\.py" plans/*/section-*.md | grep -v 'status: complete'`. Replace every hit with `python -m scripts.plan_corpus`. Include CLAUDE.md §Commands and active (non-complete) plan section files. **Do NOT edit completed sections (§01-§05 of this plan and any other `status: complete` sections) — they are frozen artifacts and retain historical command strings as-is.** Capture the count of replaced occurrences in the close-out note.
+
+  NOTE: Scrub scope is intentionally limited to active/editable surfaces only (CLAUDE.md, .claude/rules/*.md, .claude/skills/*, plans/*/section-*.md with status != complete, scripts/*.py). Completed sections (§01-§05 and any other `status: complete` sections across the corpus) retain historical command strings as-is — they are frozen artifacts, not active documentation. Scrubbing frozen sections would violate the freeze policy.
 
 - [ ] **Add `MISSING_RECON_BLOCK`, `VALIDATION_BYPASS`, and `RECON_GRAPH_UNAVAILABLE` to the `FindingSubtype` enum** in `scripts/plan_corpus/types.py` (around line 85). Register all three under `FindingCategory.GAP` in the `_CATEGORY_SUBTYPES` dict (around line 153, within the `FindingCategory.GAP: frozenset({...})` block). The validator then emits:
   - `Finding(category=FindingCategory.GAP, subtype=FindingSubtype.MISSING_RECON_BLOCK, ...)` for entirely missing blocks
@@ -275,7 +279,7 @@ All four must be fixed together; any one alone leaves the enforcement path broke
     - Block body fails ANY of the three concrete-content requirements:
       - (a) No literal `scripts/intel-query.sh` command line (matched via regex `\bscripts/intel-query\.sh\b` — must appear in the block body)
       - (b) No date marker in ISO format `YYYY-MM-DD` within the block (matched via regex `\d{4}-\d{2}-\d{2}`)
-      - (c) No concrete citation marker: no literal `[ori]`, no cross-repo citation marker matching `\[[a-z][a-z0-9-]*#\d+\]` (generic pattern — any lowercase repo name followed by `#` and digits; avoids DRIFT when reference repos are added to the intelligence graph)
+      - (c) No concrete citation marker: no literal `[ori]`, no cross-repo citation marker matching `\[[a-z][a-z0-9-]*[#:][^\]]+\]` (generic pattern — matches both `[repo#123]` issue citations AND `[repo:path/to/symbol]` symbol citations; avoids DRIFT when reference repos are added or when symbol results use the `[repo:path]` form permitted by `compose-intel-summary.md` Step D lines 78-80)
     - Block body pastes the literal `@.claude/skills/dual-tpr/compose-intel-summary.md` directive verbatim without a condensed summary paragraph following it (the `@`-include is a SOURCE for Claude's prompt, NOT a substitute for the plan-resident snapshot)
     - Severity / outcome mapping identical to "missing block" above
     - `FindingCategory.GAP`, `FindingSubtype.VALIDATION_BYPASS`, message names which specific check(s) failed (missing query / missing date / missing citation / placeholder-only / empty)
@@ -330,11 +334,18 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   | PLAN_SECTION | stub-placeholder ("TBD" / "none" / etc.) | not-started | no | 1 (per token) |
   | PLAN_SECTION | stub-no-query (prose + date + citation but no `scripts/intel-query.sh` literal) | not-started | no | 1, GAP:VALIDATION_BYPASS |
   | PLAN_SECTION | stub-no-date (query + citation but no YYYY-MM-DD date marker) | not-started | no | 1, GAP:VALIDATION_BYPASS |
-  | PLAN_SECTION | stub-no-citation (query + date but no `[ori]` / `[repo#N]`) | not-started | no | 1, GAP:VALIDATION_BYPASS |
+  | PLAN_SECTION | stub-no-citation (query + date but no `[ori]` / `[repo#N]` / `[repo:path]`) | not-started | no | 1, GAP:VALIDATION_BYPASS |
+  | PLAN_SECTION | complete with `[repo:path]` citation (e.g. `[rust:compiler/rustc_errors/src/lib.rs]`) | not-started | no | 0 (symbol-path citation is valid per `\[[a-z][a-z0-9-]*[#:][^\]]+\]`) |
   | PLAN_SECTION | stub-only-@-include (directive pasted, no condensed paragraph) | not-started | no | 1, GAP:VALIDATION_BYPASS |
   | PLAN_SECTION | graph-unavailable (date + "graph unavailable" phrase, no query) | not-started | no | 1, GAP:RECON_GRAPH_UNAVAILABLE, Severity.LOW, Outcome.WARNING |
   | PLAN_SECTION | graph-unavailable (date + "graph unavailable" phrase, no query) | not-started | yes | 1, GAP:RECON_GRAPH_UNAVAILABLE, Severity.LOW, Outcome.WARNING (--strict-recon does NOT escalate graph-unavailable) |
   | PLAN_SECTION | graph-unavailable (date + "intelligence graph unavailable" phrase) | in-progress | no | 1, GAP:RECON_GRAPH_UNAVAILABLE, Severity.LOW, Outcome.WARNING |
+  | PLAN_SECTION | stub-empty (header, whitespace body) | in-progress | no | 1, Severity.MEDIUM, Outcome.WARNING |
+  | PLAN_SECTION | stub-placeholder ("TBD" / "none" / etc.) | in-progress | no | 1, Severity.MEDIUM, Outcome.WARNING |
+  | PLAN_SECTION | stub-no-query (prose + date + citation but no `scripts/intel-query.sh` literal) | in-progress | no | 1, Severity.MEDIUM, Outcome.WARNING |
+  | PLAN_SECTION | stub-no-date (query + citation but no YYYY-MM-DD date marker) | in-progress | no | 1, Severity.MEDIUM, Outcome.WARNING |
+  | PLAN_SECTION | stub-no-citation (query + date but no `[ori]` / `[repo#N]` / `[repo:path]`) | in-progress | no | 1, Severity.MEDIUM, Outcome.WARNING |
+  <!-- NOTE: in-progress anti-stub shapes share the same detection logic as not-started; severity differs (MEDIUM vs HIGH) and --strict-recon does NOT escalate in-progress findings. The 5 rows above pin the severity mapping explicitly; detection code is shared. -->
   | **Exempt-class negative pins — ROADMAP_SECTION** | | | | |
   | ROADMAP_SECTION | absent | not-started | no | 0 (exempt — out of scope) |
   | ROADMAP_SECTION | absent | not-started | yes | 0 (exempt — out of scope) |
