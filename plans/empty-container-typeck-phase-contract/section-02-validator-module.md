@@ -26,12 +26,12 @@ success_criteria:
   - "check/mod.rs declares `pub mod validators;`."
   - "TF-5 fast-path: validator calls pool.resolve_fully(idx) before every HAS_VAR check at every walk step (not only the top level)."
   - "HAS_ERROR cascade suppression (types.md §TK-3): skip types with HAS_ERROR at the top-level gate."
-  - "Tag-dispatch child recursion explicitly handles every compound variant (Applied, Projection, Scheme, Struct, Enum, Function, Tuple, List, Set, Map, Result, Range, Iterator, DoubleEndedIterator, Channel) — NO `_ => {}` catch-all silently dropping compound tags."
+  - "Tag-dispatch child recursion explicitly handles every compound variant (Applied, Scheme, Struct, Enum, Function, Tuple, List, Set, Map, Result, Range, Iterator, DoubleEndedIterator, Channel) — NO `_ => {}` catch-all silently dropping compound tags. Note: Tag::Projection is NOT included because typeck.md §PC-2 bullet 3 guarantees no Tag::Projection survives in the typed IR by the time the validator runs (all projections are normalized). The existing Pool::visit_children helper correctly treats Projection as a leaf."
   - "Scheme-aware walk is implemented WITHOUT a bound_vars parameter: HAS_VAR alone distinguishes free from bound vars (types.md §TF-1 — Tag::BoundVar sets HAS_BOUND_VAR, not HAS_VAR; §TF-3 propagation ensures outer HAS_VAR = true iff an unbound Var is reachable)."
   - "Algorithmic DRY: the walker either calls `Pool::visit_children` (compiler/ori_types/src/pool/descriptor.rs:303) or an extracted sibling, not a new parallel tag-dispatch ladder."
   - "One E2005 per ExprIndex: multiple unbound Vars under the same ExprIndex collapse to a single diagnostic (impl-hygiene.md §Deduplication by (Code, Span) with Follow-On Suppression)."
   - "Diagnostics emitted in ascending ExprIndex order (impl-hygiene.md §Pass determinism); ties within a signature are emitted before body diagnostics."
-  - "Unit tests in check/validators/tests.rs cover all ten matrix cells in §02.4."
+  - "Unit tests in check/validators/tests.rs cover all twelve matrix cells (T1–T12) in §02.4."
   - "`cargo test -p ori_types` passes; `cargo clippy -p ori_types` clean; `diagnostics/repo-hygiene.sh --check` clean."
 inspired_by:
   - "typeck.md §CK-1 — pass ordering (validator runs at Bodies-group exit, after engine.take_errors())"
@@ -50,7 +50,7 @@ inspired_by:
   - "impl-hygiene.md §Algorithmic DRY — reuse pool/descriptor.rs:303 Pool::visit_children rather than cloning"
   - "impl-hygiene.md §Cross-Phase Invariant Contracts — Type Checker → Codegen row; producer-side validator + consumer debug_assert! pair"
   - "compiler.md §File Organization — new validators/ submodule lands beside signatures/; keeps check/mod.rs at 408 lines (under 500 limit)"
-  - "tests.md §Matrix Testing Rule — ten cells cover positive/negative × base/scheme/signature/linked/generalized × cascade × determinism"
+  - "tests.md §Matrix Testing Rule — twelve cells cover negative (error path) × base/applied/signature/nested + positive (clean path) × resolved/linked/boundvar/generalized + cascade + determinism + dedup (conventional: Negative = emits diagnostic, Positive = clean)"
   - "compiler/ori_types/src/check/object_safety.rs — closest existing pub(crate) validator pattern (method signature + diagnostic accumulation)"
   - "compiler/ori_types/src/infer/context.rs — take_errors() idiom used by the Bodies pass"
 depends_on: []
@@ -71,7 +71,7 @@ sections:
     title: "lib.rs and check/mod.rs wiring (no pub mod check)"
     status: not-started
   - id: "02.4"
-    title: "Unit test matrix (ten cells)"
+    title: "Unit test matrix (twelve cells)"
     status: not-started
   - id: "02.R"
     title: "Third Party Review Findings"
@@ -201,6 +201,16 @@ Tag::Scheme => TypeFlags::IS_SCHEME,
 The arm returns a bare `IS_SCHEME` bit with no child-flag propagation. This
 is a spec violation (`types.md §TF-3`) and a latent bug that would defeat
 the `HAS_VAR` fast-path gate (`types.md §TF-5`) that §02.2 depends on.
+
+**BLOAT_RISK acknowledgement:** `compiler/ori_types/src/pool/mod.rs` is
+currently 690 lines (over the 500-line limit). `pool/tests.rs` is 1244
+lines. Both are touched by §02.0. The pool module's size is a pre-existing
+condition and is NOT addressed by this section -- splitting `pool/mod.rs`
+is a separate refactoring concern tracked by the plan-audit BLOAT_RISK
+finding. The §02.0 changes add ~10 LOC to `pool/mod.rs` and ~30 LOC to
+`pool/tests.rs`, which does not materially change the bloat status.
+Similarly, `pool/descriptor.rs` (501 lines) gains only a visibility change
+in §02.2.
 
 ### 02.0.1 — Fix
 
@@ -357,12 +367,27 @@ Notes (load-bearing):
 
 - The `&dyn Fn(ExprIndex) -> Span` keeps the validator free of any typed-IR
   handle types (`impl-hygiene.md §Phase Boundaries — Minimal boundary types`).
-- `FunctionSig` is reused as-is from `compiler/ori_types/src/check/signatures/`
-  — the validator SHALL NOT duplicate its shape or flatten it into positional
-  args (`impl-hygiene.md §SSOT`).
+- `FunctionSig` is reused as-is from `compiler/ori_types/src/output/mod.rs`
+  (the typed-IR output module, NOT `check/signatures/`) — the validator SHALL
+  NOT duplicate its shape or flatten it into positional args
+  (`impl-hygiene.md §SSOT`).
 - The validator is pure: inputs are immutable refs + a closure; outputs are
   appended errors. No Salsa, no global state. This keeps it trivially
   callable from any Salsa-tracked query (`typeck.md §SL-1`).
+
+**Section 03 integration note (Gemini finding, verified):**
+`check_def_impl_method` in `compiler/ori_types/src/check/bodies/mod.rs`
+constructs `param_types: Vec<Idx>` and `return_type: Idx` locally but does
+NOT build a `FunctionSig`. The other three bodies-pass call sites
+(`check_function_bodies`, `check_test_bodies`, `check_impl_method`) DO have
+a `FunctionSig` available. Section 03 will need to either (a) construct a
+minimal `FunctionSig` at the `check_def_impl_method` site using the local
+param_types/return_type, or (b) accept that the sig validation at that site
+uses a locally-constructed FunctionSig. Option (a) is correct: FunctionSig
+is a plain data struct, constructing it inline costs nothing, and it keeps
+the validator's interface uniform. This is a Section 03 implementation
+decision, not a Section 02 concern, but is documented here to prevent the
+integration site from being surprised by the mismatch.
 
 ### 02.1.3 — Imports (resolved at implementation time)
 
@@ -375,7 +400,7 @@ use rustc_hash::FxHashMap;
 
 use ori_ir::Span;
 
-use crate::check::signatures::FunctionSig; // path to be verified at impl time
+use crate::output::FunctionSig; // FunctionSig lives in output/mod.rs, not check/signatures/
 use crate::{ExprIndex, Idx, Pool, TypeCheckError, TypeFlags};
 ```
 
@@ -478,6 +503,20 @@ fn collect_first_unbound_var(
                 VarState::Link { target } => {
                     collect_first_unbound_var(pool, *target, span, errors)
                 }
+                // Implementation note: the current pool stores generalized
+                // vars as Tag::Var(VarState::Generalized), NOT as Tag::BoundVar
+                // (diverges from types.md SC-1 which says BoundVar). Because of
+                // this, HAS_VAR is set on scheme bodies containing generalized
+                // vars — the HAS_VAR gate alone cannot distinguish "free unbound"
+                // from "generalized" at the outer scheme level.
+                //
+                // The validator MUST exempt VarState::Generalized here:
+                // rejecting it would fire E2005 on every polymorphic let-binding,
+                // breaking let-polymorphism entirely. This is correct behavior for
+                // the current implementation.
+                //
+                // If a future SC-1 conformance fix changes generalized vars to
+                // Tag::BoundVar, this arm becomes unreachable and can be removed.
                 VarState::Generalized { .. } | VarState::Rigid { .. } => false,
             }
         }
@@ -521,6 +560,17 @@ Key properties:
   `visit_children`; if a future tag lands in the pool it is handled by the
   canonical walker, not accidentally silently dropped here (a leak-hardening
   property).
+- **`Tag::Projection` is safely treated as a leaf.** `Pool::visit_children`
+  does NOT recurse into `Tag::Projection`'s receiver child (line 356 of
+  `descriptor.rs` treats it alongside Named/Alias as having no children).
+  This is safe for the validator because `typeck.md §PC-2` bullet 3
+  guarantees all projections are normalized before bodies-pass exit --
+  `Tag::Projection` cannot appear in the validator's input. If a future
+  change breaks this guarantee, a `debug_assert!` at the validator entry
+  or a `Tag::Projection` arm in `visit_children` would catch it. The
+  correct fix would be extending `visit_children` to yield the receiver
+  child (since `Projection` IS a compound tag per `types.md §TK-8`),
+  NOT adding a special case in the validator.
 - **Short-circuit after first diagnostic.** The returned `bool` lets callers
   collapse N unbound Vars under one `ExprIndex` into one E2005
   (`impl-hygiene.md §Deduplication`). Pool-level tree walks remain O(nodes)
@@ -660,26 +710,29 @@ At the bottom of `compiler/ori_types/src/check/validators/mod.rs`:
 
 ---
 
-## 02.4 Unit Test Matrix (Ten Cells)
+## 02.4 Unit Test Matrix (Twelve Cells)
 
 Tests land in `compiler/ori_types/src/check/validators/tests.rs`
 <!-- NEW — created by this section --> and cover the full positive/negative,
-base/scheme/signature/linked/generalized, cascade, and determinism axes per
-`tests.md §Matrix Testing Rule`. Use the behavioral naming shape
-`<subject>_<scenario>_<expected>` (`impl-hygiene.md §Test Function Naming`).
+base/scheme/signature/linked/generalized, cascade, determinism, nested
+compound depth, and dedup axes per `tests.md §Matrix Testing Rule`. Use the behavioral
+naming shape `<subject>_<scenario>_<expected>` (`impl-hygiene.md §Test
+Function Naming`).
 
 | Cell | Scenario | Expected |
 |------|----------|----------|
-| T1 | Positive (Base): `let x = []` — body `expr_types` contains a fresh unbound `Tag::Var` | exactly one `E2005` emitted against the expression's span |
-| T2 | Positive (Generic Applied): `let x: Option<_> = None` — `Tag::Applied` containing unbound `Tag::Var` | exactly one `E2005` — exercises compound-tag walk via `Pool::visit_children` |
-| T3 | Positive (Signature): `@f(x) = 42` — unannotated param `x` leaves a fresh `Tag::Var` in `FunctionSig.param_types[0]` | exactly one `E2005` emitted against `sig_span` (signature-validation path) |
-| T4 | Negative (Resolved Int): `let x: int = 42` | no diagnostic — `HAS_VAR` fast-path gate fires |
-| T5 | Negative (Linked): `Tag::Var` with `VarState::Link(int)` in `expr_types` | no diagnostic — `pool.resolve_fully` walks the link before HAS_VAR check |
-| T6 | Negative (Scheme BoundVar): body of `let id = x -> x` registered as a `Tag::Scheme` whose body references the scheme's bound var id | no diagnostic — `Tag::BoundVar` sets `HAS_BOUND_VAR`, not `HAS_VAR` |
-| T7 | Negative (Generalized): `Tag::Var` with `VarState::Generalized` | no diagnostic — Generalized is not an ambiguous-type violation |
+| T1 | Negative (Base): `let x = []` — body `expr_types` contains a fresh unbound `Tag::Var` | exactly one `E2005` emitted against the expression's span |
+| T2 | Negative (Applied): a user-defined generic type `Applied(MyGeneric, [Var])` — `Tag::Applied` with an unbound `Tag::Var` as a type argument, constructed directly in the pool | exactly one `E2005` — exercises `Tag::Applied` compound-tag walk via `Pool::visit_children` (Note: `Option<_>` is `Tag::Option`, not `Tag::Applied`; `Result<_, _>` is `Tag::Result`; `Tag::Applied` is for registered user generic types only — those dedicated tags are tested via T11 and other cells) |
+| T3 | Negative (Signature): `@f(x) = 42` — unannotated param `x` leaves a fresh `Tag::Var` in `FunctionSig.param_types[0]` | exactly one `E2005` emitted against `sig_span` (signature-validation path) |
+| T4 | Positive (Resolved Int): `let x: int = 42` | no diagnostic — `HAS_VAR` fast-path gate fires |
+| T5 | Positive (Linked): `Tag::Var` with `VarState::Link(int)` in `expr_types` | no diagnostic — `pool.resolve_fully` walks the link before HAS_VAR check |
+| T6 | Positive (Scheme BoundVar): body of `let id = x -> x` registered as a `Tag::Scheme` whose body references the scheme's bound var id | no diagnostic — `Tag::BoundVar` sets `HAS_BOUND_VAR`, not `HAS_VAR` |
+| T7 | Positive (Generalized): `Tag::Var` with `VarState::Generalized` | no diagnostic — Generalized is not an ambiguous-type violation (the implementation stores generalized vars as `Tag::Var(VarState::Generalized)`, not `Tag::BoundVar`; exempting this arm is correct for let-polymorphism — see algorithm sketch rationale) |
 | T8 | Cascade: body with both `HAS_ERROR` AND unbound `Tag::Var` in the same tree | no diagnostic — `HAS_ERROR` short-circuits before the walk reaches the Var (`types.md §TK-3`) |
-| T9 | Determinism: three unresolved Vars at `ExprIndex 3`, `1`, `2` respectively | three `E2005` diagnostics emitted in ascending ExprIndex order (1, 2, 3) |
+| T9 | Determinism: three unresolved Vars — one originates from `FunctionSig.param_types[0]` (signature) and two from `expr_types` at `ExprIndex 2` and `ExprIndex 1` respectively | three `E2005` diagnostics emitted in deterministic order: signature diagnostic first (sig_span), then body diagnostics in ascending ExprIndex order (1, then 2) — verifies both ExprIndex ordering AND that signature diagnostics precede body diagnostics |
 | T10 | Semantic pin for §02.0: `Tag::Scheme` whose body contains an unbound `Tag::Var`, passed DIRECTLY as an `expr_types` entry (not generalized) | exactly one `E2005` — REQUIRES the §02.0 flag-propagation fix to set `HAS_VAR` on the scheme Idx, otherwise the top-level gate skips and the bug is invisible |
+| T11 | Nested compound: `Tag::Option` wrapping `Tag::List` wrapping unbound `Tag::Var` (2-level nesting via dedicated tags) | exactly one `E2005` — exercises `Pool::visit_children` recursive descent through multiple compound levels using dedicated `Tag::Option` and `Tag::List` tags (not `Tag::Applied`) |
+| T12 | Dedup: two unbound `Tag::Var` nodes at the same `ExprIndex` (e.g., a `{K: V}` empty map producing key-var + value-var, both unbound, registered under one `ExprIndex`) | exactly one `E2005`, not two — verifies the short-circuit after first emission per `impl-hygiene.md §Deduplication by (Code, Span)` |
 
 ### 02.4.1 — Scaffolding pattern
 
@@ -701,8 +754,8 @@ use rustc_hash::FxHashMap;
 
 use ori_ir::Span;
 
-use crate::check::signatures::FunctionSig;
 use crate::check::validators::validate_body_types;
+use crate::output::FunctionSig;
 use crate::{ExprIndex, Idx, Pool, TypeErrorKind, TypeFlags};
 
 /// Spec: typeck.md §PC-2 — unbound Tag::Var in expr_types must emit E2005.
@@ -714,7 +767,27 @@ fn validate_body_types_with_unbound_var_in_expr_types_emits_e2005() {
     let mut expr_types: FxHashMap<ExprIndex, Idx> = FxHashMap::default();
     expr_types.insert(0usize, var_idx);
 
-    let sig = FunctionSig::test_fixture_with_return(Idx::INT); // real API TBD
+    let sig = FunctionSig {
+        name: Name::from("test"),
+        type_params: vec![],
+        const_params: vec![],
+        param_names: vec![],
+        param_types: vec![],
+        return_type: Idx::INT,
+        capabilities: vec![],
+        is_public: false,
+        is_test: false,
+        is_main: false,
+        is_fbip: false,
+        type_param_bounds: vec![],
+        where_clauses: vec![],
+        generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
+        required_params: 0,
+        param_defaults: vec![],
+        param_hashes: vec![],
+        return_hash: 0,
+    };
     let mut errors = Vec::new();
     validate_body_types(
         &pool,
@@ -734,15 +807,41 @@ fn validate_body_types_with_unbound_var_in_expr_types_emits_e2005() {
 }
 ```
 
-If `FunctionSig` has no ergonomic test constructor, add one via a
-`#[cfg(test)] impl FunctionSig { pub fn test_fixture_with_return(ret: Idx)
--> Self { ... } }` in its sibling file — NOT via a bespoke helper inside
-`validators/tests.rs` (keeps `FunctionSig`'s construction surface local to
-its module, `impl-hygiene.md §SSOT`).
+**`FunctionSig` construction for tests:** `FunctionSig` is a plain
+`pub struct` with all-pub fields (verified at
+`compiler/ori_types/src/output/mod.rs:373`), so direct construction is
+possible without a test fixture method. The test can construct it inline:
+```rust
+let sig = FunctionSig {
+    name: Name::from("test"),  // or a suitable Name constant
+    type_params: vec![],
+    const_params: vec![],
+    param_names: vec![],
+    param_types: vec![],
+    return_type: Idx::INT,
+    capabilities: vec![],
+    is_public: false,
+    is_test: false,
+    is_main: false,
+    is_fbip: false,
+    type_param_bounds: vec![],
+    where_clauses: vec![],
+    generic_param_mapping: vec![],
+    scheme_var_ids: vec![],
+    required_params: 0,
+    param_defaults: vec![],
+    param_hashes: vec![],
+    return_hash: 0,
+};
+```
+If field count growth makes this unwieldy, add a `#[cfg(test)]` helper
+in `output/tests.rs` (the sibling test file for `output/mod.rs`), NOT
+in `validators/tests.rs` (keeps FunctionSig construction local to its
+module, `impl-hygiene.md §SSOT`).
 
 ### 02.4.2 — Completion criteria
 
-- [ ] All ten cells present in
+- [ ] All twelve cells present in
   `compiler/ori_types/src/check/validators/tests.rs`, each with a
   behavioral name + a `///` doc comment citing the spec clause and/or
   rule anchor it pins.
@@ -758,8 +857,61 @@ its module, `impl-hygiene.md §SSOT`).
 
 ## 02.R Third Party Review Findings
 
-*Populated by `/tpr-review` on this section at close-out. Empty at
-authoring time.*
+- [x] **[TPR-02-001-codex][high] VarState::Generalized exemption needs design rationale.**
+  The algorithm sketch exempts `VarState::Generalized` from E2005 without explaining
+  why. The implementation stores generalized vars as `Tag::Var(VarState::Generalized)`,
+  not `Tag::BoundVar` (types.md SC-1 divergence), so `HAS_VAR` is set on scheme bodies
+  containing generalized vars. Rejecting them would break let-polymorphism.
+  **Resolution:** Added a comment block in the `VarState::Generalized` arm of
+  `collect_first_unbound_var` explaining the SC-1 divergence, the correct behavior,
+  and the future clean-up path. Updated T7's description to reference this rationale.
+
+- [x] **[TPR-02-002-codex][medium] T2 and T11 use `Option<_>` which hits `Tag::Option`, not `Tag::Applied`.**
+  The matrix claimed `Tag::Applied` coverage but neither cell actually exercised it.
+  `Option<_>` is a dedicated `Tag::Option` tag; `Tag::Applied` is for user-defined
+  generic types only.
+  **Resolution:** Changed T2 to use a `Tag::Applied` type constructed directly in
+  the pool (user-defined generic). Changed T11 to use `Tag::Option` wrapping
+  `Tag::List` (dedicated tag path). Added a note to T2 clarifying the tag taxonomy.
+
+- [x] **[TPR-02-003-codex][medium] §03 and §05 reference stale §02 API.**
+  The old 4-param signature and `pub mod check` design referenced by §03 and §05
+  are superseded by the current 6-param signature and private `mod check` design.
+  **Resolution:** Added a checklist item in §02.N requiring §03 and §05 to be
+  updated to reference the final 6-parameter API, private `mod check` design, and
+  twelve-cell validator matrix before §02 close-out.
+
+- [x] **[TPR-02-004-codex][low] Test scaffolding uses wrong API.**
+  The T1 sketch used `FunctionSig::test_fixture_with_return` (non-existent) and
+  `required_params: vec![]` (wrong type — the real field is `usize`).
+  **Resolution:** Replaced the `FunctionSig::test_fixture_with_return` call in
+  the T1 sketch with the inline construction pattern already shown in §02.4.1.
+  Changed `required_params: vec![]` to `required_params: 0` in both the T1 sketch
+  and the inline construction example.
+
+- [x] **[TPR-02-001-gemini][medium] Missing dedup test cell.**
+  No test cell explicitly verified that multiple unbound `Tag::Var` nodes under
+  one `ExprIndex` produce exactly one E2005, not two. T8 tests `HAS_ERROR`
+  cascade suppression — a different dedup path.
+  **Resolution:** Added T12 (Dedup): "Two unbound `Tag::Var` nodes at the same
+  `ExprIndex` produce exactly one E2005." Updated all "eleven cells" references
+  to "twelve cells" throughout the file (frontmatter success_criteria, section
+  title, section header, completion criteria item).
+
+- [x] **[TPR-02-002-gemini][medium] T9 tests ExprIndex ordering but not sig-before-body ordering.**
+  The determinism cell did not verify that signature diagnostics precede body
+  diagnostics, leaving the `sig → body` ordering guarantee untested.
+  **Resolution:** Updated T9 to include one diagnostic from `FunctionSig.param_types[0]`
+  (signature) and two from `expr_types` at ascending indices, verifying that all
+  three emit in order: sig first, then body in ascending ExprIndex order.
+
+- [x] **[TPR-02-003-gemini][low] Positive/Negative label convention inverted.**
+  T1 (emits E2005 = error path) was labeled "Positive" and T4 (clean validation)
+  was labeled "Negative". By convention, Negative = error path (rejects bad input),
+  Positive = clean path (accepts good input).
+  **Resolution:** Swapped labels throughout the matrix: T1, T2, T3 (emit E2005)
+  → "Negative"; T4, T5, T6, T7 (produce no diagnostic) → "Positive". Updated
+  the frontmatter success_criteria note to spell out the convention explicitly.
 
 ---
 
@@ -795,6 +947,27 @@ At section completion (mirrors 01.N / 03.N shape), before flipping
 - [ ] `plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md`
   frontmatter `depends_on: ["01", "02"]` — confirm no new external blocker
   was introduced.
+- [ ] Sections 03 and 05 updated to reference the final 6-parameter
+  `validate_body_types` API (pool, expr_types, sig, sig_span, span_of,
+  errors), the private `mod check;` design (no `pub mod check`), and the
+  twelve-cell validator matrix (T1–T12).
+
+---
+
+## Cross-Section File Contention
+
+The following files are touched by §02 AND by other sections. The ordering
+dependency is noted to prevent merge conflicts and partial-state commits
+(`CLAUDE.md §Stabilization Discipline`):
+
+| File | §02 scope | Other section(s) | Ordering note |
+|------|-----------|-------------------|---------------|
+| `check/validators/mod.rs` | Created | §05 (test matrix references) | §02 creates; §05 reads |
+| `check/validators/tests.rs` | Created | §05 (adds matrix cells) | §02 creates with T1-T12; §05 may add additional end-to-end cells |
+| `pool/mod.rs` | §02.0 (compute_flags fix) | None in this plan | No contention |
+| `pool/descriptor.rs` | §02.2 (visibility promotion) | None in this plan | No contention |
+| `check/mod.rs` | §02.3 (`pub mod validators;`) | §03 (calls from bodies/) | §02 adds module declaration; §03 adds call sites in sibling bodies/ module |
+| `lib.rs` | §02.3 (narrow re-export) | None in this plan | No contention |
 
 ---
 
