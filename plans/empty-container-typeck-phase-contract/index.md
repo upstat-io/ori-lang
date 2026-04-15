@@ -4,7 +4,7 @@ name: "Empty-Container Typeck"
 full_name: "Empty-Container Typeck Phase-Contract Enforcement"
 status: active
 reviewed: false
-order: 12
+order: 1
 ---
 
 # Empty-Container Typeck Phase-Contract Enforcement Index
