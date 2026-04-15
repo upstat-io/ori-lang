@@ -7,12 +7,12 @@ goal: "Every new plan section carries an unnumbered `## Intelligence Reconnaissa
 success_criteria:
   - "`.claude/skills/create-plan/plan-schema.md` Section File Template includes an unnumbered `## Intelligence Reconnaissance` block after the section framing (Goal / Context / Reference / Depends on) and BEFORE `## {NN}.1`; the block does NOT appear in the `sections:` frontmatter list"
   - "`.claude/skills/create-plan/SKILL.md:808` cites `plan-schema.md` as the single SSOT for section-level structural invariants — no re-assertion of the `{NN}.1, {NN}.2, ...` close-out structure"
-  - "Explicit format-coupling contract: plan-resident recon summaries (§06) and `pre-review-intel.sh` hook-injected summaries (§07) share the exact §03 composition grammar — same helper source (`.claude/skills/dual-tpr/compose-intel-summary.md`), same ≤500-char bound, same `[ori]` / `[repo#N]` citation markers, same fallback string `\"Intelligence reconnaissance skipped: graph unavailable\"`. Drift between §03/§06/§07 is a DRIFT:scattered-knowledge finding."
-  - "`python -m scripts.plan_corpus check` (the correct invocation per `scripts/plan_corpus/__main__.py`) distinguishes WARNING-level from ERROR-level findings via a new exit-code policy: exit 0 when all findings map to WARNING (`Severity.LOW` / `Severity.MEDIUM`); exit 1 when any finding is ERROR (`Severity.HIGH` / `Severity.CRITICAL`). `--strict-recon` escalates missing-recon findings on `status: not-started` PLAN_SECTION files from WARNING to ERROR."
-  - "Validator pipeline carries `body_text` end-to-end: `scripts/plan_corpus/schema.py` `FILE_CLASS_META` entry for `PLAN_SECTION` declares a body-level validator phase in addition to the frontmatter validator; `scripts/plan_corpus/discovery.py:load_and_validate` (per `ValidatedFile`) passes `body_text` into that phase. The refactor choice (new signature vs. parallel phase) is documented in §06.2 with rationale."
-  - "Anti-performative-ritual detection: validator flags as `GAP:validation-bypass` any recon block that is (a) header-present-but-empty / whitespace-only, (b) body containing only placeholder tokens (`TBD`, `none`, `n/a`, `todo`, `(empty)`, ellipsis-only), or (c) body with NO concrete citation (no `[ori]` marker, no `[rust#` / `[swift#` / `[koka#` / similar cross-repo citation marker, no literal fallback string)."
+  - "Explicit format-coupling contract: plan-resident recon summaries (§06) and `pre-review-intel.sh` hook-injected summaries (§07) share the exact §03 Step D composition grammar — same helper source (`.claude/skills/dual-tpr/compose-intel-summary.md` §Step D, lines 64-82), same ≤500-char bound, same 5-bullet cap, same `[ori]` / `[repo#N]` / `[repo:path]` citation markers, same graceful-degradation behavior (block omitted entirely — or recorded as freeform prose `\"Graph was unavailable at YYYY-MM-DD when this section was authored\"` for the plan-resident artifact — when `scripts/intel-query.sh status` returns unavailable; NO sentinel string is matched by the validator). Drift between §03/§06/§07 is a DRIFT:scattered-knowledge finding."
+  - "`python -m scripts.plan_corpus check` (the correct invocation per `scripts/plan_corpus/__main__.py`) uses a distinct `Outcome` axis (`WARNING` / `ERROR`) that is independent of `Severity`. Severity is set by the emitter (`LOW` / `MEDIUM` / `HIGH` / `CRITICAL` — impact classification). Outcome is set by the emitter per enforcement mode, NOT auto-derived from Severity. Exit-code policy: exit 0 when no finding has `Outcome.ERROR`; exit 1 when any finding has `Outcome.ERROR`. Default mode: a `status: not-started` missing-recon finding is `Severity.HIGH` + `Outcome.WARNING`. `--strict-recon` mode: the SAME finding is `Severity.HIGH` + `Outcome.ERROR` (Severity unchanged; Outcome rewritten at Finding-construction time)."
+  - "Validator pipeline carries body text end-to-end: `scripts/plan_corpus/schema.py` `FILE_CLASS_META` entry for `PLAN_SECTION` declares a body-level validator phase in addition to the frontmatter validator; `scripts/plan_corpus/discovery.py:load_and_validate(path)` (per `ValidatedFile` — real field name is `body`, per `discovery.py:212`; real frontmatter access is `vf.data[...]`, per `discovery.py:210`) passes `body` into that phase. The refactor choice (new signature vs. parallel phase) is documented in §06.2 with rationale."
+  - "Anti-performative-ritual detection: validator flags as `GAP:validation-bypass` any recon block that is (a) header-present-but-empty / whitespace-only, (b) body containing only placeholder tokens (`TBD`, `none`, `n/a`, `todo`, `(empty)`, ellipsis-only), OR fails ANY of the three concrete-content requirements: (c) no literal `scripts/intel-query.sh` command line (matched via regex `\\bscripts/intel-query\\.sh\\b` — must appear in the block body), (d) no date marker in ISO format `YYYY-MM-DD` within the block, (e) no concrete citation marker (`[ori]`, `[rust#N]`, `[swift#N]`, `[koka#N]`, etc.). Missing any ONE of (c), (d), (e) triggers `GAP:validation-bypass`."
   - "`python -m scripts.plan_corpus discover` reports per-plan recon coverage grouped by section `status` — the reporter §09 consumes to measure retrofit completion against `not-started` sections only."
-  - "Matrix tests in `tests/plan-audit/test_recon_block.py` cover the full (FileClass × body-shape × severity-mode) matrix: (PLAN_SECTION / ROADMAP_SECTION / BUG_TRACKER_SECTION / FIX_BUG) × (present-with-content / present-with-placeholder / present-empty / absent) × (default / `--strict-recon`) — positive pins AND negative pins (ROADMAP_SECTION / BUG_TRACKER_SECTION / FIX_BUG are EXEMPT; missing recon on them produces zero findings)."
+  - "Matrix tests in `tests/plan-audit/test_recon_block.py` cover the full (FileClass × body-shape × severity-mode) matrix: (PLAN_SECTION / ROADMAP_SECTION / BUG_TRACKER_SECTION / FIX_BUG) × (present-with-content / present-with-placeholder / present-empty / absent / present-no-query / present-no-date / present-no-citation) × (default / `--strict-recon`) — positive pins AND negative pins. Exempt-class negative pins: ROADMAP_SECTION × (absent / present-empty / present-placeholder / present-no-citation) × (default / `--strict-recon`) → ALL zero findings; BUG_TRACKER_SECTION × same → ALL zero; FIX_BUG × same → ALL zero. These confirm exempt classes produce zero findings regardless of body shape or enforcement mode."
 inspired_by:
   - "Phase 2 dual-source convergence (Codex + Gemini, 2026-04-14): §06.2's 'extend validator' wording understated the work — validator architecture changes are required (body_text propagation, severity→outcome model, anti-stub detection), not a minor extension"
   - "CLI entrypoint SSOT: `scripts/plan_corpus/__main__.py` per CLAUDE.md line 167; earlier draft called `scripts/plan_corpus.py check` — no such file exists"
@@ -56,13 +56,19 @@ sections:
 
 **Design decision 3 — methodology + results, NOT raw SSOT expansion.** The block stores: (1) the literal `scripts/intel-query.sh` commands the author ran, (2) a ≤500-char results summary, (3) the date. It does NOT `@`-include the SSOT protocol. `@`-includes are expanded by the harness at skill/command prompt-expansion time but NOT in plan-file markdown — `grep -rEn '^@\.' plans/` returns zero hits today. Embedding `@.claude/skills/dual-tpr/compose-intel-summary.md` in a plan body produces a dead literal; embedding the expanded SSOT protocol would be a `LEAK:algorithmic-duplication` — the exact pathology §03 just fixed for 18 consumers. The recon block records WHAT was done; the SSOT records HOW — one-way reference, no content copy.
 
-**Design decision 4 — WARNING vs ERROR as a finding-outcome axis, not just severity.** `scripts/plan_corpus/__main__.py:37` currently does `return 1 if all_findings else 0`, so any finding fails `check` regardless of severity. And `scripts/plan_corpus/types.py:48` defines `Severity` as `LOW / MEDIUM / HIGH / CRITICAL` — not `WARNING / ERROR`. Severity alone is insufficient for a gate because a `MEDIUM` recon stub in a `not-started` section and a `MEDIUM` recon stub in an `in-progress` section have different operational meanings. §06.2 therefore introduces a distinct `Outcome` axis (`WARNING` / `ERROR`) derived from `Severity + context`: by default `HIGH` / `CRITICAL` → ERROR and `LOW` / `MEDIUM` → WARNING; `--strict-recon` escalates missing-recon warnings on `status: not-started` PLAN_SECTION files to ERROR. The exit policy is `exit 1 iff any finding has Outcome == ERROR`.
+**Design decision 4 — Severity and Outcome are INDEPENDENT axes.** `scripts/plan_corpus/__main__.py:37` currently does `return 1 if all_findings else 0`, so any finding fails `check` regardless of severity. And `scripts/plan_corpus/types.py:48` defines `Severity` as `LOW / MEDIUM / HIGH / CRITICAL` — not `WARNING / ERROR`. Severity alone is insufficient for a gate because the enforcement context matters independently of impact. §06.2 introduces a distinct `Outcome` axis:
 
-**Design decision 5 — status-gated severity, not A/B/C operator menu.** Combined with the corpus already carrying a `status` field, the validator reads each PLAN_SECTION's `frontmatter.status` and applies: `not-started` missing recon → `Severity.HIGH`; `in-progress` missing recon → `Severity.MEDIUM` (escalating to `HIGH` on the next body edit via a `check --on-edit` mode or lefthook wiring); `complete` → exempt. This is the objective, data-driven severity model that replaces §06's earlier A/B/C retrofit menu (now gone; retrofit is §09).
+  - **Severity** is set by the emitter — `LOW` / `MEDIUM` / `HIGH` / `CRITICAL` — per the impact classification of the finding. It reflects "how bad is this?"
+  - **Outcome** is set by the emitter — `WARNING` / `ERROR` — per the enforcement mode. It reflects "does this gate the check?" Outcome is NOT auto-derived from Severity; both are set explicitly at `Finding`-construction time.
+  - **Default mode:** `status: not-started` missing recon → `Severity.HIGH` + `Outcome.WARNING`. `status: in-progress` missing recon → `Severity.MEDIUM` + `Outcome.WARNING`.
+  - **`--strict-recon` mode:** `status: not-started` missing recon → `Severity.HIGH` + `Outcome.ERROR` (Severity unchanged; Outcome rewritten). `status: in-progress` is unaffected by `--strict-recon`.
+  - **Exit policy:** `exit 1 iff any finding has Outcome == ERROR`.
+
+**Design decision 5 — status-gated severity, not A/B/C operator menu.** Combined with the corpus already carrying a `status` field, the validator reads each PLAN_SECTION's `data["status"]` (where `data` is `ValidatedFile.data`, the parsed frontmatter dict) and applies: `not-started` missing recon → `Severity.HIGH`, `Outcome.WARNING` (default) or `Outcome.ERROR` (`--strict-recon`); `in-progress` missing recon → `Severity.MEDIUM`, `Outcome.WARNING`; `complete` → exempt (0 findings). This is the objective, data-driven model that replaces §06's earlier A/B/C retrofit menu (now gone; retrofit is §09).
 
 **Design decision 6 — `--strict-recon` as a CLI flag, not a corpus-wide frontmatter.** An earlier draft proposed a per-plan `strict_recon: bool` on `00-overview.md`. That model requires the `PlanSectionSchema` / `OverviewSchema` to accept a new frontmatter field (currently `schema.py:264` rejects unknown keys) and creates corpus-wide state that's hard to preview. Making it a CLI flag keeps policy at the invocation site: CI can pin `--strict-recon` for `not-started` sections; local runs default to warnings-only. No schema widening needed for policy — §06 does NOT add any frontmatter field to `OverviewSchema`.
 
-**Design decision 7 — format coupling with §03 and §07 is a CONTRACT, not a convention.** `00-overview.md:144` already states "§07 hook output format MUST match §03's bounded summary template exactly." §06 extends this into a three-way coupling: §03 helper (source), §06 recon block (plan-body artifact), §07 hook injection (runtime prompt artifact) — all three share the same ≤500-char bound, the same `[ori]` / `[repo#N]` citation grammar, and the same fallback-string `"Intelligence reconnaissance skipped: graph unavailable"`. Drift among the three is a `DRIFT:scattered-knowledge` finding. §06.1's template text names this contract explicitly; §06.2's anti-stub detector enforces the citation-grammar half; §07's plan file cites §06's contract back.
+**Design decision 7 — format coupling with §03 and §07 is a CONTRACT, not a convention.** `00-overview.md:144` already states "§07 hook output format MUST match §03's bounded summary template exactly." §06 extends this into a three-way coupling: §03 helper (source), §06 recon block (plan-body artifact), §07 hook injection (runtime prompt artifact) — all three share the same ≤500-char bound, the same 5-bullet cap, the same `[ori]` / `[repo#N]` / `[repo:path]` citation grammar, and the same graceful-degradation behavior: when `scripts/intel-query.sh status` returns unavailable, the §07 hook omits the summary entirely (per `compose-intel-summary.md` lines 222-227: "entire summary is OMITTED"), and the §06 plan-resident artifact records the graph-unavailable state as freeform prose (e.g. `"Graph was unavailable at YYYY-MM-DD when this section was authored"`) — NOT a sentinel string matched by the validator. Drift among the three surfaces is a `DRIFT:scattered-knowledge` finding. §06.1's template text names this contract explicitly; §06.2's anti-stub detector enforces the citation-grammar half; §07's plan file cites §06's contract back.
 
 **Reference implementations:**
 - **Ori** `.claude/skills/create-plan/plan-schema.md` existing Section File Template (lines 236-508) — §06.1 edit target
@@ -115,14 +121,14 @@ Two surfaces describe section-level structural invariants today: `plan-schema.md
   - `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — {one-line outcome} (blast radius for every public API the section changes)
   - `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,koka --limit 5` — {one-line outcome} (cross-repo prior art for design decisions)
 
-  Results summary (≤500 chars) [ori]: {bounded paragraph citing blast radius, cross-repo prior art, relevant symbols. Use `[ori]` for Ori-repo claims and `[rust#N]` / `[swift#N]` / `[koka#N]` / etc. for cross-repo citations — the same grammar used by `compose-intel-summary.md` Step D and by §07's hook injection. If the graph is unavailable, use the exact fallback string `"Intelligence reconnaissance skipped: graph unavailable"` — do NOT silently skip the block.}
+  Results summary (≤500 chars) [ori]: {bounded paragraph citing blast radius, cross-repo prior art, relevant symbols. Use `[ori]` for Ori-repo claims, `[rust#N]` / `[swift#N]` / `[koka#N]` / etc. for cross-repo issue citations, and `[repo:path]` for symbol results — the same grammar used by `compose-intel-summary.md` Step D (lines 64-82) and by §07's hook injection. Maximum 5 bullets, 500 characters. If the graph is unavailable, record the unavailability state as freeform prose (e.g. `"Graph was unavailable at YYYY-MM-DD when this section was authored"`) — do NOT silently omit the block; the block MUST still exist with the date and a note about unavailability so the validator recognizes it as intentional rather than forgotten.}
 
   See `.claude/skills/dual-tpr/compose-intel-summary.md` for the full query protocol (SSOT — do NOT `@`-include in plan files; plan markdown is not harness-expanded, so the include would be a dead literal).
   ```
 
   **Placement requirement:** AFTER all section framing (Goal, Success Criteria, Context, Reference implementations, Depends on) and BEFORE the first numbered subsection (`## {NN}.1`). The block is structurally parallel to the framing blocks — not a subsection.
 
-  **Format-coupling contract:** the block's ≤500-char summary format, `[ori]` / `[repo#N]` citation grammar, and `"Intelligence reconnaissance skipped: graph unavailable"` fallback string are IDENTICAL to §03's `compose-intel-summary.md` output and §07's `pre-review-intel.sh` hook-injected output. Drift among the three is a `DRIFT:scattered-knowledge` finding (see §06 Design decision 7).
+  **Format-coupling contract:** the block's ≤500-char / 5-bullet summary format and `[ori]` / `[repo#N]` / `[repo:path]` citation grammar match §03's `compose-intel-summary.md` Step D output (lines 64-82) and §07's `pre-review-intel.sh` hook-injected output. Graceful degradation: §07 hook omits the summary entirely when graph is unavailable (per `compose-intel-summary.md` lines 222-227); §06 plan-resident artifact records the graph-unavailable state as freeform prose (e.g. "Graph was unavailable at YYYY-MM-DD when this section was authored") — NOT a sentinel string matched by the validator. Drift among the three surfaces is a `DRIFT:scattered-knowledge` finding (see §06 Design decision 7).
 
 - [ ] **plan-schema.md — replace the "MANDATORY SUBSECTION STRUCTURE" comment (currently lines 315-326) with "MANDATORY SECTION STRUCTURE"** covering both load-bearing invariants:
 
@@ -137,8 +143,9 @@ Two surfaces describe section-level structural invariants today: `plan-schema.md
      literal `scripts/intel-query.sh` commands the author ran, a
      ≤500-char results summary (using the same `[ori]` / `[repo#N]`
      citation grammar as `.claude/skills/dual-tpr/compose-intel-summary.md`
-     Step D), and the date. Coexists with §07's runtime hook: the hook
-     skips injection when this block is present and non-stub. Enforced
+     Step D, lines 64-82), and the date. Coexists with §07's runtime hook:
+     the hook omits the summary entirely when graph is unavailable; the
+     plan-resident block records unavailability as freeform prose. Enforced
      by `python -m scripts.plan_corpus check` — the validator gates
      severity on the section's `status` field:
        - status: not-started → Severity.HIGH (ERROR under --strict-recon)
@@ -188,7 +195,7 @@ Two surfaces describe section-level structural invariants today: `plan-schema.md
 - [ ] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
   - [ ] Template changes land; `plan-schema.md` renders with the unnumbered `## Intelligence Reconnaissance` block in the canonical example AND the scope note (PLAN_SECTION only) in the MANDATORY SECTION STRUCTURE comment
   - [ ] `create-plan/SKILL.md:808` updated to cite plan-schema.md rather than re-state invariants, including the PLAN_SECTION-only scope note
-  - [ ] Format-coupling contract text is present in both the template block and the MANDATORY SECTION STRUCTURE comment; the `[ori]` / `[repo#N]` citation grammar and fallback string are named verbatim
+  - [ ] Format-coupling contract text is present in both the template block and the MANDATORY SECTION STRUCTURE comment; the `[ori]` / `[repo#N]` / `[repo:path]` citation grammar and graceful-degradation behavior (block omitted for §07 hook; freeform prose for §06 plan-resident artifact) are named explicitly
   - [ ] `grep -rn "EVERY subsection\|{NN}.1, {NN}.2" .claude/` shows only plan-schema.md as authoritative site
   - [ ] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-06-plan-schema-recon.md` still returns 0 (this file's own recon block above is already non-stub; 06.1 changes do not falsely trigger the not-yet-landed 06.2 validation)
   - [ ] Update `06.1` status to `complete`
@@ -204,7 +211,7 @@ Two surfaces describe section-level structural invariants today: `plan-schema.md
 
 Four implementation gaps block the enforcement contract:
 
-1. **Body-text does not reach validators.** `scripts/plan_corpus/schema.py:487` — `validate(fc, data, path)` takes only frontmatter. `scripts/plan_corpus/discovery.py:268 load_and_validate` splits body text into `ValidatedFile.body_text` but never passes it into the validator dispatch. Body-level recon detection requires plumbing or a parallel phase.
+1. **Body text does not reach validators.** `scripts/plan_corpus/schema.py:487` — `validate(fc, data, path)` takes only frontmatter. `scripts/plan_corpus/discovery.py:268 load_and_validate(path)` splits body text into `ValidatedFile.body` (real field name per `discovery.py:212`) but never passes it into the validator dispatch. Body-level recon detection requires plumbing or a parallel phase.
 2. **No WARNING/ERROR outcome model.** `scripts/plan_corpus/__main__.py:37` does `return 1 if all_findings else 0`. Severity distinctions are not expressible as exit codes.
 3. **No status-gated severity.** Validators receive frontmatter `data` but don't branch on `data.get("status")` when emitting recon-block findings.
 4. **No anti-performative-ritual detection.** Nothing today rejects "header-present, body-empty" or "header-present, no citation" stubs.
@@ -212,6 +219,8 @@ Four implementation gaps block the enforcement contract:
 All four must be fixed together; any one alone leaves the enforcement path broken.
 
 - [ ] **Fix CLI entrypoint DRIFT.** Grep the plan corpus and the `.claude/` tree for legacy references to `scripts/plan_corpus.py` (with the `.py` suffix — the file does NOT exist; the package is invoked as `python -m scripts.plan_corpus`). Command: `grep -rn "scripts/plan_corpus\.py" .claude/ plans/ docs/ scripts/`. Replace every hit with `python -m scripts.plan_corpus`. Include CLAUDE.md §Commands and this plan's own success-criteria lines. Capture the count of replaced occurrences in the close-out note.
+
+- [ ] **Add `MISSING_RECON_BLOCK` and `VALIDATION_BYPASS` to the `FindingSubtype` enum** in `scripts/plan_corpus/types.py` (around line 85). Register both under `FindingCategory.GAP` in the `_CATEGORY_SUBTYPES` dict (around line 153, within the `FindingCategory.GAP: frozenset({...})` block). The validator then emits `Finding(category=FindingCategory.GAP, subtype=FindingSubtype.MISSING_RECON_BLOCK, ...)` for missing blocks and `Finding(category=FindingCategory.GAP, subtype=FindingSubtype.VALIDATION_BYPASS, ...)` for stub/ritual blocks — type-safe, no raw string comparison. Without this, `Finding` construction raises `ValueError` because `FindingSubtype` is an enum and `_CATEGORY_SUBTYPES` validation rejects unregistered members.
 
 - [ ] **Add `Outcome` enum to `scripts/plan_corpus/types.py`.** Distinct axis from `Severity`:
   ```python
@@ -221,7 +230,7 @@ All four must be fixed together; any one alone leaves the enforcement path broke
       WARNING = "warning"   # printed, does NOT affect exit code
       ERROR = "error"       # printed AND forces exit 1
   ```
-  Add `outcome: Outcome` to the `Finding` dataclass with a default derived from severity (`HIGH`/`CRITICAL` → `ERROR`; `LOW`/`MEDIUM` → `WARNING`). Update `to_markdown` / `to_json` to render the outcome channel. Do NOT rename the `Severity` enum — `LOW`/`MEDIUM`/`HIGH`/`CRITICAL` is the established taxonomy and is consumed elsewhere in the package.
+  Add `outcome: Outcome` to the `Finding` dataclass. Outcome is set EXPLICITLY by each emitter at `Finding`-construction time — it is NOT auto-derived from Severity. The two axes are independent: Severity answers "how bad?" and Outcome answers "does this gate?" For recon-block findings specifically: `status: not-started` missing recon → `Severity.HIGH` + `Outcome.WARNING` (default) or `Outcome.ERROR` (`--strict-recon`); `status: in-progress` → `Severity.MEDIUM` + `Outcome.WARNING`. Other emitters (schema violations, parse errors, etc.) continue to set their own Outcome per existing behavior. Update `to_markdown` / `to_json` to render the outcome channel. Do NOT rename the `Severity` enum — `LOW`/`MEDIUM`/`HIGH`/`CRITICAL` is the established taxonomy and is consumed elsewhere in the package.
 
 - [ ] **Rewrite the exit-code policy in `scripts/plan_corpus/__main__.py`.** Replace:
   ```python
@@ -232,35 +241,40 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   errors = [f for f in all_findings if f.outcome == Outcome.ERROR]
   return 1 if errors else 0
   ```
-  Keep print/JSON output for ALL findings including warnings. Update `check` help text: `'Validate a file or directory (exits 1 only on findings with Outcome.ERROR; WARNING findings are printed but non-gating)'`. Add a `--strict-recon` flag: when set, any missing/stub recon-block finding on a `status: not-started` PLAN_SECTION is promoted from WARNING to ERROR (regardless of the Severity default).
+  Keep print/JSON output for ALL findings including warnings. Update `check` help text: `'Validate a file or directory (exits 1 only on findings with Outcome.ERROR; WARNING findings are printed but non-gating)'`. Add a `--strict-recon` flag to the `check` subcommand parser. Plumbing path: `__main__.py` parses `args.strict_recon` → passes to `load_and_validate(path, strict_recon=args.strict_recon)` → `load_and_validate` passes to `validate(..., strict_recon=strict_recon)` → `validate` passes to the `body_validator` dispatch → `_check_intel_recon_block(data, body, path, strict_recon=strict_recon)`. When `strict_recon=True`, the function constructs `Finding(..., outcome=Outcome.ERROR)` directly for `status: not-started` missing/stub recon — it does NOT mutate an existing Finding (Finding is `frozen=True`).
 
 - [ ] **Refactor `FILE_CLASS_META` to carry a body-level validator in addition to the frontmatter validator.** Two viable refactor shapes — §06.2 picks shape (a) with rationale documented inline:
 
-  - (a) **Extend `FileClassMeta` with a `body_validator: Callable[[dict, str, Path], list[Finding]] | None` field** (None for classes without body-level checks). `validate(file_class, data, body_text, path)` calls both validators sequentially and concatenates findings. `discovery.load_and_validate` already produces `body_text`; the call site passes it through. Rationale: one dispatch mechanism, explicit per-class opt-in, no parallel phase. (Shape (b) — a post-schema body-check phase registered separately — is rejected because it duplicates the dispatch plumbing and would drift from the class-keyed registry that docgen already relies on.)
-  - Update the `validate()` signature and EVERY call site (`discovery.py`, any direct callers). Use `rg` to find all call sites BEFORE editing; list them in the commit message. This is a `- [ ]` item, not a deferral — signature propagation IS the work.
+  - (a) **Extend `FileClassMeta` with a `body_validator: Callable[[dict, str, Path, bool], list[Finding]] | None` field** (None for classes without body-level checks). The `bool` parameter is `strict_recon`. Update `validate()` signature to `validate(file_class, data, body, path, *, strict_recon: bool = False)` — calls both frontmatter and body validators sequentially and concatenates findings. `discovery.load_and_validate(path, *, strict_recon: bool = False)` already produces `ValidatedFile.body` (real field name per `discovery.py:212`); the call site passes it through along with `strict_recon`. Rationale: one dispatch mechanism, explicit per-class opt-in, no parallel phase. (Shape (b) — a post-schema body-check phase registered separately — is rejected because it duplicates the dispatch plumbing and would drift from the class-keyed registry that docgen already relies on.)
+  - Update the `validate()` signature and EVERY call site (`discovery.py:267`, any direct callers). Use `rg 'schema\.validate\(' scripts/ tests/` to find all call sites BEFORE editing; list them in the commit message. This is a `- [ ]` item, not a deferral — signature propagation IS the work.
+  - Update `load_and_validate()` signature to `load_and_validate(path: Path, *, strict_recon: bool = False)` and thread `strict_recon` through to `validate()`.
+  - Thread `strict_recon` from CLI: `scripts/plan_corpus/__main__.py` parses the `--strict-recon` flag and passes it down through `load_and_validate(path, strict_recon=args.strict_recon)` → `validate(..., strict_recon=strict_recon)` → body_validator. Since `Finding` is `frozen=True`, the validator constructs Finding with the correct Outcome directly at creation time — NOT via mutation after construction.
   - For classes with `body_validator = None` (ROADMAP_SECTION, BUG_TRACKER_SECTION, FIX_BUG, the various overview / index classes), the extended dispatch is a no-op. Negative-pin tests (§06.2 matrix) confirm zero findings fire.
 
-- [ ] **Implement `_check_intel_recon_block(data: dict, body_text: str, path: Path) -> list[Finding]`** in `scripts/plan_corpus/schema.py`. Attach it as the `body_validator` for `FileClass.PLAN_SECTION` only. Detection rules:
+- [ ] **Implement `_check_intel_recon_block(data: dict, body: str, path: Path, *, strict_recon: bool = False) -> list[Finding]`** in `scripts/plan_corpus/schema.py`. Attach it as the `body_validator` for `FileClass.PLAN_SECTION` only. Detection rules:
 
-  - **Missing block** — no `^## Intelligence Reconnaissance\s*$` header found via `re.search(..., re.MULTILINE)` on `body_text`.
-    - `status: not-started` → `Severity.HIGH`, `Outcome.WARNING` by default, `Outcome.ERROR` under `--strict-recon`
-    - `status: in-progress` → `Severity.MEDIUM`, `Outcome.WARNING`
+  - **Missing block** — no `^## Intelligence Reconnaissance\s*$` header found via `re.search(..., re.MULTILINE)` on `body`.
+    - `status: not-started` → `Severity.HIGH`, `Outcome.WARNING` by default; `Severity.HIGH`, `Outcome.ERROR` under `--strict-recon`
+    - `status: in-progress` → `Severity.MEDIUM`, `Outcome.WARNING` (unaffected by `--strict-recon`)
     - `status: complete` → 0 findings (exempt)
-    - `FindingCategory.GAP`, message cites `.claude/skills/dual-tpr/compose-intel-summary.md` as the SSOT protocol
+    - `FindingCategory.GAP`, `FindingSubtype.MISSING_RECON_BLOCK`, message cites `.claude/skills/dual-tpr/compose-intel-summary.md` as the SSOT protocol
 
   - **Stub / performative-ritual block** (header present but body fails one or more concrete-content checks):
     - Block body is empty / whitespace-only between the header and the next `^## ` (or end-of-file), OR
     - Block body contains only placeholder tokens. Tokens (case-insensitive, whole-token match): `TBD`, `none`, `n/a`, `todo`, `(empty)`, ellipsis-only (`...`, `…`), OR
-    - Block body contains NO concrete citation marker: no literal `[ori]`, no cross-repo citation marker matching `\[(?:rust|swift|go|koka|lean4|gleam|elm|roc|zig|ts|typescript)#\d+\]`, AND no literal fallback string `"Intelligence reconnaissance skipped: graph unavailable"`, OR
+    - Block body fails ANY of the three concrete-content requirements:
+      - (a) No literal `scripts/intel-query.sh` command line (matched via regex `\bscripts/intel-query\.sh\b` — must appear in the block body)
+      - (b) No date marker in ISO format `YYYY-MM-DD` within the block (matched via regex `\d{4}-\d{2}-\d{2}`)
+      - (c) No concrete citation marker: no literal `[ori]`, no cross-repo citation marker matching `\[(?:rust|swift|go|koka|lean4|gleam|elm|roc|zig|ts|typescript)#\d+\]`
     - Block body pastes the literal `@.claude/skills/dual-tpr/compose-intel-summary.md` directive verbatim without a condensed summary paragraph following it (the `@`-include is a SOURCE for Claude's prompt, NOT a substitute for the plan-resident snapshot)
     - Severity / outcome mapping identical to "missing block" above
-    - `FindingCategory.GAP`, subtype string `"validation-bypass"`, message names which check failed
+    - `FindingCategory.GAP`, `FindingSubtype.VALIDATION_BYPASS`, message names which specific check(s) failed (missing query / missing date / missing citation / placeholder-only / empty)
 
   - **Complete block** — header present AND body passes all concrete-content checks → empty list (no findings)
 
   Block-body extraction: slurp from the line after the header to the next `^## ` or end-of-file. Strip whitespace and HTML comments (`<!-- ... -->`) before token / citation checks. HTML comments are metadata, not content.
 
-- [ ] **Wire body_text through `scripts/plan_corpus/discovery.py:load_and_validate`.** `ValidatedFile` already carries `body_text`; the dispatch to `validate(...)` currently passes only frontmatter. Update the call site to pass `body_text` through per the new `validate()` signature. Use `rg 'schema\.validate\('` to find all call sites before editing.
+- [ ] **Wire body through `scripts/plan_corpus/discovery.py:load_and_validate`.** `ValidatedFile` already carries `body` (real field name per `discovery.py:212`); the dispatch to `validate(...)` at `discovery.py:267` currently passes only frontmatter. Update the call site to pass `body` and `strict_recon` through per the new `validate()` signature. Use `rg 'schema\.validate\(' scripts/ tests/` to find all call sites before editing.
 
 - [ ] **Add `discover` per-plan recon-coverage reporter.** After the existing per-plan summary, print a status-grouped table — §09 consumes this table to measure retrofit completeness:
   ```
@@ -269,7 +283,12 @@ All four must be fixed together; any one alone leaves the enforcement path broke
     plans/bar/                        — not-started: 0/4 non-stub   in-progress: 0/0            complete: 0/0
     plans/query-intel-adoption/       — not-started: 4/4 non-stub   in-progress: 0/0            complete: 5/5 exempt
   ```
-  Source data comes from a single pass over `discovery.load_and_validate` — no second filesystem walk. `strict` annotation is printed when the `discover` command was invoked with `--strict-recon`.
+
+  **Refactor choice (data source):** The `discover` command currently uses `discover_corpus()` (`discovery.py`), which walks the tree and classifies files but does NOT parse bodies or run `load_and_validate` per file. For the recon-coverage reporter, the `discover` command MUST additionally call `load_and_validate(path)` on each `PLAN_SECTION` path in `corpus.plan_sections.keys()` — this provides body text + recon-block validation findings without a second filesystem walk (paths are already discovered). Alternative (b) — running a standalone regex over plan_sections paths without `load_and_validate` — is rejected because it would duplicate the anti-stub detection logic from §06.2's `_check_intel_recon_block`. Concrete implementation:
+  1. In `__main__.py` `discover` subcommand handler, after building the `Corpus`, iterate `corpus.plan_sections.keys()` and call `load_and_validate(path)` on each
+  2. For each successful `LoadResult.ok`, run `_check_intel_recon_block` on the `ValidatedFile.body` to determine stub vs. non-stub vs. absent
+  3. Group results by plan directory and status; emit the table above
+  4. `strict` annotation is printed when `--strict-recon` is passed to `discover`
 
 - [ ] **Write the full matrix of body-level recon tests in `tests/plan-audit/test_recon_block.py`** (new file, sibling of existing `test_plan_corpus.py`). Reuse the existing fixture harness pattern.
 
@@ -288,11 +307,32 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   | PLAN_SECTION | absent | complete | yes | 0 (exempt; strict does not override complete exemption) |
   | PLAN_SECTION | stub-empty (header, whitespace body) | not-started | no | 1, Severity.HIGH, Outcome.WARNING |
   | PLAN_SECTION | stub-placeholder ("TBD" / "none" / etc.) | not-started | no | 1 (per token) |
-  | PLAN_SECTION | stub-no-citation (prose but no `[ori]` / `[repo#N]` / fallback-string) | not-started | no | 1, GAP:validation-bypass |
-  | PLAN_SECTION | stub-only-@-include (directive pasted, no condensed paragraph) | not-started | no | 1, GAP:validation-bypass |
+  | PLAN_SECTION | stub-no-query (prose + date + citation but no `scripts/intel-query.sh` literal) | not-started | no | 1, GAP:VALIDATION_BYPASS |
+  | PLAN_SECTION | stub-no-date (query + citation but no YYYY-MM-DD date marker) | not-started | no | 1, GAP:VALIDATION_BYPASS |
+  | PLAN_SECTION | stub-no-citation (query + date but no `[ori]` / `[repo#N]`) | not-started | no | 1, GAP:VALIDATION_BYPASS |
+  | PLAN_SECTION | stub-only-@-include (directive pasted, no condensed paragraph) | not-started | no | 1, GAP:VALIDATION_BYPASS |
+  | **Exempt-class negative pins — ROADMAP_SECTION** | | | | |
+  | ROADMAP_SECTION | absent | not-started | no | 0 (exempt — out of scope) |
   | ROADMAP_SECTION | absent | not-started | yes | 0 (exempt — out of scope) |
+  | ROADMAP_SECTION | present-empty | not-started | no | 0 (exempt) |
+  | ROADMAP_SECTION | present-empty | not-started | yes | 0 (exempt) |
+  | ROADMAP_SECTION | present-placeholder | not-started | no | 0 (exempt) |
+  | ROADMAP_SECTION | present-no-citation | not-started | no | 0 (exempt) |
+  | **Exempt-class negative pins — BUG_TRACKER_SECTION** | | | | |
+  | BUG_TRACKER_SECTION | absent | not-started | no | 0 (exempt — out of scope) |
   | BUG_TRACKER_SECTION | absent | not-started | yes | 0 (exempt — out of scope) |
+  | BUG_TRACKER_SECTION | present-empty | not-started | no | 0 (exempt) |
+  | BUG_TRACKER_SECTION | present-empty | not-started | yes | 0 (exempt) |
+  | BUG_TRACKER_SECTION | present-placeholder | not-started | no | 0 (exempt) |
+  | BUG_TRACKER_SECTION | present-no-citation | not-started | no | 0 (exempt) |
+  | **Exempt-class negative pins — FIX_BUG** | | | | |
+  | FIX_BUG | absent | not-started | no | 0 (exempt — different template) |
   | FIX_BUG | absent | not-started | yes | 0 (exempt — different template) |
+  | FIX_BUG | present-empty | not-started | no | 0 (exempt) |
+  | FIX_BUG | present-empty | not-started | yes | 0 (exempt) |
+  | FIX_BUG | present-placeholder | not-started | no | 0 (exempt) |
+  | FIX_BUG | present-no-citation | not-started | no | 0 (exempt) |
+  | **Exit-code tests** | | | | |
   | Exit code — warnings-only corpus, default mode | — | — | no | `main()` returns 0 |
   | Exit code — warnings-only corpus, `--strict-recon` with not-started missing-recon | — | not-started | yes | `main()` returns 1 |
   | Exit code — corpus with one Severity.HIGH compound finding | — | — | no | `main()` returns 1 |
@@ -308,7 +348,7 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   - [ ] `python -m scripts.plan_corpus check plans/bug-tracker/fix-BUG-*.md` returns exit 0 with ZERO recon-related findings across the directory — FIX_BUG is out of scope.
   - [ ] CLI-entrypoint DRIFT count from the grep step is zero post-edit
   - [ ] Update `06.2` status to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on 06.2** — does the validator error message include a pointer to the SSOT and the format-coupling contract? Minimum text: `"Section lacks non-stub '## Intelligence Reconnaissance' block. See '.claude/skills/create-plan/plan-schema.md' MANDATORY SECTION STRUCTURE; run queries per '.claude/skills/dual-tpr/compose-intel-summary.md'; summary format must use [ori] / [repo#N] citation grammar and the '\"Intelligence reconnaissance skipped: graph unavailable\"' fallback if the graph is down."` Commit via `build(tooling): improve plan_corpus recon-block error messages — surfaced by section-06.2 retrospective`.
+  - [ ] **Run `/improve-tooling` retrospectively on 06.2** — does the validator error message include a pointer to the SSOT and the format-coupling contract? Minimum text: `"Section lacks non-stub '## Intelligence Reconnaissance' block. See '.claude/skills/create-plan/plan-schema.md' MANDATORY SECTION STRUCTURE; run queries per '.claude/skills/dual-tpr/compose-intel-summary.md'; summary format must use [ori] / [repo#N] / [repo:path] citation grammar (Step D, lines 64-82). If the graph is unavailable, record the unavailability as freeform prose with the date — do NOT omit the block."` Commit via `build(tooling): improve plan_corpus recon-block error messages — surfaced by section-06.2 retrospective`.
   - [ ] **Run `/sync-claude` on 06.2** — CLAUDE.md §Commands "Plan corpus" bullet (line ~167) describes `plan_corpus check`. Update to mention the WARNING/ERROR outcome model, status-gated severity, and `--strict-recon` flag. Verify no `.claude/rules/*.md` file contradicts the new exit-code policy.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` → clean.
 
