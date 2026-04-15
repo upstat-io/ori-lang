@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for scripts/plan_corpus.py — the corpus SSOT library.
+"""Tests for `scripts/plan_corpus/` — the corpus SSOT package.
 
-TDD per CLAUDE.md: these tests define the expected behavior.
+Invoked as `python -m scripts.plan_corpus`. TDD per CLAUDE.md: these tests
+define the expected behavior.
 """
 
 import sys

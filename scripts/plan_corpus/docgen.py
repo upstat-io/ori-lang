@@ -18,6 +18,7 @@ from .types import (
     Finding,
     FindingCategory,
     FindingSubtype,
+    Outcome,
     Severity,
     INTRA_PLAN_DEP_RE,
     CROSS_PLAN_DEP_RE,
@@ -142,6 +143,41 @@ def generate_schema_reference() -> str:
         if optional:
             lines.append(f"**Optional**: {', '.join(f'`{o}`' for o in optional)}")
         lines.append("")
+
+    lines.append("## Finding Severity")
+    lines.append("")
+    lines.append(
+        "Impact classification — answers \"how bad is this?\". Set by the "
+        "emitter at `Finding` construction time based on the finding's "
+        "real-world significance. Ordered for comparison (IntEnum)."
+    )
+    lines.append("")
+    for sev in Severity:
+        lines.append(f"- `{sev.name.lower()}` (ordinal {sev.value})")
+    lines.append("")
+
+    lines.append("## Finding Outcome")
+    lines.append("")
+    lines.append(
+        "Enforcement channel — answers \"does this gate the check?\". "
+        "INDEPENDENT of Severity and set independently at emit time. "
+        "`scripts/plan_corpus check` exits 1 iff any finding has "
+        "`outcome == ERROR`; `WARNING` findings print but do not gate."
+    )
+    lines.append("")
+    for oc in Outcome:
+        lines.append(f"- `{oc.value}`")
+    lines.append("")
+    lines.append(
+        "`Finding.outcome` defaults to `ERROR` — pre-existing call sites "
+        "(schema violations, parse errors) gate CI unchanged. The "
+        "`_check_intel_recon_block` body validator explicitly opts into "
+        "`WARNING` for `status: not-started` / `in-progress` PLAN_SECTION "
+        "findings; `--strict-recon` escalates `not-started` WARNINGs to "
+        "ERRORs. `outcome` is NOT included in `Finding.id` hash — "
+        "backward-compat with saved reports."
+    )
+    lines.append("")
 
     lines.append("## Finding Categories")
     lines.append("")
