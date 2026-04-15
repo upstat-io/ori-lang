@@ -72,7 +72,7 @@ sections:
     status: complete
   - id: "02.4"
     title: "Unit test matrix (twelve cells)"
-    status: not-started
+    status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
     status: complete
@@ -846,17 +846,23 @@ module, `impl-hygiene.md §SSOT`).
 
 ### 02.4.2 — Completion criteria
 
-- [ ] All twelve cells present in
+- [x] All twelve cells present in
   `compiler/ori_types/src/check/validators/tests.rs`, each with a
   behavioral name + a `///` doc comment citing the spec clause and/or
   rule anchor it pins.
-- [ ] T10 would FAIL if §02.0 is reverted (semantic pin — documented in its
+- [x] T10 would FAIL if §02.0 is reverted (semantic pin — documented in its
   `///` block). Temporarily revert §02.0 locally, confirm T10 fails,
-  restore §02.0, confirm T10 passes.
-- [ ] `cargo test -p ori_types --lib check::validators::tests` passes.
-- [ ] No cell uses an ephemeral identifier (plan name, section number,
+  restore §02.0, confirm T10 passes. Verified 2026-04-15 — reverting the
+  `Tag::Scheme` propagation block in `pool/mod.rs:655-661` to return only
+  `TypeFlags::IS_SCHEME` caused `scheme_wrapping_unbound_var_body_emits_one_e2005`
+  to fail with the defensive `HAS_VAR` flag assertion; restoring the
+  propagation block made it pass.
+- [x] `cargo test -p ori_types --lib check::validators::tests` passes
+  (12/12 on 2026-04-15).
+- [x] No cell uses an ephemeral identifier (plan name, section number,
   bug ID) in its test function name (`impl-hygiene.md §Test Function
-  Naming`).
+  Naming`). Behavioral `<subject>_<scenario>_<expected>` shape throughout;
+  provenance in `///` doc comments only.
 
 ---
 
