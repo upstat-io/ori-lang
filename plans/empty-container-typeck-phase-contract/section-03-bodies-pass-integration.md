@@ -2,7 +2,7 @@
 section: "03"
 title: "Bodies-Pass Integration"
 status: not-started
-reviewed: false
+reviewed: true
 goal: >
   Wire validate_body_types() (from Section 02) into all 4 bodies-pass call sites
   per typeck.md CK-1 — check_function, check_test, check_impl_method, and
