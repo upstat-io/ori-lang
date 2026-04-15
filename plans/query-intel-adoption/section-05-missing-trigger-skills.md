@@ -20,7 +20,7 @@ third_party_review:
 sections:
   - id: "05.1"
     title: "Skill edits — verify-tpr, sync-claude, fix-next-bug"
-    status: not-started
+    status: complete
   - id: "05.2"
     title: "Command edits — sync-spec, sync-grammar, verify-roadmap"
     status: not-started
@@ -58,7 +58,7 @@ sections:
 
 Each skill gets a new Step N (numbered to fit its existing workflow) that runs the graph-first query via the SSOT helper. Step text is skill-specific (the QUESTION the graph is answering differs per skill) but the mechanism is the same.
 
-- [ ] **`.claude/skills/verify-tpr/SKILL.md`** — Insert a step between Step 2 (Read the Section File) and Step 3 (Triage Each Finding). The step runs blast-radius queries only for HIGH-SEVERITY findings or findings where the blast radius is ambiguous (not for every single finding, which would cause timeout/bloat). The step informs triage decisions, not replaces them:
+- [x] **`.claude/skills/verify-tpr/SKILL.md`** — Insert a step between Step 2 (Read the Section File) and Step 3 (Triage Each Finding). The step runs blast-radius queries only for HIGH-SEVERITY findings or findings where the blast radius is ambiguous (not for every single finding, which would cause timeout/bloat). The step informs triage decisions, not replaces them:
 
   ```markdown
   ### Step 2.5: Blast-Radius Query on High-Signal Findings (MANDATORY)
@@ -83,7 +83,7 @@ Each skill gets a new Step N (numbered to fit its existing workflow) that runs t
   informed triage, not query exhaustion.
   ```
 
-- [ ] **`.claude/skills/sync-claude/SKILL.md`** — Insert between Step 1 (Identify What Changed) and Step 2 (Map Changes to Artifacts). The step implements the intelligence.md workflow at line 59: run `file-symbols` on changed crates to confirm docs still match. This is NOT a meta-audit of intel references in docs — it is a crate-symbol inventory to detect doc drift:
+- [x] **`.claude/skills/sync-claude/SKILL.md`** — Insert between Step 1 (Identify What Changed) and Step 2 (Map Changes to Artifacts). The step implements the intelligence.md workflow at line 59: run `file-symbols` on changed crates to confirm docs still match. This is NOT a meta-audit of intel references in docs — it is a crate-symbol inventory to detect doc drift:
 
   ```markdown
   ### Step 1.5: Intelligence-Graph Symbol Inventory (MANDATORY when graph available)
@@ -107,7 +107,7 @@ Each skill gets a new Step N (numbered to fit its existing workflow) that runs t
   the CODE SYMBOLS documented in rules files match the actual codebase.
   ```
 
-- [ ] **`.claude/skills/fix-next-bug/SKILL.md`** — Insert as Step 4.5 between Step 4 (Present the Selected Bug) and Step 5 (Choose Mode). The step provides a lightweight blast-radius preview to help the user assess priority and scope BEFORE choosing mode. It does NOT duplicate /fix-bug Phase 1's full investigation — /fix-bug already has its own intel queries (documented in compose-intel-summary.md Step F, lines 122-126). The Skill tool only accepts an args string (the bug ID), so this summary is for the presentation display, not passed to /fix-bug:
+- [x] **`.claude/skills/fix-next-bug/SKILL.md`** — Insert as Step 4.5 between Step 4 (Present the Selected Bug) and Step 5 (Choose Mode). The step provides a lightweight blast-radius preview to help the user assess priority and scope BEFORE choosing mode. It does NOT duplicate /fix-bug Phase 1's full investigation — /fix-bug already has its own intel queries (documented in compose-intel-summary.md Step F, lines 122-126). The Skill tool only accepts an args string (the bug ID), so this summary is for the presentation display, not passed to /fix-bug:
 
   ```markdown
   ### Step 4.5: Lightweight Blast-Radius Preview
@@ -131,14 +131,14 @@ Each skill gets a new Step N (numbered to fit its existing workflow) that runs t
 
   **Implementation note:** Step 4.5 is inserted between existing Steps 4 and 5. Internal references at lines 106, 127, 165 that say "Step 6" / "Step 7" remain valid because Step 4.5 does not renumber existing steps — it uses a fractional number consistent with the file's existing Step 5.5 pattern.
 
-- [ ] Spot-check each edit: `grep -c '@.claude/skills/dual-tpr/compose-intel-summary.md' <FILE>` returns >=1 for each of the 3 files.
+- [x] Spot-check each edit: `grep -c '@.claude/skills/dual-tpr/compose-intel-summary.md' <FILE>` returns >=1 for each of the 3 files.
 
-- [ ] **Subsection close-out (05.1)**:
-  - [ ] All 3 skill files have the new Step; grep verification passes
-  - [ ] Update `05.1` status to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on 05.1** — did editing 3 skill files reveal any inconsistency in how SKILL.md files structure their numbered steps? (E.g., some use `## Step N`, others `### Step N`, others bare `## N — Title`.) If normalization would help, file an improvement ticket for a Skill-style linter, commit via `build(tooling): ...`.
-  - [ ] **Run `/sync-claude` on 05.1** — 3 skill files changed. `.claude/rules/intelligence.md`'s workflow inventory (refreshed in §04.3) already anticipates these additions — verify no drift between the inventory and the actual skill steps.
-  - [ ] **Repo hygiene check**.
+- [x] **Subsection close-out (05.1)**:
+  - [x] All 3 skill files have the new Step; grep verification passes
+  - [x] Update `05.1` status to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on 05.1** — did editing 3 skill files reveal any inconsistency in how SKILL.md files structure their numbered steps? (E.g., some use `## Step N`, others `### Step N`, others bare `## N — Title`.) If normalization would help, file an improvement ticket for a Skill-style linter, commit via `build(tooling): ...`.
+  - [x] **Run `/sync-claude` on 05.1** — 3 skill files changed. `.claude/rules/intelligence.md`'s workflow inventory (refreshed in §04.3) already anticipates these additions — verify no drift between the inventory and the actual skill steps.
+  - [x] **Repo hygiene check**.
 
 ---
 
