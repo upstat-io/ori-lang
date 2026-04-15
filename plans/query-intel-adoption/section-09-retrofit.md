@@ -3,9 +3,9 @@ section: "09"
 title: "Retrofit active plans — status-gated recon coverage"
 status: not-started
 reviewed: false
-goal: "Backfill the unnumbered `## Intelligence Reconnaissance` block across the active plan corpus using a status-gated severity model (not an A/B/C operator menu). Status `not-started` sections emit `Severity.HIGH` when missing recon; `in-progress` sections emit `HIGH` on next body edit; `complete` sections are exempt unless explicitly reopened. Meta-dogfood is scoped to `not-started` sections of this plan only (§06, §07, §08, §09 itself) — completed sections (§01-§05) are frozen and NOT rewritten."
+goal: "Backfill the unnumbered `## Intelligence Reconnaissance` block across the active plan corpus using a status-gated severity model (not an A/B/C operator menu). Status `not-started` sections emit `Severity.HIGH` when missing recon; `in-progress` sections emit `Severity.MEDIUM` / `Outcome.WARNING` (no on-edit escalation); `complete` sections are exempt unless explicitly reopened. Meta-dogfood is scoped to `not-started` sections of this plan only (§06, §07, §08, §09 itself) — completed sections (§01-§05) are frozen and NOT rewritten."
 success_criteria:
-  - "`python -m scripts.plan_corpus discover` reports 100% recon-block coverage for every plan section with `status: not-started` across `plans/` (excluding `plans/completed/` and `plans/bug-tracker/`); the per-plan coverage table (added in §06.2) shows `N/N` for the `not-started` slice of every active plan"
+  - "`python -m scripts.plan_corpus discover` reports 100% recon-block PRESENCE for every plan section with `status: not-started` across `plans/` (excluding `plans/completed/` and `plans/bug-tracker/`); the per-plan coverage table (added in §06.2) shows `N/N` for the `not-started` slice of every active plan. A retrofit stub counts as 'present' for this metric — the discover reporter counts block presence, not quality. Quality issues (stub vs. complete) are separate `VALIDATION_BYPASS` findings emitted by `check`, not `discover`."
   - "`scripts/plan_corpus/retrofit_recon.py` is a permanent tool (not throwaway) that enumerates targets via `ValidatedFile.data[\"status\"]` (where `data` is the parsed frontmatter dict per `discovery.py:210`), writes stub recon blocks into `not-started` sections, and refuses to touch `status: complete` sections without an explicit `--allow-reopen <path>` flag per target"
   - "§06, §07, §08, and §09 of this plan carry non-stub recon blocks (meta-dogfood); §01-§05 (already `status: complete`, `reviewed: true`, `third_party_review: resolved`) are NOT modified — no historical-fiction retrospective-recon injected into frozen sections"
   - "Validator's status-gated severity applies per §06 Design Decision 5: `status: not-started` missing recon → `Severity.HIGH`, `Outcome.WARNING` (default) or `Outcome.ERROR` (`--strict-recon`); `status: in-progress` missing recon → `Severity.MEDIUM`, `Outcome.WARNING`; `status: complete` → exempt (0 findings). No `--on-edit` escalation mechanism — in-progress sections stay at `Severity.MEDIUM` / `Outcome.WARNING` regardless of edits; the simplicity of two fixed severity tiers (not-started=HIGH, in-progress=MEDIUM) is sufficient for this plan's scope"
@@ -65,7 +65,7 @@ Queries run 2026-04-14 (during /review-plan authoring of §09):
 - `scripts/intel-query.sh --human file-symbols "scripts/plan_corpus/discovery" --repo ori` — zero results (`scripts/plan_corpus/` is Python; the code-symbol index is Rust-only today). Confirmed via Read of `discovery.py` that `load_and_validate(path: Path) -> LoadResult` returns a `LoadResult` with `.ok: ValidatedFile | None`; `ValidatedFile` fields: `path`, `file_class`, `data` (frontmatter dict), `body_offset`, `body` (body text), `violations` — the enumeration surface for retrofit.
 - `scripts/intel-query.sh --human search "bulk rewrite frontmatter"` — external-repo hits on mass-edit tooling (rustc book, go module-graph rewriting); limited direct applicability to markdown plan corpus
 - `grep -l 'status: not-started' plans/*/section-*.md | grep -v completed | grep -v bug-tracker | wc -l` — N `not-started` sections across the active corpus (count recomputed at §09.1 runtime; informs the retrofit target set)
-- `grep -l 'reviewed: true' plans/*/section-*.md | grep -v completed | grep -v bug-tracker | wc -l` — M `reviewed: true` sections across the active corpus; retrofit MUST NOT write into any of these (verified by assertion in §09.1)
+- `grep -l 'reviewed: true' plans/*/section-*.md | grep -v completed | grep -v bug-tracker | wc -l` — M `reviewed: true` sections across the active corpus; retrofit PRESERVES `reviewed: true` unchanged when writing stubs into `not-started` sections (additive content, not review-invalidation). The `--allow-reopen` flag applies ONLY to `status: complete` sections.
 
 Results summary (≤500 chars): Scope is mechanical — `ValidatedFile.data["status"] == "not-started"` defines the target set. 19 existing `not-started` sections already carry `reviewed: true` — retrofit adds the recon-block stub to ALL targets and preserves `reviewed: true` unchanged (additive content, not review-invalidation). `--allow-reopen` scoped to `status: complete` only. Graph does not index `scripts/plan_corpus/` (Python); surface walked directly. Meta-dogfood is §06/§07/§08/§09 only; §01-§05 remain frozen.
 
@@ -89,7 +89,16 @@ See `.claude/skills/dual-tpr/compose-intel-summary.md` for the full query protoc
         vf = result.ok
         if vf.file_class != FileClass.PLAN_SECTION:
             continue  # safety — should always match
-        if vf.data.get("status") != "not-started":
+        status = vf.data.get("status")
+        if status == "complete":
+            if path in allow_reopen_paths:
+                # process with HIGH finding noting reopen
+                pass
+            else:
+                continue  # skip silently — complete sections need explicit --allow-reopen
+        if status == "in-progress":
+            continue  # not in forced-backfill target set; validator emits Severity.MEDIUM warning
+        if status != "not-started":
             continue
         # ... insert stub
     ```
@@ -129,9 +138,9 @@ See `.claude/skills/dual-tpr/compose-intel-summary.md` for the full query protoc
   p_retrofit.add_argument("--plan", metavar="DIR",
       help="Restrict targets to a single plan directory.")
   p_retrofit.add_argument("--allow-reopen", action="append", metavar="PATH", default=[],
-      help="Permit retrofit to touch the named reviewed: true section. Repeatable.")
+      help="Permits retrofit of the named status: complete section. Repeatable. Has no effect on not-started sections (those are always eligible regardless of reviewed flag).")
   ```
-  Map to `run_retrofit(...)`; exit 0 on success, 1 on any `Severity.HIGH` report entry (reviewed-true guard violation).
+  Map to `run_retrofit(...)`; exit 0 on success, 1 on any `Severity.HIGH` report entry (e.g., a `status: complete` section targeted without `--allow-reopen`).
 
 - [ ] **Write `tests/plan-audit/test_retrofit_recon.py`** covering the full matrix — (section status: `not-started` / `in-progress` / `complete`) × (body shape: no-recon-block / stub-recon-block / complete-recon-block) × (reviewed flag: `false` / `true`) × (mode: dry-run / apply):
   - `not_started_no_block_reviewed_false_apply` → inserts stub; reviewed stays false; 0 HIGH findings
@@ -205,7 +214,7 @@ All four target sections are `status: not-started` at §09 land time. Meta-dogfo
 
 ## 09.N Completion Checklist
 
-- [ ] All 09.1 close-out items complete (retrofit_recon.py + subcommand + matrix tests + reviewed-flag guard + dry-run equivalence)
+- [ ] All 09.1 close-out items complete (retrofit_recon.py + subcommand + matrix tests + complete-section guard via --allow-reopen + dry-run equivalence)
 - [ ] All 09.2 close-out items complete (§06/§07/§08/§09 recon blocks filled; §01-§05 untouched; discover coverage 4/4 on this plan's not-started slice)
 - [ ] `python -m scripts.plan_corpus discover` reports 100% recon-block coverage for the `not-started` slice of every active plan corpus-wide
 - [ ] `./test-all.sh` green (including new plan-audit tests)
@@ -214,7 +223,7 @@ All four target sections are `status: not-started` at §09 land time. Meta-dogfo
   - [ ] Section frontmatter `status: not-started` → `complete`
   - [ ] `00-overview.md` Mission Success Criteria §09 checkbox checked; Quick Reference §09 row → Complete
   - [ ] `index.md` §09 status updated
-- [ ] `/tpr-review` passed — clean dual-source pass (watch-items: status-gated severity gates correctly; `reviewed: true` guard cannot be bypassed without `--allow-reopen`; meta-dogfood did not touch §01-§05; no historical-fiction narratives in any recon block)
+- [ ] `/tpr-review` passed — clean dual-source pass (watch-items: status-gated severity gates correctly; `status: complete` sections cannot be retrofitted without `--allow-reopen`; `reviewed: true` on `not-started` sections is preserved unchanged; meta-dogfood did not touch §01-§05; no historical-fiction narratives in any recon block)
 - [ ] `/impl-hygiene-review` passed — verify `retrofit_recon.py` reuses `discovery.load_and_validate` (no parallel enumeration); verify the stub block shape is a single source of truth shared with §06.2's detector
 - [ ] `/improve-tooling` section-close sweep — cross-subsection patterns only
 - [ ] `/sync-claude` section-close doc sync
