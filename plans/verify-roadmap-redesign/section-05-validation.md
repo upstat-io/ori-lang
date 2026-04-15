@@ -184,6 +184,8 @@ Run the skill in `--full` mode against the entire planning corpus. Fix all auto-
   - BLOCKED findings: document the dependency chain and recommended reordering
   - Create tracking items (as appropriate -- bug tracker entries or plan updates)
 
+- [ ] **roadmap_scan.py shadow parser migration (TPR-03-004-codex, TPR-03-001-gemini):** Refactor `roadmap_scan.py` to import `plan_corpus` for all frontmatter parsing (`split_frontmatter`, `parse_section_file`, `parse_index_file`), eliminating the ~600-line shadow parser. Keep only `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This is a prerequisite for `--quick` mode correctness in Section 03.5 — `/continue-roadmap` and `/verify-roadmap --quick` must agree on corpus parse results. The current `errors="replace"` + `{}` on YAMLError pattern (`roadmap_scan.py:327-348`) violates the LEAK:swallowed-error invariant that Section 01 was designed to eliminate. **Option B (shadow parser divergence) was explicitly rejected by TPR.** <!-- unblocks:03.5 -->
+
 - [ ] Run `timeout 150 ./test-all.sh` to verify no regressions from auto-fixes
 
 - [ ] **Subsection close-out (05.3)** -- MANDATORY before marking section complete:
