@@ -1242,3 +1242,39 @@ fn merkle_structural_neq_implies_hash_neq() {
         }
     }
 }
+
+// Scheme flag propagation (types.md §TF-3)
+
+/// Spec: types.md §TF-3 — `PROPAGATE_MASK` must OR from scheme body into parent.
+/// A scheme wrapping an unbound Var must have `HAS_VAR` set on the outer Idx,
+/// otherwise the `HAS_VAR` fast-path gate (types.md §TF-5) silently skips the
+/// scheme and misses PC-2 violations inside it.
+#[test]
+fn scheme_wrapping_unbound_var_body_propagates_has_var() {
+    let mut pool = Pool::new();
+    let var_idx = pool.fresh_var();
+    assert!(pool.flags(var_idx).contains(TypeFlags::HAS_VAR));
+
+    // ∀[0]. Var — scheme body is the unbound var itself
+    let scheme_idx = pool.scheme(&[0], var_idx);
+    assert!(
+        pool.flags(scheme_idx).contains(TypeFlags::HAS_VAR),
+        "Tag::Scheme must propagate HAS_VAR from body per types.md §TF-3"
+    );
+    assert!(pool.flags(scheme_idx).contains(TypeFlags::IS_SCHEME));
+}
+
+/// Negative companion: a scheme wrapping a fully resolved body (no vars) must
+/// NOT set `HAS_VAR` on the outer Idx. Prevents false positives in the fast-path
+/// gate — a resolved scheme should be skipped by the `HAS_VAR` check.
+#[test]
+fn scheme_wrapping_resolved_body_does_not_set_has_var() {
+    let mut pool = Pool::new();
+    // ∀[0]. int — body is a primitive with no vars
+    let scheme_idx = pool.scheme(&[0], Idx::INT);
+    assert!(
+        !pool.flags(scheme_idx).contains(TypeFlags::HAS_VAR),
+        "Scheme with resolved body must not have HAS_VAR"
+    );
+    assert!(pool.flags(scheme_idx).contains(TypeFlags::IS_SCHEME));
+}
