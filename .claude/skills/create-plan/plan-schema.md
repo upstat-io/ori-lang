@@ -253,6 +253,9 @@ depends_on: ["{NN}"]     # Other sections required first
 third_party_review:
   status: none           # none | findings | resolved
   updated: null          # YYYY-MM-DD when last touched
+# Note: Intelligence Reconnaissance is an UNNUMBERED structural block
+# (like Goal, Context, Reference implementations, Depends on). It does
+# NOT appear in this `sections:` list — only numbered {NN}.X subsections do.
 sections:
   - id: "{NN}.1"
     title: "{Subsection}"
@@ -312,17 +315,58 @@ test failures, or design flaws. 2-4 sentences.}
 
 ---
 
-<!-- ── MANDATORY SUBSECTION STRUCTURE ──
-EVERY subsection ({NN}.1, {NN}.2, ...) MUST end with a **Subsection close-out**
-block containing the per-subsection `/improve-tooling` retrospective. This is
-non-negotiable: pain memory decays within hours, so the look-back must fire
-while the subsection's debugging journey is still hot — NOT at section close.
+## Intelligence Reconnaissance
 
-The close-out block goes AFTER the subsection's implementation/validation
-tasks and BEFORE the `---` separator. See {NN}.1 below for the canonical form;
-every subsequent subsection in this section MUST repeat the same close-out
-shape (only the subsection ID changes). Plans that omit the per-subsection
-close-out will fail `/continue-roadmap` validation.
+Queries run {YYYY-MM-DD}:
+
+- `scripts/intel-query.sh --human <preset>` — {one-line outcome}. For compiler sections use the matching preset per `.claude/rules/intelligence.md` §Subsystem Mapping (`ori-arc`, `ori-inference`, `ori-codegen`, `ori-patterns`, `ori-diagnostics`). For non-compiler plans (meta-tooling, docs, build scripts) use `search "<key terms>"` — no preset applies.
+- `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori` — {one-line outcome} (skip for non-Rust targets; the Ori code-symbol index is Rust-only today)
+- `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — {one-line outcome} (blast radius for every public API the section changes)
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,koka --limit 5` — {one-line outcome} (cross-repo prior art for design decisions)
+
+Results summary (≤500 chars) [ori]: {bounded paragraph citing blast radius, cross-repo prior art, relevant symbols. Use `[ori]` for Ori-repo claims, `[rust#N]` / `[swift#N]` / `[koka#N]` / etc. for cross-repo issue citations, and `[repo:path]` for symbol results — the same grammar used by `compose-intel-summary.md` Step D (lines 64-82) and by §07's hook injection. Maximum 5 bullets, 500 characters. If the graph is unavailable, record the unavailability state as freeform prose (e.g. `"Graph was unavailable at YYYY-MM-DD when this section was authored"`) — do NOT silently omit the block; the block MUST still exist with the date and a note about unavailability so the validator recognizes it as intentional rather than forgotten.}
+
+See `.claude/skills/dual-tpr/compose-intel-summary.md` for the full query protocol (SSOT — do NOT `@`-include in plan files; plan markdown is not harness-expanded, so the include would be a dead literal).
+
+---
+
+<!-- == MANDATORY SECTION STRUCTURE ==
+Every PLAN_SECTION file has TWO mandatory structural features that are
+NOT captured by the numbered {NN}.X subsection sequence alone:
+
+1. **Unnumbered `## Intelligence Reconnaissance` block** — placed after
+   the section framing (Goal / Success Criteria / Context / Reference
+   implementations / Depends on) and BEFORE `## {NN}.1`. Records the
+   literal `scripts/intel-query.sh` commands the author ran, a
+   ≤500-char results summary (using the same `[ori]` / `[repo#N]`
+   citation grammar as `.claude/skills/dual-tpr/compose-intel-summary.md`
+   Step D, lines 64-82), and the date. Coexists with §07's runtime hook:
+   the hook omits the summary entirely when graph is unavailable; the
+   plan-resident block records unavailability as freeform prose. Enforced
+   by `python -m scripts.plan_corpus check` — the validator gates
+   severity on the section's `status` field:
+     - status: not-started → Severity.HIGH (ERROR under --strict-recon)
+     - status: in-progress → Severity.MEDIUM (WARNING, no on-edit escalation)
+     - status: complete    → exempt
+
+2. **Per-subsection close-out blocks** — EVERY numbered subsection
+   ({NN}.1, {NN}.2, ...) MUST end with a `**Subsection close-out**`
+   block containing the per-subsection `/improve-tooling`
+   retrospective and `/sync-claude` doc sync BEFORE the `---`
+   separator. Pain memory decays within hours, so the look-back fires
+   while the debugging journey is hot — NOT at section close.
+
+SCOPE: The recon-block mandate applies ONLY to FileClass.PLAN_SECTION
+(files matching `plans/*/section-*.md` excluding `plans/roadmap/` and
+`plans/bug-tracker/`). Roadmap sections already use `## {NN}.0` for
+substantive content; fix-BUG-*.md files use a separate `1. Root Cause
+/ 2. TDD / ...` template that runs recon through /fix-bug Phase 1.
+
+Plans that omit either feature will fail `/continue-roadmap`
+validation. This comment is the only authoritative enumeration of
+section-level structural invariants; `create-plan/SKILL.md` cites
+this schema file and does NOT re-assert the invariants
+(per `impl-hygiene.md` §SSOT).
 -->
 
 ## {NN}.1 {Subsection Title}
