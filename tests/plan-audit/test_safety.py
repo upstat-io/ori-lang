@@ -391,6 +391,71 @@ class TestClassifySafetySchemaViolation:
         assert result.safety_class == SafetyClass.SAFE_FIX
         assert "reroute" in result.rationale.lower()
 
+    def test_reroute_false_end_to_end_validate_classify_dispatch(self, tmp_path):
+        """End-to-end regression: the reroute:false SafeFix must survive the
+        real chain — schema._validate_plan_index produces a finding with
+        target_key='reroute', safety.classify_safety classifies it as SafeFix,
+        and auto_fix.build_fix_plan emits REMOVE_KEY('reroute').
+
+        Pre-fix TPR-03-006-codex the unit tests (above) only exercised the
+        classify_safety and dispatch layers with hand-constructed findings.
+        That left the PRODUCER side (schema emitting target_key='reroute')
+        untested — if _validate_plan_index stopped populating target_key,
+        classify_safety would fall back to ExposureReview silently.
+
+        See: TPR-03-001-codex-r5i2.
+        """
+        from scripts.plan_corpus.schema import _validate_plan_index
+        from scripts.verify_roadmap.auto_fix import build_fix_plan
+        from scripts.verify_roadmap.safety import FmOperationKind
+
+        # Producer: real schema validator on plan-index frontmatter with
+        # reroute: false. Must emit target_key='reroute'.
+        data = {
+            "name": "test-plan",
+            "full_name": "Test Plan",
+            "status": "active",
+            "reroute": False,
+        }
+        findings = _validate_plan_index(data, Path("plans/test-plan/index.md"))
+        reroute_findings = [
+            f for f in findings
+            if f.subtype == FindingSubtype.CROSS_FIELD_INVARIANT
+        ]
+        assert len(reroute_findings) == 1, (
+            "schema._validate_plan_index must emit exactly one "
+            "CROSS_FIELD_INVARIANT finding for reroute: false"
+        )
+        finding = reroute_findings[0]
+        assert finding.target_key == "reroute", (
+            "schema producer must populate target_key='reroute' — if this "
+            "regresses, classify_safety would silently fall back to "
+            "ExposureReview (TPR-03-006-codex chain breaks)"
+        )
+
+        # Classifier: real classify_safety on the produced finding must
+        # route to SafeFix (not ExposureReview).
+        classified = classify_safety(finding, _make_context())
+        assert classified.safety_class == SafetyClass.SAFE_FIX, (
+            "classify_safety regressed — reroute: false must classify as "
+            "SafeFix via _classify_cross_field_invariant"
+        )
+
+        # Dispatcher: real build_fix_plan on the classified finding must
+        # produce exactly one REMOVE_KEY operation targeting 'reroute'.
+        plan = build_fix_plan(classified)
+        assert plan is not None, (
+            "build_fix_plan returned None for the reroute SafeFix — "
+            "_dispatch_cross_field_invariant regressed"
+        )
+        assert len(plan.operations) == 1
+        op = plan.operations[0]
+        assert op.kind == FmOperationKind.REMOVE_KEY
+        # Operations are frozen tuple-of-pairs; convert to dict for assertion
+        assert dict(op.kwargs).get("key") == "reroute", (
+            f"Expected REMOVE_KEY with key='reroute', got kwargs={op.kwargs}"
+        )
+
     def test_duplicate_plan_name_exposure_review(self):
         finding = _make_finding(
             FindingCategory.SCHEMA_VIOLATION, FindingSubtype.DUPLICATE_PLAN_NAME,

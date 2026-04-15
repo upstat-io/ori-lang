@@ -538,6 +538,24 @@ Resolution summary: all 14 round-5 findings (13 actionable + 1 informational) fi
   Required plan update: Consider populating `target_key` with a path string (e.g., `sections[].status`) for nested violations to fully eliminate prose parsing in future auto-fix extensions.
   Basis: inference. Confidence: unknown.
 
+**Round 5 iteration 2 findings (2026-04-15 — re-review after round-1 fixes):**
+
+- [x] `[TPR-03-001-codex-r5i2][medium]` `tests/plan-audit/test_safety.py:377` — Exercise the reroute SafeFix through the real producer and dispatcher.
+  Evidence: The new reroute coverage only hand-constructs `Finding(..., target_key="reroute")` and asserts `classify_safety()` returns `SAFE_FIX`. It never proves that real schema validation produces that `target_key` (`scripts/plan_corpus/schema.py:377-385`), and it never reaches the newly added dispatcher that must emit `REMOVE_KEY("reroute")` (`scripts/verify_roadmap/auto_fix.py:145-160`). If `_validate_plan_index()` stopped populating `target_key` or `_dispatch_cross_field_invariant()` regressed to return `()`, the current 493-test suite would still pass.
+  Impact: TPR-03-006-codex is not actually pinned end-to-end. The promised `reroute: false` auto-fix can regress in the real validate -> classify -> build-fix path without any failing regression test.
+  Required plan update: Add an end-to-end regression test that starts from real plan-index frontmatter containing `reroute: false`, asserts the emitted finding carries `target_key="reroute"`, then runs `classify_safety()` and `build_fix_plan()` (or dry-run `apply_fixes`) and checks that the planned operation is `REMOVE_KEY` for `reroute`.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-15. Added `test_reroute_false_end_to_end_validate_classify_dispatch` in `test_safety.py` — starts from real plan-index frontmatter with `reroute: false`, asserts `_validate_plan_index` emits `target_key="reroute"`, then runs `classify_safety()` → `SAFE_FIX` and `build_fix_plan()` → `REMOVE_KEY('reroute')`. All three layers (producer/classifier/dispatcher) now pinned end-to-end.
+- [x] `[TPR-03-002-codex-r5i2][low]` `tests/plan-audit/test_report.py:152` — Pin classifier_version and target/type rendering in the report suite.
+  Evidence: `scripts/verify_roadmap/report.py` now adds `metadata.classifier_version` (`report.py:36-41,138-144`), markdown `Type` / `Reference` / `Target key` lines (`report.py:237-267`), and console `[category/subtype]` plus `source -> target` output (`report.py:290-331`). But the report tests at `tests/plan-audit/test_report.py:152-230` only assert timestamp, mode, corpus size, safety metadata, and unapplied-fix fields, and the markdown/console tests only check ordering and prefix presence. No assertion mentions `classifier_version`, category/subtype tags, target rendering, or target-key rendering. A revert of TPR-03-008-codex would therefore keep the suite green.
+  Impact: The close-out claims that the report contract is pinned, but the new user-facing and machine-facing surfaces can drift silently. This weakens confidence in both the JSON contract and the human renderers.
+  Required plan update: Extend `tests/plan-audit/test_report.py` with explicit JSON assertions for `metadata.classifier_version` and a finding carrying target/target_key, plus markdown and console assertions that category/subtype and `source -> target` rendering appear for a targeted finding.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-15. Added 5 pins in `test_report.py`: `test_metadata_includes_classifier_version`, `test_json_finding_entry_serializes_target_key`, `test_markdown_renders_category_subtype_type`, `test_markdown_renders_source_to_target_reference`, `test_console_shows_category_subtype_tag`, `test_console_shows_source_to_target`. A revert of TPR-03-008-codex would now fail the suite.
+- [x] `[TPR-03-001-gemini-r5i2][informational]` `scripts/verify_roadmap/patcher.py:1` — All 13 findings from TPR-03 round 1 verified as resolved.
+  Evidence: Comprehensive verification pass confirmed: insert_key block-list skip; remove_list_item inline-comment regex; apply_patch CAS re-read; auto_fix working_preimages rollforward; Finding.id target_key hashing; to_json target_key serialization; demoted ExposureReview + finding_id propagation; dataclasses.replace in dag.py; structural reroute SafeFix across DAG/validator/taxonomy layers.
+  Resolved: Verification-only informational finding — no code change required. Acknowledges the round-1 fix commit 0bfd9e93 as sound.
+
 ---
 
 ## 03.N Completion Checklist

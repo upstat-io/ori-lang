@@ -168,6 +168,45 @@ class TestRenderJson:
         data = render_json(report, corpus_size=42)
         assert data["metadata"]["corpus_size"] == 42
 
+    def test_metadata_includes_classifier_version(self):
+        """Regression: JSON metadata must carry classifier_version so
+        downstream consumers can detect report-schema changes.
+
+        See: TPR-03-002-codex-r5i2 (also pins TPR-03-008-codex).
+        """
+        from scripts.verify_roadmap.report import CLASSIFIER_VERSION
+
+        report = Report(mode=ReportMode.FULL)
+        data = render_json(report)
+        assert "classifier_version" in data["metadata"]
+        assert data["metadata"]["classifier_version"] == CLASSIFIER_VERSION
+
+    def test_json_finding_entry_serializes_target_key(self):
+        """Regression: Finding.to_json (via render_json) must include
+        target_key for findings that carry it, so machine consumers can
+        rely on the structural discriminator.
+
+        See: TPR-03-002-codex-r5i2 (complements TPR-03-007-codex).
+        """
+        finding = Finding(
+            category=FindingCategory.SCHEMA_VIOLATION,
+            subtype=FindingSubtype.UNKNOWN_FIELD,
+            severity=Severity.MEDIUM,
+            source=Path("plans/p1/index.md"),
+            description="unknown field plan",
+            recommended_fix="rename to name",
+            target_key="plan",
+        )
+        cf = _classified(
+            finding=finding,
+            safety_class=SafetyClass.SAFE_FIX,
+            rationale="rename",
+        )
+        report = Report(mode=ReportMode.FULL, findings=(cf,))
+        data = render_json(report)
+        entry = data["findings"][0]["finding"]
+        assert entry["target_key"] == "plan"
+
     def test_full_mode_includes_safety_class(self):
         cf = _classified(
             safety_class=SafetyClass.SAFE_FIX,
@@ -289,6 +328,59 @@ class TestRenderMarkdown:
         # the QUICK header should be visible
         assert "quick" in md.lower()
 
+    def test_markdown_renders_category_subtype_type(self):
+        """Regression: markdown finding renderer must show the classifier
+        type (category/subtype) so reviewers can see it at a glance.
+
+        See: TPR-03-002-codex-r5i2 (complements TPR-03-008-codex).
+        """
+        finding = Finding(
+            category=FindingCategory.SCHEMA_VIOLATION,
+            subtype=FindingSubtype.UNKNOWN_FIELD,
+            severity=Severity.MEDIUM,
+            source=Path("plans/p1/index.md"),
+            description="unknown field",
+            recommended_fix="remove",
+            target_key="plan",
+        )
+        cf = _classified(
+            finding=finding,
+            safety_class=SafetyClass.SAFE_FIX,
+            rationale="rename",
+        )
+        report = Report(mode=ReportMode.FULL, findings=(cf,))
+        md = render_markdown(report)
+        # Type line present with category/subtype
+        assert "schema_violation/unknown_field" in md
+        # target_key line present when target_key is populated
+        assert "target key" in md.lower() or "Target key" in md
+        assert "`plan`" in md
+
+    def test_markdown_renders_source_to_target_reference(self):
+        """Regression: markdown must show `source -> target` context for
+        findings that carry a target path (DAG_CONFLICT, DEAD_REFERENCE).
+
+        See: TPR-03-002-codex-r5i2.
+        """
+        finding = Finding(
+            category=FindingCategory.DAG_CONFLICT,
+            subtype=FindingSubtype.MISSING_DEPENDENCY,
+            severity=Severity.HIGH,
+            source=Path("plans/a/section-01.md"),
+            source_line=3,
+            target=Path("plans/b/index.md"),
+            description="missing dep",
+            recommended_fix="add dep",
+        )
+        cf = _classified(finding=finding)
+        report = Report(mode=ReportMode.FULL, findings=(cf,))
+        md = render_markdown(report)
+        assert "Reference" in md or "reference" in md
+        assert "plans/a/section-01.md" in md
+        assert "plans/b/index.md" in md
+        # The arrow connecting source -> target
+        assert "->" in md
+
 
 # ---------------------------------------------------------------------------
 # render_console — console summary
@@ -321,6 +413,48 @@ class TestRenderConsole:
         report = Report(mode=ReportMode.FULL, unapplied_fixes=(pr,))
         out = render_console(report, color=False)
         assert "[UNAPPLIED]" in out
+
+    def test_console_shows_category_subtype_tag(self):
+        """Regression: console output must include [category/subtype] tag
+        for every finding so scanning the output shows classifier identity.
+
+        See: TPR-03-002-codex-r5i2.
+        """
+        finding = Finding(
+            category=FindingCategory.SCHEMA_VIOLATION,
+            subtype=FindingSubtype.UNKNOWN_FIELD,
+            severity=Severity.MEDIUM,
+            source=Path("plans/p1/index.md"),
+            description="unknown field",
+            recommended_fix="remove",
+        )
+        cf = _classified(finding=finding, safety_class=SafetyClass.SAFE_FIX)
+        report = Report(mode=ReportMode.FULL, findings=(cf,))
+        out = render_console(report, color=False)
+        assert "[schema_violation/unknown_field]" in out
+
+    def test_console_shows_source_to_target(self):
+        """Regression: console output includes `source -> target` context
+        for findings that carry a target path.
+
+        See: TPR-03-002-codex-r5i2.
+        """
+        finding = Finding(
+            category=FindingCategory.DAG_CONFLICT,
+            subtype=FindingSubtype.MISSING_DEPENDENCY,
+            severity=Severity.HIGH,
+            source=Path("plans/a/section-01.md"),
+            source_line=3,
+            target=Path("plans/b/index.md"),
+            description="missing dep",
+            recommended_fix="add dep",
+        )
+        cf = _classified(finding=finding)
+        report = Report(mode=ReportMode.FULL, findings=(cf,))
+        out = render_console(report, color=False)
+        assert "plans/a/section-01.md:3" in out
+        assert " -> " in out
+        assert "plans/b/index.md" in out
 
     def test_quick_mode_no_safety_prefix(self):
         """Quick mode shows neither [auto] nor [review] (no classification)."""
