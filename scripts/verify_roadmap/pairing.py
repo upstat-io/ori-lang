@@ -36,10 +36,12 @@ from pathlib import Path
 
 from scripts.plan_corpus import FindingCategory, FindingSubtype
 
-from .safety import ClassifiedFinding, SafetyClass, _is_plan_index
-
-
-_RENAME_RATIONALE_PREFIX = "PlanIndexSchema: rename plan: to name:"
+from .safety import (
+    ClassifiedFinding,
+    PAIRING_TAG_PLAN_TO_NAME_RENAME,
+    SafetyClass,
+    _is_plan_index,
+)
 
 
 def pair_resolved_by_sibling(
@@ -95,7 +97,7 @@ def _find_rename_sibling(
             of.category == FindingCategory.SCHEMA_VIOLATION
             and of.subtype == FindingSubtype.UNKNOWN_FIELD
             and other.safety_class == SafetyClass.SAFE_FIX
-            and other.rationale.startswith(_RENAME_RATIONALE_PREFIX)
+            and other.pairing_tag == PAIRING_TAG_PLAN_TO_NAME_RENAME
         ):
             return of.id
 

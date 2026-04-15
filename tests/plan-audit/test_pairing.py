@@ -22,6 +22,7 @@ from scripts.plan_corpus import (
 from scripts.verify_roadmap.pairing import pair_resolved_by_sibling
 from scripts.verify_roadmap.safety import (
     ClassifiedFinding,
+    PAIRING_TAG_PLAN_TO_NAME_RENAME,
     SafetyClass,
 )
 
@@ -46,11 +47,17 @@ def _finding(
     )
 
 
-def _classified(finding: Finding, safety: SafetyClass, rationale: str) -> ClassifiedFinding:
+def _classified(
+    finding: Finding,
+    safety: SafetyClass,
+    rationale: str,
+    pairing_tag: str | None = None,
+) -> ClassifiedFinding:
     return ClassifiedFinding(
         finding=finding,
         safety_class=safety,
         rationale=rationale,
+        pairing_tag=pairing_tag,
     )
 
 
@@ -76,6 +83,7 @@ class TestRenamePairResolved:
             ),
             SafetyClass.SAFE_FIX,
             RENAME_RATIONALE,
+            pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME,
         )
         missing_name = _classified(
             _finding(
@@ -108,6 +116,7 @@ class TestRenamePairResolved:
             ),
             SafetyClass.SAFE_FIX,
             RENAME_RATIONALE,
+            pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME,
         )
         missing_name = _classified(
             _finding(
@@ -166,6 +175,7 @@ class TestNoSiblingFound:
             ),
             SafetyClass.SAFE_FIX,
             RENAME_RATIONALE,
+            pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME,
         )
 
         [out] = pair_resolved_by_sibling([rename])
@@ -185,6 +195,7 @@ class TestNoSiblingFound:
             ),
             SafetyClass.SAFE_FIX,
             RENAME_RATIONALE,
+            pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME,
         )
         missing_name = _classified(
             _finding(
@@ -244,6 +255,7 @@ class TestNoSiblingFound:
             ),
             SafetyClass.SAFE_FIX,
             RENAME_RATIONALE,
+            pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME,
         )
         missing_name = _classified(
             _finding(
