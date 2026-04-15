@@ -57,6 +57,7 @@ Row names below are LITERAL copies of the step headers later in this file.
 | Step -1B: Re-read CLAUDE.md Between Tasks (MANDATORY) | Sonnet | Orchestration |
 | Step 0: Check for Active Reroute | Sonnet | Mechanical-reading: scan for reroute artifacts |
 | Step 1: Run the Scanner | Sonnet | Orchestration: `roadmap-scan.sh` / `roadmap_scan.py` |
+| Step 1.1: Emit Focus Context | Sonnet | Mechanical-writing: brief human-readable orientation before all gates |
 | Step 1.5: Fix Stale Frontmatter | Sonnet | Mechanical-writing: frontmatter sync to body state |
 | Step 1.55: Stale Plan Annotation Check | Sonnet | Mechanical-reading: detect code annotations from completed plans |
 | Step 1.6: Schema Compliance Check | Sonnet | Orchestration: `plan_corpus check` |
@@ -183,6 +184,35 @@ Flags:
 - `--no-bugs` — skip bug-tracker crawl if slow
 - `--quiet` — suppress health signals section
 - `--trace` — log decisions to stderr for debugging the scanner itself
+
+### Step 1.1: Emit Focus Context (MANDATORY — fires before all gates)
+
+**Immediately after parsing scanner output**, output a brief human-readable orientation block to the user. This runs BEFORE any gate checks (Steps 1.5–1.95) so that any AskUserQuestion dialog the user sees already has full context. No tool calls needed — read directly from the scanner output already in context.
+
+Format:
+
+```
+## Focus: <Plan Full Name> — Section NN: <Section Title>
+
+**Plan**: <short description of what the plan is about, 1 sentence>
+**Section goal**: <goal field from section frontmatter, 1 sentence>
+**Plan progress**: NN% (X/Y sections complete)
+**Section progress**: 0% — not started (or X/Y items complete if in-progress)
+
+Subsections:
+  10.1  Fuzz Directory and Cargo-Fuzz Setup   [not started]
+  10.2  Typed Ori Program Generator            [not started]
+  ... (all subsections, one per line with status)
+```
+
+**Rules:**
+- Always include the FULL plan name (not just the directory slug)
+- Always include the section goal (the one-liner from frontmatter) — this is the key line that answers "what IS this?"
+- Always list all subsections with their status so the user can see scope at a glance
+- Keep it to ~15 lines total — this is orientation, not implementation detail
+- If the plan name is just a reroute slug (e.g., `llvm-verification-tooling`), surface the `full_name` field from `index.md`
+
+**Why this step exists:** Gates (Steps 1.5–1.95) may fire AskUserQuestion dialogs before Step 4 (Present Summary) runs. Without this step, the user sees gate questions with no idea what plan, section, or goal they relate to.
 
 ### Step 1.5: Fix Stale Frontmatter
 
