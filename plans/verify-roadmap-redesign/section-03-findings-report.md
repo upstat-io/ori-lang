@@ -22,6 +22,7 @@ third_party_review:
   status: findings
   updated: 2026-04-15
   rounds: 5
+  notes: "Round 5 iter 3: CLEAN PASS on §03 scope. 1 finding remains open (TPR-03-002-gemini-r4i4) — deferred to §05 for cross-section plan_corpus.dag.py structural plumbing. §03's own code work is complete."
 sections:
   - id: "03.1"
     title: "Safety Taxonomy & Data Types"
@@ -555,6 +556,17 @@ Resolution summary: all 14 round-5 findings (13 actionable + 1 informational) fi
 - [x] `[TPR-03-001-gemini-r5i2][informational]` `scripts/verify_roadmap/patcher.py:1` — All 13 findings from TPR-03 round 1 verified as resolved.
   Evidence: Comprehensive verification pass confirmed: insert_key block-list skip; remove_list_item inline-comment regex; apply_patch CAS re-read; auto_fix working_preimages rollforward; Finding.id target_key hashing; to_json target_key serialization; demoted ExposureReview + finding_id propagation; dataclasses.replace in dag.py; structural reroute SafeFix across DAG/validator/taxonomy layers.
   Resolved: Verification-only informational finding — no code change required. Acknowledges the round-1 fix commit 0bfd9e93 as sound.
+
+**Round 5 iteration 3 findings (2026-04-15 — CLEAN PASS, re-review after round-2 fixes):**
+
+Dual-source verification of commit 3bccddd8. ZERO actionable findings, 3 informational acknowledgments. Both reviewers (codex + gemini) independently confirm the round-2 test-coverage fixes pin the reroute SafeFix chain and new report.py surfaces correctly. Thoroughness: both reviewers compliant (codex 12 files / 4 rules / tests rerun; gemini 7 files / 4 rules / tests rerun). TPR loop terminates clean.
+
+- [x] `[TPR-03-001-codex-r5i3][informational]` `tests/plan-audit/test_safety.py:394` — Keep the reroute producer/classifier/dispatcher chain pinned.
+  Resolved: Verification-only. Acknowledges commit 3bccddd8 successfully pins all three layers end-to-end.
+- [x] `[TPR-03-002-codex-r5i3][informational]` `tests/plan-audit/test_report.py:171` — Keep the new report metadata and rendering surfaces pinned.
+  Resolved: Verification-only. Acknowledges commit 3bccddd8 added 6 pins covering classifier_version, target_key JSON serialization, category/subtype markdown + console rendering, and source -> target rendering.
+- [x] `[TPR-03-001-gemini-r5i3][informational]` `tests/plan-audit/test_safety.py:394` — Acknowledge that commit 3bccddd8 successfully pins reroute auto-fix and report surfaces.
+  Resolved: Verification-only. Gemini confirms the round-2 fixes are sound.
 
 ---
 
