@@ -746,7 +746,7 @@ fn test_infer_if_non_bool_condition() {
 // Match Expression Tests
 
 #[test]
-fn test_infer_match_simple() {
+fn test_infer_match_unifies_arm_types() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
@@ -1040,7 +1040,7 @@ fn test_infer_ident_unbound() {
 // Function Call Tests
 
 #[test]
-fn test_infer_call_simple() {
+fn test_infer_call_with_known_signature_returns_return_type() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
@@ -1126,7 +1126,7 @@ fn test_infer_call_not_callable() {
 // Lambda Tests
 
 #[test]
-fn test_infer_lambda_simple() {
+fn test_infer_identity_lambda_returns_function_type() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
@@ -1444,7 +1444,7 @@ fn test_infer_none() {
 }
 
 #[test]
-fn test_infer_ok() {
+fn test_infer_ok_constructor_returns_result_type() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 

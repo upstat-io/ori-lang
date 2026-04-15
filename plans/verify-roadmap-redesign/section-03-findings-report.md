@@ -27,7 +27,7 @@ sections:
     status: complete
   - id: "03.2"
     title: "Report Format"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "Auto-Fix Engine"
     status: not-started
@@ -163,20 +163,20 @@ Define the safety taxonomy data types that the report format (03.2) and auto-fix
 
 Design and implement the findings report format. The report must be both human-readable (markdown) and machine-parseable (JSON) for downstream tool integration. This subsection CONSUMES the types defined in 03.1.
 
-- [ ] Import the finding data model from `plan_corpus` (01.3 SSOT — do NOT redefine here):
+- [x] Import the finding data model from `plan_corpus` (01.3 SSOT — do NOT redefine here):
   - `Finding` = `{id, category, subtype, severity, source, source_line, source_column, target, target_line, description, recommended_fix, evidence, dependency_chain, source_kind}`
   - `FindingCategory` and `FindingSubtype` enums are imported (see Section 01.3 for the complete taxonomy)
   - `Finding.to_json()` / `Finding.to_markdown()` are used as-is; Section 03 only wraps them into a report
 
-- [ ] Import `ClassifiedFinding` and `SafetyClass` from 03.1 (local to this section's module; NOT from `plan_corpus`). The report serializes `ClassifiedFinding` records — each entry includes the finding data PLUS the safety classification, rationale, and sibling resolution state.
+- [x] Import `ClassifiedFinding` and `SafetyClass` from 03.1 (local to this section's module; NOT from `plan_corpus`). The report serializes `ClassifiedFinding` records — each entry includes the finding data PLUS the safety classification, rationale, and sibling resolution state.
 
-- [ ] Implement JSON report output:
+- [x] Implement JSON report output:
   - Array of `ClassifiedFinding` objects: each has `finding` (the `Finding.to_json()` dict), `safety_class` (`"safe_fix"` or `"exposure_review"`), `rationale` (string), `resolved_by_sibling` (Finding.id string or null — non-null when this finding was resolved as a side-effect of fixing a paired finding, e.g., `MISSING_REQUIRED_FIELD: name` resolved by the `plan:→name:` rename)
   - Written to `build/verify-roadmap/findings.json` (build directory, not committed)
   - Include metadata header: timestamp, corpus size, classifier versions, mode (`--full` / `--quick`)
   - When mode is `--quick`, omit `safety_class` and `rationale` fields (classification was not performed)
 
-- [ ] Implement markdown report output:
+- [x] Implement markdown report output:
   - Grouped by severity (critical first, then high, medium, low)
   - Within each severity, grouped by safety class (ExposureReview first, then SafeFix)
   - Within each group, sorted by classifier type
@@ -184,26 +184,26 @@ Design and implement the findings report format. The report must be both human-r
   - Summary table at top: count by type and severity, count by safety class
   - Written to `build/verify-roadmap/findings.md` (build directory, not committed)
 
-- [ ] Implement console summary output:
+- [x] Implement console summary output:
   - One-line-per-finding format for terminal display
   - Color-coded by severity (if terminal supports it)
   - SafeFix findings marked with `[auto]` prefix; ExposureReview with `[review]`; unapplied fixes marked with `[UNAPPLIED]` (concurrent-modification refusal from PatchResult(applied=False))
   - Exit code reflects findings: 0 = clean, 1 = findings present, 2 = critical findings
 
-- [ ] **Unapplied-fix report surface (TPR-03-003-codex / TPR-03-002-gemini):** The report format must surface `PatchResult(applied=False)` results from the auto-fix engine as a distinct group in both JSON and markdown output. In JSON: add an `unapplied_fixes` array alongside the main findings array. In markdown: add an "Unapplied Fixes" section after the main findings grouped by reason (concurrent modification, malformed file, etc.). These are NOT dropped — they represent intended work that could not safely complete.
+- [x] **Unapplied-fix report surface (TPR-03-003-codex / TPR-03-002-gemini):** The report format must surface `PatchResult(applied=False)` results from the auto-fix engine as a distinct group in both JSON and markdown output. In JSON: add an `unapplied_fixes` array alongside the main findings array. In markdown: add an "Unapplied Fixes" section after the main findings grouped by reason (concurrent modification, malformed file, etc.). These are NOT dropped — they represent intended work that could not safely complete.
 
-- [ ] **Tests (TDD):**
+- [x] **Tests (TDD):**
   - Round-trip test: `ClassifiedFinding` -> JSON -> parse -> verify all fields preserved
   - Markdown grouping test: verify severity ordering, safety class ordering
   - Exit code test: 0 for empty findings, 1 for low/medium, 2 for critical
   - `--quick` mode test: verify JSON output omits safety_class/rationale
   - **Unapplied-fix surface test:** verify that `PatchResult(applied=False)` entries appear in the `unapplied_fixes` group in both JSON and markdown reports (not silently dropped)
 
-- [ ] **Subsection close-out (03.2)** -- MANDATORY before starting 03.3:
-  - [ ] All tasks above are `[x]` and report generates correctly on current corpus
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Run `/sync-claude` on THIS subsection** -- check whether changes
+- [x] **Subsection close-out (03.2)** -- MANDATORY before starting 03.3:
+  - [x] All tasks above are `[x]` and report generates correctly on current corpus
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [x] **Run `/sync-claude` on THIS subsection** -- check whether changes
         invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md`
         claims. If no changes, document briefly. Fix any drift NOW.
 
