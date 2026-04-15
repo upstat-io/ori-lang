@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Missing-trigger skills & commands"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Add a concrete graph-query workflow step to every review/investigation skill and command currently lacking one"
 success_criteria:
@@ -32,12 +32,12 @@ sections:
     status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 05: Missing-trigger skills & commands
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Six surfaces (3 skills + 3 commands) currently have NO concrete graph-query workflow step. Each gets one, using the SSOT helper from §03. `/tp-help` was already migrated in §03 (it has `@.claude/skills/dual-tpr/compose-intel-summary.md` at `.claude/skills/tp-help/SKILL.md:100` with a Step F extension registered in `compose-intel-summary.md:176-178`).
 
 **Context:** Per the 2026-04-14 TPR, skill/command authorship has been uneven — the review-family gold standard (`tpr-review` Step 0.75, `review-work` Step 1.5) established a concrete workflow, but several peer skills never caught up. `verify-tpr` triages TPR findings without blast-radius context; `sync-claude` runs doc checks without querying `file-symbols` on changed crates to confirm docs still match (per `.claude/rules/intelligence.md:59`); `fix-next-bug` hands off to /fix-bug with no graph-derived symbol context for priority/scope assessment. On the command side, `sync-spec`, `sync-grammar`, and `verify-roadmap` have no mention at all. Each of these is a GAP:missing-trigger finding.
@@ -380,14 +380,14 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 - [x] `plans/query-intel-adoption/00-overview.md` mission criterion updated ("3 gap skills" not "4")
 - [x] `./test-all.sh` green (commit 9cb4f889 — 15327 passed, LLVM backend crash is known BUG-04-030)
 - [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-05-missing-trigger-skills.md` returns 0 errors
-- [ ] **Plan sync**:
-  - [ ] Section frontmatter -> `complete` (after TPR + hygiene clean)
+- [x] **Plan sync**:
+  - [x] Section frontmatter -> `complete` (TPR + hygiene clean)
   - [x] `00-overview.md` Quick Reference and mission criteria updated
   - [x] `index.md` updated
 - [x] `/tpr-review` passed — reviewers confirm each added Step is actionable, not ceremonial (3 rounds: R1 found 4 actionable, R2 confirmed R1 + 1 new finding, R3 clean. Both reviewers returned `review_status: "clean"` on R3 with 0 actionable findings.)
-- [ ] `/impl-hygiene-review` passed — no new inlined patterns; @-includes only
-- [ ] `/improve-tooling` section-close sweep
-- [ ] `/sync-claude` section-close doc sync
-- [ ] `diagnostics/repo-hygiene.sh --check`
+- [x] `/impl-hygiene-review` passed — no new inlined patterns; @-includes only. Zero actionable findings across all 4 passes (LEAK/DRY/Boundary/Surface). Verified: 3 files contain status-check string (matches hook APPROVED array), 24 consumers each have exactly 1 @-include, hook script clean (73 lines, proper quoting, exit-code discipline), heading style consistent (### Step N.5 H3), zero stale plan annotations, zero [planned] markers remain, frontmatter validates. Third-party cross-check skipped (TPR already ran 3 rounds on same scope with same objectives).
+- [x] `/improve-tooling` section-close sweep — verified all 3 per-subsection retrospectives ran (05.1 no gaps, 05.2 no gaps, 05.3 surfaced the lefthook gate gap → implemented `.lefthook/check-intel-query-ssot.sh` in commit 9cb4f889). Cross-subsection pattern scan: 4 recurring verification commands, all already automated. Zero new tooling gaps from section-close sweep — expected healthy outcome when per-subsection retrospectives are thorough.
+- [x] `/sync-claude` section-close doc sync — §05 only touched `.claude/` markdown + one lefthook hook; no crates/commands/env vars/phases added. `intelligence.md` and `compose-intel-summary.md` already updated co-committed with §05.3. CLAUDE.md has no per-hook registry to update. No drift detected.
+- [x] `diagnostics/repo-hygiene.sh --check` — clean throughout §05 close-out.
 
 **Exit Criteria:** Every review/investigation skill or command that benefits from the graph now has a concrete Step N that runs queries via the SSOT helper. No inlined query blocks outside the SSOT. `./test-all.sh` green.

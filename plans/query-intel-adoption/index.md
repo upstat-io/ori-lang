@@ -81,7 +81,7 @@ graph-first paragraph template, Swift SILOptimizer, Lean4 IR, rustc, Koka, Gleam
 ---
 
 ### Section 05: Missing-trigger skills & commands
-**File:** `section-05-missing-trigger-skills.md` | **Status:** In Progress
+**File:** `section-05-missing-trigger-skills.md` | **Status:** Complete
 
 ```
 .claude/skills/verify-tpr/SKILL.md, blast-radius on findings
