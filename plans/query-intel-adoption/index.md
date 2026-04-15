@@ -154,7 +154,7 @@ BLOAT:json-as-default, GAP:output-shape
 ```
 scripts/plan_corpus/retrofit_recon.py, permanent subcommand (not throwaway)
 python -m scripts.plan_corpus retrofit-recon, --dry-run, --plan, --allow-reopen
-status-gated scope: ValidatedFile.frontmatter["status"] == "not-started"
+status-gated scope: ValidatedFile.data["status"] == "not-started"
 reviewed: true guard, --allow-reopen opt-in, no silent reviewed flip
 meta-dogfood scope: §06, §07, §08, §09 only; §01-§05 frozen
 no historical-fiction retrospective-recon injection
