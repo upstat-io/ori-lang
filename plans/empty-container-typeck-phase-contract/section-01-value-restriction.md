@@ -557,6 +557,14 @@ When all findings are triaged:
   Resolved: Valid finding, filed in Section 05's scope. Section 05 must include the negative pin tests.
 - [x] `[TPR-01-002-gemini][medium]` `section-01-value-restriction.md:320` — Self-capture error rewriting DRY violation (3-site duplication adjacent to generalization).
   Resolved: Valid observation. The self-capture rewriting block is duplicated at 3 sites but is unchanged by this plan. Tracked as a follow-up: this is an existing `impl-hygiene.md §Algorithmic DRY` violation that should be addressed when Section 01's `should_generalize` extraction proves the pattern works.
+- [x] `[TPR-01-006-codex][medium]` `compiler/ori_types/src/infer/expr/tests.rs:3532` — GAP: Missing positive lambda pins for infer_let and infer_try_stmt.
+  Resolved: Fixed on 2026-04-14. Added `test_let_expr_lambda_generalizes` and `test_try_block_let_lambda_generalizes` to pin generalization IS preserved for non-capturing lambdas through both migrated paths.
+- [x] `[TPR-01-003-gemini][medium]` `compiler/ori_types/src/infer/expr/tests.rs:3098` — GAP: Missing positive semantic pins for lambda generalization in infer_let and infer_try_stmt.
+  Resolved: Fixed on 2026-04-14. Same fix as [TPR-01-006-codex] (independent agreement — both reviewers flagged the same gap).
+- [x] `[TPR-01-004-gemini][low]` `compiler/ori_types/src/infer/expr/tests.rs:3017` — NAMING: should_generalize test names use wrong shape.
+  Resolved: Fixed on 2026-04-14. Renamed 3 tests to `<subject>_<scenario>_<expected>` shape.
+- [x] `[TPR-01-005-gemini][low]` `.claude/rules/typeck.md:418` — DRIFT: EX-8 steps 3-4 ordering swapped vs implementation.
+  Resolved: Fixed on 2026-04-14. Swapped steps 3 and 4 to match code: generalize at elevated rank, then exit scope.
 
 ---
 
