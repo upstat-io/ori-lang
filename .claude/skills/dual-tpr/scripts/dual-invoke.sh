@@ -12,6 +12,8 @@
 # Outputs (placed in $RUN):
 #   $RUN/codex.jsonl       — codex's stdout (item.completed JSONL stream)
 #   $RUN/gemini.jsonl      — gemini's stdout (stream-json JSONL stream)
+#   $RUN/codex.stderr      — codex's stderr (API errors, diagnostics)
+#   $RUN/gemini.stderr     — gemini's stderr (API errors, diagnostics)
 #   $RUN/codex.exit        — codex exit code
 #   $RUN/gemini.exit       — gemini exit code
 #   $RUN/codex.walltime    — codex wall time in seconds
@@ -78,12 +80,12 @@ echo "[$(date +%s)] dual-invoke start (skill=$SKILL run=$RUN reviewers=$REVIEWER
 if [[ "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ]]; then
   rm -f "$RUN/codex.exit" "$RUN/codex.walltime" \
         "$RUN/codex.parse-error" "$RUN/codex.envelope.json" \
-        "$RUN/codex.skipped" "$RUN/codex.stalled"
+        "$RUN/codex.skipped" "$RUN/codex.stalled" "$RUN/codex.stderr"
 fi
 if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
   rm -f "$RUN/gemini.exit" "$RUN/gemini.walltime" \
         "$RUN/gemini.parse-error" "$RUN/gemini.envelope.json" \
-        "$RUN/gemini.skipped" "$RUN/gemini.stalled"
+        "$RUN/gemini.skipped" "$RUN/gemini.stalled" "$RUN/gemini.stderr"
 fi
 
 # Track child PIDs so we can clean them up on early exit (BUG-08-005). Bash
@@ -153,11 +155,14 @@ if [[ "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ]]; then
   (
     set +e
     START=$(date +%s)
-    codex exec --full-auto --json --ephemeral "$(cat "$CODEX_PROMPT")" 2>/dev/null > "$RUN/codex.jsonl"
+    codex exec --full-auto --json --ephemeral "$(cat "$CODEX_PROMPT")" 2>"$RUN/codex.stderr" > "$RUN/codex.jsonl"
     CODEX_RC=$?
     echo "$CODEX_RC" > "$RUN/codex.exit"
     echo "$(($(date +%s) - START))" > "$RUN/codex.walltime"
     echo "[$(date +%s)] codex finished (rc=$CODEX_RC)" >> "$RUN/round.log"
+    if [[ "$CODEX_RC" != "0" && -s "$RUN/codex.stderr" ]]; then
+      echo "[$(date +%s)] codex stderr (first 500 chars): $(head -c 500 "$RUN/codex.stderr")" >> "$RUN/round.log"
+    fi
     exit "$CODEX_RC"
   ) &
   CODEX_PID=$!
@@ -195,11 +200,14 @@ if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
   (
     set +e
     START=$(date +%s)
-    gemini -m gemini-3.1-pro-preview --approval-mode yolo --output-format stream-json -p "$(cat "$GEMINI_PROMPT")" 2>/dev/null > "$RUN/gemini.jsonl"
+    gemini -m gemini-3.1-pro-preview --approval-mode yolo --output-format stream-json -p "$(cat "$GEMINI_PROMPT")" 2>"$RUN/gemini.stderr" > "$RUN/gemini.jsonl"
     GEMINI_RC=$?
     echo "$GEMINI_RC" > "$RUN/gemini.exit"
     echo "$(($(date +%s) - START))" > "$RUN/gemini.walltime"
     echo "[$(date +%s)] gemini finished (rc=$GEMINI_RC)" >> "$RUN/round.log"
+    if [[ "$GEMINI_RC" != "0" && -s "$RUN/gemini.stderr" ]]; then
+      echo "[$(date +%s)] gemini stderr (first 500 chars): $(head -c 500 "$RUN/gemini.stderr")" >> "$RUN/round.log"
+    fi
     exit "$GEMINI_RC"
   ) &
   GEMINI_PID=$!

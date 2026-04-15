@@ -4,8 +4,9 @@
 # Usage: same args as dual-invoke.sh
 #
 # Retry policy:
-#   - 3 attempts per reviewer per round
-#   - Exponential backoff: 1s, 2s, 4s between attempts
+#   - 5 attempts per reviewer per round (was 3; raised for capacity errors)
+#   - Default backoff: 1s, 2s, 4s, 30s, 60s between attempts
+#   - Capacity-aware backoff: 30s, 60s, 120s, 120s, 120s for API capacity errors
 #   - Retries are SEPARATE from the wrapper's semantic iteration budget
 #   - On failure: returns the failure category as the last line of stderr,
 #     leaves $RUN intact for postmortem, exits 1
@@ -25,8 +26,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-MAX_RETRIES=3
-BACKOFFS=(1 2 4)
+MAX_RETRIES=5
+BACKOFFS=(1 2 4 30 60)
+# Capacity-specific backoff: much longer delays for API capacity errors.
+# The short 1/2/4s default backoffs just hammer a capacity-limited API.
+CAPACITY_BACKOFFS=(30 60 120 120 120)
 
 # Pass through all args to dual-invoke.sh; we also need RUN and SCHEMA to know
 # where outputs go and which schema to validate against.
@@ -179,6 +183,7 @@ is_terminal_failure() {
     gemini_missing_envelope)       return 0 ;;
     gemini_missing_json_block)     return 0 ;;
     gemini_failed_partial)         return 0 ;;
+    *_api_auth)                    return 0 ;;  # authentication errors won't self-heal
     *) return 1 ;;
   esac
 }
@@ -206,6 +211,44 @@ extract_failure_category() {
     { print; exit }
   ' "$parse_error_file" 2>/dev/null)
   printf '%s_%s' "$reviewer" "${category:-unknown_failure}"
+}
+
+# extract_jsonl_api_error — extract the API error message from a reviewer's
+# JSONL stream. Gemini (and codex) emit a {"type":"result","status":"error",
+# "error":{"message":"..."}} event when the API rejects the request. This
+# function extracts that message so the retry classifier can distinguish
+# capacity errors from other failures — the only information previously
+# available was the generic "launch_or_exit_fail" category because stderr
+# was discarded (now captured in $RUN/<reviewer>.stderr).
+#
+# Returns: the error message on stdout, or empty string if no error event found.
+extract_jsonl_api_error() {
+  local jsonl_file="$1"
+  [[ -f "$jsonl_file" ]] || return 0
+  python3 -c "
+import json, sys
+with open('$jsonl_file') as f:
+    for line in f:
+        line = line.strip()
+        if not line: continue
+        try:
+            obj = json.loads(line)
+            if obj.get('type') == 'result' and obj.get('status') == 'error':
+                err = obj.get('error', {})
+                print(err.get('message', ''), end='')
+                sys.exit(0)
+        except: pass
+" 2>/dev/null || true
+}
+
+# is_capacity_error — returns 0 (true) if the failure looks like an API
+# capacity/rate-limit error. These need much longer backoff (30-120s) instead
+# of the default 1-4s.
+IS_CAPACITY_FAILURE=false
+is_capacity_error() {
+  local category="$1"
+  [[ "$category" == *"_api_capacity"* ]] && return 0
+  return 1
 }
 
 ATTEMPT=0
@@ -284,7 +327,25 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
       [[ -f "$RUN/gemini.stalled" ]] && stalled_reviewers="${stalled_reviewers:+$stalled_reviewers+}gemini"
       FAILURE="reviewer_stalled_${stalled_reviewers}"
     else
+      # Extract API error from JSONL to refine the generic launch_or_exit_fail.
+      # The error message IS in the JSONL result event even though stderr was
+      # previously discarded. Now we capture both (stderr to $RUN/*.stderr,
+      # JSONL error here) for defense in depth.
       FAILURE="launch_or_exit_fail"
+      for reviewer in codex gemini; do
+        api_err=$(extract_jsonl_api_error "$RUN/${reviewer}.jsonl")
+        if [[ -n "$api_err" ]]; then
+          echo "[$(date +%s)] ${reviewer} API error: $api_err" >> "$RUN/round.log"
+          if [[ "$api_err" == *"No capacity"* || "$api_err" == *"rate limit"* || "$api_err" == *"overloaded"* || "$api_err" == *"quota"* ]]; then
+            FAILURE="${reviewer}_api_capacity"
+            IS_CAPACITY_FAILURE=true
+          elif [[ "$api_err" == *"authentication"* || "$api_err" == *"unauthorized"* || "$api_err" == *"permission"* ]]; then
+            FAILURE="${reviewer}_api_auth"
+          else
+            FAILURE="${reviewer}_api_error"
+          fi
+        fi
+      done
     fi
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
   elif [[ ( "$EFFECTIVE_REVIEWERS" == "codex" || "$EFFECTIVE_REVIEWERS" == "both" ) ]] && ! "$SCRIPT_DIR/parse-codex.py" --jsonl "$RUN/codex.jsonl" --schema "$SCHEMA" > "$RUN/codex.envelope.json" 2> "$RUN/codex.parse-error"; then
@@ -337,8 +398,13 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   fi
 
   if [[ $ATTEMPT -lt $MAX_RETRIES ]]; then
-    BACKOFF=${BACKOFFS[$((ATTEMPT - 1))]}
-    echo "[$(date +%s)] sleeping ${BACKOFF}s before retry" >> "$RUN/round.log"
+    if is_capacity_error "$FAILURE"; then
+      BACKOFF=${CAPACITY_BACKOFFS[$((ATTEMPT - 1))]}
+      echo "[$(date +%s)] capacity error — sleeping ${BACKOFF}s before retry (capacity-aware backoff)" >> "$RUN/round.log"
+    else
+      BACKOFF=${BACKOFFS[$((ATTEMPT - 1))]}
+      echo "[$(date +%s)] sleeping ${BACKOFF}s before retry" >> "$RUN/round.log"
+    fi
     sleep "$BACKOFF"
   fi
 done
