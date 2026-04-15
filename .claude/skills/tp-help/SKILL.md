@@ -114,24 +114,9 @@ Bash:
   echo "RUN=$RUN" >&2  # so you can reference it in later steps
 ```
 
-### Step 2.5: Compose the Rules Brief (MANDATORY)
-
-Before writing reviewer prompts, compose a tailored rules brief using the
-same dynamic composition pipeline as `/tpr-review`. See `/tpr-review`
-SKILL.md Step 1.5 for the full workflow:
-
-1. Run `scripts/rules-for-review.py --files {context_files}` to classify
-2. Spawn a Sonnet subagent (`.claude/skills/dual-tpr/compose-rules-brief.md`)
-3. Hold the Rules Brief output for injection into both prompts below
-
-For `/tp-help`, the "context files" are the files referenced in the question
-context (Step 1's context files), not a git diff. If no files are
-identifiable, fall back to the static core (CLAUDE.md + impl-hygiene.md +
-tests.md + compiler.md).
-
 ### Step 3: Write Both Reviewer Prompts
 
-**Step 3a — Codex prompt (HARD RULES + adversarial framing + Rules Brief).** Write the full context package to `$RUN/codex.prompt.md`. The prompt MUST include FOUR blocks before the question, in this exact order: (1) the HARD RULES read-only enforcement preamble, (2) the adversarial consultation framing, (3) the Rules Brief from Step 2.5 (or fallback grounding block), and (4) the question context.
+**Step 3a — Codex prompt (HARD RULES + adversarial framing + Grounding Block).** Write the full context package to `$RUN/codex.prompt.md`. The prompt MUST include FOUR blocks before the question, in this exact order: (1) the HARD RULES read-only enforcement preamble, (2) the adversarial consultation framing, (3) the static Grounding Block listing rule files the reviewer must read, and (4) the question context. The orchestrator does NOT pre-summarize the rule files — codex reads them directly.
 
 **Why these blocks are non-negotiable:**
 - **HARD RULES preamble** — Codex runs under `--full-auto` which gives it unrestricted file-editing authority. The `.codex/skills/tp-help/SKILL.md` file provides skill-level read-only enforcement, but the prompt-level HARD RULES are the belt to the skill-file's suspenders. On 2026-04-09, a `/tp-help` run WITHOUT prompt-level HARD RULES resulted in Codex editing `section-07-enum-repr.md` and `plan-schema.md` during a read-only consultation — the worktree guard caught and reverted the drift, but the edit should never have happened. `worktree-guard.sh` is post-hoc **detection**, not **prevention**. Both layers (skill file + prompt HARD RULES) are now mandatory.

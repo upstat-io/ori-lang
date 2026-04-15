@@ -308,50 +308,6 @@ Bash:
 
 Each semantic iteration gets a fresh `$RUN` (e.g. `/tmp/ori-tpr-XXXXXXXX`). Reuse across iterations is forbidden — a stale envelope from the previous round would corrupt the merge.
 
-### 1.5. Compose the Rules Brief (MANDATORY)
-
-Before writing reviewer prompts, dynamically compose a tailored rules brief
-so reviewers get focused, relevant rules — not a 3,000-line firehose they
-will skim.
-
-**Step A — Classify changed files into subsystems:**
-
-```
-Bash:
-  python3 scripts/rules-for-review.py --diff {review_range} --mode json
-```
-
-(For staged/unstaged reviews, use `--files` with the file list from
-`git diff --name-only` instead of `--diff`.)
-
-This outputs JSON with: `changed_files`, `subsystems`, and `rules`
-(split into `critical` and `reference` lists, each with `file` and `why`).
-
-**Step B — Spawn a Sonnet subagent to compose the brief:**
-
-```
-Agent(model=sonnet):
-  description: "Compose rules brief for {subsystems} review"
-  prompt: <use the template from .claude/skills/dual-tpr/compose-rules-brief.md,
-           filling in {CLASSIFIER_JSON}, {DIFF_SUMMARY}, {REVIEW_OBJECTIVE}>
-```
-
-The Sonnet agent reads the classified rule files + CLAUDE.md, identifies the
-specific rules/invariants relevant to the diff, and outputs a ~200-400 line
-Rules Brief with:
-- Finding vocabulary (LEAK/DRIFT/GAP/WASTE/etc.)
-- Per-file sections with rule anchors (TR-2, NR-1, RL-2, etc.)
-- Only the rules that matter for this specific change
-
-**Step C — Hold the Rules Brief in context.** The output is used in Step 2
-to replace the static grounding block in both reviewer prompts. See the
-updated prompt templates below.
-
-If the classifier detects no files or the subagent fails, fall back to the
-static grounding block listing CLAUDE.md + impl-hygiene.md + tests.md +
-compiler.md (the "always" core) plus any rule files you manually identify
-as relevant.
-
 ### 2. Write both reviewer prompts
 
 The codex and gemini prompts share the same evidence packet but differ in their activation preamble. See `.claude/skills/dual-tpr/transport.md` for the canonical preambles.
@@ -383,25 +339,31 @@ else:
 - **Both prompts still require envelope output** — the envelope schema is the contract. Findings represent issues/gaps/improvements identified against the objective.
 - **The `--skill` parameter to the transport** should be `custom` for logging purposes.
 
-#### Mandatory Grounding Block (Dynamic Rules Brief)
+#### Mandatory Grounding Block
 
 **Every reviewer prompt MUST contain a grounding section before the scope
 hint.** Without grounding, reviewers produce generic "this looks odd" noise
 instead of precise `LEAK:scattered-knowledge at path:line` findings.
 
-The grounding block is IDENTICAL for both reviewers and consists of:
+The grounding block is IDENTICAL for both reviewers and consists of a
+short list of rule files the reviewers are required to read themselves.
+The orchestrator does NOT pre-summarize these files — codex and gemini
+have full read access and are capable agents; asking them to read rules
+directly avoids staleness and preserves orchestrator context.
 
-1. **The Rules Brief** from Step 1.5 — a ~200-400 line, dynamically-composed
-   summary of the specific rules relevant to this diff. This is the primary
-   grounding content. It includes finding vocabulary, rule anchors, and
-   per-subsystem invariants.
-2. **A "read for full context" list** — the critical rule file paths from the
-   classifier output, so reviewers can deep-dive if needed.
-3. `CLAUDE.md` is always listed — reviewers must read it for overarching rules.
+The block lists:
 
-The Rules Brief replaces the old static file list. Instead of telling
-reviewers "read these 7 files (3,000 lines)" and hoping they do, the brief
-**inlines the key rules** so reviewers consume them as part of the prompt.
+1. `CLAUDE.md` (project root) — always, overarching rules.
+2. `.claude/rules/impl-hygiene.md` — always, finding vocabulary.
+3. `.claude/rules/tests.md` — always, matrix testing / pin protocol.
+4. `.claude/rules/compiler.md` — always, phase boundaries.
+5. Any `.claude/rules/*.md` file obviously relevant to the changed paths
+   (e.g. `arc.md` when `ori_arc/` or `ori_rt/` files changed,
+   `parse.md` when `ori_parse/` or `ori_lexer/` changed, etc.).
+   Identify these from the diff by file-path inspection — do NOT read,
+   synthesize, or paraphrase their contents into the prompt.
+
+The reviewers handle reading and filtering. Keep the prompt short.
 
 Write both prompts to the scratch dir. **Use the template matching the active mode:**
 
@@ -415,19 +377,22 @@ Bash:
   write findings to plan files.
   # NOTE: {skill_name} is review-work (default) or review-plan (plan review)
 
-  ## Rules — these apply to this review
+  ## Grounding — read these files FIRST before reviewing
 
-  The following rules brief was composed for this specific review.
-  These are the rules your findings MUST cite. Use the finding categories
-  (LEAK, DRIFT, GAP, WASTE, EXPOSURE, BLOAT, NOTE) and rule anchors
-  (TR-2, NR-1, RL-2, etc.) defined below.
+  Read these rule files in full before examining any scope files.
+  This grounding is MANDATORY — an ungrounded review produces
+  generic noise instead of project-native, rule-anchored findings.
+  Every finding MUST cite the vocabulary from impl-hygiene.md
+  (LEAK / DRIFT / GAP / WASTE / EXPOSURE / BLOAT / NOTE) and the
+  specific rule anchor (TR-2, NR-1, RL-2, etc.) it violates.
 
-  <INSERT THE RULES BRIEF FROM STEP 1.5 HERE — the full output of the
-   Sonnet subagent. This is ~200-400 lines of focused, relevant rules.>
-
-  For full rule details, also read:
-  - CLAUDE.md (project root — overarching project rules)
-  <list the critical rule file paths from the classifier output>
+  1. CLAUDE.md (project root) — correctness, no deferral, phase purity
+  2. .claude/rules/impl-hygiene.md — finding vocabulary, SSOT, DRY
+  3. .claude/rules/tests.md — matrix testing, semantic/negative pins
+  4. .claude/rules/compiler.md — architecture, phase boundaries
+  <append any subsystem-specific rule file obviously relevant to the
+   changed paths — e.g. arc.md, parse.md, codegen-rules.md, registry.md.
+   Do NOT summarize these files in the prompt — the reviewer reads them.>
 
   ## Scope: <scope hint — e.g. "HEAD~5..HEAD", a plan section name, or explicit files>
 
@@ -442,18 +407,20 @@ Bash:
   do NOT write findings to plan files.
   # NOTE: {skill_name} is review-work (default) or review-plan (plan review)
 
-  ## Rules — these apply to this review
+  ## Grounding — read these files FIRST before reviewing
 
-  The following rules brief was composed for this specific review.
-  These are the rules your findings MUST cite. Use the finding categories
-  (LEAK, DRIFT, GAP, WASTE, EXPOSURE, BLOAT, NOTE) and rule anchors
-  (TR-2, NR-1, RL-2, etc.) defined below.
+  Read these rule files in full before examining any scope files.
+  This grounding is MANDATORY — an ungrounded review produces
+  generic noise instead of project-native, rule-anchored findings.
+  Every finding MUST cite the vocabulary from impl-hygiene.md
+  (LEAK / DRIFT / GAP / WASTE / EXPOSURE / BLOAT / NOTE) and the
+  specific rule anchor (TR-2, NR-1, RL-2, etc.) it violates.
 
-  <INSERT THE RULES BRIEF FROM STEP 1.5 HERE — same content as codex prompt>
-
-  For full rule details, also read:
-  - CLAUDE.md (project root — overarching project rules)
-  <list the critical rule file paths from the classifier output>
+  1. CLAUDE.md (project root) — correctness, no deferral, phase purity
+  2. .claude/rules/impl-hygiene.md — finding vocabulary, SSOT, DRY
+  3. .claude/rules/tests.md — matrix testing, semantic/negative pins
+  4. .claude/rules/compiler.md — architecture, phase boundaries
+  <same subsystem-specific rule file list as codex prompt>
 
   ## Scope: <same scope hint>
 
@@ -500,15 +467,19 @@ Bash:
   valid outcome — but emit at least one `informational` finding
   describing what you verified and why the subject is sound.
 
-  ## Rules — these apply to this review
+  ## Grounding — read these files FIRST before reviewing
 
-  <INSERT THE RULES BRIEF FROM STEP 1.5 HERE — for custom mode, the
-   classifier may use --files with paths extracted from the objective,
-   or fall back to the static core if no files are identifiable.>
+  Read these rule files in full before examining the objective.
+  An ungrounded review produces generic noise instead of project-
+  native findings. Every finding MUST cite the vocabulary from
+  impl-hygiene.md (LEAK / DRIFT / GAP / WASTE / EXPOSURE / BLOAT /
+  NOTE) and the specific rule anchor it violates.
 
-  For full rule details, also read:
-  - CLAUDE.md (project root — overarching project rules)
-  <list the critical rule file paths from the classifier output>
+  1. CLAUDE.md (project root) — correctness, no deferral, phase purity
+  2. .claude/rules/impl-hygiene.md — finding vocabulary, SSOT, DRY
+  3. .claude/rules/tests.md — matrix testing, semantic/negative pins
+  4. .claude/rules/compiler.md — architecture, phase boundaries
+  <append any subsystem-specific rule file referenced by the objective>
 
   <If Step 0.75 produced an Intelligence Summary, insert it here>
 
@@ -549,13 +520,19 @@ Bash:
   valid outcome — but emit at least one `informational` finding
   describing what you verified and why the subject is sound.
 
-  ## Rules — these apply to this review
+  ## Grounding — read these files FIRST before reviewing
 
-  <INSERT THE RULES BRIEF FROM STEP 1.5 HERE — same content as codex>
+  Read these rule files in full before examining the objective.
+  An ungrounded review produces generic noise instead of project-
+  native findings. Every finding MUST cite the vocabulary from
+  impl-hygiene.md (LEAK / DRIFT / GAP / WASTE / EXPOSURE / BLOAT /
+  NOTE) and the specific rule anchor it violates.
 
-  For full rule details, also read:
-  - CLAUDE.md (project root — overarching project rules)
-  <list the critical rule file paths from the classifier output>
+  1. CLAUDE.md (project root) — correctness, no deferral, phase purity
+  2. .claude/rules/impl-hygiene.md — finding vocabulary, SSOT, DRY
+  3. .claude/rules/tests.md — matrix testing, semantic/negative pins
+  4. .claude/rules/compiler.md — architecture, phase boundaries
+  <same subsystem-specific rule file list as codex prompt>
 
   <If Step 0.75 produced an Intelligence Summary, insert it here>
 

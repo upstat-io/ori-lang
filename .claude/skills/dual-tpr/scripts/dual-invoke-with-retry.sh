@@ -88,6 +88,58 @@ if [[ "$ORIGINAL_REVIEWERS" != "codex" && "$ORIGINAL_REVIEWERS" != "gemini" && "
   exit 2
 fi
 
+# ── Global circuit breaker (2026-04-15) ──────────────────────────────
+#
+# Before we commit to the operator's reviewer selection, consult the
+# per-reviewer circuit breaker (state lives under $HOME/.cache/ori-tpr-circuit/
+# — global per user, persists across Claude sessions and worktrees). If a
+# reviewer has tripped its API/transport failure threshold within the
+# sliding window, it is parked for 1 hour — skip it and use only the
+# surviving reviewer. If BOTH are tripped, fail loud with a clear message
+# so the operator can choose to wait or `reset all`.
+#
+# ORI_TPR_CIRCUIT_OFF=1 bypasses the breaker entirely (escape hatch for
+# diagnostics). Otherwise the narrowing is silent and invisible to callers
+# that already tolerate single-reviewer mode via ORI_TPR_REVIEWERS.
+if [[ "${ORI_TPR_CIRCUIT_OFF:-0}" != "1" ]]; then
+  CB="$SCRIPT_DIR/circuit-breaker.sh"
+  CODEX_TRIPPED=0
+  GEMINI_TRIPPED=0
+  CODEX_CHECK="$("$CB" check codex 2>/dev/null)" || CODEX_TRIPPED=1
+  GEMINI_CHECK="$("$CB" check gemini 2>/dev/null)" || GEMINI_TRIPPED=1
+
+  case "$ORIGINAL_REVIEWERS" in
+    both)
+      if [[ $CODEX_TRIPPED -eq 1 && $GEMINI_TRIPPED -eq 1 ]]; then
+        echo "circuit_breaker_both_tripped: $CODEX_CHECK / $GEMINI_CHECK" >&2
+        echo "Both reviewers are in timeout. Wait for expiry or run:" >&2
+        echo "  $CB reset all" >&2
+        exit 1
+      elif [[ $CODEX_TRIPPED -eq 1 ]]; then
+        echo "[$(date +%s)] circuit-breaker: codex tripped ($CODEX_CHECK), narrowing to gemini-only" >> "$RUN/round.log"
+        ORIGINAL_REVIEWERS="gemini"
+      elif [[ $GEMINI_TRIPPED -eq 1 ]]; then
+        echo "[$(date +%s)] circuit-breaker: gemini tripped ($GEMINI_CHECK), narrowing to codex-only" >> "$RUN/round.log"
+        ORIGINAL_REVIEWERS="codex"
+      fi
+      ;;
+    codex)
+      if [[ $CODEX_TRIPPED -eq 1 ]]; then
+        echo "circuit_breaker_tripped: codex $CODEX_CHECK (operator requested codex-only; no fallback possible)" >&2
+        echo "Wait for expiry or run: $CB reset codex" >&2
+        exit 1
+      fi
+      ;;
+    gemini)
+      if [[ $GEMINI_TRIPPED -eq 1 ]]; then
+        echo "circuit_breaker_tripped: gemini $GEMINI_CHECK (operator requested gemini-only; no fallback possible)" >&2
+        echo "Wait for expiry or run: $CB reset gemini" >&2
+        exit 1
+      fi
+      ;;
+  esac
+fi
+
 # is_terminal_failure: classify a failure category as either terminal (no
 # retry) or retryable (worth another attempt). Returns 0 (true) for terminal,
 # 1 (false) for retryable.
@@ -544,6 +596,14 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
     # If no failure was set (either no drift, or drift was non-blocking), succeed
     if [[ -z "$FAILURE" ]]; then
       echo "[$(date +%s)] round succeeded on attempt $ATTEMPT (codex_ok=$CODEX_OK gemini_ok=$GEMINI_OK)" >> "$RUN/round.log"
+      # Reset circuit-breaker fail counters for every reviewer that delivered
+      # a valid envelope this round. Success within the window clears the
+      # sliding-window count (but does NOT clear an active timeout — that
+      # still runs its full duration).
+      if [[ "${ORI_TPR_CIRCUIT_OFF:-0}" != "1" ]]; then
+        [[ $CODEX_OK -eq 1 ]]  && "$SCRIPT_DIR/circuit-breaker.sh" success codex  2>/dev/null || true
+        [[ $GEMINI_OK -eq 1 ]] && "$SCRIPT_DIR/circuit-breaker.sh" success gemini 2>/dev/null || true
+      fi
       exit 0
     fi
   else
@@ -591,4 +651,29 @@ done
 
 echo "infra_retries_exhausted: ${FAILURE:-unknown_failure}" >&2
 echo "postmortem dir: $RUN" >&2
+
+# Record failures against the circuit breaker. circuit-breaker.sh filters
+# out non-api/transport categories internally, so we can pass the last
+# iteration's categories unconditionally. This is what eventually trips
+# the per-reviewer 1-hour timeout after 3 such failures in a sliding
+# 1-hour window.
+if [[ "${ORI_TPR_CIRCUIT_OFF:-0}" != "1" ]]; then
+  if [[ -n "${CODEX_FAIL_CAT:-}" ]]; then
+    "$SCRIPT_DIR/circuit-breaker.sh" fail codex "$CODEX_FAIL_CAT" 2>>"$RUN/round.log" || true
+  fi
+  if [[ -n "${GEMINI_FAIL_CAT:-}" ]]; then
+    "$SCRIPT_DIR/circuit-breaker.sh" fail gemini "$GEMINI_FAIL_CAT" 2>>"$RUN/round.log" || true
+  fi
+  # launch_or_exit_fail has no reviewer prefix — attribute to whichever
+  # reviewer(s) were active this round so the breaker can still react.
+  if [[ "${FAILURE:-}" == "launch_or_exit_fail" ]]; then
+    case "$EFFECTIVE_REVIEWERS" in
+      both|codex)  "$SCRIPT_DIR/circuit-breaker.sh" fail codex  launch_or_exit_fail 2>>"$RUN/round.log" || true ;;
+    esac
+    case "$EFFECTIVE_REVIEWERS" in
+      both|gemini) "$SCRIPT_DIR/circuit-breaker.sh" fail gemini launch_or_exit_fail 2>>"$RUN/round.log" || true ;;
+    esac
+  fi
+fi
+
 exit 1

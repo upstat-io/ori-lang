@@ -120,39 +120,41 @@ tooling, processes — not just code or plans.
 section between the activation preamble and the scope hint.** The
 grounding block is identical for both reviewers.
 
-### Dynamic Rules Brief (preferred)
+The orchestrator does NOT pre-summarize rules. Codex and gemini have
+full filesystem access and are capable of reading the rule files
+themselves — pre-composing a brief burns orchestrator context, risks
+staleness against the canonical files, and duplicates work the
+reviewers can do in parallel.
 
-The grounding block is now dynamically composed via a two-step process:
-
-1. **Classify** — `scripts/rules-for-review.py` maps changed files to
-   subsystems and resolves which rule files are relevant.
-2. **Compose** — a Sonnet subagent reads the classified rule files and
-   the diff, then composes a ~200-400 line **Rules Brief** containing
-   only the specific rules, invariants, and finding vocabulary relevant
-   to this review.
-
-The Rules Brief is injected INLINE into both prompts under a
-`## Rules — these apply to this review` header. This replaces the old
-static "read these files in full" file list. Reviewers consume the
-inline content as part of the prompt — no need to go read separate files.
-
-After the inline brief, a "For full rule details, also read:" section
-lists the critical file paths from the classifier for optional deep dives.
-
-See `.claude/skills/dual-tpr/compose-rules-brief.md` for the Sonnet
-subagent prompt template. See `/tpr-review` SKILL.md Step 1.5 for
-integration into the review loop.
-
-### Static Fallback
-
-If the classifier or Sonnet agent fails, fall back to the static core:
+Both prompts MUST contain this block verbatim (or with additional
+rule files appended when the diff touches a specialized subsystem):
 
     ## Grounding — read these files FIRST before reviewing
 
-    1. CLAUDE.md (project root)
-    2. .claude/rules/impl-hygiene.md
-    3. .claude/rules/tests.md
-    4. .claude/rules/compiler.md
+    Before you review anything, read these rule files in full. This
+    grounding is MANDATORY — a review written without reading the
+    rules produces generic noise instead of project-native findings.
+
+    1. CLAUDE.md (project root) — correctness, no deferral, phase purity
+    2. .claude/rules/impl-hygiene.md — finding vocabulary (LEAK, DRIFT,
+       GAP, WASTE, EXPOSURE, BLOAT, NOTE), SSOT, algorithmic DRY
+    3. .claude/rules/tests.md — matrix testing, semantic/negative pins
+    4. .claude/rules/compiler.md — architecture, phase boundaries
+    5. Any other `.claude/rules/*.md` file relevant to the changed
+       paths (e.g. `arc.md` for ARC/memory, `parse.md` for parser,
+       `registry.md` for type-system, `codegen-rules.md` for codegen).
+       Identify these from the diff yourself — do not rely on the
+       orchestrator to pre-filter.
+
+    Every finding MUST use the vocabulary from `impl-hygiene.md`
+    (LEAK / DRIFT / GAP / WASTE / EXPOSURE / BLOAT / NOTE) and cite
+    the specific rule anchor (TR-2, NR-1, RL-2, etc.) it violates.
+    Generic "this looks odd" feedback is not useful.
+
+Skills invoking the transport may append subsystem-specific rule
+files to item 5 when the changed paths clearly point at one
+subsystem — but the orchestrator must NOT read, summarize, or
+synthesize those files. The reviewers do that work.
 
 **Why grounding is load-bearing:** Without it, reviewers produce
 findings against unknown conventions — generic "this looks odd"
@@ -164,6 +166,64 @@ reviewers emit findings like "this function could be clearer".
 Wrappers that skip grounding entirely should be treated as buggy
 and their envelopes treated with extra scrutiny by the consuming
 Claude instance.
+
+## Reviewer Circuit Breaker (global, cross-session)
+
+`dual-invoke-with-retry.sh` consults a per-reviewer circuit breaker BEFORE
+each round. State lives under `$HOME/.cache/ori-tpr-circuit/` — global per
+user, shared across Claude sessions, skills, and worktrees (the failing
+resource is the API, not the workspace).
+
+**Trip condition:** 3 api/transport failures for the same reviewer inside a
+sliding 1-hour window → reviewer parked for 1 hour.
+
+**Counted categories** (via `circuit-breaker.sh fail`):
+
+- `<reviewer>_api_capacity`, `<reviewer>_api_auth`, `<reviewer>_api_error`
+- `<reviewer>_missing_jsonl` (subprocess crashed before any output)
+- `reviewer_stalled_<r>` (watchdog killed a hung reviewer)
+- `launch_or_exit_fail` (legacy catch-all; attributed to both active reviewers)
+
+**NOT counted** (semantic/content failures — the reviewer's output is the
+problem, not infra): parse_fail, schema_violation, missing_envelope,
+missing_*_sentinel, failed_partial, missing_dependency, dirty_worktree.
+
+**Behavior when tripped:**
+
+- `ORI_TPR_REVIEWERS=both` — the retry wrapper narrows to the surviving
+  reviewer and continues normally. The merger and consumer skills see
+  single-reviewer output, which they already handle.
+- `ORI_TPR_REVIEWERS=codex` or `=gemini` (explicit single-reviewer) — the
+  wrapper fails loud with a reset instruction; there is no fallback the
+  operator can have forbidden without meaning to.
+- Both tripped — the wrapper fails loud; operator waits or runs
+  `circuit-breaker.sh reset all`.
+
+**Reset behavior:**
+
+- On a successful round, the fails counter is cleared for each reviewer
+  that produced a valid envelope (but an active timeout still runs its
+  full 1 hour — a tripped reviewer cannot have reset itself because it
+  was skipped).
+- On natural timeout expiry, `check` clears both the timeout sentinel
+  and the fails counter so a fresh window starts.
+- Manual override: `circuit-breaker.sh reset {codex|gemini|all}`.
+
+**Tuning env (all optional):**
+
+- `ORI_TPR_CIRCUIT_OFF=1` — disable the breaker entirely (diagnostics)
+- `ORI_TPR_CIRCUIT_THRESHOLD` — fails that trip the breaker (default 3)
+- `ORI_TPR_CIRCUIT_WINDOW_SEC` — sliding-window length (default 3600)
+- `ORI_TPR_CIRCUIT_TIMEOUT_SEC` — timeout duration (default 3600)
+- `ORI_TPR_CIRCUIT_DIR` — state directory (default `$HOME/.cache/ori-tpr-circuit`)
+
+**Observability:** `.claude/skills/dual-tpr/scripts/circuit-breaker.sh status`
+prints a two-line summary suitable for the skill-layer polling protocol.
+
+**Why it exists:** repeated API capacity / stall failures waste both wall
+time (each round is 5-20 minutes) and quota (both reviewers' retries burn
+provider quota). When one provider is clearly degraded, the pipeline is
+better off running single-reviewer than hammering both in lockstep.
 
 ## Finding Verification Contract (Claude-side)
 
