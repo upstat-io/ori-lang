@@ -229,8 +229,8 @@ Bugs surfaced during the BUG-04-074 investigation + 5 rounds of Plan TPR + Round
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
 | BUG-04-074: Empty list literal with `push()` leaves unresolved Tag::Var, causing LLVM verification failure at AOT | Unconditional generalization at 3 let-binding sites (infer_block L85/L88, infer_let L167, sequences L247) creates Generalized element vars that later instantiation at `.len()`-style non-constraining use sites doesn't resolve; codegen has no assertion, surfaces useless error | Sections 01 + 02 + 03 | Escalated to this plan |
-| `ori_types::check` module exposure: new validator needs external access | `mod check;` (private) at `lib.rs:16`; fix: narrow re-export `pub use check::validators::validate_body_types;` — NO `pub mod check` promotion (Phase 2 /tp-help consensus) | Section 02.1 + 02.3 | Not Started |
-| Spec violation: `14-expressions.md:1224-1228` declares `let y = []` a compile-time error; compiler silently passes to codegen | typeck.md PC-2 output contract not enforced at phase boundary | Sections 02 + 03 | Not Started |
+| `ori_types::check` module exposure: new validator needs external access | `mod check;` (private) at `lib.rs:16`; fix: narrow re-export `pub use check::validators::validate_body_types;` — NO `pub mod check` promotion (Phase 2 /tp-help consensus) | Section 02.1 + 02.3 | Complete (2026-04-15) |
+| Spec violation: `14-expressions.md:1224-1228` declares `let y = []` a compile-time error; compiler silently passes to codegen | typeck.md PC-2 output contract not enforced at phase boundary | Sections 02 + 03 | Section 02 Complete (producer-side enforcement shipped 2026-04-15); Section 03 Not Started (wires validator into 4 bodies-pass call sites) |
 | `TPR-04-005-codex` audit finding: `tests/spec/` uses `[].iter()`, `[].is_empty()` patterns beyond just `let x = []` bindings; these WILL trip E2005 once live | Existing spec test corpus not spec-compliant | Section 06.2 | Not Started |
 | Informational: Round 4 supersession markers overclaim in the original fix-section — round-1 §R entries do not carry `(SUPERSEDED)` suffixes despite item 7 claiming they do | Documentation drift in `plans/bug-tracker/fix-BUG-04-074.md` | Section 07.1 — supersede the fix-section and preserve the TPR audit trail as a reference in `references:` frontmatter | Not Started |
 
@@ -239,7 +239,7 @@ Bugs surfaced during the BUG-04-074 investigation + 5 rounds of Plan TPR + Round
 | ID | Title | File | Status |
 |----|-------|------|--------|
 | 01 | AST-based Value Restriction | `section-01-value-restriction.md` | Complete |
-| 02 | Validator Module (`ori_types::check::validators`) | `section-02-validator-module.md` | Not Started |
+| 02 | Validator Module (`ori_types::check::validators`) | `section-02-validator-module.md` | Complete |
 | 03 | Bodies-Pass Integration | `section-03-bodies-pass-integration.md` | Not Started |
 | 04 | Codegen Defense-in-Depth Assertions | `section-04-codegen-assertions.md` | Not Started |
 | 05 | Test Matrix + Semantic Pins | `section-05-test-matrix.md` | Not Started |
