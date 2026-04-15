@@ -139,7 +139,7 @@ See `.claude/skills/dual-tpr/compose-intel-summary.md` for the full query protoc
       help="List targets and planned edits; write nothing.")
   p_retrofit.add_argument("--plan", metavar="DIR",
       help="Restrict targets to a single plan directory.")
-  p_retrofit.add_argument("--allow-reopen", action="append", metavar="PATH", default=[],
+  p_retrofit.add_argument("--allow-reopen", type=Path, action="append", default=[],
       help="Permits retrofit of the named status: complete section. Repeatable. Has no effect on not-started sections (those are always eligible regardless of reviewed flag).")
   ```
   Map to `run_retrofit(...)`; exit 0 on success, 1 on any `Severity.HIGH` report entry (e.g., a parse-error file that could not be loaded).
