@@ -95,8 +95,17 @@ findings report, cross-plan report, write-back
 fix mechanism, auto-fix, status reconciliation
 SafeFix, ExposureReview, classify_safety, ClassifiedFinding, SafetyClass
 WriteBackContext, has_recent_commits, git signals at the CLI edge
+PreimageRecord, concurrent session safety, preimage hash, atomic write, os.replace
+frontmatter text patcher, targeted regex patching, PyYAML read-only
+comment preservation, key ordering preservation, YAML comment DAG signal
+plan: to name: rename collision guard, reviewed: false workflow gate
+FM_DECLARED_VS_BODY_DERIVED always ExposureReview, normalizer aspirational marker
+dead reference audit trail in fixes-applied.json, no inline HTML comments
+--quick mode bypasses WriteBackContext, BLOCKED + DEAD_REFERENCE only
+--full mode all classifiers + auto-fix + git signals
+roadmap_scan.py shadow parser migration tracking
 continue-roadmap integration, roadmap-scan.sh
-report format, JSON, markdown, actionable findings
+report format, JSON, markdown, console, actionable findings
 source plan, target plan, bilateral update
 imports Finding/FindingCategory/FindingSubtype from plan_corpus (no shadow types)
 ```
