@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "AST-based Value Restriction"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Extract a single SSOT `should_generalize` helper and migrate all 3 let-generalization sites to call it, so only direct non-capturing lambda initializers generalize — all other initializers (including empty lists, block-wrapped lambdas, variable aliases, conditionals producing functions) become monomorphic."
 success_criteria:
@@ -37,7 +37,7 @@ sections:
     status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: AST-based Value Restriction
@@ -589,8 +589,8 @@ When all findings are triaged:
 - [x] `timeout 150 ./test-all.sh` green (debug build) — 15325 pass, 0 fail
 - [x] `timeout 150 cargo test --release -p ori_types` green (release build) — 804 pass
 - [x] `timeout 150 ./clippy-all.sh` clean
-- [ ] `/tpr-review` passed (final, full-section)
-- [ ] `/impl-hygiene-review` passed
+- [x] `/tpr-review` passed (final, full-section) — Round 1: 4 findings (codex/gemini independently flagged same matrix gap + 2 minor naming/doc drift). Round 2: clean (0 actionable). Both reviewers verified the fixes against actual code.
+- [x] `/impl-hygiene-review` passed — 4 NAMING findings on pre-existing weak test names resolved in-pass (renamed). 4 BLOAT findings on pre-existing nesting/length filed as BUG-02-005 (architectural refactor, scope exceeds Value Restriction migration). SSOT verified: should_generalize is the single canonical home for the generalization decision.
 - [x] `/improve-tooling` **section-close sweep** — all 4 subsections have documented retrospectives (01.1: no gaps; 01.2: no gaps; 01.3: no gaps; 01.4: no gaps). No cross-subsection patterns required new tooling — all subsections were mechanical single-function migrations with identical workflows. Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling.
 - [x] `/sync-claude` **section-close doc sync** — completed during 01.4 close-out:
   - `typeck.md §GN-3` — updated from "(target-only) all generalizable" to shipped Value Restriction

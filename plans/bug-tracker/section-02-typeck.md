@@ -44,6 +44,17 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
   Found: 2026-04-02 | Source: tpr-review
   **Blocked**: 2026-04-07 — fix is architectural and belongs in roadmap Section 11.2 "C ABI Types" (`plans/roadmap/section-11-ffi.md` § 11.2). Status: that section is `not-started`. The proper fix requires (a) new Pool tag variants for each c_* type with correct widths (i8/i16/i32/i64/f32/f64), (b) new `TypeInfo` variants and LLVM lowering, (c) eval `Value` representation decision, (d) language-design decisions about implicit `int` ↔ `c_int` promotion vs explicit cast, and (e) actual `extern "c"` function call codegen (Section 11.1) to provide consumers for the width information. None of these can be done as a point fix in well_known/mod.rs alone, and without 11.1's extern call codegen the type-pool change has zero observable behavior (the LLVM backend has no `extern "c"` call codegen — verified 2026-04-07: no consumer of c_* widths exists outside Rust-side runtime declarations). Section 11.2's `Add C type aliases` + `Size/alignment handling` checkboxes now explicitly reference this bug as a "Fixes BUG-02-004" anchor — when 11.2 is implemented, this fix is automatically included. Bug stays open here until Section 11.2's anchor item is checked.
 
+- [ ] `[BUG-02-005][low]` **Pre-existing nesting/length BLOAT in typeck infer functions** — found by impl-hygiene-review.
+  Repro: `bash .claude/skills/impl-hygiene-review/hygiene-lint.py --scope compiler/ori_types/src/infer/expr/blocks.rs compiler/ori_types/src/infer/expr/sequences.rs --summary` reports:
+  - `infer_block` (blocks.rs:51): nesting depth 6 (limit: 4)
+  - `infer_try_stmt` (sequences.rs:222): nesting depth 5 (limit: 4)
+  - `bind_pattern` (sequences.rs:339): nesting depth 5 (limit: 4)
+  - `well_known_trait_satisfaction_sync` test (tests.rs:2573): 103 lines (limit: 100)
+  These functions need refactoring (extract helpers, early returns, guard clauses) to satisfy `impl-hygiene.md §Style`. Pre-existing — surfaced during Section 01 of `plans/empty-container-typeck-phase-contract` close-out hygiene sweep.
+  Subsystem: `compiler/ori_types/src/infer/expr/`
+  Found: 2026-04-14 | Source: impl-hygiene-review (Section 01 close-out)
+  Fix: `plans/bug-tracker/fix-BUG-02-005.md` (via `/fix-bug`)
+
 ---
 
 ## 02.R Third Party Review Findings

@@ -19,13 +19,35 @@ from .safety import (
     ClassifiedFinding,
     WriteBackContext,
     PreimageRecord,
+    PatchResult,
     classify_safety,
+)
+from .report import (
+    ReportMode,
+    Report,
+    generate_report,
+    render_json,
+    render_markdown,
+    render_console,
+    exit_code_for_findings,
+    write_reports,
 )
 
 __all__ = [
+    # Safety taxonomy (§03.1)
     "SafetyClass",
     "ClassifiedFinding",
     "WriteBackContext",
     "PreimageRecord",
+    "PatchResult",
     "classify_safety",
+    # Report format (§03.2)
+    "ReportMode",
+    "Report",
+    "generate_report",
+    "render_json",
+    "render_markdown",
+    "render_console",
+    "exit_code_for_findings",
+    "write_reports",
 ]

@@ -83,6 +83,26 @@ class PreimageRecord:
     scan_timestamp: float
 
 
+@dataclass(frozen=True)
+class PatchResult:
+    """Result of an attempted frontmatter patch (produced by §03.4).
+
+    Forward-declared here so §03.2 (report format) and §03.3 (auto-fix
+    engine) can consume `PatchResult(applied=False)` without a circular
+    dependency on §03.4's text-patcher module.
+
+    When applied=False, the auto-fix dispatcher converts the original
+    SafeFix finding into an ExposureReview entry surfaced as an
+    "unapplied fix" group in the report (TPR-03-003-codex).
+    """
+    applied: bool
+    reason: str
+    finding_id: str
+    path: Path
+    before_hash: str | None = None
+    after_hash: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Path-based schema class inference
 # ---------------------------------------------------------------------------
