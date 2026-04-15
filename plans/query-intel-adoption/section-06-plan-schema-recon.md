@@ -2,7 +2,7 @@
 section: "06"
 title: "Plan schema — mandatory Intelligence Reconnaissance block + validator"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Every new plan section carries an unnumbered `## Intelligence Reconnaissance` block — queries run + ≤500-char results summary + date — AND `python -m scripts.plan_corpus check` enforces it with a status-gated severity model: `status: not-started` missing recon → `Severity.HIGH`; `status: in-progress` → `Severity.MEDIUM`; `status: complete` → exempt. Scope is `FileClass.PLAN_SECTION` only; roadmap and bug-tracker sections keep their existing shape. Retrofit of `not-started` sections is handled by §09."
 success_criteria:
   - "`.claude/skills/create-plan/plan-schema.md` Section File Template includes an unnumbered `## Intelligence Reconnaissance` block after the section framing (Goal / Context / Reference / Depends on) and BEFORE `## {NN}.1`; the block does NOT appear in the `sections:` frontmatter list"
