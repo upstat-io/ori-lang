@@ -1,3 +1,12 @@
+---
+reroute: true
+name: "Empty-Container Typeck"
+full_name: "Empty-Container Typeck Phase-Contract Enforcement"
+status: active
+reviewed: false
+order: 12
+---
+
 # Empty-Container Typeck Phase-Contract Enforcement Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.

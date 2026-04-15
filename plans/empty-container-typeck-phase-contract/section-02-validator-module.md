@@ -78,7 +78,7 @@ sections:
     status: complete
   - id: "02.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 02 — Validator Module: `validate_body_types()`
