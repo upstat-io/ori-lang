@@ -1,7 +1,7 @@
 ---
 plan: "verify-roadmap-redesign"
 title: "Verify Roadmap Redesign: Cross-Plan Coherence Auditor"
-status: in-progress
+status: complete
 supersedes:
   - ".claude/commands/verify-roadmap.md"
   - ".claude/skills/plan-audit/planlib.py"
@@ -226,9 +226,9 @@ Section 01's scope grew because the original "Schema Definition" + "Validation S
 |----|-------|------|--------|
 | 01 | Frontmatter Schema, Strict Parser & Shared Types | `section-01-frontmatter-schema.md` | Complete |
 | 02 | DAG Builder & Conflict Classifier | `section-02-dag-builder.md` | Complete |
-| 03 | Findings Report & Write-Back | `section-03-findings-report.md` | Not Started |
-| 04 | Item-Level Verifier Preservation | `section-04-item-verifier.md` | Not Started |
-| 05 | Validation, Sweep & Skill Promotion | `section-05-validation.md` | Not Started |
+| 03 | Findings Report & Write-Back | `section-03-findings-report.md` | Complete |
+| 04 | Item-Level Verifier Preservation | `section-04-item-verifier.md` | Complete |
+| 05 | Validation, Sweep & Skill Promotion | `section-05-validation.md` | Complete |
 
 ### Section 01 subsection breakdown
 
