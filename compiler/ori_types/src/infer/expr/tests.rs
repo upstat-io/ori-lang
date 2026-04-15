@@ -3523,3 +3523,99 @@ fn test_capturing_lambda_does_not_generalize() {
         "capturing lambda must NOT generalize — body_captures_outer returns true"
     );
 }
+
+/// Semantic pin: `let x = []` via the `ExprKind::Let` path must NOT produce
+/// a `Tag::Scheme` binding. The `ExprKind::Let` case dispatches to `infer_let`,
+/// which is a separate code path from `infer_block`'s `StmtKind::Let` arm.
+/// This test exercises the `ExprKind::Let` → `infer_let` path specifically.
+#[test]
+fn test_let_expr_non_lambda_does_not_generalize() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build: let x = [] (as ExprKind::Let, not inside a block statement)
+    let list_elems = arena.alloc_expr_list_inline(&[]);
+    let empty_list = alloc(&mut arena, ExprKind::List(list_elems));
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let let_expr = alloc(
+        &mut arena,
+        ExprKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: empty_list,
+            mutable: Mutability::Immutable,
+        },
+    );
+
+    // Evaluate the let expression (returns Unit, but binds name(1) in env)
+    let result = infer_expr(&mut engine, &arena, let_expr);
+    assert_eq!(
+        engine.pool().tag(result),
+        Tag::Unit,
+        "let expression returns Unit"
+    );
+
+    // Look up the binding and verify it was NOT generalized into a Scheme
+    let bound_ty = engine
+        .env()
+        .lookup(name(1))
+        .expect("name(1) should be bound after let");
+    assert_ne!(
+        engine.pool().tag(bound_ty),
+        Tag::Scheme,
+        "ExprKind::Let with non-lambda init must NOT generalize — element Var should stay Unbound"
+    );
+    assert_eq!(
+        engine.pool().tag(bound_ty),
+        Tag::List,
+        "ExprKind::Let with empty list init should bind a List type"
+    );
+}
+
+/// Semantic pin: a let statement inside a try block with a non-lambda initializer
+/// must NOT generalize. The try-block let path in `sequences.rs` (`infer_try_stmt`)
+/// is a third generalization site distinct from `infer_block` and `infer_let`.
+/// We call `infer_try_stmt` directly to exercise the code path without the
+/// try-block scope enter/exit that would hide the binding.
+#[test]
+fn test_try_block_let_non_lambda_does_not_generalize() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build a let statement: let xs = []
+    let list_elems = arena.alloc_expr_list_inline(&[]);
+    let empty_list = alloc(&mut arena, ExprKind::List(list_elems));
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: empty_list,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    // Call infer_try_stmt directly — this is the try-block let path in sequences.rs
+    let stmt_ref = arena.get_stmt(stmt);
+    infer_try_stmt(&mut engine, &arena, stmt_ref);
+
+    // The binding should be visible in the engine's environment
+    let bound_ty = engine
+        .env()
+        .lookup(name(1))
+        .expect("name(1) should be bound after infer_try_stmt");
+    assert_ne!(
+        engine.pool().tag(bound_ty),
+        Tag::Scheme,
+        "try-block let with non-lambda init must NOT generalize"
+    );
+}

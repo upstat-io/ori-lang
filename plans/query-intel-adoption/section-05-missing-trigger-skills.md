@@ -204,6 +204,8 @@ Commands are shorter than skills and have DIFFERENT structural formats than skil
 
   This is a review-agent instruction placed AFTER the static file-reading block but BEFORE the agent begins verification work. It goes INSIDE the agent prompt template, not alongside the Phase 1/Phase 2 architecture.
 
+  **While editing:** also fix the stale rules-corpus instruction in the same prompt block — line 108 says "ALL 20 rules files" but the repo now has 28 rules files. Replace the hardcoded count with a generic instruction: `"ALL rules files in /home/eric/projects/ori_lang/.claude/rules/ — read every file"` (no hardcoded count). This prevents the instruction from going stale again as rules are added.
+
 - [ ] Spot-check: `grep -c '@.claude/skills/dual-tpr/compose-intel-summary.md' <FILE>` returns >=1 for each of the 3 commands.
 
 - [ ] **Subsection close-out (05.2)**:
@@ -220,6 +222,8 @@ Commands are shorter than skills and have DIFFERENT structural formats than skil
 **File(s):** 5 files need inventory updates + grep verification
 
 After §05.1 and §05.2 land, multiple inventory/tracking files become stale. This subsection updates them all.
+
+**Sequencing note:** The intelligence.md workflow description updates and index.md keyword cluster updates SHOULD be committed in the SAME commit as the corresponding consumer edits in §05.1/§05.2 (not after). This prevents a window where intelligence.md describes one query shape while the actual consumer uses a different shape. During §05.1 implementation, update the intelligence.md entries for the 3 skills being edited; during §05.2 implementation, update the entries for the 3 commands. The grep audit and SSOT updates below can happen after both land.
 
 ### Grep consumer enumeration
 
@@ -324,6 +328,13 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
   Resolved: Fixed on 2026-04-14. Task now updates workflow bullets to match refined §05 query designs.
 - [x] `[TPR-05-002-codex-r2][medium]` `section-05:289` — Refresh index.md keyword cluster descriptions and add to close-out checklist.
   Resolved: Fixed on 2026-04-14. Task broadened + index.md added to close-out file count.
+- [x] `[TPR-05-001-codex-r3][medium]` `intelligence.md:44` — Sync intelligence.md workflow bullets to refined §05 designs.
+  Resolved: Fixed on 2026-04-14. Added sequencing note: intelligence.md updates co-committed with consumer edits.
+- [x] `[TPR-05-002-codex-r3][medium]` `index.md:87` — Refresh §05 keyword cluster to current 3-skill scope.
+  Resolved: Fixed on 2026-04-14. Same sequencing note covers index.md updates.
+- [x] `[TPR-05-003-codex-r3][medium]` `section-05:187` — Fix stale "20 rules files" in verify-roadmap prompt block.
+  Resolved: Fixed on 2026-04-14. Added task to replace hardcoded count with generic instruction.
+- `[TPR-05-001-gemini-r3][informational]` Clean round 3 re-review verification — all fixes confirmed.
 
 ---
 
