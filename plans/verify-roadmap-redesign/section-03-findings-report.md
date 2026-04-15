@@ -30,7 +30,7 @@ sections:
     status: complete
   - id: "03.3"
     title: "Auto-Fix Engine"
-    status: not-started
+    status: complete
   - id: "03.4"
     title: "Frontmatter Text Patcher"
     status: not-started
@@ -215,29 +215,29 @@ Design and implement the findings report format. The report must be both human-r
 
 Implement automatic fixes for findings classified as `SafeFix` by 03.1's `classify_safety`. Safety criterion: a fix is auto-fixable if it cannot change plan semantics -- only metadata normalization.
 
-- [ ] Implement auto-fix dispatcher:
+- [x] Implement auto-fix dispatcher:
   - Input: list of `ClassifiedFinding` records
   - Filter to `safety_class == SafeFix` only
   - For each SafeFix finding, dispatch to the appropriate fix handler based on `finding.category` + `finding.subtype`
   - All fixes go through the text patcher (03.4) -- the auto-fix engine NEVER writes files directly
 
-- [ ] Implement auto-fix for SCHEMA_VIOLATION SafeFix findings:
+- [x] Implement auto-fix for SCHEMA_VIOLATION SafeFix findings:
   - Field rename `plan:` -> `name:` (via text patcher: regex replace `^plan:` with `name:` in frontmatter slice; preserving value byte-for-byte)
   - Field removal: `reroute: false` -> remove entire line from frontmatter slice
   - Default field insertion: add `reviewed: false` via text patcher (insert line in frontmatter slice) — only for PlanSectionSchema/RoadmapSectionSchema files (see 03.1 workflow behavior guard)
   - Default field insertion: add `third_party_review:` block — only for schemas where required
 
-- [ ] Implement auto-fix for STATUS_CONTRADICTION SafeFix findings:
+- [x] Implement auto-fix for STATUS_CONTRADICTION SafeFix findings:
   - `PLAN_ACTIVE_ALL_SECTIONS_NOT_STARTED` (when classified SafeFix by 03.1): change `status: active` to `status: queued` in frontmatter via text patcher
   - **NOTE: `FM_DECLARED_VS_BODY_DERIVED` is NEVER SafeFix** (see 03.1). The auto-fix engine MUST assert that no `FM_DECLARED_VS_BODY_DERIVED` finding reaches the SafeFix dispatch — this is a defense-in-depth invariant. If it fires, the classifier has a bug.
   - **`parallel: true` guard (from Section 01.2):** `parallel: true` is a VALID canonical `PlanIndexSchema` field. Auto-fix MUST NOT remove it. Verify no fix handler touches fields outside its explicit scope.
 
-- [ ] Implement auto-fix for DEAD_REFERENCE SafeFix findings:
+- [x] Implement auto-fix for DEAD_REFERENCE SafeFix findings:
   - Remove dead `depends_on` entries from frontmatter list via text patcher
   - **Audit trail in `fixes-applied.json` only (blind spot #8):** do NOT add inline HTML comments like `<!-- Removed dead reference to plans/X/ -->`. Section 02's HTML_COMMENT_CONVENTION parser scans for `blocked-by`, `unblocks`, `supersedes`, `resolves` patterns in HTML comments. While a "Removed dead reference" comment does not match those verbs today, any future verb expansion or fuzzy matching would produce false positive MISSING_DEPENDENCY findings. The `fixes-applied.json` log is the permanent audit trail.
   - Do NOT auto-remove references from prose body text (might need human-authored replacement)
 
-- [ ] Implement safe-fix guards:
+- [x] Implement safe-fix guards:
   - All auto-fixes create a backup of the original file in `build/verify-roadmap/backups/`
   - All auto-fixes are logged to `build/verify-roadmap/fixes-applied.json` with: finding ID, file path, fix type, before/after snippet, timestamp
   - `--dry-run` flag shows what would be fixed without modifying files
@@ -245,14 +245,14 @@ Implement automatic fixes for findings classified as `SafeFix` by 03.1's `classi
   - **Defense-in-depth:** auto-fix engine MUST reject any finding that is not `SafeFix` -- this is a hard assert, not a silent skip. If an `ExposureReview` finding leaks into the auto-fix path, it is a classifier bug and must fail loudly.
   - **Concurrent-modification propagation (TPR-03-003-codex / TPR-03-002-gemini):** when `apply_patch` returns `PatchResult(applied=False)` (preimage hash mismatch from concurrent session), the auto-fix dispatcher MUST convert the original `SafeFix` finding into an `ExposureReview` finding with the failure reason appended to the rationale (e.g., `"SafeFix reverted to ExposureReview: file modified by concurrent session"`) and append it to the final report as an unapplied fix. The report format (03.2) must surface these as a distinct "unapplied fixes" group — they represent work the tool intended to do but could not safely complete. They MUST NOT be silently dropped.
 
-- [ ] Define manual-review flagging for non-auto-fixable findings:
+- [x] Define manual-review flagging for non-auto-fixable findings:
   - CONFLICT findings: always manual -- requires human decision on which plan's goals take precedence
   - SUPERSEDED findings: always manual -- requires acknowledgment that a reroute claim is stale or completion of the reroute. **§02 handoff note (TPR-03-005-codex):** Section 02 defines a git-aware SUPERSEDED specialization with two structural cases (`section-02-dag-builder.md:251-252`). `classify_safety` deliberately routes ALL SUPERSEDED findings to ExposureReview (never SafeFix) because SUPERSEDED resolution is inherently semantic — the user must decide whether the reroute claim is valid, stale, or in progress. `WriteBackContext.has_recent_commits` is available for future SafeFix graduation if a narrow, safe subcase is identified (e.g., "SUPERSEDED by a plan with `status: resolved`"), but no such subcase is implemented in this section. This is an explicit design decision, not an omission.
   - BLOCKED findings: always manual -- requires plan reordering or dependency acknowledgment
   - MISSING_DEPENDENCY findings: always manual -- requires explicit dependency declaration or acknowledgment of independence
   - All ExposureReview-classified findings: surfaced in the report with context and recommended actions
 
-- [ ] **Tests (TDD):**
+- [x] **Tests (TDD):**
   - **Semantic pin:** `FM_DECLARED_VS_BODY_DERIVED` reaching auto-fix dispatcher -> assert/panic (defense-in-depth)
   - **Semantic pin:** `parallel: true` field untouched by any fix handler
   - **Matrix:** each SafeFix subtype has a test case verifying the correct text transformation
@@ -261,11 +261,11 @@ Implement automatic fixes for findings classified as `SafeFix` by 03.1's `classi
   - **Dry-run test:** verify no file modifications in dry-run mode
   - **Idempotency test:** running auto-fix twice on the same corpus produces identical results
 
-- [ ] **Subsection close-out (03.3)** -- MANDATORY before starting 03.4:
-  - [ ] All tasks above are `[x]` and auto-fix engine tested on known cases
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Run `/sync-claude` on THIS subsection** -- check whether changes
+- [x] **Subsection close-out (03.3)** -- MANDATORY before starting 03.4:
+  - [x] All tasks above are `[x]` and auto-fix engine tested on known cases
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [x] **Run `/sync-claude` on THIS subsection** -- check whether changes
         invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md`
         claims. If no changes, document briefly. Fix any drift NOW.
 
