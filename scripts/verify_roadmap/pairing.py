@@ -84,7 +84,7 @@ def _find_rename_sibling(
         or f.subtype != FindingSubtype.MISSING_REQUIRED_FIELD
     ):
         return None
-    if "name" not in f.description.lower():
+    if f.target_key != "name":
         return None
     if not _is_plan_index(f.source):
         return None

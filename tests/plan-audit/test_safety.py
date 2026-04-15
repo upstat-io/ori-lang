@@ -204,6 +204,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
         # PlanIndexSchema file with plan: but no name:
         fm_data = {"plan": "test-plan", "full_name": "Test Plan", "status": "active"}
@@ -226,6 +227,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
         fm_data = {"plan": "test-plan", "full_name": "Test Plan", "status": "active"}
         result = classify_safety(
@@ -241,6 +243,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/00-overview.md"),
+            target_key="plan",
         )
         # OverviewSchema uses plan: as a required field — NOT a rename candidate
         fm_data = {"plan": "test-plan", "title": "Test Plan", "status": "active"}
@@ -257,6 +260,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
         fm_data = {"plan": "old-name", "name": "new-name", "full_name": "X", "status": "active"}
         result = classify_safety(
@@ -273,6 +277,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
         fm_data = {"plan": "test-plan", "name": "test-plan", "full_name": "X", "status": "active"}
         result = classify_safety(
@@ -298,6 +303,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: reviewed",
             source=Path("plans/test-plan/section-01.md"),
+            target_key="reviewed",
         )
         fm_data = {"section": "01", "title": "Test", "status": "not-started",
                     "goal": "test", "success_criteria": [], "sections": [],
@@ -319,6 +325,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: reviewed",
             source=Path("plans/test-plan/index.md"),
+            target_key="reviewed",
         )
         fm_data = {"name": "test-plan", "full_name": "Test Plan", "status": "active"}
         result = classify_safety(
@@ -334,6 +341,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: third_party_review",
             source=Path("plans/test-plan/section-01.md"),
+            target_key="third_party_review",
         )
         fm_data = {"section": "01", "title": "Test", "status": "not-started",
                     "reviewed": False, "goal": "test", "success_criteria": [],

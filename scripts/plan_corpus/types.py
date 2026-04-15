@@ -246,6 +246,7 @@ class Finding:
     evidence: tuple[str, ...] = ()
     dependency_chain: tuple[Path, ...] = ()
     source_kind: "SourceKind | None" = None
+    target_key: str | None = None
 
     def __post_init__(self) -> None:
         allowed = _CATEGORY_SUBTYPES.get(self.category, frozenset())

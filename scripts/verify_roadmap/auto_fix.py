@@ -99,9 +99,9 @@ class AutoFixError(RuntimeError):
 
 def _dispatch_unknown_field(cf: ClassifiedFinding) -> tuple[FmOperation, ...]:
     """SCHEMA_VIOLATION/UNKNOWN_FIELD: handle plan: -> name: rename + remove."""
-    desc = cf.finding.description.lower()
+    key = cf.finding.target_key
 
-    if "plan" in desc:
+    if key == "plan":
         if cf.pairing_tag == PAIRING_TAG_PLAN_TO_NAME_RENAME:
             return (FmOperation.make(
                 FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
@@ -115,9 +115,9 @@ def _dispatch_missing_required_field(
     cf: ClassifiedFinding,
 ) -> tuple[FmOperation, ...]:
     """SCHEMA_VIOLATION/MISSING_REQUIRED_FIELD: insert safe defaults."""
-    desc = cf.finding.description.lower()
+    key = cf.finding.target_key
 
-    if "reviewed" in desc:
+    if key == "reviewed":
         return (FmOperation.make(
             FmOperationKind.INSERT_KEY,
             key="reviewed",
@@ -125,8 +125,7 @@ def _dispatch_missing_required_field(
             after_key="status",
         ),)
 
-    if "third_party_review" in desc:
-        # Multi-line YAML value: insert as a structured block
+    if key == "third_party_review":
         return (FmOperation.make(
             FmOperationKind.INSERT_KEY,
             key="third_party_review",

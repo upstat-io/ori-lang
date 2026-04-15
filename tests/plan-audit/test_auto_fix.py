@@ -45,6 +45,7 @@ from scripts.verify_roadmap import (
     apply_fixes,
     FixApplyResult,
 )
+from scripts.verify_roadmap.safety import PAIRING_TAG_PLAN_TO_NAME_RENAME
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,7 @@ def _finding(
     recommended_fix: str = "fix",
     source_kind: SourceKind | None = None,
     source_line: int | None = None,
+    target_key: str | None = None,
 ) -> Finding:
     return Finding(
         category=category,
@@ -70,6 +72,7 @@ def _finding(
         recommended_fix=recommended_fix,
         source_kind=source_kind,
         source_line=source_line,
+        target_key=target_key,
     )
 
 
@@ -136,6 +139,7 @@ class TestBuildFixPlanSchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename plan: to name:", pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME)
         plan = build_fix_plan(cf)
@@ -154,6 +158,7 @@ class TestBuildFixPlanSchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
         cf = _safe_fix(f, "plan: and name: have identical values — remove redundant plan: key")
         plan = build_fix_plan(cf)
@@ -168,6 +173,7 @@ class TestBuildFixPlanSchemaViolation:
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: reviewed",
             source=Path("plans/test-plan/section-01.md"),
+            target_key="reviewed",
         )
         cf = _safe_fix(f, "Insert reviewed: false")
         plan = build_fix_plan(cf)
@@ -184,6 +190,7 @@ class TestBuildFixPlanSchemaViolation:
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: third_party_review",
             source=Path("plans/test-plan/section-01.md"),
+            target_key="third_party_review",
         )
         cf = _safe_fix(f, "Insert third_party_review default")
         plan = build_fix_plan(cf)
@@ -293,6 +300,7 @@ class TestBuildFixPlans:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/p1/index.md"),
+            target_key="plan",
         ), "rename")
         rev = _exposure(_finding(
             FindingCategory.STATUS_CONTRADICTION,
@@ -311,6 +319,7 @@ class TestBuildFixPlans:
             description="Unknown field: plan",
             source=path,
             source_line=2,
+            target_key="plan",
         )
         f2 = _finding(
             FindingCategory.SCHEMA_VIOLATION,
@@ -319,16 +328,14 @@ class TestBuildFixPlans:
             source=path,
             source_line=3,
         )
-        cf1 = _safe_fix(f1, "rename plan: to name:")
-        # Forge a SafeFix for reroute (not actually a real classify_safety
-        # output for unknown field reroute, but tests grouping)
-        # Use a more reliable pattern:
+        cf1 = _safe_fix(f1, "rename plan: to name:", pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME)
         f3 = _finding(
             FindingCategory.SCHEMA_VIOLATION,
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: reviewed",
             source=path,
             source_line=4,
+            target_key="reviewed",
         )
         cf3 = _safe_fix(f3, "Insert reviewed: false")
         plans = list(build_fix_plans([cf1, cf3]))
@@ -350,6 +357,7 @@ class TestBuildFixPlans:
                 FindingSubtype.UNKNOWN_FIELD,
                 description="Unknown field: plan",
                 source=path,
+                target_key="plan",
             ),
             "rename plan: to name:",
         )
@@ -359,6 +367,7 @@ class TestBuildFixPlans:
                 FindingSubtype.MISSING_REQUIRED_FIELD,
                 description="Missing required field: name",
                 source=path,
+                target_key="name",
             ),
             safety_class=SafetyClass.SAFE_FIX,
             rationale="insert name: (would be skipped)",
@@ -419,6 +428,7 @@ class TestApplyFixesNormalPath:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename plan: to name:")
         patcher = _StubPatcher()
@@ -440,6 +450,7 @@ class TestApplyFixesNormalPath:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename")
         patcher = _StubPatcher()
@@ -541,6 +552,7 @@ class TestApplyFixesConcurrentModification:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename plan: to name:")
         # Patcher returns failure
@@ -582,6 +594,7 @@ class TestApplyFixesBackup:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=src,
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename plan: to name:")
         patcher = _StubPatcher()
@@ -601,6 +614,7 @@ class TestApplyFixesBackup:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename")
         patcher = _StubPatcher()
@@ -633,6 +647,7 @@ class TestApplyFixesIdempotency:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename plan: to name:")
         plan1 = build_fix_plan(cf)
