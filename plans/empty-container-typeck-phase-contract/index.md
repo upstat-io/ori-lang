@@ -3,7 +3,7 @@ reroute: true
 name: "Empty-Container Typeck"
 full_name: "Empty-Container Typeck Phase-Contract Enforcement"
 status: active
-reviewed: false
+reviewed: true
 order: 1
 ---
 

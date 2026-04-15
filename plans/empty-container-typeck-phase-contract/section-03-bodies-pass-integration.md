@@ -21,7 +21,7 @@ inspired_by:
   - "Swift `Sema` request-based post-body checks — type-checking requests emit diagnostics as a post-pass step once per body, avoiding cascade from partial inference state."
 depends_on: ["01", "02"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: "2026-04-15"
 sections:
   - id: "03.0"
@@ -1141,8 +1141,12 @@ implementation. Do NOT fix individual failing tests — that is Section 06.2's j
 ## 03.R Third Party Review Findings
 
 <!-- TPR Round 0 — dual-source Codex + Gemini review via /review-plan (2026-04-15)
-All 6 findings from Round 0 have been triaged and integrated into the plan above.
-third_party_review.status updated to `resolved` in frontmatter once Round 1 confirms clean.
+All 6 findings from Round 0 triaged and integrated into the plan above.
+Round 1 — codex produced 5 findings (all resolved); gemini stalled at 23 min,
+watchdog-killed with empty envelope. User-accepted single-source resolution
+(2026-04-15): third_party_review.status flipped to `resolved` on codex-only
+signal per operator decision in /continue-roadmap gate reconciliation.
+Section 03.R retains full Round 0 + Round 1 findings for audit.
 -->
 
 ### Round 0 Findings (all accepted and integrated)
