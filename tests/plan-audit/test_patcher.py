@@ -221,6 +221,60 @@ class TestInsertKey:
         out = insert_key(fm, "reviewed", "false", after_key="nonexistent")
         assert "reviewed: false" in out
 
+    def test_after_block_list_anchor_skips_indented_items(self):
+        """Regression: insert_key must skip indented continuation lines after
+        a block-valued anchor (e.g., sections:) so the new key does NOT get
+        wedged between the anchor and its list items, which would produce
+        invalid YAML.
+
+        See: TPR-03-001-codex / TPR-03-001-gemini (agreement finding).
+        """
+        from scripts.plan_corpus import split_frontmatter_strict
+
+        fm = (
+            "section: '03'\n"
+            "title: Foo\n"
+            "status: in-progress\n"
+            "sections:\n"
+            "  - id: '03.1'\n"
+            "    title: First\n"
+            "    status: complete\n"
+            "  - id: '03.2'\n"
+            "    title: Second\n"
+            "    status: complete\n"
+        )
+        out = insert_key(
+            fm,
+            "third_party_review",
+            "\n  status: none\n  updated: null",
+            after_key="sections",
+        )
+
+        # The new key must appear AFTER the indented list items, not between
+        # the sections: header and its first - id: entry.
+        sections_idx = out.index("sections:")
+        first_item_idx = out.index("- id: '03.1'")
+        tpr_idx = out.index("third_party_review:")
+        last_item_idx = out.index("- id: '03.2'")
+        assert sections_idx < first_item_idx < last_item_idx < tpr_idx, (
+            f"third_party_review wedged inside sections list:\n{out}"
+        )
+
+        # And the result must reparse as valid YAML through the canonical
+        # parse-error-lifting boundary — `split_frontmatter_strict` rejects
+        # the broken pre-fix layout (mixed mapping/sequence at same indent).
+        wrapped = "---\n" + out + "---\nbody\n"
+        parsed, _body_offset = split_frontmatter_strict(
+            wrapped, Path("test.md")
+        )
+        # If we reach here without CorpusParseError, the fix held.
+        assert "third_party_review" in parsed
+        assert isinstance(parsed.get("sections"), list)
+        assert len(parsed["sections"]) == 2
+        # Both list items survived as proper mapping entries under sections
+        assert parsed["sections"][0]["id"] == "03.1"
+        assert parsed["sections"][1]["id"] == "03.2"
+
 
 # ---------------------------------------------------------------------------
 # remove_list_item
@@ -263,6 +317,28 @@ class TestRemoveListItem:
         )
         out = remove_list_item(fm, "depends_on", "missing")
         assert out == fm
+
+    def test_block_style_with_inline_comment_on_key_line(self):
+        """Regression: remove_list_item must treat an inline comment on the
+        key line (e.g. `depends_on: # comment`) as a valid block-list opener.
+
+        Pre-fix the strict regex `^depends_on\\s*:\\s*$` failed to match the
+        line, in_list never became True, and the item was never removed.
+
+        See: TPR-03-003-gemini.
+        """
+        fm = (
+            "name: foo\n"
+            "depends_on: # external blockers\n"
+            "  - alpha\n"
+            "  - beta\n"
+            "status: active\n"
+        )
+        out = remove_list_item(fm, "depends_on", "alpha")
+        assert "- alpha" not in out
+        assert "- beta" in out
+        # Comment on the key line is preserved
+        assert "depends_on: # external blockers" in out
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +448,74 @@ class TestApplyPatchConcurrentGuard:
         assert "concurrent" in result.reason.lower() or "modified" in result.reason.lower()
         # File untouched (still bar from concurrent session)
         assert "plan: bar" in path.read_text()
+
+    def test_propagates_finding_id_through_refusal(self, tmp_path):
+        """Regression: a refused patch must surface the originating Finding.id
+        in PatchResult, not the synthetic 'VR-patch' sentinel.
+
+        See: TPR-03-004-codex.
+        """
+        path = tmp_path / "test.md"
+        path.write_text("---\nplan: foo\n---\n", encoding="utf-8")
+        pre = _preimage(path)
+        # Concurrent session forces refusal
+        path.write_text("---\nplan: bar\n---\n", encoding="utf-8")
+        ops = [FmOperation.make(
+            FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
+        )]
+        result = apply_patch(
+            path, ops, pre, tmp_path, finding_id="VR-deadbeef",
+        )
+        assert result.applied is False
+        assert result.finding_id == "VR-deadbeef"
+
+    def test_refuses_when_disk_changes_between_check_and_replace(self, tmp_path):
+        """Regression: pre-replace CAS check refuses when a concurrent writer
+        lands AFTER the initial preimage check passes but BEFORE os.replace.
+
+        Simulated by monkey-patching `_sha256_hex` to mutate the file on its
+        second invocation (which occurs at the pre-replace re-read site —
+        Steps 2 and 6 in apply_patch's docstring). Without the CAS guard,
+        the patcher would silently overwrite the concurrent writer's bytes.
+
+        See: TPR-03-003-codex.
+        """
+        from scripts.verify_roadmap import patcher as patcher_mod
+
+        path = tmp_path / "test.md"
+        path.write_text("---\nplan: foo\n---\n", encoding="utf-8")
+        pre = _preimage(path)
+        ops = [FmOperation.make(
+            FmOperationKind.RENAME_KEY, old_key="plan", new_key="name",
+        )]
+
+        original_sha = patcher_mod._sha256_hex
+        invocation = {"count": 0}
+
+        def racy_sha(data: bytes) -> str:
+            invocation["count"] += 1
+            # First invocation = Step 2 preimage check (let it pass).
+            # Second invocation = Step 6 pre-replace re-read — RIGHT BEFORE
+            # this we land a concurrent write so the disk hash differs.
+            if invocation["count"] == 2:
+                path.write_text("---\nplan: from-concurrent\n---\n", encoding="utf-8")
+                # Re-read so the hash we return reflects the new content.
+                return original_sha(path.read_bytes())
+            return original_sha(data)
+
+        patcher_mod._sha256_hex = racy_sha
+        try:
+            result = apply_patch(path, ops, pre, tmp_path)
+        finally:
+            patcher_mod._sha256_hex = original_sha
+
+        assert result.applied is False
+        assert (
+            "between scan and replace" in result.reason.lower()
+            or "modified" in result.reason.lower()
+        )
+        # The concurrent writer's content survives — no clobber.
+        assert "plan: from-concurrent" in path.read_text()
 
 
 class TestApplyPatchMalformed:

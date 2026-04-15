@@ -180,6 +180,62 @@ class TestSourceKindSeverity:
         adjusted = apply_source_kind_severity([f])
         assert adjusted[0].severity is Severity.HIGH
 
+    def test_target_key_preserved_through_severity_adjustment(self):
+        """Regression: apply_source_kind_severity must preserve target_key
+        when reconstructing the Finding for severity adjustment. Pre-fix
+        the manual constructor call dropped target_key silently.
+
+        See: TPR-03-004-gemini.
+        """
+        src = Path("x.md")
+        f = Finding(
+            category=FindingCategory.DAG_CONFLICT,
+            subtype=FindingSubtype.MISSING_DEPENDENCY,
+            severity=Severity.LOW,
+            source=src, source_line=1, target=None,
+            description="d", recommended_fix="f",
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            target_key="depends_on",
+        )
+        adjusted = apply_source_kind_severity([f])
+        assert adjusted[0].target_key == "depends_on", (
+            "target_key dropped through apply_source_kind_severity — "
+            "the dataclasses.replace fix (TPR-03-004-gemini) regressed"
+        )
+
+    def test_target_key_preserved_through_precedence_dedup(self):
+        """Regression: apply_precedence must preserve target_key when
+        merging duplicate findings at the same (source, line, target)
+        coordinate. Pre-fix the manual constructor call dropped it.
+
+        See: TPR-03-004-gemini.
+        """
+        src = Path("x.md")
+        f_high = Finding(
+            category=FindingCategory.DAG_CONFLICT,
+            subtype=FindingSubtype.CYCLE,  # higher precedence
+            severity=Severity.HIGH,
+            source=src, source_line=1, target=None,
+            description="d", recommended_fix="f",
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            target_key="depends_on",
+        )
+        f_low = Finding(
+            category=FindingCategory.DAG_CONFLICT,
+            subtype=FindingSubtype.MISSING_DEPENDENCY,  # lower precedence
+            severity=Severity.HIGH,
+            source=src, source_line=1, target=None,
+            description="d", recommended_fix="f",
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            target_key="depends_on",
+        )
+        deduped = apply_precedence([f_high, f_low])
+        assert len(deduped) == 1
+        assert deduped[0].target_key == "depends_on", (
+            "target_key dropped through apply_precedence — "
+            "the dataclasses.replace fix (TPR-03-004-gemini) regressed"
+        )
+
     def test_dead_reference_severity_preserved_through_post_pass(self):
         """TPR-02-002-codex r2 regression pin: DEAD_REFERENCE findings carry
         their own severity ladder (completed-plan LOW; explicit-edge HIGH).

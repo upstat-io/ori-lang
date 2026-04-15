@@ -367,11 +367,29 @@ class TestClassifySafetySchemaViolation:
         assert result.safety_class == SafetyClass.EXPOSURE_REVIEW
 
     def test_cross_field_invariant_exposure_review(self):
+        # Default CROSS_FIELD_INVARIANT (no target_key) stays ExposureReview
         finding = _make_finding(
             FindingCategory.SCHEMA_VIOLATION, FindingSubtype.CROSS_FIELD_INVARIANT,
         )
         result = classify_safety(finding, _make_context())
         assert result.safety_class == SafetyClass.EXPOSURE_REVIEW
+
+    def test_cross_field_invariant_reroute_false_is_safefix(self):
+        """Regression: reroute: false on plan-index files is a SafeFix
+        because the schema rule guarantees the field is default-equivalent.
+        Pre-fix all CROSS_FIELD_INVARIANT findings were ExposureReview, so
+        the promised auto-fix never landed.
+
+        See: TPR-03-006-codex.
+        """
+        finding = _make_finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.CROSS_FIELD_INVARIANT,
+            target_key="reroute",
+        )
+        result = classify_safety(finding, _make_context())
+        assert result.safety_class == SafetyClass.SAFE_FIX
+        assert "reroute" in result.rationale.lower()
 
     def test_duplicate_plan_name_exposure_review(self):
         finding = _make_finding(

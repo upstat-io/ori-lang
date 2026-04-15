@@ -162,6 +162,10 @@ def _validate_sections(data: dict, path: Path) -> list[Finding]:
                     source=path,
                     description=f"sections[{idx}] missing required field {required_field!r}",
                     recommended_fix=f"Add {required_field}: ... to the entry",
+                    # Path-style target_key for nested fields so future auto-fix
+                    # extensions can dispatch structurally instead of parsing
+                    # the description prose (TPR-03-005-gemini informational).
+                    target_key=f"sections[{idx}].{required_field}",
                 ))
         for key in entry:
             if key not in _schema_allowed_fields(SubsectionEntry):
@@ -172,6 +176,7 @@ def _validate_sections(data: dict, path: Path) -> list[Finding]:
                     source=path,
                     description=f"sections[{idx}] has unknown field {key!r}",
                     recommended_fix=f"Remove {key!r} or add it to the SubsectionEntry schema",
+                    target_key=f"sections[{idx}].{key}",
                 ))
         status = entry.get("status")
         if status is not None and status not in SECTION_STATUSES:
@@ -184,6 +189,7 @@ def _validate_sections(data: dict, path: Path) -> list[Finding]:
                     f"sections[{idx}].status={status!r} not in {sorted(SECTION_STATUSES)}"
                 ),
                 recommended_fix=f"Use one of {sorted(SECTION_STATUSES)}",
+                target_key=f"sections[{idx}].status",
             ))
     return findings
 
@@ -381,6 +387,7 @@ def _validate_plan_index(data: dict, path: Path) -> list[Finding]:
             source=path,
             description="reroute: false is invalid; omit the field instead",
             recommended_fix="Remove the reroute field entirely",
+            target_key="reroute",
         ))
     return findings
 

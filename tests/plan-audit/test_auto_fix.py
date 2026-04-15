@@ -397,15 +397,17 @@ class _StubPatcher:
         operations: list[FmOperation],
         preimage: PreimageRecord,
         corpus_root: Path,
+        finding_id: str | None = None,
     ) -> PatchResult:
-        self.calls.append((path, list(operations), preimage, corpus_root))
+        self.calls.append((path, list(operations), preimage, corpus_root, finding_id))
         if self.results:
             return self.results.pop(0)
-        # Default: success
+        # Default: success — propagate caller's finding_id if supplied so the
+        # stub mirrors apply_patch's TPR-03-004-codex contract.
         return PatchResult(
             applied=True,
             reason="ok",
-            finding_id="VR-stub",
+            finding_id=finding_id or "VR-stub",
             path=path,
             before_hash="aa",
             after_hash="bb",
@@ -575,6 +577,147 @@ class TestApplyFixesConcurrentModification:
         assert len(result.unapplied_results) == 1
         assert result.unapplied_results[0].applied is False
 
+    def test_refused_safefix_is_demoted_to_exposure_review(self, tmp_path):
+        """Regression: a refused SafeFix produces a demoted ExposureReview
+        ClassifiedFinding in result.demoted_findings, with the refusal
+        reason appended to the rationale.
+
+        See: TPR-03-005-codex.
+        """
+        from scripts.verify_roadmap import SafetyClass
+
+        f = _finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.UNKNOWN_FIELD,
+            description="Unknown field: plan",
+            source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
+        )
+        original_rationale = "rename plan: to name:"
+        cf = _safe_fix(f, original_rationale)
+        failed = PatchResult(
+            applied=False,
+            reason="file modified by concurrent session",
+            finding_id=f.id,
+            path=f.source,
+        )
+        patcher = _StubPatcher(results=[failed])
+        result = apply_fixes(
+            [cf],
+            patcher=patcher,
+            preimages={f.source: _preimage(f.source)},
+            output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
+        )
+        assert len(result.demoted_findings) == 1
+        demoted = result.demoted_findings[0]
+        assert demoted.safety_class == SafetyClass.EXPOSURE_REVIEW
+        assert "demoted from SafeFix" in demoted.rationale
+        assert original_rationale in demoted.rationale
+        assert demoted.finding.id == f.id
+
+    def test_propagates_finding_id_to_patcher(self, tmp_path):
+        """Regression: apply_fixes must pass plan.finding_id to the patcher
+        so unapplied_results carry useful provenance.
+
+        See: TPR-03-004-codex.
+        """
+        f = _finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.UNKNOWN_FIELD,
+            description="Unknown field: plan",
+            source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
+        )
+        cf = _safe_fix(f, "rename plan: to name:")
+        patcher = _StubPatcher()
+        apply_fixes(
+            [cf],
+            patcher=patcher,
+            preimages={f.source: _preimage(f.source)},
+            output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
+        )
+        # _StubPatcher records (path, ops, preimage, corpus_root, finding_id)
+        assert len(patcher.calls) == 1
+        forwarded_finding_id = patcher.calls[0][4]
+        assert forwarded_finding_id == f.id
+
+    def test_multiple_findings_same_file_all_apply(self, tmp_path):
+        """Regression: when multiple findings target the same file, the
+        working preimage must roll forward after each applied patch so
+        subsequent findings don't fail the concurrent-session guard against
+        the patcher's own prior writes.
+
+        See: TPR-03-002-gemini.
+        """
+        src_dir = tmp_path / "plans" / "p1"
+        src_dir.mkdir(parents=True)
+        src = src_dir / "index.md"
+        src.write_text("---\nplan: foo\n---\n# body\n", encoding="utf-8")
+
+        f1 = _finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.UNKNOWN_FIELD,
+            description="Unknown field: plan",
+            source=src,
+            target_key="plan",
+        )
+        # Distinct second finding on the SAME file (target_key='full_name'
+        # gives it a distinct Finding.id per TPR-03-002-codex).
+        f2 = _finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.MISSING_REQUIRED_FIELD,
+            description="Missing required field: reviewed",
+            source=src,
+            target_key="reviewed",
+        )
+        assert f1.id != f2.id, "target_key must discriminate; see TPR-03-002-codex"
+
+        cf1 = _safe_fix(f1, "rename plan: to name:")
+        cf2 = _safe_fix(f2, "insert reviewed: false")
+
+        # Stub patcher returns post-write hashes that DIFFER from the
+        # original preimage.content_hash ("aa"). Without the working-preimage
+        # rollforward fix, the second finding would fail because the first
+        # write changed after_hash to "bb1", leaving preimage at "aa".
+        first_result = PatchResult(
+            applied=True,
+            reason="ok",
+            finding_id=f1.id,
+            path=src,
+            before_hash="aa",
+            after_hash="bb1",
+        )
+        # The second finding must carry a preimage with content_hash="bb1"
+        # (the first write's after_hash) — the patcher checks this to refuse
+        # if the file changed. We assert by capturing what apply_fixes hands
+        # the patcher on the second call.
+        second_result = PatchResult(
+            applied=True,
+            reason="ok",
+            finding_id=f2.id,
+            path=src,
+            before_hash="bb1",
+            after_hash="bb2",
+        )
+        patcher = _StubPatcher(results=[first_result, second_result])
+        result = apply_fixes(
+            [cf1, cf2],
+            patcher=patcher,
+            preimages={src: _preimage(src)},  # original "aa" preimage
+            output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
+        )
+
+        # Both findings were applied — the working preimage rolled forward.
+        assert len(result.applied_findings) == 2
+        assert len(result.unapplied_results) == 0
+        # The second call's preimage must reflect the first call's after_hash.
+        assert len(patcher.calls) == 2
+        second_call_preimage = patcher.calls[1][2]
+        assert second_call_preimage.content_hash == "bb1"
+
 
 # ---------------------------------------------------------------------------
 # apply_fixes — backups + audit log
@@ -632,6 +775,58 @@ class TestApplyFixesBackup:
         assert "path" in entry
         assert "operations" in entry
         assert "timestamp" in entry
+
+    def test_audit_log_includes_before_and_after_snippets(self, tmp_path):
+        """Regression: audit log entries must include before/after snippets
+        of the changed file, per the §03.3 spec contract.
+
+        See: TPR-03-009-codex.
+        """
+        src_dir = tmp_path / "plans" / "p1"
+        src_dir.mkdir(parents=True)
+        src = src_dir / "index.md"
+        src.write_text(
+            "---\nplan: foo\nstatus: active\n---\n# body\n",
+            encoding="utf-8",
+        )
+        f = _finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.UNKNOWN_FIELD,
+            description="Unknown field: plan",
+            source=src,
+            target_key="plan",
+        )
+        cf = _safe_fix(f, "rename plan: to name:")
+
+        # Use a stub that actually mutates the file contents so before !=
+        # after. The default stub doesn't touch the file, so we wrap it.
+        class _MutatingPatcher(_StubPatcher):
+            def __call__(self, path, ops, preimage, corpus_root, finding_id=None):
+                result = super().__call__(path, ops, preimage, corpus_root, finding_id)
+                # Simulate a real patch landing
+                path.write_text(
+                    "---\nname: foo\nstatus: active\n---\n# body\n",
+                    encoding="utf-8",
+                )
+                return result
+
+        patcher = _MutatingPatcher()
+        out = tmp_path / "out"
+        apply_fixes(
+            [cf],
+            patcher=patcher,
+            preimages={src: _preimage(src)},
+            output_dir=out,
+            corpus_root=tmp_path,
+        )
+        data = json.loads((out / "fixes-applied.json").read_text())
+        entry = data["fixes"][0]
+        assert "before_snippet" in entry
+        assert "after_snippet" in entry
+        assert entry["before_snippet"] is not None
+        assert entry["after_snippet"] is not None
+        assert "plan: foo" in entry["before_snippet"]
+        assert "name: foo" in entry["after_snippet"]
 
 
 # ---------------------------------------------------------------------------
