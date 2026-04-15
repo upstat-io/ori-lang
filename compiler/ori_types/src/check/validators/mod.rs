@@ -153,18 +153,37 @@ fn collect_first_unbound_var(
     span: Span,
     errors: &mut Vec<TypeCheckError>,
 ) -> bool {
-    // TF-5 fast-path, staleness-safe: resolve links first, then check.
-    // Flags are cached at intern time (types.md §TF-2) but VarState::Link
-    // may mutate later (types.md §SC-3 substitution, CHK:UN-7 union-find).
+    // Gate order: resolve_fully → HAS_ERROR → HAS_VAR.
+    //
+    // (1) `resolve_fully` first, so flags are read on the resolved Idx.
+    //     Flags are cached at intern time (`types.md §TF-2`) but
+    //     `VarState::Link` may mutate later (`types.md §SC-3`
+    //     substitution, `typeck.md §UN-7` union-find). Resolving before
+    //     flag reads keeps the HAS_VAR / HAS_ERROR checks staleness-safe.
+    //
+    // (2) HAS_ERROR gate BEFORE the HAS_VAR fast-path. Cascade
+    //     suppression (`types.md §TK-3`, `typeck.md §ER-4`) must precede
+    //     the walk gate so that any position already poisoned by a type
+    //     error never emits follow-on E2005 diagnostics — even if some
+    //     future refactor changes how HAS_VAR is cleared on error-typed
+    //     compound nodes. The two orderings are behaviorally equivalent
+    //     today (HAS_VAR is false on pure `Tag::Error` leaves), but
+    //     matching the documented contract makes cascade suppression
+    //     robust against future flag-propagation changes.
+    //
+    // (3) HAS_VAR gate last (`types.md §TF-5`). This is the fast-path
+    //     that keeps the walk O(1) for types with no unresolved
+    //     variables (`§TF-3` propagation + `§02.0` scheme fix ensures
+    //     the flag is set iff an unbound Var is reachable).
     let ty = pool.resolve_fully(ty);
     let flags = pool.flags(ty);
+    if flags.contains(TypeFlags::HAS_ERROR) {
+        // Cascade suppression (types.md §TK-3, typeck.md §ER-4).
+        return false;
+    }
     if !flags.contains(TypeFlags::HAS_VAR) {
         // !HAS_VAR ⇒ no unbound var reachable
         // (types.md §TF-3 propagation + §02.0 scheme fix).
-        return false;
-    }
-    if flags.contains(TypeFlags::HAS_ERROR) {
-        // Cascade suppression (types.md §TK-3, typeck.md §ER-4).
         return false;
     }
 
