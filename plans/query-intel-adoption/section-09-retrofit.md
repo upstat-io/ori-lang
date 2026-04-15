@@ -2,7 +2,7 @@
 section: "09"
 title: "Retrofit active plans — status-gated recon coverage"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Backfill the unnumbered `## Intelligence Reconnaissance` block across the active plan corpus using a status-gated severity model (not an A/B/C operator menu). Status `not-started` sections emit `Severity.HIGH` when missing recon; `in-progress` sections emit `Severity.MEDIUM` / `Outcome.WARNING` (no on-edit escalation); `complete` sections are exempt unless explicitly reopened. Meta-dogfood is scoped to `not-started` sections of this plan only (§06, §07, §08, §09 itself) — completed sections (§01-§05) are frozen and NOT rewritten."
 success_criteria:
   - "`python -m scripts.plan_corpus discover` reports 100% recon-block PRESENCE for every plan section with `status: not-started` across `plans/` (excluding `plans/completed/` and `plans/bug-tracker/`); the per-plan coverage table (added in §06.2) shows `N/N` for the `not-started` slice of every active plan. A retrofit stub counts as 'present' for this metric — the discover reporter counts block presence, not quality. Quality issues (stub vs. complete) are separate `VALIDATION_BYPASS` findings emitted by `check`, not `discover`."
