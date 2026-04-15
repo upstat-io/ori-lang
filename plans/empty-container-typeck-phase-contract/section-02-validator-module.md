@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Validator Module — validate_body_types()"
-status: in-progress
+status: complete
 reviewed: true
 goal: >
   Introduce ori_types::check::validators — a new submodule of the type-checker
@@ -1095,22 +1095,46 @@ At section completion (mirrors 01.N / 03.N shape), before flipping
   the twelve shipped test names with behavioral naming + T10 semantic-pin
   note (resolves TPR-02-R3-001); `00-overview.md` effort table updated
   from "11 cells" to "12 cells".
-- [ ] `/commit-push` — single commit or ordered commit sequence per
+- [x] `/commit-push` — single commit or ordered commit sequence per
   `CLAUDE.md §Stabilization Discipline` (multi-commit ordering).
-- [ ] Frontmatter: this section's `status` → `complete`; all subsection
+  Completed as an ordered commit sequence across the §02 close-out:
+  `6e47956a` (§02.0 pool fix), `19f68757` (§02.1-02.3 validator
+  skeleton + wiring), `c41c2bcd` (§02.4 twelve-cell matrix), `342731aa`
+  (TPR-02-R4-001 gate-order fix), `3a9b24fb` (§02 hygiene review —
+  banner removal + bug filings), `dd267552` (§02 tooling section-close
+  sweep — BUG-07-012 filing), `0d5dd41f` (§02 docs sync — rules +
+  downstream plan sections to final API). This final commit closes
+  out the section.
+- [x] Frontmatter: this section's `status` → `complete`; all subsection
   `status` → `complete`.
-- [ ] `plans/empty-container-typeck-phase-contract/00-overview.md`
+  All §§02.0–02.4 subsection statuses: complete. §02.R: complete (15/15
+  findings resolved across R1, R3, R4). §02.N: complete (this checklist).
+  Section frontmatter status flipped from `in-progress` to `complete` in
+  this commit.
+- [x] `plans/empty-container-typeck-phase-contract/00-overview.md`
   "Quick Reference" table: Section 02 row → `Complete`.
-- [ ] `plans/empty-container-typeck-phase-contract/index.md` updated
+  Updated in this commit.
+- [x] `plans/empty-container-typeck-phase-contract/index.md` updated
   (status, Section 02 link text) if the corpus convention requires it.
-- [ ] `plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md`
+  `index.md` Quick Reference uses an ID/Title/File layout (no Status
+  column), so no update needed per the corpus convention. The plan's
+  `index.md` frontmatter is for the reroute registry and isn't
+  section-specific.
+- [x] `plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md`
   frontmatter `depends_on: ["01", "02"]` — confirm no new external blocker
   was introduced.
-- [ ] Sections 03, 05, `00-overview.md`, and `index.md` updated to reference
+  Verified on 2026-04-15: `depends_on: ["01", "02"]` at
+  `section-03-bodies-pass-integration.md:22`. Both §01 and §02 are now
+  `status: complete`, so §03 has zero unresolved external blockers and
+  can pick up next when `/continue-roadmap plans/empty-container-typeck-phase-contract`
+  is resumed.
+- [x] Sections 03, 05, `00-overview.md`, and `index.md` updated to reference
   the final 6-parameter `validate_body_types` API (pool, expr_types, sig,
   sig_span, span_of, errors), the private `mod check;` design (no
   `pub mod check`), and the
   twelve-cell validator matrix (T1–T12).
+  Completed as Phase C2 (commit `0d5dd41f`) — see earlier `/sync-claude`
+  + Phase C2 line-item for details. Cross-reference consolidated.
 
 ---
 
