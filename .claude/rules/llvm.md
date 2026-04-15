@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**ori_llvm**"
+  - "compiler/ori_llvm/**/*.rs"
 ---
 
 # LLVM Backend

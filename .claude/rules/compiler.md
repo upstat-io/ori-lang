@@ -1,6 +1,8 @@
 ---
 paths:
-  - "**compiler**"
+  - "compiler/**/*.rs"
+  - "tests/compiler/**"
+  - "docs/compiler/**"
 ---
 
 # Compiler

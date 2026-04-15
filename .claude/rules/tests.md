@@ -1,6 +1,13 @@
 ---
 paths:
-  - "**test**"
+  - "tests/**"
+  - "**/tests.rs"
+  - "**/tests/**/*.rs"
+  - "compiler/**/tests/**/*.ori"
+  - "compiler/oric/tests/aims-snapshots/**"
+  - "compiler/ori_test_harness/**/*.rs"
+  - "test-all.sh"
+  - "llvm-test.sh"
 ---
 
 # Specification Tests

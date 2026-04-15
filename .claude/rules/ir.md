@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**ori_ir**"
+  - "compiler/ori_ir/**/*.rs"
 ---
 
 # IR (AST)

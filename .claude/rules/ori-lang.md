@@ -1,6 +1,8 @@
 ---
 paths:
   - "**/docs/ori_lang/**"
+  - ".claude/rules/ori-syntax.md"
+  - "docs/ori_lang/v2026/spec/grammar.ebnf"
 ---
 
 # Ori Documentation

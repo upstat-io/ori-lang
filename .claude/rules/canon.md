@@ -1,6 +1,9 @@
 ---
 paths:
-  - "**"
+  - "compiler/**"
+  - "plans/**"
+  - ".claude/rules/**"
+  - "docs/ori_lang/v2026/spec/**"
 ---
 
 # Canon — Ori Compiler Pipeline SSOT

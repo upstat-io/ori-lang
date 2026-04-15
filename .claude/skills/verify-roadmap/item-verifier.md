@@ -1,113 +1,105 @@
 ---
 name: verify-roadmap-item-verifier
-description: Item-level verifier module for the verify-roadmap skill. Wraps the review + update agent protocol from `.claude/commands/verify-roadmap.md` so it can be invoked as Phase 4 of the 5-phase pipeline or directly against a single section via `--section <path>`.
+description: DESIGN NOTE (not a currently-wired phase) — the target shape for Phase 4 item-level verification in the verify-roadmap 5-phase pipeline. The pipeline itself is not yet implemented in `scripts/verify_roadmap/`; today's item-level verifier lives in `.claude/commands/verify-roadmap.md` (agent-driven slash command).
 ---
 
-# Item-Level Verifier
+# Item-Level Verifier — Design Note (NOT IMPLEMENTED)
 
-Extracted from `.claude/commands/verify-roadmap.md` (914-line command file) per
-plans/verify-roadmap-redesign §04. This module preserves the existing verifier
-capability while making it composable with the new cross-plan analysis.
+**Status: design target, not wired.** This document describes how Phase 4
+item verification *would* integrate with the 5-phase pipeline envisioned
+by `plans/completed/verify-roadmap-redesign/`. **No code in
+`scripts/verify_roadmap/` reads this file, and no Phase 4 exists today.**
+The item-level verifier is still the agent-driven slash command at
+`.claude/commands/verify-roadmap.md` (~914 lines), invoked directly via
+`/verify-roadmap`.
 
-## Canonical prompt sources (SSOT)
+Treat this file as:
 
-The review-agent and update-agent prompt templates live in
-`.claude/commands/verify-roadmap.md`. This module points at them rather than
-duplicating — inlining the ~900-line prompt templates here would create a
-`LEAK:algorithmic-duplication` that would drift from the canonical command file
-as reviewers evolve their standards.
+- **A future-state anchor** describing what the implemented Phase 4
+  contract should look like.
+- **Documentation of the canonical prompt-template home** — when Phase 4
+  does ship, it should reuse the prompts in `.claude/commands/verify-roadmap.md`
+  rather than duplicate them.
+- **NOT a wiring contract.** Nothing today reads or executes the protocol
+  described below.
 
-- **Review agent protocol**: `.claude/commands/verify-roadmap.md` §"Phase 1:
-  Review" + §"Phase 1: Review Agent Protocol" (lines 76–202+).
-- **Update agent protocol**: `.claude/commands/verify-roadmap.md` §"Phase 2:
-  Update Section Files" + §"Frontmatter Updates" (lines 159–636).
-- **Verification criteria**: `.claude/commands/verify-roadmap.md`
-  §"Verification Criteria" (lines 649+).
+## Canonical prompt sources (target SSOT)
 
-When the 5-phase pipeline (or a direct `--section` invocation) needs to run
-item-level verification, it **reads these sections** from the command file and
-builds agent prompts that match the canonical templates, parameterized by the
-section file path.
+When Phase 4 is implemented, the review-agent and update-agent prompt
+templates should live in `.claude/commands/verify-roadmap.md` — they are
+there today and should stay there. The extracted module should point at
+them rather than duplicating — inlining the ~900-line prompt templates
+would create a `LEAK:algorithmic-duplication` that would drift from the
+canonical command file as reviewers evolve their standards.
 
-## Six preserved verification criteria
+Relevant sections in `.claude/commands/verify-roadmap.md`:
 
-The item-level verifier retains every criterion the original `/verify-roadmap`
-command assessed:
+- **Review agent protocol**: §"Phase 1: Review" + §"Phase 1: Review Agent
+  Protocol" (lines 76–202+).
+- **Update agent protocol**: §"Phase 2: Update Section Files" +
+  §"Frontmatter Updates" (lines 159–636).
+- **Verification criteria**: §"Verification Criteria" (lines 649+).
 
-1. **Matrix coverage** — does the section have type × pattern × feature test
-   coverage per `.claude/rules/tests.md` §Matrix Testing Rule?
-2. **Semantic pin presence** — does the section have at least one test that
-   would fail if the fix were reverted?
+## Six target verification criteria (preserved from the original command)
+
+Whichever implementation ships, it must retain every criterion the original
+`/verify-roadmap` command assesses:
+
+1. **Matrix coverage** — does the section have type × pattern × feature
+   test coverage per `.claude/rules/tests.md` §Matrix Testing Rule?
+2. **Semantic pin presence** — does the section have at least one test
+   that would fail if the fix were reverted?
 3. **Test quality** — are tests testing behavior (not implementation)?
-4. **Hygiene audit** — dead code, stale references, missing docs, leftover
-   plan annotations on completed work.
-5. **Gap analysis** — what is missing from the section's claimed scope vs.
-   what the checkbox list declares?
+4. **Hygiene audit** — dead code, stale references, missing docs,
+   leftover plan annotations on completed work.
+5. **Gap analysis** — what is missing from the section's claimed scope
+   vs. what the checkbox list declares?
 6. **Checkbox item verification** — are `[x]` items actually complete?
 
-Severity mapping and finding categorization are defined in
-`scripts/plan_corpus/types.py` (`FindingCategory.ITEM_VERIFICATION` + its
-subtypes) per §01.3 SSOT. This module does NOT redefine categories; it emits
-findings against the canonical `Finding` dataclass.
+When the Phase 4 implementation lands, it should either reuse the
+`FindingCategory.ITEM_VERIFICATION` enum defined in
+`scripts/plan_corpus/types.py` (if that subtype set ever lands in §01.3)
+or emit freestanding findings the pipeline can aggregate.
 
-## Invocation contract
+## Target invocation contract (future state — not implemented)
 
-**Input**:
-- `section_path: Path` — path to the section file to verify
-  (e.g. `plans/roadmap/section-01-type-system.md` OR
-  `plans/repr-opt/section-03-trampoline-contracts.md` — any plan, not just the
-  master roadmap)
+**Input (proposed)**:
+- `section_path: Path` — path to the section file to verify.
 - `scope: Literal["full", "quick"]` — `full` runs all six criteria;
-  `quick` runs matrix + checkbox only (fast pre-check)
+  `quick` runs matrix + checkbox only (fast pre-check).
 
-**Output**:
+**Output (proposed)**:
 - `list[Finding]` — findings using the `Finding` dataclass from
-  `scripts/plan_corpus/types.py`. Each finding carries:
-  - `category: FindingCategory.ITEM_VERIFICATION`
-  - `subtype`: one of `MISSING_MATRIX_COVERAGE`, `MISSING_SEMANTIC_PIN`,
-    `MISSING_NEGATIVE_PIN`, `WEAK_TEST`, `HYGIENE_VIOLATION`,
-    `INCOMPLETE_CHECKBOX`, `SCOPE_GAP`
-  - severity mapping per §04.2: semantic/negative pin + checkbox = high,
-    matrix coverage + weak test + scope gap = medium, hygiene = low
-  - `source` = the section file path
-  - `source_line` = the checkbox / header line the finding references
+  `scripts/plan_corpus/types.py`.
 
-## Pipeline integration (Phase 4 of the 5-phase pipeline)
+**Pipeline placement (proposed)**: Phase 4 of the 5-phase verify-roadmap
+pipeline would run between Phase 3 (cross-plan conflict classification)
+and Phase 5 (write-back + report). The pipeline itself is not yet
+implemented — see SKILL.md for the implemented CLI surface.
 
-- **`--full` mode**: Phase 4 runs item-verification on sections flagged by
-  Phase 3 classifiers (BLOCKED / CONFLICT / SUPERSEDED findings).
-- **`--quick` mode**: Phase 4 is **skipped** — cross-plan check only.
-- **`--deep-all` mode**: Phase 4 runs on every section in the corpus
-  (original command behavior).
-- **`--section <path>` mode**: Phases 1–3 skipped; Phase 4 runs on the
-  specified section only; Phase 5 reports findings from the single section.
-- **`--plan <name>` mode**: Phases 1–3 scoped to the named plan directory;
-  Phase 4 runs on all sections of that plan.
+## What to use TODAY
 
-## Non-regression contract
+If you need item-level verification right now, invoke the slash command
+directly:
 
-This module preserves every capability of the original command. Specifically:
+```
+/verify-roadmap
+```
 
-- The review-agent prompt structure is unchanged — same criteria, same
-  reporting format.
-- The update-agent's write-back format is unchanged — findings land in each
-  section's `## {NN}.R Third Party Review Findings` block using the canonical
-  reviewer-tagged `[TPR-NN-NNN-{reviewer}][severity]` shape.
-- The update agent respects the §01 frontmatter schema — `third_party_review.
-  status`, `updated`, subsection `status` fields all maintained per canonical
-  shape.
-
-If any of the six criteria or the write-back format ever diverge from the
-`.claude/commands/verify-roadmap.md` source, the divergence is a
-`LEAK:scattered-knowledge` finding against this module.
+The slash command dispatches review + update agents per section against
+the plan-corpus indexes it discovers. It does NOT go through the
+`scripts/verify_roadmap/` programmatic pipeline — those are separate
+surfaces that will merge when Phase 4 ships.
 
 ## Related
 
 - `.claude/commands/verify-roadmap.md` — canonical agent prompt templates
-  (SSOT)
-- `.claude/skills/verify-roadmap/SKILL.md` — outer skill that orchestrates
-  Phases 1–5 and delegates Phase 4 here
+  (SSOT). Invoke this directly today.
+- `.claude/skills/verify-roadmap/SKILL.md` — the programmatic
+  `scripts/verify_roadmap/` surface (only `--quick` and `--full`-stub
+  are implemented today).
 - `scripts/plan_corpus/types.py` — `Finding` / `FindingCategory` /
-  `FindingSubtype` SSOT (§01.3)
-- `scripts/verify_roadmap/` — programmatic cross-plan classifiers (Phases 1–3)
-  that feed this module via the Phase 3 report
+  `FindingSubtype` SSOT.
+- `plans/completed/verify-roadmap-redesign/` — the plan that proposed
+  the 5-phase pipeline. Closed with the programmatic pipeline NOT yet
+  implemented (see §05.3 follow-up anchors).

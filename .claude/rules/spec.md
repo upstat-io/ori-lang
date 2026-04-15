@@ -1,6 +1,7 @@
 ---
 paths:
-  - "**spec**"
+  - "docs/ori_lang/v2026/spec/**"
+  - "tests/spec/**"
 ---
 
 # Ori Language Specification

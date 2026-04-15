@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**registry**"
+  - "compiler/ori_registry/**/*.rs"
 ---
 
 # ori_registry

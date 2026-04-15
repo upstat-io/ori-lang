@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**eval**"
+  - "compiler/ori_eval/**/*.rs"
 ---
 
 # Interpreter

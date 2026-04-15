@@ -1,4 +1,6 @@
 ---
+# paths is intentionally locked to "**" — Ori syntax is always-load per
+# user preference. Do NOT narrow. See memory feedback_ori_syntax_paths.md.
 paths:
   - "**"
 ---

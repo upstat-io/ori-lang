@@ -1,5 +1,13 @@
 ---
-paths: ["compiler/ori_llvm/**", "compiler/ori_arc/**", "compiler/ori_rt/**", "compiler/ori_types/**"]
+paths:
+  - "compiler/ori_llvm/**"
+  - "compiler/ori_arc/**"
+  - "compiler/ori_rt/**"
+  - "compiler/ori_types/**"
+  - "compiler/ori_repr/**"
+  - "docs/ori_lang/v2026/spec/26-ffi.md"
+  - "docs/ori_lang/v2026/spec/annex-e-system-considerations.md"
+  - "tests/spec/repr/**"
 ---
 
 # repr.md — Representation Layer SSOT

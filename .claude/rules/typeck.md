@@ -1,7 +1,8 @@
 ---
 paths:
-  - "**ori_types**"
-  - "**typeck**"
+  - "compiler/ori_types/**/*.rs"
+  - "tests/compiler/typeck/**"
+  - "plans/empty-container-typeck-phase-contract/**"
 ---
 
 # Type Checker Formal Ruleset

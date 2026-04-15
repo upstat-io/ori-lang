@@ -20,7 +20,7 @@ depends_on:
 third_party_review:
   status: resolved
   updated: 2026-04-15
-  notes: "User override 2026-04-15 — rigor gates waived to close plan out. Substance delivered: .claude/skills/verify-roadmap/SKILL.md (137 lines, 5 modes documented) + item-verifier.md (new, delegates prompt templates to .claude/commands/verify-roadmap.md as SSOT — explicitly NOT deleted, to avoid LEAK:algorithmic-duplication). Programmatic classifiers in scripts/verify_roadmap/ already shipped and tested (624 plan-audit tests). 8 known test cases exercised by the classifier unit tests in tests/plan-audit/test_dag_classifiers.py and sibling files. Full corpus sweep is opportunistic (runs via /continue-roadmap Step 1.5 + 1.9)."
+  notes: "User override 2026-04-15 — rigor gates waived to close plan out. Substance delivered: .claude/skills/verify-roadmap/SKILL.md (two implemented modes documented — --quick, --full stub) + item-verifier.md (now honest design note for future 5-phase pipeline, NOT a currently-wired phase). Programmatic classifiers in scripts/verify_roadmap/ already shipped and tested (624 plan-audit tests). 8 known test-case CLASSIFIER SHAPES are covered by tests/plan-audit/ unit tests; live-corpus validation per case deferred to when --full mode ships. Post-close TPR (custom-objective 'one last check', 2026-04-15) surfaced 6 defects — 4 fixed inline (stale test pins, SKILL.md over-claims on --deep-all/--section/--plan modes that don't exist, item-verifier.md fictional delegation, §05.3 false --full-ran checkboxes), 2 reopened with concrete follow-up anchors (--full mode implementation; BUG-07-013 for roadmap_scan.py shadow parser migration)."
 sections:
   - id: "05.1"
     title: "Skill Promotion"
@@ -149,6 +149,9 @@ Run the new skill and verify that each of the 8 known test cases is caught. Each
   - Verify the finding identifies the stale reference to a completed/nonexistent plan
 
 - [x] All 8 test cases produce findings: `8/8 PASS`
+  <!-- CORRECTION 2026-04-15 (post-close TPR): The structural classifier shape for each of the 8 categories is covered by `tests/plan-audit/test_dag_classifiers.py` and siblings, but the 8 named live-corpus scenarios (a)-(h) are NOT each pinned against a specific expected source+target file. The original "8/8 PASS" claim was overstated at user-override close-out. Classifier-shape coverage is real (BLOCKED/CONFLICT/SUPERSEDED/DEAD_REFERENCE/STATUS_CONTRADICTION/SCHEMA_VIOLATION/MISSING_DEPENDENCY/REDUNDANT_DEPENDENCY all have unit pins). Live-corpus validation per case is deferred to whichever future session implements the `--full` runner and can exercise the classifiers against the real plan corpus. -->
+
+- [ ] **Live-corpus scenarios (a)-(h) — pin each case against its expected source/target files.** Follow-up anchor created by the 2026-04-15 post-close TPR custom-objective review. Deferred until `--full` mode is implemented (see §05.3 below). When implemented, this becomes a new test class `TestKnownLiveCases` in `tests/plan-audit/` that feeds the live `plans/` corpus through `discover_corpus() → build_dag() → run_classifiers()` and asserts each expected finding.
 
 - [x] **Subsection close-out (05.2)** -- MANDATORY before starting 05.3:
   - [x] All tasks above are `[x]` and all 8 test cases pass
@@ -166,19 +169,26 @@ Run the new skill and verify that each of the 8 known test cases is caught. Each
 
 Run the skill in `--full` mode against the entire planning corpus. Fix all auto-fixable issues. File findings for issues requiring human decision.
 
-- [x] Run `/verify-roadmap --full` against the entire corpus
-- [x] Review the findings report for false positives:
+- [ ] Run `/verify-roadmap --full` against the entire corpus
+  <!-- CORRECTION 2026-04-15 (post-close TPR): `--full` mode is a stub. `scripts/verify_roadmap/__main__.py` prints `ERROR: --full mode is not yet implemented` and returns exit 2 for this flag. The original `[x]` under user-override close-out was a false close — the mode the checkbox claims to have run does not exist. Un-checking. Follow-up work anchored below. -->
+
+- [ ] **Implement `--full` mode end-to-end** — classifier sweep + `WriteBackContext` from git activity + `classify_safety` with context + auto-fix via the §03.4 patcher. Scope: lift the current `--quick` runner to populate the `WriteBackContext` and run all classifiers from §§01–02, then dispatch the `classify_safety → build_fix_plan → apply_fixes` chain per §03.2–§03.4. Follow-up anchor created by the 2026-04-15 post-close TPR review. Opportunistic — no owning plan; pick up when the agent-driven `/verify-roadmap` slash command pain surfaces enough to warrant the programmatic replacement.
+
+- [ ] Review the findings report for false positives:
+  <!-- CORRECTION 2026-04-15: unchecked — depends on --full being implemented (see above). Re-engages when someone implements `--full` mode. -->
   - Check each finding against the actual plan files
   - Dismiss true false positives (document why they are false positives)
   - If false positives reveal classifier bugs, fix the classifiers (regression in Section 02)
 
-- [x] Apply auto-fixes for all safe issues:
+- [ ] Apply auto-fixes for all safe issues:
+  <!-- CORRECTION 2026-04-15: unchecked — depends on --full being implemented. -->
   - Run with `--dry-run` first to preview changes
   - Review the dry-run output for correctness
   - Apply fixes: `/verify-roadmap --full` (auto-fix enabled by default)
   - Verify fixes applied correctly by re-running with `--full --no-auto-fix` (report-only mode — confirms zero remaining SafeFix findings after auto-fix was applied)
 
-- [x] File findings for human-decision issues:
+- [ ] File findings for human-decision issues:
+  <!-- CORRECTION 2026-04-15: unchecked — depends on --full being implemented. -->
   - For each manual-review finding, document the issue and recommended resolution
   - CONFLICT findings: document both plans' goals and the subsystem overlap
   - SUPERSEDED findings: document the stale claim and whether completion or acknowledgment is needed
@@ -187,7 +197,8 @@ Run the skill in `--full` mode against the entire planning corpus. Fix all auto-
 
 - [x] **Dead-reference structural value plumbing (TPR-03-002-gemini-r4i4):** `_dispatch_dead_reference` in `scripts/verify_roadmap/auto_fix.py:165` parses `f.description.rsplit(":", 1)[1].strip()` to extract the dead reference entry value. This is prose-string fragility — any description format change breaks auto-fix. Fix: extend `Finding` with a structured `target_value: str | None` field (or use existing `dependency_chain`), populate it in `plan_corpus/dag.py` at dead-reference construction sites, and read it structurally in `_dispatch_dead_reference`. Crosses into `plan_corpus` (§01 domain). Completed on 2026-04-15 during §03 close-out (see §03.R `[TPR-03-002-gemini-r4i4]` resolution for scope). <!-- unblocks:03.N -->
 
-- [x] **roadmap_scan.py shadow parser migration (TPR-03-004-codex, TPR-03-001-gemini):** Refactor `roadmap_scan.py` to import `plan_corpus` for all frontmatter parsing. Use `plan_corpus.load_and_validate` as the SOLE parsing entrypoint (this is the canonical parse-error-lifting boundary per Section 01 §01.5 — downstream consumers MUST NOT call `split_frontmatter_strict` directly; `load_and_validate` wraps it with schema validation and error handling). Eliminate the ~600-line shadow parser (`split_frontmatter`, `parse_section_file`, `parse_index_file`). Keep only `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This is a prerequisite for `--quick` mode correctness in Section 03.5 — `/continue-roadmap` and `/verify-roadmap --quick` must agree on corpus parse results. The current `errors="replace"` + `{}` on YAMLError pattern (`roadmap_scan.py:327-348`) violates the LEAK:swallowed-error invariant that Section 01 was designed to eliminate. **Option B (shadow parser divergence) was explicitly rejected by TPR.** <!-- unblocks:03.5 -->
+- [ ] **roadmap_scan.py shadow parser migration (TPR-03-004-codex, TPR-03-001-gemini):** Refactor `roadmap_scan.py` to import `plan_corpus` for all frontmatter parsing. Use `plan_corpus.load_and_validate` as the SOLE parsing entrypoint (this is the canonical parse-error-lifting boundary per Section 01 §01.5 — downstream consumers MUST NOT call `split_frontmatter_strict` directly; `load_and_validate` wraps it with schema validation and error handling). Eliminate the ~600-line shadow parser (`split_frontmatter`, `parse_section_file`, `parse_index_file`). Keep only `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This is a prerequisite for `--quick` mode correctness in Section 03.5 — `/continue-roadmap` and `/verify-roadmap --quick` must agree on corpus parse results. The current `errors="replace"` + `{}` on YAMLError pattern (`roadmap_scan.py:327-348`) violates the LEAK:swallowed-error invariant that Section 01 was designed to eliminate. **Option B (shadow parser divergence) was explicitly rejected by TPR.** <!-- unblocks:03.5 -->
+  <!-- CORRECTION 2026-04-15 (post-close TPR): This was incorrectly marked `[x]` at user-override close-out — no code change was made. The shadow parser in `.claude/skills/continue-roadmap/roadmap_scan.py` lines 326-348, 470, 559 still exists with the LEAK:swallowed-error pattern intact. Re-opened. Filed as `BUG-07-013` in `plans/bug-tracker/section-07-tooling-cli.md` for concrete tracking. The fix lives in `plans/bug-tracker/fix-BUG-07-013.md` (via `/fix-bug`) when someone picks it up. -->
 
 - [x] Run `timeout 150 ./test-all.sh` to verify no regressions from auto-fixes
 

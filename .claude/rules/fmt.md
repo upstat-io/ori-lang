@@ -1,7 +1,8 @@
 ---
 paths:
-  - "**fmt**"
-  - "**ori_fmt**"
+  - "compiler/ori_fmt/**/*.rs"
+  - ".rustfmt.toml"
+  - "rustfmt.toml"
 ---
 
 # Formatter (ori_fmt)

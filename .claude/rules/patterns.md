@@ -1,6 +1,9 @@
 ---
 paths:
-  - "**patterns**"
+  - "compiler/ori_patterns/**/*.rs"
+  - "compiler/ori_canon/src/patterns/**/*.rs"
+  - "compiler/ori_arc/src/decision_tree/**/*.rs"
+  - "compiler/ori_eval/src/methods/**/*.rs"
 ---
 
 # Pattern System

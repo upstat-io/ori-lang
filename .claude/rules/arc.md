@@ -1,6 +1,12 @@
 ---
 paths:
-  - "**arc**"
+  - "compiler/ori_arc/**/*.rs"
+  - "compiler/ori_rt/src/rc/**/*.rs"
+  - "plans/**/aims*/**"
+  - "plans/**/*arc*/**"
+  - "plans/locality-representation-unification/**"
+  - "plans/repr-opt/**"
+  - "plans/semantic-optimization-pipeline/**"
 ---
 
 # AIMS — The ARC Intelligence Layer (ori_arc)

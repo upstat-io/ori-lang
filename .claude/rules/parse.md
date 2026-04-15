@@ -1,7 +1,9 @@
 ---
 paths:
-  - "**parse**"
-  - "**lex**"
+  - "compiler/ori_parse/**/*.rs"
+  - "compiler/ori_lexer/**/*.rs"
+  - "compiler/ori_lexer_core/**/*.rs"
+  - "plans/parser-perf/**"
 ---
 
 # Parser & Lexer Formal Ruleset

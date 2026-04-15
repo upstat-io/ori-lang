@@ -1,6 +1,7 @@
 ---
 paths:
-  - "**.toml"
+  - "**/*.toml"
+  - "*.toml"
 ---
 
 # Cargo Configuration

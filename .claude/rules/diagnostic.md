@@ -1,6 +1,8 @@
 ---
 paths:
-  - "**diagnostic**"
+  - "compiler/ori_diagnostic/**/*.rs"
+  - "compiler/oric/src/diagnostic/**/*.rs"
+  - "diagnostics/**"
 ---
 
 # Diagnostics

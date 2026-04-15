@@ -1,6 +1,6 @@
 ---
 name: verify-roadmap-tooling
-description: Programmatic cross-plan coherence checker with integrated item-level verification. Five invocation modes — --quick (fast pre-check), --full (complete sweep + auto-fix), --deep-all (every section), --section <path> (targeted), --plan <name> (plan-scoped). Delegates Phase 4 item verification to .claude/skills/verify-roadmap/item-verifier.md. Distinct from the agent-based /verify-roadmap slash command.
+description: Programmatic cross-plan coherence checker. Two implemented modes — --quick (fast pre-check, BLOCKED + DEAD_REFERENCE only) and --full (stub; returns 'not yet implemented'). Distinct from the agent-based /verify-roadmap slash command. Item-level verification lives in the slash command today; the extracted item-verifier.md is a design note for the future 5-phase pipeline, not a currently-wired phase.
 ---
 
 # Verify-Roadmap Tooling Skill
@@ -49,39 +49,22 @@ auto-fixes for `SafeFix` findings via the §03.4 patcher.
 For now, `--full` mode exits with code 2 and a clear "not implemented"
 message. Use `--quick` for the available pre-check surface.
 
-### `--deep-all` (item-level verification across every section)
+### Planned / aspirational modes — NOT currently supported by the CLI
 
-Runs Phase 4 (item-level verification) on every section in the corpus —
-this is the original behavior of `.claude/commands/verify-roadmap.md`.
-Dispatches review + update agents per section per the protocol in
-`.claude/skills/verify-roadmap/item-verifier.md`. Use when the goal is an
-exhaustive sweep of matrix coverage, semantic pins, and hygiene across
-every plan section, not just cross-plan coherence.
+The `verify-roadmap-redesign` plan envisioned three additional invocation
+shapes (`--deep-all`, `--section <path>`, `--plan <name>`) that would wire
+item-level verification into the programmatic pipeline. None of these
+modes are supported by `scripts/verify_roadmap/__main__.py` today —
+`argparse` only accepts `--quick | --full` plus the shared flags
+(`--no-auto-fix`, `--dry-run`, `--quiet`, `--no-color`, `--output-dir`).
 
-### `--section <path>` (targeted item verification)
-
-Skips Phases 1–3 (cross-plan analysis). Runs Phase 4 item verification
-directly on the specified section file, then Phase 5 (reporting). Use
-after completing work on a single section:
-
-```
-python -m scripts.verify_roadmap --section plans/roadmap/section-05-traits.md
-```
-
-Accepts any section file in any plan directory — not just master roadmap
-sections (`plans/repr-opt/section-03-*.md`, `plans/pkg_mgmt/section-02-*.md`,
-etc. are all valid targets).
-
-### `--plan <name>` (plan-scoped sweep)
-
-Runs Phases 1–3 scoped to the named plan directory, then Phase 4 on all
-sections of that plan. Faster than `--full` for verifying a single plan's
-internal coherence. Useful when a reroute plan is about to close out and
-you want a final plan-internal sweep:
-
-```
-python -m scripts.verify_roadmap --plan repr-opt
-```
+Until those phases are actually implemented, item-level verification
+lives in `.claude/commands/verify-roadmap.md` (the agent-driven slash
+command, ~914 lines, review + update agent protocol). Invoke that
+command directly; do NOT invoke it through this skill. See
+`.claude/skills/verify-roadmap/item-verifier.md` for the design note
+describing how Phase 4 *would* delegate to the command's prompt
+templates if/when the 5-phase pipeline ships.
 
 ## Usage
 

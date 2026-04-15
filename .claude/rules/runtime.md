@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**ori_rt**"
+  - "compiler/ori_rt/**/*.rs"
 ---
 
 # Runtime Library (ori_rt)

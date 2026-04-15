@@ -1,6 +1,11 @@
 ---
 paths:
-  - "**"
+  - "compiler/**"
+  - "plans/**"
+  - "docs/**"
+  - "tests/**"
+  - "scripts/**"
+  - ".claude/**"
 ---
 
 # Intelligence Graph

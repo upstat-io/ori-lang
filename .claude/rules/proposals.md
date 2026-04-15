@@ -1,7 +1,6 @@
 ---
 paths:
-  - "**/proposals/**"
-  - "**proposal**"
+  - "docs/ori_lang/proposals/**"
 ---
 
 # Ori Language Proposals

@@ -1,7 +1,8 @@
 ---
 paths:
-  - "**ori_llvm**"
-  - "**ori_rt**"
+  - "compiler/ori_llvm/**/*.rs"
+  - "compiler/ori_rt/**/*.rs"
+  - "compiler/ori_llvm/tests/**/*.ori"
 ---
 
 # Codegen Emission Formal Ruleset

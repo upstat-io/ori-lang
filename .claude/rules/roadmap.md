@@ -1,6 +1,7 @@
 ---
 paths:
-  - "**roadmap**"
+  - "plans/roadmap/**"
+  - "scripts/verify_roadmap/**"
 ---
 
 # Roadmap Rules

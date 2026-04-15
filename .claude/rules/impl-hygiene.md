@@ -1,6 +1,9 @@
 ---
 paths:
-  - "*.rs"
+  - "compiler/**/*.rs"
+  - "scripts/**/*.rs"
+  - "tests/**/*.rs"
+  - "tools/**/src/**/*.rs"
 ---
 
 # Hygiene Rules
