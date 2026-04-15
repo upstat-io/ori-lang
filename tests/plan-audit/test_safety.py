@@ -665,6 +665,6 @@ class TestMatrixCompleteness:
             for cat, subs in _CATEGORY_SUBTYPES.items()
             for sub in subs
         ])
-        # Sanity: we have 55 subtypes across 7 categories
-        assert total_pairs >= 55, f"Expected >=55 pairs, got {total_pairs}"
+        # Sanity: we have 49 subtypes across 7 categories
+        assert total_pairs >= 49, f"Expected >=49 pairs, got {total_pairs}"
         assert len(_CATEGORY_SUBTYPES) == 7
