@@ -9,7 +9,7 @@ goal: >
   check_def_impl_method — so that every body-checked function produces E2005 for
   surviving unbound Tag::Var rather than passing them silently to codegen.
 success_criteria:
-  - "All 4 bodies-pass call sites invoke validate_body_types — verified by `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/` returning exactly 4 matches (post-03.0 split; calls live in functions.rs and impls.rs, not mod.rs)."
+  - "All 4 bodies-pass call sites invoke validate_body_types — verified EITHER by `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/` returning exactly 4 matches (one per site, inline) OR, if a shared `run_validator` helper is extracted per §03.4 Algorithmic DRY, by (a) exactly 1 call to `validate_body_types(...)` inside `run_validator`, plus (b) exactly 4 calls to `run_validator(...)` across `functions.rs` + `impls.rs`, one per body-pass site (check_function, check_test, check_impl_method, check_def_impl_method). Either shape is acceptable; the contract is site-coverage, not raw grep count."
   - "The original BUG-04-074 repro `@main () -> int = { let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1 }` emits E2005 at typeck (not at codegen) — verified by a Rust integration test asserting on TypeErrorKind::AmbiguousType and the ABSENCE of any codegen error path firing."
   - "With annotation `let ages: [int] = []`, the repro compiles clean AND runs with exit 0 via both `ori run` and `ori build` — verified by dual-exec-verify."
   - "No regression in `test_let_polymorphism_for_lambda` — the `let id = x -> x` case type-checks clean after validator integration."
@@ -60,8 +60,12 @@ next phase — enforcing the typeck.md PC-2 output contract at the producer boun
 
 **Success Criteria:**
 
-- [ ] `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/` returns exactly **4** matches
-  (post-03.0 split: calls live in functions.rs and impls.rs, not mod.rs)
+- [ ] All 4 bodies-pass sites invoke the validator — verified EITHER by
+  `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/` returning exactly
+  **4** matches (inline shape, one per site across functions.rs and impls.rs) OR by the
+  helper-extracted shape: (a) one `validate_body_types(...)` call inside `run_validator`,
+  (b) four `run_validator(...)` call sites across functions.rs and impls.rs (one per body
+  pass: check_function, check_test, check_impl_method, check_def_impl_method).
 - [ ] Rust integration test asserts BUG-04-074 repro emits `TypeErrorKind::AmbiguousType` (E2005)
       AND that no codegen error fires for that input — the error is caught before leaving typeck
 - [ ] Annotated repro (`let ages: [int] = []`) compiles clean AND produces exit 0 via both
@@ -185,16 +189,29 @@ any touch to a file over 500 lines requires splitting first.
 
 **Split plan:**
 
-Extract into two sibling files, keeping `bodies/mod.rs` as the dispatch hub:
+Extract into two sibling files, keeping `bodies/mod.rs` as a thin re-export hub:
 
-- `compiler/ori_types/src/check/bodies/functions.rs` — `check_function`, `check_test`, and all
-  their helpers (the top-level function Pass 2–3 group, lines 39–253).
-- `compiler/ori_types/src/check/bodies/impls.rs` — `check_impl_method`, `check_impl_bodies`,
-  `check_def_impl_method`, `check_def_impl_bodies`, `check_def_impl_block`, and all their helpers
-  (the impl/def-impl method Pass 4–5 group, lines 319–540).
-- `compiler/ori_types/src/check/bodies/mod.rs` — retains `check_function_bodies`,
-  `check_test_bodies`, `check_impl_bodies`, `check_def_impl_bodies` (the public pass-dispatch
-  functions), imports, and the `#[cfg(test)] mod tests;` declaration. Target: under 100 lines.
+- `compiler/ori_types/src/check/bodies/functions.rs` — owns `check_function_bodies`,
+  `check_test_bodies`, the private helpers `check_function` and `check_test`, and their
+  supporting locals (the top-level function Pass 2–3 group, lines 39–253). Each
+  `pub fn check_*_bodies` lives in this file (the split file is the canonical home — the
+  function is NOT duplicated in `mod.rs`).
+- `compiler/ori_types/src/check/bodies/impls.rs` — owns `check_impl_bodies`,
+  `check_def_impl_bodies`, the private helpers `check_impl_method`, `check_def_impl_method`,
+  and `check_def_impl_block`, plus the `build_method_sig` helper (the impl/def-impl method
+  Pass 4–5 group, lines 260–540). Each `pub fn check_*_bodies` lives in this file (the split
+  file is the canonical home — the function is NOT duplicated in `mod.rs`).
+- `compiler/ori_types/src/check/bodies/mod.rs` — after the split, `mod.rs` declares the
+  submodules (`pub mod functions;`, `pub mod impls;`), re-exports the four public
+  pass-dispatch functions via `pub use functions::{check_function_bodies, check_test_bodies};`
+  and `pub use impls::{check_impl_bodies, check_def_impl_bodies};`, houses any genuinely
+  shared private helpers that both submodules use (e.g., `resolve_type_with_self`,
+  `resolve_parsed_type_simple`, `check_expr` wrapper) if they cannot cleanly move to one
+  submodule, and carries the `#[cfg(test)] mod tests;` declaration. Target: under 100 lines.
+  Callers of `check::bodies::check_impl_bodies` / etc. continue to resolve through the
+  `pub use` re-export without changing import paths. Rationale: one canonical home per
+  function (SSOT per `impl-hygiene.md §SSOT`) — the function body lives in exactly one file;
+  `mod.rs` is the re-export index, not a second definition.
 - `compiler/ori_types/src/check/bodies/tests.rs` — the existing sibling (unchanged by this split).
 
 The private `resolve_type_with_self`, `resolve_parsed_type_simple`, `check_expr`, and other
@@ -226,12 +243,20 @@ call sites of the same algorithm is a missing abstraction. Extract a helper befo
 /// Build a FunctionSig from the resolved method parameters and return type.
 /// Used by check_impl_method and check_def_impl_method to construct the sig
 /// early enough for validate_body_types coverage of param/return Tag::Var positions.
+///
+/// Note the `type_params: &[Name]` parameter type — `FunctionSig.type_params` is
+/// `Vec<Name>` in the shipped struct (see `compiler/ori_types/src/output/mod.rs:378`:
+/// `pub type_params: Vec<Name>`). The helper accepts `&[Name]` to match that shape;
+/// the caller already has `type_params: &[Name]` in scope (e.g. `check_impl_method`
+/// receives `type_params: &[Name]` at `check/bodies/mod.rs:320-325`). Do NOT use
+/// a `&[TypeParam]` parameter — `TypeParam` is the AST-level node, not the
+/// signature-level identifier, and would not compile against the struct field type.
 fn build_method_sig(
     method_name: Name,
     params: &[Param],
     param_types: Vec<Idx>,
     return_type: Idx,
-    type_params: &[TypeParam],
+    type_params: &[Name],
     pool: &Pool,
 ) -> FunctionSig {
     let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
@@ -652,11 +677,19 @@ block to ensure the borrows end before `push_error`.
 /// Impl method body with unannotated empty list produces E2005 at typeck.
 /// Exercises check_impl_method (Pass 4 per CK-1).
 ///
+/// IMPORTANT: the return type is `-> int`, NOT `-> [int]`. A `-> [int]` return
+/// would drive bidirectional propagation (`Check([int])` on the body → `Check(int)`
+/// on `[]` elements per typeck.md BD-2) which resolves `xs` to `[int]` before
+/// the validator runs, hiding a broken/missing validator wiring. With `-> int`
+/// returned by `.len()`, the element type of `xs` is never constrained, so
+/// body expr_types carries a surviving unbound `Tag::Var` that ONLY the
+/// validator can observe — a true regression pin for PC-2 body coverage.
+///
 /// See: plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md §03.3
 #[test]
 fn check_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
     let (result, _interner) = parse_and_check(
-        "type Foo = {}  impl Foo { @items (self) -> [int] = { let xs = []; xs } }",
+        "type Foo = {}  impl Foo { @items (self) -> int = { let xs = []; xs.len() } }",
     );
     assert!(
         result.typed.errors.iter().any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
@@ -806,11 +839,19 @@ at which point `param_types` can move into the sig.
 /// Def-impl method body with unannotated empty list produces E2005 at typeck.
 /// Exercises check_def_impl_method (Pass 5 per CK-1).
 ///
+/// IMPORTANT: the return type is `-> int`, NOT `-> [int]`. A `-> [int]` return
+/// would drive bidirectional propagation (`Check([int])` on the body → `Check(int)`
+/// on `[]` elements per typeck.md BD-2) which resolves `xs` to `[int]` before
+/// the validator runs, hiding a broken/missing validator wiring. With `-> int`
+/// returned by `.len()`, the element type of `xs` is never constrained, so
+/// body expr_types carries a surviving unbound `Tag::Var` that ONLY the
+/// validator can observe — a true regression pin for PC-2 body coverage.
+///
 /// See: plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md §03.4
 #[test]
 fn check_def_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
     let (result, _interner) = parse_and_check(
-        "trait Fooable { @items () -> [int] }  pub def impl Fooable { @items () -> [int] = { let xs = []; xs } }",
+        "trait Fooable { @items () -> int }  pub def impl Fooable { @items () -> int = { let xs = []; xs.len() } }",
     );
     assert!(
         result.typed.errors.iter().any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
@@ -1019,18 +1060,37 @@ diagnostics/dual-exec-verify.sh /tmp/ages_repro.ori
 
 ### 03.5.4 — Full test suite
 
-Run `timeout 150 cargo st` (spec tests). Document any new failures in the Known Failing
-Tests section below. Do NOT investigate them individually — Section 06.2 resolves them
-via annotation. Confirm that the number of newly-failing spec tests is bounded and
-explainable (they are programs with `[]` or empty collection literals lacking type context).
+Run the SAME audit roots that Section 06.2 audits — `tests/spec/`, `tests/valgrind/`,
+and `library/`. The §06.2 sweep expands post-E2005 coverage beyond the spec harness
+precisely because empty-list regressions are not confined to `cargo st` (the canonical
+reference is `plans/empty-container-typeck-phase-contract/section-06-diagnostics-audit.md`
+frontmatter and §06.2, which cites `tests/valgrind/cow/cow_list_concat.ori` as a known
+operator-position hit outside `tests/spec/`). Running only `cargo st` here would
+under-approximate the transitional failure surface — a `tests/valgrind/*.ori` or
+`library/std/*.ori` regression could pass §03.5 silently and only surface when 06.2
+runs. Document any new failures in the Known Failing Tests section below. Do NOT
+investigate them individually — Section 06.2 resolves them via annotation. Confirm that
+the number of newly-failing tests across all three roots is bounded and explainable
+(they are programs with `[]` or empty collection literals lacking type context).
 
 - [ ] Add integration test `empty_list_with_push_and_len_rejects_at_typeck_with_ambiguous_type`
   to `check/bodies/tests.rs` — confirms the unannotated repro produces E2005 at typeck.
 - [ ] Add AOT test `annotated_empty_list_with_push_and_len_compiles_and_exits_zero`
   in `compiler/ori_llvm/tests/aot/`.
 - [ ] Run `diagnostics/dual-exec-verify.sh` against the annotated repro — confirm parity.
-- [ ] Run `timeout 150 cargo st` — document newly-failing spec tests in the section below.
-- [ ] Run `timeout 150 ./test-all.sh` — ensure no regressions beyond the documented set.
+- [ ] Run `timeout 150 cargo st` — capture newly-failing spec-test programs.
+- [ ] Run `timeout 150 ./test-all.sh` — this is the authoritative multi-root gate; it
+  runs `cargo st` AND exercises `tests/valgrind/` and `library/std/` compilation paths
+  (see `test-all.sh` for the root list). Capture every new failure from any root, not
+  just `tests/spec/`. Specifically attend to `tests/valgrind/cow/cow_list_concat.ori`
+  and any other known `[]`-operator-position programs flagged by §06.2.
+- [ ] `rg '\[\s*\]' tests/spec/ tests/valgrind/ library/ --glob '*.ori'` — run the same
+  sweep regex §06.2 will use, and cross-check the hit list against the Known Failing
+  Tests table below. Any hit that is neither (a) annotated, (b) inside a
+  `#compile_fail` test, nor (c) in a pattern-match arm / scrutinee-constrained context
+  is an expected `E2005` source and MUST be listed in the Known Failing Tests table.
+  This closes the audit-scope gap: Section 03's bookkeeping now covers the full surface
+  that 06.2 will remediate, not just the `cargo st` sub-surface.
 - [ ] Run `timeout 150 cargo test --release -p ori_types` (release-build parity).
 - [ ] **Subsection close-out (03.5)** — MANDATORY before starting 03.R:
   - [ ] All tasks above are `[x]` and behavior is verified
@@ -1062,11 +1122,14 @@ The following categories of programs are expected to fail between 03.5 and 06.2:
 | `[].is_empty()` / `[].len()` without a type constraint | Various collections tests | Annotate or use non-empty alternatives |
 | `{}.keys()` or similar empty-map patterns | `tests/spec/collections/` | Annotate `let m: {str: int} = {}` |
 
-**To populate this list accurately:** when running `timeout 150 cargo st` in 03.5.4,
-capture the output and filter for `E2005`. Each failing spec-test file is a row in the
-table above's "Annotate or use non-empty alternatives" resolution category. Commit the
-updated table alongside the 03.5 implementation. Do NOT fix individual failing tests —
-that is Section 06.2's job.
+**To populate this list accurately:** when running `timeout 150 ./test-all.sh` in 03.5.4,
+capture the output and filter for `E2005` across ALL roots — `tests/spec/`,
+`tests/valgrind/`, and `library/std/` — not just `cargo st`. Cross-check against the
+`rg '\[\s*\]'` sweep result also required by 03.5.4. Each failing file from any root
+is a row in the table above's "Annotate or use non-empty alternatives" resolution
+category (prefix `tests/valgrind/` and `library/` entries accordingly so §06.2 picks
+them up from the same table). Commit the updated table alongside the 03.5
+implementation. Do NOT fix individual failing tests — that is Section 06.2's job.
 
 **Per `00-overview.md §Known Bugs`:**
 > `TPR-04-005-codex` audit finding: `tests/spec/` uses `[].iter()`, `[].is_empty()`
@@ -1136,14 +1199,143 @@ third_party_review.status updated to `resolved` in frontmatter once Round 1 conf
   rationale). The helper takes `(method_name, params, param_types, return_type, type_params, pool)`
   and returns `FunctionSig`. Both `check_impl_method` and `check_def_impl_method` call it.
 
+### Round 1 Findings (single-source codex; gemini stalled watchdog-killed — 2026-04-15)
+
+Round 1 ran via `/tpr-review --skill review-plan`. Codex produced 5 specific architecturally-grounded
+findings in 578s with full tool use (HIGH trust, thorough review). Gemini stalled at 23 min with
+zero tool_use events and was watchdog-killed; its half of the envelope was empty. Per
+`.claude/skills/tpr-review` protocol, codex findings were independently verified by Claude against
+the actual code (`compiler/ori_types/src/output/mod.rs:373-378`, `compiler/ori_types/src/check/bodies/mod.rs:300-539`)
+and plan text before accepting.
+
+**[TPR-03-001-codex] HIGH — 03.3/03.4 body-side tests are return-type-constrained, masking broken validator wiring**
+- **Finding**: GAP against `typeck.md` `PC-2`, `typeck.md` `CK-1`, `canon.md` §4.2, and `tests.md`
+  §Semantic Pins / §Negative Testing. The proposed impl test at §03.3 (`check_impl_method_with_unannotated_empty_list_emits_ambiguous_type`)
+  and the def-impl twin at §03.4 both declared return type `-> [int]` with body `{ let xs = []; xs }`.
+  Per `typeck.md §BD-2`, bidirectional `Check([int])` on the body propagates `Check(int)` to the
+  `[]` elements, so `xs` is unified to `[int]` BEFORE the validator runs
+  (`compiler/ori_types/src/check/bodies/mod.rs:367-377` for `check_impl_method`, and lines 503-513
+  for `check_def_impl_method` apply the declared `return_type` as the body's expected type). The
+  body's `expr_types` map therefore carries no surviving unbound `Tag::Var`, meaning the test
+  passes even if `validate_body_types` is never called at those sites — the signature-path sibling
+  tests remain the only real coverage for passes 4 and 5.
+- **Impact**: Section 03 could claim all four CK-1 body sites covered while two of the stated
+  negative pins cannot observe a surviving `Tag::Var`. A bad pass-4/pass-5 integration slips
+  through green tests; the producer-side `PC-2` contract is only partially verified.
+- **Resolved**: Changed both body-side tests' return types from `-> [int]` to `-> int` and bodies
+  from `{ let xs = []; xs }` to `{ let xs = []; xs.len() }`. `.len()` returns `int` (unchanged
+  return type), so the body's expected type does not propagate into `[]` — `xs` remains typed
+  as `[Tag::Var]` in `expr_types`, which is exactly what the validator must observe. Added doc
+  comments on both tests explaining the load-bearing return-type choice (so a future refactor
+  does not reintroduce the bidirectional-propagation hiding path). Plan §03.3 and §03.4 updated
+  in-place.
+
+**[TPR-03-002-codex] MEDIUM — 03.0 split plan assigns impl dispatchers to both impls.rs and mod.rs**
+- **Finding**: BLOAT/GAP against `impl-hygiene.md §BLOAT`, `impl-hygiene.md §SSOT`, and
+  `compiler.md §File Organization`. §03.0 Split Plan line 192 assigned `check_impl_bodies` and
+  `check_def_impl_bodies` to `impls.rs`, and lines 195-197 simultaneously assigned them to
+  `mod.rs` as "retained public pass-dispatch functions". Two canonical homes for the same
+  function is an SSOT violation and an internally-contradictory spec — an implementer must
+  contradict one half of 03.0 to satisfy the other.
+- **Impact**: The first required step of the section was not executable as written. The split
+  gate was supposed to de-risk the over-500-line file BEFORE validator wiring; instead it
+  created churn at exactly the prerequisite step.
+- **Resolved**: Rewrote §03.0 Split Plan to designate `impls.rs` as the canonical home for
+  `check_impl_bodies` and `check_def_impl_bodies` (alongside their private helpers), and
+  redefined `mod.rs` as a thin re-export hub using `pub use functions::{...};` and
+  `pub use impls::{...};`. Added explicit SSOT rationale in the plan (`impl-hygiene.md §SSOT` —
+  one function, one file). Existing callers of `check::bodies::check_impl_bodies` continue to
+  resolve through the `pub use` without changing import paths. Plan §03.0 updated in-place.
+
+**[TPR-03-003-codex] MEDIUM — build_method_sig helper typed against TypeParam but FunctionSig uses Name**
+- **Finding**: GAP against `typeck.md §CK-4` hand-off contract. §03.0's proposed
+  `build_method_sig(..., type_params: &[TypeParam], ...) -> FunctionSig` signature would not
+  compile: `FunctionSig.type_params` is `Vec<Name>`
+  (`compiler/ori_types/src/output/mod.rs:378`: `pub type_params: Vec<Name>`), and
+  `check_impl_method` already receives `type_params: &[Name]`
+  (`compiler/ori_types/src/check/bodies/mod.rs:320-325`:
+  `fn check_impl_method(checker, method, self_type, type_params: &[Name])`). Following the
+  plan literally produces an element-type mismatch when the helper's `type_params.to_vec()`
+  feeds `FunctionSig.type_params`.
+- **Impact**: The helper extraction that §03.0 requires BEFORE 03.3/03.4 is a compile-time
+  dead end as written. That blocks the BLOAT gate and obscures whether later errors come
+  from the validator wiring or the helper prototype.
+- **Resolved**: Corrected the helper signature from `type_params: &[TypeParam]` to
+  `type_params: &[Name]` to match both the shipped `FunctionSig.type_params: Vec<Name>` and
+  the caller's `check_impl_method`/`check_def_impl_method` parameter type. Added a doc
+  comment on the helper explaining the `&[Name]` choice with citations to
+  `compiler/ori_types/src/output/mod.rs:378` and `compiler/ori_types/src/check/bodies/mod.rs:320-325`
+  so a future reader cannot mistake `Name` for the AST-level `TypeParam`. Plan §03.0 updated
+  in-place.
+
+**[TPR-03-004-codex] MEDIUM — Success criteria disagree: exact-4 grep vs helper-extraction**
+- **Finding**: DRIFT against `impl-hygiene.md §Algorithmic DRY`. Frontmatter success criterion
+  (lines 11-12) and §03.N (lines 1143-1144) required `grep -rn 'validate_body_types' ...` to
+  return exactly 4 matches, and §03.N line 1145 expected exactly one `use crate::check::validators`
+  import line. Meanwhile §03.4 Algorithmic DRY review (lines 892-896) recommended extracting a
+  shared `run_validator(...)` helper to eliminate 4-site duplication. These gates cannot all
+  be true: a helper collapses the raw `validate_body_types` matches below 4, while direct
+  inline calls make the single-import gate brittle (two files require the use-statement).
+  §03.N line 1158-1159 already accepted "either a shared helper OR the 4-line pattern
+  consistently identical at all 4 sites", so the gates at lines 11-12 and 1143-1145 contradicted
+  the DRY directive the same section endorsed.
+- **Impact**: Section completion was self-contradictory. An implementation could satisfy the
+  DRY direction OR the grep-based exit criteria, but not both reliably — success criteria
+  non-verifiable as written.
+- **Resolved**: Rewrote both the frontmatter success criterion and the §03.N grep gate to
+  explicitly accept EITHER (a) the inline 4-match shape OR (b) the helper-extracted shape
+  (1 internal `validate_body_types` call + 4 `run_validator` call sites). Rewrote the
+  `use crate::check::validators` criterion to accept either one import per split file (inline
+  shape) or one import in the helper-owning file (extracted shape). Both shapes now satisfy
+  the gate because the contract is site-coverage, not raw grep count. Plan frontmatter and
+  §03.N updated in-place.
+
+**[TPR-03-005-codex] MEDIUM — Known Failing Tests audit only runs cargo st, but §06.2 surface includes tests/valgrind/ and library/**
+- **Finding**: GAP against `tests.md §Cross-Phase Verification` and the plan's own documented
+  failure surface. §03.5.4 (lines 1022-1033) only instructed running `timeout 150 cargo st`
+  and documenting new failures in the local Known Failing Tests block. But §06 success criteria
+  (`section-06-diagnostics-audit.md:13`) and §06.2 (`section-06-diagnostics-audit.md:78`) expand
+  the post-E2005 audit roots to `tests/spec/`, `tests/valgrind/`, AND `library/` — specifically
+  because empty-list regressions are not confined to the spec harness. `tests/valgrind/cow/cow_list_concat.ori`
+  is already cited as a known operator-position hit outside `tests/spec/`
+  (`section-06-diagnostics-audit.md:124`, `:210`). Section 03's transitional bookkeeping
+  therefore under-approximated the failure surface §06.2 would later remediate.
+- **Impact**: Section 03 could report "no undocumented new failures" while expected E2005
+  breakage outside `cargo st` (valgrind programs, library/std programs) remained undocumented
+  and only surfaced when `./test-all.sh` ran. That weakens the section's transitional-state
+  bookkeeping and creates a silent audit-scope handoff gap between §03.5 and §06.2.
+- **Resolved**: Expanded §03.5.4 to (a) run `./test-all.sh` as the authoritative multi-root
+  gate covering `tests/spec/`, `tests/valgrind/`, and `library/std/`; (b) run the same
+  `rg '\[\s*\]' tests/spec/ tests/valgrind/ library/ --glob '*.ori'` sweep that §06.2 uses,
+  and cross-check the hit list against the Known Failing Tests table; (c) updated the
+  "populate this list" instructions to scan all three roots, prefixing `tests/valgrind/` and
+  `library/` entries so §06.2 picks them up from the same table. Added explicit rationale
+  citing `section-06-diagnostics-audit.md` §06.2 so the expanded scope is anchored, not
+  arbitrary. Plan §03.5.4 and Known Failing Tests guidance updated in-place.
+
+**Gemini half: empty envelope.** Gemini was watchdog-killed at 23 min with zero `tool_use` events
+and no emitted findings (transport stall, not a review conclusion). Per the single-source fallback
+in `.claude/skills/tpr-review/step-2-round-triage.md`, Round 2 will re-run both reviewers with the
+same scope to confirm (a) the five fixes above hold under independent review, and (b) gemini
+completes a thorough investigation. Round 1 found 5 real defects — Round 2 must verify
+regression-freedom, not declare clean until gemini actually reviews.
+
 ---
 
 ## 03.N Completion Checklist
 
-- [ ] `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/` returns exactly **4** matches
-  (post-03.0 split: calls live in functions.rs and impls.rs, not mod.rs)
-- [ ] `grep -rn 'use crate::check::validators' compiler/ori_types/src/check/bodies/`
-  shows exactly one import line (in the split file housing the validator calls)
+- [ ] All 4 bodies-pass sites invoke the validator — verified EITHER by
+  `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/` returning exactly
+  **4** matches (inline shape, one per site across functions.rs and impls.rs) OR by the
+  helper-extracted shape: (a) one `validate_body_types(...)` call inside `run_validator`,
+  (b) four `run_validator(...)` call sites across functions.rs and impls.rs (one per body
+  pass: check_function, check_test, check_impl_method, check_def_impl_method). The
+  contract is site-coverage, not raw grep count — both shapes satisfy the gate.
+- [ ] `grep -rn 'use crate::check::validators' compiler/ori_types/src/check/bodies/` — if
+  the inline shape is used, expect one import line per split file that houses a validator
+  call (typically `functions.rs` AND `impls.rs` — two import lines); if the helper-extracted
+  shape is used, expect one import line in the file defining `run_validator`. Either is
+  acceptable; the gate is "no unnecessary duplicated imports", not an exact count
 - [ ] All 4 bodies-pass tests pass:
   - [ ] `check_function_with_unannotated_empty_list_emits_ambiguous_type`
   - [ ] `check_test_with_unannotated_empty_list_emits_ambiguous_type`
