@@ -21,6 +21,7 @@ depends_on:
 third_party_review:
   status: findings
   updated: 2026-04-15
+  rounds: 5
 sections:
   - id: "03.1"
     title: "Safety Taxonomy & Data Types"
@@ -464,6 +465,78 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
   Evidence: `_dispatch_dead_reference` parses `f.description` via `rsplit(":", 1)[1].strip()` to extract the dead reference value. Comment notes this is "best-effort." Requires structural value passing from the upstream DAG validator — crosses into `plan_corpus/dag.py` which constructs the dead-reference findings.
   Impact: Prose-string fragility; any description format change breaks auto-fix.
   Tracked: Concrete `- [ ]` item added to §05 for the dead-reference structural value plumbing. Cannot be fixed in §03 close-out without a larger `plan_corpus` refactor crossing section boundaries.
+
+**Round 5 findings (2026-04-15 — section close-out dual-source review):**
+
+Resolution summary: all 14 round-5 findings (13 actionable + 1 informational) fixed on 2026-04-15 in commit `0bfd9e93` ("fix(verify-roadmap): apply 13 TPR-03 round-5 findings to auto-fix engine"). 15 regression tests added across `test_patcher.py`, `test_auto_fix.py`, `test_plan_corpus.py`, `test_dag_precedence.py`, and `test_safety.py` to pin each fix. All 493 plan-audit tests pass.
+
+- [x] `[TPR-03-001-codex][high]` `scripts/verify_roadmap/patcher.py:170` — Fix block-valued `after_key` insertion.
+  Evidence: `insert_key()` inserts immediately after the anchor line matched by `^after_key:`. `auto_fix.py:128-133` uses `after_key="sections"` for the `third_party_review` SafeFix, but `sections` is normally a block list. Replaying the live function on a normal section frontmatter produced `sections:` followed by `third_party_review:` and then the original `- id:` entries, which `split_frontmatter_strict()` rejects as invalid YAML.
+  Impact: A routine SafeFix can corrupt section frontmatter instead of normalizing it, which violates the text-patcher safety contract and turns a missing-field cleanup into a broken plan file.
+  Required plan update: Make `insert_key()` understand block-valued anchors: when `after_key` owns an indented list or mapping, insert after the whole block rather than after the header line. Add a regression test that inserts `third_party_review` after a populated `sections:` list and reparses the result through `split_frontmatter_strict()`.
+  Basis: fresh_verification. Confidence: high.
+  Agreement: [TPR-03-001-gemini] (both reviewers flagged this — codex cited line 170, gemini cited line 105; same root cause)
+- [x] `[TPR-03-001-gemini][high]` `scripts/verify_roadmap/patcher.py:105` — `insert_key` corrupts YAML when `after_key` has a multiline block value (e.g., `sections`).
+  Evidence: When `after_key="sections"`, `insert_key` matches the single line `^sections:.*\n` and inserts `third_party_review` immediately after it. Because `sections` is a block sequence (list), its indented items (`- id: ...`) are pushed down and become incorrectly associated with the newly inserted `third_party_review` key. This produces invalid YAML syntax (mixing mapping and sequence items at the same indentation level).
+  Required plan update: Update `insert_key` to skip indented lines following the `after_key` match before inserting the new key, similar to the logic already used in `remove_key`.
+  Basis: direct_file_inspection. Confidence: high.
+  Agreement: [TPR-03-001-codex] (both reviewers flagged this location/title)
+- [x] `[TPR-03-002-codex][high]` `scripts/plan_corpus/types.py:260` — Hash `target_key` into `Finding.id` when present.
+  Evidence: `Finding.id` hashes only `category`, `subtype`, `source`, `source_line`, plus conditional `source_column` and `target`. It ignores the new `target_key` field entirely. Two live `MISSING_REQUIRED_FIELD` findings on the same file with `target_key='name'` and `target_key='full_name'` both produced the same id (`VR-9e2667`).
+  Impact: Distinct schema findings alias each other in reports, pairing, and any downstream bookkeeping keyed by `Finding.id`. That directly undercuts the structural-field migration because the new discriminator exists but does not stabilize identity.
+  Required plan update: Extend `Finding.id` to append `target_key` when non-null, preserving backward compatibility the same way `source_column` and `target` are handled. Add regression pins for same-file same-subtype findings that differ only by `target_key`.
+  Basis: fresh_verification. Confidence: high.
+- [x] `[TPR-03-003-codex][high]` `scripts/verify_roadmap/patcher.py:348` — Close the hash-check-to-replace race window.
+  Evidence: `apply_patch()` hashes the file once, builds `new_bytes`, writes a temp file, and then unconditionally calls `os.replace()` at line 406. There is no second identity check or lock between the preimage comparison and the final replace. A concurrent edit that lands after the hash check but before `os.replace()` will be silently overwritten.
+  Impact: The documented concurrent-session guarantee is not actually met under a real overlapping write: the patcher can still clobber another session's newer contents even though the file changed between scan and write.
+  Required plan update: Add a second pre-replace guard or locking/CAS-equivalent around the destination path, then add a race regression test that mutates the file after the initial hash check and verifies refusal rather than overwrite.
+  Basis: fresh_verification. Confidence: high.
+- [x] `[TPR-03-002-gemini][high]` `scripts/verify_roadmap/auto_fix.py:214` — Auto-fix engine self-collides on multiple findings for the same file.
+  Evidence: `apply_fixes` iterates through `classifieds` individually. If multiple findings target the same file, the first finding successfully patches the file and updates its content hash on disk. The second finding reads the original `preimage` from the unmodified `preimages` dictionary, which now mismatches the file's new content hash. The second finding fails the concurrent-session guard and surfaces as an unapplied fix.
+  Required plan update: Update the `preimages` dictionary (or a local tracker) with `patch_result.after_hash` upon a successful patch, so subsequent fixes for the same file in the same batch use the updated hash and succeed.
+  Basis: direct_file_inspection. Confidence: high.
+- [x] `[TPR-03-003-gemini][high]` `scripts/verify_roadmap/patcher.py:152` — `remove_list_item` fails to locate block-style lists if the key line contains an inline comment.
+  Evidence: `key_pattern = re.compile(rf"^{re.escape(list_key)}\s*:\s*$")` strictly expects nothing but whitespace after the colon. If the frontmatter has `depends_on: # comment`, the pattern fails to match, `in_list` never becomes True, and the item is not removed.
+  Required plan update: Relax `key_pattern` to allow inline comments, e.g., `re.compile(rf"^{re.escape(list_key)}\s*:")`, ensuring consistency with `remove_key`.
+  Basis: direct_file_inspection. Confidence: high.
+- [x] `[TPR-03-004-codex][medium]` `scripts/verify_roadmap/patcher.py:311` — Carry the original finding id through patch failures.
+  Evidence: The real patcher hardcodes `finding_id = "VR-patch"` for every returned `PatchResult`. A live `apply_patch()` refusal returned `PatchResult(..., finding_id='VR-patch', ...)`. `report.py` surfaces `PatchResult.finding_id` directly, so real unapplied-fix output cannot identify which original finding failed.
+  Impact: When concurrent-modification or malformed-frontmatter refusals happen, the report loses the link back to the originating finding. That makes manual follow-up and audit correlation materially harder.
+  Required plan update: Propagate the real finding id into the patcher boundary, or have `apply_fixes()` overwrite the returned `PatchResult.finding_id` with `plan.finding_id` before reporting. Add an end-to-end test that exercises the real patcher path and asserts the original finding id survives into `unapplied_fixes`.
+  Basis: fresh_verification. Confidence: high.
+- [x] `[TPR-03-005-codex][medium]` `scripts/verify_roadmap/auto_fix.py:377` — Demote refused SafeFixes back to ExposureReview.
+  Evidence: When `PatchResult(applied=False)` comes back, `apply_fixes()` only appends the patch result to `unapplied_results`. It never emits the plan-required demoted `ClassifiedFinding` with an updated rationale, and `FixApplyResult` has no bucket for that state. The current result therefore keeps the original finding only in `planned_findings` and loses the promised manual-review reclassification.
+  Impact: The tool surfaces a bare refusal record instead of a concrete follow-up finding that reviewers can triage in the normal findings stream. That is weaker than the Section 03 contract for failed SafeFixes.
+  Required plan update: Add a demoted-findings bucket to `FixApplyResult` or otherwise thread failed SafeFixes back into report generation as `ExposureReview` findings with the refusal reason appended to the rationale. Extend report tests to assert both the demoted finding and the `unapplied_fixes` entry are present.
+  Basis: direct_file_inspection. Confidence: high.
+- [x] `[TPR-03-006-codex][medium]` `scripts/verify_roadmap/safety.py:252` — Implement the promised `reroute: false` SafeFix.
+  Evidence: `schema.py:376-383` emits `SCHEMA_VIOLATION/CROSS_FIELD_INVARIANT` for `reroute: false`, and the owning Section 03 plan still marks removal of that default-equivalent field as implemented. But `classify_safety()` routes all remaining schema-violation subtypes to ExposureReview, and `auto_fix.py` has no handler for removing `reroute`.
+  Impact: One of the explicitly promised frontmatter normalizations is still manual-only. The close-out status overstates the implemented SafeFix surface.
+  Required plan update: Add a concrete SafeFix rule for the `reroute: false` invariant on the appropriate schema class, wire it to a `REMOVE_KEY` operation, and add classifier plus dispatcher tests for that path.
+  Basis: fresh_verification. Confidence: high.
+- [x] `[TPR-03-007-codex][medium]` `scripts/plan_corpus/types.py:270` — Serialize `target_key` in machine-readable findings.
+  Evidence: The new `target_key` field exists on `Finding`, and `schema.py` now populates it, but `Finding.to_json()` does not include it. Live `render_json()` output for a schema finding likewise omitted `target_key`, so JSON reports and `DagReport.to_json()` still drop the structural field entirely.
+  Impact: Downstream consumers cannot rely on the structured key identity that Section 03 added to eliminate prose parsing. The report remains less machine-parseable than the migration intends.
+  Required plan update: Add `target_key` to `Finding.to_json()`, update any JSON documentation that describes the finding shape, and add report/plan-corpus tests that assert the field survives serialization.
+  Basis: fresh_verification. Confidence: high.
+- [x] `[TPR-03-008-codex][medium]` `scripts/verify_roadmap/report.py:132` — Complete the report metadata and target/type rendering.
+  Evidence: JSON metadata currently contains timestamp, mode, and counts, but no classifier-version information even though Section 03 requires it. The human renderers also omit type/target context: `_render_md_finding()` only shows source plus description, and `render_console()` prints the same. A live rendering of a finding with a populated `target` showed no `source -> target` context in either markdown or console output.
+  Impact: The report is less actionable for humans and less auditable for tooling than the owning section promises. Reviewers cannot see the target or classifier type at a glance, and JSON metadata does not carry versioning context for downstream consumers.
+  Required plan update: Add classifier-version metadata to JSON output and include category/subtype plus `source -> target` context in markdown and console renderers. Extend report tests to pin those fields.
+  Basis: fresh_verification. Confidence: high.
+- [x] `[TPR-03-004-gemini][medium]` `scripts/plan_corpus/dag.py:246` — Field dropping in manual Finding reconstruction.
+  Evidence: Functions `enrich_resolve_dep_finding`, `apply_precedence`, and `apply_source_kind_severity` manually reconstruct `Finding` objects when modifying a single field. They fail to pass `target_key=finding.target_key` to the constructor, meaning the new structural dispatch field is silently dropped when findings pass through the DAG pipeline.
+  Required plan update: Use `dataclasses.replace(finding, ...)` to safely copy findings without dropping fields when the `Finding` schema is extended.
+  Basis: inference. Confidence: unknown.
+- [x] `[TPR-03-009-codex][low]` `scripts/verify_roadmap/auto_fix.py:381` — Record before/after snippets in the auto-fix audit log.
+  Evidence: Section 03.3 promises `fixes-applied.json` entries with finding id, file path, fix type, before/after snippet, and timestamp. The current audit entries capture operations, hashes, backup path, and timestamp, but they never record any snippet of the text that changed.
+  Impact: The audit log is weaker than specified for forensic review: understanding what changed requires opening the backup or re-running the patch logic instead of reading the log entry itself.
+  Required plan update: Capture bounded before/after frontmatter snippets for each applied fix and add a regression test that asserts the audit log contains them.
+  Basis: direct_file_inspection. Confidence: high.
+- [x] `[TPR-03-005-gemini][informational]` `scripts/plan_corpus/schema.py:124` — `target_key` is not populated for nested schema violations.
+  Evidence: When emitting `MISSING_REQUIRED_FIELD` or `UNKNOWN_FIELD` for nested fields inside `sections` lists, `target_key` is omitted. While safe because `auto_fix.py` only handles top-level keys currently, it leaves nested fields reliant on prose parsing if auto-fixes are ever extended to them.
+  Required plan update: Consider populating `target_key` with a path string (e.g., `sections[].status`) for nested violations to fully eliminate prose parsing in future auto-fix extensions.
+  Basis: inference. Confidence: unknown.
 
 ---
 
