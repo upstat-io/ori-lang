@@ -260,10 +260,15 @@ fn decide_last_use(site: &DecisionSite) -> InstructionDecisions {
 
 /// Determine reuse candidacy at a death point.
 ///
-/// Checks the cross-dimensional proof from Section 09.2 Shape Activation:
+/// Uniqueness is the SOLE source of truth for reuse eligibility per
+/// `aims-rules.md` §DP-6 + §RL-11/§RL-12. The removed RL-13 pattern
+/// (`MaybeShared + Once + ReusableCtor → StaticReuse`) derived past
+/// uniqueness from future consumption, which is unsound (the single use
+/// may be a store that creates an alias via `RcInc`, leaving RC > 1 at
+/// the death point).
+///
 /// - `Unique` → `StaticReuse` (provably sole reference, no `IsShared` check)
-/// - `MaybeShared + Once + ReusableCtor` → `StaticReuse` (cross-dimensional)
-/// - `MaybeShared` (other) → `DynamicReuse` (needs `IsShared` check)
+/// - `MaybeShared` → `DynamicReuse` (runtime `IsShared` check)
 /// - `Shared` or `NonReusable` shape → `None`
 fn decide_reuse(ctx: &ReuseContext) -> ReuseDecision {
     // Non-reusable shapes (collections, closures, etc.) — no reuse.
@@ -275,19 +280,8 @@ fn decide_reuse(ctx: &ReuseContext) -> ReuseDecision {
         // Provably unique — static reuse without runtime check.
         Uniqueness::Unique => ReuseDecision::StaticReuse,
 
-        Uniqueness::MaybeShared => {
-            // Cross-dimensional proof: Once (single use) + ReusableCtor
-            // (fresh construction, refcount=1) → the value is provably unique
-            // at its death point, even though the uniqueness dimension
-            // conservatively says MaybeShared.
-            if ctx.cardinality == Cardinality::Once
-                && matches!(ctx.shape, ShapeClass::ReusableCtor(_))
-            {
-                ReuseDecision::StaticReuse
-            } else {
-                ReuseDecision::DynamicReuse
-            }
-        }
+        // MaybeShared — runtime IsShared check required (spec DP-6 + RL-11a).
+        Uniqueness::MaybeShared => ReuseDecision::DynamicReuse,
 
         // Known shared — not a reuse candidate.
         Uniqueness::Shared => ReuseDecision::None,
@@ -345,6 +339,12 @@ pub struct AnnotationSiteContext<'a> {
     /// Whether this variable's borrow is disjoint from all sibling borrows
     /// (uniqueness-preserving borrows, Section 07.3.2).
     pub is_borrow_disjoint: bool,
+    /// Whether any borrow from this variable (as an aggregate source) exists
+    /// anywhere in the function. Used by DP-5/DP-9: Unique aggregates with
+    /// active borrows must use `StaticShared`, not `StaticUnique`. Function-wide
+    /// check — conservative (may block `StaticUnique` when borrows are dead at
+    /// the COW site, but never permits unsafe in-place mutation).
+    pub has_active_borrows: bool,
     /// Whether this variable's type is a collection (List/Map/Set) —
     /// required for drop hint eligibility.
     pub is_collection: bool,
@@ -377,19 +377,24 @@ pub fn decide_annotations(
 
 /// Make Phase 2 annotation decisions for a COW site.
 ///
-/// Derives [`CowMode`] from uniqueness + instruction-site context.
-/// Implements the full logic from `cow.rs::uniqueness_to_cow_mode()`:
+/// Derives [`CowMode`] from uniqueness + instruction-site context. Uniqueness
+/// is the SOLE PAST-guarantee source for `StaticUnique` promotion per
+/// `aims-rules.md` §DP-9. The removed DP-10 pattern (deriving past uniqueness
+/// from `Owned + Linear + Once` or `Once + CollectionBuffer`/`ReusableCtor`)
+/// was unsound — backward-analysis facts (consumption, cardinality) are
+/// FUTURE guarantees and cannot prove PAST uniqueness (RC == 1 right now).
+/// Re-enabling the spec-approved `MaybeShared + IC-3 ParamContract.uniqueness
+/// = Unique → StaticUnique` path is tracked as BUG-04-079, blocked on
+/// BUG-04-069.
 ///
 /// 1. Excluded variables → `Dynamic` (safe fallback)
 /// 2. RC-incremented → `Dynamic` (physical refcount > logical uniqueness)
-/// 3. COW-aware borrowing (Section 07.3.1): param + `Owned` + `Linear` + `Once`
-///    → `StaticUnique` (cross-dimensional proof of unique ownership)
-/// 4. `Unique` → `StaticUnique`
-/// 5. `MaybeShared` + `CollectionBuffer` + `Once` → `StaticUnique` (cross-dim)
-/// 6. `MaybeShared` + `ReusableCtor` + `Once` → `StaticUnique` (cross-dim)
-/// 7. `MaybeShared` + disjoint borrow → `StaticUnique` (Section 07.3.2)
-/// 8. `MaybeShared` → `Dynamic`
-/// 9. `Shared` → `StaticShared`
+/// 3. `Unique` → `StaticUnique`
+/// 4. `MaybeShared` + disjoint borrow → `StaticUnique` (spec §DP-5/§RL-10 —
+///    source uniqueness at the receiver's block is enforced by
+///    `is_borrow_disjoint_from_siblings()`)
+/// 5. `MaybeShared` → `Dynamic` (runtime `IsShared` check)
+/// 6. `Shared` → `StaticShared`
 pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
     // Excluded (scalar, immortal) → safe fallback.
     if ctx.is_excluded {
@@ -401,36 +406,24 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
         return CowMode::Dynamic;
     }
 
-    // COW-aware borrowing (Section 07.3.1): parameter with combined state
-    // (Owned, Linear, Once) is provably uniquely owned at this point.
-    if ctx.is_param && is_cow_aware_unique(ctx) {
-        return CowMode::StaticUnique;
-    }
-
     match ctx.uniqueness {
-        Uniqueness::Unique => CowMode::StaticUnique,
+        Uniqueness::Unique => {
+            // Spec DP-5/DP-9: Unique AND NOT is_owned_and_unique+no_borrows → StaticShared.
+            // IsShared on a Unique value always returns false, so a runtime
+            // Dynamic check cannot distinguish "unique but borrowed" from
+            // "unique and safe to mutate." Must copy unconditionally.
+            if ctx.has_active_borrows {
+                CowMode::StaticShared
+            } else {
+                CowMode::StaticUnique
+            }
+        }
 
         Uniqueness::MaybeShared => {
-            // Cross-dimensional: CollectionBuffer + Once → fresh collection
-            // literal (refcount=1) used once (no duplication). Non-param only
-            // (params use COW-aware borrowing above).
-            if !ctx.is_param
-                && ctx.cardinality == Cardinality::Once
-                && ctx.shape == ShapeClass::CollectionBuffer
-            {
-                return CowMode::StaticUnique;
-            }
-
-            // Cross-dimensional: ReusableCtor + Once → same proof as reuse.
-            if !ctx.is_param
-                && ctx.cardinality == Cardinality::Once
-                && matches!(ctx.shape, ShapeClass::ReusableCtor(_))
-            {
-                return CowMode::StaticUnique;
-            }
-
-            // Uniqueness-preserving borrows (Section 07.3.2): receiver's
-            // borrow is disjoint from all sibling borrows of the same source.
+            // Uniqueness-preserving local mutation (spec §DP-5/§RL-10):
+            // receiver's borrow is disjoint from all sibling borrows of
+            // the SAME source, AND the source itself is `Uniqueness::Unique`
+            // at the receiver's block (enforced by `is_borrow_disjoint_from_siblings()`).
             if ctx.is_borrow_disjoint {
                 return CowMode::StaticUnique;
             }
@@ -440,16 +433,6 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
 
         Uniqueness::Shared => CowMode::StaticShared,
     }
-}
-
-/// Check if a variable's combined state qualifies for COW-aware borrowing.
-///
-/// The combined state `(Owned, Linear, Once)` proves unique ownership from
-/// cross-dimensional reasoning (Section 07.3.1).
-fn is_cow_aware_unique(ctx: &AnnotationSiteContext<'_>) -> bool {
-    ctx.access == AccessClass::Owned
-        && ctx.consumption == Consumption::Linear
-        && ctx.cardinality == Cardinality::Once
 }
 
 /// Make Phase 2 annotation decisions for a drop hint site.

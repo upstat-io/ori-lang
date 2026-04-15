@@ -1,0 +1,84 @@
+{
+  "description": "Minimal corpus: plan A's third_party_review.updated is 2026-01-01 but plan A depends on plan B whose latest section file mtime is 2026-04-01 (90+ days newer). Section 02 should emit Finding(STATUS_CONTRADICTION, TPR_STALE_VS_EDIT).",
+  "scenario": "positive",
+  "plans": {
+    "gamma-plan": {
+      "index.md": {
+        "name": "Gamma Plan",
+        "full_name": "Gamma Plan — Stale TPR Review",
+        "status": "active",
+        "reroute": true,
+        "order": 1,
+        "supersedes": ["legacy-gamma"],
+        "reviewed": true
+      },
+      "section-01.md": {
+        "section": "01",
+        "title": "Gamma Section One",
+        "status": "in-progress",
+        "reviewed": true,
+        "goal": "Gamma work with stale TPR",
+        "success_criteria": ["Gamma done"],
+        "depends_on": ["Delta Plan#01"],
+        "sections": [
+          {"id": "01.1", "title": "Gamma Sub", "status": "in-progress"}
+        ],
+        "third_party_review": {"status": "resolved", "updated": "2026-01-01"}
+      }
+    },
+    "delta-plan": {
+      "index.md": {
+        "name": "Delta Plan",
+        "full_name": "Delta Plan — Recently Modified Dependency",
+        "status": "active",
+        "reroute": true,
+        "order": 2,
+        "supersedes": ["legacy-delta"],
+        "reviewed": true
+      },
+      "section-01.md": {
+        "section": "01",
+        "title": "Delta Section One",
+        "status": "in-progress",
+        "reviewed": true,
+        "goal": "Delta work recently modified",
+        "success_criteria": ["Delta done"],
+        "sections": [
+          {"id": "01.1", "title": "Delta Sub", "status": "in-progress"}
+        ],
+        "third_party_review": {"status": "none", "updated": null},
+        "_mtime": "2026-04-01T00:00:00"
+      }
+    }
+  },
+  "metadata": {
+    "tpr_staleness_threshold_days": 90,
+    "gamma_tpr_updated": "2026-01-01",
+    "delta_latest_mtime": "2026-04-01",
+    "days_gap": 90
+  },
+  "expected_findings": [
+    {
+      "category": "status_contradiction",
+      "subtype": "tpr_stale_vs_edit",
+      "source_plan": "gamma-plan",
+      "evidence": {
+        "tpr_updated": "2026-01-01",
+        "dependency_mtime": "2026-04-01",
+        "gap_days": 90
+      },
+      "description": "Plan 'Gamma Plan' section 01 TPR review (2026-01-01) is >= 90 days older than dependency 'Delta Plan' section 01 last modified (2026-04-01)"
+    }
+  ],
+  "negative_pin": {
+    "description": "When plan A's TPR updated date is >= plan B's mtime, no TPR_STALE_VS_EDIT finding should be emitted.",
+    "overrides": {
+      "gamma-plan": {
+        "section-01.md": {
+          "third_party_review": {"status": "resolved", "updated": "2026-04-15"}
+        }
+      }
+    },
+    "expected_findings": []
+  }
+}

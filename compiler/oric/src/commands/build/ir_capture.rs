@@ -46,7 +46,7 @@ fn capture_path(source_path: &str, suffix: &str) -> PathBuf {
             .to_str()
             .unwrap_or(source_path)
             .trim_start_matches("./")
-            .replace('/', "_");
+            .replace(['/', '\\'], "_");
         dir.join(format!("{sanitized}{suffix}"))
     } else {
         // Alongside the source file

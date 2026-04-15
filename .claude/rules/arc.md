@@ -5,6 +5,11 @@ paths:
 
 # AIMS — The ARC Intelligence Layer (ori_arc)
 
+**Relationship to `aims-rules.md`**: The ARC/AIMS subsystem uses a two-file design because `aims-rules.md` is ~900 lines of formal target-system rules (including substantial unshipped subsystems). Merging would create a single file too large for effective navigation. The split is:
+- **`arc.md` (this file)**: shipped surface overview — what is implemented today, verification stack, key invariants. Use this for quick orientation and "what works now."
+- **`aims-rules.md`**: complete formal target-system spec — all rules including unshipped. Use this for normative rule lookup, lattice definitions, and analysis contracts.
+- **Shared facts** (invariants, pipeline steps, verification) appear in both; `aims-rules.md` is authoritative when they conflict. Other phases (parse.md, typeck.md) use inline `(target-only)` annotations because their unshipped surface is small; AIMS's unshipped surface is too large for that pattern.
+
 ## Mission — READ THIS FIRST
 
 **ARC is the runtime substrate. AIMS is the compile-time intelligence layer.** ARC is the refcount header, the atomic inc/dec primitives, the drop functions, the uniqueness check — the machinery that ships in `ori_rt` and executes at runtime. AIMS is everything in `ori_arc/src/aims/` + the surrounding passes (`borrow/`, `drop/`, `fbip/`, `uniqueness/`, `classify/`) that decide **at compile time** when RC operations are unnecessary and elides them. Plain ARC without AIMS would be a mediocre memory model; AIMS is what makes the substrate competitive. **The goal is RC rareness in emitted code, not RC speed.** Reasoning about AIMS as "RC placement" misses the point — placement is the fallback for the leftovers after elimination.
@@ -234,6 +239,27 @@ Meet operation at control flow joins. `KnownSafe` flag when nested retains guara
 
 ### Tail Call Preservation
 Never insert `RcDec` after a tail call — breaks TCO. Transfer ownership instead: mark callee param as `Owned` when call-site arg is owned, eliminating the inc/dec pair. Pattern from Lean 4 (`ownParamsUsingArgs`).
+
+## Graph-first, manual second
+
+Before reading the reference-repo paths cited below, query the intelligence
+graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,koka,lean4 --limit 5`
+  — semantic equivalents across reference compilers in sub-second time
+- `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — blast radius
+  for changes in this domain
+- `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori` — the
+  module inventory before editing
+- `scripts/intel-query.sh --human ori-arc --limit 5` — pre-curated subsystem view
+  for ARC / RC / reuse questions
+
+The graph covers Ori plus 10 reference compilers, synced on every commit. Manual reference-repo reading
+stays authoritative — but only AFTER the graph narrows the search. Never
+cite a graph result without verifying against the actual source. See
+`.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
+`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+query protocol used by review-family skills.
 
 ## Reference Repos
 

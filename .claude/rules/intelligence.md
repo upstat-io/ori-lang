@@ -13,14 +13,34 @@ scripts/intel-query.sh status
 ```
 If unavailable, proceed normally — intelligence is additive, never blocking.
 
+## Canonical Pre-Query Protocol (SSOT)
+
+Skills and commands that run a pre-query / intel-summary-injection workflow
+MUST `@`-include `.claude/skills/dual-tpr/compose-intel-summary.md` — the
+single source of truth for the availability-check → `file-symbols` → `callers`
+→ `callees` → `similar` → bounded ≤500-char summary protocol. Inlining the
+pattern instead of `@`-including the SSOT is an **Algorithmic DRY violation**
+(`impl-hygiene.md` §SSOT). Domain-specific extensions (e.g., `/review-bugs`
+using `search`/`fixed`, `/fix-bug` using `similar` on the repro symbol) live
+in SSOT Step F or in the consumer's own section after the `@`-include; they
+do NOT replace the base protocol.
+
+The SSOT supplies the availability check too — only the SSOT file, this rule
+file, and `.claude/commands/query-intel.md` are permitted to contain the
+literal `scripts/intel-query.sh status` string. All other consumers acquire
+it via `@`-include.
+
 ## When to Query
 
-Query the intelligence graph proactively in these workflows:
+Query the intelligence graph proactively in these workflows. All entries
+below are live consumers that query the graph today.
 
 - **Design decisions**: Before choosing an approach, query `similar` for how reference compilers handled it
 - **Bug investigation** (/fix-bug Phase 1): `callers`/`callees` for blast radius, `similar` for reference fixes
+- **Bug autopilot** (/fix-next-bug): lightweight `callers`-only blast-radius preview on the selected bug's repro symbol to help gauge scope before choosing interactive vs. autopilot mode (Step 4.5 — /fix-bug Phase 1 runs its own full investigation)
 - **Bug triage** (/review-bugs, /add-bug): `callers` to assess blast radius, `file-symbols` to cluster related bugs
 - **TPR reviews** (/tpr-review Step 0.75): `file-symbols` + `callers`/`callees` for module inventory + blast radius
+- **TPR triage** (/verify-tpr): `callers` for blast-radius on high-severity findings or findings where the blast radius is ambiguous (Step 2.5 — not every finding, to avoid query exhaustion; informs accept/reject decisions, does not replace them)
 - **Code reviews** (/review-work, /independent-review): `file-symbols` for module context, `callers` for impact
 - **Hygiene reviews** (/impl-hygiene-review): `callers`/`callees` for flow mapping, `similar` for cross-backend mirrors
 - **Plan reviews** (/review-plan): `symbols`/`file-symbols` to validate plan assumptions against actual code
@@ -30,7 +50,11 @@ Query the intelligence graph proactively in these workflows:
 - **Pattern review** (/design-pattern-review): `similar` for instant cross-repo equivalents, `callers`/`callees` for Ori dispatch mapping
 - **Third-party help** (/tp-help): `callers`/`callees`/`similar` to enrich context package for reviewers
 - **Roadmap** (/continue-roadmap): `file-symbols`/`callers`/`callees`/`similar` for section-relevant code surface
+- **Roadmap verification** (/verify-roadmap): Phase 1 review agents only — `file-symbols` on section-scope crates and `callers`/`callees` on high-signal symbols; supplies ambient blast-radius context before verification starts (Phase 2 update agents do not query)
 - **Execution tracing** (/code-journey, /rosetta-test): `callers`/`callees` to map exercised paths, `similar` for cross-repo equivalents
+- **Doc sync** (/sync-claude): `file-symbols` on changed crates to detect doc-symbol drift — symbols present in the graph but missing from rules files (new additions), or symbols in rules files but absent from the graph (removed/renamed) (Step 1.5)
+- **Spec sync** (/sync-spec): `callers` on every symbol referenced in the spec change as a blast-radius check before identifying spec files — prevents silent behavior drift when a spec edit ships without updating an implementation call site (Update Process item 1)
+- **Grammar sync** (/sync-grammar): `file-symbols "compiler/ori_parse/"` and `file-symbols "compiler/ori_lexer/"` to inventory parser/lexer types before reading grammar.ebnf; flags productions whose implementation symbol is not covered (parse-site gap) (Update Process item 1)
 - **Tooling** (/improve-tooling): `symbols` to check if similar tools already exist before creating new ones
 
 ## How to Query
@@ -47,7 +71,7 @@ scripts/intel-query.sh sentiment pain --repo go         # rank by pain/controver
 scripts/intel-query.sh landscape --repo rust            # per-label sentiment aggregation
 scripts/intel-query.sh ori-sentiment                    # highest-pain in ARC-relevant repos
 
-# Code symbol queries (Ori + reference repos — 32K+ symbols, 24K+ call edges)
+# Code symbol queries (Ori + reference repos — 191K+ symbols, 505K+ CALLS edges)
 scripts/intel-query.sh symbols "IteratorValue" --repo ori              # find symbols by name
 scripts/intel-query.sh symbols "iter" --repo ori --kind function       # filter by kind (function|type|sum_type|...)
 scripts/intel-query.sh callers "eval_iter_next" --repo ori             # who calls this function?
@@ -83,7 +107,7 @@ Map file paths or bug subsystems to intelligence presets:
 | `compiler/ori_arc/`, `compiler/ori_rt/src/rc/` | `ori-arc` |
 | `compiler/ori_types/src/infer/`, `compiler/ori_types/src/check/` | `ori-inference` |
 | `compiler/ori_llvm/` | `ori-codegen` |
-| `compiler/ori_patterns/`, `compiler/ori_eval/src/methods/` | `ori-patterns` |
+| `compiler/ori_patterns/`, `compiler/ori_eval/src/methods/`, `compiler/ori_canon/src/patterns/` | `ori-patterns` |
 | `compiler/ori_diagnostic/`, `compiler/oric/src/diagnostic/` | `ori-diagnostics` |
 | Other / mixed | `search "<key terms from diff>"` |
 

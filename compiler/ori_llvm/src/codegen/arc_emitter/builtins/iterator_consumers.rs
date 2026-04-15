@@ -22,7 +22,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_collect");
 
-        // Use narrowed element size for int elements.
+        // Canonical element size — collect outputs use canonical stride.
+        // narrowing is disabled for collection element storage
+        // at the repr level — all List<int> use canonical i64 stride, so
+        // collect, indexing, equality, hash, and display all agree.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
@@ -153,7 +156,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_count");
 
-        // Use narrowed element size for int elements.
+        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -177,7 +180,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        // Use narrowed element size for int elements.
+        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -211,7 +214,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        // Use narrowed element size for int elements.
+        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -245,7 +248,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        // Use narrowed element size for int elements.
+        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -290,7 +293,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::ForEach, None);
 
-        // Use narrowed element size for int elements.
+        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -326,7 +329,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Fold, Some(acc_ty));
 
-        // Use narrowed element size for int elements.
+        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let acc_size = self.element_store_size(acc_ty);
@@ -630,16 +633,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_ptr = self.builder.get_param(func_id, 1);
         let out_ptr = self.builder.get_param(func_id, 2);
 
-        // Load element from elem_ptr. Use narrowed type for int elements
-        // (iterator buffers store narrowed ints via repr-opt integer narrowing).
-        // NOTE: cannot use `sext_narrowed_int_element` here because that function
-        // requires a collection-emission context (`narrowed_int_collection_element_width`)
-        // that isn't available in this standalone trampoline function. The canonical
-        // Use canonical type — narrowing confined to list boundary (BUG-04-071).
+        // Load element from elem_ptr using canonical type.
+        // Narrowing is confined to the list storage boundary.
         let buf_elem_llvm_ty = self.resolve_type(elem_ty);
         let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "elem");
 
-        // With canonical types (BUG-04-071), buf_elem_llvm_ty is already the
+        // With canonical types, buf_elem_llvm_ty is already the
         // canonical type (i64 for int). No sext needed — the load produces
         // the correct canonical value directly.
         let elem_val = raw;

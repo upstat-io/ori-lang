@@ -18,28 +18,33 @@ docs/ori_lang/v2026/spec/
 
 | File | Content |
 |------|---------|
-| `01-notation.md` | Notation conventions, EBNF syntax |
-| `02-source-code.md` | Source structure, Unicode |
-| `03-lexical-elements.md` | Tokens, keywords, operators, literals, comments |
-| `04-constants.md` | Config variables, const expressions |
-| `05-variables.md` | Let bindings, assignment, destructuring |
-| `06-types.md` | Type syntax, generics, function types |
-| `07-properties-of-types.md` | Type properties, traits |
-| `08-declarations.md` | Functions, types, traits, impls, tests |
-| `09-expressions.md` | All expression forms |
-| `10-patterns.md` | Match patterns, compiler patterns (run/try/match/etc.) |
-| `11-built-in-functions.md` | Built-in functions (len, print, assert, etc.) |
-| `12-modules.md` | Imports, re-exports, extensions |
-| `13-testing.md` | Test declarations, attributes |
-| `14-capabilities.md` | Uses clauses, with expressions |
-| `15-memory-model.md` | ARC, ownership, reference semantics |
-| `16-formatting.md` | Code style rules |
-| `17-blocks-and-scope.md` | Scoping rules |
-| `18-program-execution.md` | @main signatures |
-| `19-control-flow.md` | break, continue, loops |
-| `20-errors-and-panics.md` | catch pattern, panic behavior |
-| `21-constant-expressions.md` | Const functions |
-| `22-system-considerations.md` | Platform considerations |
+| `01-scope.md` | Language scope |
+| `02-normative-references.md` | Normative references |
+| `03-terms-and-definitions.md` | Terms and definitions |
+| `04-conformance.md` | Conformance requirements |
+| `05-notation.md` | Notation conventions, EBNF syntax |
+| `06-source-code.md` | Source structure, Unicode |
+| `07-lexical-elements.md` | Tokens, keywords, operators, literals, comments |
+| `08-types.md` | Type syntax, generics, function types |
+| `09-properties-of-types.md` | Type properties, traits |
+| `10-declarations.md` | Functions, types, traits, impls, tests |
+| `11-blocks-and-scope.md` | Scoping rules |
+| `12-constants.md` | Config variables, const expressions |
+| `13-variables.md` | Let bindings, assignment, destructuring |
+| `14-expressions.md` | All expression forms |
+| `15-patterns.md` | Match patterns, compiler patterns |
+| `16-control-flow.md` | break, continue, loops |
+| `17-errors-and-panics.md` | catch pattern, panic behavior |
+| `18-modules.md` | Imports, re-exports, extensions |
+| `19-testing.md` | Test declarations, attributes |
+| `20-capabilities.md` | Uses clauses, with expressions |
+| `21-memory-model.md` | ARC, ownership, reference semantics |
+| `22-concurrency-model.md` | Concurrency model |
+| `23-program-execution.md` | @main signatures |
+| `24-constant-expressions.md` | Const functions |
+| `25-conditional-compilation.md` | Target/config attributes |
+| `26-ffi.md` | Foreign function interface |
+| `27-reflection.md` | Compile-time reflection |
 | `grammar.ebnf` | Formal grammar (single source of truth for syntax) |
 | `operator-rules.md` | Formal operator semantics (type rules, eval rules, precedence) |
 
@@ -142,21 +147,33 @@ Without this, all Edit/Write calls to spec files will be **blocked by the hook**
 
 ## Update Process
 
-1. **Identify affected spec files** based on what changed
+1. **Query the intelligence graph for affected symbols** — before identifying
+   spec files, run a blast-radius check on every symbol the spec-edit might
+   affect:
 
-2. **Read the relevant spec files** to understand current content
+   @.claude/skills/dual-tpr/compose-intel-summary.md
 
-3. **Update spec content** following the formal style:
+   Query `callers` on symbols referenced in the spec change. If the edit
+   changes operator-rules.md section X, run
+   `scripts/intel-query.sh --human callers "<relevant symbol>" --repo ori`
+   to see every site that interprets the rule. This prevents silent behavior
+   drift when a spec change ships without updating an implementation call site.
+
+2. **Identify affected spec files** based on what changed
+
+3. **Read the relevant spec files** to understand current content
+
+4. **Update spec content** following the formal style:
    - Add new sections for new language features
    - Update existing sections for modified behavior
    - Ensure constraints are listed in "Constraints" subsections
    - Mark informative content with `> **Note:**`
 
-4. **Update grammar.ebnf** if syntax changed (or note it needs updating)
-
 5. **Update operator-rules.md** if operator behavior changed (type rules, eval rules, precedence)
 
-6. **Verify cross-references** within spec files are accurate
+6. **Note grammar.ebnf** — if syntax changed, note that `/sync-grammar` needs to run (grammar.ebnf is owned by `/sync-grammar`, not this command)
+
+7. **Verify cross-references** within spec files are accurate
 
 ## Specification vs Design Docs
 
@@ -174,7 +191,7 @@ Without this, all Edit/Write calls to spec files will be **blocked by the hook**
 - [ ] Marked informative content with `> **Note:**`
 - [ ] Listed constraints explicitly
 - [ ] Updated cross-references
-- [ ] Updated grammar.ebnf if syntax changed
+- [ ] Noted if grammar.ebnf needs updating (owned by `/sync-grammar`)
 - [ ] Updated operator-rules.md if operator behavior changed
 
 ## Output
@@ -182,6 +199,6 @@ Without this, all Edit/Write calls to spec files will be **blocked by the hook**
 Report what was updated:
 - Which spec files were modified
 - Sections added or changed
-- Whether grammar.ebnf needs updating
-- Whether operator-rules.md needs updating
+- Whether grammar.ebnf needs updating (delegate to `/sync-grammar`)
+- Whether operator-rules.md was updated
 - Any cross-references updated

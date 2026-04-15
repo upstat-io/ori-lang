@@ -7,22 +7,34 @@ paths:
 
 ## Pipeline
 
-- Parse → TypeCheck → LLVM IR → Object → Link → Executable
+- Parse → TypeCheck → Canon → ARC Lower → AIMS → Repr → LLVM IR → Object → Link → Executable
 - Build: `cargo b` (debug) | `cargo b --release` (release)
 - **Always build `ori_rt` alongside `oric`**
 
 ## Runtime Discovery
 
-1. Same directory as compiler
-2. `<exe>/../lib/libori_rt.a`
-3. `$ORI_WORKSPACE_DIR/target/`
+`candidate_directories()` in `aot/runtime.rs` collects candidates; `detect()` returns the first match. Search order:
+
+1. Same directory as the compiler binary (`exe_dir`)
+2. Sibling profile directories: `target_dir/{release,debug}` where `target_dir = exe_dir.parent()` (covers debug↔release cross-lookup, skips if equals `exe_dir`)
+3. Installed layout: `exe_dir/../lib/` (e.g., `/usr/local/bin/ori` → `/usr/local/lib/`)
+4. Standalone `ori_rt` build: `<workspace_root>/compiler/ori_rt/target/{release,debug}`
+5. `$ORI_WORKSPACE_DIR/target/{release,debug}` (development via `cargo run`)
+
+Override: `--runtime-path` CLI flag. Platform lib names: `libori_rt.a` (Linux/macOS) | `ori_rt.lib` (Windows). ASan variant: `libori_rt_asan.a` / `ori_rt_asan.lib`.
 
 ## Symbol Mangling
 
-- Format: `_ori_<module>$<function>[<suffix>]`
-- `@main` → `_ori_main` | `math.@add` → `_ori_math$add`
-- Trait impl: `_ori_int$$Eq$equals` | Extension: `_ori_list_int_$$ext$count`
-- Generic: `$G` suffix | Associated: `$A$` marker
+Canonical home: `aot/mangle/emit.rs`. Prefix: `_ori_`. Identifier encoding: alphanumeric + `_` pass through; special chars → `$XX` escapes (`<`→`$LT`, `>`→`$GT`, `,`→`$C`, `[`→`$LB`, `]`→`$RB`, `(`→`$LP`, `)`→`$RP`, `:`→`$CC`, `-`→`$D`). Module path separators (`/`, `\`, `.`, `:`) → `$`.
+
+| Pattern | Format | Example |
+|---------|--------|---------|
+| Free function | `_ori_[<module>$]<fn>` | `math.@add` → `_ori_math$add` |
+| Trait impl | `_ori_<type>$$<trait>$<method>` | `_ori_int$$Eq$equals` |
+| Extension | `_ori_<type>$$ext$[<module>$]<method>` | `_ori_list$$ext$my_mod$count` |
+| Inherent method | `_ori_[<module>$]<type>$<method>` | `_ori_Point$distance` |
+| Generic | `_ori_[<module>$]<fn>$G<t0>_<t1>...` | `_ori_identity$Gint` |
+| Associated fn | `_ori_<type>$A$<fn>` | `_ori_Option$A$some` |
 
 ## Linker Drivers
 
@@ -40,9 +52,9 @@ paths:
 |-----------|---------|
 | `target.rs` | Target triple, feature support |
 | `object.rs` | Object emission (`OutputFormat` enum) |
-| `mangle.rs` | Symbol mangling/demangling |
+| `mangle/` | Symbol mangling/demangling (`mod.rs` constants, `emit.rs` functions) |
 | `passes.rs` | Optimization pass pipeline |
-| `runtime.rs` | Runtime discovery |
+| `runtime.rs` | Runtime discovery (5-step candidate search) |
 | `linker/` | Platform linker drivers (gcc, msvc, wasm) |
 | `debug/` | Debug info generation (DWARF/CodeView) — `DebugInfoBuilder`, `DebugLevel` |
 | `wasm.rs` | WebAssembly config (`WasmConfig`, `WasiConfig`) |

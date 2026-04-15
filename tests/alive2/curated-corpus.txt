@@ -26,6 +26,17 @@ tests/alive2/pure_arithmetic.ori _ori_factorial
 # Pure boolean logic
 tests/alive2/pure_arithmetic.ori _ori_is_even
 
+# Pure control flow — recursive algorithms
+tests/alive2/pure_control_flow.ori _ori_gcd
+tests/alive2/pure_control_flow.ori _ori_power
+tests/alive2/pure_control_flow.ori _ori_fibonacci
+tests/alive2/pure_control_flow.ori _ori_sum_to
+
+# Pure control flow — conditionals
+tests/alive2/pure_control_flow.ori _ori_min_val
+tests/alive2/pure_control_flow.ori _ori_clamp
+tests/alive2/pure_control_flow.ori _ori_sign
+
 # Codegen tests — pure scalar (no RC)
 compiler/ori_llvm/tests/codegen/rc_no_ops_for_int.ori _ori_main
 compiler/ori_llvm/tests/codegen/rc_no_ops_for_bool.ori _ori_main

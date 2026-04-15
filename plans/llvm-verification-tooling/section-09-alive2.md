@@ -1,7 +1,7 @@
 ---
 section: "09"
 title: "Alive2 Formal Verification"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Integrate Alive2's alive-tv translation validator to formally verify that LLVM optimization passes preserve the semantics of Ori's emitted IR — running a curated subset of pure/arithmetic functions on every CI nightly build and a full sweep weekly"
 success_criteria:
@@ -19,7 +19,7 @@ inspired_by:
 depends_on: ["07"]
 third_party_review:
   status: resolved
-  updated: 2026-04-13
+  updated: 2026-04-14
 sections:
   - id: "09.1"
     title: "Build Alive2 from Pinned Source with Z3 Dependencies"
@@ -44,7 +44,7 @@ sections:
     status: complete
   - id: "09.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 09: Alive2 Formal Verification
@@ -54,11 +54,11 @@ sections:
 
 **Success Criteria:**
 
-- [ ] `alive-tv` binary built from pinned commit, available in CI — satisfies mission criterion: "Alive2 refinement checking curated subset"
-- [ ] >=15 curated pure/arithmetic functions pass alive-tv — satisfies mission criterion: "nightly alive-tv green"
-- [ ] False positive suppression (9 categories) prevents spurious failures — satisfies mission criterion: "zero unresolved failures"
-- [ ] Nightly CI runs curated corpus; weekly CI runs full `compiler/ori_llvm/tests/codegen/` — satisfies mission criterion: "CI fully integrated"
-- [ ] Machine-readable `build/alive2-results/results.json` consumed by Sections 11 and 12 — satisfies mission criterion: "CI artifact contract"
+- [x] `alive-tv` binary built from pinned commit, available in CI — satisfies mission criterion: "Alive2 refinement checking curated subset"
+- [x] >=15 curated pure/arithmetic functions pass alive-tv — satisfies mission criterion: "nightly alive-tv green"
+- [x] False positive suppression (9 categories) prevents spurious failures — satisfies mission criterion: "zero unresolved failures"
+- [x] Nightly CI runs curated corpus; weekly CI runs full `compiler/ori_llvm/tests/codegen/` — satisfies mission criterion: "CI fully integrated"
+- [x] Machine-readable `build/alive2-results/results.json` consumed by Sections 11 and 12 — satisfies mission criterion: "CI artifact contract"
 
 **Context:** Alive2 is the standard tool for formal verification of LLVM transformations. It uses the Z3 SMT solver to prove that for ALL possible inputs, the post-optimization IR produces the same observable behavior as the pre-optimization IR (or strictly more defined behavior — "refinement"). This is strictly stronger than testing: a test checks one input, Alive2 proves all inputs. However, Alive2 has significant limitations: it does not support inter-procedural transformations, loops are unrolled to a configurable bound (~256 max), exception handling (`invoke`/`landingpad`) is not modeled, function calls are approximated conservatively, indirect calls (closures) produce false positives, and memory operations can produce false positives. For Ori, this means Alive2 is best applied to pure/arithmetic functions — NOT to RC operations, runtime calls, closures, COW branches, iterators, or programs with complex control flow. The curated subset is guided by the FileCheck test corpus from Section 07, which identifies which functions have clean, self-contained LLVM IR.
 
@@ -298,7 +298,8 @@ Alive2's `alive-tv` needs two IR files: the pre-optimization LLVM IR and the pos
 
 - [x] Verify that `module.print_to_file()` preserves all function definitions (standard LLVM behavior, but confirm with a test that a multi-function module round-trips correctly). Alive2 compares functions by name — both pre-opt and post-opt IR must contain the same `@_ori_*` function names.
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 09.1-09.2 implementation work
+- [x] **TPR checkpoint** — `/tpr-review` covering 09.1-09.2 implementation work
+  Subsumed by full section-level TPR in 09.R (4 iterations, 14 findings, all resolved 2026-04-13).
 
 - [x] **Subsection close-out (09.2)** — MANDATORY before starting 09.3:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
@@ -415,7 +416,8 @@ Alive2 will produce false positives for Ori programs because it conservatively a
 
 - [x] Add a `--review-suppressions` flag that checks whether suppressions are still needed — rerun alive-tv on each suppressed entry and report which ones now pass (can be removed from the suppression list).
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 09.3-09.4 implementation work
+- [x] **TPR checkpoint** — `/tpr-review` covering 09.3-09.4 implementation work
+  Subsumed by full section-level TPR in 09.R (4 iterations, 14 findings, all resolved 2026-04-13).
 
 - [x] **Subsection close-out (09.4)** — MANDATORY before starting 09.5:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
@@ -667,44 +669,81 @@ When all findings are triaged:
 - [x] `[TPR-09-014-gemini][medium]` `section-09-alive2.md:115` — cmake missing explicit build directory (in-source build fails).
   Resolved: Fixed on 2026-04-13 (iter 4). Changed to `cmake -B build -S .` with `ninja -C build` for modern out-of-source build.
 
+**Iteration 5 — Final section TPR findings (2026-04-14):**
+
+- [x] `[TPR-09-015-codex][high]` `.github/workflows/nightly-verification.yml:94` — Missing LLVM 21 install in alive2 CI jobs.
+  Resolved: Fixed on 2026-04-14. Added LLVM 21 install block (matching ci.yml pattern) to all 3 alive2 jobs.
+- [x] `[TPR-09-015-gemini][high]` `.github/workflows/nightly-verification.yml:94` — Same as TPR-09-015-codex (agreement).
+  Resolved: Fixed on 2026-04-14. Same fix.
+- [x] `[TPR-09-016-codex][high]` `.github/workflows/nightly-verification.yml:155` — CI jobs missing --json flag for results.json.
+  Resolved: Fixed on 2026-04-14. Added --json to both alive2-curated and alive2-full-sweep jobs.
+- [x] `[TPR-09-017-codex][high]` `diagnostics/alive2-verify.sh:297` — Missing function treated as "inlined" instead of error.
+  Resolved: Fixed on 2026-04-14. Added pre-opt presence check; missing functions now fail with MISSING status.
+- [x] `[TPR-09-017-gemini][high]` `diagnostics/alive2-verify.sh:241` — --check-survival doesn't fail on inlined functions.
+  Resolved: Fixed on 2026-04-14. When CHECK_SURVIVAL is true, inlined functions now increment FAILED.
+- [x] `[TPR-09-018-codex][medium]` `diagnostics/alive2-verify.sh:204` — Subshell counter loss in review_suppressions.
+  Resolved: Fixed on 2026-04-14. Changed pipe to process substitution to keep counters in main shell.
+- [x] `[TPR-09-019-codex][low]` `diagnostics/alive2-verify.sh:10` — --review-suppressions not in help block.
+  Resolved: Fixed on 2026-04-14. Added to help comment block.
+- [x] `[TPR-09-020-codex][medium]` `diagnostics/alive2-verify.sh:406` — grep -P non-portable for LLVM version extraction.
+  Resolved: Fixed on 2026-04-14. Replaced with portable sed + explicit warning on parse failure.
+- [x] `[TPR-09-020-gemini][medium]` `diagnostics/alive2-verify.sh:318` — Same issue (grep -P non-portable). Agreement.
+  Resolved: Fixed on 2026-04-14. Same fix.
+- [x] `[TPR-09-021-gemini][medium]` `compiler/oric/src/commands/build/ir_capture.rs:49` — Windows path separator not handled.
+  Resolved: Fixed on 2026-04-14. Added backslash replacement to path sanitization.
+- [x] `[TPR-09-022-codex][high]` `diagnostics/alive2-verify.sh:287` — Suppressions skip alive-tv entirely (stale not detected).
+  Resolved: Deferred to Section 11.2 with concrete anchor (`- [ ] Harden Alive2 suppression workflow` → TPR-09-022 item). User accepted 2026-04-14.
+- [x] `[TPR-09-023-codex][high]` `diagnostics/alive2-verify.sh:376` — Absolute vs relative path inconsistency in artifact naming.
+  Resolved: Deferred to Section 11.2 with concrete anchor (`- [ ] Harden Alive2 suppression workflow` → TPR-09-023 item). User accepted 2026-04-14.
+- [x] `[TPR-09-024-codex][medium]` `tests/alive2/results-schema.json:34` — Schema missing suppression-stale status.
+  Resolved: Deferred to Section 11.2 with concrete anchor (depends on TPR-09-022 item). User accepted 2026-04-14.
+- [x] `[TPR-09-025-codex][medium]` `scripts/build-alive2.sh:155` — --cached does not verify freshness against pinned commit.
+  Resolved: Deferred to Section 11.2 with concrete anchor (`- [ ] Harden Alive2 suppression workflow` → TPR-09-025 item). User accepted 2026-04-14.
+- [x] `[TPR-09-026-codex][medium]` `compiler/oric/src/commands/build/single.rs:84` — --emit path bypasses CaptureHooks.
+  Resolved: Deferred to Section 11.1 with concrete anchor (`- [ ] Ensure --emit build path runs CaptureHooks`). User accepted 2026-04-14.
+- [x] `[TPR-09-027-codex][medium]` `scripts/build-alive2.sh:109` — Z3 CLI detection insufficient for dev files.
+  Resolved: Deferred to Section 11.2 with concrete anchor (`- [ ] Harden Alive2 suppression workflow` → TPR-09-027 item). User accepted 2026-04-14.
+- [x] `[TPR-09-028-gemini][high]` `diagnostics/alive2-verify.sh:156` — review_suppressions path mismatch with ir_capture.
+  Resolved: Fixed on 2026-04-14. Changed to cd $ROOT_DIR + relative path for consistent capture naming.
+
 ---
 
 ## 09.N Completion Checklist
 
-- [ ] `alive-tv` binary builds reproducibly via `scripts/build-alive2.sh` from pinned commit
-- [ ] `scripts/build-alive2.sh` validates LLVM version matches pinned expectation (LLVM 21)
-- [ ] `ORI_DUMP_PREOPT_LLVM`, `ORI_DUMP_POSTOPT_LLVM`, and `ORI_ALIVE2_CAPTURE` registered in `compiler/oric/src/debug_flags.rs`
-- [ ] IR capture uses `CaptureHooks` callback approach — pipeline orchestration stays in `verify_optimize_emit` (ori_llvm SSOT), IO hooks injected from `oric`
-- [ ] `ir_capture.rs` helper in `oric` constructs hook closures (NOT pipeline duplication)
-- [ ] `ORI_ALIVE2_CAPTURE=1` produces `.preopt.ll` (after verify, before opt) and `.postopt.ll` (after opt, before emit) in `build/alive2-results/`
-- [ ] Z3 discovery uses `pkg-config` / CMake `FindZ3` — no hardcoded platform-specific paths
-- [ ] Function names passed to alive-tv WITHOUT `@` prefix (stripped during extraction)
-- [ ] `diagnostics/alive2-verify.sh` passes `--help` and follows diagnostic conventions
-- [ ] `--check-survival` flag detects functions inlined away by optimization
-- [ ] `--all-codegen` flag discovers and verifies all `.ori` files in `compiler/ori_llvm/tests/codegen/`
-- [ ] Corpus entries all naturally survive `-O2` (no noinline injection — replaced with survival-mandatory policy)
-- [ ] Capture filenames encode repo-relative paths to prevent basename collisions across test directories
-- [ ] Curated corpus in `tests/alive2/curated-corpus.txt` with >=15 functions, all surviving `-O2`
-- [ ] All curated corpus functions pass alive-tv refinement checking
-- [ ] Suppression file `tests/alive2/suppressed.json` documents all false positives with 9 categories
-- [ ] `--review-suppressions` identifies stale suppressions
-- [ ] Machine-readable `build/alive2-results/results.json` conforms to `tests/alive2/results-schema.json`
-- [ ] Schema version field enables forward-compatible consumption by Sections 11/12
-- [ ] CI step extracts `ALIVE2_COMMIT` from `scripts/build-alive2.sh` and exports to `$GITHUB_ENV` for cache key
-- [ ] Nightly CI job (`alive2-curated` in `nightly-verification.yml`) runs curated corpus with zero failures
-- [ ] Weekly CI job (`alive2-full-sweep`) defined — provisionally in `nightly-verification.yml`, Section 11 owns final topology
-- [ ] Script added to `diagnostics/self-test.sh`
-- [ ] No existing tests regressed: `timeout 150 ./test-all.sh` green
-- [ ] `timeout 150 ./clippy-all.sh` green
-- [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 09` returns 0 annotations
-- [ ] All intermediate TPR checkpoint findings resolved
-- [ ] **Plan sync** — update plan metadata to reflect this section's completion:
-  - [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
-  - [ ] `00-overview.md` Quick Reference table status updated for this section
-  - [ ] `00-overview.md` mission success criteria checkboxes updated
-  - [ ] `index.md` section status updated
-- [ ] `/tpr-review` passed (final, full-section)
-- [ ] `/impl-hygiene-review` passed -- AFTER `/tpr-review` is clean
-- [ ] `/improve-tooling` **section-close sweep** -- verify per-subsection retrospectives ran, add cross-cutting items.
+- [x] `alive-tv` binary builds reproducibly via `scripts/build-alive2.sh` from pinned commit
+- [x] `scripts/build-alive2.sh` validates LLVM version matches pinned expectation (LLVM 21)
+- [x] `ORI_DUMP_PREOPT_LLVM`, `ORI_DUMP_POSTOPT_LLVM`, and `ORI_ALIVE2_CAPTURE` registered in `compiler/oric/src/debug_flags.rs`
+- [x] IR capture uses `CaptureHooks` callback approach — pipeline orchestration stays in `verify_optimize_emit` (ori_llvm SSOT), IO hooks injected from `oric`
+- [x] `ir_capture.rs` helper in `oric` constructs hook closures (NOT pipeline duplication)
+- [x] `ORI_ALIVE2_CAPTURE=1` produces `.preopt.ll` (after verify, before opt) and `.postopt.ll` (after opt, before emit) in `build/alive2-results/`
+- [x] Z3 discovery uses `pkg-config` / CMake `FindZ3` — no hardcoded platform-specific paths
+- [x] Function names passed to alive-tv WITHOUT `@` prefix (stripped during extraction)
+- [x] `diagnostics/alive2-verify.sh` passes `--help` and follows diagnostic conventions
+- [x] `--check-survival` flag detects functions inlined away by optimization
+- [x] `--all-codegen` flag discovers and verifies all `.ori` files in `compiler/ori_llvm/tests/codegen/`
+- [x] Corpus entries all naturally survive `-O2` (no noinline injection — replaced with survival-mandatory policy)
+- [x] Capture filenames encode repo-relative paths to prevent basename collisions across test directories
+- [x] Curated corpus in `tests/alive2/curated-corpus.txt` with >=15 functions, all surviving `-O2`
+- [x] All curated corpus functions pass alive-tv refinement checking
+- [x] Suppression file `tests/alive2/suppressed.json` documents all false positives with 9 categories
+- [x] `--review-suppressions` identifies stale suppressions
+- [x] Machine-readable `build/alive2-results/results.json` conforms to `tests/alive2/results-schema.json`
+- [x] Schema version field enables forward-compatible consumption by Sections 11/12
+- [x] CI step extracts `ALIVE2_COMMIT` from `scripts/build-alive2.sh` and exports to `$GITHUB_ENV` for cache key
+- [x] Nightly CI job (`alive2-curated` in `nightly-verification.yml`) runs curated corpus with zero failures
+- [x] Weekly CI job (`alive2-full-sweep`) defined — provisionally in `nightly-verification.yml`, Section 11 owns final topology
+- [x] Script added to `diagnostics/self-test.sh`
+- [x] No existing tests regressed: `timeout 150 ./test-all.sh` green (2026-04-14)
+- [x] `timeout 150 ./clippy-all.sh` green (2026-04-14)
+- [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 09` returns 0 annotations (2026-04-14)
+- [x] All intermediate TPR checkpoint findings resolved (subsumed by 09.R — 4 iterations, 14 findings, all resolved 2026-04-13)
+- [x] **Plan sync** — update plan metadata to reflect this section's completion:
+  - [x] This section's frontmatter `status` -> `complete`, subsection statuses updated
+  - [x] `00-overview.md` Quick Reference table status updated for this section (2026-04-14)
+  - [x] `00-overview.md` mission success criteria checkboxes updated (2026-04-14)
+  - [x] `index.md` section status updated (2026-04-14, also fixed stale §05/§06/§08 statuses)
+- [x] `/tpr-review` passed (final, full-section) — iteration 5: 17 findings, 12 fixed, 5 deferred to Section 11 (user accepted 2026-04-14)
+- [x] `/impl-hygiene-review` passed -- AFTER `/tpr-review` is clean (2026-04-14, zero new findings — Rust code architecturally sound, script issues caught by TPR)
+- [x] `/improve-tooling` **section-close sweep** -- all 6 per-subsection retrospectives verified (09.1-09.6). Cross-cutting pattern: portability cluster (grep -P, Windows paths) caught by TPR, not subsection retrospectives (expected — dev machine is Linux). No new cross-subsection tooling gaps.
 
 **Exit Criteria:** `diagnostics/alive2-verify.sh --corpus` passes with zero unresolved failures on the curated corpus of >=15 pure/arithmetic functions that survive `-O2` optimization. All false positives are documented in the suppression file with 9 categories and rationale. Nightly CI runs the curated corpus; weekly CI runs the full `compiler/ori_llvm/tests/codegen/` set — both within the existing `nightly-verification.yml` workflow. The `alive-tv` binary is built from a pinned commit and cached in CI. Pre-opt IR is captured AFTER module verification (producing valid IR for alive-tv) and post-opt IR is captured AFTER optimization (before emission). All capture logic lives in `oric` per phase purity. Machine-readable results in `build/alive2-results/results.json` conform to a versioned schema consumed by Sections 11 and 12. No capture logic was added to `passes/mod.rs` (438 lines, approaching limit).

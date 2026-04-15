@@ -6,7 +6,7 @@ paths:
 
 # AIMS Formal Ruleset
 
-This document defines the **laws** of AIMS — the ARC Intelligent Memory System. The implementation is judged against this document, not the other way around. If the code violates a rule stated here, the code has a bug. Rules marked with pending plan references (RL-14 through RL-31, post-pipeline passes, KnownSafe) describe the COMPLETE target system — the implementation may not have shipped all of them yet. `arc.md` describes the CURRENT shipped surface; this document describes the FULL target. The verification layers (VF-1 through VF-8) similarly describe the full verification stack — `arc.md` may report fewer active checks than this document mandates.
+This document defines the **laws** of AIMS — the ARC Intelligent Memory System. It describes the COMPLETE TARGET system — both shipped and unshipped rules. The implementation is judged against this document; code divergences from shipped rules are bugs to file. **However, this document is NOT a current-state SSOT** — it includes target-only rules that are not yet implemented. `arc.md` describes the CURRENT shipped surface; this document describes the FULL target including unshipped subsystems. See the "Target-only and partially-shipped subsystems" section below for the explicit shipped/unshipped inventory.
 
 **Target-only and partially-shipped subsystems** — the spec describes the COMPLETE target system. The following areas are either not yet shipped or only partially implemented. The spec is authoritative (code divergences are bugs to file), but these annotations prevent reviewers from re-flagging known implementation gaps as spec issues:
 
@@ -23,7 +23,6 @@ This document defines the **laws** of AIMS — the ARC Intelligent Memory System
 - **VF-3 Oracle**: spec describes general effects cross-check. Shipped: `derive_effects()` re-derives only `may_allocate`, `may_deallocate`, `may_share` from a subset of instructions (`Construct`/`PartialApply` for `may_allocate`).
 - **TF-8 `transfer_select`**: spec defines scalar exclusion (if one operand SCALAR, exclude it; downgrade uniqueness to MaybeShared). Shipped: naive `join` without scalar check. (BUG-04-072 class — filed separately.)
 - **`propagate_project_source_demand`**: spec mandates `seq_add` for cardinality (TF-14). Shipped: uses `join` (lattice max / alt_join). (BUG to file.)
-- **DP-9 `decide_cow()` implementation optimizations**: shipped code returns `StaticUnique` for 3 additional `MaybeShared` subcases (`CollectionBuffer + Once`, `ReusableCtor + Once`, `no_active_borrows`) not in the normative spec rules. These derive past uniqueness from future consumption, contradicting DP-10's removal rationale. Formal soundness proofs pending. The spec's DP-9 rules are normative; implementation divergences are tracked here.
 - **TF-11 backward demand model**: the spec's alias-transfer model (IA-5 step 1 transfers accumulated demand for Let Var, Project, Select; TF-11 suppresses direct demand to avoid double-counting) and the shipped implementation's direct-demand model (`backward_demands()` emits `(v, Once)` for Let Var, Project, Select operands) produce EQUIVALENT final states through different mechanisms. The spec uses the alias-transfer model as the normative formal model because it precisely captures the QTT semiring semantics. The implementation's direct-demand approach is a valid simplification that relies on the worklist's additive accumulation to achieve the same convergence. Neither model is "wrong" — they are dual representations. When verifying spec-vs-code consistency, compare CONVERGED STATES (final `AimsStateMap`), not per-instruction demand mechanisms.
 
 ## Mission — Non-Negotiable
@@ -470,8 +469,6 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 - `MaybeShared` (all other cases) `⟹ Dynamic` (runtime IsShared check)
 - `Shared ⟹ StaticShared` (unconditional copy)
 
-**DP-9 implementation note**: the shipped `decide_cow()` also returns `StaticUnique` for `MaybeShared + CollectionBuffer + Once`, `MaybeShared + ReusableCtor + Once`, and `MaybeShared + no_active_borrows`. These are implementation optimizations whose formal soundness proofs are pending — they derive past uniqueness from future consumption (`Once`), which contradicts DP-10's removal rationale. Until formal soundness is established, the spec's DP-9 rules above are the normative reference. These implementation-specific cases are tracked as code-vs-spec divergences in the preamble "partially-shipped" annotations.
-
 **DP-10** — ~~REMOVED (unsound).~~ The former rule claimed `Owned ∧ Linear ∧ Once ⟹ RC == 1`. This is false: backward analysis proves "no future duplication" (consumption/cardinality are FUTURE guarantees) but NOT "no existing aliases" (uniqueness is a PAST guarantee). A shared allocation passed as Owned+Linear+Once still has RC > 1 from aliases created before this program point. Uniqueness is ONLY established by (a) the Uniqueness dimension directly, or (b) fresh allocation (TF-3: FRESH starts Unique). Cross-dimensional "proofs" that derive past from future are unsound.
 
 ---
@@ -726,6 +723,26 @@ The verification stack is **layered**. Each layer catches a different class of i
 **VF-8** — The verification stack applies to ALL rules in this document — including rules from §8 that are not yet implemented. An unimplemented rule without a corresponding verification layer planned is a spec gap.
 
 ---
+
+## §9.5 Graph-first, manual second
+
+Before reading §10's reference-repo citations, query the intelligence graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,koka,lean4 --limit 5`
+  — semantic equivalents across reference compilers in sub-second time
+- `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — blast radius
+  for changes in this domain
+- `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori` — the
+  module inventory before editing
+- `scripts/intel-query.sh --human ori-arc --limit 5` — pre-curated subsystem view
+  for AIMS lattice / RC / reuse / FBIP / TRMC questions
+
+The graph covers Ori plus 10 reference compilers, synced on every commit. Manual reference-repo reading
+stays authoritative — but only AFTER the graph narrows the search. Never
+cite a graph result without verifying against the actual source. See
+`.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
+`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+query protocol used by review-family skills.
 
 ## §10 Prior Art Cross-Reference
 

@@ -86,7 +86,11 @@ Read the existing tool code. Understand:
 - Its conventions (does it follow `_common.sh` patterns? Does it support `--help`?)
 - Where the gap is in the code
 
-Before creating a new tool, if the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`), check if similar tools already exist: `scripts/intel-query.sh --human symbols "<keyword>" --repo ori --kind function --limit 10`
+Before creating a new tool, run the intelligence pre-query to check if similar tools already exist. Follow the canonical intel-summary injection protocol:
+
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
+Per SSOT Step F — /improve-tooling uses `symbols "<keyword>" --repo ori --kind function --limit 10` to find existing tool functions before creating a new one.
 
 ### Step 3: Fix the Tool
 

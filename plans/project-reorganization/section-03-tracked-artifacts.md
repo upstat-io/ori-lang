@@ -133,6 +133,10 @@ Remove the two leaked files from git tracking (but not from disk — they stay a
         via `build(scripts): add gitignore-leaks.sh — surfaced by
         project-reorganization/section-03.1 retrospective`. If no:
         "Retrospective 03.1: no tooling gaps — direct git ls-files adequate."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -192,6 +196,10 @@ The existing `**/build/` rule at `.gitignore:5` **already matches both files**. 
         `docs(development): document git check-ignore tracked-file gotcha —
         surfaced by project-reorganization/section-03.2 retrospective (TPR
         iteration 3)`.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -288,6 +296,10 @@ Refs: plans/project-reorganization/section-03-tracked-artifacts.md"
         — surfaced by project-reorganization/section-03.3 retrospective`.
         Otherwise: "Retrospective 03.3: no tooling gaps — direct git
         check-ignore adequate for single-rule verification."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -361,5 +373,6 @@ Refs: plans/project-reorganization/section-03-tracked-artifacts.md"
 - [ ] `/tpr-review` passed — simple section; review should be brief
 - [ ] `/impl-hygiene-review` passed (AFTER TPR clean)
 - [ ] `/improve-tooling` **section-close sweep** — per-subsection retrospectives (03.1, 03.2, 03.3) should already be committed. Cross-subsection pattern check: is there a single reusable `scripts/dev/gitignore-sanity.sh` helper that combines the leak-finder (03.1), the pattern-pairing knowledge (03.2), and the negative-rule verifier (03.3)? If yes, consolidate the three per-subsection helpers (if any were built) into one and commit via `build(scripts): consolidate gitignore-sanity.sh — surfaced by section-03 close sweep`. If no cross-cutting value: document "Section-03 close sweep: per-subsection retrospectives covered everything; the three helpers are independent enough that consolidation is not warranted."
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 **Exit Criteria:** `git ls-files build/` returns empty. `git check-ignore -v --no-index build/debug/simplest_crash.ll` matches `.gitignore:5:**/build/` (the existing rule — no new rule needed). `git ls-files compiler/oric/src/commands/build/` returns its tracked files (negative rule preserved). `profile.json.gz` still tracked. `./test-all.sh` green. A single commit (`fix(plan): remove tracked build/debug leak`) contains exactly **2 file operations** (both deletions; NO `.gitignore` edit per iteration 3 correction). Mission success criterion "Tracked build/debug artifacts removed" is satisfied.

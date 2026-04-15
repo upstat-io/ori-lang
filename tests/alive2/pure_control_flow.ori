@@ -1,0 +1,54 @@
+// Pure control-flow and arithmetic functions for Alive2 translation validation.
+//
+// These functions contain no runtime calls (RC, alloc, panic),
+// no exception handling (invoke/landingpad), and no closures.
+// All survive -O2 optimization (not inlined away).
+// Verify with: diagnostics/alive2-verify.sh --check-survival tests/alive2/pure_control_flow.ori
+
+@gcd (a: int, b: int) -> int = {
+    if b == 0 then a
+    else gcd(a: b, b: a % b)
+}
+
+@power (base: int, exp: int) -> int = {
+    if exp == 0 then 1
+    else base * power(base:, exp: exp - 1)
+}
+
+@fibonacci (n: int) -> int = {
+    if n <= 0 then 0
+    else if n == 1 then 1
+    else fibonacci(n: n - 1) + fibonacci(n: n - 2)
+}
+
+@min_val (a: int, b: int) -> int = {
+    if a < b then a else b
+}
+
+@clamp (value: int, lo: int, hi: int) -> int = {
+    if value < lo then lo
+    else if value > hi then hi
+    else value
+}
+
+@sign (x: int) -> int = {
+    if x < 0 then -1
+    else if x > 0 then 1
+    else 0
+}
+
+@sum_to (n: int) -> int = {
+    if n <= 0 then 0
+    else n + sum_to(n: n - 1)
+}
+
+@main () -> void = {
+    let $g = gcd(a: 48, b: 18);
+    let $p = power(base: 2, exp: 10);
+    let $f = fibonacci(n: 10);
+    let $m = min_val(a: 3, b: 7);
+    let $c = clamp(value: 15, lo: 0, hi: 10);
+    let $s = sign(x: -42);
+    let $t = sum_to(n: 100);
+    print(msg: `{g} {p} {f} {m} {c} {s} {t}`)
+}

@@ -46,9 +46,10 @@ Every piece of knowledge in the compiler has exactly **one canonical home**. All
 | Memory analysis facts (ownership, borrowing) | AIMS (`ori_arc`) | Borrow/ownership annotations on IR |
 | Representation decisions (layout, ABI) | repr-opt (`ori_llvm`) | Codegen queries |
 | Language semantics | Spec (`docs/ori_lang/v2026/spec/`) | Developer reference |
-| Syntax | Grammar (`spec/grammar.ebnf`) | Parser implementation |
+| Syntax | Grammar (`docs/ori_lang/v2026/spec/grammar.ebnf`) | Parser implementation |
 | Diagnostic identity | Error codes (`ori_diagnostic`) | Code-based matching |
 | Incremental computation | Salsa DB | Memoized query results |
+| Plan schema + corpus parsing | `scripts/plan_corpus/` package (`schemas.py` dataclass SSOTs + `parser.py` strict YAML + `FILE_CLASS_META` registry in `schema.py`) | `from scripts.plan_corpus import ...` — all plan-audit tooling; no shadow parsers or schema definitions elsewhere |
 
 **Three failure modes:**
 
@@ -174,7 +175,7 @@ Hot: lexer scan loop, parser expression/statement parsing, type inference unific
 - **Expected context**: every "expected X, got Y" MUST include WHY — annotation, return type, parameter
 - **Deduplication**: deduplicate by (error code, primary span). Suppress follow-on: if error at span S produces TyError, suppress subsequent type errors involving TyError at child spans.
 - **Edit-distance suggestions**: Damerau-Levenshtein for "did you mean?" — threshold: `distance <= min(name.len() - 1, max(2, name.len() / 3))`
-- **Error codes are stable API**: once assigned, never reuse or change meaning. Ranges: E0xxx = parse, E1xxx = type check, E2xxx = semantic. Tests assert on error codes, not exact message text.
+- **Error codes are stable API**: once assigned, never reuse or change meaning. Ranges: E0xxx = lexer, E1xxx = parser, E2xxx = type check, E3xxx = pattern/semantic, E4xxx = ARC, E5xxx = codegen/LLVM, E6xxx = runtime/eval, E9xxx = internal; W1xxx/W2xxx = warnings. Tests assert on error codes, not exact message text.
 - **Anti-patterns**: `match err { Err(_) => Ok(default) }`, `if let Ok(x) = fallible` (silently drops error), `.unwrap_or_default()` on Result in production code
 
 ### Diagnostic Message Quality
@@ -310,6 +311,25 @@ All identifiers, types, and expressions that are compared for equality or used a
 - **Violation detection**: grep for `== "identifier_name"` in non-test code. Any string comparison that should be a `Name` comparison is a LEAK:scattered-knowledge — the interning layer is being bypassed.
 - **Pre-interned constants**: frequently-used names (keywords, builtins, common method names) should be pre-interned at startup for O(1) lookup. If the same string is interned per-call-site, that's a WASTE.
 
+### Graph-first, manual second
+
+Before reading the reference-compiler patterns below, query the intelligence graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,zig,lean4 --limit 5`
+  — semantic equivalents for the pattern / invariant you're investigating
+- `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — blast radius
+  when tightening a hygiene rule
+- `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori` — the
+  module inventory before a cross-phase refactor
+
+Implementation hygiene is cross-cutting — no single subsystem preset covers
+it. The graph covers Ori plus 10 reference compilers, synced on every commit. Manual reference-repo
+reading stays authoritative — but only AFTER the graph narrows the search.
+Never cite a graph result without verifying against the actual source. See
+`.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
+`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+query protocol used by review-family skills.
+
 ### Aspirational Patterns (from Reference Compilers)
 
 Patterns used by established compilers that Ori should grow toward. Not current violations — these are architectural north stars for future hygiene reviews to measure against.
@@ -420,6 +440,17 @@ Algorithmic DRY is the complement of SSOT:
 - **Algorithmic DRY** asks: "where is this *operation* defined?" — answer must be one place
 
 When both apply (e.g., a dispatch table that encodes both facts and routing), fix the SSOT violation first (centralize the data), then the algorithmic violation (consolidate the routing logic that queries it). The data-driven dispatch pattern often fixes both at once.
+
+### Precedents — SSOT-via-@-include for Skill Protocols
+
+For skill/command protocols (multi-step procedures referenced by many consumers), the canonical fix for `LEAK:algorithmic-duplication` is to extract the protocol into a sibling `.md` file and have every consumer `@`-include it. The Claude harness splices the included file into the prompt at expansion time — no runtime duplication, updates propagate automatically, and the SSOT invariant becomes `grep`-verifiable.
+
+Two precedents live in `.claude/skills/dual-tpr/`:
+
+- **`polling-protocol.md`** (early April 2026) — consolidated three inlined polling blocks (`/tpr-review`, `/review-work`, `/tp-help`) after the tp-help copy drifted slightly from the others. Surfaced empirically during `plans/dual-tpr-gemini` §07.3 Scenario 1.
+- **`compose-intel-summary.md`** (2026-04-14, `plans/query-intel-adoption` §03) — consolidated 18 inlined intel-pre-query blocks across every review-family skill and 12 wider skills that use the intelligence graph. Surfaced by a dual-source TPR `LEAK:algorithmic-duplication [high]` finding plus a grep-based scope audit.
+
+The invariant for each SSOT is: `grep -l '<unique-pattern>' .claude/ -r` returns at most N files — the SSOT itself plus any legitimate teaching surfaces that reference the pattern by name (e.g., `.claude/rules/<rule>.md` describing the command). All consumers acquire the protocol via `@`-include.
 
 ## File Organization
 
@@ -613,7 +644,7 @@ Inline comments on struct fields when purpose isn't obvious.
 - No test ordering dependencies; no shared mutable state between tests
 - Descriptive names — see §Test Function Naming below
 - No `#[ignore]` without a tracking issue/reason
-- **Test data**: fixtures in `tests/fixtures/` or `tests/spec/`. No hardcoded absolute paths — use relative paths or `CARGO_MANIFEST_DIR`. Test data committed to repo.
+- **Test data**: fixtures in `tests/spec/`, `diagnostics/fixtures/`, or crate-local fixture dirs (e.g., `compiler/ori_llvm/tests/aot/fixtures/`). No hardcoded absolute paths — use relative paths or `CARGO_MANIFEST_DIR`. Test data committed to repo.
 
 ### Test Function Naming
 

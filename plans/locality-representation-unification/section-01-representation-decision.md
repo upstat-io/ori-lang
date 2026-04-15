@@ -302,6 +302,7 @@ When all findings are triaged:
 - [ ] `/tpr-review` passed — Codex review confirms the decision document is internally consistent and Section 02 can derive its implementation from it without further design judgement
 - [ ] `/impl-hygiene-review` passed — verifies no spurious code or test changes were made in this research-only section
 - [ ] `/improve-tooling` retrospective completed — for a research-only section, the retrospective may be brief. Reflect on: was there a need for a "decision document template" tool that this and future plan creation runs would benefit from? Was the cross-referencing to `00-overview.md` mission criteria error-prone? Did the implementer have to manually verify the Pass 4 file:line citations are still accurate after Section 00's split? Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. If genuinely no gaps, document briefly: "Retrospective: research-only section, no diagnostic tooling exercised, no gaps."
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 **Exit Criteria:** A reviewer can read the decision document and answer all 5 of these questions without consulting any other source:
 1. What variants does `Locality` have, in what order, and why is `ArgEscaping` between `FunctionLocal` and `HeapEscaping` specifically?

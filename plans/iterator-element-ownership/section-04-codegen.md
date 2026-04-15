@@ -49,6 +49,10 @@ Every C-ABI runtime function is declared in this file. Update signatures to matc
   - [ ] All tasks above are `[x]` and behavior verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -65,6 +69,10 @@ Every C-ABI runtime function is declared in this file. Update signatures to matc
   - [ ] All tasks above are `[x]` and behavior verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -82,6 +90,10 @@ Every C-ABI runtime function is declared in this file. Update signatures to matc
   - [ ] All tasks above are `[x]` and behavior verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -111,6 +123,10 @@ For each consumer emission function, generate `elem_dec_fn` and add it to the ca
   - [ ] All tasks above are `[x]` and behavior verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---

@@ -72,12 +72,11 @@ The plan defines phases A through M for each program. Execute them **sequentiall
 - **F. Memory & ARC Verification** — leak check, RC trace, runtime debug, ARC/LLVM verify, RC stats, codegen audit, bisect
 - **G. Debug Symbols & Binary Quality** — readelf, line tables, binary sizes
 - **H. Performance Benchmarking** — interpreter/AOT/release timing, compile times, speedup ratios
-- **I. Cross-Language Intelligence** — if the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`), query the graph for Ori symbol inventory and cross-repo equivalents:
-  - `scripts/intel-query.sh --human symbols "<feature keyword>" --repo ori --limit 15`
-  - `scripts/intel-query.sh --human file-symbols "<suspect module path>" --repo ori`
-  - `scripts/intel-query.sh --human callers "<failing symbol>" --repo ori` and `callees`
-  - `scripts/intel-query.sh --human similar "<failing symbol>" --repo rust,swift,go --limit 5`
-  - `scripts/intel-query.sh --human search "<failure mode>" --limit 5`
+- **I. Cross-Language Intelligence** — follow the canonical intel-summary injection protocol:
+
+  @.claude/skills/dual-tpr/compose-intel-summary.md
+
+  Per SSOT Step F — /rosetta-test uses these extension queries: `symbols "<feature keyword>" --repo ori --limit 15`, `file-symbols "<suspect module path>" --repo ori`, `callers "<failing symbol>" --repo ori`/`callees`, `similar "<failing symbol>" --repo rust,swift,go --limit 5`, `search "<failure mode>" --limit 5`.
 - **J. Bug Filing & Findings** — file any crashes, wrong output, leaks, missing features
 - **K. `/tpr-review`** — independent dual-source review
 - **L. Results Report** — formatted results to user, record in plan

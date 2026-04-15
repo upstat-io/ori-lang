@@ -132,27 +132,19 @@ STEP 1: Read `.claude/skills/design-pattern-review/prior-art-ref.md` section {N}
 for an overview of patterns in this domain.
 
 STEP 1.5: CONDITIONAL — Intelligence Pre-Query
-If the intelligence graph is available (check: run `scripts/intel-query.sh status`
-via Bash and parse the JSON output — if the `status` field is not `"ok"`, skip
-this step silently):
 
-Check if {DOMAIN} maps to an intelligence preset per .claude/rules/intelligence.md
-§Subsystem Mapping (e.g., "arc-optimization" → ori-arc, "pattern-matching" →
-ori-patterns). If so, use the preset; otherwise use compare/search with the
-domain name.
+Follow the canonical intel-summary injection protocol:
 
-Run these queries via Bash (output stays in your context — do NOT capture into
-shell variables):
-  scripts/intel-query.sh --human compare "{DOMAIN}" --limit 5
-  scripts/intel-query.sh --human search "{DOMAIN}" --limit 5
-  # If a preset was identified: scripts/intel-query.sh --human <preset> --limit 5
+@.claude/skills/dual-tpr/compose-intel-summary.md
 
-  # Map Ori's current implementation for this domain:
-  scripts/intel-query.sh --human symbols "{DOMAIN keyword}" --repo ori --kind function --limit 15
-  scripts/intel-query.sh --human file-symbols "{relevant/path}" --repo ori
-  scripts/intel-query.sh --human callers "{DOMAIN entry symbol}" --repo ori
-  scripts/intel-query.sh --human callees "{DOMAIN entry symbol}" --repo ori
-  scripts/intel-query.sh --human similar "{DOMAIN entry symbol}" --repo rust,swift,zig,gleam --limit 5
+**Design-pattern-review extension** (per SSOT Step F):
+
+If {DOMAIN} maps to an intelligence preset per `.claude/rules/intelligence.md` §Subsystem Mapping (e.g., "arc-optimization" → `ori-arc`, "pattern-matching" → `ori-patterns`), use the preset. Otherwise use `compare`/`search` with the domain name. Additional queries beyond the SSOT base set:
+
+- `scripts/intel-query.sh --human compare "{DOMAIN}" --limit 5`
+- `scripts/intel-query.sh --human search "{DOMAIN}" --limit 5`
+- `scripts/intel-query.sh --human symbols "{DOMAIN keyword}" --repo ori --kind function --limit 15` (map Ori's current implementation)
+- `scripts/intel-query.sh --human similar "{DOMAIN entry symbol}" --repo rust,swift,zig,gleam --limit 5`
 
 Use results to:
 - Identify which of your assigned 2-3 repos have the most relevant prior art

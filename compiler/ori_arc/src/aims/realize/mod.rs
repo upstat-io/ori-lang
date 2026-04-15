@@ -40,7 +40,7 @@ use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use crate::uniqueness::drop_hints::DropHints;
-use crate::uniqueness::{CowAnnotations, CowMode};
+use crate::uniqueness::CowAnnotations;
 
 /// Result of the unified realization — all outputs in one struct.
 ///
@@ -273,7 +273,9 @@ fn annotate_block(
     drop_hints: &mut DropHints,
     synergy: &mut metrics::SynergyMetrics,
 ) {
-    use crate::aims::emit_rc::{is_borrow_disjoint_from_siblings, is_collection_var};
+    use crate::aims::emit_rc::{
+        has_borrows_from_aggregate, is_borrow_disjoint_from_siblings, is_collection_var,
+    };
     use crate::aims::realize::decide::{decide_annotations, AnnotationSiteContext};
 
     for (instr_idx, instr) in block.body.iter().enumerate() {
@@ -308,7 +310,8 @@ fn annotate_block(
             consumption: state.consumption,
             cardinality: state.cardinality,
             shape: ctx.state_map.var_shape(var),
-            is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, var),
+            is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, var, blk),
+            has_active_borrows: has_borrows_from_aggregate(ctx.state_map, var),
             is_collection: is_collection_var(ctx.func, var, ctx.pool),
         };
 
@@ -316,14 +319,6 @@ fn annotate_block(
 
         if let Some(mode) = decisions.cow {
             synergy.total_cow_decisions += 1;
-            // Cross-dim upgrade: MaybeShared uniqueness → StaticUnique via
-            // combined state proof (COW-aware borrowing, CollectionBuffer+Once,
-            // ReusableCtor+Once, disjoint borrow).
-            if site_ctx.uniqueness == crate::aims::lattice::Uniqueness::MaybeShared
-                && mode == CowMode::StaticUnique
-            {
-                synergy.cow_upgrades += 1;
-            }
             tracing::debug!(
                 block_idx,
                 instr_idx,
@@ -359,18 +354,14 @@ fn annotate_block(
                 consumption: state.consumption,
                 cardinality: state.cardinality,
                 shape: ctx.state_map.var_shape(receiver),
-                is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, receiver),
+                is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, receiver, blk),
+                has_active_borrows: has_borrows_from_aggregate(ctx.state_map, receiver),
                 is_collection: is_collection_var(ctx.func, receiver, ctx.pool),
             };
 
             let decisions = decide_annotations(&site_ctx, true, false);
             if let Some(mode) = decisions.cow {
                 synergy.total_cow_decisions += 1;
-                if site_ctx.uniqueness == crate::aims::lattice::Uniqueness::MaybeShared
-                    && mode == CowMode::StaticUnique
-                {
-                    synergy.cow_upgrades += 1;
-                }
                 cow_annotations.set(block_idx, block.body.len(), mode);
             }
         }

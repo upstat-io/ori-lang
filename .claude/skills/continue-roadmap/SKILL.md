@@ -378,25 +378,23 @@ This ensures:
 
 After determining the focus section in Step 2, optionally query the intelligence graph for cross-language context relevant to this section's domain. This step runs at most ONCE per section focus within the current conversation session — if the focus section hasn't changed since the last query in this session, skip (the results are still in Claude's context). No cross-session persistence is needed; a new session starts fresh.
 
-1. **Check availability**: Run `scripts/intel-query.sh status` via Bash and parse the JSON output. If the `status` field is not `"ok"`, skip silently.
+Follow the canonical intel-summary injection protocol:
 
-2. **Extract query terms** from the focus section's frontmatter:
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
+**Continue-roadmap extension** (per SSOT Step F — per-section reconnaissance):
+
+1. **Extract query terms** from the focus section's frontmatter:
    - Use the `title` field as the primary search term (always valid for `search` queries)
    - Use the `goal` field for additional context keywords
    - **Preset mapping is opportunistic**: `.claude/rules/intelligence.md` §Subsystem Mapping maps *file path patterns* (e.g., `compiler/ori_arc/`) to presets, not section titles. If the section title clearly maps to a subsystem (e.g., "ARC Optimization" → `ori-arc`, "Type Inference" → `ori-inference`), use the preset. Otherwise, `search "<title>"` is sufficient.
 
-3. **Skip condition**: If the section title indicates infrastructure or tooling work (e.g., contains "CLI", "Tooling", "Testing Framework", "Build System", "Documentation") rather than a compiler/language feature, skip this step — cross-compiler intelligence has low relevance for project-specific infrastructure.
+2. **Skip condition**: If the section title indicates infrastructure or tooling work (e.g., contains "CLI", "Tooling", "Testing Framework", "Build System", "Documentation") rather than a compiler/language feature, skip this step — cross-compiler intelligence has low relevance for project-specific infrastructure.
 
-4. **Run query** (output visible in Claude's context — do NOT capture into shell variables):
-   ```
-   scripts/intel-query.sh --human search "<title keywords>" --limit 5
-   ```
-   If a preset was identified: `scripts/intel-query.sh --human <preset> --limit 5`
-
-   If the section body contains concrete file paths or symbol names:
-   - `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori`
-   - `scripts/intel-query.sh --human callers "<symbol>" --repo ori` and `callees "<symbol>" --repo ori`
-   - `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5`
+3. **Run domain-specific queries** on top of the SSOT base set:
+   - `scripts/intel-query.sh --human search "<title keywords>" --limit 5`
+   - If a preset was identified: `scripts/intel-query.sh --human <preset> --limit 5`
+   - If the section body contains concrete file paths or symbol names, also use `file-symbols`, `callers`/`callees`, `similar` per Step C of the SSOT.
 
 5. Hold results as "Cross-language context for Section {NN}:" — use when making design decisions within the section. Do NOT inject into every subsection prompt; reference as needed.
 

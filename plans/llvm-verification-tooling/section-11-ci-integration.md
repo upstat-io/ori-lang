@@ -82,6 +82,8 @@ The every-commit tier runs on every PR. It must be fast (add at most 3 minutes t
   - **§08**: Sanitizer smoke (if §08 added a smoke job — check)
   - **MISSING (known)**: `ori test --backend=llvm tests/` — LLVM backend spec tests
 
+- [ ] Ensure `--emit` build path runs `CaptureHooks` for IR capture (deferred from `[TPR-09-026-codex]` — currently `--emit` bypasses alive2 capture, which means developer-facing builds can't be verified) <!-- unblocks:09.R -->
+
 - [ ] Add LLVM backend spec tests to the every-commit CI if not already present:
   ```yaml
   - name: Ori LLVM backend tests
@@ -118,6 +120,10 @@ The every-commit tier runs on every PR. It must be fast (add at most 3 minutes t
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey for 11.1 specifically: CI configuration debugging, workflow syntax issues, timing analysis. Implement every accepted improvement NOW and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`ci: ...`).
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -171,6 +177,13 @@ The nightly tier runs on a schedule (e.g., 2:00 AM UTC). It runs more expensive 
         # ... from §11.4 below
   ```
 
+- [ ] Harden Alive2 suppression workflow — deferred from Section 09 TPR:
+  - [ ] Suppressions must run alive-tv with suppression-aware checking so stale suppressions are detected when the underlying false positive is resolved (`[TPR-09-022-codex]`) <!-- unblocks:09.R -->
+  - [ ] Normalize artifact paths to repo-relative in both `ir_capture.rs` and `alive2-verify.sh` to eliminate absolute vs relative path inconsistency (`[TPR-09-023-codex]`) <!-- unblocks:09.R -->
+  - [ ] Add `suppression-stale` status to `tests/alive2/results-schema.json` so the schema can represent stale suppressions (`[TPR-09-024-codex]`, depends on TPR-09-022) <!-- unblocks:09.R -->
+  - [ ] `scripts/build-alive2.sh --cached` must verify the cached binary matches the pinned commit hash, not just that a cached binary exists (`[TPR-09-025-codex]`) <!-- unblocks:09.R -->
+  - [ ] Z3 preflight detection in `scripts/build-alive2.sh` must check for dev headers/libs, not just CLI presence — cmake FindZ3 handles build-time discovery but preflight should warn early (`[TPR-09-027-codex]`) <!-- unblocks:09.R -->
+
 - [ ] Audit which nightly gates should already exist from earlier sections:
   - **§03**: AIMS snapshot tests (`cargo test -p oric --test aims_snapshots`)
   - **§08**: Full sanitizer suite (ASan/UBSan on AOT smoke subset)
@@ -203,6 +216,10 @@ The nightly tier runs on a schedule (e.g., 2:00 AM UTC). It runs more expensive 
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 11.1's close-out, scoped to 11.2's debugging journey. Commit improvements separately using a valid conventional-commit type.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -282,6 +299,10 @@ The weekly tier runs expensive, exhaustive verification: full fuzzing campaigns,
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -324,6 +345,10 @@ Extend the existing `debug-release-compare.sh` to capture and compare ARC IR bet
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -367,6 +392,10 @@ Create a diagnostic script that wraps LLVM's `opt --opt-bisect-limit` to binary-
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---

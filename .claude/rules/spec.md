@@ -27,7 +27,7 @@ Style: ISO/IEC Directives, Part 2. Sync rules in `.claude/rules/ori-lang.md`.
 
 ### What does NOT require this gate:
 - Updating `ori-syntax.md` (quick reference in `.claude/rules/`) to reflect already-approved changes
-- Updating design docs (`docs/ori_lang/design/`)
+- Updating design docs (`docs/compiler/design/`)
 - Updating proposals themselves (`docs/ori_lang/proposals/`)
 
 ### No exceptions — these are NOT valid bypass reasons:
@@ -44,7 +44,7 @@ Style: ISO/IEC Directives, Part 2. Sync rules in `.claude/rules/ori-lang.md`.
 
 ## Spec vs Design
 - Specification: what IS valid Ori (normative, formal)
-- Design (`../design/`): explains WHY (tutorial tone)
+- Design (`docs/compiler/design/`): explains WHY (tutorial tone)
 
 **Never tutorial language. Never "you" or "best practice".**
 
@@ -73,7 +73,7 @@ Style: ISO/IEC Directives, Part 2. Sync rules in `.claude/rules/ori-lang.md`.
 
 **Reference via annex:**
 ```markdown
-> **Grammar:** See [Annex A](grammar.md) §A.SECTION_NAME
+> **Grammar:** See [Annex A](grammar.ebnf) §A.SECTION_NAME
 > **Rules:** See [Annex B](operator-rules.md) §B.OPERATOR_NAME
 ```
 

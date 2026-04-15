@@ -5,16 +5,40 @@
 //! COW annotations are now computed by `realize_annotations()` (Section 10).
 
 use crate::aims::intraprocedural::state_map::AimsStateMap;
-use crate::aims::lattice::{
-    AccessClass, AimsState, BorrowSource, Cardinality, Consumption, Uniqueness,
-};
-use crate::ir::ArcVarId;
+use crate::aims::lattice::{BorrowSource, Uniqueness};
+use crate::ir::{ArcBlockId, ArcVarId};
+
+#[cfg(test)]
+mod tests;
+
+/// Check if any borrow from the given aggregate exists anywhere in the function.
+///
+/// Spec DP-5 requires `no_active_overlapping_borrows` for in-place mutation.
+/// This is a FUNCTION-WIDE conservative check: if ANY `BorrowSource::Exact`
+/// entry has `source == aggregate`, return `true`. No block or instruction
+/// liveness parameter — maximally conservative to avoid the block-entry
+/// liveness unsoundness (backward analysis removes variables at definition,
+/// making mid-block borrows invisible at block entry).
+pub(crate) fn has_borrows_from_aggregate(state_map: &AimsStateMap, aggregate: ArcVarId) -> bool {
+    state_map.borrows_from_source(aggregate).next().is_some()
+}
 
 /// Check if a receiver's borrow is disjoint from all sibling borrows.
 ///
+/// Spec §DP-5 + §RL-10 (local field-disjoint mutation) require that the
+/// source is provably uniquely owned at the receiver's program point AND
+/// the receiver's borrow field is disjoint from every sibling borrow.
+/// Source uniqueness is established SOLELY by the Uniqueness dimension —
+/// the former cross-dimensional path using `is_cow_aware_unique`
+/// (`Owned + Linear + Once`) was removed as unsound per §DP-10 removal
+/// rationale (derived past uniqueness from future consumption, which
+/// cannot prove RC == 1 at the present program point). §RL-31 is the
+/// related interprocedural rule for `noalias` metadata on disjoint
+/// borrowed parameters; this helper implements the local mutation case.
+///
 /// For the optimization to apply, ALL of:
 /// 1. The receiver has `BorrowSource::Exact { source, field: Some(f) }`
-/// 2. The source variable is `Unique` (or qualifies for COW-aware borrowing)
+/// 2. The source variable has `Uniqueness::Unique`
 /// 3. ALL other borrows from the same source have field info (`Some(g)`)
 ///    where `g != f` — i.e., they borrow different fields
 ///
@@ -23,6 +47,7 @@ use crate::ir::ArcVarId;
 pub(crate) fn is_borrow_disjoint_from_siblings(
     state_map: &AimsStateMap,
     receiver: ArcVarId,
+    block: ArcBlockId,
 ) -> bool {
     let Some(&BorrowSource::Exact {
         source,
@@ -32,9 +57,14 @@ pub(crate) fn is_borrow_disjoint_from_siblings(
         return false;
     };
 
-    // Check that the source is uniquely owned.
-    let source_state = state_map.var_state_at_block_entry(super::block_id(0), source);
-    if source_state.uniqueness != Uniqueness::Unique && !is_cow_aware_unique(&source_state) {
+    // Source uniqueness must be proved by the Uniqueness dimension itself
+    // AT THE RECEIVER'S ACTUAL PROGRAM POINT — not at function entry. A
+    // source may be Unique at entry but become MaybeShared later via
+    // RcInc; using the entry state would incorrectly promote a MaybeShared
+    // receiver to StaticUnique (pre-existing bug
+    // exposed by removal of the `is_cow_aware_unique` fallback).
+    let source_state = state_map.var_state_at_block_entry(block, source);
+    if source_state.uniqueness != Uniqueness::Unique {
         return false;
     }
 
@@ -54,26 +84,4 @@ pub(crate) fn is_borrow_disjoint_from_siblings(
     }
 
     true
-}
-
-/// Check if a variable's combined state qualifies for COW-aware borrowing.
-///
-/// The combined state `(Owned, Linear, Once)` proves unique ownership from
-/// cross-dimensional reasoning:
-/// - `Owned`: callee received ownership transfer (one reference)
-/// - `Linear`: callee consumes the value exactly once (no duplication/RcInc)
-/// - `Once`: single use point (no additional references created)
-///
-/// Together, these guarantee that at the COW mutation point, the callee has
-/// the only reference it was given and has not created additional ones. This
-/// allows `StaticUnique` even when `uniqueness` is `MaybeShared` (conservative
-/// backward default for parameters).
-///
-/// Note: this optimization requires the caller to pass `ArgOwnership::Owned`
-/// (not borrowed). The `access == Owned` check confirms the callee's contract
-/// demands ownership.
-fn is_cow_aware_unique(state: &AimsState) -> bool {
-    state.access == AccessClass::Owned
-        && state.consumption == Consumption::Linear
-        && state.cardinality == Cardinality::Once
 }

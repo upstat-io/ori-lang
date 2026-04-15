@@ -57,47 +57,13 @@ Bash:
 
 ## Step 0.75 — CONDITIONAL: Intelligence Pre-Query
 
-Query the intelligence graph for context relevant to the review. The graph contains THREE capabilities — use whichever apply to the review mode:
-1. **Code symbol queries** (`symbols`, `callers`, `callees`, `file-symbols`) — 32K+ Ori symbols + 24K+ call edges, synced on every commit. ~100x faster than grep for finding code symbols, call graphs, and file inventories. Useful in ALL review modes when the subject references Ori code.
-2. **Cross-language issue/PR search** (`search`, `compare`, `fixed`, `hot`) — prior art from 10 reference compiler repos. Most useful in code review mode.
-3. **Semantic similarity** (`similar`) — vector-embedding equivalence across repos. Useful when comparing implementations.
+Query the intelligence graph for context relevant to the review. **In custom objective mode**, use the intelligence graph if the objective involves any Ori code, skills, or compiler artifacts — the symbol index is the fastest way to resolve references.
 
-This step runs when the graph is available and produces results; it is skipped silently when the graph is unavailable or returns no hits. **In custom objective mode**, use the intelligence graph if the objective involves any Ori code, skills, or compiler artifacts — the symbol index is the fastest way to resolve references.
+Follow the canonical intel-summary injection protocol:
 
-1. **Check availability** via the `status` subcommand (returns JSON):
-   ```
-   Bash:
-     scripts/intel-query.sh status
-   ```
-   Parse the JSON output: if the `status` field is not `"ok"`, skip this step silently. Do not mention intelligence in prompts.
+@.claude/skills/dual-tpr/compose-intel-summary.md
 
-2. **Identify subsystem(s)** from the review scope. For code/plan modes, use the same git range as the review (e.g., `git diff --name-only HEAD~5..HEAD` for committed changes, or `git diff --name-only` for unstaged changes — match the scope from Step 0.5). For custom objective mode, extract relevant file paths or symbol names from the objective text. Map subsystems to presets per `.claude/rules/intelligence.md` §Subsystem Mapping. For custom objectives that reference specific files or symbols, use `symbols` or `file-symbols` queries directly. Do NOT hardcode the mapping here — always reference the rule file.
-
-3. **Run the query** (output is visible in Claude's context — do NOT capture into a variable):
-   ```
-   Bash:
-     scripts/intel-query.sh --human <preset-or-search> --limit 5
-   ```
-   Read the output. If empty or only unavailability messages, skip silently.
-
-   3a. **Map the reviewed code surface** — For the top 3-5 changed files or touched symbols:
-      - `scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori`
-      - `scripts/intel-query.sh --human callers "<symbol>" --repo ori`
-      - `scripts/intel-query.sh --human callees "<symbol>" --repo ori`
-      - `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5`
-      Use this output to enrich the Intelligence Summary with blast radius and reference-repo equivalents, not just issue/PR prior art.
-
-4. **Condense** the query results into a bounded Intelligence Summary (max 500 chars):
-   ```
-   **Intelligence Summary (from intelligence graph):**
-   - [rust#12345] Similar ARC bug in iterator early-exit (fixed, 45 comments)
-   - [swift#6789] Protocol witness table leak on break (fixed, 12 comments)
-   - [ori] eval_iter_next called by 14 sites — call graph available via `callers`
-   ```
-
-5. **Hold the summary in context.** In Step 2 (Write both reviewer prompts), write the summary directly into BOTH `codex.prompt.md` and `gemini.prompt.md`, after the `## Scope:` header. Do NOT use shell variable interpolation — the prompts use single-quoted heredocs (`<<'PROMPT'`) which suppress expansion. Instead, assemble the prompt content programmatically (e.g., using the Write tool or a double-quoted heredoc for the section that includes the summary). Reviewers should use the intelligence summary as a pointer to investigate, not as authoritative evidence.
-
-If intelligence is unavailable or returns no results, skip silently — do not include an empty intelligence section or "no results found" in the prompts.
+**Placement for dual-source review prompts**: In Step 2 (Write both reviewer prompts), write the summary directly into BOTH `codex.prompt.md` and `gemini.prompt.md`, after the `## Scope:` header. Do NOT use shell variable interpolation — the prompts use single-quoted heredocs (`<<'PROMPT'`) which suppress expansion. Instead, assemble the prompt content programmatically (e.g., using the Write tool or a double-quoted heredoc for the section that includes the summary). Reviewers should use the intelligence summary as a pointer to investigate, not as authoritative evidence.
 
 ## ABSOLUTE: You May NEVER Reason Out of Findings
 
@@ -342,6 +308,50 @@ Bash:
 
 Each semantic iteration gets a fresh `$RUN` (e.g. `/tmp/ori-tpr-XXXXXXXX`). Reuse across iterations is forbidden — a stale envelope from the previous round would corrupt the merge.
 
+### 1.5. Compose the Rules Brief (MANDATORY)
+
+Before writing reviewer prompts, dynamically compose a tailored rules brief
+so reviewers get focused, relevant rules — not a 3,000-line firehose they
+will skim.
+
+**Step A — Classify changed files into subsystems:**
+
+```
+Bash:
+  python3 scripts/rules-for-review.py --diff {review_range} --mode json
+```
+
+(For staged/unstaged reviews, use `--files` with the file list from
+`git diff --name-only` instead of `--diff`.)
+
+This outputs JSON with: `changed_files`, `subsystems`, and `rules`
+(split into `critical` and `reference` lists, each with `file` and `why`).
+
+**Step B — Spawn a Sonnet subagent to compose the brief:**
+
+```
+Agent(model=sonnet):
+  description: "Compose rules brief for {subsystems} review"
+  prompt: <use the template from .claude/skills/dual-tpr/compose-rules-brief.md,
+           filling in {CLASSIFIER_JSON}, {DIFF_SUMMARY}, {REVIEW_OBJECTIVE}>
+```
+
+The Sonnet agent reads the classified rule files + CLAUDE.md, identifies the
+specific rules/invariants relevant to the diff, and outputs a ~200-400 line
+Rules Brief with:
+- Finding vocabulary (LEAK/DRIFT/GAP/WASTE/etc.)
+- Per-file sections with rule anchors (TR-2, NR-1, RL-2, etc.)
+- Only the rules that matter for this specific change
+
+**Step C — Hold the Rules Brief in context.** The output is used in Step 2
+to replace the static grounding block in both reviewer prompts. See the
+updated prompt templates below.
+
+If the classifier detects no files or the subagent fails, fall back to the
+static grounding block listing CLAUDE.md + impl-hygiene.md + tests.md +
+compiler.md (the "always" core) plus any rule files you manually identify
+as relevant.
+
 ### 2. Write both reviewer prompts
 
 The codex and gemini prompts share the same evidence packet but differ in their activation preamble. See `.claude/skills/dual-tpr/transport.md` for the canonical preambles.
@@ -373,16 +383,25 @@ else:
 - **Both prompts still require envelope output** — the envelope schema is the contract. Findings represent issues/gaps/improvements identified against the objective.
 - **The `--skill` parameter to the transport** should be `custom` for logging purposes.
 
-#### Mandatory Grounding Block
+#### Mandatory Grounding Block (Dynamic Rules Brief)
 
-**Every reviewer prompt MUST contain a "Grounding — read these files FIRST" section before the scope hint.** Without this grounding, reviewers produce findings against unknown conventions — generic "this looks odd" noise instead of precise `LEAK:scattered-knowledge at path:line` findings that match the project's actual rules.
+**Every reviewer prompt MUST contain a grounding section before the scope
+hint.** Without grounding, reviewers produce generic "this looks odd" noise
+instead of precise `LEAK:scattered-knowledge at path:line` findings.
 
-The grounding block is IDENTICAL for both reviewers and MUST list:
+The grounding block is IDENTICAL for both reviewers and consists of:
 
-1. `CLAUDE.md` (project root) — correctness above all, no deferral, stabilization discipline
-2. `.claude/rules/impl-hygiene.md` — SSOT, No Side Logic, finding categories (LEAK/DRIFT/GAP/WASTE/EXPOSURE/BLOAT/NOTE), canonical homes, algorithmic DRY, test-function-naming rules
-3. `.claude/rules/tests.md` — matrix testing rule, interaction testing, negative pin protocol, regression discipline
-4. Any `.claude/rules/*.md` file relevant to the files under review (e.g. `parse.md`, `arc.md`, `registry.md`) — list the specific ones in the prompt
+1. **The Rules Brief** from Step 1.5 — a ~200-400 line, dynamically-composed
+   summary of the specific rules relevant to this diff. This is the primary
+   grounding content. It includes finding vocabulary, rule anchors, and
+   per-subsystem invariants.
+2. **A "read for full context" list** — the critical rule file paths from the
+   classifier output, so reviewers can deep-dive if needed.
+3. `CLAUDE.md` is always listed — reviewers must read it for overarching rules.
+
+The Rules Brief replaces the old static file list. Instead of telling
+reviewers "read these 7 files (3,000 lines)" and hoping they do, the brief
+**inlines the key rules** so reviewers consume them as part of the prompt.
 
 Write both prompts to the scratch dir. **Use the template matching the active mode:**
 
@@ -396,17 +415,19 @@ Bash:
   write findings to plan files.
   # NOTE: {skill_name} is review-work (default) or review-plan (plan review)
 
-  ## Grounding — read these files FIRST before reviewing
+  ## Rules — these apply to this review
 
-  Before you look at any of the changed code, read these files in full
-  so your findings are scoped to the project's actual rules. Every
-  finding must use the finding categories and architectural vocabulary
-  defined in impl-hygiene.md (LEAK, DRIFT, GAP, WASTE, etc.).
+  The following rules brief was composed for this specific review.
+  These are the rules your findings MUST cite. Use the finding categories
+  (LEAK, DRIFT, GAP, WASTE, EXPOSURE, BLOAT, NOTE) and rule anchors
+  (TR-2, NR-1, RL-2, etc.) defined below.
 
-  1. CLAUDE.md (project root)
-  2. .claude/rules/impl-hygiene.md
-  3. .claude/rules/tests.md
-  4. <any other .claude/rules/*.md relevant to the files under review>
+  <INSERT THE RULES BRIEF FROM STEP 1.5 HERE — the full output of the
+   Sonnet subagent. This is ~200-400 lines of focused, relevant rules.>
+
+  For full rule details, also read:
+  - CLAUDE.md (project root — overarching project rules)
+  <list the critical rule file paths from the classifier output>
 
   ## Scope: <scope hint — e.g. "HEAD~5..HEAD", a plan section name, or explicit files>
 
@@ -421,17 +442,18 @@ Bash:
   do NOT write findings to plan files.
   # NOTE: {skill_name} is review-work (default) or review-plan (plan review)
 
-  ## Grounding — read these files FIRST before reviewing
+  ## Rules — these apply to this review
 
-  Before you look at any of the changed code, read these files in full
-  so your findings are scoped to the project's actual rules. Every
-  finding must use the finding categories and architectural vocabulary
-  defined in impl-hygiene.md (LEAK, DRIFT, GAP, WASTE, etc.).
+  The following rules brief was composed for this specific review.
+  These are the rules your findings MUST cite. Use the finding categories
+  (LEAK, DRIFT, GAP, WASTE, EXPOSURE, BLOAT, NOTE) and rule anchors
+  (TR-2, NR-1, RL-2, etc.) defined below.
 
-  1. CLAUDE.md (project root)
-  2. .claude/rules/impl-hygiene.md
-  3. .claude/rules/tests.md
-  4. <any other .claude/rules/*.md relevant to the files under review>
+  <INSERT THE RULES BRIEF FROM STEP 1.5 HERE — same content as codex prompt>
+
+  For full rule details, also read:
+  - CLAUDE.md (project root — overarching project rules)
+  <list the critical rule file paths from the classifier output>
 
   ## Scope: <same scope hint>
 
@@ -478,15 +500,15 @@ Bash:
   valid outcome — but emit at least one `informational` finding
   describing what you verified and why the subject is sound.
 
-  ## Grounding — read these files FIRST
+  ## Rules — these apply to this review
 
-  Before investigating, read these files so you understand the
-  project's rules and conventions:
+  <INSERT THE RULES BRIEF FROM STEP 1.5 HERE — for custom mode, the
+   classifier may use --files with paths extracted from the objective,
+   or fall back to the static core if no files are identifiable.>
 
-  1. CLAUDE.md (project root)
-  2. .claude/rules/impl-hygiene.md
-  3. .claude/rules/tests.md
-  4. <any other .claude/rules/*.md relevant to the objective>
+  For full rule details, also read:
+  - CLAUDE.md (project root — overarching project rules)
+  <list the critical rule file paths from the classifier output>
 
   <If Step 0.75 produced an Intelligence Summary, insert it here>
 
@@ -527,15 +549,13 @@ Bash:
   valid outcome — but emit at least one `informational` finding
   describing what you verified and why the subject is sound.
 
-  ## Grounding — read these files FIRST
+  ## Rules — these apply to this review
 
-  Before investigating, read these files so you understand the
-  project's rules and conventions:
+  <INSERT THE RULES BRIEF FROM STEP 1.5 HERE — same content as codex>
 
-  1. CLAUDE.md (project root)
-  2. .claude/rules/impl-hygiene.md
-  3. .claude/rules/tests.md
-  4. <any other .claude/rules/*.md relevant to the objective>
+  For full rule details, also read:
+  - CLAUDE.md (project root — overarching project rules)
+  <list the critical rule file paths from the classifier output>
 
   <If Step 0.75 produced an Intelligence Summary, insert it here>
 

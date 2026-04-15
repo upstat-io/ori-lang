@@ -144,6 +144,10 @@ sections:
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — trivial
         mkdir. No tooling gap. Document: "Retrospective 08.1: no tooling
         gap — mkdir is adequate."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -192,6 +196,10 @@ These 4 scripts are cleanly moved with no root wrappers. All references in other
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — `git
         mv` is the canonical tool; no gap. Document: "Retrospective 08.2:
         no tooling gap — git mv handled the rename preservation."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -361,6 +369,10 @@ exec "$(dirname "$SCRIPT_PATH")/scripts/dev/<script>.sh" "$@"
         building? Probably not — wrappers are one-time infrastructure.
         Document: "Retrospective 08.3: 4-time repetition; helper not
         justified for one-time facade creation."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -731,6 +743,10 @@ exec "$(dirname "$SCRIPT_PATH")/scripts/dev/<script>.sh" "$@"
         section is already large). Document:
         "Retrospective 08.4: canonical repo-root resolver pattern should be
         promoted to scripts/ subtree. Filed as BUG-XX-NNN for follow-up."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -898,6 +914,10 @@ Note: Pattern E is riskier because `diagnostics/` is a common word. Scope must b
     cat target/sweep-pattern-e-files.txt
     ```
   - [ ] Expected entries (from 2026-04-11 verification): `CLAUDE.md`, `.claude/rules/diagnostic.md`, `.claude/rules/arc.md`, `.claude/rules/eval.md`, `.claude/skills/fix-bug/SKILL.md`, `.claude/skills/improve-tooling/SKILL.md`, `.claude/skills/dual-tpr/envelope-format.md`, `.claude/skills/create-plan/plan-schema.md`, `.claude/skills/continue-roadmap/SKILL.md`, various `plans/*/section-*.md`, `docs/compiler/design/appendices/D-debugging.md`, and similar. NO `compiler/`, `library/`, `tests/` entries.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **If ANY file in `target/sweep-pattern-e-files.txt` is under `compiler/`, `library/`, or `tests/`: STOP. The allow-list is leaking. Investigate before proceeding.**
 
   **Step E.4 — Manual Rust comment fix (outside Pattern E scope):**
@@ -1093,6 +1113,10 @@ Note: Pattern E is riskier because `diagnostics/` is a common word. Scope must b
         and commit via `build(scripts): add atomic-sweep.sh — surfaced
         by project-reorganization/section-08.5 retrospective`. High
         confidence this helper has reuse value beyond this one plan.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -1162,6 +1186,10 @@ This subsection runs per-script smoke tests. The full invocation matrix lives in
         commands. §09 re-runs similar commands; no separate helper
         warranted here. Document: "Retrospective 08.6: verification
         overlaps with §09; no separate tooling warranted."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -1381,6 +1409,10 @@ This subsection runs per-script smoke tests. The full invocation matrix lives in
         would be broadly useful for every future script-layout reorg.
         Build if time permits; otherwise file as `/add-bug` for follow-up.
         Document outcome.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -1601,6 +1633,10 @@ Refs: plans/project-reorganization/section-08-script-consolidation.md"
         section. Build if time permits; otherwise file as `/add-bug`.
         Document: "Retrospective 08.8: explicit path staging is mandatory
         per LEAK finding — helper would automate it; filed for follow-up."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -1715,6 +1751,7 @@ Refs: plans/project-reorganization/section-08-script-consolidation.md"
 - [ ] `/tpr-review` passed — CRITICAL PATH section; review should check: (a) all wrappers exec correctly, (b) no sweep pattern corrupted unintended files (Pattern E allow-list held), (c) lefthook still works, (d) internal $SCRIPT_DIR chain resolves, (e) hot-path preservation works (no regression in daily-use workflows), (f) CI still passes (but CI doesn't use root scripts so this is guaranteed), (g) diagnostic scripts find repo root correctly from new location
 - [ ] `/impl-hygiene-review` passed (AFTER TPR clean) — SSOT (each script has exactly one canonical implementation; `_repo-root.sh` is the single source for repo-root derivation), No Side Logic (wrappers are thin exec-forwarders with no logic), DRIFT (sweep caught everything)
 - [ ] `/improve-tooling` **section-close sweep** — per-subsection retrospectives (08.1-08.8) should already be committed. Cross-subsection pattern check: the `atomic-sweep.sh` helper from 08.5 is the most valuable contribution. Verify it was built. Also check: did 08.3's wrapper template benefit from generating the 4 wrappers programmatically? Probably not — 4 is few enough to hand-write. The big-ticket tooling wins from §08 are: `_repo-root.sh` (canonical repo-root resolver, broadly reusable across scripts/), `atomic-sweep.sh` (from 08.5), `verify-invocation-matrix.sh` (from 08.7). If not built: STOP and build them now.
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 ### Rollback strategy (Phase 2 Finding 6, 2026-04-11)
 

@@ -7,7 +7,7 @@ paths:
 
 ## Architecture
 
-- **Deps**: `oric` → `ori_types/eval/patterns` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic`
+- **Deps**: `oric` → `ori_llvm` → `ori_arc/ori_repr` → `ori_canon` → `ori_types/eval/patterns` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic`. Support: `ori_compiler` (pure facade), `ori_registry`, `ori_stack`, `ori_fmt`, `ori_test_harness`, `ori_rt`
 - **IO**: only in `oric`; core crates pure
 - **No phase bleeding**: parser != type-check, lexer != parse
 
@@ -16,9 +16,10 @@ paths:
 - **Lexer**: scanning with minimal local state (nesting depth, mode stack); produces `(tag, len)`. No semantic state (names, types, scopes).
 - **Parser**: syntax only; builds AST from tokens; no name resolution or semantic validation
 - **Type Checker**: consumes AST, produces typed IR; no re-parsing, no codegen. Salsa queries must be pure.
-- **Evaluator**: interprets typed IR; no re-type-checking, no codegen
-- **ARC Pass**: analyzes ownership on IR; no codegen, no interpretation
-- **LLVM Codegen**: emits LLVM IR from typed IR; no interpretation, no re-type-checking
+- **Canonicalizer**: consumes typed IR, produces `CanExpr`; no re-type-checking, no codegen
+- **Evaluator**: interprets `CanExpr`; no re-type-checking, no codegen
+- **ARC Pass**: lowers `CanExpr` to ARC IR, analyzes ownership; no codegen, no interpretation
+- **LLVM Codegen**: emits LLVM IR from realized ARC IR; no interpretation, no re-type-checking
 - **Diagnostics**: formats and renders errors; no phase logic, no semantic analysis
 - **Optimization Passes**: reads IR, produces transformed IR; analysis is pass-local
 
@@ -164,19 +165,19 @@ See CLAUDE.md §Stabilization Discipline for the full narrow-the-front principle
 ## Key Patterns
 
 - **TypeChecker (V2)**: InferEngine, Pool, Registries, ModuleChecker
-- **Method Dispatch**: BuiltinMethods → InherentImpl → TraitImpl (via MethodRegistry)
+- **Method Dispatch**: builtin-first via `resolve_builtin_method()` → impl lookup via `TraitRegistry::lookup_method()`. `MethodRegistry` is a future thin wrapper for trait lookup only; builtin dispatch currently bypasses it.
 
-## Crates (17 total)
+## Crates (19 workspace members)
 
-- `oric`: CLI, Salsa orchestration | `ori_compiler`: compiler orchestration facade
+- `oric`: CLI, Salsa orchestration | `ori_compiler`: compiler orchestration facade (pure, no Salsa, no IO — for WASM)
 - `ori_ir`: AST, spans, TypeId, DerivedTrait | `ori_lexer_core`: core lexer types/interfaces | `ori_lexer`: tokenization
 - `ori_parse`: parser | `ori_types`: type checking (V2 — Pool, InferEngine, registries)
 - `ori_eval`: interpreter | `ori_patterns`: pattern system
 - `ori_canon`: canonicalization (AST → CanExpr) | `ori_arc`: ARC/AIMS pipeline
-- `ori_repr`: representation optimization | `ori_stack`: stack management
-- `ori_llvm`: LLVM backend | `ori_rt`: AOT runtime
+- `ori_repr`: representation optimization | `ori_stack`: stack overflow protection
+- `ori_llvm`: LLVM backend | `ori_rt`: AOT runtime (C-ABI static library)
 - `ori_registry`: builtin type behavior (pure data) | `ori_diagnostic`: error reporting
-- `ori_fmt`: Ori source formatter
+- `ori_fmt`: Ori source formatter | `ori_test_harness`: test runner orchestration
 
 ## Change Locations
 
@@ -184,6 +185,30 @@ See CLAUDE.md §Stabilization Discipline for the full narrow-the-front principle
 - Type: `ori_ir/type_id.rs` | `ori_types/pool/` | `ori_types/check/`
 - Method: `ori_types/registry/methods/` | `ori_eval/interpreter/method_dispatch/`
 - Derive: see `ir.md` §DerivedTrait for canonical sync point list
+
+## Graph-first, manual second
+
+Before opening any path in `~/projects/reference_repos/lang_repos/` by hand,
+query the intelligence graph:
+
+- `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,zig,lean4 --limit 5`
+  — semantic equivalents across large-compiler architectures (crate boundaries,
+  Salsa-style incremental, phase ordering)
+- `scripts/intel-query.sh --human callers "<symbol>" --repo ori` — blast radius
+  across all 19 workspace crates (see §Crates above)
+- `scripts/intel-query.sh --human file-symbols "<crate-name>" --repo ori` — the
+  symbol surface of a single crate before refactoring across its boundary
+- `scripts/intel-query.sh --human callees "<entry-point>" --repo ori` — the
+  downstream dependency tree for a function (useful when tracing `oric` →
+  `ori_types/eval` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic` flow)
+
+Compiler-architecture work is cross-crate by nature — no single subsystem
+preset covers it; use the bare `callers`/`file-symbols` form scoped to the
+relevant crate(s). The graph covers Ori plus 10 reference compilers, synced on every commit. Manual
+reference-repo reading stays authoritative — but only AFTER the graph
+narrows the search. Never cite a graph result without verifying against the
+actual source. See `.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and `.claude/skills/dual-tpr/compose-intel-summary.md` for the
+canonical query protocol used by review-family skills.
 
 ## Source of Truth
 

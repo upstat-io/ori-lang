@@ -68,10 +68,11 @@ Read:
 - Any other relevant files under `.claude/rules/*.md`.
 
 #### Intelligence map (CONDITIONAL)
-If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`):
-- `scripts/intel-query.sh --human file-symbols "<changed path>" --repo ori` for each touched module
-- `scripts/intel-query.sh --human callers "<touched symbol>" --repo ori` and `callees` for blast radius
-- `scripts/intel-query.sh --human similar "<touched symbol>" --repo rust,swift,go --limit 5` when the review would otherwise inspect reference repos manually
+
+Follow the canonical intel-summary injection protocol:
+
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
 Use results to choose which adjacent files and tests to read next.
 
 #### 2.4 Plan Context

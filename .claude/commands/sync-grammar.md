@@ -12,14 +12,13 @@ Update `docs/ori_lang/v2026/spec/grammar.ebnf` to accurately reflect the current
 
 The grammar.ebnf file is the **single source of truth** for Ori's formal syntax. It must stay synchronized with the prose descriptions in the spec files.
 
-## Target Files
+## Target File
 
 ```
-docs/ori_lang/v2026/spec/grammar.ebnf      # Syntax (EBNF)
-docs/ori_lang/v2026/spec/operator-rules.md # Semantics (type/eval rules)
+docs/ori_lang/v2026/spec/grammar.ebnf      # Syntax (EBNF) — Annex A
 ```
 
-**Note:** If operator precedence, associativity, or type rules change, update BOTH files.
+**Note:** `operator-rules.md` (Annex B — type/eval rules) is owned by `/sync-spec`, not this command. If operator precedence or type rules change, use `/sync-spec` for `operator-rules.md` and this command for `grammar.ebnf`.
 
 ## Source Files
 
@@ -27,21 +26,25 @@ Read these spec files to extract grammar information:
 
 | File | Grammar Sections |
 |------|------------------|
-| `02-source-code.md` | Source structure, Unicode |
-| `03-lexical-elements.md` | Tokens, keywords, operators, literals, comments |
-| `04-constants.md` | Config variables, const expressions |
-| `05-variables.md` | Let bindings, assignment, destructuring |
-| `06-types.md` | Type syntax, generics, function types |
-| `08-declarations.md` | Functions, types, traits, impls, tests |
-| `09-expressions.md` | All expression forms |
-| `10-patterns.md` | Match patterns, compiler patterns (run/try/match/etc.) |
-| `12-modules.md` | Imports, re-exports, extensions |
-| `13-testing.md` | Test declarations, attributes |
-| `14-capabilities.md` | Uses clauses, with expressions |
-| `18-program-execution.md` | @main signatures |
-| `19-control-flow.md` | break, continue, loops |
-| `20-errors-and-panics.md` | catch pattern |
-| `21-constant-expressions.md` | Const functions |
+| `06-source-code.md` | Source structure, Unicode |
+| `07-lexical-elements.md` | Tokens, keywords, operators, literals, comments |
+| `08-types.md` | Type syntax, generics, function types |
+| `09-properties-of-types.md` | Type properties, traits |
+| `10-declarations.md` | Functions, types, traits, impls, tests |
+| `12-constants.md` | Config variables, const expressions |
+| `13-variables.md` | Let bindings, assignment, destructuring |
+| `14-expressions.md` | All expression forms |
+| `15-patterns.md` | Match patterns, compiler patterns |
+| `16-control-flow.md` | break, continue, loops |
+| `17-errors-and-panics.md` | catch pattern |
+| `18-modules.md` | Imports, re-exports, extensions |
+| `19-testing.md` | Test declarations, attributes |
+| `20-capabilities.md` | Uses clauses, with expressions |
+| `23-program-execution.md` | @main signatures |
+| `24-constant-expressions.md` | Const functions |
+| `25-conditional-compilation.md` | Target/config attributes |
+| `26-ffi.md` | Foreign function interface |
+| `27-reflection.md` | Compile-time reflection |
 
 ## EBNF Notation
 
@@ -70,26 +73,36 @@ Without this, all Edit/Write calls to grammar files will be **blocked by the hoo
 
 ## Update Process
 
-1. **Read the current grammar.ebnf** to understand existing structure
+1. **Inventory parser/lexer types via the intelligence graph** — grammar
+   changes affect parser and lexer types. Before reading grammar.ebnf:
 
-2. **Read each spec file** and extract syntax definitions:
+   @.claude/skills/dual-tpr/compose-intel-summary.md
+
+   Query `file-symbols "compiler/ori_parse/"` and `file-symbols
+   "compiler/ori_lexer/"` to inventory parser/lexer types that consume the
+   grammar. Flag any grammar production whose implementation symbol is not
+   covered — that is a parse-site gap.
+
+2. **Read the current grammar.ebnf** to understand existing structure
+
+3. **Read each spec file** and extract syntax definitions:
    - Look for code blocks showing syntax
    - Look for prose describing valid syntax forms
    - Note any syntax changes from recent spec updates
 
-3. **Compare and identify discrepancies**:
+4. **Compare and identify discrepancies**:
    - Missing productions (spec has syntax not in grammar)
    - Outdated productions (grammar doesn't match spec)
    - Missing alternatives in existing productions
    - Incorrect cross-references in comments
 
-4. **Update grammar.ebnf**:
+5. **Update grammar.ebnf**:
    - Add new productions where needed
    - Update existing productions to match spec
    - Update section comments with correct file references
    - Maintain alphabetical order within sections where applicable
 
-5. **Verify consistency**:
+6. **Verify consistency**:
    - All productions referenced are defined
    - No orphan productions (defined but never referenced)
    - Cross-references to spec files are accurate
@@ -112,7 +125,7 @@ The grammar.ebnf is organized into these sections:
 ## Key Things to Check
 
 ### Lexical Grammar
-- All reserved keywords listed (check `03-lexical-elements.md`)
+- All reserved keywords listed (check `07-lexical-elements.md`)
 - Context-sensitive keywords (patterns) listed separately
 - All operators with correct precedence comments
 - All literal forms (int, float, string, char, bool, duration, size)
@@ -151,24 +164,10 @@ If the spec adds a new pattern form like `timeout`:
 
 4. Update comments if the spec file reference changed
 
-## When to Update operator-rules.md
-
-Update `operator-rules.md` alongside `grammar.ebnf` when:
-- Operator precedence or associativity changes
-- New operators added
-- Operator type rules change (e.g., new type combinations)
-- Operator evaluation semantics change
-- Never type behavior changes
-
-The `operator-rules.md` file contains:
-- Type inference rules (premises → conclusion)
-- Evaluation rules (pattern ⇒ result)
-- Precedence table
-- Trait dispatch mapping
-
 ## Output
 
 After updating, report:
 - Productions added/modified/removed (grammar.ebnf)
-- Rules added/modified/removed (operator-rules.md)
-- Any inconsistencies found between spec, grammar, and rules
+- Any inconsistencies found between spec and grammar
+
+**Note:** `operator-rules.md` updates belong to `/sync-spec`, not this command.

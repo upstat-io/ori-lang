@@ -71,6 +71,7 @@ third_party_review:
 - [ ] **Verify** `./test-all.sh` passes in both debug and release. `ORI_CHECK_LEAKS=1` on derive-related test programs.
 
 - [ ] **Subsection close-out (02.1)** — Run `/improve-tooling` retrospectively. Commit separately.
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -98,6 +99,7 @@ third_party_review:
   - Verify the is_runtime_abi flag prevents niche optimization from changing Option/Result layout
 
 - [ ] **Subsection close-out (02.2)** — Run `/improve-tooling` retrospectively. Commit separately.
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -128,6 +130,7 @@ third_party_review:
   Review every match — must be struct field access (legitimate) not enum tag/payload access.
 
 - [ ] **Subsection close-out (02.3)** — Run `/improve-tooling` retrospectively. Commit separately.
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---

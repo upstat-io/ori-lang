@@ -250,13 +250,11 @@ Each semantic iteration gets a fresh `$RUN` (e.g. `/tmp/ori-tpr-XXXXXXXX`). Reus
 
 ### 1.5. CONDITIONAL — Intelligence Pre-Query
 
-If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`):
-1. For 3-5 changed files, run `scripts/intel-query.sh --human file-symbols "<path>" --repo ori`
-2. For each touched public symbol, run `scripts/intel-query.sh --human callers "<symbol>" --repo ori` and `callees`
-3. For the highest-signal symbols, run `scripts/intel-query.sh --human similar "<symbol>" --repo rust,swift,go --limit 5`
-4. Condense results into an Intelligence Summary and inject into both reviewer prompts.
+Follow the canonical intel-summary injection protocol:
 
-If unavailable or empty, skip silently.
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
+Inject the resulting Intelligence Summary into BOTH reviewer prompts at Step 2.
 
 ### 2. Write both reviewer prompts
 

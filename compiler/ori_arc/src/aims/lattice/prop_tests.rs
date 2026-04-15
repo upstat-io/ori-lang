@@ -570,7 +570,7 @@ proptest! {
 //
 //   - is_rc_dec_unnecessary: true when variable is dead or absent
 //   - is_rc_inc_elidable: true when used exactly once and consumed linearly
-//   - can_mutate_in_place: true when owned and unique
+//   - is_owned_and_unique: true when owned and unique
 //   - capture_state_update: computes state for captured closure variables
 //
 // These are optimization-decision predicates, not lattice morphisms. Their
@@ -607,19 +607,19 @@ proptest! {
         );
     }
 
-    /// can_mutate_in_place lattice-level check: Owned + Unique (DP-5 subset).
+    /// is_owned_and_unique lattice-level check: Owned + Unique (DP-5 subset).
     /// NOTE: The full DP-5 also requires no overlapping active borrows, which
     /// is checked via the borrow_sources side table at the intraprocedural
     /// level — not testable at the AimsState lattice level.
     #[test]
-    fn can_mutate_in_place_semantic_contract(a in canonical_aims_state_strategy()) {
-        use crate::aims::transfer::can_mutate_in_place;
-        let result = can_mutate_in_place(&a);
+    fn is_owned_and_unique_semantic_contract(a in canonical_aims_state_strategy()) {
+        use crate::aims::transfer::is_owned_and_unique;
+        let result = is_owned_and_unique(&a);
         let expected = a.access == AccessClass::Owned
             && a.uniqueness == Uniqueness::Unique;
         assert_eq!(
             result, expected,
-            "can_mutate_in_place must match semantic definition: a={a:?}"
+            "is_owned_and_unique must match semantic definition: a={a:?}"
         );
     }
 
@@ -1028,7 +1028,7 @@ fn collect_all_canonical_states() -> Vec<AimsState> {
 ///
 /// RESULT: Decision divergence found on first sensitive triple. Option B
 /// (fix required) confirmed — uniqueness divergence (`MaybeShared` vs `Unique`)
-/// changes `needs_cow_check`, `can_mutate_in_place`, and reuse eligibility.
+/// changes `needs_cow_check`, `is_owned_and_unique`, and reuse eligibility.
 /// With associative join (Rule 4 removed), this scan finds 0 divergences.
 /// O(n³) exhaustive — too slow for CI (~3928³ ≈ 60B operations). The
 /// proptest `join_associative` provides fast regression coverage (5000 cases).
@@ -1036,7 +1036,7 @@ fn collect_all_canonical_states() -> Vec<AimsState> {
 #[test]
 #[ignore = "exhaustive O(n^3): confirms 0 associativity divergences — run manually after lattice changes"]
 fn associativity_divergence_with_canonical_triples_detects_decision_impact() {
-    use crate::aims::transfer::can_mutate_in_place;
+    use crate::aims::transfer::is_owned_and_unique;
 
     let canonical_states = collect_all_canonical_states();
     let n = canonical_states.len();
@@ -1090,7 +1090,7 @@ fn associativity_divergence_with_canonical_triples_detects_decision_impact() {
                     && ab_c.is_reuse_candidate() == a_bc.is_reuse_candidate()
                     && ab_c.is_rc_skip_eligible() == a_bc.is_rc_skip_eligible()
                     && ab_c.is_local() == a_bc.is_local()
-                    && can_mutate_in_place(&ab_c) == can_mutate_in_place(&a_bc)
+                    && is_owned_and_unique(&ab_c) == is_owned_and_unique(&a_bc)
                     && (ab_c.uniqueness == Uniqueness::Unique)
                         == (a_bc.uniqueness == Uniqueness::Unique);
                 if !predicates_match {

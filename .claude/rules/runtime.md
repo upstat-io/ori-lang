@@ -19,7 +19,8 @@ paths:
 
 - `str` → `{ len: i64, cap: i64, data: *mut u8 }` (24-byte SSO layout)
 - `[T]` → `{ len: i64, cap: i64, data: *mut u8 }`
-- `Option<T>` → `{ tag: i64, value: T }`
+- `Option<T>` → `{ tag: i8, value: T }` (OriOption: tag 0=Some, 1=None)
+- `Result<T, E>` → `{ tag: i8, value: T }` (OriResult: tag 0=Ok, 1=Err)
 
 ## Functions
 
@@ -38,7 +39,7 @@ paths:
 ## Submodules
 
 - `format/` — Template string interpolation (`ori_format_int/float/str/bool/char`)
-- `iterator/` — Iterator runtime directory module (`mod.rs`, `sources.rs`, `state.rs`, `next.rs`, `adapters.rs`, `consumers.rs`, `tests.rs`). Entry points: `ori_iter_from_list` (4 params: data, len, elem_size, elem_dec_fn), `ori_iter_from_range`, `ori_iter_next`, `ori_iter_map/filter/take/skip/enumerate/collect/count/drop`
+- `iterator/` — Iterator runtime directory module (`mod.rs`, `sources.rs`, `state.rs`, `next.rs`, `adapters.rs`, `consumers.rs`, `tests.rs`). Entry points: `ori_iter_from_list` (4 params: data, len, cap, elem_size), `ori_iter_from_range`, `ori_iter_next`, `ori_iter_map/filter/take/skip/enumerate/collect/count/drop`. Element cleanup info is retrieved from the V5 RC header at cleanup time — `elem_dec_fn` is NOT a parameter to `ori_iter_from_list`.
 
 ## JIT Panic Recovery
 

@@ -1,8 +1,8 @@
 //! Synergy metrics for cross-dimensional AIMS reasoning.
 //!
-//! Quantifies how much value the 7-dimension product lattice provides over
-//! any single dimension alone. Accumulated during realization (Phases 1+2)
-//! and reported via `tracing::info!` and [`RealizationResult::synergy_metrics`].
+//! Quantifies how much value the product lattice provides over any single
+//! dimension alone. Accumulated during realization (Phases 1+2) and reported
+//! via `tracing::info!` and [`RealizationResult::synergy_metrics`].
 //!
 //! References: Section 11.2 of the AIMS plan.
 
@@ -13,11 +13,11 @@
 /// The `canonicalize_cross_fires` field is accumulated separately during
 /// backward analysis (intraprocedural) and merged before reporting.
 ///
-/// Cross-dimensional evidence is measured primarily by `canonicalize_cross_fires`
-/// (analysis-stage rule firings that required 2+ lattice dimensions) and
-/// secondarily by `cross_dim_reuse` and `cow_upgrades` (realization-stage
-/// decisions). Use [`cross_dim_evidence_total()`](Self::cross_dim_evidence_total)
-/// for the aggregate count.
+/// Cross-dimensional evidence is measured by `canonicalize_cross_fires`
+/// (analysis-stage rule firings that required 2+ lattice dimensions). The
+/// prior realization-stage counters `cow_upgrades` and `cross_dim_reuse`
+/// were removed together with the unsound cross-dimensional promotions
+/// they tracked (`aims-rules.md` §DP-10 + §RL-13 removal).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SynergyMetrics {
     /// Reuse decisions made during realization (any non-None reuse).
@@ -26,20 +26,8 @@ pub struct SynergyMetrics {
     /// Total RC decisions made (Inc + Dec + Skip + Defer, excluding None).
     pub total_rc_decisions: usize,
 
-    /// COW decisions upgraded from `Dynamic` to `StaticUnique` via cross-dim proof.
-    ///
-    /// Counts: COW-aware borrowing (`Owned`+`Linear`+`Once` on param), and
-    /// `CollectionBuffer`+`Once` / `ReusableCtor`+`Once` proofs on non-params.
-    pub cow_upgrades: usize,
-
     /// Total COW decisions made (`StaticUnique` + `Dynamic` + `StaticShared`).
     pub total_cow_decisions: usize,
-
-    /// Reuse opportunities found via cross-dim proof (shape+uniqueness+cardinality).
-    ///
-    /// Specifically: `StaticReuse` from `MaybeShared + Once + ReusableCtor`
-    /// (the cross-dimensional upgrade that avoids the `IsShared` check).
-    pub cross_dim_reuse: usize,
 
     /// FIP certifications achieved via `extract_contract()` reading converged
     /// effect+locality state (contract layer, not realization).
@@ -47,11 +35,10 @@ pub struct SynergyMetrics {
     /// Set by interprocedural analysis, not by the realization walk.
     pub natural_fip: usize,
 
-    /// Cross-dimension canonicalize rule firings (Rules 4-8 total).
-    ///
-    /// Accumulated during backward analysis convergence. Each firing
-    /// represents a state change that required reasoning across 2+
-    /// lattice dimensions.
+    /// Cross-dimension canonicalize rule firings (canonicalization rules
+    /// that reason across 2+ lattice dimensions). Accumulated during
+    /// backward analysis convergence. Each firing represents a state
+    /// change that required reasoning across 2+ lattice dimensions.
     pub canonicalize_cross_fires: usize,
 }
 
@@ -75,13 +62,14 @@ impl SynergyMetrics {
 
     /// Total cross-dimensional evidence count.
     ///
-    /// Aggregates all evidence of cross-dimensional reasoning:
-    /// - `canonicalize_cross_fires`: analysis-stage rule firings (Rules 4-8)
-    /// - `cross_dim_reuse`: realization-stage reuse from cross-dim proof
-    /// - `cow_upgrades`: COW upgrades via cross-dim uniqueness proof
+    /// Counts `canonicalize_cross_fires` — analysis-stage canonicalization
+    /// rule firings that reasoned across 2+ lattice dimensions. Prior
+    /// realization-stage cross-dimensional counters (`cow_upgrades`,
+    /// `cross_dim_reuse`) were removed together with the unsound paths
+    /// they tracked.
     #[must_use]
     pub fn cross_dim_evidence_total(&self) -> usize {
-        self.canonicalize_cross_fires + self.cross_dim_reuse + self.cow_upgrades
+        self.canonicalize_cross_fires
     }
 
     /// Whether any cross-dimensional reasoning occurred.
@@ -94,9 +82,7 @@ impl SynergyMetrics {
     pub fn merge(&mut self, other: &SynergyMetrics) {
         self.reuse_decisions += other.reuse_decisions;
         self.total_rc_decisions += other.total_rc_decisions;
-        self.cow_upgrades += other.cow_upgrades;
         self.total_cow_decisions += other.total_cow_decisions;
-        self.cross_dim_reuse += other.cross_dim_reuse;
         self.natural_fip += other.natural_fip;
         self.canonicalize_cross_fires += other.canonicalize_cross_fires;
     }
@@ -115,9 +101,7 @@ impl SynergyMetrics {
             reuse = self.reuse_decisions,
             reuse_pct = format_args!("{:.1}%", self.reuse_percent()),
             cross_dim_evidence = self.cross_dim_evidence_total(),
-            cow_upgrades = self.cow_upgrades,
             total_cow = self.total_cow_decisions,
-            cross_dim_reuse = self.cross_dim_reuse,
             natural_fip = self.natural_fip,
             canonicalize_cross_fires = self.canonicalize_cross_fires,
             "AIMS synergy metrics"

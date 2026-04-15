@@ -116,37 +116,52 @@ tooling, processes — not just code or plans.
 
 ## Mandatory Grounding Block (both reviewers)
 
-**Every reviewer prompt — codex and gemini — MUST contain a "Grounding
-— read these files FIRST" section between the activation preamble and
-the scope hint.** The grounding block is identical for both reviewers
-and lists the project rule files that scope the finding vocabulary.
+**Every reviewer prompt — codex and gemini — MUST contain a grounding
+section between the activation preamble and the scope hint.** The
+grounding block is identical for both reviewers.
 
-Canonical grounding template:
+### Dynamic Rules Brief (preferred)
+
+The grounding block is now dynamically composed via a two-step process:
+
+1. **Classify** — `scripts/rules-for-review.py` maps changed files to
+   subsystems and resolves which rule files are relevant.
+2. **Compose** — a Sonnet subagent reads the classified rule files and
+   the diff, then composes a ~200-400 line **Rules Brief** containing
+   only the specific rules, invariants, and finding vocabulary relevant
+   to this review.
+
+The Rules Brief is injected INLINE into both prompts under a
+`## Rules — these apply to this review` header. This replaces the old
+static "read these files in full" file list. Reviewers consume the
+inline content as part of the prompt — no need to go read separate files.
+
+After the inline brief, a "For full rule details, also read:" section
+lists the critical file paths from the classifier for optional deep dives.
+
+See `.claude/skills/dual-tpr/compose-rules-brief.md` for the Sonnet
+subagent prompt template. See `/tpr-review` SKILL.md Step 1.5 for
+integration into the review loop.
+
+### Static Fallback
+
+If the classifier or Sonnet agent fails, fall back to the static core:
 
     ## Grounding — read these files FIRST before reviewing
-
-    Before you look at any of the changed code, read these files in
-    full so your findings are scoped to the project's actual rules.
-    Every finding must use the finding categories and architectural
-    vocabulary defined in impl-hygiene.md (LEAK, DRIFT, GAP, WASTE,
-    EXPOSURE, BLOAT, NOTE).
 
     1. CLAUDE.md (project root)
     2. .claude/rules/impl-hygiene.md
     3. .claude/rules/tests.md
-    4. <any other .claude/rules/*.md relevant to the files under
-       review — e.g. parse.md if the parser is touched, arc.md if
-       the ARC pass is touched, registry.md if ori_registry is
-       touched>
+    4. .claude/rules/compiler.md
 
-**Why this is load-bearing:** Without grounding, reviewers produce
+**Why grounding is load-bearing:** Without it, reviewers produce
 findings against unknown conventions — generic "this looks odd"
 noise instead of precise category-tagged findings that match the
 project's actual rules. Grounded reviewers emit findings like
 `LEAK:scattered-knowledge at dual-invoke-with-retry.sh:99`; ungrounded
 reviewers emit findings like "this function could be clearer".
 
-Wrappers that skip the grounding block should be treated as buggy
+Wrappers that skip grounding entirely should be treated as buggy
 and their envelopes treated with extra scrutiny by the consuming
 Claude instance.
 

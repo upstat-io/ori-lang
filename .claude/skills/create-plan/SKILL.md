@@ -61,6 +61,61 @@ These principles govern the entire plan creation process. When in doubt, consult
 
 ---
 
+## Phase 0: Fork Decision — Heavy Plan vs. Light Plan (RUN FIRST, BEFORE ANYTHING ELSE)
+
+**Before reading CLAUDE.md or doing any Phase 1 work, decide which path this plan takes.** The heavy `/create-plan` workflow (Phases 1–5 below) is calibrated for compiler work where correctness invariants — phase purity, ARC soundness, AIMS lattice coherence, spec conformance — are load-bearing. For non-compiler work that has already reached design consensus, that rigor is overkill and actively slows useful work.
+
+### The Fork Gate — ALL THREE must be true to take the light path
+
+1. **Scope check — non-compiler only.** The work touches ONLY files outside the compiler/runtime/spec surface:
+   - **Eligible domains**: `.claude/skills/`, `.claude/rules/`, `.claude/hooks/`, `.claude/commands/`, `diagnostics/`, `scripts/`, `.codex/`, `.gemini/`, top-level workflow files (`lefthook.yml`, `.github/workflows/`, etc.), non-spec documentation (`README.md`, `docs/development/`, `docs/compiler/design/` prose-only changes).
+   - **Ineligible domains** (force heavy path): any file under `compiler/`, `library/std/`, `docs/ori_lang/v2026/spec/`, `tests/spec/`, `tests/valgrind/`, `tests/alive2/`, `runtime/`, `tests/benchmarks/`.
+   - **Mixed changes force heavy path.** If the work touches even one ineligible file, use the heavy path. Do not split a coherent mission across two paths to qualify for light.
+
+2. **Rigor check — no correctness-critical invariants.** The work does NOT:
+   - introduce or modify phase-purity rules, ARC soundness invariants, AIMS lattice dimensions, or any `impl-hygiene.md` cross-phase contract
+   - alter test-gate behavior (`test-all.sh`, `clippy-all.sh`, `fmt-all.sh`, `build-all.sh`, `llvm-test.sh`, `full-check.sh`, or pre-commit / commit-msg hooks that enforce correctness)
+   - change how bug fixes are enforced (`/fix-bug` phase structure, hygiene review, TPR gates)
+   - modify the plan schema itself (`plan-schema.md`, plan-audit rules) — meta-plan-system changes go through heavy path
+
+3. **Design consensus check — `/tpr-review` already reached full consensus.** The approach has completed a `/tpr-review` round (the full dual-source skill with rule briefing, iterating to consensus), and both reviewers agreed on the design. This means:
+   - The design question is answered — the plan's job is now to *sequence execution*, not to *discover* what to do.
+   - `/tp-help` consensus alone is NOT sufficient — `/tp-help` is a single consult, not an iterated-to-consensus loop with rule briefing. If only `/tp-help` has run, either run `/tpr-review` to close consensus OR take the heavy path.
+   - The TPR artifact (merged envelope, run directory under `.dual-tpr/runs/`, or equivalent) MUST be cited by the light plan so the approved design is traceable.
+
+If any of the three is false, fall through to Phase 1 (heavy path) below.
+
+### Hard blocks — force heavy path even if the gate appears to open
+
+Even when all three criteria above are true, FORCE the heavy path if ANY of these holds:
+
+- The user explicitly says "this is big", "use the full plan", or "do this properly" — user override beats the gate
+- The work introduces a NEW cross-cutting invariant that will need `debug_assert!` / test enforcement (correctness infrastructure always goes heavy)
+- The work will require changes that span more than 3 distinct directory roots among the eligible domains (coordination complexity argues for section-level planning)
+- The estimated execution will require `AskUserQuestion` for design decisions mid-execution (if design isn't settled, consensus wasn't reached — re-run `/tpr-review`)
+
+### The Light Path — `ExitPlanMode` only, no `plans/` file
+
+When the gate opens and no hard block fires, the light path is:
+
+1. **Prepare the inline plan.** Draft a concrete execution plan covering:
+   - **Mission**: one or two sentences stating what this plan delivers
+   - **TPR consensus reference**: point at the `/tpr-review` run (directory path, merged envelope, or summary citation) that established design consensus
+   - **Changes**: a flat checklist of the actual file edits / script creations / skill updates, in execution order
+   - **Verification**: how you'll confirm the work landed (e.g., "re-run `/tpr-review` on the diff", "run the improved script against the original friction", "visual confirmation of rendered output")
+   - **Out of scope**: any adjacent things explicitly deferred, with where they're tracked (bug-tracker entry, roadmap line, another plan) — same no-deferral-without-an-anchor rule as the heavy path (`CLAUDE.md` §Ownership & Deferral)
+2. **Call `ExitPlanMode`** with that inline plan. Wait for user approval.
+3. **Execute** against the approved plan. No `plans/{name}/` directory is created. No `overview`, no section files, no research passes, no `/review-plan`.
+4. **Commit with provenance.** When committing the executed work, cite the TPR run (e.g., `refs #tpr-run-2026-04-14-xyz` in the body) so the design trail is durable even though the plan itself was inline.
+
+The light path trades durability for speed. If mid-execution you realize the work is bigger than expected, or a correctness invariant surfaces, or the user redirects the scope — STOP and escalate to the heavy path. Partial execution of a light plan followed by partial heavy plan is worse than one coherent heavy plan; better to re-plan properly.
+
+### When in doubt, take the heavy path
+
+The heavy path is the default. The light path is an explicit opt-out for a narrow class of work. If you can't confidently answer "yes" to all three gate criteria and "no" to all hard blocks, Phase 1 is the answer. The cost of an unnecessary heavy plan is a few extra minutes of research; the cost of an unjustified light plan is shipping a skipped design step.
+
+---
+
 ## Phase 1: Prerequisites
 
 ### Step 0: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS)
@@ -244,9 +299,11 @@ The full rule set is embedded below (source of truth files — do not maintain s
 
 Research uses **iterative deepening** — four sequential passes, each building on the findings of the prior pass. Passes 1 and 2 may use parallel agents for breadth. Passes 3 and 4 are focused, sequential deep-dives.
 
-### Step 3: Pass 1 — Breadth Scan (parallel agents)
+**Model selection for research agents**: ALL research agents (Passes 1, 3, 4) MUST use `model: "sonnet"` when calling the Agent tool. Research is structured code exploration — reading files, listing types, tracing pipelines, inventorying tests — which is Sonnet-grade work. This keeps bulky research output OUT of the Opus context window. The main agent (Opus) reads the agent summaries and makes architectural decisions; it does not need to be the one scanning files. Pass 2 (deep read) is done by the main agent or a single focused Sonnet agent.
 
-Launch **2-4 parallel agents** to build an inventory of everything relevant. This pass answers: **what exists?**
+### Step 3: Pass 1 — Breadth Scan (parallel Sonnet agents)
+
+Launch **2-4 parallel agents** (`model: "sonnet"`) to build an inventory of everything relevant. This pass answers: **what exists?**
 
 **Every agent MUST be instructed to:**
 - Read actual source files (not just file names)
@@ -318,11 +375,12 @@ Then:
 ```
 
 ### Step 2.5: Intelligence reconnaissance (CONDITIONAL)
-If the intelligence graph is available (`scripts/intel-query.sh status` returns `"ok"`):
-1. `scripts/intel-query.sh --human symbols "<topic keyword>" --repo ori --limit 20`
-2. `scripts/intel-query.sh --human file-symbols "<likely path>" --repo ori`
-3. For high-signal symbols: `callers`, `callees`, and `similar "<symbol>" --repo rust,swift,go,koka --limit 5`
-Feed the resulting symbol inventory into the breadth-scan agent prompts.
+
+Follow the canonical intel-summary injection protocol:
+
+@.claude/skills/dual-tpr/compose-intel-summary.md
+
+Per SSOT Step F — /create-plan reconnaissance: use `symbols "<topic keyword>" --repo ori --limit 20` and `file-symbols "<likely path>" --repo ori` for inventory; `callers`/`callees`/`similar --repo rust,swift,go,koka --limit 5` for high-signal symbols. Feed the resulting symbol inventory into the breadth-scan agent prompts.
 
 #### Agent 2: Tests, Spec, & Hygiene Audit
 
@@ -423,7 +481,7 @@ OUTPUT FORMAT:
 
 **After Pass 1 agents complete**, identify the **10-15 most critical files** from their findings. These are the files where the plan's core logic lives — not periphery.
 
-**You (the main agent) or a single focused agent MUST now read these files thoroughly.** Not scan for signatures — read the actual logic. Understand:
+**You (the main agent) or a single focused Sonnet agent** (`model: "sonnet"`) **MUST now read these files thoroughly.** Not scan for signatures — read the actual logic. Understand:
 
 1. **Invariants**: What properties does this code maintain? What `debug_assert!`s exist? What would break if those invariants were violated?
 2. **Control flow**: How does execution actually flow through this code? What are the error paths? What are the edge cases?
@@ -435,9 +493,9 @@ OUTPUT FORMAT:
 
 **This step cannot be parallelized.** Each file read may inform what to look for in the next file. If reading file A reveals that it delegates to file B in a non-obvious way, read file B next.
 
-### Step 5: Pass 3 — Pattern Study (single focused agent)
+### Step 5: Pass 3 — Pattern Study (single focused Sonnet agent)
 
-Launch **one agent** to trace 2-3 analogous features end-to-end through the compiler pipeline. These are features that already exist and follow the same structural pattern that the new plan will need.
+Launch **one agent** (`model: "sonnet"`) to trace 2-3 analogous features end-to-end through the compiler pipeline. These are features that already exist and follow the same structural pattern that the new plan will need.
 
 ```
 You are studying implementation patterns in the Ori compiler. Your job is to trace analogous features end-to-end to discover the exact implementation pattern that {topic/scope} should follow.
@@ -501,9 +559,9 @@ Then:
   PATTERN_RISKS: {where the new feature might need to deviate from the pattern}
 ```
 
-### Step 6: Pass 4 — Prior Art Study (single focused agent)
+### Step 6: Pass 4 — Prior Art Study (single focused Sonnet agent)
 
-Launch **one agent** to study reference compilers for the specific design decisions this plan will face. Not "how does Rust work generally" — "how does Rust solve *this specific problem*."
+Launch **one agent** (`model: "sonnet"`) to study reference compilers for the specific design decisions this plan will face. Not "how does Rust work generally" — "how does Rust solve *this specific problem*."
 
 ```
 You are studying prior art in reference compiler implementations. Your job is to find how other compilers handle the specific design decisions that {topic/scope} will face.
@@ -666,16 +724,61 @@ Create the plan directory under the plan root:
 
 Where `{plan_root}` is `${ORI_PLAN_ROOT:-plans}`. When `ORI_PLAN_ROOT` is not set, this resolves to the standard `plans/{name}/`.
 
-### Step 11: Write Sections Sequentially
+### Step 11: Write Sections Sequentially via Sonnet Subagents
+
+**Context-saving architecture**: Each section is written by a **Sonnet subagent** (`model: "sonnet"`), not by the main Opus agent. This keeps section text — which can be thousands of tokens per section — out of the main Opus context window. By the time a plan has 8 sections, the savings are massive: Opus holds only the architecture + brief per-section confirmations, not the full text of every section.
+
+**Why Sonnet works here**: By this point, the architecture is designed (Phase 3) and user-approved (Step 9). Section writing is structured document generation following a well-defined template, grounded in specific research findings. This is Sonnet-grade work. Opus made the architectural judgment calls; Sonnet executes the structured writing.
 
 For each section, in order from 01 to N:
 
-**Before writing the section**, re-read:
-- The `00-overview.md` architecture (to stay aligned with the design)
-- ALL previously written sections (to reference their decisions and avoid contradictions)
-- The relevant research findings for this section's scope
+**Step 11a: Prepare the Sonnet agent prompt.** The main agent (Opus) assembles:
+- The full `00-overview.md` architecture
+- ALL previously written section files (read from disk — the main agent doesn't need to hold them in context, just pass their paths/content to the subagent)
+- The relevant research findings for this section's scope (from Phases 2 agent results)
+- The plan template from `.claude/skills/create-plan/plan-schema.md`
+- The section-specific grounding requirements (listed below)
+- Any relevant rule files for this section's domain (e.g., `.claude/rules/tests.md`, `.claude/rules/compiler.md`, `.claude/rules/registry.md`)
 
-**Write the section** following the template in `.claude/skills/create-plan/plan-schema.md`. Every section must be grounded:
+**Step 11b: Launch the Sonnet subagent** (`model: "sonnet"`) with a prompt structured as:
+
+```
+You are writing Section {NN} of a plan for the Ori compiler. You will WRITE the section file to disk using the Write tool.
+
+ARCHITECTURE (from 00-overview.md):
+{paste overview content}
+
+PRIOR SECTIONS (read these for cross-references and to avoid contradictions):
+{paste prior section content or instruct agent to read files from disk}
+
+RESEARCH FINDINGS FOR THIS SECTION:
+{paste relevant research excerpts}
+
+SECTION REQUIREMENTS:
+- Title: {title}
+- Goal: {goal from architecture}
+- Files touched: {from research}
+- Depends on: {prior sections}
+
+TEMPLATE: Follow the format in .claude/skills/create-plan/plan-schema.md (read it).
+
+RULES TO WEAVE IN: Read {list of applicable rule files} and embed applicable constraints into checklist items.
+
+Write the section file to: {plan_root}/{name}/section-{NN}-{slug}.md
+```
+
+The subagent writes the file directly to disk and returns a summary.
+
+**Step 11c: Opus reviews the result.** The main agent reads the written section file and verifies:
+- File paths referenced in this section exist (spot-check with Glob)
+- Type/function names referenced exist (spot-check with Grep)
+- References to prior sections are accurate
+- No contradictions with the overview or prior sections
+- Section has all required elements (frontmatter, success criteria, matrix testing, completion checklist)
+
+If issues are found, either fix them directly or re-prompt the Sonnet agent with corrections. Then proceed to the next section.
+
+**Section grounding requirements** (the Sonnet agent's prompt MUST include these):
 
 - **File paths**: Use EXACT paths from research (verified to exist)
 - **Type signatures**: Use EXACT signatures from research (copy from source)
@@ -693,7 +796,7 @@ For each section, in order from 01 to N:
 - **What this section provides to later sections**: State what downstream sections will depend on. "Section {M} will use the {API/type/pattern} established here."
 
 - **Success criteria**: Every section MUST have detailed success criteria — concrete, testable conditions that prove the section's work is done. Not "implement X" but "X produces Y when Z is run." Each criterion must connect upward to at least one mission success criterion in `00-overview.md`. A section without success criteria is not executable.
-- **Rules woven in**: Every section must embed the CLAUDE.md and `.claude/rules/*.md` rules that apply to its work — not as a "rules" appendix, but woven organically into checklist items, constraints, and callouts. Read CLAUDE.md and the relevant rule files (`.claude/rules/tests.md` for test sections, `.claude/rules/compiler.md` for compiler changes, `.claude/rules/registry.md` for registry work, `.claude/rules/arc.md` for ARC work, etc.) and embed the applicable constraints directly into the section's tasks. For example: if a section adds an enum variant, the checklist item should say "Add `FooVariant` to `BarEnum` in `file.rs` — update ALL match arms (see `other_file.rs:123`, `third_file.rs:456`)" rather than "Add variant (remember to check sync points)." The plan is a self-contained execution document — the implementer should not need to consult external rule files to know what a section requires.
+- **Rules woven in**: Every section must embed the CLAUDE.md and `.claude/rules/*.md` rules that apply to its work — not as a "rules" appendix, but woven organically into checklist items, constraints, and callouts. The Sonnet agent reads the relevant rule files and embeds the applicable constraints directly into the section's tasks. For example: if a section adds an enum variant, the checklist item should say "Add `FooVariant` to `BarEnum` in `file.rs` — update ALL match arms (see `other_file.rs:123`, `third_file.rs:456`)" rather than "Add variant (remember to check sync points)." The plan is a self-contained execution document — the implementer should not need to consult external rule files to know what a section requires.
 
 **Frontmatter includes:**
 - Section ID, title, status: not-started, goal, `success_criteria` list
@@ -702,17 +805,13 @@ For each section, in order from 01 to N:
 - `depends_on` based on actual crate dependency chain AND section content dependencies
 - `third_party_review: { status: none, updated: null }`
 - `## {NN}.R Third Party Review Findings` block (empty, with `- None.`) before the completion checklist
-- **Per-subsection close-out blocks** — EVERY subsection ({NN}.1, {NN}.2, ...) MUST end with a "Subsection close-out" block containing the per-subsection `/improve-tooling` retrospective BEFORE the `---` separator. This is the PRIMARY tooling growth mechanism — pain memory decays within hours, so the look-back must fire while the subsection's debugging journey is still hot, not deferred to section close. Use the canonical form from `plan-schema.md` (subsection {NN}.1 example). Plans that omit per-subsection close-outs will fail `/continue-roadmap` validation.
-- Completion checklist at the end — MUST include `/tpr-review`, `/impl-hygiene-review`, AND `/improve-tooling` **section-close sweep** as final gates, in that order: TPR clean → hygiene clean → tooling sweep. The sweep is a SAFETY NET that (a) verifies every subsection's per-subsection retrospective actually ran, and (b) adds only NEW items from cross-subsection patterns invisible at per-item scope. The bulk of tooling growth must already be captured in per-subsection close-outs by the time the sweep runs. The sweep is mandatory at every section close (even when nothing felt painful), but it should produce few or zero new findings when per-subsection captures are thorough — that is the expected outcome. See `plan-schema.md` for the exact wording, and `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for both granularities.
+- **Per-subsection close-out blocks** — EVERY subsection ({NN}.1, {NN}.2, ...) MUST end with a "Subsection close-out" block containing the per-subsection `/improve-tooling` retrospective AND per-subsection `/sync-claude` doc sync BEFORE the `---` separator. `/improve-tooling` captures tooling friction while the debugging journey is still hot; `/sync-claude` checks whether code changes invalidated any Claude artifacts (CLAUDE.md, rules files, canon.md). Both fire at per-subsection scope because drift accumulates invisibly. Use the canonical form from `plan-schema.md` (subsection {NN}.1 example). Plans that omit per-subsection close-outs will fail `/continue-roadmap` validation.
+- Completion checklist at the end — MUST include `/tpr-review`, `/impl-hygiene-review`, `/improve-tooling` **section-close sweep**, AND `/sync-claude` **section-close doc sync** as final gates, in that order: TPR clean → hygiene clean → tooling sweep → doc sync. The `/improve-tooling` sweep is a SAFETY NET for tooling; the `/sync-claude` sweep is a SAFETY NET for doc accuracy across all commits in the section. Both are mandatory at every section close. See `plan-schema.md` for the exact wording.
 
 **`reviewed` field rules:**
 - **ALL sections**: `reviewed: false` at creation — plans are written against research findings, not validated against implementation reality. `/continue-roadmap`'s pre-implementation gate (Step 1.7) will trigger a single-section `/review-plan` before work begins on each section, flipping it to `reviewed: true` after validation.
 
-**After writing each section**, briefly verify:
-- File paths referenced in this section exist
-- Type/function names referenced exist
-- References to prior sections are accurate (re-read the referenced section if needed)
-- No contradictions with prior sections
+**After the Sonnet subagent writes each section**, Step 11c's verification pass (described above) is mandatory before proceeding to the next section. Do NOT skip the verification — the Sonnet subagent might hallucinate file paths or mis-reference prior sections, and the main Opus agent is the single authority catching these before the error propagates into subsequent sections.
 
 Then proceed to the next section.
 
@@ -728,7 +827,7 @@ After all sections are written:
 
 ### Step 13: Cohesion Check (NEW — before /review-plan)
 
-Launch **one agent** to read the ENTIRE plan front-to-back and check for internal coherence:
+Launch **one agent** (`model: "sonnet"`) to read the ENTIRE plan front-to-back and check for internal coherence. This is a read-only structural scan — Sonnet-grade work. Keeping the cohesion analysis out of the Opus context means the main agent receives only a findings summary, not the full plan text again.
 
 ```
 You are reviewing a newly created plan for internal coherence. Read EVERY file in the plan directory: {plan_dir}/

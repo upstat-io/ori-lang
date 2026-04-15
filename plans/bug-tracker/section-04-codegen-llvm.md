@@ -19,11 +19,24 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
-- [ ] `[BUG-04-075][critical]` **ARC drop order: tail-expression temporaries in blocks outlive local bindings (Rust RFC 3606 class)**
+- [x] `[BUG-04-078][medium]` **set_builtins.rs sorted_keys/sorted_values builds List<T> with canonical stride instead of narrowed — same boundary mismatch class as BUG-04-077**
+  Resolved: OBE on 2026-04-14. Collection element narrowing (Phase C) was disabled at the repr level as part of BUG-04-077 mitigation (`ori_repr/src/narrowing/int.rs:204-208`). With narrowing disabled, all list producers (including set sorted_keys/sorted_values) and all list consumers use canonical stride — no mismatch possible. Re-enablement tracked at `plans/repr-opt/section-11-collection-spec.md:230`.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/set_builtins.rs:284`
+  Found: 2026-04-14 | Source: fix-bug
+
+- [x] `[BUG-04-077][critical]` **Collect output boundary ABI mismatch: collected List<int> has canonical i64 stride but list_traits/debug_helpers read with narrowed i8 stride**
+  Resolved: Fixed on 2026-04-14 by disabling collection element narrowing (Phase C) at the repr level (`ori_repr/src/narrowing/int.rs:184-208`). The narrowing analysis only sees literal construction sites but `collect()` can produce computed values exceeding the narrowed range. Since all `List<int>` share one ReprPlan entry, the stride mismatch caused silent data corruption. With narrowing disabled, all list operations use canonical stride — no mismatch. Struct field and local variable narrowing unaffected. Re-enablement requires extending the narrowing analysis to account for ALL value sources (collect output, map/filter pipelines); tracked at `plans/repr-opt/section-11-collection-spec.md:230`. 7 Phase C unit tests `#[ignore = "BUG-04-077"]` await re-enablement.
+  Fix: `plans/bug-tracker/fix-BUG-04-077.md`
+  Subsystem: `ori_repr` (narrowing/int.rs), `ori_llvm` (narrowing_codegen.rs, list_traits.rs, debug_helpers.rs, iterator_consumers.rs)
+  Found: 2026-04-14 | Source: tpr-review
+
+- [ ] `[BUG-04-075][critical→medium]` **ARC drop order: tail-expression temporaries in blocks outlive local bindings (Rust RFC 3606 class)**
+  Reclassified 2026-04-14: critical→medium. Investigation reveals no observable correctness impact today — user-defined `Drop` is unimplemented (no `DerivedTrait::Drop`, no evaluator dispatch, no `@drop` in any test), so drop ordering produces no side effects. ARC ensures memory safety regardless of order. No concrete repro showing wrong behavior. Future concern when Drop is implemented.
   Repro: Any block where a tail expression creates an ARC-managed temporary while local bindings also hold ARC references — the temporary's RC dec happens after the locals' RC decs instead of before. Same class as Rust's RFC 3606 / Edition 2024 fix. Ori should drop tail-expression temporaries immediately after evaluation, before block-local bindings are dropped.
   Subsystem: `ori_arc` (AIMS pipeline / realization / drop ordering)
   Found: 2026-04-13 | Source: tp-help (dual-source design consultation — both Codex and Gemini independently identified this)
   Note: Cross-language precedent: Rust required RFC 3606, a migration lint (#130836 — massive false positives), and a full Edition change (Rust 2024) to fix this. Ori should implement correct drop order natively since it's pre-1.0.
+  Escalated: requires plan — ARC IR has no concept of "tail-expression temporary" vs "local binding" (all are flat SSA variables). Fix requires: (1) new metadata on ARC IR variables or block structure to track provenance, (2) modifications to lowering (`control_flow/mod.rs`) to annotate tail-expression vars, (3) modifications to realization (`walk.rs`, `walk_dec.rs`) to reorder drops, (4) AIMS analysis may need awareness of the new metadata. 4+ files in the complexity-elevated `ori_arc` subsystem. Cross-language precedent (Rust RFC 3606) confirms this is architecturally non-trivial.
 
 - [ ] `[BUG-04-074][high]` **AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure**
   Repro: `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` — passes in interpreter, AOT fails with "unresolved type variable at codegen — type inference bug". The empty list `[]` element type is never propagated to LLVM codegen even though `push(value: 10)` provides int context.
@@ -43,11 +56,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Reviewer: gemini
   Fix: Change `matches!(self.shape, ShapeClass::ReusableCtor(_))` to `!matches!(self.shape, ShapeClass::NonReusable)` per aims-rules.md CN-3 (updated TPR iter-52).
 
-- [ ] `[BUG-04-071][critical]` **Iterator map with repr-opt narrowed list: element size mismatch causes memory corruption**
-  Repro: `[1,2,3,4,5].iter().map(transform: x -> x * 2).collect()` — repr-opt narrows `[int]` literal to i8 (values fit in 1 byte), so `ori_iter_map` receives `elem_size=1`. But the map lambda `x -> x * 2` returns i64 (8 bytes). The trampoline `_ori_tramp_0` does `store i64 %result, ptr %slot, align 8`, writing 8 bytes into a 1-byte slot. Downstream `ori_iter_collect` allocates a buffer with 1-byte slots. Passes by coincidence for short arrays on little-endian; will corrupt data with larger arrays or specific element counts.
+- [x] `[BUG-04-071][critical]` **Iterator map with repr-opt narrowed list: element size mismatch causes memory corruption**
+  Resolved: Fixed on 2026-04-14. Canonicalized iterator pipeline at the `iter()` boundary: when `emit_list_iter` detects narrowed elements, injects a sext widening trampoline that converts narrowed values to canonical i64. Removed ALL `int_element_store_size`/`int_element_llvm_type` usages from iterator.rs, iterator_consumers.rs, and trampolines.rs — entire pipeline now operates on canonical types. Tests: 30 spec tests (map, filter, chain, zip, enumerate, cycle, rev, chained maps, for-loop, signed values, boundary values) + 1 AOT fixture with signed/chained/for-loop coverage + IR-level sext pin. 15,305 tests passing. Related bugs filed by TPR: BUG-04-077 (collect output boundary), BUG-04-076 (flatten element size).
+  Fix: `plans/bug-tracker/fix-BUG-04-071.md`
   Subsystem: `ori_llvm` (repr-opt + iterator codegen interaction)
   Found: 2026-04-12 | Source: tpr-review
-  Reviewer: gemini (deep investigation with ORI_DUMP_AFTER_LLVM=1 + valgrind during §07 FileCheck TPR round 5)
 
 - [ ] `[BUG-04-076][high]` **emit_iter_flatten passes iterator handle size instead of inner element size**
   Repro: `[[true, false], [true]].iter().flatten().collect()` — `elem_ty` for flatten is `Iterator<bool>` (8-byte handle), but `ori_iter_flatten` expects `inner_elem_size = sizeof(bool) = 1`. The runtime's `next_flattened` uses the wrong stride for inner element reads. Currently masked for `int` (both are 8 bytes) but wrong for `bool`, `byte`, tuples, or structs.
@@ -89,8 +102,8 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-11 | Source: continue-roadmap
   Resolved: Fixed on 2026-04-12 (3f7cf7c2) as part of BUG-04-057 fix. Rule 6 widened from `== HeapEscaping` to `>= HeapEscaping`. Both monotonicity proptests now pass. Fix section: `plans/bug-tracker/fix-BUG-04-057.md`.
 
-- [ ] `[BUG-04-065][high]` **AOT: Set iteration crashes with SIGSEGV for Set<int> and composite types (Set<[int]>, Set<{str: int}>)**
-  Repro: `@main () -> int = { let s: Set<int> = [10, 20, 30].iter().collect(); for x in s do {}; 0 }` → `ori build` succeeds, binary segfaults (exit 139). Same for `Set<[int]>` and `Set<{str: int}>`. `Set<str>` iteration works correctly (existing `sets.rs` AOT tests pass). Non-iteration Set operations (insert, length, contains) work for `Set<int>`. Issue is in Set iteration codegen for non-str element types.
+- [x] `[BUG-04-065][high]` **AOT: Set iteration crashes with SIGSEGV for Set<int> and composite types (Set<[int]>, Set<{str: int}>)**
+  Resolved: OBE on 2026-04-14. Set<int> iteration with non-empty body builds and runs correctly (exit 0). Verified: `let s: Set<int> = [10, 20, 30].iter().collect(); let total = 0; for x in s do { total = total + x; }; if total == 60 then 0 else 1` — compiles and runs via `ori build`, exit 0. Set<str> for-do also works. The original repro's empty `for x in s do {}` body triggers a different, general bug (unresolved type variables for empty for-do bodies in AOT — affects all collection types, not just Sets). Filed as BUG-04-084. The Set-specific SIGSEGV was likely resolved by BUG-04-071/BUG-04-077 narrowing canonicalization fixes.
   Subsystem: `compiler/ori_llvm/src/codegen/` (Set iterator codegen) or `compiler/ori_rt/` (Set runtime)
   Found: 2026-04-12 | Source: continue-roadmap
   Note: Blocks Set<int> iteration matrix (iter_rc_matrix E7) and CollectSet verification with non-str element types.
@@ -107,7 +120,8 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-12 | Source: continue-roadmap
   Note: Active work in llvm-verification-tooling Section 06.3 touches this area. Discovered while writing CollectSet gap-fill tests.
 
-- [ ] `[BUG-04-059][high]` **AIMS realization uses unsound cross-dimensional uniqueness proofs (DP-10/RL-13 pattern)**
+- [x] `[BUG-04-059][high]` **AIMS realization uses unsound cross-dimensional uniqueness proofs (DP-10/RL-13 pattern)**
+  Resolved: Fixed on 2026-04-14 (commit ad2b3134). Removed 4 unsound cross-dimensional paths: `decide_reuse()` MaybeShared+Once+ReusableCtor → StaticReuse, `decide_cow()` is_cow_aware_unique param path + CollectionBuffer+Once + ReusableCtor+Once, `detect.rs::is_static` cross-dim branch, and `cow.rs::is_borrow_disjoint_from_siblings` `is_cow_aware_unique` fallback. Removed `cow_upgrades` and `cross_dim_reuse` synergy counters + their increment sites. Preserved spec-approved `is_borrow_disjoint → StaticUnique` path (§RL-31) with strict `Uniqueness::Unique` source gate. Re-enablement tracked as BUG-04-079 (blocked-by BUG-04-069). Plan TPR (Phase 2.5) ran 7 rounds to CLEAN PASS. Tests: 1204 ori_arc + 15307 total test-all.sh green; clippy clean. Fix section: `plans/bug-tracker/fix-BUG-04-059.md`.
   Repro: `decide_reuse()` at `compiler/ori_arc/src/aims/realize/decide.rs:263` upgrades `MaybeShared + Once + ReusableCtor` to `StaticReuse`; `decide_cow()` at `decide.rs:389` upgrades params with `Owned + Linear + Once` to `StaticUnique`; `emit_reuse/detect.rs:80` marks same states `is_static_unique`; `emit_rc/cow.rs:61` (`is_cow_aware_unique`) documents the linearity-based proof. The formal AIMS rules (`aims-rules.md`) explicitly removed DP-10 and RL-13 as unsound: backward-analysis facts (consumption/cardinality are FUTURE guarantees) do NOT prove RC==1 (a PAST guarantee). `MaybeShared + Once + ReusableCtor` can have RC>1 if the single use is a store that increments RC. Tests `cow_param_cow_aware_unique` and `decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse` pin the currently-unsound behavior.
   Subsystem: `compiler/ori_arc/src/aims/realize/decide.rs`, `compiler/ori_arc/src/aims/emit_reuse/detect.rs`, `compiler/ori_arc/src/aims/emit_rc/cow.rs`
   Found: 2026-04-12 | Source: tpr-review
@@ -536,12 +550,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Reviewer: gemini
   Note: Blocks RL-15a caller-stack allocation optimization. When added, update `CHAIN_HEIGHT`, all proptest strategies in `prop_tests.rs`, and CN-8/DP-8 implementations.
 
-- [ ] `[BUG-04-064][high]` **DP-5 `can_mutate_in_place` does not check overlapping borrows or project_alias_sources**
-  Repro: `compiler/ori_arc/src/aims/transfer/mod.rs:433` — implementation checks `Owned + Unique` only, omitting `no_active_overlapping_borrows(s, var, field, point)` mandated by spec DP-5. Also: `emit_rc/cow.rs:23-52` and `realize/decide.rs:381-438` only inspect direct sibling borrows, never consult `project_alias_sources`, and do not intersect with point liveness. Could permit in-place mutations that corrupt active borrowed projections or aliases.
-  Subsystem: `compiler/ori_arc/src/aims/transfer/mod.rs`, `compiler/ori_arc/src/aims/emit_rc/cow.rs`, `compiler/ori_arc/src/aims/realize/decide.rs`
+- [x] `[BUG-04-064][high]` **DP-5 `can_mutate_in_place` does not check overlapping borrows or project_alias_sources**
+  Resolved: Fixed on 2026-04-14 (commits da89cea7, 407a8e54). Added `has_borrows_from_aggregate()` function-wide conservative borrow check to `emit_rc/cow.rs`. `decide_cow()` now returns `StaticShared` for Unique variables with active borrows per DP-9. Renamed `can_mutate_in_place` → `is_owned_and_unique` to resolve LEAK naming (TPR finding). Tests: 4 pin tests (semantic + negative + 2 edge cases). `project_alias_sources` gap tracked as BUG-04-083; block-entry uniqueness gap tracked as BUG-04-082. Fix section: `plans/bug-tracker/fix-BUG-04-064.md`. 15,314 tests passing.
+  Subsystem: `compiler/ori_arc/src/aims/realize/decide.rs`, `compiler/ori_arc/src/aims/emit_rc/cow.rs`
   Found: 2026-04-12 | Source: tpr-review
   Reviewers: codex + gemini (both independently flagged)
-  Note: Must check BOTH `borrow_sources` AND `project_alias_sources` (including transitive closure for nested Projects) intersected with live-variable set at mutation point per spec §1.9 + DP-5.
 
 - [ ] `[BUG-04-065][medium]` **TF-6 `refine()` not implemented — call results always get CONSERVATIVE state**
   Repro: `compiler/ori_arc/src/aims/transfer/mod.rs:75-80` routes `Apply` to `transfer_apply_conservative()`. `transfer/mod.rs:234-238` routes `Invoke` the same way. `intraprocedural/block.rs:439-480` refines argument DEMAND (parameter contracts), NOT the destination state. No inspected path reads `return_info.locality` or `return_info.shape` to refine call results per TF-6.
@@ -575,3 +588,37 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_arc/src/aims/interprocedural/`
   Found: 2026-04-12 | Source: tpr-review (aims-rules iteration 4 — unfiled drift)
   Note: Unsound by spec analysis — a caller with `MaybeShared` argument used linearly still has RC > 1 from upstream aliases. Parameter uniqueness should be established only by SCC fixpoint (IC-2/IC-3).
+- [ ] `[BUG-04-080][low]` **`is_borrow_disjoint_from_siblings()` lacks helper-layer unit tests; coverage is integration-only via `decide_cow()` proxy**
+  Repro: `compiler/ori_arc/src/aims/emit_rc/cow/tests.rs` is doc-only after BUG-04-059 fix. The helper's correctness — Uniqueness::Unique source check, BorrowSource::Exact { source, field: Some(_) } extraction, sibling-field disjointness — is exercised end-to-end through the AIMS integration path + `decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique`, but never as a pure-function unit test. Future regressions in the helper's source-uniqueness check, field-disjointness logic, or sibling-borrow iteration would be caught only at integration time.
+  Subsystem: `compiler/ori_arc/src/aims/emit_rc/cow.rs`, `compiler/ori_arc/src/aims/emit_rc/cow/tests.rs`
+  Scope: write 4 unit tests using `AimsStateMap::new()` + `update_block_entry()` + `set_borrow_source()` to construct test fixtures: (a) Unique source + disjoint fields → true (preserved positive), (b) MaybeShared source + Owned+Linear+Once → false (negative pin: rejects removed `is_cow_aware_unique` path), (c) Unique source + same-field sibling → false (preserved RL-10), (d) Unique source + whole-object sibling → false. Requires constructing a minimal ArcFunction or extracting the helper's logic into a more testable form.
+  Found: 2026-04-14 | Source: tpr-review (Phase 5 code review of BUG-04-059, TPR-04-001-gemini-phase5 + TPR-04-002-codex-phase5 agreement)
+  Note: Lower severity than the bug it's tracking because the integration coverage exists; this is purely a test-layer hygiene gap. The helper's source-uniqueness check has block-aware fix from same Phase 5 review (TPR-04-001-codex-phase5) — that fix is committed in Phase 5 closure.
+- [ ] `[BUG-04-081][low]` **`AnnotationSiteContext` has 6 fields populated but unread after BUG-04-059 unsound-path removal**
+  Repro: After BUG-04-059 removed the cross-dimensional StaticUnique paths, fields `is_param`, `access`, `consumption`, `cardinality`, `shape`, and `rc_incremented_set` on `AnnotationSiteContext` (`compiler/ori_arc/src/aims/realize/decide.rs:317-351`) are populated by the realization walk in `compiler/ori_arc/src/aims/realize/mod.rs:298-313,341-356` but never read by `decide_cow()` or `decide_drop_hint()`.
+  Subsystem: `compiler/ori_arc/src/aims/realize/decide.rs`, `compiler/ori_arc/src/aims/realize/mod.rs`, `compiler/ori_arc/src/aims/realize/tests.rs::cow_ctx`
+  Scope: removing the fields would simplify the struct and eliminate dead populating code, BUT would also invalidate the BUG-04-059 negative-pin tests that demonstrate "even with these previously-triggering inputs, the code rejects the unsound path." Decide whether to (a) remove fields and rewrite negative pins to be input-agnostic (simpler API, weaker tests), or (b) keep fields with `#[expect(dead_code)]` annotation citing the negative-pin rationale, or (c) move the negative pins into `#[cfg(test)]`-only context with their own minimal struct. Recommendation: option (b) — fields are cheap to populate and the negative pins' pedagogical value justifies keeping them.
+  Found: 2026-04-14 | Source: tpr-review (Phase 5 code review of BUG-04-059, TPR-04-002-gemini-phase5)
+- [ ] `[BUG-04-082][medium]` **`is_borrow_disjoint_from_siblings` uses block-entry state for source uniqueness — same unsound pattern as BUG-04-064**
+  Repro: `compiler/ori_arc/src/aims/emit_rc/cow.rs:54` — `var_state_at_block_entry(block, source)` checks source uniqueness at block entry, but a source may transition from Unique to MaybeShared mid-block via RcInc. A mid-block COW site would see stale uniqueness. Same class as the BUG-04-064 block-entry liveness gap, but for the MaybeShared disjoint-borrow path instead of the Unique path.
+  Subsystem: `compiler/ori_arc/src/aims/emit_rc/cow.rs`
+  Found: 2026-04-14 | Source: fix-bug (BUG-04-064 Phase 1.75 tp-help consensus)
+  Reviewers: codex + gemini (both independently flagged during BUG-04-064 design consensus)
+- [ ] `[BUG-04-083][medium]` **DP-5 `has_borrows_from_aggregate` omits `project_alias_sources` — transitive aliases of borrows not checked**
+  Repro: If `%3 = Project %2.0` and `%4 = Let Var(%3)`, then `borrows_from_source(%2)` returns only `%3`, missing `%4` (a transitive alias). If `%3` is dead but `%4` is live at a COW site on `%2`, the borrow overlap check passes incorrectly. `project_alias_sources` is computed during intraprocedural analysis but not stored on `AimsStateMap`.
+  Subsystem: `compiler/ori_arc/src/aims/emit_rc/cow.rs`, `compiler/ori_arc/src/aims/intraprocedural/state_map.rs`
+  Found: 2026-04-14 | Source: tpr-review (BUG-04-064 Phase 5 code TPR)
+  Reviewer: gemini (TPR-04-002-gemini)
+  Note: Requires storing `project_alias_sources` on `AimsStateMap` or recomputing at realization time. Architecture change beyond BUG-04-064 point fix scope.
+- [ ] `[BUG-04-084][medium]` **AOT: empty `for x in collection do {}` body causes unresolved type variables at codegen**
+  Repro: `@main () -> int = { let items = [1, 2, 3]; for x in items do {}; 0 }` → `ori build` fails with `unresolved type variable at codegen — type inference bug`. Affects ALL collection types (List, Set, Map) — not Set-specific. Non-empty bodies work correctly. Interpreter handles empty bodies fine (`ori run` exits 0).
+  Subsystem: `compiler/ori_llvm/` (monomorphization / type variable resolution for empty for-do bodies)
+  Found: 2026-04-14 | Source: fix-bug (BUG-04-065 investigation — original repro used empty body, masking the actual OBE status)
+  Note: Discovered during BUG-04-065 OBE verification. The empty body produces an unused iterator element binding (`x`), and the type variable for that binding's `Item` associated type may not be resolved when no code in the body constrains it.
+- [ ] `[BUG-04-079][medium]` **Implement spec-approved DP-9 `MaybeShared + IC-3 ParamContract.uniqueness = Unique → StaticUnique` path (re-enablement of COW fast-path for parameters)** <!-- blocked-by:BUG-04-069 -->
+  **Blocked:** BUG-04-069 must be fixed first. BUG-04-069's `tighten_uniqueness_from_callers` uses the unsound IC-8 pattern (Owned+Linear+Once → Unique) to produce `ParamContract.uniqueness = Unique`. Today this is dormant because no realization site reads `ParamContract.uniqueness`. But BUG-04-079 plumbs it into `AnnotationSiteContext` for consumption by `decide_cow()` — so fixing BUG-04-079 without BUG-04-069 would launder the exact unsoundness BUG-04-059 just removed through a different channel.
+  Repro: none yet (capability gap, not a regression). After BUG-04-059 fix, MaybeShared parameters always take `Dynamic` (runtime IsShared). Spec DP-9 permits `StaticUnique` when the interprocedural contract proves caller-side uniqueness — a PAST guarantee from the SCC fixpoint, not future-use inference.
+  Subsystem: `compiler/ori_arc/src/aims/realize/decide.rs` (`AnnotationSiteContext`), `compiler/ori_arc/src/aims/interprocedural/` (contract plumbing)
+  Scope: plumb `ParamContract.uniqueness` into `AnnotationSiteContext` for parameter variables, add guarded subcase to `decide_cow()`: `MaybeShared + is_param + param_contract.uniqueness = Unique → StaticUnique`. Add positive test (param with Unique contract) + negative test (param with MaybeShared contract stays Dynamic) + SCC fixpoint test (caller aliases demote contract).
+  Found: 2026-04-14 | Source: fix-BUG-04-059 (capability regression tracking per CLAUDE.md ABSOLUTE rule) + Plan TPR round 1 (TPR-04-001-gemini identified BUG-04-069 coupling)
+  Note: This is the sound re-enablement path for the COW fast-path capability disabled by BUG-04-059. Unblocks a measurable performance optimization for parameter-mediated COW patterns. Dependency chain: BUG-04-059 → BUG-04-069 → BUG-04-079.

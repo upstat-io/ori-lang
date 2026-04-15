@@ -153,29 +153,27 @@ For each bug marked `- [x]` since the last review, verify that the fix followed 
 
 If the intelligence graph is available, cross-reference recommended bugs against reference compiler issues to enrich recommendations with fix-approach confidence.
 
-1. **Check availability**: Run `scripts/intel-query.sh status` via Bash and parse the JSON output. If the `status` field is not `"ok"`, skip — present recommendations without intelligence enrichment.
+Follow the canonical intel-summary injection protocol for availability check + base queries:
 
-2. **For each high-priority bug** being recommended for fixing, run:
-   ```
-   scripts/intel-query.sh --human search "<bug title keywords>" --limit 5
-   scripts/intel-query.sh --human fixed "<bug category>" --repo rust,swift,koka,lean4 --limit 5
-   ```
+@.claude/skills/dual-tpr/compose-intel-summary.md
 
-3. **Verify before citing** — Intelligence results are for DISCOVERY, not replacement (per `.claude/rules/intelligence.md`). Before citing any matched reference issue in recommendations, verify the match is relevant by reading the actual issue/PR. Remove entries that don't match on inspection.
+**Bug-specific extension** (per SSOT Step F — /review-bugs domain extension):
 
-4. Use verified results to enrich the `### Recommended Actions` section:
+1. For each high-priority bug being recommended for fixing, run:
+   - `intel-query.sh --human search "<bug title keywords>" --limit 5`
+   - `intel-query.sh --human fixed "<bug category>" --repo rust,swift,koka,lean4 --limit 5`
+   - `intel-query.sh --human callers "<repro symbol>" --repo ori` — blast radius
+   - `intel-query.sh --human file-symbols "<subsystem path>" --repo ori` — cluster related bugs by module
+   - `intel-query.sh --human similar "<buggy function>" --repo rust,swift,koka,lean4 --limit 5` — find reference fixes
+
+2. Use verified results (SSOT Step D verify-before-citing applies) to enrich the `### Recommended Actions` section:
    - Bugs where 2+ reference compilers hit the same failure mode → higher confidence the fix approach is known (mention in recommendation)
    - Bugs matching "fixed" issues in reference compilers → note the fix approach for the implementer's benefit
    - Bug clusters (multiple Ori bugs matching the same reference compiler issue class) → recommend fixing together via a single fix section
 
-5. **Map blast radius and find reference fixes** — For each high-priority bug, also run:
-   - `scripts/intel-query.sh --human callers "<repro symbol>" --repo ori` — map blast radius
-   - `scripts/intel-query.sh --human file-symbols "<subsystem path>" --repo ori` — cluster related bugs by module
-   - `scripts/intel-query.sh --human similar "<buggy function>" --repo rust,swift,koka,lean4 --limit 5` — find reference fixes
+3. **Opportunistic preset mapping** — If the bug's subsystem maps to an intelligence preset per `.claude/rules/intelligence.md` §Subsystem Mapping (e.g., `ori_arc` bugs → `ori-arc` preset), use the preset query in addition to `search`/`fixed` for more targeted results.
 
-6. **Opportunistic preset mapping** — If the bug's subsystem maps to an intelligence preset per `.claude/rules/intelligence.md` §Subsystem Mapping (e.g., `ori_arc` bugs → `ori-arc` preset), use the preset query in addition to `search`/`fixed` for more targeted results.
-
-7. If unavailable or empty, present recommendations without intelligence enrichment — the prioritization logic works without it.
+If unavailable or empty, present recommendations without intelligence enrichment — the prioritization logic works without it.
 
 ### Step 6: Ask What to Do
 
