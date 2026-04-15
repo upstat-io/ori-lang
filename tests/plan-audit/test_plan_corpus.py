@@ -484,6 +484,84 @@ class TestFindingTypeSafety:
         assert "missing index" in md
         assert "high" in md
 
+    def test_id_discriminates_by_target_key(self):
+        """Regression: two findings on the same file/subtype that differ only
+        by target_key MUST produce distinct ids. Pre-fix both collided on
+        the same hash because target_key was excluded from the hash input.
+
+        See: TPR-03-002-codex.
+        """
+        common = dict(
+            category=FindingCategory.SCHEMA_VIOLATION,
+            subtype=FindingSubtype.MISSING_REQUIRED_FIELD,
+            severity=Severity.HIGH,
+            source=Path("plans/p1/index.md"),
+            source_line=3,
+            description="missing required field",
+            recommended_fix="add it",
+        )
+        f_name = Finding(**common, target_key="name")
+        f_full = Finding(**common, target_key="full_name")
+        assert f_name.id != f_full.id, (
+            "target_key must discriminate Finding.id; collisions break "
+            "downstream pairing/reporting (TPR-03-002-codex)"
+        )
+
+    def test_id_unchanged_when_target_key_is_none(self):
+        """Backward-compat: legacy findings with no target_key still produce
+        the pre-extension hash. Adding target_key as a field MUST NOT
+        change the id of findings that don't populate it.
+        """
+        f = Finding(
+            category=FindingCategory.PARSE_ERROR,
+            subtype=FindingSubtype.YAML_SYNTAX_ERROR,
+            severity=Severity.HIGH,
+            source=Path("test.md"),
+            source_line=5,
+            description="parse error",
+            recommended_fix="fix yaml",
+        )
+        assert f.target_key is None
+        # Hash of "parse_error:yaml_syntax_error:test.md:5" first 6 hex chars
+        import hashlib
+        expected_content = "parse_error:yaml_syntax_error:test.md:5"
+        expected = "VR-" + hashlib.sha256(expected_content.encode()).hexdigest()[:6]
+        assert f.id == expected
+
+    def test_to_json_serializes_target_key(self):
+        """Regression: Finding.to_json() must include target_key so JSON
+        report consumers can rely on the structural discriminator added
+        in the §03 migration.
+
+        See: TPR-03-007-codex.
+        """
+        f = Finding(
+            category=FindingCategory.SCHEMA_VIOLATION,
+            subtype=FindingSubtype.UNKNOWN_FIELD,
+            severity=Severity.MEDIUM,
+            source=Path("plans/p1/index.md"),
+            description="unknown field",
+            recommended_fix="remove",
+            target_key="plan",
+        )
+        payload = f.to_json()
+        assert "target_key" in payload
+        assert payload["target_key"] == "plan"
+
+    def test_to_json_target_key_null_for_legacy_findings(self):
+        """Legacy findings without target_key serialize as null, not absent."""
+        f = Finding(
+            category=FindingCategory.PARSE_ERROR,
+            subtype=FindingSubtype.YAML_SYNTAX_ERROR,
+            severity=Severity.HIGH,
+            source=Path("test.md"),
+            description="parse error",
+            recommended_fix="fix",
+        )
+        payload = f.to_json()
+        assert "target_key" in payload
+        assert payload["target_key"] is None
+
 
 # ---------------------------------------------------------------------------
 # §01.5 — Status Normalizer Tests

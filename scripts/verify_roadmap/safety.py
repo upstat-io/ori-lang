@@ -249,13 +249,48 @@ def _classify_schema_violation(
     if sub == FindingSubtype.MISSING_REQUIRED_FIELD:
         return _classify_missing_required_field(finding, context, frontmatter_data)
 
+    if sub == FindingSubtype.CROSS_FIELD_INVARIANT:
+        return _classify_cross_field_invariant(finding, context, frontmatter_data)
+
     # All other SCHEMA_VIOLATION subtypes: ExposureReview
-    # WRONG_TYPE, ENUM_OUT_OF_RANGE, CROSS_FIELD_INVARIANT,
+    # WRONG_TYPE, ENUM_OUT_OF_RANGE,
     # DUPLICATE_PLAN_NAME, DEP_ID_MALFORMED, DEP_ID_FULL_PATH, DEP_ID_UNKNOWN_NAME
     return ClassifiedFinding(
         finding=finding,
         safety_class=SafetyClass.EXPOSURE_REVIEW,
         rationale=f"No SafeFix rule for SCHEMA_VIOLATION/{sub.value}",
+    )
+
+
+def _classify_cross_field_invariant(
+    finding: Finding,
+    context: WriteBackContext,
+    frontmatter_data: dict | None,
+) -> ClassifiedFinding:
+    """Classify CROSS_FIELD_INVARIANT findings.
+
+    Currently SafeFix-eligible: ``reroute: false`` on plan-index files
+    (TPR-03-006-codex). The schema rule (`schema.py` near line 376)
+    flags ``reroute: false`` as a default-equivalent invariant violation
+    — removing the key restores the canonical state without changing
+    semantics. ``target_key="reroute"`` is the structural discriminator;
+    we never parse ``finding.description`` for this dispatch.
+
+    Other CROSS_FIELD_INVARIANT subtypes remain ExposureReview.
+    """
+    if finding.target_key == "reroute":
+        return ClassifiedFinding(
+            finding=finding,
+            safety_class=SafetyClass.SAFE_FIX,
+            rationale="reroute: false is default-equivalent — remove the key to normalize",
+        )
+    return ClassifiedFinding(
+        finding=finding,
+        safety_class=SafetyClass.EXPOSURE_REVIEW,
+        rationale=(
+            "CROSS_FIELD_INVARIANT requires manual review "
+            f"(target_key={finding.target_key!r})"
+        ),
     )
 
 

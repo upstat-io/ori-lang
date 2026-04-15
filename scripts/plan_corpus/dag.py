@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import enum
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -539,20 +539,14 @@ def enrich_resolve_dep_finding(finding, dep_id: str, yaml_line: int,
     source_line=yaml_line, evidence=(dep_id,) so SafeFix can apply
     remove_yaml_list_entry(source, source_line, dep_id) without further parsing.
     """
-    from .types import Finding
-    return Finding(
-        category=finding.category,
-        subtype=finding.subtype,
-        severity=finding.severity,
+    # Use dataclasses.replace to copy all fields safely — manual reconstruction
+    # silently drops any field added to Finding (e.g. target_key was missed
+    # in the pre-TPR-03-004-gemini code).
+    return replace(
+        finding,
         source=declaring_file,
         source_line=yaml_line,
-        source_column=finding.source_column,
-        target=finding.target,
-        target_line=finding.target_line,
-        description=finding.description,
-        recommended_fix=finding.recommended_fix,
         evidence=(dep_id,),
-        dependency_chain=finding.dependency_chain,
         source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
     )
 
@@ -1898,21 +1892,10 @@ def apply_precedence(findings: list) -> list:
         new_evidence = tuple(kept.evidence) + (
             f"suppressed_by_precedence:{','.join(suppressed)}",
         )
-        out.append(Finding(
-            category=kept.category,
-            subtype=kept.subtype,
-            severity=kept.severity,
-            source=kept.source,
-            source_line=kept.source_line,
-            source_column=kept.source_column,
-            target=kept.target,
-            target_line=kept.target_line,
-            description=kept.description,
-            recommended_fix=kept.recommended_fix,
-            evidence=new_evidence,
-            dependency_chain=kept.dependency_chain,
-            source_kind=kept.source_kind,
-        ))
+        # dataclasses.replace preserves every Finding field (including
+        # target_key per TPR-03-004-gemini) — manual constructor calls
+        # silently drop new fields when Finding is extended.
+        out.append(replace(kept, evidence=new_evidence))
     # Deterministic output order: by (source, source_line, subtype).
     out.sort(key=lambda f: (str(f.source), f.source_line or 0, f.subtype.value))
     return out
@@ -1964,21 +1947,9 @@ def apply_source_kind_severity(findings: list) -> list:
         if f.severity is target_sev:
             out.append(f)
             continue
-        out.append(Finding(
-            category=f.category,
-            subtype=f.subtype,
-            severity=target_sev,
-            source=f.source,
-            source_line=f.source_line,
-            source_column=f.source_column,
-            target=f.target,
-            target_line=f.target_line,
-            description=f.description,
-            recommended_fix=f.recommended_fix,
-            evidence=f.evidence,
-            dependency_chain=f.dependency_chain,
-            source_kind=f.source_kind,
-        ))
+        # dataclasses.replace preserves every Finding field (including
+        # target_key per TPR-03-004-gemini).
+        out.append(replace(f, severity=target_sev))
     return out
 
 
