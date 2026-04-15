@@ -1,3 +1,9 @@
+---
+name: commit-push
+description: Stage, commit, and push all changes to the remote using conventional commit format. Runs on Sonnet — pure mechanical orchestration (git status → message from diff → stage → commit → push).
+model: sonnet
+---
+
 # Commit and Push All Changes
 
 Stage, commit, and push all changes to the remote repository using conventional commit format.
