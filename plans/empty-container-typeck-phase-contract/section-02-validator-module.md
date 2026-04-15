@@ -1003,10 +1003,45 @@ At section completion (mirrors 01.N / 03.N shape), before flipping
   mentioning `validators` or `validate_body_types`; 11 pre-existing warnings
   in unrelated files (`type_error/problem/mod.rs` etc.) predate this section.
 - [x] `diagnostics/repo-hygiene.sh --check` clean — no untracked temp files.
-- [ ] `/tpr-review` run on this section's diff; findings accepted into
+- [x] `/tpr-review` run on this section's diff; findings accepted into
   `02.R` and resolved per `CLAUDE.md §NEVER reason out of TPR findings`.
-- [ ] `/impl-hygiene-review` run AFTER `/tpr-review` is clean — no new
+  Run on 2026-04-15, scratch `/tmp/ori-tpr-CTYOnQbk`. **Codex-only best-effort
+  clean** (user-accepted): gemini-3.1-pro-preview hit `gemini_api_capacity`
+  on 5/5 retry attempts (~45min total, persistent upstream capacity
+  pressure, not a prompt issue). Codex completed 4 full runs with deep
+  investigation (7 rules consulted, 25 files read, 2 tests rerun incl.
+  §02.0 semantic pin, basis=fresh_verification, confidence=high). One
+  finding surfaced — TPR-02-R4-001-codex [medium] DRIFT [ER-4, TF-5] in
+  gate order at `validators/mod.rs:161` — independently verified against
+  the code per `CLAUDE.md §Reviewer grounding`, fixed in commit
+  `342731aa`, and recorded in §02.R above. Prior §02 review-plan cycles
+  (R1 + R3) were full dual-source; 11 findings resolved across those
+  rounds. User accepted codex-only on 2026-04-15 as the best-effort
+  close-out path given the upstream infra block — gemini retry to reach
+  full dual-source consensus remains open as a backlog item if the user
+  wants to re-verify once capacity recovers.
+- [x] `/impl-hygiene-review` run AFTER `/tpr-review` is clean — no new
   `LEAK` / `DRIFT` / `GAP` findings introduced by this section.
+  Run on 2026-04-15, auto-scoped to the §02 work arc. Four passes
+  (LEAK/SSOT, Algorithmic DRY, Boundary/Flow, Surface Hygiene) + Phase 0
+  auto-lint. Phase 4 `/tp-help` cross-check skipped — codex-only for the
+  same gemini capacity reason as Phase B1; the earlier codex TPR already
+  served as the third-party review for this work and cited
+  `impl-hygiene.md` rule anchors. Outcome: **§02-scope code is clean**
+  — no NEW LEAK/DRIFT/GAP introduced. Two pre-existing findings surfaced
+  in adjacent code (not §02's responsibility but tracked per CLAUDE.md
+  "ownership irrelevant" rule):
+  (1) `[BUG-02-007][high]` LEAK:algorithmic-duplication in
+      `unify/generalization.rs::collect_free_vars_inner` — clones
+      `Pool::visit_children`'s tag-dispatch ladder. Extraction path
+      documented in the bug entry.
+  (2) `[BUG-02-006][minor]` BLOAT in `ori_types/src/pool/` — `mod.rs`
+      699 LOC, `descriptor.rs` 510 LOC, three over-100-line functions.
+      Submodule-extraction plan documented in the bug entry.
+  Eight self-introduced BLOAT banners in `validators/tests.rs` were
+  auto-fixed by `hygiene-lint.py --fix --apply` (no commit ref on that
+  alone — bundled into the same commit as the bug-tracker entries and
+  this checklist update).
 - [ ] `/improve-tooling` retrospective sweep — any pain points encountered
   while implementing §§02.0–02.4 captured as concrete tracked items.
 - [ ] `/sync-claude` — `.claude/rules/typeck.md`, `types.md`, and

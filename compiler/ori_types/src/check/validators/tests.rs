@@ -71,9 +71,7 @@ fn empty_sig() -> FunctionSig {
     FunctionSig::simple(Name::from_raw(1), vec![], Idx::INT)
 }
 
-// ============================================================================
 // Negative cells — unbound Tag::Var must emit E2005
-// ============================================================================
 
 /// Spec: `typeck.md §PC-2` — an unbound `Tag::Var` surviving the bodies
 /// pass in `expr_types` is a phase-contract violation; the validator emits
@@ -139,9 +137,7 @@ fn signature_with_unbound_param_type_emits_at_sig_span() {
     );
 }
 
-// ============================================================================
 // Positive cells — fast-path gates and well-formed scheme bodies
-// ============================================================================
 
 /// Spec: `types.md §TF-5` — `!HAS_VAR` short-circuit fires before any walk
 /// on a fully-resolved primitive. `int` never violates PC-2.
@@ -229,9 +225,7 @@ fn generalized_var_in_expr_types_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-// ============================================================================
 // Cascade / Determinism / Semantic pin
-// ============================================================================
 
 /// Spec: `typeck.md §ER-4`, `types.md §TK-3` — `Tag::Error` poisons a type
 /// and MUST suppress cascading diagnostics. A tuple carrying BOTH a
@@ -348,9 +342,7 @@ fn scheme_wrapping_unbound_var_body_emits_one_e2005() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-// ============================================================================
 // Nested compound / Dedup
-// ============================================================================
 
 /// Spec: `types.md §TF-3` propagation — compound tags must transitively
 /// propagate `HAS_VAR` through nested layers. Uses `Tag::Option` wrapping
