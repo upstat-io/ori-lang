@@ -236,7 +236,7 @@ Bugs surfaced during the BUG-04-074 investigation + 5 rounds of Plan TPR + Round
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | AST-based Value Restriction | `section-01-value-restriction.md` | Not Started |
+| 01 | AST-based Value Restriction | `section-01-value-restriction.md` | In Progress |
 | 02 | Validator Module (`ori_types::check::validators`) | `section-02-validator-module.md` | Not Started |
 | 03 | Bodies-Pass Integration | `section-03-bodies-pass-integration.md` | Not Started |
 | 04 | Codegen Defense-in-Depth Assertions | `section-04-codegen-assertions.md` | Not Started |

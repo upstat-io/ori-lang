@@ -223,7 +223,7 @@ For each expression form, the rule set specifies whether it is **naturally synth
 - Function argument with known signature → `Check(param_ty)`
 - Function return with declared return type → `Check(return_ty)`
 - `let x: T = e` → `Check(T)` on `e`
-- `let x = e` → `Synth(e)`, then generalize
+- `let x = e` → `Synth(e)`, then conditionally generalize per `GN-3` Value Restriction (only non-capturing lambdas)
 - Operator operand with known other-operand type → `Check(other_ty)`
 - Pattern expected by match scrutinee → `Check(scrutinee_ty)` on each arm
 - No context available → `Synth`
@@ -288,9 +288,13 @@ Every reference to a scheme `∀α. body` SHALL instantiate the scheme at the us
 
 Instantiation SHALL NOT mutate the scheme — schemes are immutable pool entries. The fresh vars live in the use site's rank.
 
-### GN-3 — Value Restriction (target-only)
+### GN-3 — Value Restriction
 
-Per the spec, Ori does not have mutable references, so the classical value restriction is not needed. All let-bindings are generalizable. (Target-only: when `Tag::Borrowed` ships — `TYPES:TL-9` — a value restriction rule may be required.)
+Ori applies an AST-based Value Restriction to local let bindings: only direct non-capturing lambda initializers (`x -> x`, `(a, b) -> a + b`) are generalizable. All other initializers — empty containers (`[]`, `{}`), block-wrapped lambdas (`{ x -> x }`), variable aliases (`let alias = id`), conditionals, function calls, struct literals, constants — are monomorphic and SHALL NOT have their type variables generalized.
+
+The restriction is enforced by `should_generalize(arena: &ExprArena, init: ExprId) -> bool` in `compiler/ori_types/src/infer/expr/blocks.rs` — the SSOT for the generalization decision. All three let-binding generalization sites (`infer_block` block-statement let, `infer_let` ExprKind::Let, `infer_try_stmt` try-block let) SHALL call this function rather than inlining equivalent logic.
+
+This matches Rust's approach (no let-polymorphism for locals) while preserving the most common polymorphic use case. The choice is AST-based rather than type-based because type-tag heuristics fail when the resolved type is still `Tag::Var` awaiting bidirectional unification.
 
 ### GN-4 — Rank Restoration
 
@@ -412,8 +416,8 @@ Spec: Clauses 15 (patterns), 16.
 1. Enter a rank scope (`CK-2`, push rank).
 2. Synthesize `e`'s type `Te`.
 3. Exit the rank scope.
-4. Generalize `Te` to a scheme (`GN-1`).
-5. Bind `x : scheme` in the environment.
+4. If `should_generalize(arena, e)` returns `true` (per `GN-3` Value Restriction — only direct non-capturing lambdas qualify), generalize `Te` to a scheme (`GN-1`). Otherwise, `Te` remains a monotype.
+5. Bind `x : scheme_or_monotype` in the environment.
 
 `let x: T = e` SHALL check `e` against `T`, then bind `x : T`. (`T` may itself be generic; bound vars in `T` are rigid.)
 
