@@ -23,7 +23,7 @@ sections:
     status: complete
   - id: "05.2"
     title: "Command edits — sync-spec, sync-grammar, verify-roadmap"
-    status: not-started
+    status: complete
   - id: "05.3"
     title: "Cross-reference audit and inventory updates"
     status: not-started
@@ -150,7 +150,7 @@ Commands are shorter than skills and have DIFFERENT structural formats than skil
 - `sync-spec.md` and `sync-grammar.md` use numbered lists under `## Update Process` (NOT `## Step N` H2 headers)
 - `verify-roadmap.md` has a 2-phase architecture with review agents (Phase 1) and update agents (Phase 2). Only Phase 1 review agents need intel — it should be injected into the Phase 1 Step 2 review-agent prompt block (lines ~93-124), not as a standalone top-level step.
 
-- [ ] **`.claude/commands/sync-spec.md`** — Insert as a new numbered item in the `## Update Process` section (currently items 1-6). Add as item 1.5 or renumber to insert before current item 1 ("Identify affected spec files"). The format MUST be a numbered list item matching the existing structure, NOT an H2 `## Step 0` header that would clash with the document's format:
+- [x] **`.claude/commands/sync-spec.md`** — Insert as a new numbered item in the `## Update Process` section (currently items 1-6). Add as item 1.5 or renumber to insert before current item 1 ("Identify affected spec files"). The format MUST be a numbered list item matching the existing structure, NOT an H2 `## Step 0` header that would clash with the document's format:
 
   ```markdown
   1. **Query the intelligence graph for affected symbols** — before identifying
@@ -168,7 +168,7 @@ Commands are shorter than skills and have DIFFERENT structural formats than skil
 
   Renumber subsequent items (current 1->2, 2->3, etc.) to maintain sequential numbering.
 
-- [ ] **`.claude/commands/sync-grammar.md`** — Insert as a new numbered item in the `## Update Process` section (currently items 1-5). Add before current item 1 ("Read the current grammar.ebnf"). The format MUST be a numbered list item matching the existing structure, NOT an H2 header:
+- [x] **`.claude/commands/sync-grammar.md`** — Insert as a new numbered item in the `## Update Process` section (currently items 1-5). Add before current item 1 ("Read the current grammar.ebnf"). The format MUST be a numbered list item matching the existing structure, NOT an H2 header:
 
   ```markdown
   1. **Inventory parser/lexer types via the intelligence graph** — grammar
@@ -184,7 +184,7 @@ Commands are shorter than skills and have DIFFERENT structural formats than skil
 
   Renumber subsequent items (current 1->2, 2->3, etc.) to maintain sequential numbering.
 
-- [ ] **`.claude/commands/verify-roadmap.md`** — Inject into the Phase 1 review-agent prompt block ONLY. The file is 903 lines with a 2-phase architecture: Phase 1 (review agents, read-only) and Phase 2 (update agents, write section files). Only Phase 1 review agents need the intel summary. Insert as a standalone block AFTER the "These files contain CRITICAL context..." paragraph (which closes the file-reading list) and BEFORE `#### Step 3: Supervisor Monitoring`. Do NOT insert it as a numbered item inside the "Read these files" list — that list is for static file reading, not dynamic queries:
+- [x] **`.claude/commands/verify-roadmap.md`** — Inject into the Phase 1 review-agent prompt block ONLY. The file is 903 lines with a 2-phase architecture: Phase 1 (review agents, read-only) and Phase 2 (update agents, write section files). Only Phase 1 review agents need the intel summary. Insert as a standalone block AFTER the "These files contain CRITICAL context..." paragraph (which closes the file-reading list) and BEFORE `#### Step 3: Supervisor Monitoring`. Do NOT insert it as a numbered item inside the "Read these files" list — that list is for static file reading, not dynamic queries:
 
   ```markdown
   **Intelligence Reconnaissance (MANDATORY when graph available):**
@@ -206,14 +206,14 @@ Commands are shorter than skills and have DIFFERENT structural formats than skil
 
   **While editing:** also fix the stale rules-corpus instruction in the same prompt block — line 108 says "ALL 20 rules files" and enumerates a bulleted list of specific filenames below it. Replace the hardcoded count AND the bulleted list with a generic instruction: `"ALL rules files in /home/eric/projects/ori_lang/.claude/rules/ — read every file"` (no hardcoded count, no hardcoded list). This prevents the instruction from going stale again as rules are added.
 
-- [ ] Spot-check: `grep -c '@.claude/skills/dual-tpr/compose-intel-summary.md' <FILE>` returns >=1 for each of the 3 commands.
+- [x] Spot-check: `grep -c '@.claude/skills/dual-tpr/compose-intel-summary.md' <FILE>` returns >=1 for each of the 3 commands.
 
-- [ ] **Subsection close-out (05.2)**:
-  - [ ] All 3 command files edited; grep verification passes
-  - [ ] Update `05.2` status to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on 05.2** — each command needed genuinely different insertion because their document structures differ (numbered list vs. agent prompt injection). Confirm no boilerplate emerged that should be consolidated.
-  - [ ] **Run `/sync-claude` on 05.2** — command-file edits don't generally affect CLAUDE.md, but `.claude/rules/intelligence.md` workflow inventory should list sync-spec/sync-grammar/verify-roadmap (done in §04.3 — verify).
-  - [ ] **Repo hygiene check**.
+- [x] **Subsection close-out (05.2)**:
+  - [x] All 3 command files edited; grep verification passes
+  - [x] Update `05.2` status to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on 05.2** — each command needed genuinely different insertion because their document structures differ (numbered list vs. agent prompt injection). Confirm no boilerplate emerged that should be consolidated.
+  - [x] **Run `/sync-claude` on 05.2** — command-file edits don't generally affect CLAUDE.md, but `.claude/rules/intelligence.md` workflow inventory should list sync-spec/sync-grammar/verify-roadmap (done in §04.3 — verify).
+  - [x] **Repo hygiene check**.
 
 ---
 
