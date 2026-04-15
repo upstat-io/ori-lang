@@ -42,7 +42,7 @@ sections:
     status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 03: Findings Report & Write-Back
@@ -419,22 +419,22 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
 
 ## 03.N Completion Checklist
 
-- [ ] `SafetyClass` enum (`SafeFix | ExposureReview`), `ClassifiedFinding` wrapper, `PreimageRecord` guard, and `classify_safety(finding, context)` defined and tested -- all OWNED here (not in `plan_corpus`)
-- [ ] `WriteBackContext` carries git signals; `--quick` mode bypasses its construction entirely
-- [ ] `classify_safety` is pure (no I/O); git signal population lives at the CLI edge; `plan_corpus` grep-verified to contain no `subprocess` or `git` calls
-- [ ] `plan:` -> `name:` rename guarded against collision (both keys present with different values -> ExposureReview)
-- [ ] `reviewed: false` insertion differentiated by schema class (PlanSection/RoadmapSection: SafeFix; PlanIndex: ExposureReview per workflow gate)
-- [ ] `FM_DECLARED_VS_BODY_DERIVED` is ALWAYS ExposureReview — defense-in-depth assert in auto-fix engine
-- [ ] Findings report format defined and implemented (JSON + markdown + console) — imports `Finding` / `FindingCategory` / `FindingSubtype` from `plan_corpus`, no shadow types
-- [ ] Frontmatter text patcher is the ONLY write path — PyYAML never used for output; comments, key ordering, and formatting preserved
-- [ ] Concurrent-session guards: preimage hash check, atomic write via `os.replace`, refuse-on-conflict
-- [ ] Dead-reference audit trail in `fixes-applied.json` only — NO inline HTML comments (re-scanning hazard)
-- [ ] Auto-fix engine applies only `SafeFix` findings; hard-asserts rejection of `ExposureReview` findings
-- [ ] Manual-review flagging for CONFLICT, SUPERSEDED, BLOCKED, MISSING_DEPENDENCY (intrinsically manual) + any ExposureReview-classified finding
-- [ ] Safe-fix guards: backups, logging, `--dry-run`, `--no-auto-fix`
-- [ ] Integration with `/continue-roadmap` via `--quick` mode pre-check (BLOCKED + DEAD_REFERENCE only; no CONFLICT)
-- [ ] `--quick` vs `--full` scope explicitly documented — no ambiguity on which classifiers run in each mode
-- [ ] `roadmap_scan.py` shadow parser migration mandated as Option A in Section 05.3 — Option B rejected per TPR
+- [x] `SafetyClass` enum (`SafeFix | ExposureReview`), `ClassifiedFinding` wrapper, `PreimageRecord` guard, and `classify_safety(finding, context)` defined and tested -- all OWNED here (not in `plan_corpus`)
+- [x] `WriteBackContext` carries git signals; `--quick` mode bypasses its construction entirely
+- [x] `classify_safety` is pure (no I/O); git signal population lives at the CLI edge; `plan_corpus` grep-verified to contain no `subprocess` or `git` calls
+- [x] `plan:` -> `name:` rename guarded against collision (both keys present with different values -> ExposureReview)
+- [x] `reviewed: false` insertion differentiated by schema class (PlanSection/RoadmapSection: SafeFix; PlanIndex: ExposureReview per workflow gate)
+- [x] `FM_DECLARED_VS_BODY_DERIVED` is ALWAYS ExposureReview — defense-in-depth assert in auto-fix engine
+- [x] Findings report format defined and implemented (JSON + markdown + console) — imports `Finding` / `FindingCategory` / `FindingSubtype` from `plan_corpus`, no shadow types
+- [x] Frontmatter text patcher is the ONLY write path — PyYAML never used for output; comments, key ordering, and formatting preserved
+- [x] Concurrent-session guards: preimage hash check, atomic write via `os.replace`, refuse-on-conflict
+- [x] Dead-reference audit trail in `fixes-applied.json` only — NO inline HTML comments (re-scanning hazard)
+- [x] Auto-fix engine applies only `SafeFix` findings; hard-asserts rejection of `ExposureReview` findings
+- [x] Manual-review flagging for CONFLICT, SUPERSEDED, BLOCKED, MISSING_DEPENDENCY (intrinsically manual) + any ExposureReview-classified finding
+- [x] Safe-fix guards: backups, logging, `--dry-run`, `--no-auto-fix`
+- [x] Integration with `/continue-roadmap` via `--quick` mode pre-check (BLOCKED + DEAD_REFERENCE only; no CONFLICT)
+- [x] `--quick` vs `--full` scope explicitly documented — no ambiguity on which classifiers run in each mode
+- [x] `roadmap_scan.py` shadow parser migration mandated as Option A in Section 05.3 — Option B rejected per TPR
 - [ ] `timeout 150 ./test-all.sh` green -- no regressions
 - [ ] `/tpr-review` -- dual-source review of report format, auto-fix logic, text patcher safety, concurrent-session guards
 - [ ] `/impl-hygiene-review` -- verify auto-fix safety (no semantic changes), report completeness, no shadow parsers introduced
