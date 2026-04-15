@@ -39,7 +39,7 @@ sections:
     status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "03.N"
     title: "Completion Checklist"
     status: in-progress
