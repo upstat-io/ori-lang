@@ -1,16 +1,16 @@
 ---
 name: sync-docs
-description: Sync ALL project documentation — CLAUDE.md, rules, design docs, README, canon, guide — against actual code and spec. Nightly-ready, fully automated, fact-bound.
+description: Sync ALL project documentation via batch TPR verification — dual-source (Codex + Gemini) review of every doc surface against actual code and spec. Nightly-ready, fully automated, fact-bound.
 allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Agent, Skill
 ---
 
-# Sync All Documentation
+# Sync All Documentation (TPR-Verified)
 
-Reconcile all non-spec documentation in the repository against the actual codebase and spec. This is a comprehensive nightly sync — it updates canon, rules files, CLAUDE.md, command files, skill docs, design docs, guide docs, README files, and other documentation to accurately reflect the current implementation. Phase 0 uses a repo-wide glob to discover all `.md` files, then filters out off-limits paths — nothing is missed by pattern omission.
+Reconcile all non-spec documentation against the actual codebase and spec using **dual-source TPR verification per batch**. Each batch of related doc files is verified by launching `/tpr-review` with a custom objective — Codex and Gemini independently cross-check every claim against code/spec, then Claude fixes findings and loops until both reviewers report clean.
 
 **This command runs fully automated.** No pauses for user confirmation. Execute each phase to completion. Commit and report at the end.
 
-**This is the comprehensive nightly sync.** `/sync-claude` remains a separate lightweight skill for delta syncs at subsection close-outs — it covers CLAUDE.md + rules affected by a specific code change. This command does the full audit.
+**This is the comprehensive nightly sync.** `/sync-claude` remains a separate lightweight skill for delta syncs at subsection close-outs.
 
 ## The One Rule: FACT-BOUND
 
@@ -31,36 +31,18 @@ Reconcile all non-spec documentation in the repository against the actual codeba
 
 ## The Second Rule: COMPACT WITHOUT INFORMATION LOSS
 
-**Every document must be as compact as possible without losing information.** These files are loaded into Claude's context window — bloat wastes tokens, slows every interaction, and risks truncation. Compactness is not optional; it is a quality dimension alongside accuracy.
+**Every document must be as compact as possible without losing information.** These files are loaded into Claude's context window — bloat wastes tokens, slows every interaction, and risks truncation.
 
 **Compaction techniques:**
 - **Bullet points over prose** — "Arena: `ExprArena` + `ExprId`, not `Box<Expr>`" beats a paragraph
-- **Tables over lists** — structured info (file→purpose, type→trait, etc.) goes in tables
+- **Tables over lists** — structured info goes in tables
 - **Eliminate redundancy** — if two documents say the same thing, one should point to the other
-- **No motivation in rules** — "why" belongs in design docs, not rules files. Rules say WHAT and HOW.
-- **Remove "this means that"** — if the bullet already says X, don't follow with "in other words, X"
-- **Size awareness** — rules files range from 16 lines (roadmap.md) to 1125 lines (typeck.md). Complex subsystems (type checker, AIMS, impl-hygiene) legitimately need hundreds of lines — never truncate these to hit an arbitrary target. But all files should be audited: every line must earn its place. If a section can be a table, make it a table. If a paragraph can be a bullet, make it a bullet. CLAUDE.md: every section must justify its byte count.
-- **Condense, never delete** — when trimming, compress the information into fewer words, don't remove it. The goal is density, not omission.
-
-**Test**: for every paragraph in a rules file, ask "could this be a bullet point?" If yes, make it one.
-
-### Verification Ledger (MANDATORY)
-
-Every documentation edit MUST be tracked in a verification ledger. At the end of the run, the commit message body includes a section listing each modified file with its verification sources:
-
-```
-Verification ledger:
-  .claude/rules/parse.md — verified against compiler/ori_parse/src/lib.rs:1-50, spec §7
-  .claude/rules/typeck.md — verified against compiler/ori_types/src/infer/, spec §8-§9
-  docs/compiler/design/03-lexer/index.md — verified against compiler/ori_lexer/src/lib.rs
-  ...
-```
-
-This makes fact-binding auditable after the fact. A reviewer can check whether the cited sources actually support the documentation claims.
+- **No motivation in rules** — "why" belongs in design docs, not rules files
+- **Condense, never delete** — compress into fewer words, don't remove information
 
 ## Scope
 
-### IN SCOPE — Update these documents
+### IN SCOPE — Verify and update these documents
 
 | Surface | Path(s) | What it describes |
 |---------|---------|-------------------|
@@ -74,11 +56,11 @@ This makes fact-binding auditable after the fact. A reviewer can check whether t
 | LSP docs | `docs/tooling/lsp/design/**/*.md` | LSP design |
 | Development docs | `docs/development/*.md` | Developer guidelines, versioning |
 | Module docs | `docs/ori_lang/v2026/modules/**/*.md` | Stdlib module docs |
-| Language docs | `docs/ori_lang/*.md` (excl. spec/) | Language-level docs (README, versioning) |
-| Command files | `.claude/commands/*.md` | Sync command and other command definitions |
+| Language docs | `docs/ori_lang/*.md` (excl. spec/) | Language-level docs |
+| Command files | `.claude/commands/*.md` | Command definitions |
 | Skill docs | `.claude/skills/*/SKILL.md` | Skill documentation |
 | README files | `**/*.md` matching `*README*` (excl. build/, .claude/worktrees/) | Project and crate READMEs |
-| Remaining `.md` | Any `.md` file found by Phase 0 glob not in the above rows or off-limits | Error code docs, skill internals, design one-offs, etc. |
+| Remaining `.md` | Any `.md` not in the above rows or off-limits | Error code docs, skill internals, etc. |
 
 ### OFF LIMITS — Do NOT modify these (file bugs instead)
 
@@ -93,223 +75,278 @@ This makes fact-binding auditable after the fact. A reviewer can check whether t
 | Build artifacts | `build/**` | Generated content |
 | Worktrees | `.claude/worktrees/**` | Transient agent copies |
 
-**When you find a spec/grammar issue:** File it via `/add-bug` (Skill tool) with subsystem `docs` and severity based on impact. Include the specific spec clause and what's wrong. Then continue syncing — do NOT stop.
+**When you find a spec/grammar issue:** File it via `/add-bug` with subsystem `docs` and severity based on impact. Then continue — do NOT stop.
 
-## Phase 0: Discovery
+## Phase 0: Discovery & Triage
 
-Scan all document surfaces to build the work list. Use a repo-wide glob filtered by off-limits paths:
+1. Glob `**/*.md` from project root
+2. Filter out off-limits paths (spec, proposals, archived-design, plans, build, worktrees)
+3. Group remaining files into the batches defined in Phase 1
+4. Check `git diff --name-only HEAD~30 HEAD -- compiler/ library/ scripts/ tests/` to identify high-drift areas
 
+## Phase 1: Batch TPR Verification
+
+For each batch below, launch `/tpr-review` (Skill tool) with the custom objective specified. The TPR loop runs until BOTH reviewers (Codex + Gemini) report zero actionable findings. After the TPR loop converges for a batch, fix all findings, commit, then proceed to the next batch.
+
+### Batch Definitions
+
+Each batch groups semantically related files. The custom objective tells both reviewers exactly what to verify.
+
+---
+
+#### Batch 1: Canon (`canon.md`) — Pipeline SSOT
+
+**Files:** `.claude/rules/canon.md`
+
+**Custom objective for `/tpr-review`:**
 ```
-Glob: **/*.md (path: project root)
+Verify every claim in .claude/rules/canon.md against the actual compiler source code. Specifically:
+
+1. Pipeline table (§1): verify each crate name exists in compiler/*/Cargo.toml, verify input/output types match actual src/lib.rs exports, verify authoritative home files exist
+2. Canonical desugars (§2): verify each desugar against the actual parser (compiler/ori_parse/src/) and type checker (compiler/ori_types/src/) code — confirm the desugar still exists and the description matches
+3. Pattern compilation (§3): verify against compiler/ori_canon/src/patterns/ — confirm algorithm description, input/output, and consumer list
+4. Per-phase output invariants (§4): verify each invariant is still enforced in code (grep for debug_assert!, validation functions)
+5. Phase purity rules (§5): verify no phase-bleeding exists in the dependency graph
+6. SSOTs table (§6): verify every canonical home file path actually exists and the description matches
+7. Non-negotiable invariants (§7): verify against current .claude/rules/ files
+
+Flag: stale crate names, wrong input/output types, missing phases, incorrect desugar descriptions, stale file paths in SSOTs table, invariants described but not enforced.
 ```
 
-Then filter out off-limits paths (spec, proposals, archived-design, plans, build, worktrees). Group remaining files by surface type for phased processing.
+---
 
-## Phase 1: Canon (`canon.md`) — Pipeline SSOT
+#### Batch 2: Frontend Rules (parser, type checker, type system, canonicalization)
 
-**Canon syncs FIRST because it is the Single Source of Truth for the pipeline.** All other documents (rules files, CLAUDE.md, design docs) derive from canon's phase map, desugar list, and invariant catalog. Syncing canon first ensures downstream phases operate against an accurate pipeline description.
+**Files:** `.claude/rules/parse.md`, `.claude/rules/typeck.md`, `.claude/rules/types.md`, `.claude/rules/canonicalization.md`
 
-### Verify each canon section:
+**Custom objective for `/tpr-review`:**
+```
+Verify these 4 rules files against their corresponding source code and the spec:
+- parse.md ↔ compiler/ori_parse/src/ + compiler/ori_lexer/src/ + spec §6-§7
+- typeck.md ↔ compiler/ori_types/src/ + spec §8-§10
+- types.md ↔ compiler/ori_types/src/ + spec §8-§9
+- canonicalization.md ↔ compiler/ori_canon/src/
 
-1. **Pipeline table (§1)**: verify crate names, input/output types, authoritative homes against actual `compiler/*/Cargo.toml` and `src/lib.rs` files
-2. **Canonical desugars (§2)**: verify each desugar against the actual parser/typeck code
-3. **Pattern compilation (§3)**: verify against `compiler/ori_canon/src/patterns/`
-4. **Per-phase output invariants (§4)**: verify each invariant is still enforced in code
-5. **Phase purity rules (§5)**: verify no phase-bleeding exists
-6. **SSOTs table (§6)**: verify each canonical home file path is accurate
-7. **Non-negotiable invariants (§7)**: verify against current rules files
+For each claim in each rules file: (1) Is it still true? Verify against code. (2) Is it spec-accurate? Verify against docs/ori_lang/v2026/spec/. (3) Is anything missing? Check for new code not covered. (4) Is anything stale? Check for removed/renamed code.
 
-## Phase 2: Rules Files (`.claude/rules/*.md`, excluding canon.md and ori-syntax.md)
+Flag: stale rule anchors (e.g., §XX-N referencing removed code), incorrect type/function names, missing rules for new features, descriptions that don't match current implementation.
+```
 
-Rules files are loaded into every Claude conversation. Stale rules cause wrong behavior across ALL interactions.
+---
 
-### For each rules file:
+#### Batch 3: Backend Rules (AIMS, ARC, codegen, LLVM, repr, AOT, runtime)
 
-1. **Read the rules file** — note its `paths:` pattern and subject area
-2. **Read the corresponding source code** — the actual implementation files the rules describe
-3. **Read the spec** — spec clauses relevant to this subsystem (use mapping table below)
-4. **Compare** — for each claim in the rules file:
-   - Is it still true? (verify against code)
-   - Is it spec-accurate? (verify against spec)
-   - Is anything missing? (new code not covered by rules)
-   - Is anything stale? (rules describe removed/changed code)
-5. **Update** — fix discrepancies. Record each edit in the verification ledger.
+**Files:** `.claude/rules/aims-rules.md`, `.claude/rules/arc.md`, `.claude/rules/codegen-rules.md`, `.claude/rules/llvm.md`, `.claude/rules/repr.md`, `.claude/rules/aot.md`, `.claude/rules/runtime.md`
 
-### Rules file principles:
+**Custom objective for `/tpr-review`:**
+```
+Verify these 7 backend rules files against their corresponding source code:
+- aims-rules.md + arc.md ↔ compiler/ori_arc/src/ + spec §21
+- codegen-rules.md + llvm.md ↔ compiler/ori_llvm/src/
+- repr.md ↔ compiler/ori_repr/src/
+- aot.md ↔ compiler/ori_llvm/src/aot/
+- runtime.md ↔ compiler/ori_rt/src/ + spec §21
 
-- **Spec-driven**: rules describe how the system SHOULD work per the spec. Implementation is evidence for what currently exists, but spec is authoritative for what's correct. When implementation diverges from spec, file a bug via `/add-bug` — don't adjust the rules file to match the broken implementation.
-- **Concise**: bullet format, tables for structured info. Every line must earn its place.
-- **Present tense**: "The lexer produces X" not "The lexer was changed to produce X"
-- **No plans**: rules are not roadmaps. Unimplemented features don't belong in rules.
-- **No volatile metrics**: no test counts, no coverage percentages
+For each claim: verify against actual source code. Check for stale descriptions of pipeline steps, wrong function/type names, missing lattice dimensions or realization steps, incorrect codegen rules, stale ABI descriptions.
 
-### Mapping: rules file → source code → spec clauses
+Flag: stale AIMS lattice descriptions, wrong pipeline step ordering, incorrect runtime function signatures, missing codegen rules for new features, stale representation layout descriptions.
+```
 
-| Rules file | Source code | Spec clauses |
-|------------|------------|--------------|
-| `parse.md` | `compiler/ori_parse/src/` | §6 Source code, §7 Lexical elements |
-| `typeck.md` | `compiler/ori_types/src/` | §8 Types, §9 Properties of types, §10 Declarations |
-| `types.md` | `compiler/ori_types/src/` | §8 Types, §9 Properties of types |
-| `eval.md` | `compiler/ori_eval/src/` | §14 Expressions, §23 Program execution |
-| `patterns.md` | `compiler/ori_patterns/src/` | §15 Patterns |
-| `aims-rules.md` | `compiler/ori_arc/src/` | §21 Memory model |
-| `arc.md` | `compiler/ori_arc/src/` | §21 Memory model |
-| `codegen-rules.md` | `compiler/ori_llvm/src/` | N/A (implementation) |
-| `llvm.md` | `compiler/ori_llvm/src/` | N/A (implementation) |
-| `runtime.md` | `compiler/ori_rt/src/` | §21 Memory model |
-| `ir.md` | `compiler/ori_ir/src/` | N/A (implementation) |
-| `diagnostic.md` | `compiler/ori_diagnostic/src/` | N/A (implementation) |
-| `fmt.md` | `compiler/ori_fmt/src/` | Annex D Formatting |
-| `repr.md` | `compiler/ori_repr/src/` | N/A (implementation) |
-| `aot.md` | `compiler/ori_llvm/src/aot/` | §23 Program execution |
-| `registry.md` | `compiler/ori_registry/src/` | §8 Types, §9 Properties, Annex C Built-ins |
-| `tests.md` | `tests/`, test infrastructure | §19 Testing |
-| `impl-hygiene.md` | Cross-cutting | N/A (process) |
-| `compiler.md` | `compiler/` | N/A (architecture) |
-| `canonicalization.md` | `compiler/ori_canon/src/` | N/A (implementation) |
-| `cargo.md` | `Cargo.toml` files | N/A (build) |
-| `spec.md` | `docs/ori_lang/v2026/spec/` | Meta (spec process) |
-| `proposals.md` | `docs/ori_lang/proposals/` | Meta (proposal process) |
-| `roadmap.md` | `plans/roadmap/` | Meta (planning process) |
-| `intelligence.md` | `scripts/intel-query.sh` | N/A (tooling) |
-| `ori-lang.md` | Language docs | N/A (doc standards) |
+---
 
-### Parallelization strategy:
+#### Batch 4: Infrastructure Rules (IR, diagnostics, compiler architecture, hygiene, cargo, tests, formatter, registry)
 
-Use `Agent` subagents (type: `Explore`) for independent information gathering:
-- Batch 3-5 agents at a time
-- Each agent reads one rules file + its corresponding source code
-- Each agent reports: accurate claims, stale claims, missing info, incorrect info
-- Main thread applies the fixes based on agent reports
+**Files:** `.claude/rules/ir.md`, `.claude/rules/diagnostic.md`, `.claude/rules/compiler.md`, `.claude/rules/impl-hygiene.md`, `.claude/rules/cargo.md`, `.claude/rules/tests.md`, `.claude/rules/fmt.md`, `.claude/rules/registry.md`
 
-## Phase 3: Ori Syntax Reference (`ori-syntax.md`)
+**Custom objective for `/tpr-review`:**
+```
+Verify these 8 infrastructure rules files against their corresponding source code:
+- ir.md ↔ compiler/ori_ir/src/
+- diagnostic.md ↔ compiler/ori_diagnostic/src/
+- compiler.md ↔ compiler/ (architecture, crate dependencies)
+- impl-hygiene.md ↔ cross-cutting (process rules — verify referenced functions/types still exist)
+- cargo.md ↔ Cargo.toml files across all crates
+- tests.md ↔ tests/ + test infrastructure
+- fmt.md ↔ compiler/ori_fmt/src/ + spec Annex D
+- registry.md ↔ compiler/ori_registry/src/ + spec §8-§9, Annex C
 
-Synced separately because it has a unique verification surface — it must match BOTH the spec AND the prelude/stdlib implementation.
+For each claim: verify against actual source code. Check for stale function/type references, incorrect crate dependency descriptions, removed test patterns, stale formatter rules.
 
-1. **Read `ori-syntax.md`**
-2. **Verify against spec**: `docs/ori_lang/v2026/spec/` — clauses §7-§27
-3. **Verify against prelude**: `library/std/prelude.ori`
-4. **Verify against stdlib**: `library/std/` (testing.ori, collections/, etc.)
-5. **Update** discrepancies
+Flag: stale DerivedTrait variants, incorrect crate dependency graph, missing test patterns, stale registry type descriptions, incorrect cross-phase invariant contracts in impl-hygiene.md.
+```
 
-## Phase 4: CLAUDE.md
+---
 
-CLAUDE.md is the project's top-level instruction set. Sync it against the current state:
+#### Batch 5: Meta Rules + Intelligence
 
-1. **Commands section**: verify every command still works (check scripts exist, aliases valid)
-2. **Key Paths section**: verify every path exists and description is accurate
-3. **Feature Flags table**: verify against actual `Cargo.toml` feature definitions
-4. **Compiler Coding Guidelines**: verify against `.claude/rules/impl-hygiene.md` and `compiler.md` (CLAUDE.md summarizes, rules files are authoritative)
-5. **Ori Language section**: verify against spec and current implementation
-6. **AIMS section**: verify against `.claude/rules/aims-rules.md` and `arc.md`
-7. **Environment variables**: verify each `ORI_*` var exists in the codebase
-8. **Reference Repos**: verify paths exist
+**Files:** `.claude/rules/spec.md`, `.claude/rules/proposals.md`, `.claude/rules/roadmap.md`, `.claude/rules/intelligence.md`, `.claude/rules/ori-lang.md`
 
-## Phase 5: Design Docs (`docs/compiler/design/**/*.md`)
+**Custom objective for `/tpr-review`:**
+```
+Verify these 5 meta/process rules files against their corresponding artifacts:
+- spec.md ↔ docs/ori_lang/v2026/spec/ (verify spec process descriptions match actual spec structure)
+- proposals.md ↔ docs/ori_lang/proposals/ (verify proposal process descriptions)
+- roadmap.md ↔ plans/roadmap/ (verify roadmap process descriptions)
+- intelligence.md ↔ scripts/intel-query.sh + .claude/skills/dual-tpr/compose-intel-summary.md (verify query subcommands, consumer lists, subsystem mapping)
+- ori-lang.md ↔ docs/ori_lang/ (verify doc standards)
 
-For each design doc:
+For each claim: verify against actual files. Check for stale consumer lists in intelligence.md, incorrect spec clause numbering, stale proposal process descriptions.
 
-1. **Read the design doc**
-2. **Read the corresponding source code**
-3. **Compare claims against implementation**
-4. **Fix discrepancies**
+Flag: stale intel-query subcommand documentation, wrong consumer counts, incorrect file paths, stale process descriptions.
+```
 
-## Phase 6: Guide Docs (`docs/guide/**/*.md`)
+---
 
-For each guide doc:
+#### Batch 6: Ori Syntax Reference
 
-1. **Read the guide doc**
-2. **Verify code examples** against actual compiler behavior
-3. **Verify feature descriptions** against spec
-4. **Fix discrepancies**
+**Files:** `.claude/rules/ori-syntax.md`
 
-## Phase 7: Other Documentation
+**Custom objective for `/tpr-review`:**
+```
+Verify every claim in .claude/rules/ori-syntax.md against THREE sources:
+1. The spec: docs/ori_lang/v2026/spec/ (clauses §7-§27, grammar.ebnf, operator-rules.md)
+2. The prelude: library/std/prelude.ori
+3. The stdlib: library/std/ (testing.ori, collections/, etc.)
 
-- `docs/tooling/formatter/**/*.md` — formatter design + user docs
-- `docs/tooling/lsp/design/**/*.md` — LSP design docs
-- `docs/development/*.md` — developer guidelines, versioning
-- `docs/ori_lang/v2026/modules/**/*.md` — stdlib module docs
-- `docs/ori_lang/*.md` (non-spec) — language-level docs
-- All README files (`**/*README*`, excluding build/, worktrees/)
+This is a DENSE reference file. Check:
+- Every type listed exists in the spec and prelude
+- Every trait listed has the correct methods and signatures
+- Every built-in function has the correct signature
+- Every operator has the correct precedence and associativity
+- Every keyword is correctly classified (reserved vs context-sensitive)
+- Every collection method listed actually exists in the stdlib
+- String/char/byte methods match actual implementations
 
-## Phase 8: Spec/Grammar Issue Collection
+Flag: missing types/traits/functions, wrong signatures, incorrect precedence, stale method lists, methods listed that don't exist, methods that exist but aren't listed.
+```
 
-Throughout all phases, when you encounter a discrepancy where the SPEC appears wrong (not the implementation):
+---
+
+#### Batch 7: CLAUDE.md
+
+**Files:** `CLAUDE.md`
+
+**Custom objective for `/tpr-review`:**
+```
+Verify every claim in the project CLAUDE.md against the actual codebase:
+
+1. Commands section: verify every command/script still exists (check file paths), verify aliases are valid
+2. Key Paths section: verify every path exists and description is accurate
+3. Feature Flags table: verify against actual Cargo.toml feature definitions (grep for [features] in compiler/*/Cargo.toml)
+4. Environment variables: verify each ORI_* variable is actually checked in the codebase (grep for each one)
+5. Compiler Coding Guidelines: verify against .claude/rules/impl-hygiene.md and compiler.md
+6. AIMS section: verify lattice dimension count and descriptions against .claude/rules/aims-rules.md and compiler/ori_arc/src/
+7. Reference Repos: verify each path in ~/projects/reference_repos/lang_repos/ exists
+8. CLI section: verify commands match actual ori binary capabilities
+9. Versioning: verify BUILD_NUMBER exists, versioning scripts exist
+
+Flag: missing/renamed scripts, stale paths, wrong feature flags, env vars not actually checked in code, incorrect lattice dimension counts, stale reference repo paths.
+```
+
+---
+
+#### Batch 8: Design Docs
+
+**Files:** `docs/compiler/design/**/*.md`
+
+**Custom objective for `/tpr-review`:**
+```
+Verify the compiler design docs against the actual implementation. For each design doc:
+
+1. Read the design doc and identify its claims about code structure, algorithms, data types
+2. Verify those claims against the actual source files in compiler/
+3. Check that referenced types, functions, and modules still exist and have the described behavior
+
+Priority areas (most likely to drift):
+- docs/compiler/design/01-architecture/ ↔ compiler crate structure
+- docs/compiler/design/05-type-system/ ↔ compiler/ori_types/src/
+- docs/compiler/design/09-aims/ ↔ compiler/ori_arc/src/
+- docs/compiler/design/10-llvm-backend/ ↔ compiler/ori_llvm/src/
+- docs/compiler/design/11-runtime/ ↔ compiler/ori_rt/src/
+
+Flag: stale architecture descriptions, wrong type names, removed algorithms still described, missing new subsystems not documented.
+```
+
+---
+
+#### Batch 9: Guide Docs + Other Docs
+
+**Files:** `docs/guide/**/*.md`, `docs/tooling/**/*.md`, `docs/development/*.md`, `docs/ori_lang/v2026/modules/**/*.md`, `docs/ori_lang/*.md` (non-spec), all README files (excl. build/, worktrees/)
+
+**Custom objective for `/tpr-review`:**
+```
+Verify guide docs, tooling docs, development docs, module docs, language docs, and README files against the spec and codebase:
+
+1. Guide docs (docs/guide/): verify code examples compile and match current Ori syntax per spec, verify feature descriptions are accurate
+2. Tooling docs (docs/tooling/): verify formatter and LSP descriptions match current implementations
+3. Development docs (docs/development/): verify developer instructions are current
+4. Module docs (docs/ori_lang/v2026/modules/): verify stdlib module descriptions match library/std/
+5. Language docs (docs/ori_lang/*.md non-spec): verify language descriptions match spec
+6. READMEs: verify project descriptions, build instructions, and getting-started guides are current
+
+Flag: code examples with syntax that doesn't match current spec, stale feature descriptions, incorrect build instructions, wrong stdlib API descriptions.
+```
+
+---
+
+### Batch Execution Protocol
+
+For each batch (1 through 9), in order:
+
+1. **Read all files in the batch** to understand current state
+2. **Launch `/tpr-review`** (via Skill tool) with the batch's custom objective as ARGS
+3. **The TPR loop handles everything**: reviewer launch, finding merge, thoroughness judgment, fix-and-rerun until clean
+4. **After TPR converges (zero findings from both reviewers)**, record which files were modified and what was verified
+5. **Commit batch changes** via `/commit-push` before moving to the next batch
+6. **Proceed to next batch**
+
+**Batches are sequential, not parallel.** Each batch's fixes may affect downstream batches (e.g., canon.md fixes inform rules file verification). Earlier batches cover higher-priority surfaces.
+
+**If a batch's TPR finds spec/grammar issues:** File via `/add-bug` with subsystem `docs` and continue. Do NOT modify spec/grammar files.
+
+## Phase 2: Spec/Grammar Issue Collection
+
+Throughout all batches, when TPR reviewers or Claude's own fixes encounter a discrepancy where the SPEC appears wrong:
 
 1. **DO NOT modify spec or grammar files**
-2. **File via `/add-bug`** (Skill tool) with:
-   - Subsystem: `docs` (section-08 in bug tracker)
-   - Severity: based on impact
-   - Description: which spec clause, what's wrong, what the correct behavior should be per implementation
-   - Note: "Spec issue — requires proposal workflow to fix"
+2. **File via `/add-bug`** with subsystem `docs`, severity based on impact, the specific spec clause, and what's wrong
 
-## Phase 9: Commit
+## Phase 3: Final Commit & Report
 
-After all phases complete, commit all documentation changes. Stage only the files this skill modified — do NOT use `git add -A` or `git add .`.
+After all batches converge:
 
-```bash
-# Stage only the specific files that were modified
-git add CLAUDE.md .claude/rules/*.md docs/ README.md compiler/*/README.md ...
-# (list the actual modified files)
+1. Verify all changes are committed (each batch commits via `/commit-push`)
+2. Push all commits
 
-git commit -m "$(cat <<'EOF'
-docs: nightly sync — reconcile all documentation against codebase
-
-Synced surfaces: canon, rules, ori-syntax, CLAUDE.md, design docs,
-guide docs, formatter docs, LSP docs, READMEs, module docs
-
-Verification ledger:
-  <file> — verified against <source>
-  ...
-EOF
-)"
-
-git push
-```
+**Report:**
+1. **Batches completed**: list each batch with TPR iteration count and files modified
+2. **Verification sources**: for each modified file, which source files/spec clauses the TPR reviewers verified against
+3. **Bugs filed**: any spec/grammar issues filed via `/add-bug`
+4. **Total TPR rounds**: sum across all batches
 
 ## Writing Style Matrix
 
-Each document surface has its own voice. Apply the correct style:
-
 | Surface | Tense | Voice | Style |
 |---------|-------|-------|-------|
-| Canon (`canon.md`) | Present | Technical, declarative | Formal pipeline description. Cite phase rules. |
-| Rules files (`.claude/rules/*.md`) | Present | Concise, imperative | Bullet points, tables. Quick reference, not tutorial. |
-| Ori syntax (`ori-syntax.md`) | Present | Reference | Dense, terse, comprehensive. Spec-aligned. |
-| CLAUDE.md | Present | Instructional | Direct commands. "Do X", "Never Y". |
-| Design docs (`docs/compiler/design/`) | Present | Explanatory | Explain WHY and HOW. Design decisions, trade-offs. |
-| Guide docs (`docs/guide/`) | Present | Tutorial | Teach. "You can...", examples, progressive complexity. |
-| Formatter/LSP docs | Present | Mixed reference/tutorial | User-facing: tutorial. Design: explanatory. |
-| Development docs | Present | Practical | Developer-facing instructions. |
-| Module docs | Present | Reference | API reference style. |
-| READMEs | Present | Introductory | What, why, how to start. Marketing-adjacent for root. |
+| Canon (`canon.md`) | Present | Technical, declarative | Formal pipeline description |
+| Rules files | Present | Concise, imperative | Bullet points, tables |
+| Ori syntax (`ori-syntax.md`) | Present | Reference | Dense, terse, comprehensive |
+| CLAUDE.md | Present | Instructional | Direct commands |
+| Design docs | Present | Explanatory | WHY and HOW, trade-offs |
+| Guide docs | Present | Tutorial | "You can...", examples |
+| Other docs | Present | Mixed | Per-surface appropriate |
 
-**Common to ALL surfaces:**
-- Present tense, factual descriptions
-- No "was changed to", "previously", "now"
-- No test counts or volatile metrics
-- No progress updates or completion notes
-- Write as if for someone who has never seen previous versions
+**Common to ALL surfaces:** present tense, no "was changed to", no test counts, no progress updates, write as if for someone who has never seen previous versions.
 
 ## Automation Protocol
 
 This command is designed to run nightly without human intervention:
 
 1. **No `AskUserQuestion` calls** — make judgment calls and proceed
-2. **No pauses between phases** — execute sequentially to completion
+2. **No pauses between batches** — execute sequentially to completion
 3. **File bugs, don't block** — when you find spec issues, file them and continue
-4. **Stage only modified doc files** — never `git add -A`
-5. **Include verification ledger** — in commit message body
-6. **Report at the end** — summary of what was synced
-
-## Output
-
-After completion, report:
-
-1. **Files synced**: list each modified file with a one-line summary of changes
-2. **Verification ledger**: for each modified file, which source files/spec clauses verified it
-3. **Bugs filed**: list any spec/grammar issues filed via `/add-bug`
-4. **Discrepancies found**: summary of code-vs-doc mismatches fixed
+4. **Each batch commits separately** — via `/commit-push` after TPR convergence
+5. **Report at the end** — summary of all batches
 
 ## User Input
 
