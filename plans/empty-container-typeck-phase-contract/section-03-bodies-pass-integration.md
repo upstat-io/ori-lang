@@ -9,7 +9,7 @@ goal: >
   check_def_impl_method — so that every body-checked function produces E2005 for
   surviving unbound Tag::Var rather than passing them silently to codegen.
 success_criteria:
-  - "All 4 bodies-pass call sites invoke validate_body_types — verified by `grep -c 'validate_body_types' compiler/ori_types/src/check/bodies/mod.rs` returning 4."
+  - "All 4 bodies-pass call sites invoke validate_body_types — verified by `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/` returning exactly 4 matches (post-03.0 split; calls live in functions.rs and impls.rs, not mod.rs)."
   - "The original BUG-04-074 repro `@main () -> int = { let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1 }` emits E2005 at typeck (not at codegen) — verified by a Rust integration test asserting on TypeErrorKind::AmbiguousType and the ABSENCE of any codegen error path firing."
   - "With annotation `let ages: [int] = []`, the repro compiles clean AND runs with exit 0 via both `ori run` and `ori build` — verified by dual-exec-verify."
   - "No regression in `test_let_polymorphism_for_lambda` — the `let id = x -> x` case type-checks clean after validator integration."
@@ -21,8 +21,8 @@ inspired_by:
   - "Swift `Sema` request-based post-body checks — type-checking requests emit diagnostics as a post-pass step once per body, avoiding cascade from partial inference state."
 depends_on: ["01", "02"]
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: "2026-04-15"
 sections:
   - id: "03.0"
     title: "Prerequisite: split bodies/mod.rs (BLOAT gate)"
@@ -60,7 +60,8 @@ next phase — enforcing the typeck.md PC-2 output contract at the producer boun
 
 **Success Criteria:**
 
-- [ ] `grep -c 'validate_body_types' compiler/ori_types/src/check/bodies/mod.rs` returns exactly **4**
+- [ ] `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/` returns exactly **4** matches
+  (post-03.0 split: calls live in functions.rs and impls.rs, not mod.rs)
 - [ ] Rust integration test asserts BUG-04-074 repro emits `TypeErrorKind::AmbiguousType` (E2005)
       AND that no codegen error fires for that input — the error is caught before leaving typeck
 - [ ] Annotated repro (`let ages: [int] = []`) compiles clean AND produces exit 0 via both
@@ -214,6 +215,62 @@ hygiene finding that must then be addressed in the TPR. Splitting first eliminat
 - [ ] Each of the 3 resulting files (`mod.rs`, `functions.rs`, `impls.rs`) is under 500 lines
 - [ ] Commit this split as its own commit via `/commit-push` before proceeding to 03.1
 
+**Algorithmic DRY — extract `build_method_sig` helper (per `impl-hygiene.md §Algorithmic DRY`):**
+
+The `FunctionSig` construction block (15+ lines, building `param_names`, `param_defaults`,
+`required_params`, `param_hashes`, `return_hash`, and the full struct literal) is structurally
+identical between `check_impl_method` (03.3) and `check_def_impl_method` (03.4). Four or more
+call sites of the same algorithm is a missing abstraction. Extract a helper before wiring:
+
+```rust
+/// Build a FunctionSig from the resolved method parameters and return type.
+/// Used by check_impl_method and check_def_impl_method to construct the sig
+/// early enough for validate_body_types coverage of param/return Tag::Var positions.
+fn build_method_sig(
+    method_name: Name,
+    params: &[Param],
+    param_types: Vec<Idx>,
+    return_type: Idx,
+    type_params: &[TypeParam],
+    pool: &Pool,
+) -> FunctionSig {
+    let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
+    let param_defaults: Vec<Option<ExprId>> = params.iter().map(|p| p.default).collect();
+    let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
+    let param_hashes: Vec<u64> = param_types.iter().map(|&idx| pool.hash(idx)).collect();
+    let return_hash = pool.hash(return_type);
+    FunctionSig {
+        name: method_name,
+        type_params: type_params.to_vec(),
+        const_params: vec![],
+        param_names,
+        param_types,
+        return_type,
+        capabilities: vec![],
+        is_public: false,
+        is_test: false,
+        is_main: false,
+        is_fbip: false,
+        type_param_bounds: vec![],
+        where_clauses: vec![],
+        generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
+        required_params,
+        param_defaults,
+        param_hashes,
+        return_hash,
+    }
+}
+```
+
+Place this helper in `bodies/impls.rs` (private to the module) and call it from both
+`check_impl_method` and `check_def_impl_method`. Verify the `FunctionSig` field list against
+the actual struct definition before copying — the struct may gain or lose fields between now
+and implementation.
+
+- [ ] Extract `build_method_sig` helper into `bodies/impls.rs` BEFORE wiring 03.3/03.4
+- [ ] Commit the helper extraction as its own commit (separate from the split commit)
+
 ---
 
 ## 03.1 Wire validator into `check_function`
@@ -246,18 +303,33 @@ fn check_function_with_unannotated_empty_list_emits_ambiguous_type() {
     //
     // Before 03.1 implementation: test fails (no E2005, or codegen-path error instead).
     // After 03.1: test passes.
-    let result = compile_snippet_for_errors("@main () -> int = { let ages = []; if ages.len() == 1 then 0 else 1 }");
+    let (result, _interner) = parse_and_check(
+        "@main () -> int = { let ages = []; if ages.len() == 1 then 0 else 1 }",
+    );
     assert!(
-        result.errors.iter().any(|e| matches!(e.kind(), TypeErrorKind::AmbiguousType { .. })),
+        result.typed.errors.iter().any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
         "expected E2005 AmbiguousType, got: {:?}",
-        result.errors
+        result.typed.errors
     );
 }
 ```
 
-The test helper `compile_snippet_for_errors` is assumed to mirror whatever the existing
-`bodies/tests.rs` sibling uses for single-snippet type-checking. Verify the helper pattern
-by reading the existing sibling test file before writing.
+Use the `parse_and_check` helper from `compiler/ori_types/src/check/api/tests.rs` —
+the verified working pattern:
+
+```rust
+fn parse_and_check(source: &str) -> (TypeCheckResult, StringInterner) {
+    let interner = StringInterner::new();
+    let tokens = lex(source, &interner);
+    let parsed = parse(&tokens, &interner);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let result = check_module(&parsed.module, &parsed.arena, &interner);
+    (result, interner)
+}
+```
+
+Errors are accessed as `&e.kind` (public field), not `e.kind()` (no such method exists)
+— confirmed at `compiler/ori_types/src/check/integration_tests.rs::error_kinds()`.
 
 **Implementation — before/after diff:**
 
@@ -295,12 +367,12 @@ The call pattern inserts between the 6-tuple extraction (line 148 closing `});`)
     {
         let arena = checker.arena();
         let pool = checker.pool();
-        let sig_span = arena.get_expr(fn_decl.expr_id).span; // function decl span
+        let sig_span = func.span; // Function declaration span (func.span, NOT fn_decl.expr_id)
         let mut validation_errors = Vec::new();
         crate::check::validators::validate_body_types(
             pool,
             &expr_types,
-            sig,             // &FunctionSig from signatures pass
+            &sig,            // &FunctionSig from signatures pass (pass by reference)
             sig_span,        // function declaration span for sig-origin diagnostics
             &|expr_index| {
                 // ExprIndex is a usize alias for ExprId.raw() — the InferEngine
@@ -416,12 +488,12 @@ on it. The insertion sits between the last `engine.take_*()` call and the first 
     {
         let pool = checker.pool();
         let arena = checker.arena();
-        let sig_span = arena.get_expr(test_decl.expr_id).span; // test decl span
+        let sig_span = test.span; // TestDef declaration span (test.span, NOT test.expr_id)
         let mut validation_errors = Vec::new();
         crate::check::validators::validate_body_types(
             pool,
             &expr_types,
-            sig,             // &FunctionSig fetched earlier (see below)
+            &sig,            // &FunctionSig fetched earlier (pass by reference, see below)
             sig_span,
             &|expr_index| {
                 let expr_id = ori_ir::ExprId::new(expr_index as u32);
@@ -438,11 +510,12 @@ on it. The insertion sits between the last `engine.take_*()` call and the first 
     for (expr_index, ty) in expr_types { ... }
 ```
 
-**`sig` availability in `check_test`:** `check_test` receives a `&TestDecl` and a `&FunctionSig`
+**`sig` availability in `check_test`:** `check_test` receives a `&TestDef` and a `&FunctionSig`
 that the Signatures pass already computed. Verify that the host function has `sig: &FunctionSig`
 available as a parameter (or that a sig fetch call is already present before the extraction block)
-before inserting the validator call. The `sig_span` should be derived from `test_decl.expr_id` via
-`checker.arena().get_expr(test_decl.expr_id).span`.
+before inserting the validator call. The `sig_span` should come directly from `test.span`
+(the `TestDef` struct has a `.span` field for the declaration span — do NOT use `test.expr_id`
+which does not exist on `TestDef`).
 
 In `check_test`, `arena` was already bound earlier in the function body (line 200:
 `let arena = checker.arena();`) so the `let arena =` inside the scope block is a re-borrow of the
@@ -460,13 +533,14 @@ tied to the checker's `'a` lifetime, not to `&self`). If there is a borrow confl
 /// See: plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md §03.2
 #[test]
 fn check_test_with_unannotated_empty_list_emits_ambiguous_type() {
-    let result = compile_test_body_for_errors(
-        "@t tests @fn () -> void = { let xs = []; assert_eq(xs.len(), 0) }",
+    let (result, _interner) = parse_and_check(
+        "use std.testing { assert_eq }
+         @t tests @fn () -> void = { let xs = []; assert_eq(actual: xs.len(), expected: 0) }",
     );
     assert!(
-        result.errors.iter().any(|e| matches!(e.kind(), TypeErrorKind::AmbiguousType { .. })),
+        result.typed.errors.iter().any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
         "expected E2005 AmbiguousType in test body, got: {:?}",
-        result.errors
+        result.typed.errors
     );
 }
 ```
@@ -537,7 +611,7 @@ in place (the sig is constructed early, used for validation, then registered at 
     {
         let arena = checker.arena();
         let pool = checker.pool();
-        let sig_span = arena.get_expr(method.body).span;
+        let sig_span = method.span; // Method declaration span (method.span, NOT method.body.span)
         let mut validation_errors = Vec::new();
         crate::check::validators::validate_body_types(
             pool, &expr_types, &sig, sig_span,
@@ -581,24 +655,51 @@ block to ensure the borrows end before `push_error`.
 /// See: plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md §03.3
 #[test]
 fn check_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
-    let result = compile_impl_method_for_errors(
+    let (result, _interner) = parse_and_check(
         "type Foo = {}  impl Foo { @items (self) -> [int] = { let xs = []; xs } }",
     );
     assert!(
-        result.errors.iter().any(|e| matches!(e.kind(), TypeErrorKind::AmbiguousType { .. })),
+        result.typed.errors.iter().any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
         "expected E2005 AmbiguousType in impl method body, got: {:?}",
-        result.errors
+        result.typed.errors
     );
 }
 ```
 
 - [ ] **TDD first** — add the test to `bodies/tests.rs`, confirm it FAILS.
+- [ ] **Signature-path test** — add a second test that catches broken FunctionSig construction
+  specifically. A body-local `let xs = []` passes the body-inference check; the test must have
+  an unannotated *parameter* or *return type* where the surviving `Tag::Var` comes from the sig:
+
+  ```rust
+  /// Impl method with unannotated PARAMETER (not body expr) produces E2005.
+  /// The Tag::Var in the sig's param_types — not body expr_types — is what fires.
+  /// This test catches regressions where sig is built incorrectly and the validator
+  /// fails to walk param_types/return_type at all.
+  ///
+  /// See: plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md §03.3
+  #[test]
+  fn check_impl_method_unannotated_param_emits_ambiguous_type() {
+      // The parameter `x` has no annotation — the sig's param_types[0] is Tag::Var.
+      // If the validator only walks body expr_types and skips the sig, this test passes
+      // silently (wrong). The correct behavior: E2005 fires for the parameter.
+      let (result, _interner) = parse_and_check(
+          "type Foo = {}  impl Foo { @process (self, x) -> void = { } }",
+      );
+      assert!(
+          result.typed.errors.iter().any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
+          "expected E2005 for unannotated parameter in impl method sig, got: {:?}",
+          result.typed.errors
+      );
+  }
+  ```
+
 - [ ] Restructure `check_impl_method`: move the `FunctionSig sig` construction
   (currently at lines 418–438, AFTER the inference closure) to BEFORE the
   `with_impl_scope` closure (before line 393). Then add the validator call block
   immediately after the closure returns (before the `for (expr_index, ty) in expr_types`
   storage loop). See the "Restructured code" block above for the exact approach.
-- [ ] Confirm the new test **PASSES**.
+- [ ] Confirm both tests **PASS**.
 - [ ] `timeout 150 cargo test -p ori_types` — no regressions.
 - [ ] **Subsection close-out (03.3)** — MANDATORY before starting 03.4:
   - [ ] All tasks above are `[x]` and behavior is verified
@@ -675,7 +776,7 @@ def-impl methods have their sig handled differently at the type-checker level).
     {
         let arena = checker.arena();
         let pool = checker.pool();
-        let sig_span = arena.get_expr(method.body).span;
+        let sig_span = method.span; // Method declaration span (method.span, NOT method.body.span)
         let mut validation_errors = Vec::new();
         crate::check::validators::validate_body_types(
             pool, &expr_types, &validator_sig, sig_span,
@@ -708,33 +809,83 @@ at which point `param_types` can move into the sig.
 /// See: plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md §03.4
 #[test]
 fn check_def_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
-    let result = compile_def_impl_method_for_errors(
+    let (result, _interner) = parse_and_check(
         "trait Fooable { @items () -> [int] }  pub def impl Fooable { @items () -> [int] = { let xs = []; xs } }",
     );
     assert!(
-        result.errors.iter().any(|e| matches!(e.kind(), TypeErrorKind::AmbiguousType { .. })),
+        result.typed.errors.iter().any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
         "expected E2005 AmbiguousType in def-impl method body, got: {:?}",
-        result.errors
+        result.typed.errors
     );
 }
 ```
 
 - [ ] **TDD first** — add the test, confirm it FAILS.
+- [ ] **Signature-path test** — add a second test that verifies the validator covers the
+  temporary `validator_sig`'s param_types (not just body expr_types):
+
+  ```rust
+  /// Def-impl method with unannotated PARAMETER produces E2005.
+  /// The Tag::Var in validator_sig.param_types — not body expr_types — fires.
+  /// This test catches regressions where validator_sig is built incorrectly
+  /// and the validator skips param_types/return_type coverage.
+  ///
+  /// See: plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md §03.4
+  #[test]
+  fn check_def_impl_method_unannotated_param_emits_ambiguous_type() {
+      // Trait declares @process(x) without annotation; def impl body is trivially ok.
+      // The surviving Tag::Var must come from the sig's param_types[0].
+      let (result, _interner) = parse_and_check(
+          "trait Processable { @process (x) -> void }  pub def impl Processable { @process (x) -> void = { } }",
+      );
+      assert!(
+          result.typed.errors.iter().any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
+          "expected E2005 for unannotated parameter in def-impl method sig, got: {:?}",
+          result.typed.errors
+      );
+  }
+  ```
+
 - [ ] In `check_def_impl_method`: construct the `validator_sig` (`FunctionSig` local)
   BEFORE the `with_function_scope` closure (after `fn_type` is built so `param_types`
   can move in), then insert the validator call block after the closure returns (before
   the `for (expr_index, ty) in expr_types` storage loop). See the "Restructured code"
   block above for the exact `validator_sig` field list and validator call.
-- [ ] Confirm the new test **PASSES**.
-- [ ] Verify the grep criterion: `grep -c 'validate_body_types' compiler/ori_types/src/check/bodies/mod.rs`
-  returns **4** (all four sites now call the validator).
+- [ ] Confirm both tests **PASS**.
+- [ ] Verify the grep criterion: `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/`
+  returns **4** matches (all four sites now call the validator; post-03.0 split, calls live in
+  functions.rs and impls.rs).
 - [ ] `timeout 150 cargo test -p ori_types` — no regressions.
-- [ ] **Prelude safety gate** — run `timeout 150 cargo st tests/spec/` against a
-  small set of programs that exercise prelude `def impl` methods (e.g., any program
-  using `[int].push()`, `.len()`, `.is_empty()`) to confirm that the prelude's own
-  def-impl bodies are free of surviving `Tag::Var` — if prelude methods produce E2005,
-  the entire test suite breaks. If E2005 fires on a prelude body, that is a BUG in the
-  prelude's def-impl body (or in the validator), NOT a scope/Section 06 issue.
+- [ ] **Def-impl corpus test** — add a Rust-level test that exercises `check_def_impl_method`
+  directly on a hand-crafted source fragment containing a `def impl` block. This must actually
+  route through `check_def_impl_bodies` (Pass 5 per CK-1), NOT through prelude extension methods.
+  `library/std/prelude.ori` contains ZERO `def impl` blocks (verified: `grep -c "def impl"
+  library/std/prelude.ori` returns 0), so spec-test programs using `[int].push()` do NOT exercise
+  `check_def_impl_method` at all:
+
+  ```rust
+  /// def impl block with clean bodies checks OK (no false-positive E2005 from the validator).
+  /// Exercises check_def_impl_method (Pass 5 per CK-1) with a well-typed body.
+  ///
+  /// See: plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md §03.4
+  #[test]
+  fn check_def_impl_method_well_typed_body_produces_no_errors() {
+      let (result, _interner) = parse_and_check(
+          "trait Printable2 { @display (self) -> str }
+           type MyNum = { val: int }
+           pub def impl Printable2 for MyNum { @display (self) -> str = \"num\" }",
+      );
+      assert!(
+          result.typed.errors.is_empty(),
+          "expected no errors for well-typed def-impl body, got: {:?}",
+          result.typed.errors
+      );
+  }
+  ```
+
+  If the `def impl Trait for Type` syntax is not yet accepted by the parser, use the form
+  actually supported (`pub def impl TraitName { @method ... }`) — check the existing bodies
+  tests and spec tests for the correct syntax before writing.
 - [ ] **Subsection close-out (03.4)** — MANDATORY before starting 03.5:
   - [ ] All tasks above are `[x]` and behavior is verified
   - [ ] Update subsection `status` in frontmatter to `complete`
@@ -787,22 +938,21 @@ Add an integration test in `compiler/ori_types/src/check/bodies/tests.rs`:
 /// See: plans/empty-container-typeck-phase-contract/00-overview.md §Mission Success Criteria
 #[test]
 fn empty_list_with_push_and_len_rejects_at_typeck_with_ambiguous_type() {
-    let result = compile_program_for_errors(
+    let (result, _interner) = parse_and_check(
         "@main () -> int = { let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1 }",
     );
-    // At least one E2005 for the empty list.
-    let has_e2005 = result.errors.iter().any(|e| {
-        matches!(e.kind(), TypeErrorKind::AmbiguousType { .. })
+    // At least one E2005 for the empty list — error must be caught at typeck, not codegen.
+    // PC-4: codegen is gated on zero typeck errors, so asserting E2005 fires is sufficient
+    // to prove codegen was never reached.
+    let has_e2005 = result.typed.errors.iter().any(|e| {
+        matches!(e.kind, TypeErrorKind::AmbiguousType { .. })
     });
-    assert!(has_e2005, "expected E2005 for unannotated empty list, errors: {:?}", result.errors);
-    // No codegen-path errors — the error must be caught before reaching codegen.
-    let has_codegen_error = result.errors.iter().any(|e| {
-        // Codegen errors are in a different crate; what we verify here is that
-        // ori_types emitted E2005, which gates codegen via PC-4. If the test
-        // suite later adds an end-to-end codegen path, assert no LLVM errors.
-        e.is_internal_compiler_error()
-    });
-    assert!(!has_codegen_error, "codegen-path error fired despite E2005 gate");
+    assert!(has_e2005, "expected E2005 for unannotated empty list, errors: {:?}", result.typed.errors);
+    // Assert no errors other than AmbiguousType fired (confirms no cascade from the empty list).
+    let unexpected_errors: Vec<_> = result.typed.errors.iter()
+        .filter(|e| !matches!(e.kind, TypeErrorKind::AmbiguousType { .. }))
+        .collect();
+    assert!(unexpected_errors.is_empty(), "unexpected additional errors: {:?}", unexpected_errors);
 }
 ```
 
@@ -927,27 +1077,73 @@ that is Section 06.2's job.
 
 ## 03.R Third Party Review Findings
 
-<!-- Reserved for the dual-source `/tpr-review` (Codex + Gemini) and other external reviewers.
-If unresolved findings exist here:
-- section frontmatter `status` must be `in-progress`
-- `third_party_review.status` must be `findings`
-
-When all findings are triaged:
-- accepted findings are integrated into the relevant implementation subsection(s)
-- rejected findings are closed with rationale
-- `third_party_review.status` becomes `resolved` or `none`
+<!-- TPR Round 0 — dual-source Codex + Gemini review via /review-plan (2026-04-15)
+All 6 findings from Round 0 have been triaged and integrated into the plan above.
+third_party_review.status updated to `resolved` in frontmatter once Round 1 confirms clean.
 -->
 
-- None.
+### Round 0 Findings (all accepted and integrated)
+
+**[TPR-03-001-codex] HIGH — Replace stale snippet APIs with the current checker interfaces**
+- **Finding**: All TDD tests in 03.1–03.5 used non-existent helpers (`compile_snippet_for_errors`,
+  `compile_test_body_for_errors`, `compile_impl_method_for_errors`, `compile_def_impl_method_for_errors`,
+  `compile_program_for_errors`, `is_internal_compiler_error()`). Error kind accessed as `e.kind()`
+  (method) instead of `e.kind` (public field).
+- **Fix applied**: All tests rewritten using `parse_and_check` from `check/api/tests.rs`.
+  Error access changed to `e.kind` throughout. 03.5 codegen-gate test changed to assert only
+  E2005 fires and no unexpected additional errors appear (since `is_internal_compiler_error()`
+  does not exist on `TypeCheckError`).
+
+**[TPR-03-002-codex] HIGH — Add signature-path tests for impl and def-impl validator wiring**
+- **Finding**: The body-local `let xs = []` test passes even if the sig was wrong/missing.
+  No tests for the path where a surviving `Tag::Var` comes from unannotated *parameters* or
+  *return types* in the sig (the validator's `param_types`/`return_type` coverage).
+- **Fix applied**: Added `check_impl_method_unannotated_param_emits_ambiguous_type` to 03.3
+  and `check_def_impl_method_unannotated_param_emits_ambiguous_type` to 03.4 — both use an
+  unannotated parameter so only the sig's `param_types[0]` carries `Tag::Var`.
+
+**[TPR-03-003-codex] MEDIUM — Make BLOAT split plan and completion gate agree on file ownership**
+- **Finding**: 03.0 splits `bodies/mod.rs` into `functions.rs` + `impls.rs`, but all success
+  criteria and the 03.N completion checklist used `grep -c ... bodies/mod.rs` (would return 0 after
+  split). Inconsistency between post-split file layout and verification commands.
+- **Fix applied**: All grep commands changed to `grep -rn ... compiler/ori_types/src/check/bodies/`
+  (recursive, covering all files in the directory). Prose updated to note calls live in
+  `functions.rs` and `impls.rs` post-split.
+
+**[TPR-03-004-codex] MEDIUM — Replace prelude safety gate with real def-impl verification target**
+- **Finding**: The "Prelude safety gate" exercised `[int].push()` / `.len()` etc. — these are
+  NOT def-impl methods (`library/std/prelude.ori` has 0 `def impl` blocks). The gate tested list
+  extension methods (different code path), not `check_def_impl_method`.
+- **Fix applied**: Replaced the prelude gate with a concrete Rust-level `parse_and_check` test
+  (`check_def_impl_method_well_typed_body_produces_no_errors`) using a hand-crafted source fragment
+  with an actual `def impl` block. Added a note explaining why prelude programs do NOT exercise
+  `check_def_impl_method`.
+
+**[TPR-03-001-gemini] HIGH — Fix compilation errors in validator call arguments and AST span extractions**
+- **Finding**: Multiple wrong variable references:
+  - 03.1: `fn_decl.expr_id` → `func` is the parameter (`&Function`), not `fn_decl`; correct: `func.span`
+  - 03.2: `test_decl.expr_id` → `test` is the parameter (`&TestDef`), no `.expr_id`; correct: `test.span`
+  - 03.3/03.4: `method.body.span` → gets body block span; correct declaration span: `method.span`
+  - 03.1/03.2: `sig,` → should be `&sig,` (pass by reference)
+- **Fix applied**: All span references corrected to `func.span`, `test.span`, `method.span`.
+  `sig,` changed to `&sig,` in 03.1 and 03.2.
+
+**[TPR-03-002-gemini] MEDIUM — Extract FunctionSig construction helper for def-impl methods**
+- **Finding**: The ~15-line `FunctionSig` construction block is structurally identical in 03.3 and
+  03.4, violating `impl-hygiene.md §Algorithmic DRY` (same algorithm at 2+ sites = missing abstraction;
+  with 03.3 and 03.4 plus any future sites, threshold reached).
+- **Fix applied**: Added `build_method_sig` helper extraction task to 03.0 (with full field list and
+  rationale). The helper takes `(method_name, params, param_types, return_type, type_params, pool)`
+  and returns `FunctionSig`. Both `check_impl_method` and `check_def_impl_method` call it.
 
 ---
 
 ## 03.N Completion Checklist
 
-- [ ] `grep -c 'validate_body_types' compiler/ori_types/src/check/bodies/mod.rs` returns **4**
-  (all 4 bodies-pass functions call the validator)
-- [ ] `grep -n 'use crate::check::validators' compiler/ori_types/src/check/bodies/mod.rs`
-  shows exactly one import line
+- [ ] `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/` returns exactly **4** matches
+  (post-03.0 split: calls live in functions.rs and impls.rs, not mod.rs)
+- [ ] `grep -rn 'use crate::check::validators' compiler/ori_types/src/check/bodies/`
+  shows exactly one import line (in the split file housing the validator calls)
 - [ ] All 4 bodies-pass tests pass:
   - [ ] `check_function_with_unannotated_empty_list_emits_ambiguous_type`
   - [ ] `check_test_with_unannotated_empty_list_emits_ambiguous_type`
