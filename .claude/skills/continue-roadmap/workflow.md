@@ -138,7 +138,7 @@ Subsection {next_unblocked.subsection_id}: {next_unblocked.item_content}
 Skill: roadmap-work {focus_context.section_file} {next_unblocked.subsection_id}
 ```
 
-**If escalating**, replace `Next command for the parent` with:
+**If escalating**, keep ALL prior blocks (`## Handoff to parent` header, `### Focus context`, `### Gate results`, `### Next unblocked item`) EXACTLY as above — the Focus Context block is MANDATORY on every return, escalation included. Only the final `### Next command for the parent` block is replaced with:
 
 ```
 ### <escalate-to-parent>
@@ -152,27 +152,63 @@ Skill: roadmap-work {focus_context.section_file} {next_unblocked.subsection_id}
 {collected from gate payloads: section_path, files list, bug source sections, etc.}
 ```
 
+Rationale: the parent's Step A prints the Focus Context block to the user before any `AskUserQuestion` prompt so the user knows which plan/section the gate decisions apply to. Omitting Focus Context on escalation forces the parent to re-query the sub-agent (wasted tokens) or fire gates blind (wrong answer likely).
+
 ---
 
 ## Return Format Example (escalation path)
 
-When `unreviewed_plan` and `dirty_tree` both fire:
+When `unreviewed_plan` and `dirty_tree` both fire, the sub-agent returns the FULL handoff — Focus Context and all — with the final block swapped for `<escalate-to-parent>`:
 
 ```
+## Handoff to parent
+
+**Focus plan**: plans/empty-container-typeck-phase-contract
+**Focus section file**: plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md
+**Focus subsection id**: 03.1
+**Pacing choice**: (not asked — blocked on gates)
+
+### Focus context
+## Focus: Empty Container Typeck Phase Contract — Section 03: Bodies Pass Integration
+
+**Plan**: {plan_description from scanner}
+**Section goal**: {section_goal from scanner}
+**Plan progress**: 40% (2/5 sections complete)
+**Section progress**: 0/4 subsections complete
+
+Subsections:
+  03.1  Wire bodies pass into typeck driver   [not-started]
+  03.2  Propagate empty-container constraints [not-started]
+  03.3  Integration tests                     [not-started]
+  03.4  Plan-annotation cleanup               [not-started]
+
+### Gate results
+- Stale frontmatter: none
+- Stale plan annotations: none
+- Unreviewed plan: block
+- TPR findings: none
+- Critical bugs: none
+- High bugs: none
+- Dirty tree: 3 files
+
+### Next unblocked item
+Subsection 03.1: Wire bodies pass into typeck driver
+(4 unblocked, 0 blocked remaining)
+
 ### <escalate-to-parent>
 **Gates fired**: unreviewed_plan (block), dirty_tree (block)
 
 **User questions for AskUserQuestion**:
 
 Q1 (unreviewed_plan):
-  question: "Section {N} has `reviewed: false`. Its assumptions have not been validated against the current codebase. How do you want to proceed?"
+  question: "Section 03 has `reviewed: false`. Its assumptions have not been validated against the current codebase. How do you want to proceed?"
   options:
     - "Run /review-plan now (recommended)"  → next_skill: review-plan, arg: {section_path}
     - "Proceed anyway"  → next_skill: null
     - "Pick a different section"  → next_skill: null
 
 Q2 (dirty_tree):
-  question: "Working tree has {N} pending files from other sessions. How do you want to proceed?"
+  question: "Working tree has 3 pending files from other sessions. How do you want to proceed?"
   options:
     - "Run /commit-push (recommended)"  → next_skill: commit-push
     - "Proceed with dirty tree"  → next_skill: null
@@ -180,4 +216,4 @@ Q2 (dirty_tree):
 **Relevant paths**: {section_path}, {each file in dirty_tree.files}
 ```
 
-The parent invokes `AskUserQuestion` with Q1, waits for the answer, dispatches the chosen skill if any, then does the same for Q2. After both resolve, the parent re-dispatches `/continue-roadmap` for a fresh scan — do NOT reuse this scan's output across the escalation boundary.
+The parent surfaces the Focus Context block verbatim (per `SKILL.md` Step A), emits a one-line gate summary, then invokes `AskUserQuestion` with Q1, waits for the answer, dispatches the chosen skill if any, then does the same for Q2. After both resolve, the parent re-dispatches `/continue-roadmap` for a fresh scan — do NOT reuse this scan's output across the escalation boundary.

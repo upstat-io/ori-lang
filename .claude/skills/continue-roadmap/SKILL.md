@@ -25,18 +25,17 @@ Agent({
   subagent_type: "general-purpose",
   model: "sonnet",
   prompt: `
-You are the scan-and-gate agent for /continue-roadmap. Read
-/home/eric/projects/ori_lang/.claude/skills/continue-roadmap/workflow.md
+You are the scan-and-gate agent for /continue-roadmap. Read .claude/skills/continue-roadmap/workflow.md
 in full and execute it end-to-end.
 
 Args from the user: <ARGS>
 (Empty string means auto-detect the first incomplete section.)
 
 Rules:
-- Follow Steps -1 through 5.5 literally, including Step -1 (read CLAUDE.md
-  fresh via the Read tool).
-- Stop at the end of Step 5.5. Do NOT execute Step 6. Do NOT invoke
-  /roadmap-work. Step 6 is the parent's job.
+- Follow Steps 1 through 5 literally. Do NOT read CLAUDE.md — the scanner
+  pre-computes every gate decision and focus-context field.
+- Stop at the end of Step 5. Do NOT execute /roadmap-work. Code execution
+  is the parent's job.
 - You touch plan docs (plans/**/*.md), frontmatter, and checkboxes ONLY.
   Never edit .rs, .ori, or anything under compiler/, library/, tests/.
 - Commits via /commit-push only — never run git commit directly.
@@ -45,8 +44,9 @@ Rules:
   /create-plan for unplanned blockers), STOP and return <escalate-to-parent>
   with the question and relevant paths. The parent invokes the named skill
   directly.
-- Return the handoff block per the "Return Format for Sub-agent" section of
-  workflow.md — EXACT format, including the 'Next command for the parent' line.
+- Return the handoff block per Step 5 of workflow.md — EXACT format.
+  The '### Focus context' block is MANDATORY on every return, including
+  escalation. Omitting it is a contract violation.
   `
 })
 ```
