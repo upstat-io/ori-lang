@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Validator Module — validate_body_types()"
-status: not-started
+status: in-progress
 reviewed: true
 goal: >
   Introduce ori_types::check::validators — a new submodule of the type-checker
