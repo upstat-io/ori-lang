@@ -113,4 +113,7 @@ Auto-generated from Python dataclass definitions in `scripts/plan_corpus/schemas
 ### gap
 - `leak_swallowed_error`
 - `missing_index_md`
+- `missing_recon_block`
+- `recon_graph_unavailable`
 - `unclassified_directory`
+- `validation_bypass`

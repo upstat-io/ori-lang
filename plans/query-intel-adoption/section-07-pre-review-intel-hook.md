@@ -277,7 +277,7 @@ sections:
 - [ ] Graph-unavailable scenario degrades silently — no operator-visible error
 - [ ] Hook runtime < 2s on typical inputs (measured via `time` on a real review prompt)
 - [ ] `./test-all.sh` green
-- [ ] `python scripts/plan_corpus.py check plans/query-intel-adoption/section-07-pre-review-intel-hook.md` returns 0 errors
+- [ ] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-07-pre-review-intel-hook.md` returns 0 errors
 - [ ] **Plan sync**:
   - [ ] Section frontmatter → `complete`
   - [ ] `00-overview.md` Quick Reference and mission criteria updated

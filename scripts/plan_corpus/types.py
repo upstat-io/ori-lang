@@ -53,6 +53,27 @@ class Severity(enum.IntEnum):
     CRITICAL = 3
 
 
+class Outcome(enum.Enum):
+    """Gate outcome — distinct from Severity.
+
+    Severity answers "how bad is this?" (impact classification), set by the
+    emitter per the finding's real-world significance. Outcome answers
+    "does this gate the check?" (enforcement mode), also set by the emitter.
+    The two axes are INDEPENDENT: a `Severity.LOW` can be `Outcome.ERROR`
+    and a `Severity.HIGH` can be `Outcome.WARNING` — the combination depends
+    on the finding's kind and the invocation mode (default vs
+    `--strict-recon`).
+
+    Exit-code policy (§06.2 Design Decision 4): `check` returns 1 iff any
+    finding has `outcome == ERROR`; WARNING findings are printed but
+    non-gating. `Finding.outcome` defaults to ERROR so pre-existing
+    callsites (schema violations, parse errors, etc.) gate CI unchanged;
+    only the new recon-block emitters explicitly opt into `Outcome.WARNING`.
+    """
+    WARNING = "warning"   # printed, does NOT affect exit code
+    ERROR = "error"       # printed AND forces exit 1
+
+
 class FindingCategory(enum.Enum):
     """Top-level finding category (two-level hierarchy with FindingSubtype)."""
     PARSE_ERROR = "parse_error"
@@ -147,6 +168,10 @@ class FindingSubtype(enum.Enum):
     MISSING_INDEX_MD = "missing_index_md"
     UNCLASSIFIED_DIRECTORY = "unclassified_directory"
     LEAK_SWALLOWED_ERROR = "leak_swallowed_error"
+    # §06.2 — `## Intelligence Reconnaissance` block detection
+    MISSING_RECON_BLOCK = "missing_recon_block"
+    VALIDATION_BYPASS = "validation_bypass"
+    RECON_GRAPH_UNAVAILABLE = "recon_graph_unavailable"
 
 
 # Category -> allowed subtypes mapping (enforced at Finding construction)
@@ -213,6 +238,9 @@ _CATEGORY_SUBTYPES: dict[FindingCategory, frozenset[FindingSubtype]] = {
         FindingSubtype.MISSING_INDEX_MD,
         FindingSubtype.UNCLASSIFIED_DIRECTORY,
         FindingSubtype.LEAK_SWALLOWED_ERROR,
+        FindingSubtype.MISSING_RECON_BLOCK,
+        FindingSubtype.VALIDATION_BYPASS,
+        FindingSubtype.RECON_GRAPH_UNAVAILABLE,
     }),
 }
 
@@ -247,6 +275,11 @@ class Finding:
     dependency_chain: tuple[Path, ...] = ()
     source_kind: "SourceKind | None" = None
     target_key: str | None = None
+    # §06.2 — enforcement channel independent of Severity. Defaults to ERROR
+    # so pre-existing call sites gate CI unchanged; recon-block emitters opt
+    # into WARNING explicitly. NOT included in `id` hash — backward-compat
+    # with saved reports (id discriminates logical identity, not gate mode).
+    outcome: Outcome = Outcome.ERROR
 
     def __post_init__(self) -> None:
         allowed = _CATEGORY_SUBTYPES.get(self.category, frozenset())
@@ -281,6 +314,7 @@ class Finding:
             "category": self.category.value,
             "subtype": self.subtype.value,
             "severity": self.severity.name.lower(),
+            "outcome": self.outcome.value,
             "source": str(self.source),
             "source_line": self.source_line,
             "source_column": self.source_column,
@@ -295,7 +329,10 @@ class Finding:
         }
 
     def to_markdown(self) -> str:
-        parts = [f"- **[{self.id}][{self.severity.name.lower()}]** `{self.source}`"]
+        parts = [
+            f"- **[{self.id}][{self.severity.name.lower()}]"
+            f"[{self.outcome.value}]** `{self.source}`"
+        ]
         if self.source_line is not None:
             parts[0] += f":{self.source_line}"
         parts[0] += f" — {self.description}"

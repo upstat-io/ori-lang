@@ -94,13 +94,13 @@ GAP:missing-trigger, concrete workflow step, @-include §03
 ---
 
 ### Section 06: Plan schema — mandatory Intelligence Reconnaissance block + validator
-**File:** `section-06-plan-schema-recon.md` | **Status:** Not Started
+**File:** `section-06-plan-schema-recon.md` | **Status:** In Progress
 
 ```
 .claude/skills/create-plan/plan-schema.md, Section File Template
 unnumbered ## Intelligence Reconnaissance block, NOT {NN}.0
 FileClass.PLAN_SECTION scope only, ROADMAP_SECTION / BUG_TRACKER_SECTION / FIX_BUG exempt
-python -m scripts.plan_corpus check (NOT scripts/plan_corpus.py — does not exist)
+python -m scripts.plan_corpus check (NOT the legacy single-file `.py` path — package-only invocation)
 Outcome enum (WARNING / ERROR), exit-code policy, --strict-recon flag
 status-gated severity: not-started=HIGH, in-progress=MEDIUM, complete=exempt
 Severity enum LOW/MEDIUM/HIGH/CRITICAL (not MAJOR/MINOR/WARNING)
