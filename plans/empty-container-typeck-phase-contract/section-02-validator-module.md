@@ -69,7 +69,7 @@ sections:
     status: complete
   - id: "02.3"
     title: "lib.rs and check/mod.rs wiring (no pub mod check)"
-    status: not-started
+    status: complete
   - id: "02.4"
     title: "Unit test matrix (twelve cells)"
     status: not-started
@@ -636,7 +636,7 @@ Existing submodule declarations (private): `accessors`, `api`, `bodies`,
 `well_known`, plus `#[cfg(test)] mod integration_tests;` and
 `#[cfg(test)] mod tests;`.
 
-- [ ] Add, in alphabetical order immediately after `mod signatures;`:
+- [x] Add, in alphabetical order immediately after `mod signatures;`:
   ```rust
   pub(crate) mod validators;
   ```
@@ -645,6 +645,7 @@ Existing submodule declarations (private): `accessors`, `api`, `bodies`,
   least `pub(crate)` visibility on `validators`. Using `pub(crate) mod validators;`
   keeps the submodule callable from outside `ori_types` when the single
   re-exported function is accessed via its canonical path for testing.
+  Verified at `compiler/ori_types/src/check/mod.rs:77`.
 
 ### 02.3.2 — `lib.rs`
 
@@ -664,14 +665,14 @@ pub use check::{
 };
 ```
 
-- [ ] KEEP `mod check;` (line 16) — do NOT promote to `pub mod check`.
+- [x] KEEP `mod check;` (line 16) — do NOT promote to `pub mod check`.
   (The earlier draft of this section proposed promotion mirroring
   `pub mod reporting;`; Phase 2 /tp-help rejected that because the
   check-module hierarchy is strictly internal compiler plumbing — bodies,
   exports, imports, registration, scope, signatures, etc. — and
   `object_safety.rs`'s `pub(crate)` is the real precedent, not
-  `reporting`'s `pub`.)
-- [ ] Extend the existing `pub use check::{ ... };` block to include
+  `reporting`'s `pub`.) Verified at `compiler/ori_types/src/lib.rs:16`.
+- [x] Extend the existing `pub use check::{ ... };` block to include
   `validators::validate_body_types`:
   ```rust
   pub use check::{
@@ -684,29 +685,33 @@ pub use check::{
   directly from `check`; the second reaches into a submodule. Keeping them
   on distinct `pub use` statements matches the crate's existing
   re-export style and makes the narrow scope of the validator export
-  grep-visible.
+  grep-visible. Verified at `compiler/ori_types/src/lib.rs:32-36`.
 
 ### 02.3.3 — `validators/mod.rs` test module declaration
 
 At the bottom of `compiler/ori_types/src/check/validators/mod.rs`:
 
-- [ ] Add:
+- [x] Add:
   ```rust
   #[cfg(test)]
   mod tests;
   ```
   Body in `compiler/ori_types/src/check/validators/tests.rs`
   (`compiler.md §File Organization` — sibling `tests.rs`, not inline).
+  Verified at `compiler/ori_types/src/check/validators/mod.rs:231-232`;
+  scaffold `tests.rs` exists from §02.1 and §02.4 will populate it.
 
 ### 02.3.4 — Completion criteria
 
-- [ ] `grep -n "^pub mod check" compiler/ori_types/src/lib.rs` returns
-  zero lines (the internal layout is not leaked).
-- [ ] `grep -n "^pub use check::validators::validate_body_types;"
+- [x] `grep -n "^pub mod check" compiler/ori_types/src/lib.rs` returns
+  zero lines (the internal layout is not leaked). Verified 2026-04-15.
+- [x] `grep -n "^pub use check::validators::validate_body_types;"
   compiler/ori_types/src/lib.rs` returns exactly one line.
-- [ ] External consumers compile against `ori_types::validate_body_types`
+  Verified 2026-04-15 — matches `lib.rs:32`.
+- [x] External consumers compile against `ori_types::validate_body_types`
   via the re-export; internal consumers use `crate::check::validators::
-  validate_body_types` as usual.
+  validate_body_types` as usual. Verified — `cargo check -p ori_types
+  --tests --lib` succeeds on the current wiring.
 
 ---
 
