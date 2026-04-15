@@ -20,6 +20,8 @@ from .safety import (
     WriteBackContext,
     PreimageRecord,
     PatchResult,
+    FmOperationKind,
+    FmOperation,
     classify_safety,
 )
 from .report import (
@@ -32,6 +34,14 @@ from .report import (
     exit_code_for_findings,
     write_reports,
 )
+from .auto_fix import (
+    FixPlan,
+    AutoFixError,
+    build_fix_plan,
+    build_fix_plans,
+    apply_fixes,
+    FixApplyResult,
+)
 
 __all__ = [
     # Safety taxonomy (§03.1)
@@ -40,6 +50,8 @@ __all__ = [
     "WriteBackContext",
     "PreimageRecord",
     "PatchResult",
+    "FmOperationKind",
+    "FmOperation",
     "classify_safety",
     # Report format (§03.2)
     "ReportMode",
@@ -50,4 +62,11 @@ __all__ = [
     "render_console",
     "exit_code_for_findings",
     "write_reports",
+    # Auto-fix engine (§03.3)
+    "FixPlan",
+    "AutoFixError",
+    "build_fix_plan",
+    "build_fix_plans",
+    "apply_fixes",
+    "FixApplyResult",
 ]
