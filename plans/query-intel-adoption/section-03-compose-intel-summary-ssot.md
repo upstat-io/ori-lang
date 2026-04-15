@@ -184,7 +184,7 @@ The replacement is mechanical but order matters: verify each file's inlined bloc
 
 1. `.claude/skills/review-work/SKILL.md:251-259` (Step 1.5 CONDITIONAL — Intelligence Pre-Query)
 2. `.claude/skills/tpr-review/SKILL.md` Step 0.75 (~42 lines)
-3. `.claude/commands/review-plan.md:96-107`
+3. `.claude/skills/review-plan/SKILL.md` and its `step-*.md` protocol files (the old `.claude/commands/review-plan.md` was deleted when /review-plan was refactored from a monolithic command into a multi-step skill; the §03 migration applies to the new skill's `@`-include surface — primarily `step-5-editor.md`'s "Intelligence Reconnaissance" block)
 4. `.claude/commands/review-work.md:70-75`
 5. `.claude/commands/independent-review.md:221-224`
 6. `.claude/commands/review-bugs.md:152-178`
