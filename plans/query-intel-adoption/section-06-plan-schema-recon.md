@@ -68,7 +68,7 @@ sections:
 
 **Design decision 6 — `--strict-recon` as a CLI flag, not a corpus-wide frontmatter.** An earlier draft proposed a per-plan `strict_recon: bool` on `00-overview.md`. That model requires the `PlanSectionSchema` / `OverviewSchema` to accept a new frontmatter field (currently `schema.py:264` rejects unknown keys) and creates corpus-wide state that's hard to preview. Making it a CLI flag keeps policy at the invocation site: CI can pin `--strict-recon` for `not-started` sections; local runs default to warnings-only. No schema widening needed for policy — §06 does NOT add any frontmatter field to `OverviewSchema`.
 
-**Design decision 7 — format coupling with §03 and §07 is a CONTRACT, not a convention.** `00-overview.md:144` already states "§07 hook output format MUST match §03's bounded summary template exactly." §06 extends this into a three-way coupling: §03 helper (source), §06 recon block (plan-body artifact), §07 hook injection (runtime prompt artifact) — all three share the same ≤500-char bound, the same 5-bullet cap, the same `[ori]` / `[repo#N]` / `[repo:path]` citation grammar, and the same graceful-degradation behavior: when `scripts/intel-query.sh status` returns unavailable, the §07 hook omits the summary entirely (per `compose-intel-summary.md` lines 222-227: "entire summary is OMITTED"), and the §06 plan-resident artifact records the graph-unavailable state as freeform prose (e.g. `"Graph was unavailable at YYYY-MM-DD when this section was authored"`) — NOT a sentinel string matched by the validator. Drift among the three surfaces is a `DRIFT:scattered-knowledge` finding. §06.1's template text names this contract explicitly; §06.2's anti-stub detector enforces the citation-grammar half; §07's plan file cites §06's contract back.
+**Design decision 7 — format coupling with §03 and §07 is a CONTRACT, not a convention.** `00-overview.md:144` already states "§07 hook output format MUST match §03's bounded summary template exactly." §06 extends this into a three-way coupling: §03 helper (source), §06 recon block (plan-body artifact), §07 hook injection (runtime prompt artifact) — all three use `.claude/skills/dual-tpr/compose-intel-summary.md` as the authoritative SSOT. The **≤500-char bound** and **`[ori]` / `[repo#N]` / `[repo:path]` citation vocabulary** are the contract; exact line-level formatting may vary per consumer's rendering context (§06 plan-resident blocks are static markdown artifacts; §07 hooks inject a bounded summary into a prompt payload; these rendering contexts differ legitimately). Graceful degradation: when `scripts/intel-query.sh status` returns unavailable, the §07 hook omits the summary entirely (per `compose-intel-summary.md` lines 222-227: "entire summary is OMITTED"), and the §06 plan-resident artifact records the graph-unavailable state as freeform prose (e.g. `"Graph was unavailable at YYYY-MM-DD when this section was authored"`) — NOT a sentinel string matched by the validator. Drift in the 500-char bound or citation vocabulary among the three surfaces is a `DRIFT:scattered-knowledge` finding; line-level formatting differences are not. §06.1's template text names this contract explicitly; §06.2's anti-stub detector enforces the citation-grammar half; §07's plan file cites §06's contract back.
 
 **Reference implementations:**
 - **Ori** `.claude/skills/create-plan/plan-schema.md` existing Section File Template (lines 236-508) — §06.1 edit target
@@ -128,7 +128,7 @@ Two surfaces describe section-level structural invariants today: `plan-schema.md
 
   **Placement requirement:** AFTER all section framing (Goal, Success Criteria, Context, Reference implementations, Depends on) and BEFORE the first numbered subsection (`## {NN}.1`). The block is structurally parallel to the framing blocks — not a subsection.
 
-  **Format-coupling contract:** the block's ≤500-char / 5-bullet summary format and `[ori]` / `[repo#N]` / `[repo:path]` citation grammar match §03's `compose-intel-summary.md` Step D output (lines 64-82) and §07's `pre-review-intel.sh` hook-injected output. Graceful degradation: §07 hook omits the summary entirely when graph is unavailable (per `compose-intel-summary.md` lines 222-227); §06 plan-resident artifact records the graph-unavailable state as freeform prose with a date (e.g. "Graph was unavailable at YYYY-MM-DD when this section was authored") — the validator recognizes this as `RECON_GRAPH_UNAVAILABLE` at `Severity.LOW` / `Outcome.WARNING` (intentional documentation, NOT a VALIDATION_BYPASS). Drift among the three surfaces is a `DRIFT:scattered-knowledge` finding (see §06 Design decision 7).
+  **Format-coupling contract:** §06 plan-resident recon blocks and §07 hook-injected recon summaries both use the §03 SSOT helper (`.claude/skills/dual-tpr/compose-intel-summary.md`) as the authoritative source. The **≤500-char bound** and **`[ori]` / `[repo#N]` / `[repo:path]` citation vocabulary** are the contract; exact line-level formatting may vary per consumer's rendering context. Graceful degradation: §07 hook omits the summary entirely when graph is unavailable (per `compose-intel-summary.md` lines 222-227); §06 plan-resident artifact records the graph-unavailable state as freeform prose with a date (e.g. "Graph was unavailable at YYYY-MM-DD when this section was authored") — the validator recognizes this as `RECON_GRAPH_UNAVAILABLE` at `Severity.LOW` / `Outcome.WARNING` (intentional documentation, NOT a VALIDATION_BYPASS). Drift in the 500-char bound or citation vocabulary among the three surfaces is a `DRIFT:scattered-knowledge` finding (see §06 Design decision 7).
 
 - [ ] **plan-schema.md — replace the "MANDATORY SUBSECTION STRUCTURE" comment (currently lines 315-326) with "MANDATORY SECTION STRUCTURE"** covering both load-bearing invariants:
 
@@ -275,7 +275,7 @@ All four must be fixed together; any one alone leaves the enforcement path broke
     - Block body fails ANY of the three concrete-content requirements:
       - (a) No literal `scripts/intel-query.sh` command line (matched via regex `\bscripts/intel-query\.sh\b` — must appear in the block body)
       - (b) No date marker in ISO format `YYYY-MM-DD` within the block (matched via regex `\d{4}-\d{2}-\d{2}`)
-      - (c) No concrete citation marker: no literal `[ori]`, no cross-repo citation marker matching `\[(?:rust|swift|go|koka|lean4|gleam|elm|roc|zig|ts|typescript)#\d+\]`
+      - (c) No concrete citation marker: no literal `[ori]`, no cross-repo citation marker matching `\[[a-z][a-z0-9-]*#\d+\]` (generic pattern — any lowercase repo name followed by `#` and digits; avoids DRIFT when reference repos are added to the intelligence graph)
     - Block body pastes the literal `@.claude/skills/dual-tpr/compose-intel-summary.md` directive verbatim without a condensed summary paragraph following it (the `@`-include is a SOURCE for Claude's prompt, NOT a substitute for the plan-resident snapshot)
     - Severity / outcome mapping identical to "missing block" above
     - `FindingCategory.GAP`, `FindingSubtype.VALIDATION_BYPASS`, message names which specific check(s) failed (missing query / missing date / missing citation / placeholder-only / empty)
@@ -300,9 +300,9 @@ All four must be fixed together; any one alone leaves the enforcement path broke
 - [ ] **Add `discover` per-plan recon-coverage reporter.** After the existing per-plan summary, print a status-grouped table — §09 consumes this table to measure retrofit completeness:
   ```
   Per-plan recon coverage:
-    plans/foo/            (strict)    — not-started: 3/5 non-stub   in-progress: 1/2 non-stub   complete: 4/4 exempt
-    plans/bar/                        — not-started: 0/4 non-stub   in-progress: 0/0            complete: 0/0
-    plans/query-intel-adoption/       — not-started: 4/4 non-stub   in-progress: 0/0            complete: 5/5 exempt
+    plans/foo/            (strict)    — not-started: 3/5 PRESENCE   in-progress: 1/2 PRESENCE   complete: 4/4 exempt
+    plans/bar/                        — not-started: 0/4 PRESENCE   in-progress: 0/0            complete: 0/0
+    plans/query-intel-adoption/       — not-started: 4/4 PRESENCE   in-progress: 0/0            complete: 5/5 exempt
   ```
 
   **Refactor choice (data source):** The `discover` command currently uses `discover_corpus()` (`discovery.py`), which walks the tree and classifies files but does NOT parse bodies or run `load_and_validate` per file. For the recon-coverage reporter, the `discover` command MUST additionally call `load_and_validate(path)` on each `PLAN_SECTION` path in `corpus.plan_sections.keys()` — this provides body text + recon-block validation findings without a second filesystem walk (paths are already discovered). The `discover` reporter then READS `ValidatedFile.violations` (already populated by `body_validator` during `load_and_validate`) to count recon-block findings — it does NOT call `_check_intel_recon_block` directly. Alternative (b) — running a standalone regex or calling `_check_intel_recon_block` directly from `discover` — is rejected because `load_and_validate` / `body_validator` already ran the detection; calling it again would be duplicate work and would diverge if detection logic changes. There is no `--strict-recon` flag on `discover` — `discover` reports block PRESENCE (any shape including stubs counts as present), not block quality gating. Quality findings (stub vs. complete) live in `check`. Concrete implementation:
@@ -311,9 +311,9 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   3. The coverage metric counts block PRESENCE: a block is "present" if no `MISSING_RECON_BLOCK` violation exists (stubs, graph-unavailable notes, and complete blocks all count as present). Quality issues are separate findings reported by `check`.
   4. Group results by plan directory and status; emit the table above
 
-- [ ] **Write the full matrix of body-level recon tests in `tests/plan-audit/test_recon_block.py`** (new file, sibling of existing `test_plan_corpus.py`). Reuse the existing fixture harness pattern.
+- [ ] **Write the representative matrix of body-level recon tests in `tests/plan-audit/test_recon_block.py`** (new file, sibling of existing `test_plan_corpus.py`). Reuse the existing fixture harness pattern.
 
-  Matrix: (FileClass) × (body-shape) × (severity-mode). Every cell is a positive or negative pin.
+  Matrix: (FileClass) × (body-shape) × (severity-mode). Every cell is a positive or negative pin. The exempt-class section covers representative body shapes; `present-no-query`, `present-no-date`, and `graph-unavailable` body shapes are not pinned for exempt classes (any such content is ignored — the class exemption is total).
 
   | FileClass | body-shape | status | `--strict-recon`? | Expected findings |
   |-----------|------------|--------|-------------------|-------------------|
@@ -342,6 +342,10 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   | ROADMAP_SECTION | present-empty | not-started | yes | 0 (exempt) |
   | ROADMAP_SECTION | present-placeholder | not-started | no | 0 (exempt) |
   | ROADMAP_SECTION | present-no-citation | not-started | no | 0 (exempt) |
+  | ROADMAP_SECTION | present-no-query | not-started | no | 0 (exempt) |
+  | ROADMAP_SECTION | present-no-date | not-started | no | 0 (exempt) |
+  | ROADMAP_SECTION | graph-unavailable | not-started | no | 0 (exempt) |
+  | ROADMAP_SECTION | absent | not-started | yes (--strict-recon) | 0 (exempt; strict does not affect exempt classes) |
   | **Exempt-class negative pins — BUG_TRACKER_SECTION** | | | | |
   | BUG_TRACKER_SECTION | absent | not-started | no | 0 (exempt — out of scope) |
   | BUG_TRACKER_SECTION | absent | not-started | yes | 0 (exempt — out of scope) |
@@ -349,6 +353,10 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   | BUG_TRACKER_SECTION | present-empty | not-started | yes | 0 (exempt) |
   | BUG_TRACKER_SECTION | present-placeholder | not-started | no | 0 (exempt) |
   | BUG_TRACKER_SECTION | present-no-citation | not-started | no | 0 (exempt) |
+  | BUG_TRACKER_SECTION | present-no-query | not-started | no | 0 (exempt) |
+  | BUG_TRACKER_SECTION | present-no-date | not-started | no | 0 (exempt) |
+  | BUG_TRACKER_SECTION | graph-unavailable | not-started | no | 0 (exempt) |
+  | BUG_TRACKER_SECTION | absent | not-started | yes (--strict-recon) | 0 (exempt; strict does not affect exempt classes) |
   | **Exempt-class negative pins — FIX_BUG** | | | | |
   | FIX_BUG | absent | not-started | no | 0 (exempt — different template) |
   | FIX_BUG | absent | not-started | yes | 0 (exempt — different template) |
@@ -356,6 +364,10 @@ All four must be fixed together; any one alone leaves the enforcement path broke
   | FIX_BUG | present-empty | not-started | yes | 0 (exempt) |
   | FIX_BUG | present-placeholder | not-started | no | 0 (exempt) |
   | FIX_BUG | present-no-citation | not-started | no | 0 (exempt) |
+  | FIX_BUG | present-no-query | not-started | no | 0 (exempt) |
+  | FIX_BUG | present-no-date | not-started | no | 0 (exempt) |
+  | FIX_BUG | graph-unavailable | not-started | no | 0 (exempt) |
+  | FIX_BUG | absent | not-started | yes (--strict-recon) | 0 (exempt; strict does not affect exempt classes) |
   | **Exit-code tests** | | | | |
   | Exit code — warnings-only corpus, default mode | — | — | no | `main()` returns 0 |
   | Exit code — warnings-only corpus, `--strict-recon` with not-started missing-recon | — | not-started | yes | `main()` returns 1 |
