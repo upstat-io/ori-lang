@@ -35,6 +35,16 @@ set -uo pipefail
 MODE="${STUB_GEMINI_MODE:-ok}"
 STATE="${STUB_GEMINI_STATE:-/tmp/stub-gemini-state}"
 
+# Optional invocation counter — if STUB_GEMINI_COUNTER is set, append one line
+# per call. Symmetric with STUB_CODEX_COUNTER. Used by S6 (2026-04-15
+# per-reviewer-independence test) to assert gemini was invoked exactly once
+# across a multi-attempt retry run when codex-fail-once forces a retry but
+# selective retry narrows to codex-only on attempt 2 (gemini must NOT be
+# re-called). Counter is advisory and does NOT affect mode behavior.
+if [[ -n "${STUB_GEMINI_COUNTER:-}" ]]; then
+  printf 'call at %s mode=%s\n' "$(date +%s)" "$MODE" >> "$STUB_GEMINI_COUNTER"
+fi
+
 case "$MODE" in
   fail-once)
     if [[ ! -f "$STATE" ]]; then

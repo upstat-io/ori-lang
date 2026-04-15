@@ -198,6 +198,101 @@ EOF
     FAILED_TESTS+=("S4 extract_failure_category skips WARNING/REPAIR advisory lines")
   fi
   rm -rf "$RUN3"
+
+  # Cell S5 — per-reviewer independence: cross-reviewer launch failure
+  # (2026-04-15). Pins the fix for the user-reported bug:
+  #
+  #   "When one agent fails, the pipeline restarts BOTH agents. Attempt 1's
+  #    codex envelope was overwritten by attempt 2's restart."
+  #
+  # Scenario: codex succeeds on attempt 1, gemini fails with a launch-level
+  # error (exit 1, empty jsonl) on attempt 1. Prior to the fix, the wrapper's
+  # sequential if/elif/elif/else cascade would skip BOTH parsers whenever
+  # dual-invoke.sh returned non-zero, leaving codex.envelope.json empty even
+  # though codex.jsonl held a valid envelope. Selective retry would then see
+  # no preserved envelope, fall through to ORI_TPR_REVIEWERS=both, and
+  # dual-invoke.sh's launch-time `rm -f` would wipe codex's attempt-1 state.
+  # Net effect: codex was invoked TWICE (~10 min wasted) despite producing
+  # a perfect envelope on attempt 1.
+  #
+  # After the fix, parsers run INDEPENDENTLY of dual-invoke.sh's exit code,
+  # so codex.envelope.json is materialized on attempt 1 exactly when codex's
+  # output was valid. Selective retry detects it and narrows attempt 2 to
+  # gemini-only. The semantic pin is: codex is invoked EXACTLY ONCE across
+  # the full retry loop.
+  local RUN5
+  RUN5=$("$SCRIPT_DIR/scratch-dir.sh")
+  printf 'respond with OK\n' > "$RUN5/c.md"
+  printf 'respond with OK\n' > "$RUN5/g.md"
+  rm -f /tmp/stub-codex-state-s5 /tmp/stub-gemini-state-s5
+  STUB_CODEX_COUNTER="$RUN5/codex-calls.log" \
+  STUB_CODEX_MODE=ok STUB_GEMINI_MODE=fail-once \
+  STUB_CODEX_STATE=/tmp/stub-codex-state-s5 \
+  STUB_GEMINI_STATE=/tmp/stub-gemini-state-s5 \
+  PATH="$FIXTURES/stub-bin:$PATH" \
+    bash "$SCRIPT_DIR/dual-invoke-with-retry.sh" \
+      --run "$RUN5" --skill per-reviewer-s5 \
+      --codex-prompt "$RUN5/c.md" --gemini-prompt "$RUN5/g.md" \
+      --schema "$SCHEMA_FILE" >/dev/null 2>&1
+  local s5_exit=$?
+  local s5_codex_calls
+  s5_codex_calls=$(wc -l < "$RUN5/codex-calls.log" 2>/dev/null || echo 0)
+  if [[ "$s5_exit" == "0" && "$s5_codex_calls" == "1" ]]; then
+    echo "  PASS: S5 per-reviewer independence (gemini launch-fail-once; codex called 1×, not 2×)"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: S5 per-reviewer independence (exit=$s5_exit, codex calls=$s5_codex_calls, expected exit=0, calls=1)"
+    [[ -f "$RUN5/round.log" ]] && echo "         round.log:" && sed 's/^/           /' "$RUN5/round.log"
+    FAIL=$((FAIL + 1))
+    FAILED_TESTS+=("S5 per-reviewer independence (gemini launch-fail-once)")
+  fi
+  rm -rf "$RUN5" /tmp/stub-codex-state-s5 /tmp/stub-gemini-state-s5
+
+  # Cell S6 — symmetric case: codex launches and fails on attempt 1, gemini
+  # succeeds on attempt 1. After the fix, gemini.envelope.json is
+  # materialized on attempt 1 because the gemini parser runs independently of
+  # codex's fate. Selective retry narrows attempt 2 to codex-only. Semantic
+  # pin: gemini is invoked EXACTLY ONCE across the full retry loop. This is
+  # the mirror image of S5 and together they pin both directions of the
+  # cross-reviewer independence contract.
+  local RUN6
+  RUN6=$("$SCRIPT_DIR/scratch-dir.sh")
+  printf 'respond with OK\n' > "$RUN6/c.md"
+  printf 'respond with OK\n' > "$RUN6/g.md"
+  rm -f /tmp/stub-codex-state-s6 /tmp/stub-gemini-state-s6
+  STUB_GEMINI_COUNTER="$RUN6/gemini-calls.log" \
+  STUB_CODEX_MODE=fail-once STUB_GEMINI_MODE=ok \
+  STUB_CODEX_STATE=/tmp/stub-codex-state-s6 \
+  STUB_GEMINI_STATE=/tmp/stub-gemini-state-s6 \
+  PATH="$FIXTURES/stub-bin:$PATH" \
+    bash "$SCRIPT_DIR/dual-invoke-with-retry.sh" \
+      --run "$RUN6" --skill per-reviewer-s6 \
+      --codex-prompt "$RUN6/c.md" --gemini-prompt "$RUN6/g.md" \
+      --schema "$SCHEMA_FILE" >/dev/null 2>&1
+  local s6_exit=$?
+  local s6_gemini_calls
+  s6_gemini_calls=$(wc -l < "$RUN6/gemini-calls.log" 2>/dev/null || echo 0)
+  if [[ "$s6_exit" == "0" && "$s6_gemini_calls" == "1" ]]; then
+    echo "  PASS: S6 per-reviewer independence (codex launch-fail-once; gemini called 1×, not 2×)"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: S6 per-reviewer independence (exit=$s6_exit, gemini calls=$s6_gemini_calls, expected exit=0, calls=1)"
+    [[ -f "$RUN6/round.log" ]] && echo "         round.log:" && sed 's/^/           /' "$RUN6/round.log"
+    FAIL=$((FAIL + 1))
+    FAILED_TESTS+=("S6 per-reviewer independence (codex launch-fail-once)")
+  fi
+
+  # Cell S7 — narrowing round.log marker (symmetric to S3): reuse S6's RUN6.
+  # The log must contain "selective retry: narrowed from both to codex" so
+  # operators watching status-check.sh see the narrowing direction.
+  local cell7_exit
+  if grep -q "selective retry: narrowed from both to codex" "$RUN6/round.log" 2>/dev/null; then
+    cell7_exit=0
+  else
+    cell7_exit=1
+  fi
+  test_case "S7 selective_retry round.log narrowing marker (codex direction)" "$cell7_exit" "0"
+  rm -rf "$RUN6" /tmp/stub-codex-state-s6 /tmp/stub-gemini-state-s6
 }
 
 run_schema_optional_tests() {
@@ -483,9 +578,24 @@ test_case "validator rejects invalid-location" "$?" "1"
 
 echo ""
 echo "=== codex parser fixture tests ==="
+# Fixture expected-exit mapping. Rationale per fixture:
+#   codex-success          — canonical valid envelope → exit 0
+#   codex-missing          — no agent_message item → missing_envelope → exit 1
+#   codex-parse-fail       — agent_message text is not valid JSON → parse_fail → exit 1
+#   codex-schema-violation — JSON parses but fails schema (url regex); repair
+#                            layer now STRIPS invalid citations so the envelope
+#                            validates cleanly → exit 0. Even if the violation
+#                            survived repair, parse-codex.py line 128-174
+#                            RESCUES schema/invariant failures with exit 0 +
+#                            RESCUED warnings. A fixture that produces exit 1
+#                            via schema_violation is no longer reachable by
+#                            design; the fixture remains useful as a
+#                            repair-layer pin (repair must still normalize a
+#                            non-compliant envelope into a clean one).
+#   codex-failed-partial   — validates but status=failed_partial → exit 1
 for fixture in codex-success codex-missing codex-parse-fail codex-schema-violation codex-failed-partial; do
   case "$fixture" in
-    codex-success) expected=0 ;;
+    codex-success|codex-schema-violation) expected=0 ;;
     *) expected=1 ;;
   esac
   "$SCRIPT_DIR/parse-codex.py" --jsonl "$FIXTURES/$fixture.jsonl" --schema "$SCHEMA" >/dev/null 2>&1
