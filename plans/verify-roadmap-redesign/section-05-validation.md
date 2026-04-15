@@ -73,7 +73,7 @@ Create the skill directory with SKILL.md that implements the 5-phase pipeline, w
 
 - [ ] Define invocation modes in SKILL.md:
   - Default (no args): `--full` -- runs all 5 phases on the entire corpus
-  - `--quick`: Phases 1-3 only, BLOCKED and DEAD_REFERENCE classifiers only (fast pre-check)
+  - `--quick`: Phases 1-3 and 5 (report-only, no auto-fix), BLOCKED and DEAD_REFERENCE classifiers only, Phase 4 (item verification) skipped, Phase 5 runs in report-only mode so `/continue-roadmap` can consume the findings output
   - `--full`: All 5 phases, all classifiers, auto-fix enabled
   - `--section <path>`: Phase 4 only on specified section (targeted verification)
   - `--plan <name>`: Phases 1-4 scoped to specified plan directory
@@ -184,7 +184,7 @@ Run the skill in `--full` mode against the entire planning corpus. Fix all auto-
   - BLOCKED findings: document the dependency chain and recommended reordering
   - Create tracking items (as appropriate -- bug tracker entries or plan updates)
 
-- [ ] **roadmap_scan.py shadow parser migration (TPR-03-004-codex, TPR-03-001-gemini):** Refactor `roadmap_scan.py` to import `plan_corpus` for all frontmatter parsing (`split_frontmatter`, `parse_section_file`, `parse_index_file`), eliminating the ~600-line shadow parser. Keep only `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This is a prerequisite for `--quick` mode correctness in Section 03.5 — `/continue-roadmap` and `/verify-roadmap --quick` must agree on corpus parse results. The current `errors="replace"` + `{}` on YAMLError pattern (`roadmap_scan.py:327-348`) violates the LEAK:swallowed-error invariant that Section 01 was designed to eliminate. **Option B (shadow parser divergence) was explicitly rejected by TPR.** <!-- unblocks:03.5 -->
+- [ ] **roadmap_scan.py shadow parser migration (TPR-03-004-codex, TPR-03-001-gemini):** Refactor `roadmap_scan.py` to import `plan_corpus` for all frontmatter parsing (use `plan_corpus.parser.read_text_strict`, `plan_corpus.parser.split_frontmatter_strict`, and `plan_corpus.load_and_validate` — these are the actual SSOT API; there are no `parse_section_file`/`parse_index_file` exports), eliminating the ~600-line shadow parser. Keep only `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This is a prerequisite for `--quick` mode correctness in Section 03.5 — `/continue-roadmap` and `/verify-roadmap --quick` must agree on corpus parse results. The current `errors="replace"` + `{}` on YAMLError pattern (`roadmap_scan.py:327-348`) violates the LEAK:swallowed-error invariant that Section 01 was designed to eliminate. **Option B (shadow parser divergence) was explicitly rejected by TPR.** <!-- unblocks:03.5 -->
 
 - [ ] Run `timeout 150 ./test-all.sh` to verify no regressions from auto-fixes
 
