@@ -32,7 +32,7 @@ sections:
     status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 05: Missing-trigger skills & commands
@@ -360,6 +360,13 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
   Resolved: Fixed on 2026-04-14. Section body → `**Status:** In Progress`; overview Quick Reference row 05 → `In Progress`.
 - `[TPR-05-002-gemini][informational]` Implementation completely fulfills §05 requirements and invariant constraints (hook passes, all @-includes present, no inlined status-checks, plan frontmatter correct).
 
+### Round 6 (re-review after round-5 fixes)
+
+- [x] `[TPR-05-001-codex-r2][low]` `section-05:35` — 05.N frontmatter / plan-sync subitem drift.
+  Evidence: Round-2 verification confirmed all 4 round-5 fixes hold, but surfaced new drift: `05.N` subsection frontmatter was `status: not-started` despite 62/71 items checked (9 remaining), and two Plan sync subitems were unchecked even though `00-overview.md` Quick Reference + mission criteria and `index.md` were already updated.
+  Resolved: Fixed on 2026-04-14. `05.N` frontmatter → `in-progress`. Checked off `00-overview.md Quick Reference and mission criteria updated` and `index.md updated` plan-sync subitems (kept `Section frontmatter -> complete` unchecked — blocked on final TPR + hygiene clean pass).
+- `[TPR-05-002-gemini-r2][informational]` Clean verification of round-1 fixes — all resolved, no drift (gemini confirmed round-5 fixes hold; did not surface the 05.N drift that codex caught).
+
 ---
 
 ## 05.N Completion Checklist
@@ -375,8 +382,8 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 - [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-05-missing-trigger-skills.md` returns 0 errors
 - [ ] **Plan sync**:
   - [ ] Section frontmatter -> `complete` (after TPR + hygiene clean)
-  - [ ] `00-overview.md` Quick Reference and mission criteria updated
-  - [ ] `index.md` updated
+  - [x] `00-overview.md` Quick Reference and mission criteria updated
+  - [x] `index.md` updated
 - [ ] `/tpr-review` passed — reviewers confirm each added Step is actionable, not ceremonial
 - [ ] `/impl-hygiene-review` passed — no new inlined patterns; @-includes only
 - [ ] `/improve-tooling` section-close sweep
