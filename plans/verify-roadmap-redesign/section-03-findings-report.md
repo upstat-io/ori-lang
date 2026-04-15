@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Findings Report & Write-Back"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Design the findings report format and implement the write-back mechanism for auto-fixable issues and manual-review flagging"
 success_criteria:
@@ -39,7 +39,7 @@ sections:
     status: not-started
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "03.N"
     title: "Completion Checklist"
     status: not-started
