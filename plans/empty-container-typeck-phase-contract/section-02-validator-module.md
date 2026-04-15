@@ -2,7 +2,7 @@
 section: "02"
 title: "Validator Module — validate_body_types()"
 status: not-started
-reviewed: false
+reviewed: true
 goal: >
   Introduce ori_types::check::validators — a new submodule of the type-checker
   crate — containing validate_body_types(), the producer-side enforcement of
@@ -75,7 +75,7 @@ sections:
     status: not-started
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "02.N"
     title: "Completion Checklist"
     status: not-started
