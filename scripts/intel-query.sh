@@ -21,7 +21,14 @@
 # Resolve paths relative to script location (safe to call from any directory)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-INTEL_DIR="$PROJECT_ROOT/../lang_intelligence"
+
+# Resolve to main worktree root — lang_intelligence is a sibling of the MAIN repo,
+# not of a git worktree (e.g. /tmp/claude-worktree-xxx/).  `git worktree list`
+# always lists the main worktree first; fall back to PROJECT_ROOT if git unavailable.
+MAIN_ROOT="$(git -C "$PROJECT_ROOT" worktree list --porcelain 2>/dev/null \
+    | head -1 | sed 's/^worktree //')"
+MAIN_ROOT="${MAIN_ROOT:-$PROJECT_ROOT}"
+INTEL_DIR="${ORI_INTEL_DIR:-$MAIN_ROOT/../lang_intelligence}"
 VENV_PYTHON="$INTEL_DIR/.venv/bin/python"
 QUERY_SCRIPT="$INTEL_DIR/neo4j/query_graph.py"
 
