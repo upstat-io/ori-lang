@@ -24,7 +24,7 @@ third_party_review:
 sections:
   - id: "03.1"
     title: "Safety Taxonomy & Data Types"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Report Format"
     status: not-started
@@ -78,28 +78,28 @@ sections:
 
 Define the safety taxonomy data types that the report format (03.2) and auto-fix engine (03.3) both consume. This subsection exists to break the circular dependency identified by tp-help: the report format needs `ClassifiedFinding` to serialize, and the auto-fix engine needs `SafetyClass` to gate writes — both need the types before either can be implemented.
 
-- [ ] Define `SafetyClass(Enum)`: `SafeFix | ExposureReview` -- the auto-fix gating tag:
+- [x] Define `SafetyClass(Enum)`: `SafeFix | ExposureReview` -- the auto-fix gating tag:
   - `SafeFix` findings are applied automatically (with backup + log)
   - `ExposureReview` findings are surfaced for human review (never auto-applied)
 
-- [ ] Define `ClassifiedFinding` dataclass:
+- [x] Define `ClassifiedFinding` dataclass:
   - Fields: `finding: Finding`, `safety_class: SafetyClass`, `rationale: str`
   - Wraps a plain `Finding` (imported from `plan_corpus`; NO `safety_class` on the `Finding` itself per 01.3)
   - Section 03 produces `ClassifiedFinding` records; Sections 01/02 never do
 
-- [ ] Define `WriteBackContext` dataclass:
+- [x] Define `WriteBackContext` dataclass:
   - Field: `has_recent_commits: dict[Path, bool]` -- maps plan directories to git activity signal
   - The CLI front-end populates this by running `git log --since=14d -- plans/<name>/` at the edge
   - `plan_corpus` stays pure -- grep-verify it contains no `subprocess` or `git` calls
   - **`--quick` mode optimization (blind spot #10):** `WriteBackContext` construction requires O(N) `git log` subprocess calls per plan. `--quick` mode runs only read-only DAG checks (BLOCKED, DEAD_REFERENCE) which do not need git signals. `--quick` MUST bypass `WriteBackContext` population entirely by passing `context=None` to the report generator. `classify_safety` in `--quick` mode skips classification and marks all findings as ExposureReview (report-only, no auto-fix). This is a correctness optimization, not just performance -- `--quick` is a pre-check, not a write-back trigger.
 
-- [ ] Define `PreimageRecord` dataclass (concurrent-session guard):
+- [x] Define `PreimageRecord` dataclass (concurrent-session guard):
   - Fields: `path: Path`, `content_hash: str`, `scan_timestamp: float`
   - `content_hash` is `hashlib.sha256(path.read_bytes()).hexdigest()`
   - Captured at scan time for every file that might be modified
   - Used by the text patcher (03.4) to detect concurrent modifications before write
 
-- [ ] Implement `classify_safety(finding: Finding, context: WriteBackContext | None, frontmatter_data: dict | None = None) -> ClassifiedFinding`:
+- [x] Implement `classify_safety(finding: Finding, context: WriteBackContext | None, frontmatter_data: dict | None = None) -> ClassifiedFinding`:
   - **Signature note (TPR-03-001-gemini):** the `frontmatter_data` parameter carries the parsed frontmatter dict for the finding's source file. This allows `classify_safety` to inspect sibling fields (e.g., checking whether both `plan:` and `name:` exist for the collision guard) WITHOUT performing I/O — the dict is pre-parsed by `plan_corpus.parser` at scan time. The function remains pure: `(finding, context, dict) -> ClassifiedFinding`.
   - **When `context is None` (--quick mode):** return `ClassifiedFinding(finding, ExposureReview, "quick mode — no write-back classification")`
   - **When `context` is provided:** dispatch on `finding.category` + `finding.subtype`:
@@ -136,7 +136,7 @@ Define the safety taxonomy data types that the report format (03.2) and auto-fix
   - Each `ClassifiedFinding` carries a `rationale` string explaining why it got its class
   - Pure function of `(finding, context)` — no I/O inside `classify_safety` itself
 
-- [ ] **Tests (TDD — write before implementation):**
+- [x] **Tests (TDD — write before implementation):**
   - **Matrix:** every `(FindingCategory, FindingSubtype)` pair in `types.py:_CATEGORY_SUBTYPES` must have a test case asserting its safety classification
   - **Semantic pins:** `FM_DECLARED_VS_BODY_DERIVED` -> ExposureReview (pin: revert to SafeFix -> test fails)
   - **Semantic pins:** `PLAN_ACTIVE_ALL_SECTIONS_NOT_STARTED` with `has_recent_commits=True` -> ExposureReview
@@ -147,11 +147,11 @@ Define the safety taxonomy data types that the report format (03.2) and auto-fix
   - **Workflow behavior pin:** `reviewed: false` insertion on PlanIndexSchema -> ExposureReview
   - **Workflow behavior pin:** `reviewed: false` insertion on PlanSectionSchema -> SafeFix
 
-- [ ] **Subsection close-out (03.1)** -- MANDATORY before starting 03.2:
-  - [ ] All tasks above are `[x]` and types + classify_safety tested
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
-  - [ ] **Run `/sync-claude` on THIS subsection** -- check whether changes
+- [x] **Subsection close-out (03.1)** -- MANDATORY before starting 03.2:
+  - [x] All tasks above are `[x]` and types + classify_safety tested
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
+  - [x] **Run `/sync-claude` on THIS subsection** -- check whether changes
         invalidated any CLAUDE.md, `.claude/rules/*.md`, or `canon.md`
         claims. If no changes, document briefly. Fix any drift NOW.
 
