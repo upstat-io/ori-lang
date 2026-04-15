@@ -1,6 +1,6 @@
 ---
 name: continue-roadmap
-description: Resume work on the Ori compiler roadmap. Dispatches scanning and gate-checking to an Opus sub-agent; code execution hands off to /roadmap-work after the sub-agent returns.
+description: Resume work on the Ori compiler roadmap. Dispatches scanning and gate-checking to a Sonnet sub-agent (mechanical JSON transcription from roadmap_scan.py); code execution hands off to /roadmap-work (Opus) after the sub-agent returns.
 argument-hint: "[section]"
 ---
 

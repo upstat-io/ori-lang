@@ -37,7 +37,7 @@ Extract:
 
 ## Output
 
-Write `/tmp/review-plan-tpr.json`:
+Write `/tmp/review-plan-tpr.json`. When /tpr-review converges cleanly:
 
 ```json
 {
@@ -50,15 +50,26 @@ Write `/tmp/review-plan-tpr.json`:
 }
 ```
 
-If `converged: false` and max iterations reached, set `"escalate": true` with options:
+When `converged: false` and max iterations reached, embed `question` + `options` inside the JSON handoff itself so the parent can invoke `AskUserQuestion` verbatim without reconstructing prompt text:
 
 ```json
-"options": [
-  {"key": "accept-remaining", "label": "Accept remaining findings and continue to verify"},
-  {"key": "retry-with-hints", "label": "Retry /tpr-review with user-provided hints"},
-  {"key": "abort", "label": "Abort review — findings need manual attention"}
-]
+{
+  "iterations": 10,
+  "converged": false,
+  "per_iteration_counts": [12, 8, 5, 4, 3, 3, 2, 2, 2, 2],
+  "final_findings": [/* ...remaining findings... */],
+  "summary": "Phase 4: max iterations reached with 2 findings remaining",
+  "escalate": true,
+  "question": "/tpr-review reached its 10-iteration cap with 2 findings still open. How do you want to proceed?",
+  "options": [
+    {"key": "accept-remaining", "label": "Accept remaining findings and continue to verify"},
+    {"key": "retry-with-hints", "label": "Retry /tpr-review with user-provided hints"},
+    {"key": "abort", "label": "Abort review — findings need manual attention"}
+  ]
+}
 ```
+
+`question` and `options` MUST live inside the JSON handoff object when `escalate: true` — the parent uses them as-is. Never emit `options` as a sibling code block outside the handoff schema.
 
 ## Do NOT
 

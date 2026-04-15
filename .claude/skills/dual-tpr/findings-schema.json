@@ -20,7 +20,7 @@
     },
     "skill": {
       "type": "string",
-      "enum": ["tpr-review", "review-work", "review-plan", "tp-help"]
+      "enum": ["tpr-review", "review-work", "review-plan", "tp-help", "custom"]
     },
     "scope_actually_reviewed": {
       "type": "object",

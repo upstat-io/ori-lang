@@ -24,6 +24,45 @@ Read file: .claude/rules/tests.md
 
 Then read every file in `{plan_dir}` (single-section mode: read siblings for context, edit `{target_section}` only).
 
+## Intelligence Reconnaissance (run AFTER plan read, BEFORE editing)
+
+Once you have read the plan, you know exactly what files, types, functions, and subsystems it touches. That is when the intelligence graph pays off — targeted structural queries that tell you blast radius, cross-file references, and prior art before you decide what to restructure or rewrite.
+
+Check graph availability first — skip silently if unavailable:
+
+```bash
+scripts/intel-query.sh status
+```
+
+If `status == "ok"`, run these categories of queries based on what the plan touches:
+
+1. **Blast radius** — for each high-signal symbol the plan proposes to add, rename, remove, or significantly change, run BOTH directions:
+   ```bash
+   scripts/intel-query.sh --human callers "<symbol>" --repo ori
+   scripts/intel-query.sh --human callees "<symbol>" --repo ori
+   ```
+   Use results to (a) catch unplanned cross-section touches — if a symbol the plan modifies is called by code in a different subsystem, either the plan needs a cross-link or the blast radius changes the structural decomposition; (b) size rules-weaving work — every caller site needs an embedded checklist item, not a vague "update callers".
+
+2. **Module inventory** — for each crate the plan operates on, list existing symbols so you do not re-invent or collide:
+   ```bash
+   scripts/intel-query.sh --human file-symbols "<path-fragment>" --repo ori
+   ```
+
+3. **Prior art** — for each architectural decision the plan makes, check how other compilers solved the same problem:
+   ```bash
+   scripts/intel-query.sh --human similar "<concept or symbol>" --repo rust,swift,go,koka --limit 5
+   ```
+   Similarity uses vector embeddings and can return empty for Ori-specific terms — that is fine, the structural queries above still work. When it returns hits, use them as pointers to READ the reference repos under `~/projects/reference_repos/lang_repos/` for verification. Never cite a `similar` result as authoritative without verifying the actual source.
+
+4. **Topic/symbol search** — if the plan introduces a new concept, check the ori repo for existing partial implementations:
+   ```bash
+   scripts/intel-query.sh --human symbols "<topic keyword>" --repo ori --limit 20
+   ```
+
+Keep reconnaissance bounded — typically 4–8 queries total. The queries inform your editing decisions; they are not a pre-written report. If a query returns nothing useful, move on.
+
+Results are for DISCOVERY, not replacement — always verify against actual code before citing in a plan edit. Per `.claude/rules/intelligence.md`: "Never cite a Neo4j result without verifying against the actual code."
+
 ## Edit scope
 
 - **Single-section mode** — edit `{target_section}` only. May touch `00-overview.md` / `index.md` if structural changes require it (e.g., you added success criteria that flow up to mission).

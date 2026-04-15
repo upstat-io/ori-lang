@@ -39,7 +39,7 @@ Commit any fixes via `Skill: commit-push` with message `chore(plans): post-revie
 
 ## Output
 
-Write `/tmp/review-plan-verify.json`:
+Write `/tmp/review-plan-verify.json`. On a clean converge:
 
 ```json
 {
@@ -56,15 +56,30 @@ Write `/tmp/review-plan-verify.json`:
 }
 ```
 
-If verify loop does not converge within 5 iterations, set `"escalate": true` with options:
+If the verify loop does not converge within 5 iterations, include `question` + `options` inside the handoff object so the parent can pass them verbatim to `AskUserQuestion`:
 
 ```json
-"options": [
-  {"key": "accept-minor", "label": "Accept remaining minor findings and finish review"},
-  {"key": "dispatch-editor-round-2", "label": "Run a second editor pass to clean remaining findings"},
-  {"key": "abort", "label": "Abort — findings need manual attention"}
-]
+{
+  "reviewed_flipped": false,
+  "reviewed_flipped_section": "plans/foo/section-03.md",
+  "reviewed_flipped_reason": "verify-non-convergence",
+  "verify_iterations": 5,
+  "verify_converged": false,
+  "remaining_critical": 0,
+  "remaining_major": 3,
+  "remaining_minor": 2,
+  "summary": "Step 7+8: verify loop did NOT converge in 5 iterations (3 major, 2 minor remaining)",
+  "escalate": true,
+  "question": "Post-edit audit verify reached the 5-iteration cap with 3 major findings still open. How do you want to proceed?",
+  "options": [
+    {"key": "accept-minor", "label": "Accept remaining minor findings and finish review"},
+    {"key": "dispatch-editor-round-2", "label": "Run a second editor pass to clean remaining findings"},
+    {"key": "abort", "label": "Abort — findings need manual attention"}
+  ]
+}
 ```
+
+`question` and `options` MUST live inside the JSON handoff object when `escalate: true`. Never emit `options` as a sibling code block outside the handoff schema — the parent reads the fields from the JSON and passes them directly to `AskUserQuestion`.
 
 ## Do NOT
 

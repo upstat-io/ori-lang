@@ -28,12 +28,13 @@ If args were passed to `/continue-roadmap` (e.g., `section-4`, `4`, keyword), ap
 
 Parse stdout as JSON. All subsequent steps read this object; do not open plan files by hand.
 
-Top-level keys you will use:
-- `focus.plan`, `focus.section` — identifier strings
-- `focus_context` — plan full name, description, section goal, subsection list, progress text (feeds the handoff's focus-context block verbatim)
-- `next_unblocked` — `{subsection_id, item_content, unblocked_count, blocked_count}` for the first actionable item
-- `gates` — 7 pre-computed gate entries, each `{fires: bool, severity, payload}`
-- `health.mismatches`, `health.orphan_blockers` — cross-plan diagnostics (included in the handoff for visibility)
+`render_json` (in `roadmap_scan.py`) emits exactly three top-level fields — nothing else exists in the JSON envelope:
+
+- `focus_context` — plan full name (`plan_full_name`), description (`plan_description`), section goal (`section_goal`), subsection list (`subsections`), progress text (`plan_progress_pct` / `plan_progress_text` / `section_progress_text`). Feeds the handoff's focus-context block verbatim.
+- `next_unblocked` — `{subsection_id, item_content, item_lineno, unblocked_count, blocked_count}` for the first actionable `- [ ]` item. May be `null` if the focus section has no unblocked items.
+- `gates` — 7 pre-computed gate entries, each `{fires: bool, severity, payload}`. Unfired gates have an empty `payload: {}`; firing gates carry `options` + `question` where user interaction is needed.
+
+If you need cross-plan diagnostics (mismatches, orphan blockers, health signals), invoke `roadmap_scan.py` WITHOUT `--json` — the rich-text mode includes them. The `--json` envelope is intentionally minimal; do not expect `focus.plan` / `focus.section` / `health.*` top-level keys to exist.
 
 If `scanner exit code != 0` or JSON parse fails: return `<escalate-to-parent>` with the raw stderr. Do not try to recover.
 

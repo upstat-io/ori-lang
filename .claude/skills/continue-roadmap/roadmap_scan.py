@@ -1441,19 +1441,58 @@ def _build_gates(ws: Workspace) -> dict:
     }
 
     # Gate 1.7 — unreviewed focus section
+    #
+    # Fires when EITHER the reroute plan-level `reviewed: false` OR the focus
+    # section's frontmatter `reviewed: false`. Plan-level unreviewed reroutes
+    # must also block — a freshly-created reroute with `reviewed: false` on
+    # index.md but no per-section field would otherwise slip through.
     reviewed_fires = False
     reviewed_payload: dict = {}
-    if ws.focus_section is not None:
-        reviewed_fires = ws.focus_section.reviewed is False
+    plan_reviewed = (
+        ws.focus_plan is not None
+        and ws.focus_plan.reroute is not None
+        and ws.focus_plan.reroute.reviewed is False
+    )
+    section_reviewed_false = (
+        ws.focus_section is not None and ws.focus_section.reviewed is False
+    )
+    reviewed_fires = plan_reviewed or section_reviewed_false
+    if reviewed_fires:
+        section_path = (
+            str(ws.focus_section.path) if ws.focus_section is not None else ""
+        )
+        plan_dir = str(ws.focus_plan.dir) if ws.focus_plan else ""
+        review_target = section_path or plan_dir
+        if plan_reviewed and not section_reviewed_false:
+            question_text = (
+                f"Plan {ws.focus_plan.name!r} has `reviewed: false` at the "
+                f"plan level (reroute). Its assumptions have not been "
+                f"validated against the current codebase. How do you want "
+                f"to proceed?"
+            )
+        else:
+            section_num = (
+                ws.focus_section.number if ws.focus_section is not None else "?"
+            )
+            question_text = (
+                f"Section {section_num} has `reviewed: false`. Its "
+                f"assumptions have not been validated against the current "
+                f"codebase. How do you want to proceed?"
+            )
         reviewed_payload = {
-            "section": ws.focus_section.number,
-            "section_path": str(ws.focus_section.path),
+            "section": (
+                ws.focus_section.number if ws.focus_section is not None else None
+            ),
+            "section_path": section_path,
             "plan": ws.focus_plan.name if ws.focus_plan else None,
+            "plan_reviewed_false": plan_reviewed,
+            "section_reviewed_false": section_reviewed_false,
+            "question": question_text,
             "options": [
                 {"key": "review-plan", "label": "Run /review-plan now",
                  "recommended": True,
                  "next_skill": "review-plan",
-                 "next_skill_arg": str(ws.focus_section.path)},
+                 "next_skill_arg": review_target},
                 {"key": "proceed", "label": "Proceed anyway",
                  "recommended": False, "next_skill": None},
                 {"key": "pick-different", "label": "Pick a different section",
@@ -1475,14 +1514,36 @@ def _build_gates(ws: Workspace) -> dict:
             for f in ws.focus_section.tpr_findings if not f.resolved
         ]
         tpr_fires = ws.focus_section.tpr_status == "findings" or bool(open_tpr)
-        tpr_payload = {
-            "status": ws.focus_section.tpr_status,
-            "open_count": len(open_tpr),
-            "findings": open_tpr,
-            "section_path": str(ws.focus_section.path),
-            "next_skill": "verify-tpr",
-            "next_skill_arg": str(ws.focus_section.path),
-        }
+        if tpr_fires:
+            section_path = str(ws.focus_section.path)
+            tpr_payload = {
+                "status": ws.focus_section.tpr_status,
+                "open_count": len(open_tpr),
+                "findings": open_tpr,
+                "section_path": section_path,
+                "next_skill": "verify-tpr",
+                "next_skill_arg": section_path,
+                "question": (
+                    f"Section {ws.focus_section.number} has "
+                    f"{len(open_tpr)} open TPR finding(s) "
+                    f"(third_party_review.status = "
+                    f"{ws.focus_section.tpr_status!r}). How do you want "
+                    f"to proceed?"
+                ),
+                "options": [
+                    {"key": "verify-tpr",
+                     "label": "Run /verify-tpr to triage findings",
+                     "recommended": True,
+                     "next_skill": "verify-tpr",
+                     "next_skill_arg": section_path},
+                    {"key": "proceed",
+                     "label": "Proceed anyway (TPR findings remain open)",
+                     "recommended": False, "next_skill": None},
+                    {"key": "pick-different",
+                     "label": "Pick a different section",
+                     "recommended": False, "next_skill": None},
+                ],
+            }
     gates["tpr_findings"] = {
         "fires": tpr_fires,
         "severity": "block" if tpr_fires else "none",
@@ -1491,13 +1552,39 @@ def _build_gates(ws: Workspace) -> dict:
 
     # Gate 1.92 — bug tracker
     relevance = _bug_tracker_relevance(ws, ws.focus_section) if ws.focus_section else {"critical": [], "high": []}
+    if relevance["critical"]:
+        critical_payload: dict = {
+            "bugs": relevance["critical"],
+            "next_skill": "fix-bug",
+            "question": (
+                f"{len(relevance['critical'])} critical bug(s) relevant "
+                f"to the focus section are open. Critical bugs block "
+                f"section work. How do you want to proceed?"
+            ),
+            "options": [
+                {"key": "fix-bug",
+                 "label": "Run /fix-bug on the first critical bug",
+                 "recommended": True,
+                 "next_skill": "fix-bug",
+                 "next_skill_arg": (
+                     relevance["critical"][0].get("id")
+                     if isinstance(relevance["critical"][0], dict)
+                     else None
+                 )},
+                {"key": "proceed",
+                 "label": "Proceed with section work (critical bugs remain)",
+                 "recommended": False, "next_skill": None},
+                {"key": "pick-different",
+                 "label": "Pick a different section",
+                 "recommended": False, "next_skill": None},
+            ],
+        }
+    else:
+        critical_payload = {"bugs": relevance["critical"], "next_skill": "fix-bug"}
     gates["critical_bugs"] = {
         "fires": bool(relevance["critical"]),
         "severity": "block" if relevance["critical"] else "none",
-        "payload": {
-            "bugs": relevance["critical"],
-            "next_skill": "fix-bug",
-        },
+        "payload": critical_payload,
     }
     gates["high_bugs"] = {
         "fires": bool(relevance["high"]),
@@ -1507,19 +1594,27 @@ def _build_gates(ws: Workspace) -> dict:
 
     # Gate 1.95 — dirty working tree
     git_entries = _git_status_short(ws.repo_root)
-    gates["dirty_tree"] = {
-        "fires": bool(git_entries),
-        "severity": "block" if git_entries else "none",
-        "payload": {
+    if git_entries:
+        dirty_payload: dict = {
             "files": git_entries,
             "count": len(git_entries),
+            "question": (
+                f"Working tree has {len(git_entries)} pending file(s) "
+                f"from other sessions. How do you want to proceed?"
+            ),
             "options": [
                 {"key": "commit-push", "label": "Run /commit-push to commit changes",
                  "recommended": True, "next_skill": "commit-push"},
                 {"key": "proceed", "label": "Proceed with dirty tree",
                  "recommended": False, "next_skill": None},
-            ] if git_entries else [],
-        },
+            ],
+        }
+    else:
+        dirty_payload = {"files": [], "count": 0, "options": []}
+    gates["dirty_tree"] = {
+        "fires": bool(git_entries),
+        "severity": "block" if git_entries else "none",
+        "payload": dirty_payload,
     }
 
     return gates
@@ -1657,6 +1752,33 @@ def main(argv: list[str] | None = None) -> int:
 
     repo_root = find_repo_root(Path.cwd())
     trace(f"repo_root = {repo_root}")
+
+    # Section-only shorthand detection:
+    #
+    # The sub-agent appends user ARGS as positional arguments to this script.
+    # When the user runs `/continue-roadmap 4`, the sub-agent passes "4" as
+    # the first positional — which without this detection is treated as a
+    # plan directory, crashing with "explicit plan directory not found".
+    #
+    # Recognize a bare section shorthand (numeric, `section-N`, or dotted
+    # like `04.1`) and shift it to focus_section so the scanner auto-selects
+    # the plan via reroute priority and locks the focus section to the
+    # requested number. This lets `/continue-roadmap 4` work as expected.
+    SECTION_SHORTHAND_RE = re.compile(r"^(?:section-)?\d+(?:\.\d+)?$")
+    if (
+        args.plan_dir
+        and not args.focus_section
+        and SECTION_SHORTHAND_RE.match(str(args.plan_dir))
+        and not Path(str(args.plan_dir)).exists()
+        and not (repo_root / str(args.plan_dir)).exists()
+    ):
+        shorthand = str(args.plan_dir)
+        # Normalize "section-4" → "4" and "04" → "04" (preserve leading zeros
+        # when already present; section frontmatter numbers are strings).
+        normalized = shorthand.removeprefix("section-")
+        trace(f"section shorthand detected: {shorthand!r} → focus_section={normalized!r}")
+        args.focus_section = normalized
+        args.plan_dir = None
 
     explicit_plan_dir = None
     if args.plan_dir:

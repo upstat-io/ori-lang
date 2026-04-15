@@ -57,19 +57,17 @@ Write `/tmp/review-plan-precheck.json`:
     }
   ],
   "summary": "Precheck: N sections flipped, M escalations",
-  "escalate": true | false
+  "escalate": true,
+  "question": "Precheck found M ambiguous sections (stale blockers, broken references, self-blockers, or missing annotations). How do you want to resolve them?",
+  "options": [
+    {"key": "fix-individually", "label": "Walk through each ambiguous section and decide"},
+    {"key": "leave-as-is", "label": "Leave all ambiguous sections in-progress"},
+    {"key": "abort", "label": "Abort review and fix manually"}
+  ]
 }
 ```
 
-Set `"escalate": true` if the escalations list is non-empty. The parent will present them to the user via `AskUserQuestion` with the `options` array below:
-
-```json
-"options": [
-  {"key": "fix-individually", "label": "Walk through each ambiguous section and decide"},
-  {"key": "leave-as-is", "label": "Leave all ambiguous sections in-progress"},
-  {"key": "abort", "label": "Abort review and fix manually"}
-]
-```
+Set `"escalate": true` with `question` + `options` populated inside the JSON handoff itself when the escalations list is non-empty. The parent reads these fields verbatim into its `AskUserQuestion` call — do NOT place `options` outside the handoff object. On the non-escalating path, set `"escalate": false` and omit the `question` / `options` fields (or emit them as `null` / `[]`).
 
 ## Commit
 

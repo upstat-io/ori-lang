@@ -34,7 +34,7 @@ from envelope_invariants import LOCATION_RE, URI_RE
 
 # Valid enum values (source of truth: findings-schema.json)
 VALID_STATUSES = {"complete", "failed_partial"}
-VALID_SKILLS = {"tpr-review", "review-work", "review-plan", "tp-help"}
+VALID_SKILLS = {"tpr-review", "review-work", "review-plan", "tp-help", "custom"}
 VALID_SEVERITIES = {"high", "medium", "low", "informational"}
 VALID_BASES = {"fresh_verification", "direct_file_inspection", "git_history", "inference"}
 VALID_LAYERS = {"committed", "staged", "unstaged"}

@@ -311,7 +311,7 @@ def main():
                 f"JSON block(s) but none matched review-envelope shape "
                 f"(need no_findings, scope_actually_reviewed, "
                 f"reviewer in {{codex,gemini}}, or findings-list + skill in "
-                f"{{tpr-review,review-work,review-plan,tp-help}})",
+                f"{{tpr-review,review-work,review-plan,tp-help,custom}})",
                 file=sys.stderr,
             )
             sys.exit(1)
