@@ -66,7 +66,7 @@ sections:
     status: complete
   - id: "02.2"
     title: "Core algorithm: tag-dispatch child recursion (reusing Pool::visit_children)"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "lib.rs and check/mod.rs wiring (no pub mod check)"
     status: not-started
@@ -445,13 +445,13 @@ Per `impl-hygiene.md §Algorithmic DRY` (and specifically the
 `Pool::visit_children` instead of building a parallel tag ladder. Concrete
 plan:
 
-- [ ] Promote `Pool::visit_children` from its current `fn` (private to the
+- [x] Promote `Pool::visit_children` from its current `fn` (private to the
   `pool::descriptor` module) to `pub(crate) fn` in
   `compiler/ori_types/src/pool/descriptor.rs`, so `check::validators` can
   call it. If the shape must change to cover `Tag::Projection` receiver +
   `Tag::Applied` args uniformly (it already does), no change is needed
   beyond visibility.
-- [ ] If additional compound tags are reachable from typed IR that
+- [x] If additional compound tags are reachable from typed IR that
   `visit_children` does NOT cover today (e.g., `Tag::Option`, `Tag::Set`,
   `Tag::Range`, `Tag::Iterator`, `Tag::DoubleEndedIterator`, `Tag::Channel`
   — which are `has_child_in_data()` simple containers — or `Tag::List` /
@@ -611,14 +611,14 @@ pub fn validate_body_types(
 
 ### 02.2.4 — Completion criteria
 
-- [ ] `collect_first_unbound_var` delegates compound-tag recursion to
+- [x] `collect_first_unbound_var` delegates compound-tag recursion to
   `pool.visit_children` — grep shows no duplicated per-tag arms for `List`,
   `Map`, `Tuple`, `Struct`, `Enum`, `Applied`, `Function`, `Scheme` inside
   `validators/` beyond the `Tag::Var` / `Tag::BoundVar` discrimination above.
-- [ ] `pool.resolve_fully(idx)` is called at the top of every recursive
+- [x] `pool.resolve_fully(idx)` is called at the top of every recursive
   step (enforce via a rustdoc assertion + a test that inserts a `Link` chain
   and verifies no false positive).
-- [ ] No `_ => {}` arm in the `match pool.tag(ty)` block that drops a
+- [x] No `_ => {}` arm in the `match pool.tag(ty)` block that drops a
   compound variant (the catch-all explicitly recurses).
 
 ---
