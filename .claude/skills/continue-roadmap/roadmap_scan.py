@@ -1338,55 +1338,277 @@ def render_rich(ws: Workspace, repo_root: Path, quiet: bool, skip_bugs: bool) ->
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_json(ws: Workspace) -> str:
-    def plan_dict(p: Plan) -> dict:
+def _git_status_short(repo_root: Path) -> list[dict]:
+    """Return parsed `git status --short` entries. Empty list if clean or git fails."""
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--short"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode != 0:
+            return []
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    entries: list[dict] = []
+    for line in r.stdout.splitlines():
+        if len(line) < 3:
+            continue
+        xy, path = line[:2], line[3:].strip()
+        entries.append({"status": xy, "path": path})
+    return entries
+
+
+def _stale_plan_annotations_count(repo_root: Path) -> int | None:
+    """Wrap count_stale_plan_annotations for the gate block. None on failure."""
+    return count_stale_plan_annotations(repo_root)
+
+
+def _bug_tracker_relevance(ws: Workspace, section: Section) -> dict:
+    """Relevant critical/high bugs for the focus section's subsystem.
+
+    Gate 1.92 treats 'critical' as blocking and 'high' as informational.
+    The mapping table mirrors workflow.md §Step 1.92.
+    """
+    if not ws.bug_tracker:
+        return {"critical": [], "high": []}
+    SECTION_TO_TRACKER = {
+        "00": ["01"], "01": ["02"], "02": ["02"], "03": ["02", "06"],
+        "04": ["02", "07"], "05": ["02"], "06": ["02", "03"],
+        "07A": ["03", "06"], "07B": ["03", "06"], "07C": ["03", "06"], "07D": ["03", "06"],
+        "08": ["03", "04"], "09": ["03", "04"], "10": ["03", "04"],
+        "11": ["04", "05"], "12": ["04", "05"],
+        "15D": ["02", "03"], "21A": ["04", "05"], "21B": ["04", "05"],
+        "22": ["07"], "23": ["03"],
+    }
+    tracker_sections = set(SECTION_TO_TRACKER.get(str(section.number), []))
+    # For non-roadmap plans (reroutes, targeted plans), include every subsystem.
+    if not tracker_sections:
+        tracker_sections = {s.number for s in ws.bug_tracker.sections}
+
+    def bucket(b: Bug) -> dict:
         return {
-            "name": p.name,
-            "dir": str(p.dir),
-            "progress": {"checked": p.total_checked, "total": p.total_items, "pct": p.pct},
-            "section_counts": p.section_status_counts,
-            "open_tpr": p.open_tpr_count,
-            "reroute": None if not p.reroute else {
-                "kind": p.reroute.kind,
-                "status": p.reroute.status,
-                "order": p.reroute.order,
-                "name": p.reroute.name,
-                "full_name": p.reroute.full_name,
-                "reviewed": p.reroute.reviewed,
-            },
-            "sections": [
-                {
-                    "number": s.number,
-                    "title": s.title,
-                    "status": s.status,
-                    "checked": s.checked,
-                    "total": s.total,
-                    "pct": s.pct,
-                    "tpr_status": s.tpr_status,
-                    "tpr_open": sum(1 for f in s.tpr_findings if not f.resolved),
-                    "mismatch": s.mismatch,
-                    "unblocked_count": len(s.unblocked_items),
-                    "blocked_count": len(s.blocked_items),
-                }
-                for s in p.sections
+            "id": b.id, "severity": b.severity, "status": b.status,
+            "title": b.title, "source_section": b.source_section, "lineno": b.lineno,
+        }
+    crit = [bucket(b) for b in ws.bug_tracker.bugs
+            if b.severity == "critical" and b.status != "fixed"
+            and b.source_section in tracker_sections]
+    high = [bucket(b) for b in ws.bug_tracker.bugs
+            if b.severity == "high" and b.status != "fixed"
+            and b.source_section in tracker_sections]
+    return {"critical": crit, "high": high}
+
+
+def _build_gates(ws: Workspace) -> dict:
+    """Pre-compute every gate check into a single structured block.
+
+    The sub-agent consumes this instead of re-running logic in workflow.md.
+    Each gate entry has a `fires` boolean and a `payload` describing the
+    data the parent needs to answer the gate (options for AskUserQuestion,
+    file lists, bug lists, etc.).
+    """
+    gates: dict = {}
+
+    # Gate 1.5 — stale frontmatter (fix-able by sub-agent)
+    mismatches = detect_all_mismatches(ws)
+    focus_mismatches = [
+        (plan_name, loc, msg) for (plan_name, loc, msg) in mismatches
+        if ws.focus_plan and plan_name == ws.focus_plan.name
+    ]
+    gates["stale_frontmatter"] = {
+        "fires": bool(focus_mismatches),
+        "severity": "auto-fix",
+        "payload": {
+            "focus_plan_mismatches": [
+                {"plan": p, "location": loc, "issue": msg}
+                for (p, loc, msg) in focus_mismatches
+            ],
+            "all_mismatches_count": len(mismatches),
+        },
+    }
+
+    # Gate 1.55 — stale plan annotations (auto-fix, not blocking)
+    ann_count = _stale_plan_annotations_count(ws.repo_root)
+    ann_fires = bool(ann_count and ann_count > 0)
+    gates["stale_plan_annotations"] = {
+        "fires": ann_fires,
+        "severity": "auto-fix" if ann_fires else "none",
+        "payload": {
+            "count": ann_count,
+            "cleanup_plan": ws.focus_plan.name if ann_fires and ws.focus_plan else None,
+        },
+    }
+
+    # Gate 1.7 — unreviewed focus section
+    reviewed_fires = False
+    reviewed_payload: dict = {}
+    if ws.focus_section is not None:
+        reviewed_fires = ws.focus_section.reviewed is False
+        reviewed_payload = {
+            "section": ws.focus_section.number,
+            "section_path": str(ws.focus_section.path),
+            "plan": ws.focus_plan.name if ws.focus_plan else None,
+            "options": [
+                {"key": "review-plan", "label": "Run /review-plan now",
+                 "recommended": True,
+                 "next_skill": "review-plan",
+                 "next_skill_arg": str(ws.focus_section.path)},
+                {"key": "proceed", "label": "Proceed anyway",
+                 "recommended": False, "next_skill": None},
+                {"key": "pick-different", "label": "Pick a different section",
+                 "recommended": False, "next_skill": None},
             ],
         }
+    gates["unreviewed_plan"] = {
+        "fires": reviewed_fires,
+        "severity": "block" if reviewed_fires else "none",
+        "payload": reviewed_payload,
+    }
+
+    # Gate 1.9 — TPR findings on focus section
+    tpr_fires = False
+    tpr_payload: dict = {}
+    if ws.focus_section is not None:
+        open_tpr = [
+            {"id": f.id, "severity": f.severity, "lineno": f.lineno}
+            for f in ws.focus_section.tpr_findings if not f.resolved
+        ]
+        tpr_fires = ws.focus_section.tpr_status == "findings" or bool(open_tpr)
+        tpr_payload = {
+            "status": ws.focus_section.tpr_status,
+            "open_count": len(open_tpr),
+            "findings": open_tpr,
+            "section_path": str(ws.focus_section.path),
+            "next_skill": "verify-tpr",
+            "next_skill_arg": str(ws.focus_section.path),
+        }
+    gates["tpr_findings"] = {
+        "fires": tpr_fires,
+        "severity": "block" if tpr_fires else "none",
+        "payload": tpr_payload,
+    }
+
+    # Gate 1.92 — bug tracker
+    relevance = _bug_tracker_relevance(ws, ws.focus_section) if ws.focus_section else {"critical": [], "high": []}
+    gates["critical_bugs"] = {
+        "fires": bool(relevance["critical"]),
+        "severity": "block" if relevance["critical"] else "none",
+        "payload": {
+            "bugs": relevance["critical"],
+            "next_skill": "fix-bug",
+        },
+    }
+    gates["high_bugs"] = {
+        "fires": bool(relevance["high"]),
+        "severity": "info" if relevance["high"] else "none",
+        "payload": {"bugs": relevance["high"]},
+    }
+
+    # Gate 1.95 — dirty working tree
+    git_entries = _git_status_short(ws.repo_root)
+    gates["dirty_tree"] = {
+        "fires": bool(git_entries),
+        "severity": "block" if git_entries else "none",
+        "payload": {
+            "files": git_entries,
+            "count": len(git_entries),
+            "options": [
+                {"key": "commit-push", "label": "Run /commit-push to commit changes",
+                 "recommended": True, "next_skill": "commit-push"},
+                {"key": "proceed", "label": "Proceed with dirty tree",
+                 "recommended": False, "next_skill": None},
+            ] if git_entries else [],
+        },
+    }
+
+    return gates
+
+
+def _build_focus_context(ws: Workspace) -> dict:
+    """Return the focus-context block (Step 1.1 pre-computed)."""
+    if ws.focus_plan is None or ws.focus_section is None:
+        return {}
+    p, s = ws.focus_plan, ws.focus_section
+    plan_full_name = None
+    plan_description = None
+    if p.reroute:
+        plan_full_name = p.reroute.full_name
+    if p.overview:
+        plan_full_name = plan_full_name or p.overview.get("title") or p.overview.get("full_name")
+        plan_description = p.overview.get("goal") or p.overview.get("summary") or p.overview.get("description")
+    if p.index:
+        plan_full_name = plan_full_name or p.index.get("full_name") or p.index.get("title")
+        plan_description = plan_description or p.index.get("description") or p.index.get("summary")
+    plan_full_name = plan_full_name or p.name
+
+    section_goal = s.frontmatter.get("goal") if s.frontmatter else None
+
+    section_counts = p.section_status_counts
+    sections_complete = section_counts.get("complete", 0)
+    sections_total = len(p.sections)
+
+    return {
+        "plan_dir": str(p.dir),
+        "plan_name": p.name,
+        "plan_full_name": plan_full_name,
+        "plan_description": plan_description,
+        "plan_progress_pct": p.pct,
+        "plan_progress_text": f"{p.total_checked}/{p.total_items} items — {sections_complete}/{sections_total} sections complete",
+        "section_number": s.number,
+        "section_title": s.title,
+        "section_file": str(s.path),
+        "section_goal": section_goal,
+        "section_status": s.status,
+        "section_progress_text": (
+            f"{s.pct}% ({s.checked}/{s.total} items complete)"
+            if s.status != "not-started" else "0% — not started"
+        ),
+        "subsections": [
+            {"id": sub.id, "title": sub.title, "status": sub.status,
+             "checked": sub.checked, "total": sub.total}
+            for sub in s.subsections
+        ],
+    }
+
+
+def _build_next_unblocked(ws: Workspace) -> dict | None:
+    """Find the first unblocked `- [ ]` item in the focus section."""
+    if ws.focus_section is None:
+        return None
+    unblocked = ws.focus_section.unblocked_items
+    if not unblocked:
+        return None
+    first = unblocked[0]
+    return {
+        "subsection_id": first.subsection_id,
+        "item_content": first.content,
+        "item_lineno": first.lineno,
+        "unblocked_count": len(unblocked),
+        "blocked_count": len(ws.focus_section.blocked_items),
+    }
+
+
+def render_json(ws: Workspace) -> str:
+    """Emit ONLY what the /continue-roadmap sub-agent consumes.
+
+    The agent's workflow (see workflow.md) uses exactly three top-level
+    fields: focus_context, next_unblocked, gates. Anything else is dead
+    weight at the token cost of a large workspace crawl. If a future
+    consumer needs the full plan/workspace dump, add a separate `--full-json`
+    flag rather than bloating this one.
+    """
+    gates = _build_gates(ws)
+    # Strip payloads on gates that do not fire to keep the envelope minimal.
+    # An unfired gate only needs {fires: false, severity: "none"}.
+    for k, entry in gates.items():
+        if not entry.get("fires") and entry.get("severity") == "none":
+            entry["payload"] = {}
 
     data = {
-        "repo_root": str(ws.repo_root),
-        "plans": {name: plan_dict(p) for name, p in ws.all_plans.items()},
-        "completed": list(ws.completed_plans.keys()),
-        "focus": {
-            "plan": ws.focus_plan.name if ws.focus_plan else None,
-            "reason": ws.focus_reason,
-            "section": ws.focus_section.number if ws.focus_section else None,
-            "section_reason": ws.focus_section_reason,
-        },
-        "health": {
-            "mismatches": detect_all_mismatches(ws),
-            "orphan_blockers": detect_orphan_blockers(ws),
-            "unreviewed": ws.unreviewed_plans,
-        },
+        "focus_context": _build_focus_context(ws),
+        "next_unblocked": _build_next_unblocked(ws),
+        "gates": gates,
     }
     return json.dumps(data, indent=2, default=str) + "\n"
 
