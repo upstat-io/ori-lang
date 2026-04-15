@@ -2,7 +2,7 @@
 section: "03"
 title: "Findings Report & Write-Back"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Design the findings report format and implement the write-back mechanism for auto-fixable issues and manual-review flagging"
 success_criteria:
   - "Findings report format defined (JSON + markdown) with category, subtype, severity, source, target, recommended fix (reuses 01.3 two-level taxonomy; no shadow fields)"
