@@ -73,7 +73,7 @@ Consumers of the SSOT helper (§03 fans out):
         │
         ├── .claude/skills/tpr-review/SKILL.md                [§03]
         ├── .claude/skills/review-work/SKILL.md               [§03]
-        ├── .claude/commands/review-plan.md                   [§03]
+        ├── .claude/skills/review-plan/SKILL.md + step-*.md   [§03] (replaces deleted .claude/commands/review-plan.md)
         ├── .claude/commands/review-work.md                   [§03]
         ├── .claude/commands/independent-review.md            [§03]
         ├── .claude/commands/review-bugs.md                   [§03]
