@@ -26,7 +26,7 @@ sections:
     status: complete
   - id: "05.3"
     title: "Cross-reference audit and inventory updates"
-    status: not-started
+    status: complete
   - id: "05.R"
     title: "Third Party Review Findings"
     status: complete
@@ -227,7 +227,7 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 
 ### Grep consumer enumeration
 
-- [ ] Run (excludes worktree mirrors to avoid false positives):
+- [x] Run (excludes worktree mirrors to avoid false positives):
   ```
   rg -l --glob '!worktrees/**' '@\.claude/skills/dual-tpr/compose-intel-summary\.md' .claude/
   # Expect: 25 files total (24 consumers + the SSOT itself)
@@ -236,7 +236,7 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 
 ### Inventory updates (same-commit as the skill/command edits)
 
-- [ ] **`.claude/rules/intelligence.md`** — Remove `[planned -- tracked by plans/query-intel-adoption §05]` markers AND update the workflow descriptions to match the refined §05 designs:
+- [x] **`.claude/rules/intelligence.md`** — Remove `[planned -- tracked by plans/query-intel-adoption §05]` markers AND update the workflow descriptions to match the refined §05 designs:
   - `verify-tpr` — remove `*[planned]*` tag; update description to match §05.1: blast-radius via `callers` on high-severity findings or findings where the blast radius is ambiguous (not all findings, not `callees`/`similar`)
   - `sync-claude` — remove `*[planned]*` tag; update description to match §05.1: `file-symbols` on changed crates for doc-symbol drift detection (not "intelligence-surface drift audit")
   - `fix-next-bug` — remove `*[planned]*` tag; update description to match §05.1: lightweight `callers`-only blast-radius preview for scope assessment (not `callees`/`similar`)
@@ -244,13 +244,13 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
   - `sync-grammar` — remove `*[planned]*` tag; update to match §05.2: `file-symbols` on `ori_parse/`/`ori_lexer/` for parser/lexer type inventory
   - `verify-roadmap` — remove `*[planned]*` tag; update to match §05.2: `file-symbols`/`callers`/`callees` on section scope crates (Phase 1 review agents only)
 
-- [ ] **`.claude/skills/dual-tpr/compose-intel-summary.md`** — Update the "Planned future consumers" list (lines 18-28):
+- [x] **`.claude/skills/dual-tpr/compose-intel-summary.md`** — Update the "Planned future consumers" list (lines 18-28):
   - Move `verify-tpr`, `sync-claude`, `fix-next-bug` from "Planned future consumers" to the "Wider skill consumers" list (or "Current consumers" header)
   - Move `sync-spec`, `sync-grammar`, `verify-roadmap` from "Planned future consumers" to the "Current consumers" list under a new "Command consumers" group
   - After migration, the "Planned future consumers" section should list ONLY `.claude/hooks/pre-review-intel.sh` (tracked by §07)
   - Update the consumer count header from "Current consumers (18" to "Current consumers (24"
 
-- [ ] **`.claude/skills/dual-tpr/compose-intel-summary.md` Step F** — Add consumer extension registry entries for the 6 new consumers. Each consumer's extension entry documents which specific `scripts/intel-query.sh` subcommands it uses beyond the base protocol. Per the Step F registry contract (lines 187-195), this MUST happen in the same commit as the skill/command edits:
+- [x] **`.claude/skills/dual-tpr/compose-intel-summary.md` Step F** — Add consumer extension registry entries for the 6 new consumers. Each consumer's extension entry documents which specific `scripts/intel-query.sh` subcommands it uses beyond the base protocol. Per the Step F registry contract (lines 187-195), this MUST happen in the same commit as the skill/command edits:
 
   **Entries to add:**
 
@@ -286,27 +286,27 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
     - `callers`/`callees` on high-signal symbols
   ```
 
-- [ ] **`plans/query-intel-adoption/00-overview.md`** — Update the mission criterion text at line 23:
+- [x] **`plans/query-intel-adoption/00-overview.md`** — Update the mission criterion text at line 23:
   - Change "4 gap skills" to "3 gap skills" (tp-help was completed in §03)
   - Update the consumer fan-out diagram: MOVE `tp-help` from the `[§05]` group to the `[§03]` group (it was migrated in §03, but the diagram still lists it under §05). Do NOT simply delete it — that would under-report consumers.
 
-- [ ] **`plans/query-intel-adoption/index.md`** — Update the Section 05 keyword cluster:
+- [x] **`plans/query-intel-adoption/index.md`** — Update the Section 05 keyword cluster:
   - Remove line 90 (`tp-help/SKILL.md, elevate token bullet to Step 2 workflow`) — this work was completed in §03
   - Update line 88: change `intelligence-surface drift` to `file-symbols crate-symbol inventory` (matches refined §05.1 sync-claude design)
   - Update line 89: change `blast-radius + similar on repro symbol` to `callers-only lightweight blast-radius preview` (matches refined §05.1 fix-next-bug design)
   - The keyword cluster should reflect 3 skills + 3 commands, not 4 skills
 
-- [ ] **`.claude/skills/dual-tpr/compose-intel-summary.md` `## Consumers` section** — Document the full consumer list (the SSOT should know who uses it). Enumerate all 24 consumers by source section (§03 original 18 + §05's 6 additions).
+- [x] **`.claude/skills/dual-tpr/compose-intel-summary.md` `## Consumers` section** — Document the full consumer list (the SSOT should know who uses it). Enumerate all 24 consumers by source section (§03 original 18 + §05's 6 additions).
 
-- [ ] Verify no CONSUMER file contains open-coded pre-query/injection blocks or unauthorized `scripts/intel-query.sh status` strings without the `@`-include. Note: `.claude/rules/intelligence.md` and `.claude/commands/query-intel.md` are legitimate non-consumer teaching surfaces that may reference `intel-query.sh` directly (per SSOT lines 28-31) — do NOT flag these as LEAKs.
+- [x] Verify no CONSUMER file contains open-coded pre-query/injection blocks or unauthorized `scripts/intel-query.sh status` strings without the `@`-include. Note: `.claude/rules/intelligence.md` and `.claude/commands/query-intel.md` are legitimate non-consumer teaching surfaces that may reference `intel-query.sh` directly (per SSOT lines 28-31) — do NOT flag these as LEAKs.
 
-- [ ] **Subsection close-out (05.3)**:
-  - [ ] Consumer list exhaustive; SSOT's Consumers section populated with all 24+ consumers
-  - [ ] All 4 inventory files updated with multiple edits (intelligence.md workflow descriptions, compose-intel-summary.md header + Step F + Consumers section, 00-overview.md diagram + mission criterion, index.md keyword cluster)
-  - [ ] Update `05.3` status to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on 05.3** — the grep invariant is running twice now (§03.3 and §05.3). Should this be a lefthook pre-commit hook that fails the commit if any `.claude/` file contains the pre-query pattern without the SSOT include? Commit via `build(ci): ...` if matured.
-  - [ ] **Run `/sync-claude` on 05.3** — the SSOT Consumers section is a living artifact; future sections (§06, §07) will add themselves. Confirm the update process is documented (the SSOT should explain "how to add yourself as a consumer").
-  - [ ] **Repo hygiene check**.
+- [x] **Subsection close-out (05.3)**:
+  - [x] Consumer list exhaustive; SSOT's Consumers section populated with all 24+ consumers
+  - [x] All 4 inventory files updated with multiple edits (intelligence.md workflow descriptions, compose-intel-summary.md header + Step F + Consumers section, 00-overview.md diagram + mission criterion, index.md keyword cluster)
+  - [x] Update `05.3` status to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on 05.3** — the grep invariant is running twice now (§03.3 and §05.3). Should this be a lefthook pre-commit hook that fails the commit if any `.claude/` file contains the pre-query pattern without the SSOT include? Commit via `build(ci): ...` if matured.
+  - [x] **Run `/sync-claude` on 05.3** — the SSOT Consumers section is a living artifact; future sections (§06, §07) will add themselves. Confirm the update process is documented (the SSOT should explain "how to add yourself as a consumer").
+  - [x] **Repo hygiene check**.
 
 ---
 

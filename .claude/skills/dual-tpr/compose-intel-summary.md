@@ -4,24 +4,21 @@
 current consumer `@`-includes this file from its intel section rather than
 inlining the pattern.
 
-**Current consumers (18, all `@`-including this file):**
+**Current consumers (24, all `@`-including this file):**
 
 - Review-family skills/commands (6): `/tpr-review` (Step 0.75),
   `/review-work` skill (Step 1.5), `/review-plan` (Step 3.5),
   `/review-work` command (Intelligence map), `/independent-review`
   (Phase B), `/review-bugs` (Step 5.5).
-- Wider skill consumers (12): `/tp-help`, `/add-bug`, `/improve-tooling`,
+- Wider skill consumers (15): `/tp-help`, `/add-bug`, `/improve-tooling`,
   `/design-pattern-review`, `/create-draft-proposal`, `/fix-bug`,
   `/impl-hygiene-review`, `/review-draft-proposal`, `/create-plan`,
-  `/rosetta-test`, `/code-journey`, `/continue-roadmap`.
+  `/rosetta-test`, `/code-journey`, `/continue-roadmap`, `/verify-tpr`,
+  `/sync-claude`, `/fix-next-bug`.
+- Command consumers (3): `/sync-spec`, `/sync-grammar`, `/verify-roadmap`.
 
 **Planned future consumers (not yet migrated):**
 
-- `/verify-tpr`, `/sync-claude`, `/fix-next-bug`, `/sync-spec`,
-  `/sync-grammar`, `/verify-roadmap` — these skills/commands do not
-  currently query the intel graph. They will `@`-include this SSOT when
-  they add intel reconnaissance (tracked by `plans/query-intel-adoption`
-  §05 "Missing-trigger skills & commands").
 - `.claude/hooks/pre-review-intel.sh` — this hook does not yet exist.
   It will be created by `plans/query-intel-adoption` §07 "Hook-heavy
   ambient automation" and will call this SSOT's protocol inline.
@@ -110,6 +107,16 @@ extensions. They inject the Intelligence Summary into reviewer prompts or
 use it to prioritize adjacent-file reads. `/review-bugs` ADDITIONALLY uses
 the bug-workflow extension below.
 
+**TPR/verification consumers:**
+
+- **`/verify-tpr`** (Step 2.5) — per-finding blast-radius:
+  - `callers "<finding symbol>" --repo ori` (high-severity or ambiguous-blast-radius findings)
+
+**Doc-sync consumers:**
+
+- **`/sync-claude`** (Step 1.5) — crate symbol inventory:
+  - `file-symbols "<crate-path-fragment>" --repo ori` (per changed crate)
+
 **Bug-workflow consumers:**
 
 - **`/review-bugs`** (Step 5.5) — bug cross-reference enrichment:
@@ -127,6 +134,9 @@ the bug-workflow extension below.
 - **`/add-bug`** (Step 4) — lightweight blast-radius:
   - `callers "<buggy function>" --repo ori`
   - `file-symbols "<subsystem path>" --repo ori`
+
+- **`/fix-next-bug`** (Step 4.5) — lightweight blast-radius preview:
+  - `callers "<repro symbol>" --repo ori`
 
 **Planning/proposal consumers:**
 
@@ -184,6 +194,21 @@ the bug-workflow extension below.
   - Preset if the section title maps to a subsystem
   - `file-symbols`, `callers`/`callees`, `similar` per Step C on section-body symbols
 
+**Spec/grammar consumers:**
+
+- **`/sync-spec`** (Update Process item 1) — blast-radius before spec edits:
+  - `callers "<affected symbol>" --repo ori`
+
+- **`/sync-grammar`** (Update Process item 1) — parser/lexer type inventory:
+  - `file-symbols "compiler/ori_parse/" --repo ori`
+  - `file-symbols "compiler/ori_lexer/" --repo ori`
+
+**Roadmap consumers:**
+
+- **`/verify-roadmap`** (Phase 1, Step 2 agent prompt) — review-agent context:
+  - `file-symbols "<section scope crate>" --repo ori`
+  - `callers`/`callees` on high-signal symbols
+
 **Registry contract:** when a consumer adds, removes, or changes queries in
 its extension, the maintainer MUST update this Step F entry in the same
 commit. This is an SSOT obligation — Step F is the single source of truth
@@ -212,6 +237,34 @@ syntactically valid whether or not the summary appears.
 
 Every consumer of this file references it via `@.claude/skills/dual-tpr/compose-intel-summary.md`
 at its intel section. Updates to this protocol propagate automatically.
+
+**Full consumer list (24 total), by origin section:**
+
+Migrated in `plans/query-intel-adoption` §03 (18 original consumers):
+
+- Skills (14): `/tpr-review`, `/review-work` (skill), `/review-plan`, `/independent-review`, `/review-bugs`, `/tp-help`, `/add-bug`, `/improve-tooling`, `/design-pattern-review`, `/create-draft-proposal`, `/fix-bug`, `/impl-hygiene-review`, `/review-draft-proposal`, `/create-plan`, `/rosetta-test`, `/code-journey`, `/continue-roadmap`
+- Commands (1): `/review-work` (command)
+
+Migrated in `plans/query-intel-adoption` §05.1 (3 skills):
+
+- `/verify-tpr`, `/sync-claude`, `/fix-next-bug`
+
+Migrated in `plans/query-intel-adoption` §05.2 (3 commands):
+
+- `/sync-spec`, `/sync-grammar`, `/verify-roadmap`
+
+**How to add yourself as a consumer:**
+
+1. Add `@.claude/skills/dual-tpr/compose-intel-summary.md` at your skill/command's
+   intel section (not at the top — place it where the query is invoked).
+2. If your consumer runs queries beyond Steps A-E, add a Step F entry in the
+   registry above describing the exact `scripts/intel-query.sh` subcommands you
+   call. Keep extensions bounded (2-3 extra bullets max).
+3. Update the "Current consumers" count at the top of this file.
+4. Update `.claude/rules/intelligence.md` "When to Query" with a matching bullet
+   (co-committed with the consumer edit — per the §05.3 sequencing note).
+5. Add yourself to the consumer list in this section under a new "Migrated in
+   …" grouping.
 
 ## Related
 
