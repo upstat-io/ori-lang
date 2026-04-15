@@ -1042,8 +1042,29 @@ At section completion (mirrors 01.N / 03.N shape), before flipping
   auto-fixed by `hygiene-lint.py --fix --apply` (no commit ref on that
   alone — bundled into the same commit as the bug-tracker entries and
   this checklist update).
-- [ ] `/improve-tooling` retrospective sweep — any pain points encountered
+- [x] `/improve-tooling` retrospective sweep — any pain points encountered
   while implementing §§02.0–02.4 captured as concrete tracked items.
+  Run on 2026-04-15 as the Phase B3 section-close safety net. Verified
+  per-subsection retrospectives ran: §§02.0–02.3 closed out in prior
+  session commits with their own retrospectives (per the plan's standard
+  close-out pattern); §02.4 retrospective documented "no tooling gaps
+  — pool construction API, `FunctionSig::simple`, and cargo test path
+  selectors worked fluently." Cross-subsection pattern analysis
+  surfaced ONE concrete tooling gap invisible at per-subsection scope:
+  (1) `[BUG-07-012][minor]` dual-tpr transport discards codex's
+      successful envelopes when gemini fails persistently — no
+      `codex.final.envelope.json` preserved on infra failure. Filed
+      with full repro + proposed fix. Blast radius across all
+      dual-source consumer skills (tpr-review, review-work, tp-help,
+      review-plan), so `/fix-bug BUG-07-012` will run full TPR +
+      hygiene review on the transport change.
+  Not implemented inline because the fix touches the shared dual-tpr
+  transport which is used by multiple skills and deserves its own
+  dedicated review cycle. Two other observations did NOT warrant
+  filing: intel-graph underuse in Pass 2 DRY scan is a process
+  improvement (documentation, not tooling); T10 semantic-pin
+  revert/restore is one-off enough that automating it would be
+  premature abstraction.
 - [ ] `/sync-claude` — `.claude/rules/typeck.md`, `types.md`, and
   `CLAUDE.md` audited for drift introduced by the new public symbol and
   the §02.0 flag-propagation fix; updates committed if needed.
