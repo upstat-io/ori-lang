@@ -65,8 +65,8 @@ Create the skill directory with SKILL.md that implements the 5-phase pipeline, w
 
 - [ ] Write `SKILL.md` with the 5-phase pipeline:
   - Skill metadata: name, description, argument-hint (scope, --full, --quick, --section, --plan, --deep-all)
-  - Phase 1: Corpus Inventory & Schema Validation (invokes `scripts/plan_corpus.py` — Section 01 SSOT; produces `Corpus`, `Finding`, and normalized-status facts consumed by downstream phases)
-  - Phase 2: DAG Construction (invokes `scripts/plan-dag-build.py`; consumes `plan_corpus.resolve_dep()` — no re-parsing)
+  - Phase 1: Corpus Inventory & Schema Validation (invokes `python -m scripts.plan_corpus` — Section 01 SSOT package; `scripts/plan_corpus/__init__.py` exports `load_and_validate`, `Corpus`, `Finding`, and normalized-status facts consumed by downstream phases)
+  - Phase 2: DAG Construction (invokes `scripts/plan_corpus/dag.py` via the package; consumes `plan_corpus.resolve_dep()` — no re-parsing)
   - Phase 3: Conflict Detection & Classification (invokes classifiers from DAG builder)
   - Phase 4: Item-Level Verification (invokes item-verifier.md module, optional per scope)
   - Phase 5: Write-Back & Report (generates findings report, applies auto-fixes)
@@ -110,7 +110,7 @@ Create the skill directory with SKILL.md that implements the 5-phase pipeline, w
 Run the new skill and verify that each of the 8 known test cases is caught. Each test case must produce a finding with the correct classifier type and point to the correct source/target files.
 
 - [ ] Test case (a): repr-opt active, locality prerequisite queued
-  - Expected: BLOCKED finding
+  - Expected: MISSING_DEPENDENCY finding (route B — current corpus has no explicit `depends_on` edge from repr-opt to locality; the dependency is inferred from prose/YAML comments, not frontmatter). After route A migration adds explicit `depends_on`, this becomes BLOCKED. Validate against whichever state exists at implementation time.
   - Source: `plans/repr-opt/` (active)
   - Target: `plans/locality-representation-unification/` (queued prerequisite)
   - Verify the finding identifies the priority inversion
@@ -140,7 +140,7 @@ Run the new skill and verify that each of the 8 known test cases is caught. Each
   - Verify at least 4 findings for the known non-standard plans (aot-perf, pkg_mgmt, project-reorganization, ori-ui-framework)
 
 - [ ] Test case (g): BUG-04-039 in-progress but blocked by queued plan
-  - Expected: BLOCKED finding
+  - Expected: MISSING_DEPENDENCY finding (route B — current corpus has no explicit `depends_on` in fix-BUG-04-039.md; the blocker is recorded only in a YAML comment). After route A migration adds explicit `depends_on`, this becomes BLOCKED. Validate against whichever state exists at implementation time.
   - Verify the finding identifies the in-progress/queued dependency chain
 
 - [ ] Test case (h): Section 21A stale "unblocks JIT Exception Handling" ref
@@ -175,7 +175,7 @@ Run the skill in `--full` mode against the entire planning corpus. Fix all auto-
   - Run with `--dry-run` first to preview changes
   - Review the dry-run output for correctness
   - Apply fixes: `/verify-roadmap --full` (auto-fix enabled by default)
-  - Verify fixes applied correctly by re-running in `--check` mode
+  - Verify fixes applied correctly by re-running with `--full --no-auto-fix` (report-only mode — confirms zero remaining SafeFix findings after auto-fix was applied)
 
 - [ ] File findings for human-decision issues:
   - For each manual-review finding, document the issue and recommended resolution
@@ -184,7 +184,7 @@ Run the skill in `--full` mode against the entire planning corpus. Fix all auto-
   - BLOCKED findings: document the dependency chain and recommended reordering
   - Create tracking items (as appropriate -- bug tracker entries or plan updates)
 
-- [ ] **roadmap_scan.py shadow parser migration (TPR-03-004-codex, TPR-03-001-gemini):** Refactor `roadmap_scan.py` to import `plan_corpus` for all frontmatter parsing (use `plan_corpus.parser.read_text_strict`, `plan_corpus.parser.split_frontmatter_strict`, and `plan_corpus.load_and_validate` — these are the actual SSOT API; there are no `parse_section_file`/`parse_index_file` exports), eliminating the ~600-line shadow parser. Keep only `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This is a prerequisite for `--quick` mode correctness in Section 03.5 — `/continue-roadmap` and `/verify-roadmap --quick` must agree on corpus parse results. The current `errors="replace"` + `{}` on YAMLError pattern (`roadmap_scan.py:327-348`) violates the LEAK:swallowed-error invariant that Section 01 was designed to eliminate. **Option B (shadow parser divergence) was explicitly rejected by TPR.** <!-- unblocks:03.5 -->
+- [ ] **roadmap_scan.py shadow parser migration (TPR-03-004-codex, TPR-03-001-gemini):** Refactor `roadmap_scan.py` to import `plan_corpus` for all frontmatter parsing. Use `plan_corpus.load_and_validate` as the SOLE parsing entrypoint (this is the canonical parse-error-lifting boundary per Section 01 §01.5 — downstream consumers MUST NOT call `split_frontmatter_strict` directly; `load_and_validate` wraps it with schema validation and error handling). Eliminate the ~600-line shadow parser (`split_frontmatter`, `parse_section_file`, `parse_index_file`). Keep only `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This is a prerequisite for `--quick` mode correctness in Section 03.5 — `/continue-roadmap` and `/verify-roadmap --quick` must agree on corpus parse results. The current `errors="replace"` + `{}` on YAMLError pattern (`roadmap_scan.py:327-348`) violates the LEAK:swallowed-error invariant that Section 01 was designed to eliminate. **Option B (shadow parser divergence) was explicitly rejected by TPR.** <!-- unblocks:03.5 -->
 
 - [ ] Run `timeout 150 ./test-all.sh` to verify no regressions from auto-fixes
 
