@@ -26,16 +26,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install LLVM 21
         run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y clang libclang-rt-dev
+          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21 libclang-rt-21-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
       - name: Install Rust nightly (for ori_rt ASan)
-        run: rustup toolchain install nightly
+        run: rustup toolchain install nightly --component rust-src
 
       - name: Build compiler
         run: cargo build --release
+        env:
+          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
 
       - name: Build ASan-instrumented ori_rt
         run: ./scripts/build-rt-asan.sh --release
@@ -43,12 +49,14 @@ jobs:
       - name: Sanitizer smoke (debug/O0)
         env:
           ORI_SANITIZE: "address,undefined"
+          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
         run: timeout 150 ./scripts/sanitizer-smoke.sh
 
       - name: Sanitizer smoke (release/O2)
         env:
           ORI_SANITIZE: "address,undefined"
           ORI_RELEASE: "1"
+          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
         run: timeout 150 ./scripts/sanitizer-smoke.sh
 
   sanitizer-full:
@@ -63,16 +71,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install LLVM 21
         run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y clang libclang-rt-dev
+          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21 libclang-rt-21-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
       - name: Install Rust nightly
-        run: rustup toolchain install nightly
+        run: rustup toolchain install nightly --component rust-src
 
       - name: Build compiler
         run: cargo build --release
+        env:
+          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
 
       - name: Build ASan-instrumented ori_rt
         run: ./scripts/build-rt-asan.sh --release
@@ -82,6 +96,7 @@ jobs:
           ORI_SANITIZE: "address,undefined"
           TEST_SHARD: "${{ matrix.shard }}"
           TEST_TOTAL_SHARDS: "4"
+          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
         run: ./scripts/sanitizer-full.sh
 
   alive2-build:
@@ -91,10 +106,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Alive2 dependencies
+      - name: Install LLVM 21
         run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y libz3-dev re2c cmake
+          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Install Alive2 dependencies
+        run: sudo apt-get install -y --no-install-recommends libz3-dev re2c cmake
 
       - name: Extract Alive2 cache key
         id: alive2-key
@@ -131,10 +153,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Alive2 dependencies
+      - name: Install LLVM 21
         run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y libz3-dev re2c cmake
+          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Install Alive2 dependencies
+        run: sudo apt-get install -y --no-install-recommends libz3-dev re2c cmake
 
       - name: Extract Alive2 cache key
         id: alive2-key
@@ -153,7 +182,7 @@ jobs:
         run: cargo build
 
       - name: Run Alive2 on curated corpus
-        run: diagnostics/alive2-verify.sh --corpus --timeout 60 --check-survival
+        run: diagnostics/alive2-verify.sh --corpus --timeout 60 --check-survival --json
 
       - name: Upload results
         uses: actions/upload-artifact@v4
@@ -173,10 +202,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Alive2 dependencies
+      - name: Install LLVM 21
         run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y libz3-dev re2c cmake
+          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Install Alive2 dependencies
+        run: sudo apt-get install -y --no-install-recommends libz3-dev re2c cmake
 
       - name: Extract Alive2 cache key
         id: alive2-key
@@ -197,7 +233,7 @@ jobs:
       - name: Run Alive2 on all codegen tests
         run: |
           diagnostics/alive2-verify.sh --all-codegen --timeout 120 \
-            --suppress tests/alive2/suppressed.json --check-survival
+            --suppress tests/alive2/suppressed.json --check-survival --json
 
       - name: Upload results
         uses: actions/upload-artifact@v4

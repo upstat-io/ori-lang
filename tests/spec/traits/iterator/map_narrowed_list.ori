@@ -200,6 +200,48 @@ use std.testing { assert_eq }
 }
 
 // ---------------------------------------------------------------------------
+// Cross-type coverage — type-changing maps (non-narrowed output)
+// ---------------------------------------------------------------------------
+
+@test_map_int_to_bool tests @target () -> void = {
+    // int→bool type change: output is [bool], not narrowed int
+    let result = [1, 2, 3, 4, 5].iter().map((x) -> x > 3).collect();
+    assert_eq(actual: result, expected: [false, false, false, true, true])
+}
+
+@test_map_int_to_str tests @target () -> void = {
+    // int→str type change: output is [str], heap type
+    let result = [1, 2, 3].iter().map((x) -> str(x)).collect();
+    assert_eq(actual: result, expected: ["1", "2", "3"])
+}
+
+// ---------------------------------------------------------------------------
+// Large list — stress buffer allocation with narrowed elements
+// ---------------------------------------------------------------------------
+
+@test_map_large_narrowed_list tests @target () -> void = {
+    // 100-element narrowed list: all values fit in i8, map produces canonical
+    let xs = for i in 0..100 yield i;
+    let result = xs.iter().map((x) -> x * 10).collect();
+    assert_eq(actual: result[0], expected: 0);
+    assert_eq(actual: result[50], expected: 500);
+    assert_eq(actual: result[99], expected: 990)
+}
+
+// ---------------------------------------------------------------------------
+// Multi-line lambda body
+// ---------------------------------------------------------------------------
+
+@test_map_multiline_lambda tests @target () -> void = {
+    let result = [1, 2, 3].iter().map((x) -> {
+        let doubled = x * 2;
+        let incremented = doubled + 1;
+        incremented
+    }).collect();
+    assert_eq(actual: result, expected: [3, 5, 7])
+}
+
+// ---------------------------------------------------------------------------
 // Negative pin — narrowing still works for direct list access
 // ---------------------------------------------------------------------------
 

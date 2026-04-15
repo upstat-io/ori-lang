@@ -264,6 +264,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.1 Results
@@ -448,6 +452,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.2 Results
@@ -632,6 +640,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.3 Results
@@ -816,6 +828,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.4 Results
@@ -1000,6 +1016,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.5 Results
@@ -1184,6 +1204,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.6 Results
@@ -1368,6 +1392,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.7 Results
@@ -1552,6 +1580,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.8 Results
@@ -1736,6 +1768,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.9 Results
@@ -1920,6 +1956,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.10 Results
@@ -2104,6 +2144,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.11 Results
@@ -2288,6 +2332,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.12 Results
@@ -2472,6 +2520,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.13 Results
@@ -2656,6 +2708,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.14 Results
@@ -2840,6 +2896,10 @@ Present a formatted results summary to the user using the insight format. This i
   - [ ] Results report presented to user and recorded in results block
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — which diagnostics were hard to interpret? Which commands did you repeat? What tool would save 10 min next time?
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`
 
 ### 01.15 Results

@@ -140,6 +140,10 @@ Create the baseline capture/compare infrastructure. This is the core of the sect
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey for 12.1 specifically: IR normalization edge cases, baseline path management, diff readability. Implement every accepted improvement NOW and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(scripts): ...`).
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -190,6 +194,10 @@ Integrate LLVM's `llvm-reduce` tool for automatic test case reduction. When an I
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 12.1's close-out, scoped to 12.2's debugging journey. Commit improvements separately using a valid conventional-commit type.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---
@@ -263,6 +271,10 @@ Capture verification metrics over time so that trends (increasing false positive
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
   - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any detected temp files.
 
 ---

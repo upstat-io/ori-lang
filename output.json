@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "status": "complete",
+  "reviewer": "gemini",
+  "skill": "review-work",
+  "scope_actually_reviewed": {
+    "git_range": "HEAD~3..HEAD",
+    "files_read": [
+      "CLAUDE.md",
+      ".claude/rules/impl-hygiene.md",
+      ".claude/rules/tests.md",
+      ".claude/rules/llvm.md",
+      ".claude/rules/arc.md",
+      ".claude/skills/dual-tpr/findings-schema.json",
+      "compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins/mod.rs",
+      "compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator.rs",
+      "compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs",
+      "compiler/ori_llvm/src/codegen/arc_emitter/builtins/trampolines.rs",
+      "compiler/ori_llvm/src/codegen/arc_emitter/narrowing_codegen.rs",
+      "compiler/ori_llvm/tests/aot/narrowing.rs",
+      "plans/bug-tracker/fix-BUG-04-071.md",
+      "plans/bug-tracker/section-04-codegen-llvm.md",
+      "tests/spec/traits/iterator/map_narrowed_list.ori",
+      "compiler/ori_rt/src/iterator/adapters.rs",
+      "compiler/ori_rt/src/iterator/next.rs"
+    ],
+    "rules_consulted": [
+      ".claude/rules/impl-hygiene.md",
+      ".claude/rules/tests.md",
+      ".claude/rules/llvm.md"
+    ],
+    "specs_consulted": [],
+    "plans_consulted": [
+      "plans/bug-tracker/fix-BUG-04-071.md",
+      "plans/bug-tracker/section-04-codegen-llvm.md"
+    ],
+    "expanded_beyond_packet": true,
+    "expansion_reason": "Traced ori_iter_map into ori_rt to verify its signature and buffer sizing behavior, confirming the canonical sizing implementation is sound."
+  },
+  "findings": [
+    {
+      "ordinal": 1,
+      "severity": "minor",
+      "location": "compiler/ori_llvm/src/codegen/arc_emitter/builtins/trampolines.rs:164",
+      "title": "Remove dead sext branches and unused variables from trampolines",
+      "evidence": "The fix hardcoded `let needs_sext = false;` and `let buf_elem_llvm_ty = elem_llvm_ty;` but left 5 downstream `if needs_sext { ... } else { ... }` branches across all trampoline map/filter/fold variants. The plan explicitly instructed to simplify trampolines: 'The needs_sext flag and buf_elem_llvm_ty vs elem_llvm_ty distinction become unnecessary. Simplify to always use canonical types'.",
+      "impact": "BLOAT/WASTE. Unused complexity and dead branches left in a hot codegen path, violating the cleanup rule.",
+      "required_plan_update": "Add a task to `fix-BUG-04-071.md` (or a followup hygiene pass) to physically remove `needs_sext`, `buf_elem_llvm_ty`, and their associated `if/else` sext emission branches from `trampolines.rs`.",
+      "layer": "committed",
+      "basis": "direct_file_inspection",
+      "confidence": "high",
+      "citations": []
+    },
+    {
+      "ordinal": 2,
+      "severity": "informational",
+      "location": "tests/spec/traits/iterator/map_narrowed_list.ori:1",
+      "title": "Spec test file uses snake_case instead of kebab-case",
+      "evidence": "File is named `map_narrowed_list.ori`. `.claude/rules/impl-hygiene.md` §Test Hygiene states: 'Ori spec tests use kebab-case matching the feature: tests/spec/traits/iterator/map-filter-collect.ori'.",
+      "impact": "Minor stylistic inconsistency (though the directory already contains many snake_case files).",
+      "required_plan_update": "Rename to `map-narrowed-list.ori` or ignore if the directory convention allows snake_case.",
+      "layer": "committed",
+      "basis": "direct_file_inspection",
+      "confidence": "high",
+      "citations": []
+    }
+  ],
+  "no_findings": false,
+  "verification": {
+    "tests_rerun": [
+      "./test-all.sh"
+    ],
+    "diagnostics_run": [],
+    "verification_gaps": []
+  }
+}
