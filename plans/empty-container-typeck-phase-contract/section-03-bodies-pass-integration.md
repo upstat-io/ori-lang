@@ -24,6 +24,9 @@ third_party_review:
   status: none
   updated: null
 sections:
+  - id: "03.0"
+    title: "Prerequisite: split bodies/mod.rs (BLOAT gate)"
+    status: not-started
   - id: "03.1"
     title: "Wire validator into check_function"
     status: not-started
@@ -92,7 +95,7 @@ Round 5 research verified:
 - `c.pool()` is `ModuleChecker::pool(&self) -> &Pool` at `accessors.rs:72-74`
 - `c.arena()` is `ModuleChecker::arena(&self) -> &'a ExprArena` at `accessors.rs:18-21`
 - `c.push_error(TypeCheckError)` is the canonical accumulator path
-- `engine.take_expr_types()` returns `FxHashMap<ExprIndex, Idx>` (confirmed at `infer/mod.rs`)
+- `engine.take_expr_types()` returns `FxHashMap<ExprIndex, Idx>` (confirmed at `compiler/ori_types/src/infer/mod.rs:56`)
 - `ExprIndex` is a `usize` type alias (not a newtype), so `span_of` must map usize → Span
 
 **Reference implementations:**
@@ -103,10 +106,11 @@ Round 5 research verified:
   run inference inside a scope closure, extract `(expr_types, errors, warnings, ...)` as a
   tuple, then iterate the tuple's members to push results onto `checker`.
 
-- **Rust** `compiler/rustc_hir_typeck/src/fn_ctxt/checks.rs` — `check_fn()` performs a
-  `wfcheck::check_fn_or_closure()` call AFTER body inference concludes, inside the same
-  `FnCtxt` scope that holds the inferred types. The diagnostic is accumulated into the
-  shared diagnostic engine (analogous to `checker.push_error()`), not returned.
+- **Rust** `rustc_hir_typeck/fn_ctxt/checks.rs` (in `~/projects/reference_repos/lang_repos/rust/`) —
+  `check_fn()` performs a `wfcheck::check_fn_or_closure()` call AFTER body inference concludes,
+  inside the same `FnCtxt` scope that holds the inferred types. The diagnostic is accumulated
+  into the shared diagnostic engine (analogous to `checker.push_error()`), not returned.
+  Note: this is a path in the Rust reference repo, NOT in the Ori codebase.
 
 - **Swift** `lib/Sema/TypeCheckDecl.cpp` — `checkFunctionBody()` triggers a series of
   post-body checkers (definite initialization, effect checking, `@discardableResult` warns)
@@ -156,6 +160,59 @@ Round 5 research verified:
   Each call site must supply a span-lookup closure; the arena provides the span via
   `arena.get_expr(ExprId).span` but the mapping from `ExprIndex` (a `usize`) to `ExprId`
   requires the `expr_types` map to be consulted together with the arena.
+
+## Intelligence Reconnaissance
+
+Queries run 2026-04-15:
+
+- `scripts/intel-query.sh --human ori-inference` — checked; graph available. Key symbols: `check_function_bodies`, `check_impl_bodies`, `check_def_impl_bodies`, `validate_body_types` (Section 02), `ModuleChecker`, `InferEngine`, `FunctionSig`.
+- `scripts/intel-query.sh --human file-symbols "check/bodies" --repo ori` — confirmed: `bodies/mod.rs` houses all 4 pass functions; no existing call to `validate_body_types` at any site (pre-Section-03 state).
+- `scripts/intel-query.sh --human callers "validate_body_types" --repo ori` — 0 callers (Section 02 just added the function; no call sites yet — this section creates them).
+- `scripts/intel-query.sh --human similar "check_fn wfcheck" --repo rust --limit 5` — Rust `rustc_hir_typeck::check_fn` + `wfcheck::check_fn_or_closure` is the reference pattern: post-body validation call after inference completes, errors pushed to shared accumulator. Confirms the 4-site uniform insertion approach.
+
+Results summary (≤500 chars) [ori]: `validate_body_types` at `check/validators/mod.rs` has 0 callers — this section creates all 4. Blast radius confined to `check/bodies/` submodule (4 functions). `FunctionSig` availability differs per site: `check_function`/`check_test` have pre-collected sigs from Pass 1; `check_impl_method` constructs sig AFTER inference; `check_def_impl_method` never constructs one. Sites 03.3/03.4 require sig construction before the inference closure. Cross-repo: Rust `wfcheck` post-body pattern is the canonical prior art. [ori]
+
+---
+
+## 03.0 Prerequisite: split `bodies/mod.rs` (BLOAT gate)
+
+**File:** `compiler/ori_types/src/check/bodies/mod.rs`
+**Why this must happen first:** `bodies/mod.rs` is currently 543 lines, already 43 lines over
+the 500-line limit (`impl-hygiene.md §File Organization`). Adding validator calls at all 4 sites
+will add approximately 60 more lines, pushing it to ~600. Per the "Split when touching" rule,
+any touch to a file over 500 lines requires splitting first.
+
+**Split plan:**
+
+Extract into two sibling files, keeping `bodies/mod.rs` as the dispatch hub:
+
+- `compiler/ori_types/src/check/bodies/functions.rs` — `check_function`, `check_test`, and all
+  their helpers (the top-level function Pass 2–3 group, lines 39–253).
+- `compiler/ori_types/src/check/bodies/impls.rs` — `check_impl_method`, `check_impl_bodies`,
+  `check_def_impl_method`, `check_def_impl_bodies`, `check_def_impl_block`, and all their helpers
+  (the impl/def-impl method Pass 4–5 group, lines 319–540).
+- `compiler/ori_types/src/check/bodies/mod.rs` — retains `check_function_bodies`,
+  `check_test_bodies`, `check_impl_bodies`, `check_def_impl_bodies` (the public pass-dispatch
+  functions), imports, and the `#[cfg(test)] mod tests;` declaration. Target: under 100 lines.
+- `compiler/ori_types/src/check/bodies/tests.rs` — the existing sibling (unchanged by this split).
+
+The private `resolve_type_with_self`, `resolve_parsed_type_simple`, `check_expr`, and other
+internal helpers shared between the two groups stay in `mod.rs` or move to a shared
+`bodies/helpers.rs` submodule (whichever keeps the split cleaner).
+
+**Why this is not optional:** The `impl-hygiene.md §BLOAT` finding category ("file exceeds limits,
+mixes responsibilities, lacks submodule structure") is a Minor finding under normal review, but
+the "Split when touching" rule elevates it to a gate: touching an over-limit file without splitting
+is itself a violation. Proceeding with 03.1–03.4 while `bodies/mod.rs` is over-limit would add a
+hygiene finding that must then be addressed in the TPR. Splitting first eliminates that finding.
+
+**Tasks:**
+
+- [ ] Split `bodies/mod.rs` into `functions.rs` + `impls.rs` per the plan above
+- [ ] Verify `cargo c` compiles clean (no regressions from the split)
+- [ ] Verify `timeout 150 cargo test -p ori_types` passes clean
+- [ ] Each of the 3 resulting files (`mod.rs`, `functions.rs`, `impls.rs`) is under 500 lines
+- [ ] Commit this split as its own commit via `/commit-push` before proceeding to 03.1
 
 ---
 
@@ -249,8 +306,8 @@ The call pattern inserts between the 6-tuple extraction (line 148 closing `});`)
                 // ExprIndex is a usize alias for ExprId.raw() — the InferEngine
                 // records (ExprIndex, Idx) pairs keyed by the ExprId's raw u32
                 // value (verified at compiler/ori_types/src/infer/mod.rs:56).
-                // Convert back: ExprId::from_raw(expr_index as u32).
-                arena.get_expr(ori_ir::ExprId::from_raw(expr_index as u32)).span
+                // Convert back: ExprId::new(expr_index as u32).
+                arena.get_expr(ori_ir::ExprId::new(expr_index as u32)).span
             },
             &mut validation_errors,
         );
@@ -270,23 +327,23 @@ The call pattern inserts between the 6-tuple extraction (line 148 closing `});`)
     }
 ```
 
-**Span lookup note:** The `span_of` closure is a placeholder in the diff above. At
-implementation time, read `compiler/ori_types/src/infer/mod.rs` to find the function
-that records `(ExprIndex, Idx)` pairs into `expr_types`. The `ExprIndex` value recorded
-there must map back to a span. If `ExprIndex` == `ExprId.raw()` (which is the pattern
-used at `infer/mod.rs:56` per Section 02's research), then the span lookup is:
+**Span lookup note:** The `span_of` closure converts an `ExprIndex` (a `usize` type alias
+defined at `compiler/ori_types/src/infer/mod.rs:56`) back to a `Span`. The bridge is:
+`ExprIndex` is the `u32` raw value of an `ExprId` cast to `usize`; `ExprId::new(u32)` is
+the public constructor (verified in `compiler/ori_ir/src/expr_id/mod.rs`). The span lookup is:
 
 ```rust
 &|expr_index| {
-    // ExprIndex is ExprId.raw() — reconstruct the ExprId and look up its span.
-    let expr_id = ori_ir::ExprId::from_raw(expr_index as u32);
+    // ExprIndex (usize) == ExprId.raw() as usize — confirmed at infer/mod.rs:56.
+    // ExprId::new(u32) is the only public ExprId constructor (no from_raw exists).
+    let expr_id = ori_ir::ExprId::new(expr_index as u32);
     arena.get_expr(expr_id).span
 },
 ```
 
-Verify that `ExprId::from_raw` exists (check `ori_ir/src/ast/expr/id.rs` or similar)
-and that the relationship `ExprIndex == ExprId.raw()` holds before using this pattern.
-If the relationship is different, construct the appropriate lookup.
+The constructor `ExprId::new(u32)` is the correct form; `ExprId::from_raw` does NOT exist.
+Verify this remains accurate by checking `compiler/ori_ir/src/expr_id/mod.rs` before
+implementing.
 
 - [ ] **TDD first** — add `check_function_with_unannotated_empty_list_emits_ambiguous_type`
   to `bodies/tests.rs`. Run `timeout 150 cargo test -p ori_types -- bodies::tests` and
@@ -353,18 +410,21 @@ on it. The insertion sits between the last `engine.take_*()` call and the first 
     let errors = engine.take_errors();
     // ... (remaining take_* calls unchanged) ...
 
-    // Validate PC-2 contract: no unbound Tag::Var in body expr_types.
+    // Validate PC-2 contract: no unbound Tag::Var in body expr_types or FunctionSig.
     // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
     // Plan: plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md §03.2
     {
         let pool = checker.pool();
         let arena = checker.arena();
+        let sig_span = arena.get_expr(test_decl.expr_id).span; // test decl span
         let mut validation_errors = Vec::new();
         crate::check::validators::validate_body_types(
             pool,
             &expr_types,
+            sig,             // &FunctionSig fetched earlier (see below)
+            sig_span,
             &|expr_index| {
-                let expr_id = ori_ir::ExprId::from_raw(expr_index as u32);
+                let expr_id = ori_ir::ExprId::new(expr_index as u32);
                 arena.get_expr(expr_id).span
             },
             &mut validation_errors,
@@ -378,14 +438,18 @@ on it. The insertion sits between the last `engine.take_*()` call and the first 
     for (expr_index, ty) in expr_types { ... }
 ```
 
-The call pattern is identical to 03.1; only the host function and the insertion line
-number differ. In `check_test`, `arena` was already bound earlier in the function body
-(line 200: `let arena = checker.arena();`) so the `let arena =` inside the scope block
-is a re-borrow of the checker — verify this compiles cleanly given lifetime constraints
-(`arena()` returns `&'a ExprArena` tied to the checker's `'a` lifetime, not to `&self`).
-If there is a borrow conflict with `checker.pool()`, use the split-borrow pattern:
-bind `let arena = checker.arena();` before calling `checker.pool()`, or separate the
-borrows temporally.
+**`sig` availability in `check_test`:** `check_test` receives a `&TestDecl` and a `&FunctionSig`
+that the Signatures pass already computed. Verify that the host function has `sig: &FunctionSig`
+available as a parameter (or that a sig fetch call is already present before the extraction block)
+before inserting the validator call. The `sig_span` should be derived from `test_decl.expr_id` via
+`checker.arena().get_expr(test_decl.expr_id).span`.
+
+In `check_test`, `arena` was already bound earlier in the function body (line 200:
+`let arena = checker.arena();`) so the `let arena =` inside the scope block is a re-borrow of the
+checker — verify this compiles cleanly given lifetime constraints (`arena()` returns `&'a ExprArena`
+tied to the checker's `'a` lifetime, not to `&self`). If there is a borrow conflict with
+`checker.pool()`, use the split-borrow pattern: bind `let arena = checker.arena();` before calling
+`checker.pool()`, or separate the borrows temporally.
 
 **TDD — failing test:**
 
@@ -425,35 +489,87 @@ fn check_test_with_unannotated_empty_list_emits_ambiguous_type() {
 
 ## 03.3 Wire validator into `check_impl_method` (TPR checkpoint)
 
-**File:** `compiler/ori_types/src/check/bodies/mod.rs`
-**Function:** `check_impl_method` (line 320–440)
+**File:** `compiler/ori_types/src/check/bodies/mod.rs` (→ `bodies/impls.rs` after 03.0 split)
+**Function:** `check_impl_method` (lines 319–440 in current file)
 **Insertion point:** After the nested closure that calls `with_impl_scope` → `with_function_scope`
 returns its 6-tuple (line 390, closing `});`), before the
 `for (expr_index, ty) in expr_types` storage loop (line 393).
 
-The nested scope structure in `check_impl_method` mirrors `check_function`:
+**CRITICAL — FunctionSig ordering constraint:**
+
+Unlike `check_function`, `check_impl_method` constructs `FunctionSig sig` (at lines 418–438)
+AFTER `expr_types` is consumed (at line 393). This means the validator CANNOT be called with
+`sig: &FunctionSig` at the natural insertion point (after line 390) without restructuring.
+
+The correct fix is to **construct the FunctionSig before the inference closure runs**. The
+`param_types` and `return_type` locals needed for `FunctionSig` are already computed at lines
+335–348, before the closure. Move the sig construction up to just after line 351
+(`let fn_type = checker.pool_mut().function(...)`) — the sig fields (`param_names`, `param_types`,
+`return_type`, etc.) are available at that point. The `register_impl_sig` call at line 439 stays
+in place (the sig is constructed early, used for validation, then registered at the end).
+
+**Restructured code (insertion at line 392):**
 
 ```rust
-    let (expr_types, errors, warnings, pat_resolutions, mono_instances, deferred_mono_calls) =
-        checker.with_impl_scope(self_type, |c| {
-            c.with_function_scope(fn_type, FxHashSet::default(), |c| {
-                // ... inference ...
-                (
-                    engine.take_expr_types(),
-                    engine.take_errors(),
-                    ...
-                )
-            })
-        });
+    // === MOVED EARLIER: build FunctionSig before inference so validate_body_types can use it ===
+    let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
+    let param_defaults: Vec<Option<ori_ir::ExprId>> = params.iter().map(|p| p.default).collect();
+    let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
+    let param_hashes: Vec<u64> = param_types.iter().map(|&idx| checker.pool().hash(idx)).collect();
+    let return_hash = checker.pool().hash(return_type);
+    let sig = FunctionSig {
+        name: method.name, type_params: type_params.to_vec(), const_params: vec![],
+        param_names, param_types: param_types.clone(), return_type, capabilities: vec![],
+        is_public: false, is_test: false, is_main: false, is_fbip: false,
+        type_param_bounds: vec![], where_clauses: vec![], generic_param_mapping: vec![],
+        scheme_var_ids: vec![], required_params, param_defaults, param_hashes, return_hash,
+    };
+    // === END MOVED SECTION ===
 
-    // Store results   ← INSERT VALIDATOR CALL HERE, between these two blocks
-    for (expr_index, ty) in expr_types {
+    let (expr_types, errors, ...) = checker.with_impl_scope(self_type, |c| {
+        c.with_function_scope(fn_type, FxHashSet::default(), |c| {
+            // ... inference ...
+            (engine.take_expr_types(), engine.take_errors(), ...)
+        })
+    });
+
+    // Validate PC-2 contract: no unbound Tag::Var in body expr_types or FunctionSig.
+    {
+        let arena = checker.arena();
+        let pool = checker.pool();
+        let sig_span = arena.get_expr(method.body).span;
+        let mut validation_errors = Vec::new();
+        crate::check::validators::validate_body_types(
+            pool, &expr_types, &sig, sig_span,
+            &|expr_index| {
+                let expr_id = ori_ir::ExprId::new(expr_index as u32);
+                arena.get_expr(expr_id).span
+            },
+            &mut validation_errors,
+        );
+        for err in validation_errors { checker.push_error(err); }
+    }
+
+    // Store results
+    for (expr_index, ty) in expr_types { ... }
+
+    // Export impl method signature (sig already built above; remove duplicate construction here)
+    checker.register_impl_sig(method.name, sig);
 ```
 
-The validator call pattern is identical to 03.1/03.2. The `arena` binding: inside
-`check_impl_method` there is no pre-existing `arena` binding in scope after the closure;
-`checker.arena()` is fresh. The `pool` and `arena` borrows from `checker` are read-only
-and do not conflict with `checker.push_error` (which takes `&mut self`) — use a scoped
+**Note on `param_types.clone()`:** The original code moves `param_types` into `FunctionSig` at
+line 423. Moving construction earlier requires cloning `param_types` for the sig if it is still
+needed after that point. Inspect the actual usage: `param_types` is used to build `fn_type` at
+line 351 (already consumed into the pool) and then used again for the sig. Since the pool call
+takes `&[Idx]`, `param_types` is not consumed there. The sig then takes the `Vec<Idx>` by move.
+Building the sig early means `param_types` moves into `FunctionSig::param_types` — if the field
+is still needed after that point, extract a slice first (`&param_types[..]`) for any remaining
+usages before constructing the sig. In practice `param_types` has no use after the sig consumes
+it, so a clone is not needed; move it into the sig directly.
+
+The `arena` binding: inside `check_impl_method` there is no pre-existing `arena` binding in scope
+after the closure; `checker.arena()` is fresh. The `pool` and `arena` borrows from `checker` are
+read-only and do not conflict with `checker.push_error` (which takes `&mut self`) — use a scoped
 block to ensure the borrows end before `push_error`.
 
 **TDD — failing test:**
@@ -477,8 +593,11 @@ fn check_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
 ```
 
 - [ ] **TDD first** — add the test to `bodies/tests.rs`, confirm it FAILS.
-- [ ] Insert the validator call block after the closing `});` of `with_impl_scope`
-  (line 390), before "Store results".
+- [ ] Restructure `check_impl_method`: move the `FunctionSig sig` construction
+  (currently at lines 418–438, AFTER the inference closure) to BEFORE the
+  `with_impl_scope` closure (before line 393). Then add the validator call block
+  immediately after the closure returns (before the `for (expr_index, ty) in expr_types`
+  storage loop). See the "Restructured code" block above for the exact approach.
 - [ ] Confirm the new test **PASSES**.
 - [ ] `timeout 150 cargo test -p ori_types` — no regressions.
 - [ ] **Subsection close-out (03.3)** — MANDATORY before starting 03.4:
@@ -488,21 +607,26 @@ fn check_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
   - [ ] **Repo hygiene** — `diagnostics/repo-hygiene.sh --check`
 
 - [ ] **TPR checkpoint** — run `/tpr-review` covering subsections 03.1, 03.2, and 03.3
-  before proceeding to 03.4. The three integration sites together expose the call-pattern
-  SSOT (all three sites should be structurally identical — any divergence is a finding).
+  before proceeding to 03.4. Note: the three sites are NOT structurally identical due to the
+  `FunctionSig` availability difference at the impl-method site (see 03.3 above) — the TPR
+  should evaluate whether the early sig construction in `check_impl_method` is architecturally
+  sound, not flag the divergence as a "call pattern mismatch". Reviewers should focus on:
+  (a) correctness of `ExprId::new(u32)` as the `ExprIndex` bridge, (b) correctness of the sig
+  construction ordering in 03.3, and (c) whether the early-construction approach should be
+  extracted into a helper to reduce the boilerplate across 03.3 and 03.4.
   Resolve all critical and major findings before proceeding. Record findings in 03.R.
 
 ---
 
 ## 03.4 Wire validator into `check_def_impl_method`
 
-**File:** `compiler/ori_types/src/check/bodies/mod.rs`
-**Function:** `check_def_impl_method` (line 462–539)
+**File:** `compiler/ori_types/src/check/bodies/mod.rs` (→ `bodies/impls.rs` after 03.0 split)
+**Function:** `check_def_impl_method` (lines 462–540 in current file)
 **Insertion point:** After the `with_function_scope` closure returns its 6-tuple (line 525,
 closing `});`), before the `for (expr_index, ty) in expr_types` storage loop (line 528).
 
 `check_def_impl_method` uses only `with_function_scope` (no `with_impl_scope` — def-impl
-methods are stateless, per the comment at line 492). The structure is:
+methods are stateless). The structure is:
 
 ```rust
     let (expr_types, errors, warnings, ...) =
@@ -515,7 +639,65 @@ methods are stateless, per the comment at line 492). The structure is:
     for (expr_index, ty) in expr_types {
 ```
 
-The call pattern is identical to 03.1. No structural differences from `check_function`.
+**CRITICAL — no FunctionSig in `check_def_impl_method`:**
+
+`check_def_impl_method` (lines 462–540) NEVER constructs a `FunctionSig` — unlike
+`check_impl_method`, it does not call `checker.register_impl_sig()`. However, `param_types`
+(line 474–481) and `return_type` (line 485) are computed as locals before the closure. These
+are the same data fields that `FunctionSig` would hold.
+
+The correct approach is the same as 03.3: **construct a temporary `FunctionSig` inline before
+the inference closure**, using the available `param_types` and `return_type`. The sig is used
+only for the validator call and can be a local temporary (not registered anywhere, since
+def-impl methods have their sig handled differently at the type-checker level).
+
+**Restructured code (insertion at line 527):**
+
+```rust
+    // Build a temporary FunctionSig for validator scope (param/return type coverage).
+    // check_def_impl_method does not register a sig externally; this is validator-only.
+    let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
+    let param_defaults: Vec<Option<ori_ir::ExprId>> = params.iter().map(|p| p.default).collect();
+    let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
+    let param_hashes: Vec<u64> = param_types.iter().map(|&idx| checker.pool().hash(idx)).collect();
+    let return_hash = checker.pool().hash(return_type);
+    let validator_sig = FunctionSig {
+        name: method.name, type_params: vec![], const_params: vec![],
+        param_names, param_types, return_type, capabilities: vec![],
+        is_public: false, is_test: false, is_main: false, is_fbip: false,
+        type_param_bounds: vec![], where_clauses: vec![], generic_param_mapping: vec![],
+        scheme_var_ids: vec![], required_params, param_defaults, param_hashes, return_hash,
+    };
+
+    let (expr_types, errors, ...) = checker.with_function_scope(...);
+
+    // Validate PC-2 contract
+    {
+        let arena = checker.arena();
+        let pool = checker.pool();
+        let sig_span = arena.get_expr(method.body).span;
+        let mut validation_errors = Vec::new();
+        crate::check::validators::validate_body_types(
+            pool, &expr_types, &validator_sig, sig_span,
+            &|expr_index| {
+                let expr_id = ori_ir::ExprId::new(expr_index as u32);
+                arena.get_expr(expr_id).span
+            },
+            &mut validation_errors,
+        );
+        for err in validation_errors { checker.push_error(err); }
+    }
+
+    // Store results
+    for (expr_index, ty) in expr_types { ... }
+```
+
+**Note:** The `param_types` local moves into `validator_sig.param_types` when building the
+sig. If `param_types` is still needed after the sig construction (e.g., for building `fn_type`),
+move the sig construction AFTER the `fn_type` pool call but BEFORE the inference closure. In
+`check_def_impl_method` the flow is: build `param_types` → build `fn_type` (using `&param_types`)
+→ build `return_type` → enter closure. The sig construction should follow `fn_type` construction,
+at which point `param_types` can move into the sig.
 
 **TDD — failing test:**
 
@@ -538,12 +720,21 @@ fn check_def_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
 ```
 
 - [ ] **TDD first** — add the test, confirm it FAILS.
-- [ ] Insert the validator call block after the closing `});` of `with_function_scope`
-  (line 525), before "Store results".
+- [ ] In `check_def_impl_method`: construct the `validator_sig` (`FunctionSig` local)
+  BEFORE the `with_function_scope` closure (after `fn_type` is built so `param_types`
+  can move in), then insert the validator call block after the closure returns (before
+  the `for (expr_index, ty) in expr_types` storage loop). See the "Restructured code"
+  block above for the exact `validator_sig` field list and validator call.
 - [ ] Confirm the new test **PASSES**.
 - [ ] Verify the grep criterion: `grep -c 'validate_body_types' compiler/ori_types/src/check/bodies/mod.rs`
   returns **4** (all four sites now call the validator).
 - [ ] `timeout 150 cargo test -p ori_types` — no regressions.
+- [ ] **Prelude safety gate** — run `timeout 150 cargo st tests/spec/` against a
+  small set of programs that exercise prelude `def impl` methods (e.g., any program
+  using `[int].push()`, `.len()`, `.is_empty()`) to confirm that the prelude's own
+  def-impl bodies are free of surviving `Tag::Var` — if prelude methods produce E2005,
+  the entire test suite breaks. If E2005 fires on a prelude body, that is a BUG in the
+  prelude's def-impl body (or in the validator), NOT a scope/Section 06 issue.
 - [ ] **Subsection close-out (03.4)** — MANDATORY before starting 03.5:
   - [ ] All tasks above are `[x]` and behavior is verified
   - [ ] Update subsection `status` in frontmatter to `complete`
@@ -770,6 +961,13 @@ When all findings are triaged:
 - [ ] No undocumented spec-test failures — Known Failing Tests section is accurate and complete
 - [ ] The call block structure is DRY — either a shared `run_validator` helper exists, or
   the 4-line pattern is consistently identical at all 4 sites with no local deviations
+- [ ] **Known limitation noted**: `validate_body_types` currently emits the E2005 diagnostic
+  with "expression" as the context label regardless of where the unresolved `Tag::Var`
+  appears (parameter, return type, or body expression). This is correct behavior —
+  E2005 fires — but the wording is generic rather than empty-list-specific. An improved
+  diagnostic message ("cannot infer type of empty list — add a type annotation like
+  `let x: [T] = []`") is a post-Section-03 improvement tracked in Section 06 or
+  as a separate bug. This is NOT a blocking issue for Section 03 completion.
 - [ ] All plan-annotation comments (`# Plan: ...`, `§03.N`) use the correct section reference
   and will be stripped by the Section 07 annotation-cleanup pass
 - [ ] All intermediate subsection close-out tasks complete (03.1–03.5)
