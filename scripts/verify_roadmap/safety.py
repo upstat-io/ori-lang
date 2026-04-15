@@ -265,11 +265,11 @@ def _classify_unknown_field(
     frontmatter_data: dict | None,
 ) -> ClassifiedFinding:
     """Classify UNKNOWN_FIELD — handles plan:->name: rename."""
-    desc = finding.description.lower()
+    key = finding.target_key
     source = finding.source
 
     # plan: key rename is only valid on PlanIndexSchema files
-    if "plan" in desc and _is_plan_index(source):
+    if key == "plan" and _is_plan_index(source):
         fm = frontmatter_data or {}
 
         has_plan = "plan" in fm
@@ -306,7 +306,7 @@ def _classify_unknown_field(
             )
 
     # plan: on OverviewSchema is canonical — NOT a rename candidate
-    if "plan" in desc and _is_overview(source):
+    if key == "plan" and _is_overview(source):
         return ClassifiedFinding(
             finding=finding,
             safety_class=SafetyClass.EXPOSURE_REVIEW,
@@ -330,11 +330,11 @@ def _classify_missing_required_field(
     frontmatter_data: dict | None,
 ) -> ClassifiedFinding:
     """Classify MISSING_REQUIRED_FIELD — handles safe defaults."""
-    desc = finding.description.lower()
+    key = finding.target_key
     source = finding.source
 
     # reviewed: false insertion
-    if "reviewed" in desc:
+    if key == "reviewed":
         # SafeFix only for PlanSectionSchema and RoadmapSectionSchema
         # where reviewed: is a REQUIRED field with no default
         if _is_plan_section(source) or _is_roadmap_section(source):
@@ -361,7 +361,7 @@ def _classify_missing_required_field(
             )
 
     # third_party_review: default insertion
-    if "third_party_review" in desc:
+    if key == "third_party_review":
         # SafeFix where required by schema (PlanSectionSchema, FixBugSchema)
         if _is_plan_section(source) or _is_fix_bug(source):
             return ClassifiedFinding(

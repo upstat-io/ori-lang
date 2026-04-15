@@ -451,6 +451,20 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
   Resolved: Fixed on 2026-04-15. Added `test_unknown_field_plan_key_rename_emits_pairing_tag` in test_safety.py — calls `classify_safety()` directly and asserts `result.pairing_tag == PAIRING_TAG_PLAN_TO_NAME_RENAME`. 289 tests now pass.
   Basis: direct_file_inspection. Confidence: high.
 
+**Round 4 iteration 4 findings (2026-04-15 — structural target_key):**
+
+- [x] `[TPR-03-001-codex-r4i4][medium]` `scripts/verify_roadmap/pairing.py:87` — Carry schema field identity structurally instead of parsing Finding.description.
+  Evidence: Downstream flow still parsed prose to identify which field a finding refers to. `pair_resolved_by_sibling()` checked `"name" in f.description.lower()`; `_dispatch_unknown_field()` checked `"plan" in desc`; `_classify_missing_required_field()` checked `"reviewed" in desc`.
+  Resolved: Fixed on 2026-04-15. Added `target_key: str | None = None` to `Finding` dataclass in `plan_corpus/types.py`. `_check_required_fields()` and `_check_unknown_fields()` in `schema.py` now populate it with the actual key name. All downstream modules (`safety.py`, `auto_fix.py`, `pairing.py`) now dispatch on `finding.target_key` — zero prose parsing for field identity.
+  Agreement: [TPR-03-001-gemini-r4i4] (same systemic issue, different angle)
+- [x] `[TPR-03-001-gemini-r4i4][high]` `scripts/verify_roadmap/auto_fix.py:99` — Remove prose-string fragility across auto_fix, pairing, and safety modules.
+  Resolved: Fixed on 2026-04-15. Same fix as [TPR-03-001-codex-r4i4] — structural `target_key` field eliminates all prose-based field dispatch.
+  Agreement: [TPR-03-001-codex-r4i4]
+- [ ] `[TPR-03-002-gemini-r4i4][high]` `scripts/verify_roadmap/auto_fix.py:165` — Remove fragile string splitting for dead reference extraction.
+  Evidence: `_dispatch_dead_reference` parses `f.description` via `rsplit(":", 1)[1].strip()` to extract the dead reference value. Comment notes this is "best-effort." Requires structural value passing from the upstream DAG validator — crosses into `plan_corpus/dag.py` which constructs the dead-reference findings.
+  Impact: Prose-string fragility; any description format change breaks auto-fix.
+  Tracked: Concrete `- [ ]` item added to §05 for the dead-reference structural value plumbing. Cannot be fixed in §03 close-out without a larger `plan_corpus` refactor crossing section boundaries.
+
 ---
 
 ## 03.N Completion Checklist
