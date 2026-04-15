@@ -63,7 +63,7 @@ sections:
     status: complete
   - id: "02.1"
     title: "Validator signature, public contract, and narrow re-export"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Core algorithm: tag-dispatch child recursion (reusing Pool::visit_children)"
     status: not-started
@@ -291,9 +291,9 @@ in §02.2.
 
 ### 02.1.1 — New files
 
-- [ ] `compiler/ori_types/src/check/validators/mod.rs`
+- [x] `compiler/ori_types/src/check/validators/mod.rs`
   <!-- NEW — created by this section -->
-- [ ] `compiler/ori_types/src/check/validators/tests.rs`
+- [x] `compiler/ori_types/src/check/validators/tests.rs`
   <!-- NEW — created by this section -->
 
 ### 02.1.2 — Canonical signature
@@ -406,7 +406,7 @@ use crate::{ExprIndex, Idx, Pool, TypeCheckError, TypeFlags};
 
 ### 02.1.4 — Narrow public re-export
 
-- [ ] In `compiler/ori_types/src/lib.rs`, keep line 16 as
+- [x] In `compiler/ori_types/src/lib.rs`, keep line 16 as
   `mod check;` (private — no `pub` promotion). Add a narrow re-export:
   ```rust
   pub use check::validators::validate_body_types;
@@ -418,12 +418,12 @@ use crate::{ExprIndex, Idx, Pool, TypeCheckError, TypeFlags};
 
 ### 02.1.5 — Completion criteria
 
-- [ ] Signature in `compiler/ori_types/src/check/validators/mod.rs` matches
+- [x] Signature in `compiler/ori_types/src/check/validators/mod.rs` matches
   §02.1.2 verbatim (param names, param order, `pub` vs `pub(crate)`; the
   exposed function is `pub` because §02.1.4 re-exports it).
-- [ ] `compiler/ori_types/src/lib.rs` has `mod check;` (unchanged) and a new
+- [x] `compiler/ori_types/src/lib.rs` has `mod check;` (unchanged) and a new
   `pub use check::validators::validate_body_types;`. No `pub mod check`.
-- [ ] `cargo doc -p ori_types` renders the rustdoc block cleanly, including
+- [x] `cargo doc -p ori_types` renders the rustdoc block cleanly, including
   cross-references to `Pool`, `FunctionSig`, and `TypeCheckError`.
 
 ---
