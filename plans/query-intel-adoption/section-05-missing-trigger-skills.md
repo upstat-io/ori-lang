@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Missing-trigger skills & commands"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Add a concrete graph-query workflow step to every review/investigation skill and command currently lacking one"
 success_criteria:
@@ -29,7 +29,7 @@ sections:
     status: not-started
   - id: "05.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "05.N"
     title: "Completion Checklist"
     status: not-started
