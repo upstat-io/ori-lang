@@ -746,7 +746,7 @@ fn test_infer_if_non_bool_condition() {
 // Match Expression Tests
 
 #[test]
-fn test_infer_match_simple() {
+fn test_infer_match_unifies_arm_types() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
@@ -1040,7 +1040,7 @@ fn test_infer_ident_unbound() {
 // Function Call Tests
 
 #[test]
-fn test_infer_call_simple() {
+fn test_infer_call_with_known_signature_returns_return_type() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
@@ -1126,7 +1126,7 @@ fn test_infer_call_not_callable() {
 // Lambda Tests
 
 #[test]
-fn test_infer_lambda_simple() {
+fn test_infer_identity_lambda_returns_function_type() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
@@ -1444,7 +1444,7 @@ fn test_infer_none() {
 }
 
 #[test]
-fn test_infer_ok() {
+fn test_infer_ok_constructor_returns_result_type() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
@@ -3008,5 +3008,727 @@ fn test_has_comparable_returns_false_without_registry() {
     assert!(
         !super::operators::has_comparable_trait(&engine, user_ty),
         "Named type without Comparable should not pass the check"
+    );
+}
+
+// ── Value Restriction Tests ──────────────────────────────────────────
+
+#[test]
+fn test_should_generalize_non_capturing_lambda_returns_true() {
+    let mut arena = ExprArena::new();
+    let px = name(100);
+    let body = alloc(&mut arena, ExprKind::Ident(px));
+    let params = arena.alloc_params([Param {
+        name: px,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body,
+        },
+    );
+    assert!(
+        should_generalize(&arena, lambda),
+        "non-capturing lambda must be generalizable"
+    );
+}
+
+#[test]
+fn test_should_generalize_non_lambda_returns_false() {
+    let mut arena = ExprArena::new();
+
+    let int_expr = alloc(&mut arena, ExprKind::Int(42));
+    assert!(
+        !should_generalize(&arena, int_expr),
+        "int literal must not generalize"
+    );
+
+    let list_elems = arena.alloc_expr_list_inline(&[]);
+    let empty_list = alloc(&mut arena, ExprKind::List(list_elems));
+    assert!(
+        !should_generalize(&arena, empty_list),
+        "empty list must not generalize"
+    );
+
+    let ident = alloc(&mut arena, ExprKind::Ident(name(1)));
+    assert!(
+        !should_generalize(&arena, ident),
+        "identifier must not generalize"
+    );
+}
+
+#[test]
+fn test_should_generalize_capturing_lambda_returns_false() {
+    let mut arena = ExprArena::new();
+    let px = name(100);
+    let captured = alloc(&mut arena, ExprKind::Ident(name(999)));
+    let params = arena.alloc_params([Param {
+        name: px,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body: captured,
+        },
+    );
+    assert!(
+        !should_generalize(&arena, lambda),
+        "capturing lambda must NOT generalize"
+    );
+}
+
+/// Semantic pin: `let id = x -> x; id` must produce a well-typed `Function`.
+/// The binding is generalized to a Scheme; accessing `id` instantiates it
+/// to a fresh Function type (GN-2). Non-capturing lambdas are the ONLY
+/// initializers that should generalize.
+#[test]
+fn test_let_polymorphism_for_lambda_produces_function() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build: { let id = x -> x; id }
+    let param_name = name(100);
+    let body = alloc(&mut arena, ExprKind::Ident(param_name));
+    let params = arena.alloc_params([Param {
+        name: param_name,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body,
+        },
+    );
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: lambda,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    let result_expr = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let stmts = arena.alloc_stmt_range(0, 1);
+    let block = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts,
+            result: result_expr,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, block);
+    // The Scheme is instantiated when `id` is referenced (GN-2), producing
+    // a fresh Function type with Var params. The key semantic pin is that
+    // the binding was generalized and CAN be instantiated — not errored.
+    assert_eq!(
+        engine.pool().tag(ty),
+        Tag::Function,
+        "non-capturing lambda binding must be generalized (Scheme) and instantiated to Function"
+    );
+    let params_ty = engine.pool().function_params(ty);
+    assert_eq!(params_ty.len(), 1);
+    assert_eq!(
+        engine.pool().tag(params_ty[0]),
+        Tag::Var,
+        "instantiated identity function param must be a fresh Var"
+    );
+    assert!(!engine.has_errors());
+}
+
+/// Semantic pin: `let xs = []` must NOT produce a `Tag::Scheme`.
+/// The element Var should remain Unbound (monomorphic), not be wrapped
+/// in a generalized Scheme.
+#[test]
+fn test_empty_list_let_binding_does_not_generalize_element_var() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build: { let xs = []; xs }
+    let list_elems = arena.alloc_expr_list_inline(&[]);
+    let empty_list = alloc(&mut arena, ExprKind::List(list_elems));
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: empty_list,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    let result_expr = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let stmts = arena.alloc_stmt_range(0, 1);
+    let block = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts,
+            result: result_expr,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, block);
+    assert_ne!(
+        engine.pool().tag(ty),
+        Tag::Scheme,
+        "empty list initializer must NOT generalize — element Var should stay Unbound"
+    );
+    assert_eq!(
+        engine.pool().tag(ty),
+        Tag::List,
+        "empty list binding should produce a List type with an unresolved element Var"
+    );
+}
+
+/// Negative pin: `let f = { x -> x }` (block-wrapped lambda) must NOT generalize.
+/// `should_generalize` sees `ExprKind::Block`, not `ExprKind::Lambda`.
+#[test]
+fn test_block_wrapped_lambda_does_not_generalize() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build: { let f = { x -> x }; f }
+    // Inner lambda
+    let param_name = name(100);
+    let inner_body = alloc(&mut arena, ExprKind::Ident(param_name));
+    let params = arena.alloc_params([Param {
+        name: param_name,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body: inner_body,
+        },
+    );
+    // Wrap in a block: { x -> x } (block with lambda as result)
+    let empty_stmts = arena.alloc_stmt_range(0, 0);
+    let block_wrapped = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts: empty_stmts,
+            result: lambda,
+        },
+    );
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: block_wrapped,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    let result_expr = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let stmts = arena.alloc_stmt_range(0, 1);
+    let block = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts,
+            result: result_expr,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, block);
+    assert_ne!(
+        engine.pool().tag(ty),
+        Tag::Scheme,
+        "block-wrapped lambda must NOT generalize — should_generalize sees Block, not Lambda"
+    );
+}
+
+/// Negative pin: `let alias = id` (variable alias of polymorphic binding) must NOT
+/// re-generalize. `alias` gets the instantiated monotype from `id`'s scheme.
+#[test]
+fn test_variable_alias_does_not_generalize() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build: { let id = x -> x; let alias = id; alias }
+    // Step 1: let id = x -> x (polymorphic)
+    let param_name = name(100);
+    let body = alloc(&mut arena, ExprKind::Ident(param_name));
+    let params = arena.alloc_params([Param {
+        name: param_name,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body,
+        },
+    );
+    let pattern_id = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt1 = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern: pattern_id,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: lambda,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    // Step 2: let alias = id (variable reference, not a lambda)
+    let id_ref = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let pattern_alias = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(2),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt2 = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern: pattern_alias,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: id_ref,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    // Result: alias
+    let result_expr = alloc(&mut arena, ExprKind::Ident(name(2)));
+    let stmts = arena.alloc_stmt_range(0, 2);
+    let block = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts,
+            result: result_expr,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, block);
+    assert_ne!(
+        engine.pool().tag(ty),
+        Tag::Scheme,
+        "variable alias must NOT re-generalize — should_generalize sees Ident, not Lambda"
+    );
+}
+
+/// Negative pin: `let f = if true then (x -> x) else (y -> y)` must NOT generalize.
+/// `should_generalize` sees `ExprKind::If`, not `ExprKind::Lambda`.
+#[test]
+fn test_conditional_lambda_does_not_generalize() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build: { let f = if true then (x -> x) else (y -> y); f }
+    let cond = alloc(&mut arena, ExprKind::Bool(true));
+
+    // then branch: x -> x
+    let px = name(100);
+    let body_x = alloc(&mut arena, ExprKind::Ident(px));
+    let params_x = arena.alloc_params([Param {
+        name: px,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let then_lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params: params_x,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body: body_x,
+        },
+    );
+
+    // else branch: y -> y
+    let py = name(101);
+    let body_y = alloc(&mut arena, ExprKind::Ident(py));
+    let params_y = arena.alloc_params([Param {
+        name: py,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let else_lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params: params_y,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body: body_y,
+        },
+    );
+
+    let if_expr = alloc(
+        &mut arena,
+        ExprKind::If {
+            cond,
+            then_branch: then_lambda,
+            else_branch: else_lambda,
+        },
+    );
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: if_expr,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    let result_expr = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let stmts = arena.alloc_stmt_range(0, 1);
+    let block = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts,
+            result: result_expr,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, block);
+    assert_ne!(
+        engine.pool().tag(ty),
+        Tag::Scheme,
+        "conditional producing lambdas must NOT generalize — should_generalize sees If, not Lambda"
+    );
+}
+
+/// Negative pin: `let f = x -> x + outer` (capturing lambda) must NOT generalize.
+/// Even though it's `ExprKind::Lambda`, `body_captures_outer` returns true.
+#[test]
+fn test_capturing_lambda_does_not_generalize() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build: { let outer = 1; let f = x -> outer; f }
+    // Step 1: let outer = 1
+    let one = alloc(&mut arena, ExprKind::Int(1));
+    let pattern_outer = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(10),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt1 = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern: pattern_outer,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: one,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    // Step 2: let f = x -> outer (captures `outer`)
+    let px = name(100);
+    let capture_ref = alloc(&mut arena, ExprKind::Ident(name(10)));
+    let params = arena.alloc_params([Param {
+        name: px,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let capturing_lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body: capture_ref,
+        },
+    );
+    let pattern_f = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt2 = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern: pattern_f,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: capturing_lambda,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    // Result: f
+    let result_expr = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let stmts = arena.alloc_stmt_range(0, 2);
+    let block = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts,
+            result: result_expr,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, block);
+    assert_ne!(
+        engine.pool().tag(ty),
+        Tag::Scheme,
+        "capturing lambda must NOT generalize — body_captures_outer returns true"
+    );
+}
+
+/// Semantic pin: `let x = []` via the `ExprKind::Let` path must NOT produce
+/// a `Tag::Scheme` binding. The `ExprKind::Let` case dispatches to `infer_let`,
+/// which is a separate code path from `infer_block`'s `StmtKind::Let` arm.
+/// This test exercises the `ExprKind::Let` → `infer_let` path specifically.
+#[test]
+fn test_let_expr_non_lambda_does_not_generalize() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build: let x = [] (as ExprKind::Let, not inside a block statement)
+    let list_elems = arena.alloc_expr_list_inline(&[]);
+    let empty_list = alloc(&mut arena, ExprKind::List(list_elems));
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let let_expr = alloc(
+        &mut arena,
+        ExprKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: empty_list,
+            mutable: Mutability::Immutable,
+        },
+    );
+
+    // Evaluate the let expression (returns Unit, but binds name(1) in env)
+    let result = infer_expr(&mut engine, &arena, let_expr);
+    assert_eq!(
+        engine.pool().tag(result),
+        Tag::Unit,
+        "let expression returns Unit"
+    );
+
+    // Look up the binding and verify it was NOT generalized into a Scheme
+    let bound_ty = engine
+        .env()
+        .lookup(name(1))
+        .expect("name(1) should be bound after let");
+    assert_ne!(
+        engine.pool().tag(bound_ty),
+        Tag::Scheme,
+        "ExprKind::Let with non-lambda init must NOT generalize — element Var should stay Unbound"
+    );
+    assert_eq!(
+        engine.pool().tag(bound_ty),
+        Tag::List,
+        "ExprKind::Let with empty list init should bind a List type"
+    );
+}
+
+/// Semantic pin: a let statement inside a try block with a non-lambda initializer
+/// must NOT generalize. The try-block let path in `sequences.rs` (`infer_try_stmt`)
+/// is a third generalization site distinct from `infer_block` and `infer_let`.
+/// We call `infer_try_stmt` directly to exercise the code path without the
+/// try-block scope enter/exit that would hide the binding.
+#[test]
+fn test_try_block_let_non_lambda_does_not_generalize() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build a let statement: let xs = []
+    let list_elems = arena.alloc_expr_list_inline(&[]);
+    let empty_list = alloc(&mut arena, ExprKind::List(list_elems));
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: empty_list,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    // Call infer_try_stmt directly — this is the try-block let path in sequences.rs
+    let stmt_ref = arena.get_stmt(stmt);
+    infer_try_stmt(&mut engine, &arena, stmt_ref);
+
+    // The binding should be visible in the engine's environment
+    let bound_ty = engine
+        .env()
+        .lookup(name(1))
+        .expect("name(1) should be bound after infer_try_stmt");
+    assert_ne!(
+        engine.pool().tag(bound_ty),
+        Tag::Scheme,
+        "try-block let with non-lambda init must NOT generalize"
+    );
+}
+
+/// Positive pin: `let id = x -> x` via the `ExprKind::Let` path must still produce
+/// a `Tag::Scheme` binding. This verifies generalization is preserved for non-capturing
+/// lambdas through the `infer_let` code path (distinct from `infer_block`'s `StmtKind::Let`).
+#[test]
+fn test_let_expr_lambda_generalizes() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build: let id = x -> x (as ExprKind::Let)
+    let param_name = name(100);
+    let body = alloc(&mut arena, ExprKind::Ident(param_name));
+    let params = arena.alloc_params([Param {
+        name: param_name,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body,
+        },
+    );
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let let_expr = alloc(
+        &mut arena,
+        ExprKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: lambda,
+            mutable: Mutability::Immutable,
+        },
+    );
+
+    let _result = infer_expr(&mut engine, &arena, let_expr);
+
+    // The binding must be a Scheme (generalized) for non-capturing lambda
+    let bound_ty = engine
+        .env()
+        .lookup(name(1))
+        .expect("name(1) should be bound after let");
+    assert_eq!(
+        engine.pool().tag(bound_ty),
+        Tag::Scheme,
+        "ExprKind::Let with non-capturing lambda must generalize to Scheme"
+    );
+}
+
+/// Positive pin: `let id = x -> x` inside a try block via `infer_try_stmt` must still
+/// produce a `Tag::Scheme` binding. This verifies generalization is preserved for
+/// non-capturing lambdas through the try-block let path in sequences.rs.
+#[test]
+fn test_try_block_let_lambda_generalizes() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Build a let statement: let id = x -> x
+    let param_name = name(100);
+    let body = alloc(&mut arena, ExprKind::Ident(param_name));
+    let params = arena.alloc_params([Param {
+        name: param_name,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body,
+        },
+    );
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: lambda,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+
+    // Call infer_try_stmt directly — exercises the try-block let path in sequences.rs
+    let stmt_ref = arena.get_stmt(stmt);
+    infer_try_stmt(&mut engine, &arena, stmt_ref);
+
+    let bound_ty = engine
+        .env()
+        .lookup(name(1))
+        .expect("name(1) should be bound after infer_try_stmt");
+    assert_eq!(
+        engine.pool().tag(bound_ty),
+        Tag::Scheme,
+        "try-block let with non-capturing lambda must generalize to Scheme"
     );
 }

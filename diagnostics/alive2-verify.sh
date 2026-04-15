@@ -18,6 +18,7 @@
 #   --suppress FILE    False positive suppression file (default: tests/alive2/suppressed.json)
 #   --strict           Ignore all suppressions (for deep manual verification)
 #   --check-survival   Verify that target functions survive optimization (not inlined away)
+#   --review-suppressions  Check if suppressed entries still need suppression (stale detection)
 #   --no-color         Disable color output
 #   -h, --help         Show this help message
 #
@@ -195,31 +196,27 @@ review_suppressions() {
         return 0
     fi
     cecho "$CYAN" "Reviewing $count suppressions..."
-    python3 -c "
-import json
-with open('$SUPPRESS_FILE') as f:
-    entries = json.load(f)
-for e in entries:
-    print(e.get('file', '?') + ' ' + e.get('function', '?') + ' ' + e.get('category', '?'))
-" 2>/dev/null | while read -r file func category; do
+    # Use process substitution to avoid pipe subshell (counters are lost in subshells)
+    while read -r file func category; do
         echo -n "  $func ($file, $category): "
         if [[ ! -f "$ROOT_DIR/$file" ]]; then
             cecho "$YELLOW" "file missing — can remove"
             removable=$((removable + 1))
             continue
         fi
-        # Try building and running alive-tv
+        # Build from ROOT_DIR with relative path so ir_capture.rs produces
+        # consistent repo-relative filenames (not absolute-path-based names)
         local capture_output
-        capture_output=$(ORI_ALIVE2_CAPTURE=1 "$ORI_BIN" build "$ROOT_DIR/$file" --opt="$OPT_LEVEL" 2>&1)
+        capture_output=$(cd "$ROOT_DIR" && ORI_ALIVE2_CAPTURE=1 "$ORI_BIN" build "$file" --opt="$OPT_LEVEL" 2>&1)
         if [[ $? -ne 0 ]]; then
             echo "build failed — keep suppression"
             continue
         fi
-        local basename
-        basename=$(echo "$file" | sed 's|^\./||; s|/|_|g')
-        basename="${basename%.ori}"
-        local preopt="$RESULTS_DIR/${basename}.preopt.ll"
-        local postopt="$RESULTS_DIR/${basename}.postopt.ll"
+        local sanitized
+        sanitized=$(echo "$file" | sed 's|^\./||; s|/|_|g')
+        sanitized="${sanitized%.ori}"
+        local preopt="$RESULTS_DIR/${sanitized}.preopt.ll"
+        local postopt="$RESULTS_DIR/${sanitized}.postopt.ll"
         if [[ ! -f "$preopt" ]] || [[ ! -f "$postopt" ]]; then
             echo "capture failed — keep suppression"
             continue
@@ -232,7 +229,13 @@ for e in entries:
         else
             echo "still fails — keep suppression"
         fi
-    done
+    done < <(python3 -c "
+import json
+with open('$SUPPRESS_FILE') as f:
+    entries = json.load(f)
+for e in entries:
+    print(e.get('file', '?') + ' ' + e.get('function', '?') + ' ' + e.get('category', '?'))
+" 2>/dev/null)
     cecho "$CYAN" "Review complete: $removable suppression(s) can be removed"
 }
 
@@ -294,14 +297,28 @@ verify_file() {
             continue
         fi
 
-        # Check survival (inlining filter)
+        # Check function exists in pre-opt IR (catches typos/renames in corpus)
+        if ! echo "$preopt_funcs" | grep -qF "$func"; then
+            cecho "$RED" "  MISSING: $func (not found in pre-opt IR — check function name)"
+            FAILED=$((FAILED + 1))
+            file_failed=$((file_failed + 1))
+            json_record "$ori_file" "$func" "error" "" "Function not found in pre-opt IR"
+            continue
+        fi
+
+        # Check survival (inlining filter) — present pre-opt but absent post-opt
         if ! echo "$postopt_funcs" | grep -qF "$func"; then
             if [[ "$CHECK_SURVIVAL" == "true" ]]; then
-                cecho "$YELLOW" "  INLINED: $func (absent from post-opt IR)"
+                cecho "$RED" "  INLINED: $func (present pre-opt, absent post-opt — survival violation)"
+                FAILED=$((FAILED + 1))
+                file_failed=$((file_failed + 1))
+                json_record "$ori_file" "$func" "inlined"
+            else
+                [[ "$VERBOSE" == "true" ]] && cecho "$YELLOW" "  INLINED: $func (absent from post-opt IR)"
+                INLINED=$((INLINED + 1))
+                file_inlined=$((file_inlined + 1))
+                json_record "$ori_file" "$func" "inlined"
             fi
-            INLINED=$((INLINED + 1))
-            file_inlined=$((file_inlined + 1))
-            json_record "$ori_file" "$func" "inlined"
             continue
         fi
 
@@ -403,7 +420,11 @@ if [[ "$JSON_OUTPUT" == "true" ]] && [[ -n "$JSON_ENTRIES_FILE" ]]; then
     [[ "$ALL_CODEGEN_MODE" == "true" ]] && json_mode="full-sweep"
     # Extract alive2 commit from build script
     alive2_commit=$(grep 'ALIVE2_COMMIT=' "$ROOT_DIR/scripts/build-alive2.sh" 2>/dev/null | head -1 | cut -d'"' -f2)
-    llvm_major=$("$ROOT_DIR/build/alive2/alive-tv" --version 2>&1 | grep -oP 'LLVM \K\d+' || echo "21")
+    llvm_major=$("$ROOT_DIR/build/alive2/alive-tv" --version 2>&1 | sed -n 's/.*LLVM \([0-9]*\).*/\1/p' | head -1)
+    if [[ -z "$llvm_major" ]]; then
+        echo "WARNING: Could not parse LLVM version from alive-tv --version" >&2
+        llvm_major="0"
+    fi
     # Build JSON
     python3 -c "
 import json, sys

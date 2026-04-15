@@ -49,7 +49,7 @@ pub(crate) type DeferredDec = (Option<usize>, ArcVarId, RcStrategy);
 pub(crate) use queries::{collect_param_borrowed_vars, collect_rc_incremented_vars};
 
 // Re-exports for `realize/` unified annotation walk (Section 10.3).
-pub(crate) use cow::is_borrow_disjoint_from_siblings;
+pub(crate) use cow::{has_borrows_from_aggregate, is_borrow_disjoint_from_siblings};
 pub(crate) use drop_hints::{collect_borrowed_call_args, is_collection_var};
 
 // Re-exports for `realize/` unified forward walk (Section 10.2).

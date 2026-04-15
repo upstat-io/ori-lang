@@ -3,7 +3,7 @@ reroute: true
 name: "Hygiene Full-2"
 full_name: "Implementation Hygiene Full Sweep #2"
 status: active
-order: 6
+order: 8
 ---
 
 # Hygiene Full-2 Index

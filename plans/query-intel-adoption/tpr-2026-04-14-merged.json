@@ -1,0 +1,764 @@
+{
+  "section": "XX",
+  "merged_findings": [
+    {
+      "id": "[TPR-XX-001-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 1,
+        "severity": "high",
+        "location": ".claude/commands/query-intel.md:1",
+        "title": "GAP:discoverability \u2014 the graph is exposed only as a slash command, not an auto-triggerable skill",
+        "evidence": "`.claude/commands/query-intel.md` is the entire prompt surface for graph access, and fresh verification showed `.claude/skills/query-intel/` is missing. Commands must be invoked manually; they cannot auto-trigger from `description` frontmatter the way skills can.",
+        "impact": "The code-symbol graph stays invisible unless the operator explicitly remembers `/query-intel`, which is the opposite of the graph-first behavior the project wants.",
+        "required_plan_update": "Create `.claude/skills/query-intel/SKILL.md` as a skill mirror with a description that auto-triggers on call-graph, blast-radius, symbol-inventory, and cross-repo-equivalent requests. Keep `.claude/commands/query-intel.md` as a thin slash-command shim pointing at the skill.",
+        "basis": "fresh_verification"
+      }
+    },
+    {
+      "id": "[TPR-XX-002-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 2,
+        "severity": "high",
+        "location": "CLAUDE.md:140",
+        "title": "GAP:discoverability \u2014 `CLAUDE.md` omits `/query-intel` from the natural command lookup surface",
+        "evidence": "The only intelligence mention in `CLAUDE.md` is line 38. The `## Commands` section at lines 140-167 never mentions `/query-intel`, `scripts/intel-query.sh`, or a graph-first workflow for reviews, bug work, or prior-art lookup.",
+        "impact": "The main operator handbook never teaches the graph where users naturally scan for available commands, so adoption depends on memory rather than policy.",
+        "required_plan_update": "Add a command entry under `## Commands`: `/query-intel` \u2014 graph-first reconnaissance for symbol inventory, blast radius, and cross-repo equivalents. Before manual grep or reference-repo browsing, run `file-symbols <path>`, `callers/callees <symbol>`, and `similar <symbol>`.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-003-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 3,
+        "severity": "high",
+        "location": "CLAUDE.md:182",
+        "title": "GAP:discoverability \u2014 `CLAUDE.md` Key Paths omits the intelligence graph and its wrapper",
+        "evidence": "The `## Key Paths` line enumerates compiler, spec, diagnostics, tests, plans, and plan corpus paths, but not `../lang_intelligence/` or `scripts/intel-query.sh`.",
+        "impact": "A major subsystem with a dedicated wrapper and a separate database repo is absent from the main path map, which makes it feel peripheral instead of first-class.",
+        "required_plan_update": "Append to `## Key Paths`: `../lang_intelligence/` \u2014 Neo4j-backed intelligence graph | `scripts/intel-query.sh` \u2014 canonical wrapper for graph queries.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-004-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 4,
+        "severity": "high",
+        "location": "CLAUDE.md:186",
+        "title": "GAP:discoverability \u2014 the Reference Repos section teaches manual browsing but not graph-first narrowing",
+        "evidence": "The `## Reference Repos` section lists raw repo paths only. It never tells the reader to run graph queries before opening those repos, even though line 38 already establishes that as the intended workflow.",
+        "impact": "Readers are pushed toward manual repo trawling first, which wastes time and bypasses the exact capability the operator says is underused.",
+        "required_plan_update": "Insert a preface before the repo bullets: `Graph-first rule: ~/projects/reference_repos/lang_repos/ is for verification, not discovery. Before opening repos manually, run /query-intel file-symbols, callers/callees, and similar to narrow the exact symbols and files first.`",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-005-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 5,
+        "severity": "medium",
+        "location": ".claude/rules/intelligence.md:18",
+        "title": "GAP:missing-trigger \u2014 the intelligence rule's workflow inventory is already stale",
+        "evidence": "`.claude/rules/intelligence.md` lists many consumers, but it does not name `/verify-tpr`, `/sync-claude`, `/sync-spec`, `/sync-grammar`, `/verify-roadmap`, or `/fix-next-bug`, all of which have plausible graph-first value based on the surrounding workflows.",
+        "impact": "The SSOT rule that is supposed to tell readers when to query the graph is incomplete, so new integrations are never promoted into the canonical trigger list.",
+        "required_plan_update": "Extend `## When to Query` with bullets for `/verify-tpr`, `/sync-claude`, `/sync-spec`, `/sync-grammar`, `/verify-roadmap`, and `/fix-next-bug`, including the expected query shapes for each workflow.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-006-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 6,
+        "severity": "informational",
+        "location": ".claude/skills/tpr-review/SKILL.md:58",
+        "title": "NOTE \u2014 `/tpr-review` Step 0.75 is the current gold-standard integration pattern",
+        "evidence": "This block is the most complete graph workflow in the repo: availability check, subsystem inference, `file-symbols`, `callers`, `callees`, `similar`, bounded `Intelligence Summary`, and prompt injection.",
+        "impact": "This is the best existing SSOT candidate for future reuse; the problem is not that this surface is weak, but that the same logic is not reused elsewhere.",
+        "required_plan_update": "Treat Step 0.75 as the reference contract when extracting a shared intelligence-summary helper. Do not redesign this workflow from scratch in each new consumer.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-007-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 7,
+        "severity": "high",
+        "location": ".claude/skills/review-work/SKILL.md:251",
+        "title": "LEAK:algorithmic-duplication \u2014 the same intelligence-prequery algorithm is inlined across review surfaces",
+        "evidence": "Variants of the same sequence appear in `.claude/skills/tpr-review/SKILL.md:58-100`, `.claude/skills/review-work/SKILL.md:251-259`, `.claude/commands/review-plan.md:96-103`, `.claude/commands/review-bugs.md:152-176`, `.claude/commands/independent-review.md:221-224`, and `.claude/skills/tp-help/SKILL.md:98`.",
+        "impact": "Every output improvement, new query, or bug fix must be hand-edited into many files, which guarantees drift and slows adoption work.",
+        "required_plan_update": "Create a shared helper module such as `.claude/skills/dual-tpr/compose-intel-summary.md` that owns the canonical sequence `status -> file-symbols -> callers -> callees -> similar -> bounded Intelligence Summary`, then replace inline copies with references to that helper.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-008-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 8,
+        "severity": "medium",
+        "location": ".claude/commands/review-plan.md:96",
+        "title": "GAP:missing-trigger \u2014 bounded Intelligence Summary injection exists only in a subset of review workflows",
+        "evidence": "`/tpr-review` and `/review-work` explicitly condense graph output into an `Intelligence Summary` and inject it into reviewer prompts. `/review-plan`, `/independent-review`, `/tp-help`, `/fix-bug`, and `/verify-tpr` do not apply the same bounded-summary injection pattern.",
+        "impact": "Graph context shows up inconsistently across the workflows where it would most help reviewers and triagers.",
+        "required_plan_update": "Make the shared helper emit a literal `Intelligence Summary` block and require `/review-plan`, `/independent-review`, `/tp-help`, `/fix-bug`, and `/verify-tpr` to consume it the same way `/tpr-review` and `/review-work` already do.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-009-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 9,
+        "severity": "medium",
+        "location": ".claude/hooks/block-banned-commands.sh:1",
+        "title": "GAP:missing-trigger \u2014 no existing hook or helper auto-surfaces the graph for review-family commands",
+        "evidence": "The inspected hooks are `classify-review-command.py`, `block-banned-commands.sh`, `block-spec-edits.sh`, `shell_lex.py`, and `verify-hook.sh`. None precompute symbol inventory, blast radius, or graph summaries for slash-command invocations.",
+        "impact": "Even workflows that obviously benefit from graph context still depend on each prompt file remembering to run the queries manually.",
+        "required_plan_update": "Add a shared pre-review helper or hook such as `.claude/hooks/pre-review-intel.sh` that runs only for review-family commands (`/tpr-review`, `/review-work`, `/review-plan`, `/independent-review`, `/tp-help`, `/fix-bug`, `/verify-tpr`). Do not use a global `UserPromptSubmit` hook; keep it command-scoped to avoid noise.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-010-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 10,
+        "severity": "medium",
+        "location": ".claude/skills/verify-tpr/SKILL.md:18",
+        "title": "GAP:missing-trigger \u2014 `/verify-tpr` triages findings without any graph-assisted blast-radius or prior-art step",
+        "evidence": "`/verify-tpr` reads CLAUDE, the section file, referenced code, spec, and tests, but the workflow never instructs the agent to run `file-symbols`, `callers/callees`, or `similar` before accepting or rejecting a finding.",
+        "impact": "Triagers miss the fastest path to understanding adjacent impact and cross-repo analogues exactly where false accept/reject decisions are costly.",
+        "required_plan_update": "Insert `Step 2.5: Intelligence pre-triage (CONDITIONAL)` after the section read. It should run `file-symbols` for files cited by open findings, `callers/callees` for touched symbols, and `similar` when the finding invokes prior art or an architectural analogue.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-011-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 11,
+        "severity": "medium",
+        "location": ".claude/skills/sync-claude/SKILL.md:58",
+        "title": "GAP:missing-trigger \u2014 `/sync-claude` never audits intelligence-surface drift when prompts, hooks, or rules change",
+        "evidence": "The trigger table covers commands, env vars, scripts, rules, and phase changes, but the workflow never says to scan the graph surfaces themselves when `.claude/commands/`, `.claude/skills/`, `.claude/rules/`, hooks, or `scripts/intel-query.sh` change.",
+        "impact": "Graph adoption drift can accumulate even while the project is running the doc-sync skill regularly.",
+        "required_plan_update": "Add a graph-surface audit rule to Step 2: when any Claude artifact, hook, or `scripts/intel-query.sh` changes, run `rg -n 'intel-query|query-intel|file-symbols|callers|callees|similar|Intelligence Summary' CLAUDE.md .claude/commands .claude/skills .claude/rules .claude/hooks` and sync any stale graph-first guidance immediately.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-012-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 12,
+        "severity": "medium",
+        "location": ".claude/skills/fix-next-bug/SKILL.md:76",
+        "title": "GAP:missing-trigger \u2014 `/fix-next-bug` selects and presents a bug with no graph-derived blast-radius preview",
+        "evidence": "The skill reads and sorts bug tracker entries, then presents the selected bug and queue. It never runs `file-symbols`, `callers`, or `similar` before the user chooses one-at-a-time vs autopilot mode, even though `/fix-bug` later does graph work inside the fix itself.",
+        "impact": "The queue picker misses a chance to surface impact, adjacency, and clustering before the operator commits to the next bug.",
+        "required_plan_update": "After Step 4 and before Step 5, add a conditional preview step: if the bug has a subsystem path or repro symbol, run `file-symbols <subsystem path> --repo ori`, `callers <symbol> --repo ori`, and `similar <symbol> --repo rust,swift,koka,lean4 --limit 5`, then show a 1-2 line blast-radius summary with the selected bug.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-013-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 13,
+        "severity": "medium",
+        "location": ".claude/skills/tp-help/SKILL.md:84",
+        "title": "GAP:missing-trigger \u2014 `/tp-help` mentions graph enrichment only as a token bullet, not as a concrete workflow step",
+        "evidence": "Step 1 includes a single optional bullet for `callers`, `callees`, and `similar`. It does not ask for `file-symbols`, does not define how many symbols to inspect, does not produce a bounded summary, and does not reference a shared helper the way `/tpr-review` does.",
+        "impact": "A workflow that should benefit from graph-assisted context packaging uses the graph inconsistently and superficially.",
+        "required_plan_update": "Promote the current bullet into a real sub-step: availability check, `file-symbols` for key files, `callers/callees` for the touched symbol, `similar` for prior art, then inject a bounded Intelligence Summary into both reviewer prompts via the shared helper.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-014-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 14,
+        "severity": "informational",
+        "location": ".claude/skills/benchmark/SKILL.md:1",
+        "title": "NOTE \u2014 `benchmark` is appropriately graph-free in its current form",
+        "evidence": "This skill is a `disable-model-invocation: true` benchmark runner. Its job is to run fixed benchmark commands sequentially and report numbers, not to perform code navigation or design analysis.",
+        "impact": "Adding graph steps here would blur a mechanical runner into an analysis workflow without solving the discoverability problem elsewhere.",
+        "required_plan_update": "No change required. If the project wants graph-assisted perf triage, add a separate benchmark-analysis skill rather than inflating this runner.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-015-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 15,
+        "severity": "informational",
+        "location": ".claude/skills/ori-syntax/SKILL.md:1",
+        "title": "NOTE \u2014 `ori-syntax` is appropriately graph-free",
+        "evidence": "The skill is a syntax reference surface, not a codebase-exploration or review workflow. There is no natural graph query to add without creating ceremony.",
+        "impact": "This is one of the few surfaces where no graph mention is the correct choice.",
+        "required_plan_update": "No change required.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-016-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 16,
+        "severity": "medium",
+        "location": ".claude/commands/sync-spec.md:148",
+        "title": "GAP:missing-trigger \u2014 `/sync-spec` edits normative language without a graph-first reconnaissance step",
+        "evidence": "The update process jumps from identifying affected files to reading and editing spec text. It never instructs the author to inventory impacted Ori symbols, map blast radius, or shortlist reference-repo equivalents before editing.",
+        "impact": "Spec sync work is more likely to rely on memory or manual repo browsing than on the project's canonical discovery tool.",
+        "required_plan_update": "Add `Step 2.5: Intelligence reconnaissance (CONDITIONAL)` between reading the current spec files and editing them. It should identify 3-5 affected Ori symbols/files, run `file-symbols`, `callers/callees`, and `similar`, and use the graph to shortlist what must be verified in the spec and in reference repos.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-017-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 17,
+        "severity": "medium",
+        "location": ".claude/commands/sync-grammar.md:74",
+        "title": "GAP:missing-trigger \u2014 `/sync-grammar` updates grammar without graph-assisted subsystem mapping",
+        "evidence": "The grammar workflow reads the prose spec and current EBNF, then edits productions. It never asks for `file-symbols` or `callers/callees` to map the parser/typeck/canonicalization consumers that the grammar change affects, and it never uses `similar` to narrow reference syntax prior art.",
+        "impact": "Grammar work stays disconnected from the fast symbol graph even though syntax changes usually have broad consumer surfaces.",
+        "required_plan_update": "Add an intelligence reconnaissance step before `Compare and identify discrepancies`: run `file-symbols` on the relevant parser/typeck paths, `callers/callees` on touched grammar-entry symbols when known, and `similar` for comparable syntax features in reference compilers.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-018-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 18,
+        "severity": "medium",
+        "location": ".claude/commands/verify-roadmap.md:76",
+        "title": "GAP:missing-trigger \u2014 `/verify-roadmap` review agents load every rule file but never use the graph",
+        "evidence": "The command requires massive context loading and detailed test/spec audits, but there is no step telling agents to use `file-symbols`, `callers/callees`, or `similar` for the roadmap item they are verifying. The only `similar` match in this file is generic prose about similar patterns, not graph usage.",
+        "impact": "Roadmap verification is a prime case for rapid module inventory and blast-radius mapping, yet the graph is absent from the protocol.",
+        "required_plan_update": "Add a mandatory `Intelligence context` block to the review-agent protocol after the context-load instructions. Each agent should extract file paths and key symbols from the section, run `file-symbols`, `callers/callees`, and `similar` as applicable, and record the summary at the top of `section-XX-results.md`.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-019-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 19,
+        "severity": "informational",
+        "location": ".claude/commands/commit-push.md:1",
+        "title": "NOTE \u2014 the purely mechanical command surfaces do not need graph references",
+        "evidence": "`/commit-push`, `/pr-main`, and `/zero-roadmap` are mechanical git/status-reset workflows. Direct inspection found no natural symbol-graph or prior-art decision point in those commands.",
+        "impact": "These are not the adoption bottlenecks; adding graph mentions here would be noise.",
+        "required_plan_update": "No change required for these mechanical commands unless their scope broadens beyond git/status automation.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-020-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 20,
+        "severity": "medium",
+        "location": ".claude/rules/arc.md:243",
+        "title": "LEAK:scattered-knowledge \u2014 `arc.md` points straight at Swift/Lean/Koka repos without a graph-first paragraph",
+        "evidence": "`arc.md` has `Advanced Optimization Patterns` and a `Reference Repos` section naming exact external files, but it never tells the reader to use `file-symbols`, `callers/callees`, and `similar` before opening those repos.",
+        "impact": "ARC readers are sent directly into manual prior-art browsing even though ARC is one of the graph's richest and highest-value domains.",
+        "required_plan_update": "Insert before `## Reference Repos`: `Graph-first prior-art workflow: before opening Swift, Lean 4, or Koka manually, run scripts/intel-query.sh --human file-symbols \"compiler/ori_arc\" --repo ori, then callers/callees on the touched ARC symbol, then similar \"<symbol>\" --repo swift,lean4,koka --limit 5. Use the graph to narrow which files and repos to inspect; then verify by reading the actual source.`",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-021-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 21,
+        "severity": "medium",
+        "location": ".claude/rules/aims-rules.md:727",
+        "title": "LEAK:scattered-knowledge \u2014 `aims-rules.md` prior-art cross-reference lacks graph-first lookup guidance",
+        "evidence": "The AIMS rule file dedicates a large section to Lean 4, Koka, Swift, and other lineage, but there is no paragraph telling the reader to use the intelligence graph to narrow which symbols and repo files matter first.",
+        "impact": "The densest prior-art rule file still trains readers to browse foreign repos manually instead of using the graph as the front door.",
+        "required_plan_update": "Insert before `## \u00a710 Prior Art Cross-Reference`: `Use the graph first. Before reading the prior-art systems below, run file-symbols and callers/callees for the AIMS symbol under discussion, then similar \"<symbol>\" --repo swift,lean4,koka,roc --limit 5. The graph narrows which repo files to inspect; source reading remains the verification step.`",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-022-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 22,
+        "severity": "medium",
+        "location": ".claude/rules/typeck.md:957",
+        "title": "LEAK:scattered-knowledge \u2014 `typeck.md` cites rustc/Koka/Gleam/Swift/Zig/Lean directly with no graph-first preface",
+        "evidence": "The `Prior Art Cross-Reference` table is a natural place to teach the canonical lookup order, but it currently starts with the table immediately.",
+        "impact": "Type-checker work is pushed toward manual repo reading instead of the project's faster symbol graph and semantic-similarity layer.",
+        "required_plan_update": "Insert before `## \u00a716 Prior Art Cross-Reference`: `Before opening rustc, Koka, Gleam, Swift, Zig, or Lean manually, run scripts/intel-query.sh --human file-symbols \"compiler/ori_types\" --repo ori, callers/callees on the checker or inference symbol, and similar \"<symbol>\" --repo rust,gleam,swift,zig,lean4 --limit 5.`",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-023-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 23,
+        "severity": "medium",
+        "location": ".claude/rules/types.md:839",
+        "title": "LEAK:scattered-knowledge \u2014 `types.md` prior-art table lacks graph-first lookup instructions",
+        "evidence": "The types rule file explicitly maps Ori structures to Rust, Zig, Swift, TypeScript, Gleam, Koka, and Lean 4, but it does not teach readers to query the graph before browsing those implementations.",
+        "impact": "A core cross-repo reference surface misses the exact discovery workflow the operator wants normalized.",
+        "required_plan_update": "Insert before `## \u00a714 Prior Art Cross-Reference`: `Graph-first lookup: for pool/interner/type-representation work, run file-symbols on the relevant ori_types path, callers/callees on the touched type-system symbol, and similar \"<symbol>\" --repo rust,zig,swift,typescript,gleam,lean4 --limit 5 before manual repo browsing.`",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-024-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 24,
+        "severity": "medium",
+        "location": ".claude/rules/tests.md:274",
+        "title": "LEAK:scattered-knowledge \u2014 `tests.md` names many production compiler test strategies without a graph-first rule",
+        "evidence": "The `Prior Art Reference` section enumerates Rust, Go, Zig, TypeScript, Gleam, Roc, Elm, Swift, Koka, and Lean 4 testing patterns, but there is no instruction to use the graph to shortlist relevant issues, symbols, or foreign test files first.",
+        "impact": "Testing work remains a manual corpus-browsing exercise even though the graph can narrow both Ori blast radius and reference-compiler equivalents quickly.",
+        "required_plan_update": "Insert before `## Prior Art Reference`: `Before mining other compilers for test strategy, use the graph first: file-symbols on the Ori module under test, callers/callees on the affected symbol to map the real blast radius, and similar/search to shortlist reference-repo tests or issue clusters worth reading. Do not browse foreign test suites blind.`",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-025-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 25,
+        "severity": "medium",
+        "location": ".claude/rules/impl-hygiene.md:313",
+        "title": "LEAK:scattered-knowledge \u2014 `impl-hygiene.md` aspirational patterns cite Rust/Zig/Roc directly without graph-first narrowing",
+        "evidence": "The `Aspirational Patterns` section names several reference-compiler designs and adoption paths, but it never teaches the reader to use `file-symbols`, `callers/callees`, or `similar` before opening external repos.",
+        "impact": "A rule file dedicated to SSOT and de-duplication does not point readers to the project's canonical discovery layer for analogous algorithms.",
+        "required_plan_update": "Insert before `### Aspirational Patterns`: `Graph-first prior art: before importing a foreign compiler pattern, run file-symbols on the Ori module, callers/callees on the duplicated or dispatch symbol, and similar on the candidate helper or algorithm. Use the graph to prove the analogous Ori surface and shortlist reference code before manual repo reading.`",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-026-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 26,
+        "severity": "low",
+        "location": ".claude/rules/canonicalization.md:37",
+        "title": "GAP:missing-trigger \u2014 `canonicalization.md` cites Maranget and DecisionTree consumers but not the graph-first navigation workflow",
+        "evidence": "This file names the pattern-compilation algorithm, key modules, and downstream consumers, but it never tells the reader to use the symbol graph to map `ori_canon` and decision-tree consumers before manual grep.",
+        "impact": "Canonicalization work misses a straightforward place to normalize `file-symbols` and call-graph usage in a subsystem with many adjacent consumers.",
+        "required_plan_update": "Insert after the Maranget paragraph: `Graph-first navigation: before grepping canonicalization and pattern-lowering manually, run file-symbols \"ori_canon\" --repo ori and callers/callees on the touched decision-tree or lowering symbol, then similar for cross-repo pattern-compilation equivalents. Read source after the graph narrows the search.`",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-027-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 27,
+        "severity": "low",
+        "location": ".claude/rules/patterns.md:27",
+        "title": "GAP:missing-trigger \u2014 `patterns.md` lacks a graph-first reminder for registry and dispatch work",
+        "evidence": "The rule file enumerates pattern registry structure, executors, and key files, but it does not teach readers to run `file-symbols` or `callers/callees` before tracing registry-to-pattern dispatch manually.",
+        "impact": "Pattern-system work loses an easy opportunity to normalize symbol-first subsystem mapping in a highly dispatch-oriented area.",
+        "required_plan_update": "Insert after `## Registry`: `Graph-first subsystem mapping: before manual grep across registry and pattern implementations, run file-symbols \"ori_patterns\" --repo ori plus callers/callees on PatternRegistry or the touched pattern symbol to map dispatch and blast radius.`",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-028-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 28,
+        "severity": "informational",
+        "location": ".claude/rules/diagnostic.md:1",
+        "title": "NOTE \u2014 `diagnostic.md` does not currently need a graph-first paragraph",
+        "evidence": "Full inspection found tooling and diagnostic-process guidance, but no substantive cross-repo prior-art section equivalent to the ARC/typeck/types/tests files above.",
+        "impact": "Adding a generic graph paragraph here today would be ceremony rather than targeted guidance.",
+        "required_plan_update": "No change required unless `diagnostic.md` grows explicit cross-repo prior-art guidance or manual reference-repo browsing instructions.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-029-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 29,
+        "severity": "high",
+        "location": ".claude/skills/create-plan/plan-schema.md:307",
+        "title": "GAP:missing-trigger \u2014 the plan schema drops intelligence reconnaissance even though `/create-plan` already performs it",
+        "evidence": "The create-plan skill has `Step 2.5: Intelligence reconnaissance`, but the section template goes from `Context` to `Reference implementations` with no mandatory intelligence-recon block, and the overview template likewise has no graph-first methodology section.",
+        "impact": "New plans can be created with graph research in the author's head but no persistent plan artifact that proves or preserves it.",
+        "required_plan_update": "Add a mandatory section-template block immediately before `**Reference implementations:**`: `**Intelligence reconnaissance (MANDATORY before implementation):** - [ ] scripts/intel-query.sh --human file-symbols <path-fragment> --repo ori - [ ] scripts/intel-query.sh --human callers <symbol> --repo ori and callees - [ ] scripts/intel-query.sh --human similar <symbol> --repo rust,swift,go,koka --limit 5 - [ ] Verified the matched source/issues manually; intelligence outputs were used for discovery only.` Also add an overview-template note that every plan must state the graph queries used to establish current surface area and prior art.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-030-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 30,
+        "severity": "medium",
+        "location": "plans/perf-engineering/section-01-benchmarks.md:36",
+        "title": "GAP:missing-trigger \u2014 recent plans still cite reference implementations without an intelligence reconnaissance section",
+        "evidence": "`plans/perf-engineering/section-01-benchmarks.md` has a `Reference implementations` block but no intelligence-recon block, and `plans/perf-engineering/00-overview.md` cites reference interpreter baselines with no graph-first prior-art methodology. This is a live example of template non-compliance, not a hypothetical risk.",
+        "impact": "Even recent plan work is not encoding graph-first behavior, so adoption cannot become habitual through planning discipline alone.",
+        "required_plan_update": "Sweep recent active plans starting with `plans/perf-engineering/`: add an `Intelligence reconnaissance` block to section files that cite reference implementations, and add an overview note that reference-repo browsing was preceded by graph queries.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-031-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 31,
+        "severity": "low",
+        "location": ".claude/commands/query-intel.md:21",
+        "title": "DRIFT:doc-vs-tool \u2014 `/query-intel` under-sells the graph with stale scale numbers and a shallow prompt surface",
+        "evidence": "The command file is effectively a 14-line wrapper plus a short subcommand list. Its code-symbol marketing still says `32K+ symbols` and `24K+ call edges`, which materially understates the current graph described in the evidence packet, and it does not teach common compound workflows like module inventory plus blast radius plus cross-repo equivalent lookup.",
+        "impact": "The primary human-facing command surface makes the graph look smaller and flatter than it is, which directly hurts adoption.",
+        "required_plan_update": "Rewrite `.claude/commands/query-intel.md` as a capability guide instead of a bare wrapper. Remove hardcoded stale counts or update them from a verified status snapshot, add examples for `file-symbols`, `callers/callees`, `similar`, and `blast-radius`, and add a one-line rule that the graph should be used before manual grep or reference-repo browsing.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-032-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 32,
+        "severity": "low",
+        "location": "scripts/intel-query.sh:30",
+        "title": "BLOAT:json-as-default \u2014 the wrapper is optimized for machines instead of the dominant interactive user",
+        "evidence": "`scripts/intel-query.sh` hard-wires `JSON_FLAG='--json'` and only switches to human output when `--human` is passed. The same wrapper also lacks top-level `-h/--help` handling; `--help` falls through to the backend command parser and becomes an unknown command path.",
+        "impact": "Interactive reviewers and agents see less-usable output by default and do not get a wrapper-level help experience when exploring the tool.",
+        "required_plan_update": "Make the wrapper choose human output when stdout is a TTY and JSON when piped or captured. Add explicit `-h|--help` handling at the wrapper layer that prints human help without treating help as a graph command.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-033-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 33,
+        "severity": "low",
+        "location": "../lang_intelligence/neo4j/query_graph.py:863",
+        "title": "GAP:output-shape \u2014 callers, callees, and file-symbols are flat lists instead of reviewer-friendly summaries",
+        "evidence": "`cmd_callers`, `cmd_callees`, and `cmd_file_symbols` print simple item lists. They do not emit a leading summary line, do not build an ASCII call tree, do not group file symbols by kind, and do not highlight the obvious next-hop symbols for blast-radius analysis.",
+        "impact": "The code-symbol side feels like raw database output rather than an opinionated workflow tool, which raises the friction of using it inside reviews and plan envelopes.",
+        "required_plan_update": "Upgrade human output for these commands: add a first summary line like `14 callers across 6 files`, render callers/callees as an ASCII tree or grouped adjacency view, and group file-symbols by kind (`functions`, `types`, `traits`, etc.) within each file.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-034-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 34,
+        "severity": "low",
+        "location": "../lang_intelligence/neo4j/query_graph.py:36",
+        "title": "GAP:output-shape \u2014 there is no markdown or linkable output mode for plans and review envelopes",
+        "evidence": "The only global output toggle is `--json`. Human mode prints plain text via `_print_issue` and `_print_symbol`, with no markdown tables, no reusable digest blocks, no GitHub URLs in issue output, and no IDE-friendly link fields for Ori file:line results.",
+        "impact": "Results are harder to paste into plan sections or reviewer prompts and require manual rewriting every time.",
+        "required_plan_update": "Add `--format md` (or `--format human|json|md`) and include structured markdown tables or digest blocks suitable for pasting into plan sections and findings envelopes. Include GitHub URLs for issue/PR results and explicit file:line link fields for Ori symbols in both human and JSON/MD output.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-035-codex]",
+      "reviewer": "codex",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 35,
+        "severity": "low",
+        "location": "../lang_intelligence/neo4j/query_graph.py:1177",
+        "title": "GAP:missing-trigger \u2014 the tool lacks the obvious composite workflows (`blast-radius`) and session caching",
+        "evidence": "The backend command table exposes only primitive commands. Common reviewer behavior still requires manually running `callers`, `callees`, and `similar` in sequence, and the wrapper reruns the full health/query path on every invocation with no short-lived cache.",
+        "impact": "The most common compound workflow stays expensive and repetitive, which discourages repeated use during a single review or planning session.",
+        "required_plan_update": "Add a composite command such as `blast-radius <symbol>` that runs `callers + callees + similar` in one invocation with a single summary block. Add a local session cache, e.g. `/tmp/ori-intel-cache`, keyed by normalized query with a TTL around 10 minutes so repeated review queries are cheap.",
+        "basis": "direct_file_inspection"
+      }
+    },
+    {
+      "id": "[TPR-XX-001-gemini]",
+      "reviewer": "gemini",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 1,
+        "severity": "high",
+        "location": ".claude/commands/query-intel.md:1",
+        "title": "Promote query-intel to an auto-triggerable Skill",
+        "evidence": "GAP:discoverability. The capability is a command file, not a Skill (no SKILL.md). Claude Code's harness auto-triggers Skills based on description frontmatter, but commands must be invoked manually, severely limiting ambient discoverability.",
+        "impact": "Users and agents rarely think to invoke the command manually; the capability remains hidden.",
+        "required_plan_update": "Create `.claude/skills/query-intel/SKILL.md` migrating the command logic and adding an auto-trigger prompt based on symbol/issue reconnaissance. Maintain `.claude/commands/query-intel.md` as a thin pointer to the new skill to preserve the slash-command.",
+        "layer": "committed",
+        "basis": "direct_file_inspection",
+        "confidence": "high",
+        "citations": []
+      }
+    },
+    {
+      "id": "[TPR-XX-002-gemini]",
+      "reviewer": "gemini",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 2,
+        "severity": "high",
+        "location": "CLAUDE.md:175",
+        "title": "Integrate intelligence graph across CLAUDE.md sections",
+        "evidence": "GAP:scattered-knowledge. The graph is mentioned only once (L38). It is missing from the Commands list, Key Paths, Testing discipline, and the Reference Repos section, which is its natural home.",
+        "impact": "Core project documentation fails to teach developers that the graph is the primary navigation tool.",
+        "required_plan_update": "Update CLAUDE.md: 1. Add `scripts/intel-query.sh` to Commands. 2. Add `../lang_intelligence/` to Key Paths. 3. Update Reference Repos with: 'Do NOT manually browse or grep these repos first. Always run `scripts/intel-query.sh similar <symbol>` to find exact equivalents instantly, then read the matched source.' 4. Update TDD for Bugs: 'Use `/query-intel callers` to determine blast radius before fixing.'",
+        "layer": "committed",
+        "basis": "direct_file_inspection",
+        "confidence": "high",
+        "citations": []
+      }
+    },
+    {
+      "id": "[TPR-XX-003-gemini]",
+      "reviewer": "gemini",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 3,
+        "severity": "medium",
+        "location": ".claude/skills/dual-tpr/compose-intel-summary.md:1",
+        "title": "Consolidate review prompt intel injection into SSOT",
+        "evidence": "LEAK:algorithmic-duplication. Review commands (review-work, review-plan, review-bugs, independent-review) manually duplicate the availability check -> file-symbols -> callers -> similar prompt logic.",
+        "impact": "Prompt logic drifts across tools, violating the Single Source of Truth rule.",
+        "required_plan_update": "Create a shared `.claude/skills/dual-tpr/compose-intel-summary.md` module containing the intelligence injection prompt pattern, and update all review commands to `@`-include it.",
+        "layer": "committed",
+        "basis": "inference",
+        "confidence": "high",
+        "citations": []
+      }
+    },
+    {
+      "id": "[TPR-XX-004-gemini]",
+      "reviewer": "gemini",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 4,
+        "severity": "medium",
+        "location": ".claude/rules/arc.md:1",
+        "title": "Add graph-first guidance to cross-repo rule files",
+        "evidence": "LEAK:scattered-knowledge. Rules like arc.md, typeck.md, patterns.md, and canonicalization.md discuss Swift SIL, Lean4, rustc, and Koka without teaching the reader to query the graph first.",
+        "impact": "Agents and users resort to slow, manual grep/browsing of reference repos instead of using sub-second vector embeddings.",
+        "required_plan_update": "Add a standard paragraph to all cross-repo discussing rules: 'Use the intelligence graph FIRST. Run `scripts/intel-query.sh similar <concept>` before manual reference-repo browsing to find exact equivalents instantly.'",
+        "layer": "committed",
+        "basis": "inference",
+        "confidence": "high",
+        "citations": []
+      }
+    },
+    {
+      "id": "[TPR-XX-005-gemini]",
+      "reviewer": "gemini",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 5,
+        "severity": "medium",
+        "location": ".claude/skills/create-plan/plan-schema.md:70",
+        "title": "Mandate Intelligence reconnaissance in plan schema",
+        "evidence": "GAP:missing-trigger. Plan sections lack a dedicated reconnaissance step, leading to designs without prior-art grounding.",
+        "impact": "Architectural decisions are made without leveraging the 32K+ symbols and 298K issues in the cross-repo prior art graph.",
+        "required_plan_update": "Add a mandatory `## Intelligence Reconnaissance` block to the section template in `plan-schema.md` and `create-plan/SKILL.md` requiring authors to list `intel-query.sh similar` and `callers` hits before architecture.",
+        "layer": "committed",
+        "basis": "direct_file_inspection",
+        "confidence": "high",
+        "citations": []
+      }
+    },
+    {
+      "id": "[TPR-XX-006-gemini]",
+      "reviewer": "gemini",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 6,
+        "severity": "medium",
+        "location": ".claude/skills/fix-next-bug/SKILL.md:65",
+        "title": "Inject intel summary during bug triage",
+        "evidence": "GAP:missing-trigger. fix-next-bug Step 1 extracts repro and subsystem, but does not enrich the bug with its graph context (blast radius).",
+        "impact": "Bug investigation begins without a clear picture of the failing symbol's call graph or related reference fixes.",
+        "required_plan_update": "Add to Step 1 or Step 4: 'Run `scripts/intel-query.sh callers <failing-symbol>` and `similar <failing-symbol>` to enrich the bug context before invoking /fix-bug.'",
+        "layer": "committed",
+        "basis": "direct_file_inspection",
+        "confidence": "high",
+        "citations": []
+      }
+    },
+    {
+      "id": "[TPR-XX-007-gemini]",
+      "reviewer": "gemini",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 7,
+        "severity": "medium",
+        "location": ".claude/commands/tp-help.md:20",
+        "title": "Inject intel summary into tp-help context package",
+        "evidence": "GAP:missing-trigger. intelligence.md states /tp-help should use callers/callees/similar to enrich the context package, but the tp-help command does not mandate this step before delegating to dual-invoke.sh.",
+        "impact": "Reviewers start cold on tp-help requests, missing critical dependency context.",
+        "required_plan_update": "Update `.claude/commands/tp-help.md` (and its backing SKILL.md) to automatically run `scripts/intel-query.sh callers <symbol>` and append the output to the context package sent to the reviewers.",
+        "layer": "committed",
+        "basis": "direct_file_inspection",
+        "confidence": "high",
+        "citations": []
+      }
+    },
+    {
+      "id": "[TPR-XX-008-gemini]",
+      "reviewer": "gemini",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 8,
+        "severity": "low",
+        "location": "scripts/intel-query.sh:30",
+        "title": "Improve intel-query.sh UX with --human default and --help",
+        "evidence": "BLOAT:json-as-default. Default output is JSON, requiring opt-in `--human`, and the script rejects `--help`. This is hostile for human CLI exploration.",
+        "impact": "Users abandon the tool when exploring from the terminal due to opaque JSON walls and lacking standard --help conventions.",
+        "required_plan_update": "Modify flag parsing: if `[ -t 1 ]` (stdout is a tty), default to `--human`. Add explicit `--help|-h` trap to print usage and exit 0, bypassing the query_graph.py help error.",
+        "layer": "committed",
+        "basis": "direct_file_inspection",
+        "confidence": "high",
+        "citations": []
+      }
+    },
+    {
+      "id": "[TPR-XX-009-gemini]",
+      "reviewer": "gemini",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 9,
+        "severity": "low",
+        "location": "scripts/intel-query.sh:160",
+        "title": "Enhance graph output shapes for reviewer ingestion",
+        "evidence": "BLOAT:json-as-default. The current JSON/raw output formats aren't optimal for pasting into plan sections or reviewer envelopes. Determining blast-radius requires three separate sequential commands.",
+        "impact": "Agents spend extra turns formatting output and running multiple queries to piece together context.",
+        "required_plan_update": "Add `--format md` to generate markdown tables. Add a `blast-radius <symbol>` composite query that runs callers, callees, and similar in one invocation. Add ASCII call-tree formatting for callers/callees in human mode.",
+        "layer": "committed",
+        "basis": "direct_file_inspection",
+        "confidence": "high",
+        "citations": []
+      }
+    },
+    {
+      "id": "[TPR-XX-010-gemini]",
+      "reviewer": "gemini",
+      "agreement": false,
+      "agreement_partner_id": null,
+      "finding": {
+        "ordinal": 10,
+        "severity": "medium",
+        "location": ".claude/hooks/pre-review-intel.sh:1",
+        "title": "Auto-inject intel summaries via pre-review hook",
+        "evidence": "GAP:discoverability. Reviewers currently rely on explicitly defined prompts to gather context. A hook could pre-compute the intel summary so it's already in the prompt context.",
+        "impact": "Missed opportunities to provide ambient, zero-cost context to reviewers on every relevant command invocation.",
+        "required_plan_update": "Create `.claude/hooks/pre-review-intel.sh` that triggers on relevant slash-commands (like review-work), pre-runs `scripts/intel-query.sh --human file-symbols <diff paths>`, and injects the output into the prompt.",
+        "layer": "committed",
+        "basis": "inference",
+        "confidence": "medium",
+        "citations": []
+      }
+    }
+  ],
+  "summary": {
+    "codex_findings": 35,
+    "gemini_findings": 10,
+    "agreements": 0,
+    "codex_only": 35,
+    "gemini_only": 10,
+    "informational": 5,
+    "actionable": 40
+  }
+}

@@ -150,6 +150,10 @@ Re-verify that `tools/ori-lsp/` is still unrevivable at plan-execution time. Pas
         via `build(scripts): add verify-excluded-crate.sh — surfaced by
         project-reorganization/section-06.1 retrospective`. If this is a
         genuinely one-time check: document that.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -241,6 +245,10 @@ These 3 files MUST be updated atomically with the deletion — if deletion happe
         but the concept is valid for larger refactors. Document:
         "Retrospective 06.2: no tooling gaps — per-file Edit + verify cycle
         is adequate at this scale."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -290,6 +298,10 @@ These files contain stale comments that mention `tools/ori-lsp` as a currently-e
         detection is an open problem — no feasible tooling at this scale
         without semantic analysis; manual per-reference review is the
         current state of the art."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -371,6 +383,10 @@ This is the biggest work item in §06. The docs are not just stale-reference-upd
         doc-rewrite-audit.sh — surfaced by project-reorganization/
         section-06.4 retrospective`. This is broadly valuable for any
         future doc rewrite.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -447,6 +463,10 @@ Pass 1 Agent 3 found stale `ori_lsp` / `tools/ori-lsp` references in these files
         `build(scripts): add plan-ref-sweep.sh — surfaced by
         project-reorganization/section-06.5 retrospective` (if not already
         done). Otherwise: document decision.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -644,6 +664,10 @@ Refs: plans/project-reorganization/section-06-lsp-disposition.md"
         `build(scripts): add verify-everything.sh — surfaced by
         project-reorganization/section-06.6 retrospective`. Otherwise
         document the decision.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -679,5 +703,6 @@ Refs: plans/project-reorganization/section-06-lsp-disposition.md"
 - [ ] `/tpr-review` passed — HIGH-complexity section with 20+ file changes; review should check: (a) no tier-1 file missed, (b) docs rewrites are coherent future-tense not just tense-changed, (c) zero stale refs escaped the sweep
 - [ ] `/impl-hygiene-review` passed (AFTER TPR clean) — specifically check SSOT compliance (no duplicated LSP status claims across the 20+ updated files), DRIFT (all references now consistent), and BLOAT (did the docs rewrite add unnecessary content beyond the fact update?)
 - [ ] `/improve-tooling` **section-close sweep** — per-subsection retrospectives (06.1-06.6) should already be committed. Cross-subsection pattern check: did ANY subsection reveal that the 20-file atomic-edit workflow needs better tooling? The `verify-everything.sh` helper from 06.6 is likely the most broadly valuable. Verify it was built. Also check: was the "tier 1 / tier 2 / tier 3" classification useful enough that future plans should adopt it? If yes, document in the plan schema (`.claude/skills/create-plan/plan-schema.md`). If not: "Section-06 close sweep: per-subsection retrospectives covered the verification and ref-sweep tooling; the tier classification was plan-local and does not generalize."
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 **Exit Criteria:** `ls tools/` shows `tools/` still exists but `ori-lsp/` is gone. `cargo check --workspace && cargo clippy --workspace --all-targets && ./scripts/sync-version.sh --check && ./test-all.sh` all exit 0. `rg 'tools/ori-lsp' .` returns only this plan's own references. A single commit (`refactor(plan): delete tools/ori-lsp prototype; reserve compiler/ori_lsp/ as canonical future home`) contains ~20 file changes. Mission success criterion "LSP deletion is atomic" is satisfied.

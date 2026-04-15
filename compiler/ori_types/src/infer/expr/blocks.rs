@@ -69,23 +69,15 @@ pub(crate) fn infer_block(
                         }
                     }
 
-                    // Skip generalization for capturing lambdas. A lambda
-                    // that references outer-scope names (captures) is not
-                    // genuinely polymorphic — its types are constrained by
-                    // the captured context. The AOT backend can't monomorphize
-                    // polymorphic closures, so generalized params become
-                    // unresolvable Var types at codegen.
-                    // Non-capturing lambdas (like `x -> x`) remain polymorphic.
-                    if let ExprKind::Lambda { params, body, .. } = &arena.get_expr(*init).kind {
-                        let param_names: Vec<Name> =
-                            arena.get_params(*params).iter().map(|p| p.name).collect();
-                        if body_captures_outer(arena, *body, &param_names) {
-                            init_ty
-                        } else {
-                            engine.generalize(init_ty)
-                        }
-                    } else {
+                    // Value Restriction: only non-capturing lambdas may be generalized.
+                    // All other initializers (list literals, map literals, struct constructions,
+                    // constants) are monomorphic — their Vars must stay Unbound so the
+                    // Section 02 validator can surface E2005 on empty containers.
+                    // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
+                    if should_generalize(arena, *init) {
                         engine.generalize(init_ty)
+                    } else {
+                        init_ty
                     }
                 };
 
@@ -162,9 +154,13 @@ pub(crate) fn infer_let(
             }
         }
 
-        // Generalize free type variables for let-polymorphism.
-        // Variables created at the current (elevated) rank will be quantified.
-        engine.generalize(init_ty)
+        // Value Restriction: only non-capturing lambdas may be generalized.
+        // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
+        if should_generalize(arena, init) {
+            engine.generalize(init_ty)
+        } else {
+            init_ty
+        }
     };
 
     // Exit scope (rank goes back down).
@@ -237,6 +233,27 @@ pub(crate) fn infer_lambda(
 
     // Create function type
     engine.infer_function(&param_types, body_ty)
+}
+
+/// Returns `true` iff `init` is a non-capturing lambda whose type variables
+/// may be safely generalized for let-polymorphism.
+///
+/// Only `ExprKind::Lambda` initializers with no free outer-scope variables
+/// are generalizable. All other initializers — list/map literals, struct
+/// constructions, constants, function calls — are monomorphic and MUST NOT
+/// generalize their inferred type variables.
+///
+/// This is the SSOT for the Value Restriction policy. Every let-binding
+/// generalization site in the type checker MUST call this function rather
+/// than inlining equivalent logic.
+pub(super) fn should_generalize(arena: &ExprArena, init: ExprId) -> bool {
+    match &arena.get_expr(init).kind {
+        ExprKind::Lambda { params, body, .. } => {
+            let param_names: Vec<Name> = arena.get_params(*params).iter().map(|p| p.name).collect();
+            !body_captures_outer(arena, *body, &param_names)
+        }
+        _ => false,
+    }
 }
 
 /// Check if a lambda body captures outer variables by scanning for

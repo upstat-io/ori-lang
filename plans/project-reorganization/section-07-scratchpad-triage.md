@@ -178,6 +178,10 @@ Before any migration runs, re-verify the Pass 1 triage classifications against t
         a baseline? Broadly useful for any audit-and-migrate operation.
         If yes, add and commit via `build(scripts): add triage-diff.sh —
         surfaced by project-reorganization/section-07.1 retrospective`.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -291,6 +295,10 @@ Refs: plans/project-reorganization/section-07-scratchpad-triage.md"
         in 07.3-07.5. Build it NOW. Commit via `build(scripts): add
         migrate-with-frontmatter.sh — surfaced by project-reorganization/
         section-07.2 retrospective`. Use it for the remaining migrations.
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -356,6 +364,10 @@ Refs: plans/project-reorganization/section-07-scratchpad-triage.md"
         improve the helper now and commit. If wasn't built: document
         "Retrospective 07.3: manual migration was adequate for 3 files;
         helper not built."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -397,6 +409,10 @@ Refs: plans/project-reorganization/section-07-scratchpad-triage.md"
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — the
         migration was trivial. Document: "Retrospective 07.4: single-file
         migration; helper (if built) or manual migration both adequate."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -499,6 +515,10 @@ Refs: plans/project-reorganization/section-07-scratchpad-triage.md"
         docsSchema-shaped frontmatter, extend it with a `--schema proposal|
         docs` flag. Commit extension. Otherwise document: "Retrospective
         07.5: manual frontmatter was fine for one-off different schema."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -568,6 +588,10 @@ Delete everything that's not migrating. All files are in gitignored `scratchpad/
         Overkill for this one-off. Document: "Retrospective 07.6: bulk
         rm adequate for one-time scratchpad cleanup; no reusable tooling
         warranted."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -622,6 +646,10 @@ Delete everything that's not migrating. All files are in gitignored `scratchpad/
         building it. Decide: is `bun run build` + tail standard enough to
         not need a helper? Probably yes. Document: "Retrospective 07.7:
         direct bun run build + tail is adequate."
+  - [ ] **Run `/sync-claude` on THIS subsection** — check whether code
+        changes invalidated any CLAUDE.md, `.claude/rules/*.md`, or
+        `canon.md` claims. If no API/command/phase changes, document
+        briefly. Fix any drift NOW.
 
 ---
 
@@ -676,5 +704,6 @@ Delete everything that's not migrating. All files are in gitignored `scratchpad/
 - [ ] `/tpr-review` passed — check: (a) no migrated file missing frontmatter, (b) no migrated file has wrong schema (docsSchema vs proposal), (c) every deletion is justified
 - [ ] `/impl-hygiene-review` passed (AFTER TPR clean) — SSOT compliance (no duplicated content between migrated docs/ files and existing spec/rules), no BLOAT (did we preserve content that was already duplicated elsewhere?)
 - [ ] `/improve-tooling` **section-close sweep** — per-subsection retrospectives (07.1-07.7) should already be committed. Cross-subsection pattern check: the biggest insight is the `migrate-with-frontmatter.sh` helper (from 07.2), which enabled 07.3, 07.4, 07.5 to be faster. Verify the helper's generality — does it handle both `docsSchema` and `proposals` frontmatter shapes? If not, extend it now. Commit any extensions via `build(scripts): ... — surfaced by section-07 close sweep`. If helper was not built: re-evaluate decision — it was used 12 times, that's high reusability.
+- [ ] `/sync-claude` **section-close doc sync** — verify Claude artifacts across all section commits. Map changed crates to rules files, check CLAUDE.md, canon.md. Fix drift NOW.
 
 **Exit Criteria:** `scratchpad/` directory absent. 12 migrated files exist at their destinations with frontmatter matching the expected schema per destination (11 with Astro `docsSchema` for the `design/` + `tooling/` collections, 1 with body-format proposal schema for the `proposals/drafts/` collection). 18 files deleted (including `07-modern-lang-repos.md` per the conditional DELETE in §07.1). `ori-lang-website` Astro build succeeds with all new files validated. `./test-all.sh` green. Mission success criterion "Scratchpad is empty or absent" satisfied.

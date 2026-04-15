@@ -39,6 +39,7 @@ fn cow_ctx(var: ArcVarId, uniqueness: Uniqueness) -> AnnotationSiteContext<'stat
         cardinality: Cardinality::Once,
         shape: ShapeClass::NonReusable,
         is_borrow_disjoint: false,
+        has_active_borrows: false,
         is_collection: false,
     }
 }
@@ -86,43 +87,133 @@ fn cow_shared_is_static_shared() {
     assert_eq!(decide_cow(&ctx), CowMode::StaticShared);
 }
 
+/// Regression: the former `is_cow_aware_unique` path promoted
+/// `MaybeShared + Owned + Linear + Once` params to `StaticUnique`. Removed
+/// as unsound per `aims-rules.md` §DP-10 removal — backward
+/// analysis facts cannot prove PAST uniqueness.
 #[test]
-fn cow_param_cow_aware_unique() {
+fn decide_cow_maybe_shared_param_owned_linear_once_returns_dynamic() {
     let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
     ctx.is_param = true;
-    // COW-aware: Owned + Linear + Once → StaticUnique for params.
-    assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
-}
-
-#[test]
-fn cow_param_not_cow_aware_many() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.is_param = true;
-    ctx.cardinality = Cardinality::Many; // breaks Once requirement
+    // Owned + Linear + Once on a param — previously StaticUnique, now Dynamic.
     assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
 }
 
 #[test]
-fn cow_cross_dim_collection_buffer_once() {
+fn decide_cow_maybe_shared_param_many_returns_dynamic() {
+    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
+    ctx.is_param = true;
+    ctx.cardinality = Cardinality::Many;
+    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+}
+
+/// Boundary cell: param + Owned + Affine + Once. `is_cow_aware_unique` was
+/// gated on Linear; Affine already bypassed. Preserve post-fix behavior.
+#[test]
+fn decide_cow_maybe_shared_param_owned_affine_once_returns_dynamic() {
+    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
+    ctx.is_param = true;
+    ctx.consumption = Consumption::Affine;
+    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+}
+
+/// Boundary cell: non-param + Owned + Linear + Once. `is_cow_aware_unique`
+/// was gated on `is_param=true`; non-param already bypassed. Preserve.
+#[test]
+fn decide_cow_maybe_shared_nonparam_owned_linear_once_returns_dynamic() {
+    let ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
+    // Defaults: is_param=false, Owned+Linear+Once, NonReusable.
+    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+}
+
+/// Regression: the former cross-dimensional `CollectionBuffer + Once → StaticUnique`
+/// path was removed as unsound per `aims-rules.md` §DP-10 removal.
+#[test]
+fn decide_cow_maybe_shared_collection_buffer_once_returns_dynamic() {
     let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
     ctx.shape = ShapeClass::CollectionBuffer;
-    // Non-param + Once + CollectionBuffer → StaticUnique.
-    assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
+    // Previously StaticUnique via `!is_param && Once + CollectionBuffer`; now Dynamic.
+    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
 }
 
+/// Regression: the former cross-dimensional `ReusableCtor(Struct) + Once → StaticUnique`
+/// path was removed as unsound.
 #[test]
-fn cow_cross_dim_reusable_ctor_once() {
+fn decide_cow_maybe_shared_reusable_ctor_struct_once_returns_dynamic() {
     let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
     ctx.shape = ShapeClass::ReusableCtor(ReuseCtorKind::Struct);
-    // Non-param + Once + ReusableCtor → StaticUnique.
-    assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
+    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
 }
 
+/// Regression: `ReusableCtor(EnumVariant) + Once` hit the removed path too —
+/// `matches!(shape, ShapeClass::ReusableCtor(_))` matches both `Struct` and
+/// `EnumVariant` (Plan TPR round 5).
 #[test]
-fn cow_borrow_disjoint_maybe_shared() {
+fn decide_cow_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic() {
+    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
+    ctx.shape = ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant);
+    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+}
+
+/// Preservation cell: `ContextHole` is a distinct top-level `ShapeClass`
+/// variant (not nested in `ReusableCtor(_)`); already took Dynamic before
+/// the fix.
+#[test]
+fn decide_cow_maybe_shared_context_hole_once_returns_dynamic() {
+    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
+    ctx.shape = ShapeClass::ContextHole;
+    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+}
+
+/// Integration preservation: when the upstream
+/// `is_borrow_disjoint_from_siblings()` helper has set `ctx.is_borrow_disjoint =
+/// true` (which now requires source `Uniqueness::Unique` per `aims-rules.md`
+/// §RL-31), `decide_cow()` correctly promotes `MaybeShared` receivers to
+/// `StaticUnique`. This is the spec-approved disjoint-borrow path.
+#[test]
+fn decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique() {
     let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
     ctx.is_borrow_disjoint = true;
     assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
+}
+
+// DP-5/DP-9 borrow overlap tests for Unique path
+
+/// Semantic pin: Unique aggregate with active borrows → `StaticShared` per DP-9.
+/// Spec: `Unique AND NOT (is_owned_and_unique + no_borrows) → StaticShared` because `IsShared`
+/// on a Unique value always returns false — runtime check cannot distinguish
+/// "unique but borrowed" from "unique and safe to mutate."
+#[test]
+fn decide_cow_unique_with_active_borrows_returns_static_shared() {
+    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    ctx.has_active_borrows = true;
+    assert_eq!(decide_cow(&ctx), CowMode::StaticShared);
+}
+
+/// Negative pin: Unique aggregate with NO borrows → `StaticUnique` (preserved).
+#[test]
+fn decide_cow_unique_without_borrows_returns_static_unique() {
+    let ctx = cow_ctx(var(0), Uniqueness::Unique);
+    assert!(!ctx.has_active_borrows);
+    assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
+}
+
+/// Edge: RC-incremented Unique with no borrows → `Dynamic` (RC guard fires first).
+#[test]
+fn decide_cow_unique_rc_incremented_with_no_borrows_returns_dynamic() {
+    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    ctx.rc_incremented = true;
+    ctx.has_active_borrows = false;
+    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+}
+
+/// Edge: RC-incremented Unique WITH borrows → `Dynamic` (RC guard supersedes).
+#[test]
+fn decide_cow_unique_rc_incremented_with_borrows_returns_dynamic() {
+    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    ctx.rc_incremented = true;
+    ctx.has_active_borrows = true;
+    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
 }
 
 // decide_drop_hint tests
@@ -531,16 +622,18 @@ fn decide_last_use_maybe_shared_struct_returns_dynamic_reuse() {
     assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
 }
 
-// Cross-dimensional proof: MaybeShared + Once + ReusableCtor → StaticReuse
+// Regression: MaybeShared + Once + ReusableCtor → DynamicReuse
+//
+// The former cross-dimensional `StaticReuse` promotion was removed as
+// unsound per `aims-rules.md` §RL-13 removal rationale.
 
 #[test]
-fn decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse() {
+fn decide_reuse_maybe_shared_reusable_ctor_struct_once_returns_dynamic_reuse() {
     let ctx = DecisionContext {
         site: DecisionSite::LastUse {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: false,
-
             has_deferred_children: false,
             reuse: ReuseContext {
                 shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
@@ -552,7 +645,129 @@ fn decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse() {
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::StaticReuse);
+    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
+}
+
+/// Preservation: `ContextHole` is not nested in `ReusableCtor(_)`; the
+/// removed cross-dim path never matched it. Already returned `DynamicReuse`
+/// before the fix; assert it still does.
+#[test]
+fn decide_reuse_maybe_shared_context_hole_once_returns_dynamic_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::ContextHole,
+                uniqueness: Uniqueness::MaybeShared,
+                cardinality: Cardinality::Once,
+            },
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
+}
+
+/// Negative pin:
+/// explicitly assert the removed `MaybeShared + Once + ReusableCtor → StaticReuse`
+/// branch is gone. Stronger than the corresponding semantic pin because it
+/// directly rejects the unsound output regardless of what other code path
+/// might produce it.
+#[test]
+fn decide_reuse_rejects_cross_dimensional_maybe_shared_once_static_reuse() {
+    for shape in [
+        ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+        ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
+        ShapeClass::CollectionBuffer,
+    ] {
+        let ctx = DecisionContext {
+            site: DecisionSite::LastUse {
+                is_consuming_primop: false,
+                is_ownership_transfer: false,
+                is_owned_call_position: false,
+                has_deferred_children: false,
+                reuse: ReuseContext {
+                    shape,
+                    uniqueness: Uniqueness::MaybeShared,
+                    cardinality: Cardinality::Once,
+                },
+            },
+            is_rc_managed: true,
+        };
+        let d = decide(&ctx);
+        // Must NOT be StaticReuse — that was the unsound DP-10/RL-13 output.
+        assert_ne!(
+            d.reuse,
+            ReuseDecision::StaticReuse,
+            "MaybeShared+Once+{shape:?} must not promote to StaticReuse"
+        );
+    }
+}
+
+/// Negative pin: `decide_cow()` must NOT return `StaticUnique` for any
+/// `MaybeShared` input outside the spec-approved `is_borrow_disjoint=true`
+/// path. Explicitly rejects the four removed cross-dimensional promotion
+/// paths.
+#[test]
+fn decide_cow_rejects_cross_dimensional_maybe_shared_static_unique() {
+    let mut configs: Vec<AnnotationSiteContext<'static>> = Vec::new();
+    // Removed path 1: is_param + Owned + Linear + Once
+    let mut c1 = cow_ctx(var(0), Uniqueness::MaybeShared);
+    c1.is_param = true;
+    configs.push(c1);
+    // Removed path 2: !is_param + CollectionBuffer + Once
+    let mut c2 = cow_ctx(var(0), Uniqueness::MaybeShared);
+    c2.shape = ShapeClass::CollectionBuffer;
+    configs.push(c2);
+    // Removed path 3: !is_param + ReusableCtor(Struct) + Once
+    let mut c3 = cow_ctx(var(0), Uniqueness::MaybeShared);
+    c3.shape = ShapeClass::ReusableCtor(ReuseCtorKind::Struct);
+    configs.push(c3);
+    // Removed path 4: !is_param + ReusableCtor(EnumVariant) + Once
+    let mut c4 = cow_ctx(var(0), Uniqueness::MaybeShared);
+    c4.shape = ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant);
+    configs.push(c4);
+
+    for ctx in configs {
+        // is_borrow_disjoint=false (default), so the only StaticUnique source
+        // available is the spec-approved disjoint-borrow path — which this
+        // test does not enable. All four configurations must be Dynamic.
+        assert_ne!(
+            decide_cow(&ctx),
+            CowMode::StaticUnique,
+            "MaybeShared (var={:?}, shape={:?}, is_param={}) must not promote to StaticUnique",
+            ctx.var,
+            ctx.shape,
+            ctx.is_param
+        );
+    }
+}
+
+/// Regression: `EnumVariant` also hit the removed `matches!(shape,
+/// ShapeClass::ReusableCtor(_))` path; ensure it now returns `DynamicReuse`.
+#[test]
+fn decide_reuse_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
+                uniqueness: Uniqueness::MaybeShared,
+                cardinality: Cardinality::Once,
+            },
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
 }
 
 #[test]
@@ -1236,48 +1451,44 @@ fn synergy_local_pure_chain_effects() {
 
 #[test]
 fn synergy_metrics_default_is_zero() {
+    // Trimmed per `cow_upgrades` and `cross_dim_reuse` fields
+    // removed together with the unsound paths they tracked.
     let m = super::metrics::SynergyMetrics::default();
     assert_eq!(m.total_rc_decisions, 0);
     assert_eq!(m.reuse_decisions, 0);
-    assert_eq!(m.cow_upgrades, 0);
     assert_eq!(m.total_cow_decisions, 0);
-    assert_eq!(m.cross_dim_reuse, 0);
     assert_eq!(m.natural_fip, 0);
     assert_eq!(m.canonicalize_cross_fires, 0);
 }
 
 #[test]
 fn synergy_metrics_merge_additive() {
+    // Trimmed per removed cow_upgrades / cross_dim_reuse assertions.
     let mut a = super::metrics::SynergyMetrics {
         reuse_decisions: 3,
         total_rc_decisions: 10,
-        cow_upgrades: 2,
         total_cow_decisions: 5,
-        cross_dim_reuse: 1,
         natural_fip: 0,
         canonicalize_cross_fires: 4,
     };
     let b = super::metrics::SynergyMetrics {
         reuse_decisions: 2,
         total_rc_decisions: 7,
-        cow_upgrades: 1,
         total_cow_decisions: 3,
-        cross_dim_reuse: 2,
         natural_fip: 1,
         canonicalize_cross_fires: 3,
     };
     a.merge(&b);
     assert_eq!(a.reuse_decisions, 5);
     assert_eq!(a.total_rc_decisions, 17);
-    assert_eq!(a.cow_upgrades, 3);
     assert_eq!(a.total_cow_decisions, 8);
-    assert_eq!(a.cross_dim_reuse, 3);
     assert_eq!(a.natural_fip, 1);
     assert_eq!(a.canonicalize_cross_fires, 7);
 }
 
 #[test]
 fn synergy_metrics_reuse_percent() {
+    // Preserved unchanged — only uses surviving fields.
     let m = super::metrics::SynergyMetrics {
         reuse_decisions: 3,
         total_rc_decisions: 10,
@@ -1289,19 +1500,22 @@ fn synergy_metrics_reuse_percent() {
 
 #[test]
 fn synergy_metrics_percent_zero_total() {
+    // Preserved unchanged.
     let m = super::metrics::SynergyMetrics::default();
     assert!((m.reuse_percent()).abs() < f64::EPSILON);
 }
 
 #[test]
 fn synergy_metrics_cross_dim_evidence() {
+    // Trimmed per `cross_dim_evidence_total()` was refactored
+    // to sum only `canonicalize_cross_fires` after `cow_upgrades` and
+    // `cross_dim_reuse` were removed. Test preserves coverage of the
+    // surviving helper on the surviving field.
     let m = super::metrics::SynergyMetrics {
         canonicalize_cross_fires: 100,
-        cross_dim_reuse: 5,
-        cow_upgrades: 3,
         ..Default::default()
     };
-    assert_eq!(m.cross_dim_evidence_total(), 108);
+    assert_eq!(m.cross_dim_evidence_total(), 100);
     assert!(m.has_cross_dim_evidence());
 
     let empty = super::metrics::SynergyMetrics::default();
