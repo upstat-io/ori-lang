@@ -204,7 +204,7 @@ Commands are shorter than skills and have DIFFERENT structural formats than skil
 
   This is a review-agent instruction placed AFTER the static file-reading block but BEFORE the agent begins verification work. It goes INSIDE the agent prompt template, not alongside the Phase 1/Phase 2 architecture.
 
-  **While editing:** also fix the stale rules-corpus instruction in the same prompt block — line 108 says "ALL 20 rules files" but the repo now has 28 rules files. Replace the hardcoded count with a generic instruction: `"ALL rules files in /home/eric/projects/ori_lang/.claude/rules/ — read every file"` (no hardcoded count). This prevents the instruction from going stale again as rules are added.
+  **While editing:** also fix the stale rules-corpus instruction in the same prompt block — line 108 says "ALL 20 rules files" and enumerates a bulleted list of specific filenames below it. Replace the hardcoded count AND the bulleted list with a generic instruction: `"ALL rules files in /home/eric/projects/ori_lang/.claude/rules/ — read every file"` (no hardcoded count, no hardcoded list). This prevents the instruction from going stale again as rules are added.
 
 - [ ] Spot-check: `grep -c '@.claude/skills/dual-tpr/compose-intel-summary.md' <FILE>` returns >=1 for each of the 3 commands.
 
@@ -219,7 +219,7 @@ Commands are shorter than skills and have DIFFERENT structural formats than skil
 
 ## 05.3 Cross-reference audit and inventory updates
 
-**File(s):** 5 files need inventory updates + grep verification
+**File(s):** 4 files need inventory updates (with multiple edits to compose-intel-summary.md) + grep verification
 
 After §05.1 and §05.2 land, multiple inventory/tracking files become stale. This subsection updates them all.
 
@@ -237,7 +237,7 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 ### Inventory updates (same-commit as the skill/command edits)
 
 - [ ] **`.claude/rules/intelligence.md`** — Remove `[planned -- tracked by plans/query-intel-adoption §05]` markers AND update the workflow descriptions to match the refined §05 designs:
-  - `verify-tpr` — remove `*[planned]*` tag; update description to match §05.1: blast-radius via `callers` on HIGH-SEVERITY findings only (not all findings, not `callees`/`similar`)
+  - `verify-tpr` — remove `*[planned]*` tag; update description to match §05.1: blast-radius via `callers` on high-severity findings or findings where the blast radius is ambiguous (not all findings, not `callees`/`similar`)
   - `sync-claude` — remove `*[planned]*` tag; update description to match §05.1: `file-symbols` on changed crates for doc-symbol drift detection (not "intelligence-surface drift audit")
   - `fix-next-bug` — remove `*[planned]*` tag; update description to match §05.1: lightweight `callers`-only blast-radius preview for scope assessment (not `callees`/`similar`)
   - `sync-spec` — remove `*[planned]*` tag; update to match §05.2: `callers` on affected symbols before spec edits
@@ -258,7 +258,7 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
   **TPR/verification consumers:**
 
   - **`/verify-tpr`** (Step 2.5) — per-finding blast-radius:
-    - `callers "<finding symbol>" --repo ori` (high-severity findings only)
+    - `callers "<finding symbol>" --repo ori` (high-severity or ambiguous-blast-radius findings)
 
   **Doc-sync consumers:**
 
@@ -302,7 +302,7 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 
 - [ ] **Subsection close-out (05.3)**:
   - [ ] Consumer list exhaustive; SSOT's Consumers section populated with all 24+ consumers
-  - [ ] All 5 inventory files updated (intelligence.md workflow descriptions, compose-intel-summary.md header + Step F + Consumers section, 00-overview.md, index.md keyword cluster)
+  - [ ] All 4 inventory files updated with multiple edits (intelligence.md workflow descriptions, compose-intel-summary.md header + Step F + Consumers section, 00-overview.md diagram + mission criterion, index.md keyword cluster)
   - [ ] Update `05.3` status to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on 05.3** — the grep invariant is running twice now (§03.3 and §05.3). Should this be a lefthook pre-commit hook that fails the commit if any `.claude/` file contains the pre-query pattern without the SSOT include? Commit via `build(ci): ...` if matured.
   - [ ] **Run `/sync-claude` on 05.3** — the SSOT Consumers section is a living artifact; future sections (§06, §07) will add themselves. Confirm the update process is documented (the SSOT should explain "how to add yourself as a consumer").
@@ -335,6 +335,14 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 - [x] `[TPR-05-003-codex-r3][medium]` `section-05:187` — Fix stale "20 rules files" in verify-roadmap prompt block.
   Resolved: Fixed on 2026-04-14. Added task to replace hardcoded count with generic instruction.
 - `[TPR-05-001-gemini-r3][informational]` Clean round 3 re-review verification — all fixes confirmed.
+- [x] `[TPR-05-001-codex-r4][medium]` `section-05:239` — verify-tpr scope mismatch: §05.3 said "high-severity only" but §05.1 says "high-severity or ambiguous".
+  Resolved: Fixed on 2026-04-14. Updated both intelligence.md update and Step F entry to "high-severity or ambiguous".
+- [x] `[TPR-05-002-codex-r4][medium]` `section-05:345` — Completion checklist status-string invariant impossible as written.
+  Resolved: Fixed on 2026-04-14. Scoped to consumer files; listed 3 approved surfaces.
+- [x] `[TPR-05-003-codex-r4][low]` `section-05:222` — File count says 5 but only 4 distinct files.
+  Resolved: Fixed on 2026-04-14. Corrected to "4 files with multiple edits".
+- `[TPR-05-001-gemini-r4][informational]` verify-roadmap bulleted list should also be removed — addressed.
+- `[TPR-05-002-gemini-r4][informational]` verify-tpr Step F entry scope — same as TPR-05-001-codex-r4.
 
 ---
 
@@ -342,7 +350,7 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 
 - [ ] All 3 skill files have a numbered step with `@.claude/skills/dual-tpr/compose-intel-summary.md`
 - [ ] All 3 command files have an insertion with `@.claude/skills/dual-tpr/compose-intel-summary.md` (matching each command's structural format — numbered list items for sync-spec/sync-grammar, agent prompt injection for verify-roadmap)
-- [ ] No file in `.claude/` contains an inlined `scripts/intel-query.sh status` block (invariant check passes)
+- [ ] No CONSUMER file in `.claude/` contains an inlined `scripts/intel-query.sh status` block — the 3 approved surfaces (SSOT `compose-intel-summary.md`, `intelligence.md`, `query-intel.md`) are legitimate and expected
 - [ ] SSOT's `## Consumers` section lists all 24+ consumers
 - [ ] SSOT Step F registry has entries for all 6 new consumers
 - [ ] `.claude/rules/intelligence.md` has no remaining `[planned]` markers for the 6 migrated surfaces
