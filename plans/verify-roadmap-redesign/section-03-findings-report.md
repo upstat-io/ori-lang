@@ -168,10 +168,10 @@ Design and implement the findings report format. The report must be both human-r
   - `FindingCategory` and `FindingSubtype` enums are imported (see Section 01.3 for the complete taxonomy)
   - `Finding.to_json()` / `Finding.to_markdown()` are used as-is; Section 03 only wraps them into a report
 
-- [ ] Import `ClassifiedFinding` and `SafetyClass` from 03.1 (local to this section's module; NOT from `plan_corpus`). The report serializes `ClassifiedFinding` records — each entry includes the finding data PLUS the safety classification and rationale.
+- [ ] Import `ClassifiedFinding` and `SafetyClass` from 03.1 (local to this section's module; NOT from `plan_corpus`). The report serializes `ClassifiedFinding` records — each entry includes the finding data PLUS the safety classification, rationale, and sibling resolution state.
 
 - [ ] Implement JSON report output:
-  - Array of `ClassifiedFinding` objects: each has `finding` (the `Finding.to_json()` dict), `safety_class` (`"safe_fix"` or `"exposure_review"`), `rationale` (string)
+  - Array of `ClassifiedFinding` objects: each has `finding` (the `Finding.to_json()` dict), `safety_class` (`"safe_fix"` or `"exposure_review"`), `rationale` (string), `resolved_by_sibling` (Finding.id string or null — non-null when this finding was resolved as a side-effect of fixing a paired finding, e.g., `MISSING_REQUIRED_FIELD: name` resolved by the `plan:→name:` rename)
   - Written to `build/verify-roadmap/findings.json` (build directory, not committed)
   - Include metadata header: timestamp, corpus size, classifier versions, mode (`--full` / `--quick`)
   - When mode is `--quick`, omit `safety_class` and `rationale` fields (classification was not performed)
@@ -353,7 +353,7 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
   - How to interpret and act on findings
   - Explicit list of what `--quick` checks vs what `--full` checks (no ambiguity)
 
-- [ ] **Shadow parser migration (blind spot #5, TPR-03-001-gemini mandate):** `roadmap_scan.py` has ~600 lines of parsing logic (`split_frontmatter`, `parse_section_file`, `parse_index_file`) that duplicates `plan_corpus`. `--quick` mode MUST use `plan_corpus` for parsing — two diverging corpus truths is a LEAK:algorithmic-duplication that violates SSOT-2. **Mandated approach (Option A):** refactor `roadmap_scan.py` to import `plan_corpus` for all parsing, keeping only the `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This eliminates the `errors="replace"` + `{}` on YAMLError swallowed-error pattern (`roadmap_scan.py:327-348`) that Section 01 was designed to prevent. **Option B (shadow parser divergence) is explicitly rejected** — it would allow the known LEAK to survive with no committed follow-up, violating R-2 and R-3. The migration is tracked as a concrete `- [ ]` in Section 05.
+- [ ] **Shadow parser migration (blind spot #5, TPR-03-001-gemini mandate):** `roadmap_scan.py` has ~600 lines of parsing logic (`split_frontmatter`, `parse_section_file`, `parse_index_file`) that duplicates `plan_corpus`. `--quick` mode MUST use `plan_corpus` for parsing — two diverging corpus truths is a LEAK:algorithmic-duplication that violates SSOT-2. **Mandated approach (Option A):** refactor `roadmap_scan.py` to import `plan_corpus.load_and_validate` as the sole parsing entrypoint (per Section 01's SSOT boundary — downstream consumers MUST NOT call `split_frontmatter_strict` directly), keeping only the `/continue-roadmap`-specific logic (section selection, focus plan, health signals). This eliminates the `errors="replace"` + `{}` on YAMLError swallowed-error pattern (`roadmap_scan.py:327-348`) that Section 01 was designed to prevent. **Option B (shadow parser divergence) is explicitly rejected** — it would allow the known LEAK to survive with no committed follow-up, violating R-2 and R-3. The migration is tracked as a concrete `- [ ]` in Section 05.
 
 - [ ] **Tests (TDD):**
   - **Integration test:** `/verify-roadmap --quick` returns findings for a corpus with a known BLOCKED finding
@@ -402,6 +402,18 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
   Resolved: Fixed on 2026-04-14. Added paired-finding deduplication with `resolved_by_sibling` field on ClassifiedFinding.
 - [x] `[TPR-03-003-gemini-r2][medium]` `section-05:46` — --quick mode must include Phase 5 for report generation.
   Resolved: Fixed on 2026-04-14. Updated §05.1: --quick runs Phases 1-3 and 5 (report-only, no auto-fix). Phase 4 skipped.
+
+**Round 3 findings (iteration 3, 2026-04-14):**
+- [x] `[TPR-03-001-codex-r3][high]` `section-05:68` — Point §05 phase wiring at real plan_corpus entrypoints (python -m scripts.plan_corpus, not scripts/plan_corpus.py).
+  Resolved: Fixed on 2026-04-14. Updated Phase 1/2 entrypoints to actual package API.
+- [x] `[TPR-03-002-codex-r3][high]` `section-05:113` — Realign §05 validation cases (a)/(g) with live route A/B behavior. Current corpus = MISSING_DEPENDENCY, not BLOCKED.
+  Resolved: Fixed on 2026-04-14. Updated both test cases to expect MISSING_DEPENDENCY (route B), with note about route A migration.
+- [x] `[TPR-03-003-codex-r3][medium]` `section-05:187` — Route roadmap_scan migration through load_and_validate, not low-level split_frontmatter_strict.
+  Resolved: Fixed on 2026-04-14. Updated migration item to use load_and_validate as sole entrypoint per §01 SSOT boundary.
+- [x] `[TPR-03-004-codex-r3][medium]` `section-05:178` — Undefined --check mode; replaced with --full --no-auto-fix.
+  Resolved: Fixed on 2026-04-14. Changed verification step to use existing --full --no-auto-fix mode.
+- [x] `[TPR-03-005-codex-r3][medium]` `section-03:114` — Carry resolved_by_sibling through the report contract.
+  Resolved: Fixed on 2026-04-14. Updated §03.2 JSON spec to include resolved_by_sibling field.
 
 ---
 
