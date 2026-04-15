@@ -15,7 +15,7 @@ inspired_by:
   - "TPR findings codex-010/011/012/016/017/018, gemini-006, gemini-007"
 depends_on: ["03"]
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-14
 sections:
   - id: "05.1"
@@ -37,7 +37,7 @@ sections:
 
 # Section 05: Missing-trigger skills & commands
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Six surfaces (3 skills + 3 commands) currently have NO concrete graph-query workflow step. Each gets one, using the SSOT helper from §03. `/tp-help` was already migrated in §03 (it has `@.claude/skills/dual-tpr/compose-intel-summary.md` at `.claude/skills/tp-help/SKILL.md:100` with a Step F extension registered in `compose-intel-summary.md:176-178`).
 
 **Context:** Per the 2026-04-14 TPR, skill/command authorship has been uneven — the review-family gold standard (`tpr-review` Step 0.75, `review-work` Step 1.5) established a concrete workflow, but several peer skills never caught up. `verify-tpr` triages TPR findings without blast-radius context; `sync-claude` runs doc checks without querying `file-symbols` on changed crates to confirm docs still match (per `.claude/rules/intelligence.md:59`); `fix-next-bug` hands off to /fix-bug with no graph-derived symbol context for priority/scope assessment. On the command side, `sync-spec`, `sync-grammar`, and `verify-roadmap` have no mention at all. Each of these is a GAP:missing-trigger finding.
@@ -344,21 +344,37 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
 - `[TPR-05-001-gemini-r4][informational]` verify-roadmap bulleted list should also be removed — addressed.
 - `[TPR-05-002-gemini-r4][informational]` verify-tpr Step F entry scope — same as TPR-05-001-codex-r4.
 
+### Round 5 (section-close TPR on commits 6ee3c9c3..9cb4f889)
+
+- [x] `[TPR-05-001-codex][medium]` `.claude/skills/dual-tpr/compose-intel-summary.md:245` — Correct the §03 consumer registry so it lists the actual command consumers.
+  Evidence: The `## Consumers` block claims `§03 (18 original consumers)` but the first bullet said `Skills (14)` while listing 17 entries, including command-only surfaces `/review-plan`, `/independent-review`, `/review-bugs`; next bullet said `Commands (1)` and named only `/review-work` (command). Fresh `rg -l` enumeration showed 4 commands in §03.
+  Resolved: Fixed on 2026-04-14. Corrected split to `Skills (14)` (removed review-plan/independent-review/review-bugs from skills list) and `Commands (4)` (added review-plan, independent-review, review-bugs alongside review-work command). 14 + 4 = 18 now matches the total.
+  Agreement: [TPR-05-001-gemini] (gemini flagged the same count mismatch at the same location with a less-accurate proposed fix).
+- [x] `[TPR-05-001-gemini][low]` `.claude/skills/dual-tpr/compose-intel-summary.md` — `Skills (14):` vs 17 enumerated items.
+  Resolved: Fixed on 2026-04-14. Same fix as [TPR-05-001-codex] — codex's verification surfaced the deeper issue (3 of the 17 were actually commands). 17+1 would have been wrong; 14+4 is correct.
+- [x] `[TPR-05-002-codex][low]` `.claude/rules/intelligence.md:36` — Remove the stale planned-entry preamble from the workflow inventory.
+  Evidence: Preamble at lines 36-40 still explained `Entries tagged *[planned — tracked by plans/query-intel-adoption §05]* document the intended graph usage...` but no `[planned]` tagged entries remain.
+  Resolved: Fixed on 2026-04-14. Replaced the stale preamble paragraph with a concise live-inventory note.
+- [x] `[TPR-05-003-codex][low]` `plans/query-intel-adoption/section-05-missing-trigger-skills.md:40` + `00-overview.md:232` — Synchronize section body status prose and overview quick-reference with the in-progress state.
+  Evidence: Section body said `**Status:** Not Started` at line 40 and overview Quick Reference listed section 05 as `Not Started` even though frontmatter `status: in-progress`, subsections were `complete`, and `index.md` said `In Progress`.
+  Resolved: Fixed on 2026-04-14. Section body → `**Status:** In Progress`; overview Quick Reference row 05 → `In Progress`.
+- `[TPR-05-002-gemini][informational]` Implementation completely fulfills §05 requirements and invariant constraints (hook passes, all @-includes present, no inlined status-checks, plan frontmatter correct).
+
 ---
 
 ## 05.N Completion Checklist
 
-- [ ] All 3 skill files have a numbered step with `@.claude/skills/dual-tpr/compose-intel-summary.md`
-- [ ] All 3 command files have an insertion with `@.claude/skills/dual-tpr/compose-intel-summary.md` (matching each command's structural format — numbered list items for sync-spec/sync-grammar, agent prompt injection for verify-roadmap)
-- [ ] No CONSUMER file in `.claude/` contains an inlined `scripts/intel-query.sh status` block — the 3 approved surfaces (SSOT `compose-intel-summary.md`, `intelligence.md`, `query-intel.md`) are legitimate and expected
-- [ ] SSOT's `## Consumers` section lists all 24+ consumers
-- [ ] SSOT Step F registry has entries for all 6 new consumers
-- [ ] `.claude/rules/intelligence.md` has no remaining `[planned]` markers for the 6 migrated surfaces
-- [ ] `plans/query-intel-adoption/00-overview.md` mission criterion updated ("3 gap skills" not "4")
-- [ ] `./test-all.sh` green
-- [ ] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-05-missing-trigger-skills.md` returns 0 errors
+- [x] All 3 skill files have a numbered step with `@.claude/skills/dual-tpr/compose-intel-summary.md`
+- [x] All 3 command files have an insertion with `@.claude/skills/dual-tpr/compose-intel-summary.md` (matching each command's structural format — numbered list items for sync-spec/sync-grammar, agent prompt injection for verify-roadmap)
+- [x] No CONSUMER file in `.claude/` contains an inlined `scripts/intel-query.sh status` block — the 3 approved surfaces (SSOT `compose-intel-summary.md`, `intelligence.md`, `query-intel.md`) are legitimate and expected
+- [x] SSOT's `## Consumers` section lists all 24+ consumers
+- [x] SSOT Step F registry has entries for all 6 new consumers
+- [x] `.claude/rules/intelligence.md` has no remaining `[planned]` markers for the 6 migrated surfaces
+- [x] `plans/query-intel-adoption/00-overview.md` mission criterion updated ("3 gap skills" not "4")
+- [x] `./test-all.sh` green (commit 9cb4f889 — 15327 passed, LLVM backend crash is known BUG-04-030)
+- [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-05-missing-trigger-skills.md` returns 0 errors
 - [ ] **Plan sync**:
-  - [ ] Section frontmatter -> `complete`
+  - [ ] Section frontmatter -> `complete` (after TPR + hygiene clean)
   - [ ] `00-overview.md` Quick Reference and mission criteria updated
   - [ ] `index.md` updated
 - [ ] `/tpr-review` passed — reviewers confirm each added Step is actionable, not ceremonial

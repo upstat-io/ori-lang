@@ -32,12 +32,8 @@ it via `@`-include.
 
 ## When to Query
 
-Query the intelligence graph proactively in these workflows.
-Entries tagged *[planned — tracked by plans/query-intel-adoption §05]* document
-the intended graph usage for workflows that have not yet been migrated —
-their skill/command files do not currently invoke `scripts/intel-query.sh`;
-§05 of `plans/query-intel-adoption` will wire them in. Untagged entries are
-live consumers that query the graph today.
+Query the intelligence graph proactively in these workflows. All entries
+below are live consumers that query the graph today.
 
 - **Design decisions**: Before choosing an approach, query `similar` for how reference compilers handled it
 - **Bug investigation** (/fix-bug Phase 1): `callers`/`callees` for blast radius, `similar` for reference fixes

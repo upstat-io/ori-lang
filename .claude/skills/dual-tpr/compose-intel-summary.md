@@ -242,8 +242,8 @@ at its intel section. Updates to this protocol propagate automatically.
 
 Migrated in `plans/query-intel-adoption` §03 (18 original consumers):
 
-- Skills (14): `/tpr-review`, `/review-work` (skill), `/review-plan`, `/independent-review`, `/review-bugs`, `/tp-help`, `/add-bug`, `/improve-tooling`, `/design-pattern-review`, `/create-draft-proposal`, `/fix-bug`, `/impl-hygiene-review`, `/review-draft-proposal`, `/create-plan`, `/rosetta-test`, `/code-journey`, `/continue-roadmap`
-- Commands (1): `/review-work` (command)
+- Skills (14): `/tpr-review`, `/review-work` (skill), `/tp-help`, `/add-bug`, `/improve-tooling`, `/design-pattern-review`, `/create-draft-proposal`, `/fix-bug`, `/impl-hygiene-review`, `/review-draft-proposal`, `/create-plan`, `/rosetta-test`, `/code-journey`, `/continue-roadmap`
+- Commands (4): `/review-plan`, `/review-work` (command), `/independent-review`, `/review-bugs`
 
 Migrated in `plans/query-intel-adoption` §05.1 (3 skills):
 
