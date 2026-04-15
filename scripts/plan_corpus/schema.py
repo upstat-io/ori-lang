@@ -12,6 +12,7 @@ classification* + *validation dispatch* built on top of those shapes.
 from __future__ import annotations
 
 import enum
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -20,6 +21,7 @@ from .types import (
     Finding,
     FindingCategory,
     FindingSubtype,
+    Outcome,
     Severity,
     PLANS_DIR,
     ROADMAP_DIR,
@@ -453,6 +455,282 @@ def _validate_completed_index(data: dict, path: Path) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
+# §06.2 — `## Intelligence Reconnaissance` body-level validator
+# ---------------------------------------------------------------------------
+#
+# Detection rules (from `plans/query-intel-adoption/section-06-plan-schema-recon.md`
+# §06.2 implementation item 6):
+#
+# * **Missing block** — no `## Intelligence Reconnaissance` header in body.
+#   status=not-started → Severity.HIGH + Outcome.WARNING (ERROR under --strict-recon).
+#   status=in-progress → Severity.MEDIUM + Outcome.WARNING (unaffected by --strict-recon).
+#   status=complete → exempt (0 findings).
+#
+# * **Graph-unavailable documentation** (header + ISO date + an unavailability
+#   phrase) — Severity.LOW + Outcome.WARNING, distinct `RECON_GRAPH_UNAVAILABLE`
+#   subtype. PASSES the anti-stub check (not a performative ritual — author
+#   ran the availability check and recorded the result).
+#
+# * **Stub / performative-ritual block** (header present but fails concrete-
+#   content checks) — `VALIDATION_BYPASS` subtype, same severity/outcome
+#   mapping as missing-block. Triggers on: empty/whitespace, placeholder-
+#   only, missing query line, missing date, missing citation, citation
+#   marker followed by placeholder within 20 chars ("mixed-placeholder-
+#   after-citation"), or a bare `@`-include without a summary paragraph.
+#
+# Format-coupling contract (§03/§06/§07): ≤500-char bound +
+# `[ori]` / `[repo#N]` / `[repo:path]` citation vocabulary +
+# `.claude/skills/dual-tpr/compose-intel-summary.md` SSOT. Exact line-level
+# formatting may vary per consumer rendering context; anti-stub detection
+# enforces the citation-grammar half.
+
+_RECON_HEADER_RE = re.compile(
+    r"^## Intelligence Reconnaissance\s*$", re.MULTILINE,
+)
+_NEXT_SECTION_RE = re.compile(r"^## ", re.MULTILINE)
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+_RECON_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_RECON_QUERY_RE = re.compile(r"\bscripts/intel-query\.sh\b")
+_RECON_ORI_CITATION_RE = re.compile(r"\[ori\]")
+# `[rust#123]` or `[repo:path/to/symbol]` — generic pattern matches any
+# reference-repo citation without hardcoding the repo list.
+_RECON_REPO_CITATION_RE = re.compile(r"\[[a-z][a-z0-9-]*[#:][^\]]+\]")
+_RECON_AT_INCLUDE_RE = re.compile(
+    r"@\.claude/skills/dual-tpr/compose-intel-summary\.md",
+)
+
+# Placeholder tokens (case-insensitive, whole-token). Used both for the
+# "only-placeholders" check and the mixed-placeholder-after-citation scan.
+_RECON_PLACEHOLDER_PATTERN = (
+    r"\bTBD\b|\bTODO\b|\bNONE\b|\bN/?A\b|\bXXX\b|\(empty\)|\.{3}|…"
+)
+_RECON_PLACEHOLDER_RE = re.compile(_RECON_PLACEHOLDER_PATTERN, re.IGNORECASE)
+# `[ori]` OR `[repo#` / `[repo:` — start of any citation marker.
+_RECON_MIXED_CITATION_RE = re.compile(
+    r"(\[ori\]|\[[a-z][a-z0-9-]*[#:])"
+    r"[^\n]{0,20}?"
+    r"(" + _RECON_PLACEHOLDER_PATTERN + r")",
+    re.IGNORECASE,
+)
+
+_RECON_GRAPH_UNAVAIL_PHRASES = (
+    "graph was unavailable",
+    "intelligence graph unavailable",
+    "graph unavailable",
+)
+
+_RECON_SSOT_HINT = (
+    "See '.claude/skills/create-plan/plan-schema.md' Section File Template and "
+    "'.claude/skills/dual-tpr/compose-intel-summary.md' Step D for the query "
+    "protocol and summary format ([ori] / [repo#N] / [repo:path] citations, "
+    "≤500 chars). If the graph is unavailable, record the unavailability as "
+    "freeform prose with an ISO date — do NOT omit the block."
+)
+
+
+def _extract_recon_block(body: str) -> str | None:
+    """Extract the `## Intelligence Reconnaissance` block body.
+
+    Returns None if the header is absent. Otherwise returns the text from
+    the line AFTER the header to the next `## ` section header or EOF,
+    with HTML comments stripped (they are metadata, not content).
+    """
+    header = _RECON_HEADER_RE.search(body)
+    if not header:
+        return None
+    start = header.end()
+    next_section = _NEXT_SECTION_RE.search(body, start)
+    end = next_section.start() if next_section else len(body)
+    block = body[start:end]
+    return _HTML_COMMENT_RE.sub("", block)
+
+
+def _check_intel_recon_block(
+    data: dict, body: str, path: Path, strict_recon: bool = False,
+) -> list[Finding]:
+    """Body-level validator for PLAN_SECTION recon-block mandate.
+
+    See the `§06.2` header comment for the full detection rules. Returns
+    a list with AT MOST ONE finding per invocation — the first failing
+    check wins, so consumers see the primary violation rather than a
+    cascade.
+    """
+    status = data.get("status", "")
+    # `complete` sections are totally exempt — the retrofit / enforcement
+    # surface is `not-started` and `in-progress` only.
+    if status == "complete":
+        return []
+
+    # Severity + Outcome for missing/stub findings, gated on status.
+    if status == "in-progress":
+        base_sev = Severity.MEDIUM
+        base_outcome = Outcome.WARNING  # --strict-recon does NOT escalate in-progress
+    else:
+        # not-started (and any unknown status — treat as not-started
+        # defensively; the schema validator will emit its own ENUM_OUT_OF_RANGE).
+        base_sev = Severity.HIGH
+        base_outcome = Outcome.ERROR if strict_recon else Outcome.WARNING
+
+    block = _extract_recon_block(body)
+    if block is None:
+        return [Finding(
+            category=FindingCategory.GAP,
+            subtype=FindingSubtype.MISSING_RECON_BLOCK,
+            severity=base_sev,
+            source=path,
+            description=(
+                "Section lacks a '## Intelligence Reconnaissance' block. "
+                "Every PLAN_SECTION author must record graph queries run + "
+                "≤500-char summary + ISO date before implementation."
+            ),
+            recommended_fix=_RECON_SSOT_HINT,
+            outcome=base_outcome,
+        )]
+
+    stripped = block.strip()
+    has_date = bool(_RECON_DATE_RE.search(block))
+    lower = block.lower()
+
+    # Graph-unavailable takes precedence: legitimate documentation shape,
+    # distinct from stubs. Requires a date + one of the unavailability
+    # phrases so authors can't pass the check with a bare "unavailable"
+    # comment.
+    if has_date and any(p in lower for p in _RECON_GRAPH_UNAVAIL_PHRASES):
+        return [Finding(
+            category=FindingCategory.GAP,
+            subtype=FindingSubtype.RECON_GRAPH_UNAVAILABLE,
+            severity=Severity.LOW,
+            source=path,
+            description=(
+                "Section records graph-unavailable state. This is a distinct, "
+                "non-gating finding — the author ran the availability check "
+                "and recorded that the graph was down. Fill in full queries "
+                "if/when the graph becomes available."
+            ),
+            recommended_fix=(
+                "When `scripts/intel-query.sh status` returns ok, run the "
+                "canonical recon queries and update this block with the "
+                "results summary and [ori] / [repo#N] citations."
+            ),
+            outcome=Outcome.WARNING,
+        )]
+
+    # Empty / whitespace-only after the header.
+    if not stripped:
+        return [Finding(
+            category=FindingCategory.GAP,
+            subtype=FindingSubtype.VALIDATION_BYPASS,
+            severity=base_sev,
+            source=path,
+            description=(
+                "'## Intelligence Reconnaissance' header present but body is "
+                "empty (performative-ritual stub)."
+            ),
+            recommended_fix=_RECON_SSOT_HINT,
+            outcome=base_outcome,
+        )]
+
+    # Only-placeholder tokens: strip all placeholder tokens + whitespace;
+    # if nothing remains, the body is a ritual stub.
+    placeholder_free = _RECON_PLACEHOLDER_RE.sub("", stripped).strip()
+    if not placeholder_free:
+        return [Finding(
+            category=FindingCategory.GAP,
+            subtype=FindingSubtype.VALIDATION_BYPASS,
+            severity=base_sev,
+            source=path,
+            description=(
+                "'## Intelligence Reconnaissance' block contains only "
+                "placeholder tokens (TBD / TODO / n/a / none / (empty) / ...). "
+                "This is a performative-ritual stub — placeholder tokens do "
+                "not record real reconnaissance."
+            ),
+            recommended_fix=_RECON_SSOT_HINT,
+            outcome=base_outcome,
+        )]
+
+    # Bare `@`-include with no surrounding summary. The @-include is a
+    # SOURCE for Claude's prompt, NOT a substitute for a plan-resident
+    # snapshot. Strip the include text and see if anything substantive
+    # remains.
+    if _RECON_AT_INCLUDE_RE.search(block):
+        without_at = _RECON_AT_INCLUDE_RE.sub("", stripped).strip()
+        if not without_at:
+            return [Finding(
+                category=FindingCategory.GAP,
+                subtype=FindingSubtype.VALIDATION_BYPASS,
+                severity=base_sev,
+                source=path,
+                description=(
+                    "'## Intelligence Reconnaissance' block contains only the "
+                    "literal `@.claude/skills/dual-tpr/compose-intel-summary.md` "
+                    "SSOT reference. The @-include is a SOURCE for Claude's "
+                    "prompt — NOT a substitute for the plan-resident snapshot."
+                ),
+                recommended_fix=(
+                    "Add a condensed ≤500-char summary paragraph alongside the "
+                    "@-include, with the literal scripts/intel-query.sh commands "
+                    "run, an ISO YYYY-MM-DD date, and at least one "
+                    "[ori] / [repo#N] / [repo:path] citation marker."
+                ),
+                outcome=base_outcome,
+            )]
+
+    # Concrete-content checks: query line, ISO date, citation marker.
+    has_query = bool(_RECON_QUERY_RE.search(block))
+    has_citation = bool(
+        _RECON_ORI_CITATION_RE.search(block)
+        or _RECON_REPO_CITATION_RE.search(block)
+    )
+    missing: list[str] = []
+    if not has_query:
+        missing.append("scripts/intel-query.sh command line")
+    if not has_date:
+        missing.append("ISO date marker (YYYY-MM-DD)")
+    if not has_citation:
+        missing.append("citation marker ([ori] / [repo#N] / [repo:path])")
+    if missing:
+        return [Finding(
+            category=FindingCategory.GAP,
+            subtype=FindingSubtype.VALIDATION_BYPASS,
+            severity=base_sev,
+            source=path,
+            description=(
+                f"'## Intelligence Reconnaissance' block is missing: "
+                f"{', '.join(missing)}. Performative-ritual stub."
+            ),
+            recommended_fix=_RECON_SSOT_HINT,
+            outcome=base_outcome,
+        )]
+
+    # Mixed-placeholder-after-citation — the citation marker provides false
+    # cover for a TBD/TODO content line within 20 chars. Example: `[ori] TBD`.
+    if _RECON_MIXED_CITATION_RE.search(block):
+        return [Finding(
+            category=FindingCategory.GAP,
+            subtype=FindingSubtype.VALIDATION_BYPASS,
+            severity=base_sev,
+            source=path,
+            description=(
+                "'## Intelligence Reconnaissance' has a citation marker "
+                "followed by a placeholder token within 20 characters "
+                "(mixed-placeholder-after-citation). The citation marker "
+                "provides false cover — the content is not real TBD."
+            ),
+            recommended_fix=(
+                "Replace the placeholder after the citation marker with the "
+                "actual summary substance. Example: replace `[ori] TBD` with "
+                "`[ori] <what the graph query actually returned>`."
+            ),
+            outcome=base_outcome,
+        )]
+
+    # All checks passed — block is complete.
+    return []
+
+
+# ---------------------------------------------------------------------------
 # FileClass metadata registry (SSOT for per-class display / pattern / schema /
 # validator — queried by docgen.py, validate(), and any other consumer)
 # ---------------------------------------------------------------------------
@@ -464,19 +742,32 @@ class FileClassMeta:
 
     `display_name` and `pattern` drive human-readable documentation; `schema_cls`
     is the dataclass SSOT for fields; `validator` performs per-class semantic
-    checks on parsed frontmatter.
+    checks on parsed frontmatter; `body_validator` (optional) performs
+    body-level checks that need the raw post-frontmatter text, threaded with
+    the `strict_recon` enforcement flag.
+
+    The body validator is None for classes that don't need body-level checks.
+    Adding a body validator is explicit opt-in — ROADMAP_SECTION /
+    BUG_TRACKER_SECTION / FIX_BUG / overview / index classes remain None so
+    §06.2's recon-block mandate is confined to PLAN_SECTION.
+
+    Rationale for shape (a) over a parallel body-check phase (shape b):
+    one dispatch mechanism avoids duplicate plumbing and keeps the
+    class-keyed registry that docgen relies on. See §06.2 Design Decision 5.
     """
     display_name: str
     pattern: str
     schema_cls: type
     validator: Callable[[dict, Path], list[Finding]]
+    body_validator: Callable[[dict, str, Path, bool], list[Finding]] | None = None
 
 
 FILE_CLASS_META: dict[FileClass, FileClassMeta] = {
     FileClass.PLAN_INDEX: FileClassMeta(
         "Plan Index", "plans/*/index.md", PlanIndexSchema, _validate_plan_index),
     FileClass.PLAN_SECTION: FileClassMeta(
-        "Plan Section", "plans/*/section-*.md", PlanSectionSchema, _validate_plan_section),
+        "Plan Section", "plans/*/section-*.md", PlanSectionSchema, _validate_plan_section,
+        body_validator=_check_intel_recon_block),
     FileClass.ROADMAP_SECTION: FileClassMeta(
         "Roadmap Section", "plans/roadmap/section-*.md", RoadmapSectionSchema,
         _validate_roadmap_section),
@@ -493,9 +784,30 @@ FILE_CLASS_META: dict[FileClass, FileClassMeta] = {
 }
 
 
-def validate(file_class: FileClass, data: dict, path: Path) -> list[Finding]:
-    """Validate parsed frontmatter against the schema for the given file class."""
+def validate(
+    file_class: FileClass,
+    data: dict,
+    path: Path,
+    *,
+    body: str = "",
+    strict_recon: bool = False,
+) -> list[Finding]:
+    """Validate parsed frontmatter AND body text against the file-class schema.
+
+    Runs the frontmatter `validator` first, then (if present) the
+    `body_validator`, concatenating findings in that order. `body` and
+    `strict_recon` are keyword-only with defaults — the 3-positional form
+    `validate(fc, data, path)` remains the stable public contract for
+    frontmatter-only callers (tests, ad-hoc invocations). The body-aware
+    path is opt-in via keyword.
+
+    Callers: `discovery.load_and_validate` — the single production call
+    site — passes both keywords. Frontmatter-only tests skip them.
+    """
     meta = FILE_CLASS_META.get(file_class)
     if meta is None:
         return []
-    return meta.validator(data, path)
+    findings = list(meta.validator(data, path))
+    if meta.body_validator is not None:
+        findings.extend(meta.body_validator(data, body, path, strict_recon))
+    return findings

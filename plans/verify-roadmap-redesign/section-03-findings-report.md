@@ -406,7 +406,7 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
   Resolved: Fixed on 2026-04-14. Updated §05.1: --quick runs Phases 1-3 and 5 (report-only, no auto-fix). Phase 4 skipped.
 
 **Round 3 findings (iteration 3, 2026-04-14):**
-- [x] `[TPR-03-001-codex-r3][high]` `section-05:68` — Point §05 phase wiring at real plan_corpus entrypoints (python -m scripts.plan_corpus, not scripts/plan_corpus.py).
+- [x] `[TPR-03-001-codex-r3][high]` `section-05:68` — Point §05 phase wiring at real plan_corpus entrypoints (python -m scripts.plan_corpus, not the legacy single-file `.py` path).
   Resolved: Fixed on 2026-04-14. Updated Phase 1/2 entrypoints to actual package API.
 - [x] `[TPR-03-002-codex-r3][high]` `section-05:113` — Realign §05 validation cases (a)/(g) with live route A/B behavior. Current corpus = MISSING_DEPENDENCY, not BLOCKED.
   Resolved: Fixed on 2026-04-14. Updated both test cases to expect MISSING_DEPENDENCY (route B), with note about route A migration.

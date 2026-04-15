@@ -224,10 +224,17 @@ class LoadResult:
         return self.ok is not None
 
 
-def load_and_validate(path: Path) -> LoadResult:
+def load_and_validate(path: Path, *, strict_recon: bool = False) -> LoadResult:
     """The single CorpusParseError -> Finding boundary.
 
     Callers MUST check .is_ok -- no try/except needed at call sites.
+
+    `strict_recon` threads the CLI's --strict-recon flag into the
+    body-level recon-block validator: under strict mode, `not-started`
+    PLAN_SECTION files with missing or stub recon blocks produce
+    `Outcome.ERROR` findings that gate CI; in default mode they produce
+    `Outcome.WARNING` findings that are printed but non-gating. The flag
+    has no effect on any other file class or validator.
     """
     try:
         text = read_text_strict(path)
@@ -264,8 +271,8 @@ def load_and_validate(path: Path) -> LoadResult:
             ),
         ))
 
-    violations = validate(fc, data, path)
     body_text = "\n".join(text.split("\n")[body_offset:])
+    violations = validate(fc, data, path, body=body_text, strict_recon=strict_recon)
 
     return LoadResult(ok=ValidatedFile(
         path=path,

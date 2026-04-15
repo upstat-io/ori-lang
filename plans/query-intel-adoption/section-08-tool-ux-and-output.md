@@ -304,7 +304,7 @@ Output shape changes to four result types. The file is in a SEPARATE repo (`../l
 - [ ] `.claude/commands/query-intel.md` expanded to a teaching surface (≥30 lines)
 - [ ] Session cache (08.3) either implemented + tested OR explicitly deferred with anchor
 - [ ] `./test-all.sh` green (no Rust regressions — this section touches only scripts and external repo)
-- [ ] `python scripts/plan_corpus.py check plans/query-intel-adoption/section-08-tool-ux-and-output.md` returns 0 errors
+- [ ] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-08-tool-ux-and-output.md` returns 0 errors
 - [ ] **Plan sync**:
   - [ ] Section frontmatter → `complete`
   - [ ] `00-overview.md` Quick Reference and mission criteria updated
