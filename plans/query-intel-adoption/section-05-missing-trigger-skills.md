@@ -15,7 +15,7 @@ inspired_by:
   - "TPR findings codex-010/011/012/016/017/018, gemini-006, gemini-007"
 depends_on: ["03"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-14
 sections:
   - id: "05.1"
@@ -384,7 +384,7 @@ After §05.1 and §05.2 land, multiple inventory/tracking files become stale. Th
   - [ ] Section frontmatter -> `complete` (after TPR + hygiene clean)
   - [x] `00-overview.md` Quick Reference and mission criteria updated
   - [x] `index.md` updated
-- [ ] `/tpr-review` passed — reviewers confirm each added Step is actionable, not ceremonial
+- [x] `/tpr-review` passed — reviewers confirm each added Step is actionable, not ceremonial (3 rounds: R1 found 4 actionable, R2 confirmed R1 + 1 new finding, R3 clean. Both reviewers returned `review_status: "clean"` on R3 with 0 actionable findings.)
 - [ ] `/impl-hygiene-review` passed — no new inlined patterns; @-includes only
 - [ ] `/improve-tooling` section-close sweep
 - [ ] `/sync-claude` section-close doc sync
