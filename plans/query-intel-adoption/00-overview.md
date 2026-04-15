@@ -229,7 +229,7 @@ None. This plan does not modify compiler code; no test failures are expected. `.
 | 02 | CLAUDE.md expansion | `section-02-claude-md-expansion.md` | Complete |
 | 03 | SSOT: compose-intel-summary helper | `section-03-compose-intel-summary-ssot.md` | Complete |
 | 04 | Rule files: graph-first guidance | `section-04-rules-graph-first.md` | Complete |
-| 05 | Missing-trigger skills & commands | `section-05-missing-trigger-skills.md` | Not Started |
+| 05 | Missing-trigger skills & commands | `section-05-missing-trigger-skills.md` | In Progress |
 | 06 | Plan schema: mandatory Intelligence Reconnaissance | `section-06-plan-schema-recon.md` | Not Started |
 | 07 | Hook-heavy ambient automation | `section-07-pre-review-intel-hook.md` | Not Started |
 | 08 | Tool UX & output shapes | `section-08-tool-ux-and-output.md` | Not Started |
