@@ -239,6 +239,28 @@ pub(crate) fn infer_lambda(
     engine.infer_function(&param_types, body_ty)
 }
 
+/// Returns `true` iff `init` is a non-capturing lambda whose type variables
+/// may be safely generalized for let-polymorphism.
+///
+/// Only `ExprKind::Lambda` initializers with no free outer-scope variables
+/// are generalizable. All other initializers — list/map literals, struct
+/// constructions, constants, function calls — are monomorphic and MUST NOT
+/// generalize their inferred type variables.
+///
+/// This is the SSOT for the Value Restriction policy. Every let-binding
+/// generalization site in the type checker MUST call this function rather
+/// than inlining equivalent logic.
+#[allow(dead_code, reason = "callers added in subsections 01.2-01.4")]
+pub(super) fn should_generalize(arena: &ExprArena, init: ExprId) -> bool {
+    match &arena.get_expr(init).kind {
+        ExprKind::Lambda { params, body, .. } => {
+            let param_names: Vec<Name> = arena.get_params(*params).iter().map(|p| p.name).collect();
+            !body_captures_outer(arena, *body, &param_names)
+        }
+        _ => false,
+    }
+}
+
 /// Check if a lambda body captures outer variables by scanning for
 /// `Ident` nodes that are not in the parameter list.
 ///
