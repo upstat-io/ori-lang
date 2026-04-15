@@ -51,7 +51,7 @@ Type Checker (ori_types::check)  ── ENFORCEMENT PRODUCER
     │       │       Section 02 — new `ori_types::check::validators` module
     │       │     ↓ Walks body_expr_types sorted by ExprIndex (deterministic)
     │       │     ↓ Skips types with HAS_ERROR (cascade suppression)
-    │       │     ↓ Scheme-aware bound-var tracking via FxHashSet<u32>
+    │       │     ↓ HAS_VAR flag-based walk (no bound_vars set — BoundVar sets HAS_BOUND_VAR, not HAS_VAR)
     │       │     ↓ Emits E2005 via engine.push_error for each unresolved Tag::Var
     │       │
     │       └─ Integrated at 4 bodies-pass call sites (Section 03)
@@ -133,10 +133,11 @@ Phase 1 — Generalization Policy (Section 01)
      Gate: `test_let_polymorphism_for_lambda` passes; empty-list binding no longer generalizes
 
 Phase 2 — Validator Module (Section 02)
-  └─ 02.1: Promote `mod check;` → `pub mod check;` at lib.rs:16 (mirrors `pub mod reporting;`)
-  └─ 02.2: Create `check/validators/mod.rs` with `validate_body_types()`
-  └─ 02.3: Implement Scheme-aware bound-var tracking + HAS_ERROR cascade suppression
-  └─ 02.4: Unit tests against synthetic `expr_types` maps
+  └─ 02.0: Pool scheme-flag propagation fix (prerequisite for §02.2 HAS_VAR gate)
+  └─ 02.1: Validator signature, public contract, and narrow re-export (NO pub mod check)
+  └─ 02.2: Core algorithm: tag-dispatch child recursion (reusing Pool::visit_children)
+  └─ 02.3: lib.rs and check/mod.rs wiring (no pub mod check)
+  └─ 02.4: Unit test matrix (eleven cells)
      Gate: Unit tests pass; validator emits E2005 for every unresolved Tag::Var
 
 Phase 3 — Bodies-Pass Integration (Section 03) — CRITICAL PATH
@@ -203,11 +204,12 @@ Baseline measurements (pre-implementation) from the codebase as of plan creation
 | 01 Value Restriction | ~120 (40 helper + 3×20 migrations + 20 tests) | Medium | — |
 |   ↳ 01.1 `should_generalize` helper | ~40 | Low | — |
 |   ↳ 01.2–01.4 3 migration sites | ~60 | Medium | 01.1 |
-| 02 Validator Module | ~250 (150 module + 100 tests) | Medium | — |
-|   ↳ 02.1 `pub mod check` promotion | ~5 | Low | — |
-|   ↳ 02.2 `validate_body_types` | ~100 | Medium | 02.1 |
-|   ↳ 02.3 Scheme-aware walk | ~50 | Medium | 02.2 |
-|   ↳ 02.4 Unit tests | ~100 | Low | 02.2 |
+| 02 Validator Module | ~280 (10 pool fix + 150 module + 120 tests) | Medium | — |
+|   ↳ 02.0 Pool scheme-flag propagation fix | ~10 + ~30 tests | Low | — |
+|   ↳ 02.1 Validator signature + narrow re-export | ~60 | Low | 02.0 |
+|   ↳ 02.2 Core algorithm (reusing Pool::visit_children) | ~80 | Medium | 02.1 |
+|   ↳ 02.3 lib.rs + check/mod.rs wiring | ~10 | Low | 02.1 |
+|   ↳ 02.4 Unit test matrix (11 cells) | ~120 | Low | 02.2 |
 | 03 Bodies-Pass Integration | ~80 (4×15 integration + 20 tests) | Low | 01, 02 |
 |   ↳ 03.1–03.4 4 integration sites | ~60 | Low | 02 |
 |   ↳ 03.5 End-to-end tests | ~20 | Low | 03.1–03.4 |
@@ -227,7 +229,7 @@ Bugs surfaced during the BUG-04-074 investigation + 5 rounds of Plan TPR + Round
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
 | BUG-04-074: Empty list literal with `push()` leaves unresolved Tag::Var, causing LLVM verification failure at AOT | Unconditional generalization at 3 let-binding sites (infer_block L85/L88, infer_let L167, sequences L247) creates Generalized element vars that later instantiation at `.len()`-style non-constraining use sites doesn't resolve; codegen has no assertion, surfaces useless error | Sections 01 + 02 + 03 | Escalated to this plan |
-| `ori_types::check` module publicity: new validator needs external exposure | `mod check;` (private) at `lib.rs:16`; existing precedent is `pub mod reporting;` at line 25 | Section 02.1 | Not Started |
+| `ori_types::check` module exposure: new validator needs external access | `mod check;` (private) at `lib.rs:16`; fix: narrow re-export `pub use check::validators::validate_body_types;` — NO `pub mod check` promotion (Phase 2 /tp-help consensus) | Section 02.1 + 02.3 | Not Started |
 | Spec violation: `14-expressions.md:1224-1228` declares `let y = []` a compile-time error; compiler silently passes to codegen | typeck.md PC-2 output contract not enforced at phase boundary | Sections 02 + 03 | Not Started |
 | `TPR-04-005-codex` audit finding: `tests/spec/` uses `[].iter()`, `[].is_empty()` patterns beyond just `let x = []` bindings; these WILL trip E2005 once live | Existing spec test corpus not spec-compliant | Section 06.2 | Not Started |
 | Informational: Round 4 supersession markers overclaim in the original fix-section — round-1 §R entries do not carry `(SUPERSEDED)` suffixes despite item 7 claiming they do | Documentation drift in `plans/bug-tracker/fix-BUG-04-074.md` | Section 07.1 — supersede the fix-section and preserve the TPR audit trail as a reference in `references:` frontmatter | Not Started |
