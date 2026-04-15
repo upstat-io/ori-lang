@@ -99,7 +99,8 @@ Define the safety taxonomy data types that the report format (03.2) and auto-fix
   - Captured at scan time for every file that might be modified
   - Used by the text patcher (03.4) to detect concurrent modifications before write
 
-- [ ] Implement `classify_safety(finding: Finding, context: WriteBackContext | None) -> ClassifiedFinding`:
+- [ ] Implement `classify_safety(finding: Finding, context: WriteBackContext | None, frontmatter_data: dict | None = None) -> ClassifiedFinding`:
+  - **Signature note (TPR-03-001-gemini):** the `frontmatter_data` parameter carries the parsed frontmatter dict for the finding's source file. This allows `classify_safety` to inspect sibling fields (e.g., checking whether both `plan:` and `name:` exist for the collision guard) WITHOUT performing I/O — the dict is pre-parsed by `plan_corpus.parser` at scan time. The function remains pure: `(finding, context, dict) -> ClassifiedFinding`.
   - **When `context is None` (--quick mode):** return `ClassifiedFinding(finding, ExposureReview, "quick mode — no write-back classification")`
   - **When `context` is provided:** dispatch on `finding.category` + `finding.subtype`:
 
@@ -107,9 +108,10 @@ Define the safety taxonomy data types that the report format (03.2) and auto-fix
   - Field rename `plan:` -> `name:` — **NOTE: `OverviewSchema` canonically uses `plan:` (see `schemas.py:89-91`); `PlanIndexSchema` canonically uses `name:` (see `schemas.py:39`). Renaming `plan:` to `name:` is ONLY valid on files where the schema expects `name:` but the file has `plan:` instead (i.e., the file is a `PlanIndexSchema` file misusing `plan:`).** SafeFix ONLY when:
     - The target file's schema class is `PlanIndexSchema` (the schema that requires `name:`) AND the file has `plan:` instead of `name:`
     - **NOT valid on `OverviewSchema` files** — those canonically use `plan:` as a required field; renaming it to `name:` would violate the schema
-    - **Collision guard (blind spot #3):** if the file already has BOTH a `plan:` key AND a `name:` key with DIFFERENT values, this is ExposureReview (human must decide which value to keep). Check: parse the frontmatter, test `"plan" in data and "name" in data and data["plan"] != data["name"]`
+    - **Collision guard (blind spot #3):** if the file already has BOTH a `plan:` key AND a `name:` key with DIFFERENT values, this is ExposureReview (human must decide which value to keep). Check uses `frontmatter_data` parameter: `"plan" in frontmatter_data and "name" in frontmatter_data and frontmatter_data["plan"] != frontmatter_data["name"]` — no I/O needed, dict is pre-parsed
     - If `plan:` exists and `name:` does not (on a PlanIndexSchema file), SafeFix: rename key preserving value byte-for-byte
     - If both exist with identical values, SafeFix: remove the `plan:` key (redundant)
+    - **Paired-finding deduplication (TPR-03-002-gemini):** When `plan:` is used instead of `name:`, `plan_corpus.schema` emits TWO findings: `UNKNOWN_FIELD: plan` AND `MISSING_REQUIRED_FIELD: name`. The rename SafeFix resolves BOTH. The auto-fix dispatcher (03.3) must deduplicate these: when a `plan:→name:` rename is applied, mark the paired `MISSING_REQUIRED_FIELD: name` finding as resolved-by-sibling (do NOT surface it as a separate ExposureReview). Add a `resolved_by_sibling: Finding.id | None` field to `ClassifiedFinding` for this case.
   - Removing `reroute: false` — SafeFix (default-equivalent value)
   - Adding missing `reviewed: false` default — SafeFix ONLY for `PlanSectionSchema` and `RoadmapSectionSchema` where `reviewed: bool` is a REQUIRED field with no default (see `schemas.py:62,76`). **Workflow behavior guard (blind spot #7):** for `PlanIndexSchema` where `reviewed: bool | None = None` is OPTIONAL, auto-inserting `reviewed: false` is ExposureReview because it triggers the `/continue-roadmap` Step 1.7 unreviewed-plan gate (see `SKILL.md:205-218`). The absence of the field means "no review state" (None), which does NOT trigger the gate; `false` actively triggers it. This is a semantic change, not normalization.
   - Adding missing `third_party_review: {status: none, updated: null}` — SafeFix where the field is required by schema (`PlanSectionSchema`, `FixBugSchema`)
@@ -279,7 +281,7 @@ This subsection implements the ONLY write path for frontmatter modifications. Py
 
 - [ ] Implement `extract_frontmatter_slice(text: str) -> tuple[str, int, int]`:
   - Returns `(frontmatter_text, start_offset, end_offset)` — the raw text between `---` fences (exclusive of fences)
-  - Uses the same boundary detection as `plan_corpus.parser.split_frontmatter` (exact fence regex from `types.py:FRONTMATTER_FENCE`)
+  - Uses the same boundary detection as `plan_corpus.parser.split_frontmatter_strict` (exact fence regex from `types.py:FRONTMATTER_FENCE`) — note: the actual API name is `split_frontmatter_strict`, NOT `split_frontmatter`
   - Returns empty/zero on malformed files (no fences) -- caller handles
 
 - [ ] Implement per-fix-type text operations (all operate on the frontmatter slice string):
@@ -388,6 +390,18 @@ Integrate the findings report with `/continue-roadmap` so cross-plan conflicts s
   Resolved: Fixed on 2026-04-14. Same fix as TPR-03-003-codex — auto-fix dispatcher converts to ExposureReview, report format surfaces unapplied fixes.
 - [x] `[TPR-03-003-gemini][medium]` `section-03:253` — Explicitly require plan_corpus.parser in round-trip test.
   Resolved: Fixed on 2026-04-14. Test description updated to specify plan_corpus.parser, not yaml.safe_load.
+
+**Round 2 findings (iteration 2, 2026-04-14):**
+- [x] `[TPR-03-001-codex-r2][medium]` `section-05:187` — Replace roadmap_scan migration with real plan_corpus API surface. References to nonexistent `parse_section_file`/`parse_index_file`.
+  Resolved: Fixed on 2026-04-14. Updated §03.4 and §05.3 to use actual API: `read_text_strict`, `split_frontmatter_strict`, `load_and_validate`.
+- [x] `[TPR-03-002-codex-r2][high]` `section-02:251` — Align §02 SUPERSEDED handoff with §03's all-ExposureReview decision. §02 still said "to route SafeFix vs ExposureReview."
+  Resolved: Fixed on 2026-04-14. Updated §02 handoff text: git_status enrichment is advisory/reporting, not SafeFix routing. All SUPERSEDED → ExposureReview.
+- [x] `[TPR-03-001-gemini-r2][high]` `section-03:68` — classify_safety needs parsed frontmatter for collision guard purity.
+  Resolved: Fixed on 2026-04-14. Added `frontmatter_data: dict | None = None` parameter to `classify_safety` signature. Pre-parsed at scan time; no I/O inside classifier.
+- [x] `[TPR-03-002-gemini-r2][medium]` `section-03:71` — Paired UNKNOWN_FIELD/MISSING_REQUIRED_FIELD deduplication for plan:→name: rename.
+  Resolved: Fixed on 2026-04-14. Added paired-finding deduplication with `resolved_by_sibling` field on ClassifiedFinding.
+- [x] `[TPR-03-003-gemini-r2][medium]` `section-05:46` — --quick mode must include Phase 5 for report generation.
+  Resolved: Fixed on 2026-04-14. Updated §05.1: --quick runs Phases 1-3 and 5 (report-only, no auto-fix). Phase 4 skipped.
 
 ---
 
