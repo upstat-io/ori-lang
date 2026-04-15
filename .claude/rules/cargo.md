@@ -1,7 +1,8 @@
 ---
 paths:
-  - "**/*.toml"
-  - "*.toml"
+  - "**/Cargo.toml"
+  - "**/clippy.toml"
+  - ".cargo/config.toml"
 ---
 
 # Cargo Configuration

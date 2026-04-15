@@ -1,7 +1,6 @@
 ---
 paths:
   - "compiler/**/*.rs"
-  - "scripts/**/*.rs"
   - "tests/**/*.rs"
   - "tools/**/src/**/*.rs"
 ---

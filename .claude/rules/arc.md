@@ -3,7 +3,7 @@ paths:
   - "compiler/ori_arc/**/*.rs"
   - "compiler/ori_rt/src/rc/**/*.rs"
   - "plans/**/aims*/**"
-  - "plans/**/*arc*/**"
+  - "plans/clang-arc-lessons/**"
   - "plans/locality-representation-unification/**"
   - "plans/repr-opt/**"
   - "plans/semantic-optimization-pipeline/**"

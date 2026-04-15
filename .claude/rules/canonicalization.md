@@ -1,7 +1,6 @@
 ---
 paths:
   - "compiler/ori_canon/**/*.rs"
-  - "plans/**/canon*/**"
 ---
 
 # Canonicalization Phase (ori_canon)

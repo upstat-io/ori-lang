@@ -1,7 +1,6 @@
 ---
 paths:
   - "compiler/ori_fmt/**/*.rs"
-  - ".rustfmt.toml"
   - "rustfmt.toml"
 ---
 

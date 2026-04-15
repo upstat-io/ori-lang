@@ -1,7 +1,6 @@
 ---
 paths:
   - "compiler/ori_llvm/**/aot*/**"
-  - "compiler/ori_llvm/**/aot*.rs"
   - "scripts/**/*aot*"
   - "diagnostics/**/*aot*"
   - "plans/aot-perf/**"
