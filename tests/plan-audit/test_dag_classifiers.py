@@ -416,10 +416,13 @@ class TestClassifyDeadReference:
         assert len(low_refs) >= 1
 
     def test_dead_ref_findings_carry_structural_target_value(self, tmp_path: Path):
-        """TPR-03-002-gemini-r4i4 regression pin: every DEAD_REFERENCE
-        finding produced by classify_dead_reference must carry a populated
-        `target_value` so downstream SafeFix dispatch can read the dead
-        list-item / slug structurally instead of parsing description.
+        """Regression pin: every DEAD_REFERENCE finding produced by
+        classify_dead_reference along the body-prose path must carry a
+        populated `target_value` so downstream SafeFix dispatch can read
+        the dead list-item / slug structurally instead of parsing description.
+
+        Covers `dag.py` construction site at line ~1580 — the
+        `PLAN_DIRECTORY_NOT_FOUND` emission for truly nonexistent targets.
         """
         plans = tmp_path / "plans"
         body = "This section depends on plans/nonexistent/ in prose.\n"
@@ -444,6 +447,163 @@ class TestClassifyDeadReference:
             assert f.evidence and f.target_value == f.evidence[0], (
                 f"target_value must equal evidence[0] for body-kind dead "
                 f"refs; got target_value={f.target_value!r}, evidence={f.evidence!r}"
+            )
+
+    def test_explicit_depends_on_dead_ref_carries_target_value(self, tmp_path: Path):
+        """Matrix cell — EXPLICIT_DEPENDS_ON construction site (`dag.py:~876`).
+
+        A `depends_on` entry pointing at a section file that does not exist
+        emits SECTION_FILE_NOT_FOUND via the resolution path. The finding
+        must carry `target_value` equal to the dep_id so `_dispatch_dead_reference`
+        can remove the exact list entry from YAML.
+        """
+        plans = tmp_path / "plans"
+        _write(plans / "a" / "index.md", _index("A"))
+        _write(plans / "a" / "section-01.md",
+               _section("01", "a", depends_on=["99"]))
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        # Resolution findings land on dag.resolution_findings and are
+        # re-emitted by classify_dead_reference.
+        findings = classify_dead_reference(dag, corpus)
+        explicit_refs = [
+            f for f in findings
+            if f.source_kind is SourceKind.EXPLICIT_DEPENDS_ON
+        ]
+        assert explicit_refs, (
+            "expected at least one EXPLICIT_DEPENDS_ON dead-ref for missing "
+            f"section-99; got findings={findings}"
+        )
+        for f in explicit_refs:
+            assert f.target_value is not None, (
+                f"EXPLICIT_DEPENDS_ON dead-ref MUST carry target_value "
+                f"(required by _dispatch_dead_reference); got {f!r}"
+            )
+            # target_value should be the dep_id the author wrote — the
+            # exact string that needs to be removed from the depends_on
+            # YAML list.
+            assert f.target_value == "99", (
+                f"target_value must equal the original dep_id; got "
+                f"target_value={f.target_value!r}, expected '99'"
+            )
+
+    def test_completed_plan_body_ref_carries_target_value(self, tmp_path: Path):
+        """Matrix cell — stale-annotation regular-slug path (`dag.py:~1555`).
+
+        A body reference pointing at a plan that was archived into
+        plans/completed/ emits a LOW-severity DEAD_REFERENCE (stale
+        annotation). The finding must still carry target_value so tooling
+        can surface which annotation needs removal.
+        """
+        plans = tmp_path / "plans"
+        body = "<!-- unblocks:archived-plan/02 -->\n"
+        _write(plans / "roadmap" / "section-14-foo.md",
+               _section("14", "foo", body_extra=body))
+        _write(plans / "completed" / "archived-plan" / "index.md",
+               "---\n"
+               'name: "Archived"\n'
+               'full_name: "Archived plan"\n'
+               'status: "resolved"\n'
+               "---\n")
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        findings = classify_dead_reference(dag, corpus)
+        stale_refs = [
+            f for f in findings
+            if f.subtype is FindingSubtype.PLAN_DIRECTORY_NOT_FOUND
+            and f.severity is Severity.LOW
+            and "archived-plan" in (f.description or "")
+        ]
+        assert stale_refs, (
+            f"expected a LOW-severity stale-annotation finding referencing "
+            f"archived-plan; got {findings}"
+        )
+        for f in stale_refs:
+            assert f.target_value is not None, (
+                f"stale-annotation dead-ref must carry target_value; got {f!r}"
+            )
+            # Stale-annotation sites populate target_value from
+            # ref.raw_text — should match the evidence tuple.
+            assert f.evidence and f.target_value == f.evidence[0], (
+                f"stale-annotation target_value must equal evidence[0]; "
+                f"got target_value={f.target_value!r}, evidence={f.evidence!r}"
+            )
+
+    def test_cross_plan_unknown_name_carries_target_value(self, tmp_path: Path):
+        """Matrix cell — docgen `resolve_dep` CROSS_PLAN_NAME_NOT_FOUND
+        producer (`docgen.py:~55`).
+
+        A cross-plan `depends_on` entry like `ghost-plan#03` where the
+        referenced plan name is unknown emits CROSS_PLAN_NAME_NOT_FOUND.
+        `enrich_resolve_dep_finding` preserves target_value through
+        dataclass replace(), so the field populated at docgen construction
+        time survives.
+        """
+        plans = tmp_path / "plans"
+        _write(plans / "real-plan" / "index.md", _index("RealPlan"))
+        _write(plans / "real-plan" / "section-01.md",
+               _section("01", "real",
+                        depends_on=["ghost-plan#03"]))
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        findings = classify_dead_reference(dag, corpus)
+        cross_plan_refs = [
+            f for f in findings
+            if f.subtype is FindingSubtype.CROSS_PLAN_NAME_NOT_FOUND
+        ]
+        assert cross_plan_refs, (
+            f"expected at least one CROSS_PLAN_NAME_NOT_FOUND for the "
+            f"ghost-plan#03 dep; got findings={findings}"
+        )
+        for f in cross_plan_refs:
+            assert f.target_value == "ghost-plan#03", (
+                f"cross-plan dead-ref target_value must be the original "
+                f"dep_id; got {f.target_value!r}"
+            )
+
+    def test_non_dead_reference_finding_has_no_target_value(self, tmp_path: Path):
+        """Negative pin — non-DEAD_REFERENCE subtypes MUST NOT carry
+        target_value. Over-population would mean some other classifier
+        accidentally set the field, which would change Finding.id (hashed
+        when non-None) and could cause false discriminator collisions.
+
+        Uses classify_dead_reference's DEP_ID_MALFORMED sibling — a
+        SCHEMA_VIOLATION emitted by docgen.resolve_dep when a dep_id does
+        not match either dep-ID regex. For this negative pin we confirm the
+        reverse: every schema-violation finding surfaced by the full
+        classifier pipeline against a clean corpus either has target_value
+        == its dep_id (the docgen sites DO set it for removability) OR is
+        None (non-removable context). The KEY invariant is: no classifier
+        sets target_value on a finding where the field has no semantic
+        meaning.
+        """
+        plans = tmp_path / "plans"
+        _write(plans / "a" / "index.md", _index("A"))
+        _write(plans / "a" / "section-01.md",
+               _section("01", "a"))
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        dead_findings = classify_dead_reference(dag, corpus)
+        # Collect every finding from every classifier — the invariant is
+        # universal, not dead-ref-specific.
+        all_findings = list(dead_findings)
+        all_findings.extend(classify_redundant_dependency(dag, corpus))
+        all_findings.extend(classify_orphaned_plan(dag, corpus))
+        non_dead = [
+            f for f in all_findings
+            if f.category is not FindingCategory.DEAD_REFERENCE
+        ]
+        for f in non_dead:
+            # Non-DEAD_REFERENCE findings legitimately don't set target_value.
+            # Any that DO set it must be DEAD_REFERENCE (the only category
+            # that semantically carries a list-item value).
+            assert f.target_value is None, (
+                f"non-DEAD_REFERENCE finding must not carry target_value; "
+                f"got category={f.category.name}, target_value={f.target_value!r}"
             )
 
 
