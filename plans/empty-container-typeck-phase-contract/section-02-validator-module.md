@@ -1065,9 +1065,36 @@ At section completion (mirrors 01.N / 03.N shape), before flipping
   improvement (documentation, not tooling); T10 semantic-pin
   revert/restore is one-off enough that automating it would be
   premature abstraction.
-- [ ] `/sync-claude` — `.claude/rules/typeck.md`, `types.md`, and
+- [x] `/sync-claude` — `.claude/rules/typeck.md`, `types.md`, and
   `CLAUDE.md` audited for drift introduced by the new public symbol and
   the §02.0 flag-propagation fix; updates committed if needed.
+  Run on 2026-04-15 as the Phase C1 doc sync. Drift audit found two
+  gaps:
+  (1) `typeck.md §PC-2` (output contract) did not mention
+      `validate_body_types` as the producer-side enforcement point.
+      Added a paragraph documenting the gate order, `visit_children`
+      delegation, and the consumer-only `debug_assert!` risk without it.
+  (2) `typeck.md §17 Key Files` did not list
+      `compiler/ori_types/src/check/validators/mod.rs` or its sibling
+      test file. Added two rows after `check/object_safety.rs` (the
+      pattern precedent).
+  (3) `canon.md §4.2` (type-checker output invariants) likewise did not
+      point at the producer-side enforcement. Added a paragraph.
+  `types.md §TF-3` already specified the correct `PROPAGATE_MASK`
+  behavior for `Tag::Scheme` — the §02.0 fix brought code into compliance
+  with existing docs, no doc update needed. `CLAUDE.md §Key Paths` is a
+  top-level directory index; adding a validator submodule would bloat
+  it. No CLAUDE.md changes.
+- [x] Sections 03, 05, `00-overview.md` synced to final §02 API
+  (TPR-02-R3-001, R3-003, R3-004 resolutions). Completed as Phase C2
+  alongside `/sync-claude`: §03's dependency block rewritten to the
+  shipped six-parameter validator signature with narrow re-export
+  (resolves TPR-02-R3-003); §03's code-example span placeholder replaced
+  with the concrete `arena.get_expr(ExprId::from_raw(expr_index as u32)).span`
+  recipe (resolves TPR-02-R3-004); §05's test matrix table synced to
+  the twelve shipped test names with behavioral naming + T10 semantic-pin
+  note (resolves TPR-02-R3-001); `00-overview.md` effort table updated
+  from "11 cells" to "12 cells".
 - [ ] `/commit-push` — single commit or ordered commit sequence per
   `CLAUDE.md §Stabilization Discipline` (multi-commit ordering).
 - [ ] Frontmatter: this section's `status` → `complete`; all subsection
