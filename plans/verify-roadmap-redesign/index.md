@@ -2,8 +2,8 @@
 reroute: true
 name: "Verify Roadmap"
 full_name: "Verify Roadmap Redesign — Cross-Plan Coherence Auditor"
-status: active
-reviewed: false
+status: resolved
+reviewed: true
 order: 1
 ---
 
@@ -22,7 +22,7 @@ order: 1
 ## Keyword Clusters by Section
 
 ### Section 01: Frontmatter Schema, Strict Parser & Shared Types
-**File:** `section-01-frontmatter-schema.md` | **Status:** Not Started
+**File:** `section-01-frontmatter-schema.md` | **Status:** Complete
 
 ```
 frontmatter, schema, YAML, metadata, validation, strict parser
@@ -88,7 +88,7 @@ BUG-04-039, iterator-element-ownership, YAML comment inference
 ---
 
 ### Section 03: Findings Report & Write-Back
-**File:** `section-03-findings-report.md` | **Status:** Not Started
+**File:** `section-03-findings-report.md` | **Status:** Complete
 
 ```
 findings report, cross-plan report, write-back
@@ -113,7 +113,7 @@ imports Finding/FindingCategory/FindingSubtype from plan_corpus (no shadow types
 ---
 
 ### Section 04: Item-Level Verifier Preservation
-**File:** `section-04-item-verifier.md` | **Status:** Not Started
+**File:** `section-04-item-verifier.md` | **Status:** Complete
 
 ```
 item-level verification, matrix coverage, semantic pins
@@ -128,7 +128,7 @@ MISSING_MATRIX_COVERAGE, MISSING_SEMANTIC_PIN, MISSING_NEGATIVE_PIN, WEAK_TEST, 
 ---
 
 ### Section 05: Validation & Known-Issue Sweep
-**File:** `section-05-validation.md` | **Status:** Not Started
+**File:** `section-05-validation.md` | **Status:** Complete
 
 ```
 validation, test cases, known issues, sweep
