@@ -62,6 +62,7 @@ def _finding(
     source_kind: SourceKind | None = None,
     source_line: int | None = None,
     target_key: str | None = None,
+    target_value: str | None = None,
 ) -> Finding:
     return Finding(
         category=category,
@@ -73,6 +74,7 @@ def _finding(
         source_kind=source_kind,
         source_line=source_line,
         target_key=target_key,
+        target_value=target_value,
     )
 
 
@@ -235,6 +237,17 @@ class TestBuildFixPlanStatusContradiction:
 
 
 class TestBuildFixPlanDeadReference:
+    """DEAD_REFERENCE SafeFix dispatch — structural target_value reads.
+
+    Regression pins for TPR-03-002-gemini-r4i4 (2026-04-15 §03 close-out
+    review): the dispatcher previously parsed `Finding.description` via
+    `rsplit(":", 1)` to extract the dead list-item value. This was fragile
+    (any description format change broke auto-fix) and broken for three of
+    the four DEAD_REFERENCE description templates (repr-quoted plan names,
+    trailing prose fragments, malformed-id templates). The fix added a
+    structural `Finding.target_value` field populated at every DEAD_REFERENCE
+    construction site; these tests pin the structural read.
+    """
 
     def test_depends_on_emits_remove_list_item(self):
         f = _finding(
@@ -242,6 +255,7 @@ class TestBuildFixPlanDeadReference:
             FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
             source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
             description="Dead depends_on entry: nonexistent-plan",
+            target_value="nonexistent-plan",
         )
         cf = _safe_fix(f, "remove dead depends_on entry")
         plan = build_fix_plan(cf)
@@ -249,17 +263,107 @@ class TestBuildFixPlanDeadReference:
         op = plan.operations[0]
         assert op.kind == FmOperationKind.REMOVE_LIST_ITEM
         assert op.kwargs_dict()["list_key"] == "depends_on"
+        assert op.kwargs_dict()["item_value"] == "nonexistent-plan"
 
     def test_section_not_found_depends_on_emits_remove(self):
         f = _finding(
             FindingCategory.DEAD_REFERENCE,
             FindingSubtype.SECTION_FILE_NOT_FOUND,
             source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            target_value="42",
         )
         cf = _safe_fix(f)
         plan = build_fix_plan(cf)
         assert plan is not None
-        assert plan.operations[0].kind == FmOperationKind.REMOVE_LIST_ITEM
+        op = plan.operations[0]
+        assert op.kind == FmOperationKind.REMOVE_LIST_ITEM
+        assert op.kwargs_dict()["item_value"] == "42"
+
+    def test_cross_plan_dep_value_preserved_structurally(self):
+        """Positive pin: cross-plan dep IDs contain `#` — the rsplit-based
+        extractor would return the section number alone, stripping the plan
+        name. target_value carries the full dep_id intact.
+        """
+        f = _finding(
+            FindingCategory.DEAD_REFERENCE,
+            FindingSubtype.CROSS_PLAN_NAME_NOT_FOUND,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            description="cross-plan dep references unknown plan name: 'ghost-plan'",
+            target_value="ghost-plan#03",
+        )
+        cf = _safe_fix(f)
+        plan = build_fix_plan(cf)
+        assert plan is not None
+        assert plan.operations[0].kwargs_dict()["item_value"] == "ghost-plan#03"
+
+    def test_value_with_embedded_colons_preserved(self):
+        """Semantic pin: a target_value containing `:` characters is preserved
+        intact. Under the old rsplit implementation, `rsplit(':', 1)` would
+        have returned only the fragment after the last colon — corrupting the
+        removal target. Structural read is format-agnostic.
+        """
+        f = _finding(
+            FindingCategory.DEAD_REFERENCE,
+            FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            description="Dead depends_on: a:b:c:d",
+            target_value="a:b:c:d",
+        )
+        cf = _safe_fix(f)
+        plan = build_fix_plan(cf)
+        assert plan is not None
+        assert plan.operations[0].kwargs_dict()["item_value"] == "a:b:c:d"
+
+    def test_description_format_change_does_not_break_dispatch(self):
+        """Negative pin for prose fragility: the dispatcher MUST NOT depend
+        on the description containing a colon. Change the description to a
+        colon-free template and verify the structural read still works. The
+        old rsplit code would have returned '' (no colon in description),
+        producing an empty item_value that quietly failed to remove anything.
+        """
+        f = _finding(
+            FindingCategory.DEAD_REFERENCE,
+            FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            description="this template has no colon at all",
+            target_value="target-plan",
+        )
+        cf = _safe_fix(f)
+        plan = build_fix_plan(cf)
+        assert plan is not None
+        assert plan.operations[0].kwargs_dict()["item_value"] == "target-plan"
+
+    def test_missing_target_value_panics_defense_in_depth(self):
+        """NEGATIVE PIN: an EXPLICIT_DEPENDS_ON dead-ref with target_value=None
+        is a classifier regression — every construction site in plan_corpus
+        MUST populate target_value. The dispatcher refuses silent acceptance.
+        """
+        f = _finding(
+            FindingCategory.DEAD_REFERENCE,
+            FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            target_value=None,
+        )
+        cf = _safe_fix(f)
+        with pytest.raises(AutoFixError, match="target_value"):
+            build_fix_plan(cf)
+
+    def test_non_depends_on_dead_ref_returns_no_plan(self):
+        """Negative pin: body-kind dead refs (prose, annotations) are
+        ExposureReview per classify_safety — if one somehow reaches the
+        dispatcher, it must short-circuit (no list-item removal).
+        """
+        f = _finding(
+            FindingCategory.DEAD_REFERENCE,
+            FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            source_kind=SourceKind.PROSE_VERB,
+            target_value="some-slug",
+        )
+        cf = _safe_fix(f)
+        plan = build_fix_plan(cf)
+        # Dispatcher returns empty ops; build_fix_plan returns None for
+        # zero-op plans.
+        assert plan is None
 
 
 class TestBuildFixPlanDefenseInDepth:

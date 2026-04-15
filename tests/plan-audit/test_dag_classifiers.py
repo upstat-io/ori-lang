@@ -415,6 +415,37 @@ class TestClassifyDeadReference:
         ]
         assert len(low_refs) >= 1
 
+    def test_dead_ref_findings_carry_structural_target_value(self, tmp_path: Path):
+        """TPR-03-002-gemini-r4i4 regression pin: every DEAD_REFERENCE
+        finding produced by classify_dead_reference must carry a populated
+        `target_value` so downstream SafeFix dispatch can read the dead
+        list-item / slug structurally instead of parsing description.
+        """
+        plans = tmp_path / "plans"
+        body = "This section depends on plans/nonexistent/ in prose.\n"
+        _write(plans / "roadmap" / "section-22-tooling.md",
+               _section("22", "tooling", body_extra=body))
+
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        findings = classify_dead_reference(dag, corpus)
+        dead_refs = [
+            f for f in findings
+            if f.subtype is FindingSubtype.PLAN_DIRECTORY_NOT_FOUND
+        ]
+        assert dead_refs, "expected at least one PLAN_DIRECTORY_NOT_FOUND"
+        for f in dead_refs:
+            assert f.target_value is not None, (
+                f"DEAD_REFERENCE finding must carry target_value; got {f!r}"
+            )
+            # The value must non-trivially identify the dead slug/path —
+            # matches the evidence tuple (raw reference text) populated at
+            # the same construction site.
+            assert f.evidence and f.target_value == f.evidence[0], (
+                f"target_value must equal evidence[0] for body-kind dead "
+                f"refs; got target_value={f.target_value!r}, evidence={f.evidence!r}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # REDUNDANT_DEPENDENCY
