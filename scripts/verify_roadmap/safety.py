@@ -103,6 +103,43 @@ class PatchResult:
     after_hash: str | None = None
 
 
+class FmOperationKind(enum.Enum):
+    """Frontmatter text patch operations (§03.4 contract).
+
+    Forward-declared here so §03.3 (auto-fix dispatcher) can produce
+    operation lists without depending on §03.4's patcher module.
+
+    Operations are applied to the raw frontmatter slice between the
+    `---` fences — preserving comments, key order, and formatting.
+    """
+    RENAME_KEY = "rename_key"            # kwargs: old_key, new_key
+    REMOVE_KEY = "remove_key"            # kwargs: key
+    REPLACE_VALUE = "replace_value"      # kwargs: key, new_value
+    INSERT_KEY = "insert_key"            # kwargs: key, value, after_key
+    REMOVE_LIST_ITEM = "remove_list_item"  # kwargs: list_key, item_value
+
+
+@dataclass(frozen=True)
+class FmOperation:
+    """A single frontmatter patch operation.
+
+    The kwargs dict carries operation-specific arguments per FmOperationKind.
+    Frozen + hashable so operation lists can be deduplicated and logged
+    deterministically.
+    """
+    kind: FmOperationKind
+    kwargs: tuple[tuple[str, str], ...]  # frozen as sorted tuple-of-pairs
+
+    @classmethod
+    def make(cls, kind: FmOperationKind, **kwargs: str) -> "FmOperation":
+        """Construct from keyword arguments — sorts for determinism."""
+        return cls(kind=kind, kwargs=tuple(sorted(kwargs.items())))
+
+    def kwargs_dict(self) -> dict[str, str]:
+        """Return kwargs as a dict (recovering the kwargs view)."""
+        return dict(self.kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Path-based schema class inference
 # ---------------------------------------------------------------------------
