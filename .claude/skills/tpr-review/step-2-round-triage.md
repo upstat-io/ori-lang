@@ -257,9 +257,33 @@ Branch on finding count × thoroughness. Every round falls into exactly one of t
 | | `thoroughness_ok = True` | `thoroughness_ok = False` |
 |---|---|---|
 | **Zero actionable findings** | **CLEAN PASS** — exit the loop. Report per §6d. | **Mandatory re-review** — nothing to preserve. Increment `thoroughness_reject_counter`, set `strengthened_language_required = True`, `continue` loop. See §6e. |
-| **Actionable findings exist** | **Fix and re-run (normal)** — proceed to §7. Clear `strengthened_language_required`. Reset `thoroughness_reject_counter` (it's already 0 in this sub-sequence). | **Fix and re-run WITH strengthening** — proceed to §7. Findings are filed and fixed normally (they are NOT discarded). KEEP `strengthened_language_required = True` so the re-review of the fixed code still demands deeper investigation. Reset `thoroughness_reject_counter` (findings = progress, even if depth was thin). See §6f. |
+| **Actionable findings exist** | **Fix and re-run (normal)** — proceed to §7, UNLESS the convergence gate in §6c.1 fires. Clear `strengthened_language_required`. Reset `thoroughness_reject_counter` (it's already 0 in this sub-sequence). | **Fix and re-run WITH strengthening** — proceed to §7. Findings are filed and fixed normally (they are NOT discarded). KEEP `strengthened_language_required = True` so the re-review of the fixed code still demands deeper investigation. Reset `thoroughness_reject_counter` (findings = progress, even if depth was thin). See §6f. |
 
 **CRITICAL RULE: findings are NEVER discarded on a thin review.** When a round produces actionable findings AND thoroughness was thin, the fix path in §7 still runs — file, fix, commit. The thin-depth signal propagates to the next round via `strengthened_language_required`, NOT by throwing away findings that were already captured. Discarding real findings because "the review was thin anyway" would waste the only output that round produced and punish the reviewers for having caught anything at all.
+
+#### 6c.1 Convergence gate — stop when the juice isn't worth the squeeze
+
+Some reviews (especially custom-objective doc / plan / skill reviews) never reach zero findings — the reviewers asymptote on cosmetic LOW-severity polish (stale anchors, field-name drift, orphan references, exclusion-list tweaks). Running another full dual-source round to catch the next three LOW cosmetic items is waste. This gate exists to exit cleanly at that point instead of grinding to the iteration cap.
+
+**The gate fires ONLY when ALL five conditions hold on the current round:**
+
+1. **LOW-only.** Every actionable finding this round has `severity: "low"` (no medium, high, or critical). A single medium+ finding disables the gate — fix normally, re-run.
+2. **Cosmetic class.** Every finding's category is in `{STALE_REF, DOC_DRIFT, TYPO, ANCHOR, NAMING, FORMAT}` or the finding's evidence cites only docs / comments / schema-field-names / exclusion-lists — NOT runtime behavior, correctness, soundness, leak, or invariant. A behavior-class finding at LOW severity (rare but possible) disables the gate.
+3. **Strictly decreasing.** Actionable count is strictly less than the previous round's post-triage actionable count (`triage.actionable_after_triage` from round N−1). First-round reviews can never fire the gate — there is no prior count to compare.
+4. **iteration_counter ≥ 2.** At least two finding-fixing rounds have already run. Structural issues get at least two passes before cosmetics are allowed to terminate the loop.
+5. **Thoroughness OK.** `thoroughness_ok = True`. If the depth was thin, you can't trust the "LOW-only" observation — maybe the reviewers skimmed past medium+ issues. Strengthen and re-run instead.
+
+**When the gate fires:**
+- Proceed to §7 and fix the current round's findings normally. The loop still captures the real work from this round.
+- After §7, set `triage.converged = true` and `triage.exit_clean = true` in `triage.json` alongside the normal fields. Include a `triage.convergence_rationale` string (one sentence citing the prior count vs. current count and the category evidence).
+- The coordinator treats `exit_clean = true` the same as a clean pass for loop termination, then dispatches the final-report sub-agent (§6d format, with a "converged on cosmetics" sub-header instead of "zero findings").
+- Any LOW findings the reviewers might raise in a hypothetical next round remain latent — they are not pre-filed. The next invocation of `/tpr-review` on this surface will catch them if they still matter.
+
+**When the gate does NOT fire but the trajectory looks convergent** (e.g., LOW-only but count increased, or category evidence is mixed): proceed normally (§7 fix + re-run). The gate is intentionally conservative — false-exit is worse than one extra round.
+
+**Why this is not deferral.** The fixes from the current round are fully committed. The "nothing new to fix" claim is time-local: the next time this surface is reviewed (a later `/tpr-review` invocation, a human review, a downstream consumer asking questions), latent LOWs surface again and get triaged fresh. The convergence gate prevents a single invocation from spending 2+ hours polishing cosmetics; it does not silence the cosmetics forever.
+
+**Audit in `round_summary`.** When the gate fires, the `Thoroughness:` line in `round_summary` must read `ASYMMETRY: {…} — convergence gate fired (§6c.1): {prior_count} → {current_count} LOW-only cosmetic findings, loop exiting.` This makes the gate visible to the user and prevents silent drift toward "Claude just stopped reviewing."
 
 #### 6d. CLEAN PASS — zero findings + thorough
 

@@ -119,7 +119,9 @@ FENCE_RE = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
 # ONE of the markers below. All other fields (schema_version, status,
 # scope_actually_reviewed, etc.) are filled in by repair_envelope.py
 # downstream, so the guard does NOT check for them.
-_ENVELOPE_SKILLS = frozenset(("tpr-review", "review-work", "review-plan", "tp-help"))
+_ENVELOPE_SKILLS = frozenset(
+    ("tpr-review", "review-work", "review-plan", "tp-help", "custom")
+)
 _ENVELOPE_REVIEWERS = frozenset(("codex", "gemini"))
 
 

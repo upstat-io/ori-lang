@@ -237,11 +237,25 @@ fi
 #   3. /proc/PID/stat utime+stime (CPU ticks consumed)
 # A reviewer is only classified as IDLE when ALL THREE are frozen.
 #
-# Config: STALL_GRACE seconds before watchdog activates at all,
-# STALL_CHECK_INTERVAL seconds between checks, STALL_PATIENCE consecutive
-# IDLE checks before kill.
+# Config: per-reviewer grace + shared check interval + per-reviewer patience,
+# plus an absolute walltime ceiling that kills regardless of I/O activity.
 #
-# Default: 20-minute grace → then 30s × 6 = 3 min to confirm stall.
+# Reviewers are budgeted 20 minutes each. That's enough for a thorough
+# review of a normal scope (compiler crate, plan section, skill refactor).
+# Reviews that need longer are a signal of scope, not budget — split the
+# scope or increase the cap explicitly via env for a specific invocation.
+#
+# Default budgets (symmetric — codex and gemini get the same ceiling):
+#   grace        600s  (10 min)  — no stall detection during this window
+#   interval     180s  (3 min)   — peek cadence, shared
+#   patience     3                — consecutive IDLE peeks before kill
+#   stall-kill   ~19 min         — grace + patience × interval = 600 + 540
+#   absolute cap 1200s (20 min)  — hard ceiling, wins over stall detection
+#
+# Absolute cap (ORI_TPR_{CODEX,GEMINI}_MAX_WALLTIME): catches the slow-drip
+# pathology where a reviewer emits one JSONL line every 20-60s forever —
+# technically never "idle" by stall detection but still unproductive. Also
+# bounds the worst-case waste from a compute-bound but unproductive run.
 #
 # The grace period is critical because normal API round-trips (LLM
 # thinking, tool-use requests, streaming pauses) freeze all three /proc
@@ -249,14 +263,28 @@ fi
 # Without the grace period, the watchdog false-positives on healthy
 # reviews that are simply between API calls. The watchdog is a safety
 # net for truly abandoned processes, not an early-kill mechanism.
-STALL_GRACE="${ORI_TPR_STALL_GRACE:-1200}"
-STALL_CHECK_INTERVAL="${ORI_TPR_STALL_INTERVAL:-30}"
-STALL_PATIENCE="${ORI_TPR_STALL_PATIENCE:-6}"
+#
+# Interaction with the /tpr-review global loop walltime cap (SKILL.md,
+# default 45 min): a single round does setup + triage ≈ max(codex, gemini)
+# + opus triage work. With both reviewers capped at 20 min and triage
+# typically 5-10 min, a round fits in ~30 min worst case, leaving the
+# 45-min loop budget room for an overlap round or convergence check.
+STALL_GRACE_CODEX="${ORI_TPR_STALL_GRACE_CODEX:-${ORI_TPR_STALL_GRACE:-600}}"
+STALL_GRACE_GEMINI="${ORI_TPR_STALL_GRACE_GEMINI:-${ORI_TPR_STALL_GRACE:-600}}"
+STALL_CHECK_INTERVAL="${ORI_TPR_STALL_INTERVAL:-180}"
+STALL_PATIENCE_CODEX="${ORI_TPR_STALL_PATIENCE_CODEX:-${ORI_TPR_STALL_PATIENCE:-3}}"
+STALL_PATIENCE_GEMINI="${ORI_TPR_STALL_PATIENCE_GEMINI:-${ORI_TPR_STALL_PATIENCE:-3}}"
+CODEX_MAX_WALLTIME="${ORI_TPR_CODEX_MAX_WALLTIME:-1200}"
+GEMINI_MAX_WALLTIME="${ORI_TPR_GEMINI_MAX_WALLTIME:-1200}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STALL_DETECT="$SCRIPT_DIR/reviewer-stall-detect.sh"
 
 # Background watchdog function. Monitors one reviewer PID.
 # Args: $1=reviewer_name $2=pid $3=jsonl_path
+# Per-reviewer grace / patience / absolute-walltime are resolved from the
+# reviewer name so the function stays generic. The absolute walltime cap
+# fires regardless of I/O activity to catch slow-drip pathologies that
+# stall detection would otherwise miss (one token per 20-60s forever).
 watchdog_monitor() {
   local name="$1" pid="$2" jsonl="$3"
   local idle_count=0
@@ -264,14 +292,55 @@ watchdog_monitor() {
   local start_time
   start_time=$(date +%s)
 
-  # Grace period: sleep in STALL_CHECK_INTERVAL increments (so we exit
-  # promptly if the process finishes during the grace window) but don't
-  # perform any stall classification. Keeps taking fresh snapshots so the
-  # first post-grace comparison has a recent baseline.
+  # Resolve per-reviewer budgets
+  local grace patience max_walltime
+  case "$name" in
+    codex)
+      grace="$STALL_GRACE_CODEX"
+      patience="$STALL_PATIENCE_CODEX"
+      max_walltime="$CODEX_MAX_WALLTIME"
+      ;;
+    gemini)
+      grace="$STALL_GRACE_GEMINI"
+      patience="$STALL_PATIENCE_GEMINI"
+      max_walltime="$GEMINI_MAX_WALLTIME"
+      ;;
+    *)
+      # Unknown reviewer — use safer (gemini-tier) defaults
+      grace="$STALL_GRACE_GEMINI"
+      patience="$STALL_PATIENCE_GEMINI"
+      max_walltime="$GEMINI_MAX_WALLTIME"
+      ;;
+  esac
+
+  # Helper: enforce absolute walltime cap. Returns 0 and kills if over.
+  # Called at every peek (grace AND stall-detection phases).
+  check_absolute_cap() {
+    local elapsed=$(( $(date +%s) - start_time ))
+    if [[ $elapsed -ge $max_walltime ]]; then
+      echo "[$(date +%s)] watchdog: $name WALLTIME CAP — killing (elapsed=${elapsed}s >= cap=${max_walltime}s)" >> "$RUN/round.log"
+      echo "stalled_after=${elapsed}s reason=absolute_walltime_cap cap=${max_walltime}s" > "$RUN/${name}.stalled"
+      kill -TERM "$pid" 2>/dev/null || true
+      sleep 2
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
+      return 0
+    fi
+    return 1
+  }
+
+  # Grace period: peek every STALL_CHECK_INTERVAL (default 3 min) — absolute
+  # cap is enforced even during grace (slow-drip hangs shouldn't get a free
+  # 20 min). Stall classification is suppressed during grace because normal
+  # API round-trips can freeze /proc signals for 30-90+s.
   while kill -0 "$pid" 2>/dev/null; do
     local elapsed=$(( $(date +%s) - start_time ))
-    if [[ $elapsed -ge $STALL_GRACE ]]; then
+    if [[ $elapsed -ge $grace ]]; then
       break
+    fi
+    if check_absolute_cap; then
+      return
     fi
     sleep "$STALL_CHECK_INTERVAL"
   done
@@ -281,7 +350,7 @@ watchdog_monitor() {
     return
   fi
 
-  echo "[$(date +%s)] watchdog: $name grace period elapsed (${STALL_GRACE}s) — stall detection active" >> "$RUN/round.log"
+  echo "[$(date +%s)] watchdog: $name grace period elapsed (${grace}s) — stall detection active (interval=${STALL_CHECK_INTERVAL}s, patience=${patience}, absolute cap=${max_walltime}s)" >> "$RUN/round.log"
 
   # Take initial snapshot for the stall-detection phase
   "$STALL_DETECT" --snapshot --pid "$pid" --jsonl "$jsonl" --out "$snapshot_file" 2>/dev/null || true
@@ -291,6 +360,11 @@ watchdog_monitor() {
 
     # Skip if process already exited during sleep
     kill -0 "$pid" 2>/dev/null || break
+
+    # Absolute walltime cap takes precedence over stall classification
+    if check_absolute_cap; then
+      break
+    fi
 
     # Compare against previous snapshot (updates snapshot in-place)
     local result
@@ -302,10 +376,10 @@ watchdog_monitor() {
         ;;
       IDLE)
         idle_count=$((idle_count + 1))
-        echo "[$(date +%s)] watchdog: $name IDLE ($idle_count/$STALL_PATIENCE)" >> "$RUN/round.log"
-        if [[ $idle_count -ge $STALL_PATIENCE ]]; then
-          echo "[$(date +%s)] watchdog: $name STALLED — killing (grace=${STALL_GRACE}s + ${STALL_CHECK_INTERVAL}s × ${idle_count} = $((STALL_GRACE + STALL_CHECK_INTERVAL * idle_count))s total)" >> "$RUN/round.log"
-          echo "stalled_after=$((STALL_GRACE + STALL_CHECK_INTERVAL * idle_count))s" > "$RUN/${name}.stalled"
+        echo "[$(date +%s)] watchdog: $name IDLE ($idle_count/$patience)" >> "$RUN/round.log"
+        if [[ $idle_count -ge $patience ]]; then
+          echo "[$(date +%s)] watchdog: $name STALLED — killing (grace=${grace}s + ${STALL_CHECK_INTERVAL}s × ${idle_count} = $((grace + STALL_CHECK_INTERVAL * idle_count))s total)" >> "$RUN/round.log"
+          echo "stalled_after=$((grace + STALL_CHECK_INTERVAL * idle_count))s" > "$RUN/${name}.stalled"
           # Kill the process tree: TERM first, then KILL after 2s
           kill -TERM "$pid" 2>/dev/null || true
           sleep 2

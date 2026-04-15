@@ -88,7 +88,7 @@ Read CLAUDE.md (the project root one)
 |  0. CLAUDE re-reads CLAUDE.md (MANDATORY)               |
 |        |                                                |
 |  1. TRANSPORT launches BOTH reviewers in parallel       |
-|     Infra retries (3 per reviewer) inside transport —   |
+|     Infra retries (5 per reviewer) inside transport —   |
 |     they do NOT consume semantic iterations.            |
 |        |                                                |
 |  2. CLAUDE merges findings via merge-findings.py        |
@@ -152,7 +152,8 @@ while iteration_counter < 10 and thoroughness_reject_counter < 3:
         # both carry the flag forward.
         prepend Thoroughness Re-review Directive to both prompts
     if dual-invoke-with-retry.sh fails:
-        # infra retries (3 per reviewer, 1s/2s/4s backoff) already
+        # infra retries (5 per reviewer, 1s/2s/4s/30s/60s default
+        # backoff; 30s/60s/120s/120s/120s capacity-aware) already
         # exhausted inside the transport — do NOT increment, do NOT
         # retry the semantic loop
         surface failure category + $RUN to user via AskUserQuestion
@@ -231,7 +232,7 @@ elif iteration_counter >= 10:
 - `thoroughness_reject_counter` increments ONLY on the **zero-findings + thin-review** cell — the sole "pure waste" case where the round produced nothing and depth was inadequate. It RESETS to zero on any round that produces actionable findings (findings = progress regardless of depth — findings-present rounds are never wasted, even if thin).
 - `strengthened_language_required` tracks the **depth of the last round**, independent of finding count. It is set True after any thin round (with OR without findings) and cleared only after a thorough round. A findings-present thin round KEEPS the flag True so the re-review of the fixed code still receives the directive; only a thorough round clears it.
 - **Findings are NEVER discarded on a thin review.** The fix path (file → fix → test → commit) runs unconditionally when `merged.summary.actionable > 0`. Discarding real findings because "the reviewer was thin anyway" would waste the only output that round produced and punish the reviewers for having caught anything at all. The thin signal propagates via the flag, not by throwing away data.
-- Infra retries (inside the transport), finding-fixing iterations, and thoroughness-reject iterations are **three orthogonal budgets**. None can consume another. A transient network hiccup burning 3 infra retries leaves both semantic budgets untouched.
+- Infra retries (inside the transport), finding-fixing iterations, and thoroughness-reject iterations are **three orthogonal budgets**. None can consume another. A transient network hiccup burning 5 infra retries leaves both semantic budgets untouched.
 - A clean pass on any iteration is a terminal state: the report includes `iteration_counter` AND `thoroughness_reject_counter` peak at exit so "clean on iteration 1" vs "clean on iteration 3 after fixing N findings and 2 thin rounds" are distinguishable in the final output.
 - The 10-iteration cap is a **user-facing stopping rule**, not a correctness guarantee. The 3-thoroughness-reject cap is the same — and it only counts "pure waste" rounds (zero findings + thin), not rounds that merely had thin depth. A round that caught even one bug on a thin review is forward progress and resets the counter.
 - **Thoroughness judgment is Claude's call, not a static threshold.** `status-check.sh` surfaces ratios and flags them red/yellow/green, but the accept/reject decision belongs to Claude. Large ratios with thin `files_read` = thin. Large ratios with rich `files_read` on both sides (e.g., one reviewer was just faster) = thorough. The script surfaces signals; Claude makes the call.
@@ -327,7 +328,7 @@ The evidence packet is INFORMATIONAL, not authoritative — reviewers expand sco
 
 ### 3. Invoke the dual-source transport in the background
 
-The transport launches both reviewers in parallel, handles infra retries (3 per reviewer, exponential backoff 1s / 2s / 4s), runs the schema validators, and applies the dirty-worktree guard. A full round typically takes 5-15 minutes — BOTH reviewers running concurrently, so wall time is roughly `max(codex_walltime, gemini_walltime)`, not the sum.
+The transport launches both reviewers in parallel, handles infra retries (5 per reviewer; default backoff `1s / 2s / 4s / 30s / 60s`; capacity-aware backoff `30s / 60s / 120s / 120s / 120s` when the API reports capacity errors — see `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh` for the SSOT schedule), runs the schema validators, and applies the dirty-worktree guard. A full round typically takes 5-15 minutes — BOTH reviewers running concurrently, so wall time is roughly `max(codex_walltime, gemini_walltime)`, not the sum.
 
 Running the transport in the Bash foreground either hits the 2-minute tool timeout or gets auto-backgrounded with output truncated. Always use `run_in_background: true`. The `.claude/hooks/block-banned-commands.sh` hook explicitly allows backgrounded codex and gemini commands.
 
@@ -755,9 +756,9 @@ The transport reports one of these categories on its stderr tail (prefixed `infr
 
 | Category | Meaning |
 |---|---|
-| `launch_or_exit_fail` | Either reviewer process failed to start or exited non-zero on all 3 attempts (includes crashes, missing CLI, auth errors) |
-| `codex_*` | `parse-codex.py` rejected the codex JSONL stream on all 3 attempts. Suffix is the parser's first error line (`codex_schema_violation`, `codex_missing_envelope`, `codex_parse_error`, etc.) |
-| `gemini_*` | `parse-gemini.py` rejected the gemini stream-json on all 3 attempts. Suffix is the parser's first error line (`gemini_missing_terminator`, `gemini_no_begin`, `gemini_no_end`, `gemini_parse_error`, etc.) |
+| `launch_or_exit_fail` | Either reviewer process failed to start or exited non-zero on all 5 attempts (includes crashes, missing CLI, auth errors) |
+| `codex_*` | `parse-codex.py` rejected the codex JSONL stream on all 5 attempts. Suffix is the parser's first error line (`codex_schema_violation`, `codex_missing_envelope`, `codex_parse_error`, etc.) |
+| `gemini_*` | `parse-gemini.py` rejected the gemini stream-json on all 5 attempts. Suffix is the parser's first error line (`gemini_missing_terminator`, `gemini_no_begin`, `gemini_no_end`, `gemini_parse_error`, etc.) |
 | `dirty_worktree` | **Strict mode only** (`ORI_TPR_STRICT_WORKTREE=1`): `worktree-guard.sh compare` detected tracked-file drift and strict mode escalated it to terminal. **Without strict mode (default)**: drift is a non-blocking WARNING — the round succeeds, envelopes are parsed, and drift details are saved to `$RUN/worktree-drift.txt`. Most drift is from parallel agents or user edits, not reviewer violations. |
 | `unknown_failure` | Fallback — the script exhausted retries without recording a specific category (rare; investigate round.log) |
 

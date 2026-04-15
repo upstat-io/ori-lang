@@ -7,18 +7,19 @@ Read by a Sonnet sub-agent dispatched from `/review-plan`. Not a registered skil
 Read:
 
 - `/tmp/review-plan-context.json` — `mode`, `plan_dir`, `target_section`
+- `/tmp/review-plan-editor.json` — Step 5 editor handoff. The `escalate` field indicates whether the editor surfaced unresolvable human-judgment issues; if absent, treat as `false`.
 - `/tmp/review-plan-tpr.json` — must have `"converged": true`; if `false`, this sub-skill does NOT flip `reviewed: true` and reports the tpr-review non-convergence as the reason.
 
 ## Step 7 — Flip `reviewed` field (single-section mode ONLY)
 
-If `mode == "single-section"` AND `tpr.converged == true` AND the editor phase did not escalate unfixable issues:
+If `mode == "single-section"` AND `tpr.converged == true` AND `editor.escalate != true`:
 
 - Set `reviewed: true` in `{target_section}`'s frontmatter via the Edit tool.
 - Record `reviewed_flipped: true` in the output.
 
 If `mode == "whole-plan"`: skip this step entirely. Never touch `reviewed` fields in whole-plan mode.
 
-If `tpr.converged == false` OR the editor escalated unresolvable issues: leave `reviewed: false` and record the reason in the output.
+If `tpr.converged == false` OR `editor.escalate == true`: leave `reviewed: false` and record the reason in the output (`tpr-non-convergence` or `editor-escalated`).
 
 ## Step 8 — Post-edit audit verify loop
 

@@ -63,9 +63,23 @@ run_id = <generated e.g. /tmp/tpr-abc123>
 iteration_counter = 0                # finding-fixing rounds (cap: 10)
 thoroughness_reject_counter = 0      # consecutive WASTED rounds (cap: 3)
 strengthened_language_required = false
-# persist state to {run_id}/state.json for sub-agents to read
+loop_started_at = now()              # unix seconds — global walltime anchor
+loop_max_walltime = env("ORI_TPR_LOOP_MAX_WALLTIME", default=2700)  # 45 min
+# persist state (incl. loop_started_at) to {run_id}/state.json for sub-agents
 
 while iteration_counter < 10 and thoroughness_reject_counter < 3:
+    # ── GLOBAL WALLTIME CAP (hard ceiling, ALL rounds combined) ─
+    # The per-reviewer stall/walltime caps in dual-invoke.sh bound a single
+    # reviewer invocation. This cap bounds the ENTIRE /tpr-review loop —
+    # setup + triage + final-report across every round. Users rely on /tpr-
+    # review being a bounded operation; without this cap, 3-4 slow rounds
+    # can silently consume 2+ hours. Default 45 min. Overridable only via
+    # env at invocation time. The cap fires BEFORE the next round's setup
+    # dispatch so we never start a round we can't finish in the remaining
+    # budget.
+    elapsed = now() - loop_started_at
+    if elapsed >= loop_max_walltime:
+        break  # exit loop; final-report sub-agent will render the walltime cap
     round_n = iteration_counter + thoroughness_reject_counter  # monotonic
     mkdir -p {run_id}/round-{round_n}/
 
@@ -134,6 +148,17 @@ while iteration_counter < 10 and thoroughness_reject_counter < 3:
         # shown so the user sees the last round's details immediately)
         break
 
+    if triage.get("exit_clean") is True:
+        # CONVERGENCE GATE (step-2 §6c.1) — the triage agent has
+        # fixed this round's findings AND judged the loop has
+        # converged on LOW-only cosmetic residue. The remaining
+        # fixes are committed; continuing would burn rounds on
+        # polishing polish. Exit clean; final-report will frame
+        # the exit as "converged on cosmetics" instead of
+        # "zero findings." The convergence rationale is in
+        # triage.convergence_rationale and audited in round_summary.
+        break
+
     if triage.actionable_after_triage == 0 and not triage.thoroughness_ok:
         # Pure waste — zero findings + thin review
         thoroughness_reject_counter += 1
@@ -149,6 +174,24 @@ while iteration_counter < 10 and thoroughness_reject_counter < 3:
         persist state; continue
 
 # ── EXIT ────────────────────────────────────────────────────
+# Determine exit_reason so the final-report sub-agent renders the right
+# Branch in its output schema (see step-3-final-report.md §Output Schema).
+# Check order matters — the global walltime cap is the only cap that fires
+# mid-iteration, so it wins over the two mid-loop caps even if one would
+# nominally have also fired on the same iteration.
+elapsed = now() - loop_started_at
+if elapsed >= loop_max_walltime:
+    exit_reason = "global_walltime_cap"
+elif iteration_counter >= 10:
+    exit_reason = "max_iterations_reached"
+elif thoroughness_reject_counter >= 3:
+    exit_reason = "max_thoroughness_rejections_reached"
+elif last_triage.get("exit_clean") is True:
+    exit_reason = "converged"
+else:
+    exit_reason = "clean"
+persist exit_reason + elapsed to {run_id}/state.json
+
 # Dispatch final-report sub-agent (Sonnet) — reads all round artifacts,
 # writes the user-facing summary, frames cap-hit escalations per
 # step-3-final-report.md.
@@ -159,6 +202,11 @@ Agent({
   prompt: `
     Read .claude/skills/tpr-review/step-3-final-report.md and execute it.
     run_id: {run_id}
+    exit_reason: {exit_reason}         # clean | converged | max_iterations_reached
+                                       # | max_thoroughness_rejections_reached
+                                       # | global_walltime_cap
+    loop_elapsed_seconds: {elapsed}
+    loop_max_walltime: {loop_max_walltime}
     Read run-state from {run_id}/state.json and every
     {run_id}/round-*/triage.json file.
     Emit the final user-facing summary. If a cap was hit, frame the

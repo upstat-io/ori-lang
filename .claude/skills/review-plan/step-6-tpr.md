@@ -28,20 +28,28 @@ In single-section mode, scope the review to `{target_section}` (pass as the path
 
 ## Parse /tpr-review output
 
-`/tpr-review` has FOUR terminal statuses (see `.claude/skills/tpr-review/step-3-final-report.md` §47-51). Each must map to a defined handoff shape — a missing case would leave the /review-plan pipeline ambiguous exactly when it should stop cleanly and ask the user.
+`/tpr-review` has FOUR terminal statuses (see `.claude/skills/tpr-review/step-3-final-report.md` §"Output Schema (MANDATORY)", Branches 1–4). Each must map to a defined handoff shape — a missing case would leave the /review-plan pipeline ambiguous exactly when it should stop cleanly and ask the user.
 
-Extract from the final-report agent's output:
+Extract from the final-report agent's output (field names are exactly as emitted by `/tpr-review` in `final-report.json` — do NOT rename):
 
 - `status`: one of
   - `clean` — both reviewers returned zero actionable findings AND thoroughness judgment accepted
   - `max_iterations_reached` — 10-iteration finding-fixing cap hit with remaining findings
   - `max_thoroughness_rejections_reached` — 3-reject cap hit (reviewers produced three consecutive thin-waste rounds despite strengthening prompts)
   - `transport_failure` — dual-invoke transport exhausted infra retries before any loop iteration could complete
-- `iterations`: how many convergence rounds ran (may be 0 on `transport_failure`)
-- `per_iteration_counts`: array of finding counts per iteration (e.g., `[12, 5, 1, 0]`; empty on `transport_failure`)
-- `final_findings`: remaining findings on the last iteration (empty when `status == "clean"` or `"transport_failure"`)
-- `thoroughness_reject_counter`: peak value (0 unless thoroughness-cap path fired)
+- `iteration_counter`: how many convergence rounds ran (may be 0 on `transport_failure`)
+- `per_iteration_counts`: array of finding counts per iteration (e.g., `[12, 5, 1, 0]`; present on `max_iterations_reached`; may be absent/empty on other statuses)
+- `remaining_findings`: remaining findings on the last iteration (present on `max_iterations_reached`; absent when `status == "clean"` or `"transport_failure"`)
+- `thoroughness_reject_counter_peak`: peak value of the wasted-round counter (0 unless thoroughness-cap path fired)
 - Any `question` + `options` payload the final-report agent emitted for cap/failure paths
+
+**Field-name parity**: the consumer-side handoff below (`/tmp/review-plan-tpr.json`) uses the shorter names `iterations`, `final_findings`, `thoroughness_reject_counter` as a deliberate rename at the `/review-plan` boundary. Copy values through explicitly from `final-report.json`:
+
+- `iterations` ← `iteration_counter`
+- `final_findings` ← `remaining_findings` (if present)
+- `thoroughness_reject_counter` ← `thoroughness_reject_counter_peak`
+
+Do NOT assume the producer emits the shorter names; they are consumer-side aliases only.
 
 ## Output
 
@@ -119,7 +127,7 @@ Write `/tmp/review-plan-tpr.json`. Exactly one of the four branches below applie
   "escalate": true,
   "failure_category": "<literal category string from the transport — e.g. launch_or_exit_fail, codex_parse_fail, gemini_missing_terminator>",
   "postmortem_dir": "<$RUN path so the operator can inspect envelopes / round.log / parse-error files>",
-  "question": "/tpr-review aborted because the dual-source transport exhausted its 3 infra retries. The postmortem is preserved. How do you want to proceed?",
+  "question": "/tpr-review aborted because the dual-source transport exhausted its 5 infra retries. The postmortem is preserved. How do you want to proceed?",
   "options": [
     {"key": "triage-failure", "label": "Triage the failure — open $RUN/round.log and the indicated files"},
     {"key": "retry-immediately", "label": "Retry /tpr-review immediately (use sparingly — transport failures usually reflect real infra bugs)"},

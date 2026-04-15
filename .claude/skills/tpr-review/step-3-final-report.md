@@ -6,7 +6,7 @@ The report agent reads every `/tmp/tpr-{run}/round-{N}/` directory in order plus
 
 ## Output Schema (MANDATORY)
 
-Write `/tmp/tpr-{run}/final-report.json` before returning control to the coordinator. The coordinator reads this file and, when `escalate: true`, feeds `question` + `options` directly into `AskUserQuestion` (per `SKILL.md` §200–202). A missing or malformed schema is a contract violation — the coordinator cannot present escalations as prose, per `CLAUDE.md` rules.
+Write `/tmp/tpr-{run}/final-report.json` before returning control to the coordinator. The coordinator reads this file and, when `escalate: true`, feeds `question` + `options` directly into `AskUserQuestion` (per `SKILL.md` §"AskUserQuestion on escalation (MANDATORY)"). A missing or malformed schema is a contract violation — the coordinator cannot present escalations as prose, per `CLAUDE.md` rules.
 
 The schema is keyed on `status`, which mirrors the four terminal paths in §8 below:
 
@@ -22,6 +22,26 @@ The schema is keyed on `status`, which mirrors the four terminal paths in §8 be
   "escalate": false
 }
 ```
+
+### Branch 1b — `status: "converged"` (convergence gate fired — step-2 §6c.1, no escalation)
+
+Used when the final triage round set `exit_clean: true` and `converged: true`. The loop terminated because the remaining findings were LOW-only cosmetic residue on a strictly-decreasing trajectory after iteration_counter ≥ 2. Real work happened every round; the loop stopped before burning hours on polishing polish.
+
+```json
+{
+  "status": "converged",
+  "iteration_counter": 3,
+  "thoroughness_reject_counter_peak": 0,
+  "asymmetry": "LOW|MODERATE",
+  "summary_markdown": "…the full user-facing summary, including a 'Converged on cosmetics' sub-header and the triage agent's convergence_rationale verbatim…",
+  "per_iteration_counts": [12, 9, 3],
+  "convergence_rationale": "Round N−1 had 9 actionable; round N had 3 LOW-only STALE_REF/DOC_DRIFT; all cited docs not behavior. Gate fired.",
+  "latent_low_findings_hint": "3 LOW cosmetic items fixed in the final round; no pre-filing of hypothetical future LOWs. Re-run /tpr-review on this surface if concerns surface.",
+  "escalate": false
+}
+```
+
+The user-facing summary (§Final Report below) for a converged exit MUST include a visible "Converged on cosmetics (§6c.1 gate fired)" line plus the per-round finding counts so the user can see the decreasing trajectory that triggered the exit. This prevents the gate from looking like silent give-up.
 
 ### Branch 2 — `status: "max_iterations_reached"` (finding-fixing cap — §8a)
 
@@ -43,6 +63,35 @@ The schema is keyed on `status`, which mirrors the four terminal paths in §8 be
   ]
 }
 ```
+
+### Branch 2b — `status: "global_walltime_cap"` (45-minute whole-loop ceiling — §8c)
+
+Used when the coordinator's pre-round check detected `elapsed >= loop_max_walltime` (default 2700s / 45 min). The cap applies to the ENTIRE /tpr-review invocation — all rounds, setup + triage + final-report combined — and is independent of per-reviewer stall/walltime caps in `dual-invoke.sh`. Its purpose is a hard ceiling users rely on: a bounded, predictable /tpr-review duration.
+
+```json
+{
+  "status": "global_walltime_cap",
+  "iteration_counter": 2,
+  "thoroughness_reject_counter_peak": 0,
+  "asymmetry": "LOW|MODERATE|HIGH",
+  "loop_elapsed_seconds": 2734,
+  "loop_max_walltime": 2700,
+  "summary_markdown": "…includes a 'Global walltime cap hit (45 min)' sub-header and a per-round duration breakdown so the user can see where time went…",
+  "remaining_findings": [/* latest round's actionable entries, if any */],
+  "per_iteration_counts": [12, 9],
+  "run_path": "/tmp/tpr-{run}",
+  "escalate": true,
+  "question": "/tpr-review hit its 45-minute global walltime cap with {N} findings still open on round {M}. Committed rounds are safe. How do you want to proceed?",
+  "options": [
+    {"key": "continue-new-run", "label": "Start a new /tpr-review run on the current HEAD (fresh 45-min budget)"},
+    {"key": "file-and-stop", "label": "File remaining findings to the owning plan/bug-tracker and stop"},
+    {"key": "raise-cap-once", "label": "Raise the cap for this run via ORI_TPR_LOOP_MAX_WALLTIME and continue"},
+    {"key": "abandon-remaining", "label": "Accept committed rounds as-is and abandon the remaining findings"}
+  ]
+}
+```
+
+The summary_markdown MUST include per-round walltimes (codex + gemini + triage) so the user can see whether the cap was hit due to one slow round or cumulative drift. If a single reviewer dominated (e.g., gemini stalled at 28 min on round 2), call that out — it informs whether to retune `ORI_TPR_GEMINI_MAX_WALLTIME` before the next run. Committed work is always preserved; the cap only stops future rounds.
 
 ### Branch 3 — `status: "max_thoroughness_rejections_reached"` (depth cap — §8b)
 
@@ -83,7 +132,7 @@ The schema is keyed on `status`, which mirrors the four terminal paths in §8 be
   "run_path": "/tmp/tpr-{run}",
   "postmortem_files": ["round.log", "codex.parse-error", "gemini.parse-error", "…"],
   "escalate": true,
-  "question": "/tpr-review aborted because the dual-source transport exhausted its 3 infra retries. The postmortem is preserved at {run_path}. How do you want to proceed?",
+  "question": "/tpr-review aborted because the dual-source transport exhausted its 5 infra retries. The postmortem is preserved at {run_path}. How do you want to proceed?",
   "options": [
     {"key": "triage-failure", "label": "Triage the failure — open round.log and the indicated files"},
     {"key": "retry-immediately", "label": "Retry /tpr-review immediately (use sparingly)"},

@@ -266,9 +266,13 @@ See Section 02 (`section-02-transport.md`) for the full scripts contract.
 ## Failure handling
 
 The transport layer (Section 02) handles infra retries internally —
-3 retries per reviewer per round with exponential backoff (1s, 2s, 4s).
-After 3 retries, `dual-invoke-with-retry.sh` exits non-zero and prints
-the failure category and postmortem directory path.
+5 attempts per reviewer per round with default backoff
+(1s, 2s, 4s, 30s, 60s) and a capacity-aware schedule
+(30s, 60s, 120s, 120s, 120s) when the API reports capacity errors.
+After the attempts are exhausted, `dual-invoke-with-retry.sh` exits
+non-zero and prints the failure category and postmortem directory path.
+See `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh` for the
+SSOT schedule.
 
 Wrappers should:
 - On success: proceed to parse + merge + write
@@ -284,7 +288,7 @@ Wrappers should:
 `/tpr-review` (all three modes: review-work, review-plan, custom) and
 `/review-work` use the 10-iteration find+fix+rerun loop. Each iteration:
 1. Runs the dual-source transport (both reviewers per round, max
-   3 infra retries per reviewer)
+   5 infra attempts per reviewer)
 2. Claude reads the merged findings
 3. If zero actionable findings: clean pass, exit loop
 4. Otherwise: Claude fixes findings, commits, re-runs (increment

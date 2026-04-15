@@ -402,7 +402,7 @@ The evidence packet is INFORMATIONAL, not authoritative — reviewers expand sco
 
 ### 3. Invoke the dual-source transport in the background
 
-The transport launches both reviewers in parallel, handles infra retries (3 per reviewer, exponential backoff 1s / 2s / 4s), runs the schema validators, and applies the dirty-worktree guard. A full round typically takes 5-15 minutes — BOTH reviewers running concurrently, so wall time is roughly `max(codex_walltime, gemini_walltime)`, not the sum.
+The transport launches both reviewers in parallel, handles infra retries (5 attempts per reviewer; default backoff `1s / 2s / 4s / 30s / 60s`; capacity-aware backoff `30s / 60s / 120s / 120s / 120s` when the API reports capacity errors — see `dual-invoke-with-retry.sh` for the SSOT schedule), runs the schema validators, and applies the dirty-worktree guard. A full round typically takes 5-15 minutes — BOTH reviewers running concurrently, so wall time is roughly `max(codex_walltime, gemini_walltime)`, not the sum.
 
 Running the transport in the Bash foreground either hits the 2-minute tool timeout or gets auto-backgrounded with output truncated. Always use `run_in_background: true`. The `.claude/hooks/block-banned-commands.sh` hook explicitly allows backgrounded codex and gemini commands.
 
@@ -532,7 +532,7 @@ The directive is inserted BEFORE the normal grounding block (which reminds the r
 
 ## Transport Failure Handling
 
-If `dual-invoke-with-retry.sh` exits non-zero, the transport has exhausted its 3 internal infra retries and the round cannot proceed. The script prints the failure category on the last line of stderr and preserves the postmortem files under `$RUN` for inspection.
+If `dual-invoke-with-retry.sh` exits non-zero, the transport has exhausted its 5 internal infra retry attempts per reviewer (default backoff `1s / 2s / 4s / 30s / 60s`; capacity-aware backoff `30s / 60s / 120s / 120s / 120s`) and the round cannot proceed. The script prints the failure category on the last line of stderr and preserves the postmortem files under `$RUN` for inspection.
 
 **DO NOT silently retry the semantic loop on infra failure.** The 10-iteration budget is for finding-fixing rounds, not transport failures. Incrementing the semantic counter on a transport failure hides real infrastructure bugs and falsely claims iteration progress — the state machine invariant above forbids it.
 
@@ -542,9 +542,9 @@ The transport reports one of these categories on its stderr tail (prefixed `infr
 
 | Category | Meaning |
 |---|---|
-| `launch_or_exit_fail` | Either reviewer process failed to start or exited non-zero on all 3 attempts (includes crashes, missing CLI, auth errors) |
-| `codex_*` | `parse-codex.py` rejected the codex JSONL stream on all 3 attempts. Suffix is the parser's first error line (`codex_schema_violation`, `codex_missing_envelope`, `codex_parse_error`, etc.) |
-| `gemini_*` | `parse-gemini.py` rejected the gemini stream-json on all 3 attempts. Suffix is the parser's first error line (`gemini_missing_terminator`, `gemini_no_begin`, `gemini_no_end`, `gemini_parse_error`, etc.) |
+| `launch_or_exit_fail` | Either reviewer process failed to start or exited non-zero on all 5 attempts (includes crashes, missing CLI, auth errors) |
+| `codex_*` | `parse-codex.py` rejected the codex JSONL stream on all 5 attempts. Suffix is the parser's first error line (`codex_schema_violation`, `codex_missing_envelope`, `codex_parse_error`, etc.) |
+| `gemini_*` | `parse-gemini.py` rejected the gemini stream-json on all 5 attempts. Suffix is the parser's first error line (`gemini_missing_terminator`, `gemini_no_begin`, `gemini_no_end`, `gemini_parse_error`, etc.) |
 | `dirty_worktree` | **Strict mode only** (`ORI_TPR_STRICT_WORKTREE=1`): `worktree-guard.sh compare` detected tracked-file drift and strict mode escalated it to terminal. **Without strict mode (default)**: drift is a non-blocking WARNING — the round succeeds, envelopes are parsed, and drift details are saved to `$RUN/worktree-drift.txt`. Most drift is from parallel agents or user edits, not reviewer violations. |
 | `unknown_failure` | Fallback — the script exhausted retries without recording a specific category (rare; investigate round.log) |
 

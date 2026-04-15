@@ -739,8 +739,9 @@ fi
 # output to disk outside the scratch dir.
 stub_leaks=$(git grep -l -E 'STUB_(CODEX|GEMINI)_RESPONSE_MARKER' -- \
   ':(exclude).claude/skills/dual-tpr/fixtures/stub-bin-tp-help' \
+  ':(exclude).claude/skills/dual-tpr/fixtures/stub-bin-tp-help-spoof' \
   ':(exclude).claude/skills/dual-tpr/scripts/validate-tp-help-consumers.sh' \
-  ':(exclude)plans/dual-tpr-gemini/section-07-tp-help.md' \
+  ':(exclude)plans/completed/dual-tpr-gemini/section-07-tp-help.md' \
   2>/dev/null || true)
 
 if [[ -z "$stub_leaks" ]]; then

@@ -1,21 +1,17 @@
----
-name: commit-push
-description: Stage, commit, and push all changes to the remote using conventional commit format. Runs on Sonnet — pure mechanical orchestration (git status → message from diff → stage → commit → push).
-model: sonnet
----
+# /commit-push — Full Workflow
 
-# Commit and Push All Changes
+This is the protocol the sub-agent dispatched by `SKILL.md` executes. The SKILL.md parent should NOT execute these steps inline — it dispatches an isolated Sonnet Agent that reads this file end-to-end and runs it.
 
 Stage, commit, and push all changes to the remote repository using conventional commit format.
 
-## Usage
+## Usage (slash-level, for reference)
 
 ```
 /commit-push           # Commit and push immediately (no confirmation)
 /commit-push preview   # Show summary and ask for confirmation before committing
 ```
 
-**Arguments:** `$ARGUMENTS`
+Arguments flow into this workflow as `<ARGS>` (substituted by SKILL.md at dispatch time).
 
 ---
 
@@ -25,7 +21,7 @@ Stage, commit, and push all changes to the remote repository using conventional 
 
 ### Step 1: Check Git Status
 
-**ACTION:** Run these commands to see what will be committed:
+Run these commands to see what will be committed:
 
 ```bash
 git status
@@ -61,8 +57,8 @@ Review the changes and create a commit message following conventional commit for
 
 ### Step 3: Preview Mode (only if `preview` argument is passed)
 
-**If `$ARGUMENTS` contains `preview`:**
-1. Show the user a summary of files changed and the proposed commit message
+**If the args contain `preview`:**
+1. Show the user a summary of files changed and the proposed commit message.
 2. Ask: "Shall I proceed with this commit?"
 3. **Do NOT commit until user confirms.**
 
@@ -78,10 +74,10 @@ Review the changes and create a commit message following conventional commit for
 
 **Why this ordering matters:** Lefthook's pre-commit `fmt` step also runs `fmt-all.sh` with `stage_fixed: true`, but `stage_fixed` only restages files that were *already* in the index at the moment the hook fired. Any files the formatter touches that weren't intentionally staged get left as unstaged dirt in the working tree *post-commit* — the "restaging issue." Running `fmt-all.sh` here, before `git add`, means:
 
-1. All formatter changes (on our target files AND any incidental fixes elsewhere) land in the working tree first
-2. `git add -A` then stages a fully-formatted snapshot
-3. Lefthook's `fmt` step becomes a no-op (idempotent — nothing left to fix)
-4. The commit lands with a clean working tree — no post-commit dirt to chase
+1. All formatter changes (on our target files AND any incidental fixes elsewhere) land in the working tree first.
+2. `git add -A` then stages a fully-formatted snapshot.
+3. Lefthook's `fmt` step becomes a no-op (idempotent — nothing left to fix).
+4. The commit lands with a clean working tree — no post-commit dirt to chase.
 
 `fmt-all.sh` is fast on an already-formatted tree (`cargo fmt --check` short-circuits) and harmless when there's nothing to fix, so running it unconditionally is cheap insurance.
 
@@ -152,11 +148,24 @@ perf(typeck): optimize line lookup and hash map usage
 
 ## Rules
 
-- Always run `git status` before committing
-- Default mode: commit and push without confirmation (user trusts the process)
-- Preview mode (`/commit-push preview`): show summary and wait for confirmation
-- Never force push or use destructive git operations
-- Keep the first line of commit message under 72 characters
-- Do NOT include `Co-Authored-By` lines in commit messages
+- Always run `git status` before committing.
+- Default mode: commit and push without confirmation (user trusts the process).
+- Preview mode (`/commit-push preview`): show summary and wait for confirmation.
+- Never force push or use destructive git operations.
+- Keep the first line of commit message under 72 characters.
+- Do NOT include `Co-Authored-By` lines in commit messages.
 - **NEVER discard uncommitted work**: Do NOT use `git checkout -- <file>`, `git restore <file>`, `git reset --hard`, or `git clean` to "clean up" unrelated changes. The user runs parallel sessions — uncommitted files may be active work. Stage only your files with `git add <specific files>` instead of `git add -A` when other files are dirty. Dirty commits with extra files are acceptable; lost work is not.
 - **When pre-commit hooks fail on files you didn't touch**: Stage only your specific files, not `-A`. If hooks still fail on unstaged files, report to the user — never discard.
+
+---
+
+## Return to parent
+
+When the push succeeds (or preview is declined, or an error prevents push), return a concise final report:
+
+- Commit SHA (short) and subject line
+- Remote branch pushed to
+- Any warnings surfaced by hooks
+- If stopped short (dirty-tree check failed, preview declined, hook failure): what's pending and why
+
+The parent has no context from this run — your summary is the only record it sees.

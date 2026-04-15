@@ -61,7 +61,7 @@ compose-intel-summary.md, .claude/skills/dual-tpr/
 polling-protocol.md sibling, compose-rules-brief.md sibling
 Intelligence Summary template, bounded 500-char digest
 review-work/SKILL.md:251, tpr-review/SKILL.md Step 0.75
-review-plan/SKILL.md + step-*.md (replaces deleted review-plan.md), review-work.md:71, independent-review.md:221, review-bugs.md:156
+review-plan/SKILL.md + step-*.md, review-work.md:71, independent-review.md:221, review-bugs.md:156
 availability check, file-symbols, callers, callees, similar
 ```
 
