@@ -117,6 +117,8 @@ On successful check, the typed IR satisfies exactly the contract in `typeck.md` 
 - All method calls resolved statically via builtin-first `resolve_builtin_method()` or `TraitRegistry::lookup_method()` — no runtime lookup remains (`typeck.md` §EX-4, `types.md` §RG-3; builtin lookup is NOT routed through `MethodRegistry`).
 - All capability requirements satisfied at their use sites (`typeck.md` §CP-2).
 
+Producer-side enforcement for the `no Tag::Var` clause is `compiler/ori_types/src/check/validators/mod.rs::validate_body_types` (re-exported at the `ori_types` crate root). It walks each body's `expr_types` plus the body's `FunctionSig` (`param_types` + `return_type`) after `InferEngine` body-checking completes and emits `E2005` (`typeck.md` §DI-1 `AmbiguousType`) once per `ExprIndex` for any surviving unbound `Tag::Var`. Gate order is `resolve_fully → HAS_ERROR → HAS_VAR` (`typeck.md` §ER-4 cascade suppression precedes `types.md` §TF-5 fast-path). Tag-dispatch child traversal delegates to the canonical `Pool::visit_children` helper (`types.md` §TF-3 propagation + the `Tag::Scheme` flag-propagation rule) — no parallel tag-dispatch ladder is maintained in the validator (`impl-hygiene.md` §Algorithmic DRY).
+
 On failed check, failure sites carry `Tag::Error`; downstream phases skip error-typed nodes (`typeck.md` §PC-3). Codegen is gated at the driver level — any typeck error suppresses emission (`typeck.md` §PC-4).
 
 ### §4.3 Canonicalization output — `CanExpr`

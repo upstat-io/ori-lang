@@ -159,15 +159,27 @@ _Expected state:_ Phase 0 FAILS, Phase 1 PASSES.
 (created as part of Section 02; Section 05 cross-references the cells here for
 matrix-completeness accounting)
 
-The five validator cells specified in `section-02-validator-module.md §02.4`:
+The twelve validator cells specified in `section-02-validator-module.md §02.4`
+and shipped in `compiler/ori_types/src/check/validators/tests.rs`. Test names
+follow the behavioral `<subject>_<scenario>_<expected>` shape per
+`impl-hygiene.md §Test Function Naming` — no ephemeral plan/section/TPR-id
+suffixes. Provenance to the §02.4 T-numbers lives in `///` doc comments on
+each test, not in the function names themselves.
 
-| Cell | Test name | Expected |
-|------|-----------|----------|
-| T1 | `validate_body_types_with_unbound_var_emits_ambiguous_type` | 1 E2005 error |
-| T2 | `validate_body_types_with_resolved_int_produces_no_errors` | 0 errors (TF-5 gate) |
-| T3 | `validate_body_types_with_error_type_produces_no_errors` | 0 errors (cascade suppression) |
-| T4 | `validate_body_types_with_var_bound_inside_scheme_produces_no_errors` | 0 errors (bound var) |
-| T5 | `validate_body_types_with_outer_var_inside_scheme_emits_ambiguous_type` | 1 E2005 error |
+| Cell | Test name (as shipped) | Expected |
+|------|------------------------|----------|
+| T1 | `body_expr_types_with_unbound_var_emits_one_e2005` | 1 E2005 (Negative / Base) |
+| T2 | `applied_generic_with_unbound_var_argument_emits_one_e2005` | 1 E2005 (Negative / Applied — visit_children descent) |
+| T3 | `signature_with_unbound_param_type_emits_at_sig_span` | 1 E2005 at `sig_span` (Negative / Signature) |
+| T4 | `body_expr_types_with_resolved_int_emits_no_diagnostic` | 0 errors (HAS_VAR fast-path) |
+| T5 | `body_expr_types_with_linked_var_resolves_and_emits_nothing` | 0 errors (VarState::Link walks through) |
+| T6 | `scheme_body_with_bound_var_emits_no_diagnostic` | 0 errors (HAS_BOUND_VAR ≠ HAS_VAR) |
+| T7 | `generalized_var_in_expr_types_emits_no_diagnostic` | 0 errors (VarState::Generalized exempted) |
+| T8 | `tuple_with_error_and_unbound_var_suppresses_diagnostic` | 0 errors (HAS_ERROR cascade suppression) |
+| T9 | `mixed_sig_and_body_vars_emit_sig_first_then_ascending_expr_index` | 3 E2005s in deterministic order (sig first, then ascending ExprIndex) |
+| T10 | `scheme_wrapping_unbound_var_body_emits_one_e2005` | 1 E2005 — **semantic pin for §02.0** (reverting `PROPAGATE_MASK` through `Tag::Scheme` causes this test to emit 0 diagnostics, flagged by the defensive flag assertion) |
+| T11 | `option_list_var_two_level_nesting_emits_one_e2005` | 1 E2005 (multi-level visit_children recursion) |
+| T12 | `map_with_two_unbound_vars_emits_one_e2005_not_two` | 1 E2005 (dedup — multiple vars at one ExprIndex collapse) |
 
 ### 05.1.3 Bodies-pass integration site unit tests
 

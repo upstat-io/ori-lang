@@ -859,6 +859,8 @@ On successful check, the typed IR SHALL satisfy (mirrors `TYPES:PC-2`):
 
 Consumers SHALL `debug_assert!` these on entry. Release builds SHALL produce an internal compiler error (not silent miscompilation) on violation.
 
+**Producer-side enforcement:** `validate_body_types` in `compiler/ori_types/src/check/validators/mod.rs` (re-exported at the crate root as `pub use check::validators::validate_body_types;`) walks the body's `expr_types` and `FunctionSig` (`param_types` + `return_type`) after `InferEngine` body-checking completes, identifies any surviving unbound `Tag::Var` per expression/signature position, and emits `E2005` (`AmbiguousType`) once per `ExprIndex`. The validator's gate order is `resolve_fully → HAS_ERROR → HAS_VAR` (`§ER-4` cascade suppression precedes `TYPES:§TF-5` fast-path) and the walk delegates compound-tag child traversal to the canonical `Pool::visit_children` helper (`compiler/ori_types/src/pool/descriptor.rs`, `TYPES:§TF-3` propagation + the `Tag::Scheme` fix) rather than cloning a parallel tag-dispatch ladder (`HYG:§Algorithmic DRY`). Without this producer-side enforcement the `PC-2` contract is only checked by consumer `debug_assert!`s, which strip in release and surface as silent miscompilation.
+
 Cross-reference: `HYG:§Cross-Phase Invariant Contracts`.
 
 ### PC-3 — Error-Typed Output
@@ -1044,6 +1046,8 @@ query protocol used by review-family skills.
 | `ori_types/src/check/exports.rs` | Typed IR emission after `check_module_impl` via `finish()` / `finish_with_pool()` (PC-2) |
 | `ori_types/src/check/imports.rs` | Import resolution |
 | `ori_types/src/check/object_safety.rs` | Object-safety check (TR-6) |
+| `ori_types/src/check/validators/mod.rs` | Producer-side `PC-2` enforcement — `validate_body_types` walks `expr_types` + `FunctionSig` positions, emits `E2005` per surviving `Tag::Var` (`DI-1`). Gate order: `resolve_fully → HAS_ERROR → HAS_VAR`. Delegates compound-tag child traversal to `Pool::visit_children` (`TYPES:§TF-3`). |
+| `ori_types/src/check/validators/tests.rs` | 12-cell matrix covering negative/positive/cascade/determinism/nesting/dedup axes of the validator's fast-path gates |
 | `ori_types/src/check/well_known/` | Well-known type / trait identifiers |
 | `ori_types/src/infer/mod.rs` | `InferEngine` (EN-1) |
 | `ori_types/src/infer/context.rs` | `Expected` / `ExpectedOrigin` (BD-1..BD-4) |
