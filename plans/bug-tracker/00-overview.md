@@ -104,7 +104,7 @@ See `.claude/skills/fix-bug/fix-section-template.md` for the full template.
 | ID | Subsystem | File | Open Bugs |
 |----|-----------|------|-----------|
 | 01 | Parser & Lexer | `section-01-parser-lexer.md` | 0 |
-| 02 | Type Checker | `section-02-typeck.md` | 1 |
+| 02 | Type Checker | `section-02-typeck.md` | 6 |
 | 03 | Evaluator | `section-03-eval.md` | 1 |
 | 04 | Codegen & LLVM | `section-04-codegen-llvm.md` | 19 |
 | 05 | Runtime & ARC | `section-05-runtime-arc.md` | 2 |
