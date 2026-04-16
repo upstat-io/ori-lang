@@ -579,6 +579,68 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
     gemini) [[ $GEMINI_OK -eq 1 ]]                      && ROUND_OK=1 ;;
   esac
 
+  # ── Step 3.5: eager per-attempt circuit-breaker recording + mid-loop pivot ─
+  #
+  # Record failures NOW (inside the retry loop), not at the end of the whole
+  # invocation. Two reasons:
+  #
+  # 1. "3 consecutive capacity / timeout errors → trip" semantics: if gemini
+  #    capacity-fails on attempts 1, 2, and 3 of the ladder, that IS three
+  #    consecutive failures. The breaker should trip at attempt 3 — not
+  #    record one fail at end-of-invocation and require three SEPARATE
+  #    /tpr-review invocations to accumulate the threshold.
+  #
+  # 2. Interrupt-safe accounting: if this script is killed mid-ladder
+  #    (user interrupt, OOM, signal), eager recording preserves every
+  #    attempt's fail in the breaker state. End-of-invocation recording
+  #    lost the failure entirely when the script died before reaching it.
+  #
+  # Recording is unconditional: circuit-breaker.sh's is_api_or_transport()
+  # filters out content/schema/parse categories internally, so calling fail
+  # on every failure is correct. The `${VAR:-launch_or_exit_fail}` fallback
+  # covers the defensive edge case where CODEX_FAIL_CAT / GEMINI_FAIL_CAT
+  # is empty despite CODEX_OK / GEMINI_OK = 0 (pre-2026-04-15 parity).
+  #
+  # After recording, re-check the breaker. If a reviewer just tripped AND
+  # its partner has a valid envelope on disk, promote the round to single-
+  # agent success instead of burning more retries. If neither partner has
+  # an envelope, exit with circuit_breaker_tripped_midrun.
+  if [[ $ROUND_OK -eq 0 && "${ORI_TPR_CIRCUIT_OFF:-0}" != "1" ]]; then
+    if [[ $CODEX_OK -eq 0 && ( "$EFFECTIVE_REVIEWERS" == "codex" || "$EFFECTIVE_REVIEWERS" == "both" ) ]]; then
+      "$SCRIPT_DIR/circuit-breaker.sh" fail codex "${CODEX_FAIL_CAT:-launch_or_exit_fail}" 2>>"$RUN/round.log" || true
+    fi
+    if [[ $GEMINI_OK -eq 0 && ( "$EFFECTIVE_REVIEWERS" == "gemini" || "$EFFECTIVE_REVIEWERS" == "both" ) ]]; then
+      "$SCRIPT_DIR/circuit-breaker.sh" fail gemini "${GEMINI_FAIL_CAT:-launch_or_exit_fail}" 2>>"$RUN/round.log" || true
+    fi
+
+    # Re-check — did the eager recording just trip a reviewer?
+    CODEX_TRIPPED_NOW=0
+    GEMINI_TRIPPED_NOW=0
+    CODEX_CHECK_OUT="$("$SCRIPT_DIR/circuit-breaker.sh" check codex  2>/dev/null)" || CODEX_TRIPPED_NOW=1
+    GEMINI_CHECK_OUT="$("$SCRIPT_DIR/circuit-breaker.sh" check gemini 2>/dev/null)" || GEMINI_TRIPPED_NOW=1
+
+    if [[ $CODEX_TRIPPED_NOW -eq 1 || $GEMINI_TRIPPED_NOW -eq 1 ]]; then
+      # Check envelope availability for the surviving reviewer.
+      CODEX_ENV_OK=0
+      GEMINI_ENV_OK=0
+      [[ -s "$RUN/codex.envelope.json" ]]  && CODEX_ENV_OK=1
+      [[ -s "$RUN/gemini.envelope.json" ]] && GEMINI_ENV_OK=1
+
+      if [[ $GEMINI_TRIPPED_NOW -eq 1 && $CODEX_ENV_OK -eq 1 ]]; then
+        echo "[$(date +%s)] circuit-breaker: gemini tripped mid-loop ($GEMINI_CHECK_OUT) — accepting codex-only envelope (single-agent mode)" >> "$RUN/round.log"
+        ROUND_OK=1
+      elif [[ $CODEX_TRIPPED_NOW -eq 1 && $GEMINI_ENV_OK -eq 1 ]]; then
+        echo "[$(date +%s)] circuit-breaker: codex tripped mid-loop ($CODEX_CHECK_OUT) — accepting gemini-only envelope (single-agent mode)" >> "$RUN/round.log"
+        ROUND_OK=1
+      else
+        # Tripped AND no partner envelope — cannot continue.
+        echo "[$(date +%s)] circuit-breaker: tripped mid-loop with no partner envelope available — aborting retry ladder" >> "$RUN/round.log"
+        echo "circuit_breaker_tripped_midrun: no surviving reviewer with valid envelope (codex_tripped=$CODEX_TRIPPED_NOW gemini_tripped=$GEMINI_TRIPPED_NOW codex_env=$CODEX_ENV_OK gemini_env=$GEMINI_ENV_OK)" >&2
+        exit 1
+      fi
+    fi
+  fi
+
   if [[ $ROUND_OK -eq 1 ]]; then
     # ── Launch + parse succeeded — run worktree guard as INFORMATIONAL check ──
     #
@@ -664,28 +726,14 @@ done
 echo "infra_retries_exhausted: ${FAILURE:-unknown_failure}" >&2
 echo "postmortem dir: $RUN" >&2
 
-# Record failures against the circuit breaker. circuit-breaker.sh filters
-# out non-api/transport categories internally, so we can pass the last
-# iteration's categories unconditionally. This is what eventually trips
-# the per-reviewer 1-hour timeout after 3 such failures in a sliding
-# 1-hour window.
-if [[ "${ORI_TPR_CIRCUIT_OFF:-0}" != "1" ]]; then
-  if [[ -n "${CODEX_FAIL_CAT:-}" ]]; then
-    "$SCRIPT_DIR/circuit-breaker.sh" fail codex "$CODEX_FAIL_CAT" 2>>"$RUN/round.log" || true
-  fi
-  if [[ -n "${GEMINI_FAIL_CAT:-}" ]]; then
-    "$SCRIPT_DIR/circuit-breaker.sh" fail gemini "$GEMINI_FAIL_CAT" 2>>"$RUN/round.log" || true
-  fi
-  # launch_or_exit_fail has no reviewer prefix — attribute to whichever
-  # reviewer(s) were active this round so the breaker can still react.
-  if [[ "${FAILURE:-}" == "launch_or_exit_fail" ]]; then
-    case "$EFFECTIVE_REVIEWERS" in
-      both|codex)  "$SCRIPT_DIR/circuit-breaker.sh" fail codex  launch_or_exit_fail 2>>"$RUN/round.log" || true ;;
-    esac
-    case "$EFFECTIVE_REVIEWERS" in
-      both|gemini) "$SCRIPT_DIR/circuit-breaker.sh" fail gemini launch_or_exit_fail 2>>"$RUN/round.log" || true ;;
-    esac
-  fi
-fi
+# NOTE: circuit-breaker fails are now recorded EAGERLY per-attempt inside the
+# retry loop above (Step 3.5 block, 2026-04-16 fix). The end-of-invocation
+# recording that used to live here has been removed to prevent double-counting
+# and to preserve the "3 consecutive fails = trip" semantics: if gemini fails
+# on attempts 1, 2, and 3 of the same ladder, the breaker now trips at
+# attempt 3's recording instead of recording a single fail at end-of-invocation
+# and requiring three separate /tpr-review runs to accumulate the threshold.
+# Eager recording also makes the accounting interrupt-safe — if the script is
+# killed mid-ladder, every attempt's fail is already flushed to the breaker.
 
 exit 1
