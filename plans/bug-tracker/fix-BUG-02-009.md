@@ -2,7 +2,7 @@
 bug: "BUG-02-009"
 title: "PC-2 violation: fold/rfold closure's accumulator param left as unbound Tag::Var"
 severity: "high"
-status: in-progress
+status: complete
 goal: "fold/rfold closure's first parameter (accumulator) resolves to the accumulator type in all cases, not just when the body happens to constrain it"
 success_criteria:
   - "fold closure with unused accumulator param resolves both param types"
@@ -18,7 +18,7 @@ third_party_review:
 
 # Fix: BUG-02-009 — fold/rfold closure's accumulator param left as unbound Tag::Var
 
-**Status:** In Progress
+**Status:** Complete
 **Severity:** High
 **Goal:** The fold/rfold higher-order constraint handler must unify the closure's first parameter (accumulator) with `ret_ty` so that accumulator types resolve even when the closure body doesn't constrain them through operations.
 
@@ -116,7 +116,10 @@ Plan TPR: Mandatory — high severity. Will run after TDD matrix tests are writt
 
 ## R. Third Party Review Findings
 
-{Initially empty — populated by the executor during Phase 5 completion checklist.}
+**Round 0** — `/tmp/ori-tpr-Hz48oozc` (codex completed, gemini unavailable — BUG-08-012 hang)
+- Codex: 0 findings against the BUG-02-009 fix code. Found 10 pre-existing documentation drift findings in rules files (filed as BUG-08-013).
+- Gemini: unavailable (capacity 429 on all 5 retries, then BUG-08-012 hang pattern).
+- Outcome: Single-source pass (codex HIGH trust). Fix code clean.
 
 ---
 
