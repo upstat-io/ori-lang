@@ -139,6 +139,80 @@ The merger needs a two-digit section prefix for tagged finding IDs
    matches, use the fallback `XX`. The triage agent may re-classify findings
    at filing time if they belong to a specific subsystem.
 
+#### Mandatory Mission-Adamancy Block
+
+**Every reviewer prompt MUST contain a Mission-Adamancy section BEFORE the grounding block.** This is the first thing the reviewer reads. It exists to block the `INVERTED-TDD` failure mode — where a reviewer sees green tests, reads the diff superficially, and signs off without verifying the stated deliverable is actually active on the inputs it was designed to cover. Reviewers MUST treat mission-verification as their first-order duty; ungrounded "the tests pass, looks good" reviews are themselves findings.
+
+The block is IDENTICAL for both reviewers. Paste it verbatim at the top of each prompt, before any other instructions, and AFTER the Thoroughness Re-review Directive if that is active.
+
+```
+## MISSION ADAMANCY — the first thing you check, every time
+
+Before looking at any code, test result, or commit message, state in your
+own words (in the envelope's `mission` field if present, or in your first
+finding's description otherwise):
+
+  1. What is the stated deliverable of this subsection / section / plan /
+     custom objective under review? (e.g., "wire validate_body_types into
+     all 4 body-pass sites to enforce typeck.md §PC-2").
+  2. What system invariant does that deliverable enforce? Cite the
+     spec clause, rule anchor, or CLAUDE.md section (e.g., "PC-2: no
+     Tag::Var in typed IR reaches AIMS / codegen").
+  3. Which downstream subsystem consumes that invariant? (e.g., "AIMS
+     analysis per aims-rules.md; codegen per codegen-rules.md TR-2").
+
+Then VERIFY — not just read — that the code under review actually keeps
+the deliverable active on the inputs the deliverable was designed to
+cover. Green tests are NOT evidence of mission success; they are evidence
+that the tests that exist passed. A deliverable can be inert on real
+input paths while every test in the suite goes green — that is exactly
+the INVERTED-TDD failure mode defined in `impl-hygiene.md §Finding
+Categories`.
+
+Specific things to hunt for (Critical findings when present):
+
+  - Early-returns, feature flags, `#cfg` skips, or gate conditions near
+    the stated validator/check/assertion/enforcement — trace whether
+    any of them disable the deliverable on the inputs it was designed
+    to catch. If yes: `INVERTED-TDD:gated-deliverable`.
+  - Exemption sets (allow-lists, skip-lists, exempt var id sets) that
+    grew in the diff — demand a spec citation for each addition; if
+    the growth is justified only by "tests fail otherwise",
+    that is `INVERTED-TDD:widened-exemption`.
+  - Subsection / section / plan items marked `complete` while the
+    deliverable is gated off or short-circuited on one or more input
+    paths — `INVERTED-TDD:subsection-complete-with-deliverable-inert`.
+  - Tests added for the WORKAROUND ("when gate is active, validator
+    correctly skips X") rather than the DELIVERABLE
+    ("deliverable fires on X") — `INVERTED-TDD:disabled-negative-pin`
+    (or a fresh `INVERTED-TDD:workaround-test` subcategory).
+  - A blocker bug filed via `/add-bug` when the bug is blocking the
+    subsection's stated deliverable. The right mode for blockers is
+    `/fix-bug` with full plan-section rigor. Call this out as
+    `INVERTED-TDD:blocker-add-bug-only`.
+  - Commit messages / plan updates / code comments containing the
+    phrases "make tests pass", "pragmatic workaround", "gate the
+    failing path", "accept current state and proceed", "file bugs
+    and proceed" (without per-bug `/fix-bug` vs `/add-bug`
+    classification), "mark as Known Failing Tests" (without a concrete
+    `- [ ]` anchor). Each occurrence is a smell — cross-reference
+    against the actual code change to confirm or clear.
+
+INVERTED-TDD findings are Critical by default and block section
+close-out. Remediation is always the architecturally-correct fix per
+`CLAUDE.md §The One Rule`, regardless of scope / effort / cost / risk.
+Never recommend "keep the gate, file a bug, proceed" — that
+recommendation is itself deferral per `CLAUDE.md §ZERO DEFERRAL on
+bugs`.
+
+Mission-adamancy is NOT optional. A review that signs off on work whose
+deliverable is inert misses the entire point of the review and harms
+the project more than no review at all — it grants false confidence.
+If you cannot articulate (1), (2), (3) above from the evidence packet
+plus the rule files, that lack of articulation is itself the first
+finding: the scope is under-specified.
+```
+
 #### Mandatory Grounding Block
 
 **Every reviewer prompt MUST contain a grounding section before the scope
@@ -215,6 +289,9 @@ Bash:
   write findings to plan files.
   # NOTE: {skill_name} is review-work (default) or review-plan (plan review)
 
+  <Mission-Adamancy block — pasted verbatim from the Mandatory
+   Mission-Adamancy Block section of step-1-round-setup.md>
+
   ## Grounding — read these files FIRST before reviewing
 
   Read these rule files in full before examining any scope files.
@@ -241,6 +318,9 @@ Bash:
   Emit the JSON envelope per .claude/skills/dual-tpr/findings-schema.json;
   do NOT write findings to plan files.
   # NOTE: {skill_name} is review-work (default) or review-plan (plan review)
+
+  <Mission-Adamancy block — pasted verbatim from the Mandatory
+   Mission-Adamancy Block section of step-1-round-setup.md>
 
   ## Grounding — read these files FIRST before reviewing
 

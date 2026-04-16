@@ -11,6 +11,29 @@ These rules cover **code quality**: structure, naming, types, errors, performanc
 
 ## Finding Categories
 
+- **INVERTED-TDD** — A fix, gate, flag, exemption, or exclusion that makes tests pass by **neutering the deliverable** on the failing path rather than fixing the code the deliverable is designed to catch. The tests pass because what they were supposed to test has been disabled. Subcategories:
+  - **Gated deliverable**: the subsection/section/plan's stated enforcement (validator, check, assertion, invariant) is short-circuited for "problematic" inputs (e.g., `if sig.scheme_var_ids.is_empty() { return; }` in a PC-2 validator, `#[cfg(not(feature = "strict"))]` skipping a lint, `if !generic { check() }` around a soundness gate).
+  - **Widened exemption set**: a validator/check grew its exemption list to silence failing tests, without a spec citation that proves the exemptions are architecturally correct.
+  - **Goal drift**: the fix optimized for local green tests instead of the system invariant the subsection serves. Signals: "make tests pass" appears as a rationale; the through-line from the subsection's deliverable to its downstream consumer (AIMS, codegen, spec clause, CLAUDE.md §AIMS invariants, typeck.md §PC-*, aims-rules.md lattice dimensions) was not re-stated during the fix.
+  - **Disabled negative pin**: a `#compile_fail` / negative test was removed or weakened because it now fires on too many cases.
+  - **Moved to "Known Failing Tests" without concrete anchor**: a failing test was parked in a Known Failing Tests block without a specific follow-up section / plan / checkbox that will resolve it.
+  - **Blocker deferred via `/add-bug` only**: a bug that blocks the current subsection's stated deliverable was filed via `/add-bug` and the subsection proceeded. The correct mode for blockers is `/fix-bug` (full plan-section rigor) NOW, not `/add-bug` later.
+  - **Subsection marked complete with deliverable inert**: a subsection whose stated deliverable is a validator / check / enforcement was marked `complete` while that deliverable is gated off, exempted, or otherwise inactive on one or more code paths.
+  Default: **Critical**. INVERTED-TDD is the failure mode where the test suite lies — it reports green while the deliverable is inactive. Every instance violates CLAUDE.md §The One Rule ("the simpler fix does not exist") and §ZERO DEFERRAL on bugs.
+
+  Detection triggers for reviewers (`/tpr-review`, `/review-work`, `/impl-hygiene-review`, `/review-plan`):
+  - Any early-return, feature-flag gate, `if empty { skip }`, `if !condition { return; }` near a validator / check / assertion / invariant enforcement — cross-reference against the owning plan's stated deliverable. If the skip disables the deliverable on the exact inputs the subsection was designed to catch, that is `INVERTED-TDD:gated-deliverable`.
+  - A validator/check's exemption set grew in the diff without a spec citation (e.g., a `Clause N.M` reference) in the commit message or accompanying doc comment explaining why the exemption is architecturally correct.
+  - The commit message, plan update, or code comment mentions "make tests pass", "pragmatic workaround", "gate failing path", "will fix later", "accept current state", "proceed with X deferred" — without a concrete `- [ ]` anchor pointing at the follow-up work.
+  - Tests moved to Known Failing Tests without a `<!-- blocked-by:path#item -->` pointer or equivalent concrete anchor (CLAUDE.md §ALL Deferrals Must Have Implementation Anchors).
+  - New tests verify the gated-off behavior ("when gate is active, validator correctly skips X") instead of the deliverable's stated invariant. These tests codify the workaround and make it harder to remove later.
+  - A bug was filed via `/add-bug` (not `/fix-bug`) when the bug is blocking the current subsection's stated deliverable — the right mode is `/fix-bug` for blockers; `/add-bug` alone is deferral.
+  - A subsection is marked `complete` in the plan frontmatter while the subsection's core deliverable is demonstrably inactive on one or more inputs (via gate, exemption, or short-circuit).
+
+  Required reviewer call-out format: `INVERTED-TDD:{subcategory}` — e.g., `INVERTED-TDD:gated-deliverable`, `INVERTED-TDD:widened-exemption`, `INVERTED-TDD:goal-drift`, `INVERTED-TDD:blocker-add-bug-only`. Every INVERTED-TDD finding is Critical by default and blocks section close-out.
+
+  Remediation is the architecturally-correct fix per CLAUDE.md §The One Rule, regardless of scope/effort/cost/risk. If the correct fix requires inference-engine changes, cross-crate refactoring, or adding a new IR field — that IS the work. Gating, flagging, or deferring are not acceptable resolutions. When a blocker bug surfaces, invoke `/fix-bug` NOW (not `/add-bug`), complete the fix with full plan-section rigor, then resume the subsection.
+
 - **LEAK** — Logic, data, or control living outside its canonical home. The most dangerous category — side logic is how clean architectures decay. Subcategories:
   - **Phase bleeding**: a phase doing work that belongs to another phase
   - **Backward reference**: later phase calling back into earlier phase
