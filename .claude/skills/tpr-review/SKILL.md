@@ -35,7 +35,9 @@ After the loop exits (clean pass, cap hit, or transport failure), the coordinato
 
 Finding handling is entirely the triage sub-agent's responsibility. The canonical home for that policy — "You May NEVER Reason Out of Findings", banned response list, and "Correct Architectural Solutions Only" — lives in `step-2-round-triage.md` §ABSOLUTE blocks. The coordinator (this file) restates none of it; it dispatches the triage sub-agent, reads the resulting `triage.json`, and branches the loop. This single source of truth exists to prevent coordinator and triage semantics from drifting independently (the prior version duplicated the policy here, which is exactly the `impl-hygiene.md` §Algorithmic DRY violation this refactor eliminated).
 
-**Coordinator contract:** if `triage.round_summary` is missing or empty, that is a protocol violation — escalate to the user via `AskUserQuestion` rather than continuing silently (see the loop state machine below). The coordinator does NOT reinterpret or second-guess the triage sub-agent's accept/reject/fix disposition; its job is dispatch + branch, not policy.
+**Coordinator contract — THE PER-ROUND RENDER COMES FIRST:** after every triage sub-agent returns, the coordinator MUST print `triage.round_summary` verbatim to the user BEFORE any state-branching logic (loop continuation, exit, counter updates). This is the ONLY per-round user-facing surface — `merged.json` and `triage.json` are machine-read and never rendered. Skipping the print is itself a coordinator-contract violation, not merely a UX lapse; past loop runs have drifted on this because the instruction was buried mid-pseudocode rather than top-billed. If `triage.round_summary` is missing or empty, that is a distinct protocol violation by the triage sub-agent — escalate via `AskUserQuestion` rather than continuing silently. Never fabricate a summary from other triage fields. The coordinator does NOT reinterpret or second-guess the triage sub-agent's accept/reject/fix disposition; its job is dispatch + render + branch, not policy.
+
+**If the user asks "why don't I see round summaries?" mid-loop, that is direct evidence of coordinator drift.** Corrective action: print the most recent round's `round_summary` immediately (it lives in `{run_id}/round-{N}/triage.json`), acknowledge the drift explicitly, and commit to printing every subsequent round's summary before dispatching the next round. Historical note: rounds that ran in prior sessions (different `run_id`s) leave their summaries only in the artifact the triage agent committed — e.g., `plans/bug-tracker/fix-BUG-XX-NNN.md §R Phase 2.5 Round N` — they cannot be recovered into the current transcript, only pointed at.
 
 ## When to Trigger — Bias Toward Running
 
@@ -134,18 +136,27 @@ while iteration_counter < 10 and thoroughness_reject_counter < 3:
     # Read only triage.json (small — a handful of fields + round_summary markdown)
     triage = read {run_id}/round-{round_n}/triage.json
 
-    # ── USER-FACING ROUND RENDER (MANDATORY) ────────────────
-    # Print triage.round_summary verbatim to the user BEFORE the decision
-    # branches below. This is the only place the user sees per-finding
-    # disposition between rounds; the coordinator deliberately does not
-    # read merged.json, so if round_summary is missing or truncated the
-    # user cannot track progress across rounds. If triage.round_summary
-    # is absent, that is a contract violation by the triage sub-agent —
-    # escalate rather than continuing silently.
+    # ══════════════════════════════════════════════════════════════════
+    # ║ USER-FACING ROUND RENDER — FIRST ACTION, NON-NEGOTIABLE         ║
+    # ║                                                                 ║
+    # ║ This print MUST execute before any state-branching logic below. ║
+    # ║ It is the ONLY per-round user-facing surface; skipping it is a  ║
+    # ║ coordinator-contract violation, not a UX lapse. See the         ║
+    # ║ "Coordinator contract — THE PER-ROUND RENDER COMES FIRST"       ║
+    # ║ paragraph above for the enforcement rationale. Never reorder    ║
+    # ║ a decision branch above this print. Never skip it on a clean    ║
+    # ║ round ("nothing to report" is itself worth showing).            ║
+    # ══════════════════════════════════════════════════════════════════
     if "round_summary" not in triage or triage.round_summary is empty:
+        # Triage sub-agent contract breach — no summary to render.
+        # Escalate rather than fabricating one from other triage fields.
         surface contract violation to user via AskUserQuestion
         EXIT
-    print triage.round_summary
+    print triage.round_summary   # <─ MUST FIRE HERE, before any branch below
+
+    # From this point on, every decision branch, counter update, or state
+    # persistence assumes the user has SEEN the round_summary just printed.
+    # Reordering any branch above this print reintroduces the drift.
 
     # ── SINGLE-AGENT MODE DETECTION ───────────────────────────
     # Read reviewer_mode from merged.json (set by merge-findings.py).
