@@ -21,7 +21,8 @@ Design invariants:
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
+from collections import defaultdict
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from scripts.plan_corpus import (
@@ -46,6 +47,9 @@ class SafetyClass(enum.Enum):
     EXPOSURE_REVIEW = "exposure_review"
 
 
+PAIRING_TAG_PLAN_TO_NAME_RENAME = "plan_to_name_rename"
+
+
 @dataclass(frozen=True)
 class ClassifiedFinding:
     """A Finding wrapped with its safety classification.
@@ -58,6 +62,7 @@ class ClassifiedFinding:
     safety_class: SafetyClass
     rationale: str
     resolved_by_sibling: str | None = None
+    pairing_tag: str | None = None
 
 
 @dataclass(frozen=True)
@@ -244,13 +249,48 @@ def _classify_schema_violation(
     if sub == FindingSubtype.MISSING_REQUIRED_FIELD:
         return _classify_missing_required_field(finding, context, frontmatter_data)
 
+    if sub == FindingSubtype.CROSS_FIELD_INVARIANT:
+        return _classify_cross_field_invariant(finding, context, frontmatter_data)
+
     # All other SCHEMA_VIOLATION subtypes: ExposureReview
-    # WRONG_TYPE, ENUM_OUT_OF_RANGE, CROSS_FIELD_INVARIANT,
+    # WRONG_TYPE, ENUM_OUT_OF_RANGE,
     # DUPLICATE_PLAN_NAME, DEP_ID_MALFORMED, DEP_ID_FULL_PATH, DEP_ID_UNKNOWN_NAME
     return ClassifiedFinding(
         finding=finding,
         safety_class=SafetyClass.EXPOSURE_REVIEW,
         rationale=f"No SafeFix rule for SCHEMA_VIOLATION/{sub.value}",
+    )
+
+
+def _classify_cross_field_invariant(
+    finding: Finding,
+    context: WriteBackContext,
+    frontmatter_data: dict | None,
+) -> ClassifiedFinding:
+    """Classify CROSS_FIELD_INVARIANT findings.
+
+    Currently SafeFix-eligible: ``reroute: false`` on plan-index files
+    (TPR-03-006-codex). The schema rule (`schema.py` near line 376)
+    flags ``reroute: false`` as a default-equivalent invariant violation
+    — removing the key restores the canonical state without changing
+    semantics. ``target_key="reroute"`` is the structural discriminator;
+    we never parse ``finding.description`` for this dispatch.
+
+    Other CROSS_FIELD_INVARIANT subtypes remain ExposureReview.
+    """
+    if finding.target_key == "reroute":
+        return ClassifiedFinding(
+            finding=finding,
+            safety_class=SafetyClass.SAFE_FIX,
+            rationale="reroute: false is default-equivalent — remove the key to normalize",
+        )
+    return ClassifiedFinding(
+        finding=finding,
+        safety_class=SafetyClass.EXPOSURE_REVIEW,
+        rationale=(
+            "CROSS_FIELD_INVARIANT requires manual review "
+            f"(target_key={finding.target_key!r})"
+        ),
     )
 
 
@@ -260,11 +300,11 @@ def _classify_unknown_field(
     frontmatter_data: dict | None,
 ) -> ClassifiedFinding:
     """Classify UNKNOWN_FIELD — handles plan:->name: rename."""
-    desc = finding.description.lower()
+    key = finding.target_key
     source = finding.source
 
     # plan: key rename is only valid on PlanIndexSchema files
-    if "plan" in desc and _is_plan_index(source):
+    if key == "plan" and _is_plan_index(source):
         fm = frontmatter_data or {}
 
         has_plan = "plan" in fm
@@ -297,10 +337,11 @@ def _classify_unknown_field(
                 finding=finding,
                 safety_class=SafetyClass.SAFE_FIX,
                 rationale="PlanIndexSchema: rename plan: to name: (preserving value)",
+                pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME,
             )
 
     # plan: on OverviewSchema is canonical — NOT a rename candidate
-    if "plan" in desc and _is_overview(source):
+    if key == "plan" and _is_overview(source):
         return ClassifiedFinding(
             finding=finding,
             safety_class=SafetyClass.EXPOSURE_REVIEW,
@@ -324,11 +365,11 @@ def _classify_missing_required_field(
     frontmatter_data: dict | None,
 ) -> ClassifiedFinding:
     """Classify MISSING_REQUIRED_FIELD — handles safe defaults."""
-    desc = finding.description.lower()
+    key = finding.target_key
     source = finding.source
 
     # reviewed: false insertion
-    if "reviewed" in desc:
+    if key == "reviewed":
         # SafeFix only for PlanSectionSchema and RoadmapSectionSchema
         # where reviewed: is a REQUIRED field with no default
         if _is_plan_section(source) or _is_roadmap_section(source):
@@ -355,7 +396,7 @@ def _classify_missing_required_field(
             )
 
     # third_party_review: default insertion
-    if "third_party_review" in desc:
+    if key == "third_party_review":
         # SafeFix where required by schema (PlanSectionSchema, FixBugSchema)
         if _is_plan_section(source) or _is_fix_bug(source):
             return ClassifiedFinding(

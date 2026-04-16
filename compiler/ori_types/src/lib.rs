@@ -29,6 +29,7 @@ mod type_error;
 mod unify;
 mod value_category;
 
+pub use check::validators::validate_body_types;
 pub use check::{
     check_module, check_module_with_imports, check_module_with_pool, check_module_with_registries,
     ModuleChecker,

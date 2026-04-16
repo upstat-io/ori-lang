@@ -204,6 +204,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
         # PlanIndexSchema file with plan: but no name:
         fm_data = {"plan": "test-plan", "full_name": "Test Plan", "status": "active"}
@@ -213,6 +214,28 @@ class TestClassifySafetySchemaViolation:
         )
         assert result.safety_class == SafetyClass.SAFE_FIX
 
+    def test_unknown_field_plan_key_rename_emits_pairing_tag(self):
+        """INTEGRATION PIN: classify_safety sets pairing_tag on the rename SafeFix.
+
+        pair_resolved_by_sibling depends on this tag to link the
+        MISSING_REQUIRED_FIELD(name) sibling. If the tag assignment
+        regresses, sibling dedup breaks silently.
+        """
+        from scripts.verify_roadmap.safety import PAIRING_TAG_PLAN_TO_NAME_RENAME
+        finding = _make_finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.UNKNOWN_FIELD,
+            description="Unknown field: plan",
+            source=Path("plans/test-plan/index.md"),
+            target_key="plan",
+        )
+        fm_data = {"plan": "test-plan", "full_name": "Test Plan", "status": "active"}
+        result = classify_safety(
+            finding, _make_context(),
+            frontmatter_data=fm_data,
+        )
+        assert result.pairing_tag == PAIRING_TAG_PLAN_TO_NAME_RENAME
+
     def test_unknown_field_plan_key_on_overview_exposure_review(self):
         """plan: on OverviewSchema -> ExposureReview (plan: is canonical there)."""
         finding = _make_finding(
@@ -220,6 +243,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/00-overview.md"),
+            target_key="plan",
         )
         # OverviewSchema uses plan: as a required field — NOT a rename candidate
         fm_data = {"plan": "test-plan", "title": "Test Plan", "status": "active"}
@@ -236,6 +260,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
         fm_data = {"plan": "old-name", "name": "new-name", "full_name": "X", "status": "active"}
         result = classify_safety(
@@ -252,6 +277,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
         fm_data = {"plan": "test-plan", "name": "test-plan", "full_name": "X", "status": "active"}
         result = classify_safety(
@@ -277,6 +303,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: reviewed",
             source=Path("plans/test-plan/section-01.md"),
+            target_key="reviewed",
         )
         fm_data = {"section": "01", "title": "Test", "status": "not-started",
                     "goal": "test", "success_criteria": [], "sections": [],
@@ -298,6 +325,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: reviewed",
             source=Path("plans/test-plan/index.md"),
+            target_key="reviewed",
         )
         fm_data = {"name": "test-plan", "full_name": "Test Plan", "status": "active"}
         result = classify_safety(
@@ -313,6 +341,7 @@ class TestClassifySafetySchemaViolation:
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: third_party_review",
             source=Path("plans/test-plan/section-01.md"),
+            target_key="third_party_review",
         )
         fm_data = {"section": "01", "title": "Test", "status": "not-started",
                     "reviewed": False, "goal": "test", "success_criteria": [],
@@ -338,11 +367,94 @@ class TestClassifySafetySchemaViolation:
         assert result.safety_class == SafetyClass.EXPOSURE_REVIEW
 
     def test_cross_field_invariant_exposure_review(self):
+        # Default CROSS_FIELD_INVARIANT (no target_key) stays ExposureReview
         finding = _make_finding(
             FindingCategory.SCHEMA_VIOLATION, FindingSubtype.CROSS_FIELD_INVARIANT,
         )
         result = classify_safety(finding, _make_context())
         assert result.safety_class == SafetyClass.EXPOSURE_REVIEW
+
+    def test_cross_field_invariant_reroute_false_is_safefix(self):
+        """Regression: reroute: false on plan-index files is a SafeFix
+        because the schema rule guarantees the field is default-equivalent.
+        Pre-fix all CROSS_FIELD_INVARIANT findings were ExposureReview, so
+        the promised auto-fix never landed.
+
+        See: TPR-03-006-codex.
+        """
+        finding = _make_finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.CROSS_FIELD_INVARIANT,
+            target_key="reroute",
+        )
+        result = classify_safety(finding, _make_context())
+        assert result.safety_class == SafetyClass.SAFE_FIX
+        assert "reroute" in result.rationale.lower()
+
+    def test_reroute_false_end_to_end_validate_classify_dispatch(self, tmp_path):
+        """End-to-end regression: the reroute:false SafeFix must survive the
+        real chain — schema._validate_plan_index produces a finding with
+        target_key='reroute', safety.classify_safety classifies it as SafeFix,
+        and auto_fix.build_fix_plan emits REMOVE_KEY('reroute').
+
+        Pre-fix TPR-03-006-codex the unit tests (above) only exercised the
+        classify_safety and dispatch layers with hand-constructed findings.
+        That left the PRODUCER side (schema emitting target_key='reroute')
+        untested — if _validate_plan_index stopped populating target_key,
+        classify_safety would fall back to ExposureReview silently.
+
+        See: TPR-03-001-codex-r5i2.
+        """
+        from scripts.plan_corpus.schema import _validate_plan_index
+        from scripts.verify_roadmap.auto_fix import build_fix_plan
+        from scripts.verify_roadmap.safety import FmOperationKind
+
+        # Producer: real schema validator on plan-index frontmatter with
+        # reroute: false. Must emit target_key='reroute'.
+        data = {
+            "name": "test-plan",
+            "full_name": "Test Plan",
+            "status": "active",
+            "reroute": False,
+        }
+        findings = _validate_plan_index(data, Path("plans/test-plan/index.md"))
+        reroute_findings = [
+            f for f in findings
+            if f.subtype == FindingSubtype.CROSS_FIELD_INVARIANT
+        ]
+        assert len(reroute_findings) == 1, (
+            "schema._validate_plan_index must emit exactly one "
+            "CROSS_FIELD_INVARIANT finding for reroute: false"
+        )
+        finding = reroute_findings[0]
+        assert finding.target_key == "reroute", (
+            "schema producer must populate target_key='reroute' — if this "
+            "regresses, classify_safety would silently fall back to "
+            "ExposureReview (TPR-03-006-codex chain breaks)"
+        )
+
+        # Classifier: real classify_safety on the produced finding must
+        # route to SafeFix (not ExposureReview).
+        classified = classify_safety(finding, _make_context())
+        assert classified.safety_class == SafetyClass.SAFE_FIX, (
+            "classify_safety regressed — reroute: false must classify as "
+            "SafeFix via _classify_cross_field_invariant"
+        )
+
+        # Dispatcher: real build_fix_plan on the classified finding must
+        # produce exactly one REMOVE_KEY operation targeting 'reroute'.
+        plan = build_fix_plan(classified)
+        assert plan is not None, (
+            "build_fix_plan returned None for the reroute SafeFix — "
+            "_dispatch_cross_field_invariant regressed"
+        )
+        assert len(plan.operations) == 1
+        op = plan.operations[0]
+        assert op.kind == FmOperationKind.REMOVE_KEY
+        # Operations are frozen tuple-of-pairs; convert to dict for assertion
+        assert dict(op.kwargs).get("key") == "reroute", (
+            f"Expected REMOVE_KEY with key='reroute', got kwargs={op.kwargs}"
+        )
 
     def test_duplicate_plan_name_exposure_review(self):
         finding = _make_finding(

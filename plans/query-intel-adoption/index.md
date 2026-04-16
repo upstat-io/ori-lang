@@ -61,7 +61,7 @@ compose-intel-summary.md, .claude/skills/dual-tpr/
 polling-protocol.md sibling, compose-rules-brief.md sibling
 Intelligence Summary template, bounded 500-char digest
 review-work/SKILL.md:251, tpr-review/SKILL.md Step 0.75
-review-plan.md:96, review-work.md:71, independent-review.md:221, review-bugs.md:156
+review-plan/SKILL.md + step-*.md, review-work.md:71, independent-review.md:221, review-bugs.md:156
 availability check, file-symbols, callers, callees, similar
 ```
 
@@ -81,7 +81,7 @@ graph-first paragraph template, Swift SILOptimizer, Lean4 IR, rustc, Koka, Gleam
 ---
 
 ### Section 05: Missing-trigger skills & commands
-**File:** `section-05-missing-trigger-skills.md` | **Status:** In Progress
+**File:** `section-05-missing-trigger-skills.md` | **Status:** Complete
 
 ```
 .claude/skills/verify-tpr/SKILL.md, blast-radius on findings
@@ -93,16 +93,23 @@ GAP:missing-trigger, concrete workflow step, @-include §03
 
 ---
 
-### Section 06: Plan schema — mandatory Intelligence Reconnaissance
-**File:** `section-06-plan-schema-recon.md` | **Status:** Not Started
+### Section 06: Plan schema — mandatory Intelligence Reconnaissance block + validator
+**File:** `section-06-plan-schema-recon.md` | **Status:** In Progress
 
 ```
 .claude/skills/create-plan/plan-schema.md, Section File Template
-{NN}.0 Intelligence Reconnaissance subsection
-scripts/plan_corpus.py check, transition-period WARNING
-retrofit, plans/* audit, aggressive/moderate/passive retrofit policy
+unnumbered ## Intelligence Reconnaissance block, NOT {NN}.0
+FileClass.PLAN_SECTION scope only, ROADMAP_SECTION / BUG_TRACKER_SECTION / FIX_BUG exempt
+python -m scripts.plan_corpus check (NOT the legacy single-file `.py` path — package-only invocation)
+Outcome enum (WARNING / ERROR), exit-code policy, --strict-recon flag
+status-gated severity: not-started=HIGH, in-progress=MEDIUM, complete=exempt
+Severity enum LOW/MEDIUM/HIGH/CRITICAL (not MAJOR/MINOR/WARNING)
+FILE_CLASS_META body_validator field, body_text propagation
+anti-performative-ritual: placeholder tokens, missing citation, empty body
+[ori] / [repo#N] citation grammar, fallback string coupling with §03/§07
+discover per-plan status-grouped recon coverage table
+tests/plan-audit/test_recon_block.py matrix (FileClass × body-shape × severity-mode)
 subsystem mapping from intelligence.md
-availability check in plan section, preset query, blast-radius
 ```
 
 ---
@@ -141,6 +148,24 @@ BLOAT:json-as-default, GAP:output-shape
 
 ---
 
+### Section 09: Retrofit active plans — status-gated recon coverage
+**File:** `section-09-retrofit.md` | **Status:** Not Started
+
+```
+scripts/plan_corpus/retrofit_recon.py, permanent subcommand (not throwaway)
+python -m scripts.plan_corpus retrofit-recon, --dry-run, --plan, --allow-reopen
+status-gated scope: ValidatedFile.data["status"] == "not-started"
+reviewed: true guard, --allow-reopen opt-in, no silent reviewed flip
+meta-dogfood scope: §06, §07, §08, §09 only; §01-§05 frozen
+no historical-fiction retrospective-recon injection
+stub block shape single source of truth with §06.2 anti-stub detector
+test matrix: status × body-shape × reviewed × mode
+discover per-plan coverage consumed as success criterion (not-started 100%)
+plans/completed/ and plans/bug-tracker/ excluded unconditionally
+```
+
+---
+
 ## Quick Reference
 
 | ID | Title | File |
@@ -150,6 +175,7 @@ BLOAT:json-as-default, GAP:output-shape
 | 03 | SSOT: compose-intel-summary helper | `section-03-compose-intel-summary-ssot.md` |
 | 04 | Rule files: graph-first guidance | `section-04-rules-graph-first.md` |
 | 05 | Missing-trigger skills & commands | `section-05-missing-trigger-skills.md` |
-| 06 | Plan schema: mandatory Intelligence Reconnaissance | `section-06-plan-schema-recon.md` |
+| 06 | Plan schema: mandatory Intelligence Reconnaissance block + validator | `section-06-plan-schema-recon.md` |
 | 07 | Hook-heavy ambient automation | `section-07-pre-review-intel-hook.md` |
 | 08 | Tool UX & output shapes | `section-08-tool-ux-and-output.md` |
+| 09 | Retrofit active plans — status-gated recon coverage | `section-09-retrofit.md` |

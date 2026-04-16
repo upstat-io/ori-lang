@@ -1,7 +1,7 @@
 ---
 plan: "verify-roadmap-redesign"
 title: "Verify Roadmap Redesign: Cross-Plan Coherence Auditor"
-status: in-progress
+status: complete
 supersedes:
   - ".claude/commands/verify-roadmap.md"
   - ".claude/skills/plan-audit/planlib.py"
@@ -19,7 +19,7 @@ Redesign the `/verify-roadmap` skill from a section-local item verifier into a c
 ## Mission Success Criteria
 
 - [ ] `/verify-roadmap` catches all 8 known TPR test cases automatically (see Known Bugs below)
-- [ ] `scripts/plan_corpus.py` exists as the single source of truth for corpus schema, parsing, discovery, and finding types — Sections 02-05 import it; no shadow parsers or types anywhere (Section 01)
+- [ ] `scripts/plan_corpus/` (Python package, invoked via `python -m scripts.plan_corpus`) exists as the single source of truth for corpus schema, parsing, discovery, and finding types — Sections 02-05 import it; no shadow parsers or types anywhere (Section 01)
 - [ ] Strict parser hard-fails on malformed YAML: missing/unclosed `---`, YAML parse errors, non-mapping roots, duplicate keys, anchors/aliases/merge keys, multi-document YAML, UTF-8 BOM, zero-width chars, invalid UTF-8 bytes (directly inverts `planlib.py:250-270,350` LEAK:swallowed-error anti-patterns) (Section 01)
 - [ ] Schema validation rejects inconsistent frontmatter (mixed `reroute`/`plan`/`parallel` fields) with whitelist enforcement (unknown fields rejected) across SEVEN file classes: plan index, plan section, roadmap section (distinct `tier`/`last_verified`/`spec` fields), overview, bug-tracker section, fix-BUG, completed-plan index (Section 01)
 - [ ] `depends_on` convention standardized: intra-plan `"NN"`, cross-plan `"plan-name#NN"` resolving against the target plan's `name:` field (stable across directory renames); full paths AND directory-slug-style cross-plan IDs rejected (Section 01)
@@ -81,7 +81,7 @@ Phase 5: WRITE-BACK & REPORT
 
 1. **Schema-first**: No semantic analysis runs on unstable metadata. Phase 1 normalizes frontmatter before Phase 2 builds the graph. This prevents the DAG builder from silently skipping plans with non-standard frontmatter (the exact failure mode that caused the current verify-roadmap to miss 17 reroute plans entirely).
 
-2. **Single-module SSOT**: `scripts/plan_corpus.py` is the sole home for schema types, parser, discovery walker, `Finding`/classifier types, and the status normalizer. Sections 02-05 import from it; re-implementing any of these elsewhere is a LEAK:scattered-knowledge violation. Markdown schema documentation is GENERATED from the Python types, not authored separately.
+2. **Single-package SSOT**: `scripts/plan_corpus/` is the sole home for schema types, parser, discovery walker, `Finding`/classifier types, and the status normalizer. Sections 02-05 import from it; re-implementing any of these elsewhere is a LEAK:scattered-knowledge violation. Markdown schema documentation is GENERATED from the Python types, not authored separately. (Section 01 originally shipped as a single-file module; refactored into a package after the initial SSOT landed.)
 
 3. **Strict parsing, no swallowed errors**: The current `.claude/skills/plan-audit/planlib.py` is the cautionary example — it uses `errors="replace"` (line 250), returns `{}` on YAML parse errors (line 269), and silently drops sections with malformed frontmatter (line 350-351). The redesigned parser HARD-FAILS on every class of malformed input. Permissive parsing on unstable metadata is worse than no auditor — it reports "clean" on corrupt inputs.
 
@@ -112,7 +112,7 @@ New values require `/create-draft-proposal`, not silent coercion.
 
 ## Schema Owners
 
-Seven file classes have distinct schemas, each owned by a Python dataclass in `scripts/plan_corpus.py`. Live-corpus exemplars cited inline.
+Seven file classes have distinct schemas, each owned by a Python dataclass in `scripts/plan_corpus/schemas.py`. Live-corpus exemplars cited inline.
 
 | File class | Path pattern | Schema dataclass | Exemplar |
 |---|---|---|---|
@@ -226,15 +226,15 @@ Section 01's scope grew because the original "Schema Definition" + "Validation S
 |----|-------|------|--------|
 | 01 | Frontmatter Schema, Strict Parser & Shared Types | `section-01-frontmatter-schema.md` | Complete |
 | 02 | DAG Builder & Conflict Classifier | `section-02-dag-builder.md` | Complete |
-| 03 | Findings Report & Write-Back | `section-03-findings-report.md` | Not Started |
-| 04 | Item-Level Verifier Preservation | `section-04-item-verifier.md` | Not Started |
-| 05 | Validation, Sweep & Skill Promotion | `section-05-validation.md` | Not Started |
+| 03 | Findings Report & Write-Back | `section-03-findings-report.md` | Complete |
+| 04 | Item-Level Verifier Preservation | `section-04-item-verifier.md` | Complete |
+| 05 | Validation, Sweep & Skill Promotion | `section-05-validation.md` | Complete |
 
 ### Section 01 subsection breakdown
 
 | Sub | Title | Output |
 |----|-------|--------|
-| 01.1 | Strict Parser & Discovery | `scripts/plan_corpus.py` parser, `CorpusParseError`, directory walker |
+| 01.1 | Strict Parser & Discovery | `scripts/plan_corpus/` package parser, `CorpusParseError`, directory walker |
 | 01.2 | Schema as Python Types (Sole SSOT) | Seven dataclass schemas (incl. RoadmapSectionSchema), closed status enum, `DepId` validator (name-based cross-plan resolution), `--docgen --check` mode, generated docs |
 | 01.3 | Shared Finding & Classifier Types | `Finding`, `Severity`, `FindingCategory × FindingSubtype` (two-level; includes `ITEM_VERIFICATION` subtypes for Section 04), `Corpus` (imported by Sections 02-05) |
 | 01.4 | Canonical Status Normalizer (facts only) | `normalize_status()` emits plain `Finding(STATUS_CONTRADICTION, …)` records; `classify_safety()` is RELOCATED to Section 03.2 |
