@@ -1,8 +1,8 @@
 # /tp-help Workflow — Sub-Agent Reference Document
 
-This file is read by the Sonnet sub-agent dispatched from SKILL.md. It contains the full dual-source orchestration protocol (Steps 1-7). Steps 8-9 (Apply the Answer, Brief the User) run in the parent's context after this sub-agent returns.
+This file is read by the Sonnet sub-agent dispatched from SKILL.md. It contains the orchestration protocol (Steps 1-4). Steps 5-6 (Apply the Answer, Brief the User) run in the parent's context after this sub-agent returns.
 
-**Mode:** Concatenation mode — NOT the findings envelope schema used by `/tpr-review` and `/review-work`. The output is **both reviewers' raw responses concatenated with HTML-comment attribution sentinels**, not a merged findings list.
+**Mode:** raw-concat. The dual-source SSOT `one-round.sh` handles launch, parse, worktree-guard, circuit-breaker pre-check, per-reviewer success/fail state tracking, and sentinel-attributed concatenation. This workflow owns only the *semantic* concerns: building the question, writing the prompts, and dispatching `one-round.sh --mode raw-concat`.
 
 ## Model Policy
 
@@ -21,23 +21,22 @@ This file is read by the Sonnet sub-agent dispatched from SKILL.md. It contains 
 | Phase | Model | Rationale |
 |---|---|---|
 | Step 1 — Build Context Package | Sonnet | File reads + template assembly |
-| Step 2 — Create the Scratch Dir and Snapshot the Worktree | Sonnet | Shell (orchestration) |
+| Step 2 — Create the Scratch Dir | Sonnet | Shell (orchestration) |
 | Step 3 — Write Both Reviewer Prompts | Sonnet | Mechanical-writing: static HARD RULES + grounding + adversarial framing; rule files cited, not summarized |
-| Step 4 — Launch `dual-invoke.sh` in the Foreground | Sonnet | Shell launch (orchestration) |
-| Step 5 — Parse Both Responses with the Raw Parsers | Sonnet | Python parser wrappers (orchestration) |
-| Step 6 — Worktree-Guard Compare | Sonnet | Shell diff against SSOT helper (orchestration) |
-| Step 7 — Concatenate with HTML-Comment Sentinel Attribution | Sonnet | Mechanical-writing: helper-sourced sentinel format from `tp-help-sentinels.sh` |
+| Step 4 — Dispatch `one-round.sh --mode raw-concat` | Sonnet | Shell launch (orchestration); circuit-breaker / worktree-guard / parse / sentinel emission all happen inside `one-round.sh` |
 
 ## Runtime Budget
 
-Dual-source runs both Codex and Gemini in parallel via a foreground Bash call with a 10-minute timeout (`timeout: 600000`). Codex typically finishes in 1-3 minutes; Gemini may take 10-15 minutes, which can exceed the foreground timeout on complex prompts.
+`one-round.sh --mode raw-concat` calls `dual-invoke.sh` in the foreground with a 10-minute Bash timeout (`timeout: 600000`). Codex typically finishes in 1-3 minutes; Gemini may take 10-15 minutes on complex prompts.
 
-For fast iteration or to avoid timeout on Gemini-heavy runs, restrict to one reviewer via `ORI_TPR_REVIEWERS`:
+**Circuit-breaker auto-fallback:** `one-round.sh` consults the global per-user circuit-breaker state (shared across `/tpr-review`, `/tp-help`, `/review-work`, `/review-plan`) BEFORE launch. If a reviewer was recently tripped (e.g. a prior `/tpr-review` round hit 3 API failures on gemini within the last hour), `one-round.sh` auto-restricts to the healthy reviewer with a clear warning — no more "10-minute foreground timeout on a known-broken reviewer" failure mode.
+
+For fast iteration or to explicitly restrict to one reviewer, set `ORI_TPR_REVIEWERS`:
 - `ORI_TPR_REVIEWERS=codex` — codex only (fast, ~1-3 min wall time, always within timeout)
 - `ORI_TPR_REVIEWERS=gemini` — gemini only (slow, ~10-15 min wall time, may hit timeout)
-- `ORI_TPR_REVIEWERS=both` — default (both reviewers, ~10-15 min wall time)
+- `ORI_TPR_REVIEWERS=both` — default (both reviewers, ~10-15 min wall time; auto-degraded to single if circuit-broken)
 
-The escape hatch is honored in `dual-invoke.sh`. All dual-source consumers (`/tpr-review`, `/review-work`, `/review-plan`, `/tp-help`) respect the same env var.
+Operator intent (explicit `ORI_TPR_REVIEWERS=codex|gemini`) takes precedence over circuit-breaker auto-restriction — if you ask for a tripped reviewer explicitly, `one-round.sh` aborts rather than silently swapping.
 
 ---
 
@@ -62,18 +61,15 @@ Additionally, enrich the context packet with intelligence-graph signals. Follow 
 
 Per SSOT Step F — /tp-help uses `callers`/`callees`/`similar` on the discussed symbols to provide precise cross-file dependency and prior-art context.
 
-## Step 2: Create the Scratch Dir and Snapshot the Worktree
-
-Create a per-run scratch dir via `scratch-dir.sh`. This produces a unique temp directory under `/tmp` that holds the prompt files, JSONL outputs, and worktree snapshots for this run.
-
-**Worktree snapshot (BEFORE — inline worktree-guard START):** In concat mode, `/tp-help` invokes `dual-invoke.sh` DIRECTLY — not through `dual-invoke-with-retry.sh` which is where `worktree-guard.sh` normally composes into the pipeline. So the skill itself is the guardrail. Capture the worktree state BEFORE the dual-source call:
+## Step 2: Create the Scratch Dir
 
 ```bash
 Bash:
   RUN=$(.claude/skills/dual-tpr/scripts/scratch-dir.sh)
-  git status --porcelain > "$RUN/worktree.before"
   echo "RUN=$RUN" >&2  # so you can reference it in later steps
 ```
+
+The worktree snapshot, worktree-guard compare, parse, and sentinel emission all happen *inside* `one-round.sh` — this workflow no longer carries those steps (previously Steps 2/5/6/7 inlined them, duplicating the logic that `dual-invoke-with-retry.sh` already implements for envelope-mode consumers).
 
 ## Step 3: Write Both Reviewer Prompts
 
@@ -188,101 +184,49 @@ Every concern you raise MUST use the vocabulary defined in `impl-hygiene.md` (LE
 
 Write the full gemini prompt to `$RUN/gemini.prompt.md`. The adversarial framing and Mandatory Grounding Block are IDENTICAL to the codex-side versions — this is intentional SSOT: both reviewers operate under the same posture and the same rules, so their findings are directly comparable.
 
-## Step 4: Launch `dual-invoke.sh` in the Foreground
+## Step 4: Dispatch `one-round.sh --mode raw-concat`
 
-Launch `dual-invoke.sh` directly (NOT `dual-invoke-with-retry.sh` — concat mode is one-shot; infra failure surfaces directly to the user without retry). Run in the **foreground** with an explicit timeout.
-
-**Do NOT pass `--schema`:** Passing a schema in concat mode would be architecturally misleading (there is no envelope to validate).
+Launch the canonical SSOT. **Run in the foreground with `timeout: 600000` (10 minutes).**
 
 ```
 Bash (foreground, timeout: 600000):
-  bash .claude/skills/dual-tpr/scripts/dual-invoke.sh \
+  bash .claude/skills/dual-tpr/scripts/one-round.sh \
+    --mode raw-concat \
     --run "$RUN" \
     --skill tp-help \
     --codex-prompt "$RUN/codex.prompt.md" \
     --gemini-prompt "$RUN/gemini.prompt.md"
 ```
 
-The Bash tool's `timeout: 600000` (10 minutes) accommodates codex (1-3 min) and most dual-source runs. If Gemini's cold-start pushes past 10 minutes, the call will time out — retry with `ORI_TPR_REVIEWERS=codex` for a faster single-reviewer run, or set `ORI_TPR_REVIEWERS=gemini` for a gemini-only run if codex already returned.
+`one-round.sh` handles — uniformly with the envelope-mode path used by `/tpr-review`:
+
+1. **Circuit-breaker pre-check** — reads global state under `$HOME/.cache/ori-tpr-circuit/`. If a reviewer is tripped, auto-restricts `ORI_TPR_REVIEWERS` (operator explicit setting still wins). Aborts cleanly if BOTH tripped.
+2. **Worktree snapshot** BEFORE dual-invoke.
+3. **`dual-invoke.sh` launch** (plain, not the retry wrapper — concat mode is one-shot *semantically*, because retrying a consultation reshapes the question's meaning. Transport-level resilience comes from circuit-breaker accounting, not blind retry.)
+4. **Per-reviewer circuit-breaker update** — `success` on exit 0, `fail transport` on non-zero. Contributes to the shared state the next `/tp-help` or `/tpr-review` will consult.
+5. **Worktree-guard compare** via the canonical `worktree-guard.sh compare` helper. Drift is logged as a warning; with `ORI_TPR_STRICT_WORKTREE=1` it escalates to a failure exit.
+6. **Raw-mode parsing** via `parse-codex-raw.py` / `parse-gemini-raw.py` — same SSOT the envelope parsers' raw siblings implement.
+7. **Sentinel emission** via `tp-help-sentinels.sh` — per-invocation token embedded in `<!-- tp-help-reviewer: ... -->` open/close markers. Output lands at `$RUN/concat.md` (or `--output <file>` if specified).
+
+On success, `one-round.sh` prints the output file path to stdout. On failure, exit codes are: 1 (both reviewers failed / both circuit-broken), 2 (usage), 3 (worktree strict-mode failure).
 
 **DO NOT:**
 - Use `run_in_background: true` — `/tp-help` runs foreground.
-- Wrap dual-invoke in an Agent — the Agent adds no value and costs an extra process.
-- Invoke `dual-invoke-with-retry.sh` — the retry wrapper is for envelope-mode consumers.
-
-## Step 5: Parse Both Responses with the Raw Parsers
-
-When the foreground Bash call completes with exit code 0, parse the two JSONL streams using the raw-mode sibling parsers (NOT the envelope parsers):
-
-```
-Bash:
-  CODEX_RAW=$(.claude/skills/dual-tpr/scripts/parse-codex-raw.py --jsonl "$RUN/codex.jsonl" 2>&1) \
-    || { echo "codex parse failed: $CODEX_RAW" >&2; CODEX_RAW="(codex response unavailable — see $RUN/codex.jsonl for raw stream)"; }
-  GEMINI_RAW=$(.claude/skills/dual-tpr/scripts/parse-gemini-raw.py --jsonl "$RUN/gemini.jsonl" 2>&1) \
-    || { echo "gemini parse failed: $GEMINI_RAW" >&2; GEMINI_RAW="(gemini response unavailable — see $RUN/gemini.jsonl for raw stream)"; }
-```
-
-If either parser fails, DO NOT drop the partial output — include a placeholder message and let the user see that one side failed. Never silently drop a reviewer.
-
-Per the ORI_TPR_REVIEWERS filter, one of the JSONL files may legitimately be absent. If `ORI_TPR_REVIEWERS=codex` was set, skip the gemini parse step entirely; if `=gemini`, skip the codex parse step entirely.
-
-## Step 6: Worktree-Guard Compare (delegates to SSOT script)
-
-Compare the post-run worktree state against the BEFORE snapshot using the canonical `worktree-guard.sh compare` helper. The helper flags ONLY new modifications that weren't present in BEFORE (reviewer-caused drift), not lines removed from BEFORE (drift cleaned up during the run).
-
-```
-Bash:
-  if ! .claude/skills/dual-tpr/scripts/worktree-guard.sh compare \
-       "$RUN/worktree.before" "$RUN/worktree.after"; then
-    echo "WORKTREE DRIFT DETECTED — at least one reviewer modified the working tree" >&2
-    echo "Before: $RUN/worktree.before" >&2
-    echo "After:  $RUN/worktree.after" >&2
-  fi
-```
-
-This delegates to the **SSOT** `worktree-guard.sh` helper — the same script that `dual-invoke-with-retry.sh` uses at the launcher layer for `/tpr-review` and `/review-work`.
-
-## Step 7: Concatenate with HTML-Comment Sentinel Attribution (per-invocation tokens)
-
-Build the final output by concatenating both reviewers' raw text with HTML-comment attribution sentinels that embed a per-invocation token.
-
-**SSOT: the canonical sentinel format is defined in `.claude/skills/dual-tpr/scripts/tp-help-sentinels.sh`.** Shell consumers MUST `source` that file and use the canonical API:
-
-- `TP_HELP_SENTINEL_PREFIX` — the static prefix substring (`tp-help-reviewer:`) for cross-cutting leakage greps
-- `tp_help_make_token()` — generates a per-invocation token (12-char hex from `/dev/urandom`, with a timestamp+pid fallback)
-- `tp_help_emit_block <reviewer> <token> <body>` — writes one attributed block to stdout with the token embedded in both open and close sentinels
-
-**Required attribution format (tokenized):**
-
-```
-<!-- tp-help-reviewer: codex @{token} -->
-{CODEX_RAW}
-<!-- /tp-help-reviewer: codex @{token} -->
-
-<!-- tp-help-reviewer: gemini @{token} -->
-{GEMINI_RAW}
-<!-- /tp-help-reviewer: gemini @{token} -->
-```
-
-**How to generate the token and emit the blocks (Bash):**
-
-```bash
-source .claude/skills/dual-tpr/scripts/tp-help-sentinels.sh
-token=$(tp_help_make_token)
-{
-  tp_help_emit_block codex  "$token" "$codex_raw"
-  printf '\n'
-  tp_help_emit_block gemini "$token" "$gemini_raw"
-} > "$output"
-```
-
-When `ORI_TPR_REVIEWERS` restricts to one reviewer, emit only that reviewer's block. Detection: if `$RUN/codex.skipped` exists, skip the codex block; if `$RUN/gemini.skipped` exists, skip the gemini block.
-
-**Do NOT use H2 headers like `## Codex says:` for attribution** — those collide with downstream consumers' own H2 structure.
+- Wrap `one-round.sh` in an Agent — the Agent adds no value and costs an extra process.
+- Call `dual-invoke.sh` or `dual-invoke-with-retry.sh` directly — those are internal to `one-round.sh` now. Direct calls bypass the circuit-breaker pre-check that gives dual-source consumers shared operational awareness.
 
 ## Return to Parent
 
-After Step 7, return to the parent with:
+Read the concatenated output file:
+
+```bash
+Bash:
+  cat "$RUN/concat.md"
+```
+
+Return to the parent with:
 1. The `$RUN` scratch dir path (so the parent can cite it in fix section files, etc.)
-2. The concatenated output (the sentinel-attributed text from Step 7)
-3. Any worktree drift warnings from Step 6
+2. The concatenated output (contents of `$RUN/concat.md`)
+3. Any stderr warnings from `one-round.sh` (worktree drift, circuit-breaker auto-restriction, single-reviewer-only message, etc.)
+
+If `one-round.sh` exited non-zero, return the failure category + stderr verbatim. Do not attempt to recover inline — the parent decides whether to re-invoke, present the degraded result, or escalate.

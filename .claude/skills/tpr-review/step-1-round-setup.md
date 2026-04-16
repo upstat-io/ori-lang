@@ -488,9 +488,12 @@ Running the transport in the Bash foreground either hits the 2-minute tool timeo
 
 The `--skill` parameter controls the transport log label. Default: `review-work`. If `ARGS` contains `--skill review-plan`, use `review-plan`. For custom objective mode, use `custom`.
 
+All dual-source consumers (`/tpr-review`, `/tp-help`, `/review-work`, `/review-plan`) route through the canonical SSOT `one-round.sh`. For envelope-mode consumers this is a thin passthrough to `dual-invoke-with-retry.sh` *plus* a shared circuit-breaker pre-check that trips cross-skill — so a gemini-degraded state recorded by a prior `/tp-help` run auto-restricts this round's `ORI_TPR_REVIEWERS` before the transport is even launched. Calling `dual-invoke-with-retry.sh` directly bypasses the pre-check and is disallowed for first-party callers.
+
 ```
 Bash (run_in_background: true):
-  .claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh \
+  .claude/skills/dual-tpr/scripts/one-round.sh \
+    --mode envelope \
     --run "$RUN" \
     --skill {skill_name} \
     --codex-prompt "$RUN/codex.prompt.md" \
