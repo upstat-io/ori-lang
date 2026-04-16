@@ -78,12 +78,13 @@ After Step 2, only `block`-severity and `info`-severity gates remain. For each e
 
 | Gate key | Severity when fires | Action |
 |---|---|---|
+| `parse_error_sections` | `block` | Escalate. One or more sections have YAML parse errors — focus selection is unreliable. Fix the YAML before proceeding. |
 | `stale_frontmatter` | `auto-fix` | Handled silently in Step 2a — never escalates. |
 | `stale_plan_annotations` | `auto-fix` | Handled silently in Step 2b — never escalates. |
 | `unreviewed_plan` | `block` | Escalate. `payload.options` offers `/review-plan`, proceed-anyway, pick-different. |
 | `tpr_findings` | `block` | Escalate. Parent invokes `/verify-tpr` with `payload.next_skill_arg`. |
-| `critical_bugs` | `block` | Escalate. Parent invokes `/fix-bug` with the bug IDs from `payload.bugs`. |
-| `high_bugs` | `info` | Include bug IDs in handoff summary. Not blocking. |
+| `critical_bugs` | `block` | Escalate. Parent invokes `/fix-bug` with the bug IDs from `payload.bugs`. Includes bugs elevated from `high` when they block focus-section items via `<!-- blocked-by:BUG-XXX -->` annotations (marked `elevated: true` in the payload). |
+| `high_bugs` | `info` | Include bug IDs in handoff summary. Not blocking. Bugs elevated to `critical_bugs` via blocked-by are removed from this list. |
 | `dirty_tree` | `block` | Escalate. `payload.options` offers `/commit-push` or proceed-dirty. **NEVER** run destructive git commands to clean up. |
 
 When multiple block-severity gates fire together (e.g., unreviewed + dirty tree), escalate with ALL of them listed — the parent will ask the user each one via sequential `AskUserQuestion` calls.

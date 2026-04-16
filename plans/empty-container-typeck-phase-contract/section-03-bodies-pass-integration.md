@@ -30,23 +30,15 @@ sections:
   - id: "03.1"
     title: "Wire validator into check_function"
     status: not-started
-    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-008 -->
-    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-009 -->
   - id: "03.2"
     title: "Wire validator into check_test"
     status: not-started
-    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-008 -->
-    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-009 -->
   - id: "03.3"
     title: "Wire validator into check_impl_method (TPR checkpoint)"
     status: not-started
-    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-008 -->
-    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-009 -->
   - id: "03.4"
     title: "Wire validator into check_def_impl_method"
     status: not-started
-    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-008 -->
-    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-009 -->
   - id: "03.BUG-FIXES"
     title: "Fix BUG-02-008 (nested-generic PC-2) and BUG-02-009 (closure param inference) via /fix-bug"
     status: not-started
@@ -472,7 +464,7 @@ The constructor `ExprId::new(u32)` is the correct form; `ExprId::from_raw` does 
 Verify this remains accurate by checking `compiler/ori_ir/src/expr_id/mod.rs` before
 implementing.
 
-- [ ] **TDD first** — add `check_function_with_unannotated_empty_list_emits_ambiguous_type`
+- [ ] **TDD first** — add `check_function_with_unannotated_empty_list_emits_ambiguous_type` <!-- blocked-by:BUG-02-008 --> <!-- blocked-by:BUG-02-009 -->
   to `bodies/tests.rs`. Run `timeout 150 cargo test -p ori_types -- bodies::tests` and
   confirm it FAILS before the code change (the test is the regression pin).
 - [ ] Verify the exact span-lookup API for `ExprIndex → Span` by reading `infer/mod.rs`
@@ -600,7 +592,7 @@ fn check_test_with_unannotated_empty_list_emits_ambiguous_type() {
 }
 ```
 
-- [ ] **TDD first** — add the test to `bodies/tests.rs`, confirm it FAILS before the code change.
+- [ ] **TDD first** — add the test to `bodies/tests.rs`, confirm it FAILS before the code change. <!-- blocked-by:BUG-02-008 --> <!-- blocked-by:BUG-02-009 -->
 - [ ] Check for borrow-lifetime conflicts in `check_test` (the `arena` variable may already be
   in scope — see line 200; either re-use it or confirm the split-borrow compiles cleanly).
 - [ ] Insert the validator call block after the last `engine.take_*()` extraction, before the
@@ -729,7 +721,7 @@ fn check_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
 }
 ```
 
-- [ ] **TDD first** — add the test to `bodies/tests.rs`, confirm it FAILS.
+- [ ] **TDD first** — add the test to `bodies/tests.rs`, confirm it FAILS. <!-- blocked-by:BUG-02-008 --> <!-- blocked-by:BUG-02-009 -->
 - [ ] **Signature-path test** — add a second test that catches broken FunctionSig construction
   specifically. A body-local `let xs = []` passes the body-inference check; the test must have
   an unannotated *parameter* or *return type* where the surviving `Tag::Var` comes from the sig:
@@ -891,7 +883,7 @@ fn check_def_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
 }
 ```
 
-- [ ] **TDD first** — add the test, confirm it FAILS.
+- [ ] **TDD first** — add the test, confirm it FAILS. <!-- blocked-by:BUG-02-008 --> <!-- blocked-by:BUG-02-009 -->
 - [ ] **Signature-path test** — add a second test that verifies the validator covers the
   temporary `validator_sig`'s param_types (not just body expr_types):
 

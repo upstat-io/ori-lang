@@ -318,9 +318,19 @@ BLOCKED_PROSE_RE = re.compile(r"<!--\s*blocked:\s*(.+?)\s*-->")
 TPR_ID_RE = re.compile(r"\[(TPR-[\w\-]+)\]\[(high|medium|low|critical)\]")
 BUG_FRONTMATTER_BUG_ID_RE = re.compile(r"^bug:\s*\"?(BUG-[\w\-]+)\"?\s*$")
 BUG_TRACKER_ENTRY_RE = re.compile(
-    r"^\s*- \[( |x|X)\] +\*?\*?(BUG-[\w\-]+)\*?\*?[\s\-–]+(.+?)(?:\s*<!--.*)?$"
+    r"^\s*- \[( |x|X)\] +"
+    r"(?:"
+    r"`?\[?(BUG-[\w\-]+)\]?`?"           # `[BUG-XX-NNN]` or **BUG-XX-NNN** or bare
+    r"|"
+    r"\*?\*?(BUG-[\w\-]+)\*?\*?"
+    r")"
+    r"[\s\[\]\w\-–`*]*"                   # skip [severity], backticks, stars
+    r"(.+?)(?:\s*<!--.*)?$"
 )
-BUG_SEVERITY_RE = re.compile(r"severity:\s*(critical|high|medium|low)", re.IGNORECASE)
+BUG_SEVERITY_RE = re.compile(
+    r"(?:severity:\s*|(?<=\])\[)(critical|high|medium|low)(?:\])?",
+    re.IGNORECASE,
+)
 
 
 def read_text(path: Path) -> str:
@@ -650,7 +660,8 @@ def parse_bug_tracker_bugs(plan: Plan) -> list[Bug]:
             m = BUG_TRACKER_ENTRY_RE.match(line)
             if not m:
                 continue
-            checked_mark, bid, desc = m.groups()
+            checked_mark, bid_a, bid_b, desc = m.groups()
+            bid = bid_a or bid_b
             sev_m = BUG_SEVERITY_RE.search(line) or BUG_SEVERITY_RE.search(desc)
             severity = sev_m.group(1).lower() if sev_m else "unknown"
             bugs.append(
@@ -1381,10 +1392,22 @@ def _bug_tracker_relevance(ws: Workspace, section: Section) -> dict:
         "15D": ["02", "03"], "21A": ["04", "05"], "21B": ["04", "05"],
         "22": ["07"], "23": ["03"],
     }
-    tracker_sections = set(SECTION_TO_TRACKER.get(str(section.number), []))
-    # For non-roadmap plans (reroutes, targeted plans), include every subsystem.
+    # SECTION_TO_TRACKER maps ROADMAP section numbers to bug-tracker sections.
+    # Only use it when the focus plan IS the roadmap. For reroute/targeted plans,
+    # include every bug-tracker subsystem — the mapping is meaningless outside
+    # the roadmap's numbering scheme.
+    is_roadmap = ws.focus_plan and ws.focus_plan.name == "roadmap"
+    tracker_sections = set(SECTION_TO_TRACKER.get(str(section.number), [])) if is_roadmap else set()
     if not tracker_sections:
         tracker_sections = {s.number for s in ws.bug_tracker.sections}
+
+    def _source_section_number(filename: str) -> str:
+        """Extract section number from bug-tracker filename.
+
+        'section-02-typeck.md' → '02', 'section-08-spec-docs.md' → '08'
+        """
+        m = re.match(r"section-(\d+)", filename)
+        return m.group(1) if m else filename
 
     def bucket(b: Bug) -> dict:
         return {
@@ -1393,10 +1416,10 @@ def _bug_tracker_relevance(ws: Workspace, section: Section) -> dict:
         }
     crit = [bucket(b) for b in ws.bug_tracker.bugs
             if b.severity == "critical" and b.status != "fixed"
-            and b.source_section in tracker_sections]
+            and _source_section_number(b.source_section) in tracker_sections]
     high = [bucket(b) for b in ws.bug_tracker.bugs
             if b.severity == "high" and b.status != "fixed"
-            and b.source_section in tracker_sections]
+            and _source_section_number(b.source_section) in tracker_sections]
     return {"critical": crit, "high": high}
 
 
@@ -1409,6 +1432,41 @@ def _build_gates(ws: Workspace) -> dict:
     file lists, bug lists, etc.).
     """
     gates: dict = {}
+
+    # Gate 1.0 — parse error sections (block: a section with invalid YAML
+    # prevents focus selection from working correctly — the placeholder section
+    # has a filename-derived number that sorts wrong, misdirecting to a later
+    # section. Must be resolved before any other gate logic runs.)
+    parse_errors = [
+        {"section": s.number, "file": str(s.path), "error": s.title}
+        for s in (ws.focus_plan.sections if ws.focus_plan else [])
+        if s.status == "unknown" and s.title.startswith("[PARSE ERROR:")
+    ]
+    if parse_errors:
+        gates["parse_error_sections"] = {
+            "fires": True,
+            "severity": "block",
+            "payload": {
+                "errors": parse_errors,
+                "question": (
+                    f"{len(parse_errors)} section(s) have YAML parse errors "
+                    f"and cannot be loaded. Focus selection is unreliable "
+                    f"until these are fixed. How do you want to proceed?"
+                ),
+                "options": [
+                    {"key": "fix-yaml",
+                     "label": "Fix the YAML manually (recommended)",
+                     "recommended": True, "next_skill": None},
+                    {"key": "proceed",
+                     "label": "Proceed anyway (focus selection may be wrong)",
+                     "recommended": False, "next_skill": None},
+                ],
+            },
+        }
+    else:
+        gates["parse_error_sections"] = {
+            "fires": False, "severity": "none", "payload": {},
+        }
 
     # Gate 1.5 — stale frontmatter (fix-able by sub-agent)
     mismatches = detect_all_mismatches(ws)
@@ -1550,8 +1608,40 @@ def _build_gates(ws: Workspace) -> dict:
         "payload": tpr_payload,
     }
 
+    # Gate 1.91 — blocked-by bug elevation
+    # Bugs referenced in `<!-- blocked-by:BUG-XXX -->` annotations on
+    # unchecked items in the focus section are BLOCKING current work
+    # regardless of their original severity — elevate to critical.
+    blocker_bug_ids: set[str] = set()
+    if ws.focus_section is not None:
+        bug_id_re = re.compile(r"BUG-\d{2}-\d{3}")
+        for item in ws.focus_section.flat_items:
+            if item.checked:
+                continue
+            for ref in item.own_blockers + item.inherited_blockers:
+                for m in bug_id_re.finditer(ref):
+                    blocker_bug_ids.add(m.group(0))
+
     # Gate 1.92 — bug tracker
     relevance = _bug_tracker_relevance(ws, ws.focus_section) if ws.focus_section else {"critical": [], "high": []}
+
+    # Elevate blocked-by bugs: if a bug ID appears in blocker_bug_ids and
+    # is unfixed in the tracker, add it to critical regardless of severity.
+    if blocker_bug_ids and ws.bug_tracker:
+        existing_crit_ids = {b["id"] for b in relevance["critical"]}
+        for bug in ws.bug_tracker.bugs:
+            if bug.id in blocker_bug_ids and bug.status != "fixed" and bug.id not in existing_crit_ids:
+                relevance["critical"].append({
+                    "id": bug.id, "severity": bug.severity, "status": bug.status,
+                    "title": bug.title, "source_section": bug.source_section,
+                    "lineno": bug.lineno, "elevated": True,
+                    "reason": "blocking focus section via blocked-by annotation",
+                })
+                existing_crit_ids.add(bug.id)
+        # Remove elevated bugs from high to avoid double-listing
+        elevated_ids = {b["id"] for b in relevance["critical"] if b.get("elevated")}
+        relevance["high"] = [b for b in relevance["high"] if b["id"] not in elevated_ids]
+
     if relevance["critical"]:
         critical_payload: dict = {
             "bugs": relevance["critical"],
