@@ -1,3 +1,12 @@
+---
+reroute: true
+name: "Empty-Container Typeck"
+full_name: "Empty-Container Typeck Phase-Contract Enforcement"
+status: active
+reviewed: true
+order: 1
+---
+
 # Empty-Container Typeck Phase-Contract Enforcement Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.
@@ -31,15 +40,14 @@ capture detection, non-capturing lambda, engine.generalize
 **File:** `section-02-validator-module.md` | **Status:** Not Started
 
 ```
-validator module, validate_body_types, check::validators
-pub mod check, lib.rs:16, pub mod reporting precedent
-Tag::Var walk, Scheme-aware bound-var tracking, FxHashSet<u32>
-HAS_ERROR cascade suppression, TypeFlags, expr_types sort stable
-FxHashMap<ExprIndex, Idx>, ExprIndex sort by key, deterministic iteration
-Vec<TypeCheckError> return, engine.take_errors idiom, push_error
-E2005 emission, AmbiguousType, cannot infer type
-compiler/ori_types/src/lib.rs:16, compiler/ori_types/src/check/validators/mod.rs
-object_safety.rs (closest existing pattern), check/registration/impls.rs
+validator module, validate_body_types, check::validators, pub(crate) mod validators
+Pool::visit_children reuse, HAS_VAR flag-based walk, resolve_fully at each step
+VarState::Generalized exemption (SC-1 divergence), Tag::BoundVar vs Tag::Var
+HAS_ERROR cascade suppression, TypeFlags, FunctionSig signature validation
+twelve-cell test matrix, positive/negative convention, dedup cell T12
+E2005 emission, AmbiguousType, cannot infer type, span_of closure
+pool/mod.rs compute_flags scheme-flag propagation fix (TF-3)
+compiler/ori_types/src/check/validators/mod.rs, lib.rs narrow re-export
 ```
 
 ---

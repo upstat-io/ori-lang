@@ -162,17 +162,52 @@ def insert_key(
     """Insert a new `key: value` line.
 
     If after_key is None or not present, append at end of frontmatter.
-    Otherwise insert directly after the matching `^after_key:` line.
+    Otherwise insert AFTER the matching `^after_key:` line AND any indented
+    continuation lines that belong to it (block lists, nested mappings,
+    multi-line scalars).
+
+    The block-aware insertion mirrors `remove_key`'s line-by-line walk: a
+    naive `^after_key:.*\\n` substitution wedges the new key between a
+    block-valued anchor and its indented children, producing invalid YAML
+    (e.g. `sections: \\n third_party_review: ... \\n  - id: ...` mixes a
+    new top-level key with sequence items at conflicting indentation).
+    See TPR-03-001-codex / TPR-03-001-gemini.
     """
     insertion = f"{key}: {value}\n"
 
     if after_key is not None:
-        pattern = re.compile(
-            rf"^({re.escape(after_key)}\s*:.*)\n",
-            re.MULTILINE,
-        )
-        if pattern.search(fm_text):
-            return pattern.sub(rf"\1\n{insertion}", fm_text, count=1)
+        lines = fm_text.splitlines(keepends=True)
+        anchor_pattern = re.compile(rf"^{re.escape(after_key)}\s*:")
+        anchor_idx: int | None = None
+        for i, line in enumerate(lines):
+            if anchor_pattern.match(line):
+                anchor_idx = i
+                break
+
+        if anchor_idx is not None:
+            # Skip every following line that is part of the anchor's value:
+            # blank lines OR indented continuation (leading space/tab).
+            insert_at = anchor_idx + 1
+            while insert_at < len(lines):
+                line = lines[insert_at]
+                stripped = line.lstrip()
+                if not stripped:
+                    # Blank line — could be inside a block or a separator.
+                    # Treat as continuation if the NEXT non-blank line is
+                    # also indented; otherwise stop here.
+                    j = insert_at + 1
+                    while j < len(lines) and not lines[j].strip():
+                        j += 1
+                    if j < len(lines) and lines[j].startswith((" ", "\t")):
+                        insert_at = j
+                        continue
+                    break
+                if line.startswith((" ", "\t")):
+                    insert_at += 1
+                    continue
+                break
+            new_lines = lines[:insert_at] + [insertion] + lines[insert_at:]
+            return "".join(new_lines)
 
     # Append at end (ensure trailing newline)
     if not fm_text.endswith("\n"):
@@ -217,11 +252,13 @@ def remove_list_item(
                 count=1,
             )
 
-    # Block style: locate `^list_key:` then iterate over indented `- item` lines
+    # Block style: locate `^list_key:` then iterate over indented `- item` lines.
+    # The key pattern allows trailing whitespace + optional inline comment so
+    # `depends_on: # comment` matches as a block-list opener (TPR-03-003-gemini).
     lines = fm_text.splitlines(keepends=True)
     out: list[str] = []
     in_list = False
-    key_pattern = re.compile(rf"^{re.escape(list_key)}\s*:\s*$")
+    key_pattern = re.compile(rf"^{re.escape(list_key)}\s*:\s*(#.*)?$")
     # Match `  - "value"` or `  - value`
     item_pattern = re.compile(
         rf'^\s*-\s*["\']?{re.escape(item_value)}["\']?\s*(#.*)?$'
@@ -286,22 +323,66 @@ def apply_patch(
     path: Path,
     operations: list[FmOperation],
     preimage: PreimageRecord,
+    corpus_root: Path,
+    finding_id: str | None = None,
 ) -> PatchResult:
     """Apply frontmatter operations to path, with concurrent-session guard.
 
     Workflow (blind spot #6):
-      1. Re-read path; compute SHA256 of current contents
-      2. Compare against preimage.content_hash
-      3. If hashes differ -> refuse (PatchResult(applied=False, ...))
-      4. If hashes match: extract fm slice, apply ops, reassemble,
-         write to temp file, os.replace atomically
+      1. Refuse if path escapes corpus_root (4th refuse-on-conflict trigger)
+      2. Re-read path; compute SHA256 of current contents
+      3. Compare against preimage.content_hash
+      4. If hashes differ -> refuse (PatchResult(applied=False, ...))
+      5. If hashes match: extract fm slice, apply ops, reassemble,
+         write to temp file
+      6. RE-READ path, recompute hash, compare against pre-write hash
+         (TPR-03-003-codex CAS check) — if a concurrent writer landed
+         between Step 2 and now, refuse rather than overwrite
+      7. os.replace atomically
 
     The patcher NEVER touches the file outside the fm slice — body,
     fences, line endings, and trailing whitespace are preserved
     byte-for-byte.
+
+    corpus_root is the reviewed plans-directory root (typically
+    ``repo_root / "plans"``). Any ``path`` whose resolved form is not
+    under ``corpus_root.resolve()`` is refused before any read/write —
+    a bogus or drifted Finding.source must never drive writes to
+    arbitrary files outside the reviewed corpus.
+
+    finding_id propagates the originating Finding.id into PatchResult so
+    unapplied-fix output can identify which finding failed (TPR-03-004-
+    codex). Defaults to the synthetic "VR-patch" sentinel when no caller
+    supplies one (preserves legacy behavior in tests / direct callers).
     """
-    # Synthetic finding_id from preimage (apply_fixes injects this)
-    finding_id = "VR-patch"
+    if finding_id is None:
+        finding_id = "VR-patch"
+
+    # Path-escape refusal (refuse-on-conflict trigger #4, §03.4 blind spot).
+    # Resolve both sides so symlinks / `..` are normalized; use string
+    # prefix compare for compatibility with Python < 3.9 (is_relative_to).
+    try:
+        resolved_path = path.resolve(strict=False)
+        resolved_root = corpus_root.resolve(strict=False)
+    except (OSError, RuntimeError) as e:
+        return PatchResult(
+            applied=False,
+            reason=f"path resolution failed: {type(e).__name__}: {e}",
+            finding_id=finding_id,
+            path=path,
+        )
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError:
+        return PatchResult(
+            applied=False,
+            reason=(
+                f"path escapes corpus root: {resolved_path} is not under "
+                f"{resolved_root}"
+            ),
+            finding_id=finding_id,
+            path=path,
+        )
 
     if not path.exists():
         return PatchResult(
@@ -369,6 +450,32 @@ def apply_patch(
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(new_bytes)
+
+        # Pre-replace CAS check (TPR-03-003-codex): re-read the destination
+        # and confirm its hash still matches what we read in Step 2. If a
+        # concurrent writer landed between Step 2 and now, refuse rather
+        # than silently overwrite. This closes the hash-check-to-replace
+        # race window. Note: this is a best-effort guard — TOCTOU is still
+        # theoretically possible between this re-read and os.replace, but
+        # the window shrinks from ~milliseconds (Step 2 -> Step 7) to
+        # ~microseconds (here -> os.replace).
+        recheck_bytes = path.read_bytes()
+        recheck_hash = _sha256_hex(recheck_bytes)
+        if recheck_hash != current_hash:
+            tmp_path.unlink()
+            return PatchResult(
+                applied=False,
+                reason=(
+                    "file modified between scan and replace by concurrent "
+                    f"session (preimage={preimage.content_hash[:8]}, "
+                    f"recheck={recheck_hash[:8]})"
+                ),
+                finding_id=finding_id,
+                path=path,
+                before_hash=preimage.content_hash,
+                after_hash=recheck_hash,
+            )
+
         os.replace(tmp_path, path)
     except Exception:
         # Cleanup temp file if it survived

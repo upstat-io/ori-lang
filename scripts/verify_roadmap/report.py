@@ -33,6 +33,12 @@ from .safety import (
 )
 
 
+# Classifier semantic version. Bumped when the report schema, finding
+# vocabulary, or classifier behavior changes in ways downstream consumers
+# need to detect. Surfaced in metadata.classifier_version (TPR-03-008-codex).
+CLASSIFIER_VERSION = "1.1.0"
+
+
 # ---------------------------------------------------------------------------
 # Modes & top-level Report dataclass
 # ---------------------------------------------------------------------------
@@ -132,6 +138,7 @@ def render_json(report: Report, corpus_size: int | None = None) -> dict:
     metadata = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "mode": report.mode.value,
+        "classifier_version": CLASSIFIER_VERSION,
         "total_findings": len(findings_out),
         "total_unapplied_fixes": len(unapplied_out),
     }
@@ -228,12 +235,25 @@ def render_markdown(report: Report) -> str:
 
 
 def _render_md_finding(cf: ClassifiedFinding, full: bool) -> str:
-    """Render a single ClassifiedFinding as a markdown bullet."""
+    """Render a single ClassifiedFinding as a markdown bullet.
+
+    Includes classifier type (category/subtype) + source -> target context
+    when target is populated (TPR-03-008-codex), so reviewers can see the
+    classifier identity and reference shape at a glance.
+    """
     f = cf.finding
     parts = [f"- **[{f.id}][{f.severity.name.lower()}]** `{f.source}`"]
     if f.source_line is not None:
         parts[0] += f":{f.source_line}"
     parts[0] += f" — {f.description}"
+    parts.append(f"  - Type: {f.category.value}/{f.subtype.value}")
+    if f.target is not None:
+        target_loc = f"`{f.target}`"
+        if f.target_line is not None:
+            target_loc += f":{f.target_line}"
+        parts.append(f"  - Reference: `{f.source}` -> {target_loc}")
+    if f.target_key is not None:
+        parts.append(f"  - Target key: `{f.target_key}`")
     if f.recommended_fix:
         parts.append(f"  - Fix: {f.recommended_fix}")
     if full:
@@ -298,8 +318,17 @@ def render_console(report: Report, color: bool = True) -> str:
         loc = f"{f.source}"
         if f.source_line is not None:
             loc += f":{f.source_line}"
+        # source -> target context for findings with a target file
+        # (TPR-03-008-codex). Keeps source readable; target appended only
+        # when present so the typical single-file finding stays compact.
+        if f.target is not None:
+            target_loc = f"{f.target}"
+            if f.target_line is not None:
+                target_loc += f":{f.target_line}"
+            loc += f" -> {target_loc}"
 
-        line = f"  {prefix} [{sev}] {loc} — {f.description}".strip()
+        type_tag = f"{f.category.value}/{f.subtype.value}"
+        line = f"  {prefix} [{sev}] [{type_tag}] {loc} — {f.description}".strip()
         if color:
             c = _SEVERITY_COLOR.get(f.severity, "")
             line = f"{c}{line}{_C_RESET}" if c else line

@@ -300,7 +300,16 @@ impl Pool {
     ///
     /// This mirrors the child-discovery logic of `merkle_hash`/`merkle_hash_extra`
     /// but instead of hashing, it yields each child for recursive visitation.
-    fn visit_children(&self, idx: Idx, mut f: impl FnMut(Idx)) {
+    ///
+    /// Promoted to `pub(crate)` for
+    /// [`crate::check::validators::validate_body_types`] — the producer-side
+    /// PC-2 enforcer (see `typeck.md §PC-2`) reuses this walker rather than
+    /// cloning a parallel tag-dispatch ladder (`impl-hygiene.md §Algorithmic
+    /// DRY`). Treats `Named` / `Alias` / `Projection` as leaves (no child
+    /// recursion); this is sound for the validator because `typeck.md §PC-2`
+    /// bullet 3 guarantees no `Tag::Projection` survives in the typed IR by
+    /// the time body inference completes.
+    pub(crate) fn visit_children(&self, idx: Idx, mut f: impl FnMut(Idx)) {
         let tag = self.tag(idx);
 
         // Simple containers: single child in data

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for scripts/plan_corpus.py — the corpus SSOT library.
+"""Tests for `scripts/plan_corpus/` — the corpus SSOT package.
 
-TDD per CLAUDE.md: these tests define the expected behavior.
+Invoked as `python -m scripts.plan_corpus`. TDD per CLAUDE.md: these tests
+define the expected behavior.
 """
 
 import sys
@@ -484,6 +485,158 @@ class TestFindingTypeSafety:
         assert "missing index" in md
         assert "high" in md
 
+    def test_id_discriminates_by_target_key(self):
+        """Regression: two findings on the same file/subtype that differ only
+        by target_key MUST produce distinct ids. Pre-fix both collided on
+        the same hash because target_key was excluded from the hash input.
+
+        See: TPR-03-002-codex.
+        """
+        common = dict(
+            category=FindingCategory.SCHEMA_VIOLATION,
+            subtype=FindingSubtype.MISSING_REQUIRED_FIELD,
+            severity=Severity.HIGH,
+            source=Path("plans/p1/index.md"),
+            source_line=3,
+            description="missing required field",
+            recommended_fix="add it",
+        )
+        f_name = Finding(**common, target_key="name")
+        f_full = Finding(**common, target_key="full_name")
+        assert f_name.id != f_full.id, (
+            "target_key must discriminate Finding.id; collisions break "
+            "downstream pairing/reporting (TPR-03-002-codex)"
+        )
+
+    def test_id_unchanged_when_target_key_is_none(self):
+        """Backward-compat: legacy findings with no target_key still produce
+        the pre-extension hash. Adding target_key as a field MUST NOT
+        change the id of findings that don't populate it.
+        """
+        f = Finding(
+            category=FindingCategory.PARSE_ERROR,
+            subtype=FindingSubtype.YAML_SYNTAX_ERROR,
+            severity=Severity.HIGH,
+            source=Path("test.md"),
+            source_line=5,
+            description="parse error",
+            recommended_fix="fix yaml",
+        )
+        assert f.target_key is None
+        # Hash of "parse_error:yaml_syntax_error:test.md:5" first 6 hex chars
+        import hashlib
+        expected_content = "parse_error:yaml_syntax_error:test.md:5"
+        expected = "VR-" + hashlib.sha256(expected_content.encode()).hexdigest()[:6]
+        assert f.id == expected
+
+    def test_to_json_serializes_target_key(self):
+        """Regression: Finding.to_json() must include target_key so JSON
+        report consumers can rely on the structural discriminator added
+        in the §03 migration.
+
+        See: TPR-03-007-codex.
+        """
+        f = Finding(
+            category=FindingCategory.SCHEMA_VIOLATION,
+            subtype=FindingSubtype.UNKNOWN_FIELD,
+            severity=Severity.MEDIUM,
+            source=Path("plans/p1/index.md"),
+            description="unknown field",
+            recommended_fix="remove",
+            target_key="plan",
+        )
+        payload = f.to_json()
+        assert "target_key" in payload
+        assert payload["target_key"] == "plan"
+
+    def test_to_json_target_key_null_for_legacy_findings(self):
+        """Legacy findings without target_key serialize as null, not absent."""
+        f = Finding(
+            category=FindingCategory.PARSE_ERROR,
+            subtype=FindingSubtype.YAML_SYNTAX_ERROR,
+            severity=Severity.HIGH,
+            source=Path("test.md"),
+            description="parse error",
+            recommended_fix="fix",
+        )
+        payload = f.to_json()
+        assert "target_key" in payload
+        assert payload["target_key"] is None
+
+    def test_id_discriminates_by_target_value(self):
+        """Regression: two DEAD_REFERENCE findings on the same source line that
+        differ only by the dead list-item value MUST produce distinct ids.
+        Without this discriminator, two dead depends_on entries on the same
+        line (e.g., flow-style list) would collide on Finding.id.
+        """
+        common = dict(
+            category=FindingCategory.DEAD_REFERENCE,
+            subtype=FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            severity=Severity.MEDIUM,
+            source=Path("plans/p1/section-01.md"),
+            source_line=12,
+            description="reference to nonexistent plan",
+            recommended_fix="remove",
+        )
+        f_a = Finding(**common, target_value="ghost-plan-a")
+        f_b = Finding(**common, target_value="ghost-plan-b")
+        assert f_a.id != f_b.id, (
+            "target_value must discriminate Finding.id for DEAD_REFERENCE "
+            "findings that target different list items on the same line"
+        )
+
+    def test_id_unchanged_when_target_value_is_none(self):
+        """Backward-compat: legacy findings with no target_value still produce
+        the pre-extension hash. Adding target_value as a field MUST NOT
+        change the id of findings that don't populate it.
+        """
+        f = Finding(
+            category=FindingCategory.PARSE_ERROR,
+            subtype=FindingSubtype.YAML_SYNTAX_ERROR,
+            severity=Severity.HIGH,
+            source=Path("test.md"),
+            source_line=5,
+            description="parse error",
+            recommended_fix="fix yaml",
+        )
+        assert f.target_value is None
+        import hashlib
+        expected_content = "parse_error:yaml_syntax_error:test.md:5"
+        expected = "VR-" + hashlib.sha256(expected_content.encode()).hexdigest()[:6]
+        assert f.id == expected
+
+    def test_to_json_serializes_target_value(self):
+        """Regression: Finding.to_json() must include target_value so JSON
+        report consumers can rely on the structural discriminator added for
+        DEAD_REFERENCE list-item dispatch.
+        """
+        f = Finding(
+            category=FindingCategory.DEAD_REFERENCE,
+            subtype=FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            severity=Severity.MEDIUM,
+            source=Path("plans/p1/section-01.md"),
+            description="dead slug",
+            recommended_fix="remove",
+            target_value="ghost-plan",
+        )
+        payload = f.to_json()
+        assert "target_value" in payload
+        assert payload["target_value"] == "ghost-plan"
+
+    def test_to_json_target_value_null_for_legacy_findings(self):
+        """Legacy findings without target_value serialize as null, not absent."""
+        f = Finding(
+            category=FindingCategory.PARSE_ERROR,
+            subtype=FindingSubtype.YAML_SYNTAX_ERROR,
+            severity=Severity.HIGH,
+            source=Path("test.md"),
+            description="parse error",
+            recommended_fix="fix",
+        )
+        payload = f.to_json()
+        assert "target_value" in payload
+        assert payload["target_value"] is None
+
 
 # ---------------------------------------------------------------------------
 # §01.5 — Status Normalizer Tests
@@ -556,7 +709,7 @@ class TestLoadAndValidate:
         assert result.err.category == FindingCategory.PARSE_ERROR
 
     def test_valid_file_returns_ok(self):
-        result = load_and_validate(PLANS_DIR / "verify-roadmap-redesign" / "index.md")
+        result = load_and_validate(PLANS_DIR / "repr-opt" / "index.md")
         assert result.is_ok
         assert result.ok.file_class == FileClass.PLAN_INDEX
 
@@ -604,7 +757,7 @@ class TestCorpusDiscovery:
         assert "Verify Roadmap" in corpus.name_index
 
     def test_discover_corpus_include_filter_limits_results(self):
-        subset = [PLANS_DIR / "verify-roadmap-redesign" / "index.md"]
+        subset = [PLANS_DIR / "repr-opt" / "index.md"]
         corpus = discover_corpus(include=subset)
         assert len(corpus.indexes) == 1
 
@@ -622,9 +775,31 @@ class TestCorpusDiscovery:
                        if f.subtype == FindingSubtype.MISSING_INDEX_MD)
 
     def test_roadmap_treated_as_plan_candidate(self):
-        """plans/roadmap/ has index.md; treated as plan candidate, not container."""
+        """plans/roadmap/ has index.md; discovered via roadmap_sections (not as
+        a generic plan index). The prior assertion `any("roadmap" in str(p) for p
+        in corpus.indexes)` was a false positive — it passed incidentally because
+        plan `verify-roadmap-redesign` happened to contain "roadmap" in its slug.
+        When that plan was archived into plans/completed/ the phantom match
+        disappeared and the test rightly began failing. Corrected assertion:
+        plans/roadmap/ is recognized as the roadmap corpus (roadmap_sections
+        bucket) and plans/roadmap/index.md does not get a missing-index finding.
+        """
         corpus = discover_corpus()
-        assert any("roadmap" in str(p) for p in corpus.indexes)
+        roadmap_paths = [str(p) for p in corpus.roadmap_sections]
+        assert any(p.endswith("plans/roadmap/section-00-parser.md") or
+                   "/plans/roadmap/" in p for p in roadmap_paths), (
+            f"expected plans/roadmap/ sections in corpus.roadmap_sections; got "
+            f"{roadmap_paths[:5]}..."
+        )
+        # Negative pin: plans/roadmap/ must NOT be flagged as a broken
+        # plan-candidate container (no MISSING_INDEX_MD on plans/roadmap/).
+        roadmap_gaps = [f for f in corpus.gaps
+                        if "/plans/roadmap" in str(f.source) and
+                        f.subtype == FindingSubtype.MISSING_INDEX_MD]
+        assert not roadmap_gaps, (
+            f"plans/roadmap/ must not be flagged as missing index; got "
+            f"{roadmap_gaps}"
+        )
 
     def test_unclassified_dir_gets_gap_finding(self):
         """Dirs with .md but no index.md get UNCLASSIFIED_DIRECTORY."""
@@ -756,14 +931,25 @@ class TestFixBugCrossFieldPins:
 class TestCrossplanNameResolution:
 
     def test_intra_plan_dep_resolves_to_path(self):
-        result = resolve_dep("01", PLANS_DIR / "verify-roadmap-redesign", discover_corpus())
+        result = resolve_dep("01", PLANS_DIR / "repr-opt", discover_corpus())
         assert isinstance(result, Path)
 
     def test_cross_plan_dep_resolves_by_name_to_path(self):
         corpus = discover_corpus()
-        # "Verify Roadmap" is the name field in verify-roadmap-redesign/index.md
-        result = resolve_dep("Verify Roadmap#01", PLANS_DIR / "repr-opt", corpus)
-        assert isinstance(result, Path)
+        # "Empty-Container Typeck Phase-Contract Enforcement" name resolves via
+        # empty-container-typeck-phase-contract/index.md — stable active reroute.
+        plan = next(p for p in corpus.indexes
+                    if "empty-container-typeck-phase-contract" in str(p))
+        # Find whatever name the active plan's index.md declares.
+        import yaml
+        fm_end_idx = plan.read_text().find("\n---\n", 3) + 5
+        data = yaml.safe_load(plan.read_text()[4:fm_end_idx - 5])
+        name = data["name"]
+        # Just verify name-based lookup round-trips to the same plan.
+        result = resolve_dep(f"{name}#01", PLANS_DIR / "repr-opt", corpus)
+        assert isinstance(result, Path), (
+            f"name-based cross-plan dep {name}#01 must resolve to Path; got {result}"
+        )
 
     def test_cross_plan_unknown_name_returns_finding(self):
         corpus = discover_corpus()

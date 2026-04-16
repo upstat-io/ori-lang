@@ -21,7 +21,14 @@
 # Resolve paths relative to script location (safe to call from any directory)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-INTEL_DIR="$PROJECT_ROOT/../lang_intelligence"
+
+# Resolve to main worktree root — lang_intelligence is a sibling of the MAIN repo,
+# not of a git worktree (e.g. /tmp/claude-worktree-xxx/).  `git worktree list`
+# always lists the main worktree first; fall back to PROJECT_ROOT if git unavailable.
+MAIN_ROOT="$(git -C "$PROJECT_ROOT" worktree list --porcelain 2>/dev/null \
+    | head -1 | sed 's/^worktree //')"
+MAIN_ROOT="${MAIN_ROOT:-$PROJECT_ROOT}"
+INTEL_DIR="${ORI_INTEL_DIR:-$MAIN_ROOT/../lang_intelligence}"
 VENV_PYTHON="$INTEL_DIR/.venv/bin/python"
 QUERY_SCRIPT="$INTEL_DIR/neo4j/query_graph.py"
 
@@ -122,8 +129,18 @@ if [[ ${#PASS_ARGS[@]} -gt 0 && "${PASS_ARGS[0]}" == "status" ]]; then
         "CALL dbms.components() YIELD name, versions RETURN name, versions[0] as version" \
         2>/dev/null || echo "{}")
 
+    # Per-repo code-symbol counts. `stats` reports issues+PRs counts only (from
+    # the GitHub corpus). Repos without an indexed issue tracker (e.g. Ori) show
+    # total=0 there, which is indistinguishable from "not indexed" — historically
+    # the #1 cause of users concluding "Ori symbols aren't indexed" and bypassing
+    # the graph. This query restores per-repo visibility of code-symbol counts.
+    SYMBOLS_JSON=$(timeout "$STEP_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" --json cypher \
+        "MATCH (r:Repo) RETURN r.name AS repo, count{(s:Symbol)-[:IN_REPO]->(r)} AS symbols" \
+        2>/dev/null || echo "{}")
+
     if is_json; then
-        COMBINED=$(_STATS="$STATS_JSON" _VERSION="$VERSION_JSON" timeout "$STEP_TIMEOUT" python3 << 'PYEOF'
+        COMBINED=$(_STATS="$STATS_JSON" _VERSION="$VERSION_JSON" _SYMBOLS="$SYMBOLS_JSON" \
+            timeout "$STEP_TIMEOUT" python3 << 'PYEOF'
 import json, os, sys
 stats = json.loads(os.environ["_STATS"])
 try:
@@ -131,10 +148,18 @@ try:
     version = vdata.get("rows", [{}])[0].get("version", "unknown")
 except Exception:
     version = "unknown"
+try:
+    sdata = json.loads(os.environ.get("_SYMBOLS", "{}"))
+    symbols_by_repo = {row["repo"]: row["symbols"] for row in sdata.get("rows", [])}
+except Exception:
+    symbols_by_repo = {}
+repos = stats.get("repos", [])
+for entry in repos:
+    entry["symbols"] = symbols_by_repo.get(entry.get("name"), 0)
 empty = "warning" in stats
 result = {
     "neo4j_version": version,
-    "repos": stats.get("repos", []),
+    "repos": repos,
     "nodes": stats.get("nodes", []),
     "relationships": stats.get("relationships", []),
     "empty": empty,
@@ -158,9 +183,28 @@ except Exception:
         echo "Neo4j version: $VERSION"
         echo ""
         timeout "$QUERY_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" stats
-        if [[ $? -ne 0 ]]; then
+        STATS_RC=$?
+        if [[ $STATS_RC -ne 0 ]]; then
             printf 'Intelligence unavailable: stats query failed or timed out\n' >&2
         fi
+        # Render per-repo code-symbol counts (not in `stats` output)
+        echo ""
+        echo "Code symbols per repo:"
+        _SYMBOLS="$SYMBOLS_JSON" timeout "$STEP_TIMEOUT" python3 << 'PYEOF' 2>/dev/null || echo "  (symbol counts unavailable)"
+import json, os, sys
+try:
+    sdata = json.loads(os.environ.get("_SYMBOLS", "{}"))
+    rows = sorted(sdata.get("rows", []), key=lambda r: r.get("symbols", 0), reverse=True)
+    if not rows:
+        print("  (no repos indexed)")
+    else:
+        for row in rows:
+            name = row.get("repo", "?")
+            n = row.get("symbols", 0)
+            print(f"  {name:<12} {n:>8,} symbols")
+except Exception as exc:
+    print(f"  (symbol counts unavailable: {exc})")
+PYEOF
     fi
     exit 0
 fi

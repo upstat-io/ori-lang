@@ -16,6 +16,22 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
 
 ## Open Bugs
 
+- [ ] `[BUG-08-012][high]` **gemini-3.1-pro-preview consistently hangs on dual-tpr reviews after loading large grounding set** — found by /review-plan Section 03 TPR (Round 0 + Round 1 both stalled).
+  Repro: dispatch `/tpr-review` (or any dual-source review wrapper that invokes dual-invoke.sh) on an Ori plan or code scope. Observe `$RUN/gemini.jsonl` — an `init` event fires, frequently a `msg.user` event, then the stream goes silent indefinitely. Check: `ps -eo pid,etime,pcpu,stat,cmd | grep gemini` shows `Sl` state processes at 0.0-0.1% CPU with `etime` in minutes-to-days. Confirmed observations from live session (2026-04-15):
+    - PID 521845 orphan from /tmp/ori-tpr-68oj5cWn launched 17:57, etime 60+ min, gemini.jsonl = 140 bytes (init only), zero tool_use events.
+    - PID 3616314 orphan from this morning's spec-conformance §09 review launched 07:49, etime 11h10m, still idle.
+    - PID 3693546 orphan from Apr 14 spec-conformance §08.5 review-work, etime 1 day 2h 34m, still idle.
+    - Round 0 of current Section 03 review killed by watchdog at 23 min with same pattern (documented in `/tmp/ori-tpr-mDNTmvm0/gemini.stalled`).
+  Subsystem: `.claude/skills/dual-tpr/scripts/dual-invoke.sh` (transport — where the gemini subprocess is spawned and watchdog'd)
+  Reviewer: manual (observed during /continue-roadmap → /review-plan Section 03 TPR run)
+  Impact: forces every Ori-project dual-source review into single-source mode, removing the consensus layer that CLAUDE.md's review policy depends on. Each occurrence also leaks an idle node process (low resource cost individually, but unbounded accumulation across sessions). Silently degrades review quality — codex-only findings pass triage without gemini cross-check, raising the risk of accepting confabulation from either reviewer.
+  Suspected root cause: gemini-3.1-pro-preview enters a model-side hang after ingesting the mandatory grounding set (CLAUDE.md + 29 rule files in `.claude/rules/`, ~100KB+ of prompt context). Pattern is `init → msg.user → silence`; the model never emits a tool_use event, so it never proceeds past the grounding-read phase. Not a transport bug (codex on the same prompts completes in 578s–867s with 129–165 events).
+  Mitigation candidates (for /fix-bug to choose between at Phase 3):
+    1. Trim the mandatory grounding set per-objective — a reviewer of a plan section doesn't need `aims-rules.md`, `codegen-rules.md`, `arc.md`, etc.; scope the grounding list by review mode (`review-plan` vs `review-work` vs custom).
+    2. Add an explicit watchdog in `dual-invoke.sh` that kills any gemini PID exceeding 45 min walltime with fewer than 5 `tool_use` events — prevents 11h+ and 1d+ orphans.
+    3. Try a different gemini model variant (e.g., `gemini-2.5-pro` non-preview) — the `-preview` suffix may indicate an unstable release.
+    4. Detect hang client-side (jsonl stream silent >10 min after `init`) and emit `gemini.stalled` + terminate, consistent with the existing watchdog exit path.
+  Found: 2026-04-15 | Source: manual
 - [x] `[BUG-08-011][medium]` **lint-command-skill-pairs.sh: add a tool that classifies and validates .claude/commands/ ↔ .claude/skills/ pairs by pattern** — found by dual-tpr-gemini §07.1 retrospective.
   Resolved: Fixed 2026-04-09. Created `.claude/skills/dual-tpr/scripts/lint-command-skill-pairs.sh` — enumerates overlap pairs, classifies each as thin-pointer (< 50 lines, no operational markers) or parallel-workflow (substantive, with operational markers), exits non-zero on unknown/drift. Both existing pairs (tp-help=thin-pointer, review-work=parallel-workflow) classify correctly.
   Repro: currently, 2 command-skill overlap pairs exist: `tp-help` uses thin-pointer pattern (skill canonical, command = thin pointer; consolidated in dual-tpr-gemini §07.1 on 2026-04-08) and `review-work` uses parallel-workflow pattern (command = Claude self-reviews directly, skill = dual-source codex wrapper; both canonical for different use cases per 00-overview line 32 of plans/dual-tpr-gemini/). No tool validates these pairs for drift. If someone re-duplicates operational content in `tp-help.md` (breaking the thin-pointer contract) or swaps `review-work.md` semantics (breaking the parallel-workflow contract), there is no automated check to catch it.

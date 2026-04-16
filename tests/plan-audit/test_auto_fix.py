@@ -45,6 +45,7 @@ from scripts.verify_roadmap import (
     apply_fixes,
     FixApplyResult,
 )
+from scripts.verify_roadmap.safety import PAIRING_TAG_PLAN_TO_NAME_RENAME
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,8 @@ def _finding(
     recommended_fix: str = "fix",
     source_kind: SourceKind | None = None,
     source_line: int | None = None,
+    target_key: str | None = None,
+    target_value: str | None = None,
 ) -> Finding:
     return Finding(
         category=category,
@@ -70,14 +73,21 @@ def _finding(
         recommended_fix=recommended_fix,
         source_kind=source_kind,
         source_line=source_line,
+        target_key=target_key,
+        target_value=target_value,
     )
 
 
-def _safe_fix(finding: Finding, rationale: str = "test") -> ClassifiedFinding:
+def _safe_fix(
+    finding: Finding,
+    rationale: str = "test",
+    pairing_tag: str | None = None,
+) -> ClassifiedFinding:
     return ClassifiedFinding(
         finding=finding,
         safety_class=SafetyClass.SAFE_FIX,
         rationale=rationale,
+        pairing_tag=pairing_tag,
     )
 
 
@@ -125,13 +135,15 @@ class TestFmOperation:
 class TestBuildFixPlanSchemaViolation:
 
     def test_unknown_field_plan_rename_emits_rename_op(self):
+        from scripts.verify_roadmap.safety import PAIRING_TAG_PLAN_TO_NAME_RENAME
         f = _finding(
             FindingCategory.SCHEMA_VIOLATION,
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
-        cf = _safe_fix(f, "rename plan: to name:")
+        cf = _safe_fix(f, "rename plan: to name:", pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME)
         plan = build_fix_plan(cf)
         assert plan is not None
         assert len(plan.operations) == 1
@@ -148,6 +160,7 @@ class TestBuildFixPlanSchemaViolation:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/test-plan/index.md"),
+            target_key="plan",
         )
         cf = _safe_fix(f, "plan: and name: have identical values — remove redundant plan: key")
         plan = build_fix_plan(cf)
@@ -162,6 +175,7 @@ class TestBuildFixPlanSchemaViolation:
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: reviewed",
             source=Path("plans/test-plan/section-01.md"),
+            target_key="reviewed",
         )
         cf = _safe_fix(f, "Insert reviewed: false")
         plan = build_fix_plan(cf)
@@ -178,6 +192,7 @@ class TestBuildFixPlanSchemaViolation:
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: third_party_review",
             source=Path("plans/test-plan/section-01.md"),
+            target_key="third_party_review",
         )
         cf = _safe_fix(f, "Insert third_party_review default")
         plan = build_fix_plan(cf)
@@ -222,6 +237,17 @@ class TestBuildFixPlanStatusContradiction:
 
 
 class TestBuildFixPlanDeadReference:
+    """DEAD_REFERENCE SafeFix dispatch — structural target_value reads.
+
+    Regression pins for TPR-03-002-gemini-r4i4 (2026-04-15 §03 close-out
+    review): the dispatcher previously parsed `Finding.description` via
+    `rsplit(":", 1)` to extract the dead list-item value. This was fragile
+    (any description format change broke auto-fix) and broken for three of
+    the four DEAD_REFERENCE description templates (repr-quoted plan names,
+    trailing prose fragments, malformed-id templates). The fix added a
+    structural `Finding.target_value` field populated at every DEAD_REFERENCE
+    construction site; these tests pin the structural read.
+    """
 
     def test_depends_on_emits_remove_list_item(self):
         f = _finding(
@@ -229,6 +255,7 @@ class TestBuildFixPlanDeadReference:
             FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
             source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
             description="Dead depends_on entry: nonexistent-plan",
+            target_value="nonexistent-plan",
         )
         cf = _safe_fix(f, "remove dead depends_on entry")
         plan = build_fix_plan(cf)
@@ -236,17 +263,107 @@ class TestBuildFixPlanDeadReference:
         op = plan.operations[0]
         assert op.kind == FmOperationKind.REMOVE_LIST_ITEM
         assert op.kwargs_dict()["list_key"] == "depends_on"
+        assert op.kwargs_dict()["item_value"] == "nonexistent-plan"
 
     def test_section_not_found_depends_on_emits_remove(self):
         f = _finding(
             FindingCategory.DEAD_REFERENCE,
             FindingSubtype.SECTION_FILE_NOT_FOUND,
             source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            target_value="42",
         )
         cf = _safe_fix(f)
         plan = build_fix_plan(cf)
         assert plan is not None
-        assert plan.operations[0].kind == FmOperationKind.REMOVE_LIST_ITEM
+        op = plan.operations[0]
+        assert op.kind == FmOperationKind.REMOVE_LIST_ITEM
+        assert op.kwargs_dict()["item_value"] == "42"
+
+    def test_cross_plan_dep_value_preserved_structurally(self):
+        """Positive pin: cross-plan dep IDs contain `#` — the rsplit-based
+        extractor would return the section number alone, stripping the plan
+        name. target_value carries the full dep_id intact.
+        """
+        f = _finding(
+            FindingCategory.DEAD_REFERENCE,
+            FindingSubtype.CROSS_PLAN_NAME_NOT_FOUND,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            description="cross-plan dep references unknown plan name: 'ghost-plan'",
+            target_value="ghost-plan#03",
+        )
+        cf = _safe_fix(f)
+        plan = build_fix_plan(cf)
+        assert plan is not None
+        assert plan.operations[0].kwargs_dict()["item_value"] == "ghost-plan#03"
+
+    def test_value_with_embedded_colons_preserved(self):
+        """Semantic pin: a target_value containing `:` characters is preserved
+        intact. Under the old rsplit implementation, `rsplit(':', 1)` would
+        have returned only the fragment after the last colon — corrupting the
+        removal target. Structural read is format-agnostic.
+        """
+        f = _finding(
+            FindingCategory.DEAD_REFERENCE,
+            FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            description="Dead depends_on: a:b:c:d",
+            target_value="a:b:c:d",
+        )
+        cf = _safe_fix(f)
+        plan = build_fix_plan(cf)
+        assert plan is not None
+        assert plan.operations[0].kwargs_dict()["item_value"] == "a:b:c:d"
+
+    def test_description_format_change_does_not_break_dispatch(self):
+        """Negative pin for prose fragility: the dispatcher MUST NOT depend
+        on the description containing a colon. Change the description to a
+        colon-free template and verify the structural read still works. The
+        old rsplit code would have returned '' (no colon in description),
+        producing an empty item_value that quietly failed to remove anything.
+        """
+        f = _finding(
+            FindingCategory.DEAD_REFERENCE,
+            FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            description="this template has no colon at all",
+            target_value="target-plan",
+        )
+        cf = _safe_fix(f)
+        plan = build_fix_plan(cf)
+        assert plan is not None
+        assert plan.operations[0].kwargs_dict()["item_value"] == "target-plan"
+
+    def test_missing_target_value_panics_defense_in_depth(self):
+        """NEGATIVE PIN: an EXPLICIT_DEPENDS_ON dead-ref with target_value=None
+        is a classifier regression — every construction site in plan_corpus
+        MUST populate target_value. The dispatcher refuses silent acceptance.
+        """
+        f = _finding(
+            FindingCategory.DEAD_REFERENCE,
+            FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
+            target_value=None,
+        )
+        cf = _safe_fix(f)
+        with pytest.raises(AutoFixError, match="target_value"):
+            build_fix_plan(cf)
+
+    def test_non_depends_on_dead_ref_returns_no_plan(self):
+        """Negative pin: body-kind dead refs (prose, annotations) are
+        ExposureReview per classify_safety — if one somehow reaches the
+        dispatcher, it must short-circuit (no list-item removal).
+        """
+        f = _finding(
+            FindingCategory.DEAD_REFERENCE,
+            FindingSubtype.PLAN_DIRECTORY_NOT_FOUND,
+            source_kind=SourceKind.PROSE_VERB,
+            target_value="some-slug",
+        )
+        cf = _safe_fix(f)
+        plan = build_fix_plan(cf)
+        # Dispatcher returns empty ops; build_fix_plan returns None for
+        # zero-op plans.
+        assert plan is None
 
 
 class TestBuildFixPlanDefenseInDepth:
@@ -287,6 +404,7 @@ class TestBuildFixPlans:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=Path("plans/p1/index.md"),
+            target_key="plan",
         ), "rename")
         rev = _exposure(_finding(
             FindingCategory.STATUS_CONTRADICTION,
@@ -305,6 +423,7 @@ class TestBuildFixPlans:
             description="Unknown field: plan",
             source=path,
             source_line=2,
+            target_key="plan",
         )
         f2 = _finding(
             FindingCategory.SCHEMA_VIOLATION,
@@ -313,16 +432,14 @@ class TestBuildFixPlans:
             source=path,
             source_line=3,
         )
-        cf1 = _safe_fix(f1, "rename plan: to name:")
-        # Forge a SafeFix for reroute (not actually a real classify_safety
-        # output for unknown field reroute, but tests grouping)
-        # Use a more reliable pattern:
+        cf1 = _safe_fix(f1, "rename plan: to name:", pairing_tag=PAIRING_TAG_PLAN_TO_NAME_RENAME)
         f3 = _finding(
             FindingCategory.SCHEMA_VIOLATION,
             FindingSubtype.MISSING_REQUIRED_FIELD,
             description="Missing required field: reviewed",
             source=path,
             source_line=4,
+            target_key="reviewed",
         )
         cf3 = _safe_fix(f3, "Insert reviewed: false")
         plans = list(build_fix_plans([cf1, cf3]))
@@ -332,6 +449,39 @@ class TestBuildFixPlans:
         assert len(plans) == 2
         for p in plans:
             assert p.path == path
+
+    def test_skips_resolved_by_sibling(self):
+        """NEGATIVE PIN: findings with non-None resolved_by_sibling are
+        skipped by build_fix_plans. Regression for TPR-03-002-{codex,gemini}-r4.
+        """
+        path = Path("plans/p1/index.md")
+        rename = _safe_fix(
+            _finding(
+                FindingCategory.SCHEMA_VIOLATION,
+                FindingSubtype.UNKNOWN_FIELD,
+                description="Unknown field: plan",
+                source=path,
+                target_key="plan",
+            ),
+            "rename plan: to name:",
+        )
+        dependent = ClassifiedFinding(
+            finding=_finding(
+                FindingCategory.SCHEMA_VIOLATION,
+                FindingSubtype.MISSING_REQUIRED_FIELD,
+                description="Missing required field: name",
+                source=path,
+                target_key="name",
+            ),
+            safety_class=SafetyClass.SAFE_FIX,
+            rationale="insert name: (would be skipped)",
+            resolved_by_sibling=rename.finding.id,
+        )
+        plans = list(build_fix_plans([rename, dependent]))
+        # Only the rename half should produce a plan; the sibling-resolved
+        # dependent is skipped.
+        assert len(plans) == 1
+        assert plans[0].finding_id == rename.finding.id
 
 
 # ---------------------------------------------------------------------------
@@ -350,15 +500,18 @@ class _StubPatcher:
         path: Path,
         operations: list[FmOperation],
         preimage: PreimageRecord,
+        corpus_root: Path,
+        finding_id: str | None = None,
     ) -> PatchResult:
-        self.calls.append((path, list(operations), preimage))
+        self.calls.append((path, list(operations), preimage, corpus_root, finding_id))
         if self.results:
             return self.results.pop(0)
-        # Default: success
+        # Default: success — propagate caller's finding_id if supplied so the
+        # stub mirrors apply_patch's TPR-03-004-codex contract.
         return PatchResult(
             applied=True,
             reason="ok",
-            finding_id="VR-stub",
+            finding_id=finding_id or "VR-stub",
             path=path,
             before_hash="aa",
             after_hash="bb",
@@ -381,6 +534,7 @@ class TestApplyFixesNormalPath:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename plan: to name:")
         patcher = _StubPatcher()
@@ -390,6 +544,7 @@ class TestApplyFixesNormalPath:
             patcher=patcher,
             preimages=preimages,
             output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
         )
         assert len(patcher.calls) == 1
         assert len(result.applied_findings) == 1
@@ -401,6 +556,7 @@ class TestApplyFixesNormalPath:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename")
         patcher = _StubPatcher()
@@ -410,6 +566,7 @@ class TestApplyFixesNormalPath:
             patcher=patcher,
             preimages=preimages,
             output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
             dry_run=True,
         )
         assert len(patcher.calls) == 0
@@ -434,6 +591,7 @@ class TestApplyFixesDefenseInDepth:
                 patcher=patcher,
                 preimages={},
                 output_dir=tmp_path / "out",
+                corpus_root=tmp_path,
             )
 
     def test_fm_declared_vs_body_derived_safefix_panics(self, tmp_path):
@@ -451,6 +609,7 @@ class TestApplyFixesDefenseInDepth:
                 patcher=patcher,
                 preimages=preimages,
                 output_dir=tmp_path / "out",
+                corpus_root=tmp_path,
             )
 
 
@@ -499,6 +658,7 @@ class TestApplyFixesConcurrentModification:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename plan: to name:")
         # Patcher returns failure
@@ -515,10 +675,152 @@ class TestApplyFixesConcurrentModification:
             patcher=patcher,
             preimages=preimages,
             output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
         )
         assert len(result.applied_findings) == 0
         assert len(result.unapplied_results) == 1
         assert result.unapplied_results[0].applied is False
+
+    def test_refused_safefix_is_demoted_to_exposure_review(self, tmp_path):
+        """Regression: a refused SafeFix produces a demoted ExposureReview
+        ClassifiedFinding in result.demoted_findings, with the refusal
+        reason appended to the rationale.
+
+        See: TPR-03-005-codex.
+        """
+        from scripts.verify_roadmap import SafetyClass
+
+        f = _finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.UNKNOWN_FIELD,
+            description="Unknown field: plan",
+            source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
+        )
+        original_rationale = "rename plan: to name:"
+        cf = _safe_fix(f, original_rationale)
+        failed = PatchResult(
+            applied=False,
+            reason="file modified by concurrent session",
+            finding_id=f.id,
+            path=f.source,
+        )
+        patcher = _StubPatcher(results=[failed])
+        result = apply_fixes(
+            [cf],
+            patcher=patcher,
+            preimages={f.source: _preimage(f.source)},
+            output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
+        )
+        assert len(result.demoted_findings) == 1
+        demoted = result.demoted_findings[0]
+        assert demoted.safety_class == SafetyClass.EXPOSURE_REVIEW
+        assert "demoted from SafeFix" in demoted.rationale
+        assert original_rationale in demoted.rationale
+        assert demoted.finding.id == f.id
+
+    def test_propagates_finding_id_to_patcher(self, tmp_path):
+        """Regression: apply_fixes must pass plan.finding_id to the patcher
+        so unapplied_results carry useful provenance.
+
+        See: TPR-03-004-codex.
+        """
+        f = _finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.UNKNOWN_FIELD,
+            description="Unknown field: plan",
+            source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
+        )
+        cf = _safe_fix(f, "rename plan: to name:")
+        patcher = _StubPatcher()
+        apply_fixes(
+            [cf],
+            patcher=patcher,
+            preimages={f.source: _preimage(f.source)},
+            output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
+        )
+        # _StubPatcher records (path, ops, preimage, corpus_root, finding_id)
+        assert len(patcher.calls) == 1
+        forwarded_finding_id = patcher.calls[0][4]
+        assert forwarded_finding_id == f.id
+
+    def test_multiple_findings_same_file_all_apply(self, tmp_path):
+        """Regression: when multiple findings target the same file, the
+        working preimage must roll forward after each applied patch so
+        subsequent findings don't fail the concurrent-session guard against
+        the patcher's own prior writes.
+
+        See: TPR-03-002-gemini.
+        """
+        src_dir = tmp_path / "plans" / "p1"
+        src_dir.mkdir(parents=True)
+        src = src_dir / "index.md"
+        src.write_text("---\nplan: foo\n---\n# body\n", encoding="utf-8")
+
+        f1 = _finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.UNKNOWN_FIELD,
+            description="Unknown field: plan",
+            source=src,
+            target_key="plan",
+        )
+        # Distinct second finding on the SAME file (target_key='full_name'
+        # gives it a distinct Finding.id per TPR-03-002-codex).
+        f2 = _finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.MISSING_REQUIRED_FIELD,
+            description="Missing required field: reviewed",
+            source=src,
+            target_key="reviewed",
+        )
+        assert f1.id != f2.id, "target_key must discriminate; see TPR-03-002-codex"
+
+        cf1 = _safe_fix(f1, "rename plan: to name:")
+        cf2 = _safe_fix(f2, "insert reviewed: false")
+
+        # Stub patcher returns post-write hashes that DIFFER from the
+        # original preimage.content_hash ("aa"). Without the working-preimage
+        # rollforward fix, the second finding would fail because the first
+        # write changed after_hash to "bb1", leaving preimage at "aa".
+        first_result = PatchResult(
+            applied=True,
+            reason="ok",
+            finding_id=f1.id,
+            path=src,
+            before_hash="aa",
+            after_hash="bb1",
+        )
+        # The second finding must carry a preimage with content_hash="bb1"
+        # (the first write's after_hash) — the patcher checks this to refuse
+        # if the file changed. We assert by capturing what apply_fixes hands
+        # the patcher on the second call.
+        second_result = PatchResult(
+            applied=True,
+            reason="ok",
+            finding_id=f2.id,
+            path=src,
+            before_hash="bb1",
+            after_hash="bb2",
+        )
+        patcher = _StubPatcher(results=[first_result, second_result])
+        result = apply_fixes(
+            [cf1, cf2],
+            patcher=patcher,
+            preimages={src: _preimage(src)},  # original "aa" preimage
+            output_dir=tmp_path / "out",
+            corpus_root=tmp_path,
+        )
+
+        # Both findings were applied — the working preimage rolled forward.
+        assert len(result.applied_findings) == 2
+        assert len(result.unapplied_results) == 0
+        # The second call's preimage must reflect the first call's after_hash.
+        assert len(patcher.calls) == 2
+        second_call_preimage = patcher.calls[1][2]
+        assert second_call_preimage.content_hash == "bb1"
 
 
 # ---------------------------------------------------------------------------
@@ -539,12 +841,13 @@ class TestApplyFixesBackup:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=src,
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename plan: to name:")
         patcher = _StubPatcher()
         preimages = {f.source: _preimage(f.source)}
         out = tmp_path / "out"
-        apply_fixes([cf], patcher=patcher, preimages=preimages, output_dir=out)
+        apply_fixes([cf], patcher=patcher, preimages=preimages, output_dir=out, corpus_root=tmp_path)
         # Backup goes into out/backups/
         backups_dir = out / "backups"
         assert backups_dir.exists()
@@ -558,12 +861,13 @@ class TestApplyFixesBackup:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename")
         patcher = _StubPatcher()
         preimages = {f.source: _preimage(f.source)}
         out = tmp_path / "out"
-        apply_fixes([cf], patcher=patcher, preimages=preimages, output_dir=out)
+        apply_fixes([cf], patcher=patcher, preimages=preimages, output_dir=out, corpus_root=tmp_path)
         audit_file = out / "fixes-applied.json"
         assert audit_file.exists()
         data = json.loads(audit_file.read_text())
@@ -575,6 +879,58 @@ class TestApplyFixesBackup:
         assert "path" in entry
         assert "operations" in entry
         assert "timestamp" in entry
+
+    def test_audit_log_includes_before_and_after_snippets(self, tmp_path):
+        """Regression: audit log entries must include before/after snippets
+        of the changed file, per the §03.3 spec contract.
+
+        See: TPR-03-009-codex.
+        """
+        src_dir = tmp_path / "plans" / "p1"
+        src_dir.mkdir(parents=True)
+        src = src_dir / "index.md"
+        src.write_text(
+            "---\nplan: foo\nstatus: active\n---\n# body\n",
+            encoding="utf-8",
+        )
+        f = _finding(
+            FindingCategory.SCHEMA_VIOLATION,
+            FindingSubtype.UNKNOWN_FIELD,
+            description="Unknown field: plan",
+            source=src,
+            target_key="plan",
+        )
+        cf = _safe_fix(f, "rename plan: to name:")
+
+        # Use a stub that actually mutates the file contents so before !=
+        # after. The default stub doesn't touch the file, so we wrap it.
+        class _MutatingPatcher(_StubPatcher):
+            def __call__(self, path, ops, preimage, corpus_root, finding_id=None):
+                result = super().__call__(path, ops, preimage, corpus_root, finding_id)
+                # Simulate a real patch landing
+                path.write_text(
+                    "---\nname: foo\nstatus: active\n---\n# body\n",
+                    encoding="utf-8",
+                )
+                return result
+
+        patcher = _MutatingPatcher()
+        out = tmp_path / "out"
+        apply_fixes(
+            [cf],
+            patcher=patcher,
+            preimages={src: _preimage(src)},
+            output_dir=out,
+            corpus_root=tmp_path,
+        )
+        data = json.loads((out / "fixes-applied.json").read_text())
+        entry = data["fixes"][0]
+        assert "before_snippet" in entry
+        assert "after_snippet" in entry
+        assert entry["before_snippet"] is not None
+        assert entry["after_snippet"] is not None
+        assert "plan: foo" in entry["before_snippet"]
+        assert "name: foo" in entry["after_snippet"]
 
 
 # ---------------------------------------------------------------------------
@@ -590,6 +946,7 @@ class TestApplyFixesIdempotency:
             FindingSubtype.UNKNOWN_FIELD,
             description="Unknown field: plan",
             source=tmp_path / "plans/p1/index.md",
+            target_key="plan",
         )
         cf = _safe_fix(f, "rename plan: to name:")
         plan1 = build_fix_plan(cf)

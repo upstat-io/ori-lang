@@ -53,6 +53,27 @@ class Severity(enum.IntEnum):
     CRITICAL = 3
 
 
+class Outcome(enum.Enum):
+    """Gate outcome — distinct from Severity.
+
+    Severity answers "how bad is this?" (impact classification), set by the
+    emitter per the finding's real-world significance. Outcome answers
+    "does this gate the check?" (enforcement mode), also set by the emitter.
+    The two axes are INDEPENDENT: a `Severity.LOW` can be `Outcome.ERROR`
+    and a `Severity.HIGH` can be `Outcome.WARNING` — the combination depends
+    on the finding's kind and the invocation mode (default vs
+    `--strict-recon`).
+
+    Exit-code policy (§06.2 Design Decision 4): `check` returns 1 iff any
+    finding has `outcome == ERROR`; WARNING findings are printed but
+    non-gating. `Finding.outcome` defaults to ERROR so pre-existing
+    callsites (schema violations, parse errors, etc.) gate CI unchanged;
+    only the new recon-block emitters explicitly opt into `Outcome.WARNING`.
+    """
+    WARNING = "warning"   # printed, does NOT affect exit code
+    ERROR = "error"       # printed AND forces exit 1
+
+
 class FindingCategory(enum.Enum):
     """Top-level finding category (two-level hierarchy with FindingSubtype)."""
     PARSE_ERROR = "parse_error"
@@ -147,6 +168,10 @@ class FindingSubtype(enum.Enum):
     MISSING_INDEX_MD = "missing_index_md"
     UNCLASSIFIED_DIRECTORY = "unclassified_directory"
     LEAK_SWALLOWED_ERROR = "leak_swallowed_error"
+    # §06.2 — `## Intelligence Reconnaissance` block detection
+    MISSING_RECON_BLOCK = "missing_recon_block"
+    VALIDATION_BYPASS = "validation_bypass"
+    RECON_GRAPH_UNAVAILABLE = "recon_graph_unavailable"
 
 
 # Category -> allowed subtypes mapping (enforced at Finding construction)
@@ -213,6 +238,9 @@ _CATEGORY_SUBTYPES: dict[FindingCategory, frozenset[FindingSubtype]] = {
         FindingSubtype.MISSING_INDEX_MD,
         FindingSubtype.UNCLASSIFIED_DIRECTORY,
         FindingSubtype.LEAK_SWALLOWED_ERROR,
+        FindingSubtype.MISSING_RECON_BLOCK,
+        FindingSubtype.VALIDATION_BYPASS,
+        FindingSubtype.RECON_GRAPH_UNAVAILABLE,
     }),
 }
 
@@ -246,6 +274,18 @@ class Finding:
     evidence: tuple[str, ...] = ()
     dependency_chain: tuple[Path, ...] = ()
     source_kind: "SourceKind | None" = None
+    target_key: str | None = None
+    # Structural target-value carrier for list-item findings (e.g. DEAD_REFERENCE
+    # on a depends_on list item). Populated at finding-construction time so
+    # downstream consumers (auto_fix SafeFix dispatch, report rendering) read
+    # the value structurally instead of parsing `description`. Parallels
+    # `target_key` — hashed into `id` when non-None for backward-compat.
+    target_value: str | None = None
+    # §06.2 — enforcement channel independent of Severity. Defaults to ERROR
+    # so pre-existing call sites gate CI unchanged; recon-block emitters opt
+    # into WARNING explicitly. NOT included in `id` hash — backward-compat
+    # with saved reports (id discriminates logical identity, not gate mode).
+    outcome: Outcome = Outcome.ERROR
 
     def __post_init__(self) -> None:
         allowed = _CATEGORY_SUBTYPES.get(self.category, frozenset())
@@ -259,11 +299,26 @@ class Finding:
     def id(self) -> str:
         content = f"{self.category.value}:{self.subtype.value}:{self.source}:{self.source_line}"
         # Conditional append preserves backward-compat: legacy findings that
-        # never populate source_column or target produce the pre-extension hash.
+        # never populate source_column, target, or target_key produce the
+        # pre-extension hash.
         if self.source_column is not None:
             content += f":{self.source_column}"
         if self.target is not None:
             content += f":{self.target}"
+        if self.target_key is not None:
+            # target_key discriminates same-file same-subtype findings that
+            # differ only by which schema field they target (e.g. two
+            # MISSING_REQUIRED_FIELD findings on the same file with
+            # target_key='name' vs target_key='full_name'). Without this
+            # discriminator, distinct findings collide on the same id.
+            content += f":{self.target_key}"
+        if self.target_value is not None:
+            # target_value discriminates same-file same-subtype findings on
+            # the same line that differ only by which list item they target
+            # (e.g. two DEAD_REFERENCE findings on the same depends_on list
+            # line where one slug is dead and another is stale). Mirrors
+            # target_key's backward-compat conditional-hash pattern.
+            content += f":{self.target_value}"
         return "VR-" + hashlib.sha256(content.encode()).hexdigest()[:6]
 
     def to_json(self) -> dict[str, Any]:
@@ -272,11 +327,14 @@ class Finding:
             "category": self.category.value,
             "subtype": self.subtype.value,
             "severity": self.severity.name.lower(),
+            "outcome": self.outcome.value,
             "source": str(self.source),
             "source_line": self.source_line,
             "source_column": self.source_column,
             "target": str(self.target) if self.target else None,
             "target_line": self.target_line,
+            "target_key": self.target_key,
+            "target_value": self.target_value,
             "description": self.description,
             "recommended_fix": self.recommended_fix,
             "evidence": list(self.evidence),
@@ -285,7 +343,10 @@ class Finding:
         }
 
     def to_markdown(self) -> str:
-        parts = [f"- **[{self.id}][{self.severity.name.lower()}]** `{self.source}`"]
+        parts = [
+            f"- **[{self.id}][{self.severity.name.lower()}]"
+            f"[{self.outcome.value}]** `{self.source}`"
+        ]
         if self.source_line is not None:
             parts[0] += f":{self.source_line}"
         parts[0] += f" — {self.description}"
