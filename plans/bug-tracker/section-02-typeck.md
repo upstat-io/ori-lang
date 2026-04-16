@@ -19,7 +19,8 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
 
 ## Open Bugs
 
-- [ ] `[BUG-02-009][high]` **PC-2 violation: generic builtin method calls with closure args leave lambda parameter types as unbound `Tag::Var` in the enclosing body's `expr_types`** — surfaced by §03 validator wiring.
+- [x] `[BUG-02-009][high]` **PC-2 violation: generic builtin method calls with closure args leave lambda parameter types as unbound `Tag::Var` in the enclosing body's `expr_types`** — surfaced by §03 validator wiring.
+  Resolved: Fixed in `fcb68f04` (2026-04-16). Added missing first-param (accumulator) unification in fold/rfold case of `unify_higher_order_constraints`. Fix section: `plans/bug-tracker/fix-BUG-02-009.md`.
   Repro: `@main () -> int = { let s: Set<str> = ["a","b","c"].iter().collect(); let total = s.fold(initial: 0, op: (acc, _x) -> acc + 1); if total == 3 then 0 else 1 }` — after §03 validator wiring the lambda `(acc, _x) -> acc + 1` emits `E2005` at typeck because `acc` / `_x` remain `Tag::Var(Unbound)` in body `expr_types`. Bidirectional inference does not propagate `fold<U, T>`'s `op: (U, T) -> U` signature (with `U = int` from `initial = 0`, `T = str` from the set elem type) into the lambda's parameter slots. `@main` is monomorphic so `deferred_mono_calls` / `mono_instances` are both empty — `.fold` is a builtin-method call that doesn't flow through the user-generic monomorphization path that would otherwise record callee instantiation metadata.
   Subsystem: `compiler/ori_types/src/infer/expr/` (method-call bidirectional propagation for generic builtins) + `compiler/ori_types/src/check/validators/mod.rs` (currently skips validation when any mono context exists as a pragmatic workaround).
   Found: 2026-04-15 | Source: section-03 validator wiring (empty-container-typeck-phase-contract plan).

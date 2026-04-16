@@ -16,6 +16,13 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
 
 ## Open Bugs
 
+- [ ] `[BUG-08-013][medium]` **Rules file documentation drift: 10 findings across compiler.md, registry.md, diagnostic.md, tests.md, fmt.md, impl-hygiene.md**
+  Repro: Compare documented structures in `.claude/rules/compiler.md:12` (crate dep graph), `.claude/rules/registry.md:15` (TypeDef fields), `.claude/rules/diagnostic.md:31` (dedup contract) against actual code. Examples: compiler.md says `ori_canon -> ori_types` but `ori_canon/Cargo.toml` depends on `ori_arc`; registry.md TypeDef field count is wrong; diagnostic.md deduplication contract doesn't match `DiagnosticQueue` implementation.
+  Subsystem: `.claude/rules/*.md` (compiler.md, registry.md, diagnostic.md, tests.md, fmt.md, impl-hygiene.md)
+  Found: 2026-04-16 | Source: tpr-review
+  Reviewer: codex (during BUG-02-009 fix TPR, run /tmp/ori-tpr-Hz48oozc)
+  Note: 10 findings total (1 high, 6 medium, 3 low). All pre-existing drift, not introduced by BUG-02-009. Fix via `/sync-claude` or dedicated rules-file audit pass.
+
 - [ ] `[BUG-08-012][high]` **gemini-3.1-pro-preview consistently hangs on dual-tpr reviews after loading large grounding set** — found by /review-plan Section 03 TPR (Round 0 + Round 1 both stalled).
   Repro: dispatch `/tpr-review` (or any dual-source review wrapper that invokes dual-invoke.sh) on an Ori plan or code scope. Observe `$RUN/gemini.jsonl` — an `init` event fires, frequently a `msg.user` event, then the stream goes silent indefinitely. Check: `ps -eo pid,etime,pcpu,stat,cmd | grep gemini` shows `Sl` state processes at 0.0-0.1% CPU with `etime` in minutes-to-days. Confirmed observations from live session (2026-04-15):
     - PID 521845 orphan from /tmp/ori-tpr-68oj5cWn launched 17:57, etime 60+ min, gemini.jsonl = 140 bytes (init only), zero tool_use events.
