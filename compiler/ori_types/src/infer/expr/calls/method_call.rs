@@ -242,10 +242,19 @@ fn unify_higher_order_constraints(
                         let _ = engine.unify().unify(first_param, ret_ty);
                     }
                     let resolved_recv = engine.resolve(receiver_ty);
-                    if engine.pool().tag(resolved_recv).is_iterator() {
-                        let source_elem = engine.pool().iterator_elem(resolved_recv);
+                    let recv_tag = engine.pool().tag(resolved_recv);
+                    let source_elem = if recv_tag.is_iterator() {
+                        Some(engine.pool().iterator_elem(resolved_recv))
+                    } else if recv_tag == Tag::Set {
+                        Some(engine.pool().set_elem(resolved_recv))
+                    } else if recv_tag == Tag::List {
+                        Some(engine.pool().list_elem(resolved_recv))
+                    } else {
+                        None
+                    };
+                    if let Some(elem) = source_elem {
                         if let Some(&second_param) = params.get(1) {
-                            let _ = engine.unify().unify(second_param, source_elem);
+                            let _ = engine.unify().unify(second_param, elem);
                         }
                     }
                 }
