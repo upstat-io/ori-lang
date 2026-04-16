@@ -30,14 +30,25 @@ sections:
   - id: "03.1"
     title: "Wire validator into check_function"
     status: not-started
+    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-008 -->
+    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-009 -->
   - id: "03.2"
     title: "Wire validator into check_test"
     status: not-started
+    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-008 -->
+    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-009 -->
   - id: "03.3"
     title: "Wire validator into check_impl_method (TPR checkpoint)"
     status: not-started
+    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-008 -->
+    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-009 -->
   - id: "03.4"
     title: "Wire validator into check_def_impl_method"
+    status: not-started
+    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-008 -->
+    <!-- blocked-by:plans/bug-tracker/section-02-typeck.md#BUG-02-009 -->
+  - id: "03.BUG-FIXES"
+    title: "Fix BUG-02-008 (nested-generic PC-2) and BUG-02-009 (closure param inference) via /fix-bug"
     status: not-started
   - id: "03.5"
     title: "End-to-end regression suite and dual-execution parity"
@@ -51,6 +62,25 @@ sections:
 ---
 
 # Section 03: Bodies-Pass Integration
+
+> **BLOCKER NOTE (2026-04-15):** 03.0 complete and committed (`e7d7e073` —
+> BLOAT-gate split + `build_method_sig` helper). 03.1–03.4 were attempted
+> and reverted because the pragmatic gate required to make tests pass was
+> identified as `INVERTED-TDD:gated-deliverable` per the new
+> `impl-hygiene.md §Finding Categories` entry. Root cause: the current
+> inference engine leaves instantiation `Tag::Var`s unresolved in generic
+> bodies (filed as `BUG-02-008`) and does not propagate generic builtin
+> method signatures into lambda parameter slots (filed as `BUG-02-009`).
+> Both are documented PC-2 contract violations that the validator would
+> correctly surface but the subsections cannot cleanly wire until they are
+> architecturally fixed.
+>
+> **Resume protocol**: invoke `/fix-bug BUG-02-008` then `/fix-bug BUG-02-009`
+> with full plan-section rigor (root-cause analysis, TDD matrix, TPR,
+> hygiene review). After both fix sections are complete, re-enter
+> `/continue-roadmap` on this section; 03.1–03.4 will wire cleanly without
+> any generic-body gate because the inference engine will no longer emit
+> surviving `Tag::Var`s in those positions.
 
 **Status:** Not Started
 **Goal:** Wire `validate_body_types()` (created in Section 02) into all 4 bodies-pass
