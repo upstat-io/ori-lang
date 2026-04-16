@@ -45,7 +45,16 @@ const SIG_SPAN: Span = Span::new(100, 101);
 /// [`validate_body_types`] with the standard test spans, and return the
 /// accumulated errors. Keeps each cell focused on its matrix axis rather
 /// than map setup boilerplate.
-fn run(pool: &Pool, entries: &[(ExprIndex, Idx)], sig: &FunctionSig) -> Vec<TypeCheckError> {
+///
+/// `scheme_var_ids` is passed through to the validator for the exempt
+/// root set (BUG-02-008). Existing tests pass `&[]` for monomorphic
+/// scenarios; new tests (T13+) supply real scheme var ids.
+fn run(
+    pool: &Pool,
+    entries: &[(ExprIndex, Idx)],
+    sig: &FunctionSig,
+    scheme_var_ids: &[u32],
+) -> Vec<TypeCheckError> {
     let mut expr_types: FxHashMap<ExprIndex, Idx> = FxHashMap::default();
     for &(idx, ty) in entries {
         expr_types.insert(idx, ty);
@@ -56,6 +65,7 @@ fn run(pool: &Pool, entries: &[(ExprIndex, Idx)], sig: &FunctionSig) -> Vec<Type
         &expr_types,
         sig,
         SIG_SPAN,
+        scheme_var_ids,
         &|_| BODY_SPAN,
         &mut errors,
     );
@@ -83,7 +93,7 @@ fn body_expr_types_with_unbound_var_emits_one_e2005() {
     let mut pool = Pool::new();
     let var = pool.fresh_var();
 
-    let errors = run(&pool, &[(0, var)], &empty_sig());
+    let errors = run(&pool, &[(0, var)], &empty_sig(), &[]);
 
     assert_eq!(errors.len(), 1);
     assert!(matches!(
@@ -109,7 +119,7 @@ fn applied_generic_with_unbound_var_argument_emits_one_e2005() {
     let my_generic = Name::from_raw(200);
     let applied = pool.applied(my_generic, &[var]);
 
-    let errors = run(&pool, &[(0, applied)], &empty_sig());
+    let errors = run(&pool, &[(0, applied)], &empty_sig(), &[]);
 
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].span, BODY_SPAN);
@@ -128,7 +138,7 @@ fn signature_with_unbound_param_type_emits_at_sig_span() {
     // @f(x: <unbound>) -> int
     let sig = FunctionSig::simple(Name::from_raw(1), vec![var], Idx::INT);
 
-    let errors = run(&pool, &[], &sig);
+    let errors = run(&pool, &[], &sig, &[]);
 
     assert_eq!(errors.len(), 1);
     assert_eq!(
@@ -147,7 +157,7 @@ fn signature_with_unbound_param_type_emits_at_sig_span() {
 fn body_expr_types_with_resolved_int_emits_no_diagnostic() {
     let pool = Pool::new();
 
-    let errors = run(&pool, &[(0, Idx::INT)], &empty_sig());
+    let errors = run(&pool, &[(0, Idx::INT)], &empty_sig(), &[]);
 
     assert!(errors.is_empty());
 }
@@ -168,7 +178,7 @@ fn body_expr_types_with_linked_var_resolves_and_emits_nothing() {
     let var_id = pool.data(var);
     *pool.var_state_mut(var_id) = VarState::Link { target: Idx::INT };
 
-    let errors = run(&pool, &[(0, var)], &empty_sig());
+    let errors = run(&pool, &[(0, var)], &empty_sig(), &[]);
 
     assert!(errors.is_empty());
 }
@@ -192,7 +202,7 @@ fn scheme_body_with_bound_var_emits_no_diagnostic() {
     );
     assert!(pool.flags(scheme).contains(TypeFlags::HAS_BOUND_VAR));
 
-    let errors = run(&pool, &[(0, scheme)], &empty_sig());
+    let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
 
     assert!(errors.is_empty());
 }
@@ -220,7 +230,7 @@ fn generalized_var_in_expr_types_emits_no_diagnostic() {
         name: None,
     };
 
-    let errors = run(&pool, &[(0, var)], &empty_sig());
+    let errors = run(&pool, &[(0, var)], &empty_sig(), &[]);
 
     assert!(errors.is_empty());
 }
@@ -243,7 +253,7 @@ fn tuple_with_error_and_unbound_var_suppresses_diagnostic() {
     assert!(pool.flags(tuple).contains(TypeFlags::HAS_VAR));
     assert!(pool.flags(tuple).contains(TypeFlags::HAS_ERROR));
 
-    let errors = run(&pool, &[(0, tuple)], &empty_sig());
+    let errors = run(&pool, &[(0, tuple)], &empty_sig(), &[]);
 
     assert!(
         errors.is_empty(),
@@ -274,7 +284,7 @@ fn mixed_sig_and_body_vars_emit_sig_first_then_ascending_expr_index() {
 
     // Insert ExprIndex 2 first so the map's iteration order does not
     // accidentally coincide with the required ascending order.
-    let errors = run(&pool, &[(2, body_var_high), (1, body_var_low)], &sig);
+    let errors = run(&pool, &[(2, body_var_high), (1, body_var_low)], &sig, &[]);
 
     assert_eq!(errors.len(), 3, "one sig + two body");
 
@@ -332,7 +342,7 @@ fn scheme_wrapping_unbound_var_body_emits_one_e2005() {
          this test would silently pass with zero diagnostics"
     );
 
-    let errors = run(&pool, &[(0, scheme)], &empty_sig());
+    let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
 
     assert_eq!(
         errors.len(),
@@ -358,7 +368,7 @@ fn option_list_var_two_level_nesting_emits_one_e2005() {
     let list_var = pool.list(var);
     let opt_list_var = pool.option(list_var);
 
-    let errors = run(&pool, &[(0, opt_list_var)], &empty_sig());
+    let errors = run(&pool, &[(0, opt_list_var)], &empty_sig(), &[]);
 
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].span, BODY_SPAN);
@@ -384,11 +394,158 @@ fn map_with_two_unbound_vars_emits_one_e2005_not_two() {
     let v_var = pool.fresh_var();
     let map_ty = pool.map(k_var, v_var);
 
-    let errors = run(&pool, &[(0, map_ty)], &empty_sig());
+    let errors = run(&pool, &[(0, map_ty)], &empty_sig(), &[]);
 
     assert_eq!(
         errors.len(),
         1,
         "dedup must collapse multiple unbound vars under one ExprIndex"
     );
+}
+
+// BUG-02-008 — Scheme-var exemption tests (T13–T16)
+
+/// Semantic pin for BUG-02-008: a fresh instantiation var that became the
+/// union-find root of a scheme var's equivalence class must NOT emit E2005.
+///
+/// Simulates `@apply_identity<T>(x: T) = identity(x: x)` where:
+/// - `scheme_var_id=0` is the caller's `T`
+/// - `fresh_var` (`var_id=1`) is the instantiation var from the `identity` call
+/// - union-find made `fresh_var` the root (scheme var linked to fresh var)
+///
+/// Without the exempt-root-set fix, the validator sees `var_id=1` as
+/// `VarState::Unbound` and not in `scheme_var_ids=[0]` → false E2005.
+/// With the fix, the exempt set resolves `scheme_var_id=0`'s root to
+/// `var_id=1` and exempts it.
+#[test]
+fn scheme_var_root_is_fresh_instantiation_var_no_false_e2005() {
+    let mut pool = Pool::new();
+    // scheme var (T) — `var_id=0`
+    let scheme_var = pool.fresh_var();
+    let scheme_var_id = pool.data(scheme_var);
+    // fresh instantiation var — `var_id=1`
+    let fresh_var = pool.fresh_var();
+    let _fresh_var_id = pool.data(fresh_var);
+
+    // Simulate union-find making `fresh_var` the root:
+    // `scheme_var` links to `fresh_var` (`fresh_var` stays Unbound as root).
+    *pool.var_state_mut(scheme_var_id) = VarState::Link { target: fresh_var };
+
+    // Body contains the `fresh_var` (the root of the equivalence class).
+    let errors = run(&pool, &[(0, fresh_var)], &empty_sig(), &[scheme_var_id]);
+
+    assert!(
+        errors.is_empty(),
+        "fresh instantiation var that is the root of a scheme var's \
+         equivalence class must be exempted (BUG-02-008)"
+    );
+}
+
+/// Multiple scheme vars with multiple fresh vars — all exempt.
+///
+/// Simulates `@f<A, B>(x: A, y: B) = g(x: x, y: y)` where `g` is also
+/// generic and each call-site instantiation creates fresh vars that
+/// become roots.
+#[test]
+fn multiple_scheme_vars_with_fresh_roots_all_exempt() {
+    let mut pool = Pool::new();
+    // scheme var A (var_id=0)
+    let sv_a = pool.fresh_var();
+    let sv_a_id = pool.data(sv_a);
+    // scheme var B (var_id=1)
+    let sv_b = pool.fresh_var();
+    let sv_b_id = pool.data(sv_b);
+    // fresh instantiation vars (roots)
+    let fresh_a = pool.fresh_var();
+    let fresh_b = pool.fresh_var();
+
+    // Union-find: scheme vars link to fresh vars.
+    *pool.var_state_mut(sv_a_id) = VarState::Link { target: fresh_a };
+    *pool.var_state_mut(sv_b_id) = VarState::Link { target: fresh_b };
+
+    // Body contains both fresh vars as roots.
+    let errors = run(
+        &pool,
+        &[(0, fresh_a), (1, fresh_b)],
+        &empty_sig(),
+        &[sv_a_id, sv_b_id],
+    );
+
+    assert!(errors.is_empty(), "both fresh roots must be exempted");
+}
+
+/// Nested generic calls — A calls B calls C. The chain of fresh vars
+/// through union-find all collapse via `resolve_fully` and the exempt
+/// set covers the final root.
+#[test]
+fn nested_generic_calls_chain_through_union_find() {
+    let mut pool = Pool::new();
+    // scheme var T (`var_id=0`) — the caller's type param
+    let sv = pool.fresh_var();
+    let sv_id = pool.data(sv);
+    // fresh var from B's instantiation (`var_id=1`)
+    let fresh_b = pool.fresh_var();
+    let fresh_b_id = pool.data(fresh_b);
+    // fresh var from C's instantiation (`var_id=2`) — final root
+    let fresh_c = pool.fresh_var();
+
+    // Chain: sv → fresh_b → fresh_c (`fresh_c` is the ultimate root).
+    *pool.var_state_mut(sv_id) = VarState::Link { target: fresh_b };
+    *pool.var_state_mut(fresh_b_id) = VarState::Link { target: fresh_c };
+
+    // Body contains the final root (`fresh_c`).
+    let errors = run(&pool, &[(0, fresh_c)], &empty_sig(), &[sv_id]);
+
+    assert!(
+        errors.is_empty(),
+        "transitive chain root must be in exempt set"
+    );
+}
+
+/// Negative pin: a genuinely unbound var in the same generic body as
+/// exempt scheme vars MUST still emit E2005. The exempt set must not
+/// over-exempt.
+///
+/// Simulates a body where one expr's type resolved to a scheme var root
+/// (exempt) and another expr's type is a genuinely unresolved inference
+/// variable (not exempt → E2005).
+#[test]
+fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
+    let mut pool = Pool::new();
+    // scheme var T (`var_id=0`)
+    let sv = pool.fresh_var();
+    let sv_id = pool.data(sv);
+    // fresh instantiation var for T's root (`var_id=1`) — exempt
+    let fresh_root = pool.fresh_var();
+    // genuinely unbound var (`var_id=2`) — NOT in any scheme var's class
+    let genuine_unbound = pool.fresh_var();
+
+    // Union-find: scheme var links to `fresh_root`.
+    *pool.var_state_mut(sv_id) = VarState::Link { target: fresh_root };
+
+    // Body has both: exempt root at ExprIndex 0, genuine unbound at 1.
+    let errors = run(
+        &pool,
+        &[(0, fresh_root), (1, genuine_unbound)],
+        &empty_sig(),
+        &[sv_id],
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "genuinely unbound var must still emit E2005 even when scheme \
+         vars are exempt"
+    );
+    // Verify it's the genuine unbound var, not the exempt one.
+    let genuine_id = pool.data(genuine_unbound);
+    match &errors[0].kind {
+        TypeErrorKind::AmbiguousType { var_id, .. } => {
+            assert_eq!(
+                *var_id, genuine_id,
+                "E2005 must be for the genuinely unbound var, not the exempt root"
+            );
+        }
+        other => panic!("expected AmbiguousType, got {other:?}"),
+    }
 }
