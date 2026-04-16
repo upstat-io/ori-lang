@@ -1033,7 +1033,56 @@ for (i, (arg_ty, param_def)) in arg_types.iter().zip(method_def.params.iter()).e
 }
 ```
 
-**Correlated-Fresh correctness via shared var (shipped in this arc).** `return_tag_to_idx` today allocates a new fresh_var for each `ReturnTag::Fresh` encounter (line 296 of `registry_bridge/mod.rs`: `ReturnTag::Fresh => engine.fresh_var()`). For correlated-Fresh methods, the param AND the return both need the SAME fresh_var. Fix: extend `return_tag_to_idx` to accept an optional `Option<&mut FxHashMap<FreshSlot, Idx>>` correlation map. When computing `param_ty` and `return_ty` for the SAME method call, the helper uses the map to share vars across `Fresh` occurrences within that call. The map is scoped to one method-call resolution (not cross-call) to avoid false correlation between unrelated `Fresh`es. For methods with exactly ONE `Fresh` in params AND ONE `Fresh` in return (the common case — `ok_or`, `err_or`), the map ensures they resolve to the same Idx.
+**Correlated-Fresh correctness via shared var (shipped in this arc) — Round 1 revision per TPR-05-R1-codex-F1 + TPR-05-R1-gemini-F1.** `return_tag_to_idx` today allocates a new fresh_var for each `ReturnTag::Fresh` encounter (line 296 of `registry_bridge/mod.rs`: `ReturnTag::Fresh => engine.fresh_var()`). For correlated-Fresh methods, the param AND the return both need the SAME fresh_var.
+
+**Arity-of-Fresh partition determines the dispatch path.** Scan the `MethodDef` signature's `Fresh` positions (params + return) and classify the method into one of three buckets:
+
+1. **Single-Fresh correlation (one `Fresh` in params + one `Fresh` in return; zero `Fresh` elsewhere).** Examples verified against `ori_registry/src/defs/`: `Option.ok_or(err: Fresh) -> Result<T, Fresh>` (if registered that shape) and similar "carry arg into return" methods. Dispatch: use the correlation-map sidecar. `return_tag_to_idx` accepts an `Option<&mut FxHashMap<(), Idx>>` (unit-key, since there's exactly one slot — keeping the map type trivially future-compatible with multi-slot if needed). The first `Fresh` encounter populates the map; the second `Fresh` encounter reads it. Param-site and return-site share the same fresh_var.
+
+2. **Multi-Fresh higher-order (two or more `Fresh` positions across params+return, at least one param is a closure or accumulator the existing higher-order handler knows about).** Verified against `compiler/ori_registry/src/defs/iterator/mod.rs:58-76` where `FOLD_PARAMS: [ParamDef; 2] = [ParamDef { name: "initial", ty: ReturnTag::Fresh, ... }, ParamDef { name: "op", ty: ReturnTag::Fresh, ... }]` plus `fold`'s return is also `Fresh`. This class is ALREADY correctly handled by `unify_higher_order_constraints_impl` for `fold`/`rfold` (existing match arms at `method_call.rs:228-262` unify `ret_ty := init_ty` AND `ret_ty := closure_ret` AND `closure_param[0] := ret_ty` AND `closure_param[1] := source_elem`). Dispatch: skip the correlation map entirely for these methods; §3.3' higher-order handler does the work. Detection: a method is in this bucket iff `method_def.params` contains ≥2 `Fresh` OR the method name is in the higher-order whitelist (`map`, `filter`, `flat_map`, `fold`, `rfold`, `any`, `all`, `find`, `for_each`).
+
+3. **Single-Fresh on param with no return correlation (one `Fresh` in params, return is NOT `Fresh`).** Example: `CLOSURE_PARAM` at `ori_registry/src/defs/params.rs:11` used by `any`/`all`/`filter`/`for_each` where the closure's return is `bool`, not `Fresh`. Dispatch: skip arg-param unification (vacuous), let §3.3' higher-order handler unify the closure's param with the source element. Same effective behavior as bucket 2 — the correlation map is NOT involved.
+
+**Dispatch table in `resolve_builtin_method` step 5**:
+
+```rust
+let fresh_param_count = method_def.params.iter()
+    .filter(|p| matches!(p.ty, ReturnTag::Fresh))
+    .count();
+let return_is_fresh = matches!(method_def.returns, ReturnTag::Fresh);
+let higher_order_method = HIGHER_ORDER_METHOD_NAMES.contains(&method_name);
+
+// Correlation map scope: one method-call resolution.
+let mut correlation_slot: Option<Idx> = None;
+
+for (i, (arg_ty, param_def)) in arg_types.iter().zip(method_def.params.iter()).enumerate() {
+    match param_def.ty {
+        ReturnTag::Fresh if !higher_order_method && fresh_param_count == 1 && return_is_fresh => {
+            // Bucket 1: single-Fresh correlation. Allocate the slot and unify arg.
+            let slot = *correlation_slot.get_or_insert_with(|| engine.fresh_var());
+            let _ = engine.check_type(*arg_ty, &Expected { ty: slot, .. }, arg_spans[i]);
+        }
+        ReturnTag::Fresh => {
+            // Bucket 2 or 3: higher-order or bare closure. Skip; §3.3' handles.
+            continue;
+        }
+        _ => {
+            // Non-Fresh: blanket arg-param unification via return_tag_to_idx.
+            let param_ty = registry_bridge::return_tag_to_idx(engine, receiver_ty, param_def.ty);
+            let _ = engine.check_type(*arg_ty, &Expected { ty: param_ty, .. }, arg_spans[i]);
+        }
+    }
+}
+
+// At step 7 return-tag conversion: use the correlation slot if it was allocated.
+let return_ty = match method_def.returns {
+    ReturnTag::Fresh if correlation_slot.is_some() => correlation_slot.unwrap(),
+    ReturnTag::Fresh => computed_returns::resolve_computed_return(engine, receiver_ty, tag, method_name),
+    other => registry_bridge::return_tag_to_idx(engine, receiver_ty, other),
+};
+```
+
+`HIGHER_ORDER_METHOD_NAMES` is a `&[&str]` shared with §3.3's helper — single SSOT for "is this method handled by `unify_higher_order_constraints_impl`". Adding a method name there routes its Fresh params into bucket 2/3 automatically.
 
 **Closure-Fresh via §3.3' integration (shipped in this arc).** Closure-Fresh params continue to rely on `unify_higher_order_constraints_impl` (§3.3') for the actual constraint propagation. The `continue` in the loop above prevents vacuous unification; the helper does the real work. This preserves the same behavior `map`/`filter`/`fold`/etc. have today, while making the skip explicit instead of accidental.
 
@@ -1085,9 +1134,44 @@ struct PendingMethodObligation {
 3. Push `PendingMethodObligation { receiver_var_id: <var_id of the Tag::Var>, ... }` into the side table.
 4. Return `ReceiverOutcome::Deferred { ret_ty }`.
 
-After `InferEngine::unify` successfully links a `Var(X) := ConcreteType`, the unify-engine enqueues a replay pass: walk `pending_method_obligations`, find every entry with `receiver_var_id == X`, invoke `resolve_builtin_method(engine, ConcreteType, tag_of_ConcreteType, method, arg_types, arg_spans, call_span, named_params)` as if the receiver had been concrete all along. This unifies the freshly-computed return type against the placeholder `ret_ty` so downstream uses of the method-call result inherit the concrete type. Obligations that DON'T link by body-exit surface as E2005 via `validate_body_types` — the fresh `ret_ty` appears in `expr_types` still `Unbound`.
+**Replay dispatch (Round 1 revision per TPR-05-R1-codex-F2 + TPR-05-R1-codex-F3).** After unification completes, the replay fires `replay_method_call` which re-runs the FULL `infer_method_call` dispatch chain (NOT just `resolve_builtin_method`):
 
-**Replay safety.** Replay runs within the same body's inference scope (the validator walks body `expr_types`, the replay pre-processes before that walk). Replay is idempotent: if the same obligation links twice (shouldn't happen, but defense in depth), the second unification is a no-op (`unify(ret_ty, ret_ty)` via link chain compression). Obligations that never link are either (a) legitimately ambiguous (user wrote `let x = something; x.method()` with no constraint on `x`) — E2005 fires via validator, or (b) poisoned (the receiver's var became `HAS_ERROR` downstream) — cascade-suppression in `validate_body_types` already silences them. No new diagnostic surface is added.
+```rust
+fn replay_method_call(engine: &mut InferEngine<'_>, ob: &PendingMethodObligation, new_recv_ty: Idx) -> Idx {
+    let tag = engine.pool().tag(new_recv_ty);
+    // Step 1: try builtin resolution with the now-concrete receiver.
+    if let Some(builtin_ret) = resolve_builtin_method(
+        engine, new_recv_ty, tag, &engine.lookup_name(ob.method).unwrap_or(""),
+        &ob.arg_types, &ob.arg_spans, ob.call_span, ob.named_params.as_deref()
+    ) {
+        let _ = engine.unify().unify(ob.ret_ty, builtin_ret);
+        return builtin_ret;
+    }
+    // Step 2: fall through to impl lookup (inherent → trait).
+    let outcome = lookup_impl_method(engine, new_recv_ty, ob.method);
+    if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, ob.method, ob.arg_types.len(), ob.call_span) {
+        // Use check_positional_args / named-arg equivalent logic to verify args against sig.params.
+        check_positional_args_from_types(engine, &ob.arg_types, &ob.arg_spans, &sig, ob.call_span);
+        let _ = engine.unify().unify(ob.ret_ty, sig.ret);
+        return sig.ret;
+    }
+    // Step 3: method genuinely not found on the concrete type.
+    engine.push_error(TypeCheckError::unknown_method(ob.call_span, ob.method, new_recv_ty));
+    let _ = engine.unify().unify(ob.ret_ty, Idx::ERROR);
+    Idx::ERROR
+}
+```
+
+This matches the three-tier resolution order in `typeck.md §EX-4` (builtin → inherent → trait) that `infer_method_call` already follows. The replay is an exact re-invocation with the deferred receiver now concrete — NOT a subset of it.
+
+**Replay hook keyed to the full unify call, not one var.** `compiler/ori_types/src/unify/mod.rs`'s `unify()` is recursive: unifying `List(Var(X)) := List(int)` descends and links `Var(X) := int` via a child `unify(Var(X), int)` call. During one top-level `unify()` invocation, ANY number of vars may acquire `VarState::Link`. The replay hook:
+
+1. Extend `UnifyEngine` with a `newly_linked_vars: Vec<u32>` field.
+2. Every `bind_var(var_id, target_idx)` call (the single SSOT where `VarState::Unbound → VarState::Link` transitions happen — verify via `grep -n "VarState::Link" compiler/ori_types/src/unify/` that there is exactly one such site; if multiple, consolidate them first) appends `var_id` to `newly_linked_vars`.
+3. `InferEngine::unify(a, b)` at the public API boundary drains `newly_linked_vars` AFTER the recursive `unify_engine.unify(a, b)` returns. For each drained `var_id`, walk `pending_method_obligations` for entries with matching `receiver_var_id`, call `replay_method_call(engine, ob, resolved_receiver)`. Drained obligations are removed from the side table.
+4. If the replay itself triggers further unifications (inner `unify()` calls), those may link more vars, which append to `newly_linked_vars` again. The drain loop continues until the vector is empty — converges because each obligation is removed after replay, and obligations are finite.
+
+**Replay safety.** Replay runs within the same body's inference scope (the validator walks body `expr_types`, the replay pre-processes before that walk). Replay is idempotent: removed obligations cannot fire twice, and the unify calls in the replay follow normal union-find path compression. Obligations that never link are either (a) legitimately ambiguous (user wrote `let x = something; x.method()` with no constraint on `x`) — E2005 fires via validator on the fresh `ret_ty`, or (b) poisoned (the receiver's var became `HAS_ERROR` downstream) — cascade-suppression in `validate_body_types` already silences them. No new diagnostic surface is added.
 
 **Removes §3.6' item 1 from the follow-up list.** The "Tag::Var receiver deferral loses method obligation" LEAK is now shipped inside §3.2'.a above. Update §3.6' to delete item 1 at Phase 5 close-out (see §3.6' revision below).
 
@@ -1155,9 +1239,57 @@ Reviewer-cited gaps collated here (Codex F2 + Gemini F1 + Gemini F2 + Codex F3 +
 
 **3.4'.i — Pass-2 wiring audit (Codex F2).** Verify via `grep -n validate_body_types compiler/ori_types/src/check/bodies/functions.rs` that pass 2 calls the validator. The shipped commit `65b3aff4` claims this but Codex reviewer flagged `functions.rs:115` as lacking the hook. Before implementation: open `check/bodies/functions.rs`, trace every `check_function_body` exit point, confirm `validate_body_types(...)` is invoked after `engine.pop_context()`. If the hook is actually missing (reviewer finding correct), add it as `3.4'.i`. If shipped (reviewer mis-cite), mark `3.4'.i` as "audit-only — already shipped" and proceed to `3.4'.ii`.
 
-**3.4'.ii — Scope mismatch fix (Gemini F1 — BLOCKING prerequisite, promoted from §3.6' item 4).** The shipped `validate_body_types` walks body `expr_types` + signature `param_types`/`return_type`. Codegen's `pool.resolve_fully` walks the ArcFunction's `var_types` + `params` + `return_type`. The two views disagree on expression-level types that underwent late unification AFTER the `expr_types` entry was stored but BEFORE ArcFunction lowering — the validator sees the pre-link form (still `Var`), codegen sees the post-link form (concrete via `resolve`). The reverse also happens: expression trees re-interned during body inference (e.g., `ages.push(10)` re-registering `List(Var(X))` under a fresh pool Idx after the mid-body unification fires) leave the validator's `expr_types` scan finding no unresolved var, while codegen then re-derives the same shape fresh from the typed IR and hits the stale Idx.
+**3.4'.ii — Scope mismatch fix (Gemini F1 — BLOCKING prerequisite, promoted from §3.6' item 4; boundary corrected Round 1 per TPR-05-R1-codex-F4 + TPR-05-R1-gemini-F2).** The shipped `validate_body_types` walks body `expr_types` + signature `param_types`/`return_type`. Codegen's `pool.resolve_fully` walks the ArcFunction's `var_types` + `params` + `return_type`. The two views disagree on expression-level types that underwent late unification AFTER the `expr_types` entry was stored but BEFORE ArcFunction lowering — the validator sees the pre-link form (still `Var`), codegen sees the post-link form (concrete via `resolve`). The reverse also happens: expression trees re-interned during body inference leave the validator's `expr_types` scan finding no unresolved var, while codegen then re-derives the same shape fresh from the typed IR and hits the stale Idx.
 
-Fix: extend the validator to walk `expr_types` THROUGH `pool.resolve_fully` before the `HAS_VAR` check. Currently `validate_body_types` already does `resolve_fully(idx)` per the 2026-04-14 shipped code (typeck.md §PC-2 producer-side gate documentation). The ACTUAL mismatch is that the validator walks ExprIndex entries, while codegen walks the ArcFunction's var_types table which includes monomorphized entries NOT keyed by ExprIndex. Reconciliation: add a second validator pass `validate_arc_function_types(arc_fn, sig_scheme_vars)` that runs AT THE START of ArcFunction lowering (`compiler/ori_arc/src/lower/mod.rs` entry), walks every `arc_fn.var_types[i]`, `arc_fn.params[i]`, `arc_fn.return_type`, and emits E2005 on any `Tag::Var` not in the function's scheme-var exempt set. This closes the scope-mismatch gap by putting a second enforcement point at the ACTUAL codegen-consumer boundary.
+**Boundary placement.** The initial Round 5 sketch placed the second validator at `compiler/ori_arc/src/lower/mod.rs` entry. Round 1 review correctly flagged three problems with that placement:
+1. `lower_to_arc` produces best-effort `ArcFunction` with non-fatal `ArcProblem` annotations — appending E2005 there would not abort lowering, producing cascade noise downstream in codegen.
+2. `FunctionSig.scheme_vars` (needed for the scheme-var exempt set) is not part of the ArcFunction API surface — retrieving it at that boundary would require widening the lowering API.
+3. `ori_arc/src/lower/mod.rs:100` confirms: "They do not abort lowering — the builder produces a best-effort `ArcFunction` even when problems occur."
+
+**Corrected placement: typeck → downstream boundary, in `TypeCheckResult::finish_with_pool()`.** Per `typeck.md §CK-1` export row and §17 (`compiler/ori_types/src/check/exports.rs`), `finish` / `finish_with_pool()` is the single SSOT point between Bodies-group completion and any downstream phase. At that boundary:
+- `FunctionSig` is still fully in scope (not erased — `TypeCheckResult.signatures` carries them).
+- The `scheme_var_ids` exempt set is per-function-sig, accessible directly.
+- The function returns a `TypeCheckResult` whose `errors` accumulator IS the driver's gate (`typeck.md PC-4` — codegen refuses to emit if any typeck error was produced). Appending E2005 here directly blocks codegen at the driver level — no cascade, no best-effort output.
+- The typed IR at this boundary is post-all-passes; all legitimate unification has fired; any `Tag::Var` remaining IS genuinely ambiguous.
+
+**Implementation sketch**:
+
+```rust
+// compiler/ori_types/src/check/exports.rs (or validators/mod.rs — sibling module)
+pub fn validate_typed_ir_exit(
+    pool: &Pool,
+    signatures: &FxHashMap<Name, FunctionSig>,
+    typed_bodies: &[TypedBody],            // whatever the shape is in check/exports
+    record_error: &mut dyn FnMut(TypeCheckError),
+) {
+    for body in typed_bodies {
+        let sig = &signatures[&body.function_name];
+        let scheme_var_ids = sig.scheme_vars.iter().map(|v| v.var_id).collect::<FxHashSet<_>>();
+
+        // Walk body expr_types (shipped validator already does this — dedup)
+        // PLUS the sig's param_types and return_type (already done)
+        // PLUS any monomorphized-instance entries accumulated during body check.
+        // The monomorphization table lives in InferEngine / check state; if
+        // exports.rs doesn't have access, thread it through TypeCheckResult.
+
+        for (expr_idx, &ty_idx) in &body.expr_types {
+            let resolved = pool.resolve_fully(ty_idx);
+            if pool.flags(resolved).contains(TypeFlags::HAS_ERROR) { continue; }
+            if let Some(offender) = find_unbound_var(pool, resolved, &scheme_var_ids) {
+                record_error(TypeCheckError::ambiguous_type(
+                    body.spans[expr_idx], offender.var_id, offender.context_desc,
+                ));
+            }
+        }
+        // Same walk for sig.param_types, sig.return_type, and (if wired)
+        // the mono-instance table's types.
+    }
+}
+```
+
+`finish_with_pool()` calls `validate_typed_ir_exit(...)` just before returning the `TypeCheckResult`. Any accepted E2005s flow into the result's error accumulator, which the driver (`oric/src/...`) already inspects to decide whether codegen runs (`typeck.md PC-4`). This places the validator at the correct phase boundary — typeck's EXIT, not codegen's ENTRY — so abort semantics are clean and no ArcFunction lowering ever starts on ambiguous IR.
+
+**Removes §3.6' item 4 AND also resolves the cascade-noise concern.** The ArcFunction-entry placement is discarded; codegen never sees ambiguous typed IR in the first place. The "scope mismatch" gap between the validator's view and codegen's view is closed by moving the validator to the widest scope (typeck-exit) instead of adding a second narrower pass.
 
 **3.4'.iii — Passes 3/4/5 wiring (Codex F2 + existing plan).** After 3.4'.i + 3.4'.ii land, add `validate_body_types` invocations at the exit of `check_test_body` (pass 3), `check_impl_method_body` (pass 4), `check_def_impl_method_body` (pass 5) — each at the `engine.pop_context()` call site matching pass 2's pattern. Each invocation passes `(pool, arena, expr_types, sig, sig_span, scheme_var_ids, record_error)` — same signature as pass 2.
 
@@ -1179,7 +1311,7 @@ grep -rn "let [a-zA-Z_]* = \{\};" tests/spec/     # `let xs = {}` without annota
 
 For each hit: (a) if a subsequent use-site constrains the element type (e.g., `xs.push(10)` after arg-param unification lands per §3.1'/§3.1'.a), no change needed; (b) if NO downstream constraint, annotate explicitly (`let xs: [int] = []`). Fix these BEFORE the 3.4'.iii commit so the `test-all.sh` run stays green. Codex flagged `tests/spec/traits/iterator/double_ended.ori:24,66` as known hits — audit starts there.
 
-**3.4'.vi — Narrow-front discipline check.** After 3.1'-3.3' land (arg-param unification closes the bulk of the cases), 3.4'.iii + 3.4'.v together should NOT produce >20 concurrent test failures (that's the narrow-front threshold per CLAUDE.md §Stabilization Discipline). Run `timeout 150 cargo st tests/spec/ 2>&1 | grep -c 'E2005'` after the sequence: (1) land 3.1'/3.1'.a/3.2'/3.2'.a/3.3', (2) run tests, (3) land 3.4'.i/3.4'.ii, (4) run tests again, (5) audit per 3.4'.v, (6) land 3.4'.iii. If at any intermediate step the failure count spikes beyond 20, STOP and triage: either the arg-param unification is missing cases or the audit missed annotations.
+**3.4'.vi — Narrow-front discipline check.** After 3.1'-3.3' land (arg-param unification closes the bulk of the cases), 3.4'.iii + 3.4'.v together should NOT produce a large concurrent-test-failure front. CLAUDE.md §Stabilization Discipline mandates the narrow-front principle qualitatively ("complete one fix/section fully before starting another") but does not quantify a threshold; the plan-local heuristic (NOT a rule-citation) is ≤20 concurrent E2005 emissions during the intermediate validator-wiring steps, chosen as an interpretive cap that triggers "STOP and triage" rather than "accept and push through" (per TPR-05-R1-codex-F5 factual correction — the quantitative threshold is plan-local, not CLAUDE-cited). Run `timeout 150 cargo st tests/spec/ 2>&1 | grep -c 'E2005'` after the sequence: (1) land 3.1'/3.1'.a/3.2'/3.2'.a/3.3', (2) run tests, (3) land 3.4'.i/3.4'.ii, (4) run tests again, (5) audit per 3.4'.v, (6) land 3.4'.iii. If at any intermediate step the failure count spikes beyond the plan-local threshold, STOP and triage: either the arg-param unification is missing cases or the audit missed annotations. Adjusting the threshold downward (e.g., to 10) is permitted if §3.4'.v audit shows finer-grained control is warranted; upward drift is a red flag.
 
 ### 3.5' Update `tag_display` for builtin method arity error messages (minor)
 
