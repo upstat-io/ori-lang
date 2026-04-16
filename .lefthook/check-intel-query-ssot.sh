@@ -3,12 +3,12 @@
 #
 # INVARIANT: only 3 files in .claude/ are permitted to contain the literal
 # string `scripts/intel-query.sh status`:
-#   - .claude/skills/dual-tpr/compose-intel-summary.md  (the SSOT itself)
+#   - .claude/skills/query-intel/compose-intel-summary.md  (the SSOT itself)
 #   - .claude/rules/intelligence.md                     (teaching surface)
 #   - .claude/commands/query-intel.md                   (teaching surface)
 #
 # Every other consumer MUST acquire the availability check via
-# @-include: `@.claude/skills/dual-tpr/compose-intel-summary.md`.
+# @-include: `@.claude/skills/query-intel/compose-intel-summary.md`.
 #
 # This catches the Algorithmic DRY violation (impl-hygiene.md §SSOT) where
 # a new consumer inlines the status-check block instead of @-including the
@@ -28,7 +28,7 @@ cd "$ROOT"
 
 # Allowed files — paths relative to repo root.
 APPROVED=(
-  ".claude/skills/dual-tpr/compose-intel-summary.md"
+  ".claude/skills/query-intel/compose-intel-summary.md"
   ".claude/rules/intelligence.md"
   ".claude/commands/query-intel.md"
 )
@@ -60,7 +60,7 @@ if [ "${#offenders[@]}" -gt 0 ]; then
   done
   echo ""
   echo "Fix: replace the inlined status-check block with"
-  echo "  @.claude/skills/dual-tpr/compose-intel-summary.md"
+  echo "  @.claude/skills/query-intel/compose-intel-summary.md"
   echo "at the consumer's intel section."
   echo ""
   echo "Approved surfaces (may reference intel-query.sh status directly):"

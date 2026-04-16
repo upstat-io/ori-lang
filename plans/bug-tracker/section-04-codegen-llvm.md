@@ -45,10 +45,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Note: Cross-language precedent: Rust required RFC 3606, a migration lint (#130836 — massive false positives), and a full Edition change (Rust 2024) to fix this. Ori should implement correct drop order natively since it's pre-1.0.
   Escalated: requires plan — ARC IR has no concept of "tail-expression temporary" vs "local binding" (all are flat SSA variables). Fix requires: (1) new metadata on ARC IR variables or block structure to track provenance, (2) modifications to lowering (`control_flow/mod.rs`) to annotate tail-expression vars, (3) modifications to realization (`walk.rs`, `walk_dec.rs`) to reorder drops, (4) AIMS analysis may need awareness of the new metadata. 4+ files in the complexity-elevated `ori_arc` subsystem. Cross-language precedent (Rust RFC 3606) confirms this is architecturally non-trivial.
 
-- [ ] `[BUG-04-074][high]` **AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure**
+- [ ] `[BUG-04-074][critical]` **AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure**
   Repro: `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` — passes in interpreter, AOT fails with "unresolved type variable at codegen — type inference bug". The empty list `[]` element type is never propagated to LLVM codegen even though `push(value: 10)` provides int context.
   Subsystem: `ori_llvm` / `ori_types` (type variable resolution before codegen)
   Found: 2026-04-13 | Source: continue-roadmap
+  **BLOCKER**: Wiring `validate_body_types` into `check_function` (§03.1) causes this class of unresolved vars to emit E2005, blocking ~800 spec tests. Cannot run `/commit-push` until this and BUG-04-042 and BUG-04-084 are all fixed.
 
 - [ ] `[BUG-04-073][high]` **AOT codegen: `iter().find()` on list causes double-free (`ori_rc_dec` on already-freed allocation)**
   Repro: `let found = [10, 20, 30, 40, 50].iter().find(where: x -> x == 30); if found == Some(30) then 0 else 1` — passes in interpreter, AOT binary crashes with `FATAL — ori_rc_dec called on already-freed allocation`. Compiled via `cargo run -- build tests/sanitizer/option_some_none.ori -o /tmp/test`.
@@ -450,12 +451,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/oric/src/commands/codegen_pipeline.rs`
   Found: 2026-04-06 | Source: tpr-review (TPR-04-002 from BUG-04-039 fix)
 
-- [ ] `[BUG-04-042][medium]` **LLVM codegen: polymorphic lambda presence causes unresolved type variable for imported generics (assert_eq)** — found by continue-roadmap.
+- [ ] `[BUG-04-042][critical]` **LLVM codegen: polymorphic lambda presence causes unresolved type variable for imported generics (assert_eq)** — found by continue-roadmap.
   Repro: `timeout 150 cargo run --bin ori -- test --backend=llvm tests/spec/expressions/lambda_mono.ori` → `Idx(241)` unresolved type variable, 17 LCFails. Other files using `assert_eq` (e.g., `integer_safety.ori`) pass 30/30 through LLVM. The issue is specific to files containing polymorphic lambda definitions — the lambda's Scheme/BoundVar types bleed into the codegen context and prevent `assert_eq<T: Eq + Debug>` monomorphization. Related: BUG-04-011 (resolved for primitives), BUG-04-040 (path-dependent misdiagnosis noting this gap).
   Subsystem: `compiler/ori_llvm/src/codegen/type_info/store.rs`, `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/`
   Found: 2026-04-06 | Source: continue-roadmap (JIT EH plan closure verification)
   **Blocked**: 2026-04-09 — fix requires coordinating with roadmap Section 21A (active work touches this area). Root cause is systemic: polymorphic lambda BoundVar types in the shared Pool interfere with `MonoInstance` body compilation for imported generics. Fix spans Pool scoping, type_info store, function compiler, and lambda_mono — needs architectural investigation and coordination with 21A's ongoing changes. Fixing independently risks interference.
   Note: Blocks JIT EH plan items 04B.N L238, 05.R TPR-05-003, 06.2 L152. Active work in roadmap Section 21A touches this area.
+  **BLOCKER**: Wiring `validate_body_types` into `check_function` (§03.1) causes this class of unresolved vars to emit E2005, blocking spec tests. Cannot run `/commit-push` until this and BUG-04-074 and BUG-04-084 are all fixed.
 
 - [x] `[BUG-04-046][high]` **Windows-only: `bug_04_019_result_niche_no_collapsed_unwrap_arm` panics with `could not find end of emit_result_niche`** — found by manual.
   Repro: `cargo test -p ori_llvm --lib bug_04_019_result_niche_no_collapsed_unwrap_arm` on `windows-latest`. Surfaced by GitHub Actions run 24102722494 on 2026-04-07 (BUG-04-045 push retriggered CI on PR #107). Failed on `windows-latest` only — `macos-latest` and Linux pass the same test on the same run.
@@ -617,11 +619,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-14 | Source: tpr-review (BUG-04-064 Phase 5 code TPR)
   Reviewer: gemini (TPR-04-002-gemini)
   Note: Requires storing `project_alias_sources` on `AimsStateMap` or recomputing at realization time. Architecture change beyond BUG-04-064 point fix scope.
-- [ ] `[BUG-04-084][medium]` **AOT: empty `for x in collection do {}` body causes unresolved type variables at codegen**
+- [ ] `[BUG-04-084][critical]` **AOT: empty `for x in collection do {}` body causes unresolved type variables at codegen**
   Repro: `@main () -> int = { let items = [1, 2, 3]; for x in items do {}; 0 }` → `ori build` fails with `unresolved type variable at codegen — type inference bug`. Affects ALL collection types (List, Set, Map) — not Set-specific. Non-empty bodies work correctly. Interpreter handles empty bodies fine (`ori run` exits 0).
   Subsystem: `compiler/ori_llvm/` (monomorphization / type variable resolution for empty for-do bodies)
   Found: 2026-04-14 | Source: fix-bug (BUG-04-065 investigation — original repro used empty body, masking the actual OBE status)
   Note: Discovered during BUG-04-065 OBE verification. The empty body produces an unused iterator element binding (`x`), and the type variable for that binding's `Item` associated type may not be resolved when no code in the body constrains it.
+  **BLOCKER**: Wiring `validate_body_types` into `check_function` (§03.1) causes this class of unresolved vars to emit E2005, blocking spec tests. Cannot run `/commit-push` until this and BUG-04-074 and BUG-04-042 are all fixed.
 - [ ] `[BUG-04-079][medium]` **Implement spec-approved DP-9 `MaybeShared + IC-3 ParamContract.uniqueness = Unique → StaticUnique` path (re-enablement of COW fast-path for parameters)** <!-- blocked-by:BUG-04-069 -->
   **Blocked:** BUG-04-069 must be fixed first. BUG-04-069's `tighten_uniqueness_from_callers` uses the unsound IC-8 pattern (Owned+Linear+Once → Unique) to produce `ParamContract.uniqueness = Unique`. Today this is dormant because no realization site reads `ParamContract.uniqueness`. But BUG-04-079 plumbs it into `AnnotationSiteContext` for consumption by `decide_cow()` — so fixing BUG-04-079 without BUG-04-069 would launder the exact unsoundness BUG-04-059 just removed through a different channel.
   Repro: none yet (capability gap, not a regression). After BUG-04-059 fix, MaybeShared parameters always take `Dynamic` (runtime IsShared). Spec DP-9 permits `StaticUnique` when the interprocedural contract proves caller-side uniqueness — a PAST guarantee from the SCC fixpoint, not future-use inference.
