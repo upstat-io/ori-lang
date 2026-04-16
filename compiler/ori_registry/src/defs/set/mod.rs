@@ -10,15 +10,16 @@ use crate::{
     TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
-use super::params::{ELEMENT_BORROW_PARAM, ELEMENT_OWNED_PARAM};
+use super::params::{CLOSURE_PARAM, ELEMENT_BORROW_PARAM, ELEMENT_OWNED_PARAM};
 
 // Helper aliases
 const BOOL: ReturnTag = ReturnTag::Concrete(TypeTag::Bool);
+const FRESH: ReturnTag = ReturnTag::Fresh;
 const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const SELF: ReturnTag = ReturnTag::SelfType;
 
-// All 16 methods alphabetically sorted.
+// All 17 methods alphabetically sorted.
 static SET_METHODS: &[MethodDef] = &[
     MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false),
     MethodDef::compound(
@@ -43,6 +44,14 @@ static SET_METHODS: &[MethodDef] = &[
         &ONE_SELF_BORROW,
         BOOL,
         Some("Eq"),
+        Ownership::Borrow,
+        false,
+    ),
+    MethodDef::compound(
+        "fold",
+        &CLOSURE_PARAM,
+        FRESH,
+        None,
         Ownership::Borrow,
         false,
     ),

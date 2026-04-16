@@ -67,6 +67,9 @@ thoroughness_reject_counter = 0      # consecutive WASTED rounds (cap: 3)
 strengthened_language_required = false
 loop_started_at = now()              # unix seconds — global walltime anchor
 loop_max_walltime = env("ORI_TPR_LOOP_MAX_WALLTIME", default=2700)  # 45 min
+single_agent_mode = false            # detected from merged.json reviewer_mode
+saw_high_severity = false            # any round had critical/high findings
+last_high_severity_round = -1        # most recent round with critical/high
 # persist state (incl. loop_started_at) to {run_id}/state.json for sub-agents
 
 while iteration_counter < 10 and thoroughness_reject_counter < 3:
@@ -144,10 +147,49 @@ while iteration_counter < 10 and thoroughness_reject_counter < 3:
         EXIT
     print triage.round_summary
 
+    # ── SINGLE-AGENT MODE DETECTION ───────────────────────────
+    # Read reviewer_mode from merged.json (set by merge-findings.py).
+    # When the circuit breaker tripped one reviewer, we enter single-
+    # agent mode: consensus is impossible, so we compensate with more
+    # rounds and stricter severity gating.
+    merged_meta = read {run_id}/round-{round_n}/merged.json  # only reviewer_mode + summary fields
+    if merged_meta.get("reviewer_mode") == "single":
+        single_agent_mode = true
+    # Track high-severity findings across rounds
+    round_max_sev = merged_meta.get("summary", {}).get("max_severity", "informational")
+    if round_max_sev in ("critical", "high"):
+        saw_high_severity = true
+        last_high_severity_round = round_n
+
+    # ── SINGLE-AGENT MIN-ROUNDS GATE ───────────────────────────
+    # In single-agent mode, consensus is impossible (only one reviewer).
+    # Compensate by requiring a minimum of 3 finding-fixing rounds
+    # before accepting a clean pass. This prevents the loop from
+    # exiting after a single shallow clean pass with no cross-
+    # validation. The 3-round minimum ensures the surviving reviewer
+    # has had multiple chances to find issues from different angles
+    # (strengthened language auto-fires after each round in single
+    # mode to vary the reviewer's focus).
+    single_agent_min_rounds = 3  # minimum iterations before clean exit in single mode
+
     if triage.actionable_after_triage == 0 and triage.thoroughness_ok:
-        # CLEAN PASS — exit (final-report sub-agent will re-render a
-        # consolidated summary; the per-round print above is still
-        # shown so the user sees the last round's details immediately)
+        # CLEAN PASS candidate — but gate on single-agent constraints
+        if single_agent_mode:
+            if iteration_counter < single_agent_min_rounds:
+                # Not enough rounds yet — force another pass
+                strengthened_language_required = true
+                iteration_counter += 1  # count the clean round toward the minimum
+                persist state; continue
+            if saw_high_severity and (round_n - last_high_severity_round) < 2:
+                # High-severity findings were present recently — require at
+                # least one full clean round AFTER the last high-severity fix
+                # before accepting. This prevents premature exit when a
+                # high-sev fix might have side effects the reviewer hasn't
+                # seen yet.
+                strengthened_language_required = true
+                iteration_counter += 1
+                persist state; continue
+        # All gates passed — exit clean
         break
 
     if triage.get("exit_clean") is True:
@@ -159,6 +201,11 @@ while iteration_counter < 10 and thoroughness_reject_counter < 3:
         # the exit as "converged on cosmetics" instead of
         # "zero findings." The convergence rationale is in
         # triage.convergence_rationale and audited in round_summary.
+        #
+        # In single-agent mode, convergence gate still applies BUT
+        # only after the min-rounds gate above is satisfied (it runs
+        # first). If we reach here, the min-rounds + high-severity
+        # gates have already passed.
         break
 
     if triage.actionable_after_triage == 0 and not triage.thoroughness_ok:
@@ -173,6 +220,9 @@ while iteration_counter < 10 and thoroughness_reject_counter < 3:
         iteration_counter += 1
         thoroughness_reject_counter = 0   # findings = progress
         strengthened_language_required = not triage.thoroughness_ok
+        # In single-agent mode, always strengthen language to vary focus
+        if single_agent_mode:
+            strengthened_language_required = true
         persist state; continue
 
 # ── EXIT ────────────────────────────────────────────────────
@@ -190,9 +240,11 @@ elif thoroughness_reject_counter >= 3:
     exit_reason = "max_thoroughness_rejections_reached"
 elif last_triage.get("exit_clean") is True:
     exit_reason = "converged"
+elif single_agent_mode:
+    exit_reason = "single_agent_clean"  # clean pass in degraded mode
 else:
     exit_reason = "clean"
-persist exit_reason + elapsed to {run_id}/state.json
+persist exit_reason + elapsed + single_agent_mode + saw_high_severity to {run_id}/state.json
 
 # Dispatch final-report sub-agent (Sonnet) — reads all round artifacts,
 # writes the user-facing summary, frames cap-hit escalations per

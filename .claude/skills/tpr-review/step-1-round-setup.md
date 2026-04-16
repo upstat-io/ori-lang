@@ -517,9 +517,9 @@ Bash (run_in_background: true):
 
 **After the protocol above**, move to Step 4 (merge envelopes on success).
 
-### 4. On success: merge both envelopes
+### 4. On success: merge envelopes
 
-When the completion notification arrives AND the transport exited 0, both envelopes passed parser + schema + worktree-guard validation (the transport is responsible for all of those checks). Run the merger:
+When the completion notification arrives AND the transport exited 0, the active reviewer(s)' envelopes passed parser + schema + worktree-guard validation. The merger handles missing envelopes gracefully (when a reviewer was skipped by the circuit breaker, its `.envelope.json` won't exist — the merger treats it as zero findings and sets `reviewer_mode: "single"`). Run:
 
 ```
 Bash:
@@ -538,7 +538,14 @@ Bash:
 - `agreement_partner_id` — partner tag when `agreement: true`; `null` otherwise
 - `finding` — original finding object (severity, location, title, evidence, impact, basis, confidence, optional citations)
 
-The `summary` block reports `codex_findings`, `gemini_findings`, `agreements`, `codex_only`, `gemini_only`.
+Top-level fields added by the merger:
+- `reviewer_mode` — `"dual"` (both reviewers ran) or `"single"` (circuit breaker skipped one)
+- `active_reviewers` — list of reviewer names that produced envelopes (e.g. `["codex"]`)
+- `tripped_reviewer` — name of the skipped reviewer, or `null` in dual mode
+
+The `summary` block reports `codex_findings`, `gemini_findings`, `agreements`, `codex_only`, `gemini_only`, `max_severity`.
+
+**Single-agent mode note:** When `reviewer_mode` is `"single"`, the coordinator's convergence loop automatically switches to single-agent rules (min 3 rounds, high-severity persistence gate). No setup-agent action is needed beyond passing the merger output through as normal. Include `reviewer_mode` and `tripped_reviewer` in the short summary returned to the coordinator so it can log the degraded mode.
 
 
 ## Thoroughness Re-review Directive (prepend when strengthened_language_required)

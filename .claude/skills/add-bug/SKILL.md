@@ -1,7 +1,7 @@
 ---
 name: add-bug
 description: Add a bug to the bug-tracker plan. Minimal research at add-time — capture repro, location, severity, and source. TRIGGER proactively when ANY bug is encountered during ANY work — unrelated bugs, edge cases, test failures, suspicious behavior, code smells that look like bugs. If in doubt, file it. Better safe than sorry — verification happens at review time.
-allowed-tools: Read, Grep, Glob, Edit, Write, Bash
+allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Agent, AskUserQuestion, Skill
 argument-hint: "[description or file:line]"
 ---
 
@@ -30,146 +30,45 @@ This skill MUST be invoked proactively whenever you encounter a bug that is **no
 - You notice a mismatch between spec and implementation
 - Any test is `#skip`-ped and the reason looks fixable
 
-## Usage
+## How this skill runs
+
+SKILL.md is a thin dispatcher. The full protocol (subsystem mapping, duplicate check, ID assignment, entry writing, cross-ref) lives in `workflow.md` and is executed by a Sonnet sub-agent. No code analysis is needed — this is a plan-doc-only workflow.
+
+**FOREGROUND MANDATORY.** The sub-agent dispatch MUST run in the foreground (do NOT set `run_in_background: true`).
+
+## Caller action (the ONLY inline action)
+
+Before any other tool call, invoke the Agent tool. Substitute `<ARGS>` with the user's `/add-bug` arguments, and `<CONTEXT>` with any relevant context from the current conversation (bug description, file/line, repro, what was being worked on when the bug was discovered):
 
 ```
-/add-bug [description]
+Agent({
+  description: "add-bug filing",
+  subagent_type: "general-purpose",
+  model: "sonnet",
+  prompt: `
+You are the filing agent for /add-bug. Read .claude/skills/add-bug/workflow.md
+in full and execute it end-to-end.
+
+Bug description from the user: <ARGS>
+Context from current task (interrupted workflow): <CONTEXT>
+
+Rules:
+- Follow Steps 1 through 8 literally.
+- You touch plan docs (plans/bug-tracker/*.md) ONLY.
+  Never edit .rs, .ori, or anything under compiler/, library/, tests/.
+- Commits via Skill(commit-push) only — never run git commit directly.
+- After Step 7, state the interrupted workflow context so the caller can resume it.
+  `
+})
 ```
 
-The description can be:
-- A free-text bug description: `/add-bug tuple field .0.1 fails because lexer tokenizes 0.1 as float`
-- A file reference: `/add-bug compiler/ori_eval/src/iterator/next.rs:45 — double iteration on break`
-- Context from the current conversation (no args needed if a bug was just discussed)
+**Do not execute any step of the workflow yourself.** Do not read section files, do not assign IDs, do not write entries. The dispatch is the only action.
 
-## Workflow
+## After the sub-agent returns
 
-### Step 1: Determine Subsystem
+The sub-agent confirms the filing. If invoked mid-task (from `/fix-bug`, `/continue-roadmap`, `/tpr-review`, etc.), **immediately resume the interrupted workflow** — do not wait for user input.
 
-Map the bug to one of the 8 subsystem sections:
+## Files in this skill
 
-| Section | Subsystem | Crates/Paths |
-|---------|-----------|--------------|
-| 01 | Parser & Lexer | `ori_parse`, `ori_lexer` |
-| 02 | Type Checker | `ori_types` |
-| 03 | Evaluator | `ori_eval`, `ori_patterns` |
-| 04 | Codegen & LLVM | `ori_llvm`, `ori_arc` |
-| 05 | Runtime & ARC | `ori_rt` |
-| 06 | Stdlib | `library/std`, `ori_registry` |
-| 07 | Tooling & CLI | `oric`, `ori_fmt`, `ori_diagnostic` |
-| 08 | Spec & Docs | `docs/`, `.claude/`, `plans/` |
-
-If unclear, check the file path or ask. If it spans subsystems, file in the one where the **fix** belongs (not where the symptom appears).
-
-### Step 2: Check for Duplicates
-
-Before adding, scan the target section file for existing bugs that match:
-
-```
-Read plans/bug-tracker/section-{NN}-*.md
-```
-
-If a duplicate exists, note it to the user instead of adding a new entry.
-
-### Step 3: Assign ID and Severity
-
-**ID format:** `BUG-{section}-{ordinal}` — ordinal is the next sequential number in that section (count existing bugs + 1).
-
-**Severity:**
-- `critical` — blocks correctness in the subsystem, data corruption, crash
-- `high` — wrong output, silent failure, should fix when touching adjacent code
-- `medium` — edge case failure, workaround exists, fix opportunistically
-- `low` — cosmetic, minor inconvenience, tracked for dedicated passes
-
-### Step 4: Minimal Research
-
-Do just enough to write a useful bug entry. DO NOT deep-dive — the code may change before the fix:
-
-1. Confirm the bug exists (quick grep or test run if trivial)
-2. Identify the approximate location (crate + file, not exact line)
-3. Note any obvious repro (existing test file, or 2-3 line Ori snippet)
-4. Intelligence graph blast-radius check. Follow the canonical intel-summary injection protocol:
-
-   @.claude/skills/dual-tpr/compose-intel-summary.md
-
-   Per SSOT Step F — /add-bug uses `callers "<buggy function>" --repo ori` to assess blast radius and `file-symbols "<subsystem path>" --repo ori` to identify related code.
-
-### Step 5: Write the Bug Entry
-
-Append to the `## Open Bugs` section of the target file:
-
-```markdown
-- [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}**
-  Repro: {test file path or minimal repro steps}
-  Subsystem: {crate/file path}
-  Found: {YYYY-MM-DD} | Source: {source value from the canonical list below}
-```
-
-If a fix section already exists (from a prior `/fix-bug` that was interrupted), add a cross-ref:
-```markdown
-  Fix: `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md`
-```
-
-**Canonical source values** (use exactly one — this is the SSOT for bug provenance):
-- `tpr-review` — found by `/tpr-review` dual-source review
-- `code-journey` — found by `/code-journey`
-- `manual` — found by the user or during manual work
-- `continue-roadmap` — found while working on the roadmap
-- `review-work` — found by `/review-work`
-- `fix-bug` — found during an active `/fix-bug` workflow (Phase 1 investigation, Phase 3 TDD, Phase 4 test-all, Phase 5 TPR/hygiene)
-- `fix-next-bug` — found during `/fix-next-bug` autopilot iteration
-- `impl-hygiene-review` — found by `/impl-hygiene-review`
-- `review-bugs` — found during `/review-bugs` triage
-- `independent-review` — found by `/independent-review`
-- `design-pattern-review` — found by `/design-pattern-review`
-
-When filing a bug from a dual-source review, add reviewer provenance to the body (not the Source field): `Reviewer: codex`, `Reviewer: gemini`, or `Reviewers: codex + gemini (agreement)`.
-
-### Step 6: Cross-Reference Check
-
-Quick check: is there an active roadmap section or reroute plan touching this area?
-
-```
-Grep for the affected file/function in plans/roadmap/section-*.md and plans/*/section-*.md
-```
-
-If an active plan section covers this area, note it in the bug entry:
-```markdown
-  Note: Active work in roadmap section {NN} touches this area.
-```
-
-This is informational only — the bug still belongs in the bug-tracker (the plan may not cover this specific issue).
-
-### Step 7: Confirm to User
-
-Report what was filed:
-```
-Filed: [BUG-{section}-{ordinal}][{severity}] {title}
-  Section: {section name} (plans/bug-tracker/section-{NN}-*.md)
-  Cross-ref: {any active plan sections, or "none"}
-```
-
-### Step 8: Resume Prior Workflow — MANDATORY
-
-**`/add-bug` is almost always invoked mid-task** (proactive filing during `/continue-roadmap`, `/tpr-review`, `/fix-bug`, etc.). After confirming the filing, **immediately resume the interrupted workflow.** Do NOT stop, wait for user input, or present the filing as a standalone deliverable. The bug filing is a side-effect — the main task is still in progress.
-
-If you were in the middle of:
-- `/tpr-review` → continue fixing findings or re-running the transport
-- `/continue-roadmap` → continue implementing the current subsection
-- `/fix-bug` → continue with the current phase
-- Any other workflow → pick up exactly where you left off
-
-The user should not need to prompt you to continue.
-
-## Fix Workflow — What Happens Next
-
-Filing a bug is capture only. When a bug is picked up for fixing (via `/review-bugs`, `/continue-roadmap`, or direct request), the **`/fix-bug`** command enforces plan-section rigor:
-
-1. **Investigation** — root cause analysis, spec consultation, reference compiler review
-2. **Fix section file** — `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md` created with full plan-section structure
-3. **TDD matrix** — all tests written and verified failing BEFORE implementation
-4. **Implementation** — fix applied, tests pass unchanged
-5. **Completion checklist** — test-all, clippy-all, TPR review, impl-hygiene review
-
-**Every bug fix gets this rigor.** No ad-hoc fixes. The fix section file is the permanent record of investigation, approach, and verification — it stays in the bug tracker alongside the section files.
-
-See `/fix-bug` for the full workflow and fix section template.
+- `SKILL.md` (this file) — caller-facing dispatcher, intentionally minimal.
+- `workflow.md` — full protocol (Steps 1–8 for the Sonnet sub-agent).

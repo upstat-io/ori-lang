@@ -1,46 +1,72 @@
 #!/usr/bin/env python3
-"""merge-findings.py — merge two envelope files into a reviewer-tagged finding list.
+"""merge-findings.py — merge envelope files into a reviewer-tagged finding list.
 
 Usage:
     merge-findings.py --codex CODEX_ENVELOPE --gemini GEMINI_ENVELOPE \
                       --section SECTION_NUMBER \
                       [--out MERGED_FILE]
 
-Reads both envelope files, produces a merged finding list with:
-  - Reviewer-tagged IDs: [TPR-SECTION-ORDINAL-codex|gemini]
-  - Independent ordinal sequences per reviewer
-  - Strict (location, title) agreement detection (annotation only)
+Either --codex or --gemini may point to a non-existent file (e.g. when
+the circuit breaker skipped a reviewer). The missing reviewer is treated
+as having zero findings and the output carries "reviewer_mode": "single".
 
 Output: JSON to stdout (or --out file) with shape:
   {
     "section": "02",
-    "merged_findings": [
-      {
-        "id": "[TPR-02-001-codex]",
-        "reviewer": "codex",
-        "agreement": true,  # or false
-        "agreement_partner_id": "[TPR-02-001-gemini]",  # null if agreement=false
-        "finding": { ...the original finding object from the codex envelope... }
-      },
-      ...
-    ],
+    "reviewer_mode": "dual",           // "dual" or "single"
+    "active_reviewers": ["codex", "gemini"],  // which reviewers ran
+    "tripped_reviewer": null,           // name of skipped reviewer, or null
+    "merged_findings": [ ... ],
     "summary": {
       "codex_findings": 5,
       "gemini_findings": 3,
       "agreements": 2,
       "codex_only": 3,
-      "gemini_only": 1
+      "gemini_only": 1,
+      "informational": 1,
+      "actionable": 7,
+      "max_severity": "high"           // highest severity across all findings
     }
   }
 """
 
 import argparse
 import json
+import os
 import sys
 
 
 def make_id(section, ordinal, reviewer):
     return f"[TPR-{section}-{ordinal:03d}-{reviewer}]"
+
+
+SEVERITY_ORDER = {"critical": 4, "high": 3, "major": 2, "medium": 2, "minor": 1, "low": 1, "informational": 0}
+
+
+def load_envelope(path):
+    """Load an envelope file, returning empty findings if missing or invalid."""
+    if not path or not os.path.isfile(path):
+        return {"findings": [], "no_findings": True, "_skipped": True}
+    try:
+        with open(path) as f:
+            env = json.load(f)
+        env["_skipped"] = False
+        return env
+    except (json.JSONDecodeError, OSError):
+        return {"findings": [], "no_findings": True, "_skipped": True}
+
+
+def max_severity(findings):
+    """Return the highest severity string across a list of finding entries."""
+    best = "informational"
+    best_rank = 0
+    for entry in findings:
+        sev = entry.get("finding", {}).get("severity", "informational")
+        rank = SEVERITY_ORDER.get(sev, 0)
+        if rank > best_rank:
+            best_rank = rank
+            best = sev
+    return best
 
 
 def main():
@@ -51,10 +77,46 @@ def main():
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    with open(args.codex) as f:
-        codex_env = json.load(f)
-    with open(args.gemini) as f:
-        gemini_env = json.load(f)
+    codex_env = load_envelope(args.codex)
+    gemini_env = load_envelope(args.gemini)
+
+    codex_skipped = codex_env.pop("_skipped", False)
+    gemini_skipped = gemini_env.pop("_skipped", False)
+
+    # Determine reviewer mode
+    active_reviewers = []
+    tripped_reviewer = None
+    if not codex_skipped:
+        active_reviewers.append("codex")
+    else:
+        tripped_reviewer = "codex"
+    if not gemini_skipped:
+        active_reviewers.append("gemini")
+    else:
+        tripped_reviewer = "gemini"
+    reviewer_mode = "dual" if len(active_reviewers) == 2 else "single"
+
+    if not active_reviewers:
+        # Both skipped — should not happen (circuit-breaker blocks this upstream)
+        result = {
+            "section": args.section,
+            "reviewer_mode": "none",
+            "active_reviewers": [],
+            "tripped_reviewer": "both",
+            "merged_findings": [],
+            "summary": {
+                "codex_findings": 0, "gemini_findings": 0,
+                "agreements": 0, "codex_only": 0, "gemini_only": 0,
+                "informational": 0, "actionable": 0, "max_severity": "informational",
+            }
+        }
+        out = json.dumps(result, indent=2)
+        if args.out:
+            with open(args.out, "w") as f:
+                f.write(out + "\n")
+        else:
+            sys.stdout.write(out + "\n")
+        sys.exit(0)
 
     # Normalize gemini findings: gemini has been observed to emit "description"
     # instead of "title" (tracked on 2026-04-14 during BUG-04-059 Phase 5 code
@@ -166,6 +228,9 @@ def main():
 
     result = {
         "section": args.section,
+        "reviewer_mode": reviewer_mode,
+        "active_reviewers": active_reviewers,
+        "tripped_reviewer": tripped_reviewer,
         "merged_findings": merged,
         "summary": {
             "codex_findings": codex_total,
@@ -175,6 +240,7 @@ def main():
             "gemini_only": gemini_only,
             "informational": informational,
             "actionable": actionable,
+            "max_severity": max_severity(merged),
         }
     }
 
