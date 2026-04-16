@@ -27,6 +27,8 @@ The coordinator itself only reads the small `triage.json` output to decide loop 
 
 After the loop exits (clean pass, cap hit, or transport failure), the coordinator dispatches a **final-report sub-agent (Sonnet)** that reads all round artifacts and writes the user-facing summary.
 
+**FOREGROUND MANDATORY — ALL Agent dispatches.** Every `Agent({})` call in the loop state machine below — setup, triage, and final-report — MUST run in the foreground (do NOT set `run_in_background: true`). The loop is sequential: setup result informs triage dispatch, triage result informs loop continuation. There is no independent work to parallelize. Backgrounding breaks the sequential contract and forces unnecessary polling.
+
 **Model policy:** setup and final-report on Sonnet; triage on Opus. The triage agent's Opus dispatch is non-negotiable because Gemini confabulation detection requires independent verification against code — a weaker model silently accepts bad findings. The full rationale lives in `step-2-round-triage.md` §"Trust tiers (set verification depth, not pass/fail)" and in `.claude/rules/impl-hygiene.md` §"No Side Logic" (LOWER trust for gemini = mandatory FULL verification; HIGH trust for codex = spot-check). The invoker's session model is irrelevant; the dispatch boundary enforces the split.
 
 ## Finding-handling policy — SSOT reference

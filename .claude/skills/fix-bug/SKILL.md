@@ -353,13 +353,17 @@ Update the fix section: check off each test as written, note test file paths.
    - **A fix that disables a capability without tracking re-enablement is a deferral** — it violates CLAUDE.md §Zero Deferral. "Fixed the bug" is not complete when the fix regressed a design goal. The tracking artifact IS part of the fix.
 7. **Commit via `/commit-push`** — NEVER commit directly with `git commit`. All changes must be committed before review.
 
-Update the fix section: check off implementation tasks, note any discoveries.
+Update the fix section: check off implementation tasks, note any discoveries. **Proceed directly to Phase 5 — do NOT pause, do NOT ask the user for confirmation, do NOT summarize and wait. The commit is mid-workflow, not a stopping point.**
 
 ### Phase 5: Completion Checklist
 
+**NO PAUSING** — Phase 5 is a direct continuation of Phase 4. After the Phase 4 commit, proceed immediately into the checklist below. Do NOT prompt the user for confirmation, do NOT ask "should I run the completion checklist?", do NOT pause between items. Every step here is mandatory and autonomous. The `/commit-push` in Phase 4 step 7 is NOT a stopping point — it is mid-workflow.
+
 Work through the completion checklist in order. **Reviews MUST complete before bug closure** — a bug marked resolved before TPR/hygiene is a premature closure that hides unfinished work from `/fix-next-bug` and `/review-bugs`.
 
-1. **Verify all matrix items** — tests, builds, leak checks
+**FOREGROUND MANDATORY — ALL nested skill invocations.** When invoking `/tpr-review`, `/impl-hygiene-review`, `/improve-tooling`, `/sync-claude`, or `/commit-push` below, their internal Agent dispatches MUST run in the foreground (do NOT set `run_in_background: true`). The completion checklist is sequential — each step's result informs the next. No independent work to parallelize.
+
+1. **Verify all matrix items** — tests, builds, leak checks as specified in the fix section's completion checklist
 2. **Run `/tpr-review`** (Phase 5 — code review) — independent third-party review of the **implementation**. This is distinct from Plan TPR (Phase 2.5) which reviewed the plan. Both TPR phases can surface findings, but they review different artifacts.
 3. **Handle code TPR findings** — fix any issues found, re-run until clean
 4. **Run `/impl-hygiene-review`** — AFTER code TPR is clean

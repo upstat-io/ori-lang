@@ -14,6 +14,8 @@ Deep, wide-angle review of implementation hygiene against `.claude/rules/impl-hy
 
 SKILL.md is a thin coordinator. The review runs as a pipeline of sub-agents, each dispatched via `Agent({})` with its own model. The coordinator parses the target mode, chains phases sequentially, and threads handoff JSON files between them.
 
+**FOREGROUND MANDATORY — ALL Agent dispatches.** Every `Agent({})` call below MUST run in the foreground (do NOT set `run_in_background: true`). The pipeline is sequential: each phase's output informs the next dispatch. No independent work to parallelize.
+
 - **Phases 0, 1, 2** (Sonnet) — gather static-analysis output, load rules/context, map the landscape. Produce the context packet.
 - **Phase 3** (Opus) — the one judgment-heavy phase. Multi-lens deep analysis reads code, traces data flow, compares function bodies for algorithmic DRY, and produces findings.
 - **Phase 4** (Sonnet) — dispatches `/tp-help` or `/tpr-review` to cross-check. Orchestration-only.

@@ -15,6 +15,8 @@ argument-hint: "[section]"
 
 SKILL.md is a thin dispatcher. The full protocol (gates, triage, pacing, checklist) lives in `workflow.md` and is executed by a dispatched sub-agent — not inline. The parent takes over only after the sub-agent returns a structured handoff block.
 
+**FOREGROUND MANDATORY — ALL Agent dispatches.** The scan sub-agent and any subsequent `/roadmap-work` dispatch MUST run in the foreground (do NOT set `run_in_background: true`). The parent needs the handoff block before it can act. No independent work to parallelize.
+
 ## Caller action (the ONLY inline action)
 
 Before any other tool call, invoke the Agent tool. Substitute `<ARGS>` with the user's `/continue-roadmap` arguments (empty string if none):

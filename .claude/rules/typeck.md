@@ -1047,8 +1047,8 @@ query protocol used by review-family skills.
 | `ori_types/src/check/exports.rs` | Typed IR emission after `check_module_impl` via `finish()` / `finish_with_pool()` (PC-2) |
 | `ori_types/src/check/imports.rs` | Import resolution |
 | `ori_types/src/check/object_safety.rs` | Object-safety check (TR-6) |
-| `ori_types/src/check/validators/mod.rs` | Producer-side `PC-2` enforcement — `validate_body_types` walks `expr_types` + `FunctionSig` positions, emits `E2005` per surviving `Tag::Var` (`DI-1`). Gate order: `resolve_fully → HAS_ERROR → HAS_VAR`. Delegates compound-tag child traversal to `Pool::visit_children` (`TYPES:§TF-3`). |
-| `ori_types/src/check/validators/tests.rs` | 12-cell matrix covering negative/positive/cascade/determinism/nesting/dedup axes of the validator's fast-path gates |
+| `ori_types/src/check/validators/mod.rs` | Producer-side `PC-2` enforcement — `validate_body_types(pool, expr_types, sig, sig_span, scheme_var_ids, record_error)` walks `expr_types` + `FunctionSig` positions, emits `E2005` per surviving `Tag::Var` (`DI-1`). Gate order: `resolve_fully → HAS_ERROR → HAS_VAR`. Builds an exempt root set from `scheme_var_ids` via `Pool::var_idx_for_id` + `resolve_fully` to avoid false E2005 on polymorphic parameters in generic bodies. Delegates compound-tag child traversal to `Pool::visit_children` (`TYPES:§TF-3`). |
+| `ori_types/src/check/validators/tests.rs` | 16-cell matrix: T1-T12 covering negative/positive/cascade/determinism/nesting/dedup axes; T13-T16 covering scheme-var exemption (fresh root, multi-var, transitive chain, mixed exempt/non-exempt negative pin) |
 | `ori_types/src/check/well_known/` | Well-known type / trait identifiers |
 | `ori_types/src/infer/mod.rs` | `InferEngine` (EN-1) |
 | `ori_types/src/infer/context.rs` | `Expected` / `ExpectedOrigin` (BD-1..BD-4) |
