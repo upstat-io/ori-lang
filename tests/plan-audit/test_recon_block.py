@@ -162,7 +162,7 @@ BODY_ONLY_AT_INCLUDE = textwrap.dedent("""\
 
     ## Intelligence Reconnaissance
 
-    @.claude/skills/dual-tpr/compose-intel-summary.md
+    @.claude/skills/query-intel/compose-intel-summary.md
 
     ---
 """)
