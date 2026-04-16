@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Bodies-Pass Integration"
-status: not-started
+status: in-progress
 reviewed: true
 goal: >
   Wire validate_body_types() (from Section 02) into all 4 bodies-pass call sites
