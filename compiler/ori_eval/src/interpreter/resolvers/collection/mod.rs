@@ -206,6 +206,13 @@ impl MethodResolver for CollectionMethodResolver {
                         .map_or(MethodResolution::NotFound, MethodResolution::Collection)
                 }
             }
+            Value::Set(_) => {
+                if method_name == self.methods.fold {
+                    MethodResolution::Collection(CollectionMethod::Fold)
+                } else {
+                    MethodResolution::NotFound
+                }
+            }
             Value::Map(_) => {
                 // Map uses special *Entries variants for map/filter
                 if method_name == self.methods.map {
