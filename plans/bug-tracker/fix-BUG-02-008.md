@@ -2,7 +2,7 @@
 bug: "BUG-02-008"
 title: "PC-2 validator false-positive E2005 on fresh instantiation vars in generic function bodies"
 severity: "high"
-status: in-progress
+status: complete
 goal: "validate_body_types correctly exempts fresh instantiation vars that are union-find equivalence-class members of caller scheme vars, allowing §03 validator wiring into generic function bodies without false E2005"
 success_criteria:
   - "validate_body_types accepts generic bodies calling other generics (e.g., apply_identity calling identity) with zero false E2005"
@@ -19,7 +19,7 @@ third_party_review:
 
 # Fix: BUG-02-008 — PC-2 Validator False-Positive on Fresh Instantiation Vars
 
-**Status:** In Progress
+**Status:** Complete
 **Severity:** High
 **Goal:** Make the PC-2 validator scheme-var-aware so it can distinguish legitimate generic-parameter vars from genuine inference failures, unblocking §03 validator wiring.
 
@@ -107,7 +107,7 @@ Pending — will run after /tp-help consensus.
 
 ### 3b. Validator changes
 - [x] Add `scheme_var_ids: &[u32]` parameter to `validate_body_types`
-- [ ] Build exempt root set using the new pool helper:
+- [x] Build exempt root set using the new pool helper:
   ```rust
   fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
       let mut exempt = FxHashSet::default();
@@ -131,7 +131,14 @@ Pending — will run after /tp-help consensus.
 
 ## R. Third Party Review Findings
 
-{Initially empty — populated during Phase 5 completion checklist.}
+**Round 0** — `/tmp/ori-tpr-BHzUHIcP/round-0` (codex only, gemini stalled at 20-min watchdog)
+- `[TPR-02-001-codex][high]` validate_body_types not wired into production body passes. **REJECTED**: wiring is Section 03.1-03.4's deliverable, not BUG-02-008's scope. Fix plan exit criteria explicitly say "ready for §03 wiring."
+- `[TPR-02-002-codex][low]` Plan claims 3x duplication but only 2 sites were reverse-lookups. **FIXED** in `23fd8dfd`.
+
+**Round 1** — `/tmp/ori-tpr-BHzUHIcP/round-1` (codex only, gemini 429 MODEL_CAPACITY_EXHAUSTED all 5 attempts)
+- Codex reconfirmed exempt root set and var_idx_for_id are correct. Restated the HIGH wiring finding (same rejection applies). Minor gaps: tests fabricate topology directly (valid for unit isolation), no signature-side test.
+
+**Outcome**: Accepted codex-only (2 rounds). Gemini unavailable due to API capacity.
 
 ---
 
@@ -145,14 +152,14 @@ Pending — will run after /tp-help consensus.
 - [x] `timeout 150 ./clippy-all.sh` green
 - [x] `cargo test -p ori_types` green — 16/16 validator tests
 - [x] `/commit-push` — committed at 30695c0f
-- [ ] Plan TPR (Phase 2.5) — pending
-- [ ] `/tpr-review` (Phase 5 — code review) passed
-- [ ] `/impl-hygiene-review` passed
-- [ ] `/improve-tooling` retrospective completed
-- [ ] `/sync-claude` doc sync
-- [ ] Bug entry updated: `- [x]` with resolution details
-- [ ] Fix section frontmatter `status` updated to `complete`
-- [ ] Bug-tracker `00-overview.md` open bug count updated
-- [ ] Final `/commit-push` — commit closure artifacts
+- [x] Plan TPR (Phase 2.5) — skipped (severity high but subsection-scoped; /tp-help converged round 1)
+- [x] `/tpr-review` (Phase 5 — code review) passed — 2 rounds codex-only (gemini capacity-exhausted). 1 LOW finding fixed (23fd8dfd), 1 HIGH rejected (Section 03 scope). Code confirmed correct.
+- [x] `/impl-hygiene-review` passed — PASS, 0 blocking, all correctness categories clean. Pre-existing BLOAT noted. P3-N2 (body_type_map DRY) filed separately.
+- [x] `/improve-tooling` retrospective completed — tooling gap: FOREGROUND MANDATORY directive added to /tpr-review, /impl-hygiene-review, /continue-roadmap, /fix-bug SKILL.md files (background Agent dispatch was breaking sequential pipelines). No diagnostic script gaps. Memory saved.
+- [x] `/sync-claude` doc sync — updated typeck.md (validator description + test count), canon.md (scheme_var_ids + exempt root set documentation)
+- [x] Bug entry updated: `- [x]` with resolution details
+- [x] Fix section frontmatter `status` updated to `complete`
+- [x] Bug-tracker `00-overview.md` open bug count updated — section 02: 1 → 6 (corrected stale count + BUG-02-010 added)
+- [x] Final `/commit-push` — commit closure artifacts
 
 **Exit Criteria:** `validate_body_types` with scheme_var_ids=[caller's scheme vars] produces zero false E2005 on `@apply_identity<T>(x: T) = identity(x: x)` and similar generic-calling-generic patterns. `cargo test -p ori_types -- validators` passes all T1-T16 tests. `timeout 150 ./test-all.sh` green with zero regressions. The validator is ready for §03 wiring into all four body-checking call sites.
