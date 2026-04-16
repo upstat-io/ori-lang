@@ -54,7 +54,7 @@ third_party_review:
 
 **Consensus outcome**: Agreement (Claude + Codex converge). Proceeding with exempt-root-set approach, incorporating Codex's refinements:
 
-1. **Extract a canonical pool helper** `Pool::var_idx_for_id(var_id: u32) -> Option<Idx>` — the var_id→Idx linear scan pattern is duplicated 3× in `monomorphization.rs` (lines 98, 231, 297). Adding a 4th copy in the validator would be `LEAK:algorithmic-duplication`. Extract to a pool method, refactor existing sites.
+1. **Extract a canonical pool helper** `Pool::var_idx_for_id(var_id: u32) -> Option<Idx>` — the var_id→Idx linear scan pattern is duplicated 2× in `monomorphization.rs` (lines 231 and 297 — the reverse-lookup from `var_id` to pool `Idx`). Line 98 is a different full-pool traversal for `body_type_map` and is NOT a duplicate of this pattern. Adding a 3rd copy in the validator would be `LEAK:algorithmic-duplication`. Extract to a pool method, refactor existing sites.
 2. **Apply exempt set to ALL positions** — `sig.param_types`, `sig.return_type`, AND `expr_types`. The current code already passes all through `collect_first_unbound_var`, so the exempt set parameter propagates automatically.
 3. **Not a new VarState variant** — this is contextual exemption from `FunctionSig`, not intrinsic pool state. `VarState::Generalized` is intrinsic; scheme-root exemption is caller-scoped.
 4. **Transitive chains covered** — generic→generic→generic collapses via `resolve_fully`. Exempt set built once covers all chain depths.
@@ -62,7 +62,7 @@ third_party_review:
 
 **Independent code verification** (per feedback_reviewer_grounding_and_trust.md):
 - `FunctionSig.scheme_var_ids` confirmed at `compiler/ori_types/src/output/mod.rs` — populated during signature collection, available at all 4 body-check call sites.
-- Linear scan pattern confirmed at `monomorphization.rs:231` and `:297` — exact same `(FIRST_DYNAMIC..pool_len).find(|&idx| pool.tag(idx) == Tag::Var && pool.data(idx) == sv_id)`.
+- Linear scan pattern confirmed at `monomorphization.rs:231` and `:297` — exact same `var_id -> Idx` reverse lookup. Line 98 is a distinct full-pool `body_type_map` traversal, not a duplicate of this pattern.
 - `Pool::resolve_fully` at `pool/accessors.rs:412` — chases `VarState::Link` chains up to 16 steps, returns root Idx.
 
 ---
@@ -72,21 +72,21 @@ third_party_review:
 Write ALL tests BEFORE the fix. Verify they fail against current code.
 
 ### Exact failing case
-- [ ] T13: Unbound fresh var (union-find root) with scheme var in same equivalence class — must NOT emit E2005
+- [x] T13: Unbound fresh var (union-find root) with scheme var in same equivalence class — must NOT emit E2005
 
 ### Edge cases
-- [ ] T14: Multiple scheme vars with multiple fresh vars (2+ generic type params calling 2+ generic functions)
-- [ ] T15: Nested generic calls (A calls B calls C, fresh vars chain through union-find)
-- [ ] T16: Mixed exempt and non-exempt vars in same body (scheme var + genuinely unbound var → emit E2005 only for the genuinely unbound one)
+- [x] T14: Multiple scheme vars with multiple fresh vars (2+ generic type params calling 2+ generic functions)
+- [x] T15: Nested generic calls (A calls B calls C, fresh vars chain through union-find)
+- [x] T16: Mixed exempt and non-exempt vars in same body (scheme var + genuinely unbound var → emit E2005 only for the genuinely unbound one)
 
 ### Semantic pin
-- [ ] T13 serves as semantic pin — would fail if the exempt-root-set logic were removed
+- [x] T13 serves as semantic pin — would fail if the exempt-root-set logic were removed
 
 ### Negative pin
-- [ ] T16 serves as negative pin — confirms genuinely unbound vars are still caught even when scheme vars exist
+- [x] T16 serves as negative pin — confirms genuinely unbound vars are still caught even when scheme vars exist
 
 ### Verify tests fail before fix
-- [ ] All new tests (T13-T16) fail against current code (T13-T15 emit false E2005; T16 may partially pass)
+- [x] All new tests (T13-T16) fail against current code (T13-T15 emit false E2005; T16 may partially pass)
 
 ---
 
@@ -101,12 +101,12 @@ Pending — will run after /tp-help consensus.
 ## 3. Implementation
 
 ### 3a. Extract canonical pool helper (DRY — per Codex consensus)
-- [ ] Add `Pool::var_idx_for_id(var_id: u32) -> Option<Idx>` to `pool/accessors.rs`
-- [ ] Refactor `monomorphization.rs:231` to use `pool.var_idx_for_id(sv_id)`
-- [ ] Refactor `monomorphization.rs:297` to use `pool.var_idx_for_id(sv_id)`
+- [x] Add `Pool::var_idx_for_id(var_id: u32) -> Option<Idx>` to `pool/accessors.rs`
+- [x] Refactor `monomorphization.rs:231` to use `pool.var_idx_for_id(sv_id)`
+- [x] Refactor `monomorphization.rs:297` to use `pool.var_idx_for_id(sv_id)`
 
 ### 3b. Validator changes
-- [ ] Add `scheme_var_ids: &[u32]` parameter to `validate_body_types`
+- [x] Add `scheme_var_ids: &[u32]` parameter to `validate_body_types`
 - [ ] Build exempt root set using the new pool helper:
   ```rust
   fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
@@ -123,9 +123,9 @@ Pending — will run after /tp-help consensus.
       exempt
   }
   ```
-- [ ] Pass exempt set to `collect_first_unbound_var` (add parameter)
-- [ ] In `VarState::Unbound` arm: check if var_id is in exempt set before emitting E2005
-- [ ] Update test helper `run()` to accept `scheme_var_ids` parameter (existing tests pass empty slice)
+- [x] Pass exempt set to `collect_first_unbound_var` (add parameter)
+- [x] In `VarState::Unbound` arm: check if var_id is in exempt set before emitting E2005
+- [x] Update test helper `run()` to accept `scheme_var_ids` parameter (existing tests pass empty slice)
 
 ---
 
@@ -137,14 +137,14 @@ Pending — will run after /tp-help consensus.
 
 ## 4. Completion Checklist
 
-- [ ] All new tests pass unchanged after fix (no test modifications needed)
-- [ ] Matrix completeness verified — T13-T16 cover fresh-var exemption, nesting, mixed exempt/non-exempt
-- [ ] Debug AND release builds pass (`cargo b && cargo b --release`)
-- [ ] Interpreter and LLVM produce identical results for all new tests (dual-execution parity)
-- [ ] `timeout 150 ./test-all.sh` green — no regressions
-- [ ] `timeout 150 ./clippy-all.sh` green
-- [ ] `cargo test -p ori_types` green
-- [ ] `/commit-push` — commit all changes before review
+- [x] All new tests pass unchanged after fix (no test modifications needed)
+- [x] Matrix completeness verified — T13-T16 cover fresh-var exemption, nesting, mixed exempt/non-exempt
+- [x] Debug AND release builds pass (`cargo b && cargo b --release`)
+- [x] Interpreter and LLVM produce identical results for all new tests (dual-execution parity — these are typeck-level tests, no codegen path)
+- [x] `timeout 150 ./test-all.sh` green — 15,345 passed, 0 failed (LLVM backend crash = BUG-04-030, pre-existing)
+- [x] `timeout 150 ./clippy-all.sh` green
+- [x] `cargo test -p ori_types` green — 16/16 validator tests
+- [x] `/commit-push` — committed at 30695c0f
 - [ ] Plan TPR (Phase 2.5) — pending
 - [ ] `/tpr-review` (Phase 5 — code review) passed
 - [ ] `/impl-hygiene-review` passed
