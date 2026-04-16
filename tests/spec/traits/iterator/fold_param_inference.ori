@@ -1,0 +1,65 @@
+use std.testing { assert_eq }
+
+// BUG-02-009: fold/rfold closure's accumulator param must resolve even when
+// the closure body doesn't constrain it through operations.
+
+// Case 1: accumulator unused — body returns constant
+@fold_unused_acc () -> int = {
+    let items = ["a", "b", "c"];
+    items.iter().fold(initial: 0, op: (acc, _x) -> 42)
+}
+
+@test_fold_unused_acc tests @fold_unused_acc () -> void = {
+    // fold with 3 items, body always returns 42: 42 (after first), 42 (after second), 42 (after third)
+    assert_eq(actual: fold_unused_acc(), expected: 42)
+}
+
+// Case 2: neither param used — body returns constant
+@fold_neither_param_used () -> int = {
+    let items = [1, 2, 3];
+    items.iter().fold(initial: 0, op: (_a, _b) -> 99)
+}
+
+@test_fold_neither_param_used tests @fold_neither_param_used () -> void = {
+    assert_eq(actual: fold_neither_param_used(), expected: 99)
+}
+
+// Case 3: accumulator returned directly (sanity — closure_ret unifies with ret_ty)
+@fold_acc_passthrough () -> int = {
+    let items = ["x", "y"];
+    items.iter().fold(initial: 7, op: (acc, _x) -> acc)
+}
+
+@test_fold_acc_passthrough tests @fold_acc_passthrough () -> void = {
+    assert_eq(actual: fold_acc_passthrough(), expected: 7)
+}
+
+// Case 4: rfold with unused accumulator
+@rfold_unused_acc () -> int = {
+    let items = [10, 20, 30];
+    items.iter().rfold(initial: 0, op: (acc, _x) -> 1)
+}
+
+@test_rfold_unused_acc tests @rfold_unused_acc () -> void = {
+    assert_eq(actual: rfold_unused_acc(), expected: 1)
+}
+
+// Case 5: fold with acc + x (regression guard — must keep working)
+@fold_acc_plus_elem () -> int = {
+    let items = [1, 2, 3];
+    items.iter().fold(initial: 0, op: (acc, x) -> acc + x)
+}
+
+@test_fold_acc_plus_elem tests @fold_acc_plus_elem () -> void = {
+    assert_eq(actual: fold_acc_plus_elem(), expected: 6)
+}
+
+// Case 6: fold on str list with unused acc (cross-type: str elem, int acc)
+@fold_str_unused_acc () -> int = {
+    let words = ["hello", "world"];
+    words.iter().fold(initial: 0, op: (_acc, _word) -> 0)
+}
+
+@test_fold_str_unused_acc tests @fold_str_unused_acc () -> void = {
+    assert_eq(actual: fold_str_unused_acc(), expected: 0)
+}
