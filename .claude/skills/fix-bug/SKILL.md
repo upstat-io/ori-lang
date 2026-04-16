@@ -306,8 +306,6 @@ This is NOT `/tp-help`'s usual "stuck help" use case — it is **design consensu
 
 **Interaction with Phase 1.5**: If `/tp-help` reveals the bug is actually systemic (requires architectural change across 4+ files, new abstractions, cross-crate redesign), **return to Phase 1.5** and re-assess.
 
-**Runtime expectation**: `/tp-help` is ~10–15 min per round (dominated by gemini wall time). Budget 10–45 min for Phase 1.75.
-
 ## Phase 2: Finalize the Fix Section File
 
 The fix section file already exists from Phase 1.6. After `/tp-help` consensus (Phase 1.75), finalize it:
@@ -357,8 +355,6 @@ When skipped, record in the fix section's §2.5: `Plan TPR: Skipped — {severit
 2. **Handle findings** — fix issues in the plan. Re-run Plan TPR if findings were significant.
 3. **Update §2.5 Plan TPR Findings** in the fix section with the findings and resolutions.
 4. **Proceed to Phase 3** only when Plan TPR is clean.
-
-**Runtime expectation**: ~20–45 min per round.
 
 ## Phase 3: TDD — Write Tests First
 

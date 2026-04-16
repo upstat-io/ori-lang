@@ -1,6 +1,6 @@
 ---
 name: review-plan
-description: Review and improve a plan via a 6-phase pipeline. Each phase runs in its own Sonnet sub-agent via Agent({}); the Opus parent handles only path normalization, cross-plan invalidation judgment, and the final verdict. Change `model:` on the Step 5 Agent dispatch if empirical results show Sonnet produces vague edits.
+description: Review and improve a plan via a 6-phase pipeline. Each phase runs as a sub-agent via Agent({}); the parent handles path normalization, cross-plan invalidation, and the final verdict.
 argument-hint: "<plan-path>"
 ---
 
@@ -8,7 +8,7 @@ argument-hint: "<plan-path>"
 
 `/review-plan <plan-path>` — review and improve a plan. `plan-path` is a plan directory (whole-plan mode) or a single section file (single-section mode).
 
-The parent does Step 1 inline, dispatches each of Steps 2–8 as an independent Sonnet `Agent({})` sub-agent reading a step-specific `.md` protocol file, then handles Steps 8.5 and 9 on Opus.
+The parent does Step 1 inline, dispatches each of Steps 2–8 as an independent `Agent({})` sub-agent reading a step-specific `.md` protocol file, then handles Steps 8.5 and 9 inline.
 
 ## Reviewed-field semantics
 
@@ -80,8 +80,6 @@ handoff JSON (escalate: true) and stop. The parent handles escalations.
 | 5 | `5-editor` | `step-5-editor.md` | `opus` | `/tmp/review-plan-editor.json` |
 | 6 | `6-tpr` | `step-6-tpr.md` | `sonnet` | `/tmp/review-plan-tpr.json` |
 | 7+8 | `7-8-verify` | `step-7-8-verify.md` | `sonnet` | `/tmp/review-plan-verify.json` |
-
-**Model policy note:** Step 5 (the editor) runs on Sonnet by current policy. If empirical convergence metrics show Sonnet produces vague edits, change the Step 5 dispatch's `<MODEL>` to `opus` — no other file changes required.
 
 ## Escalation handling (MANDATORY)
 

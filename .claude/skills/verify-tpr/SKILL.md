@@ -9,7 +9,7 @@ argument-hint: "<section-file-path>"
 
 Triage all unchecked Third Party Review findings in a plan section file. This skill is invoked by `/continue-roadmap` (Step 1.9) when a section has `third_party_review.status: findings`.
 
-**This skill runs on Opus** because TPR triage requires deep codebase validation, spec cross-referencing, and judgment about whether findings are factually correct vs. rationalized dismissals.
+TPR triage requires deep codebase validation, spec cross-referencing, and judgment about whether findings are factually correct vs. rationalized dismissals.
 
 ## Arguments
 
@@ -150,4 +150,4 @@ TPR Triage Complete: <section-file>
 
 ## Quality Standard
 
-The entire point of this skill running on Opus is to prevent soft accepts — findings marked `[x]` with deferral language instead of actual fixes or properly-anchored blocked tasks. Every resolution must either change code or point to a concrete, verifiable blocker. "We'll handle it later" is not a resolution.
+The entire point of this skill is to prevent soft accepts — findings marked `[x]` with deferral language instead of actual fixes or properly-anchored blocked tasks. Every resolution must either change code or point to a concrete, verifiable blocker. "We'll handle it later" is not a resolution.

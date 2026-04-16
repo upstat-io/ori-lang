@@ -1,13 +1,13 @@
 ---
 name: roadmap-work
-description: Execute a roadmap subsection on Opus. Invoked by /continue-roadmap (Sonnet) at its Step 6 handoff after the user confirms which subsection to work on. Reads code on Opus, writes code on Opus, invokes /fix-bug / /tpr-review / /impl-hygiene-review as nested skills. Not invoked directly by the user — always chained from /continue-roadmap.
+description: Execute a roadmap subsection. Invoked by /continue-roadmap at its Step 6 handoff after the user confirms which subsection to work on. Reads code, writes code, invokes /fix-bug / /tpr-review / /impl-hygiene-review as nested skills. Not invoked directly by the user — always chained from /continue-roadmap.
 argument-hint: "<plan-path>/<section-file> <subsection-id>"
 model: opus
 ---
 
-# Roadmap Work — Execute a Subsection on Opus
+# Roadmap Work — Execute a Subsection
 
-**Invoked by `/continue-roadmap` at its Step 6 handoff.** The parent Sonnet skill has already:
+**Invoked by `/continue-roadmap` at its Step 6 handoff.** The parent skill has already:
 
 1. Re-read CLAUDE.md.
 2. Scanned the roadmap, run all gates (schema, stale-frontmatter, unreviewed-plan, TPR triage, bug tracker, clean working tree).
@@ -16,24 +16,7 @@ model: opus
 5. Got the user's pacing choice (full-section / subsection-by-subsection).
 6. Identified the specific subsection to execute.
 
-Your job is the code-execution body that used to live in `/continue-roadmap` Step 6 — but running on Opus so the code reads and code writes benefit from Opus's judgment on Ori compiler invariants (ARC soundness, phase purity, type-system rules, spec conformance).
-
-## Rule of model usage
-
-**Opus for:**
-- Reading affected source files before editing
-- Writing code (Rust compiler code, Ori stdlib, Ori tests, Rust tests)
-- Triage decisions surfaced by `/tpr-review` (nested — inherits its own Opus triage phase)
-- Root-cause analysis in `/fix-bug` (nested)
-- `/impl-hygiene-review` findings interpretation (nested)
-
-**Sonnet for (delegate via `Agent(model: "sonnet")` subagents):**
-- Updating plan checkbox flips (`- [ ]` → `- [x]`) at subsection close-out
-- Frontmatter metadata updates (`updated:`, `status:`, `reviewed:`)
-- Progress summaries / retrospective report text
-- Running mechanical scripts (`./test-all.sh`, `diagnostics/*.sh`, `roadmap-scan.sh`)
-
-**Shell, nested skill invocations, and `/commit-push`** inherit their own model policies — no Opus vs Sonnet choice needed here.
+Your job is the code-execution body that used to live in `/continue-roadmap` Step 6. Reads and writes affect Ori compiler invariants (ARC soundness, phase purity, type-system rules, spec conformance), so do them in this skill's main context — do not delegate reads/writes to a sub-agent. Mechanical tasks (checkbox flips, frontmatter updates, progress summaries, mechanical shell runs) may be delegated to `Agent({})` sub-agents.
 
 ## Protocol
 
@@ -53,9 +36,9 @@ Follow the canonical intel-summary injection protocol:
 
 Per SSOT Step F / `/continue-roadmap` extension — use `file-symbols`, `callers`/`callees`, `similar` on section-body symbols to map blast radius before editing.
 
-### Step 3: Read affected source code (Opus-mandatory)
+### Step 3: Read affected source code (MANDATORY in main context)
 
-Read the code paths the subsection will touch **before** modifying anything. This read feeds directly into your edit decisions — per the user's empirical experience, Opus produces materially better Ori compiler code, and pre-edit reads are inseparable from the edit quality. Do not delegate this read to a Sonnet subagent; same-model-read-and-write is the correctness invariant.
+Read the code paths the subsection will touch **before** modifying anything. This read feeds directly into your edit decisions. Do not delegate this read to a sub-agent — same-context read-and-write is the correctness invariant.
 
 ### Step 4: Execute the subsection's checkboxes
 

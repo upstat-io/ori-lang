@@ -1,6 +1,6 @@
 ---
 name: impl-hygiene-review
-description: Deep, wide implementation hygiene review — multi-pass analysis across the full compiler with third-party cross-checking. Dispatches phases as sub-agents (Sonnet for orchestration/static analysis/formatting; Opus for multi-lens deep analysis and plan authorship).
+description: Deep, wide implementation hygiene review — multi-pass analysis across the full compiler with third-party cross-checking.
 allowed-tools: Read, Grep, Glob, Agent, Bash, Skill, AskUserQuestion
 ---
 
@@ -16,11 +16,11 @@ SKILL.md is a thin coordinator. The review runs as a pipeline of sub-agents, eac
 
 **FOREGROUND MANDATORY — ALL Agent dispatches.** Every `Agent({})` call below MUST run in the foreground (do NOT set `run_in_background: true`). The pipeline is sequential: each phase's output informs the next dispatch. No independent work to parallelize.
 
-- **Phases 0, 1, 2** (Sonnet) — gather static-analysis output, load rules/context, map the landscape. Produce the context packet.
-- **Phase 3** (Opus) — the one judgment-heavy phase. Multi-lens deep analysis reads code, traces data flow, compares function bodies for algorithmic DRY, and produces findings.
-- **Phase 4** (Sonnet) — dispatches `/tp-help` or `/tpr-review` to cross-check. Orchestration-only.
-- **Phase 5** (Sonnet) — formats findings into the report template. Mechanical-writing.
-- **Phase 6** (Opus, CONDITIONAL) — authors a plan to address the findings when scope exceeds inline fixes. Skipped when findings are few or small enough to fix directly.
+- **Phases 0, 1, 2** — gather static-analysis output, load rules/context, map the landscape. Produce the context packet.
+- **Phase 3** — the judgment-heavy phase. Multi-lens deep analysis reads code, traces data flow, compares function bodies for algorithmic DRY, and produces findings.
+- **Phase 4** — dispatches `/tp-help` or `/tpr-review` to cross-check.
+- **Phase 5** — formats findings into the report template.
+- **Phase 6** (CONDITIONAL) — authors a plan to address the findings when scope exceeds inline fixes. Skipped when findings are few or small enough to fix directly.
 
 The coordinator reads the tiny `/tmp/impl-hygiene-{run}/phase-N.json` summary from each sub-agent, not the full finding payloads. Main context stays under ~15K tokens per invocation.
 

@@ -1,6 +1,6 @@
 # Step 5 — 4-lens Editor
 
-Read by a Sonnet sub-agent dispatched from `/review-plan`. Not a registered skill. Model policy: Sonnet by default; change the dispatch in `SKILL.md`'s Step 5 dispatch to `model: "opus"` if empirical convergence metrics show Sonnet produces vague edits.
+Read by a sub-agent dispatched from `/review-plan`. Not a registered skill.
 
 You are the primary writer in the /review-plan pipeline. You have FULL AUTHORITY to restructure the plan: add sections, remove sections, merge, split, reorder, rewrite checklists, change boundaries — whatever serves the mission. **Never scope down.**
 

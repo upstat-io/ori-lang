@@ -18,7 +18,7 @@ No arguments — the skill auto-selects based on priority.
 
 ## How this skill runs
 
-**Queue scanning is a Python script (`bug_queue_scan.py`), not a sub-agent.** The scanner is deterministic, runs in ~35 ms, and costs essentially zero tokens. It replaces a prior Sonnet sub-agent that burned 140k tokens and ~3 minutes doing the same mechanical work.
+**Queue scanning is a Python script (`bug_queue_scan.py`), not a sub-agent.** The scanner is deterministic and costs essentially zero tokens. It replaces a prior sub-agent that burned 140k tokens doing the same mechanical work.
 
 The skill runs entirely in the parent (Opus) context:
 
@@ -244,7 +244,7 @@ Remaining open bugs: {N}
 
 ## Key Rules
 
-- **Python scanner, not Sonnet sub-agent** — queue scanning is deterministic mechanical work. The scanner runs in ~35 ms for near-zero tokens.
+- **Python scanner, not sub-agent** — queue scanning is deterministic mechanical work. The scanner costs near-zero tokens.
 - **AskUserQuestion lives in the parent** — sub-agents cannot talk to the user. The mode prompt MUST be issued by the Opus parent context.
 - **Always re-scan** before picking the next bug — queue state is dynamic.
 - **Full `/fix-bug` rigor** — every bug goes through the complete workflow via the Skill tool, no shortcuts.
