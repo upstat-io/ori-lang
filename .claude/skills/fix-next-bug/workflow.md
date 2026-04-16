@@ -10,7 +10,7 @@
 **You DO:**
 - Read `plans/bug-tracker/section-*.md` files
 - Run `scripts/intel-query.sh` for blast-radius preview
-- Use `AskUserQuestion` for mode selection
+- Use `ToolSearch` to load `AskUserQuestion`, then use it for mode selection
 - Return the structured handoff block
 
 ---
@@ -90,7 +90,13 @@ This is a PREVIEW only — `/fix-bug` Phase 1 (investigation) runs its own full 
 
 ## Step 5: Choose Mode
 
-Use `AskUserQuestion`:
+First, load `AskUserQuestion` via `ToolSearch`:
+
+```
+ToolSearch({ query: "select:AskUserQuestion", max_results: 1 })
+```
+
+Wait for the schema result, then call `AskUserQuestion`:
 
 - **Question**: `Ready to start with: [BUG-{section}-{ordinal}][{severity}] {title}\n\nHow would you like to proceed?`
 - **Options**:
