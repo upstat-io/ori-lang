@@ -27,9 +27,11 @@ This file is read by the Sonnet sub-agent dispatched from SKILL.md. It contains 
 
 ## Runtime Budget
 
-`one-round.sh --mode raw-concat` calls `dual-invoke.sh` in the foreground with a 10-minute Bash timeout (`timeout: 600000`). Codex typically finishes in 1-3 minutes; Gemini may take 10-15 minutes on complex prompts.
+`one-round.sh --mode raw-concat` calls `dual-invoke.sh --mode raw` in the foreground with a 10-minute Bash timeout (`timeout: 600000`). Codex typically finishes in 1-3 minutes; Gemini may take 10-15 minutes on complex prompts.
 
-**Circuit-breaker auto-fallback:** `one-round.sh` consults the global per-user circuit-breaker state (shared across `/tpr-review`, `/tp-help`, `/review-work`, `/review-plan`) BEFORE launch. If a reviewer was recently tripped (e.g. a prior `/tpr-review` round hit 3 API failures on gemini within the last hour), `one-round.sh` auto-restricts to the healthy reviewer with a clear warning — no more "10-minute foreground timeout on a known-broken reviewer" failure mode.
+**Per-reviewer independent retry (2026-04-16):** Each reviewer runs under its own `supervisor.sh` with a self-contained retry loop. A fast-failing reviewer (e.g. gemini hitting API capacity) exhausts its 5 retries on its own clock — typically 2-10 minutes — without waiting for the partner. The partner continues to completion obliviously, so no work is thrown away. Each supervisor records its own success / failure to the shared circuit-breaker state the moment it settles.
+
+**Circuit-breaker auto-fallback:** `one-round.sh` consults the global per-user circuit-breaker state (shared across `/tpr-review`, `/tp-help`, `/review-work`, `/review-plan`) BEFORE launch. If a reviewer was recently tripped (e.g. a prior `/tpr-review` round hit 3 API failures on gemini within the last hour), `one-round.sh` auto-restricts to the healthy reviewer with a clear warning — no more "10-minute foreground timeout on a known-broken reviewer" failure mode. Because supervisors fire the breaker per-reviewer in real time, a degraded reviewer tripped mid-round during `/tpr-review` will auto-restrict the NEXT `/tp-help` invocation within 2-3 minutes instead of the prior 30+ minutes.
 
 For fast iteration or to explicitly restrict to one reviewer, set `ORI_TPR_REVIEWERS`:
 - `ORI_TPR_REVIEWERS=codex` — codex only (fast, ~1-3 min wall time, always within timeout)
@@ -202,10 +204,10 @@ Bash (foreground, timeout: 600000):
 
 1. **Circuit-breaker pre-check** — reads global state under `$HOME/.cache/ori-tpr-circuit/`. If a reviewer is tripped, auto-restricts `ORI_TPR_REVIEWERS` (operator explicit setting still wins). Aborts cleanly if BOTH tripped.
 2. **Worktree snapshot** BEFORE dual-invoke.
-3. **`dual-invoke.sh` launch** (plain, not the retry wrapper — concat mode is one-shot *semantically*, because retrying a consultation reshapes the question's meaning. Transport-level resilience comes from circuit-breaker accounting, not blind retry.)
-4. **Per-reviewer circuit-breaker update** — `success` on exit 0, `fail transport` on non-zero. Contributes to the shared state the next `/tp-help` or `/tpr-review` will consult.
+3. **`dual-invoke.sh --mode raw` launch** — orchestrates two `supervisor.sh` processes (one per reviewer) as backgrounded siblings. Each supervisor runs its own retry loop (up to `MAX_RETRIES=5` attempts per lib-retry.sh) with per-reviewer watchdog, backoff, and failure classification. The supervisor model means a fast-failing reviewer does NOT block the partner's wall time — each terminates independently.
+4. **Per-reviewer circuit-breaker update** — each supervisor calls `circuit-breaker.sh success` on clean completion or `circuit-breaker.sh fail <category>` on terminal give-up. No post-run aggregation needed at the one-round layer; the supervisors own that bookkeeping.
 5. **Worktree-guard compare** via the canonical `worktree-guard.sh compare` helper. Drift is logged as a warning; with `ORI_TPR_STRICT_WORKTREE=1` it escalates to a failure exit.
-6. **Raw-mode parsing** via `parse-codex-raw.py` / `parse-gemini-raw.py` — same SSOT the envelope parsers' raw siblings implement.
+6. **Raw-mode parsing** via `parse-codex-raw.py` / `parse-gemini-raw.py` — invoked inside each supervisor's `classify_reviewer_outcome` call (shared with envelope mode via `lib-retry.sh`). Successful raw parse writes the reviewer's prose to `$RUN/<reviewer>.envelope.json` (the filename is a generic "successful output" slot — in raw mode it holds plain text).
 7. **Sentinel emission** via `tp-help-sentinels.sh` — per-invocation token embedded in `<!-- tp-help-reviewer: ... -->` open/close markers. Output lands at `$RUN/concat.md` (or `--output <file>` if specified).
 
 On success, `one-round.sh` prints the output file path to stdout. On failure, exit codes are: 1 (both reviewers failed / both circuit-broken), 2 (usage), 3 (worktree strict-mode failure).

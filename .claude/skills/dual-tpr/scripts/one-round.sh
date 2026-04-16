@@ -150,7 +150,11 @@ fi
 # The retry wrapper already integrates circuit-breaker updates, selective
 # retry, and envelope-aware parsing. We preserve its contract exactly.
 if [[ "$MODE" == "envelope" ]]; then
-  exec "$SCRIPT_DIR/dual-invoke-with-retry.sh" \
+  # Per-reviewer retry is now handled by supervisor.sh inside dual-invoke.sh.
+  # The old dual-invoke-with-retry.sh shim still forwards here for legacy
+  # callers, but first-party callers go direct.
+  exec "$SCRIPT_DIR/dual-invoke.sh" \
+    --mode envelope \
     --run "$RUN" \
     --skill "$SKILL" \
     --codex-prompt "$CODEX_PROMPT" \
@@ -159,48 +163,25 @@ if [[ "$MODE" == "envelope" ]]; then
 fi
 
 # ── Raw-concat mode ────────────────────────────────────────────────────
-# Unlike envelope mode, there's no schema to validate against and no
-# findings to merge. We still want: circuit-breaker awareness (handled
-# above), worktree-guard, and bounded retry on transient infra errors.
+# dual-invoke.sh --mode raw routes through supervisor.sh which handles:
+#   - per-reviewer retry (fast-failing reviewer doesn't block partner)
+#   - circuit-breaker bookkeeping (success / fail per reviewer)
+#   - watchdog + walltime cap per supervisor
+# Raw-mode supervisors use parse-*-raw.py; a "successful" raw parse writes
+# the raw concat output (no envelope schema). A supervisor give-up fires
+# the circuit-breaker so the NEXT /tp-help invocation auto-restricts to
+# the surviving reviewer instead of timing out on the degraded one.
 
 # Snapshot worktree BEFORE the reviewers run.
 git status --porcelain > "$RUN/worktree.before" || true
 
-# Launch dual-invoke.sh. One attempt. The /tp-help semantic contract is
-# "one consultation" — retrying the consultation itself reshapes its
-# meaning (you'd be getting a different question-answer pair). Transient
-# API capacity errors are categorized through circuit-breaker.sh post-run,
-# which means the NEXT /tp-help invocation auto-drops the degraded
-# reviewer rather than this one retrying blind.
 "$SCRIPT_DIR/dual-invoke.sh" \
+  --mode raw \
   --run "$RUN" \
   --skill "$SKILL" \
   --codex-prompt "$CODEX_PROMPT" \
   --gemini-prompt "$GEMINI_PROMPT" >&2 || DUAL_EXIT=$?
 DUAL_EXIT="${DUAL_EXIT:-0}"
-
-# Per-reviewer outcome → circuit-breaker state update.
-# dual-invoke.sh writes per-reviewer exit codes to $RUN/<reviewer>.exit.
-# Missing .exit file means the reviewer was skipped (ORI_TPR_REVIEWERS
-# filter or circuit-breaker-driven auto-restriction above).
-for rev in codex gemini; do
-  [[ -f "$RUN/$rev.skipped" ]] && continue
-  if [[ -f "$RUN/$rev.exit" ]]; then
-    code="$(cat "$RUN/$rev.exit" 2>/dev/null || echo 99)"
-    if [[ "$code" == "0" ]]; then
-      "$SCRIPT_DIR/circuit-breaker.sh" success "$rev" >/dev/null 2>&1 || true
-    else
-      # Classify as transport — reviewer process non-zero OR infra error.
-      # The distinction between api/transport/semantic lives in the
-      # envelope parsers, but raw-concat mode has no envelope. Treat
-      # any non-zero exit as "transport-ish" for circuit-breaker
-      # accounting — the threshold is 3-in-1-hour which is lenient
-      # enough to tolerate occasional flakes while still catching
-      # genuinely degraded providers.
-      "$SCRIPT_DIR/circuit-breaker.sh" fail "$rev" transport >/dev/null 2>&1 || true
-    fi
-  fi
-done
 
 # Worktree-guard compare (delegates to canonical helper).
 git status --porcelain > "$RUN/worktree.after" || true
@@ -214,17 +195,26 @@ if ! "$SCRIPT_DIR/worktree-guard.sh" compare \
   fi
 fi
 
-# Parse both JSONL streams with the raw parsers.
+# Raw-mode supervisors write their parsed raw output to the "envelope" slot
+# (that's how classify_reviewer_outcome signals success: a non-empty output
+# file). In raw mode, <reviewer>.envelope.json contains the plain-text
+# response, not a JSON envelope. Read it if present; otherwise fall back
+# to a "reviewer unavailable" placeholder (mirrors the old behavior for
+# parse failures).
 codex_raw=""
 gemini_raw=""
 if [[ ! -f "$RUN/codex.skipped" ]]; then
-  if ! codex_raw="$(python3 "$SCRIPT_DIR/parse-codex-raw.py" --jsonl "$RUN/codex.jsonl" 2>"$RUN/codex.parse.err")"; then
-    codex_raw="(codex response unavailable — see $RUN/codex.jsonl and $RUN/codex.parse.err)"
+  if [[ -s "$RUN/codex.envelope.json" ]]; then
+    codex_raw="$(cat "$RUN/codex.envelope.json")"
+  else
+    codex_raw="(codex response unavailable — see $RUN/codex.jsonl and $RUN/codex.parse-error)"
   fi
 fi
 if [[ ! -f "$RUN/gemini.skipped" ]]; then
-  if ! gemini_raw="$(python3 "$SCRIPT_DIR/parse-gemini-raw.py" --jsonl "$RUN/gemini.jsonl" 2>"$RUN/gemini.parse.err")"; then
-    gemini_raw="(gemini response unavailable — see $RUN/gemini.jsonl and $RUN/gemini.parse.err)"
+  if [[ -s "$RUN/gemini.envelope.json" ]]; then
+    gemini_raw="$(cat "$RUN/gemini.envelope.json")"
+  else
+    gemini_raw="(gemini response unavailable — see $RUN/gemini.jsonl and $RUN/gemini.parse-error)"
   fi
 fi
 

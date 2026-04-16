@@ -1,485 +1,176 @@
 #!/usr/bin/env bash
-# dual-invoke.sh — launch codex AND gemini in parallel for one review round
+# dual-invoke.sh — supervisor orchestrator for dual-source reviewers.
 #
-# Usage:
-#   .claude/skills/dual-tpr/scripts/dual-invoke.sh \
-#       --run "$RUN" \
-#       --skill review-work \
-#       --codex-prompt "$RUN/codex.prompt.md" \
-#       --gemini-prompt "$RUN/gemini.prompt.md" \
-#       --schema .claude/skills/dual-tpr/findings-schema.json
+# USAGE
+#   dual-invoke.sh \
+#     --run "$RUN" \
+#     --skill review-work \
+#     --codex-prompt "$RUN/codex.prompt.md" \
+#     --gemini-prompt "$RUN/gemini.prompt.md" \
+#     [--schema .claude/skills/dual-tpr/findings-schema.json] \
+#     [--mode {envelope|raw}]         # default: envelope
 #
-# Outputs (placed in $RUN):
-#   $RUN/codex.jsonl       — codex's stdout (item.completed JSONL stream)
-#   $RUN/gemini.jsonl      — gemini's stdout (stream-json JSONL stream)
-#   $RUN/codex.stderr      — codex's stderr (API errors, diagnostics)
-#   $RUN/gemini.stderr     — gemini's stderr (API errors, diagnostics)
-#   $RUN/codex.exit        — codex exit code
-#   $RUN/gemini.exit       — gemini exit code
-#   $RUN/codex.walltime    — codex wall time in seconds
-#   $RUN/gemini.walltime   — gemini wall time in seconds
-#   $RUN/round.log         — orchestration log
+# WHAT IT DOES
+#   Launches two supervisor.sh processes — one per reviewer — as backgrounded
+#   siblings. Each supervisor runs its own retry loop on its own clock: a
+#   fast-failing reviewer exhausts retries in 2-10 min independently of the
+#   partner's 15-20 min wall time. `wait` on both supervisors — each returns
+#   when it's done, not when the partner is done.
 #
-# Returns: 0 if BOTH reviewers exited 0; non-zero if either failed.
-#          Note: this script is launch-only; success is gated on parser
-#          validation in 02.2/02.3, not just exit code 0.
-
+# CONTRACT (exit code)
+#   0  — at least one reviewer succeeded (envelope.json materialized).
+#        The operator (one-round.sh, /tpr-review) decides whether a single-
+#        reviewer round is acceptable per its own policy.
+#   1  — all launched reviewers gave up (every supervisor wrote .gave_up).
+#   2  — usage error.
+#
+# HISTORY
+#   Before 2026-04-16: dual-invoke.sh launched reviewers directly and watched
+#   both PIDs from a shared retry wrapper (dual-invoke-with-retry.sh). Retry
+#   was round-coupled — attempt N+1 started only when BOTH reviewers from
+#   attempt N had settled. A fast-failing gemini waited on codex's wall time
+#   before it could retry, and by the time circuit-breaker accumulated 5
+#   failures, 45+ minutes had passed. Supervisors fix that by moving the
+#   retry loop into a per-reviewer process. See supervisor.sh for details.
 set -euo pipefail
 
-# Parse args (minimal flag handling, no getopts to keep it tiny)
-RUN=""; SKILL=""; CODEX_PROMPT=""; GEMINI_PROMPT=""; SCHEMA=""
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+RUN=""
+SKILL=""
+CODEX_PROMPT=""
+GEMINI_PROMPT=""
+SCHEMA=""
+MODE="envelope"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --run)            RUN="$2"; shift 2 ;;
     --skill)          SKILL="$2"; shift 2 ;;
     --codex-prompt)   CODEX_PROMPT="$2"; shift 2 ;;
     --gemini-prompt)  GEMINI_PROMPT="$2"; shift 2 ;;
-    --schema)         SCHEMA="$2"; shift 2 ;;  # lint-transport-contract: known-dead BUG-08-003 (--output-schema removed, flag kept for caller backward compat)
-    *) echo "unknown arg: $1" >&2; exit 2 ;;
+    --schema)         SCHEMA="$2"; shift 2 ;;
+    --mode)           MODE="$2"; shift 2 ;;
+    -h|--help)
+      sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0 ;;
+    *)
+      echo "dual-invoke.sh: unknown arg: $1" >&2
+      exit 2 ;;
   esac
 done
 
-# --schema is OPTIONAL. BUG-08-003 removed the `--output-schema` passthrough
-# to codex (see the comment block at lines 82-94 below), making $SCHEMA dead
-# code inside this script. The flag is preserved in the arg parser above for
-# caller-signature backward compatibility (dual-invoke-with-retry.sh still
-# passes it), but it is NOT enforced here.
-[[ -z "$RUN" || -z "$SKILL" || -z "$CODEX_PROMPT" || -z "$GEMINI_PROMPT" ]] && {
-  echo "usage: dual-invoke.sh --run DIR --skill NAME --codex-prompt FILE --gemini-prompt FILE [--schema FILE]" >&2
-  exit 2
-}
+[[ -z "$RUN"           ]] && { echo "dual-invoke.sh: --run required" >&2; exit 2; }
+[[ -z "$CODEX_PROMPT"  ]] && { echo "dual-invoke.sh: --codex-prompt required" >&2; exit 2; }
+[[ -z "$GEMINI_PROMPT" ]] && { echo "dual-invoke.sh: --gemini-prompt required" >&2; exit 2; }
+# SKILL falls back to review-work for legacy callers. First-party callers always pass it.
+[[ -z "$SKILL" ]] && SKILL="review-work"
+case "$MODE" in envelope|raw) ;; *)
+  echo "dual-invoke.sh: --mode must be envelope|raw (got '$MODE')" >&2; exit 2 ;;
+esac
+if [[ "$MODE" == "envelope" && -z "$SCHEMA" ]]; then
+  echo "dual-invoke.sh: --schema required when --mode envelope" >&2; exit 2
+fi
 
-# ORI_TPR_REVIEWERS runtime toggle (§07.2, moved from §08.2). Lets callers
-# restrict the round to a single reviewer for faster iteration (dual-source
-# wall time ~10x single-source because gemini is the bottleneck). Default is
-# `both` so every existing caller (§04/§05 wrappers, dual-invoke-with-retry.sh)
-# runs unchanged. Backward-compat invariant: `unset ORI_TPR_REVIEWERS` MUST
-# behave identically to pre-toggle dual-invoke.sh.
+mkdir -p "$RUN"
+: > "$RUN/round.log"  # truncate per-invocation log
+echo "[$(date +%s)] dual-invoke start (skill=$SKILL run=$RUN mode=$MODE)" >> "$RUN/round.log"
+
+# ── ORI_TPR_REVIEWERS validation ──────────────────────────────────────
+# Supervisors themselves consult this env var and self-skip when excluded.
+# We only validate the string here so invalid values fail fast.
 REVIEWERS="${ORI_TPR_REVIEWERS:-both}"
 if [[ "$REVIEWERS" != "codex" && "$REVIEWERS" != "gemini" && "$REVIEWERS" != "both" ]]; then
   echo "invalid ORI_TPR_REVIEWERS: $REVIEWERS (must be codex|gemini|both)" >&2
   exit 2
 fi
 
-echo "[$(date +%s)] dual-invoke start (skill=$SKILL run=$RUN reviewers=$REVIEWERS)" >> "$RUN/round.log"
+# ── Supervisor dispatch ───────────────────────────────────────────────
+# Launch each supervisor as a backgrounded child. The supervisor handles its
+# own per-attempt launch, watchdog, parse/classify, retry, and circuit-breaker
+# bookkeeping. We just wait on the PIDs.
+CODEX_SUP_PID=""
+GEMINI_SUP_PID=""
 
-# Clear stale per-reviewer state from a prior attempt for reviewers that WILL
-# run in this launch. This is load-bearing for dual-invoke-with-retry.sh's
-# selective-retry path: when the wrapper re-runs a reviewer after a failure,
-# the prior attempt's .exit / .walltime / .parse-error / .envelope.json files
-# are stale and must be cleared so status-check.sh correctly shows "running"
-# during the re-run rather than reading the prior .exit value.
-#
-# CRITICAL asymmetry: for reviewers that are being SKIPPED-via-narrowing on
-# this attempt, we must NOT touch their state. dual-invoke-with-retry.sh relies
-# on the prior-attempt .exit / .envelope.json surviving across the retry so a
-# successful reviewer from attempt N is preserved into attempt N+1.
-#
-# The .stalled marker is also cleared so a subsequent normal run after a
-# watchdog-killed run doesn't inherit the stalled state.
-if [[ "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ]]; then
-  rm -f "$RUN/codex.exit" "$RUN/codex.walltime" \
-        "$RUN/codex.parse-error" "$RUN/codex.envelope.json" \
-        "$RUN/codex.skipped" "$RUN/codex.stalled" "$RUN/codex.stderr"
-fi
-if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
-  rm -f "$RUN/gemini.exit" "$RUN/gemini.walltime" \
-        "$RUN/gemini.parse-error" "$RUN/gemini.envelope.json" \
-        "$RUN/gemini.skipped" "$RUN/gemini.stalled" "$RUN/gemini.stderr"
-fi
+SUPERVISOR="$SCRIPT_DIR/supervisor.sh"
 
-# Track child PIDs so we can clean them up on early exit (BUG-08-005). Bash
-# inherits this script's traps into subshells, but the parent tracks the PIDs
-# explicitly and the EXIT trap below kills any survivors.
-CODEX_PID=""
-GEMINI_PID=""
-CODEX_WATCHDOG_PID=""
-GEMINI_WATCHDOG_PID=""
-
-# On any exit (success, failure, signal), reap any still-running children to
-# prevent orphaned reviewer subprocesses from continuing past dual-invoke.sh's
-# lifetime (BUG-08-005). The orphan would otherwise keep writing to
-# $RUN/{codex,gemini}.jsonl after the parent exited, racing with subsequent
-# retry attempts.
-cleanup_children() {
-  local pid
-  # Kill watchdog processes first (they monitor reviewer PIDs)
-  for pid in "$CODEX_WATCHDOG_PID" "$GEMINI_WATCHDOG_PID"; do
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
-    fi
-  done
-  # Then kill reviewer processes
-  for pid in "$CODEX_PID" "$GEMINI_PID"; do
+# Cleanup on abnormal exit — reap any still-running supervisor.
+cleanup_supervisors() {
+  for pid in "$CODEX_SUP_PID" "$GEMINI_SUP_PID"; do
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
       kill -TERM "$pid" 2>/dev/null || true
-      # Give the child a moment to exit cleanly, then escalate to KILL
       sleep 0.5
-      if kill -0 "$pid" 2>/dev/null; then
-        kill -KILL "$pid" 2>/dev/null || true
-      fi
+      kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
     fi
   done
 }
-trap cleanup_children EXIT INT TERM
+trap cleanup_supervisors EXIT INT TERM
 
-# Launch codex in the background.
-#
-# BUG-08-004 fix: disable `set -e` inside the subshell so the trailing echo
-# statements ALWAYS run, even when the codex command exits non-zero. Without
-# this, a fast codex failure (e.g. OpenAI API rejection in <10s) would abort
-# the subshell at the failed `codex exec` line and never record the exit code,
-# walltime, or "codex finished" log entry. The trap pattern is the canonical
-# way to capture exit codes from a subshell that may abort.
-#
-# BUG-08-003 Option B: --output-schema is intentionally NOT passed. Passing
-# the schema causes codex to forward it to OpenAI's Structured Outputs API as
-# response_format.json_schema, which OpenAI enforces in strict mode — strict
-# mode requires `additionalProperties: false` on every object and every
-# property in the `required` array, a substantial rewrite that would make
-# codex's validation path asymmetric with gemini's (gemini uses Google's
-# Gemini API, which doesn't share the OpenAI strict-mode subset). Instead,
-# codex emits free-form JSON driven by the prompt template, and our
-# parse-codex.py + envelope_invariants.py validate it at the parser layer.
-# This keeps codex and gemini symmetric: both validated only at the parser
-# level, same failure modes, same retry classifier treatment. The schema
-# file remains one SSOT for envelope structure, and its code-level
-# invariants (in envelope_invariants.py) apply uniformly to both reviewers.
-# TPR-04-002-gemini: the subshell's final command must `exit "$CODEX_RC"`
-# so that the `wait $CODEX_PID` return code in the parent matches the real
-# codex exit code, rather than always being 0 from the last echo. The
-# parent script still falls back to reading codex.exit if the subshell is
-# killed before it can exit, but the wait RC is now a second redundant
-# signal — defense in depth against a corrupted .exit file.
-if [[ "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ]]; then
-  (
-    set +e
-    START=$(date +%s)
-    codex exec --full-auto --json --ephemeral "$(cat "$CODEX_PROMPT")" 2>"$RUN/codex.stderr" > "$RUN/codex.jsonl"
-    CODEX_RC=$?
-    echo "$CODEX_RC" > "$RUN/codex.exit"
-    echo "$(($(date +%s) - START))" > "$RUN/codex.walltime"
-    echo "[$(date +%s)] codex finished (rc=$CODEX_RC)" >> "$RUN/round.log"
-    if [[ "$CODEX_RC" != "0" && -s "$RUN/codex.stderr" ]]; then
-      echo "[$(date +%s)] codex stderr (first 500 chars): $(head -c 500 "$RUN/codex.stderr")" >> "$RUN/round.log"
-    fi
-    exit "$CODEX_RC"
-  ) &
-  CODEX_PID=$!
-else
-  # Skipped reviewer: distinguish two cases.
-  #
-  # Case 1 — reviewer already completed in a prior attempt:
-  #   dual-invoke-with-retry.sh's selective-retry path (2026-04-11 fix) narrows
-  #   a retry to ONLY the failing reviewer. On attempt N+1 the successful
-  #   reviewer from attempt N is skipped — but its .exit and .envelope.json
-  #   must be preserved as the authoritative state. Writing a .skipped marker
-  #   here would clobber status-check.sh's view (.skipped takes precedence
-  #   over .exit in the state diagram) and would falsely show the completed
-  #   reviewer as "skipped" on the final status read.
-  #
-  # Case 2 — reviewer never ran in this wrapper invocation:
-  #   Operator explicitly set ORI_TPR_REVIEWERS=gemini (or codex). No prior
-  #   state exists. Write the .skipped marker so status-check.sh can
-  #   distinguish "filtered out at launch" from "still running" (§07.3 TPR
-  #   finding: without the marker a filtered-out reviewer showed as running
-  #   forever because no .exit was ever written).
-  #
-  # The .exit file existence is the discriminator: if present, the reviewer
-  # completed (Case 1); if absent, it's a fresh skip (Case 2).
-  if [[ -f "$RUN/codex.exit" ]]; then
-    echo "[$(date +%s)] codex preserved from prior attempt (.exit present, ORI_TPR_REVIEWERS=$REVIEWERS narrowed)" >> "$RUN/round.log"
-  else
-    echo "ORI_TPR_REVIEWERS=$REVIEWERS" > "$RUN/codex.skipped"
-    echo "[$(date +%s)] codex skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
-  fi
+# Build supervisor arg arrays (mode-dependent parts omitted when empty).
+codex_args=(--reviewer codex --run "$RUN" --prompt "$CODEX_PROMPT" --mode "$MODE" --skill "$SKILL")
+gemini_args=(--reviewer gemini --run "$RUN" --prompt "$GEMINI_PROMPT" --mode "$MODE" --skill "$SKILL")
+if [[ "$MODE" == "envelope" ]]; then
+  codex_args+=(--schema "$SCHEMA")
+  gemini_args+=(--schema "$SCHEMA")
 fi
 
-# Launch gemini in the background. Same BUG-08-004 + TPR-04-002-gemini fix.
-if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
-  (
-    set +e
-    START=$(date +%s)
-    gemini -m gemini-3.1-pro-preview --approval-mode yolo --output-format stream-json -p "$(cat "$GEMINI_PROMPT")" 2>"$RUN/gemini.stderr" > "$RUN/gemini.jsonl"
-    GEMINI_RC=$?
-    echo "$GEMINI_RC" > "$RUN/gemini.exit"
-    echo "$(($(date +%s) - START))" > "$RUN/gemini.walltime"
-    echo "[$(date +%s)] gemini finished (rc=$GEMINI_RC)" >> "$RUN/round.log"
-    if [[ "$GEMINI_RC" != "0" && -s "$RUN/gemini.stderr" ]]; then
-      echo "[$(date +%s)] gemini stderr (first 500 chars): $(head -c 500 "$RUN/gemini.stderr")" >> "$RUN/round.log"
-    fi
-    exit "$GEMINI_RC"
-  ) &
-  GEMINI_PID=$!
-else
-  # Skipped reviewer: see the codex-side comment above for the full Case 1
-  # (prior-attempt preserved via selective retry) vs Case 2 (fresh skip)
-  # rationale.
-  if [[ -f "$RUN/gemini.exit" ]]; then
-    echo "[$(date +%s)] gemini preserved from prior attempt (.exit present, ORI_TPR_REVIEWERS=$REVIEWERS narrowed)" >> "$RUN/round.log"
-  else
-    echo "ORI_TPR_REVIEWERS=$REVIEWERS" > "$RUN/gemini.skipped"
-    echo "[$(date +%s)] gemini skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
-  fi
-fi
+# Launch. Each supervisor's own ORI_TPR_REVIEWERS logic decides whether to
+# actually run or self-skip.
+"$SUPERVISOR" "${codex_args[@]}" &
+CODEX_SUP_PID=$!
+"$SUPERVISOR" "${gemini_args[@]}" &
+GEMINI_SUP_PID=$!
 
-# --- Stall detection watchdog ---
-#
-# Instead of bare `wait`, run a background watchdog that periodically checks
-# each reviewer for stall conditions using reviewer-stall-detect.sh. If a
-# reviewer is IDLE (no JSONL growth, no I/O, no CPU) for STALL_PATIENCE
-# consecutive checks, the watchdog kills it. This catches server-side API
-# hangs where the reviewer process is alive but receiving no data.
-#
-# The watchdog checks three independent signals:
-#   1. JSONL file size (reviewer output)
-#   2. /proc/PID/io rchar (all data read by process, including network)
-#   3. /proc/PID/stat utime+stime (CPU ticks consumed)
-# A reviewer is only classified as IDLE when ALL THREE are frozen.
-#
-# Config: per-reviewer grace + shared check interval + per-reviewer patience,
-# plus an absolute walltime ceiling that kills regardless of I/O activity.
-#
-# Reviewers are budgeted 20 minutes each. That's enough for a thorough
-# review of a normal scope (compiler crate, plan section, skill refactor).
-# Reviews that need longer are a signal of scope, not budget — split the
-# scope or increase the cap explicitly via env for a specific invocation.
-#
-# Default budgets (symmetric — codex and gemini get the same ceiling):
-#   grace        600s  (10 min)  — no stall detection during this window
-#   interval     180s  (3 min)   — peek cadence, shared
-#   patience     3                — consecutive IDLE peeks before kill
-#   stall-kill   ~19 min         — grace + patience × interval = 600 + 540
-#   absolute cap 1200s (20 min)  — hard ceiling, wins over stall detection
-#
-# Absolute cap (ORI_TPR_{CODEX,GEMINI}_MAX_WALLTIME): catches the slow-drip
-# pathology where a reviewer emits one JSONL line every 20-60s forever —
-# technically never "idle" by stall detection but still unproductive. Also
-# bounds the worst-case waste from a compute-bound but unproductive run.
-#
-# The grace period is critical because normal API round-trips (LLM
-# thinking, tool-use requests, streaming pauses) freeze all three /proc
-# signals for 30-90+ seconds — indistinguishable from a hung process.
-# Without the grace period, the watchdog false-positives on healthy
-# reviews that are simply between API calls. The watchdog is a safety
-# net for truly abandoned processes, not an early-kill mechanism.
-#
-# Interaction with the /tpr-review global loop walltime cap (SKILL.md,
-# default 45 min): a single round does setup + triage ≈ max(codex, gemini)
-# + opus triage work. With both reviewers capped at 20 min and triage
-# typically 5-10 min, a round fits in ~30 min worst case, leaving the
-# 45-min loop budget room for an overlap round or convergence check.
-STALL_GRACE_CODEX="${ORI_TPR_STALL_GRACE_CODEX:-${ORI_TPR_STALL_GRACE:-600}}"
-STALL_GRACE_GEMINI="${ORI_TPR_STALL_GRACE_GEMINI:-${ORI_TPR_STALL_GRACE:-600}}"
-STALL_CHECK_INTERVAL="${ORI_TPR_STALL_INTERVAL:-180}"
-STALL_PATIENCE_CODEX="${ORI_TPR_STALL_PATIENCE_CODEX:-${ORI_TPR_STALL_PATIENCE:-3}}"
-STALL_PATIENCE_GEMINI="${ORI_TPR_STALL_PATIENCE_GEMINI:-${ORI_TPR_STALL_PATIENCE:-3}}"
-CODEX_MAX_WALLTIME="${ORI_TPR_CODEX_MAX_WALLTIME:-1200}"
-GEMINI_MAX_WALLTIME="${ORI_TPR_GEMINI_MAX_WALLTIME:-1200}"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-STALL_DETECT="$SCRIPT_DIR/reviewer-stall-detect.sh"
+echo "[$(date +%s)] dual-invoke dispatched supervisors (codex=$CODEX_SUP_PID gemini=$GEMINI_SUP_PID)" >> "$RUN/round.log"
 
-# Background watchdog function. Monitors one reviewer PID.
-# Args: $1=reviewer_name $2=pid $3=jsonl_path
-# Per-reviewer grace / patience / absolute-walltime are resolved from the
-# reviewer name so the function stays generic. The absolute walltime cap
-# fires regardless of I/O activity to catch slow-drip pathologies that
-# stall detection would otherwise miss (one token per 20-60s forever).
-watchdog_monitor() {
-  local name="$1" pid="$2" jsonl="$3"
-  local idle_count=0
-  local snapshot_file="$RUN/${name}.stall-snapshot"
-  local start_time
-  start_time=$(date +%s)
-
-  # Resolve per-reviewer budgets
-  local grace patience max_walltime
-  case "$name" in
-    codex)
-      grace="$STALL_GRACE_CODEX"
-      patience="$STALL_PATIENCE_CODEX"
-      max_walltime="$CODEX_MAX_WALLTIME"
-      ;;
-    gemini)
-      grace="$STALL_GRACE_GEMINI"
-      patience="$STALL_PATIENCE_GEMINI"
-      max_walltime="$GEMINI_MAX_WALLTIME"
-      ;;
-    *)
-      # Unknown reviewer — use safer (gemini-tier) defaults
-      grace="$STALL_GRACE_GEMINI"
-      patience="$STALL_PATIENCE_GEMINI"
-      max_walltime="$GEMINI_MAX_WALLTIME"
-      ;;
-  esac
-
-  # Helper: enforce absolute walltime cap. Returns 0 and kills if over.
-  # Called at every peek (grace AND stall-detection phases).
-  check_absolute_cap() {
-    local elapsed=$(( $(date +%s) - start_time ))
-    if [[ $elapsed -ge $max_walltime ]]; then
-      echo "[$(date +%s)] watchdog: $name WALLTIME CAP — killing (elapsed=${elapsed}s >= cap=${max_walltime}s)" >> "$RUN/round.log"
-      echo "stalled_after=${elapsed}s reason=absolute_walltime_cap cap=${max_walltime}s" > "$RUN/${name}.stalled"
-      kill -TERM "$pid" 2>/dev/null || true
-      sleep 2
-      if kill -0 "$pid" 2>/dev/null; then
-        kill -KILL "$pid" 2>/dev/null || true
-      fi
-      return 0
-    fi
-    return 1
-  }
-
-  # Grace period: peek every STALL_CHECK_INTERVAL (default 3 min) — absolute
-  # cap is enforced even during grace (slow-drip hangs shouldn't get a free
-  # 20 min). Stall classification is suppressed during grace because normal
-  # API round-trips can freeze /proc signals for 30-90+s.
-  while kill -0 "$pid" 2>/dev/null; do
-    local elapsed=$(( $(date +%s) - start_time ))
-    if [[ $elapsed -ge $grace ]]; then
-      break
-    fi
-    if check_absolute_cap; then
-      return
-    fi
-    sleep "$STALL_CHECK_INTERVAL"
-  done
-
-  # Process exited during grace period — nothing to do
-  if ! kill -0 "$pid" 2>/dev/null; then
-    return
-  fi
-
-  echo "[$(date +%s)] watchdog: $name grace period elapsed (${grace}s) — stall detection active (interval=${STALL_CHECK_INTERVAL}s, patience=${patience}, absolute cap=${max_walltime}s)" >> "$RUN/round.log"
-
-  # Take initial snapshot for the stall-detection phase
-  "$STALL_DETECT" --snapshot --pid "$pid" --jsonl "$jsonl" --out "$snapshot_file" 2>/dev/null || true
-
-  while kill -0 "$pid" 2>/dev/null; do
-    sleep "$STALL_CHECK_INTERVAL"
-
-    # Skip if process already exited during sleep
-    kill -0 "$pid" 2>/dev/null || break
-
-    # Absolute walltime cap takes precedence over stall classification
-    if check_absolute_cap; then
-      break
-    fi
-
-    # Compare against previous snapshot (updates snapshot in-place)
-    local result
-    result=$("$STALL_DETECT" --compare --previous "$snapshot_file" --pid "$pid" --jsonl "$jsonl" 2>/dev/null) || true
-
-    case "$result" in
-      ACTIVE|RECEIVING|COMPUTING)
-        idle_count=0
-        ;;
-      IDLE)
-        idle_count=$((idle_count + 1))
-        echo "[$(date +%s)] watchdog: $name IDLE ($idle_count/$patience)" >> "$RUN/round.log"
-        if [[ $idle_count -ge $patience ]]; then
-          echo "[$(date +%s)] watchdog: $name STALLED — killing (grace=${grace}s + ${STALL_CHECK_INTERVAL}s × ${idle_count} = $((grace + STALL_CHECK_INTERVAL * idle_count))s total)" >> "$RUN/round.log"
-          echo "stalled_after=$((grace + STALL_CHECK_INTERVAL * idle_count))s" > "$RUN/${name}.stalled"
-          # Kill the process tree: TERM first, then KILL after 2s
-          kill -TERM "$pid" 2>/dev/null || true
-          sleep 2
-          if kill -0 "$pid" 2>/dev/null; then
-            kill -KILL "$pid" 2>/dev/null || true
-          fi
-          break
-        fi
-        ;;
-      DEAD)
-        break
-        ;;
-    esac
-  done
-}
-
-# Launch watchdogs for each active reviewer
-CODEX_WATCHDOG_PID=""
-GEMINI_WATCHDOG_PID=""
-if [[ -n "$CODEX_PID" ]]; then
-  watchdog_monitor "codex" "$CODEX_PID" "$RUN/codex.jsonl" &
-  CODEX_WATCHDOG_PID=$!
-fi
-if [[ -n "$GEMINI_PID" ]]; then
-  watchdog_monitor "gemini" "$GEMINI_PID" "$RUN/gemini.jsonl" &
-  GEMINI_WATCHDOG_PID=$!
-fi
-
-# Wait for whichever children were launched. BUG-08-005 fix: with `set -e`,
-# the original `wait $CODEX_PID; wait $GEMINI_PID` aborted the script when
-# the first wait returned non-zero, skipping the second wait and leaking
-# the other reviewer subprocess. Disable `set -e` around the waits so we
-# always collect both exit codes, then re-enable it after.
-#
-# §07.2: wait calls are gated on non-empty PIDs because ORI_TPR_REVIEWERS
-# may have skipped one reviewer entirely. `wait ""` is a no-op but some
-# bash versions error — safer to skip the call explicitly.
-CODEX_WAIT_RC=0
-GEMINI_WAIT_RC=0
+# ── Wait barrier ──────────────────────────────────────────────────────
+# Each supervisor returns independently on its own wall time. `set +e` so a
+# non-zero from one supervisor doesn't abort before we wait on the partner.
 set +e
-if [[ -n "$CODEX_PID" ]]; then
-  wait "$CODEX_PID"
-  CODEX_WAIT_RC=$?
-fi
-if [[ -n "$GEMINI_PID" ]]; then
-  wait "$GEMINI_PID"
-  GEMINI_WAIT_RC=$?
-fi
+wait "$CODEX_SUP_PID"
+CODEX_SUP_RC=$?
+wait "$GEMINI_SUP_PID"
+GEMINI_SUP_RC=$?
 set -e
 
-# Kill watchdog processes now that reviewers are done
-for wpid in "$CODEX_WATCHDOG_PID" "$GEMINI_WATCHDOG_PID"; do
-  if [[ -n "$wpid" ]] && kill -0 "$wpid" 2>/dev/null; then
-    kill "$wpid" 2>/dev/null || true
-    wait "$wpid" 2>/dev/null || true
-  fi
-done
+CODEX_SUP_PID=""
+GEMINI_SUP_PID=""
 
-# Read the recorded exit codes (written by the subshells via their own
-# trap-style capture). If a subshell was killed before recording its exit
-# file, fall back to the wait return code so we never report empty.
+echo "[$(date +%s)] dual-invoke supervisors settled (codex_rc=$CODEX_SUP_RC gemini_rc=$GEMINI_SUP_RC)" >> "$RUN/round.log"
+
+# ── Aggregate outcome ─────────────────────────────────────────────────
+# supervisor.sh exit codes:
+#   0  success
+#   1  gave up
+#   3  operator-filter skip (treat as success for aggregation)
 #
-# §07.2: when a reviewer was NOT launched (ORI_TPR_REVIEWERS filter), its
-# exit code is synthesized as "0" so the aggregation check at the bottom
-# only fires on real failures from launched reviewers. There is no .exit
-# file to read in that case.
-if [[ "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ]]; then
-  if [[ -f "$RUN/codex.exit" ]]; then
-    CODEX_EXIT=$(cat "$RUN/codex.exit")
-  else
-    CODEX_EXIT="$CODEX_WAIT_RC"
-    echo "$CODEX_EXIT" > "$RUN/codex.exit"
-    echo "[$(date +%s)] codex.exit was missing; recorded wait rc=$CODEX_EXIT" >> "$RUN/round.log"
+# A round is "usable" iff at least one reviewer produced a materialized
+# envelope.json (envelope mode) OR at least one produced a non-empty concat
+# parse (raw mode). Envelope presence is checked by `-s <reviewer>.envelope.json`
+# in envelope mode; raw mode callers (one-round.sh) perform their own post-
+# processing via parse-*-raw.py, so we only check exit codes.
+CODEX_OK=0
+GEMINI_OK=0
+case "$CODEX_SUP_RC" in 0|3) CODEX_OK=1 ;; esac
+case "$GEMINI_SUP_RC" in 0|3) GEMINI_OK=1 ;; esac
+
+# For envelope mode, also verify envelope.json exists for reviewers that
+# weren't skipped. A supervisor that exited 0 MUST have written an envelope.
+if [[ "$MODE" == "envelope" ]]; then
+  if [[ "$CODEX_SUP_RC" == "0" && ! -s "$RUN/codex.envelope.json" ]]; then
+    echo "[$(date +%s)] dual-invoke WARN: codex supervisor exited 0 but envelope.json is empty" >> "$RUN/round.log"
+    CODEX_OK=0
   fi
-else
-  CODEX_EXIT="0"
-fi
-if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
-  if [[ -f "$RUN/gemini.exit" ]]; then
-    GEMINI_EXIT=$(cat "$RUN/gemini.exit")
-  else
-    GEMINI_EXIT="$GEMINI_WAIT_RC"
-    echo "$GEMINI_EXIT" > "$RUN/gemini.exit"
-    echo "[$(date +%s)] gemini.exit was missing; recorded wait rc=$GEMINI_EXIT" >> "$RUN/round.log"
+  if [[ "$GEMINI_SUP_RC" == "0" && ! -s "$RUN/gemini.envelope.json" ]]; then
+    echo "[$(date +%s)] dual-invoke WARN: gemini supervisor exited 0 but envelope.json is empty" >> "$RUN/round.log"
+    GEMINI_OK=0
   fi
-else
-  GEMINI_EXIT="0"
 fi
 
-echo "[$(date +%s)] dual-invoke done (codex=$CODEX_EXIT gemini=$GEMINI_EXIT)" >> "$RUN/round.log"
-
-# Both children have exited (or been waited on). Clear the PID variables so
-# the EXIT trap doesn't try to kill already-dead processes.
-CODEX_PID=""
-GEMINI_PID=""
-
-# Return non-zero if either failed at the launch level.
-# Note: launch success is necessary but not sufficient — parser validation
-# in 02.2/02.3 is the authoritative success check.
-if [[ "$CODEX_EXIT" != "0" || "$GEMINI_EXIT" != "0" ]]; then
-  exit 1
+if [[ $CODEX_OK -eq 1 || $GEMINI_OK -eq 1 ]]; then
+  echo "[$(date +%s)] dual-invoke OK (codex_ok=$CODEX_OK gemini_ok=$GEMINI_OK)" >> "$RUN/round.log"
+  exit 0
 fi
-exit 0
+
+echo "[$(date +%s)] dual-invoke FAIL — all reviewers gave up" >> "$RUN/round.log"
+exit 1

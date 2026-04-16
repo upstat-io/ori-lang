@@ -20,15 +20,22 @@ Every dual-source review wrapper follows this pattern:
    The codex and gemini prompts share the same evidence packet but
    differ in their activation preamble (see below).
 
-3. Invoke the transport launcher with retry:
+3. Invoke the transport launcher (routes through per-reviewer supervisors):
    ```bash
-   .claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh \
+   .claude/skills/dual-tpr/scripts/dual-invoke.sh \
+       --mode envelope \
        --run "$RUN" \
        --skill {skill-name} \
        --codex-prompt "$RUN/codex.prompt.md" \
        --gemini-prompt "$RUN/gemini.prompt.md" \
        --schema .claude/skills/dual-tpr/findings-schema.json
    ```
+   Each reviewer runs under its own `supervisor.sh` with an independent retry
+   loop (5 attempts per reviewer, per-reviewer backoff, per-reviewer circuit-
+   breaker bookkeeping). A fast-failing reviewer does NOT block the partner's
+   wall time. See `supervisor.sh` and `lib-retry.sh` for details.
+   The legacy `dual-invoke-with-retry.sh` is now a one-line shim that forwards
+   to `dual-invoke.sh`; first-party callers should use `dual-invoke.sh` directly.
 
 4. On success, parse both envelopes (already cached by the transport):
    - `$RUN/codex.envelope.json`
@@ -169,10 +176,18 @@ Claude instance.
 
 ## Reviewer Circuit Breaker (global, cross-session)
 
-`dual-invoke-with-retry.sh` consults a per-reviewer circuit breaker BEFORE
-each round. State lives under `$HOME/.cache/ori-tpr-circuit/` — global per
+`one-round.sh` consults a per-reviewer circuit breaker BEFORE each round,
+and each per-reviewer `supervisor.sh` updates the breaker IN REAL TIME as
+it settles — `success` on a clean envelope, `fail <category>` on terminal
+give-up. State lives under `$HOME/.cache/ori-tpr-circuit/` — global per
 user, shared across Claude sessions, skills, and worktrees (the failing
 resource is the API, not the workspace).
+
+Because supervisors are independent, a fast-failing reviewer's trip fires
+within minutes of its first few failures, not at the end of the round.
+The NEXT dual-source invocation (any consumer) picks up the tripped state
+on its own pre-check and auto-restricts — cross-skill operational awareness
+with no central coordinator.
 
 **Trip condition:** 3 api/transport failures for the same reviewer inside a
 sliding 1-hour window → reviewer parked for 1 hour.
@@ -254,25 +269,48 @@ wrappers of this transport must implement an equivalent step.
 
 All wrappers consume the same set of transport scripts from Section 02:
 - `.claude/skills/dual-tpr/scripts/scratch-dir.sh` — per-run scratch dir
-- `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh` — launcher + retry
-- `.claude/skills/dual-tpr/scripts/parse-codex.py` — codex parser
-- `.claude/skills/dual-tpr/scripts/parse-gemini.py` — gemini parser
+- `.claude/skills/dual-tpr/scripts/one-round.sh` — consumer-facing SSOT
+  (pre-check + dispatch + worktree-guard)
+- `.claude/skills/dual-tpr/scripts/dual-invoke.sh` — supervisor orchestrator
+  (launches two supervisors as backgrounded siblings, barrier, aggregate)
+- `.claude/skills/dual-tpr/scripts/supervisor.sh` — per-reviewer retry loop
+  (launch + watchdog + classify + retry + circuit-breaker bookkeeping)
+- `.claude/skills/dual-tpr/scripts/lib-retry.sh` — shared helpers
+  (is_terminal_failure, classify_reviewer_outcome, pick_backoff, etc.)
+- `.claude/skills/dual-tpr/scripts/circuit-breaker.sh` — global per-user
+  reviewer health state
+- `.claude/skills/dual-tpr/scripts/parse-codex.py` — codex envelope parser
+- `.claude/skills/dual-tpr/scripts/parse-gemini.py` — gemini envelope parser
+- `.claude/skills/dual-tpr/scripts/parse-codex-raw.py` — codex raw-mode parser
+- `.claude/skills/dual-tpr/scripts/parse-gemini-raw.py` — gemini raw-mode parser
 - `.claude/skills/dual-tpr/scripts/validate-envelope.py` — standalone validator
 - `.claude/skills/dual-tpr/scripts/worktree-guard.sh` — git worktree safety
 - `.claude/skills/dual-tpr/scripts/merge-findings.py` — reviewer-tagged merger
+- `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh` — DEPRECATED
+  shim that forwards to `dual-invoke.sh`; kept for one release cycle for
+  any external callers.
 
 See Section 02 (`section-02-transport.md`) for the full scripts contract.
 
 ## Failure handling
 
-The transport layer (Section 02) handles infra retries internally —
-5 attempts per reviewer per round with default backoff
-(1s, 2s, 4s, 30s, 60s) and a capacity-aware schedule
-(30s, 60s, 120s, 120s, 120s) when the API reports capacity errors.
-After the attempts are exhausted, `dual-invoke-with-retry.sh` exits
-non-zero and prints the failure category and postmortem directory path.
-See `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh` for the
-SSOT schedule.
+The transport layer handles infra retries at the PER-REVIEWER level. Each
+reviewer runs under its own `supervisor.sh` with:
+- 5 attempts per reviewer
+- Default backoff `1s / 2s / 4s / 30s / 60s`
+- Capacity-aware backoff `30s / 60s / 120s / 120s / 120s` when the API
+  reports capacity errors
+
+Supervisors retry on their own clocks — a fast-failing reviewer does NOT
+block the partner. When a supervisor exhausts its retries, it writes a
+`<reviewer>.gave_up` file under `$RUN`, fires `circuit-breaker.sh fail`
+with the specific failure category, and exits 1. The outer `dual-invoke.sh`
+aggregates: exit 0 if at least one reviewer succeeded (a single-reviewer
+envelope is still useful output), exit 1 if all gave up.
+
+The SSOT for the backoff schedule and classification is `lib-retry.sh`
+(`BACKOFFS`, `CAPACITY_BACKOFFS`, `is_terminal_failure`, `pick_backoff`,
+`classify_reviewer_outcome`).
 
 Wrappers should:
 - On success: proceed to parse + merge + write
