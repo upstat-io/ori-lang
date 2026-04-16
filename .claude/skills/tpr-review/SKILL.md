@@ -254,6 +254,26 @@ Required structure:
 - Dropped findings appear as `Disposition: dropped at verification: <reason>`.
 - Bullets ≤120 characters per line.
 
+## §11.5 — User-interaction discipline (MANDATORY)
+
+**Every user-facing choice point in the coordinator MUST use `AskUserQuestion` — never plain-text numbered options.** Plain prose options force the user to type a full response instead of selecting a structured choice; the harness renders `AskUserQuestion` as tappable options and feeds a clean answer back into the loop. Prose options look identical to narration and invite the user to ignore them as commentary.
+
+**Enumerated choice points in this skill (non-exhaustive — when in doubt, use `AskUserQuestion`):**
+
+1. **Post-round continue/exit inflection** — when the orchestrator renders a round summary and the user could reasonably want to stop before the next round (long-running loop, cost-sensitive session, natural boundary after a large plan revision). The coordinator SHALL emit `AskUserQuestion` with options like: `1. Continue to round N+1 (expected ~{M} min)` / `2. Exit here with current commit(s) clean` / `3. Abort and discard the in-progress state`. Do NOT print these as prose bullets.
+
+2. **Ambiguous input detection** (§1) — if `ARGS` parsing is unclear (mode detection fails, scope can't be inferred), `AskUserQuestion` with candidate mode interpretations. Never guess.
+
+3. **Both-reviewer transport failure second retry** (§9) — already correctly specified via `AskUserQuestion`. Do NOT regress this to prose on refactor.
+
+4. **Spec-gate critical finding resolution** (§3) — when the synthetic SPEC-GATE finding requires a user decision (revert diff vs. approve proposal), use `AskUserQuestion` with `1. Revert the spec diff now` / `2. Pause while I create + approve a proposal` / `3. Cancel this /tpr-review invocation`.
+
+5. **Meta-cap or iter-cap exit escalation** (§5 state machine terminal branches) — when the loop exits without clean consensus, the final-report stage offers the user next-step choices (accept findings / run another tpr-review / escalate to a plan). Emit `AskUserQuestion`, not prose.
+
+**Banned pattern**: prose like "1. Continue ... / 2. Exit ... / 3. Abort ..." as bullet text in the assistant message. This looks identical to round-summary prose and bypasses the harness's structured-choice UI.
+
+**Exception**: informational renders (round summaries §11, final reports §5-terminal) remain prose — they describe state, they do not solicit a choice. The distinction: if the next assistant turn depends on which option the user selects, it's a choice point → `AskUserQuestion`. If the assistant will proceed identically regardless of user reaction, it's a summary → prose.
+
 ## When to Trigger — Bias Toward Running
 
 Run after ANY of:

@@ -50,6 +50,7 @@ Changing any of these without a concrete plan risks re-introducing the bugs the 
 | I10 | Render round summary AFTER `fix_and_commit`, BEFORE state-branching | The render contract mandates `Fix commit: {sha}`; pre-fix render has no sha |
 | I11 | Banned-response phrases enforced in both orchestrator and reviewer prompt | "pre-existing", "out of scope", etc. — reasoning out of findings is banned per CLAUDE.md §One Rule |
 | I12 | Verify findings BEFORE meta-classification | Can't classify a finding as meta if its quote doesn't exist — that's confabulation, drop it |
+| I13 | User-facing choice points use `AskUserQuestion`, never plain-text numbered options | Prose options look identical to round-summary narration; the harness's structured-choice UI only engages on `AskUserQuestion` — prose asks force the user to type and invite them to skip reading. User flagged this after post-Round-1 dogfood. |
 
 ## §3 — File Inventory (canonical)
 
@@ -158,6 +159,7 @@ Priorities: `p0` (blocks all future runs), `p1` (frequent user-visible bug), `p2
 - [x] **2026-04-16 — Round 1 F9 (codex):** spec gate mode-gated → now always-on
 - [x] **2026-04-16 — Round 1 F9/F10 (gemini) + F10 (codex):** stale consumer rosters → collapsed
 - [x] **2026-04-16 — Round 2 F1–F5:** doc-consistency drift (prose literals, 10-min/600s, Step F registry) → fixed
+- [x] **2026-04-16 — Post-rewrite dogfood USER-flagged:** orchestrator emitted prose "1. Continue / 2. Exit / 3. Abort" options at post-Round-1 inflection point instead of using `AskUserQuestion`. User correctly flagged that structured choice points must use the harness's structured-choice UI, not plain prose bullets that look identical to narration. Fixed via new SKILL.md §11.5 "User-interaction discipline (MANDATORY)" enumerating five choice points (post-round inflection, ambiguous input, transport-failure retry, spec-gate resolution, cap-exit escalation) that require `AskUserQuestion`; prose summaries explicitly allowed only for informational renders where the next assistant turn is identical regardless of user reaction. Load-bearing invariant added as I13. Design philosophy principle 11 added.
 
 ## §7 — How To Use This File In Future Sessions
 
