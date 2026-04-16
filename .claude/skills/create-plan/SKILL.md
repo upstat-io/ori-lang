@@ -132,7 +132,7 @@ Row names below are LITERAL copies of the step headers later in this file — no
 3. **Design consensus check — `/tpr-review` already reached full consensus.** The approach has completed a `/tpr-review` round (the full dual-source skill with rule briefing, iterating to consensus), and both reviewers agreed on the design. This means:
    - The design question is answered — the plan's job is now to *sequence execution*, not to *discover* what to do.
    - `/tp-help` consensus alone is NOT sufficient — `/tp-help` is a single consult, not an iterated-to-consensus loop with rule briefing. If only `/tp-help` has run, either run `/tpr-review` to close consensus OR take the heavy path.
-   - The TPR artifact (merged envelope, run directory under `.dual-tpr/runs/`, or equivalent) MUST be cited by the light plan so the approved design is traceable.
+   - The TPR artifact (round summaries printed in the /tpr-review transcript, or a concrete commit sha of the applied fixes) MUST be cited by the light plan so the approved design is traceable.
 
 If any of the three is false, fall through to Phase 1 (heavy path) below.
 
@@ -429,7 +429,7 @@ Then:
 
 Follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Per SSOT Step F — /create-plan reconnaissance: use `symbols "<topic keyword>" --repo ori --limit 20` and `file-symbols "<likely path>" --repo ori` for inventory; `callers`/`callees`/`similar --repo rust,swift,go,koka --limit 5` for high-signal symbols. Feed the resulting symbol inventory into the breadth-scan agent prompts.
 

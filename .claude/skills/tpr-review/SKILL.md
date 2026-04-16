@@ -1,304 +1,313 @@
 ---
 name: tpr-review
-description: "Run an independent dual-source (codex + gemini) third-party review in parallel, then fix findings and re-run until BOTH reviewers come back clean (full consensus). Reviews ANYTHING — code, plans, skills, docs, designs, tooling, processes, or any custom objective. TRIGGER proactively after completing ANY non-trivial work, OR when you want iterative improvement driven by multi-agent consensus. When in doubt, run it. The cost of an unnecessary review is near zero; the cost of a missed bug is high."
+description: "Dual-source third-party review (codex + gemini) in parallel, with verification-against-code, iterative fix-and-re-run until both reviewers return clean. Reviews code, plans, skills, docs, or any custom objective. TRIGGER proactively after completing ANY non-trivial work: bug fixes, features, refactors, multi-file changes, compiler changes, codegen changes, test additions, plan implementations, or anything touching correctness-sensitive code. When in doubt, run it."
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion, Skill
 ---
 
-# Dual-Source TPR Review (Codex + Gemini)
+# Dual-Source Third-Party Review (Codex + Gemini)
 
-Run BOTH the Codex CLI AND the Gemini CLI non-interactively in parallel to perform independent review passes, merge findings with reviewer tagging, verify each finding against the actual code, fix, and re-run until BOTH reviewers return zero actionable findings AND thoroughness is judged sufficient (full consensus).
+`/tpr-review` dispatches the **Codex** and **Gemini** CLIs as parallel sub-agents per round, reads their plain-text `<<<TPR-REPORT>>>` output directly in the main context, verifies every finding against actual code, edits code to fix accepted findings, and re-runs until both reviewers return clean or a stop gate fires. The orchestrator runs in the caller's main context — there is no `context: fork`, no envelope layer, no polling loop. Per-round summaries are printed directly to the user before any state-branching decision.
 
-**This is a GENERAL-PURPOSE third-party review.** The name is "TPR" — Third-Party Review — not "Third-Party Code Review." It reviews ANYTHING: code, plans, skills, docs, designs, tooling, processes, or any custom objective. The loop runs until full consensus across all agents.
+## §1 — Invocation surface
 
-**Three reviewer modes** (selected via `ARGS`):
-- **Default (`review-work`)**: no ARGS, or explicit `--skill review-work` — reviewers use their `review-work` skill.
-- **Plan review (`--skill review-plan`)**: reviewers use their `review-plan` skill. Invoked by `/review-plan`.
-- **Custom objective** (any other ARGS): ARGS text becomes the reviewer's objective directly.
+`ARGS` selects one of three modes:
 
-This wrapper is built on the Section 02 dual-source transport utility. All launching, parsing, schema validation, worktree-guarding, and infra retry logic lives in `.claude/skills/dual-tpr/scripts/` — this skill is purely the **semantic** fix-and-re-run loop that consumes merged findings. See `.claude/skills/dual-tpr/transport.md` for the transport contract.
+- **Work mode (default)** — empty `ARGS` or `ARGS == "--skill review-work"`. Review the current working-tree changes. Scope = `git diff HEAD~5`.
+- **Plan mode** — `ARGS` begins with `--skill review-plan <section-path>`. Review the named plan section for design/spec/implementation coherence. Findings file into the section's `third_party_review` frontmatter per §10.
+- **Custom-objective mode** — any other `ARGS` value. The entire ARGS string becomes the review objective. Scope is inferred from the objective or passed as `--scope <path>` after the objective text.
 
-## How this skill runs
+Mode detection is mechanical: inspect the first token of `ARGS`. Ambiguity is an input error — `AskUserQuestion` rather than guess.
 
-SKILL.md is a thin loop coordinator. Each round of the loop dispatches two sub-agents:
+## §2 — Mandatory grounding (orchestrator)
 
-- **Setup sub-agent (Sonnet)** — reads `step-1-round-setup.md`, runs Steps 0–4 + polling + merge, writes `merged.json`.
-- **Triage sub-agent (Opus)** — reads `step-2-round-triage.md`, verifies findings, judges thoroughness, files + fixes + commits, writes `triage.json`.
-
-The coordinator itself only reads the small `triage.json` output to decide loop continuation. The full reviewer prompts, envelopes, merge logic, verification-against-code, and fix implementation never touch the coordinator's context.
-
-After the loop exits (clean pass, cap hit, or transport failure), the coordinator dispatches a **final-report sub-agent (Sonnet)** that reads all round artifacts and writes the user-facing summary.
-
-**FOREGROUND MANDATORY — ALL Agent dispatches.** Every `Agent({})` call in the loop state machine below — setup, triage, and final-report — MUST run in the foreground (do NOT set `run_in_background: true`). The loop is sequential: setup result informs triage dispatch, triage result informs loop continuation. There is no independent work to parallelize. Backgrounding breaks the sequential contract and forces unnecessary polling.
-
-**Model policy:** setup and final-report on Sonnet; triage on Opus. The triage agent's Opus dispatch is non-negotiable because Gemini confabulation detection requires independent verification against code — a weaker model silently accepts bad findings. The full rationale lives in `step-2-round-triage.md` §"Trust tiers (set verification depth, not pass/fail)" and in `.claude/rules/impl-hygiene.md` §"No Side Logic" (LOWER trust for gemini = mandatory FULL verification; HIGH trust for codex = spot-check). The invoker's session model is irrelevant; the dispatch boundary enforces the split.
-
-## Finding-handling policy — SSOT reference
-
-Finding handling is entirely the triage sub-agent's responsibility. The canonical home for that policy — "You May NEVER Reason Out of Findings", banned response list, and "Correct Architectural Solutions Only" — lives in `step-2-round-triage.md` §ABSOLUTE blocks. The coordinator (this file) restates none of it; it dispatches the triage sub-agent, reads the resulting `triage.json`, and branches the loop. This single source of truth exists to prevent coordinator and triage semantics from drifting independently (the prior version duplicated the policy here, which is exactly the `impl-hygiene.md` §Algorithmic DRY violation this refactor eliminated).
-
-**Coordinator contract — THE PER-ROUND RENDER COMES FIRST:** after every triage sub-agent returns, the coordinator MUST print `triage.round_summary` verbatim to the user BEFORE any state-branching logic (loop continuation, exit, counter updates). This is the ONLY per-round user-facing surface — `merged.json` and `triage.json` are machine-read and never rendered. Skipping the print is itself a coordinator-contract violation, not merely a UX lapse; past loop runs have drifted on this because the instruction was buried mid-pseudocode rather than top-billed. If `triage.round_summary` is missing or empty, that is a distinct protocol violation by the triage sub-agent — escalate via `AskUserQuestion` rather than continuing silently. Never fabricate a summary from other triage fields. The coordinator does NOT reinterpret or second-guess the triage sub-agent's accept/reject/fix disposition; its job is dispatch + render + branch, not policy.
-
-**If the user asks "why don't I see round summaries?" mid-loop, that is direct evidence of coordinator drift.** Corrective action: print the most recent round's `round_summary` immediately (it lives in `{run_id}/round-{N}/triage.json`), acknowledge the drift explicitly, and commit to printing every subsequent round's summary before dispatching the next round. Historical note: rounds that ran in prior sessions (different `run_id`s) leave their summaries only in the artifact the triage agent committed — e.g., `plans/bug-tracker/fix-BUG-XX-NNN.md §R Phase 2.5 Round N` — they cannot be recovered into the current transcript, only pointed at.
-
-## When to Trigger — Bias Toward Running
-
-**Run this skill after completing ANY of the following:**
-- Bug fixes (any severity)
-- New features or feature extensions
-- Refactors or code reorganization
-- Multi-file changes (2+ files)
-- Any change to compiler crates, codegen, type checking, evaluation, ARC/AIMS pipeline
-- Test matrix additions or test infrastructure changes
-- Plan section implementations
-- Stdlib or registry changes
-- Changes to error handling or diagnostics
-
-**Also run when** unsure whether a change warrants review (default: run it), work involved multiple steps or non-obvious decisions, the change touches code paths shared across subsystems, or you fixed something that was interfering with other code.
-
-**Run with a custom objective when** the user wants iterative improvement of any artifact, multi-agent consensus on quality, or the subject is not code or a plan.
-
-**The only time NOT to run:** purely cosmetic single-line changes (typo fixes, comment edits, formatting-only).
-
-## Loop State Machine (authoritative contract)
-
-Infra retries are invisible to `iteration_counter` — they happen inside `dual-invoke-with-retry.sh` and either resolve (round continues) or exhaust (user escalation, counter untouched).
+Before round 1, the orchestrator reads its own grounding:
 
 ```
-run_id = <generated e.g. /tmp/tpr-abc123>
-iteration_counter = 0                # finding-fixing rounds (cap: 10)
-thoroughness_reject_counter = 0      # consecutive WASTED rounds (cap: 3)
-strengthened_language_required = false
-loop_started_at = now()              # unix seconds — global walltime anchor
-loop_max_walltime = env("ORI_TPR_LOOP_MAX_WALLTIME", default=2700)  # 45 min
-single_agent_mode = false            # detected from merged.json reviewer_mode
-saw_high_severity = false            # any round had critical/high findings
-last_high_severity_round = -1        # most recent round with critical/high
-# persist state (incl. loop_started_at) to {run_id}/state.json for sub-agents
+Read: CLAUDE.md
+Bash: ls .claude/rules/*.md
+Read: every file the ls enumerated
+```
 
-while iteration_counter < 10 and thoroughness_reject_counter < 3:
-    # ── GLOBAL WALLTIME CAP (hard ceiling, ALL rounds combined) ─
-    # The per-reviewer stall/walltime caps in dual-invoke.sh bound a single
-    # reviewer invocation. This cap bounds the ENTIRE /tpr-review loop —
-    # setup + triage + final-report across every round. Users rely on /tpr-
-    # review being a bounded operation; without this cap, 3-4 slow rounds
-    # can silently consume 2+ hours. Default 45 min. Overridable only via
-    # env at invocation time. The cap fires BEFORE the next round's setup
-    # dispatch so we never start a round we can't finish in the remaining
-    # budget.
-    elapsed = now() - loop_started_at
-    if elapsed >= loop_max_walltime:
-        break  # exit loop; final-report sub-agent will render the walltime cap
-    round_n = iteration_counter + thoroughness_reject_counter  # monotonic
-    mkdir -p {run_id}/round-{round_n}/
+The `ls` output is the authoritative rule manifest for this invocation. Do not hand-select. Do not `@`-include (not a documented skills-file syntax per https://code.claude.com/docs/en/skills — inline the reads instead).
 
-    # ── SETUP DISPATCH (Sonnet) ─────────────────────────────
-    Agent({
-      subagent_type: "general-purpose",
-      model: "sonnet",
-      description: "tpr-review round setup",
-      prompt: `
-        Read .claude/skills/tpr-review/step-1-round-setup.md and execute it.
-        run_id: {run_id}
-        round_n: {round_n}
-        args: {ARGS}            # empty | "--skill review-plan" | custom objective text
-        strengthened_language_required: {strengthened_language_required}
-        Read the run-state from {run_id}/state.json.
-        Write merged findings to {run_id}/round-{round_n}/merged.json and a short
-        summary to stdout. If the transport fails, return an escalation payload.
-      `
-    })
+Reviewers perform their own grounding inside their sub-agents (see `tp_agent_prompt.md` §Step 1). Grounding is duplicated deliberately: reviewer sub-agents have fresh context, and the orchestrator's grounding is load-bearing for finding verification (§4).
 
-    # Read the tiny summary, not the full merged.json
-    setup_out = tail -3 of the Sonnet agent's stdout
+## §3 — Spec/grammar gate (pre-round-1)
 
-    if setup_out indicates transport failure:
-        surface failure + {run_id} to user via AskUserQuestion (per Transport
-        Failure Handling in step-1-round-setup.md)
-        EXIT  # no counter increment
+**Runs in ALL modes.** Custom-objective reviews can still touch spec/grammar (e.g., "review these spec edits"); the gate is cheap (one `git diff` + one `ls` of approved proposals) and the rule it enforces (`spec.md §Enforcement`) has no mode exemption. Running it universally closes the custom-objective coverage gap.
 
-    # ── TRIAGE DISPATCH (Opus) ──────────────────────────────
-    Agent({
-      subagent_type: "general-purpose",
-      model: "opus",
-      description: "tpr-review round triage",
-      prompt: `
-        Read .claude/skills/tpr-review/step-2-round-triage.md and execute it.
-        run_id: {run_id}
-        round_n: {round_n}
-        Read merged findings from {run_id}/round-{round_n}/merged.json.
-        Read run-state from {run_id}/state.json.
-        Verify each finding against the actual code (Gemini trust tier LOWER —
-        full verification; Codex HIGH — spot-check). Judge thoroughness. File
-        findings, fix them, commit via /commit-push. Write the outcome to
-        {run_id}/round-{round_n}/triage.json per the schema in step-2.
-      `
-    })
+Before dispatching round 1, unconditionally:
 
-    # Read only triage.json (small — a handful of fields + round_summary markdown)
-    triage = read {run_id}/round-{round_n}/triage.json
+```
+Bash: git diff --name-only HEAD -- docs/ori_lang/v2026/spec/ docs/ori_lang/v2026/spec/grammar.ebnf
+```
 
-    # ══════════════════════════════════════════════════════════════════
-    # ║ USER-FACING ROUND RENDER — FIRST ACTION, NON-NEGOTIABLE         ║
-    # ║                                                                 ║
-    # ║ This print MUST execute before any state-branching logic below. ║
-    # ║ It is the ONLY per-round user-facing surface; skipping it is a  ║
-    # ║ coordinator-contract violation, not a UX lapse. See the         ║
-    # ║ "Coordinator contract — THE PER-ROUND RENDER COMES FIRST"       ║
-    # ║ paragraph above for the enforcement rationale. Never reorder    ║
-    # ║ a decision branch above this print. Never skip it on a clean    ║
-    # ║ round ("nothing to report" is itself worth showing).            ║
-    # ══════════════════════════════════════════════════════════════════
-    if "round_summary" not in triage or triage.round_summary is empty:
-        # Triage sub-agent contract breach — no summary to render.
-        # Escalate rather than fabricating one from other triage fields.
-        surface contract violation to user via AskUserQuestion
-        EXIT
-    print triage.round_summary   # <─ MUST FIRE HERE, before any branch below
+If the output is **non-empty**, check `docs/ori_lang/proposals/approved/` for a proposal whose body mentions any of the touched files. If no matching proposal is found, per `.claude/rules/spec.md §Enforcement` (`/tpr-review` MUST flag any spec/grammar diff without a proposal reference as a **CRITICAL** finding), the orchestrator emits a synthetic pre-round-0 finding that enters the normal round flow:
 
-    # From this point on, every decision branch, counter update, or state
-    # persistence assumes the user has SEEN the round_summary just printed.
-    # Reordering any branch above this print reintroduces the drift.
+```
+synthetic_finding = {
+  id: "SPEC-GATE-001",
+  severity: "critical",
+  path: "<first spec/grammar file touched>",
+  line: 1,
+  title: "Spec/grammar modified without approved proposal",
+  evidence: "<git diff output listing all touched spec/grammar files>",
+  rule_violated: ".claude/rules/spec.md §Enforcement",
+  recommended_fix: "Either revert the spec/grammar changes OR create + approve a proposal under docs/ori_lang/proposals/approved/ and reference it in the commit message"
+}
 
-    # ── SINGLE-AGENT MODE DETECTION ───────────────────────────
-    # Read reviewer_mode from merged.json (set by merge-findings.py).
-    # When the circuit breaker tripped one reviewer, we enter single-
-    # agent mode: consensus is impossible, so we compensate with more
-    # rounds and stricter severity gating.
-    merged_meta = read {run_id}/round-{round_n}/merged.json  # only reviewer_mode + summary fields
-    if merged_meta.get("reviewer_mode") == "single":
-        single_agent_mode = true
-    # Track high-severity findings across rounds
-    round_max_sev = merged_meta.get("summary", {}).get("max_severity", "informational")
-    if round_max_sev in ("critical", "high"):
-        saw_high_severity = true
-        last_high_severity_round = round_n
+# Prepend to round-0 verified set BEFORE dispatching reviewers. The
+# finding is already verified-by-construction (git diff is ground truth)
+# and is NEVER meta (spec invariant).
+```
 
-    # ── SINGLE-AGENT MIN-ROUNDS GATE ───────────────────────────
-    # In single-agent mode, consensus is impossible (only one reviewer).
-    # Compensate by requiring a minimum of 3 finding-fixing rounds
-    # before accepting a clean pass. This prevents the loop from
-    # exiting after a single shallow clean pass with no cross-
-    # validation. The 3-round minimum ensures the surviving reviewer
-    # has had multiple chances to find issues from different angles
-    # (strengthened language auto-fires after each round in single
-    # mode to vary the reviewer's focus).
-    single_agent_min_rounds = 3  # minimum iterations before clean exit in single mode
+The finding is treated like any other critical actionable finding per §7: the user must fix it (revert or approve a proposal) before round 0's reviewers can complete their work. Because it is CRITICAL and NOT meta, the normal fix-or-plan-or-AskUserQuestion dispositions apply — in practice the orchestrator will typically need `AskUserQuestion` for the user's revert/proposal decision, but that decision point is now inside the documented finding-handling flow, not a skill-level short-circuit.
 
-    if triage.actionable_after_triage == 0 and triage.thoroughness_ok:
-        # CLEAN PASS candidate — but gate on single-agent constraints
-        if single_agent_mode:
-            if iteration_counter < single_agent_min_rounds:
-                # Not enough rounds yet — force another pass
-                strengthened_language_required = true
-                iteration_counter += 1  # count the clean round toward the minimum
-                persist state; continue
-            if saw_high_severity and (round_n - last_high_severity_round) < 2:
-                # High-severity findings were present recently — require at
-                # least one full clean round AFTER the last high-severity fix
-                # before accepting. This prevents premature exit when a
-                # high-sev fix might have side effects the reviewer hasn't
-                # seen yet.
-                strengthened_language_required = true
-                iteration_counter += 1
-                persist state; continue
-        # All gates passed — exit clean
+## §4 — Trust tiers (orchestrator-side verification posture)
+
+Every finding — codex or gemini — is **verified against actual code** before acting. The reviewer's claim is a hypothesis. The trust tier sets verification depth, not pass/fail.
+
+- **Codex — HIGH trust.** Codex tends to cite accurate paths and lines. For each codex finding: Read the cited file around the cited line (±20 lines), confirm the quoted evidence exists verbatim. If it matches, accept the finding for classification (§6). If the quote doesn't match, drop the finding silently (mis-cite is rare but invalidates the claim).
+- **Gemini — LOWER trust.** Gemini is prone to confabulation: invented line numbers, misquoted code, "positive observations" reframed as findings. For each gemini finding: Read the cited file IN FULL (not just ±20 lines), trace the code path end-to-end, confirm the claimed behavior matches what the code actually does. Gemini citations to external URLs are never authoritative — verify the underlying claim independently. Drop any finding that fails verification.
+
+Verification happens BEFORE meta/actionable classification (§6). An unverified finding never reaches the classifier.
+
+## §5 — Round loop state machine
+
+Two counters bound the loop:
+
+- `iteration_counter` — number of finding-fixing rounds completed. Cap: **5**.
+- `meta_only_streak` — consecutive rounds where every verified finding was meta (§6). Cap: **2**.
+
+Stop conditions (in order of check):
+
+1. **Consensus** — both reviewers returned `status: clean` AND `verified` is empty → exit clean.
+2. **Meta-only streak cap** — `meta_only_streak == 2` → exit ("juice not worth the squeeze").
+3. **Iteration cap** — `iteration_counter == 5` → exit (escalate via summary).
+4. **Both-reviewer transport failure twice** — handled in §9, escalates via `AskUserQuestion`.
+
+Pseudocode:
+
+```
+iteration_counter = 0
+meta_only_streak = 0
+last_actionable_count = None
+ever_verified_findings = []         # §10: accumulate across ALL rounds for
+                                    # plan-mode frontmatter write. Using the
+                                    # last round's verified list would lose
+                                    # findings from earlier rounds that were
+                                    # already fixed inline.
+
+while iteration_counter < 5 and meta_only_streak < 2:
+    template = Read(".claude/skills/tpr-review/tp_agent_prompt.md")
+
+    codex_prompt  = fill(template, REVIEWER=codex,  TRUST_TIER=HIGH,
+                         OBJECTIVE=OBJ, SCOPE=SCOPE)
+    gemini_prompt = fill(template, REVIEWER=gemini, TRUST_TIER=LOWER,
+                         OBJECTIVE=OBJ, SCOPE=SCOPE)
+
+    # ── SINGLE assistant message with TWO Agent tool calls — see §8 ──
+    [codex_out, gemini_out] = dispatch_parallel(codex_prompt, gemini_prompt)
+
+    codex_report  = parse_tpr_report(codex_out)
+    gemini_report = parse_tpr_report(gemini_out)
+
+    if codex_report.status == "failed": codex_report  = retry_or_survivor(codex)
+    if gemini_report.status == "failed": gemini_report = retry_or_survivor(gemini)
+
+    all_findings = codex_report.findings + gemini_report.findings
+    verified     = [f for f in all_findings if verify_against_code(f)]  # §4
+    meta         = [f for f in verified if classify_meta(f)]             # §6
+    actionable   = [f for f in verified if f not in meta]
+    ever_verified_findings.extend(verified)                              # §10 accumulator
+
+    # ── Fix FIRST, then render summary — the render contract (§11)
+    #    requires a populated `Fix commit: {sha}` field, which is only
+    #    available after fix_and_commit returns. Render before the
+    #    exit/continue state-branching decisions below, not before fix.
+    commit_sha = None
+    if len(actionable) > 0:
+        commit_sha = fix_and_commit(actionable)                          # §7
+        meta_only_streak = 0
+        last_actionable_count = len(actionable)
+    elif len(verified) > 0:                                               # meta-only round
+        meta_only_streak += 1
+        last_actionable_count = 0
+
+    print_round_summary(iteration_counter, codex_report, gemini_report,
+                        verified, meta, actionable, commit_sha)           # §11
+
+    # ── State-branching decisions AFTER the render ──
+    if len(verified) == 0 and codex_report.status == "clean" and gemini_report.status == "clean":
+        exit_reason = "clean"
         break
 
-    if triage.get("exit_clean") is True:
-        # CONVERGENCE GATE (step-2 §6c.1) — the triage agent has
-        # fixed this round's findings AND judged the loop has
-        # converged on LOW-only cosmetic residue. The remaining
-        # fixes are committed; continuing would burn rounds on
-        # polishing polish. Exit clean; final-report will frame
-        # the exit as "converged on cosmetics" instead of
-        # "zero findings." The convergence rationale is in
-        # triage.convergence_rationale and audited in round_summary.
-        #
-        # In single-agent mode, convergence gate still applies BUT
-        # only after the min-rounds gate above is satisfied (it runs
-        # first). If we reach here, the min-rounds + high-severity
-        # gates have already passed.
-        break
+    iteration_counter += 1
 
-    if triage.actionable_after_triage == 0 and not triage.thoroughness_ok:
-        # Pure waste — zero findings + thin review
-        thoroughness_reject_counter += 1
-        strengthened_language_required = true
-        # iteration_counter NOT incremented — nothing was fixed
-        persist state; continue
-
-    if triage.actionable_after_triage > 0:
-        # Findings filed and fixed by the triage agent
-        iteration_counter += 1
-        thoroughness_reject_counter = 0   # findings = progress
-        strengthened_language_required = not triage.thoroughness_ok
-        # In single-agent mode, always strengthen language to vary focus
-        if single_agent_mode:
-            strengthened_language_required = true
-        persist state; continue
-
-# ── EXIT ────────────────────────────────────────────────────
-# Determine exit_reason so the final-report sub-agent renders the right
-# Branch in its output schema (see step-3-final-report.md §Output Schema).
-# Check order matters — the global walltime cap is the only cap that fires
-# mid-iteration, so it wins over the two mid-loop caps even if one would
-# nominally have also fired on the same iteration.
-elapsed = now() - loop_started_at
-if elapsed >= loop_max_walltime:
-    exit_reason = "global_walltime_cap"
-elif iteration_counter >= 10:
-    exit_reason = "max_iterations_reached"
-elif thoroughness_reject_counter >= 3:
-    exit_reason = "max_thoroughness_rejections_reached"
-elif last_triage.get("exit_clean") is True:
-    exit_reason = "converged"
-elif single_agent_mode:
-    exit_reason = "single_agent_clean"  # clean pass in degraded mode
 else:
-    exit_reason = "clean"
-persist exit_reason + elapsed + single_agent_mode + saw_high_severity to {run_id}/state.json
+    exit_reason = "meta_cap_reached" if meta_only_streak >= 2 else "iter_cap_reached"
 
-# Dispatch final-report sub-agent (Sonnet) — reads all round artifacts,
-# writes the user-facing summary, frames cap-hit escalations per
-# step-3-final-report.md.
+emit_final_report(exit_reason, iteration_counter, last_actionable_count)
+
+if mode == "review-plan":
+    write_plan_frontmatter(section_path, exit_reason,
+                           ever_verified_findings)                        # §10
+```
+
+## §6 — Meta-only classification checklist
+
+Runs AFTER verification (§4). A finding is **meta** if and only if ALL of the following apply:
+
+- Its category is purely one of: wording/phrasing, cosmetic/formatting, already-documented-elsewhere, or exact duplicate of a prior-round finding.
+- It does NOT touch: correctness, invariants (AIMS / SSOT / phase boundaries / registry drift), tests, security, spec conformance, error paths, API contracts, memory safety.
+- Its `recommended_fix` is a pure-doc edit, a rename, or a whitespace change.
+
+Any doubt → NOT meta. The classifier is intentionally conservative — one extra round of fixing real issues is cheaper than a missed invariant violation.
+
+`meta_only_streak` increments ONLY when the entire verified-findings set of the round is meta. A single non-meta finding in the set resets the streak to 0.
+
+## §7 — Finding-handling policy (ABSOLUTE)
+
+Tied directly to `CLAUDE.md §The One Rule` — correctness above all other concerns. There is NO circumstance under which the orchestrator may dismiss, rationalize, scope-note, or defer an actionable finding. The ONLY valid dispositions are:
+
+1. **Fix it NOW** — edit code in the main context, run affected tests, commit the fix via `/commit-push`.
+2. **Create a plan and execute it** — if too large for inline fix, run `/create-plan` and implement the resulting sections. No "tracked for later" without an anchor.
+3. **`AskUserQuestion`** — genuinely blocked on a user decision or missing domain knowledge.
+
+**BANNED response phrases** (using ANY is a violation; the orchestrator MUST NOT generate these in round summaries, commit messages, or plan updates):
+
+- "pre-existing" / "was already broken"
+- "architectural limitation" / "requires major refactor"
+- "out of scope" / "not a §NN deliverable"
+- "conservative/safe" / "only precision loss"
+- "not a regression" / "not introduced by this work"
+- "future improvement" / "tracked for later"
+- "known limitation"
+
+The size of the fix is irrelevant. If correctness requires cross-crate refactoring across 10 files, that IS the work. "Requires architectural change" is not a reason to skip — it IS the assignment per `CLAUDE.md §The One Rule`.
+
+**Filing discipline.** For plan-owned findings (a plan section covers the affected code), append `- [ ]` items to that section's `## {NN}.R Third Party Review Findings` block using the tagged-ID form `[TPR-{NN}-{ordinal}-{reviewer}][severity]`. For unowned findings, file to `plans/bug-tracker/` under the appropriate subsystem using the canonical `BUG-{NN}-{ordinal}` format (NO reviewer suffix — reviewer provenance lives in the body). Agreement findings (same location + title from both reviewers) file ONE bug entry, not two.
+
+## §8 — Parallel dispatch pattern (canonical template)
+
+The documented parallel-sub-agent pattern per https://code.claude.com/docs/en/sub-agents is "multiple tool calls in a single assistant message run concurrently." The orchestrator MUST dispatch both reviewers in one assistant message. Foreground only — do NOT set `run_in_background: true`. Per-tool completion callbacks are not documented; assume batch completion (wall-clock = max(codex, gemini)).
+
+Exact template (fill placeholders before dispatch):
+
+```
+# — Single assistant message with TWO Agent tool calls —
+
 Agent({
   subagent_type: "general-purpose",
   model: "sonnet",
-  description: "tpr-review final report",
-  prompt: `
-    Read .claude/skills/tpr-review/step-3-final-report.md and execute it.
-    run_id: {run_id}
-    exit_reason: {exit_reason}         # clean | converged | max_iterations_reached
-                                       # | max_thoroughness_rejections_reached
-                                       # | global_walltime_cap
-    loop_elapsed_seconds: {elapsed}
-    loop_max_walltime: {loop_max_walltime}
-    Read run-state from {run_id}/state.json and every
-    {run_id}/round-*/triage.json file.
-    Emit the final user-facing summary. If a cap was hit, frame the
-    escalation and output the AskUserQuestion payload the coordinator
-    should present.
-  `
+  description: "tpr-review codex reviewer round {N}",
+  prompt: <contents of tp_agent_prompt.md with {REVIEWER}=codex,
+           {TRUST_TIER}=HIGH, {OBJECTIVE}=<obj>, {SCOPE}=<scope>>
+})
+
+Agent({
+  subagent_type: "general-purpose",
+  model: "sonnet",
+  description: "tpr-review gemini reviewer round {N}",
+  prompt: <contents of tp_agent_prompt.md with {REVIEWER}=gemini,
+           {TRUST_TIER}=LOWER, {OBJECTIVE}=<obj>, {SCOPE}=<scope>>
 })
 ```
 
-**Invariants:**
-- `iteration_counter` increments ONLY after a successful round that found actionable findings AND those findings were fixed AND the commit landed.
-- `thoroughness_reject_counter` increments ONLY on the zero-findings + thin-review cell. Resets to zero on any round that produces actionable findings.
-- `strengthened_language_required` tracks the depth of the last round, independent of finding count. Set true after any thin round, cleared only after a thorough round.
-- **Findings are NEVER discarded on a thin review.** The fix path runs unconditionally when findings exist; the thin signal propagates via the flag, not by throwing away data.
-- Infra retries (transport), finding-fixing iterations, and thoroughness-reject iterations are three orthogonal budgets.
-- Maximum semantic iterations: 10. Maximum thoroughness-reject iterations: 3 (consecutive). Hitting either cap escalates to user via AskUserQuestion.
-- Thoroughness judgment is Opus's call (in the triage sub-agent), not a static threshold.
+The `model: "sonnet"` override is a documented field on the Agent tool. Both sub-agents inherit the prompt template verbatim — the only differences are the four substituted placeholders.
 
-## AskUserQuestion on escalation (MANDATORY)
+## §9 — Failure handling
 
-When the final-report sub-agent emits an escalation payload (cap hit, transport failure, or triage agent's own `"escalate": true`), the coordinator MUST invoke `AskUserQuestion` with the payload's `question` + `options` verbatim. Never dump escalations as prose.
+**Single reviewer returns `status: failed`.** Retry that reviewer once — re-dispatch just the failed Agent (single tool call in a follow-up message; partner already completed). If the retry also returns `status: failed`, proceed in **survivor mode** for this round: use only the surviving reviewer's report, set `survivor_mode: true` in the round summary header, continue the loop normally.
 
-## Files in this skill
+**Both reviewers return `status: failed`.** The round produced nothing usable. Retry ONCE (parallel dispatch again). If both fail a second time, escalate:
 
-- `SKILL.md` (this file) — loop coordinator + model policy + triggers + absolute rules.
-- `step-1-round-setup.md` — Sonnet sub-agent protocol: Steps 0–4 + polling + merge + thoroughness re-review directive + transport failure handling.
-- `step-2-round-triage.md` — Opus sub-agent protocol: Step 5 (verify) + Step 6 (thoroughness) + Step 7 (file + fix + commit) + merged finding format.
-- `step-3-final-report.md` — Sonnet sub-agent protocol: final report + user escalation framing.
+```
+AskUserQuestion:
+  "Both reviewers failed twice. What should I do?"
+    1. Retry once more (will cost ~{N} minutes)
+    2. Abort this /tpr-review invocation (code is unchanged, no findings filed)
+    3. Proceed without review (NOT RECOMMENDED — only use if you will review manually)
+```
 
-None of the `step-*.md` files are registered as skills. They are reference documents read by dispatched Agents.
+The orchestrator never silently exits without producing either a round summary or an escalation. If `AskUserQuestion` is interrupted, treat as option 2 (abort).
+
+## §10 — Plan-TPR integration (plan mode only)
+
+When `ARGS` begins with `--skill review-plan <section-path>`, after the loop terminates:
+
+1. **Read** the section file's YAML frontmatter.
+2. **Set** `third_party_review.status`:
+   - `clean` if `exit_reason == "clean"` and no verified findings occurred in any round.
+   - `findings` if any verified findings occurred (even if all were fixed inline).
+   - `escalated` if `exit_reason` was `meta_cap_reached`, `iter_cap_reached`, or `both_reviewer_failure`.
+3. **Set** `third_party_review.updated` to today's date (YYYY-MM-DD).
+4. **For `findings` status** — append each accepted finding as `- [ ]` items under the section's `## {NN}.R Third Party Review Findings` block (create the block if missing). Use the canonical shape from `.claude/skills/verify-tpr/SKILL.md` — `/verify-tpr` is the reader and its input contract is unchanged:
+
+   ```md
+   - [ ] `[TPR-{NN}-{ordinal}-{reviewer}][{severity}]` `{path}:{line}` — {title}.
+     Evidence: {evidence}
+     Impact: {one-line impact summary}
+     Required plan update: {recommended_fix}
+     Basis: fresh_verification | direct_file_inspection. Confidence: {high|medium|low}.
+   ```
+
+   For **agreement findings** (same location + title from both reviewers), file BOTH halves with an `Agreement:` cross-reference line pointing at each other (verify-tpr expects this shape). For single-reviewer findings, file ONE entry noting the reviewer.
+
+5. **Write** via the `Edit` tool. Section `status` stays `in-progress` while `third_party_review.status: findings` (this constraint is owned by `/verify-tpr` and `/continue-roadmap` — do not override).
+
+## §11 — Coordinator rendering contract (MANDATORY)
+
+After EVERY round, the orchestrator MUST print a round summary as a direct assistant message. The render happens AFTER `fix_and_commit` (so the commit sha is available for the mandatory `Fix commit:` field) but BEFORE any state-branching / loop-continuation decisions (exit-clean, meta-cap, iter-cap, round N+1 dispatch). This is the ONLY per-round user-facing surface — there are no persistent artifacts the user can read later in this design.
+
+Required structure:
+
+```md
+### Round {N} Summary
+
+**Dispatch**: codex {codex_findings} / gemini {gemini_findings} / survivor_mode: {true|false}
+**Verification**: verified {verified_count} / dropped {dropped_count}
+**Classification**: actionable {actionable_count} / meta {meta_count}
+**Fix commit**: {sha or "none — no actionable findings this round"}
+
+**Findings this round:**
+- `[TPR-{NN}-{ordinal}-{reviewer}][severity]` `path:line` — title. Disposition: {fixed in {sha} | handed off to /fix-bug BUG-XX-NNN | classified meta: {reason} | dropped at verification: {reason}}.
+- ... one bullet per verified finding (agreement findings produce ONE bullet cross-referencing both reviewer IDs) ...
+
+**Next round will confirm**: {one sentence — what the next round should verify, or "loop exiting {reason}"}.
+```
+
+**Rules:**
+- Every bullet MUST end with a `Disposition:` line. A bullet without a disposition is a contract violation.
+- Agreement findings produce ONE bullet, not two. Cross-reference both reviewer-tagged IDs inline.
+- Clean-pass rounds still render the block — `Findings this round:` becomes `(none — both reviewers returned clean)` and `Next round will confirm` becomes `loop exiting clean`.
+- Dropped findings (failed verification) appear in the bullet list with `Disposition: dropped at verification: <reason>`. The user sees what reviewers claimed and why it was rejected.
+- Keep bullets terse: ≤120 characters per line.
+
+## §12 — Model policy
+
+- **Orchestrator** — inherits the caller's model (no pinning). Typically Opus when invoked from `/fix-bug`, `/roadmap-work`, or `/continue-roadmap`. The skill body does NOT declare a `model:` frontmatter field: skill-level model binding is undocumented per https://code.claude.com/docs/en/skills, and the Opus-for-judgment property is achieved by the caller context, not the skill.
+- **Reviewer sub-agents** — pinned to Sonnet via the Agent tool's documented `model` field (https://code.claude.com/docs/en/sub-agents). Dispatch discipline + external CLI wrapping is mechanical enough for Sonnet; reviewer depth comes from the external CLIs (codex, gemini), not the sub-agent wrapper.
+
+## §13 — What this skill does NOT do
+
+- **No envelope, no JSON schema, no merger script.** Reviewers emit plain-text `<<<TPR-REPORT>>>` blocks; the orchestrator parses them inline.
+- **No polling, no status-check.sh, no background processes.** Agent dispatches are foreground; results arrive when the tool completes.
+- **No cross-session state.** Each invocation starts fresh. Session-resume is not supported.
+- **No cross-session circuit breaker.** Transient reviewer failures are handled per-round (§9).
+- **No `context: fork`.** The orchestrator runs in the caller's main context so the user sees every tool call, every finding, every edit.
+- **No `@`-includes.** Policy is inlined; rule files are read via `Read` in §2.
+
+## When to Trigger — Bias Toward Running
+
+Run this skill after ANY of:
+- Bug fixes (any severity), new features, refactors, multi-file changes (2+ files).
+- Changes to compiler crates (ori_arc, ori_types, ori_llvm, ori_eval, ori_parse, ori_patterns).
+- Test matrix additions, stdlib changes, registry changes, diagnostics changes.
+- Plan section implementations, docs touching invariants.
+
+**Also run when** unsure whether a change warrants review (default: run it), the change touches code paths shared across subsystems, or a fix surfaced interfering behavior elsewhere.
+
+**Run with a custom objective when** iterating on any artifact (skill, doc, design) with multi-agent consensus.
+
+**Skip only for** single-line typo fixes, comment edits, or formatting-only changes. When in doubt, run it — the cost of an unnecessary review is near zero; the cost of a missed correctness bug is high.

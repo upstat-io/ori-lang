@@ -64,7 +64,7 @@ Query the intelligence graph for cross-language prior art relevant to the propos
 
 Follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 **Create-draft-proposal extension** (per SSOT Step F — prior-art reconnaissance), additional queries beyond the SSOT base set:
 

@@ -62,7 +62,7 @@ Do just enough to write a useful bug entry. DO NOT deep-dive — the code may ch
 3. Note any obvious repro (existing test file, or 2-3 line Ori snippet)
 4. Intelligence graph blast-radius check. Follow the canonical intel-summary injection protocol:
 
-   @.claude/skills/dual-tpr/compose-intel-summary.md
+   @.claude/skills/query-intel/compose-intel-summary.md
 
    Per SSOT Step F — /add-bug uses `callers "<buggy function>" --repo ori` to assess blast radius and `file-symbols "<subsystem path>" --repo ori` to identify related code.
 

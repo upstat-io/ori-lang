@@ -119,7 +119,7 @@ An agent that skips reading these files WILL produce incorrect verification resu
 Before verifying items, run the intelligence graph protocol for the
 section's scope:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Target the roadmap section's declared scope (crates / subsystems named in
 the section's title or description). Run `file-symbols` on those crates

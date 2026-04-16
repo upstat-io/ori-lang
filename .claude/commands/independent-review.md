@@ -220,7 +220,7 @@ For EACH finding from the previous reviewer:
 
 Before manual adjacency reading, follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Use the Intelligence Summary to prioritize which adjacent files, callers, callees, and prior-art references to inspect.
 

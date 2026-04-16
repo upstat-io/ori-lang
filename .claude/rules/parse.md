@@ -364,6 +364,10 @@ Source: `ori_lexer/src/keywords/mod.rs` — contextual promotion logic.
 
 Source: `ori_parse/src/grammar/expr/operators.rs` — `match_function_exp_kind()`; `ori_parse/src/cursor/identifiers.rs` — `soft_keyword_str()`; `ori_parse/src/grammar/expr/primary/literals.rs`, `bindings.rs` — reuse sites.
 
+**Channel constructors** (4): `channel`, `channel_in`, `channel_out`, `channel_all`. These are NOT keyword tokens — they are pre-interned identifiers dispatched by `match_channel_kind()` in `grammar/expr/primary/helpers.rs`. When `parse_primary()` encounters an identifier followed by `(` or `<`, it checks `match_channel_kind()` BEFORE the `match_function_exp_kind()` keyword-based path. On match, the identifier routes to `FunctionExpKind::{Channel,ChannelIn,ChannelOut,ChannelAll}` via `parse_channel_expr()`. This is distinct from the lexer-promoted soft-keyword path — channel names are always plain identifiers at the token level; the disambiguation happens entirely in `parse_primary()`.
+
+Source: `ori_parse/src/grammar/expr/primary/helpers.rs` — `match_channel_kind()`; `ori_parse/src/grammar/expr/primary/mod.rs` — `parse_primary()` identifier dispatch. Spec: `grammar.ebnf` — `channel_constructor` production.
+
 Rationale: Lexer-soft keywords balance expressiveness (identifier status preserved at lex time) with parser convenience (common idioms like `timeout(...)` read naturally). Reserved-but-reusable keywords are always lexed as keywords but accepted in identifier positions by the cursor's identifier-or-soft-keyword APIs, giving users flexibility without ambiguity.
 
 ### KW-2 — `with` Disambiguation
@@ -566,9 +570,12 @@ Source: `ori_parse/src/dispatch.rs`, `ori_parse/src/module_parse.rs`.
 | `trait` | Trait definition |
 | `impl` | Impl block |
 | `def impl` | Default impl (requires `impl` after `def`) |
-| `let $` or bare `$` | Module-level constant |
+| `let $` | Module-level constant (spec form: `let $name = expr;`) |
+| bare `$` | Module-level constant **(spec-divergence: accepted for backwards compatibility but not in the grammar — `grammar.ebnf:329` mandates `let $`)** |
 | `extend` | Extension block |
 | `extern` | FFI declaration block |
+
+**(Target-only / spec-side only)** The spec grammar also lists `capset_decl` (`grammar.ebnf:233, :281`) among the top-level declaration kinds, but no `TokenKind::Capset` exists in the lexer and `dispatch_declaration()` has no branch for it. `capset` support is entirely unimplemented — the only in-repo mention is a stale comment on `eat_optional_semicolon()` (`dispatch.rs:301`). When `capset` ships, it will need a new dispatch branch and lexer support.
 
 The two-stage structure enforces import ordering (imports SHALL precede declarations). Attributes and `pub` visibility are handled in `module_parse.rs` preprocessing; attribute applicability (declaration-kind checks) is enforced in `dispatch.rs` during stage 2.
 
@@ -576,7 +583,7 @@ The two-stage structure enforces import ordering (imports SHALL precede declarat
 
 Declarations follow the Ori semicolon rule: if the declaration body ends with `}`, no semicolon is needed. Two distinct helpers in `dispatch.rs` handle the other cases:
 
-- **`eat_optional_semicolon()`**: used for imports, module-level constants, extension imports, and similar declarations where the terminating `;` is accepted but not required.
+- **`eat_optional_semicolon()`**: used for imports, module-level constants, extension imports, and similar declarations where the terminating `;` is accepted but not required. **(Spec-divergence note: the grammar mandates `;` on `constant_decl` per `grammar.ebnf:329`; the parser's optional-semicolon behavior for constants is legacy leniency, not the normative spec.)**
 - **`eat_optional_item_semicolon()`**: used for expression-bodied items (functions, tests, methods, and type declarations). If the body is a non-block expression and `;` is missing, the parser emits error `E1016`. Call sites include `grammar/item/function/mod.rs`, `grammar/item/impl_def/mod.rs`, `grammar/item/trait_def.rs`, and `grammar/item/type_decl.rs`.
 
 The two helpers encode the spec's intent: block-bodied items need no terminator, non-block expression-bodied items require one, and some module-level declarations accept either form.

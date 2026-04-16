@@ -12,12 +12,12 @@ Pure-data crate. Zero dependencies, zero logic, zero `unsafe`. All data is `cons
 | Type | Purpose |
 |------|---------|
 | `TypeTag` | `#[repr(u8)]` enum, 23 variants. Identity discriminant for all builtin types. |
-| `TypeDef` | Complete behavioral spec: tag, name, memory strategy, type params, methods, operators. |
+| `TypeDef` | Complete behavioral spec: tag, name, memory strategy, type params, methods, operators, traits. 7 fields. |
 | `MethodDef` | 10 required fields: name, receiver, params, returns, trait_name, pure, backend_required, kind, dei_only, dei_propagation. |
 | `OpDefs` | 20 `OpStrategy` fields (one per operator). `Unsupported` = type error. |
 | `MemoryStrategy` | `Copy` / `Arc` / `Structural` — drives ARC classification. |
 | `Ownership` | `Borrow` / `Owned` / `Copy` — receiver and parameter passing. |
-| `ReturnTag` | Return/param type: `Concrete(TypeTag)`, `SelfType`, projections (`ElementType`, `KeyType`, etc.), wrappers (`Option(TypeTag)`, `ListOf(TypeProjection)`). |
+| `ReturnTag` | Return/param type algebra: **concrete** (`Concrete(TypeTag)`, `SelfType`, `Unit`), **projections** (`ElementType`, `KeyType`, `ValueType`, `OkType`, `ErrType`), **fixed wrappers** (`List(TypeTag)`, `Option(TypeTag)`, `DoubleEndedIterator(TypeTag)`), **projection wrappers** (`OptionOf`, `ListOf`, `IteratorOf`, `DoubleEndedIteratorOf`), **composites** (`ListKeyValue`, `ListOfTupleIntElement`, `MapIterator`, `IteratorOfTupleIntElement`), **tuples** (`NextResult` for `(Option<T>, Self)`), **higher-order** (`ResultOfProjectionFresh(TypeProjection)`, `Fresh`). |
 
 ## Query API
 
@@ -40,7 +40,7 @@ DEI aliasing: `DoubleEndedIterator` resolves to `Iterator` via `TypeTag::base_ty
 4. Update `TypeTag::is_primitive()` / `is_generic()` if applicable
 5. Create `defs/type_name.rs` (or `defs/type_name/mod.rs` for large types)
    - Define `static METHODS: &[MethodDef]` (sorted alphabetically by name)
-   - Define `pub static TYPE_NAME: TypeDef` with all 6 fields
+   - Define `pub static TYPE_NAME: TypeDef` with all 7 fields (including `traits` for non-method trait satisfaction)
 6. Add `mod type_name;` and `pub use self::type_name::TYPE_NAME;` in `defs/mod.rs`
 7. Add `&TYPE_NAME` to `BUILTIN_TYPES` array (in `TypeTag` discriminant order)
 8. Update `type_tag_all_contains_every_variant` expected count

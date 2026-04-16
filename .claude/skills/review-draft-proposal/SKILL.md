@@ -99,7 +99,7 @@ If conflicts found, present each and ask user to resolve via `AskUserQuestion`.
 
 Follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Per SSOT Step F — /review-draft-proposal extension: use `symbols "<proposal topic>" --repo ori --limit 15` to map existing Ori surface and `similar "<proposed feature concept>" --repo rust,swift,go --limit 5` to find cross-repo equivalents. Use results to enrich the Conflict Check (existing symbol collisions) and Purity Analysis (reference implementations).
 

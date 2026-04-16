@@ -151,7 +151,7 @@ Without this, all Edit/Write calls to spec files will be **blocked by the hook**
    spec files, run a blast-radius check on every symbol the spec-edit might
    affect:
 
-   @.claude/skills/dual-tpr/compose-intel-summary.md
+   @.claude/skills/query-intel/compose-intel-summary.md
 
    Query `callers` on symbols referenced in the spec change. If the edit
    changes operator-rules.md section X, run

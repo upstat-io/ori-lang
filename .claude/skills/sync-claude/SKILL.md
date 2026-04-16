@@ -79,7 +79,7 @@ get a complete symbol inventory for each changed crate. This reveals symbols
 that may have been added, renamed, or removed — and that doc artifacts might
 not reflect.
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Specifically: for each crate touched in the diff, run
 `scripts/intel-query.sh --human file-symbols "<crate-path-fragment>" --repo ori`

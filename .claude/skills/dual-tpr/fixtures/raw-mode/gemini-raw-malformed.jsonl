@@ -1,3 +1,0 @@
-not valid json
-{"type": "message", "role": "assistant", "content": "recovered after skipping bad line", "delta": true}
-{"type": "result", "status": "success"}

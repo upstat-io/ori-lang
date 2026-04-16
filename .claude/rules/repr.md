@@ -18,7 +18,23 @@ paths:
 
 **Spec.** `docs/ori_lang/v2026/spec/` is authoritative for surface semantics. Relevant clauses: Clause 8.1 Primitive Types (with 8.1.1 Never Semantics, 8.1.2 Duration, 8.1.3 Size), Clause 8.2 Compound Types (List, Fixed-Capacity List, Map, Set, Tuple, Function, Range), Clause 8.4 Built-in Types (Ordering), Clause 8.6 User-Defined Types (Struct, Sum Type, Newtype, Derive), Clause 8.8 Trait Objects, Clause 21 Memory Model, Clause 26.4.9 `#repr` attribute (`docs/ori_lang/v2026/spec/26-ffi.md`), and Annex E §Representation Optimization, §ARC Runtime, §Built-in Type Representations (`docs/ori_lang/v2026/spec/annex-e-system-considerations.md`). The `#repr(...)` attribute surface syntax is summarized in `.claude/rules/ori-syntax.md §FFI` and specified in Clause 26.4.9.
 
-**Shipped vs stubbed passes.** The `ori_repr` pipeline has two active passes (struct layout/field reordering, integer narrowing) and five **stubbed** passes with empty function bodies: `compute_enum_reprs` (enum niche optimization), `analyze_escape` (escape analysis for stack promotion), `compress_arc_headers` (RC header width narrowing), `apply_thread_local_arc` (Rc vs Arc selection), `specialize_collections` (SSO, SVO, packed bool, element narrowing). Rules in this document that reference stubbed passes describe the target-system behavior — the code does not yet implement them. The active passes are authoritative current behavior.
+**Shipped vs stubbed passes.** The `ori_repr` pipeline (`compiler/ori_repr/src/pipeline/mod.rs`) executes the following phases in order:
+
+- **Active passes** (concrete implementations):
+  1. `populate_canonical` — set canonical representations for all types (Phase 1).
+  2. `analyze_triviality` — validation-only pass; checks `classify_triviality()` agrees with `is_trivial_repr()` for every stored repr (Phase 2).
+  3. `analyze_ranges` — interprocedural range propagation (intraprocedural fixpoint, SCC parameter seeding, return-range propagation); results stored in `function_var_ranges` and `field_range_summaries` (Phase 3a).
+  4. `apply_integer_narrowing` — struct/tuple field narrowing (Phase A), local variable narrowing (Phase B), collection element narrowing (Phase C) from range summaries (Phase 3b).
+  5. `apply_float_narrowing` — f64 → f32 storage-only narrowing for struct fields where all observed values are f32-exact literals (Phase 3c).
+  6. `compute_struct_layouts` — struct and tuple field reordering for padding minimization; `#repr("c")`/`#repr("packed")`/`#repr("transparent")` handled with their own layout strategies (Phase 4a).
+- **Stubbed passes** (empty function bodies — target-system behavior only):
+  1. `compute_enum_reprs` — enum niche optimization (Phase 4b).
+  2. `analyze_escape` — escape analysis for stack promotion (Phase 5a).
+  3. `compress_arc_headers` — RC header width narrowing (Phase 5b).
+  4. `apply_thread_local_arc` — Rc vs Arc selection (Phase 5c).
+  5. `specialize_collections` — SSO, SVO, packed bool, element narrowing (Phase 6).
+
+Rules in this document that reference stubbed passes describe the target-system behavior — the code does not yet implement them. The active passes are authoritative current behavior. When `NarrowingPolicy::Disabled` is set, the pipeline returns after `populate_canonical` (only Phase 1 runs).
 
 ---
 
@@ -188,12 +204,15 @@ A sum type `type T = A | B(x: int) | C(y: float, z: bool)` without niche encodin
 
 ### RP-22 — Discriminant width
 
-For a sum type with N variants, the `TagEntry.width_bits` SHALL be:
+For a sum type with N variants, the discriminant width is determined by `min_tag_width()` in `compiler/ori_repr/src/enum_repr.rs`:
 
-- `N ≤ 2`: `1` (stored as `i8` per `CG:TR-1` aggregate-storage rules) — unless niche encoding elides the tag entirely (§7).
-- `3 ≤ N ≤ 256`: `8`.
-- `257 ≤ N ≤ 65_536`: `16`.
-- `N > 65_536`: `32`.
+- **Single-variant enums** (`N = 1`): tagless — `EnumTag::None` is used; `min_tag_width()` is not called. No discriminant field exists.
+- `N = 2..=256`: `I8` (8-bit, stored as `i8`) — unless niche encoding elides the tag entirely (§7).
+- `N = 257..=65_536`: `I16`.
+- `N = 65_537..=4_294_967_296`: `I32`.
+- `N > 4_294_967_296`: `I64`.
+
+Note: there is no 1-bit discriminant. The smallest explicit tag width is `I8`. For `N = 0` or `N = 1`, `min_tag_width()` returns `I8` defensively, but single-variant enums bypass the explicit tag entirely via `EnumTag::None` in `canonical_enum()`.
 
 Discriminant values are assigned in declaration order starting from `0`. The mapping `variant_name → tag_value` is stable for a given type definition and is part of the `ReprPlan`. Cross-crate stability of discriminant values is a function of declaration-order stability in source — no hash-based or reordering strategy is permitted.
 

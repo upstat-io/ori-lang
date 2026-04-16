@@ -63,12 +63,69 @@ Every tool must be documented in its **canonical doc surface** (the single sourc
 | `scripts/` (maintenance/migration: `extract_tests.py`, `pgo-build.sh`, `release.sh`, etc.) | Script's own `--help` | Not required in CLAUDE.md — these are infrequently needed and would bloat the curated Commands section |
 | Root harnesses (`test-all.sh`, `clippy-all.sh`, `fmt-all.sh`, `build-all.sh`) | `CLAUDE.md` §Commands | — |
 | Root build/setup (`llvm-test.sh`, `llvm-build.sh`, `install.sh`, `full-check.sh`, etc.) | `CLAUDE.md` §Commands (if commonly needed) or script's own `--help` (if one-off) | — |
+| **Skills + commands touched by `/improve-tooling`** (`.claude/skills/*/`, `.claude/commands/*.md`) | **Skill/command's own SKILL.md / command file** (behavior, trigger conditions, workflow) | **`.claude/skills/improve-tooling/<tool-name>-design.md` (per-tool design log — see §Per-Tool Design Logs below)** |
 
 **SSOT invariant**: Each tool has exactly ONE canonical surface. `diagnostics/README.md` is the single source of truth for diagnostic scripts — `.claude/rules/diagnostic.md` is a quick-reference table that may lag; it is NOT a second mandatory sync target. Do NOT mandate parallel updates to multiple doc surfaces — that guarantees drift.
 
 **Canonical means one, not two**: when the skill says "update the canonical surface," that means update ONE file. Secondary surfaces are best-effort — update them if convenient, but a missing secondary entry is not a gap finding. A missing canonical entry IS a gap finding.
 
 **Why CLAUDE.md matters**: CLAUDE.md is loaded into every conversation's context. Tools documented *only* in `diagnostics/README.md` or hidden in `scripts/` are effectively invisible to most sessions. But CLAUDE.md is curated for interactive use — it should list commonly-needed scripts with brief descriptions, not serve as an exhaustive script index. Maintenance/migration scripts that are rarely needed interactively should have `--help` but don't need CLAUDE.md entries.
+
+## Per-Tool Design Logs (MANDATORY for skills/commands/scripts improved by this skill)
+
+**Purpose.** Every tool this skill touches — skill, slash command, diagnostic script, or maintenance script — gets its own **design log** markdown file in `.claude/skills/improve-tooling/`. The design log captures the **design philosophy** (so future edits don't regress the architecture), the **load-bearing invariants** (things you must NOT change without a concrete plan), and a **running log of improvements and bugs** found during real use.
+
+**Why here.** These logs do NOT belong in the tool's own SKILL.md or command file — those are the behavioral contract and must stay focused on what the tool DOES, not why the design evolved. The logs belong in `.claude/skills/improve-tooling/` because this is the canonical home for "improve tooling, don't work around it" per CLAUDE.md — the retrospective lens on a tool's evolution lives in the skill that evolves it.
+
+**Why one-per-tool.** A single monolithic improvement log across all tools would be impossible to navigate. Per-tool files mean: (1) the log for `/tpr-review` can be read in isolation when `/tpr-review` misbehaves, (2) each tool's invariants are grep-findable by tool name, (3) adding a finding to one tool's log doesn't churn other tools' history.
+
+### File naming convention
+
+- **Skills:** `<skill-name>-design.md` (e.g., `tpr-review-design.md`, `fix-bug-design.md`).
+- **Slash commands that aren't skills:** `cmd-<command-name>-design.md` (e.g., `cmd-review-work-design.md`).
+- **Diagnostic/scripts tools:** `script-<script-name>-design.md` (e.g., `script-rc-stats-design.md`).
+
+One file per tool, flat directory (no subdirectories). Alphabetical ordering when listed.
+
+### Required file structure (template)
+
+Every design log file MUST have these sections in this order. See `.claude/skills/improve-tooling/tpr-review-design.md` for the canonical reference example; copy its section skeleton when creating a new log.
+
+1. **§Purpose + Context** — one paragraph: what the tool is, when it was last significantly changed, pointer to any approved plan.
+2. **§1 Core Design Philosophy** — numbered list of keep-this principles that define the tool's architecture (e.g., "runs in main context, not a sub-agent", "uses mktemp for scratch dirs", "no embedded corpus"). These are prescriptive: "do X", not "don't do Y".
+3. **§2 Load-Bearing Invariants** — a table mapping invariant → failure mode it prevents. Every row answers "why does this exist?" with a concrete bug the design previously surfaced. Changing any invariant without understanding its failure mode means re-discovering the bug.
+4. **§3 File Inventory** — table of the canonical files that implement this tool, with line counts and roles. Include what was DELETED recently (so deletions aren't silently rolled back).
+5. **§4 Lessons from Dogfood / Production Runs** — dated entries documenting real findings: what broke, how it was diagnosed, what was fixed. This is the history book.
+6. **§5 Regressions To Watch For** — an `- [ ]` checklist of specific patterns that indicate a known regression has re-appeared. Pre-edit sanity check.
+7. **§6 Improvement Log** — two subsections: "Open items" (unchecked `- [ ]` entries with `[priority]` tags) and "Recently closed" (checked `- [x]` entries with dates). Priorities: `p0` blocks future runs / `p1` frequent user-visible / `p2` nice-to-have / `p3` cosmetic.
+8. **§7 How To Use This File In Future Sessions** — one-paragraph instructions for the next Claude session or human reader: when to open it, when to update it, what to update.
+
+### When to create a design log
+
+Create the design log (if missing) whenever this skill `/improve-tooling` is invoked against a tool that doesn't yet have one. The file is created BEFORE the improvement work starts — the act of writing §1 (Design Philosophy) forces you to articulate what you're preserving vs. changing. This is the retrospective lens applied prospectively.
+
+Creation template: open `tpr-review-design.md`, copy the outline, replace the content. Fill in what you know today. §6 Improvement Log will start with the current fix as its first `- [x]` entry. §4 Lessons may start empty and accumulate as findings appear.
+
+### When to update a design log
+
+- **After every `/improve-tooling` session on the tool:** add a `- [x]` entry under §6 with the date + description + commit sha.
+- **Whenever a regression from §5 is caught in the wild:** add a `- [ ]` open item; bump priority if it recurs.
+- **Whenever an invariant from §2 needs to change:** add a dated §4 entry explaining the new failure mode the old invariant caused, flip the §2 row, and ALSO update the tool's own SKILL.md/command file to match. The design log and the tool must agree.
+- **Whenever a real-use bug surfaces** (the user or Claude notices the tool misbehaving, a finding from `/tpr-review`, a retrospective observation): add a `- [ ]` item under §6 Open, even if you can't fix it immediately. Tracking is non-optional; fixing is best-effort.
+
+### When NOT to create a design log
+
+Design logs are for tools under active evolution. Some tools are stable and simple enough not to warrant the overhead:
+
+- **Trivial scripts** (<50 lines, single-purpose, no configurable flags): `--help` suffices.
+- **One-off migration scripts** (`release.sh`, `bump-build.sh`): lifetime is short, design won't evolve.
+- **Tool pairs that are already covered by one log:** `/tpr-review` + `/tp-help` share `tpr-review-design.md` because they share architecture; no need for two files.
+
+If unsure, create the log — the cost of an unused file is zero; the cost of losing institutional memory on a re-rewrite is very high.
+
+### Discovery: finding a tool's design log
+
+`ls .claude/skills/improve-tooling/*-design.md` lists all extant logs. `grep -l "<tool-name>" .claude/skills/improve-tooling/*-design.md` finds shared logs (tool-pair or tool-family coverage).
 
 ## Workflow
 
@@ -88,7 +145,7 @@ Read the existing tool code. Understand:
 
 Before creating a new tool, run the intelligence pre-query to check if similar tools already exist. Follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Per SSOT Step F — /improve-tooling uses `symbols "<keyword>" --repo ori --kind function --limit 10` to find existing tool functions before creating a new one.
 
@@ -111,6 +168,7 @@ Now use the improved tool for your original task. The improvement must actually 
 2. **Secondary surfaces — best-effort** — if the tool is already listed in a secondary surface (e.g., `.claude/rules/diagnostic.md` quick table), update it there too. But secondary surfaces are not mandatory sync targets.
 3. **`--help` MUST reflect the change** — the script's own help output is part of the doc surface.
 4. **New commonly-needed tools MUST appear in their canonical doc index** — commonly-needed scripts that only have `--help` but aren't in CLAUDE.md or `diagnostics/README.md` are invisible to future sessions. Maintenance/migration scripts whose canonical surface IS their `--help` do not need doc index entries.
+5. **Per-tool design log MUST be updated** — see §Per-Tool Design Logs. For skills/commands/tools under active evolution: if the design log exists at `.claude/skills/improve-tooling/<tool>-design.md`, add a `- [x]` entry under §6 with today's date + one-line description + commit sha (or "pending commit"). If the log does NOT exist AND the tool qualifies (non-trivial, actively-evolving), CREATE it using the template in §Per-Tool Design Logs — the act of writing §1 Design Philosophy + §2 Load-Bearing Invariants forces articulation of what you're preserving. Trivial scripts / one-off migrations are exempt.
 
 **Verification**: After updating docs, re-read the doc surface and confirm the new tool/flag appears correctly. A doc update that's syntactically wrong (broken table row, missing column) is worse than no update.
 

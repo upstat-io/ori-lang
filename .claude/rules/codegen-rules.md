@@ -416,11 +416,14 @@ The codegen layer and the runtime library (`ori_rt`) communicate exclusively thr
 
 ### RT-1 — Signature Agreement
 
-Every runtime function declaration in `ori_llvm` SHALL match the corresponding `extern "C"` function in `ori_rt` exactly:
+Every runtime function declaration in `ori_llvm` SHALL match the corresponding function in `ori_rt` exactly:
 - Parameter count and types
 - Return type
-- Calling convention (`ccc`)
+- Calling convention (`ccc` — both `extern "C"` and `extern "C-unwind"` use the C calling convention at the LLVM level)
 - Function name (no mangling — `#[no_mangle]`)
+- **Unwind behavior**: functions that are `extern "C-unwind"` on the Rust side (may unwind via Ori's exception mechanism) SHALL NOT carry the `Nounwind` attribute in `ori_llvm`'s declaration. Functions that are `extern "C"` (cannot unwind by ABI contract) SHALL carry `Nounwind`. The audit test `all_non_unwinding_functions_have_nounwind` in `runtime_decl/tests.rs` enforces this split.
+
+The may-unwind set (documented in `runtime.md` §Unwinding ABI): `ori_panic`, `ori_panic_cstr`, `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_float`, `ori_assert_eq_str`, `ori_list_get`. These functions call `ori_panic`/`ori_panic_cstr` on failure, which raises a C exception via `_Unwind_RaiseException` (Itanium) or SEH `RaiseException` (MSVC). Adding `Nounwind` to these functions would cause Rust to insert an abort guard that prevents the exception from reaching LLVM cleanup pads.
 
 A mismatch is a silent ABI violation that may cause SIGSEGV, data corruption, or undefined behavior. Changes to `ori_rt` function signatures MUST update `ori_llvm` declarations in the same commit.
 
@@ -522,7 +525,7 @@ Every emitted LLVM function SHALL be verified via `fn_val.verify(true)` at the f
 - After each trampoline generation (TM-8)
 - After derive codegen generates a derived method
 
-When `ORI_VERIFY_ARC=1` is set, verification runs at all checkpoints. In normal mode, verification runs only at the post-emission checkpoint.
+All checkpoints are gated behind `ORI_VERIFY_ARC=1` (`self.verify_arc`). In normal mode (without `ORI_VERIFY_ARC=1`), no per-function LLVM IR verification runs. The guard appears in `define_phase.rs`, `entry_point.rs`, `seh_main_thunk.rs`, `panic_trampoline.rs`, `nounwind/emit.rs`, and `impls.rs`.
 
 ### VR-2 — Module-Level Verification
 

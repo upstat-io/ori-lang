@@ -215,7 +215,7 @@ Verify these 5 meta/process rules files against their corresponding artifacts:
 - spec.md ↔ docs/ori_lang/v2026/spec/ (verify spec process descriptions match actual spec structure)
 - proposals.md ↔ docs/ori_lang/proposals/ (verify proposal process descriptions)
 - roadmap.md ↔ plans/roadmap/ (verify roadmap process descriptions)
-- intelligence.md ↔ scripts/intel-query.sh + .claude/skills/dual-tpr/compose-intel-summary.md (verify query subcommands, consumer lists, subsystem mapping)
+- intelligence.md ↔ scripts/intel-query.sh + .claude/skills/query-intel/compose-intel-summary.md (verify query subcommands, consumer lists, subsystem mapping)
 - ori-lang.md ↔ docs/ori_lang/ (verify doc standards)
 
 For each claim: verify against actual files. Check for stale consumer lists in intelligence.md, incorrect spec clause numbering, stale proposal process descriptions.

@@ -135,7 +135,7 @@ STEP 1.5: CONDITIONAL — Intelligence Pre-Query
 
 Follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 **Design-pattern-review extension** (per SSOT Step F):
 

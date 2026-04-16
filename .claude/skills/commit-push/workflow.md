@@ -91,6 +91,57 @@ EOF
 )"
 ```
 
+### !! HOOK FAILURE PROTOCOL — READ THIS IF STEP 5 FAILS !!
+
+If `git commit` fails because a pre-commit hook rejected it (clippy errors, test failures, formatting failures, version-sync issues — anything):
+
+**STOP. Do not take any further action yet.**
+
+A hook failure is a context-collapse event. The moment a commit is blocked, the brain wants to unblock it — and that pressure causes goal displacement: the goal shifts from "have correct code" to "make the commit succeed." These are not the same goal. Before you do anything else, you must re-ground yourself.
+
+---
+
+#### Step 0: Re-Ground (MANDATORY before any other action)
+
+Do these in order before touching a single file:
+
+1. **Re-read your active task.** Ask: what was I actually working on?
+   - If you were fixing a bug: re-read the fix section file (`plans/bug-tracker/fix-BUG-XX-NNN.md`). What is the stated deliverable? What invariant am I enforcing?
+   - If you were executing a plan section: re-read the section file. What checkbox was I completing? What is its stated goal?
+   - If you were doing standalone work: re-state in one sentence what you were trying to accomplish.
+
+2. **Re-read The One Rule** from CLAUDE.md §"The One Rule: Correctness Above All":
+   > Every decision you make must optimize for correctness. The most correct, clean, and proper fix is the ONLY acceptable fix. Effort, time, cost, scope, risk are ALL irrelevant. Correctness wins. Always.
+
+3. **Re-read the hook failure output.** Now that you are re-grounded: what did the hook actually catch? Read the error message fresh, with your real goals in mind — not through the lens of "how do I unblock the commit?"
+
+4. **Now decide.** From this re-grounded position, the correct action is almost always obvious: the hook found something broken, and the job is to fix it correctly. The commit will follow when the code is correct.
+
+---
+
+#### Banned responses to a hook failure (all equivalent to bypass)
+
+- Adding `#[allow(clippy::...)]` to suppress a clippy error
+- Weakening a test (removing assertions, changing `assert_eq!` to `assert!`, commenting out cases)
+- Adding a gate/flag/early-return that makes the failing code path unreachable
+- Commenting out or `#[ignore]`-ing a failing test
+- Narrowing test coverage to avoid the failing case
+- Any change whose stated or unstated purpose is "make the hook pass" rather than "fix the broken thing"
+
+If you find yourself considering any of these: you have not re-grounded. Go back to Step 0.
+
+---
+
+#### The correct response after re-grounding
+
+1. Fix the underlying problem correctly — per The One Rule.
+2. Run `./test-all.sh` (Bash tool `timeout: 150000`) to verify the real fix works end-to-end.
+3. Then retry `/commit-push`.
+
+If the fix is large (touches multiple crates, requires architectural change), that is not a reason to reach for a workaround. The size of the correct fix is irrelevant. If genuinely blocked (missing domain knowledge, need user decision), use `AskUserQuestion` — do NOT silently reach for a shortcut.
+
+---
+
 ### Step 6: Post-Commit Dirty-Tree Check
 
 After the commit lands, verify the working tree is clean:

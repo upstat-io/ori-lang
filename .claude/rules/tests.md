@@ -107,7 +107,7 @@ Matrix clamping uses tests to **narrow the solution space** until only the corre
 
 **A test that only exercises one compiler phase is incomplete.** Production compilers (TypeScript, Swift, Zig) verify that all phases agree on every test. For Ori:
 
-1. **Dual-execution parity**: Every spec test runs through both the interpreter and LLVM backend. A test that passes in the interpreter but not LLVM (or vice versa) is a bug — not a "backend limitation." The `test-all.sh` suite enforces this via parallel `cargo st` (interpreter) and `ori test --backend=llvm` (LLVM) runs. Any new test that is skipped for one backend MUST have a plan item tracking when it will be supported.
+1. **Dual-execution parity**: Every spec test runs through both the interpreter and LLVM backend. A test that passes in the interpreter but not LLVM (or vice versa) is a bug — not a "backend limitation." The `test-all.sh` suite enforces this via pre-built binaries: `./target/debug/ori test --verbose tests/` (interpreter, debug build) and `./target/release/ori test --verbose --backend=llvm tests/` (LLVM, release build). Both binaries must be built before `test-all.sh` runs. Any new test that is skipped for one backend MUST have a plan item tracking when it will be supported.
 
 2. **Phase-boundary tests**: When a fix touches infrastructure shared between phases (e.g., type representations, pattern compilation, method resolution), write tests that verify the handoff:
    - **Parse → Typeck**: the parsed AST structure matches what the type checker expects
@@ -255,7 +255,8 @@ fn test_nested_closure_iter_drop() { ... }
 
 ## Attributes
 - `#skip("reason")` — skip with explanation
-- `#compile_fail("substring")` — expect compile failure
+- `#compile_fail("substring")` — expect compile failure (shorthand: message substring match)
+- `#compile_fail(code: "E2041", message: "cannot combine")` — structured form with keyed fields: `code` (exact error code match), `message` (substring match), `line` (1-based line number), `column` (1-based column number). All fields are optional; unspecified fields match any value. The harness supports both the shorthand string form and the keyed form via `ExpectedError` in `ori_ir/src/ast/items/function.rs`.
 - `#fail("substring")` — expect runtime failure
 
 ## Debugging / Tracing
@@ -298,7 +299,7 @@ covers Ori plus 10 reference compilers, synced on every commit. Manual reference
 authoritative — but only AFTER the graph narrows the search. Never cite a
 graph result without verifying against the actual source. See
 `.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
-`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+`.claude/skills/query-intel/compose-intel-summary.md` for the canonical
 query protocol used by review-family skills.
 
 ## Prior Art Reference

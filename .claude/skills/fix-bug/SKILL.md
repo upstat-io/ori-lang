@@ -159,7 +159,7 @@ The handoff from the Sonnet sub-agent already contains the full bug entry text, 
 
    Follow the canonical intel-summary injection protocol:
 
-   @.claude/skills/dual-tpr/compose-intel-summary.md
+   @.claude/skills/query-intel/compose-intel-summary.md
 
    **Fix-bug extension** (per SSOT Step F — Phase 1 investigation), additional queries beyond the SSOT base set:
    - `scripts/intel-query.sh --human search "<bug description keywords>" --limit 5`
@@ -353,7 +353,7 @@ When skipped, record in the fix section's §2.5: `Plan TPR: Skipped — {severit
 
 ### How to Run Plan TPR
 
-1. **Invoke `/tpr-review`** with the fix section file as the review target.
+1. **Invoke `/tpr-review`** via the `Skill` tool (NOT via `Agent`) with the fix section file as the review target: `Skill({skill: "tpr-review"})`. Using Agent would swallow all round summaries.
 2. **Handle findings** — fix issues in the plan. Re-run Plan TPR if findings were significant.
 3. **Update §2.5 Plan TPR Findings** in the fix section with the findings and resolutions.
 4. **Proceed to Phase 3** only when Plan TPR is clean.
@@ -391,10 +391,10 @@ Update the fix section: check off implementation tasks, note any discoveries. **
 
 **NO PAUSING** — Phase 5 is a direct continuation of Phase 4. After the Phase 4 commit, proceed immediately. Do NOT prompt the user, do NOT pause between items.
 
-**FOREGROUND MANDATORY — ALL nested skill invocations** (`/tpr-review`, `/impl-hygiene-review`, `/improve-tooling`, `/sync-claude`, `/commit-push`).
+**FOREGROUND MANDATORY — ALL nested skill invocations** (`/tpr-review`, `/impl-hygiene-review`, `/improve-tooling`, `/sync-claude`, `/commit-push`). "Nested skill invocation" means: invoke via the **`Skill` tool**, NOT via `Agent`. An `Agent` dispatch (even foreground/non-background) runs the skill as a sub-agent, swallowing all intermediate output — round summaries, progress updates, and findings become invisible to the user until the Agent returns its final result. `Skill({skill: "tpr-review"})` runs the coordinator inline in the current context so per-round summaries are printed in real time.
 
 1. **Verify all matrix items** — tests, builds, leak checks as specified in the fix section's completion checklist
-2. **Run `/tpr-review`** (Phase 5 — code review) — independent third-party review of the **implementation**
+2. **Invoke `/tpr-review`** via the `Skill` tool (Phase 5 — code review): `Skill({skill: "tpr-review"})` — independent third-party review of the **implementation**. NOT via Agent — see FOREGROUND MANDATORY note above.
 3. **Handle code TPR findings** — fix any issues found, re-run until clean
 4. **Run `/impl-hygiene-review`** — AFTER code TPR is clean
 5. **Run `/improve-tooling` retrospectively** — MANDATORY at fix close, AFTER both reviews are clean. Reflect on: which `diagnostics/` scripts you ran, where you added ad-hoc `dbg!`/`tracing` calls (and what each one was looking for), where the original failure message was unhelpful, what instrumentation would have made the bug obvious in 1 minute instead of 30. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build`/`test`/`chore`/`ci`/`docs` — NOT `tools(...)`). See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full look-back protocol.

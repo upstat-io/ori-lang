@@ -56,7 +56,10 @@ Source: `ori_types/src/check/api/mod.rs` (`check_module_impl`), `ori_types/src/c
 | 3 | `check_test_bodies` | Bodies | Check `@t tests @f` and `tests _` bodies (`CF-6`) | `check/bodies/mod.rs` |
 | 4 | `check_impl_bodies` | Bodies | Check method bodies in `impl Type { @m }` and `impl Type: Trait { @m }` | `check/bodies/mod.rs` |
 | 5 | `check_def_impl_bodies` | Bodies | Check method bodies in `def impl Trait { @m }` | `check/bodies/mod.rs` |
+| — | `intern_multi_clause_tuples()` | Post-check | Pre-intern tuple types for multi-clause function lowering in `ori_canon` | `check/accessors.rs` |
 | — | `finish()` / `finish_with_pool()` | Export | Collect typed IR, diagnostics, registries into `TypeCheckResult` | `check/mod.rs` |
+
+**Post-check pool mutation**: The pool-returning APIs (`check_module_with_pool()`, `check_module_with_imports()`) call `checker.intern_multi_clause_tuples(module)` AFTER `check_module_impl()` and BEFORE `finish_with_pool()` (`check/api/mod.rs`). This helper iterates multi-clause function declarations and pre-interns the tuple types that `ori_canon` will look up via `pool.find_tuple()` during multi-clause lowering. Without this step, canonicalization fails to find the expected tuple types in the pool. This is an active typeck-to-canon contract, not a packaging step.
 
 The Registration group (0a–0e) SHALL freeze the registries before Signatures begins; a later pass SHALL NOT add registry entries. The Signatures pass SHALL freeze signatures before Bodies begins. Each pass reads its predecessors' output through explicit accessors — no hidden mutation. Export finalization (`finish`) is invoked by the driver AFTER `check_module_impl` completes; it does not participate in type checking itself, only in packaging output.
 
@@ -978,7 +981,7 @@ The graph covers Ori plus 10 reference compilers, synced on every commit. Manual
 stays authoritative — but only AFTER the graph narrows the search. Never
 cite a graph result without verifying against the actual source. See
 `.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
-`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+`.claude/skills/query-intel/compose-intel-summary.md` for the canonical
 query protocol used by review-family skills.
 
 ## §16 Prior Art Cross-Reference
@@ -1044,11 +1047,12 @@ query protocol used by review-family skills.
 | `ori_types/src/check/signatures/mod.rs` | Signatures pass 1 — collect function / method signatures (CK-4) |
 | `ori_types/src/check/bodies/mod.rs` | Bodies-group passes 2–5 — function / test / impl / def-impl body checking |
 | `ori_types/src/check/scope.rs` | Closure-based save/restore scope helpers for `ModuleChecker` (SG-1..SG-3); NOT RAII guards |
+| `ori_types/src/check/accessors.rs` | Post-check helpers: `intern_multi_clause_tuples()` for ori_canon multi-clause lowering (CK-1 post-check row) |
 | `ori_types/src/check/exports.rs` | Typed IR emission after `check_module_impl` via `finish()` / `finish_with_pool()` (PC-2) |
 | `ori_types/src/check/imports.rs` | Import resolution |
 | `ori_types/src/check/object_safety.rs` | Object-safety check (TR-6) |
-| `ori_types/src/check/validators/mod.rs` | Producer-side `PC-2` enforcement — `validate_body_types(pool, expr_types, sig, sig_span, scheme_var_ids, record_error)` walks `expr_types` + `FunctionSig` positions, emits `E2005` per surviving `Tag::Var` (`DI-1`). Gate order: `resolve_fully → HAS_ERROR → HAS_VAR`. Builds an exempt root set from `scheme_var_ids` via `Pool::var_idx_for_id` + `resolve_fully` to avoid false E2005 on polymorphic parameters in generic bodies. Delegates compound-tag child traversal to `Pool::visit_children` (`TYPES:§TF-3`). |
-| `ori_types/src/check/validators/tests.rs` | 16-cell matrix: T1-T12 covering negative/positive/cascade/determinism/nesting/dedup axes; T13-T16 covering scheme-var exemption (fresh root, multi-var, transitive chain, mixed exempt/non-exempt negative pin) |
+| `ori_types/src/check/validators/mod.rs` | Producer-side `PC-2` enforcement — `validate_body_types` walks `expr_types` + `FunctionSig` positions, emits `E2005` per surviving `Tag::Var` (`DI-1`). Gate order: `resolve_fully → HAS_ERROR → HAS_VAR`. Delegates compound-tag child traversal to `Pool::visit_children` (`TYPES:§TF-3`). |
+| `ori_types/src/check/validators/tests.rs` | 12-cell matrix covering negative/positive/cascade/determinism/nesting/dedup axes of the validator's fast-path gates |
 | `ori_types/src/check/well_known/` | Well-known type / trait identifiers |
 | `ori_types/src/infer/mod.rs` | `InferEngine` (EN-1) |
 | `ori_types/src/infer/context.rs` | `Expected` / `ExpectedOrigin` (BD-1..BD-4) |

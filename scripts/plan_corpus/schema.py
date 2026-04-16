@@ -480,7 +480,7 @@ def _validate_completed_index(data: dict, path: Path) -> list[Finding]:
 #
 # Format-coupling contract (§03/§06/§07): ≤500-char bound +
 # `[ori]` / `[repo#N]` / `[repo:path]` citation vocabulary +
-# `.claude/skills/dual-tpr/compose-intel-summary.md` SSOT. Exact line-level
+# `.claude/skills/query-intel/compose-intel-summary.md` SSOT. Exact line-level
 # formatting may vary per consumer rendering context; anti-stub detection
 # enforces the citation-grammar half.
 
@@ -503,7 +503,7 @@ _RECON_ORI_CITATION_RE = re.compile(r"\[ori\]")
 _RECON_REPO_ISSUE_CITATION_RE = re.compile(r"\[[a-z][a-z0-9-]*#\d+\]")
 _RECON_REPO_PATH_CITATION_RE = re.compile(r"\[[a-z][a-z0-9-]*:[^\]\s][^\]]*\]")
 _RECON_AT_INCLUDE_RE = re.compile(
-    r"@\.claude/skills/dual-tpr/compose-intel-summary\.md",
+    r"@\.claude/skills/query-intel/compose-intel-summary\.md",
 )
 
 # Placeholder tokens (case-insensitive, whole-token). Used for the
@@ -549,7 +549,7 @@ _RECON_GRAPH_UNAVAIL_PHRASES = (
 
 _RECON_SSOT_HINT = (
     "See '.claude/skills/create-plan/plan-schema.md' Section File Template and "
-    "'.claude/skills/dual-tpr/compose-intel-summary.md' Step D for the query "
+    "'.claude/skills/query-intel/compose-intel-summary.md' Step D for the query "
     "protocol and summary format ([ori] / [repo#N] / [repo:path] citations, "
     "≤500 chars). If the graph is unavailable, record the unavailability as "
     "freeform prose with an ISO date — do NOT omit the block."
@@ -703,7 +703,7 @@ def _check_intel_recon_block(
                 source=path,
                 description=(
                     "'## Intelligence Reconnaissance' block contains only the "
-                    "literal `@.claude/skills/dual-tpr/compose-intel-summary.md` "
+                    "literal `@.claude/skills/query-intel/compose-intel-summary.md` "
                     "SSOT reference. The @-include is a SOURCE for Claude's "
                     "prompt — NOT a substitute for the plan-resident snapshot."
                 ),

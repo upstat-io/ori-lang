@@ -12,8 +12,10 @@ paths:
 - New codes: increment within range, add doc in `errors/EXXX.md`
 
 ## Diagnostic Structure
-- `Diagnostic { code, severity, message, labels, notes, suggestions }`
-- Builder: `Diagnostic::error(code).with_message().with_label().with_fix()`
+- `Diagnostic { code, severity, message, labels, notes, suggestions, structured_suggestions }`
+- `suggestions`: human-readable text suggestions (`Vec<String>`)
+- `structured_suggestions`: machine-applicable fixes with spans and applicability (`Vec<Suggestion>`) — for `ori fix`
+- Builder: `Diagnostic::error(code).with_message().with_label().with_suggestion()` | `.with_secondary_label()` | `.with_cross_file_label()` | `.with_cross_file_secondary_label()`
 - Applicability: `MachineApplicable` | `MaybeIncorrect` | `HasPlaceholders`
 
 ## Message Style
@@ -29,9 +31,11 @@ paths:
 - Each code documented in `errors/EXXX.md` with spec reference + example
 
 ## Deduplication
-- Hash emitted diagnostics; suppress exact duplicates
-- Suppress follow-on errors when earlier error on same span already explains the problem
-- "invalid operand" style cascading errors suppressed if prior error exists on same expression
+- **Same-line syntax errors**: tracks `last_syntax_line`; suppresses consecutive syntax errors on the same line
+- **Same-line non-syntax errors**: tracks `(line, message_prefix_hash)` — suppresses errors on the same line whose first 30 characters of the message match (lightweight hash, not exact dedup)
+- **Soft error suppression**: after a hard error, subsequent soft errors are suppressed entirely
+- **Follow-on filtering**: configurable `filter_follow_on` flag suppresses cascading errors (e.g., "unknown type" after "undefined variable")
+- **Error limit**: configurable max error count; errors beyond the limit are dropped
 
 ## Emitters (`emitter/`)
 - `terminal/`: Terminal (Ariadne-based) | `json/`: JSON | `sarif/`: SARIF
@@ -48,7 +52,7 @@ paths:
 
 ## Diagnostic Scripts (`diagnostics/`)
 
-All support `--help`, `--no-color`/`--color`.
+All support `--help`. Most support `--no-color` (see per-script flags below); `tpr-failure-summary.sh` and `self-test.sh` do not have color toggles.
 
 | Script | Purpose | Key flags |
 |--------|---------|-----------|

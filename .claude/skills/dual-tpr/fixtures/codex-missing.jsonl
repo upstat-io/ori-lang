@@ -1,3 +1,0 @@
-{"type": "turn.started"}
-{"type": "tool.call", "name": "bash"}
-{"type": "turn.completed"}

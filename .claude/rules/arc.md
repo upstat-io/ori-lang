@@ -264,7 +264,7 @@ The graph covers Ori plus 10 reference compilers, synced on every commit. Manual
 stays authoritative — but only AFTER the graph narrows the search. Never
 cite a graph result without verifying against the actual source. See
 `.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
-`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+`.claude/skills/query-intel/compose-intel-summary.md` for the canonical
 query protocol used by review-family skills.
 
 ## Reference Repos

@@ -38,7 +38,7 @@ the finding text alone whether the cited symbol is called by 2 or 200 sites).
 
 For each such finding, run the graph-first protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Query with the finding's cited symbol. Example: finding cites `resolve_fully`
 — run `scripts/intel-query.sh --human callers "resolve_fully" --repo ori` to

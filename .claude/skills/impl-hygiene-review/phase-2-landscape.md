@@ -37,7 +37,7 @@ This agent produces a **flow map** — a brief summary of how each major data ca
 
 Follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Per SSOT Step F — /impl-hygiene-review flow map: use `file-symbols "<crate/path>" --repo ori` per in-scope crate, `callers`/`callees` per major dispatch or boundary symbol, `similar "<symbol>" --repo rust,swift,lean4 --limit 5` for cross-backend / prior-art checks. Use this map as input to Pass 1 and Pass 2 so the review starts from actual call-graph structure.
 

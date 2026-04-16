@@ -83,7 +83,7 @@ Before the mode question, attempt a lightweight blast-radius preview on the sele
 
 Follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Per SSOT Step F — `/fix-next-bug` uses `callers "<repro symbol>" --repo ori` as a lightweight blast-radius preview. If `scripts/intel-query.sh status` returns unavailable, skip this and omit the preview line silently.
 

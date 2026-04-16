@@ -74,7 +74,7 @@ The plan defines phases A through M for each program. Execute them **sequentiall
 - **H. Performance Benchmarking** — interpreter/AOT/release timing, compile times, speedup ratios
 - **I. Cross-Language Intelligence** — follow the canonical intel-summary injection protocol:
 
-  @.claude/skills/dual-tpr/compose-intel-summary.md
+  @.claude/skills/query-intel/compose-intel-summary.md
 
   Per SSOT Step F — /rosetta-test uses these extension queries: `symbols "<feature keyword>" --repo ori --limit 15`, `file-symbols "<suspect module path>" --repo ori`, `callers "<failing symbol>" --repo ori`/`callees`, `similar "<failing symbol>" --repo rust,swift,go --limit 5`, `search "<failure mode>" --limit 5`.
 - **J. Bug Filing & Findings** — file any crashes, wrong output, leaks, missing features

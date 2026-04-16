@@ -9,7 +9,7 @@ paths:
 
 ## Architecture
 
-- **Deps**: `oric` → `ori_llvm` → `ori_arc/ori_repr` → `ori_canon` → `ori_types/eval/patterns` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic`. Support: `ori_compiler` (pure facade), `ori_registry`, `ori_stack`, `ori_fmt`, `ori_test_harness`, `ori_rt`
+- **Deps**: `oric` → `ori_llvm` → `ori_arc/ori_repr` → `ori_canon` (depends on `ori_arc` for decision tree primitives) → `ori_types`/`ori_eval`/`ori_patterns` → `ori_parse` → `ori_lexer` → `ori_ir`/`ori_diagnostic`. Note: `ori_eval` depends on `ori_ir`, `ori_registry`, `ori_patterns`, `ori_stack` (not `ori_types`). Support: `ori_compiler` (pure facade — depends on `ori_ir`, `ori_diagnostic`, `ori_lexer`, `ori_parse`, `ori_types`, `ori_canon`, `ori_eval`, `ori_patterns`, `ori_fmt`), `ori_registry`, `ori_stack`, `ori_fmt`, `ori_test_harness`, `ori_rt`
 - **IO**: only in `oric`; core crates pure
 - **No phase bleeding**: parser != type-check, lexer != parse
 
@@ -209,7 +209,7 @@ preset covers it; use the bare `callers`/`file-symbols` form scoped to the
 relevant crate(s). The graph covers Ori plus 10 reference compilers, synced on every commit. Manual
 reference-repo reading stays authoritative — but only AFTER the graph
 narrows the search. Never cite a graph result without verifying against the
-actual source. See `.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and `.claude/skills/dual-tpr/compose-intel-summary.md` for the
+actual source. See `.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and `.claude/skills/query-intel/compose-intel-summary.md` for the
 canonical query protocol used by review-family skills.
 
 ## Source of Truth

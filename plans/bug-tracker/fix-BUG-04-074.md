@@ -1,9 +1,9 @@
 ---
 bug: "BUG-04-074"
 title: "AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure"
-severity: "high"
+severity: "critical"
 status: in-progress
-resume_point: "Phase 2.5 Plan TPR round 5 — after round-4 integration corrections. Round 4 run: /tmp/ori-tpr-VQvihlPG (codex 450s, gemini 376s, 9 actionable + 3 informational CONFIRMATIONS — all actionable resolved, informational affirm round-3 design). Round 4 revealed NO architectural rollbacks — only integration plumbing: (a) validator signature uses ExprIndex (usize from infer/mod.rs:56) NOT ExprId; arena passed explicitly; span via arena.get_expr(ExprId::from_raw(idx as u32)).span; (b) sort by ExprIndex before iterate (FxHashMap non-deterministic); (c) §3.6 REWRITTEN — ori_llvm validates ArcFunction.var_types NOT typeck body_expr_types; split into §3.6a pre-collect-mono at compile.rs:230 + §3.6b per-function validator over arc_func.var_types/params/return_type; (d) public validator module ori_types::check::validators with lib.rs re-export (ori_llvm needs public import); (e) loop binders drop & (Vec<Idx> not &[Idx]); (f) SUPERSEDED suffixes added to round-1 §R entries; (g) round 4 emitted 3 informational confirmations affirming VarState SSOT + Tag::Scheme special-case + architectural simplification are sound. Note: the round-4 scratch dir /tmp/ori-tpr-VQvihlPG was accidentally reused by a redundant transport launch at 16:07; authoritative round-4 data preserved at /tmp/ori-tpr-VQvihlPG/merged.round4-backup.json. Re-run command: invoke /tpr-review with objective 'Round-5 re-review of BUG-04-074 fix plan after round-4 integration corrections. Verify: (a) §3.3 validator signature (pool, arena, body_expr_types: &FxHashMap<ExprIndex, Idx>, record_error: &mut dyn FnMut(TypeCheckError)) is implementable against the real InferEngine API — does engine.expr_types() return &FxHashMap<ExprIndex, Idx>? is arena available at the bodies-pass call site per check/bodies/mod.rs?; (b) sort-by-ExprIndex guarantee — ExprIndex is source-order stable per EN-3 deterministic allocation, confirm sort produces reproducible diagnostic selection; (c) §3.6a runs at compile.rs:230 in compile_all_functions (JIT path) — is there a similar pre-mono entry in the AOT path (oric/src/commands/build.rs or similar) that needs the same validator? Verify against the AOT pipeline; (d) §3.6b uses arc_func.var_types (Vec<Idx>) indexed by ArcVarId::index() per arc.md Key Types table — confirm enumerate() over Vec<Idx> gives valid (var_id, Idx) pairs; (e) closure pattern &mut dyn FnMut(TypeCheckError) — is there a simpler collect-errors-return-Vec API used elsewhere in ori_types?; (f) public module location check/validators/mod.rs — compare to existing public surfaces like check/exports.rs or type_error/ to pick the most idiomatic location; (g) round-1 §R supersession annotations preserve full audit trail and are accurate; (h) verify ALL 9 round-4 fixes are resolved with actual plan edits (not cosmetic). Strict mode — round 5 should find 0-3 findings as convergence accelerates.' Continue /fix-bug workflow from Phase 3 (TDD) once Plan TPR is clean."
+resume_point: "POST-INVESTIGATION REWRITE (2026-04-16) — the shipped state of check::validators::validate_body_types + infer/expr/blocks.rs::should_generalize + their wiring at blocks.rs:77/159 + sequences.rs:249 closed out §3.1/§3.2/§3.3 of the original plan. The `ori check` path passes cleanly on the repro; `ori build` still fails with `unresolved type variable at codegen — type inference bug idx=Idx(96)`. Investigation (see §0 POST-INVESTIGATION REWRITE below, inserted 2026-04-16) traced the residual leak to resolve_builtin_method at compiler/ori_types/src/infer/expr/methods/mod.rs:53-86, which never unifies arg types with method param types — the receiver's generic element Var stays Unbound through body exit. §R Plan TPR rounds 1-4 target the prior (now-obsolete) approach and are preserved as audit trail with SUPERSEDED-ENTIRELY markers. Fresh /tp-help consensus ran 2026-04-16 (/tmp/ori-tpr-as5XcVA2): Codex + Gemini converge on ‘hybrid A-now-B-later’ with Codex's factual correction that MethodDef.params already exists at compiler/ori_registry/src/method/mod.rs:43 — so Approach A consumes existing signature data (not new metadata) and does not constitute LEAK:algorithmic-duplication. Approved approach (user confirmation 2026-04-16): hybrid — A in this fix arc, B tracked as follow-up plan. Resume at: Phase 2.5 Plan TPR ONE fresh round on the rewritten §3' implementation plan, then Phase 3 (TDD) with new matrix that includes arg-param unification coverage."
 goal: "Empty list literals (`[]`) with element types inferred solely from downstream usage compile cleanly through AOT, with `resolve_fully()` producing concrete element types for codegen. Ambiguous empty-list bindings emit spec-mandated E2005 (14-expressions.md:1224-1228) at type check time, not codegen."
 success_criteria:
   - "The exact repro `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` compiles via `ori build` and runs successfully"
@@ -33,6 +33,31 @@ third_party_review:
 - [ ] No regressions in `timeout 150 ./test-all.sh`
 
 **Context:** Filed 2026-04-13 during continue-roadmap work. The interpreter handles empty lists correctly (type inference flows through naturally), but AOT compilation fails with three `unresolved type variable at codegen — type inference bug` errors. The bug is intermittent across empty-container scenarios and blocks AOT compilation of idiomatic Ori code like initializing an empty list and populating it via `push()`.
+
+---
+
+## 0. POST-INVESTIGATION REWRITE (2026-04-16)
+
+**Why this section exists.** §1.5 round 1 (2026-04-14) reached `/tp-help` consensus on the generalization-policy + body-exit-validation approach. §R round-1/2/3/4 Plan TPR refined it. Commits `b1f2c354 … 65b3aff4` shipped §3.1/§3.2/§3.3/§3.4/§3.6 (should_generalize + validate_body_types + wiring at `blocks.rs:77/159` + `sequences.rs:249` + the producer-side PC-2 enforcement described in `typeck.md §PC-2`). `timeout 150 cargo st tests/spec/` against that shipped state:
+
+- `ori check` on the repro → clean (no E2005, no typeck error).
+- `ori build` on the repro → still fails with `unresolved type variable at codegen — type inference bug idx=Idx(96)`.
+
+**The shipped plan closed the wrong leak.** Body-exit validation catches *let-binding types with unbound vars at body exit*. It does not catch the case where the method-call machinery itself never populated the unification constraint that would have bound those vars. `ori check` passes because by the end of body-inference, there are NO remaining `Tag::Var`s in the body's `expr_types` map — the receiver type `List(Var(X))` had `Var(X)` linked during some downstream unification path (specifically `unify_higher_order_constraints` firing for certain method names, or receiver-receiver unification when a later call's receiver type happens to merge with the original). But in the repro's chain — `[] → push(value:10) → len()` — `push` is NOT in the `unify_higher_order_constraints` whitelist (line 175-263 of `method_call.rs`), so no unification fires; the final `List(Var(X))` type reaches codegen through a path that escapes the body-exit validator's walk.
+
+**Residual root cause.** `resolve_builtin_method` at `compiler/ori_types/src/infer/expr/methods/mod.rs:53-86` takes `(engine, receiver_ty, tag, method_name)` and returns `Option<Idx>` — a return type. It NEVER consumes the call-site argument types, NEVER performs arity checking, and NEVER unifies arg types against the method's declared parameter types. For `ages.push(value: 10)`:
+
+- `ages : List(Var(X))` (element type is an unbound unification variable).
+- Registry lookup `find_method(TypeTag::List, "push")` returns a `MethodDef` whose `params: &[ParamDef { name: "value", ty: ReturnTag::ElementType, ownership: Owned }]` and whose `returns: ReturnTag::SelfType`.
+- `registry_bridge::return_tag_to_idx` converts the return `SelfType` back to `receiver_ty = List(Var(X))` — so the method call's result type is `List(Var(X))` with `Var(X)` unchanged.
+- The call-site arg `10 : int` is inferred (in `method_call.rs:33-37`) but is NEVER unified with what the method's `params[0].ty` (which is `ReturnTag::ElementType`, resolvable to `Var(X)` via the SAME `return_tag_to_idx` bridge) declares. `Var(X)` stays `Unbound`.
+- The chain then assigns `ages = ages.push(value: 10)` — `ages`'s stored type remains `List(Var(X))`. `.len()` returns `int` regardless of the element type, so no later unification binds `Var(X)`. Codegen sees `List(Var(X))` at `Idx(96)` and errors.
+
+**Why `ori check`'s body-exit validator missed it.** The `push` call re-interns `List(Var(X))` into the expression's `expr_types` entry. `Var(X)`'s `var_id` is the SAME one present in `FunctionSig.param_types` iff this is a generic body — but in the repro, the enclosing `@main` is non-generic and has no scheme vars, so `scheme_var_ids` is empty. The validator walks the body types and SHOULD flag `Var(X)` as unresolved. Reading `validate_body_types` carefully: it DOES emit E2005 on any `Tag::Var` that is not in `scheme_var_ids`. So `ori check` SHOULD report E2005 — but empirically it doesn't. The explanation per investigation: `expr_types` stores the UNRESOLVED (pre-link) type for the `[]` empty-list literal, which is `List(Var(X))`. At body exit, `Var(X)` is STILL `Unbound`, so the validator walk does find it and emit E2005 on that span. The REAL phenomenon that looks like "`ori check` passes" appears to be: some codepath links `Var(X)` mid-body (possibly `unify_higher_order_constraints` on an adjacent call, OR the receiver-receiver unification at `method_call.rs:38/80` calling `unify_higher_order_constraints` with `method="push"`, which is in the `_ => {}` fallthrough arm and does nothing but by-the-way returns the ret_ty that re-registers `List(Var(X))` under a FRESH pool Idx that differs from the stored `expr_types` entry). Result: the body-exit validator sees no unresolved var under the recorded ExprIndex, but codegen's own `pool.resolve_fully` walk of the ArcFunction re-derives `List(Var(X))` from the typed IR and fails at `Idx(96)`. This is a separate leak between ` validate_body_types`'s scope and codegen's scope — worth filing via `/add-bug` as a distinct validator-coverage gap, but NOT the primary bug.
+
+**Fresh `/tp-help` consensus (2026-04-16, `/tmp/ori-tpr-as5XcVA2`).** Both reviewers converge on: the root cause is the builtin arg-param unification gap. Codex: "hybrid — A (arg-param unification inside builtin dispatch consuming `MethodDef.params`) now, B (unified `MethodRegistry` endgame) later." Codex corrected a pre-consensus claim that `MethodDef` lacks parameter metadata — `ParamDef { name, ty: ReturnTag, ownership }` at `compiler/ori_registry/src/method/mod.rs:14-23` already exists, and `ReturnTag` is documented (`compiler/ori_registry/src/tags/return_tag.rs:8`) as valid for parameter positions. The bridge `registry_bridge::return_tag_to_idx` (`compiler/ori_types/src/infer/expr/registry_bridge/mod.rs:285-372`) maps `ReturnTag → Idx` relative to the receiver — it works identically whether the source is a return or a param. So Approach A consumes an existing SSOT, NOT new metadata, and is therefore NOT a `LEAK:algorithmic-duplication`. Gemini: "Approach B only per CLAUDE §The One Rule." Reconciliation: Codex's factual correction is verifiable in source; Gemini's position rested on the false premise that A requires new parameter encoding. User confirmed 2026-04-16: hybrid — A in this fix arc, B tracked as a follow-up plan (file path to be assigned at Phase 5 closure per §3.7' below).
+
+**Phase of record at this point.** §1 Root Cause Analysis, §1.5 round 1, §2 (base TDD matrix), §2.5 rounds 1-4, and §3.1/§3.2/§3.3/§3.4/§3.6 are ALL shipped. The fix-plan is now reset to Phase 2.5 with a NEW §3' (below, under §3) as the rewritten Implementation surface, a NEW §1.5 round 2 (2026-04-16) consensus record, a NEW §2.arg-param TDD matrix expansion, and SUPERSEDED-ENTIRELY banners on §R rounds 1-4. ONE fresh Plan TPR round runs next on §3'; then Phase 3 TDD with the expanded matrix.
 
 ---
 
@@ -161,6 +186,47 @@ Independent dual-source design review of the proposed fix approach. Ran BEFORE t
    - Regression pin: recursive `contains_var` walk of repro's typed IR shows no unresolved Vars.
    - Generic-function interaction (NEW round 2 per TPR-04-005-gemini-r2): `@id<T> (x: T) -> T = x; let xs = []; id(xs)` — E2005 on `xs` because no downstream constraint on the element type even after the generic call.
 
+### Round 2 — Post-Investigation (2026-04-16)
+
+**Why a second consensus round ran.** After §3.1/§3.2/§3.3/§3.4/§3.6 shipped (four commits between `b1f2c354` and `65b3aff4`), `ori check` on the repro cleared cleanly, but `ori build` still failed with `unresolved type variable at codegen — type inference bug idx=Idx(96)`. Investigation (see `§0 POST-INVESTIGATION REWRITE`) traced the residual leak to `resolve_builtin_method` at `compiler/ori_types/src/infer/expr/methods/mod.rs:53-86`, which never unifies call-site argument types with method param types. The round-1 approach addressed generalization policy + body-exit validation — both correct and shipped — but the root cause lives one layer deeper, inside the builtin method-call path itself.
+
+**tp-help run scratch dir**: `/tmp/ori-tpr-as5XcVA2` (launched 2026-04-16 13:30 EDT, codex walltime ~370s, gemini walltime ~900s — codex summary at `output.md` lines 2-22, gemini summary at lines 24-48).
+
+**Pre-consensus question posed to reviewers**: four candidate approaches — (A) add arg-param unification inside `resolve_builtin_method` consuming `MethodDef.params` metadata; (B) rewire builtin dispatch through the unified `MethodRegistry` that `typeck.md §RG-3` names as the endgame; (C) delete `unify_higher_order_constraints` and replace with generic signature instantiation; (D) wire `validate_body_types` first and accept ~800 concurrent spec-test failures while converging on the root cause.
+
+**Codex summary (hybrid: A now, B later)**:
+- `A` is the correct immediate fix IF done in the canonical home. The real `GAP` is that `resolve_builtin_method` returns only a type — it never checks arity AND never does arg-param unification. `method_call.rs:28-42` / `method_call.rs:70-84` infer args into `arg_types: Vec<Idx>` but then only call `unify_higher_order_constraints` (a method-name switch) and return without any signature check.
+- `A` is sufficient for BUG-04-074 IF executed against existing `MethodDef.params` data. It is NOT "just symptom treatment" — consuming the registry's signature data at builtin dispatch IS using the current SSOT. `ReturnTag` is explicitly documented as valid for parameter positions (`compiler/ori_registry/src/tags/return_tag.rs:8`); `MethodDef.params: &'static [ParamDef]` with `ParamDef { name, ty: ReturnTag, ownership }` already exists at `compiler/ori_registry/src/method/mod.rs:14-23,47`. NO new metadata type is required; NO `ParamTag` invention; NO algorithmic duplication.
+- `A` leaves the `RG-3` two-path split in place and does not eliminate closure-param special-casing (builtin higher-order params are `ReturnTag::Fresh` in the registry — too weak to express `(T) -> U` shape). Higher-order shape encoding graduates to `B`.
+- `B` is the endgame per `typeck.md §RG-3`, but not as "register builtins in the current `TraitRegistry`" — that registry is keyed by exact `self_type: Idx`, so it cannot host generic receiver families (`List<T>`, `Map<K,V>`) without more matching infrastructure. The target is a real unified `MethodRegistry` with builtin + inherent + trait lookup behind one API.
+- `C` is the wrong abstraction today (richer `MethodDef.params` encoding needed first). `D` is the wrong sequencing (turns one root `GAP` into an 800-failure regression front, violates `CLAUDE §Stabilization Discipline`'s narrow-front principle).
+- Additional hazards surfaced: (1) `GAP` — builtin arity checking is entirely absent (normal calls check at `call_inference.rs:117`, impl calls check at `impl_lookup.rs:82`, builtin calls don't). (2) `GAP` — `validate_body_types` is unwired for tests, impl methods, and def-impl methods, not just functions. (3) `LEAK` — unresolved-receiver deferral at `method_call.rs:323` returns a fresh var without recording any method obligation. (4) `LEAK` — `resolve_named_type_method` at `methods/mod.rs:88` hardcodes `unwrap`/`inner`/`value`/`debug`/`to_str` outside the registries. (5) `LEAK`/`DRIFT` — downstream `ori_arc/src/rc_insert/annotate.rs:83,361` re-encodes builtin method semantics by method name and receiver type.
+
+**Gemini summary (Approach B only, architecturally)**:
+- `B` (unified dispatch via `TraitRegistry`) is the ONLY architecturally correct fix per `CLAUDE §The One Rule`. Current two-path method resolution is `LEAK:duplicated-dispatch`. Per `CLAUDE`: "effort and scope are irrelevant."
+- `A` is "symptom-patching workaround that actively worsens architectural decay." Claims A requires adding `ParamTag` encoding to `MethodDef` and writing new unification logic inside `resolve_builtin_method`, creating `LEAK:algorithmic-duplication`.
+- `B` cannot wait — CLAUDE forbids temporary fixes/deferrals.
+- `unify_higher_order_constraints` is `LEAK:scattered-knowledge` + `DRIFT`; "must be eliminated entirely" under unified dispatch which handles higher-order params via standard generic signature instantiation.
+- `validate_body_types` must be wired AFTER root-cause fix, in the SAME atomic arc (agrees with Codex on NOT D).
+- `PC-2` output contract is catastrophically failing because `validate_body_types` is disconnected from codegen's actual view.
+
+**Divergence reconciliation**:
+- Gemini's architectural objection to A rests on the factual claim "`MethodDef` entirely lacks parameter signature encoding, whereas `TraitRegistry` already possesses full signature modeling." This is FALSE in the shipped code. `MethodDef.params: &[ParamDef]` exists (line 47). `ParamDef.ty: ReturnTag` (line 19) reuses the SAME `ReturnTag` vocabulary as returns. `registry_bridge::return_tag_to_idx` (line 285) already maps `ReturnTag → Idx` relative to receiver — the bridge is shape-agnostic as to whether the source was a return or a param. Consuming `MethodDef.params` at the builtin dispatch path is NOT algorithmic duplication; it is using the existing SSOT for its documented purpose.
+- Codex verified the factual claim in source; Claude independently confirmed (this conversation) at `ori_registry/src/method/mod.rs:47` and `registry_bridge/mod.rs:285-372`.
+- Once the factual premise is corrected, Gemini's architectural objection dissolves — A *is* the canonical home for builtin dispatch logic, and consuming the existing signature SSOT is the correct SSOT discipline, not a violation.
+- Both reviewers agree on: (1) NOT wiring `validate_body_types` first + eating 800 failures (D rejected), (2) `unify_higher_order_constraints` is a LEAK needing consolidation, (3) `PC-2` producer-side enforcement is real and must land in this arc.
+
+**Independent code verification (Claude, 2026-04-16)**:
+- ✅ `compiler/ori_types/src/infer/expr/methods/mod.rs:53-86` — `resolve_builtin_method` signature confirmed: `(engine, receiver_ty, tag, method_name) -> Option<Idx>`. No args. No arity check. No param unification.
+- ✅ `compiler/ori_registry/src/method/mod.rs:14-23,47` — `ParamDef` struct confirmed (`name`, `ty: ReturnTag`, `ownership`); `MethodDef.params: &'static [ParamDef]` confirmed.
+- ✅ `compiler/ori_types/src/infer/expr/registry_bridge/mod.rs:285-372` — `return_tag_to_idx(engine, receiver_ty, return_tag) -> Idx` confirmed receiver-relative and ReturnTag-exhaustive.
+- ✅ `compiler/ori_types/src/infer/expr/calls/method_call.rs:28-42,70-84` — caller already has `arg_types: Vec<Idx>` before the `Return` dispatch. Plumbing into builtin is straightforward.
+- ✅ `compiler/ori_types/src/infer/expr/calls/method_call.rs:164-265` — `unify_higher_order_constraints` confirmed as method-name switch over `map|flat_map|filter|any|all|find|for_each|fold|rfold`. `_ => {}` fallthrough confirms `push`/`insert`/etc. are never touched.
+- ✅ `compiler/ori_types/src/infer/expr/calls/method_call.rs:321-328` — `Tag::Var` receiver deferral confirmed as fresh-var return without obligation recording.
+- ✅ `compiler/ori_types/src/infer/expr/calls/call_inference.rs:117-137` — normal-call arity pattern (`call_args.len() < required_params || call_args.len() > params.len()` → `arity_mismatch_named` / `arity_mismatch`). This IS the sibling template the builtin path must mirror.
+
+**Outcome**: Convergence via persuaded divergence — user (2026-04-16) approved **hybrid: A now, B later**. A lands in this fix arc (§3' below). B is tracked as a standalone `/create-plan` follow-up with title "Unified `MethodRegistry` — eliminate RG-3 two-path dispatch" (plan path assigned at Phase 5 closure).
+
 ---
 
 ## 2. TDD — Test Matrix (revised 2026-04-14 after Plan TPR)
@@ -227,6 +293,57 @@ Write ALL tests BEFORE the fix. Verify they fail against current code.
 - [ ] All new AOT tests fail against current code (confirming they test the bug)
 - [ ] All new typeck tests fail against current code OR pass trivially (document which)
 
+### 2.arg-param — TDD Matrix Expansion (2026-04-16 post-investigation)
+
+Added AFTER the post-investigation rewrite (§0) identified the residual root cause as missing arg-param unification inside `resolve_builtin_method`. These tests live alongside the §2 tests above; they are NOT replacements. The §2 tests exercise generalization-policy + body-exit validation (shipped); these exercise arg-param unification at the builtin dispatch path (new, §3').
+
+#### Primary semantic pin — unifies Var(X) from arg
+- [ ] `test_push_value_unifies_element_var_with_arg_type` — Rust unit in `methods/tests.rs`. Construct `List(Var(X))` receiver; call `resolve_builtin_method_with_args(engine, receiver, List, "push", &[Idx::INT])`; assert `pool.resolve_fully(Var(X)) == Idx::INT` via `engine.resolve`. This test MUST fail against current code (arg-param unification doesn't exist yet).
+
+#### Cross-type coverage (all 4 primitive arg types)
+- [ ] `test_push_int_element_resolves_list_of_int` — `let xs = []; xs = xs.push(value: 10); xs.len()` compiles via AOT (the ORIGINAL repro).
+- [ ] `test_push_str_element_resolves_list_of_str` — `let xs = []; xs = xs.push(value: "hello"); xs.len()` compiles.
+- [ ] `test_push_bool_element_resolves_list_of_bool` — `let xs = []; xs = xs.push(value: true); xs.len()` compiles.
+- [ ] `test_push_float_element_resolves_list_of_float` — `let xs = []; xs = xs.push(value: 3.14); xs.len()` compiles.
+
+#### Cross-method coverage (List mutators beyond push)
+- [ ] `test_insert_unifies_element_var` — `let xs = []; xs = xs.insert(index: 0, value: 42); xs.len()` compiles.
+- [ ] `test_remove_does_not_over-unify` — `let xs: [int] = [1, 2, 3]; let y = xs.remove(index: 0)` — `y: int` (arg `index: int` unifies with param `index: int`; no spurious constraint on List's element).
+
+#### Cross-container coverage (other containers with mutators)
+- [ ] `test_set_add_unifies_element_var` — if applicable per registry (check `ori_registry::find_method(Set, "add")` exists); otherwise skip with `#skip("add not in Set registry")`.
+- [ ] `test_map_insert_unifies_key_and_value_vars` — `let m = {}; m = m.insert(key: "k", value: 1); m.len()` compiles — unifies BOTH `Var(K)` with `Idx::STR` AND `Var(V)` with `Idx::INT` in a single call.
+
+#### Arity checking (NEW gap — Codex-cited)
+- [ ] `test_push_with_zero_args_rejected_with_arity_error` — `let xs: [int] = []; xs.push()` — must emit `E2004` (arity mismatch) at typeck, NOT silently return `List<int>`.
+- [ ] `test_push_with_two_args_rejected_with_arity_error` — `let xs: [int] = []; xs.push(1, 2)` — must emit `E2004`.
+- [ ] `test_len_with_extra_arg_rejected_with_arity_error` — `let xs: [int] = []; xs.len(5)` — must emit `E2004` (`len` is a zero-arg method).
+
+#### Higher-order preservation (unify_higher_order_constraints still works)
+- [ ] `test_map_closure_param_type_unifies_with_iterator_element` — `let xs = [1, 2, 3]; xs.iter().map(r -> r + 1).collect()` still type-checks and produces `List(int)`. This MUST continue to pass after `unify_higher_order_constraints` is integrated into the builtin path; regression indicator if the integration breaks it.
+- [ ] `test_filter_closure_param_type_unifies_with_iterator_element` — `let xs = [1, 2, 3]; xs.iter().filter(r -> r > 1).collect()` still type-checks.
+- [ ] `test_fold_accumulator_and_return_unify` — `xs.iter().fold(0, (acc, x) -> acc + x)` still returns `int`.
+
+#### Integrated with shipped validator
+- [ ] `test_empty_list_no_constraint_still_emits_E2005` — `let xs = []; xs.len()` (no element-binding call) — the §3.3-shipped body-exit validator catches this. Must continue to emit E2005. This guards against the arg-param unification fix accidentally masking the ambiguous case by spuriously linking `Var(X)` via some other path.
+- [ ] `test_empty_list_with_push_no_longer_emits_E2005` — `let xs = []; xs = xs.push(value: 10); xs.len()` — this case PREVIOUSLY would emit E2005 under strict shipped validator behavior, but AFTER arg-param unification lands, `Var(X)` resolves to `int` at body exit and the validator's walk finds no unresolved vars. Semantic pin for the new behavior.
+
+#### Cross-phase parity (AOT parity for arg-param cases)
+- [ ] `test_push_int_interpreter_and_llvm_parity` — `ori run` and `ori build + exec` produce identical output for the repro and all 4 primitive element types.
+
+#### Negative pin — reject old broken behavior
+- [ ] `test_resolve_builtin_method_without_args_deprecated_or_returns_without_unification` — if the new function is `resolve_builtin_method_with_args`, the old `resolve_builtin_method(engine, recv, tag, name)` either (a) is removed entirely, or (b) is preserved but documented as "does NOT unify args — callers MUST also call `unify_builtin_args` separately". If (a), grep confirms no remaining callers outside `method_call.rs`; if (b), a doc-comment integration test asserts the warning is present.
+
+#### Cross-body-pass validator wiring (Codex gap #2)
+- [ ] `test_validate_body_types_runs_in_test_body_pass` — a `@t tests @foo () -> void = { let xs = []; xs.len() }` test body emits E2005 via `check_test_bodies` (pass 3 in `CK-1`). Currently the validator is unwired for test bodies; this MUST fail until §3.4' lands.
+- [ ] `test_validate_body_types_runs_in_impl_method_body_pass` — an `impl Foo { @m (self) -> void = { let xs = []; xs.len() } }` method body emits E2005 via `check_impl_bodies` (pass 4). MUST fail pre-fix.
+- [ ] `test_validate_body_types_runs_in_def_impl_method_body_pass` — a `def impl Foo { @m (self) -> void = { let xs = []; xs.len() } }` method body emits E2005 via `check_def_impl_bodies` (pass 5). MUST fail pre-fix.
+
+#### Verify tests fail before fix (expansion)
+- [ ] All new `test_push_*`/`test_insert_*`/`test_map_insert_*` tests fail against current code (confirming they test the arg-param unification gap).
+- [ ] All arity-check tests fail against current code (confirming the builtin arity gap).
+- [ ] All body-pass-wiring tests fail against current code (confirming the validator is unwired for tests/impl/def-impl).
+
 ---
 
 ## 2.5 Fix Plan TPR Findings
@@ -238,6 +355,8 @@ Write ALL tests BEFORE the fix. Verify they fail against current code.
 ---
 
 ## 3. Implementation
+
+> **HISTORICAL (SHIPPED) — see §3' below for the active plan.** §3.1 through §3.7 describe the 2026-04-14 plan (should_generalize + validate_body_types + wiring) that shipped in commits `b1f2c354` → `3069f3e6` → `a9a0de43` → `65b3aff4`. These components are all in the main branch and work correctly on their own scope. They DID NOT resolve the codegen failure because the residual root cause is at a different layer (see §0 POST-INVESTIGATION REWRITE + §1.5 Round 2). The active implementation plan is §3' immediately after §3.7.
 
 Four coordinated components per consensus — all in `ori_types` crate:
 
@@ -776,7 +895,178 @@ The existing release-mode `TypeInfo::Error` return path in TypeInfoStore is also
 
 ---
 
+## 3'. Implementation (ACTIVE — 2026-04-16 Post-Investigation Rewrite)
+
+Five coordinated components. All land in a single atomic fix arc per the reviewer consensus on narrow-front discipline. §3.1'–§3.4' are the direct fix for BUG-04-074's residual root cause. §3.5' integrates existing scattered logic. §3.6'–§3.7' handle follow-ups discovered during investigation.
+
+### 3.1' Extend `resolve_builtin_method` to check arity and unify arg types with method params (SSOT)
+
+**Change the signature** of `resolve_builtin_method` in `compiler/ori_types/src/infer/expr/methods/mod.rs:53-86` from its current 4-parameter shape to an 8-parameter shape that accepts the call-site arg types and arg spans, plus an error-emission callback:
+
+```rust
+/// Resolve a built-in method call: look up in registry, check arity,
+/// unify each arg type with the method's declared param type, and
+/// return the method's declared return type.
+///
+/// `arg_types` and `arg_spans` are parallel slices for all non-named
+/// arguments at the call site (or the named-arg value expressions in the
+/// named-call variant). The caller MUST infer each arg's type before
+/// invoking this function.
+///
+/// On arity mismatch: emits `E2004` and returns `Some(Idx::ERROR)` —
+/// distinguishes "method exists but wrong arity" from "method not found".
+/// On arg-type mismatch: emits `E2001` per mismatched slot via `engine.check_type`
+/// with `ExpectedOrigin::Context { kind: ContextKind::FunctionArgument }`
+/// (mirrors the impl-path pattern at `method_call.rs:89-103`).
+/// Returns `None` ONLY when the method is not recognized for this type tag.
+pub(crate) fn resolve_builtin_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    tag: Tag,
+    method_name: &str,
+    arg_types: &[Idx],
+    arg_spans: &[Span],
+    call_span: Span,
+    named_params: Option<&[Name]>, // Some for named-arg call; None for positional
+) -> Option<Idx>
+```
+
+**Body** (augments the current 5-step logic with arity + arg unification, sitting between steps 3 and 4 of the existing body):
+
+1. (unchanged) Named/Applied routing → `resolve_named_type_method`.
+2. (unchanged) Convert `tag → TypeTag` via `registry_bridge::tag_to_type_tag`.
+3. (unchanged) `find_method(type_tag, method_name)` → `method_def: &MethodDef`.
+4. **NEW** — arity check. Mirrors `call_inference.rs:117-137`:
+   ```rust
+   if arg_types.len() != method_def.params.len() {
+       engine.push_error(TypeCheckError::arity_mismatch_named(
+           call_span,
+           format!("{}.{}", tag_display(tag), method_name),
+           method_def.params.len(),
+           arg_types.len(),
+       ));
+       return Some(Idx::ERROR);
+   }
+   ```
+5. **NEW** — arg-param unification. For each `(i, (arg_ty, param_def))` in `arg_types.iter().zip(method_def.params.iter()).enumerate()`:
+   ```rust
+   // Convert the param's ReturnTag to an Idx using the SAME bridge that
+   // resolves return types. ParamDef.ty: ReturnTag reuses the same vocabulary,
+   // per compiler/ori_registry/src/method/mod.rs:19 and
+   // compiler/ori_registry/src/tags/return_tag.rs:8 ("valid for param positions").
+   let param_ty = registry_bridge::return_tag_to_idx(engine, receiver_ty, param_def.ty);
+   let expected = Expected {
+       ty: param_ty,
+       origin: ExpectedOrigin::Context {
+           span: call_span,
+           kind: ContextKind::FunctionArgument {
+               func_name: None,
+               arg_index: i,
+               param_name: named_params.and_then(|np| np.get(i).copied()),
+           },
+       },
+   };
+   let _ = engine.check_type(*arg_ty, &expected, arg_spans[i]);
+   ```
+6. (unchanged) `Range<float>` rejection.
+7. (unchanged) Convert `return_tag` to `Idx` via `registry_bridge::return_tag_to_idx` and return.
+
+**Critical correctness property**: Step 5 uses `registry_bridge::return_tag_to_idx` with `receiver_ty` as the context — so `ReturnTag::SelfType` resolves to `receiver_ty` (the whole `List(Var(X))`), `ReturnTag::ElementType` resolves to `Var(X)`, `ReturnTag::KeyType` / `ValueType` resolve to `Map<K,V>`'s `Var(K)`/`Var(V)` respectively. For `push(value: 10)` this makes `param_ty = Var(X)`, and `engine.check_type(Idx::INT, Expected { ty: Var(X), ... }, span)` performs `unify(Idx::INT, Var(X))`, binding `Var(X) := Idx::INT`. `List(Var(X))` now resolves to `List<int>` everywhere downstream — in the method's return (`SelfType`), in any subsequent `.push`/`.insert`/`.len` call, and in codegen.
+
+**Ownership semantics note**: `ParamDef.ownership` is currently ignored by the type checker (it only affects ARC's borrow inference). We do NOT consume it here; ARC will read it downstream per `ori_registry/src/method/mod.rs:22` doc comment. If future work needs ownership-aware type checking (e.g., for `Never`-param edge cases), it slots in here.
+
+### 3.2' Update `method_call.rs` call sites to thread args into builtin resolution
+
+`resolve_receiver_and_builtin` at `method_call.rs:296` currently calls `resolve_builtin_method` BEFORE args are inferred. We cannot move arg inference up into this function without refactoring `ReceiverDispatch` substantially (it would force positional-and-named to converge into one vector shape). Simpler + architecturally correct: keep the current two-phase structure, but DEFER the builtin resolution until args are inferred.
+
+**Refactor plan**:
+- Split `resolve_receiver_and_builtin` into `resolve_receiver_for_dispatch` (returns resolved receiver Idx + tag, handles Error/Scheme/Tag::Var/Range<float>/DEI rejection) and a new helper `check_builtin_and_dispatch` called AFTER arg inference.
+- `infer_method_call` (positional) at `method_call.rs:20`:
+  1. Call `resolve_receiver_for_dispatch(engine, arena, receiver, method, span)` → returns `ReceiverOutcome::{Error(Idx::ERROR), Deferred(fresh_var), Resolved { receiver_ty, tag }}`.
+  2. On Error/Deferred: still infer all args for side-effect-only typing (preserves current diagnostic discovery), then return.
+  3. On Resolved: infer args into `arg_types: Vec<Idx>` and `arg_spans: Vec<Span>`.
+  4. Look up method name string (`engine.lookup_name(method)`).
+  5. Call `resolve_builtin_method(engine, receiver_ty, tag, name_str, &arg_types, &arg_spans, span, None)`.
+  6. On `Some(ret_ty)` where `ret_ty != Idx::ERROR`: that IS the method return. Call `unify_higher_order_constraints(engine, method, ret_ty, receiver_ty, &arg_types)` (still needed for higher-order — see §3.5' integration note) and return.
+  7. On `Some(Idx::ERROR)`: arity/arg-type already emitted diagnostic; return Idx::ERROR.
+  8. On `None`: method is not builtin; fall through to impl lookup (`lookup_impl_method` + `resolve_impl_signature` + `check_positional_args` as today).
+- `infer_method_call_named` at `method_call.rs:62`: same pattern with `arg_types` built from `call_args` and `named_params: Some(&call_args.iter().map(|a| a.name).collect())`. Note: `ParamDef.name: &'static str` vs `Name` (interned) — we intern each `ParamDef.name` at call time via `engine.intern_name(p.name)` to build the param-name slice for `ContextKind::FunctionArgument { param_name }`. Named-arg-order validation remains `(target-only)` per `typeck.md §EX-3` — we do NOT enforce named-arg reordering in this fix arc (that is a separate feature).
+
+**Impact on `ReceiverDispatch::Return.receiver_ty` wiring**: The current `ReceiverDispatch::Return { ret_ty, receiver_ty }` variant is the ONLY caller of `unify_higher_order_constraints`. After the refactor, `unify_higher_order_constraints` invocation moves to step 6 above. The refactor lines up cleanly: the existing "Return" branch's semantic was "builtin hit, return this type after higher-order adjustment" — the new structure expresses exactly that, with arity + arg-param unification layered in.
+
+### 3.3' Integrate `unify_higher_order_constraints` as a post-step of arg-param unification (NOT delete)
+
+Codex-cited `LEAK:scattered-knowledge`: `unify_higher_order_constraints` at `method_call.rs:164-265` hardcodes method names (`map`, `flat_map`, `filter`, `any`, `all`, `find`, `for_each`, `fold`, `rfold`). It CANNOT be deleted in this fix arc because `MethodDef.params` today encodes closure params as `ReturnTag::Fresh` — too weak to express `(T) -> U` shape. Richer closure-param encoding is part of Approach B endgame.
+
+**What `3.3'` changes**: relocate the call site of `unify_higher_order_constraints` from the outer `infer_method_call` / `infer_method_call_named` functions INTO `resolve_builtin_method`, AS AN OPTIONAL POST-STEP after step 5 (arg-param unification) above:
+
+```rust
+// Step 5.5 (new): For higher-order methods, run the closure-param constraint
+// propagation that MethodDef.params cannot yet encode.
+// TODO(methodregistry-endgame): this block is the shipped workaround for
+// closure-param shape; remove when MethodDef.params grows (T) -> U encoding.
+if let Some(name_str) = engine.lookup_name(method_name_interned) {
+    unify_higher_order_constraints_impl(engine, name_str, return_ty_preview, receiver_ty, arg_types);
+}
+```
+
+This consolidates the dispatch into the builtin-method canonical home (eliminating the `LEAK:scattered-knowledge` flag from Codex) while preserving the existing behavioral semantics (all map/filter/fold tests continue to pass). The `unify_higher_order_constraints` function itself is renamed `unify_higher_order_constraints_impl`, moved to `compiler/ori_types/src/infer/expr/methods/higher_order.rs` (new submodule), and made `pub(super)` so `resolve_builtin_method` can call it.
+
+**Why NOT fold into Approach B now**: richer `MethodDef.params` encoding means extending `ReturnTag` with a `Closure(param_proj, return_proj)` variant (where both projections are themselves `ReturnTag`s), adding construction sites for every closure-taking method's `params` in `ori_registry/src/defs/*`, and updating `return_tag_to_idx` to construct `Function(...)` types from the new variant. That's a 15+ file refactor across `ori_registry` + `ori_types` + tests, appropriate for a standalone plan (Approach B endgame) but not for this fix arc.
+
+### 3.4' Wire `validate_body_types` across ALL four Bodies-group passes
+
+Codex-cited `GAP`: `validate_body_types` is wired into `check_function_bodies` only (per the 2026-04-14 shipped plan). Per `typeck.md CK-1`, the Bodies group has four passes (2: functions, 3: tests, 4: impl methods, 5: def-impl methods). The validator MUST run at the exit of each.
+
+**Implementation**:
+- Locate the existing `check_function` exit point in `compiler/ori_types/src/check/bodies/mod.rs` (or wherever `validate_body_types` is invoked in the shipped commit `65b3aff4`). Verify via `grep validate_body_types compiler/ori_types/src/check/bodies/`.
+- Add equivalent invocations at the exit of `check_test_body`, `check_impl_method_body`, `check_def_impl_method_body` (or whichever function names are used — per `typeck.md CK-1` each pass has its own exit).
+- Each invocation passes the same `(pool, arena, expr_types, sig, sig_span, scheme_var_ids, record_error)` argument shape as the function-body call.
+- Add the three body-pass-wiring tests from §2.arg-param to confirm E2005 now fires in test bodies, impl-method bodies, and def-impl-method bodies.
+
+### 3.5' Update `tag_display` for builtin method arity error messages (minor)
+
+The arity error at §3.1' step 4 uses `tag_display(tag)` to produce the method's type display name (e.g., "`List`", "`Map`", "`Str`"). If `compiler/ori_types/src/infer/expr/methods/mod.rs` already has this helper, reuse. Otherwise add a small `fn tag_display(tag: Tag) -> &'static str` with arms for every container/primitive that can have a `TypeTag` registry entry. Mirror the existing `ori_registry::TypeTag::name()` implementation at `compiler/ori_registry/src/tags/mod.rs`. Zero-cost, zero-complexity — prevents ugly `Debug`-formatted tags in user diagnostics.
+
+### 3.6' Follow-up bugs to file via `/add-bug` (track, don't fix here)
+
+Per CLAUDE §Proactive Bug Filing. These hazards surfaced during 2026-04-16 investigation; each is out of scope for BUG-04-074 but must be tracked:
+
+- **BUG (LEAK — method_call.rs:321-328) — Tag::Var receiver deferral loses method obligation.** When a method is called on a receiver whose resolved type is still `Tag::Var`, `resolve_receiver_for_dispatch` (§3.2' refactored name) returns a fresh var without recording the method-call constraint. This leaks unification constraints on chains where receiver inference is delayed. File with severity `medium`; subsystem `ori_types`; repro TBD (exercised by generics + method-chain interactions).
+- **BUG (LEAK — methods/mod.rs:88) — `resolve_named_type_method` hardcodes method names.** `unwrap`/`inner`/`value`/`debug`/`to_str` are hardcoded outside the registries for Named/Applied (user-defined) types. Any `/query-intel` or future extension-dispatch work has to mirror this. File with severity `medium`; subsystem `ori_types`.
+- **BUG (LEAK/DRIFT — ori_arc/src/rc_insert/annotate.rs:83,361) — ARC re-encodes builtin method semantics by method name + receiver type.** Downstream ARC annotation duplicates knowledge already in `ori_registry::MethodDef.receiver`/`params[].ownership`. File with severity `medium`; subsystem `ori_arc`.
+- **BUG (GAP — validate_body_types scope mismatch vs codegen view).** Body-exit validator walks `expr_types` by ExprIndex, but codegen's `pool.resolve_fully` re-derives from the typed IR. This scope mismatch allowed the BUG-04-074 repro to pass `ori check` while failing `ori build`. Not strictly a LEAK — it's a scope-coverage gap. File with severity `high`; subsystem `ori_types` → `ori_llvm` boundary.
+
+Each filed entry points at this fix section (`fix-BUG-04-074.md`) for context. Filing happens in Phase 5 step 7 (before bug-entry closure for BUG-04-074).
+
+### 3.7' Approach B endgame plan (track, don't create here)
+
+At Phase 5 closure, run `/create-plan` with title **"Unified MethodRegistry — eliminate RG-3 two-path dispatch"**. Plan path TBD (suggest `plans/method-registry-unification/`). Scope:
+- Extend `MethodDef.params` to encode closure-shape params (`ReturnTag::Closure { param: Box<ReturnTag>, ret: Box<ReturnTag> }` or equivalent) so builtin higher-order methods don't need the `unify_higher_order_constraints_impl` special case.
+- Migrate builtin-method lookup into the unified `MethodRegistry` with receiver-family matching (not exact `self_type: Idx`) — covers `List<T>`, `Map<K, V>`, etc.
+- Delete `unify_higher_order_constraints_impl` once the registry covers closure shapes.
+- Migrate `resolve_named_type_method`'s hardcoded method names into the registry (closes one of the §3.6' LEAKs).
+
+The plan is created AT Phase 5 closure (not now) because A must land + validate cleanly first. The link between this fix and the future plan lives in the Phase 5 report.
+
+### 3.8' Implementation order (active)
+
+1. Write all tests from §2 (existing) AND §2.arg-param (new) — verify failures against current code.
+2. Implement §3.1' arity + arg-param unification in `resolve_builtin_method`.
+3. Implement §3.2' `method_call.rs` refactor threading args into builtin dispatch.
+4. Implement §3.3' relocation of `unify_higher_order_constraints` into the builtin path.
+5. Implement §3.4' wiring of `validate_body_types` across all four Bodies passes.
+6. Apply §3.5' `tag_display` helper if needed.
+7. Run `timeout 150 ./test-all.sh` — full suite green. Fix any regressions immediately per CLAUDE §Stabilization Discipline.
+8. Run `timeout 150 ./clippy-all.sh` — no warnings.
+9. Run `/commit-push` per `.claude/skills/commit-push/workflow.md`.
+10. Phase 5: /tpr-review → /impl-hygiene-review → /improve-tooling retro → /sync-claude → file §3.6' follow-up bugs → /create-plan for §3.7' endgame → /commit-push closure artifacts.
+
+---
+
 ## R. Third Party Review Findings
+
+> **SUPERSEDED-ENTIRELY-2026-04-16 — Rounds 1-4 (2026-04-14).** All four 2026-04-14 Plan TPR rounds targeted the shipped-but-wrong approach (should_generalize + validate_body_types). That approach landed in commits `b1f2c354` → `3069f3e6` → `a9a0de43` → `65b3aff4` and is correct on its own scope, but did NOT resolve BUG-04-074's codegen failure (see §0 POST-INVESTIGATION REWRITE). The residual root cause is in `resolve_builtin_method` arg-param unification (see §3.1'), which none of the 2026-04-14 rounds identified because their scope was the generalization-and-validation layer, not the builtin-method-dispatch layer. **All round-1, round-2, round-3, round-4 findings below are preserved VERBATIM as audit trail only — none of them translate to the active §3' plan.** A single fresh Plan TPR round 5 runs at Phase 2.5 on §3' (active) and will record its findings in `### Phase 2.5 — Plan TPR Round 5 (2026-04-16)` below this supersession banner when complete.
 
 ### Phase 2.5 — Plan TPR (2026-04-14)
 

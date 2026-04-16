@@ -71,7 +71,7 @@ Read:
 
 Follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Use results to choose which adjacent files and tests to read next.
 

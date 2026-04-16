@@ -58,4 +58,4 @@ Always use the wrapper — never open-code Neo4j access.
 
 ## Related canonical docs
 - `.claude/rules/intelligence.md` — workflow inventory, subsystem mapping
-- `.claude/skills/dual-tpr/compose-intel-summary.md` — SSOT summary template (§03)
+- `.claude/skills/query-intel/compose-intel-summary.md` — SSOT summary template (§03)

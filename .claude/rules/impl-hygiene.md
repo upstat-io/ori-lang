@@ -112,7 +112,7 @@ See `compiler.md` §Phase-Specific Purity for the per-phase purity contracts (le
 ### Error Recovery Per Phase
 
 - **Parser**: inserts error nodes, synchronizes to next statement
-- **Type Checker**: uses error type (TyError) that unifies with anything; continues checking
+- **Type Checker**: uses poison type (`Idx::ERROR` / `Tag::Error`) that unifies with anything; continues checking
 - **Evaluator**: accumulates errors, skips dependent evaluations
 - **Codegen**: aborts if any type errors remain — requires error-free input
 
@@ -120,7 +120,7 @@ See `compiler.md` §Phase-Specific Purity for the per-phase purity contracts (le
 
 Recovery in one phase must not *create work* for a later phase. Error types and error nodes should propagate silently without generating cascading diagnostics.
 
-- **TyError is a poison type**: once introduced, it unifies with everything and produces no further type errors. Any code path that generates a new error involving TyError is a monotonicity violation.
+- **`Tag::Error` / `Idx::ERROR` is a poison type**: once introduced, it unifies with everything and produces no further type errors. Any code path that generates a new error involving `Tag::Error` is a monotonicity violation.
 - **Error nodes are terminal**: an error node in the AST should be skipped by subsequent phases (eval, codegen), not re-diagnosed. If codegen encounters an error node that wasn't filtered, that's a phase contract violation.
 - **Recovery must be conservative**: a recovered parse tree may contain structurally invalid subtrees. Later phases must handle these gracefully (skip, not crash). If a recovered tree causes a later phase to panic, the recovery is incorrect.
 
@@ -198,7 +198,7 @@ Hot: lexer scan loop, parser expression/statement parsing, type inference unific
 - **Recovery is explicit**: enum variants, not implicit booleans
 - **Structured construction**: `Diagnostic::error(code).with_message(...).with_label(...)` — never `format!()` strings
 - **Expected context**: every "expected X, got Y" MUST include WHY — annotation, return type, parameter
-- **Deduplication**: deduplicate by (error code, primary span). Suppress follow-on: if error at span S produces TyError, suppress subsequent type errors involving TyError at child spans.
+- **Deduplication**: same-line heuristic — syntax errors deduplicated by `last_syntax_line`, non-syntax errors by `(line, message_prefix_hash)` (first 30 chars). Soft errors suppressed after hard errors. Follow-on errors filtered when `filter_follow_on` is enabled. See `diagnostic.md` §Deduplication for the full contract.
 - **Edit-distance suggestions**: Damerau-Levenshtein for "did you mean?" — threshold: `distance <= min(name.len() - 1, max(2, name.len() / 3))`
 - **Error codes are stable API**: once assigned, never reuse or change meaning. Ranges: E0xxx = lexer, E1xxx = parser, E2xxx = type check, E3xxx = pattern/semantic, E4xxx = ARC, E5xxx = codegen/LLVM, E6xxx = runtime/eval, E9xxx = internal; W1xxx/W2xxx = warnings. Tests assert on error codes, not exact message text.
 - **Anti-patterns**: `match err { Err(_) => Ok(default) }`, `if let Ok(x) = fallible` (silently drops error), `.unwrap_or_default()` on Result in production code
@@ -352,7 +352,7 @@ it. The graph covers Ori plus 10 reference compilers, synced on every commit. Ma
 reading stays authoritative — but only AFTER the graph narrows the search.
 Never cite a graph result without verifying against the actual source. See
 `.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
-`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+`.claude/skills/query-intel/compose-intel-summary.md` for the canonical
 query protocol used by review-family skills.
 
 ### Aspirational Patterns (from Reference Compilers)
@@ -470,10 +470,11 @@ When both apply (e.g., a dispatch table that encodes both facts and routing), fi
 
 For skill/command protocols (multi-step procedures referenced by many consumers), the canonical fix for `LEAK:algorithmic-duplication` is to extract the protocol into a sibling `.md` file and have every consumer `@`-include it. The Claude harness splices the included file into the prompt at expansion time — no runtime duplication, updates propagate automatically, and the SSOT invariant becomes `grep`-verifiable.
 
-Two precedents live in `.claude/skills/dual-tpr/`:
+One precedent remains in `.claude/skills/query-intel/`:
 
-- **`polling-protocol.md`** (early April 2026) — consolidated three inlined polling blocks (`/tpr-review`, `/review-work`, `/tp-help`) after the tp-help copy drifted slightly from the others. Surfaced empirically during `plans/dual-tpr-gemini` §07.3 Scenario 1.
-- **`compose-intel-summary.md`** (2026-04-14, `plans/query-intel-adoption` §03) — consolidated 18 inlined intel-pre-query blocks across every review-family skill and 12 wider skills that use the intelligence graph. Surfaced by a dual-source TPR `LEAK:algorithmic-duplication [high]` finding plus a grep-based scope audit.
+- **`compose-intel-summary.md`** (2026-04-14, `plans/query-intel-adoption` §03; moved to `query-intel/` on 2026-04-16) — consolidated 18 inlined intel-pre-query blocks across every review-family skill and 12 wider skills that use the intelligence graph. Surfaced by a dual-source TPR `LEAK:algorithmic-duplication [high]` finding plus a grep-based scope audit.
+
+Historical note: a sibling `polling-protocol.md` SSOT existed in early April 2026 to consolidate polling blocks across `/tpr-review`, `/review-work`, and `/tp-help`. It was retired on 2026-04-16 when the three consuming skills dropped the background-transport + polling pattern in favor of foreground parallel Agent dispatch (no polling needed per https://code.claude.com/docs/en/sub-agents).
 
 The invariant for each SSOT is: `grep -l '<unique-pattern>' .claude/ -r` returns at most N files — the SSOT itself plus any legitimate teaching surfaces that reference the pattern by name (e.g., `.claude/rules/<rule>.md` describing the command). All consumers acquire the protocol via `@`-include.
 

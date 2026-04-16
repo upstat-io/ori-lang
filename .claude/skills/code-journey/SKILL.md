@@ -113,7 +113,7 @@ This gives you all existing scenarios and which ones have results files.
 
 Follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Per SSOT Step F — /code-journey extension: `symbols "<feature keyword>" --repo ori --limit 15`, `callers`/`callees "<main exercised symbol>" --repo ori`, `similar "<symbol>" --repo rust,swift,go --limit 5`. Pass the resulting symbol list and similar hits into the background agent prompt.
 

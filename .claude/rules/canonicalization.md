@@ -27,8 +27,8 @@ These are distinct from the 7 surface desugars (performed earlier in parser/type
 |---|---------------|-------------|
 | 1 | `CallNamed` | Positional `Call` |
 | 2 | `MethodCallNamed` | Positional `MethodCall` |
-| 3 | `TemplateLiteral` | String concatenation chain |
-| 4 | `TemplateFull` | String concatenation + formatting |
+| 3 | `TemplateFull` | `Str` — trivial no-interpolation case (handled inline in `lower/expr.rs`) |
+| 4 | `TemplateLiteral` | `.to_str()` / `FormatWith` + `.concat()` chain — interpolation/formatting case (`desugar/mod.rs`) |
 | 5 | `ListWithSpread` | Method calls (append/extend) |
 | 6 | `MapWithSpread` | Method calls (insert/extend) |
 | 7 | `StructWithSpread` | Method calls (field-by-field copy + overrides) |
@@ -51,7 +51,7 @@ The graph covers Ori plus 10 reference compilers, synced on every commit. Manual
 stays authoritative — but only AFTER the graph narrows the search. Never
 cite a graph result without verifying against the actual source. See
 `.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
-`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+`.claude/skills/query-intel/compose-intel-summary.md` for the canonical
 query protocol used by review-family skills.
 
 ## Pattern Compilation — Maranget
@@ -60,8 +60,8 @@ Luc Maranget, "Compiling Pattern Matching to Good Decision Trees" (2008). Invoca
 
 - **Input**: `PatternMatrix` with one row per arm
 - **Output**: `DecisionTree` stored in `DecisionTreePool`, referenced by `DecisionTreeId` on `CanExpr::Match`
-- **Exhaustiveness**: reachable `Fail` node → `E2001` (non-exhaustive match)
-- **Usefulness**: arm index never in any `Leaf` → warning (redundant arm)
+- **Exhaustiveness**: reachable `Fail` node → `PatternProblem::NonExhaustive` → `E3002` (non-exhaustive match, via `compiler/oric/src/problem/semantic/mod.rs`)
+- **Usefulness**: arm index never in any `Leaf` → `PatternProblem::RedundantArm` → warning `E3003` (redundant pattern)
 - **Guards**: do NOT contribute to exhaustiveness coverage — guarded-only matches require explicit `_` catch-all
 - **Multi-clause functions**: lower through the same pipeline as explicit `match` via `compile_multi_clause_patterns`
 
@@ -85,17 +85,17 @@ After canonicalization (per `impl-hygiene.md` §Cross-Phase Invariant Contracts)
 
 ## Public API
 
-- `lower(arena, types, pool) -> CanonResult` — main entry point
-- `lower_module(module, arena, types, pool) -> CanonResult` — module-level
-- `validate(canon_result) -> Vec<ValidationError>` — structural validation
+- `lower(src, type_result, pool, root, interner) -> CanonResult` — main entry point (single expression)
+- `lower_module(module, src, type_result, pool, interner) -> CanonResult` — module-level
+- `validate(result: &CanonResult) -> ()` — debug-only structural validation via `debug_assert!` panics (not a collected `Vec` — panics on first violation). Called automatically from `lower()` under `#[cfg(debug_assertions)]` only. This is a debug-mode assertion checker, not a production API.
 
 ## Internal Modules
 
 - `desugar/` — 7-variant sugar elimination
 - `patterns/` — Maranget pattern compilation entry point
-- `const_fold/` — constant folding
+- `const_fold/` — constant folding (integers, floats, booleans, strings, Duration arithmetic/comparisons with nanosecond normalization, Size arithmetic/comparisons with byte normalization and overflow bounds)
 - `lower/` — AST → CanExpr lowering
-- `validate/` — post-canonicalization structural checks
+- `validate.rs` — post-canonicalization structural checks (single file, not a directory)
 - `exhaustiveness/` — exhaustiveness analysis (pub(crate))
 
 ## Cross-References

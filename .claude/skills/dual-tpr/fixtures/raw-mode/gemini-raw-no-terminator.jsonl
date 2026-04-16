@@ -1,3 +1,0 @@
-{"type": "message", "role": "assistant", "content": "chunk 1", "delta": true}
-{"type": "message", "role": "assistant", "content": "chunk 2", "delta": true}
-{"type": "message", "role": "assistant", "content": "chunk 3", "delta": true}

@@ -613,12 +613,19 @@ Spec: Clause 8.8 (trait objects).
 
 ### BI-7 — Sendable and Value Markers
 
-`Sendable` and `Value` SHALL be **compiler-auto-derived** marker traits (Spec Clause 8.14). Users SHALL NOT impl them manually. The checker derives:
+`Sendable` and `Value` SHALL be **compiler-auto-derived** marker traits (Spec Clause 8.14). Users SHALL NOT impl them manually.
 
+**Shipped behavior:**
+- Builtin primitive types have `Sendable`/`Value` marker information via `ori_registry` `TypeDef.traits` entries. The type checker's registry-bridge queries this for builtin types.
+- `E2033` ("trait not derivable") SHALL be emitted by the derive-registration path when a user attempts to derive `Sendable` or `Value` explicitly via `#derive(Sendable)` (pre-proposal) or `type T: Sendable = { ... }` (post-proposal). `DerivedTrait::from_name()` does not recognize them, so the derive-registration pass rejects them at pass 0d.
+- `register_user_types()` stores `ValueCategory::default()` (always `Boxed`) for all user-defined types — no user-type `Value`-category computation exists.
+- User-defined `TypeEntry` has no marker-trait store; the registries do not compute or propagate `Sendable`/`Value` for user-defined structs/enums/newtypes.
+
+**(Target-only)** The spec mandates auto-derivation of `Sendable` and `Value` for user-defined types based on field analysis:
 - `Sendable` iff all fields are `Sendable` AND the type has no interior mutability AND captures no non-`Sendable` values.
 - `Value` iff all fields are `Value` AND the type is ≤ 512 bytes (warn at > 256 bytes) AND has no `Drop` impl AND is non-recursive (Spec Clause 8.14.2).
 
-`E2033` ("trait not derivable") SHALL be emitted by the derive-registration path when a user attempts to derive `Sendable` or `Value` explicitly via `#derive(Sendable)` (pre-proposal) or `type T: Sendable = { ... }` (post-proposal). **(Target-only)** Rejection of bare `impl T: Sendable { ... }` (i.e., a manual hand-written impl) is specified but not yet enforced by the shipped checker — today the derive path is where `E2033` surfaces.
+This analysis pass is not yet implemented. Rejection of bare manual `impl Type: Sendable { ... }` forms is also specified but not yet enforced.
 
 Spec: Clause 8.14 (Sendable / Value — marker semantics, forbidden manual impls).
 
@@ -857,7 +864,7 @@ The graph covers Ori plus 10 reference compilers, synced on every commit. Manual
 stays authoritative — but only AFTER the graph narrows the search. Never
 cite a graph result without verifying against the actual source. See
 `.claude/rules/intelligence.md` for the canonical when-to-query workflow and subcommand reference and
-`.claude/skills/dual-tpr/compose-intel-summary.md` for the canonical
+`.claude/skills/query-intel/compose-intel-summary.md` for the canonical
 query protocol used by review-family skills.
 
 ## §14 Prior Art Cross-Reference

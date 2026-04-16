@@ -45,8 +45,8 @@ Canonical home: `aot/mangle/emit.rs`. Prefix: `_ori_`. Identifier encoding: alph
 
 ## Optimization
 
-- `OptimizationLevel`: None | Less | Default | Aggressive
-- `LtoMode`: None | ThinLocal | Thin | Full
+- `OptimizationLevel`: `O0` | `O1` | `O2` | `O3` | `Os` | `Oz` (maps to LLVM `default<OX>` pipelines; defined in `aot/passes/config.rs`)
+- `LtoMode`: `Off` | `Thin` | `Full` (defined in `aot/passes/config.rs`)
 - `run_optimization_passes()` | `optimize_module()` | `run_lto_pipeline()`
 
 ## Key Subsystems
@@ -56,11 +56,11 @@ Canonical home: `aot/mangle/emit.rs`. Prefix: `_ori_`. Identifier encoding: alph
 | `target.rs` | Target triple, feature support |
 | `object.rs` | Object emission (`OutputFormat` enum) |
 | `mangle/` | Symbol mangling/demangling (`mod.rs` constants, `emit.rs` functions) |
-| `passes.rs` | Optimization pass pipeline |
+| `passes/` | Optimization pass pipeline (`mod.rs` entry, `config.rs` for `OptimizationLevel`/`LtoMode`/`OptimizationConfig`, `sanitizer.rs`) |
 | `runtime.rs` | Runtime discovery (5-step candidate search) |
 | `linker/` | Platform linker drivers (gcc, msvc, wasm) |
 | `debug/` | Debug info generation (DWARF/CodeView) — `DebugInfoBuilder`, `DebugLevel` |
-| `wasm.rs` | WebAssembly config (`WasmConfig`, `WasiConfig`) |
+| `wasm/` | WebAssembly target (`mod.rs` entry, `config.rs` for `WasmConfig`/`WasiConfig`, `wasi.rs`, `optimize.rs`) |
 | `incremental/` | Incremental compilation (caching, deps, parallel) |
 | `multi_file/` | Multi-file compilation, module dependency graphs |
 | `syslib/` | System library discovery |

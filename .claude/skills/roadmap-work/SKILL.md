@@ -49,7 +49,7 @@ Read the target section file at `<plan-path>/<section-file>` in full. Identify t
 
 Follow the canonical intel-summary injection protocol:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 Per SSOT Step F / `/continue-roadmap` extension — use `file-symbols`, `callers`/`callees`, `similar` on section-body symbols to map blast radius before editing.
 

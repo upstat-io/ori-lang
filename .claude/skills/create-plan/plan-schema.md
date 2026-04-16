@@ -326,7 +326,7 @@ Queries run {YYYY-MM-DD}:
 
 Results summary (≤500 chars) [ori]: {bounded paragraph citing blast radius, cross-repo prior art, relevant symbols. Use `[ori]` for Ori-repo claims, `[rust#N]` / `[swift#N]` / `[koka#N]` / etc. for cross-repo issue citations, and `[repo:path]` for symbol results — the same grammar used by `compose-intel-summary.md` Step D (lines 64-82) and by §07's hook injection. Maximum 5 bullets, 500 characters. If the graph is unavailable, record the unavailability state as freeform prose (e.g. `"Graph was unavailable at YYYY-MM-DD when this section was authored"`) — do NOT silently omit the block; the block MUST still exist with the date and a note about unavailability so the validator recognizes it as intentional rather than forgotten.}
 
-See `.claude/skills/dual-tpr/compose-intel-summary.md` for the full query protocol (SSOT — do NOT `@`-include in plan files; plan markdown is not harness-expanded, so the include would be a dead literal).
+See `.claude/skills/query-intel/compose-intel-summary.md` for the full query protocol (SSOT — do NOT `@`-include in plan files; plan markdown is not harness-expanded, so the include would be a dead literal).
 
 ---
 
@@ -339,7 +339,7 @@ NOT captured by the numbered {NN}.X subsection sequence alone:
    implementations / Depends on) and BEFORE `## {NN}.1`. Records the
    literal `scripts/intel-query.sh` commands the author ran, a
    ≤500-char results summary (using the same `[ori]` / `[repo#N]`
-   citation grammar as `.claude/skills/dual-tpr/compose-intel-summary.md`
+   citation grammar as `.claude/skills/query-intel/compose-intel-summary.md`
    Step D, lines 64-82), and the date. Coexists with §07's runtime hook:
    the hook omits the summary entirely when graph is unavailable; the
    plan-resident block records unavailability as freeform prose. Enforced

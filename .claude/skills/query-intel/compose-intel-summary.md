@@ -4,18 +4,24 @@
 current consumer `@`-includes this file from its intel section rather than
 inlining the pattern.
 
-**Current consumers (24, all `@`-including this file):**
+**Current consumers (20, all `@`-including this file at its new path `.claude/skills/query-intel/compose-intel-summary.md` since 2026-04-16):**
 
-- Review-family skills/commands (6): `/tpr-review` (Step 0.75),
-  `/review-work` skill (Step 1.5), `/review-plan` (Step 3.5),
-  `/review-work` command (Intelligence map), `/independent-review`
-  (Phase B), `/review-bugs` (Step 5.5).
-- Wider skill consumers (15): `/tp-help`, `/add-bug`, `/improve-tooling`,
-  `/design-pattern-review`, `/create-draft-proposal`, `/fix-bug`,
-  `/impl-hygiene-review`, `/review-draft-proposal`, `/create-plan`,
-  `/rosetta-test`, `/code-journey`, `/continue-roadmap`, `/verify-tpr`,
-  `/sync-claude`, `/fix-next-bug`.
-- Command consumers (3): `/sync-spec`, `/sync-grammar`, `/verify-roadmap`.
+- Command consumers (6): `/independent-review` (Phase B),
+  `/review-bugs` (Step 5.5), `/review-work` command (Intelligence map),
+  `/sync-grammar`, `/sync-spec`, `/verify-roadmap`.
+- Review-family skill consumers (1): `/verify-tpr`.
+- Wider skill consumers (13): `/add-bug`, `/code-journey`,
+  `/create-draft-proposal`, `/create-plan`, `/design-pattern-review`,
+  `/fix-bug`, `/fix-next-bug`, `/impl-hygiene-review`,
+  `/improve-tooling`, `/review-draft-proposal`, `/roadmap-work`,
+  `/rosetta-test`, `/sync-claude`.
+
+**Dropped consumers (2026-04-16 rewrite — no longer `@`-include the SSOT):**
+
+- `/tpr-review` — inlines grounding (no `@`-includes in the new design, per docs-gap avoidance).
+- `/tp-help` — inlines grounding (same rationale).
+- `/review-work` skill — collapsed to a thin delegator to `/tpr-review`; no intel step of its own.
+- `/review-plan` — no longer `@`-includes the SSOT at its section level; if needed, it invokes `/tpr-review --skill review-plan` which has its own inlined grounding.
 
 **Planned future consumers (not yet migrated):**
 
@@ -99,13 +105,18 @@ above.
 
 **Review-family (no extensions — base protocol only):**
 
-The 6 review-family consumers (`/tpr-review` Step 0.75, `/review-work` skill
-Step 1.5, `/review-plan` Step 3.5, `/review-work` command Intelligence map,
+The remaining review-family consumers (`/review-work` command Intelligence map,
 `/independent-review` Phase B, `/review-bugs` Step 5.5 availability-check
 portion) use Steps A-E of the base protocol without workflow-specific
 extensions. They inject the Intelligence Summary into reviewer prompts or
 use it to prioritize adjacent-file reads. `/review-bugs` ADDITIONALLY uses
 the bug-workflow extension below.
+
+**Note (2026-04-16):** `/tpr-review`, `/review-work` (skill),
+`/tp-help`, and `/review-plan` dropped their `@`-includes during the
+`/tpr-review` + `/tp-help` rewrite; they now inline grounding instead
+of using this SSOT. See the "Dropped consumers" note at the top of this
+file.
 
 **TPR/verification consumers:**
 
@@ -183,8 +194,7 @@ the bug-workflow extension below.
   - `callers "<symbol>" --repo ori`, `callees` per major dispatch/boundary symbol
   - `similar "<symbol>" --repo rust,swift,lean4 --limit 5`
 
-- **`/tp-help`** — context enrichment for third-party help:
-  - `callers`/`callees`/`similar` on the discussed symbols
+- **`/tp-help`** — *dropped 2026-04-16* (no longer `@`-includes this SSOT; inlines grounding in its own prompt template). Formerly used `callers`/`callees`/`similar` on the discussed symbols.
 
 - **`/improve-tooling`** — pre-create existence check:
   - `symbols "<keyword>" --repo ori --kind function --limit 10`
@@ -235,27 +245,24 @@ syntactically valid whether or not the summary appears.
 
 ## Consumers
 
-Every consumer of this file references it via `@.claude/skills/dual-tpr/compose-intel-summary.md`
+Every consumer of this file references it via `@.claude/skills/query-intel/compose-intel-summary.md`
 at its intel section. Updates to this protocol propagate automatically.
 
-**Full consumer list (24 total), by origin section:**
+**Full consumer list (20 total — grep-verified as of 2026-04-16):**
 
-Migrated in `plans/query-intel-adoption` §03 (18 original consumers):
+- Skills (13): `/add-bug`, `/code-journey`, `/create-draft-proposal`, `/create-plan`, `/design-pattern-review`, `/fix-bug`, `/fix-next-bug`, `/impl-hygiene-review`, `/improve-tooling`, `/review-draft-proposal`, `/roadmap-work`, `/rosetta-test`, `/sync-claude`
+- Review-family skills (1): `/verify-tpr`
+- Commands (6): `/independent-review`, `/review-bugs`, `/review-work`, `/sync-grammar`, `/sync-spec`, `/verify-roadmap`
 
-- Skills (14): `/tpr-review`, `/review-work` (skill), `/tp-help`, `/add-bug`, `/improve-tooling`, `/design-pattern-review`, `/create-draft-proposal`, `/fix-bug`, `/impl-hygiene-review`, `/review-draft-proposal`, `/create-plan`, `/rosetta-test`, `/code-journey`, `/continue-roadmap`
-- Commands (4): `/review-plan`, `/review-work` (command), `/independent-review`, `/review-bugs`
+**Dropped during the 2026-04-16 `/tpr-review` + `/tp-help` rewrite** (no longer `@`-include this SSOT — they now inline grounding instead, per the rewrite's no-`@`-includes-in-new-files policy):
 
-Migrated in `plans/query-intel-adoption` §05.1 (3 skills):
+- `/tpr-review` (skill), `/review-work` (skill — collapsed to a thin delegator), `/tp-help` (skill), `/review-plan` (skill — delegates to `/tpr-review --skill review-plan`)
 
-- `/verify-tpr`, `/sync-claude`, `/fix-next-bug`
-
-Migrated in `plans/query-intel-adoption` §05.2 (3 commands):
-
-- `/sync-spec`, `/sync-grammar`, `/verify-roadmap`
+To verify the live count: `grep -l '@.claude/skills/query-intel/compose-intel-summary' .claude --include='*.md' -r | grep -v '^plans/' | grep -v worktrees | grep -v 'query-intel/compose-intel-summary.md' | wc -l`
 
 **How to add yourself as a consumer:**
 
-1. Add `@.claude/skills/dual-tpr/compose-intel-summary.md` at your skill/command's
+1. Add `@.claude/skills/query-intel/compose-intel-summary.md` at your skill/command's
    intel section (not at the top — place it where the query is invoked).
 2. If your consumer runs queries beyond Steps A-E, add a Step F entry in the
    registry above describing the exact `scripts/intel-query.sh` subcommands you
@@ -271,4 +278,3 @@ Migrated in `plans/query-intel-adoption` §05.2 (3 commands):
 - `.claude/rules/intelligence.md` — when-to-query workflow inventory, subsystem mapping
 - `.claude/skills/query-intel/SKILL.md` — full capability surface
 - `scripts/intel-query.sh` — the canonical wrapper (206 lines; see §08 for planned UX improvements)
-- `.claude/skills/dual-tpr/polling-protocol.md` — sibling SSOT for dual-source polling

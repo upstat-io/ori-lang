@@ -21,7 +21,7 @@ If unavailable, proceed normally — intelligence is additive, never blocking.
 ## Canonical Pre-Query Protocol (SSOT)
 
 Skills and commands that run a pre-query / intel-summary-injection workflow
-MUST `@`-include `.claude/skills/dual-tpr/compose-intel-summary.md` — the
+MUST `@`-include `.claude/skills/query-intel/compose-intel-summary.md` — the
 single source of truth for the availability-check → `file-symbols` → `callers`
 → `callees` → `similar` → bounded ≤500-char summary protocol. Inlining the
 pattern instead of `@`-including the SSOT is an **Algorithmic DRY violation**

@@ -76,7 +76,7 @@ Without this, all Edit/Write calls to grammar files will be **blocked by the hoo
 1. **Inventory parser/lexer types via the intelligence graph** — grammar
    changes affect parser and lexer types. Before reading grammar.ebnf:
 
-   @.claude/skills/dual-tpr/compose-intel-summary.md
+   @.claude/skills/query-intel/compose-intel-summary.md
 
    Query `file-symbols "compiler/ori_parse/"` and `file-symbols
    "compiler/ori_lexer/"` to inventory parser/lexer types that consume the

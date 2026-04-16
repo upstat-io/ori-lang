@@ -155,7 +155,7 @@ If the intelligence graph is available, cross-reference recommended bugs against
 
 Follow the canonical intel-summary injection protocol for availability check + base queries:
 
-@.claude/skills/dual-tpr/compose-intel-summary.md
+@.claude/skills/query-intel/compose-intel-summary.md
 
 **Bug-specific extension** (per SSOT Step F — /review-bugs domain extension):
 

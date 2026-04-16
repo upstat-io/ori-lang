@@ -20,18 +20,18 @@ paths:
 
 The Ori compiler is a strictly-ordered, layered pipeline. Each phase reads the prior phase's output and produces a new IR. Phases 1–4 produce distinct output IRs; the ARC/AIMS pipeline (phases 5–7) mutates `ArcFunction` in place while preserving strict phase ordering.
 
-| # | Phase | Crate | Input | Output | Authoritative home |
-|---|-------|-------|-------|--------|--------------------|
-| 1 | Lex | `ori_lexer` | Source bytes | `TokenList` (parallel `tokens` / `tags` / `flags` arrays) | `parse.md` §LB-2, §LB-4 |
-| 2 | Parse | `ori_parse` | `TokenList` | AST in `ExprArena` (opaque `ExprId`) | `parse.md` §AR-1, §LB-6 |
-| 3 | Type check | `ori_types` | AST | Typed IR (every `ExprId` has a resolved `Idx`) | `typeck.md` §PC-2 |
-| 4 | Canonicalize | `ori_canon` | Typed IR | `CanExpr` with sugar eliminated + `DecisionTreePool` populated | `canonicalization.md`, `impl-hygiene.md` §Cross-Phase Invariant Contracts (Canon → All) |
-| 5 | ARC lowering | `ori_arc` | `CanExpr` | `ArcFunction` (ARC IR with unresolved RC / reuse / drop decisions) | `arc.md`, `aims-rules.md` §7 |
-| 6 | AIMS lattice analysis | `ori_arc` | `ArcFunction` | Per-SSA lattice state; converged `AimsStateMap`; per-function `MemoryContract` | `aims-rules.md` §§1–7 |
-| 7 | ARC realization | `ori_arc` | `AimsStateMap` + `ArcFunction` | `ArcFunction` with RC / COW / reuse / drop instructions materialized; `FipContract` certified (Step 5a) | `aims-rules.md` §8, §VF-6 |
-| 8 | LLVM codegen | `ori_llvm` | Realized `ArcFunction` | LLVM IR (verified per VR-1) | `codegen-rules.md`, `llvm.md` |
-| 9 | Optimize & emit | `ori_llvm` | LLVM IR | Object / executable | `aot.md` |
-| — | Evaluator (parallel) | `ori_eval` | `CanExpr` + `DecisionTreePool` | Runtime values (for const-eval and `ori run`) | `eval.md` |
+| # | Phase | Crate | Input | Public output (crate API) | Key internal payloads | Authoritative home |
+|---|-------|-------|-------|---------------------------|----------------------|--------------------|
+| 1 | Lex | `ori_lexer` | Source bytes | `TokenList` | parallel `tokens` / `tags` / `flags` arrays | `parse.md` §LB-2, §LB-4 |
+| 2 | Parse | `ori_parse` | `TokenList` | `ParseOutput` (`module`, `arena`, `errors`, `warnings`, `metadata`) | AST in `ExprArena` (opaque `ExprId`) | `parse.md` §AR-1, §LB-6 |
+| 3 | Type check | `ori_types` | AST | `TypeCheckResult` / `TypedModule` | Typed IR (every `ExprId` has a resolved `Idx`) | `typeck.md` §PC-2 |
+| 4 | Canonicalize | `ori_canon` | Typed IR | `CanonResult` | `CanExpr` with sugar eliminated + `DecisionTreePool` populated | `canonicalization.md`, `impl-hygiene.md` §Cross-Phase Invariant Contracts (Canon → All) |
+| 5 | ARC lowering | `ori_arc` | `CanExpr` | `ArcFunction` | ARC IR with unresolved RC / reuse / drop decisions | `arc.md`, `aims-rules.md` §7 |
+| 6 | AIMS lattice analysis | `ori_arc` | `ArcFunction` | Per-function `MemoryContract` | Per-SSA lattice state; converged `AimsStateMap` | `aims-rules.md` §§1–7 |
+| 7 | ARC realization | `ori_arc` | `AimsStateMap` + `ArcFunction` | Realized `ArcFunction` | RC / COW / reuse / drop instructions materialized; `FipContract` certified (Step 5a) | `aims-rules.md` §8, §VF-6 |
+| 8 | LLVM codegen | `ori_llvm` | Realized `ArcFunction` | LLVM IR | Verified per VR-1 when `ORI_VERIFY_ARC=1` | `codegen-rules.md`, `llvm.md` |
+| 9 | Optimize & emit | `ori_llvm` | LLVM IR | Object / executable | — | `aot.md` |
+| — | Evaluator (parallel) | `ori_eval` | `CanExpr` + `DecisionTreePool` | Runtime values | For const-eval and `ori run` | `eval.md` |
 
 Upstream crate dependency order per `compiler.md` §Architecture: `oric` → `ori_llvm` → `ori_arc/ori_repr` → `ori_canon` → `ori_types/eval/patterns` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic`. Support crates: `ori_compiler` (pure facade), `ori_registry`, `ori_stack`, `ori_fmt`, `ori_test_harness`, `ori_rt`. IO lives only in `oric`; core crates are pure (`compiler.md` §Phase-Specific Purity).
 
@@ -41,25 +41,25 @@ Upstream crate dependency order per `compiler.md` §Architecture: `oric` → `or
 
 ---
 
-## §2 The Seven Canonical Surface Desugars
+## §2 Canonical Surface Desugars (Six Shipped + One Target-Only)
 
 Desugars in this section are surface-language rewrites performed at parse time or in the type checker. They eliminate sugared forms before the canonical-IR stage (§4.3 lists a distinct set of canonical-IR sugar variants eliminated by `ori_canon::desugar`).
 
-| # | Desugar | Source form | Target form | Phase | Rule |
-|---|---------|-------------|-------------|-------|------|
-| 1 | Compound assignment | `x op= y` | `x = x op y` | Parser (parsed above Pratt); transformation described in typeck | `parse.md` §PR-5 (parse site); `typeck.md` §EX-17 (transformation) |
-| 2 | Binary operator trait dispatch | `a + b`, `a == b`, `a < b`, `a & b` | `Add::add(a, b)`, `Eq::equals(a, b)`, `Comparable::compare(a, b).is_less()`, `BitAnd::bit_and(a, b)` | Type checker | `typeck.md` §EX-2, `spec/operator-rules.md` |
-| 3 | Pipe operator | `x \|> f(a: v)` | `{ let $_tmp = x; f(a: v, _pipe_slot: _tmp) }` (first unspecified, default-less parameter) | Type checker | `typeck.md` §EX-13 |
-| 4 | Index assignment | `list[i] = v` | `list = list.updated(key: i, value: v)` | Type checker | `typeck.md` §EX-17 |
-| 5 | Field assignment | `state.f = v` | `state = { ...state, f: v }` | Type checker | `typeck.md` §EX-17 |
-| 6 | Argument punning | `f(x:)` | `f(x: x)` (requires `x` in scope with matching name) | Type checker | `typeck.md` §EX-3 |
-| 7 | Variant / pattern punning | `Some(value:)` pattern | `Some(value: value)` pattern | Type checker | `typeck.md` §CF-2 |
+| # | Desugar | Source form | Target form | Phase | Rule | Status |
+|---|---------|-------------|-------------|-------|------|--------|
+| 1 | Compound assignment | `x op= y` | `x = x op y` | Parser (parsed above Pratt); transformation described in typeck | `parse.md` §PR-5 (parse site); `typeck.md` §EX-17 (transformation) | Shipped |
+| 2 | Binary operator trait dispatch | `a + b`, `a == b`, `a < b`, `a & b` | `Add::add(a, b)`, `Eq::equals(a, b)`, `Comparable::compare(a, b).is_less()`, `BitAnd::bit_and(a, b)` | Type checker | `typeck.md` §EX-2, `spec/operator-rules.md` | Shipped |
+| 3 | Index assignment | `list[i] = v` | `list = list.updated(key: i, value: v)` | Type checker | `typeck.md` §EX-17 | Shipped |
+| 4 | Field assignment | `state.f = v` | `state = { ...state, f: v }` | Type checker | `typeck.md` §EX-17 | Shipped |
+| 5 | Argument punning | `f(x:)` | `f(x: x)` (requires `x` in scope with matching name) | Type checker | `typeck.md` §EX-3 | Shipped |
+| 6 | Variant / pattern punning | `Some(value:)` pattern | `Some(value: value)` pattern | Type checker | `typeck.md` §CF-2 | Shipped |
+| 7 | Pipe operator | `x \|> f(a: v)` | `{ let $_tmp = x; f(a: v, _pipe_slot: _tmp) }` (first unspecified, default-less parameter) | Type checker | `typeck.md` §EX-13 | **Target-only** |
 
 Notes:
 
 - Compound assignment (§EX-17) is the only surface desugar with a parse-time component (`parse.md` §PR-5 parses it at top level, above the Pratt loop); the checker types the desugared form.
-- `x |> .method()` desugars to `_tmp.method()` with the same temporary binding; `x |> (y -> e)` applies the lambda to `x` (`typeck.md` §EX-13).
 - Operator dispatch goes through the registry — it does not hardcode primitive types (`typeck.md` §EX-2, `types.md` §RG-4).
+- **(Target-only)** Pipe operator (`|>`) is defined in the spec (`spec/operator-rules.md`) and documented in `typeck.md` §EX-13, but the parser does not yet lex or parse `|>` (`parse.md` §PR-1 target-only note). `x |> .method()` desugars to `_tmp.method()` with the same temporary binding; `x |> (y -> e)` applies the lambda to `x`. The entire EX-13 surface activates only when the parser ships `|>`.
 
 ---
 
@@ -120,7 +120,7 @@ On successful check, the typed IR satisfies exactly the contract in `typeck.md` 
 - All method calls resolved statically via builtin-first `resolve_builtin_method()` or `TraitRegistry::lookup_method()` — no runtime lookup remains (`typeck.md` §EX-4, `types.md` §RG-3; builtin lookup is NOT routed through `MethodRegistry`).
 - All capability requirements satisfied at their use sites (`typeck.md` §CP-2).
 
-Producer-side enforcement for the `no Tag::Var` clause is `compiler/ori_types/src/check/validators/mod.rs::validate_body_types` (re-exported at the `ori_types` crate root). It walks each body's `expr_types` plus the body's `FunctionSig` (`param_types` + `return_type`) after `InferEngine` body-checking completes and emits `E2005` (`typeck.md` §DI-1 `AmbiguousType`) once per `ExprIndex` for any surviving unbound `Tag::Var`. The validator accepts a `scheme_var_ids` parameter and builds an exempt root set via `Pool::var_idx_for_id` + `resolve_fully` — fresh instantiation vars that are union-find equivalence-class members of caller scheme vars are exempt from E2005 (they are legitimate polymorphic parameters, not inference failures). Gate order is `resolve_fully → HAS_ERROR → HAS_VAR` (`typeck.md` §ER-4 cascade suppression precedes `types.md` §TF-5 fast-path). Tag-dispatch child traversal delegates to the canonical `Pool::visit_children` helper (`types.md` §TF-3 propagation + the `Tag::Scheme` flag-propagation rule) — no parallel tag-dispatch ladder is maintained in the validator (`impl-hygiene.md` §Algorithmic DRY).
+Producer-side enforcement for the `no Tag::Var` clause is `compiler/ori_types/src/check/validators/mod.rs::validate_body_types` (re-exported at the `ori_types` crate root). It walks each body's `expr_types` plus the body's `FunctionSig` (`param_types` + `return_type`) after `InferEngine` body-checking completes and emits `E2005` (`typeck.md` §DI-1 `AmbiguousType`) once per `ExprIndex` for any surviving unbound `Tag::Var`. Gate order is `resolve_fully → HAS_ERROR → HAS_VAR` (`typeck.md` §ER-4 cascade suppression precedes `types.md` §TF-5 fast-path). Tag-dispatch child traversal delegates to the canonical `Pool::visit_children` helper (`types.md` §TF-3 propagation + the `Tag::Scheme` flag-propagation rule) — no parallel tag-dispatch ladder is maintained in the validator (`impl-hygiene.md` §Algorithmic DRY).
 
 On failed check, failure sites carry `Tag::Error`; downstream phases skip error-typed nodes (`typeck.md` §PC-3). Codegen is gated at the driver level — any typeck error suppresses emission (`typeck.md` §PC-4).
 
@@ -144,9 +144,9 @@ After Step 4 (`analyze_function`) in the AIMS pipeline (`aims-rules.md` §7):
 - Analysis is backward (demand-based); interprocedural contracts are computed SCC-topologically, callees before callers (`aims-rules.md` §7, `PL-1a`).
 - No pass relies on a stale summary (`aims-rules.md` §7, `PL-5`; CLAUDE.md §AIMS invariant 3).
 
-### §4.5 ARC realization output — Realized ARC IR (Step 5 and Step 5a)
+### §4.5 ARC realization output — Realized ARC IR (Steps 5–10)
 
-After Step 5 (`realize_annotations` — phase 2 COW + drops), Step 5a (`verify_fip_contract`), and post-pipeline optimization passes (`aims-rules.md` §7–§8):
+After the two-phase realization — Step 5 (`realize_rc_reuse` — phase 1: RC + reuse, pre-merge), Step 5a (`verify_fip_contract`), Steps 6–9 (verification + tail-call optimization + CFG merge), and Step 10 (`realize_annotations` — phase 2: COW + drop hints, post-merge) — plus post-pipeline passes (`aims-rules.md` §7–§8):
 
 - RC is balanced per block: every owned non-scalar heap value either (a) is handed off via a listed ownership-transferring instruction, or (b) has a matching `RcDec` at its last use or scope exit or CFG edge (`aims-rules.md` §8 `RL-2`, `RL-4`, `RL-5`).
 - Drops are placed at last-use or scope-exit for owned values; unused owned non-scalar definitions receive an immediate cleanup dec (`aims-rules.md` §8 `RL-2`).
@@ -161,7 +161,7 @@ After Step 5 (`realize_annotations` — phase 2 COW + drops), Step 5a (`verify_f
 After `codegen/arc_emitter/` translation (`codegen-rules.md`):
 
 - Every type index is fully resolved via `pool.resolve_fully(idx)` before LLVM type construction; no `Tag::Var` reaches codegen (`codegen-rules.md` §TR-2).
-- Every emitted LLVM function passes `fn_val.verify(true)` at the VR-1 checkpoints (post-emission, post-trampoline, post-derive); `ORI_VERIFY_ARC=1` runs verification at all checkpoints (`codegen-rules.md` §VR-1). Trampoline verification specifically is covered by §TM-8.
+- LLVM IR verification (`fn_val.verify(true)`) is gated behind `ORI_VERIFY_ARC=1` at all VR-1 checkpoints (post-emission, post-trampoline, post-derive, entry-point, panic-trampoline, nounwind wrapper). In normal mode, no per-function LLVM verification runs — all `verify(true)` calls in `define_phase.rs`, `entry_point.rs`, `seh_main_thunk.rs`, `panic_trampoline.rs`, `nounwind/emit.rs`, and `impls.rs` are guarded by `self.verify_arc` (`codegen-rules.md` §VR-1). Trampoline verification specifically is covered by §TM-8.
 - Trampolines use canonical types; narrowing happens only at storage boundaries (`codegen-rules.md` §NR-1, §TM-2).
 - RC operations emitted match the AIMS lattice decisions (`codegen-rules.md` §5, `aims-rules.md` §8); drop placement satisfies `aims-rules.md` §8 `RL-2`.
 - ABI passing and classification honor target rules per `codegen-rules.md` §§AB-1 through AB-7 (indirect-passing threshold, `ParamPassing` / `ReturnPassing` classification, `sret` on ARM64, FastISel aggregate restriction, calling convention assignment, ownership-aware ABI).

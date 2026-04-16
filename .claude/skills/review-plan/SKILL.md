@@ -74,10 +74,10 @@ handoff JSON (escalate: true) and stop. The parent handles escalations.
 
 | Step | `<STEP>` | `<PROTOCOL_FILE>` | `<MODEL>` | Writes |
 |---|---|---|---|---|
-| 2 | `2-precheck` | `step-2-precheck.md` | `sonnet` | `/tmp/review-plan-precheck.json` |
+| 2 | `2-precheck` | `step-2-precheck.md` | `opus` | `/tmp/review-plan-precheck.json` |
 | 3 | `3-audit` | `step-3-audit.md` | `sonnet` | `/tmp/review-plan-audit.json` |
 | 4 | `4-blind-spots` | `step-4-blind-spots.md` | `sonnet` | `/tmp/review-plan-blind-spots.json` |
-| 5 | `5-editor` | `step-5-editor.md` | `sonnet` | `/tmp/review-plan-editor.json` |
+| 5 | `5-editor` | `step-5-editor.md` | `opus` | `/tmp/review-plan-editor.json` |
 | 6 | `6-tpr` | `step-6-tpr.md` | `sonnet` | `/tmp/review-plan-tpr.json` |
 | 7+8 | `7-8-verify` | `step-7-8-verify.md` | `sonnet` | `/tmp/review-plan-verify.json` |
 

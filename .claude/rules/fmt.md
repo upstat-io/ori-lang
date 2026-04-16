@@ -8,7 +8,7 @@ paths:
 
 ## Pipeline Position
 
-Not a compiler phase — operates on the AST (post-parse) for source formatting. Input: `Module` + `ExprArena` + `StringInterner`. Independent of type checking. Invoked via `ori fmt` CLI or `ori_compiler::format_module()`.
+Not a compiler phase — operates on the AST (post-parse) for source formatting. Input: `Module` + `ExprArena` + any `impl StringLookup` (generic over the interner type — not tied to a concrete `StringInterner`). Independent of type checking. Invoked via `ori fmt` CLI or `ori_compiler::format_source()` (which handles parsing internally).
 
 ## 5-Layer Architecture
 
