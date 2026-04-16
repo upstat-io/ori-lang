@@ -331,6 +331,11 @@ BUG_SEVERITY_RE = re.compile(
     r"(?:severity:\s*|(?<=\])\[)(critical|high|medium|low)(?:\])?",
     re.IGNORECASE,
 )
+# Reclassification syntax: [original→reclassified] or [original->reclassified]
+BUG_RECLASS_RE = re.compile(
+    r"\[(critical|high|medium|low)\s*(?:→|->)\s*(critical|high|medium|low)\]",
+    re.IGNORECASE,
+)
 
 
 def read_text(path: Path) -> str:
@@ -662,8 +667,13 @@ def parse_bug_tracker_bugs(plan: Plan) -> list[Bug]:
                 continue
             checked_mark, bid_a, bid_b, desc = m.groups()
             bid = bid_a or bid_b
-            sev_m = BUG_SEVERITY_RE.search(line) or BUG_SEVERITY_RE.search(desc)
-            severity = sev_m.group(1).lower() if sev_m else "unknown"
+            # Reclassified severity (e.g. [critical→medium]) takes precedence
+            reclass_m = BUG_RECLASS_RE.search(line)
+            if reclass_m:
+                severity = reclass_m.group(2).lower()  # target severity
+            else:
+                sev_m = BUG_SEVERITY_RE.search(line) or BUG_SEVERITY_RE.search(desc)
+                severity = sev_m.group(1).lower() if sev_m else "unknown"
             bugs.append(
                 Bug(
                     id=bid,
