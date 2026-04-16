@@ -48,7 +48,22 @@ third_party_review:
 
 ## 1.5 Fix Consensus (via /tp-help)
 
-Pending — /tp-help consensus in Phase 1.75.
+**Round 1** — `/tp-help` run `/tmp/ori-tpr-XOuTu0v7/` (2026-04-15)
+- **Codex**: APPROVED. Exempt-root-set approach is architecturally correct and sound.
+- **Gemini**: UNAVAILABLE (429 MODEL_CAPACITY_EXHAUSTED on both attempts).
+
+**Consensus outcome**: Agreement (Claude + Codex converge). Proceeding with exempt-root-set approach, incorporating Codex's refinements:
+
+1. **Extract a canonical pool helper** `Pool::var_idx_for_id(var_id: u32) -> Option<Idx>` — the var_id→Idx linear scan pattern is duplicated 3× in `monomorphization.rs` (lines 98, 231, 297). Adding a 4th copy in the validator would be `LEAK:algorithmic-duplication`. Extract to a pool method, refactor existing sites.
+2. **Apply exempt set to ALL positions** — `sig.param_types`, `sig.return_type`, AND `expr_types`. The current code already passes all through `collect_first_unbound_var`, so the exempt set parameter propagates automatically.
+3. **Not a new VarState variant** — this is contextual exemption from `FunctionSig`, not intrinsic pool state. `VarState::Generalized` is intrinsic; scheme-root exemption is caller-scoped.
+4. **Transitive chains covered** — generic→generic→generic collapses via `resolve_fully`. Exempt set built once covers all chain depths.
+5. **Future-proofing note** — if implementation converges to `types.md §SC-1` (quantified vars as `BoundVar` instead of surviving `Tag::Var` roots), this exemption disappears. The fix is correct for the current representation.
+
+**Independent code verification** (per feedback_reviewer_grounding_and_trust.md):
+- `FunctionSig.scheme_var_ids` confirmed at `compiler/ori_types/src/output/mod.rs` — populated during signature collection, available at all 4 body-check call sites.
+- Linear scan pattern confirmed at `monomorphization.rs:231` and `:297` — exact same `(FIRST_DYNAMIC..pool_len).find(|&idx| pool.tag(idx) == Tag::Var && pool.data(idx) == sv_id)`.
+- `Pool::resolve_fully` at `pool/accessors.rs:412` — chases `VarState::Link` chains up to 16 steps, returns root Idx.
 
 ---
 
@@ -85,18 +100,20 @@ Pending — will run after /tp-help consensus.
 
 ## 3. Implementation
 
+### 3a. Extract canonical pool helper (DRY — per Codex consensus)
+- [ ] Add `Pool::var_idx_for_id(var_id: u32) -> Option<Idx>` to `pool/accessors.rs`
+- [ ] Refactor `monomorphization.rs:231` to use `pool.var_idx_for_id(sv_id)`
+- [ ] Refactor `monomorphization.rs:297` to use `pool.var_idx_for_id(sv_id)`
+
+### 3b. Validator changes
 - [ ] Add `scheme_var_ids: &[u32]` parameter to `validate_body_types`
-- [ ] Build exempt root set: for each scheme_var_id, find its pool Idx, resolve to root, collect root var_ids
+- [ ] Build exempt root set using the new pool helper:
   ```rust
   fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
       let mut exempt = FxHashSet::default();
       exempt.extend(scheme_var_ids.iter().copied());
-      let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
       for &sv_id in scheme_var_ids {
-          let sv_idx = (Idx::FIRST_DYNAMIC..pool_len)
-              .map(Idx::from_raw)
-              .find(|&idx| pool.tag(idx) == Tag::Var && pool.data(idx) == sv_id);
-          if let Some(sv_idx) = sv_idx {
+          if let Some(sv_idx) = pool.var_idx_for_id(sv_id) {
               let root = pool.resolve_fully(sv_idx);
               if pool.tag(root) == Tag::Var {
                   exempt.insert(pool.data(root));
@@ -108,7 +125,7 @@ Pending — will run after /tp-help consensus.
   ```
 - [ ] Pass exempt set to `collect_first_unbound_var` (add parameter)
 - [ ] In `VarState::Unbound` arm: check if var_id is in exempt set before emitting E2005
-- [ ] Update test helper `run()` to pass empty `scheme_var_ids` (existing tests unaffected)
+- [ ] Update test helper `run()` to accept `scheme_var_ids` parameter (existing tests pass empty slice)
 
 ---
 

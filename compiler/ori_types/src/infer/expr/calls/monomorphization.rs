@@ -227,10 +227,7 @@ fn record_deferred_mono_call(
             } else {
                 let sv_id = caller_svids[pos];
                 let pool = engine.pool();
-                let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
-                let var_idx = (crate::Idx::FIRST_DYNAMIC..pool_len)
-                    .map(crate::Idx::from_raw)
-                    .find(|&idx| pool.tag(idx) == Tag::Var && pool.data(idx) == sv_id);
+                let var_idx = pool.var_idx_for_id(sv_id);
                 var_idx.map_or(crate::Idx::ERROR, |idx| engine.resolve(idx))
             }
         })
@@ -293,10 +290,7 @@ fn extend_var_subst_with_roots(engine: &mut InferEngine<'_>, var_subst: &mut FxH
         // then resolve with &mut engine after the borrow drops.
         let sv_idx = {
             let pool = engine.pool();
-            let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
-            (crate::Idx::FIRST_DYNAMIC..pool_len)
-                .map(crate::Idx::from_raw)
-                .find(|&idx| pool.tag(idx) == Tag::Var && pool.data(idx) == sv_id)
+            pool.var_idx_for_id(sv_id)
         };
         if let Some(sv_idx) = sv_idx {
             let root = engine.resolve(sv_idx);

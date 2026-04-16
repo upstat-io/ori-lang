@@ -23,22 +23,21 @@ This file is read by the Sonnet sub-agent dispatched from SKILL.md. It contains 
 | Step 1 — Build Context Package | Sonnet | File reads + template assembly |
 | Step 2 — Create the Scratch Dir and Snapshot the Worktree | Sonnet | Shell (orchestration) |
 | Step 3 — Write Both Reviewer Prompts | Sonnet | Mechanical-writing: static HARD RULES + grounding + adversarial framing; rule files cited, not summarized |
-| Step 4 — Launch `dual-invoke.sh` in the Background | Sonnet | Shell launch (orchestration) |
-| Step 4.5 — Polling Protocol | Sonnet | JSONL tailing against `status-check.sh` (orchestration) |
+| Step 4 — Launch `dual-invoke.sh` in the Foreground | Sonnet | Shell launch (orchestration) |
 | Step 5 — Parse Both Responses with the Raw Parsers | Sonnet | Python parser wrappers (orchestration) |
 | Step 6 — Worktree-Guard Compare | Sonnet | Shell diff against SSOT helper (orchestration) |
 | Step 7 — Concatenate with HTML-Comment Sentinel Attribution | Sonnet | Mechanical-writing: helper-sourced sentinel format from `tp-help-sentinels.sh` |
 
 ## Runtime Budget
 
-Dual-source runs both Codex and Gemini in parallel. Wall time is dominated by Gemini (Codex typically finishes in 1-3 minutes; Gemini in 10-15 minutes per call). Total wall time is ~10-15 minutes per invocation.
+Dual-source runs both Codex and Gemini in parallel via a foreground Bash call with a 10-minute timeout (`timeout: 600000`). Codex typically finishes in 1-3 minutes; Gemini may take 10-15 minutes, which can exceed the foreground timeout on complex prompts.
 
-For fast iteration, restrict to one reviewer via `ORI_TPR_REVIEWERS`:
-- `ORI_TPR_REVIEWERS=codex` — codex only (fast, ~1-3 min wall time)
-- `ORI_TPR_REVIEWERS=gemini` — gemini only (slow, ~10-15 min wall time)
+For fast iteration or to avoid timeout on Gemini-heavy runs, restrict to one reviewer via `ORI_TPR_REVIEWERS`:
+- `ORI_TPR_REVIEWERS=codex` — codex only (fast, ~1-3 min wall time, always within timeout)
+- `ORI_TPR_REVIEWERS=gemini` — gemini only (slow, ~10-15 min wall time, may hit timeout)
 - `ORI_TPR_REVIEWERS=both` — default (both reviewers, ~10-15 min wall time)
 
-The escape hatch is honored in `dual-invoke.sh`. All four dual-source consumers (`/tpr-review`, `/review-work`, `/review-plan`, `/tp-help`) respect the same env var.
+The escape hatch is honored in `dual-invoke.sh`. All dual-source consumers (`/tpr-review`, `/review-work`, `/review-plan`, `/tp-help`) respect the same env var.
 
 ---
 
@@ -189,17 +188,14 @@ Every concern you raise MUST use the vocabulary defined in `impl-hygiene.md` (LE
 
 Write the full gemini prompt to `$RUN/gemini.prompt.md`. The adversarial framing and Mandatory Grounding Block are IDENTICAL to the codex-side versions — this is intentional SSOT: both reviewers operate under the same posture and the same rules, so their findings are directly comparable.
 
-## Step 4: Launch `dual-invoke.sh` in the Background
+## Step 4: Launch `dual-invoke.sh` in the Foreground
 
-Launch `dual-invoke.sh` directly (NOT `dual-invoke-with-retry.sh` — concat mode is one-shot; infra failure surfaces directly to the user without retry), and use `run_in_background: true`.
+Launch `dual-invoke.sh` directly (NOT `dual-invoke-with-retry.sh` — concat mode is one-shot; infra failure surfaces directly to the user without retry). Run in the **foreground** with an explicit timeout.
 
 **Do NOT pass `--schema`:** Passing a schema in concat mode would be architecturally misleading (there is no envelope to validate).
 
-**Do NOT add a trailing `echo` after `dual-invoke.sh`:** BUG-08-007 regression — the background task's reported exit code is the exit code of the LAST executed command, so any trailing `echo "exit=$?"` masks the transport's real failure.
-
 ```
-Bash (run_in_background: true):
-  rm -f "$RUN/done"
+Bash (foreground, timeout: 600000):
   bash .claude/skills/dual-tpr/scripts/dual-invoke.sh \
     --run "$RUN" \
     --skill tp-help \
@@ -207,25 +203,16 @@ Bash (run_in_background: true):
     --gemini-prompt "$RUN/gemini.prompt.md"
 ```
 
-The `.claude/hooks/block-banned-commands.sh` hook explicitly allows `run_in_background: true` on codex and gemini. Backgrounding is the preferred path because it has no timeout cap; the harness will notify you when dual-invoke finishes.
+The Bash tool's `timeout: 600000` (10 minutes) accommodates codex (1-3 min) and most dual-source runs. If Gemini's cold-start pushes past 10 minutes, the call will time out — retry with `ORI_TPR_REVIEWERS=codex` for a faster single-reviewer run, or set `ORI_TPR_REVIEWERS=gemini` for a gemini-only run if codex already returned.
 
 **DO NOT:**
-- Run `dual-invoke.sh` in the Bash foreground without `run_in_background: true` (will hit the 2-minute default or get auto-backgrounded).
-- Set a short `timeout:` parameter on the Bash call (the hook blocks short timeouts on codex/gemini commands).
+- Use `run_in_background: true` — `/tp-help` runs foreground.
 - Wrap dual-invoke in an Agent — the Agent adds no value and costs an extra process.
 - Invoke `dual-invoke-with-retry.sh` — the retry wrapper is for envelope-mode consumers.
 
-## Step 4.5: Polling Protocol — Canonical SSOT
-
-**Protocol lives in `.claude/skills/dual-tpr/polling-protocol.md` — `@`-included below. Follow it verbatim.**
-
-@.claude/skills/dual-tpr/polling-protocol.md
-
-**After the protocol above**, move to Step 5 (parse responses with the raw parsers).
-
 ## Step 5: Parse Both Responses with the Raw Parsers
 
-When the background-task completion notification arrives AND the reported exit code is 0, parse the two JSONL streams using the raw-mode sibling parsers (NOT the envelope parsers):
+When the foreground Bash call completes with exit code 0, parse the two JSONL streams using the raw-mode sibling parsers (NOT the envelope parsers):
 
 ```
 Bash:

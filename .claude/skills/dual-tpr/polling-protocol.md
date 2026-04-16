@@ -1,6 +1,6 @@
 # Dual-Source Review Polling Protocol — Canonical SSOT
 
-**Single source of truth** for polling cadence, wall-clock anchoring, and countdown visibility across ALL dual-source review skills: `/tpr-review`, `/review-work`, `/tp-help`, and any future consumer that launches `dual-invoke.sh` (or the retry wrapper) in the background. Every such skill MUST reference this file from its polling section instead of inlining the protocol text. Updates to polling behavior land HERE, then propagate to consumers via `@`-include (not copy).
+**Single source of truth** for polling cadence, wall-clock anchoring, and countdown visibility across ALL dual-source review skills: `/tpr-review`, `/review-work`, and any future consumer that launches `dual-invoke.sh` (or the retry wrapper) in the background. Every such skill MUST reference this file from its polling section instead of inlining the protocol text. Updates to polling behavior land HERE, then propagate to consumers via `@`-include (not copy).
 
 This file replaces the pre-2026-04-08 pattern where each skill inlined its own copy of the polling instructions. Three near-identical copies had already started to drift (tpr-review and review-work used identical text; tp-help had slight wording drift) — a textbook `impl-hygiene.md` §SSOT violation. Consolidation here is the SSOT fix.
 

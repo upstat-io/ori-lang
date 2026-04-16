@@ -118,8 +118,10 @@ fi
 
 # ── Allow background execution on codex commands ────────────────────
 # The Bash tool's foreground timeout cap (600000 ms / 10 min) is shorter
-# than the 45-minute upper bound for codex/gemini reviews, so background
-# execution is the only mechanism that can accommodate long reviews.
+# than the 45-minute upper bound for codex/gemini reviews. Multi-round
+# consumers (/tpr-review, /review-work) use background execution to
+# accommodate long reviews. One-shot consumers (/tp-help) run foreground
+# with the 10-min cap (codex fits easily; gemini may occasionally time out).
 # No block here.
 
 # No banned pattern found — no output so normal permission system applies.
