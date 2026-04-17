@@ -21,15 +21,15 @@ inspired_by:
   - "Swift `Sema` request-based post-body checks — type-checking requests emit diagnostics as a post-pass step once per body, avoiding cascade from partial inference state."
 depends_on: ["01", "02"]
 third_party_review:
-  status: resolved
-  updated: "2026-04-15"
+  status: findings
+  updated: "2026-04-17"
 sections:
   - id: "03.0"
     title: "Prerequisite: split bodies/mod.rs (BLOAT gate)"
     status: complete
   - id: "03.1"
     title: "Wire validator into check_function"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Wire validator into check_test"
     status: not-started
@@ -41,13 +41,13 @@ sections:
     status: not-started
   - id: "03.BUG-FIXES"
     title: "Fix BUG-02-008 (nested-generic PC-2) and BUG-02-009 (closure param inference) via /fix-bug"
-    status: not-started
+    status: complete
   - id: "03.5"
     title: "End-to-end regression suite and dual-execution parity"
     status: not-started
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "03.N"
     title: "Completion Checklist"
     status: not-started
@@ -55,26 +55,17 @@ sections:
 
 # Section 03: Bodies-Pass Integration
 
-> **BLOCKER NOTE (2026-04-15):** 03.0 complete and committed (`e7d7e073` —
-> BLOAT-gate split + `build_method_sig` helper). 03.1–03.4 were attempted
-> and reverted because the pragmatic gate required to make tests pass was
-> identified as `INVERTED-TDD:gated-deliverable` per the new
-> `impl-hygiene.md §Finding Categories` entry. Root cause: the current
-> inference engine leaves instantiation `Tag::Var`s unresolved in generic
-> bodies (filed as `BUG-02-008`) and does not propagate generic builtin
-> method signatures into lambda parameter slots (filed as `BUG-02-009`).
-> Both are documented PC-2 contract violations that the validator would
-> correctly surface but the subsections cannot cleanly wire until they are
-> architecturally fixed.
->
-> **Resume protocol**: invoke `/fix-bug BUG-02-008` then `/fix-bug BUG-02-009`
-> with full plan-section rigor (root-cause analysis, TDD matrix, TPR,
-> hygiene review). After both fix sections are complete, re-enter
-> `/continue-roadmap` on this section; 03.1–03.4 will wire cleanly without
-> any generic-body gate because the inference engine will no longer emit
-> surviving `Tag::Var`s in those positions.
+> **Resume context (2026-04-16):** 03.0 complete and committed (`e7d7e073` —
+> BLOAT-gate split + `build_method_sig` helper). 03.1–03.4 were previously
+> attempted and reverted because the pragmatic gate required to make tests
+> pass was identified as `INVERTED-TDD:gated-deliverable`. Root cause
+> resolved: `BUG-02-008` (`30695c0f`, `cf6a497d` — scheme-var exemption in
+> validator) and `BUG-02-009` (`fcb68f04`, `eb6ca3ce` — fold/rfold
+> accumulator param unification) are now fixed with full plan-section rigor.
+> Fix sections: `plans/bug-tracker/fix-BUG-02-008.md`,
+> `plans/bug-tracker/fix-BUG-02-009.md`. Section 03 is unblocked.
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Wire `validate_body_types()` (created in Section 02) into all 4 bodies-pass
 call sites so that every function, test, impl method, and def-impl method body
 surfaces unresolved `Tag::Var`s as E2005 diagnostics before handing typed IR to the
@@ -464,34 +455,42 @@ The constructor `ExprId::new(u32)` is the correct form; `ExprId::from_raw` does 
 Verify this remains accurate by checking `compiler/ori_ir/src/expr_id/mod.rs` before
 implementing.
 
-- [ ] **TDD first** — add `check_function_with_unannotated_empty_list_emits_ambiguous_type` <!-- blocked-by:BUG-02-008 --> <!-- blocked-by:BUG-02-009 -->
+- [x] **TDD first** — add `check_function_with_unannotated_empty_list_emits_ambiguous_type`
   to `bodies/tests.rs`. Run `timeout 150 cargo test -p ori_types -- bodies::tests` and
   confirm it FAILS before the code change (the test is the regression pin).
-- [ ] Verify the exact span-lookup API for `ExprIndex → Span` by reading `infer/mod.rs`
+- [x] Verify the exact span-lookup API for `ExprIndex → Span` by reading `infer/mod.rs`
   and `ori_ir/src/ast/expr/`.
-- [ ] Add `use crate::check::validators;` import at the top of `bodies/mod.rs` (after the
-  existing `use super::...` imports, in the crate-relative import group).
-- [ ] Insert the validator call block at line 148 of `bodies/mod.rs` (after the closing
-  `})` of `with_function_scope`, before "Store expression types").
-- [ ] Run `timeout 150 cargo test -p ori_types -- bodies::tests::check_function_with_unannotated_empty_list_emits_ambiguous_type`
+- [x] Add `use crate::check::validators;` import at the top of `bodies/mod.rs` (after the
+  existing `use super::...` imports, in the crate-relative import group). Landed as
+  `use crate::check::validators::validate_body_types;` in `bodies/functions.rs` (post-03.0
+  split — `check_function` lives in `functions.rs`, not `mod.rs`).
+- [x] Insert the validator call block at line 148 of `bodies/mod.rs` (after the closing
+  `})` of `with_function_scope`, before "Store expression types"). Landed in
+  `bodies/functions.rs` between the `with_function_scope` closure destructure and the
+  `store_expr_type` loop.
+- [x] Run `timeout 150 cargo test -p ori_types -- bodies::tests::check_function_with_unannotated_empty_list_emits_ambiguous_type`
   and confirm it **PASSES**.
-- [ ] Run `timeout 150 cargo test -p ori_types` (all tests) — no regressions.
-- [ ] **Subsection close-out (03.1)** — MANDATORY before starting 03.2:
-  - [ ] All tasks above are `[x]` and behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the
-        debugging journey for 03.1 specifically. Was the span-lookup API immediately
-        obvious or did it require archaeology? Was the insertion point easy to find?
-        Would a diagnostic flag (e.g., `ORI_LOG=ori_types=debug` showing "validator
-        skipped — expr_types empty") have saved time? Implement every accepted improvement
-        NOW (zero deferral) and commit via SEPARATE `/commit-push`. Use a valid
-        conventional-commit type (`build`, `test`, `chore`, `ci`, `docs` — NOT `tools`).
-        If no gaps, document: "Retrospective 03.1: no tooling gaps."
-  - [ ] **Run `/sync-claude` on THIS subsection** — did adding a `use crate::check::validators`
-        import or the validator call change any public API, command, or pipeline phase
-        behavior documented in CLAUDE.md / rules? If all three questions are "no," document:
-        "Claude artifact sync 03.1: no API/command/phase changes — artifacts current."
-  - [ ] **Repo hygiene** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files.
+- [x] Run `timeout 150 cargo test -p ori_types` (all tests) — no regressions. 825/825 pass.
+- [x] **Subsection close-out (03.1)** — MANDATORY before starting 03.2:
+  - [x] All tasks above are `[x]` and behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the
+        debugging journey for 03.1 specifically. Outcome: **no tooling gaps for 03.1**.
+        Span-lookup API (`ExprId::new(expr_index as u32)`) was immediately clear from the
+        plan's implementation guide; no archaeology needed. The TDD red state produced a
+        clean diagnostic (`expected E2005 AmbiguousType, got: []`) without needing any
+        `ORI_LOG` flag. The validator-call-block boilerplate and the `parse_and_check`
+        helper duplication (now 2 copies: `check/api/tests.rs` and `bodies/tests.rs`) are
+        both helper-extraction candidates, but 03.4's close-out is the plan-designated
+        moment to extract (plan §03.4 "Algorithmic DRY — helper-extracted shape"). At
+        1× / 2× duplicates, extraction is premature.
+  - [x] **Run `/sync-claude` on THIS subsection** — no API/command/phase changes. The
+        `use crate::check::validators::validate_body_types;` import is crate-internal; the
+        public surface (crate root `pub use validate_body_types`) was already shipped in
+        §02. `typeck.md §PC-2` already documents the validator as the producer-side
+        enforcer; 03.1 makes the rule true at `check_function`'s exit point. Artifacts
+        current.
+  - [x] **Repo hygiene** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files.
 
 ---
 
@@ -592,7 +591,7 @@ fn check_test_with_unannotated_empty_list_emits_ambiguous_type() {
 }
 ```
 
-- [ ] **TDD first** — add the test to `bodies/tests.rs`, confirm it FAILS before the code change. <!-- blocked-by:BUG-02-008 --> <!-- blocked-by:BUG-02-009 -->
+- [ ] **TDD first** — add the test to `bodies/tests.rs`, confirm it FAILS before the code change.
 - [ ] Check for borrow-lifetime conflicts in `check_test` (the `arena` variable may already be
   in scope — see line 200; either re-use it or confirm the split-borrow compiles cleanly).
 - [ ] Insert the validator call block after the last `engine.take_*()` extraction, before the
@@ -721,7 +720,7 @@ fn check_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
 }
 ```
 
-- [ ] **TDD first** — add the test to `bodies/tests.rs`, confirm it FAILS. <!-- blocked-by:BUG-02-008 --> <!-- blocked-by:BUG-02-009 -->
+- [ ] **TDD first** — add the test to `bodies/tests.rs`, confirm it FAILS.
 - [ ] **Signature-path test** — add a second test that catches broken FunctionSig construction
   specifically. A body-local `let xs = []` passes the body-inference check; the test must have
   an unannotated *parameter* or *return type* where the surviving `Tag::Var` comes from the sig:
@@ -883,7 +882,7 @@ fn check_def_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
 }
 ```
 
-- [ ] **TDD first** — add the test, confirm it FAILS. <!-- blocked-by:BUG-02-008 --> <!-- blocked-by:BUG-02-009 -->
+- [ ] **TDD first** — add the test, confirm it FAILS.
 - [ ] **Signature-path test** — add a second test that verifies the validator covers the
   temporary `validator_sig`'s param_types (not just body expr_types):
 
@@ -1345,6 +1344,94 @@ in `.claude/skills/tpr-review/step-2-round-triage.md`, Round 2 will re-run both 
 same scope to confirm (a) the five fixes above hold under independent review, and (b) gemini
 completes a thorough investigation. Round 1 found 5 real defects — Round 2 must verify
 regression-freedom, not declare clean until gemini actually reviews.
+
+### Round 2 Findings — Carryforward from BUG-04-084 Phase 5 Code TPR (2026-04-17, dual-source)
+
+Surfaced during `/tpr-review` of BUG-04-084's implementation (end-of-body defaulting pass).
+Codex (HIGH trust) produced three findings; gemini returned clean. All three cite the
+PC-2 producer-side enforcement gap at `check_test` / `check_impl_method` / `check_def_impl_method`
+that this section's §03.2, §03.3, §03.4 already exist to close. Filed here as plan-owned TPR
+items per `.claude/skills/tpr-review/SKILL.md §7` (better-location deferral — concrete `- [ ]`
+anchors for the wiring work exist in §03.2/3/4 above). BUG-04-084's fix intentionally pre-plumbs
+the defaulting pass in all four body-group passes so that when this section's validator wiring
+lands, empty-literal-reachable vars do not spuriously fire E2005; the code comments in
+`compiler/ori_types/src/check/bodies/functions.rs::check_test` and `bodies/impls.rs::check_impl_method`
+/ `check_def_impl_method` document this intent.
+
+- [x] `[TPR-03-004-codex-R2-F1][high]` `compiler/ori_types/src/check/bodies/functions.rs:~282` —
+  **Test-body path skips PC-2 validation after defaulting.**
+  Evidence: `check_test` calls `engine.default_unbound_vars_from_empty_literals(...)` and stores
+  `expr_types` without a follow-up `validate_body_types` call. Mirror of the `check_function`
+  body-pass surface (lines 161–183) is absent.
+  Rule violated: `typeck.md §CK-1 Pass 3`, `typeck.md §PC-2` producer-side enforcement note,
+  `typeck.md §DI-1` E2005 `AmbiguousType` emission.
+  Required plan update: §03.2 "Wire validator into check_test" — already scoped. This finding
+  confirms the scope and cites the PC-2 requirement as the driving rule. No plan edit needed;
+  tracked by the existing §03.2 `- [ ]` items.
+  Basis: direct code inspection + code TPR verification. Confidence: high.
+  Resolved: Accepted on 2026-04-17. Code gap confirmed: `functions.rs:282` calls
+  `default_unbound_vars_from_empty_literals` with no follow-up `validate_body_types` call;
+  `validate_body_types` has exactly 1 call site in the codebase (`check_function` only, line 161).
+  Blocker verified: a spike wiring all three paths surfaced 169 pre-existing unresolved-var
+  failures (documented in test-impact preview); systematic regression handling lives in §03.5.
+  <!-- blocked-by:03.2 --> Concrete implementation in §03.2 "Wire validator into check_test"
+  existing `- [ ]` items. Will be unblocked when §03.2 is complete.
+
+- [x] `[TPR-03-005-codex-R2-F2][high]` `compiler/ori_types/src/check/bodies/impls.rs:~202` —
+  **Impl methods default empties without enforcing E2005.**
+  Evidence: `check_impl_method` calls `engine.default_unbound_vars_in_scope(...)` inside the
+  inference closure; no `validate_body_types` call runs after the closure returns or before
+  `build_method_sig` / `register_impl_sig` exports the sig. Unrelated unresolved vars in impl
+  method bodies and sig positions leak silently.
+  Rule violated: `typeck.md §CK-1 Pass 4`, `typeck.md §PC-2`, `typeck.md §DI-1`. Additionally
+  `impl-hygiene.md §Cross-Phase Invariant Contracts` — the typed IR the method exports may
+  carry `Tag::Var` through `register_impl_sig`.
+  Required plan update: §03.3 "Wire validator into check_impl_method (TPR checkpoint)" —
+  already scoped. This finding cites the PC-2 + export-path invariant; tracked by existing
+  §03.3 `- [ ]` items.
+  Basis: direct code inspection + code TPR verification. Confidence: high.
+  Resolved: Accepted on 2026-04-17. Code gap confirmed: `impls.rs:202` calls
+  `default_unbound_vars_in_scope` with no follow-up `validate_body_types`; `build_method_sig`
+  + `register_impl_sig` (line 246) export the sig with potential surviving `Tag::Var`. `impls.rs`
+  does not import `validate_body_types` at all — the gap is deeper than just a missing call site.
+  Blocker verified: same 169-failure spike (test-impact preview); systematic regression handling
+  in §03.5. Additionally, `impls.rs` needs the import added before the call can land.
+  <!-- blocked-by:03.3 --> Concrete implementation in §03.3 "Wire validator into check_impl_method"
+  existing `- [ ]` items. Will be unblocked when §03.3 is complete.
+
+- [x] `[TPR-03-006-codex-R2-F3][high]` `compiler/ori_types/src/check/bodies/impls.rs:~328` —
+  **Def-impl methods also skip the post-inference validator.**
+  Evidence: `check_def_impl_method` calls `engine.default_unbound_vars_in_scope(...)` but does
+  not call `validate_body_types`. Stateless trait defaults are inlined at use sites, so the
+  validator gap is subtler than for impl methods, but PC-2 is still unenforced at this body
+  pass.
+  Rule violated: `typeck.md §CK-1 Pass 5`, `typeck.md §PC-2`, `typeck.md §DI-1`.
+  Required plan update: §03.4 "Wire validator into check_def_impl_method" — already scoped.
+  Tracked by existing §03.4 `- [ ]` items. Note: def-impl methods need a transient `FunctionSig`
+  for validation (no `register_impl_sig` export path); see `build_method_sig` usage pattern.
+  Basis: direct code inspection + code TPR verification. Confidence: high.
+  Resolved: Accepted on 2026-04-17. Code gap confirmed: `impls.rs:328` calls
+  `default_unbound_vars_in_scope` with no follow-up `validate_body_types`; unlike `check_impl_method`,
+  there is no `register_impl_sig` export, but `check_expr`-produced `expr_types` may still carry
+  surviving `Tag::Var`. `impls.rs` does not import `validate_body_types` — import must be added.
+  Blocker verified: same 169-failure spike (test-impact preview) + transient `FunctionSig`
+  construction needed (no existing export sig to validate against); §03.5 handles regression triage.
+  <!-- blocked-by:03.4 --> Concrete implementation in §03.4 "Wire validator into check_def_impl_method"
+  existing `- [ ]` items. Will be unblocked when §03.4 is complete.
+
+**Test-impact preview (measured 2026-04-17)**: a spike that wired `validate_body_types` into
+all three paths (reverted) moved the spec suite from 3781 passed / 674 failed to 3612 passed /
+843 failed — 169 pre-existing latent unresolved-var bugs surfaced. §03.5 "End-to-end regression
+suite and dual-execution parity" is the designed place to triage and fix those 169 failures
+as §03.2–03.4 wiring lands. Expect the failure count to grow during §03.2/3/4 implementation
+and shrink as root-cause bugs are fixed or filed via `/add-bug`.
+
+**Gemini Round 2 status**: clean. Gemini explicitly verified the fix is well-scoped to
+empty-literal-reachable variables, is correctly wired into all four body-checking passes
+(defaulting side), respects phase-purity and signature-export invariants, and the
+accompanying test matrix is comprehensive. Gemini's summary confirms no issues found with
+BUG-04-084's implementation as-shipped — the PC-2 gap is a plan-sectioned deliverable, not
+a BUG-04-084 defect.
 
 ---
 
