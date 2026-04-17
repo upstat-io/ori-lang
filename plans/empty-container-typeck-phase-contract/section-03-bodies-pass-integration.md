@@ -35,7 +35,7 @@ sections:
     status: complete
   - id: "03.3"
     title: "Wire validator into check_impl_method (TPR checkpoint)"
-    status: in-progress
+    status: complete
   - id: "03.4"
     title: "Wire validator into check_def_impl_method"
     status: not-started
@@ -772,7 +772,7 @@ fn check_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
   live after §03.3; the fourth lands in §03.4).
 - [x] Confirm both tests **PASS**.
 - [x] `timeout 150 cargo test -p ori_types` — no regressions (828/828 pass).
-- [ ] **Subsection close-out (03.3)** — MANDATORY before starting 03.4:
+- [x] **Subsection close-out (03.3)** — MANDATORY before starting 03.4:
   - [x] All tasks above are `[x]` and behavior is verified
   - [x] Update subsection `status` in frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective:
@@ -786,7 +786,7 @@ fn check_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
     bodies do") — no improvement needed.
   - [x] **Repo hygiene** — `diagnostics/repo-hygiene.sh --check` (reported `clean`)
 
-- [ ] **TPR checkpoint** — run `/tpr-review` covering subsections 03.1, 03.2, and 03.3
+- [x] **TPR checkpoint** — run `/tpr-review` covering subsections 03.1, 03.2, and 03.3
   before proceeding to 03.4. Note: the three sites are NOT structurally identical due to the
   `FunctionSig` availability difference at the impl-method site (see 03.3 above) — the TPR
   should evaluate whether the early sig construction in `check_impl_method` is architecturally
@@ -795,6 +795,10 @@ fn check_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
   construction ordering in 03.3, and (c) whether the early-construction approach should be
   extracted into a helper to reduce the boilerplate across 03.3 and 03.4.
   Resolve all critical and major findings before proceeding. Record findings in 03.R.
+  **Round 3 (2026-04-17)**: dual-source clean (codex + gemini, both `findings: []`); see
+  §03.R Round 3 for full reviewer summaries. All three focus questions answered with
+  consensus: ExprId bridge sound, post-closure sig construction architecturally correct,
+  `run_validator` DRY extraction clean. Loop exited at iter 1 per §5 stop #1.
 
 ---
 
@@ -1458,6 +1462,36 @@ empty-literal-reachable variables, is correctly wired into all four body-checkin
 accompanying test matrix is comprehensive. Gemini's summary confirms no issues found with
 BUG-04-084's implementation as-shipped — the PC-2 gap is a plan-sectioned deliverable, not
 a BUG-04-084 defect.
+
+### Round 3 Findings — §03.3 TPR Checkpoint (2026-04-17, dual-source clean)
+
+Run via `/tpr-review` custom-objective covering §03.1, §03.2, §03.3 wiring code
+(`compiler/ori_types/src/check/bodies/{mod,functions,impls,tests}.rs`) per the §03.3
+TPR-checkpoint requirement at line 789. Three focus questions: (a) `ExprId::new(u32)`
+bridge from `ExprIndex` (usize), (b) post-closure `FunctionSig` construction in
+`check_impl_method` (deviation from plan's pre-closure prescription), (c) `run_validator`
+helper extraction at `bodies/mod.rs:66` (`pub(super)`, called from 3 sites today).
+
+**Codex** (HIGH trust, 4.6 min, 4 tool uses): `status: clean`, `findings: []`. Summary
+verbatim: "`ExprIndex` is sourced from `ExprId::raw()`, the impl-method sig must be built
+after defaulting to reflect end-of-body truth, and `run_validator` is the correct DRY
+extraction for the three live sites." Files read include all four `bodies/` files plus
+`check/validators/mod.rs`, `infer/mod.rs`, `output/mod.rs`, and `ori_ir/expr_id/expr.rs`
+to verify the bridge.
+
+**Gemini** (LOWER trust, 2.5 min, 7 tool uses): `status: clean`, `findings: []`. Summary
+verbatim: "(a) The `ExprIndex` to `ExprId` bridge is safe, using `u32::try_from` to handle
+a lossless cast guaranteed by the `u32`-based `ExprId` design. (b) Post-closure
+`FunctionSig` construction in `check_impl_method` is a deliberate and correct deviation
+from the initial plan, ensuring the validator sees post-defaulted types. (c) The
+`run_validator` helper is a clean extraction that correctly applies the Algorithmic DRY
+principle. No issues found."
+
+**Consensus**: Both reviewers independently validated all three architectural choices
+flagged by the §03.3 TPR-checkpoint scope. Loop exited at `iteration_counter == 1` per
+§5 stop condition #1 (both `status: clean` AND verified findings empty). §03.3 wiring
+(check_impl_method site at `impls.rs:239` calling `run_validator` after post-closure
+`build_method_sig`) confirmed architecturally sound.
 
 ---
 
