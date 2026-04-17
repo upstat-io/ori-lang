@@ -38,9 +38,16 @@ from scripts.plan_corpus import (
 class TestSourceKindEnum:
     """SourceKind lives in types.py to avoid circular import with dag.py."""
 
-    def test_source_kind_has_five_canonical_variants(self):
+    def test_source_kind_has_seven_canonical_variants(self):
+        """SourceKind taxonomy: two frontmatter-promoted-to-edge kinds
+        (EXPLICIT_DEPENDS_ON, EXPLICIT_SUPERSEDES), one reference-only
+        frontmatter kind (EXPLICIT_REFERENCES), three body-inferred
+        reference-only kinds (HTML_COMMENT_CONVENTION, YAML_COMMENT,
+        PROSE_VERB), and one exclusion kind (CODE_FENCE_EXAMPLE)."""
         expected = {
             "EXPLICIT_DEPENDS_ON",
+            "EXPLICIT_SUPERSEDES",
+            "EXPLICIT_REFERENCES",
             "HTML_COMMENT_CONVENTION",
             "YAML_COMMENT",
             "PROSE_VERB",

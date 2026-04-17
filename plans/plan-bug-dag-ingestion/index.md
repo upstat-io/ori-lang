@@ -1,7 +1,7 @@
 ---
 name: "plan-bug-dag-ingestion"
 full_name: "Plan & Bug DAG Ingestion"
-status: not-started
+status: active
 ---
 
 # Plan & Bug DAG Ingestion Index
@@ -19,7 +19,7 @@ status: not-started
 ## Keyword Clusters by Section
 
 ### Section 01: plan_corpus schema + dag + exporter
-**File:** `section-01-plan-corpus-extension.md` | **Status:** Not Started
+**File:** `section-01-plan-corpus-extension.md` | **Status:** Complete
 
 ```
 plan_corpus, schemas.py, types.py, dag.py, export_json.py, docgen

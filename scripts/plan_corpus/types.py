@@ -93,10 +93,14 @@ class SourceKind(enum.Enum):
     create a circular import (types.py -> dag.py -> types.py). See §02.0
     File(s) note and TPR-02-001-gemini round 2.
 
-    Only EXPLICIT_DEPENDS_ON references become DAG edges; the other kinds feed
-    MISSING_DEPENDENCY / DEAD_REFERENCE classifiers but never add shadow edges.
+    Only EXPLICIT_DEPENDS_ON and EXPLICIT_SUPERSEDES references become DAG
+    edges (dag.edges); EXPLICIT_REFERENCES and the body-inferred kinds feed
+    dag.references only — MISSING_DEPENDENCY / DEAD_REFERENCE classifiers run
+    on references, not on shadow edges.
     """
     EXPLICIT_DEPENDS_ON = "explicit_depends_on"
+    EXPLICIT_SUPERSEDES = "explicit_supersedes"
+    EXPLICIT_REFERENCES = "explicit_references"
     HTML_COMMENT_CONVENTION = "html_comment_convention"
     YAML_COMMENT = "yaml_comment"
     PROSE_VERB = "prose_verb"

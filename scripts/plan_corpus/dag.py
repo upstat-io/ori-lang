@@ -117,14 +117,23 @@ class Reference:
     raw_text: str
 
 
+_EDGE_KINDS: frozenset[SourceKind] = frozenset({
+    SourceKind.EXPLICIT_DEPENDS_ON,
+    SourceKind.EXPLICIT_SUPERSEDES,
+})
+
+
 @dataclass(frozen=True)
 class Edge:
-    """A DAG edge. Only EXPLICIT_DEPENDS_ON references are promoted to edges.
+    """A DAG edge. Only source_kinds in _EDGE_KINDS are promoted to edges.
 
-    Body-inferred references (PROSE_VERB, HTML_COMMENT_CONVENTION,
-    YAML_COMMENT) are collected as Reference records but NEVER become edges —
-    they feed MISSING_DEPENDENCY per the §02.0 SSOT rule. The constructor
-    enforces this to keep shadow edges impossible by construction.
+    `EXPLICIT_DEPENDS_ON` and `EXPLICIT_SUPERSEDES` are the two frontmatter-
+    promoted kinds that become edges. Body-inferred references (PROSE_VERB,
+    HTML_COMMENT_CONVENTION, YAML_COMMENT) and reference-only frontmatter
+    (EXPLICIT_REFERENCES) are collected as Reference records but NEVER become
+    edges — they feed MISSING_DEPENDENCY / DEAD_REFERENCE per the §02.0 SSOT
+    rule. The constructor enforces this to keep shadow edges impossible by
+    construction.
     """
 
     from_node: NodeId
@@ -133,11 +142,12 @@ class Edge:
     reference: Reference
 
     def __post_init__(self) -> None:
-        if self.source_kind is not SourceKind.EXPLICIT_DEPENDS_ON:
+        if self.source_kind not in _EDGE_KINDS:
             raise ValueError(
-                f"Edge source_kind must be EXPLICIT_DEPENDS_ON per §02.0 SSOT "
-                f"(body-inferred references feed MISSING_DEPENDENCY, never "
-                f"shadow edges). Got {self.source_kind.name}."
+                f"Edge source_kind must be in _EDGE_KINDS "
+                f"({', '.join(sorted(k.name for k in _EDGE_KINDS))}) per §02.0 "
+                f"SSOT (body-inferred references and EXPLICIT_REFERENCES feed "
+                f"dag.references, never shadow edges). Got {self.source_kind.name}."
             )
 
 
@@ -801,18 +811,176 @@ def _tarjan_scc(nodes: Iterable[NodeId], edges: list[Edge]) -> list[list[NodeId]
     return result
 
 
+def _resolve_reference_target(
+    entry: str, plan_dir: Path, corpus,
+) -> Path | None:
+    """Best-effort resolver for supersedes/references entries.
+
+    Unlike `resolve_dep` (depid-only: "NN" or "plan#NN"), frontmatter
+    `supersedes:` and `references:` lists in real usage carry full
+    repo-relative paths (e.g. `"plans/bug-tracker/fix-BUG-04-074.md"`) or
+    plan slugs (e.g. `"old-plan-name"`). Tries three strategies in order
+    and returns the first hit, or None when nothing matches.
+    """
+    # 1. Full repo-relative path pointing at a known corpus file.
+    from .types import REPO_ROOT
+    candidate = (REPO_ROOT / entry).resolve()
+    for bucket in (
+        corpus.indexes, corpus.plan_sections, corpus.roadmap_sections,
+        corpus.overviews, corpus.bug_sections, corpus.fix_bug_files,
+        corpus.completed_indexes,
+    ):
+        for path in bucket:
+            if path.resolve() == candidate:
+                return path
+
+    # 2. Plan slug pointing at a plan's index.md.
+    plan_dir_match = corpus.name_index.get(entry)
+    if plan_dir_match is not None:
+        idx_path = plan_dir_match / "index.md"
+        if idx_path in corpus.indexes:
+            return idx_path
+
+    # 3. Depid form (``NN`` intra-plan or ``plan#NN`` cross-plan).
+    from .docgen import resolve_dep
+    resolved = resolve_dep(entry, plan_dir, corpus)
+    if isinstance(resolved, Path):
+        return resolved
+    return None
+
+
+def _emit_edges_from_frontmatter_list(
+    dag: "Dag",
+    sources: list[tuple["NodeId", Path, Path, dict]],
+    field_name: str,
+    source_kind: SourceKind,
+    *,
+    edges: bool,
+    corpus,
+) -> None:
+    """Shared kernel for deps_sources / supersedes_sources / references_sources.
+
+    Iterates sources, extracts the named frontmatter list field, resolves
+    each entry, and emits `Reference` records plus `Edge` records
+    (when `edges=True`). Algorithmic DRY per `impl-hygiene.md §Algorithmic
+    DRY` — factored out of the original depends_on-only loop so
+    supersedes and references share identical source-line discovery logic.
+
+    Resolution strategy depends on source_kind:
+      * `EXPLICIT_DEPENDS_ON` uses the strict depid resolver (`resolve_dep`)
+        — unresolvable entries emit a DEAD_REFERENCE / DEP_ID_MALFORMED
+        finding and do NOT add to dag.references. This matches pre-§01
+        behavior exactly.
+      * `EXPLICIT_SUPERSEDES` and `EXPLICIT_REFERENCES` use the
+        loose `_resolve_reference_target` resolver (depid OR full path OR
+        plan slug). Unresolvable entries for `EXPLICIT_REFERENCES` still
+        emit a Reference with `target=entry` so §02's importer sees the
+        declaration (references are informational cross-links, not
+        strict gates). Unresolvable `EXPLICIT_SUPERSEDES` entries emit a
+        DEAD_REFERENCE finding (supersedes claims an ownership transfer;
+        unresolvable supersedes is a real problem).
+
+    If `edges=True`, the caller MUST pass a `source_kind` in `_EDGE_KINDS`
+    (enforced downstream by `Edge.__post_init__`).
+    """
+    from .docgen import resolve_dep
+    from .types import Finding, FindingCategory, FindingSubtype, Severity
+    from .parser import read_text_strict
+
+    use_loose = source_kind in (
+        SourceKind.EXPLICIT_SUPERSEDES, SourceKind.EXPLICIT_REFERENCES,
+    )
+    references_only_best_effort = (
+        source_kind is SourceKind.EXPLICIT_REFERENCES
+    )
+
+    for from_node, declaring_file, plan_dir, data in sources:
+        entries = data.get(field_name) or []
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, str):
+                continue
+            try:
+                raw_text = read_text_strict(declaring_file)
+                yaml_line = _find_yaml_list_line(raw_text, field_name, entry)
+            except Exception:
+                yaml_line = None
+
+            if use_loose:
+                target_path = _resolve_reference_target(entry, plan_dir, corpus)
+            else:
+                r = resolve_dep(entry, plan_dir, corpus)
+                target_path = r if isinstance(r, Path) else None
+                if target_path is None:
+                    enriched = enrich_resolve_dep_finding(
+                        r,
+                        dep_id=entry,
+                        yaml_line=yaml_line or 0,
+                        declaring_file=declaring_file,
+                    )
+                    if source_kind is not SourceKind.EXPLICIT_DEPENDS_ON:
+                        enriched = replace(enriched, source_kind=source_kind)
+                    dag.resolution_findings.append(enriched)
+                    continue
+
+            if target_path is not None:
+                target_nid = next(
+                    (n for n in dag.nodes if n.path == target_path),
+                    None,
+                )
+            else:
+                target_nid = None
+
+            if target_nid is None and not references_only_best_effort:
+                # DEPENDS_ON and SUPERSEDES both demand resolvability.
+                dag.resolution_findings.append(Finding(
+                    category=FindingCategory.DEAD_REFERENCE,
+                    subtype=FindingSubtype.SECTION_FILE_NOT_FOUND,
+                    severity=Severity.HIGH,
+                    source=declaring_file,
+                    source_line=yaml_line,
+                    description=f"{field_name} target not in corpus: {entry}",
+                    recommended_fix="Ensure the target file exists and is classified",
+                    evidence=(entry,),
+                    source_kind=source_kind,
+                    target_value=entry,
+                ))
+                continue
+
+            ref = Reference(
+                from_node=from_node,
+                target=entry,
+                source_kind=source_kind,
+                source_line=yaml_line if yaml_line else 0,
+                source_column=None,
+                raw_text=entry,
+            )
+            dag.references.append(ref)
+            if edges and target_nid is not None:
+                dag.edges.append(Edge(
+                    from_node=from_node,
+                    to_node=target_nid,
+                    source_kind=source_kind,
+                    reference=ref,
+                ))
+
+
 def build_dag(corpus) -> Dag:
     """Construct the Dag from a discovered Corpus.
 
     Pipeline:
       1. Populate nodes from all seven corpus buckets.
-      2. Parse EXPLICIT_DEPENDS_ON -> Edge (via resolve_dep, enriched).
+      2a. Parse EXPLICIT_DEPENDS_ON -> Edge (via resolve_dep, enriched).
+      2b. Parse EXPLICIT_SUPERSEDES -> Edge (plan index + overview
+          `supersedes:` frontmatter lists).
+      2c. Parse EXPLICIT_REFERENCES -> Reference only (plan index + overview
+          `references:` frontmatter lists; no edges).
       3. Scan bodies for PROSE_VERB / HTML_COMMENT / YAML_COMMENT references
          (Reference records only; no edges — §02.0 SSOT rule).
       4. Build subsystem_to_nodes from body-token normalization.
       5. Run Tarjan SCC on edges; emit CYCLE findings for non-trivial SCCs.
     """
-    from .docgen import resolve_dep
     from .types import (
         Finding, FindingCategory, FindingSubtype, Severity,
     )
@@ -834,7 +1002,7 @@ def build_dag(corpus) -> Dag:
         for path in bucket:
             dag.nodes.add(NodeId(nk, path))
 
-    # 2. Parse depends_on edges.
+    # 2a. Parse depends_on edges.
     # Plan-level depends_on comes from index.md files; section-level comes
     # from section data. fix-BUG files can also have depends_on.
     deps_sources: list[tuple[NodeId, Path, Path, dict]] = []
@@ -847,70 +1015,38 @@ def build_dag(corpus) -> Dag:
     for path, data in corpus.fix_bug_files.items():
         deps_sources.append((NodeId(NodeKind.FIX_BUG, path), path, path.parent, data))
 
-    for from_node, declaring_file, plan_dir, data in deps_sources:
-        depends_on = data.get("depends_on") or []
-        if not isinstance(depends_on, list):
-            continue
-        for dep_id in depends_on:
-            if not isinstance(dep_id, str):
-                continue
-            # Find the YAML line of this specific list item for §03 SafeFix (Finding K).
-            from .parser import read_text_strict
-            try:
-                raw_text = read_text_strict(declaring_file)
-                yaml_line = _find_yaml_list_line(raw_text, "depends_on", dep_id)
-            except Exception:
-                yaml_line = None
+    _emit_edges_from_frontmatter_list(
+        dag, deps_sources, "depends_on",
+        SourceKind.EXPLICIT_DEPENDS_ON, edges=True, corpus=corpus,
+    )
 
-            resolved = resolve_dep(dep_id, plan_dir, corpus)
-            if isinstance(resolved, Path):
-                # Find the NodeId for the resolved path (it exists in one of
-                # the buckets already). If not found, the target is a file
-                # outside the corpus (e.g., the plan dir exists but the
-                # resolved section is missing) — propagate a Finding.
-                target_nid = next(
-                    (n for n in dag.nodes if n.path == resolved),
-                    None,
-                )
-                if target_nid is None:
-                    dag.resolution_findings.append(Finding(
-                        category=FindingCategory.DEAD_REFERENCE,
-                        subtype=FindingSubtype.SECTION_FILE_NOT_FOUND,
-                        severity=Severity.HIGH,
-                        source=declaring_file,
-                        source_line=yaml_line,
-                        description=f"depends_on target not in corpus: {dep_id}",
-                        recommended_fix="Ensure the target file exists and is classified",
-                        evidence=(dep_id,),
-                        source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
-                        target_value=dep_id,
-                    ))
-                    continue
-                ref = Reference(
-                    from_node=from_node,
-                    target=dep_id,
-                    source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
-                    source_line=yaml_line if yaml_line else 0,
-                    source_column=None,
-                    raw_text=dep_id,
-                )
-                dag.references.append(ref)
-                dag.edges.append(Edge(
-                    from_node=from_node,
-                    to_node=target_nid,
-                    source_kind=SourceKind.EXPLICIT_DEPENDS_ON,
-                    reference=ref,
-                ))
-            else:
-                # resolve_dep returned a Finding (DEAD_REFERENCE or
-                # SCHEMA_VIOLATION). Enrich with precise line info.
-                enriched = enrich_resolve_dep_finding(
-                    resolved,
-                    dep_id=dep_id,
-                    yaml_line=yaml_line or 0,
-                    declaring_file=declaring_file,
-                )
-                dag.resolution_findings.append(enriched)
+    # 2b. Parse supersedes edges.
+    # Only PlanIndexSchema and OverviewSchema declare supersedes: today; the
+    # sources list mirrors that schema constraint exactly.
+    supersedes_sources: list[tuple[NodeId, Path, Path, dict]] = []
+    for path, data in corpus.indexes.items():
+        supersedes_sources.append((NodeId(NodeKind.PLAN_INDEX, path), path, path.parent, data))
+    for path, data in corpus.overviews.items():
+        supersedes_sources.append((NodeId(NodeKind.OVERVIEW, path), path, path.parent, data))
+
+    _emit_edges_from_frontmatter_list(
+        dag, supersedes_sources, "supersedes",
+        SourceKind.EXPLICIT_SUPERSEDES, edges=True, corpus=corpus,
+    )
+
+    # 2c. Parse references (reference-only — no edges).
+    # Mirrors supersedes sources: PlanIndexSchema.references and
+    # OverviewSchema.references are the two declared carriers.
+    references_sources: list[tuple[NodeId, Path, Path, dict]] = []
+    for path, data in corpus.indexes.items():
+        references_sources.append((NodeId(NodeKind.PLAN_INDEX, path), path, path.parent, data))
+    for path, data in corpus.overviews.items():
+        references_sources.append((NodeId(NodeKind.OVERVIEW, path), path, path.parent, data))
+
+    _emit_edges_from_frontmatter_list(
+        dag, references_sources, "references",
+        SourceKind.EXPLICIT_REFERENCES, edges=False, corpus=corpus,
+    )
 
     # 3. Scan bodies for body-inferred references.
     for from_node in dag.nodes:
@@ -1600,18 +1736,27 @@ def classify_redundant_dependency(dag: Dag, corpus) -> list:
 
     Conservative: only emit when the transitive chain has depth >= 3
     (depth-2 redundancies may be intentional readability declarations).
+
+    Scope: EXPLICIT_DEPENDS_ON edges only. EXPLICIT_SUPERSEDES edges carry
+    distinct plan-lifecycle semantics (A supersedes B) that must not be
+    conflated with dependency redundancy — a SUPERSEDES edge A→B parallel
+    to a DEPENDS_ON edge A→B is a legitimate pattern, not a redundancy.
     """
     from .types import Finding, FindingCategory, FindingSubtype, Severity
     findings: list = []
 
-    # Build adjacency.
+    # Build adjacency from EXPLICIT_DEPENDS_ON edges only.
     adj: dict[NodeId, set[NodeId]] = {}
     for e in dag.edges:
+        if e.source_kind is not SourceKind.EXPLICIT_DEPENDS_ON:
+            continue
         adj.setdefault(e.from_node, set()).add(e.to_node)
 
-    # For each edge A->C, BFS from A's successors (excluding C) to see if
-    # any path of length >= 2 reaches C.
+    # For each EXPLICIT_DEPENDS_ON edge A->C, BFS from A's successors
+    # (excluding C) to see if any path of length >= 2 reaches C.
     for e in dag.edges:
+        if e.source_kind is not SourceKind.EXPLICIT_DEPENDS_ON:
+            continue
         A, C = e.from_node, e.to_node
         # BFS depth-tracking.
         queue: list[tuple[NodeId, int]] = [(n, 1) for n in adj.get(A, set()) if n != C]
@@ -1907,7 +2052,8 @@ def apply_precedence(findings: list) -> list:
 
 # Source-kind severity ladder — each classifier already sets severity per the
 # rules in its bullet, but a uniform adjustment pass enforces the contract
-# globally: EXPLICIT_DEPENDS_ON=HIGH, HTML/YAML=MEDIUM, PROSE_VERB=LOW.
+# globally: EXPLICIT_DEPENDS_ON=HIGH, EXPLICIT_SUPERSEDES=HIGH,
+# EXPLICIT_REFERENCES=MEDIUM, HTML/YAML=MEDIUM, PROSE_VERB=LOW.
 # CODE_FENCE_EXAMPLE never produces findings (excluded before classifier run).
 _SOURCE_KIND_SEVERITY: dict = {}
 
@@ -1917,6 +2063,7 @@ def apply_source_kind_severity(findings: list) -> list:
 
     Classifiers already set severity per bullet; this pass is a post-hoc
     guard that catches any drift against the EXPLICIT_DEPENDS_ON=HIGH /
+    EXPLICIT_SUPERSEDES=HIGH / EXPLICIT_REFERENCES=MEDIUM /
     HTML|YAML=MEDIUM / PROSE_VERB=LOW ladder.
 
     Excluded:
@@ -1941,7 +2088,11 @@ def apply_source_kind_severity(findings: list) -> list:
             continue
         if f.source_kind is SourceKind.EXPLICIT_DEPENDS_ON:
             target_sev = Severity.HIGH
+        elif f.source_kind is SourceKind.EXPLICIT_SUPERSEDES:
+            target_sev = Severity.HIGH
         elif f.source_kind in (SourceKind.HTML_COMMENT_CONVENTION, SourceKind.YAML_COMMENT):
+            target_sev = Severity.MEDIUM
+        elif f.source_kind is SourceKind.EXPLICIT_REFERENCES:
             target_sev = Severity.MEDIUM
         elif f.source_kind is SourceKind.PROSE_VERB:
             target_sev = Severity.LOW

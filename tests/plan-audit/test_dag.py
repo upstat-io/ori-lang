@@ -19,6 +19,7 @@ import pytest
 
 from scripts.plan_corpus import FileClass, SourceKind
 from scripts.plan_corpus.dag import (
+    _EDGE_KINDS,
     Edge,
     NodeId,
     NodeKind,
@@ -107,8 +108,15 @@ class TestReferenceDataclass:
 
 
 class TestEdgeDataclass:
-    def test_edge_is_only_valid_for_explicit_depends_on(self):
-        """Source-kind SSOT: Edge constructor rejects non-explicit source kinds."""
+    def test_edge_kinds_frozenset_contains_depends_on_and_supersedes(self):
+        """Source-kind SSOT: _EDGE_KINDS is the single-source allowlist for
+        Edge.source_kind. Exactly the two frontmatter-promoted kinds."""
+        assert _EDGE_KINDS == frozenset({
+            SourceKind.EXPLICIT_DEPENDS_ON,
+            SourceKind.EXPLICIT_SUPERSEDES,
+        })
+
+    def test_edge_accepts_explicit_depends_on(self):
         ref = Reference(
             from_node=NodeId(NodeKind.PLAN_INDEX, Path("a/index.md")),
             target="b",
@@ -125,22 +133,68 @@ class TestEdgeDataclass:
         )
         assert e.source_kind is SourceKind.EXPLICIT_DEPENDS_ON
 
-    def test_edge_rejects_non_explicit_source_kind(self):
+    def test_edge_accepts_explicit_supersedes(self):
+        """EXPLICIT_SUPERSEDES is the second frontmatter-promoted kind per
+        _EDGE_KINDS; Edge construction must accept it without raising."""
+        ref = Reference(
+            from_node=NodeId(NodeKind.PLAN_INDEX, Path("old/index.md")),
+            target="new",
+            source_kind=SourceKind.EXPLICIT_SUPERSEDES,
+            source_line=4,
+            source_column=None,
+            raw_text="new",
+        )
+        e = Edge(
+            from_node=NodeId(NodeKind.PLAN_INDEX, Path("old/index.md")),
+            to_node=NodeId(NodeKind.PLAN_INDEX, Path("new/index.md")),
+            source_kind=SourceKind.EXPLICIT_SUPERSEDES,
+            reference=ref,
+        )
+        assert e.source_kind is SourceKind.EXPLICIT_SUPERSEDES
+
+    def test_edge_rejects_explicit_references(self):
+        """EXPLICIT_REFERENCES is the reference-only kind — feeds
+        dag.references but never becomes an Edge. Construction must raise."""
         ref = Reference(
             from_node=NodeId(NodeKind.PLAN_INDEX, Path("a/index.md")),
             target="b",
-            source_kind=SourceKind.PROSE_VERB,
+            source_kind=SourceKind.EXPLICIT_REFERENCES,
             source_line=5,
             source_column=None,
             raw_text="b",
         )
-        with pytest.raises(ValueError, match="EXPLICIT_DEPENDS_ON"):
+        with pytest.raises(ValueError, match="EXPLICIT_REFERENCES"):
             Edge(
                 from_node=NodeId(NodeKind.PLAN_INDEX, Path("a/index.md")),
                 to_node=NodeId(NodeKind.PLAN_INDEX, Path("b/index.md")),
-                source_kind=SourceKind.PROSE_VERB,
+                source_kind=SourceKind.EXPLICIT_REFERENCES,
                 reference=ref,
             )
+
+    def test_edge_rejects_body_inferred_source_kinds(self):
+        """Body-inferred references (PROSE_VERB, HTML_COMMENT_CONVENTION,
+        YAML_COMMENT) feed dag.references only — Edge construction must
+        raise for all of them."""
+        for sk in (
+            SourceKind.PROSE_VERB,
+            SourceKind.HTML_COMMENT_CONVENTION,
+            SourceKind.YAML_COMMENT,
+        ):
+            ref = Reference(
+                from_node=NodeId(NodeKind.PLAN_INDEX, Path("a/index.md")),
+                target="b",
+                source_kind=sk,
+                source_line=5,
+                source_column=None,
+                raw_text="b",
+            )
+            with pytest.raises(ValueError, match=r"_EDGE_KINDS|EXPLICIT_DEPENDS_ON"):
+                Edge(
+                    from_node=NodeId(NodeKind.PLAN_INDEX, Path("a/index.md")),
+                    to_node=NodeId(NodeKind.PLAN_INDEX, Path("b/index.md")),
+                    source_kind=sk,
+                    reference=ref,
+                )
 
 
 # ---------------------------------------------------------------------------
