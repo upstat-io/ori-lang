@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Plumbing query subcommands"
-status: not-started
+status: complete
 reviewed: true
 goal: "Deliver 5 plumbing query subcommands (plan-status, blocks, bugs-for, symbol-plans, dag-ascii) in ~/projects/lang_intelligence/neo4j/query_graph.py, routed through ori_lang/scripts/intel-query.sh. These answer the mission's four query patterns with machine-oriented JSON + human-oriented output; rich UX (interactive filters, search, compare) is deferred to plans/query-intel-adoption/section-08."
 success_criteria:
@@ -23,8 +23,8 @@ inspired_by:
   - "lang_intelligence neo4j/query_graph.py cmd_cypher fallback — raw Cypher escape hatch for complex queries"
 depends_on: ["02"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-17
 sections:
   - id: "04.1"
     title: "cmd_plan_status handler + Cypher"
@@ -49,13 +49,15 @@ sections:
     status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 04: Plumbing query subcommands
 
-**Status:** Not Started
-**Implementation note (2026-04-17):** A subagent writing this section exceeded brief and pre-committed the implementation to `~/projects/lang_intelligence` master (commit `bd66560`, NOT pushed). The code changes (`query_graph.py` +498, `tests/test_query_plan_bug.py` +407) faithfully match this plan's design but landed before plan approval. Options at implementation time: (a) accept the premature commit as §04.1-§04.7 implementation and run remaining tasks (§04.R TPR + §04.N completion checklist), (b) `git reset --soft HEAD~1` on lang_intelligence to unstage and re-implement under proper plan execution. Documented for transparency; user decides at plan-execution kickoff.
+**Status:** Complete
+**Implementation note (2026-04-17):** A subagent writing this section exceeded brief and pre-committed the implementation to `~/projects/lang_intelligence` master (commit `bd66560`, NOT pushed). The code changes (`query_graph.py` +498, `tests/test_query_plan_bug.py` +407) faithfully match this plan's design but landed before plan approval. Options at implementation time: (a) accept the premature commit as §04.1-§04.7 implementation and run remaining tasks (§04.R TPR + §04.N completion checklist), (b) `git reset --soft HEAD~1` on lang_intelligence to unstage and re-implement under proper plan execution.
+
+**Resolution (2026-04-17):** User selected option (a) at kickoff. `/tpr-review` dual-source convergence loop ran 4 rounds, surfacing 16 verified findings across code + plan spec — all resolved inline. Notable: round 2 self-surfaced a Neo4j 5.x variable-length-parameter SyntaxError that was latent during mock-only testing (the live CLI smoke against a real existing node was what exposed it). Commits: lang_intelligence `7eccf5f` (round-1 fixes: cmd_plan_status DISTINCT aggregation + cmd_blocks `:PlanBugNode` label + cmd_symbol_plans `:PlanBugNode` marker match + 9 new tests including 5 human-mode via capsys), `37a7884` (round-2 fixes: depth default 10 + 3-way fallback hint + Neo4j 5.x literal-depth f-string + 5 more regression pins); ori_lang `263dc583` + this commit (§04 plan close-outs + subsection flips + overview/index sync). Final state: 28/28 query_plan_bug tests + 143-passed-51-skipped full suite + all 5 CLI smokes exit 0 against the live graph with correct output (plan-status aggregate, blocks full 3-hop chain, symbol-plans 3-way hint, dag-ascii box-drawing tree, bugs-for severity sort). User accepted at round 4 per §11.5 inflection prompt; `third_party_review.status: resolved` reflects findings-addressed-inline.
 **Goal:** Deliver 5 plumbing query subcommands — `plan-status`, `blocks`, `bugs-for`, `symbol-plans`, `dag-ascii` — in `~/projects/lang_intelligence/neo4j/query_graph.py`, routed through `ori_lang/scripts/intel-query.sh`. These answer the mission's four query patterns ("what plans touch symbol X", "full blocked-by chain to ship section Y", "what bugs block plan Z", "impact radius of fix-BUG-XX-NNN") with machine-oriented JSON and human-oriented output. Rich UX (interactive filters, fuzzy search, cross-subcommand piping) is deferred to `plans/query-intel-adoption/section-08`.
 
 **Success Criteria:**
@@ -261,7 +263,7 @@ def cmd_plan_status(args, json_mode=False):
 - [x] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` — deferred to §04.N final hygiene check (no temp files created by this subsection).
+  - [x] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` — deferred to §04.N final hygiene check (no temp files created by this subsection).
 
 ---
 
@@ -484,7 +486,7 @@ def cmd_blocks(args, json_mode=False):
 - [x] **Subsection close-out (04.2)** — MANDATORY before starting 04.3:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — deferred to §04.N.
+  - [x] **Repo hygiene check** — deferred to §04.N.
 
 ---
 
@@ -646,7 +648,7 @@ def cmd_bugs_for(args, json_mode=False):
 - [x] **Subsection close-out (04.3)** — MANDATORY before starting 04.4:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — deferred to §04.N.
+  - [x] **Repo hygiene check** — deferred to §04.N.
 
 ---
 
@@ -892,7 +894,7 @@ def cmd_symbol_plans(args, json_mode=False):
 - [x] **Subsection close-out (04.4)** — MANDATORY before starting 04.5:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — deferred to §04.N.
+  - [x] **Repo hygiene check** — deferred to §04.N.
 
 ---
 
@@ -1179,7 +1181,7 @@ def _print_dag_dot(plan_name, plan_status, sections):
 - [x] **Subsection close-out (04.5)** — MANDATORY before starting 04.6:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — deferred to §04.N.
+  - [x] **Repo hygiene check** — deferred to §04.N.
 
 ---
 
@@ -1214,7 +1216,7 @@ There is no allowlist of subcommand names — unknown subcommands are forwarded 
 - [x] **Subsection close-out (04.6)** — MANDATORY before starting 04.7:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — deferred to §04.N.
+  - [x] **Repo hygiene check** — deferred to §04.N.
 
 ---
 
@@ -1591,6 +1593,6 @@ def test_dag_ascii_missing_plan_returns_error():
   - [x] `00-overview.md` mission success criterion for §04 (`query_graph.py exposes five new subcommand handlers...`) checked off
   - [x] `index.md` Section 04 status → `Complete`
   - [x] Section 05's `depends_on: ["04"]` is correct and not stale
-- [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` before final commit.
+- [x] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` before final commit.
 
 **Exit Criteria:** `pytest ~/projects/lang_intelligence/tests/test_query_plan_bug.py` passes all 28 tests; all 5 `scripts/intel-query.sh --human <subcommand>` smoke tests exit 0; `query_graph.py` module-level docstring lists all 5 new subcommands; rich UX deferred boundary is documented in both this section and `section-08-tool-ux-and-output.md`.
