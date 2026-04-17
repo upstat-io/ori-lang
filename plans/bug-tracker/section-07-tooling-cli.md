@@ -16,6 +16,12 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
 
 ## Open Bugs
 
+- [ ] `[BUG-07-014][low]` **`tests/plan-audit/test_quick.py::test_completes_under_5_seconds` flakes under concurrent suite execution** — found by /roadmap-work §02.3 close-out.
+  Repro: `timeout 120 python -m pytest tests/plan-audit/` — `run_quick` on the full corpus takes ~5.0s consistently. In isolation the test passes at ~5.01s; under the concurrent suite load it sometimes finishes at ~5.04s, tripping the `assert elapsed < 5.0` budget. The 5s budget was set with zero margin against a workload that routinely lands right at the edge.
+  Subsystem: `tests/plan-audit/test_quick.py::TestRunQuickPerformance::test_completes_under_5_seconds`, `scripts/plan_corpus/quick.py` (if the root cause is an actual slowdown).
+  Found: 2026-04-17 | Source: /roadmap-work §02.3 close-out (`plans/plan-bug-dag-ingestion/`). Not a §02.3 regression — `run_quick` does not import `export_json`, so the body_preview addition cannot affect it.
+  Fix options: (a) raise budget to a headroom-aware value like 6.0s and document the concurrent-load rationale; (b) profile `run_quick` to find a deterministic slowdown and eliminate it; (c) move the perf test to a dedicated isolated runner with `pytest-xdist` group control. Preference: (b) → (a) as fallback; NEVER just raise the budget without profiling first.
+
 - [ ] `[BUG-07-013][medium]` **`roadmap_scan.py` shadow parser — still duplicates `plan_corpus`'s frontmatter parsing** — found by tpr-review (custom-objective final check of verify-roadmap-redesign close-out).
   Repro: Read `.claude/skills/continue-roadmap/roadmap_scan.py` lines ~326–348 (`read_text(errors="replace")`, `split_frontmatter` local helper) and ~470 / ~559 (`parse_section_file`, `parse_index_file`). These are ~600 lines of parsing logic that duplicate `scripts/plan_corpus/load_and_validate`. The `errors="replace"` + `{}` on YAMLError pattern explicitly swallows errors the `plan_corpus` package was designed to surface (LEAK:swallowed-error), meaning `/continue-roadmap` and `/verify-roadmap --quick` can disagree on corpus parse results.
   Subsystem: `.claude/skills/continue-roadmap/roadmap_scan.py`, `scripts/plan_corpus/` (consumer migration)
