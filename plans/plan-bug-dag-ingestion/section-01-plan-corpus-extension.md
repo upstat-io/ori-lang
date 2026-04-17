@@ -441,7 +441,7 @@ This subsection delivers the core serialization layer: a new `export_json.py` mo
 
 **Design constraint — dag.py is the SSOT:** The exporter must NOT re-parse frontmatter to discover edges or references. It reads `Corpus` for node properties and `Dag` for edges and references. Any new relationship type must first be modeled in `dag.py` (as an edge or reference) before the exporter can serialize it. This is enforced by the architecture: `export_neo4j_json(corpus, dag)` takes both and has no access to raw frontmatter YAML.
 
-**File size constraint:** `export_json.py` must stay under 500 lines. If it approaches the limit, split structural-edge generation into `_structural_edges(corpus, dag, node_id_map)` and reference-edge generation into `_reference_edges(dag, node_id_map)` helper functions.
+**File organization (readability, not line cap):** Scripts are exempt from CLAUDE.md §File size (scope: compiler Rust crates only). If `export_json.py` becomes hard to navigate, split structural-edge generation into `_structural_edges(corpus, dag, node_id_map)` and reference-edge generation into `_reference_edges(dag, node_id_map)` helper functions — but only if readability demands it, not to hit a number.
 
 ### Node stable ID mapping
 
@@ -725,7 +725,7 @@ def test_export_same_corpus_twice_produces_identical_json(tmp_path):
 - [x] `scripts/plan_corpus/types.py`: `SourceKind.EXPLICIT_SUPERSEDES` and `SourceKind.EXPLICIT_REFERENCES` exist; docstring updated to name both edge-forming kinds
 - [x] `scripts/plan_corpus/dag.py`: `_EDGE_KINDS = frozenset({EXPLICIT_DEPENDS_ON, EXPLICIT_SUPERSEDES})` exists; `Edge.__post_init__` uses it; `classify_redundant_dependency` filters to `EXPLICIT_DEPENDS_ON` in both loop positions; `apply_source_kind_severity` maps `EXPLICIT_SUPERSEDES → HIGH` and `EXPLICIT_REFERENCES → MEDIUM`
 - [x] `scripts/plan_corpus/dag.py`: `_emit_edges_from_frontmatter_list` helper extracted; `deps_sources` loop refactored to call it; `supersedes_sources` loop added; `references_sources` loop added
-- [x] `scripts/plan_corpus/export_json.py` exists with `export_neo4j_json(corpus, dag, *, include_references=True) -> dict` function; file stays under 500 lines
+- [x] `scripts/plan_corpus/export_json.py` exists with `export_neo4j_json(corpus, dag, *, include_references=True) -> dict` function
 - [x] `scripts/plan_corpus/__main__.py`: `export` subcommand with `--output <path>` and `--no-references` flags works
 - [x] `docs/internal/plan-schema-reference.md` regenerated: `python -m scripts.plan_corpus docgen --check` returns exit 0
 - [x] `pytest tests/plan-audit/test_export_json.py` green (5 tests: node count, determinism, envelope schema keys, supersedes edge, references-only semantics)
