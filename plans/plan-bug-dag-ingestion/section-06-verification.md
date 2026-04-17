@@ -1,0 +1,558 @@
+---
+section: "06"
+title: "Verification + cross-plan review invalidation"
+status: not-started
+reviewed: true
+goal: "Prove the plan/bug DAG pipeline works end-to-end under normal and degraded conditions, produces equivalent state under full vs. stub-incremental rebuilds, and doesn't silently invalidate other plans' reviewed status. This is the final gate before declaring the plan resolved."
+success_criteria:
+  - "Full vs stub-incremental round-trip equivalence test: `diff <(full-rebuild-dump.cypher) <(incremental-mode-dump.cypher)` returns empty byte-for-byte when both run on the same corpus state (incremental is a stub forwarding to full per Design Principle 3, but the test proves the invariant)."
+  - "Graceful degradation script `diagnostics/verify-plan-bug-degraded.sh` — stops lang-intelligence container, runs ./test-all.sh + runs /continue-roadmap status check, restarts container; both workflows continue; script exits 0."
+  - "Cross-plan review invalidation run: `python3 .claude/skills/plan-audit/plan-invalidate.py plans/plan-bug-dag-ingestion/ --json` produces a triaged report; any overlapping sections in other plans whose `reviewed: true` state becomes stale (shouldn't happen — this plan is additive) are explicitly documented or flipped to `reviewed: false`."
+  - "Test matrix covers all 4 mission query patterns + all 9 node labels + all 11 edge types introduced by §02."
+  - "Performance baseline: full corpus (~30 plans + ~100 bugs + ~30 fix-BUG) ingestion completes in under 10 seconds on dev Neo4j; measured via time wrapper."
+  - "./test-all.sh green — no regressions in Rust test suites (this plan doesn't touch Rust code but we verify via baseline)."
+  - "python -m scripts.plan_corpus check plans/plan-bug-dag-ingestion/ --strict-recon returns exit 0 across all 6 sections."
+  - "python -m scripts.plan_corpus discover shows 100% recon-block presence for plans/plan-bug-dag-ingestion/."
+  - "All 6 sections' completion checklists marked [x]; all subsections status: complete; 00-overview.md Quick Reference table updated; index.md status flipped."
+  - "Satisfies mission criteria: 'Full-corpus rebuild (sync-plan-bug-graph.sh --full) produces the exact same graph state...' and 'Graceful degradation preserved...'."
+inspired_by:
+  - "plans/completed/codegen-purity/section-10-verification.md — canonical verification section pattern"
+  - "diagnostics/check-debug-flags.sh — degradation verification script pattern"
+  - ".claude/skills/plan-audit/plan-invalidate.py — cross-plan overlap detection"
+depends_on: ["01", "02", "03", "04", "05"]
+third_party_review:
+  status: none
+  updated: null
+sections:
+  - id: "06.1"
+    title: "Test Matrix — query patterns × node labels × edge types"
+    status: not-started
+  - id: "06.2"
+    title: "Full vs stub-incremental round-trip equivalence"
+    status: not-started
+  - id: "06.3"
+    title: "Graceful degradation script + run"
+    status: not-started
+  - id: "06.4"
+    title: "Cross-plan review invalidation scan + triage"
+    status: not-started
+  - id: "06.5"
+    title: "Performance baseline"
+    status: not-started
+  - id: "06.N"
+    title: "Completion Checklist"
+    status: not-started
+---
+
+# Section 06: Verification + cross-plan review invalidation
+
+**Status:** Not Started
+**Goal:** Prove the plan/bug DAG pipeline works end-to-end under normal and degraded conditions, produces equivalent state under full vs. stub-incremental rebuilds, and doesn't silently invalidate other plans' reviewed status. This is the final gate before declaring the plan resolved.
+
+**Success Criteria:**
+
+- [ ] Full vs stub-incremental round-trip equivalence: `diff <(full-rebuild-dump.cypher) <(incremental-mode-dump.cypher)` returns empty byte-for-byte on the same corpus state (see §06.2).
+- [ ] Graceful degradation script `diagnostics/verify-plan-bug-degraded.sh` exits 0 with container stopped, confirming `./test-all.sh`, `intel-query.sh status`, and `python -m scripts.plan_corpus check` all continue working (see §06.3).
+- [ ] Cross-plan invalidation scan produces a triaged report with zero unhandled stale reviews (see §06.4).
+- [ ] Test matrix covers all 4 query patterns × all 9 node labels × all 11 edge types (see §06.1).
+- [ ] Performance baseline: warm Neo4j full-corpus sync under 10 seconds; cold under 15 seconds (see §06.5).
+- [ ] `./test-all.sh` green with zero regressions.
+- [ ] `python -m scripts.plan_corpus check plans/plan-bug-dag-ingestion/ --strict-recon` exits 0 across all 6 sections.
+- [ ] All 6 sections' completion checklists marked `[x]`; all subsection statuses `complete`; `00-overview.md` Quick Reference updated; `index.md` status flipped to `resolved`.
+
+**Context:** §01–§05 delivered the full pipeline: plan corpus extension, Neo4j schema and importer, commit-triggered sync, 5 new query subcommands, and doc sync. §06 is the integration gate. It does not add new features — it verifies that the assembled pipeline satisfies the mission success criteria from `00-overview.md` under all conditions (happy path, container down, incremental vs. full), measures performance, and ensures no other plans were silently invalidated.
+
+**Reference implementations:**
+
+- **`plans/completed/codegen-purity/section-10-verification.md`**: Canonical verification section structure — test matrix + behavioral equivalence + pipeline integration + safety + performance + completion checklist.
+- **`diagnostics/check-debug-flags.sh`**: Pattern for degradation/consistency verification scripts — stops a service, runs checks, restarts, asserts outputs.
+- **`.claude/skills/plan-audit/plan-invalidate.py`**: Cross-plan overlap detector that reads `reviewed:` frontmatter from all active plans and reports stale entries based on footprint overlap.
+
+**Depends on:** All prior sections (§01–§05 must be `complete` before §06 begins). Specifically:
+- §01 `export_json.py` must produce valid JSON envelopes for the equivalence test in §06.2.
+- §02 Neo4j schema + importer must be deployed for §06.2, §06.3, and §06.5.
+- §03 sync wiring (`sync-plan-bug-graph.sh`) must be deployed for §06.2 and §06.5.
+- §04 query subcommands must pass their unit tests to validate the matrix in §06.1.
+- §05 doc sync must be complete before §06 verification (verification benefits from up-to-date docs).
+
+---
+
+## Intelligence Reconnaissance
+
+Queries run 2026-04-17 against the intelligence graph at `../lang_intelligence/` (Neo4j 5.26.24, 32K+ Ori symbols, 505K+ CALLS edges):
+
+- `scripts/intel-query.sh --human search "end-to-end verification" --limit 5` — 5 cross-repo issues: [rust#87533] verification framework, [go#30661] vet end-to-end, [typescript#48151] test coverage. Cross-repo signal: all 3 repos run a distinct integration test pass after unit tests. Confirms the pattern: unit tests per phase + one integration sweep verifying phase composition.
+- `scripts/intel-query.sh --human symbols "plan_invalidate" --repo ori` — 0 results. [ori] `plan-invalidate.py` is Python, not indexed in the Rust-symbol graph. Expected absence — this section's verification targets are Python/shell scripts and plan YAML files, not Rust symbols.
+- `scripts/intel-query.sh --human similar "graceful degradation test" --repo rust,swift,go --limit 5` — 5 results: [rust#85499] (offline mode test), [go#42481] (connection-unavailable test), [swift#62119] (network-failure fallback). Cross-repo convergence: graceful-degradation tests universally follow the pattern stop-service → run-workflow → assert-workflow-passes → restart-service. Informs §06.3 script structure.
+
+Results summary (≤500 chars) 2026-04-17: [ori] Graph available. `plan_invalidate` absent (Python file, not Rust symbol — expected). Cross-repo [rust#85499] [go#42481] [swift#62119] converge on stop-service → assert-workflows-continue → restart pattern. [rust#87533] [go#30661] [typescript#48151] converge on integration sweep after unit tests. No Ori Rust symbols touch §06. No blast-radius concern. Intel graph confirms §06's approach is idiomatic.
+
+See `.claude/skills/query-intel/compose-intel-summary.md` for the full query protocol (SSOT — do NOT `@`-include in plan files; plan markdown is not harness-expanded).
+
+---
+
+## 06.1 Test Matrix — query patterns × node labels × edge types
+
+This subsection builds a test matrix covering every mission query pattern against every node label and every edge type introduced by §02. The matrix ensures there are no combinations the query subcommands silently skip, and forces explicit "gap" documentation for any cell that cannot yet be tested.
+
+**Matrix dimensions:**
+
+- **Axis A — Mission query patterns (4):** Exactly the 4 patterns from `00-overview.md` §Mission. Each maps to one or more `§04` query subcommands.
+  1. "What plans touch symbol X" → `symbol-plans <X>`
+  2. "Full blocked-by chain to ship section Y" → `blocks <Y>`
+  3. "What bugs block plan Z" → `bugs-for <Z>`
+  4. "Impact radius of fix-BUG-XX-NNN" → `symbol-plans <fix-BUG-XX-NNN>` + `blocks <fix-BUG-XX-NNN>`
+
+- **Axis B — Node labels (9):** `:Plan`, `:PlanSection`, `:Subsection`, `:Overview`, `:RoadmapSection`, `:Bug`, `:FixSection`, `:BugTrackerSection`, `:CompletedIndex`
+
+- **Axis C — Edge types (11):** `HAS_SECTION`, `HAS_SUBSECTION`, `HAS_OVERVIEW`, `HAS_BUG`, `FIXED_BY`, `DEPENDS_ON`, `BLOCKED_BY`, `SUPERSEDES`, `RESOLVES`, `REFERENCES`, `MENTIONS_CODE`
+
+**Coverage matrix:**
+
+- [ ] **Query pattern 1 — `symbol-plans`:** ({date started})
+  - `:Plan` node traversal via `MENTIONS_CODE` bridge — covered (`test_query_plan_bug.py::test_cmd_symbol_plans_plan_node`)
+  - `:PlanSection` node traversal via `MENTIONS_CODE` bridge — covered (`test_cmd_symbol_plans_section_node`)
+  - `:Bug` node traversal via `MENTIONS_CODE` bridge — covered (`test_cmd_symbol_plans_bug_node`)
+  - `:FixSection` node traversal via `MENTIONS_CODE` bridge — covered (`test_cmd_symbol_plans_fix_section_node`)
+  - `:Subsection` node traversal via `MENTIONS_CODE` bridge — gap: §04 `cmd_symbol_plans` queries `:PlanSection` and `:Bug`/`:FixSection` roots; `:Subsection` traversal requires confirming §04 includes subsections in the MENTIONS_CODE query. Verify and fix in §06.1 gap-discovery task.
+  - `MENTIONS_CODE` edge type exercised — covered
+  - `RESOLVES_TO` edge type exercised (via CodeReference bridge) — covered
+
+- [ ] **Query pattern 2 — `blocks`:** ({date started})
+  - `BLOCKED_BY` edge traversal — covered (`test_query_plan_bug.py::test_cmd_blocks_direct`)
+  - `DEPENDS_ON` edge traversal — covered (`test_cmd_blocks_depends_on`)
+  - Transitive closure (depth ≥ 3) — covered (`test_cmd_blocks_transitive_chain`)
+  - `:Bug` node as blocker — covered (`test_cmd_blocks_bug_as_root`)
+  - `:PlanSection` node as blocker — covered
+  - Cycle detection (should not infinite-loop) — covered (`test_cmd_blocks_cycle_guard`)
+  - `SUPERSEDES` edge traversal — gap: `blocks` currently follows `BLOCKED_BY` + `DEPENDS_ON`; whether it also walks `SUPERSEDES` for pre-emptive blocking is a §04 design decision. Verify `cmd_blocks` Cypher in §04 output and document.
+
+- [ ] **Query pattern 3 — `bugs-for`:** ({date started})
+  - `HAS_SECTION` edge traversal (Plan → PlanSection) — covered (`test_cmd_bugs_for_has_section`)
+  - `BLOCKED_BY` edge traversal (PlanSection → Bug) — covered
+  - `:Bug` node properties (`severity`, `status`) — covered (sort by severity verified)
+  - `:BugTrackerSection` → `HAS_BUG` → `:Bug` path — covered (`test_cmd_bugs_for_tracker_path`)
+  - `FIXED_BY` + `RESOLVES` edge pair (exclude already-fixed bugs) — covered (`test_cmd_bugs_for_excludes_resolved`)
+  - `:FixSection` node correctly excluded from "open bugs" result — covered
+
+- [ ] **Query pattern 4 — impact radius of fix-BUG-XX-NNN:** ({date started})
+  - `FIXED_BY` edge (Bug → FixSection) — covered (`test_query_plan_bug.py::test_cmd_symbol_plans_fix_section_node`)
+  - `RESOLVES` edge (FixSection → Bug) — covered
+  - `:FixSection` traversal via `symbol-plans` — covered
+  - Combination: `blocks <bug-id>` + `symbol-plans <fix-section-id>` for full impact — integration test `test_impact_radius_combined` in `test_plan_bug_full_vs_incremental.sh`
+
+- [ ] **Remaining node labels — presence in at least one query path:** ({date started})
+  - `:Overview` — via `HAS_OVERVIEW` edge, confirmed present in `plan-status` response (includes overview `file_path`): covered
+  - `:RoadmapSection` — verify `cmd_plan_status` or `dag-ascii` traverses roadmap sections. Gap if §04 doesn't include `:RoadmapSection` nodes (roadmap is a special plan type in the corpus).
+  - `:CompletedIndex` — verify `dag-ascii` or `plan-status` references completed-plan index. Gap if §04 doesn't query `:CompletedIndex` (completed plans are a distinct corpus subset).
+  - `HAS_SUBSECTION` edge — verify `dag-ascii` renders subsections in the tree. Covered if §04's `cmd_dag_ascii` walks `HAS_SECTION` → `HAS_SUBSECTION`.
+  - `REFERENCES` edge — verify `symbol-plans` or `blocks` follows `REFERENCES` edges (§01 `SourceKind.EXPLICIT_REFERENCES` promoted these).
+
+### 06.1.1 Discovered Gaps
+
+| Gap | Roadmap Location | Test | Severity |
+|-----|-----------------|------|----------|
+| `:Subsection` traversal in `symbol-plans` — unclear if §04 includes subsections in MENTIONS_CODE query | §04 `cmd_symbol_plans` handler | `test_cmd_symbol_plans_subsection_node` | Medium |
+| `SUPERSEDES` traversal in `blocks` — design decision: should `blocks` follow SUPERSEDES edges? | §04 `cmd_blocks` Cypher | `test_cmd_blocks_supersedes` | Low |
+| `:RoadmapSection` in `plan-status`/`dag-ascii` — roadmap is a special plan type, verify traversal | §04 `cmd_plan_status`, `cmd_dag_ascii` | `test_cmd_plan_status_roadmap_plan` | Medium |
+| `:CompletedIndex` in `plan-status`/`dag-ascii` — completed plans, verify reference path | §04 `cmd_dag_ascii` | `test_cmd_dag_ascii_completed_plan` | Low |
+| `REFERENCES` edge reachability — verify any query walks REFERENCES edges | §04 query handlers | `test_references_edge_reachable` | Low |
+
+**Resolution rule:** each gap above must be resolved before §06.1 is `complete`. Resolution = either (a) verify the gap is already covered by reading the §04 handler's Cypher and adding a test, or (b) add the missing traversal to the §04 handler and add a test. Both paths require a commit.
+
+### 06.1 Subsection Close-out
+
+- [ ] All tasks and gap-resolution items above are `[x]`
+- [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+
+---
+
+## 06.2 Full vs stub-incremental round-trip equivalence
+
+This subsection creates a test harness that proves the invariant: `sync-plan-bug-graph.sh --full` and `sync-plan-bug-graph.sh --incremental` (which, per Design Principle 3, is a stub forwarding to `--full` in Phase 1) produce byte-for-byte identical Neo4j graph state on the same corpus. The test is trivially true NOW (both paths call the same code), but it is critical to write it now so that any future Phase 2 incremental implementation that diverges from this invariant is caught immediately.
+
+**New file:** `~/projects/lang_intelligence/tests/test_plan_bug_full_vs_incremental.sh`
+
+### Test procedure
+
+1. **Clear** the Neo4j plan/bug subgraph:
+   ```bash
+   cypher-shell -u "$NEO4J_USER" -p "$NEO4J_PASS" \
+     "MATCH (n) WHERE any(lbl IN labels(n) WHERE lbl IN ['Plan','PlanSection','Subsection','Overview','RoadmapSection','Bug','FixSection','BugTrackerSection','CompletedIndex']) DETACH DELETE n;"
+   ```
+
+2. **Run full rebuild** on a pinned corpus snapshot:
+   ```bash
+   sync-plan-bug-graph.sh --full
+   ```
+
+3. **Dump all plan/bug nodes and edges** to `full.cypher` using deterministic sort:
+   ```cypher
+   MATCH (n)
+   WHERE any(lbl IN labels(n)
+     WHERE lbl IN ['Plan','PlanSection','Subsection','Overview','RoadmapSection',
+                   'Bug','FixSection','BugTrackerSection','CompletedIndex'])
+   RETURN n.id AS id, labels(n) AS labels, properties(n) AS props
+   ORDER BY id;
+   
+   MATCH (a)-[r]->(b)
+   WHERE any(lbl IN labels(a)
+       WHERE lbl IN ['Plan','PlanSection','Subsection','Overview','RoadmapSection',
+                     'Bug','FixSection','BugTrackerSection','CompletedIndex'])
+      OR any(lbl IN labels(b)
+       WHERE lbl IN ['Plan','PlanSection','Subsection','Overview','RoadmapSection',
+                     'Bug','FixSection','BugTrackerSection','CompletedIndex'])
+   RETURN a.id AS src, type(r) AS rel, b.id AS dst, properties(r) AS props
+   ORDER BY src, rel, dst;
+   ```
+
+4. **Clear** the plan/bug subgraph again (step 1 repeated).
+
+5. **Run incremental rebuild** (stub, forwards to full):
+   ```bash
+   sync-plan-bug-graph.sh --incremental
+   ```
+
+6. **Dump** to `incremental.cypher` using the same deterministic query.
+
+7. **Assert** equivalence:
+   ```bash
+   diff full.cypher incremental.cypher
+   if [ $? -ne 0 ]; then
+     echo "FAIL: full vs incremental graph state diverged"
+     exit 1
+   fi
+   echo "PASS: full == incremental (byte-for-byte)"
+   ```
+
+**Why the Cypher dump must be deterministic:** Neo4j does not guarantee node/relationship ordering. The `ORDER BY id` / `ORDER BY src, rel, dst` clauses produce a stable sort; `diff` compares sorted lines. If the query ever produces different ordering for the same data, the test will false-positive. Verify sort stability by running the dump twice on a live graph and asserting they match before using the test in CI.
+
+**Semantic pin:** `test_plan_bug_full_vs_incremental.sh` would fail if any future Phase 2 incremental implementation added, omitted, or mutated a node or edge relative to the full-rebuild path. This is the regression guard.
+
+**Negative pin:** modify a plan file in the corpus, run `--full`, dump, then run `--incremental` on the modified state, dump, and assert they still match (not the pre-modification dump). This confirms the incremental stub picks up changes correctly.
+
+### Tasks
+
+- [ ] Write `~/projects/lang_intelligence/tests/test_plan_bug_full_vs_incremental.sh` with the procedure above, including the Cypher dump template and `diff` assertion.
+- [ ] Add a `--help` flag to the script documenting environment variables (`NEO4J_USER`, `NEO4J_PASS`, `NEO4J_URI`).
+- [ ] Run the test on a live dev Neo4j instance and record the result (pass/fail + node count + edge count) in this subsection after the task checklist.
+- [ ] Commit the test script: `/commit-push` with `test(lang-intelligence): add full vs incremental graph equivalence test — §06.2`.
+- [ ] Verify the test is runnable from CI (no interactive prompts, uses env vars for credentials, exits non-zero on failure).
+
+**Recorded results (fill in after running):**
+
+- Run date: ___
+- Corpus state: ___ plans, ___ sections, ___ bugs, ___ fix-sections
+- Full rebuild node count: ___
+- Full rebuild edge count: ___
+- `diff` exit code: ___
+- Result: PASS / FAIL
+
+### 06.2 Subsection Close-out
+
+- [ ] All tasks above are `[x]` and the test passes on live dev Neo4j
+- [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+
+---
+
+## 06.3 Graceful degradation script + run
+
+This subsection creates and runs `diagnostics/verify-plan-bug-degraded.sh` — a CI-runnable script that kills the Neo4j container, runs every downstream workflow that must continue working, and restarts the container. This directly satisfies the mission success criterion: "Graceful degradation preserved: when `docker stop lang-intelligence` is active, every downstream workflow continues working."
+
+**New file:** `/home/eric/projects/ori_lang/diagnostics/verify-plan-bug-degraded.sh`
+
+### Script structure (~60 lines)
+
+```bash
+#!/usr/bin/env bash
+# verify-plan-bug-degraded.sh — verify all workflows work with lang-intelligence down
+# Usage: ./diagnostics/verify-plan-bug-degraded.sh [--skip-docker]
+# Exit: 0 = all workflows continue; 1 = at least one workflow failed while graph was down
+
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PASS=0; FAIL=0
+
+log() { echo "[$(date '+%H:%M:%S')] $*"; }
+ok()  { log "PASS: $*"; PASS=$((PASS + 1)); }
+fail(){ log "FAIL: $*"; FAIL=$((FAIL + 1)); }
+
+# --- Phase 1: bring graph DOWN ---
+log "Stopping lang-intelligence container..."
+docker stop lang-intelligence 2>/dev/null || log "(container was already stopped or not found)"
+
+# --- Phase 2: run workflows that must be unaffected ---
+
+# 2a: test-all.sh must pass
+log "Running ./test-all.sh (timeout 150s)..."
+if timeout 150 bash "$REPO_ROOT/test-all.sh" >/dev/null 2>&1; then
+  ok "test-all.sh passed with graph down"
+else
+  fail "test-all.sh FAILED with graph down (regression)"
+fi
+
+# 2b: intel-query.sh status must return unavailable (exit 0)
+log "Checking intel-query.sh status with graph down..."
+STATUS_OUT=$(bash "$REPO_ROOT/scripts/intel-query.sh" status 2>/dev/null || true)
+if echo "$STATUS_OUT" | grep -q '"status"'; then
+  ok "intel-query.sh status returned structured JSON (graceful degradation)"
+else
+  fail "intel-query.sh status returned unexpected output: $STATUS_OUT"
+fi
+
+# 2c: plan_corpus check must pass (does not depend on Neo4j)
+log "Running python -m scripts.plan_corpus check plans/plan-bug-dag-ingestion/..."
+if python3 -m scripts.plan_corpus check plans/plan-bug-dag-ingestion/ >/dev/null 2>&1; then
+  ok "plan_corpus check passed with graph down"
+else
+  fail "plan_corpus check FAILED with graph down (unexpected dependency)"
+fi
+
+# 2d: git commit must succeed (hook must not fail on graph down)
+log "Testing git commit smoke (does not stage real changes)..."
+TMPFILE=$(mktemp "$REPO_ROOT/plans/.degraded-test-XXXXXX.md")
+git -C "$REPO_ROOT" add "$TMPFILE" 2>/dev/null || true
+if git -C "$REPO_ROOT" commit -m "test(ci): degradation smoke — delete me" --allow-empty >/dev/null 2>&1; then
+  git -C "$REPO_ROOT" reset --soft HEAD~1 >/dev/null 2>&1 || true
+  ok "git commit succeeded with graph down (hook non-blocking)"
+else
+  fail "git commit FAILED with graph down (hook is blocking — must fix)"
+fi
+rm -f "$TMPFILE"
+
+# --- Phase 3: bring graph back UP ---
+log "Starting lang-intelligence container..."
+docker start lang-intelligence 2>/dev/null || log "(container not found — skipping restart)"
+
+# Wait for Neo4j to become healthy (up to 30s)
+for i in $(seq 1 30); do
+  STATUS_UP=$(bash "$REPO_ROOT/scripts/intel-query.sh" status 2>/dev/null || true)
+  if echo "$STATUS_UP" | grep -q '"ok"'; then
+    ok "lang-intelligence restarted and healthy after ${i}s"
+    break
+  fi
+  sleep 1
+done
+
+# --- Summary ---
+echo ""
+echo "============================="
+echo "Degradation test: PASS=$PASS FAIL=$FAIL"
+echo "============================="
+[ "$FAIL" -eq 0 ] || exit 1
+```
+
+### Test matrix dimensions
+
+| Scenario | Trigger | Assertion | Semantic pin |
+|---|---|---|---|
+| Container stopped | `docker stop lang-intelligence` | `./test-all.sh` exits 0 | `test_all_sh_unaffected_by_graph_downtime` |
+| Container stopped | same | `intel-query.sh status` exits 0 with `"status"` JSON key | `test_intel_query_status_graceful_json` |
+| Container stopped | same | `plan_corpus check` exits 0 | `test_plan_corpus_no_neo4j_dep` |
+| Container stopped | same | `git commit` succeeds (hook non-blocking) | `test_hook_commit_path_does_not_fail_on_graph_down` |
+| Container restarted | `docker start lang-intelligence` | `intel-query.sh status` returns `"status":"ok"` | `test_graph_recovers_after_restart` |
+
+**Negative pin:** `test_hook_commit_path_does_not_fail_on_graph_down` — a git commit with `docker stop lang-intelligence` active must succeed. If it fails, it means the `post-commit` hook's `intel-plan-sync` entry is blocking (not fire-and-forget), which is a §03 regression that must be fixed before §06.3 can be marked complete.
+
+**Additional degradation scenarios (document, don't fail-fast):**
+
+- **venv missing** — if `~/projects/lang_intelligence/.venv` is absent, `sync-plan-bug-graph.sh` must log an error and exit 0 (not propagate to git commit). Verify by temporarily renaming the venv directory and triggering a sync.
+- **Incorrect ORI_INTEL_DIR** — if `ORI_INTEL_DIR` is set to a nonexistent path, `intel-query.sh` must return `{"status":"unavailable","reason":"lang-intelligence directory not found"}` with exit 0.
+
+### Tasks
+
+- [ ] Write `diagnostics/verify-plan-bug-degraded.sh` using the script structure above, adapted to the actual path layout after §03.
+- [ ] `chmod +x diagnostics/verify-plan-bug-degraded.sh`
+- [ ] Run the script and record results in this subsection (pass/fail for each check, container restart latency).
+- [ ] If any workflow FAILS with graph down — this is a §03 regression. Do NOT mark §06.3 complete. File via `/add-bug` if the failure is non-blocking, or fix in-place if it blocks §06 (plan-blocker → absorb into §06.3 scope).
+- [ ] Verify the venv-missing and incorrect-ORI_INTEL_DIR scenarios manually and document results.
+- [ ] Commit: `/commit-push` with `build(diagnostics): add verify-plan-bug-degraded.sh — §06.3`.
+
+**Recorded results (fill in after running):**
+
+- Run date: ___
+- test-all.sh with graph down: PASS / FAIL
+- intel-query.sh status with graph down: PASS / FAIL (output: ___)
+- plan_corpus check with graph down: PASS / FAIL
+- git commit with graph down: PASS / FAIL
+- Graph restart latency: ___s
+- Overall script exit code: ___
+
+### 06.3 Subsection Close-out
+
+- [ ] All tasks above are `[x]` and `diagnostics/verify-plan-bug-degraded.sh` exits 0
+- [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+
+---
+
+## 06.4 Cross-plan review invalidation scan + triage
+
+This subsection runs the cross-plan review invalidation tool against the `plan-bug-dag-ingestion` plan directory to detect any sections in OTHER active plans whose `reviewed: true` state may have become stale due to scope overlap with this plan's changes.
+
+**No new files.** This subsection runs an existing tool and documents its output.
+
+### Expected outcome
+
+This plan is **entirely additive** to existing infrastructure:
+- §01 adds fields to `scripts/plan_corpus/` (Python files only; no Rust crate changes).
+- §02 adds a new Neo4j importer script and extends `schema.cypher` (external tool files only).
+- §03 adds sync wiring scripts and a `lefthook.yml` entry.
+- §04 adds query handlers to `query_graph.py`.
+- §05 updates documentation files.
+
+None of these changes modify shared Rust compiler code, type checker logic, eval behavior, LLVM codegen, or spec. The footprint is entirely in `scripts/plan_corpus/`, `~/projects/lang_intelligence/neo4j/`, `diagnostics/`, and doc files.
+
+**Expected overlap count: 0 or very small.** The only plausible overlap is with `plans/query-intel-adoption/` if that plan references the same `intel-query.sh` subcommand names or the same `query_graph.py` file. Any such overlap must be triaged — the overlap does NOT automatically mean the other plan's review is stale (this plan only ADDS to those files, not changes existing behavior).
+
+### Procedure
+
+```bash
+python3 .claude/skills/plan-audit/plan-invalidate.py \
+  plans/plan-bug-dag-ingestion/ \
+  --json
+```
+
+For each entry in the output:
+1. Read the entry's `overlap.files` and `overlap.symbols` list.
+2. Determine if the overlap is **additive** (this plan adds new symbols/files that the other plan references) or **mutating** (this plan changes behavior the other plan's reviewed content relies on).
+3. **Additive:** no action needed — the other plan's review is NOT stale. Document the reasoning.
+4. **Mutating:** flip `reviewed: true → false` via `--apply` on the specific section, add a comment to the section file explaining the invalidation, and notify the other plan's owner by adding a `<!-- cross-plan-invalidated: plan-bug-dag-ingestion §XX -->` comment in the affected section.
+
+### Tasks
+
+- [ ] Run `python3 .claude/skills/plan-audit/plan-invalidate.py plans/plan-bug-dag-ingestion/ --json` and capture the output.
+- [ ] For each reported overlap entry: classify as additive vs. mutating per the procedure above.
+- [ ] For each mutating overlap: apply `--apply` on the specific section; add the `<!-- cross-plan-invalidated: ... -->` comment.
+- [ ] Document all entries and their triage decisions in the "Triage results" block below.
+- [ ] If any overlap count is unexpectedly high (>5 sections across multiple unrelated plans): pause and investigate. High counts may indicate the tool's footprint extraction is over-broad for this plan's scope. File via `/add-bug` if the tool is producing false positives.
+- [ ] Commit any `reviewed: false` flips: `/commit-push` with `chore(plans): cross-plan review invalidation scan — plan-bug-dag-ingestion §06.4`.
+
+**Triage results (fill in after running):**
+
+```
+Invalidation scan date: ___
+Total overlapping sections found: ___
+Additive overlaps (no action): ___
+Mutating overlaps (reviewed: false applied): ___
+
+Entries:
+  (paste tool output or "none")
+```
+
+### 06.4 Subsection Close-out
+
+- [ ] All tasks above are `[x]` and the triage results are documented
+- [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+
+---
+
+## 06.5 Performance baseline
+
+This subsection measures ingestion performance and records baseline numbers that serve as a regression canary. Any future run that exceeds 2× the baseline triggers investigation.
+
+**New file:** `~/projects/lang_intelligence/tests/test_plan_bug_sync_perf.sh`
+
+### Measurement targets
+
+| Scenario | Target | Investigation threshold |
+|---|---|---|
+| Cold Neo4j (fresh container start) → full rebuild | < 15 seconds | > 30 seconds |
+| Warm Neo4j → full rebuild (second run, data already in graph) | < 10 seconds | > 20 seconds |
+| Warm Neo4j → incremental stub (forwards to full) | Same as warm full | Same as warm full |
+| `python -m scripts.plan_corpus export` alone (no Neo4j) | < 2 seconds | > 5 seconds |
+
+**Why cold vs. warm matters:** Cold Neo4j includes JVM warmup, index loading, and first-query compilation. Warm Neo4j has hot caches and compiled Cypher plans. The 15s / 10s targets are generous (current corpus: ~30 plans + ~100 bugs + ~30 fix-sections = ~160 plan nodes; full rebuild with MERGE should be fast). If warm exceeds 10s, the likely cause is an N+1 Cypher query anti-pattern in `import_plan_bug_graph.py` (batching vs. per-node MERGE).
+
+### Script structure
+
+```bash
+#!/usr/bin/env bash
+# test_plan_bug_sync_perf.sh — measure sync-plan-bug-graph.sh ingestion time
+# Records: cold + warm + export-only baselines
+# Usage: ./tests/test_plan_bug_sync_perf.sh [--cold] [--warm] [--export-only]
+
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ORI_LANG="$HOME/projects/ori_lang"
+
+time_cold() {
+  echo "--- Cold Neo4j rebuild ---"
+  docker stop lang-intelligence && docker start lang-intelligence
+  sleep 5  # allow Neo4j to become healthy
+  time bash "$REPO_ROOT/scripts/sync-plan-bug-graph.sh" --full
+}
+
+time_warm() {
+  echo "--- Warm Neo4j rebuild (second run) ---"
+  time bash "$REPO_ROOT/scripts/sync-plan-bug-graph.sh" --full
+}
+
+time_export_only() {
+  echo "--- Export only (no Neo4j) ---"
+  time python3 -m scripts.plan_corpus export > /dev/null
+}
+
+time_cold
+time_warm
+time_export_only
+```
+
+### N+1 investigation guide
+
+If warm baseline exceeds 20 seconds, investigate `import_plan_bug_graph.py` for:
+- **Per-node MERGE in a loop** → batch into `UNWIND params AS row MERGE (n {id: row.id}) SET n += row.props` (mirrors `import_code_graph.py:310-340` batch pattern).
+- **Relationship MERGE after every node** → split into two passes: all nodes first, all relationships second (already required by §02 design, but verify implementation).
+- **Separate Cypher query per relationship type** → consolidate into one `UNWIND` per edge type.
+
+### Tasks
+
+- [ ] Write `~/projects/lang_intelligence/tests/test_plan_bug_sync_perf.sh` with the script structure above.
+- [ ] Run on dev machine and record cold + warm + export-only timing in the "Recorded baseline" block below.
+- [ ] If warm > 20 seconds: investigate N+1 anti-pattern per guide above; fix in `import_plan_bug_graph.py`; re-measure.
+- [ ] Commit the performance test: `/commit-push` with `test(lang-intelligence): add plan/bug sync performance baseline — §06.5`.
+
+**Recorded baseline (fill in after running):**
+
+```
+Measurement date: ___
+Corpus size: ___ plans, ___ sections, ___ bugs, ___ fix-sections
+
+Cold Neo4j rebuild:  ___s (target: < 15s)
+Warm Neo4j rebuild:  ___s (target: < 10s)
+Incremental (stub):  ___s (target: same as warm)
+Export only:         ___s (target: < 2s)
+
+Status: PASS / FAIL
+Notes: ___
+```
+
+### 06.5 Subsection Close-out
+
+- [ ] All tasks above are `[x]` and baseline is recorded
+- [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+
+---
+
+## 06.N Completion Checklist
+
+- [ ] Test matrix covers all features (every checkbox in §06.1 resolved; all 4 query patterns × all 9 node labels × all 11 edge types documented as "covered" or "gap:reason").
+- [ ] Behavioral equivalence verified (§06.2 `test_plan_bug_full_vs_incremental.sh` passes — 0 diff mismatches; recorded baseline in §06.2 block).
+- [ ] Graceful degradation preserved (§06.3 `diagnostics/verify-plan-bug-degraded.sh` exits 0; all 4 workflow checks pass).
+- [ ] Cross-plan invalidation triaged (§06.4 report documented; all overlapping sections classified as additive or mutating; all mutating overlaps flipped to `reviewed: false`).
+- [ ] Performance baseline recorded (§06.5 `test_plan_bug_sync_perf.sh` committed; warm rebuild < 10s; cold rebuild < 15s; numbers in §06.5 block).
+- [ ] All 6 sections' completion checklists are fully `[x]` and subsection statuses are `complete`.
+- [ ] `00-overview.md` Quick Reference table updated — all 6 section rows show `Complete`.
+- [ ] `00-overview.md` mission success criteria checklist — all items are `[x]`.
+- [ ] `index.md` status → `resolved`.
+- [ ] `00-overview.md` status → `complete`.
+- [ ] `python -m scripts.plan_corpus check plans/plan-bug-dag-ingestion/ --strict-recon` exits 0 across all 6 sections.
+- [ ] `python -m scripts.plan_corpus discover` shows 100% recon-block presence for `plans/plan-bug-dag-ingestion/`.
+- [ ] `./test-all.sh` green — zero regressions in Rust test suites (this plan does not touch Rust code; any failure indicates an unrelated regression that must be investigated and fixed before closing §06).
+- [ ] `diagnostics/repo-hygiene.sh --check` clean — no temp/scratch files in working tree.
+- [ ] Plan ready for archive to `plans/completed/` (user decision — do NOT archive without explicit user approval; prompt at section close-out).
+
+**Exit Criteria:** `diagnostics/verify-plan-bug-degraded.sh` exits 0. `test_plan_bug_full_vs_incremental.sh` exits 0 (0 diff mismatches). Warm rebuild < 10s. `python -m scripts.plan_corpus check plans/plan-bug-dag-ingestion/ --strict-recon` exits 0. `./test-all.sh` green. All 6 sections `complete`. `00-overview.md` mission criteria all `[x]`. `index.md` → `resolved`.

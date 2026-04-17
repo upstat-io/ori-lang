@@ -291,28 +291,4 @@ Output shape changes to four result types. The file is in a SEPARATE repo (`../l
 
 ---
 
-## 08.N Completion Checklist
-
-- [ ] `scripts/intel-query.sh --help` prints usage (manual smoke test)
-- [ ] `scripts/intel-query.sh status` on tty produces human output; piped produces JSON
-- [ ] `scripts/intel-query.sh blast-radius <symbol>` runs callers + callees + similar in one invocation
-- [ ] `scripts/intel-query.sh --format md callers <symbol>` emits markdown tables
-- [ ] `query_graph.py --human callers <symbol>` emits ASCII call-tree
-- [ ] `query_graph.py --human file-symbols <path>` groups by kind
-- [ ] Issue-search results include full GitHub URLs
-- [ ] Every result block has a leading one-line summary
-- [ ] `.claude/commands/query-intel.md` expanded to a teaching surface (≥30 lines)
-- [ ] Session cache (08.3) either implemented + tested OR explicitly deferred with anchor
-- [ ] `./test-all.sh` green (no Rust regressions — this section touches only scripts and external repo)
-- [ ] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-08-tool-ux-and-output.md` returns 0 errors
-- [ ] **Plan sync**:
-  - [ ] Section frontmatter → `complete`
-  - [ ] `00-overview.md` Quick Reference and mission criteria updated
-  - [ ] `index.md` updated
-- [ ] `/tpr-review` passed — reviewers confirm the new output shapes are strictly better than the flat JSON/text baselines
-- [ ] `/impl-hygiene-review` passed — formatter code in `query_graph.py` is well-factored (no copy-paste between `--human` / `--format md` paths)
-- [ ] `/improve-tooling` section-close sweep
-- [ ] `/sync-claude` section-close doc sync
-- [ ] `diagnostics/repo-hygiene.sh --check`
-
 **Exit Criteria:** Every tool-UX finding from the 2026-04-14 TPR (codex-031 through 035, gemini-008, gemini-009) is either addressed or explicitly deferred with a concrete plan anchor. Wrapper + query_graph.py serve human operators and agent pipelines equally well. `./test-all.sh` green.
