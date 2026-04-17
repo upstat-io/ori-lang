@@ -38,6 +38,19 @@ post-commit:
       # Fire-and-forget: returns immediately, sync runs in background
       # If lang_intelligence doesn't exist, the -x test fails silently
       # Scoped to compiler/ and library/ per repos.yaml include roots
+    intel-plan-sync:
+      run: |
+        if [ -x ../lang_intelligence/scripts/sync-plan-bug-graph.sh ]; then
+          CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD -- 'plans/*.md' 'plans/**/*.md')
+          if [ -n "$CHANGED" ]; then
+            mkdir -p ../lang_intelligence/logs
+            ../lang_intelligence/scripts/sync-plan-bug-graph.sh --full >> ../lang_intelligence/logs/plan-bug-sync.log 2>&1 &
+          fi
+        fi
+      # Fire-and-forget: returns immediately, full corpus rebuild runs in background
+      # If lang_intelligence doesn't exist, the -x test fails silently
+      # Scoped to plans/**.md — any plan file change triggers a full DAG rebuild
+      # (dag.py classifiers are whole-corpus: incremental is unsound, see §03 context)
 
 commit-msg:
   commands:
