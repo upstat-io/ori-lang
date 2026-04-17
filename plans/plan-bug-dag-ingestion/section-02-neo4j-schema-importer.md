@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "02.2"
     title: "Write import_plan_bug_graph.py two-phase MERGE + stale pruning"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "Wire CodeReference bridge for touches + backtick scraping"
     status: not-started
@@ -482,23 +482,35 @@ This is the canonical import pattern for reusing helpers from a sibling script i
 
 ### Tasks
 
-- [ ] Create `~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py` with:
-  - [ ] Module docstring documenting anti-APOC-dependency stance, env-var connection pattern (improvement over sibling file's hardcoded credentials), three-phase design, and §02.3 CodeReference deferral
-  - [ ] `_load_envelope(path_or_stdin: str) -> dict` — validation with `schema_version` guard
-  - [ ] `_chunks(lst, size)` — generic batching helper
-  - [ ] `_apoc_available(driver) -> bool` — probe APOC via `CALL apoc.version() YIELD version RETURN version`; catches `ClientError` and returns False
-  - [ ] `_merge_nodes(driver, envelope, *, dry_run=False) -> dict` — Phase 1 (APOC or fallback)
-  - [ ] `_merge_structural_edges(driver, envelope, *, dry_run=False) -> dict` — Phase 2 (APOC or fallback), skips `MENTIONS_CODE`
-  - [ ] `_prune_stale_nodes(driver, envelope, *, dry_run=False) -> int` — stale removal with safety gate
-  - [ ] `main()` — CLI parse, load envelope, connect driver (env vars), run phases 1–3 (Phase 3 = stub `pass` until §02.3), report stats
-- [ ] Verify `python import_plan_bug_graph.py --health` exits 0 when Neo4j is up, non-zero when down
-- [ ] Verify `python import_plan_bug_graph.py --input - --dry-run < fixture.json` prints the operation plan without writing to Neo4j
-- [ ] Verify file stays under 500 lines: `wc -l ~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py`
+- [x] Create `~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py` with:
+  - [x] Module docstring documenting anti-APOC-dependency stance, env-var connection pattern (improvement over sibling file's hardcoded credentials), three-phase design, and §02.3 CodeReference deferral
+  - [x] `_load_envelope(path_or_stdin: str) -> dict` — validation with `schema_version` guard
+  - [x] `_chunks(lst, size)` — generic batching helper
+  - [x] `_apoc_available(driver) -> bool` — probe APOC via `CALL apoc.version() YIELD version RETURN version`; catches `ClientError` and returns False
+  - [x] `_merge_nodes(driver, envelope, *, dry_run=False) -> dict` — Phase 1 (pure-Cypher fallback default; APOC probe available for future use). Adds shared `:PlanBugNode` label via `SET x:PlanBugNode` after MERGE — required so Phase 2's cross-label edge MERGE can resolve endpoints via a single indexed lookup.
+  - [x] `_merge_structural_edges(driver, envelope, *, dry_run=False) -> dict` — Phase 2 uses `MATCH (s:PlanBugNode {id: r.start_id})` + `OPTIONAL MATCH (e:PlanBugNode {id: r.end_id})`, skips `MENTIONS_CODE`. OPTIONAL MATCH on end_id drops reference-only edges whose target isn't in the plan/bug graph (BLOCKED_BY/REFERENCES/UNBLOCKS with external / subsection-shorthand targets — §02.3 and §04 will resolve these).
+  - [x] `_prune_stale_nodes(driver, envelope, *, dry_run=False) -> int` — stale removal with empty-envelope safety gate; scoped to `:PlanBugNode` (cannot touch Symbol/Issue/CodeReference graphs).
+  - [x] `main()` — CLI parse, load envelope, connect driver (env vars), run phases 1–3 (Phase 3 = stub `pass` until §02.3), report stats
+- [x] Verify `python import_plan_bug_graph.py --health` exits 0 when Neo4j is up, non-zero when down
+- [x] Verify `python import_plan_bug_graph.py --input /tmp/envelope5.json --dry-run` prints the operation plan without writing to Neo4j
+- [x] Verify file stays under 500 lines: `wc -l ~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py` → 473
+- [x] End-to-end live import on the full corpus envelope: 1926 nodes + 2386 structural edges in 0.3s. Edge counts match envelope exactly for containment edges (HAS_SUBSECTION/DEPENDS_ON/HAS_SECTION/HAS_OVERVIEW/FIXED_BY/HAS_BUG) minus 1 for HAS_BUG (1 envelope edge points at a bug_id with no corresponding Bug node — parsing edge case in parse_bug_entries; to revisit in §02.4 testing).
 
-- [ ] **Subsection close-out (02.2)** — MANDATORY before starting 02.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+**Scope additions that surfaced during §02.2 wire-up:**
+
+1. **§01.7 emerged mid-subsection** — envelope had dangling edges and CompletedPlan label drift. Resolved by reopening §01 briefly; landed in commit `0e33f697`.
+2. **Neo4j property-type rejections** — §01's `_normalize_property_value` was returning nested dicts and list-of-dicts (for `keywords:`, `third_party_review:`, `subsections:`, `tpr_findings:`, `verification_stats:` frontmatter). Neo4j's property model only accepts primitives or arrays-of-primitives. Extended `_normalize_property_value` to JSON-encode dicts and arrays-of-non-primitives. 3 matrix tests added (`test_export_flattens_nested_dict_property_to_json_string`, `test_export_flattens_list_of_dicts_to_array_of_json_strings`, `test_export_preserves_list_of_primitives_as_array`). Also: null values in collections (frontmatter `updated: null` inside a dict) are stripped from list-of-primitives (Neo4j rejects them too).
+3. **Cross-label MERGE hang** — an unlabeled `MATCH (s {id: r.start_id})` does an all-nodes scan (1.3M DbHits per edge lookup) because per-label indexes weren't used. Fixed by adding a shared `:PlanBugNode` label to every plan/bug node (via `SET x:PlanBugNode` in Phase 1) plus a supporting index `plan_bug_node_id` in `schema.cypher`. Phase 2's MERGE now uses `MATCH (s:PlanBugNode {id: ...})` which hits the index. Import time dropped from hanging/unbounded to 0.3s for 2386 edges.
+4. **FixSection vs Bug id collision** — both used `BUG-XX-NNN` as stable id. `MATCH (:PlanBugNode {id: "BUG-01-001"})` matched both nodes, multiplying FIXED_BY edges by 4× (2 starts × 2 ends per edge). Fixed by using FixSection's file stem (`fix-BUG-XX-NNN`) as its distinct stable id. Live import now matches envelope counts exactly.
+
+- [x] **Subsection close-out (02.2)** — MANDATORY before starting 02.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+
+**Follow-up tracked for §02.3 / later:**
+
+- `scripts/plan_corpus/export_json.py` is now 572 lines (over the 500-line limit from CLAUDE.md §File size). Extraction candidates: `_synth_bug_nodes` + `_synth_subsection_nodes_and_edges` into a sibling `export_synth.py`; `_normalize_property_value` + placeholder filter into `export_norm.py`. Defer until §02.3 adds more exporter surface so the split lands as one clean refactor rather than two consecutive edits.
 
 ---
 
