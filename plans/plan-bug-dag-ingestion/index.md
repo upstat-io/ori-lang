@@ -36,7 +36,7 @@ python -m scripts.plan_corpus export
 ---
 
 ### Section 02: Neo4j schema + importer + CodeReference bridge
-**File:** `section-02-neo4j-schema-importer.md` | **Status:** In Progress
+**File:** `section-02-neo4j-schema-importer.md` | **Status:** Complete
 
 ```
 Neo4j, schema.cypher, labels, uniqueness constraints, indexes
