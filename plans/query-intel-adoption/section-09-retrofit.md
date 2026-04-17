@@ -202,8 +202,7 @@ All four target sections are `status: not-started` at §09 land time. Meta-dogfo
   - [ ] `python -m scripts.plan_corpus discover` per-plan coverage report shows `4/4` recon-block coverage for the `not-started` slice of `plans/query-intel-adoption/` (the 4 `not-started` sections are §06, §07, §08, §09)
   - [ ] §01-§05 untouched: `git diff --stat plans/query-intel-adoption/section-0{1,2,3,4,5}-*.md` is empty
   - [ ] Update `09.2` status to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on 09.2** — did hand-writing four recon blocks surface a gap in the intel query scripts (e.g., missing `blast-radius` composite — addressed in §08, cross-link here)? Document findings.
-  - [ ] **Run `/sync-claude` on 09.2** — verify CLAUDE.md and rule files still match the final plan-corpus surface (status-gated severity, `retrofit-recon` subcommand, meta-dogfood scope).
+(status-gated severity, `retrofit-recon` subcommand, meta-dogfood scope).
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` → clean.
 
 ---
@@ -214,22 +213,3 @@ All four target sections are `status: not-started` at §09 land time. Meta-dogfo
 
 ---
 
-## 09.N Completion Checklist
-
-- [ ] All 09.1 close-out items complete (retrofit_recon.py + subcommand + matrix tests + complete-section silent-skip + --allow-reopen opt-in unlock + dry-run equivalence)
-- [ ] All 09.2 close-out items complete (§06/§07/§08/§09 recon blocks filled; §01-§05 untouched; discover coverage 4/4 on this plan's not-started slice)
-- [ ] `python -m scripts.plan_corpus discover` reports 100% recon-block **PRESENCE** for the `not-started` slice of every active plan corpus-wide (stubs count as "present" — this is the scaffolding goal, not the quality goal; see NOTE below)
-- [ ] `./test-all.sh` green (including new plan-audit tests)
-- [ ] `python -m scripts.plan_corpus check plans/` returns exit 0 (no Outcome.ERROR recon findings — stubs emit `Outcome.WARNING` which does not gate the exit code in default mode; only `--strict-recon` would escalate `not-started` stubs to `Outcome.ERROR`)
-
-  **NOTE — §09 is a scaffolding pass, not a quality gate.** `retrofit_recon.py` injects stub recon blocks so no section is silently missing reconnaissance infrastructure. A stub is classified by §06's validator as `GAP:VALIDATION_BYPASS` at `Severity.HIGH` / `Outcome.WARNING` (default) — it is printed but does NOT gate exit code. Stub elimination (filling stubs with real reconnaissance) happens organically as each section enters implementation via `/continue-roadmap`, which runs the §06 template and requires the author to fill the block before subsection close-out. The success criterion "100% PRESENCE" is explicitly the scaffolding goal; quality (stub vs. complete) is tracked per-section by `check`, not by this plan's §09.N gate.
-- [ ] **Plan sync**:
-  - [ ] Section frontmatter `status: not-started` → `complete`
-  - [ ] `00-overview.md` Mission Success Criteria §09 checkbox checked; Quick Reference §09 row → Complete
-  - [ ] `index.md` §09 status updated
-- [ ] **Stub burn-down tracking**: Each injected stub is filled organically during `/continue-roadmap` execution of its owning section (the `## Intelligence Reconnaissance` template in `plan-schema.md` instructs the implementer to run queries). No separate burn-down section needed — the scaffolding resolves itself per-section as each section enters implementation. Verify: after §09 completes, run `python -m scripts.plan_corpus check plans/ 2>&1 | grep VALIDATION_BYPASS | wc -l` and log the count as the burn-down baseline.
-- [ ] `/tpr-review` passed — clean dual-source pass (watch-items: status-gated severity gates correctly; `status: complete` sections are SILENTLY SKIPPED in bulk mode and only written when explicitly listed via `--allow-reopen`; `reviewed: true` on `not-started` sections is preserved unchanged; meta-dogfood did not touch §01-§05; no historical-fiction narratives in any recon block)
-- [ ] `/impl-hygiene-review` passed — verify `retrofit_recon.py` reuses `discovery.load_and_validate` (no parallel enumeration); verify the stub block shape is a single source of truth shared with §06.2's detector
-- [ ] `/improve-tooling` section-close sweep — cross-subsection patterns only
-- [ ] `/sync-claude` section-close doc sync
-- [ ] `diagnostics/repo-hygiene.sh --check` → clean

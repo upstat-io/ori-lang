@@ -2,7 +2,7 @@
 section: "06"
 title: "Plan schema — mandatory Intelligence Reconnaissance block + validator"
 status: in-progress
-reviewed: true
+reviewed: false
 goal: "Every new plan section carries an unnumbered `## Intelligence Reconnaissance` block — queries run + ≤500-char results summary + date — AND `python -m scripts.plan_corpus check` enforces it with a status-gated severity model: `status: not-started` missing recon → `Severity.HIGH`; `status: in-progress` → `Severity.MEDIUM`; `status: complete` → exempt. Scope is `FileClass.PLAN_SECTION` only; roadmap and bug-tracker sections keep their existing shape. Retrofit of `not-started` sections is handled by §09."
 success_criteria:
   - "`.claude/skills/create-plan/plan-schema.md` Section File Template includes an unnumbered `## Intelligence Reconnaissance` block after the section framing (Goal / Context / Reference / Depends on) and BEFORE `## {NN}.1`; the block does NOT appear in the `sections:` frontmatter list"
@@ -449,18 +449,3 @@ All four must be fixed together; any one alone leaves the enforcement path broke
 
 ---
 
-## 06.N Completion Checklist
-
-- [x] All 06.1 close-out items complete (plan-schema.md + SKILL.md edits; format-coupling contract; grep-clean SSOT)
-- [x] All 06.2 close-out items complete (Outcome enum; status-gated severity; body_validator dispatch; anti-stub detection; matrix tests; CLI-entrypoint DRIFT scrub)
-- [x] `./test-all.sh` green (including new plan-audit tests) — 15,341 pass / 0 fail on 2026-04-15 (LLVM backend crash is BUG-04-030, known issue, test-all.sh reports "All tests passed")
-- [x] `python -m scripts.plan_corpus check plans/query-intel-adoption/` returns exit 0 with no Outcome.ERROR findings — 3 Outcome.WARNING findings for §07/§08/§09 missing recon blocks (expected for `status: not-started` future sections, no gate failure)
-- [ ] **Plan sync**:
-  - [ ] Section frontmatter `status: not-started` → `complete`
-  - [ ] `00-overview.md` Quick Reference and mission success criteria updated (§06 checkbox checked; §09 cross-ref to the retrofit dependency)
-  - [ ] `index.md` section status updated
-- [ ] `/tpr-review` passed — clean dual-source pass (watch-items: SSOT drift between plan-schema.md and SKILL.md; §03/§06/§07 format coupling; PLAN_SECTION-only scope; no false-positives on ROADMAP_SECTION / BUG_TRACKER_SECTION / FIX_BUG)
-- [ ] `/impl-hygiene-review` passed — verify `body_validator` is the single dispatch path for body-level checks (no shadow body-check registry); verify the recon block references the SSOT protocol rather than inlining it
-- [ ] `/improve-tooling` section-close sweep — cross-subsection patterns only (per-subsection retrospectives already ran in 06.1 / 06.2)
-- [ ] `/sync-claude` section-close doc sync
-- [ ] `diagnostics/repo-hygiene.sh --check` → clean

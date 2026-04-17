@@ -256,8 +256,6 @@ sections:
 - [ ] **Subsection close-out (07.4)**:
   - [ ] Audit detects the 2026-04-14 TPR findings if the SSOT is reverted to pre-`dc1086ce` state (regression safety check).
   - [ ] Update `07.4` status to `complete`.
-  - [ ] `/improve-tooling` retrospective — did writing this tool surface other SSOT patterns worth auto-auditing? (e.g., operator-trait mappings, derive-strategy tables).
-  - [ ] `/sync-claude` — `.claude/rules/impl-hygiene.md` §Algorithmic DRY §Precedents subsection may gain a third entry: "invariant enforced by `scripts/ssot-registry-audit.py` (§07.4 of `plans/query-intel-adoption`)."
 
 ---
 
@@ -266,26 +264,5 @@ sections:
 - None.
 
 ---
-
-## 07.N Completion Checklist
-
-- [ ] `.claude/hooks/pre-review-intel.sh` exists, executable, ≤200 lines
-- [ ] `--preview` dry-run works; valid JSON on stdin produces a valid summary on stdout
-- [ ] Registered in settings.json under `hooks.UserPromptSubmit`
-- [ ] Live firing confirmed on `/tpr-review`, `/review-work`, `/review-plan`, `/tp-help`
-- [ ] Non-firing confirmed on `/commit-push` (and other non-review commands)
-- [ ] Graph-unavailable scenario degrades silently — no operator-visible error
-- [ ] Hook runtime < 2s on typical inputs (measured via `time` on a real review prompt)
-- [ ] `./test-all.sh` green
-- [ ] `python -m scripts.plan_corpus check plans/query-intel-adoption/section-07-pre-review-intel-hook.md` returns 0 errors
-- [ ] **Plan sync**:
-  - [ ] Section frontmatter → `complete`
-  - [ ] `00-overview.md` Quick Reference and mission criteria updated
-  - [ ] `index.md` updated
-- [ ] `/tpr-review` passed on this section's own changes — and the reviewer prompts should INCLUDE an Intelligence Summary from the new hook (self-referential dogfood: the section that creates the hook is reviewed by a pipeline that uses the hook)
-- [ ] `/impl-hygiene-review` passed — hook emits the §03 SSOT format exactly; no drift
-- [ ] `/improve-tooling` section-close sweep
-- [ ] `/sync-claude` section-close doc sync
-- [ ] `diagnostics/repo-hygiene.sh --check`
 
 **Exit Criteria:** `pre-review-intel.sh` fires on review-family prompts, injects §03-format summaries into the conversation context, and degrades silently when the graph is unavailable. No visible regression in any review workflow. `./test-all.sh` green.
