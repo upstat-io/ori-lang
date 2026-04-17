@@ -41,6 +41,9 @@ sections:
   - id: "01.6"
     title: "Fixture-corpus round-trip test"
     status: complete
+  - id: "01.7"
+    title: "Referentially-closed envelope: Bug+Subsection nodes, label fix, placeholder filter"
+    status: complete
   - id: "01.N"
     title: "Completion Checklist"
     status: complete
@@ -664,6 +667,55 @@ def test_export_same_corpus_twice_produces_identical_json(tmp_path):
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+
+---
+
+## 01.7 Referentially-closed envelope: Bug + Subsection nodes, label fix, placeholder filter
+
+**File(s):** `scripts/plan_corpus/export_json.py`, `tests/plan-audit/test_export_json.py`
+
+**Scope addition discovered during §02.2 wire-up (2026-04-17):** a full-corpus export revealed four gaps that make the envelope referentially non-closed — edges point at IDs with no corresponding nodes, and one node label drifts from the §02 schema. Rather than make §02's importer tolerant of §01's gaps (which would scatter DAG knowledge into §02, violating `impl-hygiene.md §SSOT`), §01 is reopened to fix the envelope at its source per CLAUDE.md §The One Rule.
+
+**Gaps addressed:**
+1. **No `:Bug` nodes emitted.** `parse_bug_entries()` yields full bug metadata (bug_id, title, severity, status, subsystem, source_file, lineno, excluded_reason, repro), but `export_json.py` only emits `HAS_BUG` edges with `{status, severity, lineno}` on the edge — no Bug nodes. Result: 112 dangling `HAS_BUG.end_id` references in the real corpus export.
+2. **No `:Subsection` nodes emitted.** `PlanSectionSchema` and `FixBugSchema` both have a `sections:` frontmatter list defining subsections, but the exporter's `_EXCLUDED_FRONTMATTER_KEYS` explicitly drops `sections` and never synthesizes Subsection nodes or `HAS_SUBSECTION` edges. Result: `BLOCKED_BY`/`DEPENDS_ON` edges that target subsection IDs like `"02.6"` or `"03.2"` have no matching node.
+3. **Label mismatch.** `_NODE_LABEL` maps `NodeKind.COMPLETED_INDEX → "CompletedPlan"`, but §02's schema uses `:CompletedIndex`. Either direction is fine; the schema's choice wins (matches the `NodeKind` name). Rename to `"CompletedIndex"`.
+4. **Template-placeholder edge targets.** Unfilled template tokens — `<source-ref>`, `<target-ref>`, literal `ID`, `...`, `resolves=<target-ref>` — leak into `rel.end_id` as dangling strings. The exporter should filter these.
+
+**Success criteria:**
+- [x] `export_json.py` emits one `:Bug` node per `BugEntry` with properties `{bug_id, title, severity, severity_raw, status, subsystem, source_file, lineno, excluded_reason, repro, repo}`; `None`-valued fields omitted per existing `_normalize_property_value` rule.
+- [x] `export_json.py` emits one `:Subsection` node per subsection entry in a `PlanSection` or `FixSection` `sections:` frontmatter list, with stable id `<section-path>#<subsection-id>` and properties `{title, status}`.
+- [x] `HAS_SUBSECTION` edges from the containing `PlanSection`/`FixSection` to each of its `Subsection` nodes, with `properties: {"structural": true}`.
+- [x] `_NODE_LABEL[NodeKind.COMPLETED_INDEX] == "CompletedIndex"` (was `"CompletedPlan"`).
+- [x] Template-placeholder edge targets are filtered: edges whose `end_id` matches `_PLACEHOLDER_TARGETS` (exact set of tokens) OR contains angle brackets are dropped from the envelope.
+- [x] Matrix tests added — `test_export_emits_bug_nodes_with_full_metadata`, `test_export_emits_subsection_nodes_and_has_subsection_edges`, `test_export_uses_completed_index_label` (negative pin on `CompletedPlan` absence), `test_export_filters_placeholder_edge_targets`. Each is a semantic pin with a matching negative assertion.
+- [x] Full-corpus export is referentially closed on the structural edge types: `HAS_SECTION`, `HAS_OVERVIEW`, `HAS_BUG`, `HAS_SUBSECTION`, `FIXED_BY` each point at nodes that exist in the envelope's `nodes` list. (Verified via `diff <(jq -r '.nodes[].id' envelope.json | sort) <(jq -r '.relationships[] | select(.type | IN("HAS_BUG","HAS_SUBSECTION","HAS_SECTION","HAS_OVERVIEW","FIXED_BY")) | .end_id' envelope.json | sort -u)` returning every containment target present.) `DEPENDS_ON`/`BLOCKED_BY`/`REFERENCES`/`UNBLOCKS`/`SUPERSEDES` may still contain non-node targets — those are provenance-tagged references handled by §02's importer.
+- [x] `pytest tests/plan-audit/test_export_json.py -v` green (existing 5 tests still pass + 4 new matrix tests — 9 total).
+- [x] `python -m scripts.plan_corpus export` on the full corpus produces an envelope (1926 nodes, 2386 relationships) with zero dangling `HAS_BUG.end_id` / `HAS_SUBSECTION.end_id` / `FIXED_BY.start_id`.
+
+**Invariant-anchoring:** The system invariant §01.7 enforces is *envelope referential closure on containment edges*. Its downstream consumer is §02.2's importer — a closed envelope means Phase 2's `MATCH (s {id: r.start_id}), (t {id: r.end_id})` succeeds for every containment edge. A Classification B blocker during §02.2 testing (importer silently drops HAS_BUG because end_id has no matching node) was the discovery that §01's exporter fails this invariant. Per CLAUDE.md §Stabilization Discipline the fix is in §01 (the DAG SSOT), not in §02 (a thin projection).
+
+**Banned resolutions** (any of these = Inverted TDD / SSOT violation):
+- Making §02 create Bug nodes from `HAS_BUG` edge properties (§02 would duplicate `parse_bug_entries` logic).
+- Suppressing the referential-closure invariant by skipping HAS_BUG/HAS_SUBSECTION edges with unresolved targets (losing the edge = losing the fact).
+- Putting the `CompletedPlan` alias into §02's importer (§02 should consume canonical labels).
+
+### Tasks
+
+- [x] Extend `_structural_relationships` (or a new `_synth_bug_nodes` / `_synth_subsection_nodes` pair) to:
+  - [x] Emit Bug nodes from `parse_bug_entries(section_text, section_path.name)` on every `corpus.bug_sections` entry. Node `id = bug_entry.bug_id`, label `["Bug"]`, properties derived from the `BugEntry` dataclass (exclude `body_text` and `body_lines` — too large and not queryable).
+  - [x] Emit Subsection nodes from each `PlanSectionSchema.sections` list and each `FixBugSchema.sections` list. Node id `<section-path>#<sub.id>`, label `["Subsection"]`, properties `{title, status}` from the dict.
+  - [x] Emit `HAS_SUBSECTION` structural edges from the parent section to each Subsection.
+- [x] Rename `_NODE_LABEL[NodeKind.COMPLETED_INDEX]` from `"CompletedPlan"` to `"CompletedIndex"`.
+- [x] Add `_PLACEHOLDER_TARGETS: frozenset[str]` containing at minimum `{"<source-ref>", "<target-ref>", "ID", "...", "resolves=<target-ref>"}`. Added `_is_placeholder_target(end_id)` helper — True if string is in set OR contains both `<` and `>`. Filter applied at end of `export_neo4j_json` before `rels.sort`.
+- [x] Add tests to `tests/plan-audit/test_export_json.py` (4 new test classes, all green).
+- [x] Run existing test suite to verify no regression: `pytest tests/plan-audit/test_export_json.py tests/plan-audit/test_dag.py -v` → 37 passed.
+- [x] Run full-corpus export: `python -m scripts.plan_corpus export --output /tmp/envelope2.json`; verified zero dangling HAS_BUG / HAS_SUBSECTION / FIXED_BY end_ids — all containment edges closed.
+
+- [x] **Subsection close-out (01.7)** — MANDATORY before flipping §01 back to complete:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`; clean any temp files.
 
 ---
 

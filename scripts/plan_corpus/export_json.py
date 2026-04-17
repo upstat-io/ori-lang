@@ -46,8 +46,34 @@ _NODE_LABEL: dict[NodeKind, str] = {
     NodeKind.OVERVIEW:            "Overview",
     NodeKind.BUG_TRACKER_SECTION: "BugTrackerSection",
     NodeKind.FIX_BUG:             "FixSection",
-    NodeKind.COMPLETED_INDEX:     "CompletedPlan",
+    NodeKind.COMPLETED_INDEX:     "CompletedIndex",
 }
+
+
+# Template placeholder tokens that leak into edge end_ids when plan authors
+# fill out `<!-- blocked-by:<target-ref> -->` scaffolds without replacing the
+# placeholder. Emitted edges pointing at these become permanently-dangling
+# references in Neo4j; filter them at export time so §02's importer does not
+# have to carry the filter list.
+_PLACEHOLDER_TARGETS: frozenset[str] = frozenset({
+    "<source-ref>",
+    "<target-ref>",
+    "ID",
+    "...",
+    "resolves=<target-ref>",
+})
+
+
+def _is_placeholder_target(end_id: str) -> bool:
+    """Return True if `end_id` is an unfilled template placeholder, not a
+    real node reference. Matches the exact `_PLACEHOLDER_TARGETS` tokens OR
+    any string containing an angle-bracket fragment (the unfilled-scaffold
+    signature)."""
+    if end_id in _PLACEHOLDER_TARGETS:
+        return True
+    if "<" in end_id and ">" in end_id:
+        return True
+    return False
 
 
 def _node_label(node_kind: NodeKind) -> str:
@@ -290,6 +316,98 @@ def _structural_relationships(corpus, node_id_map: dict[NodeId, str]) -> list[di
 
 
 # ---------------------------------------------------------------------------
+# Synthetic nodes — Bug entries and Subsections
+# ---------------------------------------------------------------------------
+
+
+# BugEntry fields that should NEVER land in Neo4j — body_text and body_lines
+# carry full entry markdown (kilobytes each) and are not query-shaped.
+_BUG_EXCLUDED_FIELDS: frozenset[str] = frozenset({"body_text", "body_lines"})
+
+
+def _synth_bug_nodes(corpus) -> list[dict]:
+    """Emit one :Bug node per BugEntry found in every bug-tracker section.
+
+    Closes the dangling-end_id gap for HAS_BUG / FIXED_BY edges. `BugEntry`
+    is the SSOT for bug metadata (bug_markers.parse_bug_entries); this
+    function is a pure projection of its dataclass fields into node
+    properties, so any future schema change (new field on BugEntry)
+    propagates without editing this module.
+    """
+    nodes: list[dict] = []
+    for section_path in sorted(corpus.bug_sections.keys()):
+        try:
+            text = section_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for entry in parse_bug_entries(text, section_path.name):
+            props: dict = {"repo": "ori"}
+            for field_name, field_value in entry.__dict__.items():
+                if field_name in _BUG_EXCLUDED_FIELDS:
+                    continue
+                nv = _normalize_property_value(field_value)
+                if nv is None:
+                    continue
+                props[field_name] = nv
+            nodes.append({
+                "id": entry.bug_id,
+                "labels": ["Bug"],
+                "properties": props,
+            })
+    return nodes
+
+
+def _synth_subsection_nodes_and_edges(
+    corpus, node_id_map: dict[NodeId, str]
+) -> tuple[list[dict], list[dict]]:
+    """Emit :Subsection nodes from every section's `sections:` frontmatter
+    list and HAS_SUBSECTION edges linking the parent section to each one.
+
+    Stable id: `<parent-section-path>#<subsection-id>`. Both PlanSection
+    and FixBug section frontmatter can carry `sections:`; both are
+    handled here so the envelope covers every subsection node
+    referenced by BLOCKED_BY / DEPENDS_ON edges (where authors target a
+    subsection via its section-id alone)."""
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+    def _process(bucket, parent_kind: NodeKind) -> None:
+        for parent_path in sorted(bucket.keys()):
+            data = bucket[parent_path]
+            subs = data.get("sections") or []
+            parent_stable = node_id_map.get(NodeId(parent_kind, parent_path))
+            if not parent_stable or not isinstance(subs, list):
+                continue
+            for sub in subs:
+                if not isinstance(sub, dict):
+                    continue
+                sub_id = sub.get("id")
+                if not isinstance(sub_id, str) or not sub_id:
+                    continue
+                stable = f"{_rel_path(parent_path)}#{sub_id}"
+                props: dict = {"subsection_id": sub_id}
+                for key in ("title", "status"):
+                    val = sub.get(key)
+                    if isinstance(val, str) and val:
+                        props[key] = val
+                nodes.append({
+                    "id": stable,
+                    "labels": ["Subsection"],
+                    "properties": props,
+                })
+                edges.append({
+                    "type": "HAS_SUBSECTION",
+                    "start_id": parent_stable,
+                    "end_id": stable,
+                    "properties": {"structural": True},
+                })
+
+    _process(corpus.plan_sections, NodeKind.PLAN_SECTION)
+    _process(corpus.fix_bug_files, NodeKind.FIX_BUG)
+    return nodes, edges
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -340,6 +458,13 @@ def export_neo4j_json(
             "labels": [_node_label(node.kind)],
             "properties": _node_properties(node, corpus),
         })
+
+    # Synthetic nodes — Bug entries and Subsections (not in dag.nodes
+    # because they aren't file-based; DAG SSOT stays file-node-shaped).
+    nodes.extend(_synth_bug_nodes(corpus))
+    sub_nodes, sub_edges = _synth_subsection_nodes_and_edges(corpus, node_id_map)
+    nodes.extend(sub_nodes)
+
     nodes.sort(key=lambda n: n["id"])
 
     # Relationships — three sources: dag.edges, dag.references (optional),
@@ -404,6 +529,11 @@ def export_neo4j_json(
             })
 
     rels.extend(_structural_relationships(corpus, node_id_map))
+    rels.extend(sub_edges)
+    # Filter edges whose target is an unfilled template placeholder.
+    # These are authored-scaffold leaks (`<source-ref>`, `ID`, `...`), not
+    # real node references, and cannot be MERGEd against anything.
+    rels = [r for r in rels if not _is_placeholder_target(r["end_id"])]
     rels.sort(key=lambda r: (r["start_id"], r["type"], r["end_id"]))
 
     return {
