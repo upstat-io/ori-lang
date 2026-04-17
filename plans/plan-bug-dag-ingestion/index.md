@@ -54,7 +54,7 @@ tests/test_import_plan_bug_graph.py, in-memory mock driver
 ---
 
 ### Section 03: Commit-triggered sync wiring
-**File:** `section-03-sync-wiring.md` | **Status:** Not Started
+**File:** `section-03-sync-wiring.md` | **Status:** Complete
 
 ```
 sync_plan_bug_graph.py, sync-plan-bug-graph.sh, lefthook.yml
