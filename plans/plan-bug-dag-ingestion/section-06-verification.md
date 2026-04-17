@@ -29,7 +29,7 @@ sections:
     status: complete
   - id: "06.2"
     title: "Full vs stub-incremental round-trip equivalence"
-    status: not-started
+    status: complete
   - id: "06.3"
     title: "Graceful degradation script + run"
     status: not-started
@@ -234,26 +234,44 @@ This subsection creates a test harness that proves the invariant: `sync-plan-bug
 
 ### Tasks
 
-- [ ] Write `~/projects/lang_intelligence/tests/test_plan_bug_full_vs_incremental.sh` with the procedure above, including the Cypher dump template and `diff` assertion.
-- [ ] Add a `--help` flag to the script documenting environment variables (`NEO4J_USER`, `NEO4J_PASS`, `NEO4J_URI`).
-- [ ] Run the test on a live dev Neo4j instance and record the result (pass/fail + node count + edge count) in this subsection after the task checklist.
-- [ ] Commit the test script: `/commit-push` with `test(lang-intelligence): add full vs incremental graph equivalence test — §06.2`.
-- [ ] Verify the test is runnable from CI (no interactive prompts, uses env vars for credentials, exits non-zero on failure).
+- [x] Write `~/projects/lang_intelligence/tests/test_plan_bug_full_vs_incremental.sh` with the procedure above, including the Cypher dump template and `diff` assertion.
+- [x] Add a `--help` flag to the script documenting environment variables (`NEO4J_USER`, `NEO4J_PASS`, `NEO4J_URI`, `ORI_LANG_ROOT`).
+- [x] Run the test on a live dev Neo4j instance and record the result (pass/fail + node count + edge count) in this subsection after the task checklist.
+- [x] Commit the test script: `/commit-push` with `test(lang-intelligence): add full vs incremental graph equivalence test — §06.2`.
+- [x] Verify the test is runnable from CI (no interactive prompts, uses env vars for credentials, exits non-zero on failure).
 
-**Recorded results (fill in after running):**
+**Recorded results:**
 
-- Run date: ___
-- Corpus state: ___ plans, ___ sections, ___ bugs, ___ fix-sections
-- Full rebuild node count: ___
-- Full rebuild edge count: ___
-- `diff` exit code: ___
-- Result: PASS / FAIL
+- Run date: 2026-04-17
+- Corpus state (from importer log): 1929 nodes, 2389 structural relationships, 6385 CodeReference mentions (1714 resolved / 4671 unresolved / 355 ambiguous)
+- Full rebuild dump row counts (TSV lines, includes header + footer per cypher dump): 9651 node rows, 50964 edge rows
+- `diff` exit code: 0 for all 4 comparisons (full#1==full#2 nodes, full#1==full#2 edges, full==incremental nodes, full==incremental edges)
+- Result: **PASS** — 5/5 checks (determinism×2, equivalence×2, sanity×1)
+
+**Test design note — provenance-metadata exclusion:**
+
+The test strips `first_imported_at` and `last_imported_at` properties from
+the dump before diffing. The importer sets these via `ON CREATE SET` /
+`ON MATCH SET` to track *when* a node was first seen / last touched, not
+*what* it contains. After a DETACH-DELETE + full rebuild every node is
+"first" again, so these timestamps legitimately differ across rebuild
+cycles. They are import provenance metadata, not graph state. Excluding
+them scopes the test to the structural equivalence invariant (which is
+§06.2's actual target). The exclusion is documented in the script's
+`strip_provenance` function.
+
+**Discovered at first run (2026-04-17):** initial dump without
+`strip_provenance` failed the full#1==full#2 determinism check because
+every node's `first_imported_at` was ~15s apart between the two --full
+invocations. Added `strip_provenance`; both the determinism and the
+full-vs-incremental checks then passed. No importer change required —
+the timestamps are architecturally correct for their stated purpose.
 
 ### 06.2 Subsection Close-out
 
-- [ ] All tasks above are `[x]` and the test passes on live dev Neo4j
-- [ ] Update this subsection's `status` in section frontmatter to `complete`
-- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+- [x] All tasks above are `[x]` and the test passes on live dev Neo4j
+- [x] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
 
 ---
 
