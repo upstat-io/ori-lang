@@ -34,7 +34,7 @@ sections:
     status: complete
   - id: "02.4"
     title: "Importer unit tests with in-memory mock driver"
-    status: not-started
+    status: complete
   - id: "02.N"
     title: "Completion Checklist"
     status: not-started
@@ -681,9 +681,12 @@ This subsection delivers the unit test file for `import_plan_bug_graph.py`. The 
 **Recommended test invocation:**
 
 ```bash
-# From /tmp or any directory outside lang_intelligence to avoid the shadow:
-cd /tmp && python3 -m pytest ~/projects/lang_intelligence/tests/test_import_plan_bug_graph.py -v
-# Or via the project's test runner if it handles this automatically.
+# From /tmp or any directory outside lang_intelligence to avoid the shadow.
+# MUST use the lang_intelligence venv python — the system python3 has no
+# `neo4j` driver, so the module-load guard triggers a silent "all skipped"
+# outcome instead of real test execution.
+cd /tmp && ~/projects/lang_intelligence/.venv/bin/python \
+    -m pytest ~/projects/lang_intelligence/tests/test_import_plan_bug_graph.py -v
 ```
 
 ### Test matrix
@@ -786,17 +789,18 @@ Fixture envelope with one each of HAS_SECTION, HAS_SUBSECTION, HAS_BUG, FIXED_BY
 
 ### Task breakdown
 
-- [ ] Create `~/projects/lang_intelligence/tests/test_import_plan_bug_graph.py` with:
-  - [ ] `_import_module()` with `importlib.util.spec_from_file_location` workaround (exact pattern from `test_import_code_graph.py:21-47`)
-  - [ ] `_skip_if_no_module()` guard
-  - [ ] All tests listed in the matrix above (node label dimensions + edge type dimensions)
-- [ ] All tests pass: `cd /tmp && python3 -m pytest ~/projects/lang_intelligence/tests/test_import_plan_bug_graph.py -v`
-- [ ] No regression in `test_import_code_graph.py`: `cd /tmp && python3 -m pytest ~/projects/lang_intelligence/tests/test_import_code_graph.py -v`
+- [x] Create `~/projects/lang_intelligence/tests/test_import_plan_bug_graph.py` with:
+  - [x] `_import_module()` with `importlib.util.spec_from_file_location` workaround (exact pattern from `test_import_code_graph.py:21-47`)
+  - [x] `_skip_if_no_module()` guard (with explicit message noting venv requirement)
+  - [x] All tests listed in the matrix above (9 node label dimensions + 15 edge type dimensions via `@pytest.mark.parametrize` over `_mod.KNOWN_LABELS` / `_mod.KNOWN_REL_TYPES` — matrix tracks the code, not a stale table)
+  - [x] MagicMock driver (`_DriverMock`) that captures Cypher via `execute_write` and serves `session.run` reads from a fragment → rows map
+- [x] All tests pass: `cd /tmp && ~/projects/lang_intelligence/.venv/bin/python -m pytest ~/projects/lang_intelligence/tests/test_import_plan_bug_graph.py -v` (63 passed — system `python3` silently skips all, use the venv)
+- [x] No regression in `test_import_code_graph.py`: `cd /tmp && ~/projects/lang_intelligence/.venv/bin/python -m pytest ~/projects/lang_intelligence/tests/test_import_code_graph.py -v` (10 passed)
 
-- [ ] **Subsection close-out (02.4)** — MANDATORY before starting 02.R:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+- [x] **Subsection close-out (02.4)** — MANDATORY before starting 02.N:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified (63 passed locally via venv python; 10/10 on the existing `test_import_code_graph.py` — zero regression)
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
 
 ---
 
@@ -816,7 +820,7 @@ Fixture envelope with one each of HAS_SECTION, HAS_SUBSECTION, HAS_BUG, FIXED_BY
 - [ ] `python ~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py --input <fixture> --dry-run` prints expected operation plan without writes
 - [ ] End-to-end smoke: `python -m scripts.plan_corpus export plans/plan-bug-dag-ingestion/ | python ~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py --input -` succeeds without error
 - [ ] `scripts/intel-query.sh cypher "MATCH (p:PlanSection)-[:MENTIONS_CODE]->(cr)-[:RESOLVES_TO]->(s:Symbol) RETURN count(DISTINCT s) > 0"` returns true after the smoke import
-- [ ] `cd /tmp && python3 -m pytest ~/projects/lang_intelligence/tests/test_import_code_graph.py -v` green (no regression)
+- [ ] `cd /tmp && ~/projects/lang_intelligence/.venv/bin/python -m pytest ~/projects/lang_intelligence/tests/test_import_code_graph.py -v` green (no regression)
 - [ ] **Plan sync** — update plan metadata to reflect this section's completion:
   - [ ] This section's frontmatter `status` → `complete`, all subsection statuses → `complete`
   - [ ] `00-overview.md` Quick Reference table: Section 02 status → `Complete`
