@@ -490,6 +490,28 @@ impl Pool {
         current
     }
 
+    // === Variable Lookup ===
+
+    /// Find the pool [`Idx`] for a `Tag::Var` item whose `data` (`var_id`)
+    /// matches `var_id`, or `None` if no such entry exists.
+    ///
+    /// This is the canonical reverse lookup from a `var_id` (the key into
+    /// `var_states`) to the pool `Idx` that carries it. Consumers that
+    /// need to map a `var_id` back to a pool handle — e.g., for
+    /// `resolve_fully` on a scheme var's equivalence-class root —
+    /// MUST use this method rather than open-coding a `FIRST_DYNAMIC..len`
+    /// scan (`impl-hygiene.md §Algorithmic DRY`).
+    ///
+    /// Cost: `O(pool_len)` linear scan. This is acceptable because the
+    /// method is called `O(scheme_var_count)` times per body validation,
+    /// and `scheme_var_count` is typically 1–4.
+    pub fn var_idx_for_id(&self, var_id: u32) -> Option<Idx> {
+        let pool_len = u32::try_from(self.items.len()).unwrap_or(u32::MAX);
+        (Idx::FIRST_DYNAMIC..pool_len)
+            .map(Idx::from_raw)
+            .find(|&idx| self.tag(idx) == Tag::Var && self.data(idx) == var_id)
+    }
+
     // === Struct Accessors ===
 
     /// Get the name of a struct type.

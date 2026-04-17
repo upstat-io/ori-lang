@@ -43,7 +43,7 @@
 //!   schemes wrapping unbound-var bodies would be skipped by the top-level
 //!   gate (`types.md §TF-5`).
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_ir::Span;
 
@@ -97,6 +97,15 @@ use crate::{ExprIndex, Idx, Pool, TypeCheckError, TypeFlags};
 /// - `sig_span` — the function-declaration span used for signature
 ///   diagnostics (caller-supplied because [`FunctionSig`] itself carries
 ///   span-free [`Idx`] values).
+/// - `scheme_var_ids` — the caller function's scheme-quantified var ids
+///   (from [`FunctionSig::scheme_var_ids`]). For generic functions these
+///   are the `var_id`s that LEGITIMATELY remain `VarState::Unbound` after
+///   body inference — they represent polymorphic type parameters, not
+///   inference failures. The validator builds an **exempt root set** from
+///   these ids: each scheme var's union-find root is resolved and added
+///   to the set so that fresh instantiation vars (which may have become
+///   roots due to rank-weighted union-find direction) are also exempted.
+///   Pass `&[]` for monomorphic functions.
 /// - `span_of` — function mapping an [`ExprIndex`] to the source [`Span`]
 ///   for body diagnostic attribution.
 /// - `errors` — mutable accumulator; new [`TypeCheckError`] values are
@@ -113,15 +122,23 @@ pub fn validate_body_types(
     expr_types: &FxHashMap<ExprIndex, Idx>,
     sig: &FunctionSig,
     sig_span: Span,
+    scheme_var_ids: &[u32],
     span_of: &dyn Fn(ExprIndex) -> Span,
     errors: &mut Vec<TypeCheckError>,
 ) {
+    // Build the exempt root set: scheme var ids + their union-find roots.
+    // This allows the validator to distinguish "unbound because it's a
+    // generic parameter" from "unbound because inference genuinely failed"
+    // even when union-find made a fresh instantiation var the root
+    // (BUG-02-008).
+    let exempt = build_exempt_var_ids(pool, scheme_var_ids);
+
     // 1. Signature positions first (declaration order):
     //    param_types[0..N], then return_type.
     for param_ty in &sig.param_types {
-        collect_first_unbound_var(pool, *param_ty, sig_span, errors);
+        collect_first_unbound_var(pool, *param_ty, sig_span, &exempt, errors);
     }
-    collect_first_unbound_var(pool, sig.return_type, sig_span, errors);
+    collect_first_unbound_var(pool, sig.return_type, sig_span, &exempt, errors);
 
     // 2. Body expressions in ascending ExprIndex order.
     //    FxHashMap iteration is non-deterministic; sort once
@@ -130,8 +147,30 @@ pub fn validate_body_types(
     entries.sort_unstable_by_key(|(idx, _)| *idx);
 
     for (expr_idx, ty) in entries {
-        collect_first_unbound_var(pool, ty, span_of(expr_idx), errors);
+        collect_first_unbound_var(pool, ty, span_of(expr_idx), &exempt, errors);
     }
+}
+
+/// Build the set of `var_id`s that are legitimate scheme-parameter vars
+/// or their union-find equivalence-class roots. Any `VarState::Unbound`
+/// var whose `var_id` is in this set is a polymorphic type parameter, not
+/// an inference failure.
+///
+/// Uses [`Pool::var_idx_for_id`] (the canonical `var_id` → Idx helper)
+/// to avoid duplicating the linear-scan pattern from monomorphization
+/// (`impl-hygiene.md §Algorithmic DRY`).
+fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
+    let mut exempt = FxHashSet::default();
+    exempt.extend(scheme_var_ids.iter().copied());
+    for &sv_id in scheme_var_ids {
+        if let Some(sv_idx) = pool.var_idx_for_id(sv_id) {
+            let root = pool.resolve_fully(sv_idx);
+            if pool.tag(root) == Tag::Var {
+                exempt.insert(pool.data(root));
+            }
+        }
+    }
+    exempt
 }
 
 /// Recursively walk the type tree rooted at `ty`, emitting one `E2005` at
@@ -151,6 +190,7 @@ fn collect_first_unbound_var(
     pool: &Pool,
     ty: Idx,
     span: Span,
+    exempt: &FxHashSet<u32>,
     errors: &mut Vec<TypeCheckError>,
 ) -> bool {
     // Gate order: resolve_fully → HAS_ERROR → HAS_VAR.
@@ -193,6 +233,15 @@ fn collect_first_unbound_var(
             let var_id = pool.data(ty); // Tag::Var: data IS the var_id
             match pool.var_state(var_id) {
                 VarState::Unbound { .. } => {
+                    // Scheme-var exemption (BUG-02-008): if this unbound
+                    // `var_id` is in the exempt root set — either a scheme
+                    // var itself or a fresh instantiation var that became
+                    // the union-find root of a scheme var's equivalence
+                    // class — it is a legitimate polymorphic parameter,
+                    // not an inference failure.
+                    if exempt.contains(&var_id) {
+                        return false;
+                    }
                     errors.push(TypeCheckError::ambiguous_type(
                         span,
                         var_id,
@@ -202,7 +251,9 @@ fn collect_first_unbound_var(
                 }
                 // Resolved via link — resolve_fully above should have
                 // removed these, but guard defensively.
-                VarState::Link { target } => collect_first_unbound_var(pool, *target, span, errors),
+                VarState::Link { target } => {
+                    collect_first_unbound_var(pool, *target, span, exempt, errors)
+                }
                 // The current pool stores generalized vars as
                 // Tag::Var(VarState::Generalized), NOT as Tag::BoundVar
                 // (diverges from types.md §SC-1 which says BoundVar).
@@ -238,7 +289,7 @@ fn collect_first_unbound_var(
                     // Dedup: one diagnostic per top-level span.
                     return;
                 }
-                if collect_first_unbound_var(pool, child, span, errors) {
+                if collect_first_unbound_var(pool, child, span, exempt, errors) {
                     emitted = true;
                 }
             });

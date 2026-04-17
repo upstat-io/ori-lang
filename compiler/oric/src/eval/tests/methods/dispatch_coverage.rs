@@ -8,7 +8,6 @@
 use std::collections::BTreeMap;
 
 use ori_eval::{RangeValue, Value};
-use ori_patterns::EvalErrorKind;
 use ori_registry::{TypeTag, BUILTIN_TYPES};
 
 /// Construct the simplest possible `Value` for a `TypeTag`.
@@ -48,11 +47,16 @@ pub(super) fn minimal_value_for(tag: TypeTag) -> Option<Value> {
 /// by the evaluator without producing `UndefinedMethod`.
 ///
 /// This test does NOT verify correct behavior — only that the dispatch chain
-/// routes to a handler. Argument errors (wrong count, wrong type) are acceptable;
-/// `UndefinedMethod` is not.
+/// routes to a handler. Uses `can_dispatch_builtin` which checks BOTH resolver
+/// paths:
+/// - `CollectionMethodResolver` (priority 1): closure-taking methods (fold,
+///   map, filter, etc.) dispatched via `is_collection_dispatched()`
+/// - `BuiltinMethodResolver` (priority 2): primitive type methods dispatched
+///   via `dispatch_builtin_method_str`
 ///
-/// Types without a `Value` representation (Channel, Iterator, DEI) are skipped
-/// — their methods are dispatched by specialized resolvers, not the builtin path.
+/// `TypeTag::Channel` is excluded: Channel methods require live channel
+/// objects (concurrency primitives) that cannot be constructed as minimal
+/// values and are not yet implemented in the tree-walking interpreter.
 #[test]
 fn every_registry_method_has_eval_dispatch_handler() {
     let interner = super::test_interner();
@@ -60,31 +64,14 @@ fn every_registry_method_has_eval_dispatch_handler() {
     let mut missing = Vec::new();
 
     for type_def in BUILTIN_TYPES {
-        let Some(receiver) = minimal_value_for(type_def.tag) else {
-            // Skip types without Value representation (Channel, Iterator, etc.)
+        // Channel methods require live channel objects — not dispatchable
+        // via the builtin/collection resolver paths. Excluded intentionally.
+        if type_def.tag == TypeTag::Channel {
             continue;
-        };
+        }
 
         for method in type_def.methods {
-            let result = ori_eval::dispatch_builtin_method_str(
-                receiver.clone(),
-                method.name,
-                vec![],
-                &interner,
-            );
-
-            let is_undefined = match &result {
-                Err(action) => {
-                    if let ori_patterns::ControlAction::Error(e) = action {
-                        matches!(e.kind, EvalErrorKind::UndefinedMethod { .. })
-                    } else {
-                        false
-                    }
-                }
-                Ok(_) => false,
-            };
-
-            if is_undefined {
+            if !ori_eval::can_dispatch_builtin(type_def.tag, method.name, &interner) {
                 missing.push(format!("{}.{}", type_def.name, method.name));
             }
         }
