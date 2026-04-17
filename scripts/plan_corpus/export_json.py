@@ -34,6 +34,17 @@ from .dag import Dag, NodeId, NodeKind
 
 SCHEMA_VERSION = "1.0"
 
+# First-N-chars body slice carried on each file-backed node for §02.3's
+# inferred-mention backtick scanner. 4 KiB holds the first ~800 lines of
+# typical plan markdown — enough to cover the declarations block of every
+# plan section without bloating the envelope. Scanners that want full
+# coverage read the file off-envelope via the node's `path` property.
+BODY_PREVIEW_LIMIT = 4096
+
+# Strip a leading YAML frontmatter block (if present) before taking the
+# preview slice. Matches `^---\n...\n---\n` at document start only.
+_FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+
 
 # ---------------------------------------------------------------------------
 # Node label + stable-ID tables
@@ -224,10 +235,32 @@ def _data_for_node(node: NodeId, corpus) -> dict:
     return bucket_by_kind.get(node.kind, {}).get(node.path, {}) or {}
 
 
+def _body_preview(path: Path) -> str | None:
+    """Read the file at `path`, strip a leading YAML frontmatter block,
+    and return the first BODY_PREVIEW_LIMIT characters of the remainder.
+
+    Returned string feeds §02.3's inferred-mention backtick scanner in
+    `import_plan_bug_graph.py`. Bounded slice keeps the envelope small
+    while covering the dense front-of-section declarations where most
+    backtick references live. Readers that need full coverage open the
+    file off-envelope via the node's `path` property.
+
+    Returns None on missing file, unreadable bytes, or empty body.
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    stripped = _FRONTMATTER_RE.sub("", text, count=1).lstrip()
+    if not stripped:
+        return None
+    return stripped[:BODY_PREVIEW_LIMIT]
+
+
 def _node_properties(node: NodeId, corpus) -> dict:
     """Materialize the property dict for a node — normalized frontmatter
-    plus structural extras (`path`, `repo`, `touches_raw`). Omits
-    properties whose value is None after normalization."""
+    plus structural extras (`path`, `repo`, `touches_raw`, `body_preview`).
+    Omits properties whose value is None after normalization."""
     data = _data_for_node(node, corpus)
     props: dict = {}
     for k, v in data.items():
@@ -245,6 +278,10 @@ def _node_properties(node: NodeId, corpus) -> dict:
     touches = data.get("touches")
     if isinstance(touches, list):
         props["touches_raw"] = [str(t) for t in touches if isinstance(t, str)]
+    # body_preview feeds §02.3's inferred-mention backtick scanner.
+    preview = _body_preview(node.path)
+    if preview:
+        props["body_preview"] = preview
     return props
 
 
@@ -372,6 +409,13 @@ def _synth_bug_nodes(corpus) -> list[dict]:
                 if nv is None:
                     continue
                 props[field_name] = nv
+            # body_preview for §02.3's inferred-mention scanner — BugEntry
+            # stores the full body in body_text (kilobytes each, excluded
+            # from general properties above); slice a bounded preview that
+            # mirrors the file-backed-node preview contract.
+            body_text = getattr(entry, "body_text", "") or ""
+            if body_text:
+                props["body_preview"] = body_text[:BODY_PREVIEW_LIMIT]
             nodes.append({
                 "id": entry.bug_id,
                 "labels": ["Bug"],

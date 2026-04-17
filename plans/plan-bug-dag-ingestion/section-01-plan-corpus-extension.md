@@ -744,3 +744,20 @@ def test_export_same_corpus_twice_produces_identical_json(tmp_path):
 - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`; clean any temp files before final commit.
 
 **Exit Criteria:** `python -m scripts.plan_corpus docgen --check` returns exit 0; `pytest tests/plan-audit/test_export_json.py` passes all 5 tests; `pytest tests/plan-audit/test_dag.py` passes with no regressions; `python -m scripts.plan_corpus export` produces a valid, deterministic JSON envelope with `schema_version: "1.0"` and both `nodes` and `relationships` arrays populated; `./test-all.sh` green with 0 failures across all Rust test suites (§01 is Python-only, no Rust impact expected).
+
+---
+
+### Post-completion extensions (tracked)
+
+- **`body_preview` emission (absorbed into §02.3)** — during §02.3 wire-up,
+  the importer's inferred-mention backtick scanner discovered that
+  `export_json.py` did not emit the `body_preview` property it relied on.
+  Rather than reopen §01 for a new subsection, the fix was absorbed into
+  §02.3 (per §The One Rule + §Plan Boundary Integrity — the simplest
+  correct move keeps §01 complete and documents the boundary crossing).
+  `_body_preview(path)` + Bug-side `body_text[:4096]` emission now live in
+  `scripts/plan_corpus/export_json.py`; four `TestExportBodyPreview` cells
+  pin the behavior in `tests/plan-audit/test_export_json.py`. See
+  `plans/plan-bug-dag-ingestion/section-02-neo4j-schema-importer.md §02.3
+  "Cross-boundary pre-work"` for the full rationale and the live-corpus
+  smoke numbers.

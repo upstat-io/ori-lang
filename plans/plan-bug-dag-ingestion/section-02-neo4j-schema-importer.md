@@ -31,7 +31,7 @@ sections:
     status: complete
   - id: "02.3"
     title: "Wire CodeReference bridge for touches + backtick scraping"
-    status: not-started
+    status: complete
   - id: "02.4"
     title: "Importer unit tests with in-memory mock driver"
     status: not-started
@@ -634,24 +634,35 @@ For nodes that include a `body_preview` property (up to 4KB of body markdown fro
 
 ### Tasks
 
-- [ ] Add `_build_mentions_for_node(node: dict, idx: dict) -> list[dict]` in `import_plan_bug_graph.py`:
+- [x] **Cross-boundary pre-work (absorbed from §01.4 gap)** — `export_json.py`
+      now emits `body_preview` (first 4 KiB of body markdown, frontmatter
+      stripped) on file-backed nodes and on `:Bug` nodes (sourced from
+      `BugEntry.body_text`). `:Subsection` nodes are structural-only and
+      intentionally skip preview. Tests: `TestExportBodyPreview` in
+      `tests/plan-audit/test_export_json.py` (4 cells: positive/bounded/
+      empty-body/Bug). See §01.4 "Follow-ups tracked for later" note for
+      the boundary backlink. Rationale: §02.3's inferred-mention scanner
+      has no content without this, and absorbing the fix into §02.3
+      keeps §01's now-completed status intact (§The One Rule + §Plan
+      Boundary Integrity).
+- [x] Add `_build_mentions_for_node(node, sym_idx, file_idx) -> list[dict]` in `import_plan_bug_graph.py`:
   - Processes `node["properties"].get("touches_raw", [])` for declared mentions
   - Processes `node["properties"].get("body_preview", "")` with file-path and symbol regexes for inferred mentions
-  - Returns list of `{"raw_text": str, "mention_kind": str, "resolved": bool, "ambiguous": bool, "ambiguous_count": int, "target_qn": str|None, "target_sh": str|None}` records
-- [ ] Add `_merge_code_references(driver, envelope, idx, *, dry_run=False) -> dict` (Phase 3):
-  - Calls `_build_mentions_for_node` for every node with non-empty `touches_raw` or `body_preview`
-  - Batches `_create_code_reference` calls via `_retry_write`
+  - Dedupes within a node so a raw_text present in both touches_raw and body_preview keeps the higher-confidence declared record
+  - Returns records shaped for the batched CodeReference writers below
+- [x] Add `_merge_code_references(driver, envelope, *, dry_run=False) -> dict` (Phase 3):
+  - Builds symbol index once via `_build_symbol_index(driver, "ori")` and a tiny file index via `_build_file_index(driver, "ori")` — both live-mode only (dry-run skips DB access)
+  - Classifies each token as file-path or symbol, resolves via `_resolve_target_py` + exact-match file set, wraps in `_resolve_with_ambiguity` to expose ambiguity counts
+  - Batches `_upsert_code_references` / `_link_mentions_code` / `_link_resolves_to_file` / `_link_resolves_to_symbol` / `_link_unresolved_symbols` (500/batch, mirrors `resolve_code_refs.py`)
+  - Calls `_clean_stale_resolves_to` to drop RESOLVES_TO edges on CodeReferences that went unresolved on re-import (idempotency)
   - Returns stats `{"declared": N, "inferred": N, "resolved": N, "unresolved": N, "ambiguous": N}`
-- [ ] Update `main()` to:
-  - Build symbol index once: `idx = _build_symbol_index(driver, "ori")` (after Phase 1+2 complete)
-  - Call `_merge_code_references(driver, envelope, idx, dry_run=dry_run)`
-  - Print Phase 3 stats line
-- [ ] Verify `body_preview` is present on at least one node from the real corpus export (§01.4 must set it; if absent, add a `body_preview` stub to the test fixture in §02.4)
+- [x] Update `main()` Phase 3 invocation: call the full helper (no longer a stub), print stats line including `ambiguous=` count.
+- [x] Verify `body_preview` is present on nodes from the real corpus export (530/1926 nodes — mostly `:Bug` + file-backed sections). Live smoke import on the full corpus (2026-04-17): Phase 3 scanned 6,378 inferred mentions → 1,706 resolved, 4,672 unresolved, 353 ambiguous in 3.6s. Bridge query `MATCH (p:PlanSection)-[:MENTIONS_CODE]->(cr)-[:RESOLVES_TO]->(s:Symbol) RETURN count(DISTINCT s)` returns **551**; bug-side `MATCH (b:Bug)-[:MENTIONS_CODE]->(cr)-[:RESOLVES_TO]->(s:Symbol) RETURN count(DISTINCT s)` returns **138**.
 
-- [ ] **Subsection close-out (02.3)** — MANDATORY before starting 02.4:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+- [x] **Subsection close-out (02.3)** — MANDATORY before starting 02.4:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
 
 ---
 
