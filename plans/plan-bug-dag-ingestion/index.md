@@ -88,7 +88,7 @@ tests/test_query_plan_bug.py, fixture graph state
 ---
 
 ### Section 05: Doc sync + consumer wiring
-**File:** `section-05-doc-sync.md` | **Status:** Not Started
+**File:** `section-05-doc-sync.md` | **Status:** Complete
 
 ```
 .claude/rules/intelligence.md, When to Query, How to Query

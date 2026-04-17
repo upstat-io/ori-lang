@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Doc sync + consumer wiring"
-status: not-started
+status: complete
 reviewed: true
 goal: "Integrate the 5 new intel-query.sh subcommands (plan-status, blocks, bugs-for, symbol-plans, dag-ascii) into the project's documentation surface: .claude/rules/intelligence.md (When to Query + How to Query), .claude/skills/query-intel/compose-intel-summary.md (Step F consumer registry), CLAUDE.md (§Commands + §Intelligence paragraph), and ~/projects/lang_intelligence/CLAUDE.md (pipeline documentation)."
 success_criteria:
@@ -23,36 +23,36 @@ third_party_review:
 sections:
   - id: "05.1"
     title: "Update .claude/rules/intelligence.md — When to Query + How to Query"
-    status: not-started
+    status: complete
   - id: "05.2"
     title: "Update .claude/skills/query-intel/compose-intel-summary.md Step F consumer registry"
-    status: not-started
+    status: complete
   - id: "05.3"
     title: "Update CLAUDE.md §Commands / §Intelligence paragraph"
-    status: not-started
+    status: complete
   - id: "05.4"
     title: "Update ~/projects/lang_intelligence/CLAUDE.md pipeline docs"
-    status: not-started
+    status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 05: Doc sync + consumer wiring
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Integrate the 5 new `intel-query.sh` subcommands (`plan-status`, `blocks`, `bugs-for`, `symbol-plans`, `dag-ascii`) into every documentation surface that an Ori session or skill might consult when deciding whether and how to query the plan/bug graph. When this section completes, any developer reading `.claude/rules/intelligence.md`, any skill reading `compose-intel-summary.md`, any reviewer reading `CLAUDE.md`, or any `lang_intelligence` contributor reading its `CLAUDE.md` will find the new subcommands documented with working examples — zero stale gaps.
 
 **Success Criteria:**
 
-- [ ] `.claude/rules/intelligence.md` §When to Query has a new bullet for plan/bug graph queries listing all 5 subcommands and the skills that benefit (see §05.1).
-- [ ] `.claude/rules/intelligence.md` §How to Query has a new "Plan/bug graph queries (Ori plan corpus)" block after the existing "Code symbol queries" block, with ≥3 example invocations per subcommand (see §05.1).
-- [ ] `.claude/skills/query-intel/compose-intel-summary.md` Step F registry has a new "Plan/bug graph consumers" group with entries for `/continue-roadmap`, `/review-plan`, and `/fix-next-bug`, each capped at 2-3 bullets (see §05.2).
-- [ ] `CLAUDE.md` §Intelligence graph paragraph (and optionally §Commands block) mentions all 5 new subcommand names with one-line descriptions each (see §05.3).
-- [ ] `~/projects/lang_intelligence/CLAUDE.md` has a "Plan/Bug Graph Pipeline" section documenting schema surface, ingestion path, sync cadence, query subcommands, graceful degradation, and test files (see §05.4).
-- [ ] `grep -l 'plan-status\|symbol-plans\|dag-ascii' .claude/rules/intelligence.md CLAUDE.md ~/projects/lang_intelligence/CLAUDE.md .claude/skills/query-intel/compose-intel-summary.md` returns all four paths with exit 0.
-- [ ] `/sync-claude` run clean across all four touched files — no broken cross-links, no stale TOC entries.
-- [ ] Satisfies mission criterion: "`.claude/rules/intelligence.md` 'When to Query' and 'How to Query' sections list the new subcommands and their use cases...".
+- [x] `.claude/rules/intelligence.md` §When to Query has a new bullet for plan/bug graph queries listing all 5 subcommands and the skills that benefit (see §05.1).
+- [x] `.claude/rules/intelligence.md` §How to Query has a new "Plan/bug graph queries (Ori plan corpus)" block after the existing "Code symbol queries" block, with ≥3 example invocations per subcommand (see §05.1).
+- [x] `.claude/skills/query-intel/compose-intel-summary.md` Step F registry has a new "Plan/bug graph consumers" group with entries for `/continue-roadmap`, `/review-plan`, and `/fix-next-bug`, each capped at 2-3 bullets (see §05.2).
+- [x] `CLAUDE.md` §Intelligence graph paragraph (and optionally §Commands block) mentions all 5 new subcommand names with one-line descriptions each (see §05.3).
+- [x] `~/projects/lang_intelligence/CLAUDE.md` has a "Plan/Bug Graph Pipeline" section documenting schema surface, ingestion path, sync cadence, query subcommands, graceful degradation, and test files (see §05.4).
+- [x] `grep -l 'plan-status\|symbol-plans\|dag-ascii' .claude/rules/intelligence.md CLAUDE.md ~/projects/lang_intelligence/CLAUDE.md .claude/skills/query-intel/compose-intel-summary.md` returns all four paths with exit 0.
+- [x] `/sync-claude` run clean across all four touched files — no broken cross-links, no stale TOC entries.
+- [x] Satisfies mission criterion: "`.claude/rules/intelligence.md` 'When to Query' and 'How to Query' sections list the new subcommands and their use cases...".
 
 **Context:** §04 delivered the 5 new `query_graph.py` handlers and wired them through `intel-query.sh`. But those subcommands are invisible to sessions unless the doc surfaces that skills and developers consult are updated. Three different audiences need coverage: (1) sessions running skills — they read `.claude/rules/intelligence.md` to know when/how to query; (2) skill authors — they read `compose-intel-summary.md` Step F to know which consumer extensions exist; (3) developers and tooling maintainers — they read `CLAUDE.md` and `lang_intelligence/CLAUDE.md`. All four files must be updated atomically before §05 is closed, because a partial update (e.g. `intelligence.md` updated but `CLAUDE.md` not) leaves one audience without guidance and fails the `grep -l` gate in the success criteria. Per `impl-hygiene.md §SSOT`, `compose-intel-summary.md` is the SSOT for all intel-query consumer extensions — additions must preserve the SSOT shape (no forking, no parallel list). Per `impl-hygiene.md §Fact-Bound Documentation Sync`, every change must cite a verifiable code location (the `query_graph.py` handler function name, the `schema.cypher` label names from §02, the `lefthook.yml` post-commit hook from §03).
 
@@ -145,19 +145,19 @@ This table clarifies which skill benefits from which subcommand. It must be wove
 
 ### Tasks
 
-- [ ] Read `.claude/rules/intelligence.md` §When to Query (current bullet list) and identify the insertion point for the new "Plan/bug graph queries" bullet (after the last roadmap/roadmap-verification bullet, before "Tooling").
-- [ ] Verify all 5 subcommand names against `query_graph.py`'s `commands` dict (§04 success criterion) before writing them into the rules file — fact-bound sync per `impl-hygiene.md §Fact-Bound Documentation Sync`.
-- [ ] Add the new "Plan/bug graph queries" bullet to §When to Query, using the proposed diff above as the authoritative shape.
-- [ ] Read `.claude/rules/intelligence.md` §How to Query (current `# Code symbol queries` block and the block that follows it) to confirm the insertion point.
-- [ ] Add the new "Plan/bug graph queries" example block after the `# Cross-repo semantic similarity` block, using the proposed diff above as the authoritative shape.
-- [ ] Add the use-by-workflow table (or inline equivalent) adjacent to the new examples heading.
-- [ ] Run `grep -c 'plan-status\|symbol-plans\|dag-ascii' .claude/rules/intelligence.md` — assert count ≥ 5 (one per subcommand, 3 examples each = ≥15 occurrences, but the grep -c counts lines, so ≥ 5 distinct lines containing any of the three terms).
-- [ ] `/commit-push` with `docs(rules): add plan/bug graph query docs to intelligence.md — §05.1`.
+- [x] Read `.claude/rules/intelligence.md` §When to Query (current bullet list) and identify the insertion point for the new "Plan/bug graph queries" bullet (after the last roadmap/roadmap-verification bullet, before "Tooling").
+- [x] Verify all 5 subcommand names against `query_graph.py`'s `commands` dict (§04 success criterion) before writing them into the rules file — fact-bound sync per `impl-hygiene.md §Fact-Bound Documentation Sync`.
+- [x] Add the new "Plan/bug graph queries" bullet to §When to Query, using the proposed diff above as the authoritative shape.
+- [x] Read `.claude/rules/intelligence.md` §How to Query (current `# Code symbol queries` block and the block that follows it) to confirm the insertion point.
+- [x] Add the new "Plan/bug graph queries" example block after the `# Cross-repo semantic similarity` block, using the proposed diff above as the authoritative shape.
+- [x] Add the use-by-workflow table (or inline equivalent) adjacent to the new examples heading.
+- [x] Run `grep -c 'plan-status\|symbol-plans\|dag-ascii' .claude/rules/intelligence.md` — assert count ≥ 5 (one per subcommand, 3 examples each = ≥15 occurrences, but the grep -c counts lines, so ≥ 5 distinct lines containing any of the three terms).
+- [x] `/commit-push` with `docs(rules): add plan/bug graph query docs to intelligence.md — §05.1`.
 
-- [ ] **Subsection close-out (05.1)** — MANDATORY before starting 05.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files.
+- [x] **Subsection close-out (05.1)** — MANDATORY before starting 05.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files.
 
 ---
 
@@ -200,18 +200,18 @@ The new group goes at the end of the "Planning/proposal consumers" block and bef
 
 ### Tasks
 
-- [ ] Read `.claude/skills/query-intel/compose-intel-summary.md` Step F in full to identify current group boundaries and insertion point (after "Planning/proposal consumers", before "Analysis/maintenance consumers").
-- [ ] Determine for each listed consumer skill (`/continue-roadmap`, `/review-plan`, `/fix-next-bug`, `/review-bugs`) whether the skill currently invokes ANY plan-corpus subcommand. If yes, write the Step F entry + commit both the skill change and the Step F entry together. If no, defer the Step F entry to the plan/section that wires the skill.
-- [ ] Write the "Plan/bug graph consumers" group block using the proposed diff above as the authoritative shape — adjusting to reflect only the queries the skills ACTUALLY invoke at commit time.
-- [ ] Verify bullet cap: each consumer entry has ≤ 3 bullets (the cap is per `§Registry contract`).
-- [ ] Update the consumer count at the top of `compose-intel-summary.md` if any new `@`-include relationships are added (note: Step F registry entries do NOT require a new `@`-include — they document existing subcommands; count update only needed if a skill starts including the SSOT for the first time).
-- [ ] Run `grep -c 'plan-status\|symbol-plans\|dag-ascii\|bugs-for\|blocks' .claude/skills/query-intel/compose-intel-summary.md` — assert count ≥ 4.
-- [ ] `/commit-push` with `docs(skills): register plan/bug graph consumers in compose-intel-summary.md Step F — §05.2`.
+- [x] Read `.claude/skills/query-intel/compose-intel-summary.md` Step F in full to identify current group boundaries and insertion point (after "Planning/proposal consumers", before "Analysis/maintenance consumers").
+- [x] Determine for each listed consumer skill (`/continue-roadmap`, `/review-plan`, `/fix-next-bug`, `/review-bugs`) whether the skill currently invokes ANY plan-corpus subcommand. If yes, write the Step F entry + commit both the skill change and the Step F entry together. If no, defer the Step F entry to the plan/section that wires the skill.
+- [x] Write the "Plan/bug graph consumers" group block using the proposed diff above as the authoritative shape — adjusting to reflect only the queries the skills ACTUALLY invoke at commit time.
+- [x] Verify bullet cap: each consumer entry has ≤ 3 bullets (the cap is per `§Registry contract`).
+- [x] Update the consumer count at the top of `compose-intel-summary.md` if any new `@`-include relationships are added (note: Step F registry entries do NOT require a new `@`-include — they document existing subcommands; count update only needed if a skill starts including the SSOT for the first time).
+- [x] Run `grep -c 'plan-status\|symbol-plans\|dag-ascii\|bugs-for\|blocks' .claude/skills/query-intel/compose-intel-summary.md` — assert count ≥ 4.
+- [x] `/commit-push` with `docs(skills): register plan/bug graph consumers in compose-intel-summary.md Step F — §05.2`.
 
-- [ ] **Subsection close-out (05.2)** — MANDATORY before starting 05.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files.
+- [x] **Subsection close-out (05.2)** — MANDATORY before starting 05.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files.
 
 ---
 
@@ -236,18 +236,18 @@ The current paragraph at the end of the §Intelligence graph entry in §Commands
 
 ### Tasks
 
-- [ ] Read the actual `CLAUDE.md` §Intelligence graph entry to confirm its current text and line number (the 191K+ figure and the subcommand list).
-- [ ] Verify the plan/bug corpus counts (plan count, section count, bug count) from the deployed Neo4j after §03 sync completes — use `scripts/intel-query.sh cypher "MATCH (p:Plan) RETURN count(p)"` etc. to get real numbers; update the paragraph with concrete counts (not placeholders).
-- [ ] Update the §Intelligence graph paragraph using the proposed diff above, with real counts substituted.
-- [ ] Verify the 5 subcommand names in the update match `query_graph.py` commands dict (fact-bound sync).
-- [ ] Check whether CLAUDE.md §Commands has a separate "Intelligence graph" line (the short pipe-separated list); if so, add the 5 subcommand names there too (consistent with the existing format: `plan-status | blocks | bugs-for | symbol-plans | dag-ascii`).
-- [ ] Run `grep -c 'plan-status\|symbol-plans\|dag-ascii' CLAUDE.md` — assert count ≥ 3.
-- [ ] `/commit-push` with `docs(project): add plan/bug graph subcommands to CLAUDE.md §Intelligence graph — §05.3`.
+- [x] Read the actual `CLAUDE.md` §Intelligence graph entry to confirm its current text and line number (the 191K+ figure and the subcommand list).
+- [x] Verify the plan/bug corpus counts (plan count, section count, bug count) from the deployed Neo4j after §03 sync completes — use `scripts/intel-query.sh cypher "MATCH (p:Plan) RETURN count(p)"` etc. to get real numbers; update the paragraph with concrete counts (not placeholders).
+- [x] Update the §Intelligence graph paragraph using the proposed diff above, with real counts substituted.
+- [x] Verify the 5 subcommand names in the update match `query_graph.py` commands dict (fact-bound sync).
+- [x] Check whether CLAUDE.md §Commands has a separate "Intelligence graph" line (the short pipe-separated list); if so, add the 5 subcommand names there too (consistent with the existing format: `plan-status | blocks | bugs-for | symbol-plans | dag-ascii`).
+- [x] Run `grep -c 'plan-status\|symbol-plans\|dag-ascii' CLAUDE.md` — assert count ≥ 3.
+- [x] `/commit-push` with `docs(project): add plan/bug graph subcommands to CLAUDE.md §Intelligence graph — §05.3`.
 
-- [ ] **Subsection close-out (05.3)** — MANDATORY before starting 05.4:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files.
+- [x] **Subsection close-out (05.3)** — MANDATORY before starting 05.4:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files.
 
 ---
 
@@ -347,43 +347,43 @@ All five support `--json` (raw dict) and `--human` (formatted text) modes. `inte
 
 ### Tasks
 
-- [ ] Read `~/projects/lang_intelligence/CLAUDE.md` in full to identify: (1) current section structure and heading levels; (2) where "Architecture" block ends and "Running" block begins; (3) whether any plan-pipeline content already exists (it should not, unless a prior session added it prematurely — if so, diff against the proposed draft and reconcile).
-- [ ] Identify the correct insertion point for "Plan/Bug Graph Pipeline" section (after "Architecture" block or after "Running" block based on file structure).
-- [ ] Verify the schema table node labels against `schema.cypher` (from §02 deliverable) — fact-bound: every label name and relationship type in the draft must match the deployed schema.
-- [ ] Verify subcommand names against `query_graph.py` commands dict (from §04 deliverable).
-- [ ] Verify ingestion path description against actual script names: `sync-plan-bug-graph.sh`, `sync_plan_bug_graph.py`, `import_plan_bug_graph.py` (from §02 and §03 deliverables).
-- [ ] Write the new "Plan/Bug Graph Pipeline" section using the proposed draft above, with adjustments for correct heading level and insertion point.
-- [ ] Run `grep -c 'plan-status\|symbol-plans\|dag-ascii' ~/projects/lang_intelligence/CLAUDE.md` — assert count ≥ 3.
-- [ ] `/commit-push` with `docs(project): add Plan/Bug Graph Pipeline section to lang_intelligence/CLAUDE.md — §05.4`.
+- [x] Read `~/projects/lang_intelligence/CLAUDE.md` in full to identify: (1) current section structure and heading levels; (2) where "Architecture" block ends and "Running" block begins; (3) whether any plan-pipeline content already exists (it should not, unless a prior session added it prematurely — if so, diff against the proposed draft and reconcile).
+- [x] Identify the correct insertion point for "Plan/Bug Graph Pipeline" section (after "Architecture" block or after "Running" block based on file structure).
+- [x] Verify the schema table node labels against `schema.cypher` (from §02 deliverable) — fact-bound: every label name and relationship type in the draft must match the deployed schema.
+- [x] Verify subcommand names against `query_graph.py` commands dict (from §04 deliverable).
+- [x] Verify ingestion path description against actual script names: `sync-plan-bug-graph.sh`, `sync_plan_bug_graph.py`, `import_plan_bug_graph.py` (from §02 and §03 deliverables).
+- [x] Write the new "Plan/Bug Graph Pipeline" section using the proposed draft above, with adjustments for correct heading level and insertion point.
+- [x] Run `grep -c 'plan-status\|symbol-plans\|dag-ascii' ~/projects/lang_intelligence/CLAUDE.md` — assert count ≥ 3.
+- [x] `/commit-push` with `docs(project): add Plan/Bug Graph Pipeline section to lang_intelligence/CLAUDE.md — §05.4`.
 
-- [ ] **Subsection close-out (05.4)** — MANDATORY before starting 05.R:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files.
+- [x] **Subsection close-out (05.4)** — MANDATORY before starting 05.R:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check` and clean any temp files.
 
 ---
 
 ## 05.N Completion Checklist
 
-- [ ] `.claude/rules/intelligence.md` §When to Query has the new "Plan/bug graph queries" bullet listing all 5 subcommands and their primary consumer skills.
-- [ ] `.claude/rules/intelligence.md` §How to Query has a new "Plan/bug graph queries (Ori plan corpus)" block with ≥3 example invocations per subcommand.
-- [ ] `.claude/skills/query-intel/compose-intel-summary.md` Step F has a "Plan/bug graph consumers" group with entries for `/continue-roadmap`, `/review-plan`, `/fix-next-bug`, and `/review-bugs`; each entry has ≤3 bullets (cap enforced).
-- [ ] `CLAUDE.md` §Intelligence graph paragraph mentions all 5 new subcommand names with one-line descriptions.
-- [ ] `~/projects/lang_intelligence/CLAUDE.md` has a "Plan/Bug Graph Pipeline" section documenting schema labels, relationships, ingestion path, sync cadence, query subcommands, graceful degradation, and test files.
-- [ ] `grep -l 'plan-status\|symbol-plans\|dag-ascii' .claude/rules/intelligence.md CLAUDE.md ~/projects/lang_intelligence/CLAUDE.md .claude/skills/query-intel/compose-intel-summary.md` returns all 4 paths.
-- [ ] `grep -c 'plan-status\|symbol-plans\|dag-ascii' .claude/rules/intelligence.md` ≥ 5 (lines containing any of the three terms).
-- [ ] `grep -c 'plan-status\|symbol-plans\|dag-ascii' CLAUDE.md` ≥ 3.
-- [ ] `grep -c 'plan-status\|symbol-plans\|dag-ascii' ~/projects/lang_intelligence/CLAUDE.md` ≥ 3.
-- [ ] `grep -c 'plan-status\|symbol-plans\|dag-ascii\|bugs-for\|blocks' .claude/skills/query-intel/compose-intel-summary.md` ≥ 4.
-- [ ] All Step F entries in `compose-intel-summary.md` reflect ACTUAL queries the skills invoke (no `DRIFT:intel-extension-registry` — verified by reading each listed skill's workflow against Step F).
-- [ ] All facts in the four updated files are fact-bound: subcommand names verified against `query_graph.py` commands dict; schema labels verified against `schema.cypher`; script names verified against the scripts in `~/projects/lang_intelligence/`; skill names verified against `.claude/skills/` directory.
-- [ ] **`/sync-claude` section-close doc sync** — run `/sync-claude` across all commits in §05 (use `git diff --name-only <section-start>..HEAD` to identify all changed files). Verify: (1) CLAUDE.md §Commands, §Intelligence graph, §Key Paths current; (2) `canon.md` unaffected (no pipeline phase changes); (3) `ori-syntax.md` unaffected (no prelude/keyword/operator changes). All four target files ARE the doc surfaces — the sync verifies they are internally consistent and that no other doc surfaces reference the new subcommands without being updated. Document: "Claude artifact sync §05: doc-only changes; four target files updated; no compiler phase changes; `canon.md` and `ori-syntax.md` unaffected."
-- [ ] **Plan sync** — update plan metadata to reflect this section's completion:
-  - [ ] This section's frontmatter `status` → `complete`, all subsection statuses → `complete`
-  - [ ] `00-overview.md` Quick Reference table status updated for §05
-  - [ ] `00-overview.md` mission success criteria: check off the criterion "`.claude/rules/intelligence.md` 'When to Query' and 'How to Query' sections list the new subcommands..." (mission criterion line 30 in `00-overview.md`)
-  - [ ] `index.md` §05 status updated
-  - [ ] Cross-links verified: §06 `depends_on: ["05"]` assumption holds — §05 must be complete before §06's verification run.
-- [ ] `diagnostics/repo-hygiene.sh --check` clean — no temp/scratch files in working tree.
+- [x] `.claude/rules/intelligence.md` §When to Query has the new "Plan/bug graph queries" bullet listing all 5 subcommands and their primary consumer skills.
+- [x] `.claude/rules/intelligence.md` §How to Query has a new "Plan/bug graph queries (Ori plan corpus)" block with ≥3 example invocations per subcommand.
+- [x] `.claude/skills/query-intel/compose-intel-summary.md` Step F has a "Plan/bug graph consumers" group with entries for `/continue-roadmap`, `/review-plan`, `/fix-next-bug`, and `/review-bugs`; each entry has ≤3 bullets (cap enforced).
+- [x] `CLAUDE.md` §Intelligence graph paragraph mentions all 5 new subcommand names with one-line descriptions.
+- [x] `~/projects/lang_intelligence/CLAUDE.md` has a "Plan/Bug Graph Pipeline" section documenting schema labels, relationships, ingestion path, sync cadence, query subcommands, graceful degradation, and test files.
+- [x] `grep -l 'plan-status\|symbol-plans\|dag-ascii' .claude/rules/intelligence.md CLAUDE.md ~/projects/lang_intelligence/CLAUDE.md .claude/skills/query-intel/compose-intel-summary.md` returns all 4 paths.
+- [x] `grep -c 'plan-status\|symbol-plans\|dag-ascii' .claude/rules/intelligence.md` ≥ 5 (lines containing any of the three terms).
+- [x] `grep -c 'plan-status\|symbol-plans\|dag-ascii' CLAUDE.md` ≥ 3.
+- [x] `grep -c 'plan-status\|symbol-plans\|dag-ascii' ~/projects/lang_intelligence/CLAUDE.md` ≥ 3.
+- [x] `grep -c 'plan-status\|symbol-plans\|dag-ascii\|bugs-for\|blocks' .claude/skills/query-intel/compose-intel-summary.md` ≥ 4.
+- [x] All Step F entries in `compose-intel-summary.md` reflect ACTUAL queries the skills invoke (no `DRIFT:intel-extension-registry` — verified by reading each listed skill's workflow against Step F).
+- [x] All facts in the four updated files are fact-bound: subcommand names verified against `query_graph.py` commands dict; schema labels verified against `schema.cypher`; script names verified against the scripts in `~/projects/lang_intelligence/`; skill names verified against `.claude/skills/` directory.
+- [x] **`/sync-claude` section-close doc sync** — run `/sync-claude` across all commits in §05 (use `git diff --name-only <section-start>..HEAD` to identify all changed files). Verify: (1) CLAUDE.md §Commands, §Intelligence graph, §Key Paths current; (2) `canon.md` unaffected (no pipeline phase changes); (3) `ori-syntax.md` unaffected (no prelude/keyword/operator changes). All four target files ARE the doc surfaces — the sync verifies they are internally consistent and that no other doc surfaces reference the new subcommands without being updated. Document: "Claude artifact sync §05: doc-only changes; four target files updated; no compiler phase changes; `canon.md` and `ori-syntax.md` unaffected."
+- [x] **Plan sync** — update plan metadata to reflect this section's completion:
+  - [x] This section's frontmatter `status` → `complete`, all subsection statuses → `complete`
+  - [x] `00-overview.md` Quick Reference table status updated for §05
+  - [x] `00-overview.md` mission success criteria: check off the criterion "`.claude/rules/intelligence.md` 'When to Query' and 'How to Query' sections list the new subcommands..." (mission criterion line 30 in `00-overview.md`)
+  - [x] `index.md` §05 status updated
+  - [x] Cross-links verified: §06 `depends_on: ["05"]` assumption holds — §05 must be complete before §06's verification run.
+- [x] `diagnostics/repo-hygiene.sh --check` clean — no temp/scratch files in working tree.
 
 **Exit Criteria:** `grep -l 'plan-status\|symbol-plans\|dag-ascii' .claude/rules/intelligence.md CLAUDE.md ~/projects/lang_intelligence/CLAUDE.md .claude/skills/query-intel/compose-intel-summary.md` returns exactly 4 paths (all four files contain the new subcommand terms). `./test-all.sh` green (zero regressions — §05 is doc-only; any test failure indicates an unrelated regression that must be investigated and fixed before closing §05).
