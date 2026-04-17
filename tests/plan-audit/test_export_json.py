@@ -392,6 +392,105 @@ class TestExportCompletedIndexLabel:
         assert "CompletedPlan" not in all_labels
 
 
+class TestExportNeo4jSafeProperties:
+    """Neo4j only accepts primitives or arrays-of-primitives as node
+    properties. The §01.7 normalizer JSON-encodes nested dicts and
+    arrays-of-dicts so the envelope is Neo4j-safe."""
+
+    def test_export_flattens_nested_dict_property_to_json_string(self, tmp_path: Path):
+        """A frontmatter dict (e.g., third_party_review) becomes a JSON string."""
+        plans = tmp_path / "plans"
+        _write(
+            plans / "alpha" / "index.md",
+            "---\n"
+            'name: "Alpha"\n'
+            'full_name: "Alpha"\n'
+            "reroute: true\n"
+            "status: active\n"
+            "order: 1\n"
+            "third_party_review:\n"
+            "  status: none\n"
+            "  updated: null\n"
+            "---\n\n"
+            "# Alpha\n",
+        )
+        _write(plans / "alpha" / "section-01.md", _section("01", "A"))
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        plan_node = next(n for n in envelope["nodes"] if "Plan" in n["labels"])
+        tpr = plan_node["properties"].get("third_party_review")
+        # Must be a string (JSON-encoded), not a dict.
+        assert isinstance(tpr, str), f"expected JSON string, got {type(tpr).__name__}"
+        parsed = json.loads(tpr)
+        assert parsed == {"status": "none", "updated": None}
+
+    def test_export_flattens_list_of_dicts_to_array_of_json_strings(self, tmp_path: Path):
+        """A frontmatter list-of-dicts becomes an array of JSON strings
+        (each inner dict JSON-encoded). Neo4j rejects arrays-of-maps,
+        but arrays-of-strings are primitive-compatible and richer than a
+        single encoded string — consumers can index by position.
+
+        Semantic pin: without the normalization fix, the envelope would
+        carry `[{...}, {...}]` and Neo4j's driver raises
+        CypherTypeError on MERGE."""
+        plans = tmp_path / "plans"
+        _write(
+            plans / "alpha" / "index.md",
+            "---\n"
+            'name: "Alpha"\n'
+            'full_name: "Alpha"\n'
+            "reroute: true\n"
+            "status: active\n"
+            "order: 1\n"
+            "subsections:\n"
+            '  - id: "a"\n'
+            '    name: "first"\n'
+            '  - id: "b"\n'
+            '    name: "second"\n'
+            "---\n\n"
+            "# Alpha\n",
+        )
+        _write(plans / "alpha" / "section-01.md", _section("01", "A"))
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        plan_node = next(n for n in envelope["nodes"] if "Plan" in n["labels"])
+        subs = plan_node["properties"].get("subsections")
+        assert isinstance(subs, list), f"expected list of strings, got {type(subs).__name__}"
+        assert len(subs) == 2
+        assert all(isinstance(s, str) for s in subs), f"not all primitives: {subs}"
+        # Each element round-trips through json.loads.
+        parsed_items = [json.loads(s) for s in subs]
+        assert parsed_items[0] == {"id": "a", "name": "first"}
+        assert parsed_items[1] == {"id": "b", "name": "second"}
+
+    def test_export_preserves_list_of_primitives_as_array(self, tmp_path: Path):
+        """Negative pin for the above — arrays-of-primitives must NOT be
+        stringified. Neo4j accepts them as-is, and consumers expect lists."""
+        plans = tmp_path / "plans"
+        _write(
+            plans / "alpha" / "index.md",
+            _index("Alpha", depends_on=["Beta"], references=["Gamma", "Delta"]),
+        )
+        _write(plans / "alpha" / "section-01.md", _section("01", "A"))
+        _write(plans / "beta" / "index.md", _index("Beta"))
+        _write(plans / "beta" / "section-01.md", _section("01", "B"))
+        _write(plans / "gamma" / "index.md", _index("Gamma"))
+        _write(plans / "gamma" / "section-01.md", _section("01", "G"))
+        _write(plans / "delta" / "index.md", _index("Delta"))
+        _write(plans / "delta" / "section-01.md", _section("01", "D"))
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        alpha = next(n for n in envelope["nodes"] if n["id"] == "alpha")
+        # references: [Gamma, Delta] → remains a list of strings.
+        refs = alpha["properties"].get("references")
+        if refs is not None:
+            assert isinstance(refs, list)
+            assert all(isinstance(x, str) for x in refs)
+
+
 class TestExportPlaceholderFilter:
     def test_export_filters_placeholder_edge_targets(self, tmp_path: Path):
         """Edges whose end_id is an unfilled template placeholder
