@@ -3,6 +3,17 @@ bug: BUG-04-050
 severity: low
 title: "emit_unified.rs 540 lines (over 500-line limit)"
 status: complete
+goal: "Split emit_unified.rs so the file stays under the impl-hygiene.md 500-line limit without changing logic."
+success_criteria:
+  - "`emit_unified.rs` is under 500 lines"
+  - "New `project_escape.rs` module extracted for the project-escape cluster"
+  - "`cargo c` and `cargo t` still pass; zero logic changes"
+subsystem: "compiler/ori_arc/src/aims/realize/"
+found: "2026-04-09 (during BUG-04-047 fix — emit_unified.rs grew past 500 lines)"
+source: "tpr-review (BUG-04-047 hygiene finding)"
+third_party_review:
+  status: resolved
+  updated: 2026-04-09
 ---
 
 # Fix: BUG-04-050 — emit_unified.rs over 500-line limit

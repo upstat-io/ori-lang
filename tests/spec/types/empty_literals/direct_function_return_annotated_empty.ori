@@ -1,0 +1,17 @@
+// BUG-04-084: function returns `[]` with annotated return type `[int]`.
+// Annotation constrains `[]` to `[int]` via unification BEFORE defaulting.
+// Defaulting does NOT fire on `f`'s elem var.
+
+use std.testing { assert_eq }
+
+@f () -> [int] = [];
+
+@test_annotated_return tests @annotated_return () -> void = {
+    let xs = f();
+    assert_eq(actual: xs.len(), expected: 0)
+}
+
+@annotated_return () -> int = {
+    let xs = f();
+    xs.len()
+}

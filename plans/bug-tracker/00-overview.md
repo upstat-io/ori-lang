@@ -66,6 +66,26 @@ When resolved as OBE (no fix section — fixed as side effect of other work):
   Resolved: OBE on {YYYY-MM-DD}. {What fixed it — commit, plan, or rewrite}.
 ```
 
+When superseded by a plan (the bug is being fixed via a multi-section plan, not via `/fix-bug`):
+
+```markdown
+- [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}**
+  Repro: ...
+  Subsystem: ...
+  Found: ... | Source: ...
+  Superseded by: `plans/{plan-name}/` — fix lands when that plan completes; do NOT use `/fix-bug` (use `/continue-roadmap {plan-name}` instead). The plan's `00-overview.md` MUST list the fix-section path in its `supersedes:` frontmatter for bidirectional discoverability.
+```
+
+**Lifecycle marker precedence (used by `/fix-bug` Phase 0):** `Superseded by:` > `Escalated:` / `Escalated to plan:` > `**Blocked**:` / `Blocked:` / `<!-- blocked-by:` > Resume mode (existing in-progress fix file). The first matching marker stops `/fix-bug` and routes to the appropriate next action — Superseded routes to `/continue-roadmap`, Escalated/Blocked report-and-stop, Resume picks up the existing fix file. **Note**: `**BLOCKER**:` (informational text describing impact) is NOT a lifecycle marker; only `**Blocked**:` (followed by reason text) is. The substring distinction is load-bearing.
+
+**Schema enforcement.** This file is a working description of how the bug-tracker is used. The **canonical schema** (entry format, lifecycle markers, precedence, bidirectional supersede invariant) lives in `.claude/skills/create-plan/plan-schema.md` §"Bug Tracker Section Schema" and is **enforced programmatically** at `/continue-roadmap` invocation time:
+
+- `scripts/plan_corpus/bug_markers.py` — marker regex SSOT + `BugEntry` parser + `classify_bug_exclusion()`. Both `roadmap_scan.py` and `bug_queue_scan.py` import from here.
+- `scripts/plan_corpus/bug_validators.py` — bidirectional supersede drift detector (`find_supersede_drift()`) + auto-fix planner.
+- `roadmap_scan.py` Gate 1.6 (`bug_marker_drift`) — auto-inserts missing `Superseded by:` markers during /continue-roadmap Step 2c when a plan's frontmatter `supersedes:` declaration claims a bug whose entry lacks the marker. Orphan markers are surfaced for manual review.
+
+To extend the marker vocabulary or change precedence, edit `bug_markers.py` ONLY — both scanners and the auto-fix gate pick up the change automatically.
+
 ## Fix Section Files
 
 When a bug is picked up for fixing, `/fix-bug` creates a fix section file at `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md`. This file provides plan-section rigor:
@@ -106,7 +126,7 @@ See `.claude/skills/fix-bug/fix-section-template.md` for the full template.
 | 01 | Parser & Lexer | `section-01-parser-lexer.md` | 0 |
 | 02 | Type Checker | `section-02-typeck.md` | 5 |
 | 03 | Evaluator | `section-03-eval.md` | 1 |
-| 04 | Codegen & LLVM | `section-04-codegen-llvm.md` | 19 |
+| 04 | Codegen & LLVM | `section-04-codegen-llvm.md` | 18 |
 | 05 | Runtime & ARC | `section-05-runtime-arc.md` | 2 |
 | 06 | Stdlib | `section-06-stdlib.md` | 0 |
 | 07 | Tooling & CLI | `section-07-tooling-cli.md` | 1 |

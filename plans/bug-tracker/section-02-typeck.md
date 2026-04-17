@@ -4,9 +4,6 @@ title: "Type Checker"
 status: in-progress
 goal: "Track and resolve all known type checker bugs"
 sections: []
-third_party_review:
-  status: findings
-  updated: 2026-04-02
 ---
 
 # Section 02: Type Checker

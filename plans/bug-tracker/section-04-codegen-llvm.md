@@ -1,12 +1,9 @@
 ---
 section: "04"
 title: "Codegen & LLVM"
-status: open
+status: in-progress
 goal: "Track and resolve all known codegen/LLVM bugs"
 sections: []
-third_party_review:
-  status: findings
-  updated: 2026-04-03
 ---
 
 # Section 04: Codegen & LLVM
@@ -19,12 +16,10 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
-- [ ] `[BUG-04-085][high]` **LLVM spec test runner crashes with stack overflow + ArcIrEmitter "variable not yet defined" on monomorphized `assert_eq` — mirrors resolved BUG-04-011/BUG-04-024 signatures (regression or incomplete fix)**
-  Repro: `timeout 150 ./test-all.sh` shows "Ori spec (LLVM backend) CRASHED" with the following cluster of errors on `assert_eq$m$int` (monomorphized `assert_eq<int>` from `std.testing`): (1) `LLVM IR verification failed after codegen (emit_prepared_functions)` with `Call parameter type does not match function signature!` on `ori_rc_dec({ i64, i64, ptr }, ptr @"_ori_drop$N")` — the fat-pointer struct is being passed where a drop function pointer is expected; (2) three `ArcIrEmitter: variable not yet defined` errors (var=11, var=2, var=7) — same signature as resolved BUG-04-024; (3) `error[E4003]: ARC internal error: index assignment reached ARC lowering before desugaring` (BUG-04-070 class); (4) fatal `thread 'ori-main' has overflowed its stack`; (5) `SIGABRT`. Interpreter passes all 4444 spec tests fine; only `--backend=llvm` crashes.
-  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/` (ArcIrEmitter variable-definition ordering — emitter_utils.rs), `compiler/ori_llvm/src/codegen/function_compiler/nounwind/emit.rs` (LLVM IR verification after `emit_prepared_functions`), `compiler/oric/src/test/runner/` (imported generic monomorphization pipeline for `std.testing::assert_eq`). Possible interaction with `compiler/ori_types/src/pool/mod.rs:655-661` (§02.0 `Tag::Scheme` `PROPAGATE_MASK` flag propagation — sets `HAS_VAR` on scheme Idx values where previously unset; if mono pipeline's `body_type_map` relied on the old flag semantics, this would surface as "variable not yet defined"). Investigation should test whether reverting §02.0 eliminates the crash to isolate the interaction.
-  Found: 2026-04-15 | Source: continue-roadmap
-  Note: Mirrors resolved `BUG-04-011` (imported generic mono, fix via JIT EH §06.2 Generalized Var Resolution + §06.3 ARC IR Index Bounds Safety) and `BUG-04-024` (ArcIrEmitter variable ordering, OBE via BUG-04-011 resolution). The resolved fixes covered the same error signatures but the crash has re-emerged — either a regression introduced since 2026-04-06, or the original fixes were incomplete for this specific monomorphization path. Test-all.sh gate currently treats this as non-failing and references stale BUG-04-030 (resolved 2026-04-06); gate retargeting to BUG-04-085 is a separate follow-up.
-  Also references `BUG-04-070` (E4003 Index assignment — open): the E4003 error fires during the same crash, suggesting the two failures may share a common root cause in the desugaring/lowering pipeline.
+- [x] `[BUG-04-085][high]` **LLVM spec test runner crashes with stack overflow + ArcIrEmitter "variable not yet defined" on monomorphized `assert_eq`**
+  Absorbed 2026-04-17 into `plans/empty-container-typeck-phase-contract/section-07-closeout.md §07.0` per CLAUDE.md §Ownership & Deferral "Plan-blocker bugs belong IN the plan". The plan introduced §02.0's `Tag::Scheme PROPAGATE_MASK` fix which is the primary causal hypothesis; the plan now owns investigating and resolving the crash as part of close-out. No sibling fix-BUG-04-085.md file — the owning plan section is the fix section.
+  Original context: `timeout 150 ./test-all.sh` shows "Ori spec (LLVM backend) CRASHED" with errors on `assert_eq$m$int` — LLVM IR verification fails on `ori_rc_dec({ i64, i64, ptr }, ptr @"_ori_drop$N")`, three `ArcIrEmitter: variable not yet defined` errors (var=11, var=2, var=7), `E4003` ARC internal error, stack overflow. Interpreter passes all 4444 spec tests; only `--backend=llvm` crashes.
+  Found: 2026-04-15 | Source: continue-roadmap | Absorbed: 2026-04-17 into plan §07.0
 
 - [x] `[BUG-04-078][medium]` **set_builtins.rs sorted_keys/sorted_values builds List<T> with canonical stride instead of narrowed — same boundary mismatch class as BUG-04-077**
   Resolved: OBE on 2026-04-14. Collection element narrowing (Phase C) was disabled at the repr level as part of BUG-04-077 mitigation (`ori_repr/src/narrowing/int.rs:204-208`). With narrowing disabled, all list producers (including set sorted_keys/sorted_values) and all list consumers use canonical stride — no mismatch possible. Re-enablement tracked at `plans/repr-opt/section-11-collection-spec.md:230`.
@@ -45,11 +40,10 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Note: Cross-language precedent: Rust required RFC 3606, a migration lint (#130836 — massive false positives), and a full Edition change (Rust 2024) to fix this. Ori should implement correct drop order natively since it's pre-1.0.
   Escalated: requires plan — ARC IR has no concept of "tail-expression temporary" vs "local binding" (all are flat SSA variables). Fix requires: (1) new metadata on ARC IR variables or block structure to track provenance, (2) modifications to lowering (`control_flow/mod.rs`) to annotate tail-expression vars, (3) modifications to realization (`walk.rs`, `walk_dec.rs`) to reorder drops, (4) AIMS analysis may need awareness of the new metadata. 4+ files in the complexity-elevated `ori_arc` subsystem. Cross-language precedent (Rust RFC 3606) confirms this is architecturally non-trivial.
 
-- [ ] `[BUG-04-074][critical]` **AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure**
-  Repro: `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` — passes in interpreter, AOT fails with "unresolved type variable at codegen — type inference bug". The empty list `[]` element type is never propagated to LLVM codegen even though `push(value: 10)` provides int context.
-  Subsystem: `ori_llvm` / `ori_types` (type variable resolution before codegen)
-  Found: 2026-04-13 | Source: continue-roadmap
-  **BLOCKER**: Wiring `validate_body_types` into `check_function` (§03.1) causes this class of unresolved vars to emit E2005, blocking ~800 spec tests. Cannot run `/commit-push` until this and BUG-04-042 and BUG-04-084 are all fixed.
+- [x] `[BUG-04-074][critical]` **AOT codegen: empty list literal `[]` with `push()` leaves unresolved type variables — LLVM verification failure**
+  Absorbed 2026-04-17 into `plans/empty-container-typeck-phase-contract/` (Sections 01 + 02 + 03) per CLAUDE.md §Ownership & Deferral "Plan-blocker bugs belong IN the plan". This bug was the plan's original target and was superseded into the plan's scope when the plan was created 2026-04-13; as of 2026-04-17 the bug-tracker entry is formally closed with a pointer to the plan. The plan's execution history supersedes `plans/bug-tracker/fix-BUG-04-074.md` (which remains as a reference artifact for the pre-plan TPR audit trail). Use `/continue-roadmap empty-container-typeck-phase-contract` to resume work.
+  Original context: `let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` — passes in interpreter, AOT fails with "unresolved type variable at codegen". The plan fixes this via typeck-side PC-2 enforcement (§02 validator + §03 bodies-pass integration) + end-of-body defaulting (§03.BUG-FIXES, formerly BUG-04-084).
+  Found: 2026-04-13 | Source: continue-roadmap | Absorbed: 2026-04-17 into plan §§01+02+03
 
 - [ ] `[BUG-04-073][high]` **AOT codegen: `iter().find()` on list causes double-free (`ori_rc_dec` on already-freed allocation)**
   Repro: `let found = [10, 20, 30, 40, 50].iter().find(where: x -> x == 30); if found == Some(30) then 0 else 1` — passes in interpreter, AOT binary crashes with `FATAL — ori_rc_dec called on already-freed allocation`. Compiled via `cargo run -- build tests/sanitizer/option_some_none.ori -o /tmp/test`.
@@ -451,13 +445,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/oric/src/commands/codegen_pipeline.rs`
   Found: 2026-04-06 | Source: tpr-review (TPR-04-002 from BUG-04-039 fix)
 
-- [ ] `[BUG-04-042][critical]` **LLVM codegen: polymorphic lambda presence causes unresolved type variable for imported generics (assert_eq)** — found by continue-roadmap.
-  Repro: `timeout 150 cargo run --bin ori -- test --backend=llvm tests/spec/expressions/lambda_mono.ori` → `Idx(241)` unresolved type variable, 17 LCFails. Other files using `assert_eq` (e.g., `integer_safety.ori`) pass 30/30 through LLVM. The issue is specific to files containing polymorphic lambda definitions — the lambda's Scheme/BoundVar types bleed into the codegen context and prevent `assert_eq<T: Eq + Debug>` monomorphization. Related: BUG-04-011 (resolved for primitives), BUG-04-040 (path-dependent misdiagnosis noting this gap).
-  Subsystem: `compiler/ori_llvm/src/codegen/type_info/store.rs`, `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/`
-  Found: 2026-04-06 | Source: continue-roadmap (JIT EH plan closure verification)
-  **Blocked**: 2026-04-09 — fix requires coordinating with roadmap Section 21A (active work touches this area). Root cause is systemic: polymorphic lambda BoundVar types in the shared Pool interfere with `MonoInstance` body compilation for imported generics. Fix spans Pool scoping, type_info store, function compiler, and lambda_mono — needs architectural investigation and coordination with 21A's ongoing changes. Fixing independently risks interference.
-  Note: Blocks JIT EH plan items 04B.N L238, 05.R TPR-05-003, 06.2 L152. Active work in roadmap Section 21A touches this area.
-  **BLOCKER**: Wiring `validate_body_types` into `check_function` (§03.1) causes this class of unresolved vars to emit E2005, blocking spec tests. Cannot run `/commit-push` until this and BUG-04-074 and BUG-04-084 are all fixed.
+- [x] `[BUG-04-042][critical]` **LLVM codegen: polymorphic lambda presence causes unresolved type variable for imported generics (assert_eq)**
+  Absorbed 2026-04-17 into `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` per CLAUDE.md §Ownership & Deferral "Plan-blocker bugs belong IN the plan". This bug was blocking `test-all.sh` on the Ori spec (LLVM backend) run, which transitively blocked every atomic commit on the empty-container plan's §03 work. Per the classifying rule "Can the plan complete with this bug open?" — the answer is NO (commits fail because of BUG-04-042 symptoms), so the plan now owns the fix. No sibling fix-BUG-04-042.md file — the owning plan section is the fix section.
+  Original context: `timeout 150 cargo run --bin ori -- test --backend=llvm tests/spec/expressions/lambda_mono.ori` → `Idx(241)` unresolved type variable, 17 LCFails. Polymorphic-lambda BoundVar types in the shared Pool interfere with `MonoInstance` body compilation for imported generics. Fix spans Pool scoping, type_info store, function compiler, and lambda_mono.
+  Found: 2026-04-06 | Source: continue-roadmap | Absorbed: 2026-04-17 into plan §08
+  Coordination note: Previously blocked on roadmap §21A. Plan §08.4 explicitly handles §21A coordination if that work is still active in the `ori_llvm/src/codegen/` area.
 
 - [x] `[BUG-04-046][high]` **Windows-only: `bug_04_019_result_niche_no_collapsed_unwrap_arm` panics with `could not find end of emit_result_niche`** — found by manual.
   Repro: `cargo test -p ori_llvm --lib bug_04_019_result_niche_no_collapsed_unwrap_arm` on `windows-latest`. Surfaced by GitHub Actions run 24102722494 on 2026-04-07 (BUG-04-045 push retriggered CI on PR #107). Failed on `windows-latest` only — `macos-latest` and Linux pass the same test on the same run.
@@ -619,12 +611,8 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-14 | Source: tpr-review (BUG-04-064 Phase 5 code TPR)
   Reviewer: gemini (TPR-04-002-gemini)
   Note: Requires storing `project_alias_sources` on `AimsStateMap` or recomputing at realization time. Architecture change beyond BUG-04-064 point fix scope.
-- [ ] `[BUG-04-084][critical]` **AOT: empty `for x in collection do {}` body causes unresolved type variables at codegen**
-  Repro: `@main () -> int = { let items = [1, 2, 3]; for x in items do {}; 0 }` → `ori build` fails with `unresolved type variable at codegen — type inference bug`. Affects ALL collection types (List, Set, Map) — not Set-specific. Non-empty bodies work correctly. Interpreter handles empty bodies fine (`ori run` exits 0).
-  Subsystem: `compiler/ori_llvm/` (monomorphization / type variable resolution for empty for-do bodies)
-  Found: 2026-04-14 | Source: fix-bug (BUG-04-065 investigation — original repro used empty body, masking the actual OBE status)
-  Note: Discovered during BUG-04-065 OBE verification. The empty body produces an unused iterator element binding (`x`), and the type variable for that binding's `Item` associated type may not be resolved when no code in the body constrains it.
-  **BLOCKER**: Wiring `validate_body_types` into `check_function` (§03.1) causes this class of unresolved vars to emit E2005, blocking spec tests. Cannot run `/commit-push` until this and BUG-04-074 and BUG-04-042 are all fixed.
+- [x] `[BUG-04-084][critical]` **AOT: empty `for x in collection do {}` body causes unresolved type variables at codegen**
+  Resolved: 2026-04-17 via `plans/bug-tracker/fix-BUG-04-084.md` — added end-of-body defaulting pre-pass (`default_unbound_vars_from_empty_literals` / `default_unbound_vars_in_scope` in `compiler/ori_types/src/infer/mod.rs`) that substitutes unconstrained `Tag::Var`s reachable from empty-collection-literal expression roots (`[]`, `{}`) to `Idx::NEVER` before `validate_body_types` runs. Wired into all 4 body-group passes (`check_function`, `check_test`, `check_impl_method`, `check_def_impl_method`). Rust `!`-fallback (RFC 1216/1260) is the direct analog. Matrix: 18/18 positive spec tests + 3/3 negative pins in `tests/spec/types/empty_literals/`. Plan TPR 3 rounds (14 findings resolved) + Code TPR 1 round (gemini clean, codex 3 findings filed to `plans/empty-container-typeck-phase-contract/section-03-bodies-pass-integration.md` §03.R Round 2 as plan-owned `- [ ]` items with concrete anchors to existing §03.2/3/4 wiring work). Hygiene + improve-tooling retrospective + typeck.md/canon.md sync all clean. typeck.md §PC-2 now documents the defaulting pre-pass.
 - [ ] `[BUG-04-079][medium]` **Implement spec-approved DP-9 `MaybeShared + IC-3 ParamContract.uniqueness = Unique → StaticUnique` path (re-enablement of COW fast-path for parameters)** <!-- blocked-by:BUG-04-069 -->
   **Blocked:** BUG-04-069 must be fixed first. BUG-04-069's `tighten_uniqueness_from_callers` uses the unsound IC-8 pattern (Owned+Linear+Once → Unique) to produce `ParamContract.uniqueness = Unique`. Today this is dormant because no realization site reads `ParamContract.uniqueness`. But BUG-04-079 plumbs it into `AnnotationSiteContext` for consumption by `decide_cow()` — so fixing BUG-04-079 without BUG-04-069 would launder the exact unsoundness BUG-04-059 just removed through a different channel.
   Repro: none yet (capability gap, not a regression). After BUG-04-059 fix, MaybeShared parameters always take `Dynamic` (runtime IsShared). Spec DP-9 permits `StaticUnique` when the interprocedural contract proves caller-side uniqueness — a PAST guarantee from the SCC fixpoint, not future-use inference.

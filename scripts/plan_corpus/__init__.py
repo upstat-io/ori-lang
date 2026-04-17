@@ -97,6 +97,36 @@ from .normalizer import (
     normalize_status,
 )
 
+# Bug-entry markers (lifecycle marker SSOT for bug-tracker bullets)
+from .bug_markers import (
+    BUG_SUPERSEDED_RE,
+    BUG_ESCALATED_RE,
+    BUG_BLOCKED_RE,
+    BUG_BLOCKED_BY_COMMENT_RE,
+    BUG_SUPERSEDED_TARGET_RE,
+    BUG_HEADER_RE,
+    BugEntry,
+    classify_bug_exclusion,
+    extract_supersede_target,
+    extract_repro,
+    extract_subsystem,
+    normalize_severity,
+    parse_bug_entries,
+    parse_bug_tracker_dir,
+)
+
+# Bug-entry validators (bidirectional supersede drift + auto-fix planner)
+from .bug_validators import (
+    MissingSupersedeMarker,
+    OrphanSupersedeMarker,
+    SupersedeDriftReport,
+    PlannedEdit,
+    parse_plan_supersedes,
+    find_supersede_drift,
+    plan_auto_fixes,
+    apply_planned_edits,
+)
+
 # Docgen / DepId resolution
 from .docgen import (
     resolve_dep,
@@ -165,6 +195,30 @@ __all__ = [
     "scan_body_signals",
     "NormalizedStatus",
     "normalize_status",
+    # Bug-entry markers
+    "BUG_SUPERSEDED_RE",
+    "BUG_ESCALATED_RE",
+    "BUG_BLOCKED_RE",
+    "BUG_BLOCKED_BY_COMMENT_RE",
+    "BUG_SUPERSEDED_TARGET_RE",
+    "BUG_HEADER_RE",
+    "BugEntry",
+    "classify_bug_exclusion",
+    "extract_supersede_target",
+    "extract_repro",
+    "extract_subsystem",
+    "normalize_severity",
+    "parse_bug_entries",
+    "parse_bug_tracker_dir",
+    # Bug-entry validators
+    "MissingSupersedeMarker",
+    "OrphanSupersedeMarker",
+    "SupersedeDriftReport",
+    "PlannedEdit",
+    "parse_plan_supersedes",
+    "find_supersede_drift",
+    "plan_auto_fixes",
+    "apply_planned_edits",
     # Docgen
     "resolve_dep",
     "generate_schema_reference",

@@ -47,7 +47,7 @@ const SIG_SPAN: Span = Span::new(100, 101);
 /// than map setup boilerplate.
 ///
 /// `scheme_var_ids` is passed through to the validator for the exempt
-/// root set (BUG-02-008). Existing tests pass `&[]` for monomorphic
+/// root set. Existing tests pass `&[]` for monomorphic
 /// scenarios; new tests (T13+) supply real scheme var ids.
 fn run(
     pool: &Pool,
@@ -403,9 +403,9 @@ fn map_with_two_unbound_vars_emits_one_e2005_not_two() {
     );
 }
 
-// BUG-02-008 — Scheme-var exemption tests (T13–T16)
+// Scheme-var exemption tests (T13–T16)
 
-/// Semantic pin for BUG-02-008: a fresh instantiation var that became the
+/// Semantic pin for a fresh instantiation var that became the
 /// union-find root of a scheme var's equivalence class must NOT emit E2005.
 ///
 /// Simulates `@apply_identity<T>(x: T) = identity(x: x)` where:

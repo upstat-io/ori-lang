@@ -1,0 +1,6 @@
+// BUG-04-084: empty literals inside tuple. Type: `([Never], {Never: Never})`.
+
+@main () -> int = {
+    let t = ([], {});
+    0
+}

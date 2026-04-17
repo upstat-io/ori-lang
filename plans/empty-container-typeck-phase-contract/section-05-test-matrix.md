@@ -49,6 +49,18 @@ sections:
     status: not-started
 ---
 
+## Intelligence Reconnaissance
+
+Queries run 2026-04-17:
+
+- `scripts/intel-query.sh --human file-symbols "ori_test_harness" --repo ori` — inventory test harness symbols (compile_fail runner, spec test driver) before writing AOT tests.
+- `scripts/intel-query.sh --human callers "compile_fail" --repo ori` — find all existing `#compile_fail` harness call sites to confirm annotation pattern used in Section 05.2.
+- `scripts/intel-query.sh --human similar "compile error test matrix" --repo rust,roc --limit 5` — prior art for dense `#compile_fail` × type × pattern matrix test suites (Rust `tests/ui/`, Roc property-derived regression suites).
+
+Results summary (≤500 chars) [ori]: `ori_test_harness` houses the spec test runner and `#compile_fail` annotation processing. `compile_fail` expectations compared by substring match against emitted diagnostic message. [rust]: `compiletest --mode=ui` uses one `.rs` file per error scenario with `// ERROR` annotations — confirms §05.2's one-file-per-cell pattern. [roc]: property-test-derived regression suites use positive+negative pairing per feature cell, directly matching `tests.md §Negative Testing Protocol` requirement for §05.2.
+
+---
+
 # Section 05: Test Matrix + Semantic Pins
 
 **Status:** Not Started

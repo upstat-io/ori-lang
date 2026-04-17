@@ -1,0 +1,8 @@
+// BUG-04-084: empty list in for-yield body.
+// Each iteration yields `[]`; the whole expression has type `[[Never]]`
+// (list-of-lists-of-Never). Assigned to unused binding; compiles clean.
+
+@main () -> int = {
+    let nested = for x in [1, 2, 3] yield [];
+    0
+}

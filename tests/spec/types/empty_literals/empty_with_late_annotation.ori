@@ -1,0 +1,16 @@
+// BUG-04-084 negative-control: late annotation constrains the empty literal
+// BEFORE the defaulting pass runs. `empty` must be `[int]`, not `[Never]`.
+
+use std.testing { assert_eq }
+
+@test_late_annotation_wins tests @late_annotation_wins () -> void = {
+    let empty = [];
+    let xs: [int] = empty;
+    assert_eq(actual: xs.len(), expected: 0)
+}
+
+@late_annotation_wins () -> int = {
+    let empty = [];
+    let xs: [int] = empty;
+    xs.len()
+}

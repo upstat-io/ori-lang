@@ -1,0 +1,6 @@
+// BUG-04-084: both if-branches produce empty list. Unified type: `[Never]`.
+
+@main () -> int = {
+    let xs = if true then [] else [];
+    0
+}

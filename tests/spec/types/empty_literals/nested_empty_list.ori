@@ -1,0 +1,6 @@
+// BUG-04-084: nested empty list. Type: `[[Never]]`.
+
+@main () -> int = {
+    let nested = [[]];
+    0
+}
