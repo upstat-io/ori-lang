@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "plan_corpus schema + dag + exporter"
-status: not-started
+status: complete
 reviewed: true
 goal: "Extend scripts/plan_corpus with touches: frontmatter field, SourceKind variants for supersedes/references, Edge invariant relaxation, and a Neo4j-flavored JSON exporter — producing a deterministic, round-trippable envelope that §02 will consume."
 success_criteria:
@@ -25,44 +25,44 @@ third_party_review:
 sections:
   - id: "01.1"
     title: "Add touches: field to PlanSectionSchema and FixBugSchema"
-    status: not-started
+    status: complete
   - id: "01.2"
     title: "Add EXPLICIT_SUPERSEDES, EXPLICIT_REFERENCES to SourceKind enum"
-    status: not-started
+    status: complete
   - id: "01.3"
     title: "Extend dag.py — relax Edge guard, add supersedes/references source loops, fix classifiers"
-    status: not-started
+    status: complete
   - id: "01.4"
     title: "Write export_json.py + export subcommand in __main__.py"
-    status: not-started
+    status: complete
   - id: "01.5"
     title: "Regenerate docs/internal/plan-schema-reference.md"
-    status: not-started
+    status: complete
   - id: "01.6"
     title: "Fixture-corpus round-trip test"
-    status: not-started
+    status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 01: plan_corpus schema + dag + exporter
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Extend `scripts/plan_corpus` with a `touches:` frontmatter field on `PlanSectionSchema` and `FixBugSchema`, two new `SourceKind` variants (`EXPLICIT_SUPERSEDES`, `EXPLICIT_REFERENCES`), corresponding edge-promotion loops and classifier fixes in `dag.py`, and a new `export_json.py` module that serializes the `Corpus + Dag` to a deterministic Neo4j-flavored JSON envelope — producing a complete, round-trippable artifact that §02's importer will consume unchanged.
 
 **Success Criteria:**
 
-- [ ] `scripts/plan_corpus/schemas.py`: `PlanSectionSchema` has `touches: list[str] | None = None` after `inspired_by`; `FixBugSchema` has `touches: list[str] | None = None` after `depends_on` — verified by `python -m scripts.plan_corpus docgen --check` returning exit 0
-- [ ] `scripts/plan_corpus/types.py`: `SourceKind` enum has `EXPLICIT_SUPERSEDES = "explicit_supersedes"` and `EXPLICIT_REFERENCES = "explicit_references"` variants; docstring updated to reflect that EXPLICIT_DEPENDS_ON and EXPLICIT_SUPERSEDES are the ONLY kinds that become `Dag.edges`
-- [ ] `scripts/plan_corpus/dag.py`: `Edge.__post_init__` enforces `source_kind in _EDGE_KINDS` where `_EDGE_KINDS = frozenset({EXPLICIT_DEPENDS_ON, EXPLICIT_SUPERSEDES})`; `classify_redundant_dependency` filters to `EXPLICIT_DEPENDS_ON` edges only; `apply_source_kind_severity` maps `EXPLICIT_SUPERSEDES → HIGH` and `EXPLICIT_REFERENCES → MEDIUM`
-- [ ] `scripts/plan_corpus/dag.py`: `build_dag` has a `supersedes_sources` loop emitting `Edge(source_kind=EXPLICIT_SUPERSEDES, ...)` from `corpus.indexes` and `corpus.overviews`; a `references_sources` loop emitting `Reference(source_kind=EXPLICIT_REFERENCES, ...)` into `dag.references` only (no edges)
-- [ ] `scripts/plan_corpus/export_json.py` exists and exports a deterministic `{"schema_version": "1.0", "generated_at": ..., "nodes": [...], "relationships": [...]}` envelope — verified by `pytest tests/plan-audit/test_export_json.py` green
-- [ ] `scripts/plan_corpus/__main__.py`: `export` subcommand with `--output <path>` flag works alongside `check`/`discover`/`docgen`
-- [ ] `docs/internal/plan-schema-reference.md` regenerated; `python -m scripts.plan_corpus docgen --check` returns exit 0
-- [ ] `pytest tests/plan-audit/test_export_json.py` green (fixture corpus round-trip, determinism, Neo4j envelope validation)
-- [ ] `pytest tests/plan-audit/test_dag.py` green — no regression from `Edge.__post_init__` guard relaxation; `Edge` invariant test updated to assert `source_kind in _EDGE_KINDS`
-- [ ] Satisfies mission criterion: "scripts/plan_corpus/schemas.py exposes optional touches:..." and "scripts/plan_corpus/export_json.py serializes Corpus + Dag to a Neo4j-flavored JSON envelope..."
+- [x] `scripts/plan_corpus/schemas.py`: `PlanSectionSchema` has `touches: list[str] | None = None` after `inspired_by`; `FixBugSchema` has `touches: list[str] | None = None` after `depends_on` — verified by `python -m scripts.plan_corpus docgen --check` returning exit 0
+- [x] `scripts/plan_corpus/types.py`: `SourceKind` enum has `EXPLICIT_SUPERSEDES = "explicit_supersedes"` and `EXPLICIT_REFERENCES = "explicit_references"` variants; docstring updated to reflect that EXPLICIT_DEPENDS_ON and EXPLICIT_SUPERSEDES are the ONLY kinds that become `Dag.edges`
+- [x] `scripts/plan_corpus/dag.py`: `Edge.__post_init__` enforces `source_kind in _EDGE_KINDS` where `_EDGE_KINDS = frozenset({EXPLICIT_DEPENDS_ON, EXPLICIT_SUPERSEDES})`; `classify_redundant_dependency` filters to `EXPLICIT_DEPENDS_ON` edges only; `apply_source_kind_severity` maps `EXPLICIT_SUPERSEDES → HIGH` and `EXPLICIT_REFERENCES → MEDIUM`
+- [x] `scripts/plan_corpus/dag.py`: `build_dag` has a `supersedes_sources` loop emitting `Edge(source_kind=EXPLICIT_SUPERSEDES, ...)` from `corpus.indexes` and `corpus.overviews`; a `references_sources` loop emitting `Reference(source_kind=EXPLICIT_REFERENCES, ...)` into `dag.references` only (no edges)
+- [x] `scripts/plan_corpus/export_json.py` exists and exports a deterministic `{"schema_version": "1.0", "generated_at": ..., "nodes": [...], "relationships": [...]}` envelope — verified by `pytest tests/plan-audit/test_export_json.py` green
+- [x] `scripts/plan_corpus/__main__.py`: `export` subcommand with `--output <path>` flag works alongside `check`/`discover`/`docgen`
+- [x] `docs/internal/plan-schema-reference.md` regenerated; `python -m scripts.plan_corpus docgen --check` returns exit 0
+- [x] `pytest tests/plan-audit/test_export_json.py` green (fixture corpus round-trip, determinism, Neo4j envelope validation)
+- [x] `pytest tests/plan-audit/test_dag.py` green — no regression from `Edge.__post_init__` guard relaxation; `Edge` invariant test updated to assert `source_kind in _EDGE_KINDS`
+- [x] Satisfies mission criterion: "scripts/plan_corpus/schemas.py exposes optional touches:..." and "scripts/plan_corpus/export_json.py serializes Corpus + Dag to a Neo4j-flavored JSON envelope..."
 
 **Context:** The `scripts/plan_corpus/` library currently models all intra-plan dependency relationships as `EXPLICIT_DEPENDS_ON` edges. However, the plan frontmatter schema already allows `supersedes:` (on `PlanIndexSchema` and `OverviewSchema`) and `references:` (on both) — neither of which are promoted to first-class typed edges today. The Neo4j importer in §02 needs these as distinct edge kinds to model the `:SUPERSEDES` and `:REFERENCES` relationship types. Additionally, every plan section may need a `touches:` list of code symbols so plan/code joins (`:MENTIONS_CODE`) can be populated declaratively. This section delivers the schema extension, the new DAG semantics, and the serialization layer — the minimal foundation that §02 needs to MERGE into Neo4j.
 
@@ -98,7 +98,7 @@ This subsection adds the optional `touches: list[str] | None = None` field to `P
 
 The field is an unvalidated list of freeform strings at this schema layer. Consumers (the exporter in §01.4, the importer in §02.3) apply symbol resolution; the schema only enforces that if present, it is a list of strings. No `_validate_touches_format` helper is needed at this layer — the `_schema_allowed_fields` introspection in `schema.py` automatically accepts the new field, and the WRONG_TYPE check in `schema.py`'s `_validate_field_types` catches non-list values.
 
-- [ ] Edit `scripts/plan_corpus/schemas.py` line ~67: add `touches: list[str] | None = None` after `inspired_by: list[str] | None = None` in `PlanSectionSchema`:
+- [x] Edit `scripts/plan_corpus/schemas.py` line ~67: add `touches: list[str] | None = None` after `inspired_by: list[str] | None = None` in `PlanSectionSchema`:
   ```python
   @dataclass(frozen=True)
   class PlanSectionSchema:
@@ -116,7 +116,7 @@ The field is an unvalidated list of freeform strings at this schema layer. Consu
       touches: list[str] | None = None  # ← NEW: declarative code symbol list
   ```
 
-- [ ] Edit `scripts/plan_corpus/schemas.py` line ~123: add `touches: list[str] | None = None` after `depends_on: list[str] | None = None` in `FixBugSchema`:
+- [x] Edit `scripts/plan_corpus/schemas.py` line ~123: add `touches: list[str] | None = None` after `depends_on: list[str] | None = None` in `FixBugSchema`:
   ```python
   @dataclass(frozen=True)
   class FixBugSchema:
@@ -136,14 +136,14 @@ The field is an unvalidated list of freeform strings at this schema layer. Consu
       touches: list[str] | None = None  # ← NEW: declarative code symbol list
   ```
 
-- [ ] Verify no existing plan files are broken by the addition: `python -m scripts.plan_corpus check plans/` — `touches` is optional with `None` default so all existing files continue to parse without error; `UNKNOWN_FIELD` would only fire if files already have `touches:` entries that previously triggered schema violations — check for any.
+- [x] Verify no existing plan files are broken by the addition: `python -m scripts.plan_corpus check plans/` — `touches` is optional with `None` default so all existing files continue to parse without error; `UNKNOWN_FIELD` would only fire if files already have `touches:` entries that previously triggered schema violations — check for any.
 
-- [ ] Run `python -m scripts.plan_corpus docgen` (§01.5 will commit the output, but run now to confirm the auto-generation succeeds with the new fields present and the output is sane).
+- [x] Run `python -m scripts.plan_corpus docgen` (§01.5 will commit the output, but run now to confirm the auto-generation succeeds with the new fields present and the output is sane).
 
-- [ ] **Subsection close-out (01.1)** — MANDATORY before starting 01.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`; clean any temp files detected.
+- [x] **Subsection close-out (01.1)** — MANDATORY before starting 01.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`; clean any temp files detected.
 
 ---
 
@@ -157,7 +157,7 @@ The `SourceKind` docstring currently states: "Only `EXPLICIT_DEPENDS_ON` referen
 
 **SSOT invariant enforced by this change:** `Edge.__post_init__` in `dag.py` enforces which `SourceKind` values are permitted in edges. Adding `EXPLICIT_SUPERSEDES` to `_EDGE_KINDS` (§01.3a) is the mechanism; this subsection merely introduces the enum variant that §01.3 will use.
 
-- [ ] Edit `scripts/plan_corpus/types.py` line ~99: after `CODE_FENCE_EXAMPLE = "code_fence_example"` add the two new variants and update the docstring:
+- [x] Edit `scripts/plan_corpus/types.py` line ~99: after `CODE_FENCE_EXAMPLE = "code_fence_example"` add the two new variants and update the docstring:
   ```python
   class SourceKind(enum.Enum):
       """Reference source taxonomy used by the §02 DAG builder.
@@ -181,14 +181,14 @@ The `SourceKind` docstring currently states: "Only `EXPLICIT_DEPENDS_ON` referen
       CODE_FENCE_EXAMPLE = "code_fence_example"
   ```
 
-- [ ] Verify `python -c "from scripts.plan_corpus.types import SourceKind; print(SourceKind.EXPLICIT_SUPERSEDES, SourceKind.EXPLICIT_REFERENCES)"` succeeds.
+- [x] Verify `python -c "from scripts.plan_corpus.types import SourceKind; print(SourceKind.EXPLICIT_SUPERSEDES, SourceKind.EXPLICIT_REFERENCES)"` succeeds.
 
-- [ ] Verify `python -m scripts.plan_corpus check plans/plan-bug-dag-ingestion/` — no regressions from new enum variants (all downstream match arms must handle them; §01.3 handles `Edge.__post_init__`; `apply_source_kind_severity` update is in §01.3e).
+- [x] Verify `python -m scripts.plan_corpus check plans/plan-bug-dag-ingestion/` — no regressions from new enum variants (all downstream match arms must handle them; §01.3 handles `Edge.__post_init__`; `apply_source_kind_severity` update is in §01.3e).
 
-- [ ] **Subsection close-out (01.2)** — MANDATORY before starting 01.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+- [x] **Subsection close-out (01.2)** — MANDATORY before starting 01.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
 
 ---
 
@@ -239,9 +239,9 @@ class Edge:
             )
 ```
 
-- [ ] Add `_EDGE_KINDS` frozenset constant immediately before the `Edge` dataclass (after the `Reference` dataclass definition)
-- [ ] Update `Edge.__post_init__` to use `source_kind not in _EDGE_KINDS`
-- [ ] Update the class docstring to name both permitted kinds
+- [x] Add `_EDGE_KINDS` frozenset constant immediately before the `Edge` dataclass (after the `Reference` dataclass definition)
+- [x] Update `Edge.__post_init__` to use `source_kind not in _EDGE_KINDS`
+- [x] Update the class docstring to name both permitted kinds
 
 ### 01.3b — `supersedes_sources` loop in `build_dag`
 
@@ -325,9 +325,9 @@ def _emit_edges_from_frontmatter_list(
                 dag.resolution_findings.append(enriched)
 ```
 
-- [ ] Add `_emit_edges_from_frontmatter_list` helper function immediately before `build_dag`
-- [ ] **Refactor** the existing `deps_sources` inner loop in `build_dag` to call `_emit_edges_from_frontmatter_list(..., field_name="depends_on", source_kind=EXPLICIT_DEPENDS_ON, edges=True)` — this is the DRY refactor; existing behavior must be preserved exactly
-- [ ] After `deps_sources` block, add `supersedes_sources` using the same list structure but populating from `corpus.indexes` and `corpus.overviews` (both have `supersedes:` field per `PlanIndexSchema:50` and `OverviewSchema:95`):
+- [x] Add `_emit_edges_from_frontmatter_list` helper function immediately before `build_dag`
+- [x] **Refactor** the existing `deps_sources` inner loop in `build_dag` to call `_emit_edges_from_frontmatter_list(..., field_name="depends_on", source_kind=EXPLICIT_DEPENDS_ON, edges=True)` — this is the DRY refactor; existing behavior must be preserved exactly
+- [x] After `deps_sources` block, add `supersedes_sources` using the same list structure but populating from `corpus.indexes` and `corpus.overviews` (both have `supersedes:` field per `PlanIndexSchema:50` and `OverviewSchema:95`):
   ```python
   # 2b. Parse supersedes edges.
   supersedes_sources: list[tuple[NodeId, Path, Path, dict]] = []
@@ -341,7 +341,7 @@ def _emit_edges_from_frontmatter_list(
       SourceKind.EXPLICIT_SUPERSEDES, edges=True, corpus=corpus,
   )
   ```
-- [ ] After `supersedes_sources` block, add `references_sources` (references-only — both `corpus.indexes` and `corpus.overviews` have `references:` per the same schemas):
+- [x] After `supersedes_sources` block, add `references_sources` (references-only — both `corpus.indexes` and `corpus.overviews` have `references:` per the same schemas):
   ```python
   # 2c. Parse references (reference-only — no edges).
   references_sources: list[tuple[NodeId, Path, Path, dict]] = []
@@ -355,7 +355,7 @@ def _emit_edges_from_frontmatter_list(
       SourceKind.EXPLICIT_REFERENCES, edges=False, corpus=corpus,
   )
   ```
-- [ ] Update `build_dag` docstring to mention steps 2b and 2c
+- [x] Update `build_dag` docstring to mention steps 2b and 2c
 
 ### 01.3c — `classify_redundant_dependency` filter
 
@@ -387,8 +387,8 @@ def classify_redundant_dependency(dag: Dag, corpus) -> list:
         ...  # rest of the existing BFS logic unchanged
 ```
 
-- [ ] Update `classify_redundant_dependency` to filter `e.source_kind is not SourceKind.EXPLICIT_DEPENDS_ON` in BOTH the adjacency-build loop and the outer edge-iteration loop
-- [ ] Update the function docstring to document this filter
+- [x] Update `classify_redundant_dependency` to filter `e.source_kind is not SourceKind.EXPLICIT_DEPENDS_ON` in BOTH the adjacency-build loop and the outer edge-iteration loop
+- [x] Update the function docstring to document this filter
 
 ### 01.3d — `apply_source_kind_severity` new ladder entries
 
@@ -410,23 +410,23 @@ else:
     continue
 ```
 
-- [ ] Update `apply_source_kind_severity` severity chain as shown above
-- [ ] Update the docstring comment (lines ~1908-1912) to mention `EXPLICIT_SUPERSEDES=HIGH`, `EXPLICIT_REFERENCES=MEDIUM`
+- [x] Update `apply_source_kind_severity` severity chain as shown above
+- [x] Update the docstring comment (lines ~1908-1912) to mention `EXPLICIT_SUPERSEDES=HIGH`, `EXPLICIT_REFERENCES=MEDIUM`
 
 ### 01.3e — Existing test updates
 
 The tests in `tests/plan-audit/test_dag.py` and `tests/plan-audit/test_dag_construction.py` include tests that verify the `Edge.__post_init__` invariant. After the guard relaxation, these tests must be updated to assert the new invariant (`source_kind in _EDGE_KINDS`) rather than the narrower predicate (`is EXPLICIT_DEPENDS_ON`).
 
-- [ ] Run `pytest tests/plan-audit/test_dag.py tests/plan-audit/test_dag_construction.py` before any changes — observe which tests fail with the old guard (expected: tests that construct `Edge(source_kind=EXPLICIT_SUPERSEDES)` now fail with the old `is EXPLICIT_DEPENDS_ON` guard, but none should exist yet since the variant is new)
-- [ ] After §01.3a–01.3d changes, run `pytest tests/plan-audit/test_dag.py tests/plan-audit/test_dag_construction.py` — any test that tests the `Edge.__post_init__` error message or asserts `EXPLICIT_DEPENDS_ON` exclusivity must be updated to import and use `_EDGE_KINDS`
-- [ ] Add a new test `test_edge_rejects_non_edge_kind_source_kind` that asserts `Edge(..., source_kind=SourceKind.EXPLICIT_REFERENCES, ...)` raises `ValueError`
-- [ ] Add a new test `test_edge_accepts_explicit_supersedes` that constructs `Edge(..., source_kind=SourceKind.EXPLICIT_SUPERSEDES, ...)` without error
-- [ ] Verify no classifier test regresses: `pytest tests/plan-audit/` green
+- [x] Run `pytest tests/plan-audit/test_dag.py tests/plan-audit/test_dag_construction.py` before any changes — observe which tests fail with the old guard (expected: tests that construct `Edge(source_kind=EXPLICIT_SUPERSEDES)` now fail with the old `is EXPLICIT_DEPENDS_ON` guard, but none should exist yet since the variant is new)
+- [x] After §01.3a–01.3d changes, run `pytest tests/plan-audit/test_dag.py tests/plan-audit/test_dag_construction.py` — any test that tests the `Edge.__post_init__` error message or asserts `EXPLICIT_DEPENDS_ON` exclusivity must be updated to import and use `_EDGE_KINDS`
+- [x] Add a new test `test_edge_rejects_non_edge_kind_source_kind` that asserts `Edge(..., source_kind=SourceKind.EXPLICIT_REFERENCES, ...)` raises `ValueError`
+- [x] Add a new test `test_edge_accepts_explicit_supersedes` that constructs `Edge(..., source_kind=SourceKind.EXPLICIT_SUPERSEDES, ...)` without error
+- [x] Verify no classifier test regresses: `pytest tests/plan-audit/` green
 
-- [ ] **Subsection close-out (01.3)** — MANDATORY before starting 01.4:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+- [x] **Subsection close-out (01.3)** — MANDATORY before starting 01.4:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
 
 ---
 
@@ -543,15 +543,15 @@ def export_neo4j_json(
     """
 ```
 
-- [ ] Create `scripts/plan_corpus/export_json.py` with:
-  - [ ] `_stable_id(node_id: NodeId, corpus: Corpus) -> str` helper that implements the stable ID mapping table above
-  - [ ] `_node_label(node_kind: NodeKind) -> str` helper that maps `NodeKind` to the Neo4j label string (e.g., `PLAN_INDEX → "Plan"`, `PLAN_SECTION → "PlanSection"`, etc.)
-  - [ ] `_source_kind_to_rel_type(source_kind: SourceKind, raw_text: str) -> str` helper that applies the SourceKind → relationship type mapping table, extracting verb from `raw_text` for `HTML_COMMENT_CONVENTION`
-  - [ ] `_structural_relationships(corpus: Corpus, node_id_map: dict) -> list[dict]` helper that produces `HAS_SECTION`, `HAS_OVERVIEW`, `FIXED_BY` relationships from corpus structure
-  - [ ] `export_neo4j_json(corpus, dag, *, include_references=True) -> dict` main function
-  - [ ] Determinism: `nodes.sort(key=lambda n: n["id"])`, `relationships.sort(key=lambda r: (r["start_id"], r["type"], r["end_id"]))`, `json.dumps(..., sort_keys=True)` when serializing
+- [x] Create `scripts/plan_corpus/export_json.py` with:
+  - [x] `_stable_id(node_id: NodeId, corpus: Corpus) -> str` helper that implements the stable ID mapping table above
+  - [x] `_node_label(node_kind: NodeKind) -> str` helper that maps `NodeKind` to the Neo4j label string (e.g., `PLAN_INDEX → "Plan"`, `PLAN_SECTION → "PlanSection"`, etc.)
+  - [x] `_source_kind_to_rel_type(source_kind: SourceKind, raw_text: str) -> str` helper that applies the SourceKind → relationship type mapping table, extracting verb from `raw_text` for `HTML_COMMENT_CONVENTION`
+  - [x] `_structural_relationships(corpus: Corpus, node_id_map: dict) -> list[dict]` helper that produces `HAS_SECTION`, `HAS_OVERVIEW`, `FIXED_BY` relationships from corpus structure
+  - [x] `export_neo4j_json(corpus, dag, *, include_references=True) -> dict` main function
+  - [x] Determinism: `nodes.sort(key=lambda n: n["id"])`, `relationships.sort(key=lambda r: (r["start_id"], r["type"], r["end_id"]))`, `json.dumps(..., sort_keys=True)` when serializing
 
-- [ ] Edit `scripts/plan_corpus/__main__.py` to add the `export` subcommand:
+- [x] Edit `scripts/plan_corpus/__main__.py` to add the `export` subcommand:
   ```python
   export_p = sub.add_parser(
       "export",
@@ -583,12 +583,12 @@ def export_neo4j_json(
       return 0
   ```
 
-- [ ] Verify `python -m scripts.plan_corpus export | python -c "import json,sys; d=json.load(sys.stdin); print(len(d['nodes']), len(d['relationships']))"` outputs plausible counts (expect 200–800 nodes from the active corpus)
+- [x] Verify `python -m scripts.plan_corpus export | python -c "import json,sys; d=json.load(sys.stdin); print(len(d['nodes']), len(d['relationships']))"` outputs plausible counts (expect 200–800 nodes from the active corpus)
 
-- [ ] **Subsection close-out (01.4)** — MANDATORY before starting 01.5:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+- [x] **Subsection close-out (01.4)** — MANDATORY before starting 01.5:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
 
 ---
 
@@ -600,15 +600,15 @@ After §01.1 adds `touches:` to two schemas, the `plan-schema-reference.md` docu
 
 This subsection is mostly automated — the schema reference is derived from `dataclasses.fields()` via `docgen.py`'s `generate_schema_reference()` function, which reads the `FILE_CLASS_META` registry in `schema.py`. No manual editing is needed.
 
-- [ ] Run `python -m scripts.plan_corpus docgen > docs/internal/plan-schema-reference.md` to regenerate
-- [ ] Run `python -m scripts.plan_corpus docgen --check` — must return exit 0; if it returns exit 1 with a diff, the regeneration step above was skipped or failed
-- [ ] Inspect the diff in `docs/internal/plan-schema-reference.md` — confirm it shows `touches` field added to `PlanSection` and `FixBug` sections and nothing else changed
-- [ ] Commit the regenerated file alongside the schema change (not separately — they must arrive atomically to avoid a window where `docgen --check` fails in CI)
+- [x] Run `python -m scripts.plan_corpus docgen > docs/internal/plan-schema-reference.md` to regenerate
+- [x] Run `python -m scripts.plan_corpus docgen --check` — must return exit 0; if it returns exit 1 with a diff, the regeneration step above was skipped or failed
+- [x] Inspect the diff in `docs/internal/plan-schema-reference.md` — confirm it shows `touches` field added to `PlanSection` and `FixBug` sections and nothing else changed
+- [x] Commit the regenerated file alongside the schema change (not separately — they must arrive atomically to avoid a window where `docgen --check` fails in CI)
 
-- [ ] **Subsection close-out (01.5)** — MANDATORY before starting 01.6:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+- [x] **Subsection close-out (01.5)** — MANDATORY before starting 01.6:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
 
 ---
 
@@ -655,40 +655,40 @@ def test_export_same_corpus_twice_produces_identical_json(tmp_path):
     assert out1 == out2
 ```
 
-- [ ] Create `tests/plan-audit/test_export_json.py` with tests 1–5 above
-- [ ] All 5 tests pass: `pytest tests/plan-audit/test_export_json.py -v`
-- [ ] No regression in `tests/plan-audit/test_dag.py`: `pytest tests/plan-audit/test_dag.py -v`
-- [ ] Full audit test suite green: `pytest tests/plan-audit/ -v`
+- [x] Create `tests/plan-audit/test_export_json.py` with tests 1–5 above
+- [x] All 5 tests pass: `pytest tests/plan-audit/test_export_json.py -v`
+- [x] No regression in `tests/plan-audit/test_dag.py`: `pytest tests/plan-audit/test_dag.py -v`
+- [x] Full audit test suite green: `pytest tests/plan-audit/ -v`
 
-- [ ] **Subsection close-out (01.6)** — MANDATORY before starting 01.R:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+- [x] **Subsection close-out (01.6)** — MANDATORY before starting 01.R:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
 
 ---
 
 ## 01.N Completion Checklist
 
-- [ ] `scripts/plan_corpus/schemas.py`: `PlanSectionSchema` has `touches: list[str] | None = None` after `inspired_by`; `FixBugSchema` has `touches: list[str] | None = None` after `depends_on`
-- [ ] `scripts/plan_corpus/types.py`: `SourceKind.EXPLICIT_SUPERSEDES` and `SourceKind.EXPLICIT_REFERENCES` exist; docstring updated to name both edge-forming kinds
-- [ ] `scripts/plan_corpus/dag.py`: `_EDGE_KINDS = frozenset({EXPLICIT_DEPENDS_ON, EXPLICIT_SUPERSEDES})` exists; `Edge.__post_init__` uses it; `classify_redundant_dependency` filters to `EXPLICIT_DEPENDS_ON` in both loop positions; `apply_source_kind_severity` maps `EXPLICIT_SUPERSEDES → HIGH` and `EXPLICIT_REFERENCES → MEDIUM`
-- [ ] `scripts/plan_corpus/dag.py`: `_emit_edges_from_frontmatter_list` helper extracted; `deps_sources` loop refactored to call it; `supersedes_sources` loop added; `references_sources` loop added
-- [ ] `scripts/plan_corpus/export_json.py` exists with `export_neo4j_json(corpus, dag, *, include_references=True) -> dict` function; file stays under 500 lines
-- [ ] `scripts/plan_corpus/__main__.py`: `export` subcommand with `--output <path>` and `--no-references` flags works
-- [ ] `docs/internal/plan-schema-reference.md` regenerated: `python -m scripts.plan_corpus docgen --check` returns exit 0
-- [ ] `pytest tests/plan-audit/test_export_json.py` green (5 tests: node count, determinism, envelope schema keys, supersedes edge, references-only semantics)
-- [ ] `pytest tests/plan-audit/test_dag.py` green — no regression from `_EDGE_KINDS` guard change
-- [ ] `pytest tests/plan-audit/` green — full audit suite
-- [ ] `python -m scripts.plan_corpus check plans/plan-bug-dag-ingestion/section-01-plan-corpus-extension.md` returns 0 recon findings (this section has its recon block present)
-- [ ] `python -m scripts.plan_corpus check plans/` — no new schema violations introduced by `touches:` field (all existing files parse cleanly; field is optional)
-- [ ] `python -m scripts.plan_corpus export` emits valid JSON envelope with plausible node/relationship counts
-- [ ] Satisfies mission criterion: "scripts/plan_corpus/schemas.py exposes optional touches:..." (§01.1) and "scripts/plan_corpus/export_json.py serializes Corpus + Dag to a Neo4j-flavored JSON envelope..." (§01.4)
-- [ ] **Plan sync** — update plan metadata to reflect this section's completion:
-  - [ ] This section's frontmatter `status` → `complete`, all subsection statuses → `complete`
-  - [ ] `00-overview.md` Quick Reference table: Section 01 status → `Complete`
-  - [ ] `00-overview.md` mission success criteria: check off criterion 2 ("scripts/plan_corpus/schemas.py exposes optional touches:...") and criterion 3 ("scripts/plan_corpus/export_json.py serializes Corpus + Dag...")
-  - [ ] `index.md` Section 01 status → `Complete`
-  - [ ] Section 02's `depends_on: []` is correct — no stale assumptions from §01's work (§02 references the JSON envelope shape, which is now fixed)
-- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`; clean any temp files before final commit.
+- [x] `scripts/plan_corpus/schemas.py`: `PlanSectionSchema` has `touches: list[str] | None = None` after `inspired_by`; `FixBugSchema` has `touches: list[str] | None = None` after `depends_on`
+- [x] `scripts/plan_corpus/types.py`: `SourceKind.EXPLICIT_SUPERSEDES` and `SourceKind.EXPLICIT_REFERENCES` exist; docstring updated to name both edge-forming kinds
+- [x] `scripts/plan_corpus/dag.py`: `_EDGE_KINDS = frozenset({EXPLICIT_DEPENDS_ON, EXPLICIT_SUPERSEDES})` exists; `Edge.__post_init__` uses it; `classify_redundant_dependency` filters to `EXPLICIT_DEPENDS_ON` in both loop positions; `apply_source_kind_severity` maps `EXPLICIT_SUPERSEDES → HIGH` and `EXPLICIT_REFERENCES → MEDIUM`
+- [x] `scripts/plan_corpus/dag.py`: `_emit_edges_from_frontmatter_list` helper extracted; `deps_sources` loop refactored to call it; `supersedes_sources` loop added; `references_sources` loop added
+- [x] `scripts/plan_corpus/export_json.py` exists with `export_neo4j_json(corpus, dag, *, include_references=True) -> dict` function; file stays under 500 lines
+- [x] `scripts/plan_corpus/__main__.py`: `export` subcommand with `--output <path>` and `--no-references` flags works
+- [x] `docs/internal/plan-schema-reference.md` regenerated: `python -m scripts.plan_corpus docgen --check` returns exit 0
+- [x] `pytest tests/plan-audit/test_export_json.py` green (5 tests: node count, determinism, envelope schema keys, supersedes edge, references-only semantics)
+- [x] `pytest tests/plan-audit/test_dag.py` green — no regression from `_EDGE_KINDS` guard change
+- [x] `pytest tests/plan-audit/` green — full audit suite
+- [x] `python -m scripts.plan_corpus check plans/plan-bug-dag-ingestion/section-01-plan-corpus-extension.md` returns 0 recon findings (this section has its recon block present)
+- [x] `python -m scripts.plan_corpus check plans/` — no new schema violations introduced by `touches:` field (all existing files parse cleanly; field is optional)
+- [x] `python -m scripts.plan_corpus export` emits valid JSON envelope with plausible node/relationship counts
+- [x] Satisfies mission criterion: "scripts/plan_corpus/schemas.py exposes optional touches:..." (§01.1) and "scripts/plan_corpus/export_json.py serializes Corpus + Dag to a Neo4j-flavored JSON envelope..." (§01.4)
+- [x] **Plan sync** — update plan metadata to reflect this section's completion:
+  - [x] This section's frontmatter `status` → `complete`, all subsection statuses → `complete`
+  - [x] `00-overview.md` Quick Reference table: Section 01 status → `Complete`
+  - [x] `00-overview.md` mission success criteria: check off criterion 2 ("scripts/plan_corpus/schemas.py exposes optional touches:...") and criterion 3 ("scripts/plan_corpus/export_json.py serializes Corpus + Dag...")
+  - [x] `index.md` Section 01 status → `Complete`
+  - [x] Section 02's `depends_on: []` is correct — no stale assumptions from §01's work (§02 references the JSON envelope shape, which is now fixed)
+- [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`; clean any temp files before final commit.
 
 **Exit Criteria:** `python -m scripts.plan_corpus docgen --check` returns exit 0; `pytest tests/plan-audit/test_export_json.py` passes all 5 tests; `pytest tests/plan-audit/test_dag.py` passes with no regressions; `python -m scripts.plan_corpus export` produces a valid, deterministic JSON envelope with `schema_version: "1.0"` and both `nodes` and `relationships` arrays populated; `./test-all.sh` green with 0 failures across all Rust test suites (§01 is Python-only, no Rust impact expected).

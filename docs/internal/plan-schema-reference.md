@@ -23,7 +23,7 @@ Auto-generated from Python dataclass definitions in `scripts/plan_corpus/schemas
 ### Plan Section
 **Pattern**: `plans/*/section-*.md`
 **Required**: `section`, `title`, `status`, `reviewed`, `goal`, `success_criteria`, `sections`, `third_party_review`
-**Optional**: `depends_on`, `inspired_by`
+**Optional**: `depends_on`, `inspired_by`, `touches`
 
 ### Roadmap Section
 **Pattern**: `plans/roadmap/section-*.md`
@@ -43,7 +43,7 @@ Auto-generated from Python dataclass definitions in `scripts/plan_corpus/schemas
 ### Fix Bug
 **Pattern**: `plans/bug-tracker/fix-BUG-*.md`
 **Required**: `bug`, `title`, `severity`, `status`, `goal`, `success_criteria`, `subsystem`, `found`, `source`, `third_party_review`
-**Optional**: `depends_on`, `sections`
+**Optional**: `depends_on`, `sections`, `touches`
 
 ### Completed Index
 **Pattern**: `plans/completed/*/index.md`

@@ -52,6 +52,26 @@ def main() -> int:
     docgen_p.add_argument("--check", action="store_true",
                           help="Compare against committed file, exit non-zero on diff")
 
+    export_p = sub.add_parser(
+        "export",
+        help=(
+            "Export corpus + DAG as a deterministic Neo4j-flavored JSON "
+            "envelope (to stdout or --output file)."
+        ),
+    )
+    export_p.add_argument(
+        "--output", type=Path, default=None,
+        help="Write to file instead of stdout",
+    )
+    export_p.add_argument(
+        "--no-references", action="store_true",
+        help=(
+            "Omit reference-only relationships (PROSE_VERB, YAML_COMMENT, "
+            "HTML_COMMENT_CONVENTION, EXPLICIT_REFERENCES). Edge-backed "
+            "relationships and structural edges still emit."
+        ),
+    )
+
     args = parser.parse_args()
 
     if args.command == "check":
@@ -99,6 +119,25 @@ def main() -> int:
         for gap in corpus.gaps:
             print(f"  {gap.to_markdown()}")
         _print_recon_coverage(corpus)
+        return 0
+
+    elif args.command == "export":
+        from .dag import build_dag
+        from .export_json import export_neo4j_json
+        corpus = discover_corpus()
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(
+            corpus, dag, include_references=not args.no_references
+        )
+        rendered = json.dumps(envelope, indent=2, sort_keys=True)
+        if args.output:
+            args.output.write_text(rendered, encoding="utf-8")
+            print(
+                f"Wrote {len(envelope['nodes'])} nodes, "
+                f"{len(envelope['relationships'])} relationships to {args.output}"
+            )
+        else:
+            print(rendered)
         return 0
 
     elif args.command == "docgen":

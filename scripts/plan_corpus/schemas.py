@@ -65,6 +65,7 @@ class PlanSectionSchema:
     third_party_review: dict
     depends_on: list[str] | None = None
     inspired_by: list[str] | None = None
+    touches: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,7 @@ class FixBugSchema:
     third_party_review: dict
     sections: list[dict] | None = None
     depends_on: list[str] | None = None
+    touches: list[str] | None = None
 
 
 @dataclass(frozen=True)

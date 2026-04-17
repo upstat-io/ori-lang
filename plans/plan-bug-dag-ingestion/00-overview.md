@@ -1,7 +1,7 @@
 ---
 plan: "plan-bug-dag-ingestion"
 title: "Plan & Bug DAG Ingestion: Exhaustive Implementation Plan"
-status: not-started
+status: in-progress
 references:
   - "plans/query-intel-adoption/00-overview.md"
   - "plans/completed/lang-intelligence/"
@@ -21,8 +21,8 @@ Project the ori_lang plan/bug corpus (plans, sections, subsections, bug-tracker 
 The mission is complete when ALL of the following are true:
 
 - [ ] Neo4j `schema.cypher` declares typed node labels `:Plan`, `:PlanSection`, `:Subsection`, `:Bug`, `:FixSection`, `:BugTrackerSection`, `:Overview` with uniqueness constraints on stable IDs (plan directory name, `BUG-XX-NNN`, `fix-BUG-XX-NNN`, `plans/<dir>/section-<NN>-<slug>.md`) — verified by `cypher-shell < schema.cypher` idempotent re-run producing zero schema changes on second invocation. (§02)
-- [ ] `scripts/plan_corpus/schemas.py` exposes optional `touches: list[str] | None = None` on `PlanSectionSchema` and `FixBugSchema`; `scripts/plan_corpus/types.py` exposes `SourceKind.EXPLICIT_SUPERSEDES` and `SourceKind.EXPLICIT_REFERENCES`; `scripts/plan_corpus/dag.py` promotes frontmatter `supersedes:` entries to typed edges and `references:` entries to typed references — verified by `python -m scripts.plan_corpus docgen --check` returning exit 0 after regenerating `docs/internal/plan-schema-reference.md`. (§01)
-- [ ] `scripts/plan_corpus/export_json.py` serializes `Corpus + Dag` to a Neo4j-flavored JSON envelope `{"nodes": [...], "relationships": [...]}` with stable IDs and full provenance (`source_kind`, `source_line`, `raw_text`); `python -m scripts.plan_corpus export` emits the same envelope on stdout — verified by a fixture-corpus round-trip test in `tests/plan-audit/test_export_json.py`. (§01)
+- [x] `scripts/plan_corpus/schemas.py` exposes optional `touches: list[str] | None = None` on `PlanSectionSchema` and `FixBugSchema`; `scripts/plan_corpus/types.py` exposes `SourceKind.EXPLICIT_SUPERSEDES` and `SourceKind.EXPLICIT_REFERENCES`; `scripts/plan_corpus/dag.py` promotes frontmatter `supersedes:` entries to typed edges and `references:` entries to typed references — verified by `python -m scripts.plan_corpus docgen --check` returning exit 0 after regenerating `docs/internal/plan-schema-reference.md`. (§01)
+- [x] `scripts/plan_corpus/export_json.py` serializes `Corpus + Dag` to a Neo4j-flavored JSON envelope `{"nodes": [...], "relationships": [...]}` with stable IDs and full provenance (`source_kind`, `source_line`, `raw_text`); `python -m scripts.plan_corpus export` emits the same envelope on stdout — verified by a fixture-corpus round-trip test in `tests/plan-audit/test_export_json.py`. (§01)
 - [ ] `~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py` consumes the JSON envelope and, in two phases (nodes → relationships), MERGEs nodes and edges into Neo4j; stale nodes are detected via the `all_incoming_ids - existing_db_ids` diff and removed via `DETACH DELETE` mirroring `import_code_graph.py:536-557` — verified by a Python unit test in `~/projects/lang_intelligence/tests/test_import_plan_bug_graph.py` that uses an in-memory mock driver. (§02)
 - [ ] Plan/bug nodes are joined to code symbols via the existing bridge: `(node:Plan|PlanSection|Bug|FixSection)-[:MENTIONS_CODE]->(:CodeReference)-[:RESOLVES_TO]->(:Symbol|:File)`. Declarative `touches:` entries produce direct `(:MENTIONS_CODE)` edges with `mention_kind: "declared"`; scraped backtick mentions produce `(:MENTIONS_CODE)` edges with `mention_kind: "inferred"`; ambiguous resolutions produce `:UnresolvedSymbol` stubs — all via reuse of `resolve_code_refs.py`'s pipeline. Verified by: `scripts/intel-query.sh cypher "MATCH (p:PlanSection)-[:MENTIONS_CODE]->(cr)-[:RESOLVES_TO]->(s:Symbol) RETURN count(DISTINCT s) > 0"` returns true after sync. (§02)
 - [ ] `~/projects/lang_intelligence/scripts/sync-plan-bug-graph.sh` and `~/projects/lang_intelligence/neo4j/sync_plan_bug_graph.py` implement commit-triggered full corpus rebuild with `flock`-based lock discipline, 10k-line log rotation, env-var driven Neo4j connection, and fire-and-forget exit semantics; `ori_lang/lefthook.yml` `post-commit` gains a second entry `intel-plan-sync` scoped to `plans/**` that invokes the wrapper in the background — verified by: (1) `touch plans/test.md && git add plans/test.md && git commit -m "test"` completes in under 100ms (hook returns immediately), (2) `~/projects/lang_intelligence/logs/plan-bug-sync.log` shows the sync completing within 10s, (3) the test file appears as a parse error in the next corpus scan. (§03)
@@ -266,7 +266,7 @@ None discovered during research passes. The `scripts/plan_corpus/` module is mat
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | plan_corpus schema + dag + exporter | `section-01-plan-corpus-extension.md` | Not Started |
+| 01 | plan_corpus schema + dag + exporter | `section-01-plan-corpus-extension.md` | Complete |
 | 02 | Neo4j schema + importer + CodeReference bridge | `section-02-neo4j-schema-importer.md` | Not Started |
 | 03 | Commit-triggered sync wiring | `section-03-sync-wiring.md` | Not Started |
 | 04 | Plumbing query subcommands | `section-04-query-subcommands.md` | Not Started |
