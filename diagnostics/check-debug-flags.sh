@@ -200,13 +200,47 @@ if [[ $orphan_count -eq 0 ]]; then
     printf "  ${C_GREEN}OK${C_NC} — no orphan env var checks\n"
 fi
 
-# --- Step 5: Check CLAUDE.md documentation ---
-printf "\n${C_BOLD}4. Documentation (CLAUDE.md):${C_NC}\n"
+# --- Step 5: Check documentation ---
+#
+# CLAUDE.md is the index; .claude/rules/*.md is the detail layer CLAUDE.md
+# delegates to (e.g., compiler.md §Tracing, llvm.md env-var table). A flag
+# counts as documented when ANY of:
+#   (1) its exact name appears in CLAUDE.md, OR
+#   (2) its exact name appears in any .claude/rules/*.md file, OR
+#   (3) a wildcard `<prefix>*` pattern in CLAUDE.md covers the flag —
+#       matches the concise-index pattern (e.g. `ORI_DUMP_AFTER_*`
+#       covers ORI_DUMP_AFTER_PARSE / TYPECK / ARC / LLVM).
+printf "\n${C_BOLD}4. Documentation (CLAUDE.md + .claude/rules/):${C_NC}\n"
 undoc_count=0
 
+RULES_DIR="$ROOT_DIR/.claude/rules"
+
+# Extract wildcard prefixes (ORI_XXX_*) from CLAUDE.md once so the
+# per-flag loop is O(flags × prefixes) instead of repeatedly grepping.
+CLAUDE_WILDCARDS=()
+while IFS= read -r w; do
+    [[ -n "$w" ]] && CLAUDE_WILDCARDS+=("${w%\*}")
+done < <(grep -oE '\bORI_[A-Z0-9_]+\*' "$CLAUDE_MD" | sort -u)
+
 for flag in "${DEFINED_FLAGS[@]}"; do
-    if ! grep -q "$flag" "$CLAUDE_MD"; then
-        printf "  ${C_YELLOW}UNDOC${C_NC}: %s — not mentioned in CLAUDE.md\n" "$flag"
+    documented=0
+
+    if grep -q "$flag" "$CLAUDE_MD"; then
+        documented=1
+    elif [[ -d "$RULES_DIR" ]] \
+         && grep -rql "$flag" "$RULES_DIR" --include='*.md' > /dev/null 2>&1; then
+        documented=1
+    else
+        for prefix in "${CLAUDE_WILDCARDS[@]}"; do
+            if [[ -n "$prefix" && "$flag" == "$prefix"* ]]; then
+                documented=1
+                break
+            fi
+        done
+    fi
+
+    if [[ $documented -eq 0 ]]; then
+        printf "  ${C_YELLOW}UNDOC${C_NC}: %s — not in CLAUDE.md or .claude/rules/*.md\n" "$flag"
         undoc_count=$((undoc_count + 1))
         issues=$((issues + 1))
     fi

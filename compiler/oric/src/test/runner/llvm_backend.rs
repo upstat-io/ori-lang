@@ -420,7 +420,14 @@ impl TestRunner {
         // to gracefully handle panics in any phase (ARC classification, LLVM codegen,
         // etc.) without aborting the entire test runner.
         let compile_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let (annotated_sigs, arc_cache) = lower_and_infer_borrows(
+            // `lower_and_infer_borrows` returns `None` when ARC lowering emits
+            // errors (e.g., E4003 for unsupported assignment targets per
+            // `typeck.md §EX-17`). Proceeding to `compile_module_with_tests`
+            // with empty arc_cache recurses in codegen when tests reference
+            // missing callees, leading to stack overflow. Treat `None` as a
+            // compile failure — the `Err(_)` arm of `compile_result` below
+            // emits `LlvmCompileFail` outcomes for each filtered test.
+            let Some((annotated_sigs, arc_cache)) = lower_and_infer_borrows(
                 &parse_result.module,
                 &function_sigs,
                 shared_canon,
@@ -432,7 +439,11 @@ impl TestRunner {
                 &type_result.typed.types,
                 &imported_mono_fns,
                 &re_interned_canons,
-            );
+            ) else {
+                return Err(ori_llvm::evaluator::LLVMEvalError::new(
+                    "ARC lowering failed — see diagnostics above".to_string(),
+                ));
+            };
 
             // Strip module indices — codegen only needs the MonoFunctions
             let imported_mono_for_codegen: Vec<ori_llvm::monomorphize::MonoFunction> =

@@ -284,7 +284,7 @@ case "$MODE" in
 
         # Clean stale TPR run directories (these are in /tmp, not the worktree)
         for d in "${TPR_STALE_DIRS[@]}"; do
-            local age_h=$(( (NOW - $(stat -c '%Y' "$d" 2>/dev/null || echo "$NOW")) / 3600 ))
+            age_h=$(( (NOW - $(stat -c '%Y' "$d" 2>/dev/null || echo "$NOW")) / 3600 ))
             printf "  ${RED}rm -rf${RESET} %s ${DIM}(%dh old)${RESET}\n" "$d" "$age_h"
             rm -rf "$d"
         done
