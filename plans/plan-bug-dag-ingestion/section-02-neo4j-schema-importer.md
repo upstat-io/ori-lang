@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Neo4j schema + importer + CodeReference bridge"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Extend ~/projects/lang_intelligence/neo4j/schema.cypher with typed labels/constraints/indexes for plan/bug/fix-section nodes + edges; write import_plan_bug_graph.py that consumes §01's JSON envelope via two-phase MERGE (nodes then edges) with DETACH DELETE stale-pruning; route plan→code symbol joins through the existing CodeReference bridge pattern."
 success_criteria:
@@ -37,27 +37,27 @@ sections:
     status: complete
   - id: "02.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 02: Neo4j schema + importer + CodeReference bridge
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Extend `~/projects/lang_intelligence/neo4j/schema.cypher` with typed node labels, uniqueness constraints, performance indexes, and fulltext indexes for the plan/bug graph; write `~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py` that consumes the JSON envelope produced by §01 in three phases (node MERGE → structural edge MERGE → CodeReference bridge), with stale-node DETACH DELETE mirroring `import_code_graph.py:536-557`; and wire plan→code-symbol joins through the existing `:MENTIONS_CODE → :CodeReference → :RESOLVES_TO` bridge, reusing `_resolve_target_py` and `_build_symbol_index` from `import_code_graph.py` as the SSOT.
 
 **Success Criteria:**
 
-- [ ] `schema.cypher` has `CREATE CONSTRAINT ... IF NOT EXISTS` for every new label; `cypher-shell < schema.cypher` run twice produces zero schema diffs on second invocation
-- [ ] Fulltext indexes `plan_text` (Plan.name, Plan.full_name) and `bug_text` (Bug.title, Bug.subsystem) added; match existing `issue_text` / `symbol_text` Lucene-backed pattern
-- [ ] `import_plan_bug_graph.py` reads JSON envelope from `--input <path>` or `--input -` (stdin); validates `schema_version == "1.0"` and bails on unknown versions
-- [ ] Phase 1 (node upsert): UNWIND-batched MERGE (~1000/batch) with `ON CREATE SET first_imported_at` / `ON MATCH SET last_imported_at`; APOC fallback documented
-- [ ] Phase 2 (structural/dependency edges): UNWIND-batched MERGE over all non-MENTIONS_CODE relationship types; APOC fallback documented
-- [ ] Phase 3 (CodeReference bridge): `touches_raw` property from each node → declared mentions; body markdown backtick scan → inferred mentions; both resolved via `_resolve_target_py` / `_build_symbol_index` (imported from `import_code_graph.py`, not forked)
-- [ ] Stale-pruning gate mirrors `jsonl_clean` idiom: only runs when envelope parsed cleanly (no errors, node count > 0); removes nodes in DB but absent from incoming `id` set via `DETACH DELETE`
-- [ ] `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASS` read from `os.environ.get(...)` with documented defaults; no hardcoded secrets in source
-- [ ] `tests/test_import_plan_bug_graph.py` green using MagicMock driver; covers all node label dimensions and all edge type dimensions (see §02.4 matrix)
-- [ ] End-to-end smoke: `python -m scripts.plan_corpus export plans/plan-bug-dag-ingestion/ | python ~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py --input -` succeeds; `scripts/intel-query.sh cypher "MATCH (p:PlanSection)-[:MENTIONS_CODE]->(cr)-[:RESOLVES_TO]->(s:Symbol) RETURN count(DISTINCT s) > 0"` returns true
-- [ ] Satisfies mission criterion: "Neo4j schema.cypher declares typed node labels... with uniqueness constraints..." (§02 criterion) and "Plan/bug nodes are joined to code symbols via the existing bridge..." (§02 criterion)
+- [x] `schema.cypher` has `CREATE CONSTRAINT ... IF NOT EXISTS` for every new label; `cypher-shell < schema.cypher` run twice produces zero schema diffs on second invocation
+- [x] Fulltext indexes `plan_text` (Plan.name, Plan.full_name) and `bug_text` (Bug.title, Bug.subsystem) added; match existing `issue_text` / `symbol_text` Lucene-backed pattern
+- [x] `import_plan_bug_graph.py` reads JSON envelope from `--input <path>` or `--input -` (stdin); validates `schema_version == "1.0"` and bails on unknown versions
+- [x] Phase 1 (node upsert): UNWIND-batched MERGE (~1000/batch) with `ON CREATE SET first_imported_at` / `ON MATCH SET last_imported_at`; APOC fallback documented
+- [x] Phase 2 (structural/dependency edges): UNWIND-batched MERGE over all non-MENTIONS_CODE relationship types; APOC fallback documented
+- [x] Phase 3 (CodeReference bridge): `touches_raw` property from each node → declared mentions; body markdown backtick scan → inferred mentions; both resolved via `_resolve_target_py` / `_build_symbol_index` (imported from `import_code_graph.py`, not forked)
+- [x] Stale-pruning gate mirrors `jsonl_clean` idiom: only runs when envelope parsed cleanly (no errors, node count > 0); removes nodes in DB but absent from incoming `id` set via `DETACH DELETE`
+- [x] `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASS` read from `os.environ.get(...)` with documented defaults; no hardcoded secrets in source
+- [x] `tests/test_import_plan_bug_graph.py` green using MagicMock driver; covers all node label dimensions and all edge type dimensions (see §02.4 matrix)
+- [x] End-to-end smoke: `python -m scripts.plan_corpus export plans/plan-bug-dag-ingestion/ | python ~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py --input -` succeeds; `scripts/intel-query.sh cypher "MATCH (p:PlanSection)-[:MENTIONS_CODE]->(cr)-[:RESOLVES_TO]->(s:Symbol) RETURN count(DISTINCT s) > 0"` returns true
+- [x] Satisfies mission criterion: "Neo4j schema.cypher declares typed node labels... with uniqueness constraints..." (§02 criterion) and "Plan/bug nodes are joined to code symbols via the existing bridge..." (§02 criterion)
 
 **Context:** §01 delivers a deterministic `{"schema_version": "1.0", "nodes": [...], "relationships": [...]}` JSON envelope via `python -m scripts.plan_corpus export`. This section projects that envelope into the Neo4j graph that already holds 191K+ code symbols and 505K+ CALLS edges. The key design principle is **zero forking** of the existing resolution infrastructure: `_resolve_target_py`, `_build_symbol_index`, and `_retry_tx` from `import_code_graph.py` are the canonical implementations — reusing them keeps the resolution story coherent (same ambiguity semantics, same `UnresolvedSymbol` stub pattern, same retry backoff). The importer must consume the envelope as a black box; it MUST NOT re-parse plan frontmatter to reconstruct edge semantics — all relationship semantics are in the envelope by §01's SSOT guarantee.
 
@@ -806,27 +806,27 @@ Fixture envelope with one each of HAS_SECTION, HAS_SUBSECTION, HAS_BUG, FIXED_BY
 
 ## 02.N Completion Checklist
 
-- [ ] `~/projects/lang_intelligence/neo4j/schema.cypher` has 9 new `CREATE CONSTRAINT ... IF NOT EXISTS` statements (plan_name, plan_section_id, subsection_id, bug_id, fix_section_id, bug_tracker_section_id, overview_plan, roadmap_section_id, completed_index_name)
-- [ ] `schema.cypher` has 5 new `CREATE INDEX ... IF NOT EXISTS` statements (plan_status, plan_section_status, bug_severity, bug_status, fix_section_status)
-- [ ] `schema.cypher` has 2 new `CREATE FULLTEXT INDEX ... IF NOT EXISTS` statements (plan_text, bug_text) matching existing Lucene-backed fulltext pattern
-- [ ] `cypher-shell -u neo4j -p intelligence < ~/projects/lang_intelligence/neo4j/schema.cypher` run twice: second run produces zero schema changes (idempotent)
-- [ ] `~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py` exists, reads from `--input <path>` or `--input -`, validates `schema_version == "1.0"`, runs three phases
-- [ ] Phase 1 (node MERGE) uses UNWIND batching (~1000/batch); APOC path and fallback both implemented and documented
-- [ ] Phase 2 (structural edge MERGE) uses UNWIND batching over the finite `KNOWN_REL_TYPES` set; skips `MENTIONS_CODE`; APOC path and fallback both documented
-- [ ] Stale-pruning: `_prune_stale_nodes` has the empty-envelope safety gate; issues DETACH DELETE only when incoming IDs > 0
-- [ ] `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASS` read from `os.environ.get(...)` — no hardcoded credentials
-- [ ] `_retry_tx`, `_retry_write`, `_resolve_target_py`, `_build_symbol_index` imported from `import_code_graph.py` via `importlib.util.spec_from_file_location`; not forked
-- [ ] Phase 3 (CodeReference bridge) resolves `touches_raw` declared mentions and backtick-inferred mentions; creates `CodeReference` nodes with correct `mention_kind`, `confidence`, `resolved`, `ambiguous`, `ambiguous_count`
-- [ ] `python ~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py --input <fixture> --dry-run` prints expected operation plan without writes
-- [ ] End-to-end smoke: `python -m scripts.plan_corpus export plans/plan-bug-dag-ingestion/ | python ~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py --input -` succeeds without error
-- [ ] `scripts/intel-query.sh cypher "MATCH (p:PlanSection)-[:MENTIONS_CODE]->(cr)-[:RESOLVES_TO]->(s:Symbol) RETURN count(DISTINCT s) > 0"` returns true after the smoke import
-- [ ] `cd /tmp && ~/projects/lang_intelligence/.venv/bin/python -m pytest ~/projects/lang_intelligence/tests/test_import_code_graph.py -v` green (no regression)
-- [ ] **Plan sync** — update plan metadata to reflect this section's completion:
-  - [ ] This section's frontmatter `status` → `complete`, all subsection statuses → `complete`
-  - [ ] `00-overview.md` Quick Reference table: Section 02 status → `Complete`
-  - [ ] `00-overview.md` mission success criteria: check off criterion 1 ("Neo4j schema.cypher declares typed node labels...") and criterion 4 ("~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py consumes the JSON envelope...") and criterion 5 ("Plan/bug nodes are joined to code symbols...")
-  - [ ] `index.md` Section 02 status → `Complete`
-  - [ ] Section 03's `depends_on: ["02"]` is correct — §03 sync wrapper calls the §02 importer; no stale assumptions
-- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`; clean any temp files before final commit.
+- [x] `~/projects/lang_intelligence/neo4j/schema.cypher` has 9 new `CREATE CONSTRAINT ... IF NOT EXISTS` statements (plan_name, plan_section_id, subsection_id, bug_id, fix_section_id, bug_tracker_section_id, overview_plan, roadmap_section_id, completed_index_name)
+- [x] `schema.cypher` has 5 new `CREATE INDEX ... IF NOT EXISTS` statements (plan_status, plan_section_status, bug_severity, bug_status, fix_section_status) plus one supporting `plan_bug_node_id` added during §02.2 for cross-label MERGE
+- [x] `schema.cypher` has 2 new `CREATE FULLTEXT INDEX ... IF NOT EXISTS` statements (plan_text, bug_text) matching existing Lucene-backed fulltext pattern
+- [x] `cypher-shell -u neo4j -p intelligence < ~/projects/lang_intelligence/neo4j/schema.cypher` run twice: second run produces zero schema changes (idempotent; constraint count stable at 22)
+- [x] `~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py` exists, reads from `--input <path>` or `--input -`, validates `schema_version == "1.0"`, runs three phases
+- [x] Phase 1 (node MERGE) uses UNWIND batching (~1000/batch); APOC path and fallback both implemented and documented
+- [x] Phase 2 (structural edge MERGE) uses UNWIND batching over the finite `KNOWN_REL_TYPES` set; skips `MENTIONS_CODE`; APOC path and fallback both documented
+- [x] Stale-pruning: `_prune_stale_nodes` has the empty-envelope safety gate; issues DETACH DELETE only when incoming IDs > 0
+- [x] `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASS` read from `os.environ.get(...)` — no hardcoded credentials
+- [x] `_retry_tx`, `_retry_write`, `_resolve_target_py`, `_build_symbol_index` imported from `import_code_graph.py` via `importlib.util.spec_from_file_location`; not forked
+- [x] Phase 3 (CodeReference bridge) resolves `touches_raw` declared mentions and backtick-inferred mentions; creates `CodeReference` nodes with correct `mention_kind`, `confidence`, `resolved`, `ambiguous`, `ambiguous_count`
+- [x] `python ~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py --input <fixture> --dry-run` prints expected operation plan without writes (verified 2026-04-17: 1929 nodes/2389 edges reported, zero writes)
+- [x] End-to-end smoke: `python -m scripts.plan_corpus export plans/plan-bug-dag-ingestion/ | python ~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py --input -` succeeds without error (verified 2026-04-17: 1929 nodes + 2389 edges + 1714 resolved CodeReferences in 8.1s)
+- [x] `scripts/intel-query.sh cypher "MATCH (p:PlanSection)-[:MENTIONS_CODE]->(cr)-[:RESOLVES_TO]->(s:Symbol) RETURN count(DISTINCT s) > 0"` returns true after the smoke import (verified 2026-04-17: `has_links: true`)
+- [x] `cd /tmp && ~/projects/lang_intelligence/.venv/bin/python -m pytest ~/projects/lang_intelligence/tests/test_import_code_graph.py -v` green (verified 2026-04-17: 10/10 passed, zero regression)
+- [x] **Plan sync** — update plan metadata to reflect this section's completion:
+  - [x] This section's frontmatter `status` → `complete`, all subsection statuses → `complete`
+  - [x] `00-overview.md` Quick Reference table: Section 02 status → `Complete`
+  - [x] `00-overview.md` mission success criteria: check off criterion 1 ("Neo4j schema.cypher declares typed node labels...") and criterion 4 ("~/projects/lang_intelligence/neo4j/import_plan_bug_graph.py consumes the JSON envelope...") and criterion 5 ("Plan/bug nodes are joined to code symbols...")
+  - [x] `index.md` Section 02 status → `Complete`
+  - [x] Section 03's `depends_on: ["02"]` is correct — §03 sync wrapper calls the §02 importer; no stale assumptions
+- [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`; clean any temp files before final commit.
 
 **Exit Criteria:** `cypher-shell < schema.cypher` idempotent (second run: 0 schema changes); `pytest tests/test_import_plan_bug_graph.py` green (all 9 label dimensions + 10 edge type dimensions + semantic + negative pins covered); end-to-end smoke `python -m scripts.plan_corpus export plans/plan-bug-dag-ingestion/ | python import_plan_bug_graph.py --input -` succeeds; `intel-query.sh cypher "MATCH (p:PlanSection)-[:MENTIONS_CODE]->(cr)-[:RESOLVES_TO]->(s) RETURN count(DISTINCT s) > 0"` returns true; `./test-all.sh` green (§02 adds only Python + Cypher — zero Rust impact expected).
