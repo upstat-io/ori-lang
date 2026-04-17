@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Neo4j schema + importer + CodeReference bridge"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Extend ~/projects/lang_intelligence/neo4j/schema.cypher with typed labels/constraints/indexes for plan/bug/fix-section nodes + edges; write import_plan_bug_graph.py that consumes §01's JSON envelope via two-phase MERGE (nodes then edges) with DETACH DELETE stale-pruning; route plan→code symbol joins through the existing CodeReference bridge pattern."
 success_criteria:
@@ -25,7 +25,7 @@ third_party_review:
 sections:
   - id: "02.1"
     title: "Extend schema.cypher with plan/bug/fix-section labels + edges + indexes"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Write import_plan_bug_graph.py two-phase MERGE + stale pruning"
     status: not-started
@@ -223,18 +223,18 @@ Every `CREATE CONSTRAINT ... IF NOT EXISTS` and `CREATE INDEX ... IF NOT EXISTS`
 
 ### Task breakdown
 
-- [ ] Open `~/projects/lang_intelligence/neo4j/schema.cypher` and append the "Plan & Bug Graph" section after the final "Bridge Layer" block
-- [ ] Add constraints block (9 constraints) with comments explaining each key choice
-- [ ] Add performance indexes block (5 indexes)
-- [ ] Add fulltext indexes block (2 indexes: `plan_text`, `bug_text`)
-- [ ] Add schematic header comment block (node types + properties + relationship types)
-- [ ] Verify idempotent run: `docker exec -i lang-intelligence cypher-shell -u neo4j -p intelligence < ~/projects/lang_intelligence/neo4j/schema.cypher` — first run outputs "Created N constraints, N indexes"; second run outputs "Added 0 constraints, 0 indexes"
-- [ ] Verify via `:schema` command in Neo4j Browser that all 9 constraints and 7 new indexes appear
+- [x] Open `~/projects/lang_intelligence/neo4j/schema.cypher` and append the "Plan & Bug Graph" section after the final "Bridge Layer" block
+- [x] Add constraints block (9 constraints) with comments explaining each key choice
+- [x] Add performance indexes block (5 indexes)
+- [x] Add fulltext indexes block (2 indexes: `plan_text`, `bug_text`)
+- [x] Add schematic header comment block (node types + properties + relationship types)
+- [x] Verify idempotent run: `docker exec -i lang-intelligence cypher-shell -u neo4j -p intelligence < ~/projects/lang_intelligence/neo4j/schema.cypher` — first run created schema; second run produced zero schema changes (constraint count stable at 22)
+- [x] Verify via `SHOW CONSTRAINTS` / `SHOW INDEXES` that all 9 constraints, 5 range indexes, and 2 fulltext indexes (`plan_text`, `bug_text`) appear
 
-- [ ] **Subsection close-out (02.1)** — MANDATORY before starting 02.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`; clean any temp files.
+- [x] **Subsection close-out (02.1)** — MANDATORY before starting 02.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`; clean any temp files.
 
 ---
 
