@@ -96,14 +96,12 @@ def _rel_path(p: Path) -> str:
 
 def _stable_id(node: NodeId, corpus) -> str:
     """Deterministic string ID used as Neo4j MERGE key. Derived from path
-    per the §01.4 "Node stable ID mapping" table. FIX_BUG is the one
-    exception — its stable ID is the `bug:` frontmatter value."""
+    per the §01.4 "Node stable ID mapping" table. FIX_BUG uses its file
+    stem (`fix-BUG-XX-NNN`) — this must stay distinct from the Bug
+    node's `bug_id` (`BUG-XX-NNN`), otherwise Phase 2's cross-label
+    MERGE `MATCH (:PlanBugNode {id: ...})` matches both nodes and
+    multiplies FIXED_BY / HAS_BUG edge counts."""
     if node.kind is NodeKind.FIX_BUG:
-        data = corpus.fix_bug_files.get(node.path, {})
-        bug = data.get("bug")
-        if isinstance(bug, str) and bug.strip():
-            return bug.strip()
-        # Fallback: the filename itself without extension (``fix-BUG-XX-NNN``).
         return node.path.stem
     if node.kind is NodeKind.PLAN_INDEX:
         return node.path.parent.name
