@@ -22,6 +22,7 @@ that §02's Neo4j importer consumes. Architecturally:
 from __future__ import annotations
 
 import datetime as _dt
+import json as _json
 import re
 from pathlib import Path
 from typing import Any
@@ -166,24 +167,48 @@ _EXCLUDED_FRONTMATTER_KEYS: frozenset[str] = frozenset({"sections"})
 
 
 def _normalize_property_value(value: Any) -> Any:
-    """Render a frontmatter value into a JSON-safe shape.
+    """Render a frontmatter value into a Neo4j-safe shape.
+
+    Neo4j property values may only be primitives or arrays of primitives
+    (strings, numbers, booleans) — nested maps and arrays-of-maps are
+    rejected at write time. This function flattens non-primitive
+    containers into JSON strings so the raw structure is preserved but
+    the value fits Neo4j's property model.
 
     * `None` stays None (filtered by caller before emission).
     * Scalars pass through.
-    * Lists: each element normalized recursively.
-    * Dicts: flattened to sorted key-value pairs, then re-emitted as a
-      dict so `json.dumps(..., sort_keys=True)` yields stable order.
     * Path → POSIX string.
-    * Anything else → str() fallback (keeps the envelope valid JSON).
+    * Lists-of-primitives pass through (after recursive normalization).
+    * Lists containing any non-primitive → JSON-encoded string.
+    * Dicts → JSON-encoded string (sorted keys, stable output).
+    * Anything else → str() fallback.
     """
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, Path):
         return value.as_posix()
     if isinstance(value, list):
-        return [_normalize_property_value(v) for v in value]
+        norm = [_normalize_property_value(v) for v in value]
+        # Neo4j rejects collections containing null — strip them. The
+        # serialized envelope is lossy for `[a, null, b]`, but null in
+        # a list almost always indicates an absent frontmatter value
+        # that the consumer should ignore.
+        norm = [v for v in norm if v is not None]
+        # Arrays of primitives (Neo4j-compatible) pass through as-is.
+        if all(
+            isinstance(v, (bool, int, float, str))
+            for v in norm
+        ):
+            return norm
+        # Array contains non-primitives (e.g. list-of-dicts from
+        # `subsections:` / `tpr_findings:` frontmatter) — JSON-encode
+        # the whole array so the structure is preserved as a string.
+        return _json.dumps(norm, sort_keys=True, default=str)
     if isinstance(value, dict):
-        return {k: _normalize_property_value(v) for k, v in sorted(value.items())}
+        # Nested map (e.g. `third_party_review:`, `keywords:`,
+        # `verification_stats:`) — JSON-encode. Deterministic via
+        # sort_keys. Consumers that need structure parse on read.
+        return _json.dumps(value, sort_keys=True, default=str)
     return str(value)
 
 
