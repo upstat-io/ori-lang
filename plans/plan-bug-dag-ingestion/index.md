@@ -71,7 +71,7 @@ commit latency, <100ms hook return, <10s background sync
 ---
 
 ### Section 04: Plumbing query subcommands
-**File:** `section-04-query-subcommands.md` | **Status:** Not Started
+**File:** `section-04-query-subcommands.md` | **Status:** Complete
 
 ```
 intel-query.sh, query_graph.py, commands dict

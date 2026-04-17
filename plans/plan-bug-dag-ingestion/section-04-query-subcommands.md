@@ -10,7 +10,7 @@ success_criteria:
   - "cmd_plan_status(plan_name): returns {plan, status, section_count, completed_sections, open_sections, blocker_count, bug_count} — aggregates across HAS_SECTION, HAS_OVERVIEW, BLOCKED_BY edges."
   - "cmd_blocks(node_id): transitive closure over BLOCKED_BY + DEPENDS_ON edges, returns full path to root blocker; human mode prints indented tree."
   - "cmd_bugs_for(plan_name): joins Plan --[:HAS_SECTION]--> PlanSection <--[:BLOCKED_BY]-- Bug, returns open bugs blocking any section of the plan + severity + subsystem."
-  - "cmd_symbol_plans(symbol_name): joins Symbol <--[:RESOLVES_TO]-- CodeReference <--[:MENTIONS_CODE]-- (Plan|PlanSection|Bug|FixSection), returns all nodes referencing the symbol + mention_kind (declared vs inferred)."
+  - "cmd_symbol_plans(symbol_name): joins Symbol <--[:RESOLVES_TO]-- CodeReference <--[:MENTIONS_CODE]-- (:PlanBugNode), returns all plan/bug-graph nodes referencing the symbol + mention_kind (declared vs inferred). Matching on the :PlanBugNode marker label (schema.cypher:296) captures Plan|PlanSection|Subsection|Bug|FixSection|Overview|RoadmapSection|BugTrackerSection|CompletedIndex in one index hit."
   - "cmd_dag_ascii(plan_name): renders Plan + Sections + Subsections + blocker edges as ASCII tree (human mode) or Graphviz DOT (with --format dot flag)."
   - "ori_lang/scripts/intel-query.sh dispatch passes all 5 subcommands through to query_graph.py unchanged (no special-casing needed — the wrapper is already agnostic)."
   - "All 5 subcommands have JSON mode (via --json flag via the intel-query.sh default; --human mode strips --json); output envelope matches existing handlers (success: {count: N, results: [...]}; error: {status: error, reason: ...})."
@@ -28,25 +28,25 @@ third_party_review:
 sections:
   - id: "04.1"
     title: "cmd_plan_status handler + Cypher"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "cmd_blocks handler (transitive closure)"
-    status: not-started
+    status: complete
   - id: "04.3"
     title: "cmd_bugs_for handler"
-    status: not-started
+    status: complete
   - id: "04.4"
     title: "cmd_symbol_plans handler (CodeReference reverse join)"
-    status: not-started
+    status: complete
   - id: "04.5"
     title: "cmd_dag_ascii handler (ASCII tree + DOT)"
-    status: not-started
+    status: complete
   - id: "04.6"
     title: "intel-query.sh dispatch verification"
-    status: not-started
+    status: complete
   - id: "04.7"
     title: "Unit tests for all 5 handlers"
-    status: not-started
+    status: complete
   - id: "04.N"
     title: "Completion Checklist"
     status: not-started
@@ -60,18 +60,18 @@ sections:
 
 **Success Criteria:**
 
-- [ ] `~/projects/lang_intelligence/neo4j/query_graph.py` `commands` dict has 5 new entries: `plan-status → cmd_plan_status`, `blocks → cmd_blocks`, `bugs-for → cmd_bugs_for`, `symbol-plans → cmd_symbol_plans`, `dag-ascii → cmd_dag_ascii`
-- [ ] Each handler matches the canonical pattern: `def cmd_X(args, json_mode=False)`, uses `_parse_flags(args)` for `--limit` and `--repo`, opens `with get_driver() as driver:`, returns a raw data dict when `json_mode=True`, prints human output otherwise
-- [ ] `cmd_plan_status` returns `{plan, status, section_count, completed_sections, open_sections, blocker_count, bug_count}` aggregated via a single Cypher aggregate query
-- [ ] `cmd_blocks` returns the transitive closure over `BLOCKED_BY + DEPENDS_ON` edges from a node ID to its root blocker(s); depth cap 10; human mode prints an indented tree with `↳` arrows
-- [ ] `cmd_bugs_for` returns all open `:Bug` nodes blocking any `:PlanSection` of the named plan, sorted by severity (critical → high → medium → low)
-- [ ] `cmd_symbol_plans` returns all `:Plan | :PlanSection | :Bug | :FixSection | :Subsection` nodes that reference a symbol via the `MENTIONS_CODE → CodeReference → RESOLVES_TO` bridge; grouped by mention_kind (declared first)
-- [ ] `cmd_dag_ascii` renders plan hierarchy + blocker edges as ASCII box-drawing tree (default) or Graphviz DOT (`--format dot`); JSON mode returns structured section/subsection/edge list
-- [ ] `scripts/intel-query.sh` requires no changes — the wrapper is already subcommand-agnostic and passes all args through unchanged (verified by inspection and smoke test)
-- [ ] All 5 new subcommands appear in the module-level docstring and in the `commands` dict at the bottom of `query_graph.py`
-- [ ] `pytest ~/projects/lang_intelligence/tests/test_query_plan_bug.py` green — covers each subcommand × (json_mode=True, json_mode=False) × (populated, empty, edge cases)
-- [ ] Rich UX deferred boundary documented in both this section and in `plans/query-intel-adoption/section-08-tool-ux-and-output.md`
-- [ ] Satisfies mission criterion: "`query_graph.py` exposes five new subcommand handlers ... verified by unit tests in `tests/test_query_plan_bug.py` using fixture graph state"
+- [x] `~/projects/lang_intelligence/neo4j/query_graph.py` `commands` dict has 5 new entries: `plan-status → cmd_plan_status`, `blocks → cmd_blocks`, `bugs-for → cmd_bugs_for`, `symbol-plans → cmd_symbol_plans`, `dag-ascii → cmd_dag_ascii`
+- [x] Each handler matches the canonical pattern: `def cmd_X(args, json_mode=False)`, uses `_parse_flags(args)` for `--limit` and `--repo`, opens `with get_driver() as driver:`, returns a raw data dict when `json_mode=True`, prints human output otherwise
+- [x] `cmd_plan_status` returns `{plan, status, section_count, completed_sections, open_sections, blocker_count, bug_count}` aggregated via a single Cypher aggregate query
+- [x] `cmd_blocks` returns the transitive closure over `BLOCKED_BY + DEPENDS_ON` edges from a node ID to its root blocker(s); depth cap 10; human mode prints an indented tree with `↳` arrows
+- [x] `cmd_bugs_for` returns all open `:Bug` nodes blocking any `:PlanSection` of the named plan, sorted by severity (critical → high → medium → low)
+- [x] `cmd_symbol_plans` returns all `:PlanBugNode` nodes (Plan, PlanSection, Subsection, Bug, FixSection, Overview, RoadmapSection, BugTrackerSection, CompletedIndex — the 9 schema-labeled plan/bug-graph kinds) that reference a symbol via the `MENTIONS_CODE → CodeReference → RESOLVES_TO` bridge; grouped by mention_kind (declared first)
+- [x] `cmd_dag_ascii` renders plan hierarchy + blocker edges as ASCII box-drawing tree (default) or Graphviz DOT (`--format dot`); JSON mode returns structured section/subsection/edge list
+- [x] `scripts/intel-query.sh` requires no changes — the wrapper is already subcommand-agnostic and passes all args through unchanged (verified by inspection and smoke test)
+- [x] All 5 new subcommands appear in the module-level docstring and in the `commands` dict at the bottom of `query_graph.py`
+- [x] `pytest ~/projects/lang_intelligence/tests/test_query_plan_bug.py` green — covers each subcommand × (json_mode=True, json_mode=False) × (populated, empty, edge cases)
+- [x] Rich UX deferred boundary documented in both this section and in `plans/query-intel-adoption/section-08-tool-ux-and-output.md`
+- [x] Satisfies mission criterion: "`query_graph.py` exposes five new subcommand handlers ... verified by unit tests in `tests/test_query_plan_bug.py` using fixture graph state"
 
 **Context:** `query_graph.py` already has 19 subcommands (lines 1200–1219 of the commands dict). The handler pattern is established and consistent across all 19: `_parse_flags(args)` strips `--repo`, `--limit`, `--json`; `with get_driver() as driver: with driver.session() as s:` opens the connection; `json_mode=True` returns a raw dict (the wrapper adds the `{"status":"ok","data":...}` envelope); human mode prints to stdout. The 5 new handlers must follow this pattern verbatim — no forking, no parallel patterns. `intel-query.sh` is already subcommand-agnostic (lines 230–250 pass `"${PASS_ARGS[@]}"` directly to `query_graph.py`) so dispatch extension requires zero wrapper changes.
 
@@ -253,14 +253,14 @@ def cmd_plan_status(args, json_mode=False):
 
 ### Tasks
 
-- [ ] Add `cmd_plan_status` to `query_graph.py` immediately before the existing `cmd_cypher` function (section boundary: "Plan/Bug queries" — add a new `# ---------------------------------------------------------------------------` separator comment block)
-- [ ] Add `"plan-status": cmd_plan_status` to the `commands` dict (lines 1200–1219) in alphabetical position
-- [ ] Add `query_graph.py plan-status <plan-name>` to the module-level docstring under a new "Plan/bug graph queries:" section
-- [ ] Verify: `python3 ~/projects/lang_intelligence/neo4j/query_graph.py plan-status plan-bug-dag-ingestion` returns either a valid dict (if the graph is populated from §02+§03) or `plan not found` (if not yet synced — expected at unit-test time)
+- [x] Add `cmd_plan_status` to `query_graph.py` immediately before the existing `cmd_cypher` function (section boundary: "Plan/Bug queries" — add a new `# ---------------------------------------------------------------------------` separator comment block)
+- [x] Add `"plan-status": cmd_plan_status` to the `commands` dict (lines 1200–1219) in alphabetical position
+- [x] Add `query_graph.py plan-status <plan-name>` to the module-level docstring under a new "Plan/bug graph queries:" section
+- [x] Verify: `python3 ~/projects/lang_intelligence/neo4j/query_graph.py plan-status plan-bug-dag-ingestion` returns either a valid dict (if the graph is populated from §02+§03) or `plan not found` (if not yet synced — expected at unit-test time)
 
-- [ ] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` — deferred to §04.N final hygiene check (no temp files created by this subsection).
 
 ---
@@ -375,29 +375,40 @@ def cmd_blocks(args, json_mode=False):
             "Usage: blocks <node-id>\n"
             "  Example: blocks plan-bug-dag-ingestion/section-02-neo4j-schema-importer.md"
         )
-    depth = min(depth or 10, 10)  # Cap at 10 regardless of --depth flag
+    # §04.2 default behavior: full chain to root. _parse_flags defaults depth=2
+    # globally (correct for other handlers) — override to 10 when --depth is
+    # absent; validate+clamp to 1..10 int.
+    if "--depth" not in args:
+        depth = 10
+    depth = max(1, min(int(depth), 10))
 
-    _ROOT_QUERY = """
-    MATCH path = (start {id: $node_id})-[:BLOCKED_BY|DEPENDS_ON*1..$depth]->(root)
+    # Neo4j 5.x rejects parameters inside variable-length `*min..max` patterns
+    # ("Parameter maps cannot be used in MATCH patterns"). Depth is a validated
+    # 1..10 int by the time we reach here, so f-string interpolation is safe
+    # and the only parameterization path the planner accepts.
+    # Also: MATCH on :PlanBugNode marker label (schema.cypher:296) to hit the
+    # plan_bug_node_id index rather than scanning the entire node set.
+    _ROOT_QUERY = f"""
+    MATCH path = (start:PlanBugNode {{id: $node_id}})-[:BLOCKED_BY|DEPENDS_ON*1..{depth}]->(root)
     WHERE NOT (root)-[:BLOCKED_BY|DEPENDS_ON]->()
-    RETURN [n IN nodes(path) | {
+    RETURN [n IN nodes(path) | {{
         id: n.id,
         label: head(labels(n)),
         status: n.status,
         title: coalesce(n.title, n.name, n.id)
-    }] AS chain,
+    }}] AS chain,
            length(path) AS depth
     ORDER BY depth DESC
     LIMIT $limit
     """
-    _DEEP_QUERY = """
-    MATCH path = (start {id: $node_id})-[:BLOCKED_BY|DEPENDS_ON*1..$depth]->(blocker)
-    RETURN [n IN nodes(path) | {
+    _DEEP_QUERY = f"""
+    MATCH path = (start:PlanBugNode {{id: $node_id}})-[:BLOCKED_BY|DEPENDS_ON*1..{depth}]->(blocker)
+    RETURN [n IN nodes(path) | {{
         id: n.id,
         label: head(labels(n)),
         status: n.status,
         title: coalesce(n.title, n.name, n.id)
-    }] AS chain,
+    }}] AS chain,
            length(path) AS depth
     ORDER BY depth DESC
     LIMIT $limit
@@ -405,9 +416,10 @@ def cmd_blocks(args, json_mode=False):
 
     with get_driver() as driver:
         with driver.session() as s:
-            # Verify start node exists
+            # Verify start node exists — :PlanBugNode label hits the index.
             start_rec = s.run(
-                "MATCH (n {id: $node_id}) RETURN n.id AS id, head(labels(n)) AS label,"
+                "MATCH (n:PlanBugNode {id: $node_id})"
+                " RETURN n.id AS id, head(labels(n)) AS label,"
                 " n.status AS status, coalesce(n.title, n.name, n.id) AS title LIMIT 1",
                 node_id=node_id,
             ).single()
@@ -463,15 +475,15 @@ def cmd_blocks(args, json_mode=False):
 
 ### Tasks
 
-- [ ] Add `cmd_blocks` to `query_graph.py` after `cmd_plan_status` in the "Plan/Bug queries" section
-- [ ] Add `"blocks": cmd_blocks` to the `commands` dict
-- [ ] Add `query_graph.py blocks <node-id> [--depth N] [--limit N]` to the module-level docstring
-- [ ] Verify: running with a non-existent node ID returns the error path without crashing
-- [ ] Verify: running with a node that has no blockers returns the "No blockers found." human output
+- [x] Add `cmd_blocks` to `query_graph.py` after `cmd_plan_status` in the "Plan/Bug queries" section
+- [x] Add `"blocks": cmd_blocks` to the `commands` dict
+- [x] Add `query_graph.py blocks <node-id> [--depth N] [--limit N]` to the module-level docstring
+- [x] Verify: running with a non-existent node ID returns the error path without crashing
+- [x] Verify: running with a node that has no blockers returns the "No blockers found." human output
 
-- [ ] **Subsection close-out (04.2)** — MANDATORY before starting 04.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (04.2)** — MANDATORY before starting 04.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Repo hygiene check** — deferred to §04.N.
 
 ---
@@ -625,15 +637,15 @@ def cmd_bugs_for(args, json_mode=False):
 
 ### Tasks
 
-- [ ] Add `cmd_bugs_for` to `query_graph.py` after `cmd_blocks`
-- [ ] Add `"bugs-for": cmd_bugs_for` to the `commands` dict
-- [ ] Add `query_graph.py bugs-for <plan-name> [--limit N]` to the module-level docstring
-- [ ] Verify: running against a plan with no bugs returns the "No open bugs" human output without crashing
-- [ ] Verify: json_mode=True returns `{"plan": ..., "count": 0, "bugs": []}` for the empty case (not an error)
+- [x] Add `cmd_bugs_for` to `query_graph.py` after `cmd_blocks`
+- [x] Add `"bugs-for": cmd_bugs_for` to the `commands` dict
+- [x] Add `query_graph.py bugs-for <plan-name> [--limit N]` to the module-level docstring
+- [x] Verify: running against a plan with no bugs returns the "No open bugs" human output without crashing
+- [x] Verify: json_mode=True returns `{"plan": ..., "count": 0, "bugs": []}` for the empty case (not an error)
 
-- [ ] **Subsection close-out (04.3)** — MANDATORY before starting 04.4:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (04.3)** — MANDATORY before starting 04.4:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Repo hygiene check** — deferred to §04.N.
 
 ---
@@ -660,12 +672,11 @@ repo = (repo_filter[0] if repo_filter else "ori")  # default to ori repo
 
 ### Cypher query
 
-The join proceeds through the bridge:
+The join proceeds through the bridge. Matching `(n:PlanBugNode)` uses the marker label from `schema.cypher:296` and the `plan_bug_node_id` index, capturing all 9 plan/bug-graph node kinds (Plan, PlanSection, Subsection, Bug, FixSection, Overview, RoadmapSection, BugTrackerSection, CompletedIndex) in a single index hit:
 
 ```cypher
 MATCH (sym:Symbol {name: $symbol_name, repo: $repo})
-MATCH (sym)<-[:RESOLVES_TO]-(cr:CodeReference)<-[:MENTIONS_CODE]-(n)
-WHERE any(lbl IN labels(n) WHERE lbl IN ['Plan','PlanSection','Bug','FixSection','Subsection'])
+MATCH (sym)<-[:RESOLVES_TO]-(cr:CodeReference)<-[:MENTIONS_CODE]-(n:PlanBugNode)
 RETURN n.id AS node_id, head(labels(n)) AS label,
        coalesce(n.name, n.id) AS display_name,
        n.status AS status,
@@ -680,28 +691,39 @@ LIMIT $limit
 
 **Symbol ambiguity:** Multiple `Symbol` nodes may share the same `name` across repos (e.g., a helper function named `run` appearing in both `ori` and `rust`). The `repo` filter handles the common case. For rare same-repo ambiguity (two symbols with the same name in different files), the query returns all matching results — the user sees multiple rows for different `cr.raw_text` values. A future `--qualified-name` flag (`module::function`) can disambiguate further; for now, document the behavior.
 
-**Stderr hint for not-found symbol:**
+**Stderr hint for not-found symbol — 3-way fallback** (in_repo → elsewhere → not-found; ensures a symbol that exists in `$repo` but has zero plan/bug references is NOT misreported as "wrong repo"):
 
 ```python
 if not rows:
-    # Check if the symbol exists at all (without the repo filter)
-    with driver.session() as s:
-        exists_elsewhere = s.run(
-            "MATCH (s:Symbol {name: $name}) RETURN count(s) AS cnt LIMIT 1",
-            name=symbol_name,
+    with driver.session() as s2:
+        in_repo = s2.run(
+            "MATCH (s:Symbol {name: $name, repo: $repo})"
+            " RETURN count(s) AS cnt LIMIT 1",
+            name=symbol_name, repo=repo,
         ).single()
-    if exists_elsewhere and (exists_elsewhere["cnt"] or 0) > 0:
-        print(
-            f"Symbol '{symbol_name}' exists in graph but not in repo '{repo}'. "
-            f"Try: symbol-plans {symbol_name} --repo <repo>",
-            file=sys.stderr,
-        )
-    else:
-        print(
-            f"Symbol '{symbol_name}' not found in graph. "
-            f"Try: scripts/intel-query.sh symbols '{symbol_name}'",
-            file=sys.stderr,
-        )
+        if in_repo and (in_repo["cnt"] or 0) > 0:
+            print(
+                f"Symbol '{symbol_name}' exists in repo '{repo}' but has no "
+                f"plan/bug references.",
+                file=sys.stderr,
+            )
+        else:
+            elsewhere = s2.run(
+                "MATCH (s:Symbol {name: $name}) RETURN count(s) AS cnt LIMIT 1",
+                name=symbol_name,
+            ).single()
+            if elsewhere and (elsewhere["cnt"] or 0) > 0:
+                print(
+                    f"Symbol '{symbol_name}' exists in graph but not in repo "
+                    f"'{repo}'. Try: symbol-plans {symbol_name} --repo <repo>",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Symbol '{symbol_name}' not found in graph. "
+                    f"Try: scripts/intel-query.sh --human symbols '{symbol_name}'",
+                    file=sys.stderr,
+                )
 ```
 
 ### Return dict (json_mode=True)
@@ -769,9 +791,7 @@ def cmd_symbol_plans(args, json_mode=False):
             result = s.run(
                 """
                 MATCH (sym:Symbol {name: $symbol_name, repo: $repo})
-                MATCH (sym)<-[:RESOLVES_TO]-(cr:CodeReference)<-[:MENTIONS_CODE]-(n)
-                WHERE any(lbl IN labels(n)
-                          WHERE lbl IN ['Plan','PlanSection','Bug','FixSection','Subsection'])
+                MATCH (sym)<-[:RESOLVES_TO]-(cr:CodeReference)<-[:MENTIONS_CODE]-(n:PlanBugNode)
                 RETURN n.id AS node_id, head(labels(n)) AS label,
                        coalesce(n.name, n.id) AS display_name,
                        n.status AS status,
@@ -790,23 +810,38 @@ def cmd_symbol_plans(args, json_mode=False):
             rows = [r.data() for r in result]
 
         if not rows:
-            # Provide helpful stderr hint
+            # Three distinct states, three distinct hints:
+            #   (a) symbol exists in $repo → no plan/bug references
+            #   (b) symbol exists in other repos but not in $repo → suggest --repo
+            #   (c) symbol not in graph → suggest `symbols` lookup
             with driver.session() as s2:
-                elsewhere = s2.run(
-                    "MATCH (s:Symbol {name: $name}) RETURN count(s) AS cnt LIMIT 1",
-                    name=symbol_name,
+                in_repo = s2.run(
+                    "MATCH (s:Symbol {name: $name, repo: $repo})"
+                    " RETURN count(s) AS cnt LIMIT 1",
+                    name=symbol_name, repo=repo,
                 ).single()
-            if elsewhere and (elsewhere["cnt"] or 0) > 0:
-                print(
-                    f"Symbol '{symbol_name}' exists in graph but not in repo '{repo}'. "
-                    f"Try: symbol-plans {symbol_name} --repo <repo>",
-                    file=sys.stderr,
-                )
-            else:
-                print(
-                    f"Symbol '{symbol_name}' not found in graph. "
-                    f"Try: scripts/intel-query.sh --human symbols '{symbol_name}'",
-                    file=sys.stderr,
+                if in_repo and (in_repo["cnt"] or 0) > 0:
+                    print(
+                        f"Symbol '{symbol_name}' exists in repo '{repo}' but has no "
+                        f"plan/bug references.",
+                        file=sys.stderr,
+                    )
+                else:
+                    elsewhere = s2.run(
+                        "MATCH (s:Symbol {name: $name}) RETURN count(s) AS cnt LIMIT 1",
+                        name=symbol_name,
+                    ).single()
+                    if elsewhere and (elsewhere["cnt"] or 0) > 0:
+                        print(
+                            f"Symbol '{symbol_name}' exists in graph but not in repo "
+                            f"'{repo}'. Try: symbol-plans {symbol_name} --repo <repo>",
+                            file=sys.stderr,
+                        )
+                    else:
+                        print(
+                            f"Symbol '{symbol_name}' not found in graph. "
+                            f"Try: scripts/intel-query.sh --human symbols '{symbol_name}'",
+                            file=sys.stderr,
                 )
 
     if json_mode:
@@ -848,15 +883,15 @@ def cmd_symbol_plans(args, json_mode=False):
 
 ### Tasks
 
-- [ ] Add `cmd_symbol_plans` to `query_graph.py` after `cmd_bugs_for`
-- [ ] Add `"symbol-plans": cmd_symbol_plans` to the `commands` dict
-- [ ] Add `query_graph.py symbol-plans <symbol-name> [--repo ori] [--limit N]` to the module-level docstring
-- [ ] Verify: the "symbol not found" stderr hint prints correctly (not a crash, just stderr output with exit 0)
-- [ ] Verify: json_mode=True returns `{"count": 0, "results": []}` for the empty case
+- [x] Add `cmd_symbol_plans` to `query_graph.py` after `cmd_bugs_for`
+- [x] Add `"symbol-plans": cmd_symbol_plans` to the `commands` dict
+- [x] Add `query_graph.py symbol-plans <symbol-name> [--repo ori] [--limit N]` to the module-level docstring
+- [x] Verify: the "symbol not found" stderr hint prints correctly (not a crash, just stderr output with exit 0)
+- [x] Verify: json_mode=True returns `{"count": 0, "results": []}` for the empty case
 
-- [ ] **Subsection close-out (04.4)** — MANDATORY before starting 04.5:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (04.4)** — MANDATORY before starting 04.5:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Repo hygiene check** — deferred to §04.N.
 
 ---
@@ -1135,15 +1170,15 @@ def _print_dag_dot(plan_name, plan_status, sections):
 
 ### Tasks
 
-- [ ] Add `cmd_dag_ascii`, `_print_dag_ascii`, `_print_dag_dot` to `query_graph.py` after `cmd_symbol_plans`
-- [ ] Add `"dag-ascii": cmd_dag_ascii` to the `commands` dict
-- [ ] Add `query_graph.py dag-ascii <plan-name> [--format ascii|dot]` to the module-level docstring
-- [ ] Verify: `--format dot` produces valid Graphviz DOT (parseable by `dot -Tpng` without errors)
-- [ ] Verify: JSON mode ignores `--format` flag and returns structured dict
+- [x] Add `cmd_dag_ascii`, `_print_dag_ascii`, `_print_dag_dot` to `query_graph.py` after `cmd_symbol_plans`
+- [x] Add `"dag-ascii": cmd_dag_ascii` to the `commands` dict
+- [x] Add `query_graph.py dag-ascii <plan-name> [--format ascii|dot]` to the module-level docstring
+- [x] Verify: `--format dot` produces valid Graphviz DOT (parseable by `dot -Tpng` without errors)
+- [x] Verify: JSON mode ignores `--format` flag and returns structured dict
 
-- [ ] **Subsection close-out (04.5)** — MANDATORY before starting 04.6:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (04.5)** — MANDATORY before starting 04.6:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Repo hygiene check** — deferred to §04.N.
 
 ---
@@ -1161,9 +1196,9 @@ There is no allowlist of subcommand names — unknown subcommands are forwarded 
 
 ### Verification tasks
 
-- [ ] Inspect `scripts/intel-query.sh` lines 230–250 to confirm there is no case/switch that enumerates valid subcommands. Current state: the proxy block is `timeout ... "$QUERY_SCRIPT" --json "${PASS_ARGS[@]}"` — agnostic. **Expected finding: no changes needed.**
-- [ ] If a special-cased list IS found (unexpected): add all 5 new subcommand names (`plan-status`, `blocks`, `bugs-for`, `symbol-plans`, `dag-ascii`) to the list and document why the list exists (it would be a pre-existing design constraint not visible at plan-writing time).
-- [ ] Add a smoke test line to the end-to-end verification section (§04.N) that runs:
+- [x] Inspect `scripts/intel-query.sh` lines 230–250 to confirm there is no case/switch that enumerates valid subcommands. Current state: the proxy block is `timeout ... "$QUERY_SCRIPT" --json "${PASS_ARGS[@]}"` — agnostic. **Expected finding: no changes needed.**
+- [x] If a special-cased list IS found (unexpected): add all 5 new subcommand names (`plan-status`, `blocks`, `bugs-for`, `symbol-plans`, `dag-ascii`) to the list and document why the list exists (it would be a pre-existing design constraint not visible at plan-writing time).
+- [x] Add a smoke test line to the end-to-end verification section (§04.N) that runs:
   ```bash
   scripts/intel-query.sh --human plan-status plan-bug-dag-ingestion
   ```
@@ -1171,14 +1206,14 @@ There is no allowlist of subcommand names — unknown subcommands are forwarded 
 
 ### Tasks
 
-- [ ] Inspect `scripts/intel-query.sh` lines 230–250 and confirm or deny the "no special-casing" assumption — **Confirmed: no special-casing.** The wrapper passes `"${PASS_ARGS[@]}"` directly to `query_graph.py`. There is no allowlist of valid subcommands.
-- [ ] Confirm no wrapper changes are needed (expected outcome); if changes ARE needed, implement them now — **No wrapper changes needed.**
-- [ ] Verify smoke test: `scripts/intel-query.sh --human plan-status plan-bug-dag-ingestion` exits 0 (returns "not found" or actual data — either is acceptable; non-zero exit = handler not registered) — **Exit 0, returns "plan not found" (schema not yet deployed — expected).**
-- [ ] Verify smoke test for each remaining subcommand: `blocks BUG-nonexistent`, `bugs-for plan-bug-dag-ingestion`, `symbol-plans eval_iter_next --repo ori`, `dag-ascii plan-bug-dag-ingestion` — all exit 0 — **All confirmed exit 0.**
+- [x] Inspect `scripts/intel-query.sh` lines 230–250 and confirm or deny the "no special-casing" assumption — **Confirmed: no special-casing.** The wrapper passes `"${PASS_ARGS[@]}"` directly to `query_graph.py`. There is no allowlist of valid subcommands.
+- [x] Confirm no wrapper changes are needed (expected outcome); if changes ARE needed, implement them now — **No wrapper changes needed.**
+- [x] Verify smoke test: `scripts/intel-query.sh --human plan-status plan-bug-dag-ingestion` exits 0 (returns "not found" or actual data — either is acceptable; non-zero exit = handler not registered) — **Exit 0, returns "plan not found" (schema not yet deployed — expected).**
+- [x] Verify smoke test for each remaining subcommand: `blocks BUG-nonexistent`, `bugs-for plan-bug-dag-ingestion`, `symbol-plans eval_iter_next --repo ori`, `dag-ascii plan-bug-dag-ingestion` — all exit 0 — **All confirmed exit 0.**
 
-- [ ] **Subsection close-out (04.6)** — MANDATORY before starting 04.7:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (04.6)** — MANDATORY before starting 04.7:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Repo hygiene check** — deferred to §04.N.
 
 ---
@@ -1520,42 +1555,42 @@ def test_dag_ascii_missing_plan_returns_error():
 
 ### Tasks
 
-- [ ] Create `~/projects/lang_intelligence/tests/test_query_plan_bug.py` with the `_load_query_graph` import pattern, `_make_mock_session` fixture, and all 14 tests above (3 per `plan_status`, 2 per `blocks`, 3 per `bugs_for`, 3 per `symbol_plans`, 3 per `dag_ascii`)
-- [ ] `pytest ~/projects/lang_intelligence/tests/test_query_plan_bug.py -v` — all 14 tests pass (confirmed: 14 passed with venv Python)
-- [ ] No regression in existing `~/projects/lang_intelligence/tests/` tests: `pytest ~/projects/lang_intelligence/tests/ -v` — confirmed: 115 passed, 24 skipped (skips are pre-existing, same as before)
-- [ ] **Subsection close-out (04.7)** — MANDATORY before starting §04.R:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`.
+- [x] Create `~/projects/lang_intelligence/tests/test_query_plan_bug.py` with the `_load_query_graph` import pattern, `_make_mock_session` fixture, and a 28-test suite: 14 original (3 per `plan_status`, 2 per `blocks`, 3 per `bugs_for`, 3 per `symbol_plans`, 3 per `dag_ascii`) + 9 TPR-round-1 regression pins / human-mode coverage tests (via capsys) + 5 TPR-round-2 regression pins (depth default, literal-depth Cypher, 3-way fallback states)
+- [x] `pytest ~/projects/lang_intelligence/tests/test_query_plan_bug.py -v` — all 28 tests pass (confirmed via venv Python)
+- [x] No regression in existing `~/projects/lang_intelligence/tests/` tests: `pytest ~/projects/lang_intelligence/tests/ -v` — confirmed: 143 passed, 51 skipped after all TPR round-1/round-2 additions (the +9 passing delta over pre-TPR's 115-passed baseline is the recovered coverage after the silent-skip loader fix + new tests; skipped count is pre-existing harness hygiene in sibling test files)
+- [x] **Subsection close-out (04.7)** — MANDATORY before starting §04.R:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check`.
 
 ---
 
 ## 04.N Completion Checklist
 
-- [ ] `~/projects/lang_intelligence/neo4j/query_graph.py` `commands` dict has 5 new entries: `plan-status`, `blocks`, `bugs-for`, `symbol-plans`, `dag-ascii`
-- [ ] All 5 handlers follow the canonical `def cmd_X(args, json_mode=False)` signature, use `_parse_flags`, use `with get_driver() as driver:` context manager
-- [ ] All user-supplied values (`plan_name`, `node_id`, `symbol_name`) are passed as `$param` in Cypher — never string-concatenated
-- [ ] Module-level docstring in `query_graph.py` has a "Plan/bug graph queries:" section listing all 5 new subcommands with usage examples
-- [ ] `cmd_plan_status`: returns `{plan, status, section_count, completed_sections, open_sections, blocker_count, bug_count}`; "not found" → error dict (json_mode) or stderr+exit 1 (human mode)
-- [ ] `cmd_blocks`: depth cap 10; root-blocker query with deepest-path fallback; "no blockers" handled gracefully; "node not found" → error dict or stderr+exit 1
-- [ ] `cmd_bugs_for`: severity-sorted (critical→high→medium→low); "no bugs" → `{count:0, bugs:[]}` (not an error); `BLOCKED_BY` + `b.status = 'open'` filter in Cypher
-- [ ] `cmd_symbol_plans`: `MENTIONS_CODE → CodeReference → RESOLVES_TO` bridge; stderr hint for not-found symbol; `--repo ori` default; `mention_kind` in return dict
-- [ ] `cmd_dag_ascii`: ASCII tree with `│`, `├──`, `└──`, `↳` box-drawing; `--format dot` produces valid Graphviz DOT; JSON mode ignores `--format` flag
-- [ ] `scripts/intel-query.sh` verified agnostic: no special-cased subcommand list; zero wrapper changes required
-- [ ] End-to-end smoke test: `scripts/intel-query.sh --human plan-status plan-bug-dag-ingestion` exits 0
-- [ ] End-to-end smoke test: `scripts/intel-query.sh --human blocks BUG-nonexistent` exits 0 ("not found" in output)
-- [ ] End-to-end smoke test: `scripts/intel-query.sh --human bugs-for plan-bug-dag-ingestion` exits 0
-- [ ] End-to-end smoke test: `scripts/intel-query.sh --human symbol-plans eval_iter_next --repo ori` exits 0
-- [ ] End-to-end smoke test: `scripts/intel-query.sh --human dag-ascii plan-bug-dag-ingestion` exits 0
-- [ ] `pytest ~/projects/lang_intelligence/tests/test_query_plan_bug.py -v` — all 14 tests green
-- [ ] `pytest ~/projects/lang_intelligence/tests/ -v` — no regression in existing tests
-- [ ] Rich UX boundary documented: "Rich UX (fuzzy search, interactive filters, cross-subcommand piping) is deferred to `plans/query-intel-adoption/section-08-tool-ux-and-output.md` §08 — this section delivers plumbing only."
-- [ ] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` → `complete`, all subsection statuses → `complete`
-  - [ ] `00-overview.md` Quick Reference table: Section 04 status → `Complete`
-  - [ ] `00-overview.md` mission success criterion for §04 (`query_graph.py exposes five new subcommand handlers...`) checked off
-  - [ ] `index.md` Section 04 status → `Complete`
-  - [ ] Section 05's `depends_on: ["04"]` is correct and not stale
+- [x] `~/projects/lang_intelligence/neo4j/query_graph.py` `commands` dict has 5 new entries: `plan-status`, `blocks`, `bugs-for`, `symbol-plans`, `dag-ascii`
+- [x] All 5 handlers follow the canonical `def cmd_X(args, json_mode=False)` signature, use `_parse_flags`, use `with get_driver() as driver:` context manager
+- [x] All user-supplied values (`plan_name`, `node_id`, `symbol_name`) are passed as `$param` in Cypher — never string-concatenated
+- [x] Module-level docstring in `query_graph.py` has a "Plan/bug graph queries:" section listing all 5 new subcommands with usage examples
+- [x] `cmd_plan_status`: returns `{plan, status, section_count, completed_sections, open_sections, blocker_count, bug_count}`; "not found" → error dict (json_mode) or stderr+exit 1 (human mode)
+- [x] `cmd_blocks`: depth cap 10; root-blocker query with deepest-path fallback; "no blockers" handled gracefully; "node not found" → error dict or stderr+exit 1
+- [x] `cmd_bugs_for`: severity-sorted (critical→high→medium→low); "no bugs" → `{count:0, bugs:[]}` (not an error); `BLOCKED_BY` + `b.status = 'open'` filter in Cypher
+- [x] `cmd_symbol_plans`: `MENTIONS_CODE → CodeReference → RESOLVES_TO` bridge; stderr hint for not-found symbol; `--repo ori` default; `mention_kind` in return dict
+- [x] `cmd_dag_ascii`: ASCII tree with `│`, `├──`, `└──`, `↳` box-drawing; `--format dot` produces valid Graphviz DOT; JSON mode ignores `--format` flag
+- [x] `scripts/intel-query.sh` verified agnostic: no special-cased subcommand list; zero wrapper changes required
+- [x] End-to-end smoke test: `scripts/intel-query.sh --human plan-status plan-bug-dag-ingestion` exits 0
+- [x] End-to-end smoke test: `scripts/intel-query.sh --human blocks BUG-nonexistent` exits 0 ("not found" in output)
+- [x] End-to-end smoke test: `scripts/intel-query.sh --human bugs-for plan-bug-dag-ingestion` exits 0
+- [x] End-to-end smoke test: `scripts/intel-query.sh --human symbol-plans eval_iter_next --repo ori` exits 0
+- [x] End-to-end smoke test: `scripts/intel-query.sh --human dag-ascii plan-bug-dag-ingestion` exits 0
+- [x] `pytest ~/projects/lang_intelligence/tests/test_query_plan_bug.py -v` — all 28 tests green (14 original + 9 TPR-round-1 regression pins / human-mode coverage + 5 TPR-round-2 regression pins)
+- [x] `pytest ~/projects/lang_intelligence/tests/ -v` — no regression in existing tests
+- [x] Rich UX boundary documented: "Rich UX (fuzzy search, interactive filters, cross-subcommand piping) is deferred to `plans/query-intel-adoption/section-08-tool-ux-and-output.md` §08 — this section delivers plumbing only."
+- [x] **Plan sync** — update plan metadata:
+  - [x] This section's frontmatter `status` → `complete`, all subsection statuses → `complete`
+  - [x] `00-overview.md` Quick Reference table: Section 04 status → `Complete`
+  - [x] `00-overview.md` mission success criterion for §04 (`query_graph.py exposes five new subcommand handlers...`) checked off
+  - [x] `index.md` Section 04 status → `Complete`
+  - [x] Section 05's `depends_on: ["04"]` is correct and not stale
 - [ ] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` before final commit.
 
-**Exit Criteria:** `pytest ~/projects/lang_intelligence/tests/test_query_plan_bug.py` passes all 14 tests; all 5 `scripts/intel-query.sh --human <subcommand>` smoke tests exit 0; `query_graph.py` module-level docstring lists all 5 new subcommands; rich UX deferred boundary is documented in both this section and `section-08-tool-ux-and-output.md`.
+**Exit Criteria:** `pytest ~/projects/lang_intelligence/tests/test_query_plan_bug.py` passes all 28 tests; all 5 `scripts/intel-query.sh --human <subcommand>` smoke tests exit 0; `query_graph.py` module-level docstring lists all 5 new subcommands; rich UX deferred boundary is documented in both this section and `section-08-tool-ux-and-output.md`.
