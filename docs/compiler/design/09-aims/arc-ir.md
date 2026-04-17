@@ -80,7 +80,7 @@ All parameters start as `Owned` during lowering and may be refined to `Borrowed`
 
 ## Instruction Set
 
-ARC IR has 13 instruction variants, organized by purpose:
+ARC IR has 15 instruction variants (see `compiler/ori_arc/src/ir/instr.rs::ArcInstr` — includes `CollectionReuse` alongside the scalar `Reuse` variant), organized by purpose:
 
 ```mermaid
 flowchart TB
@@ -219,9 +219,9 @@ Recursive types are detected via a cycle-detection set — if classification enc
 
 ### ArcClassifier
 
-The `ArcClassifier` wraps a `Pool` reference with a memoization cache and cycle-detection set. It provides a **fast path** for pre-interned primitives (Pool indices 0-11): `int` through `ordering` are classified by raw index without hash map lookup, producing instant `Scalar` classification. `str` (index 11) is the exception — it classifies as `DefiniteRef`.
+The `ArcClassifier` wraps a `Pool` reference with a memoization cache and cycle-detection set. It provides a **fast path** for pre-interned primitives (Pool indices 0-11 — see `compiler/ori_types/src/idx/mod.rs`: `INT=0`, `FLOAT=1`, `BOOL=2`, `STR=3`, `CHAR=4`, `BYTE=5`, `UNIT=6`, `NEVER=7`, `ERROR=8`, `DURATION=9`, `SIZE=10`, `ORDERING=11`). Numeric/flag/duration primitives are classified by raw index without hash map lookup, producing instant `Scalar` classification. `str` (index 3) is the exception — it classifies as `DefiniteRef`.
 
-Iterators and `DoubleEndedIterator` are classified as `Scalar` despite being heap-allocated, because they are runtime-managed (allocated with `Box::new`, not `ori_rc_alloc`) and lack RC headers.
+Iterator types lower through a dedicated non-trivial cleanup path (`RcStrategy::Iterator`) with cleanup via `ori_iter_drop` — see `compiler/ori_arc/src/ir/repr.rs` and `compiler/ori_types/src/triviality/mod.rs`. They are not `Scalar` despite being runtime-managed.
 
 ## Value Representation
 

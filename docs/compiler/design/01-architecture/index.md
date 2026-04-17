@@ -301,7 +301,7 @@ flowchart TB
     class ori_llvm,ori_arc,ori_rt native
 ```
 
-> Only key dependency edges shown — all crates ultimately depend on `ori_ir`. `ori_llvm` and `ori_rt` are workspace members but not in `default-members` (require LLVM 21).
+> Only key dependency edges shown — all crates ultimately depend on `ori_ir`. `ori_llvm` is in `default-members` and LLVM 21 is required for all builds; `compile_error!` prevents building `oric` without LLVM. `ori_rt` is also a workspace member shipped as both an rlib (JIT) and a staticlib (AOT linking).
 
 **Key dependency invariants:**
 

@@ -236,7 +236,7 @@ LTO extends optimization across compilation unit boundaries. Without LTO, the op
 
 Thin LTO uses LLVM's `ThinLTOBitcode` format to enable parallel optimization while still performing cross-module inlining, dead code elimination, and interprocedural analysis. Full LTO merges all bitcode into a single module for maximum optimization at the cost of single-threaded, memory-intensive compilation.
 
-The `--release` profile uses `--lto=full` by default. The `release-lto` Cargo profile applies the same to the compiler itself, producing an `ori` binary that is roughly 20% faster at the cost of 3.5x longer build time.
+The `--release` CLI profile defaults to `O2` with `lto: Off` (see `compiler/oric/src/commands/build_options/` and `compiler/ori_llvm/src/aot/passes/config.rs`); pass `--lto=thin` or `--lto=full` explicitly to enable LTO for a user build. The `release-lto` Cargo profile is separate and applies full LTO to the compiler binary itself, producing an `ori` binary that is roughly 20% faster at the cost of 3.5x longer build time (`target/release-lto/ori`).
 
 ### Pipeline Safety
 
