@@ -525,3 +525,120 @@ class TestExportPlaceholderFilter:
             assert "<" not in r["end_id"] or ">" not in r["end_id"], (
                 f"angle-bracket placeholder leaked: {r}"
             )
+
+
+class TestExportBodyPreview:
+    """`body_preview` carries a frontmatter-stripped, bounded slice of the
+    source markdown body so §02.3's inferred-mention backtick scanner has
+    content to scan without re-reading files at import time."""
+
+    def test_export_emits_body_preview_on_file_backed_node(self, tmp_path: Path):
+        """A PlanSection node gets `body_preview` containing post-frontmatter
+        body text. Frontmatter must NOT leak into the preview."""
+        plans = tmp_path / "plans"
+        _write(plans / "alpha" / "index.md", _index("Alpha"))
+        _write(plans / "alpha" / "section-01.md", _section("01", "A-sec"))
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        sections = [n for n in envelope["nodes"] if "PlanSection" in n["labels"]]
+        assert len(sections) == 1
+        preview = sections[0]["properties"].get("body_preview")
+        assert preview, "body_preview missing on PlanSection"
+        # Positive pin: the section heading survives.
+        assert "# Section 01: A-sec" in preview
+        # Negative pin: YAML frontmatter delimiters and keys must be stripped.
+        assert "---" not in preview
+        assert "section:" not in preview
+        assert "status:" not in preview
+
+    def test_export_body_preview_is_bounded_at_4kb(self, tmp_path: Path):
+        """Nodes with long bodies produce a preview capped at BODY_PREVIEW_LIMIT."""
+        from scripts.plan_corpus.export_json import BODY_PREVIEW_LIMIT
+        plans = tmp_path / "plans"
+        _write(plans / "alpha" / "index.md", _index("Alpha"))
+        long_body = "x" * (BODY_PREVIEW_LIMIT * 3)
+        _write(
+            plans / "alpha" / "section-01.md",
+            "---\n"
+            'section: "01"\n'
+            'title: "Long"\n'
+            "status: active\n"
+            "reviewed: false\n"
+            'goal: "t"\n'
+            "success_criteria: []\n"
+            "sections: []\n"
+            "third_party_review:\n"
+            "  status: none\n"
+            "  updated: null\n"
+            "---\n\n"
+            f"{long_body}\n",
+        )
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        sections = [n for n in envelope["nodes"] if "PlanSection" in n["labels"]]
+        preview = sections[0]["properties"]["body_preview"]
+        assert len(preview) == BODY_PREVIEW_LIMIT, (
+            f"preview length {len(preview)} != cap {BODY_PREVIEW_LIMIT}"
+        )
+
+    def test_export_skips_body_preview_on_empty_body(self, tmp_path: Path):
+        """A file with only frontmatter and no body must NOT carry
+        `body_preview`. Downstream consumers skip nodes without preview
+        rather than scanning an empty string."""
+        plans = tmp_path / "plans"
+        _write(plans / "alpha" / "index.md", _index("Alpha"))
+        # Section file whose body is exactly empty after the frontmatter block.
+        _write(
+            plans / "alpha" / "section-01.md",
+            "---\n"
+            'section: "01"\n'
+            'title: "Empty"\n'
+            "status: active\n"
+            "reviewed: false\n"
+            'goal: "t"\n'
+            "success_criteria: []\n"
+            "sections: []\n"
+            "third_party_review:\n"
+            "  status: none\n"
+            "  updated: null\n"
+            "---\n",
+        )
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        sections = [n for n in envelope["nodes"] if "PlanSection" in n["labels"]]
+        assert "body_preview" not in sections[0]["properties"]
+
+    def test_export_emits_body_preview_on_bug_node(self, tmp_path: Path):
+        """Synthesized :Bug nodes get `body_preview` from BugEntry.body_text
+        (not from a file — bugs are inline in their parent section)."""
+        plans = tmp_path / "plans"
+        _write(plans / "alpha" / "index.md", _index("Alpha"))
+        _write(plans / "alpha" / "section-01.md", _section("01", "A"))
+        _write(
+            plans / "bug-tracker" / "section-01-demo.md",
+            "---\n"
+            'section: "01"\n'
+            'title: "Demo"\n'
+            "status: active\n"
+            'goal: "t"\n'
+            "sections: []\n"
+            "---\n\n"
+            "# Section 01: Demo\n\n"
+            "## Open Bugs\n\n"
+            "- [ ] `[BUG-01-001][high]` **Example bug title** — repro in `foo_bar`.\n"
+            "  Repro: see `mod::path::symbol_name`\n"
+            "  Subsystem: demo\n"
+            "  Found: 2026-04-17 | Source: user\n",
+        )
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        bugs = [n for n in envelope["nodes"] if "Bug" in n["labels"]]
+        assert len(bugs) == 1
+        preview = bugs[0]["properties"].get("body_preview")
+        assert preview, "body_preview missing on :Bug node"
+        # Positive pin: backtick-fenced symbols from the entry body survive.
+        assert "foo_bar" in preview or "symbol_name" in preview
