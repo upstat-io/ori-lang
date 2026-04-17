@@ -1,6 +1,27 @@
 use super::*;
-use crate::{check::ModuleChecker, TypeEnv};
+use crate::{check::ModuleChecker, check_module, TypeCheckResult, TypeEnv, TypeErrorKind};
 use ori_ir::{ExprArena, Module, StringInterner};
+use ori_lexer::lex;
+use ori_parse::parse;
+
+/// Parse-and-check harness used by body-pass regression tests.
+///
+/// Duplicates the helper in `check/api/tests.rs`. After §03.1–§03.4 wire the
+/// validator into all four body passes, `/improve-tooling` close-out should
+/// extract a shared `#[cfg(test)] pub(crate)` helper module rather than
+/// maintain two copies.
+fn parse_and_check(source: &str) -> (TypeCheckResult, StringInterner) {
+    let interner = StringInterner::new();
+    let tokens = lex(source, &interner);
+    let parsed = parse(&tokens, &interner);
+    assert!(
+        parsed.errors.is_empty(),
+        "parse errors: {:?}",
+        parsed.errors
+    );
+    let result = check_module(&parsed.module, &parsed.arena, &interner);
+    (result, interner)
+}
 
 #[test]
 fn check_empty_module_bodies() {
@@ -20,4 +41,117 @@ fn check_empty_module_bodies() {
     check_def_impl_bodies(&mut checker, &module);
 
     assert!(!checker.has_errors());
+}
+
+/// Regression: a function with an unannotated parameter must produce `E2005`
+/// (`AmbiguousType`) at typeck. Exercises `check_function` (Pass 2 per CK-1)
+/// via `validate_body_types` wired in §03.1.
+///
+/// `x` in `@f (x) -> int = 0` is an unannotated parameter — its type is a
+/// fresh `Tag::Var` in `FunctionSig.param_types`. The body `0` never uses
+/// `x`, so the var is never constrained. The end-of-body defaulting pass only
+/// targets empty-literal-reachable vars; unannotated params survive it and
+/// must be caught by `validate_body_types` at the sig-position check.
+///
+/// Note: originally tested with `let ages = []` (unannotated empty list). That
+/// case now defaults to `[Never]` via the BUG-04-084 end-of-body defaulting
+/// pass and no longer fires E2005 — an unannotated param is the simplest
+/// remaining case that survives defaulting.
+#[test]
+fn check_function_with_unannotated_param_emits_ambiguous_type() {
+    let (result, _interner) = parse_and_check("@f (x) -> int = 0;");
+    assert!(
+        result
+            .typed
+            .errors
+            .iter()
+            .any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
+        "expected E2005 AmbiguousType, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Regression: an unresolved `Tag::Var` in a test body must produce `E2005`
+/// (`AmbiguousType`) at typeck via `check_test` (Pass 3 per CK-1). Without
+/// `validate_body_types` wired into `check_test`, surviving vars leak through
+/// typed IR to downstream phases (`typeck.md §PC-2`).
+///
+/// A block-wrapped lambda `{ x -> x }` is not a direct lambda binding and is
+/// NOT generalizable per `typeck.md §GN-3` (Value Restriction). The parameter
+/// `x`'s type remains an unbound `Tag::Var`. No empty literals exist, so the
+/// end-of-body defaulting pass does not fire — only `validate_body_types`
+/// catches the surviving var in `expr_types`.
+///
+/// Test bodies have `() -> void` signatures (no unannotated params), so
+/// the only path for a surviving var is through body expressions.
+#[test]
+fn check_test_with_ungeneralizable_lambda_body_emits_ambiguous_type() {
+    let (result, _interner) = parse_and_check(
+        "@target () -> void = ();\n@test_fn tests @target () -> void = { let _ = { x -> x }; () }",
+    );
+    assert!(
+        result
+            .typed
+            .errors
+            .iter()
+            .any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
+        "expected E2005 AmbiguousType in test body, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Regression: an impl method with an unannotated parameter must produce
+/// `E2005` (`AmbiguousType`) at typeck via `check_impl_method` (Pass 4 per
+/// CK-1). Exercises the sig-position validator walk: the unannotated
+/// parameter `x` lives in `FunctionSig.param_types` as a fresh `Tag::Var`,
+/// and the body `()` never uses `x` so the var is never constrained.
+///
+/// The end-of-body defaulting pass (`default_unbound_vars_in_scope`)
+/// targets ONLY vars reachable from empty-literal expression roots; an
+/// unannotated param with no body references does not flow into that set
+/// and must be caught by `validate_body_types` at sig-position coverage.
+///
+/// If the validator is wired but walks only body `expr_types` (skipping
+/// `sig.param_types` + `sig.return_type`), this test still fails — the
+/// test distinguishes "validator present" from "validator correctly walks
+/// sig positions."
+#[test]
+fn check_impl_method_with_unannotated_param_emits_ambiguous_type() {
+    let (result, _interner) =
+        parse_and_check("type Foo = { f: int };\nimpl Foo { @process (self, x) -> void = { () } }");
+    assert!(
+        result
+            .typed
+            .errors
+            .iter()
+            .any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
+        "expected E2005 for unannotated parameter in impl method sig, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Regression: an impl method body carrying an unresolved `Tag::Var`
+/// through `expr_types` must produce `E2005` via `check_impl_method`.
+/// Exercises the body-position validator walk complement to the
+/// sig-position test above.
+///
+/// A block-wrapped lambda `{ x -> x }` is ungeneralizable per
+/// `typeck.md §GN-3` (Value Restriction); its parameter stays `Tag::Var`.
+/// The enclosing impl method is `(self) -> void`, so no sig vars exist —
+/// the only path to a surviving var is through body `expr_types`, which
+/// `validate_body_types` must walk.
+#[test]
+fn check_impl_method_with_ungeneralizable_body_lambda_emits_ambiguous_type() {
+    let (result, _interner) = parse_and_check(
+        "type Foo = { f: int };\nimpl Foo { @m (self) -> void = { let _ = { x -> x }; () } }",
+    );
+    assert!(
+        result
+            .typed
+            .errors
+            .iter()
+            .any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
+        "expected E2005 AmbiguousType in impl method body, got: {:?}",
+        result.typed.errors
+    );
 }
