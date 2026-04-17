@@ -14,7 +14,7 @@ Ori provides structured concurrency primitives that are safe by design. This gui
 Run multiple tasks concurrently and collect all results:
 
 ```ori
-@fetch_all_users (ids: [int]) -> [Result<User, Error>] uses Http, Async =
+@fetch_all_users (ids: [int]) -> [Result<User, Error>] uses Http, Suspend =
     parallel(
         tasks: for id in ids yield () -> fetch_user(id: id),
         max_concurrent: 10,
@@ -56,7 +56,7 @@ parallel(
 ### Working with Results
 
 ```ori
-@fetch_users_summary (ids: [int]) -> UsersSummary uses Http, Async, Logger = {
+@fetch_users_summary (ids: [int]) -> UsersSummary uses Http, Suspend, Logger = {
     Logger.info(msg: `Fetching {len(collection: ids)} users`);
 
     let results = parallel(
@@ -95,7 +95,7 @@ When tasks return different types, unify them:
 ```ori
 type DataBundle = { user: User, orders: [Order], preferences: Preferences }
 
-@fetch_user_bundle (user_id: int) -> Result<DataBundle, Error> uses Http, Async = {
+@fetch_user_bundle (user_id: int) -> Result<DataBundle, Error> uses Http, Suspend = {
     // Fetch all data in parallel
     let results = parallel(
         tasks: [
@@ -121,7 +121,7 @@ type DataBundle = { user: User, orders: [Order], preferences: Preferences }
 For fire-and-forget operations:
 
 ```ori
-@send_notifications (events: [Event]) -> void uses Http, Async, Logger =
+@send_notifications (events: [Event]) -> void uses Http, Suspend, Logger =
     spawn(
         tasks: for event in events yield () -> {
             let result = send_notification(event: event);
@@ -154,7 +154,7 @@ For fire-and-forget operations:
 Limit how long an operation can take:
 
 ```ori
-@fetch_with_fallback (url: str, fallback: str) -> str uses Http, Async = {
+@fetch_with_fallback (url: str, fallback: str) -> str uses Http, Suspend = {
     let result = timeout(
         op: Http.get(url: url)
         after: 5s
@@ -172,7 +172,7 @@ If the operation takes longer than the specified duration, it's cancelled and re
 ### Timeout with Complex Operations
 
 ```ori
-@fetch_with_retries (url: str) -> Result<str, Error> uses Http, Async = {
+@fetch_with_retries (url: str) -> Result<str, Error> uses Http, Suspend = {
     let attempts = [1, 2, 3];
 
     for attempt in attempts do {
@@ -306,7 +306,7 @@ Nurseries provide structured concurrency guarantees:
 Unlike `parallel`, nurseries allow spawning tasks based on intermediate results:
 
 ```ori
-@crawl_pages (start_url: str, max_depth: int) -> [Page] uses Http, Async = {
+@crawl_pages (start_url: str, max_depth: int) -> [Page] uses Http, Suspend = {
     let visited: Set<str> = Set.new();
     let pages: [Page] = [];
 
@@ -339,7 +339,7 @@ Unlike `parallel`, nurseries allow spawning tasks based on intermediate results:
 ### Parallel with Timeout
 
 ```ori
-@fetch_with_individual_timeouts (urls: [str]) -> [Result<str, Error>] uses Http, Async =
+@fetch_with_individual_timeouts (urls: [str]) -> [Result<str, Error>] uses Http, Suspend =
     parallel(
         tasks: for url in urls yield () -> timeout(
             op: Http.get(url: url),
@@ -481,7 +481,7 @@ spawn(
 When using `CollectAll`, expect some failures:
 
 ```ori
-@fetch_with_summary (ids: [int]) -> FetchSummary uses Http, Async = {
+@fetch_with_summary (ids: [int]) -> FetchSummary uses Http, Suspend = {
     let results = parallel(
         tasks: for id in ids yield () -> fetch_data(id: id)
         max_concurrent: 10
@@ -517,7 +517,7 @@ type HealthCheck = {
     avg_load_time: Duration,
 }
 
-@check_page (url: str) -> PageResult uses Http, Clock, Async = {
+@check_page (url: str) -> PageResult uses Http, Clock, Suspend = {
     let start = Clock.now();
 
     let result = timeout(
@@ -560,7 +560,7 @@ type HealthCheck = {
         assert_none(option: result.error)
     }
 
-@health_check (urls: [str]) -> HealthCheck uses Http, Clock, Async, Logger = {
+@health_check (urls: [str]) -> HealthCheck uses Http, Clock, Suspend, Logger = {
     Logger.info(msg: `Starting health check for {len(collection: urls)} URLs`);
 
     let results = parallel(
@@ -617,7 +617,7 @@ type HealthCheck = {
 
 // Continuous monitoring with nursery
 @monitor_continuously (urls: [str], interval: Duration) -> void
-    uses Http, Clock, Async, Logger = {
+    uses Http, Clock, Suspend, Logger = {
     nursery(
         body: n -> {
             loop {
