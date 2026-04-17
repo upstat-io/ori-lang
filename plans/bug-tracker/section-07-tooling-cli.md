@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "Tooling & CLI"
-status: open
+status: in-progress
 goal: "Track and resolve all known tooling and CLI bugs"
 sections: []
 ---

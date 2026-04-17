@@ -3,6 +3,19 @@ bug: BUG-07-005
 severity: low
 title: "Orphan env vars ORI_NO_REPR_OPT and ORI_VERIFY_ARC not registered in debug_flags.rs"
 status: complete
+goal: "Register both orphan env vars in the centralized debug_flags.rs registry so check-debug-flags.sh no longer flags them as ORPHAN, and consumer sites use typed constants instead of string literals."
+success_criteria:
+  - "Both flag constants added to `compiler/oric/src/debug_flags.rs`"
+  - "`check-debug-flags.sh` reports zero ORPHAN entries"
+  - "Consumer sites use the registered constants (no string-literal bypass)"
+  - "Compile-time sync assertions in place"
+  - "CLAUDE.md documents both flags"
+subsystem: "compiler/oric/src/debug_flags.rs"
+found: "2026-04 (check-debug-flags.sh ORPHAN report)"
+source: "diagnostic script (check-debug-flags.sh)"
+third_party_review:
+  status: resolved
+  updated: 2026-04-09
 ---
 
 # Fix: BUG-07-005 — Register orphan env vars in debug_flags.rs

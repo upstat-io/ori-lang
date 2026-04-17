@@ -1,0 +1,14 @@
+// BUG-04-084 NEGATIVE PIN (Codex /tp-help Round 1 recommendation):
+// Defaulting MUST NOT hide genuine bidirectional-unification conflicts.
+// The first annotation constrains `empty`'s elem to `int`; the second
+// annotation tries to unify `[int]` with `[str]` — that must still fail
+// with a type mismatch (E2001), not be silenced by a "fallback to Never"
+// interpretation.
+
+#compile_fail("E2001")
+@main () -> int = {
+    let empty = [];
+    let ints: [int] = empty;
+    let strs: [str] = empty;
+    0
+}

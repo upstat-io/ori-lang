@@ -1,0 +1,22 @@
+// BUG-04-084 (Plan TPR Round 2 Codex-R2-F5): lambda body contains an empty
+// literal AND the lambda is generalizable (immutable binding of a lambda,
+// per GN-3 value restriction). The generalized elem var from the empty
+// literal inside the lambda body is captured in the scheme and must NOT
+// be defaulted to Never — instantiation at each call site substitutes it
+// to the concrete type demanded by the use site.
+
+use std.testing { assert_eq }
+
+@test_lambda_with_empty_generalized tests @lambda_with_empty () -> void = {
+    let $mk = () -> [];
+    let xs: [int] = mk();
+    let ys: [str] = mk();
+    assert_eq(actual: xs.len(), expected: 0);
+    assert_eq(actual: ys.len(), expected: 0)
+}
+
+@lambda_with_empty () -> int = {
+    let $mk = () -> [];
+    let xs: [int] = mk();
+    xs.len()
+}

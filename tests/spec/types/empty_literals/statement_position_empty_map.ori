@@ -1,0 +1,9 @@
+// BUG-04-084: bare `{}` in statement position.
+// Expected: statement-position empty map defaults to `{Never: Never}`;
+// the value is discarded anyway.
+
+@main () -> int = {
+    let x = 1;
+    {};
+    0
+}

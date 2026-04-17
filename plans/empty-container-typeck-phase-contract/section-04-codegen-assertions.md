@@ -5,7 +5,7 @@ status: not-started
 reviewed: false
 goal: "Insert `debug_assert!`-guarded calls to `assert_no_unresolved_type_vars` at the four codegen integration sites so that any `Tag::Var` surviving the typeck → ARC → codegen boundary is caught immediately at the codegen seam, with a clear ICE and diagnostic rather than silent LLVM IR corruption."
 success_criteria:
-  - "New module `compiler/ori_arc/src/ir/validate.rs` exists and exports `pub fn assert_no_unresolved_type_vars(pool: &ori_types::Pool, func: &ArcFunction) -> Result<(), String>` — verifiable via `grep -rn 'pub fn assert_no_unresolved_type_vars' compiler/ori_arc/src/ir/validate.rs` returning exactly one hit."
+  - "New module `compiler/ori_arc/src/ir/validate.rs` exists and exports a `pub fn assert_no_unresolved_type_vars` that takes shared references to an `ori_types::Pool` and an `ArcFunction` and returns `Result<(), String>` — verifiable via `grep -rn 'pub fn assert_no_unresolved_type_vars' compiler/ori_arc/src/ir/validate.rs` returning exactly one hit."
   - "`compiler/ori_arc/src/ir/mod.rs` declares `pub mod validate;` — verifiable via `grep -n 'pub mod validate' compiler/ori_arc/src/ir/mod.rs` returning one hit."
   - "Integration site 1 (prepare_all_cached): `compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs` contains a `debug_assert!` call to `assert_no_unresolved_type_vars` for the primary function before `self.prepare_arc_function(...)` — verifiable via `grep -n 'assert_no_unresolved_type_vars' compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs` returning at least two hits (one for the main function, one for each lambda)."
   - "Integration site 2 (prepare_mono_cached): the same file contains `assert_no_unresolved_type_vars` for the monomorphized function — same grep returns additional hits."
@@ -46,6 +46,19 @@ sections:
   - id: "04.N"
     title: "Completion checklist"
     status: not-started
+---
+
+## Intelligence Reconnaissance
+
+Queries run 2026-04-17:
+
+- `scripts/intel-query.sh --human file-symbols "ori_arc/src/ir" --repo ori` — inventory `ArcFunction`, `ir/validate` module surface before adding `assert_no_unresolved_type_vars`.
+- `scripts/intel-query.sh --human callers "prepare_mono_cached" --repo ori` — blast radius of the `prepare_mono_cached` integration site (Section 04.2).
+- `scripts/intel-query.sh --human callers "prepare_all_cached" --repo ori` — blast radius of the `prepare_all_cached` integration site (Section 04.2).
+- `scripts/intel-query.sh --human similar "validate type vars before codegen" --repo rust,swift --limit 5` — cross-repo patterns for pre-codegen type-variable validation (Rust `MIR TyContext debug_assert!`, Swift `SILVerifier` per-function seam).
+
+Results summary (≤500 chars) [ori]: `ArcFunction` defined in `ori_arc/src/ir/`; no `ir/validate` module exists yet — this section creates it. `prepare_mono_cached` and `prepare_all_cached` called from `ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs`. [rust]: `rustc_middle::mir` uses `debug_assert!`(ty.is_fully_resolved()) at MIR visitor traversal boundaries — exact structural analog for §04.1 `assert_no_unresolved_type_vars`. [swift]: `SILVerifier` runs per-function ownership + type checks before SIL optimization; confirms multi-site checkpoint strategy.
+
 ---
 
 ## Context — Why This Section Exists

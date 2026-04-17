@@ -1,0 +1,9 @@
+// BUG-04-084 NEGATIVE PIN: unrelated ambiguous signature holes must still
+// emit E2005. Defaulting is scoped to empty-literal-reachable vars only —
+// unannotated parameter `x` is not reachable from any empty literal in
+// the body, so the validator correctly fires on its fresh signature var.
+
+#compile_fail("E2005")
+@f (x) -> int = 0;
+
+@main () -> int = 0;

@@ -6,6 +6,7 @@ supersedes:
   - "plans/bug-tracker/fix-BUG-04-074.md"
 references:
   - "plans/bug-tracker/fix-BUG-04-074.md"
+  - "plans/bug-tracker/fix-BUG-04-084.md"
   - "docs/ori_lang/v2026/spec/14-expressions.md"
   - ".claude/rules/typeck.md"
   - ".claude/rules/codegen-rules.md"
@@ -17,7 +18,11 @@ references:
 
 ## Mission
 
-Close the empty-container typeck phase-contract enforcement gap: empty list literals without type context must be rejected at the type checker with E2005 (per `14-expressions.md:1224-1228`) rather than silently passing unresolved `Tag::Var`s to codegen where they surface as "unresolved type variable at codegen" LLVM verification failures. Deliver this as ONE coherent system: (a) AST-based Value Restriction at the 3 let-generalization sites so monomorphic local bindings no longer polymorphically leak element vars; (b) a new `ori_types::check::validators` module enforcing the typeck PC-2 output contract (no `Tag::Var` in body `expr_types`) as the producer-side error-bearing path; (c) defense-in-depth `debug_assert!`s at codegen consumer sites for the Cross-Phase Invariant Contract; (d) spec-aligned diagnostics and a test-audit sweep. Supersedes `plans/bug-tracker/fix-BUG-04-074.md`, which was escalated here after 5 rounds of dual-source Plan TPR revealed architectural depth exceeding bug-tracker fix-section scope.
+Close the empty-container typeck phase-contract enforcement gap end-to-end: empty list literals without type context must be rejected at the type checker with E2005 (per `14-expressions.md:1224-1228`) rather than silently passing unresolved `Tag::Var`s to codegen where they surface as "unresolved type variable at codegen" LLVM verification failures. Deliver this as ONE coherent system: (a) AST-based Value Restriction at the 3 let-generalization sites so monomorphic local bindings no longer polymorphically leak element vars; (b) a new `ori_types::check::validators` module enforcing the typeck PC-2 output contract (no `Tag::Var` in body `expr_types`) as the producer-side error-bearing path; (c) end-of-body defaulting pre-pass (`default_unbound_vars_from_empty_literals`) so legitimate unconstrained empty literals default to `Idx::NEVER` instead of spuriously firing E2005; (d) defense-in-depth `debug_assert!`s at codegen consumer sites for the Cross-Phase Invariant Contract; (e) resolve the poly-lambda `BoundVar` bleed (BUG-04-042) that currently blocks `test-all.sh` on monomorphized `assert_eq` for imported generics, because the plan cannot land clean commits without it; (f) investigate and resolve the `Tag::Scheme` `PROPAGATE_MASK` regression (BUG-04-085) that may have been caused by §02.0's fix and is surfacing as the LLVM-backend crash in the spec runner; (g) spec-aligned diagnostics and a test-audit sweep.
+
+**Scope absorption (2026-04-17)**: this plan previously deferred two commit-pipeline blockers (BUG-04-042, BUG-04-085) as sibling bug-tracker entries. Per CLAUDE.md §Ownership & Deferral "Plan-blocker bugs belong IN the plan — NEVER sibling fix files", both are now absorbed into the plan's scope (Sections 08 and 07 respectively). The anti-pattern being corrected: when plan completion depends on a bug fix, creating a parallel `fix-BUG-XX-NNN.md` artifact produces a chain — plan → fix-A → fix-B → fix-C — where each link has its own blockers and TPR cycle, and nothing ever completes. The cure is to let the plan own resolving its own blockers directly.
+
+Supersedes `plans/bug-tracker/fix-BUG-04-074.md` (original escalation); absorbs `fix-BUG-04-084.md` (work complete, pending commit); absorbs BUG-04-042 and BUG-04-085 (bug-tracker entries, no fix files created because the plan now owns them).
 
 ## Mission Success Criteria
 
@@ -25,8 +30,11 @@ Close the empty-container typeck phase-contract enforcement gap: empty list lite
 - [ ] With an explicit annotation `let ages: [int] = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1` compiles via `ori build` and runs with exit code 0 through both the JIT (`ori run`) and AOT (`ori build`) pipelines. Verified by AOT integration tests in `compiler/ori_llvm/tests/aot/`.
 - [ ] Interpreter and LLVM produce identical observable results (dual-execution parity) for every test program in the matrix. Verified by `diagnostics/dual-exec-verify.sh`.
 - [ ] Let-polymorphism for non-capturing lambdas is preserved: `let id = x -> x; id(1); id("hello")` continues to compile and run correctly (Rust unit test `test_let_polymorphism_for_lambda` in `compiler/ori_types/src/infer/expr/tests.rs`). Verified that reverting the Value Restriction change fails this test.
+- [ ] Empty-collection defaulting pre-pass (§03.BUG-FIXES): `for x in [1, 2, 3] do {};` compiles clean (both as statement and expression body positions); `let empty = []; empty.len()` compiles clean with `empty` typed as `[Never]`. Verified by the 18 positive spec tests + 3 negative pins in `tests/spec/types/empty_literals/`. No legitimate empty-literal program fires E2005.
 - [ ] No `unresolved type variable at codegen` error path in `compiler/ori_llvm/src/codegen/type_info/store.rs:341-363` fires on any program in `tests/spec/` (positive attestation via a diagnostic script `diagnostics/detect-tag-var-at-codegen.sh` or equivalent). If the assertion fires in a debug build, the producer-side validator has a gap — the failing ArcFunction name identifies the regression.
-- [ ] No regressions in `timeout 150 ./test-all.sh`, `timeout 150 ./clippy-all.sh`, or `./llvm-test.sh`. Matrix tests across empty-list × element-type × usage-pattern all pass in debug and release builds.
+- [ ] **Poly-lambda BoundVar bleed resolved (Section 08, absorbs BUG-04-042)**: `timeout 150 cargo run --bin ori -- test --backend=llvm tests/spec/expressions/lambda_mono.ori` runs clean (previously produced `Idx(241)` unresolved type variable + 17 LCFails). Files containing polymorphic lambda definitions no longer bleed Scheme/BoundVar types into the codegen context; `assert_eq<T: Eq + Debug>` monomorphizes correctly for imported generics. Verified by the spec test pass + an AOT integration test exercising a module with poly-lambda AND imported generic use.
+- [ ] **LLVM spec runner crash resolved (Section 07 close-out, absorbs BUG-04-085)**: `timeout 150 ./test-all.sh` reports no "Ori spec (LLVM backend) CRASHED" line; `assert_eq$m$int` no longer triggers `ArcIrEmitter: variable not yet defined` or the ensuing stack overflow. Section 07 investigates whether §02.0's `Tag::Scheme PROPAGATE_MASK` fix caused or exposed the regression, and either (a) fixes the downstream consumer that depended on the old flag semantics, or (b) adjusts the propagation to preserve behavioral compatibility. Verified by a green LLVM-backend spec run.
+- [ ] No regressions in `timeout 150 ./test-all.sh`, `timeout 150 ./clippy-all.sh`, or `./llvm-test.sh`. Matrix tests across empty-list × element-type × usage-pattern all pass in debug and release builds. **Zero failing tests from this plan's domain at close-out** — every spec test either passes or carries a concrete `#skip(...)` / `#compile_fail(...)` annotation with a pointer to a separate non-blocker bug.
 - [ ] `/tpr-review` on the full plan diff returns clean across both codex and gemini with no actionable findings.
 - [ ] `/impl-hygiene-review` runs clean after `/tpr-review`.
 - [ ] All section success criteria met (see per-section frontmatter).
@@ -92,27 +100,38 @@ LLVM IR + AOT binary (no unresolved Tag::Var path)
 ## Section Dependency Graph
 
 ```
-Section 01 (Value Restriction)
-     │
-     ├─► Section 06 (Diagnostics + Audit) — diagnostic wording depends on when E2005 fires
-     │
-Section 02 (Validator Module)
-     │
-     └─► Section 03 (Bodies-Pass Integration) — needs validator module to exist
-               │
-               ├─► Section 04 (Codegen Assertions) — depends on producer side being clean
-               │
-               └─► Section 06 (Diagnostics + Audit) — audit runs after producer works
+Section 01 (Value Restriction)         Section 02 (Validator Module)
+     │                                       │
+     └───────────────┬───────────────────────┘
+                     │
+                     ▼
+               Section 03 (Bodies-Pass Integration)
+                 + §03.BUG-FIXES (empty-literal defaulting — BUG-04-084)
+                     │
+        ┌────────────┼────────────────────────┐
+        │            │                        │
+        ▼            ▼                        ▼
+  Section 04    Section 08                Section 06
+  (Codegen      (Poly-Lambda              (Diagnostics
+   Assertions)   BoundVar bleed —           + Audit)
+                 BUG-04-042)
+        │            │                        │
+        └────────────┼────────────────────────┘
+                     │
+                     ▼
+               Section 07 (Close-out)
+                 + BUG-04-085 investigation
+                   (did §02.0 PROPAGATE_MASK cause it?)
 
-Section 04 depends on Section 03 (clean producer output).
 Section 05 (Test Matrix) is written FIRST (TDD) but verified LAST.
-Section 07 (Close-out) requires all above.
 ```
 
 - **Sections 01 and 02 are independent** and can be drafted in parallel (different code paths: generalization policy vs. validator module).
-- **Section 03 depends on Sections 01 + 02** — it wires the validator into the 4 bodies-pass sites AFTER the generalization policy no longer bleeds unresolved vars for lambda-typed bindings.
+- **Section 03 depends on Sections 01 + 02** — wires the validator into the 4 bodies-pass sites AFTER the generalization policy no longer bleeds unresolved vars for lambda-typed bindings. §03.BUG-FIXES (BUG-04-084) added the end-of-body defaulting pre-pass so legitimate empty literals default to `[Never]` before the validator runs.
 - **Section 04 depends on Section 03** — defense-in-depth `debug_assert!`s at codegen rely on the producer being clean; enabling them before Section 03 would trigger on legitimate typed IR.
-- **Section 06 depends on Sections 03 + 04** — the diagnostic audit (sweeping `tests/spec/` for `[].iter()` / `[].len()` patterns beyond just `let x = []` bindings per `TPR-04-005-codex`) runs after enforcement is live so we can detect what needs annotation.
+- **Section 08 depends on Section 03** (for the same clean-producer invariant) but is otherwise independent — it fixes a different codegen bug (poly-lambda `BoundVar` bleed into the mono pipeline). Section 08 **must complete before `test-all.sh` passes**, which means **plan commits are blocked until Section 08 lands**. This is the new reality after absorbing BUG-04-042.
+- **Section 06 depends on Sections 03 + 04** — the diagnostic audit runs after enforcement is live so we can detect what needs annotation.
+- **Section 07 depends on all above** — in addition to the original close-out work, §07 now owns investigating BUG-04-085 (LLVM spec runner crash) and either fixing the consumer that depended on the old `Tag::Scheme` flag semantics or adjusting §02.0's propagation for compatibility.
 
 **Cross-section interactions (must be co-implemented):**
 - **Section 01 + Section 05**: The TDD matrix MUST include the let-polymorphism semantic pin (`test_let_polymorphism_for_lambda`) that only passes when Section 01's Value Restriction correctly identifies `ExprKind::Lambda` as the ONLY generalizable init. Missing this pin = silent regression of the `let id = x -> x` pattern.
@@ -123,55 +142,67 @@ Section 07 (Close-out) requires all above.
 ```
 Phase 0 — TDD Stubs (Section 05 first wave)
   └─ 05: Write failing matrix tests + semantic pins + negative pins as STUBS
-     Gate: Every test compiles but fails with the current codegen error (not the target E2005)
 
-Phase 1 — Generalization Policy (Section 01)
-  └─ 01.1: Extract `should_generalize(arena, init)` SSOT helper
-  └─ 01.2: Migrate infer_block L79-89 call site
-  └─ 01.3: Migrate infer_let L167 call site
-  └─ 01.4: Migrate sequences.rs L204-251 call site
-     Gate: `test_let_polymorphism_for_lambda` passes; empty-list binding no longer generalizes
+Phase 1 — Generalization Policy (Section 01) — COMPLETE
+  └─ 01.1–01.4: should_generalize helper + 3 migration sites
 
-Phase 2 — Validator Module (Section 02)
+Phase 2 — Validator Module (Section 02) — COMPLETE
   └─ 02.0: Pool scheme-flag propagation fix (prerequisite for §02.2 HAS_VAR gate)
-  └─ 02.1: Validator signature, public contract, and narrow re-export (NO pub mod check)
-  └─ 02.2: Core algorithm: tag-dispatch child recursion (reusing Pool::visit_children)
-  └─ 02.3: lib.rs and check/mod.rs wiring (no pub mod check)
-  └─ 02.4: Unit test matrix (twelve cells)
-     Gate: Unit tests pass; validator emits E2005 for every unresolved Tag::Var
+           ⚠ Investigate in §07: possible cause of BUG-04-085 LLVM runner crash
+  └─ 02.1–02.4: validator module + unit test matrix
 
-Phase 3 — Bodies-Pass Integration (Section 03) — CRITICAL PATH
-  └─ 03.1: Call validator from check_function after body inference
-  └─ 03.2: Call validator from check_test
-  └─ 03.3: Call validator from check_impl_method
-  └─ 03.4: Call validator from check_def_impl_method
-     Gate: Original BUG-04-074 repro now emits E2005 at typeck; all spec tests still compile OR are annotated
+Phase 3 — Bodies-Pass Integration (Section 03) — IN-PROGRESS
+  └─ 03.0: Split bodies/mod.rs (BLOAT gate) — COMPLETE
+  └─ 03.1: Wire validator into check_function — COMPLETE
+  └─ 03.2: Wire validator into check_test — COMPLETE
+  └─ 03.BUG-FIXES: Absorbed BUG-04-084 (end-of-body empty-literal defaulting) — COMPLETE
+  └─ 03.3: Wire validator into check_impl_method
+  └─ 03.4: Wire validator into check_def_impl_method
+  └─ 03.5: End-to-end regression suite and dual-execution parity
+  └─ 03.R: Third Party Review Findings (Rounds 0, 1, 2)
+  └─ 03.N: Completion Checklist
 
 Phase 4 — Codegen Defense-in-Depth (Section 04)
   └─ 04.1: debug_assert! hook in prepare_mono_cached (per-function seam)
   └─ 04.2: debug_assert! hook at compile.rs:230 (JIT pre-mono)
   └─ 04.3: debug_assert! hook at codegen_pipeline.rs:112 (AOT pre-mono)
   └─ 04.4: Release-build ICE path with ArcFunction name in panic message
-     Gate: If ANY Tag::Var reaches codegen in a debug build, the assertion fires with actionable output
 
-Phase 5 — Diagnostics + Test Audit (Section 06)
+Phase 5 — Poly-Lambda Mono Fix (Section 08, NEW — absorbs BUG-04-042) — COMMIT BLOCKER
+  └─ 08.1: Investigation — reproduce lambda_mono.ori failure, bisect to root cause
+           (Pool scoping? type_info store? function_compiler/lambda_mono?)
+  └─ 08.2: TDD matrix — spec tests + Rust unit tests covering poly-lambda + imported generic
+  └─ 08.3: Implementation — fix BoundVar bleed at identified call sites
+  └─ 08.4: Coordination with roadmap §21A if still active in that area
+  └─ 08.5: Verification — lambda_mono.ori + integer_safety.ori both pass via --backend=llvm
+  └─ 08.R: TPR review
+  └─ 08.N: Completion checklist
+     Gate: test-all.sh is GREEN on Ori spec (LLVM backend); commits unblock
+
+Phase 6 — Diagnostics + Test Audit (Section 06)
   └─ 06.1: Refine E2005 message wording + suggestion format
-  └─ 06.2: Audit tests/spec/ for [].iter(), [].len(), [].is_empty() patterns — annotate or document
+  └─ 06.2: Audit tests/spec/ for [].iter(), [].len(), [].is_empty() patterns
   └─ 06.3: Verify spec test corpus compiles clean
-     Gate: `cargo st` green; annotations documented in spec-test README where material
 
-Phase 6 — Close-out (Section 07)
-  └─ 07.1: Supersede bug-tracker entry for BUG-04-074
+Phase 7 — Close-out + BUG-04-085 Investigation (Section 07, expanded)
+  └─ 07.0: Investigate BUG-04-085 — isolate whether §02.0's PROPAGATE_MASK fix caused
+           "ArcIrEmitter: variable not yet defined" in the mono pipeline. If YES, fix
+           the consumer that depended on old flag semantics. If NO, file a new bug
+           scoped to the true root cause.
+  └─ 07.1: Close bug-tracker entries for BUG-04-074, BUG-04-084, BUG-04-042, BUG-04-085
+           with pointers to their owning plan sections (no sibling fix files)
   └─ 07.2: Remove plan annotations from production code
-  └─ 07.3: `/tpr-review` → `/impl-hygiene-review` → `/improve-tooling` sweep → `/sync-claude`
-     Gate: All reviews clean; plan status: complete
+  └─ 07.3: /tpr-review → /impl-hygiene-review → /improve-tooling sweep → /sync-claude
+     Gate: All reviews clean; plan status: complete; test-all.sh fully green
 ```
 
 **Why this order:**
-- Phase 0 is TDD discipline — tests frame the implementation per `CLAUDE.md §TDD for Bugs`. Tests fail with today's codegen error; they'll transition to passing with Phase 3's E2005 emission.
-- Phase 1 (Section 01) must precede Phase 2 (Section 02) because if Section 02 runs first, the validator would reject legitimate lambda-polymorphism (`let id = x -> x`) — the generalization policy must land first so that only non-lambda initializers have Unbound element vars to catch.
-- Phase 3 is the critical path — it's the moment E2005 starts firing on user programs. Phase 4 (debug_assert!) depends on Phase 3 being clean, otherwise the assertions fire on legitimately-typed IR.
-- Phase 5 runs AFTER enforcement is live so the audit detects real annotation needs.
+- Phase 0 is TDD discipline — tests frame the implementation per `CLAUDE.md §TDD for Bugs`.
+- Phase 1 (Section 01) precedes Phase 2 (Section 02) because if Section 02 runs first, the validator would reject legitimate lambda-polymorphism — the generalization policy must land first.
+- Phase 3 is the critical typeck-side path — it's where E2005 starts firing on user programs. Phase 4 (debug_assert!) depends on Phase 3 being clean.
+- **Phase 5 (Section 08) is the new commit-unblocker** — absorbed from BUG-04-042. The plan cannot land atomic commits until this section completes, because `test-all.sh` fails on the LLVM backend spec run due to the poly-lambda `BoundVar` bleed. §08 is an independent codegen fix that runs in parallel with §04/§06 but must finish before any commit attempt for sections landing after §03.
+- Phase 6 runs AFTER enforcement is live so the audit detects real annotation needs.
+- Phase 7 (Section 07) adds the BUG-04-085 investigation: §02.0's `Tag::Scheme PROPAGATE_MASK` fix may be the root cause of the `ArcIrEmitter: variable not yet defined` crash in the mono pipeline. Either fix the downstream consumer or adjust the propagation.
 
 **Known failing tests (expected until plan completion):**
 
@@ -222,17 +253,20 @@ Baseline measurements (pre-implementation) from the codebase as of plan creation
 | **Total new** | **~830** | | |
 | **Total deleted** | **~20** (plan annotations stripped at close) | | |
 
-## Known Bugs (Pre-existing)
+## Known Bugs (Absorbed into This Plan)
 
-Bugs surfaced during the BUG-04-074 investigation + 5 rounds of Plan TPR + Round 5 research verification. These feed directly into the sections below.
+Bugs absorbed into the plan's scope per CLAUDE.md §Ownership & Deferral "Plan-blocker bugs belong IN the plan". Each was a blocker to plan completion and is now owned by a specific plan section rather than a sibling `fix-BUG-XX-NNN.md` file. The bug-tracker entries for these are closed with pointers back to their owning section.
 
-| Bug | Root Cause | Fix Location | Status |
-|-----|-----------|-------------|--------|
-| BUG-04-074: Empty list literal with `push()` leaves unresolved Tag::Var, causing LLVM verification failure at AOT | Unconditional generalization at 3 let-binding sites (infer_block L85/L88, infer_let L167, sequences L247) creates Generalized element vars that later instantiation at `.len()`-style non-constraining use sites doesn't resolve; codegen has no assertion, surfaces useless error | Sections 01 + 02 + 03 | Escalated to this plan |
-| `ori_types::check` module exposure: new validator needs external access | `mod check;` (private) at `lib.rs:16`; fix: narrow re-export `pub use check::validators::validate_body_types;` — NO `pub mod check` promotion (Phase 2 /tp-help consensus) | Section 02.1 + 02.3 | Complete (2026-04-15) |
-| Spec violation: `14-expressions.md:1224-1228` declares `let y = []` a compile-time error; compiler silently passes to codegen | typeck.md PC-2 output contract not enforced at phase boundary | Sections 02 + 03 | Section 02 Complete (producer-side enforcement shipped 2026-04-15); Section 03 Not Started (wires validator into 4 bodies-pass call sites) |
-| `TPR-04-005-codex` audit finding: `tests/spec/` uses `[].iter()`, `[].is_empty()` patterns beyond just `let x = []` bindings; these WILL trip E2005 once live | Existing spec test corpus not spec-compliant | Section 06.2 | Not Started |
-| Informational: Round 4 supersession markers overclaim in the original fix-section — round-1 §R entries do not carry `(SUPERSEDED)` suffixes despite item 7 claiming they do | Documentation drift in `plans/bug-tracker/fix-BUG-04-074.md` | Section 07.1 — supersede the fix-section and preserve the TPR audit trail as a reference in `references:` frontmatter | Not Started |
+| Bug | Root Cause | Owning Section | Status |
+|-----|-----------|---------------|--------|
+| BUG-04-074: Empty list literal with `push()` leaves unresolved Tag::Var, causing LLVM verification failure at AOT | Unconditional generalization at 3 let-binding sites creates Generalized element vars that non-constraining use sites (`.len()`) don't resolve | Sections 01 + 02 + 03 | Section 01 Complete, Section 02 Complete, Section 03 In-Progress (§03.1 + §03.2 done) |
+| BUG-04-084: `for x in coll do {}` body causes unresolved `Tag::Var` at codegen; all four body-group passes needed defaulting before validator fires | Empty-collection literals at body-exit positions had no constraint channel, so unconstrained element vars survived inference and spuriously tripped E2005 | Section 03.BUG-FIXES (end-of-body defaulting pre-pass) | **Implementation Complete 2026-04-17** — defaulting wired in all 4 body-group passes; 18 spec tests + 3 negative pins pass; bug-tracker entry closed |
+| BUG-04-042: LLVM codegen — polymorphic lambda presence causes unresolved type variable for imported generics (`assert_eq`) | Polymorphic-lambda `BoundVar` types in the shared `Pool` interfere with `MonoInstance` body compilation for imported generics; the lambda's Scheme/BoundVar bleeds into the codegen context | **Section 08 (new)** — absorbed 2026-04-17 from bug-tracker; was previously blocked on roadmap §21A coordination | Not Started — **blocks plan commits** until resolved |
+| BUG-04-085: LLVM spec runner crashes with stack overflow + `ArcIrEmitter: variable not yet defined` on monomorphized `assert_eq` | Likely regression from §02.0's `Tag::Scheme` `PROPAGATE_MASK` fix — if a downstream mono pipeline relied on old `HAS_VAR` flag semantics for scheme types, setting the bit correctly now surfaces as "variable not yet defined" | **Section 07 (expanded)** — absorbed 2026-04-17 into close-out scope | Not Started — investigation first (isolate causal link), then fix the consumer or adjust propagation |
+| `ori_types::check` module exposure: new validator needs external access | `mod check;` (private); fix: narrow re-export `pub use check::validators::validate_body_types;` | Section 02.1 + 02.3 | Complete (2026-04-15) |
+| Spec violation: `14-expressions.md:1224-1228` declares `let y = []` a compile-time error; compiler silently passes to codegen | typeck.md PC-2 output contract not enforced at phase boundary | Sections 02 + 03 | Section 02 Complete; Section 03 In-Progress |
+| `TPR-04-005-codex` audit finding: `tests/spec/` uses `[].iter()`, `[].is_empty()` patterns beyond just `let x = []` bindings | Existing spec test corpus not spec-compliant | Section 06.2 | Not Started |
+| Informational: Round 4 supersession markers overclaim in the original fix-section | Documentation drift in `plans/bug-tracker/fix-BUG-04-074.md` | Section 07.1 — close the bug-tracker entry and preserve TPR audit trail in `references:` | Not Started |
 
 ## Quick Reference
 
@@ -240,8 +274,9 @@ Bugs surfaced during the BUG-04-074 investigation + 5 rounds of Plan TPR + Round
 |----|-------|------|--------|
 | 01 | AST-based Value Restriction | `section-01-value-restriction.md` | Complete |
 | 02 | Validator Module (`ori_types::check::validators`) | `section-02-validator-module.md` | Complete |
-| 03 | Bodies-Pass Integration | `section-03-bodies-pass-integration.md` | Not Started |
+| 03 | Bodies-Pass Integration (absorbs BUG-04-074, BUG-04-084) | `section-03-bodies-pass-integration.md` | In-Progress (§03.1, §03.2, §03.BUG-FIXES done; §03.3/§03.4/§03.5/§03.N remaining) |
 | 04 | Codegen Defense-in-Depth Assertions | `section-04-codegen-assertions.md` | Not Started |
 | 05 | Test Matrix + Semantic Pins | `section-05-test-matrix.md` | Not Started |
 | 06 | Diagnostics + Spec-Test Audit | `section-06-diagnostics-audit.md` | Not Started |
-| 07 | Close-out + Supersession | `section-07-closeout.md` | Not Started |
+| 07 | Close-out + Supersession (absorbs BUG-04-085 investigation) | `section-07-closeout.md` | Not Started |
+| 08 | **Codegen Poly-Lambda Monomorphization (absorbs BUG-04-042)** | `section-08-codegen-poly-lambda.md` | Not Started — blocks commits |

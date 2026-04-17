@@ -38,6 +38,18 @@ sections:
     status: not-started
 ---
 
+## Intelligence Reconnaissance
+
+Queries run 2026-04-17:
+
+- `scripts/intel-query.sh --human file-symbols "ori_diagnostic" --repo ori` — inventory `ori_diagnostic` crate symbols (error builder, suggestion API) before auditing E2005 wording.
+- `scripts/intel-query.sh --human callers "AmbiguousType" --repo ori` — find all `E2005` construction sites to confirm the message string is set in exactly one place.
+- `scripts/intel-query.sh --human similar "empty list type annotation suggestion" --repo rust,elm --limit 5` — prior art for actionable empty-collection type-inference suggestions (Rust `E0282` "type annotations needed", Elm explicit annotation prompts).
+
+Results summary (≤500 chars) [ori]: `AmbiguousType` (E2005) constructed in `ori_types/src/type_error/check_error/`; message string lives in the `message.rs` mapping. No existing suggestion text for the empty-list case — §06.1 adds it. [rust]: E0282 "type annotations needed, cannot infer type" uses the exact imperative pattern ("consider giving X a type") required by `impl-hygiene.md §Error Handling`. [elm]: `Type.Error` suggestions show concrete annotated form — confirms showing `let x: [int] = []` in the suggestion text.
+
+---
+
 # Section 06: Diagnostics + Spec-Test Audit
 
 **Status:** Not Started

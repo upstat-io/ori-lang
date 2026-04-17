@@ -12,7 +12,7 @@ use std.testing { assert, assert_eq }
     assert(cond: [].is_empty())
 }
 
-@empty_list_is_empty () -> bool = [].is_empty();
+@empty_list_is_empty () -> bool = { let xs: [int] = []; xs.is_empty() }
 
 @test_non_empty_list_is_empty tests @non_empty_list_is_empty () -> void = {
     assert(cond: ![1, 2, 3].is_empty())
@@ -81,7 +81,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !is_empty(collection: [1]))
 }
 
-@is_empty_builtin_list () -> bool = is_empty(collection: []);
+@is_empty_builtin_list () -> bool = { let xs: [int] = []; is_empty(collection: xs) }
 
 // =============================================================================
 // IsEmpty Built-in Function with Strings

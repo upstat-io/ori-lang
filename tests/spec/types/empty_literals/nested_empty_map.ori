@@ -1,0 +1,8 @@
+// BUG-04-084: empty map nested inside populated map.
+// Outer key is str (constrained); inner value is `{}` → `{Never: Never}`.
+// Outer type: `{str: {Never: Never}}`.
+
+@main () -> int = {
+    let m = { "a": {} };
+    0
+}

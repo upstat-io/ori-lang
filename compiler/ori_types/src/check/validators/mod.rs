@@ -130,7 +130,6 @@ pub fn validate_body_types(
     // This allows the validator to distinguish "unbound because it's a
     // generic parameter" from "unbound because inference genuinely failed"
     // even when union-find made a fresh instantiation var the root
-    // (BUG-02-008).
     let exempt = build_exempt_var_ids(pool, scheme_var_ids);
 
     // 1. Signature positions first (declaration order):
@@ -159,7 +158,7 @@ pub fn validate_body_types(
 /// Uses [`Pool::var_idx_for_id`] (the canonical `var_id` → Idx helper)
 /// to avoid duplicating the linear-scan pattern from monomorphization
 /// (`impl-hygiene.md §Algorithmic DRY`).
-fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
+pub(crate) fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
     let mut exempt = FxHashSet::default();
     exempt.extend(scheme_var_ids.iter().copied());
     for &sv_id in scheme_var_ids {
@@ -233,7 +232,7 @@ fn collect_first_unbound_var(
             let var_id = pool.data(ty); // Tag::Var: data IS the var_id
             match pool.var_state(var_id) {
                 VarState::Unbound { .. } => {
-                    // Scheme-var exemption (BUG-02-008): if this unbound
+                    // Scheme-var exemption: if this unbound
                     // `var_id` is in the exempt root set — either a scheme
                     // var itself or a fresh instantiation var that became
                     // the union-find root of a scheme var's equivalence

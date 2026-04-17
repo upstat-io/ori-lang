@@ -1,26 +1,31 @@
 ---
 section: "07"
-title: "Close-out + Supersession"
+title: "Close-out + Supersession (absorbs BUG-04-085 investigation)"
 status: not-started
 reviewed: false
 goal: >
-  Final verification, plan annotation cleanup, bug-tracker update, and formal supersession
-  of `plans/bug-tracker/fix-BUG-04-074.md`. This section marks BUG-04-074 as resolved
-  and closes the empty-container typeck phase-contract enforcement plan.
+  Final verification, plan annotation cleanup, bug-tracker updates (including formal
+  supersession of BUG-04-074, BUG-04-084, BUG-04-042, BUG-04-085), and resolution of
+  the LLVM spec runner crash absorbed as §07.0. This section marks the plan complete
+  after confirming test-all.sh is green on both backends.
 success_criteria:
-  - "All plan annotations removed from all four trees — verifiable via: `rg 'BUG-04-074|empty-container-typeck' compiler/ --glob '*.rs'`, `rg 'BUG-04-074|empty-container-typeck' compiler/ --glob '*.ori'`, `rg 'BUG-04-074|empty-container-typeck' tests/ --glob '*.ori'`, and `rg 'BUG-04-074|empty-container-typeck' library/ --glob '*.ori'` — all four returning zero hits."
+  - "§07.0 (BUG-04-085 investigation) is resolved: either (a) §02.0's `Tag::Scheme PROPAGATE_MASK` fix is confirmed as the root cause and the downstream consumer is fixed, or (b) §02.0 is confirmed as not-causal and a new bug is filed scoped to the true root cause; in either case, the LLVM spec runner no longer crashes on monomorphized `assert_eq`."
+  - "All plan annotations removed from all four trees — verifiable via: `rg 'BUG-04-074|BUG-04-084|BUG-04-042|BUG-04-085|empty-container-typeck' compiler/ --glob '*.rs'`, same for `compiler/ --glob '*.ori'`, `tests/ --glob '*.ori'`, and `library/ --glob '*.ori'` — all four returning zero hits."
   - "07.3 (TPR + hygiene + tooling + sync) passes with zero actionable findings BEFORE any bug-tracker entries are updated to `complete`. Gate includes: `plan_corpus check`, `/tpr-review`, `/impl-hygiene-review`, `/improve-tooling` sweep, and `/sync-claude` sweep — all must be clean."
-  - "`plans/bug-tracker/fix-BUG-04-074.md` status is updated to `complete` with a pointer to this plan."
-  - "`plans/bug-tracker/00-overview.md` reflects the reduced open-bug count."
-  - "`plans/bug-tracker/section-04-codegen-llvm.md` entry for BUG-04-074 updated to resolved."
+  - "Bug-tracker entries closed with pointers to owning plan sections (no sibling fix files remain): BUG-04-074 → §03; BUG-04-084 → §03.BUG-FIXES; BUG-04-042 → §08; BUG-04-085 → §07.0."
+  - "`plans/bug-tracker/00-overview.md` reflects the reduced open-bug count after closures."
+  - "`plans/bug-tracker/section-04-codegen-llvm.md` entries for all four absorbed bugs marked `[x]` with plan pointers."
   - "Final `/tpr-review` (whole plan arc) passes with zero actionable findings."
   - "`/impl-hygiene-review` on the full work arc (all sections) passes."
-  - "`timeout 150 ./test-all.sh` green (debug). `timeout 150 cargo test --release -p ori_types` and `timeout 150 cargo test --release -p ori_llvm` green (release)."
-depends_on: ["01", "02", "03", "04", "05", "06"]
+  - "`timeout 150 ./test-all.sh` green (debug) — including the Ori spec (LLVM backend) row which no longer shows CRASHED. `timeout 150 cargo test --release -p ori_types` and `timeout 150 cargo test --release -p ori_llvm` green (release)."
+depends_on: ["01", "02", "03", "04", "05", "06", "08"]
 third_party_review:
   status: none
   updated: null
 sections:
+  - id: "07.0"
+    title: "Investigate BUG-04-085 — LLVM spec runner crash on monomorphized assert_eq"
+    status: not-started
   - id: "07.1"
     title: "Final test-all.sh + release verification"
     status: not-started
@@ -31,7 +36,7 @@ sections:
     title: "Final TPR + hygiene review gate"
     status: not-started
   - id: "07.4"
-    title: "Bug-tracker updates (runs AFTER 07.3 validation passes)"
+    title: "Bug-tracker updates — close BUG-04-074, BUG-04-084, BUG-04-042, BUG-04-085 with plan pointers"
     status: not-started
   - id: "07.R"
     title: "Third Party Review Findings"
@@ -39,6 +44,41 @@ sections:
   - id: "07.N"
     title: "Completion Checklist"
     status: not-started
+---
+
+## Intelligence Reconnaissance
+
+Queries run 2026-04-17:
+
+- `scripts/intel-query.sh --human file-symbols "ori_llvm/src/codegen/arc_emitter" --repo ori` — inventory `ArcIrEmitter` symbols (variable-definition ordering, `emitter_utils`) before investigating the BUG-04-085 variable-not-yet-defined crash.
+- `scripts/intel-query.sh --human callers "compute_flags" --repo ori` — blast radius of `TypeFlags` computation (including `PROPAGATE_MASK`) to trace §02.0's effect on downstream consumers.
+- `scripts/intel-query.sh --human callers "body_type_map" --repo ori` — identify all consumers of `body_type_map` that may have relied on pre-§02.0 `Tag::Scheme HAS_VAR=false` flag semantics.
+- `scripts/intel-query.sh --human similar "variable not defined arc emitter ordering" --repo swift,lean4 --limit 3` — prior art for SSA variable-definition ordering bugs in ARC IR emitters.
+
+Results summary (≤500 chars) [ori]: `ArcIrEmitter` lives in `ori_llvm/src/codegen/arc_emitter/`; `emitter_utils.rs` handles variable definition tracking. `body_type_map` consumed by `prepare_mono_cached` in `nounwind/prepare.rs`. `compute_flags` in `ori_types/src/pool/` — `PROPAGATE_MASK` sets `HAS_VAR` on `Tag::Scheme` items since §02.0. [swift]: SIL variable-ordering bugs manifest as "use before definition" in ownership verification — mirrors the `var=N not yet defined` crash signature.
+
+---
+
+## 07.0 Investigate BUG-04-085 — LLVM spec runner crash (absorbed 2026-04-17)
+
+**Origin:** Absorbed from bug-tracker `BUG-04-085` per CLAUDE.md §Ownership & Deferral "Plan-blocker bugs belong IN the plan". The bug was filed 2026-04-15 with explicit notes that §02.0's `Tag::Scheme PROPAGATE_MASK` change may be the causal root. Because this plan introduced §02.0 and the crash may be its downstream symptom, the plan owns investigating and resolving it as part of close-out.
+
+**Failure mode (from bug entry):** `timeout 150 ./test-all.sh` shows `Ori spec (LLVM backend) CRASHED` with cluster of errors on `assert_eq$m$int` (monomorphized `assert_eq<int>`):
+- `LLVM IR verification failed after codegen (emit_prepared_functions)` with `Call parameter type does not match function signature!` on `ori_rc_dec({ i64, i64, ptr }, ptr @"_ori_drop$N")`
+- Three `ArcIrEmitter: variable not yet defined` errors (var=11, var=2, var=7) — mirrors resolved BUG-04-024 signature
+- `error[E4003]: ARC internal error: index assignment reached ARC lowering before desugaring` (BUG-04-070 class)
+- `thread 'ori-main' has overflowed its stack` → `SIGABRT`
+- Interpreter passes all 4444 spec tests; only `--backend=llvm` crashes
+
+**Causal hypothesis:** `compiler/ori_types/src/pool/mod.rs:655-661` — §02.0's `Tag::Scheme` `PROPAGATE_MASK` fix sets `HAS_VAR` on scheme `Idx` values where previously unset. If the mono pipeline's `body_type_map` or `ArcIrEmitter`'s variable-definition ordering relied on the old flag semantics (specifically: "scheme types have !HAS_VAR so skip the substitute step"), then setting `HAS_VAR` correctly now surfaces as "variable not yet defined" in the downstream consumer.
+
+- [ ] **Reproduce the crash cleanly**: `timeout 150 ./test-all.sh` on a clean post-§08 tree — confirm the specific crash line, the 3 `var=N` errors, and the `assert_eq$m$int` function name.
+- [ ] **Isolate §02.0's causal role**: revert `compiler/ori_types/src/pool/mod.rs:655-661`'s `Tag::Scheme` contribution to `PROPAGATE_MASK` on a scratch branch; re-run `test-all.sh`. If the crash disappears, §02.0 is causal. If the crash persists, §02.0 is not causal and the root cause is elsewhere.
+- [ ] **If §02.0 IS causal**: identify the downstream consumer that depended on the old flag semantics. Candidate sites: `ArcIrEmitter` variable-definition ordering (`emitter_utils.rs`), the mono pipeline's `body_type_map` construction, `prepare_mono_cached`'s scheme handling. Fix the consumer to work correctly with the new (correct) flag semantics.
+- [ ] **If §02.0 is NOT causal**: file a new bug scoped to the true root cause (drop-fn pointer type mismatch? ArcIrEmitter ordering regression independent of §02.0?). That new bug is outside this plan's scope — continue with §07.1.
+- [ ] **TDD**: add a spec test or Rust unit test that exercises the failing path — `assert_eq<int>` in a file that also uses polymorphic lambdas (overlap with §08 surface). Verify the test fails on the current code and passes after the fix.
+- [ ] **Matrix**: poly-lambda × imported generic × assert_eq type — confirm no crash for `int`, `str`, `bool`, `float` variants.
+
 ---
 
 # Section 07: Close-out + Supersession

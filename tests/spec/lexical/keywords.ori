@@ -219,7 +219,7 @@ def impl KeywordDefTrait {
 }
 
 // Test 'is_empty' - use len() == 0
-@builtin_is_empty () -> bool = [].len() == 0;
+@builtin_is_empty () -> bool = { let xs: [int] = []; xs.len() == 0 }
 
 @test_builtin_is_empty tests @builtin_is_empty () -> void = {
     assert(cond: builtin_is_empty())

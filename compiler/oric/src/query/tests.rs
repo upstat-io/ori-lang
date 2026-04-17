@@ -1010,7 +1010,11 @@ fn test_typed_whitespace_invariance() {
 fn test_typed_result_coalesce() {
     let db = CompilerDb::new();
 
-    let source = "@main () -> int = Ok(42) ?? 0;";
+    // Err type annotated explicitly so no unresolved `Tag::Var` survives body
+    // inference (typeck.md §PC-2 via `validate_body_types`). The test's
+    // subject is `??` coalescing on a Result; the choice of Err type is
+    // incidental — `str` stands in for any inhabited type.
+    let source = "@main () -> int = { let r: Result<int, str> = Ok(42); r ?? 0 }";
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);

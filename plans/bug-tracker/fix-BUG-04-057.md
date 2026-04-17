@@ -16,14 +16,14 @@ success_criteria:
 subsystem: "compiler/ori_arc/src/aims/lattice/mod.rs"
 found: "2026-04-11"
 source: continue-roadmap
-also_fixes:
-  - "BUG-04-058"
 third_party_review:
   status: none
   updated: null
 ---
 
 # Fix: BUG-04-057 — AIMS Lattice Join Non-Associative (+ BUG-04-058)
+
+**Also fixes:** BUG-04-058 (closed by this same set of lattice canonicalization changes).
 
 **Status:** Complete (fixed 3f7cf7c2, verified via Section 04 close-out TPR)
 **Severity:** Critical

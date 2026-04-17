@@ -4,9 +4,6 @@ title: "Stdlib"
 status: complete
 goal: "Track and resolve all known standard library bugs"
 sections: []
-third_party_review:
-  status: findings
-  updated: 2026-04-02
 ---
 
 # Section 06: Stdlib

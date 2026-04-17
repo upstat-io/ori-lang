@@ -24,7 +24,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@empty_list_len () -> int = [].len();
+@empty_list_len () -> int = { let xs: [int] = []; xs.len() }
 
 @test_nested_list_len tests @nested_list_len () -> void = {
     let nested = [[1, 2], [3, 4, 5], [6]];
