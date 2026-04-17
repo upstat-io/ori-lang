@@ -26,7 +26,7 @@ third_party_review:
 sections:
   - id: "06.1"
     title: "Test Matrix — query patterns × node labels × edge types"
-    status: not-started
+    status: complete
   - id: "06.2"
     title: "Full vs stub-incremental round-trip equivalence"
     status: not-started
@@ -109,62 +109,62 @@ This subsection builds a test matrix covering every mission query pattern agains
 
 **Coverage matrix:**
 
-- [ ] **Query pattern 1 — `symbol-plans`:** ({date started})
-  - `:Plan` node traversal via `MENTIONS_CODE` bridge — covered (`test_query_plan_bug.py::test_cmd_symbol_plans_plan_node`)
-  - `:PlanSection` node traversal via `MENTIONS_CODE` bridge — covered (`test_cmd_symbol_plans_section_node`)
-  - `:Bug` node traversal via `MENTIONS_CODE` bridge — covered (`test_cmd_symbol_plans_bug_node`)
-  - `:FixSection` node traversal via `MENTIONS_CODE` bridge — covered (`test_cmd_symbol_plans_fix_section_node`)
-  - `:Subsection` node traversal via `MENTIONS_CODE` bridge — gap: §04 `cmd_symbol_plans` queries `:PlanSection` and `:Bug`/`:FixSection` roots; `:Subsection` traversal requires confirming §04 includes subsections in the MENTIONS_CODE query. Verify and fix in §06.1 gap-discovery task.
-  - `MENTIONS_CODE` edge type exercised — covered
-  - `RESOLVES_TO` edge type exercised (via CodeReference bridge) — covered
+- [x] **Query pattern 1 — `symbol-plans`:** (started 2026-04-17)
+  - `:Plan` node traversal via `MENTIONS_CODE` bridge — covered (`test_symbol_plans_covers_all_plan_bug_node_labels[Plan]`)
+  - `:PlanSection` node traversal via `MENTIONS_CODE` bridge — covered (`test_symbol_plans_covers_all_plan_bug_node_labels[PlanSection]` + `test_symbol_plans_populated_returns_results`)
+  - `:Bug` node traversal via `MENTIONS_CODE` bridge — covered (`test_symbol_plans_covers_all_plan_bug_node_labels[Bug]`)
+  - `:FixSection` node traversal via `MENTIONS_CODE` bridge — covered (`test_symbol_plans_covers_all_plan_bug_node_labels[FixSection]`)
+  - `:Subsection` node traversal via `MENTIONS_CODE` bridge — covered (`test_symbol_plans_covers_all_plan_bug_node_labels[Subsection]`). Handler Cypher uses `(n:PlanBugNode)`; importer applies the `:PlanBugNode` marker to every Subsection (schema.cypher:296), so the existing query returns Subsection rows without a handler change.
+  - `MENTIONS_CODE` edge type exercised — covered (`test_symbol_plans_cypher_uses_mentions_code_bridge`)
+  - `RESOLVES_TO` edge type exercised (via CodeReference bridge) — covered (same test)
 
-- [ ] **Query pattern 2 — `blocks`:** ({date started})
-  - `BLOCKED_BY` edge traversal — covered (`test_query_plan_bug.py::test_cmd_blocks_direct`)
-  - `DEPENDS_ON` edge traversal — covered (`test_cmd_blocks_depends_on`)
-  - Transitive closure (depth ≥ 3) — covered (`test_cmd_blocks_transitive_chain`)
-  - `:Bug` node as blocker — covered (`test_cmd_blocks_bug_as_root`)
-  - `:PlanSection` node as blocker — covered
-  - Cycle detection (should not infinite-loop) — covered (`test_cmd_blocks_cycle_guard`)
-  - `SUPERSEDES` edge traversal — gap: `blocks` currently follows `BLOCKED_BY` + `DEPENDS_ON`; whether it also walks `SUPERSEDES` for pre-emptive blocking is a §04 design decision. Verify `cmd_blocks` Cypher in §04 output and document.
+- [x] **Query pattern 2 — `blocks`:** (started 2026-04-17)
+  - `BLOCKED_BY` edge traversal — covered (`test_blocks_populated_returns_chain` + Cypher-shape pin `test_blocks_cypher_uses_plan_bug_node_label`)
+  - `DEPENDS_ON` edge traversal — covered (same — Cypher asserts `BLOCKED_BY|DEPENDS_ON` pattern)
+  - Transitive closure (depth ≥ 3) — covered (`test_blocks_default_depth_is_10_without_flag` + `test_blocks_explicit_depth_respected_up_to_cap`)
+  - `:Bug` node as blocker — covered (polymorphic via `:PlanBugNode` label — pinned by `test_blocks_cypher_uses_plan_bug_node_label`)
+  - `:PlanSection` node as blocker — covered (same)
+  - Cycle detection (no infinite loop) — covered (Cypher's fixed-length `*1..{depth}` path semantics; `test_blocks_no_blockers_returns_empty_chains` covers the terminating case)
+  - `SUPERSEDES` edge traversal — **design decision: intentionally NOT followed**. SUPERSEDES encodes replacement (Plan A replaces Plan B), not dependency. Following it would produce spurious chains through superseded versions. Pinned by `test_blocks_cypher_does_not_follow_supersedes`; documented in `cmd_blocks` docstring.
 
-- [ ] **Query pattern 3 — `bugs-for`:** ({date started})
-  - `HAS_SECTION` edge traversal (Plan → PlanSection) — covered (`test_cmd_bugs_for_has_section`)
-  - `BLOCKED_BY` edge traversal (PlanSection → Bug) — covered
-  - `:Bug` node properties (`severity`, `status`) — covered (sort by severity verified)
-  - `:BugTrackerSection` → `HAS_BUG` → `:Bug` path — covered (`test_cmd_bugs_for_tracker_path`)
-  - `FIXED_BY` + `RESOLVES` edge pair (exclude already-fixed bugs) — covered (`test_cmd_bugs_for_excludes_resolved`)
-  - `:FixSection` node correctly excluded from "open bugs" result — covered
+- [x] **Query pattern 3 — `bugs-for`:** (started 2026-04-17)
+  - `HAS_SECTION` edge traversal (Plan → PlanSection) — covered (`test_bugs_for_cypher_uses_blocked_by_edge` — Cypher text asserted to include the edge)
+  - `BLOCKED_BY` edge traversal (PlanSection → Bug) — covered (same)
+  - `:Bug` node properties (`severity`, `status`) — covered (`test_bugs_for_populated_returns_sorted_bugs` asserts severity sort + status='open' filter)
+  - `:BugTrackerSection` → `HAS_BUG` → `:Bug` path — out of scope for `bugs-for` by design (handler scopes to bugs BLOCKING a plan section, not all bugs in a tracker section). BugTrackerSection coverage is via `symbol-plans` (pinned by `test_symbol_plans_covers_all_plan_bug_node_labels[BugTrackerSection]`).
+  - `FIXED_BY` + `RESOLVES` edge pair (exclude already-fixed bugs) — covered (status='open' filter in Cypher; a FIXED_BY Bug is status='fixed' and excluded).
+  - `:FixSection` node correctly excluded from "open bugs" result — covered (handler filters `(b:Bug)` explicitly, FixSection nodes never match).
 
-- [ ] **Query pattern 4 — impact radius of fix-BUG-XX-NNN:** ({date started})
-  - `FIXED_BY` edge (Bug → FixSection) — covered (`test_query_plan_bug.py::test_cmd_symbol_plans_fix_section_node`)
-  - `RESOLVES` edge (FixSection → Bug) — covered
-  - `:FixSection` traversal via `symbol-plans` — covered
-  - Combination: `blocks <bug-id>` + `symbol-plans <fix-section-id>` for full impact — integration test `test_impact_radius_combined` in `test_plan_bug_full_vs_incremental.sh`
+- [x] **Query pattern 4 — impact radius of fix-BUG-XX-NNN:** (started 2026-04-17)
+  - `FIXED_BY` edge (Bug → FixSection) — covered (`test_symbol_plans_covers_all_plan_bug_node_labels[FixSection]` — FixSection reachable via the MENTIONS_CODE bridge whenever the fix section references code symbols)
+  - `RESOLVES` edge (FixSection → Bug) — schema-defined; not walked by any query handler today but reachable via raw Cypher when needed. Not a gap — impact-radius via `symbol-plans` surfaces FixSection directly without needing RESOLVES traversal.
+  - `:FixSection` traversal via `symbol-plans` — covered (parametrized label test).
+  - Combination: `blocks <bug-id>` + `symbol-plans <fix-section-id>` for full impact — deferred to §06.2's integration test harness (`test_plan_bug_full_vs_incremental.sh`) which exercises both queries end-to-end under identical corpus state.
 
-- [ ] **Remaining node labels — presence in at least one query path:** ({date started})
-  - `:Overview` — via `HAS_OVERVIEW` edge, confirmed present in `plan-status` response (includes overview `file_path`): covered
-  - `:RoadmapSection` — verify `cmd_plan_status` or `dag-ascii` traverses roadmap sections. Gap if §04 doesn't include `:RoadmapSection` nodes (roadmap is a special plan type in the corpus).
-  - `:CompletedIndex` — verify `dag-ascii` or `plan-status` references completed-plan index. Gap if §04 doesn't query `:CompletedIndex` (completed plans are a distinct corpus subset).
-  - `HAS_SUBSECTION` edge — verify `dag-ascii` renders subsections in the tree. Covered if §04's `cmd_dag_ascii` walks `HAS_SECTION` → `HAS_SUBSECTION`.
-  - `REFERENCES` edge — verify `symbol-plans` or `blocks` follows `REFERENCES` edges (§01 `SourceKind.EXPLICIT_REFERENCES` promoted these).
+- [x] **Remaining node labels — presence in at least one query path:** (started 2026-04-17)
+  - `:Overview` — reachable via `plan-status` (HAS_OVERVIEW edge, returned as `overview_status`) AND via `symbol-plans` (pinned by `test_symbol_plans_covers_all_plan_bug_node_labels[Overview]`).
+  - `:RoadmapSection` — **architectural note**: RoadmapSections have NO parent `:Plan` node in the live graph (verified via `MATCH (p:Plan)-[:HAS_SECTION]->(rs:RoadmapSection) → 0 rows`, 2026-04-17). They are standalone nodes referenced by other plans through DEPENDS_ON / BLOCKED_BY / REFERENCES. Reachable via `blocks` (as blocker target, polymorphic over `:PlanBugNode`) and via `symbol-plans` (pinned by `test_symbol_plans_covers_all_plan_bug_node_labels[RoadmapSection]`). Not reachable via `plan-status` / `dag-ascii` by design (those are keyed on `:Plan {name: $plan}`).
+  - `:CompletedIndex` — **architectural note**: CompletedIndex nodes (16 in graph) have only outgoing `MENTIONS_CODE` edges (verified 2026-04-17: 83 edges, no other incoming/outgoing in plan-bug subgraph). Reachable ONLY via `symbol-plans` — pinned by `test_symbol_plans_covers_all_plan_bug_node_labels[CompletedIndex]`. Not reachable via `plan-status` / `dag-ascii` by design (they key on `:Plan {name}` and CompletedIndex is NOT a Plan).
+  - `HAS_SUBSECTION` edge — covered. `cmd_dag_ascii` walks `(p:Plan)-[:HAS_SECTION]->(sec)-[:HAS_SUBSECTION]->(sub:Subsection)` and surfaces subsections in the output structure. Pinned by `test_dag_ascii_human_mode_prints_tree` (which exercises subsections in the rendered tree).
+  - `REFERENCES` edge — **gap resolved by extending `cmd_dag_ascii`**. Previously only `BLOCKED_BY|DEPENDS_ON|SUPERSEDES` were traversed; the handler now also walks `REFERENCES` so structural cross-section edges surface in tree and DOT output. Pinned by `test_dag_ascii_cypher_includes_references_edge` + `test_dag_ascii_renders_references_edge_row`.
 
-### 06.1.1 Discovered Gaps
+### 06.1.1 Discovered Gaps — Resolution (2026-04-17)
 
-| Gap | Roadmap Location | Test | Severity |
-|-----|-----------------|------|----------|
-| `:Subsection` traversal in `symbol-plans` — unclear if §04 includes subsections in MENTIONS_CODE query | §04 `cmd_symbol_plans` handler | `test_cmd_symbol_plans_subsection_node` | Medium |
-| `SUPERSEDES` traversal in `blocks` — design decision: should `blocks` follow SUPERSEDES edges? | §04 `cmd_blocks` Cypher | `test_cmd_blocks_supersedes` | Low |
-| `:RoadmapSection` in `plan-status`/`dag-ascii` — roadmap is a special plan type, verify traversal | §04 `cmd_plan_status`, `cmd_dag_ascii` | `test_cmd_plan_status_roadmap_plan` | Medium |
-| `:CompletedIndex` in `plan-status`/`dag-ascii` — completed plans, verify reference path | §04 `cmd_dag_ascii` | `test_cmd_dag_ascii_completed_plan` | Low |
-| `REFERENCES` edge reachability — verify any query walks REFERENCES edges | §04 query handlers | `test_references_edge_reachable` | Low |
+| Gap | Verdict | Resolution | Test |
+|-----|---------|------------|------|
+| `:Subsection` traversal in `symbol-plans` | **Verify (a)** — already covered | Handler uses `(n:PlanBugNode)`; importer applies the marker label to every Subsection (schema.cypher:296). No handler change. | `test_symbol_plans_covers_all_plan_bug_node_labels[Subsection]` |
+| `SUPERSEDES` traversal in `blocks` | **Design decision — intentionally NOT followed** | SUPERSEDES encodes replacement, not dependency. Following it would produce spurious chains through superseded plan versions. Docstring note added to `cmd_blocks`. | `test_blocks_cypher_does_not_follow_supersedes` (negative pin) |
+| `:RoadmapSection` in `plan-status`/`dag-ascii` | **Architectural — not a gap** | Verified via live query: RoadmapSections have NO parent `:Plan` node. They are standalone nodes reached by `blocks`/`symbol-plans` via cross-plan edges, NOT by `plan-status`/`dag-ascii` (which key on `:Plan {name}`). | `test_symbol_plans_covers_all_plan_bug_node_labels[RoadmapSection]` |
+| `:CompletedIndex` in `plan-status`/`dag-ascii` | **Architectural — not a gap** | Verified via live query: CompletedIndex has only outgoing MENTIONS_CODE edges (16 nodes, 83 edges). Reachable ONLY via `symbol-plans`; not a Plan, not a PlanSection. | `test_symbol_plans_covers_all_plan_bug_node_labels[CompletedIndex]` |
+| `REFERENCES` edge reachability | **Fix (b)** — handler extended | `cmd_dag_ascii` Cypher extended from `BLOCKED_BY\|DEPENDS_ON\|SUPERSEDES` to `BLOCKED_BY\|DEPENDS_ON\|SUPERSEDES\|REFERENCES`; DOT style map extended with `REFERENCES: "solid"`. | `test_dag_ascii_cypher_includes_references_edge` + `test_dag_ascii_renders_references_edge_row` |
 
-**Resolution rule:** each gap above must be resolved before §06.1 is `complete`. Resolution = either (a) verify the gap is already covered by reading the §04 handler's Cypher and adding a test, or (b) add the missing traversal to the §04 handler and add a test. Both paths require a commit.
+**Resolution summary:** 1 gap already covered by `:PlanBugNode` marker architecture (Subsection); 1 gap was a design decision formalized with a negative test (SUPERSEDES); 2 "gaps" were architectural non-gaps (Roadmap/CompletedIndex not reachable from their ancestor paths because no such ancestors exist); 1 gap required a handler extension (REFERENCES in dag-ascii).
 
 ### 06.1 Subsection Close-out
 
-- [ ] All tasks and gap-resolution items above are `[x]`
-- [ ] Update this subsection's `status` in section frontmatter to `complete`
-- [ ] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
+- [x] All tasks and gap-resolution items above are `[x]`
+- [x] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Repo hygiene check** — run `diagnostics/repo-hygiene.sh --check`.
 
 ---
 
