@@ -65,11 +65,11 @@ Ori separates pattern compilation into two distinct phases. First, **flattening*
 
 ### Path-Based Value Navigation
 
-Rather than generating code that destructures values into local variables, Ori's decision trees reference sub-values via **scrutinee paths** — sequences of `PathInstruction` values like `[TagPayload(0), TupleIndex(1)]` that describe how to navigate from the root scrutinee to a nested sub-value. Both the evaluator and LLVM codegen interpret these paths to extract values at runtime. This indirection avoids materializing intermediate destructured values and enables the same decision tree to be consumed by multiple backends.
+Rather than generating code that destructures values into local variables, Ori's decision trees reference sub-values via **scrutinee paths** — sequences of `PathInstruction` values like `[TagPayload(0), TupleIndex(1)]` that describe how to navigate from the root scrutinee to a nested sub-value. Both the evaluator (`ori_eval`) and ARC lowering (`ori_arc`) interpret these paths to extract values at runtime. `ori_llvm` does not consume `DecisionTreePool` directly — it sees only the ARC IR produced by `ori_arc`'s lowering of the decision trees. This indirection avoids materializing intermediate destructured values and enables the same decision tree to be consumed by multiple backends.
 
 ### Arc-Shared Trees Across Backends
 
-Decision trees are wrapped in `Arc` and stored in a `DecisionTreePool`. The evaluator and LLVM codegen share the exact same tree instances — no copying, no serialization. For complex match expressions with nested patterns and guards, decision trees can be substantial data structures, and avoiding duplication matters.
+Decision trees are wrapped in `Arc` and stored in a `DecisionTreePool`. The evaluator (`ori_eval`) and ARC lowering pass (`ori_arc`) share the exact same tree instances — no copying, no serialization. For complex match expressions with nested patterns and guards, decision trees can be substantial data structures, and avoiding duplication matters.
 
 ### Integrated Exhaustiveness via Tree Walking
 

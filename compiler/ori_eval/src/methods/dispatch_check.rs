@@ -106,6 +106,8 @@ fn is_collection_dispatched(tag: TypeTag, method: &str) -> bool {
         ),
         // Map gets map/filter via MapEntries/FilterEntries
         TypeTag::Map => matches!(method, "map" | "filter"),
+        // Set gets fold via CollectionMethodResolver
+        TypeTag::Set => method == "fold",
         // Ordering gets then_with
         TypeTag::Ordering => method == "then_with",
         _ => false,

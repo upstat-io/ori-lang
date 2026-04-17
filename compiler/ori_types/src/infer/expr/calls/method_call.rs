@@ -235,13 +235,26 @@ fn unify_higher_order_constraints(
                 if engine.pool().tag(resolved_closure) == Tag::Function {
                     let closure_ret = engine.pool().function_return(resolved_closure);
                     let _ = engine.unify().unify(ret_ty, closure_ret);
-                    // fold/rfold closure is (Acc, T) -> Acc: second param is iterator elem
+                    // fold/rfold closure is (Acc, T) -> Acc:
+                    // first param is accumulator, second param is iterator elem
+                    let params = engine.pool().function_params(resolved_closure);
+                    if let Some(&first_param) = params.first() {
+                        let _ = engine.unify().unify(first_param, ret_ty);
+                    }
                     let resolved_recv = engine.resolve(receiver_ty);
-                    if engine.pool().tag(resolved_recv).is_iterator() {
-                        let source_elem = engine.pool().iterator_elem(resolved_recv);
-                        let params = engine.pool().function_params(resolved_closure);
+                    let recv_tag = engine.pool().tag(resolved_recv);
+                    let source_elem = if recv_tag.is_iterator() {
+                        Some(engine.pool().iterator_elem(resolved_recv))
+                    } else if recv_tag == Tag::Set {
+                        Some(engine.pool().set_elem(resolved_recv))
+                    } else if recv_tag == Tag::List {
+                        Some(engine.pool().list_elem(resolved_recv))
+                    } else {
+                        None
+                    };
+                    if let Some(elem) = source_elem {
                         if let Some(&second_param) = params.get(1) {
-                            let _ = engine.unify().unify(second_param, source_elem);
+                            let _ = engine.unify().unify(second_param, elem);
                         }
                     }
                 }

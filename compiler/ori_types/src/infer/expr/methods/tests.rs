@@ -57,6 +57,7 @@ fn fresh_return_methods_are_documented() {
         "List.take_while",
         "List.window",
         "List.zip",
+        "Set.fold",
         "Option.and_then",
         "Option.filter",
         "Option.flat_map",

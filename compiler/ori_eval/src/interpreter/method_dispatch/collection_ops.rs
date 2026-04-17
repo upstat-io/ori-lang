@@ -37,6 +37,7 @@ impl Interpreter<'_> {
             CollectionMethod::Fold => match receiver {
                 Value::List(ref items) => self.eval_list_fold(items, args),
                 Value::Range(range) => self.eval_range_fold(&range, args),
+                Value::Set(ref items) => self.eval_set_fold(items, args),
                 _ => Err(fold_requires_collection().into()),
             },
             CollectionMethod::Find => match receiver {
@@ -294,6 +295,16 @@ impl Interpreter<'_> {
     fn eval_list_fold(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
         Self::expect_arg_count("fold", 2, args)?;
         self.fold_slice(items, args[0].clone(), &args[1])
+    }
+
+    fn eval_set_fold(
+        &mut self,
+        items: &crate::Heap<std::collections::BTreeMap<String, Value>>,
+        args: &[Value],
+    ) -> EvalResult {
+        Self::expect_arg_count("fold", 2, args)?;
+        let elems: Vec<Value> = items.values().cloned().collect();
+        self.fold_slice(&elems, args[0].clone(), &args[1])
     }
 
     fn eval_list_find(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
