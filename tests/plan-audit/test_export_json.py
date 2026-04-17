@@ -241,3 +241,188 @@ class TestExportReferencesRelationshipNotEdge:
             f"all rels = "
             f"{[(r['type'], r['properties'].get('source_kind')) for r in envelope['relationships']]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# §01.7 — envelope referential closure
+# ---------------------------------------------------------------------------
+
+
+def _section_with_subsections(
+    section_id: str,
+    title: str,
+    subsections: list[dict],
+) -> str:
+    """Emit a PlanSection frontmatter with a populated `sections:` list."""
+    sub_yaml = "\n".join(
+        f'  - id: "{s["id"]}"\n'
+        f'    title: "{s["title"]}"\n'
+        f'    status: {s["status"]}'
+        for s in subsections
+    )
+    return (
+        "---\n"
+        f'section: "{section_id}"\n'
+        f'title: "{title}"\n'
+        "status: not-started\n"
+        "reviewed: false\n"
+        'goal: "test goal"\n'
+        "success_criteria: []\n"
+        f"sections:\n{sub_yaml}\n"
+        "third_party_review:\n"
+        "  status: none\n"
+        "  updated: null\n"
+        "---\n\n"
+        f"# Section {section_id}: {title}\n"
+    )
+
+
+class TestExportBugNodes:
+    def test_export_emits_bug_nodes_with_full_metadata(self, tmp_path: Path):
+        """BugTracker sections produce :Bug nodes carrying full BugEntry metadata.
+
+        Semantic pin: without §01.7, HAS_BUG edges point at bug_id strings
+        that never appear as nodes (dangling reference). With §01.7, the
+        Bug node is present and carries title/severity/status.
+        """
+        plans = tmp_path / "plans"
+        # Sane mini-plan so the corpus has an anchor.
+        _write(plans / "alpha" / "index.md", _index("Alpha"))
+        _write(plans / "alpha" / "section-01.md", _section("01", "A"))
+        # Bug-tracker section with one BUG entry.
+        _write(
+            plans / "bug-tracker" / "section-01-demo.md",
+            "---\n"
+            'section: "01"\n'
+            'title: "Demo"\n'
+            "status: active\n"
+            'goal: "t"\n'
+            "sections: []\n"
+            "---\n\n"
+            "# Section 01: Demo\n\n"
+            "## Open Bugs\n\n"
+            "- [ ] `[BUG-01-001][high]` **Example bug title** — found by test.\n"
+            "  Repro: example repro\n"
+            "  Subsystem: demo\n"
+            "  Found: 2026-04-17 | Source: user\n",
+        )
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        bug_nodes = [n for n in envelope["nodes"] if "Bug" in n["labels"]]
+        assert len(bug_nodes) == 1
+        node = bug_nodes[0]
+        assert node["id"] == "BUG-01-001"
+        assert node["properties"]["bug_id"] == "BUG-01-001"
+        assert node["properties"]["severity"] == "high"
+        assert node["properties"]["repo"] == "ori"
+        assert "Example bug title" in node["properties"].get("title", "")
+        # Negative pin: HAS_BUG.end_id must point at the Bug node — no dangle.
+        node_ids = {n["id"] for n in envelope["nodes"]}
+        has_bug_edges = [r for r in envelope["relationships"] if r["type"] == "HAS_BUG"]
+        assert len(has_bug_edges) == 1
+        assert has_bug_edges[0]["end_id"] in node_ids
+
+
+class TestExportSubsectionNodes:
+    def test_export_emits_subsection_nodes_and_has_subsection_edges(
+        self, tmp_path: Path
+    ):
+        """PlanSections with a populated sections: frontmatter list get
+        :Subsection nodes + HAS_SUBSECTION edges. Stable id derivation:
+        `<section-path>#<sub.id>`."""
+        plans = tmp_path / "plans"
+        _write(plans / "alpha" / "index.md", _index("Alpha"))
+        _write(
+            plans / "alpha" / "section-01.md",
+            _section_with_subsections(
+                "01",
+                "A",
+                [
+                    {"id": "01.1", "title": "first", "status": "complete"},
+                    {"id": "01.2", "title": "second", "status": "not-started"},
+                ],
+            ),
+        )
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        sub_nodes = [n for n in envelope["nodes"] if "Subsection" in n["labels"]]
+        assert len(sub_nodes) == 2
+        ids = {n["id"] for n in sub_nodes}
+        # Stable id is `<section-path>#<sub-id>`; in-tree paths are repo-relative,
+        # test tmp_path falls back to absolute — match on the #<sub-id> suffix.
+        assert any(i.endswith("section-01.md#01.1") for i in ids)
+        assert any(i.endswith("section-01.md#01.2") for i in ids)
+        # Properties carry title and status.
+        first_id = next(i for i in ids if i.endswith("#01.1"))
+        by_id = {n["id"]: n for n in sub_nodes}
+        first = by_id[first_id]
+        assert first["properties"]["title"] == "first"
+        assert first["properties"]["status"] == "complete"
+        assert first["properties"]["subsection_id"] == "01.1"
+        # One HAS_SUBSECTION edge per subsection, from parent section to sub.
+        has_sub = [r for r in envelope["relationships"] if r["type"] == "HAS_SUBSECTION"]
+        assert len(has_sub) == 2
+        section_nodes = [n for n in envelope["nodes"] if "PlanSection" in n["labels"]]
+        section_id = next(n["id"] for n in section_nodes if n["id"].endswith("section-01.md"))
+        for r in has_sub:
+            assert r["start_id"] == section_id
+            assert r["end_id"] in ids
+            assert r["properties"]["structural"] is True
+
+
+class TestExportCompletedIndexLabel:
+    def test_export_uses_completed_index_label(self, tmp_path: Path):
+        """Completed-plan index.md files emit `CompletedIndex` nodes, not
+        `CompletedPlan`. Negative pin: `CompletedPlan` label must NOT
+        appear anywhere in the envelope (would indicate the §02 schema
+        drift has returned)."""
+        plans = tmp_path / "plans"
+        _write(plans / "alpha" / "index.md", _index("Alpha"))
+        _write(plans / "alpha" / "section-01.md", _section("01", "A"))
+        _write(plans / "completed" / "old-plan" / "index.md", _index("OldPlan", status="complete"))
+        _write(plans / "completed" / "old-plan" / "section-01.md", _section("01", "O"))
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        all_labels = {lbl for n in envelope["nodes"] for lbl in n["labels"]}
+        assert "CompletedIndex" in all_labels
+        # Negative pin: the old label is gone.
+        assert "CompletedPlan" not in all_labels
+
+
+class TestExportPlaceholderFilter:
+    def test_export_filters_placeholder_edge_targets(self, tmp_path: Path):
+        """Edges whose end_id is an unfilled template placeholder
+        (`<source-ref>`, `<target-ref>`, `ID`, `...`, or any `<...>` token)
+        are filtered from the envelope."""
+        plans = tmp_path / "plans"
+        _write(
+            plans / "alpha" / "index.md",
+            _index(
+                "Alpha",
+                references=[
+                    "<source-ref>",
+                    "<target-ref>",
+                    "ID",
+                    "...",
+                    "resolves=<target-ref>",
+                ],
+            ),
+        )
+        _write(plans / "alpha" / "section-01.md", _section("01", "A"))
+        corpus = discover_corpus(root=plans)
+        dag = build_dag(corpus)
+        envelope = export_neo4j_json(corpus, dag)
+        for r in envelope["relationships"]:
+            assert r["end_id"] not in {
+                "<source-ref>",
+                "<target-ref>",
+                "ID",
+                "...",
+                "resolves=<target-ref>",
+            }, f"placeholder leaked: {r}"
+            assert "<" not in r["end_id"] or ">" not in r["end_id"], (
+                f"angle-bracket placeholder leaked: {r}"
+            )
