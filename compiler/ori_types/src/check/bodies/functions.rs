@@ -7,6 +7,8 @@
 use ori_ir::{Function, Module, Name, TestDef};
 use rustc_hash::FxHashSet;
 
+use super::run_validator;
+use crate::check::validators::build_exempt_var_ids;
 use crate::check::ModuleChecker;
 use crate::{check_expr, infer_expr, ContextKind, Expected, ExpectedOrigin, Idx};
 
@@ -23,12 +25,20 @@ pub fn check_function_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
 
 /// Type check a single function body.
 fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
-    // Look up the pre-collected signature
-    let Some(sig) = checker.get_signature(func.name).cloned() else {
+    // Look up the pre-collected signature. Cloned into a mutable local so the
+    // end-of-body defaulting pass can refresh `param_types`,
+    // `return_type`, and Merkle hashes before `validate_body_types` runs and
+    // before the sig is written back to `checker.signatures`.
+    let Some(mut sig) = checker.get_signature(func.name).cloned() else {
         // This should never happen if Pass 1 ran correctly
         checker.error_undefined(func.name, func.span);
         return;
     };
+
+    // Build the exempt var-id set once, before entering the inference
+    // closure. The engine method receives `&FxHashSet<u32>` — avoids an
+    // `infer → check::validators` upward import per `compiler.md §Architecture`.
+    let exempt = build_exempt_var_ids(checker.pool(), &sig.scheme_var_ids);
 
     // Create child environment from frozen base
     let Some(child_env) = checker.child_of_base() else {
@@ -116,8 +126,21 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
 
             engine.pop_context();
 
+            // default unbound vars reachable from empty-literal
+            // expr roots to `Idx::NEVER` before exporting `expr_types` and
+            // before `validate_body_types` runs. Mutates `sig.param_types`,
+            // `sig.return_type`, and refreshes `param_hashes` / `return_hash`
+            // via `substitute_in_pool` + direct-assign to `VarState::Link`.
+            let mut expr_types = engine.take_expr_types();
+            engine.default_unbound_vars_from_empty_literals(
+                arena,
+                &mut expr_types,
+                &mut sig,
+                &exempt,
+            );
+
             (
-                engine.take_expr_types(),
+                expr_types,
                 engine.take_errors(),
                 engine.take_warnings(),
                 engine.take_pattern_resolutions(),
@@ -125,6 +148,10 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
                 engine.take_deferred_mono_calls(),
             )
         });
+
+    // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
+    // §CK-4 guarantees sig's Tag::Var positions were left for the body pass to resolve.
+    run_validator(checker, &expr_types, &sig, func.span);
 
     // Store expression types
     for (expr_index, ty) in expr_types {
@@ -143,6 +170,13 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_instances(mono_instances);
     checker.accumulate_deferred_mono_calls(deferred_mono_calls);
+
+    // (Plan TPR Round 1 Codex-F2): write the defaulted signature
+    // back to the checker's signature map so cross-function lookups and the
+    // cross-module identity channel (`output/mod.rs:442-457` param_hashes /
+    // return_hash) see the post-defaulted types instead of the pre-defaulted
+    // ones. Prevents incremental-cache divergence on re-checks.
+    checker.signatures.insert(func.name, sig);
 }
 
 /// Check all test bodies.
@@ -159,8 +193,10 @@ pub fn check_test_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
 
 /// Type check a single test body.
 fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
-    // Look up pre-collected signature
-    let Some(sig) = checker.get_signature(test.name).cloned() else {
+    // Look up pre-collected signature. Cloned into a mutable local so the
+    // defaulting pass can refresh `param_types` / `return_type` /
+    // Merkle hashes before export.
+    let Some(mut sig) = checker.get_signature(test.name).cloned() else {
         checker.error_undefined(test.name, test.span);
         return;
     };
@@ -175,6 +211,11 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     for (name, ty) in sig.param_names.iter().zip(&sig.param_types) {
         param_env.bind(*name, *ty);
     }
+
+    // Build the exempt var-id set before the engine takes a mut borrow.
+    // See check_function for the rationale — engine method receives
+    // `&FxHashSet<u32>` to avoid an `infer → check::validators` upward import.
+    let exempt = build_exempt_var_ids(checker.pool(), &sig.scheme_var_ids);
 
     // Get arena reference (lifetime 'a, not tied to checker borrow)
     let arena = checker.arena();
@@ -204,13 +245,22 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
 
     engine.pop_context();
 
+    // default unbound vars reachable from empty-literal expr
+    // roots before exporting types. Defaulting lands BEFORE Section 03.2's
+    // validate_body_types wiring arrives, so when that wiring lands tests
+    // with empty literals still type-check without E2005.
+    let mut expr_types = engine.take_expr_types();
+    engine.default_unbound_vars_from_empty_literals(arena, &mut expr_types, &mut sig, &exempt);
+
     // Extract results
-    let expr_types = engine.take_expr_types();
     let errors = engine.take_errors();
     let warnings = engine.take_warnings();
     let pat_resolutions = engine.take_pattern_resolutions();
     let mono_instances = engine.take_mono_instances();
     let deferred_mono_calls = engine.take_deferred_mono_calls();
+
+    // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
+    run_validator(checker, &expr_types, &sig, test.span);
 
     // Store expression types
     for (expr_index, ty) in expr_types {
@@ -229,4 +279,9 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_instances(mono_instances);
     checker.accumulate_deferred_mono_calls(deferred_mono_calls);
+
+    // write the defaulted test signature back so the hash channel
+    // (cross-module identity) reflects post-defaulted types, matching
+    // check_function's behavior.
+    checker.signatures.insert(test.name, sig);
 }

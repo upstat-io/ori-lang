@@ -7,6 +7,7 @@
 use ori_ir::{ExprId, ImplMethod, Module, Name, Param, TraitDef, TraitItem};
 use rustc_hash::FxHashSet;
 
+use super::run_validator;
 use crate::check::registration::{resolve_parsed_type_simple, resolve_type_with_self};
 use crate::check::ModuleChecker;
 use crate::{check_expr, ContextKind, Expected, ExpectedOrigin, FunctionSig, Idx, Pool};
@@ -153,8 +154,11 @@ fn check_impl_method(
         param_types.push(ty);
     }
 
-    // Resolve return type with Self substitution
-    let return_type = resolve_type_with_self(checker, &method.return_ty, type_params, self_type);
+    // Resolve return type with Self substitution. `mut` so the
+    // defaulting pass can refresh it to `Idx::NEVER` before `build_method_sig`
+    // bakes it into the exported sig.
+    let mut return_type =
+        resolve_type_with_self(checker, &method.return_ty, type_params, self_type);
 
     // Build function type for recursion support
     let fn_type = checker.pool_mut().function(&param_types, return_type);
@@ -163,6 +167,15 @@ fn check_impl_method(
     let body_span = checker.arena().get_expr(method.body).span;
 
     // Check body within impl scope + function scope
+    //
+    // the inner closure defaults unbound vars reachable from
+    // empty-literal expr roots BEFORE returning. `param_types` and
+    // `return_type` are captured mutably so `build_method_sig` (below) sees
+    // the defaulted values. Exempt set is empty — impl-block generic params
+    // are RigidVars (not Unbound), so `collect_unbound_reachable_vars`
+    // naturally skips them per `VarState::Rigid` branch.
+    let param_types_ref = &mut param_types;
+    let return_type_ref = &mut return_type;
     let (expr_types, errors, warnings, pat_resolutions, mono_instances, deferred_mono_calls) =
         checker.with_impl_scope(self_type, |c| {
             c.with_function_scope(fn_type, FxHashSet::default(), |c| {
@@ -175,7 +188,7 @@ fn check_impl_method(
 
                 // Check body against declared return type (bidirectional)
                 let expected = Expected {
-                    ty: return_type,
+                    ty: *return_type_ref,
                     origin: ExpectedOrigin::Context {
                         span: body_span,
                         kind: ContextKind::FunctionReturn {
@@ -187,8 +200,17 @@ fn check_impl_method(
 
                 engine.pop_context();
 
+                let mut expr_types = engine.take_expr_types();
+                engine.default_unbound_vars_in_scope(
+                    arena,
+                    &mut expr_types,
+                    param_types_ref,
+                    return_type_ref,
+                    &FxHashSet::default(),
+                );
+
                 (
-                    engine.take_expr_types(),
+                    expr_types,
                     engine.take_errors(),
                     engine.take_warnings(),
                     engine.take_pattern_resolutions(),
@@ -197,6 +219,24 @@ fn check_impl_method(
                 )
             })
         });
+
+    // Build the post-defaulted signature. `param_types` and `return_type` have
+    // been refreshed in place by `default_unbound_vars_in_scope` inside the
+    // inference closure, so the sig reflects end-of-body truth — the exact
+    // inputs `run_validator` needs to enforce `PC-2` across sig positions.
+    let sig = build_method_sig(
+        method.name,
+        &params,
+        param_types,
+        return_type,
+        type_params,
+        checker.pool(),
+    );
+
+    // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
+    // §CK-4 guarantees sig's Tag::Var positions were left for this body pass to
+    // resolve; any survivor is an inference gap the validator must surface.
+    run_validator(checker, &expr_types, &sig, method.span);
 
     // Store results
     for (expr_index, ty) in expr_types {
@@ -214,14 +254,6 @@ fn check_impl_method(
 
     // Export impl method signature for codegen.
     // Codegen needs param_types, return_type, and type_params to compute ABI.
-    let sig = build_method_sig(
-        method.name,
-        &params,
-        param_types,
-        return_type,
-        type_params,
-        checker.pool(),
-    );
     checker.register_impl_sig(method.name, sig);
 }
 
@@ -267,8 +299,8 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
         param_types.push(ty);
     }
 
-    // Resolve return type
-    let return_type = resolve_parsed_type_simple(checker, &method.return_ty, arena);
+    // Resolve return type. `mut` so defaulting can refresh it.
+    let mut return_type = resolve_parsed_type_simple(checker, &method.return_ty, arena);
 
     // Build function type
     let fn_type = checker.pool_mut().function(&param_types, return_type);
@@ -276,7 +308,11 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     // Get body span
     let body_span = checker.arena().get_expr(method.body).span;
 
-    // Check body with function scope only (no impl scope for def impl)
+    // Check body with function scope only (no impl scope for def impl).
+    // default unbound vars reachable from empty-literal expr
+    // roots before returning from the closure.
+    let param_types_ref = &mut param_types;
+    let return_type_ref = &mut return_type;
     let (expr_types, errors, warnings, pat_resolutions, mono_instances, deferred_mono_calls) =
         checker.with_function_scope(fn_type, FxHashSet::default(), |c| {
             let arena = c.arena();
@@ -288,7 +324,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
 
             // Check body against declared return type (bidirectional)
             let expected = Expected {
-                ty: return_type,
+                ty: *return_type_ref,
                 origin: ExpectedOrigin::Context {
                     span: body_span,
                     kind: ContextKind::FunctionReturn {
@@ -300,8 +336,17 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
 
             engine.pop_context();
 
+            let mut expr_types = engine.take_expr_types();
+            engine.default_unbound_vars_in_scope(
+                arena,
+                &mut expr_types,
+                param_types_ref,
+                return_type_ref,
+                &FxHashSet::default(),
+            );
+
             (
-                engine.take_expr_types(),
+                expr_types,
                 engine.take_errors(),
                 engine.take_warnings(),
                 engine.take_pattern_resolutions(),
