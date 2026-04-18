@@ -242,7 +242,7 @@ cargo build --release
 cp target/release/ori ~/.local/bin/
 ```
 
-Requires Rust 1.70+.
+**Requires**: Rust 1.70+ and **LLVM 21** (the `llvm` feature is on by default for `oric` and `compile_error!` guards against disabling it). Install LLVM 21 via your system package manager (`apt install llvm-21-dev`, `brew install llvm@21`, etc.) and ensure `llvm-config-21` is on `PATH`.
 
 ## Documentation
 
