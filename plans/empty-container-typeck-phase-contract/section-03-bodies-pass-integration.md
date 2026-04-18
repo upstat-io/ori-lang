@@ -38,7 +38,7 @@ sections:
     status: complete
   - id: "03.4"
     title: "Wire validator into check_def_impl_method"
-    status: not-started
+    status: complete
   - id: "03.BUG-FIXES"
     title: "Fix BUG-02-008 (nested-generic PC-2) and BUG-02-009 (closure param inference) via /fix-bug"
     status: complete
@@ -911,8 +911,8 @@ fn check_def_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
 }
 ```
 
-- [ ] **TDD first** — add the test, confirm it FAILS.
-- [ ] **Signature-path test** — add a second test that verifies the validator covers the
+- [x] **TDD first** — add the test, confirm it FAILS.
+- [x] **Signature-path test** — add a second test that verifies the validator covers the
   temporary `validator_sig`'s param_types (not just body expr_types):
 
   ```rust
@@ -937,17 +937,17 @@ fn check_def_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
   }
   ```
 
-- [ ] In `check_def_impl_method`: construct the `validator_sig` (`FunctionSig` local)
+- [x] In `check_def_impl_method`: construct the `validator_sig` (`FunctionSig` local)
   BEFORE the `with_function_scope` closure (after `fn_type` is built so `param_types`
   can move in), then insert the validator call block after the closure returns (before
   the `for (expr_index, ty) in expr_types` storage loop). See the "Restructured code"
   block above for the exact `validator_sig` field list and validator call.
-- [ ] Confirm both tests **PASS**.
-- [ ] Verify the grep criterion: `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/`
+- [x] Confirm both tests **PASS**.
+- [x] Verify the grep criterion: `grep -rn 'validate_body_types' compiler/ori_types/src/check/bodies/`
   returns **4** matches (all four sites now call the validator; post-03.0 split, calls live in
   functions.rs and impls.rs).
-- [ ] `timeout 150 cargo test -p ori_types` — no regressions.
-- [ ] **Def-impl corpus test** — add a Rust-level test that exercises `check_def_impl_method`
+- [x] `timeout 150 cargo test -p ori_types` — no regressions.
+- [x] **Def-impl corpus test** — add a Rust-level test that exercises `check_def_impl_method`
   directly on a hand-crafted source fragment containing a `def impl` block. This must actually
   route through `check_def_impl_bodies` (Pass 5 per CK-1), NOT through prelude extension methods.
   `library/std/prelude.ori` contains ZERO `def impl` blocks (verified: `grep -c "def impl"
@@ -977,19 +977,28 @@ fn check_def_impl_method_with_unannotated_empty_list_emits_ambiguous_type() {
   If the `def impl Trait for Type` syntax is not yet accepted by the parser, use the form
   actually supported (`pub def impl TraitName { @method ... }`) — check the existing bodies
   tests and spec tests for the correct syntax before writing.
-- [ ] **Subsection close-out (03.4)** — MANDATORY before starting 03.5:
-  - [ ] All tasks above are `[x]` and behavior is verified
-  - [ ] Update subsection `status` in frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — now that all 4 sites
-        are implemented, check for algorithmic DRY violations: the 4-line call block is
-        identical at all 4 sites. Consider extracting a `run_validator(checker, &expr_types) -> Vec<TypeCheckError>` helper to eliminate the duplication (per `impl-hygiene.md §Algorithmic
-        DRY` — same control-flow skeleton at 4 sites = missing abstraction). If the helper
-        reduces code while remaining readable, implement it and commit separately.
-  - [ ] **Run `/sync-claude` on THIS subsection** — 03.4 completes all 4 sites; the
-        `check/bodies/mod.rs` file now imports `crate::check::validators`. Does this change
-        any rules file claim? If `typeck.md` mentions "the bodies pass does not validate
-        PC-2 inline," update it.
-  - [ ] **Repo hygiene** — `diagnostics/repo-hygiene.sh --check`
+- [x] **Subsection close-out (03.4)** — MANDATORY before starting 03.5:
+  - [x] All tasks above are `[x]` and behavior is verified
+  - [x] Update subsection `status` in frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective:
+    no tooling gaps. The DRY extraction landed in §03.3 (`run_validator` promoted to
+    `pub(super)` in `bodies/mod.rs`) reduced §03.4 to a single-line dispatch at the
+    post-closure insertion point — exactly the abstraction §03.N anticipated. No
+    `dbg!`/`eprintln!`/ad-hoc scripts needed. The parser diagnostic on `= "hi"` ("Block
+    bodies ending with `}` don't need `;`, but expression bodies do") pointed directly at
+    the fix when the negative-control test initially parse-errored; zero friction. Matches
+    §03.3's "no tooling gaps" retrospective finding.
+  - [x] **Run `/sync-claude` on THIS subsection** — Retrospective:
+    no doc updates needed. Both `typeck.md §PC-2` ("Producer-side enforcement: `validate_body_types`
+    ... walks the body's `expr_types` and `FunctionSig` ... after `InferEngine`
+    body-checking completes") and `canon.md §4.2` already describe the producer-side
+    enforcement contract without naming specific call sites. §03.4 MAKES those claims
+    universally true (all 4 body passes now call `run_validator`), so the existing doc
+    language is correct. No rules file claims "the bodies pass does not validate PC-2
+    inline" (grep confirmed clean). `impls.rs` already imported `run_validator` via `use
+    super::run_validator;` from §03.3; §03.4 added no new imports.
+  - [x] **Repo hygiene** — `diagnostics/repo-hygiene.sh --clean` ran (removed 47 stale
+    TPR scratch dirs from prior `/tpr-review` runs; no compiler-code hygiene issues).
 
 ---
 

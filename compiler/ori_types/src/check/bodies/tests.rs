@@ -155,3 +155,79 @@ fn check_impl_method_with_ungeneralizable_body_lambda_emits_ambiguous_type() {
         result.typed.errors
     );
 }
+
+/// Regression: a def-impl method with an unannotated parameter must produce
+/// `E2005` (`AmbiguousType`) at typeck via `check_def_impl_method` (Pass 5 per
+/// CK-1). Exercises the sig-position validator walk after `run_validator`
+/// wires into `check_def_impl_method`.
+///
+/// The unannotated parameter `x` lives in the temporary `FunctionSig.param_types`
+/// as a fresh `Tag::Var` (allocated at `impls.rs` `None => fresh_var()` for
+/// parameters without an AST annotation), and the body `{ () }` never uses `x`
+/// so the var is never constrained. `def_impl` methods construct the sig
+/// validator-locally (no `register_impl_sig` call), so this test distinguishes
+/// "validator wired" from "temporary sig correctly covers param/return positions."
+#[test]
+fn check_def_impl_method_with_unannotated_param_emits_ambiguous_type() {
+    let (result, _interner) = parse_and_check(
+        "trait Processable { @process (x) -> void; }\npub def impl Processable { @process (x) -> void = { () } }",
+    );
+    assert!(
+        result
+            .typed
+            .errors
+            .iter()
+            .any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
+        "expected E2005 for unannotated parameter in def-impl method sig, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Regression: a def-impl method body carrying an unresolved `Tag::Var`
+/// through `expr_types` must produce `E2005` via `check_def_impl_method`.
+/// Exercises the body-position validator walk — the complement of the
+/// sig-position test above.
+///
+/// A block-wrapped lambda `{ x -> x }` is ungeneralizable per
+/// `typeck.md §GN-3` (Value Restriction); its parameter stays `Tag::Var`.
+/// The enclosing def-impl method is `() -> void`, so no sig vars exist — the
+/// only path to a surviving var is through body `expr_types`, which
+/// `validate_body_types` must walk via `run_validator`.
+#[test]
+fn check_def_impl_method_with_ungeneralizable_body_lambda_emits_ambiguous_type() {
+    let (result, _interner) = parse_and_check(
+        "trait Processable { @process () -> void; }\npub def impl Processable { @process () -> void = { let _ = { x -> x }; () } }",
+    );
+    assert!(
+        result
+            .typed
+            .errors
+            .iter()
+            .any(|e| matches!(e.kind, TypeErrorKind::AmbiguousType { .. })),
+        "expected E2005 AmbiguousType in def-impl method body, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Negative control (pairs with the two positive tests above per
+/// `tests.md §Negative Testing Protocol` positive + negative pairing rule):
+/// a well-typed def-impl method body must NOT produce `E2005` (or any typeck
+/// error) after `run_validator` wires in. Pins the false-positive boundary —
+/// if the validator is too aggressive and fires on fully-resolved body types
+/// or signature positions, this test catches the regression.
+///
+/// The trait and def-impl pair declare `@greet () -> str`; the body is a
+/// concrete string literal, so `expr_types` contains no `Tag::Var` and the
+/// sig positions are all resolved (`() -> str`). The validator must be
+/// silent on this input.
+#[test]
+fn check_def_impl_method_with_well_typed_body_produces_no_errors() {
+    let (result, _interner) = parse_and_check(
+        "trait Greetable { @greet () -> str; }\npub def impl Greetable { @greet () -> str = { \"hi\" } }",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for well-typed def-impl body, got: {:?}",
+        result.typed.errors
+    );
+}
