@@ -1,6 +1,6 @@
 //! Collection inference — list, tuple, map, and range literals.
 
-use ori_ir::{ExprArena, ExprId, Span};
+use ori_ir::{ExprArena, ExprId, Name, Span};
 
 use super::super::InferEngine;
 use super::infer_expr;
@@ -263,4 +263,39 @@ pub(crate) fn infer_range(
     }
 
     engine.pool_mut().range(resolved)
+}
+
+/// Bidirectional collect: resolve `iter.collect()` to `Set<T>` when expected.
+///
+/// Returns `Some(set_ty)` if the method is `collect` on an `Iterator<T>`,
+/// storing the resolved `Set<T>` type. Returns `None` to fall through
+/// to default inference.
+pub(crate) fn check_collect_to_set(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    expr_id: ExprId,
+    receiver: ExprId,
+    method: Name,
+    args: ori_ir::ExprRange,
+) -> Option<Idx> {
+    let method_str = engine.lookup_name(method)?;
+    if method_str != "collect" {
+        return None;
+    }
+
+    let recv_ty = infer_expr(engine, arena, receiver);
+    let resolved = engine.resolve(recv_ty);
+    if !engine.pool().tag(resolved).is_iterator() {
+        return None;
+    }
+
+    // Infer arguments (collect has none, but be consistent)
+    for &arg_id in arena.get_expr_list(args) {
+        infer_expr(engine, arena, arg_id);
+    }
+
+    let elem = engine.pool().iterator_elem(resolved);
+    let set_ty = engine.pool_mut().set(elem);
+    engine.store_type(expr_id.raw() as usize, set_ty);
+    Some(set_ty)
 }
