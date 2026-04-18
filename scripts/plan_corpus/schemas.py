@@ -66,6 +66,11 @@ class PlanSectionSchema:
     depends_on: list[str] | None = None
     inspired_by: list[str] | None = None
     touches: list[str] | None = None
+    # Pipeline state for /review-plan resume across /clear (SKILL.md §Step 1d).
+    # Written by every step (precheck/audit/blind-spots/editor/tpr); removed on
+    # clean Step 7+8 exit. Allows /continue-roadmap to skip re-running expensive
+    # earlier steps (Step 4 /tp-help is ~20-45 min reviewer wall-clock).
+    review_pipeline: dict | None = None
 
 
 @dataclass(frozen=True)
