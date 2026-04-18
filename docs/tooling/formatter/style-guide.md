@@ -1,22 +1,22 @@
 # Style Guide: What ori fmt Enforces
 
-The Ori formatter produces a single canonical format with minimal configuration. Only line width is configurable (default 100). This guide describes the style enforced by `ori fmt`.
+The Ori formatter produces a single canonical format with zero user-facing configuration. Line width is fixed at 100 chars. This guide describes the style enforced by `ori fmt`.
 
 ## Philosophy
 
 Like Go's `gofmt`, Ori's formatter eliminates style debates by design:
 
-- **Minimal configuration** — Only line width is configurable (`--width=N`). All other style choices are fixed.
+- **Zero configuration** — No user-facing flags beyond `--check`, `--diff`, `--stdin`, `--no-ignore`. Style choices are fixed (per `ori_fmt` mission: "one way, no options, no debates").
 - **Deterministic** — Same input always produces same output.
 - **Idempotent** — `format(format(code)) == format(code)`.
-- **Width-driven** — Lines break only when exceeding the configured width (default 100).
+- **Width-driven** — Lines break only when exceeding 100 characters.
 
 ## Core Rules
 
 | Rule | Value |
 |------|-------|
 | Indentation | 4 spaces (tabs converted) |
-| Line width | 100 characters default (`--width=N` to change) |
+| Line width | 100 characters (fixed; not user-configurable) |
 | Trailing commas | Required in multi-line, forbidden in single-line |
 | Trailing newline | Required (exactly one) |
 | Blank lines | One between top-level items, no consecutive |
