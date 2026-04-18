@@ -100,7 +100,18 @@ current_head_sha() {
 }
 
 is_tree_dirty() {
-    [[ -n "$(git -C "$ROOT_DIR" status --porcelain 2>/dev/null)" ]]
+    # Exclude the state file itself from the dirty-tree check. state.sh
+    # refresh writes to it, which would otherwise always mark the tree
+    # dirty post-refresh even when everything else is clean. This is
+    # load-bearing for /commit-push Step 8: after the post-push refresh,
+    # the state file is the ONLY uncommitted file; consumers must still
+    # see a FRESH verdict from state.sh check. See
+    # .claude/skills/improve-tooling/script-state-design.md §6 (closed
+    # 2026-04-18) for the surfacing incident.
+    local dirty
+    dirty=$(git -C "$ROOT_DIR" status --porcelain 2>/dev/null \
+        | grep -v '^.. \.claude/state/known-state\.json$' || true)
+    [[ -n "$dirty" ]]
 }
 
 iso_now() {
