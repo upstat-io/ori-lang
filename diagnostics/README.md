@@ -22,6 +22,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
 | `tpr-failure-summary.sh` | Summarize TPR failure patterns across runs | Investigating Gemini/Codex failures, capacity errors |
+| `tpr-liveness.sh` | Classify a TPR reviewer sub-agent as alive/quiet/dead | `/tpr-review` §9 retry decision — BEFORE deciding a silent reviewer is hung |
 | `self-test.sh` | Self-test all scripts against fixtures | After modifying any diagnostic script |
 
 ## Usage
@@ -198,6 +199,32 @@ diagnostics/tpr-failure-summary.sh --reviewer gemini --verbose --failures  # All
 ```
 
 Scans `/tmp/ori-tpr-*/` run directories for failure patterns. Reports success rates, API capacity errors, watchdog kills, envelope repair/rescue stats, and per-run failure details. Extracts the actual API error message from JSONL result events.
+
+### tpr-liveness.sh — TPR Reviewer Liveness Probe
+
+```bash
+diagnostics/tpr-liveness.sh /tmp/tpr-round-ori_lang-abc123 codex --human
+diagnostics/tpr-liveness.sh /tmp/tpr-round-ori_lang-abc123 gemini --json
+diagnostics/tpr-liveness.sh "$scratch" codex --grace-seconds 300 --tail-lines 20
+```
+
+Classifies a `/tpr-review` sub-agent as `alive` (exit 0), `quiet` (exit 1), or `dead` (exit 2) by inspecting `$scratch/{reviewer}-stdout.txt` — the tee'd CLI output guaranteed by invariant I14 (dual-path transport).
+
+**When to use:** consult this BEFORE retrying or aborting a silent reviewer. The orchestrator in `.claude/skills/tpr-review/SKILL.md §9` invokes this probe as the first step of failure handling — it prevents the "kill deep-investigating agent" bias where reviewer silence during a long `cargo build` or `grep` looks identical to a hang.
+
+**How it decides:**
+
+| Condition | Verdict |
+|---|---|
+| `<<<TPR-REPORT` sentinel in tail | `alive` (final report in progress) |
+| Empty stdout, mtime < grace | `alive` (CLI cold-starting) |
+| mtime < grace | `alive` |
+| mtime ∈ [grace, 2·grace), tail shows `tool_call` / `thinking` | `alive` (deep work in flight) |
+| mtime ∈ [grace, 2·grace), no signal | `quiet` |
+| mtime ∈ [2·grace, 4·grace), tail shows `tool_call` | `quiet` (slow Bash invocation suspected) |
+| mtime ≥ 2·grace, no strong signal | `dead` |
+
+Default grace is 300s (5 min). The 45-min ceiling on the reviewer CLI (`block-banned-commands.sh`) bounds the absolute worst case externally — the probe never extends that ceiling.
 
 ## Environment Variables
 
