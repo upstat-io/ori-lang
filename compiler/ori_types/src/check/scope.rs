@@ -158,6 +158,18 @@ impl ModuleChecker<'_> {
         let impl_self = self.current_impl_self;
         let current_caps = self.current_capabilities.clone();
         let provided_caps = self.provided_capabilities.clone();
+        // Snapshot the module-level name set (prelude imports + same-module
+        // function signatures + trait-registered names) before handing off
+        // to the engine. `base_env.names()` walks the parent chain, so this
+        // captures imports via `import_env` as well. Used by
+        // `InferEngine::collect_lexical_outer` to distinguish names the
+        // user bound lexically inside a function body from names that
+        // merely came from the module surface — critical for the Value
+        // Restriction's capture check in `should_generalize`.
+        let module_scope_snapshot = self
+            .base_env
+            .as_ref()
+            .map(|base| base.names().collect::<rustc_hash::FxHashSet<_>>());
         let mut engine = InferEngine::with_env(&mut self.pool, env);
         engine.set_interner(interner);
         engine.set_well_known(well_known);
@@ -166,6 +178,9 @@ impl ModuleChecker<'_> {
         engine.set_type_registry(types);
         engine.set_const_types(consts);
         engine.set_capabilities(current_caps, provided_caps);
+        if let Some(snapshot) = module_scope_snapshot {
+            engine.set_module_scope_snapshot(snapshot);
+        }
         if let Some(self_ty) = impl_self {
             engine.set_impl_self_type(self_ty);
         }

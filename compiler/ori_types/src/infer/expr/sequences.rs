@@ -4,8 +4,8 @@ use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::InferEngine;
 use super::{
-    check_match_pattern, infer_expr, infer_match, lookup_struct_field_types, pattern_first_name,
-    resolve_and_check_parsed_type, should_generalize,
+    check_match_pattern, collect_outer_vars, infer_expr, infer_match, lookup_struct_field_types,
+    pattern_first_name, resolve_and_check_parsed_type, should_generalize,
 };
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag, TypeCheckError};
 
@@ -246,7 +246,8 @@ pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, st
                 // Note: should_generalize tests the *original* init expression (before
                 // unwrapping), not bound_ty — the unwrap changes the type, not the kind.
                 // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
-                if should_generalize(arena, *init) {
+                let outer_vars = collect_outer_vars(engine);
+                if should_generalize(arena, *init, &outer_vars) {
                     engine.generalize(bound_ty)
                 } else {
                     bound_ty

@@ -1,9 +1,18 @@
 use super::*;
 use crate::{Idx, Pool};
 use ori_ir::{
-    ast::{Expr, ExprKind, MapEntry, MatchArm, MatchPattern, Param, Stmt, StmtKind},
-    BindingPattern, ExprArena, ExprId, Mutability, Name, Span, StringInterner,
+    ast::{Expr, ExprKind, FieldInit, MapEntry, MatchArm, MatchPattern, Param, Stmt, StmtKind},
+    BindingPattern, ExprArena, ExprId, Mutability, Name, Span, StmtRange, StringInterner,
 };
+use rustc_hash::FxHashSet;
+
+/// Build a lexical-outer-scope set for tests that call `should_generalize`
+/// directly. The post-01.R-HYGIENE signature requires this set to
+/// distinguish real captures from module-level references resolved via
+/// `ori_registry` (prelude free functions, etc.).
+fn outer(names: &[Name]) -> FxHashSet<Name> {
+    names.iter().copied().collect()
+}
 
 // Test Helpers
 
@@ -3035,7 +3044,7 @@ fn test_should_generalize_non_capturing_lambda_returns_true() {
         },
     );
     assert!(
-        should_generalize(&arena, lambda),
+        should_generalize(&arena, lambda, &outer(&[])),
         "non-capturing lambda must be generalizable"
     );
 }
@@ -3046,20 +3055,20 @@ fn test_should_generalize_non_lambda_returns_false() {
 
     let int_expr = alloc(&mut arena, ExprKind::Int(42));
     assert!(
-        !should_generalize(&arena, int_expr),
+        !should_generalize(&arena, int_expr, &outer(&[])),
         "int literal must not generalize"
     );
 
     let list_elems = arena.alloc_expr_list_inline(&[]);
     let empty_list = alloc(&mut arena, ExprKind::List(list_elems));
     assert!(
-        !should_generalize(&arena, empty_list),
+        !should_generalize(&arena, empty_list, &outer(&[])),
         "empty list must not generalize"
     );
 
     let ident = alloc(&mut arena, ExprKind::Ident(name(1)));
     assert!(
-        !should_generalize(&arena, ident),
+        !should_generalize(&arena, ident, &outer(&[])),
         "identifier must not generalize"
     );
 }
@@ -3086,7 +3095,7 @@ fn test_should_generalize_capturing_lambda_returns_false() {
         },
     );
     assert!(
-        !should_generalize(&arena, lambda),
+        !should_generalize(&arena, lambda, &outer(&[name(999)])),
         "capturing lambda must NOT generalize"
     );
 }
@@ -3731,4 +3740,172 @@ fn test_try_block_let_lambda_generalizes() {
         Tag::Scheme,
         "try-block let with non-capturing lambda must generalize to Scheme"
     );
+}
+
+// body_captures_outer soundness — §01.R-HYGIENE F1 + F7
+//
+// These tests pin the Value Restriction's conservative-direction soundness:
+// every capturing lambda MUST be rejected by `should_generalize`, regardless
+// of which compound expression node transitively hosts the captured outer
+// reference. The prior `_ => false` match wildcard in `body_captures_outer`
+// silently returned "no capture" for every ExprKind variant it didn't
+// explicitly walk — permitting unsound generalization of lambdas that
+// captured via call args, method args, block bodies, list / map / struct
+// literals, and match arm bodies.
+
+/// Helper for the 7 F1 + F7 tests: wrap a single-statement capturing body in a
+/// `(x) -> <body>` lambda and assert `should_generalize` rejects it.
+///
+/// The param `x` (name 100) is introduced so the lambda has a parameter; the
+/// captured outer binding is `name(10)`, which must NOT be in the param list
+/// AND must appear in the caller's `outer_vars` set for the Ident arm to
+/// classify it as a lexical capture.
+fn assert_lambda_with_body_does_not_generalize(arena: &mut ExprArena, body: ExprId) {
+    let x_name = name(100);
+    let params = arena.alloc_params([Param {
+        name: x_name,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let lambda = alloc(
+        arena,
+        ExprKind::Lambda {
+            params,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body,
+        },
+    );
+    assert!(
+        !should_generalize(arena, lambda, &outer(&[name(10)])),
+        "capturing lambda must NOT be generalizable — body_captures_outer \
+         must descend into the compound expression hosting the capture"
+    );
+}
+
+/// F1 + F7: `(x) -> foo(outer)` — capture flows through `Call.args`, not
+/// `Call.func`. Old code only walked `func`; `args` were in the `_ => false`
+/// wildcard. `foo` is a `FunctionRef` (module-level @name — never a capture
+/// of lambda params), so the test isolates the arg-slice blindspot.
+#[test]
+fn test_capturing_lambda_via_call_arg_does_not_generalize() {
+    let mut arena = ExprArena::new();
+    let func = alloc(&mut arena, ExprKind::FunctionRef(name(200))); // @foo
+    let outer = alloc(&mut arena, ExprKind::Ident(name(10)));
+    let args = arena.alloc_expr_list_inline(&[outer]);
+    let body = alloc(&mut arena, ExprKind::Call { func, args });
+    assert_lambda_with_body_does_not_generalize(&mut arena, body);
+}
+
+/// F1 + F7: `(x) -> [].push(outer)` — capture flows through `MethodCall.args`,
+/// not `MethodCall.receiver`. Receiver is an empty list literal (itself
+/// non-capturing under either old or new rule) so the test isolates the
+/// args-slice blindspot.
+#[test]
+fn test_capturing_lambda_via_method_arg_does_not_generalize() {
+    let mut arena = ExprArena::new();
+    let empty = arena.alloc_expr_list_inline(&[]);
+    let receiver = alloc(&mut arena, ExprKind::List(empty));
+    let outer = alloc(&mut arena, ExprKind::Ident(name(10)));
+    let args = arena.alloc_expr_list_inline(&[outer]);
+    let body = alloc(
+        &mut arena,
+        ExprKind::MethodCall {
+            receiver,
+            method: name(201), // push
+            args,
+        },
+    );
+    assert_lambda_with_body_does_not_generalize(&mut arena, body);
+}
+
+/// F1 + F7: `(x) -> { outer }` — capture flows through `Block.result`.
+/// Old code had `Block` in the `_ => false` wildcard; new code must walk
+/// both `result` and every `stmts` entry.
+#[test]
+fn test_capturing_lambda_via_block_does_not_generalize() {
+    let mut arena = ExprArena::new();
+    let result = alloc(&mut arena, ExprKind::Ident(name(10)));
+    let body = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts: StmtRange::EMPTY,
+            result,
+        },
+    );
+    assert_lambda_with_body_does_not_generalize(&mut arena, body);
+}
+
+/// F1 + F7: `(x) -> [outer, 1]` — capture flows through list-literal elements.
+/// Old code had `List` in `_ => false`; new code must walk every element.
+#[test]
+fn test_capturing_lambda_via_list_literal_does_not_generalize() {
+    let mut arena = ExprArena::new();
+    let outer = alloc(&mut arena, ExprKind::Ident(name(10)));
+    let one = alloc(&mut arena, ExprKind::Int(1));
+    let range = arena.alloc_expr_list_inline(&[outer, one]);
+    let body = alloc(&mut arena, ExprKind::List(range));
+    assert_lambda_with_body_does_not_generalize(&mut arena, body);
+}
+
+/// F1 + F7: `(x) -> {"key": outer}` — capture flows through map-entry values.
+/// Old code had `Map` in `_ => false`; new code must walk every key and value
+/// in each `MapEntry`.
+#[test]
+fn test_capturing_lambda_via_map_literal_does_not_generalize() {
+    let mut arena = ExprArena::new();
+    let key = alloc(&mut arena, ExprKind::String(name(1)));
+    let value = alloc(&mut arena, ExprKind::Ident(name(10)));
+    let entries = arena.alloc_map_entries([MapEntry {
+        key,
+        value,
+        span: span(),
+    }]);
+    let body = alloc(&mut arena, ExprKind::Map(entries));
+    assert_lambda_with_body_does_not_generalize(&mut arena, body);
+}
+
+/// F1 + F7: `(x) -> Point { x: outer }` — capture flows through struct-literal
+/// field initializer values. Old code had `Struct` in `_ => false`; new code
+/// must walk every `FieldInit.value`.
+#[test]
+fn test_capturing_lambda_via_struct_literal_does_not_generalize() {
+    let mut arena = ExprArena::new();
+    let outer = alloc(&mut arena, ExprKind::Ident(name(10)));
+    let fields = arena.alloc_field_inits([FieldInit {
+        name: name(1), // field `x`
+        value: Some(outer),
+        span: span(),
+    }]);
+    let body = alloc(
+        &mut arena,
+        ExprKind::Struct {
+            name: name(202), // Point
+            fields,
+        },
+    );
+    assert_lambda_with_body_does_not_generalize(&mut arena, body);
+}
+
+/// F1 + F7: `(x) -> match x { _ -> outer }` — capture flows through
+/// match-arm bodies. Old code had `Match` in `_ => false`; new code must walk
+/// each arm's body (and guard, where present). Scrutinee here is the param
+/// `x`, which is NOT a capture — the capture comes exclusively from the arm
+/// body.
+#[test]
+fn test_capturing_lambda_via_match_arm_does_not_generalize() {
+    let mut arena = ExprArena::new();
+    let scrutinee = alloc(&mut arena, ExprKind::Ident(name(100))); // param `x`
+    let arm_body = alloc(&mut arena, ExprKind::Ident(name(10))); // outer
+    let pattern_id = arena.alloc_match_pattern(MatchPattern::Wildcard);
+    let arms = arena.alloc_arms([MatchArm {
+        pattern: arena.get_match_pattern(pattern_id).clone(),
+        guard: None,
+        body: arm_body,
+        span: span(),
+    }]);
+    let body = alloc(&mut arena, ExprKind::Match { scrutinee, arms });
+    assert_lambda_with_body_does_not_generalize(&mut arena, body);
 }
