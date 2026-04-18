@@ -669,11 +669,10 @@ impl<'pool> InferEngine<'pool> {
     /// literals in this body to [`Idx::NEVER`], satisfying `typeck.md §PC-2`
     /// (no surviving `Tag::Var` in typed IR).
     ///
-    /// See `plans/bug-tracker/fix-BUG-04-084.md` for the full design. Mirrors
-    /// Rust's `!`-fallback at end of function body, narrowed to empty-literal
-    /// allocation sites (`infer/expr/collections.rs:18-20, 54-56, 140-142,
-    /// 171-173`) so the validator still catches OTHER ambiguous-var bugs as
-    /// `E2005`.
+    /// Mirrors Rust's `!`-fallback at end of function body, narrowed to
+    /// empty-literal allocation sites (`infer/expr/collections.rs:18-20,
+    /// 54-56, 140-142, 171-173`) so the validator still catches OTHER
+    /// ambiguous-var bugs as `E2005`.
     ///
     /// Runs at end of each body-group pass (`CK-1` passes 2–5) immediately
     /// before `validate_body_types`. Scope is per-body: only vars reachable

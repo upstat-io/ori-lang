@@ -1,8 +1,8 @@
 //! AOT tests for empty-container correctness (Section 03.5).
 //!
-//! Pins the runtime half of the BUG-04-074 fix: a program built around the
-//! original empty-list repro compiles via the full AOT pipeline and exits with
-//! code 0. The typeck half lives in
+//! Pins the runtime half of the empty-container fix: a program built around
+//! the original empty-list repro compiles via the full AOT pipeline and exits
+//! with code 0. The typeck half lives in
 //! `compiler/ori_types/src/check/bodies/tests.rs` — see
 //! `empty_list_with_push_and_len_typechecks_without_errors_end_to_end`.
 //!
@@ -20,9 +20,9 @@ use crate::util::assert_aot_success;
 /// Annotated empty list with `push` + `len` compiles clean and exits 0
 /// through the AOT backend.
 ///
-/// Confirms the intended fix path for BUG-04-074 works: when the user
-/// supplies `let ages: [int] = []`, inference resolves the element type at
-/// the declaration site (no reliance on push's constraint or BUG-04-084
+/// Confirms the intended fix path works: when the user supplies
+/// `let ages: [int] = []`, inference resolves the element type at the
+/// declaration site (no reliance on push's constraint or end-of-body
 /// defaulting) and codegen sees a fully-resolved `[int]` payload.
 ///
 /// Pairs with
@@ -41,14 +41,14 @@ fn annotated_empty_list_with_push_and_len_compiles_and_exits_zero() {
     assert_aot_success(src, "annotated_empty_list_with_push_and_len");
 }
 
-/// Unannotated form — the original BUG-04-074 surface repro — now compiles
+/// Unannotated form — the original surface repro — now compiles
 /// clean and exits 0 via AOT.
 ///
-/// After BUG-04-084's end-of-body defaulting pre-pass + push's element-type
-/// constraint via unification, the unannotated `let ages = []` resolves to
-/// `[int]` before typeck exit. Pinning this as a separate AOT test guards
-/// against a future regression where either inference narrows differently or
-/// the defaulting pass changes scope — the original repro MUST keep working.
+/// After the end-of-body defaulting pre-pass + push's element-type constraint
+/// via unification, the unannotated `let ages = []` resolves to `[int]` before
+/// typeck exit. Pinning this as a separate AOT test guards against a future
+/// regression where either inference narrows differently or the defaulting pass
+/// changes scope — the original repro MUST keep working.
 #[test]
 fn unannotated_empty_list_with_push_and_len_compiles_and_exits_zero() {
     let src = r#"

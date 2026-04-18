@@ -232,7 +232,7 @@ fn check_def_impl_method_with_well_typed_body_produces_no_errors() {
     );
 }
 
-/// End-to-end regression pin for the BUG-04-074 repro program (`let ages = [];
+/// End-to-end regression pin for the repro program (`let ages = [];
 /// ages = ages.push(value: 10); ages.len() == 1`).
 ///
 /// Originally this program reached codegen with an unresolved `Tag::Var`
@@ -240,18 +240,18 @@ fn check_def_impl_method_with_well_typed_body_produces_no_errors() {
 /// `ori_llvm/type_info/store.rs`. The combined effect of Sections 01
 /// (Value Restriction), 02 (`validate_body_types` + end-of-body defaulting),
 /// 03.1–03.4 (wiring the validator into all four body passes), and the
-/// BUG-04-084 defaulting pre-pass means the empty-list element `Tag::Var`
+/// defaulting pre-pass means the empty-list element `Tag::Var`
 /// is resolved via unification with `push(value: 10)` (`T := int`) BEFORE
 /// defaulting even runs — the program now type-checks cleanly and is safe
 /// to hand to codegen (`typeck.md §PC-2`).
 ///
-/// The test pins end-to-end typeck behavior: the full BUG-04-074 input flows
+/// The test pins end-to-end typeck behavior: the full input flows
 /// through every pass without diagnostics. Its companion AOT test
 /// (`annotated_empty_list_with_push_and_len_compiles_and_exits_zero` in
 /// `compiler/ori_llvm/tests/aot/empty_container.rs`) pins the runtime half —
 /// exit 0 via both the interpreter and AOT paths.
 ///
-/// Deliberately does NOT assert on E2005: after the BUG-04-084 defaulting
+/// Deliberately does NOT assert on E2005: after the defaulting
 /// pass landed, inference resolves the element type via `push`'s `value: T`
 /// constraint, so the validator's `PC-2` rejection path is not exercised
 /// here. Canonical validator coverage for the four body passes lives in
@@ -265,7 +265,7 @@ fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
     );
     assert!(
         result.typed.errors.is_empty(),
-        "expected BUG-04-074 repro to type-check cleanly after Sections 01–03.4 + BUG-04-084 defaulting pass, got: {:?}",
+        "empty list push repro must type-check cleanly after end-of-body defaulting pre-pass, got: {:?}",
         result.typed.errors
     );
 }
