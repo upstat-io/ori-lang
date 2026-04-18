@@ -1,5 +1,9 @@
 # ori_test_harness
 
+> **`ori_test_harness` exists to give compiler tests a shared, directive-driven infrastructure** — test infrastructure is first-class infrastructure.
+>
+> Full mission: [`.claude/rules/missions.md §ori_test_harness`](../../.claude/rules/missions.md)
+
 Shared test infrastructure for the Ori compiler's verification tooling. Consumed as a dev-dependency by `ori_arc` (AIMS snapshot tests) and `ori_llvm` (FileCheck IR tests).
 
 ## Purpose
