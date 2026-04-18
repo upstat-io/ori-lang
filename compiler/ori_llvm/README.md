@@ -22,7 +22,7 @@ Phase 8 of the compiler pipeline. Consumes realized `ArcFunction` from phase 7 A
 
 | Direction | Crates |
 |---|---|
-| Upstream | `ori_arc`, `ori_ir`, `ori_registry`, `ori_repr`, `ori_rt`, `ori_stack`, `ori_types`, `ori_test_harness` |
+| Upstream | `ori_arc`, `ori_ir`, `ori_registry`, `ori_repr`, `ori_rt`, `ori_stack`, `ori_types` (runtime); `ori_test_harness` (dev-dep only, for FileCheck IR suites) |
 | Downstream | `oric` (via default `llvm` feature) |
 
 Note: does NOT depend on `ori_canon` — codegen consumes ARC IR, not `CanExpr`.

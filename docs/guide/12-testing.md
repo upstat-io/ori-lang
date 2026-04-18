@@ -371,8 +371,8 @@ If you change `double`, both `test_double` AND `test_quadruple` run. Why? Becaus
 # Compile and run affected tests
 ori check main.ori
 
-# Compile only (skip tests for quick syntax check)
-ori check --no-test main.ori
+# Compile only (skip test enforcement)
+ori check --test-enforcement=off main.ori
 
 # Run all tests
 ori test
@@ -385,10 +385,10 @@ ori test --only-targeted
 
 ```bash
 # Fail the build if any test fails
-ori check --strict main.ori
+ori check --test-enforcement=error main.ori
 ```
 
-The `--strict` flag makes test failures fail the build, perfect for CI pipelines.
+The `--test-enforcement=error` flag makes test failures fail the build, perfect for CI pipelines. Use `--test-enforcement=warn` for non-blocking warnings during development.
 
 ### Incremental Testing
 
@@ -626,11 +626,11 @@ assert_panics_with(f: () -> T, msg: str);
 ### CLI Commands
 
 ```bash
-ori check file.ori          # Compile + run affected tests
-ori check --no-test         # Compile only
-ori check --strict          # Fail build on test failure (CI)
-ori test                    # Run all tests
-ori test --only-targeted    # Only targeted tests
+ori check file.ori                   # Compile + run affected tests
+ori check --test-enforcement=off     # Compile only, skip test enforcement
+ori check --test-enforcement=error   # Fail build on test failure (CI)
+ori test                             # Run all tests
+ori test --only-targeted             # Only targeted tests
 ```
 
 ## What's Next
