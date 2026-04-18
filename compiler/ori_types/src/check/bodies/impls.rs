@@ -355,6 +355,27 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
             )
         });
 
+    // Build the post-defaulted signature. `param_types` and `return_type` have
+    // been refreshed in place by `default_unbound_vars_in_scope` inside the
+    // inference closure, so the sig reflects end-of-body truth — the exact
+    // inputs `run_validator` needs to enforce `PC-2` across sig positions.
+    // def-impl methods never register a sig externally (no `register_impl_sig`
+    // call); the sig is validator-local. `type_params = &[]` because
+    // `check_def_impl_method` does not receive type params at the method level.
+    let sig = build_method_sig(
+        method.name,
+        &params,
+        param_types,
+        return_type,
+        &[],
+        checker.pool(),
+    );
+
+    // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
+    // §CK-4 guarantees sig's Tag::Var positions were left for this body pass to
+    // resolve; any survivor is an inference gap the validator must surface.
+    run_validator(checker, &expr_types, &sig, method.span);
+
     // Store results
     for (expr_index, ty) in expr_types {
         checker.store_expr_type(expr_index, ty);
