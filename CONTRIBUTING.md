@@ -39,16 +39,27 @@ cargo st        # Run Ori spec tests only
 
 ## Project Structure
 
-- `compiler/oric/` - The compiler implementation
-  - `src/lexer/` - Tokenizer (uses logos)
-  - `src/parser/` - Recursive descent parser
-  - `src/ast/` - Abstract syntax tree definitions
-  - `src/types/` - Type checker
-  - `src/eval/` - Tree-walking interpreter
-  - `src/codegen/` - C code generator
-- `tests/run-pass/` - Programs that should compile and run
-- `tests/compile-fail/` - Programs that should fail to compile
-- `docs/` - Documentation
+The Ori compiler is a strictly-ordered, multi-crate pipeline: lex → parse → typecheck → canonicalize → ARC lowering → AIMS analysis → ARC realization → LLVM codegen. A parallel evaluator consumes canonical IR for const-eval and `ori run`. See `.claude/rules/canon.md §1 Pipeline Overview` and `.claude/rules/compiler.md §Architecture` for the authoritative pipeline diagram and per-crate dependencies.
+
+- `compiler/oric/` — compiler driver (CLI, Salsa orchestration, filesystem IO, LLVM integration); `src/lib.rs` + `src/main.rs` register the `ori` binary.
+- `compiler/ori_lexer_core/`, `compiler/ori_lexer/` — raw + cooked lexing.
+- `compiler/ori_parse/` — recursive-descent parser producing `ParseOutput`.
+- `compiler/ori_types/` — Hindley-Milner inference + trait/capability checking.
+- `compiler/ori_canon/` — canonicalization (AST → `CanExpr`) + Maranget pattern compilation.
+- `compiler/ori_arc/` — ARC lowering + AIMS lattice analysis + ARC realization.
+- `compiler/ori_repr/` — representation layer (`ReprPlan`).
+- `compiler/ori_llvm/` — LLVM IR emission from realized ARC IR.
+- `compiler/ori_eval/` — parallel evaluator for canonical IR (const-eval + `ori run`).
+- `compiler/ori_patterns/` — runtime value model + function-pattern dispatch.
+- `compiler/ori_ir/` — interned, flat, Salsa-compatible IR foundation.
+- `compiler/ori_rt/` — AOT runtime (C-ABI static library).
+- `compiler/ori_diagnostic/`, `compiler/ori_registry/`, `compiler/ori_stack/`, `compiler/ori_fmt/`, `compiler/ori_test_harness/`, `compiler/ori_compiler/` — supporting crates (see `.claude/rules/compiler.md §Crates`).
+- `library/std/` — standard library (pure Ori).
+- `tests/run-pass/` — programs that should compile and run (includes the Rosetta stress-test corpus under `tests/run-pass/rosetta/`).
+- `tests/compile-fail/` — programs that should fail to compile.
+- `tests/spec/` — spec conformance suite.
+- `docs/ori_lang/v2026/spec/` — authoritative language spec (proposal-gated).
+- `docs/compiler/design/` — design-doc rationale.
 - `examples/` - Example programs
 
 ## Adding a Test
