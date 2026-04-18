@@ -50,22 +50,43 @@ mod sequences;
 mod structs;
 mod type_resolution;
 
-// Re-export submodule contents for tests and sibling access
-pub(super) use blocks::*;
-pub(super) use calls::*;
-pub(super) use collections::*;
-// Explicit named re-exports for 01.R-SIDE-LOGIC relocated symbols
-// (F14 in 01.R-TEST-HYGIENE will eventually drop the sibling globs).
-pub(super) use collections::check_collect_to_set;
-pub(super) use concurrency::*;
-pub(super) use constructors::*;
-pub(super) use control_flow::*;
+// Named re-exports for tests and sibling access. Kept alphabetical per
+// submodule so drift is easy to spot at review time.
+
+#[cfg(test)]
+pub(super) use blocks::should_generalize;
+pub(super) use blocks::{
+    infer_block, infer_lambda, infer_let, maybe_generalize, pattern_first_name,
+};
+pub(super) use calls::{infer_call, infer_call_named, infer_method_call, infer_method_call_named};
+pub(super) use collections::{
+    check_collect_to_set, infer_list, infer_list_spread, infer_map_literal, infer_map_spread,
+    infer_range, infer_tuple,
+};
+pub(super) use concurrency::{infer_cache, infer_catch, infer_recurse};
+pub(super) use constructors::{
+    infer_await, infer_err, infer_none, infer_ok, infer_some, infer_try, infer_with_capability,
+};
+pub(super) use control_flow::{
+    check_match_pattern, infer_break, infer_continue, infer_for, infer_if, infer_loop, infer_match,
+    substitute_type_params_with_map,
+};
 pub(super) use format::{check_interpolation_printable, validate_format_spec};
-pub(super) use identifiers::*;
-pub(super) use methods::*;
-pub(super) use operators::*;
-pub(super) use sequences::*;
-pub(super) use structs::*;
+pub(super) use identifiers::{
+    find_similar_type_names, infer_const, infer_function_ref, infer_ident, infer_self_ref,
+};
+pub(super) use methods::resolve_builtin_method;
+// `range_method_requires_iteration` keeps its narrower `pub(in crate::infer::expr)`
+// source visibility — re-exporting at the same level lets `calls/method_call.rs`
+// reach it via `super::super::range_method_requires_iteration`.
+pub(in crate::infer::expr) use methods::range_method_requires_iteration;
+pub(super) use operators::{infer_assign, infer_binary, infer_cast, infer_unary};
+#[cfg(test)]
+pub(super) use sequences::infer_try_stmt;
+pub(super) use sequences::{bind_pattern, infer_function_exp, infer_function_seq};
+pub(super) use structs::{
+    infer_field, infer_index, infer_struct, infer_struct_spread, lookup_struct_field_types,
+};
 // Public re-exports for the crate's public API
 // (re-exported through infer/mod.rs)
 pub(super) use type_resolution::resolve_and_check_parsed_type;

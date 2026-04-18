@@ -21,7 +21,7 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx};
 /// `body_captures_outer`'s `Ident` arm — keeping prelude refs like
 /// `len(collection: xs)` out of the capture set while still flagging real
 /// `let outer = 1; let f = x -> outer` captures.
-pub(super) fn collect_outer_vars(engine: &InferEngine<'_>) -> FxHashSet<Name> {
+pub(crate) fn collect_outer_vars(engine: &InferEngine<'_>) -> FxHashSet<Name> {
     engine.collect_lexical_outer()
 }
 
@@ -55,8 +55,15 @@ pub(crate) fn infer_block(
                 let binding_name = pattern_first_name(pat);
                 let errors_before = engine.error_count();
 
-                // Enter rank scope for let-polymorphism (not binding scope).
-                // This allows type variables in the initializer to be generalized.
+                // Enter a rank-only scope for let-polymorphism (typeck.md §SG-5
+                // / §GN-1). The surrounding block already pushed its env scope
+                // at line 38 and the let binding MUST stay visible to
+                // subsequent statements — pushing another env.child() here
+                // would hide later bindings from earlier `let`s. Rank-only is
+                // the right knob. All three let-generalization sites
+                // (`infer_block` block-stmt let, `infer_let` ExprKind::Let,
+                // `infer_try_stmt` try-block let) use `enter_rank_scope` for
+                // this reason.
                 engine.enter_rank_scope();
 
                 // Check/infer the initializer type based on presence of annotation
@@ -133,10 +140,14 @@ pub(crate) fn infer_let(
     _mutable: ori_ir::Mutability,
     span: Span,
 ) -> Idx {
-    // Enter scope for let-polymorphism.
-    // This increases the rank so that type variables created during
-    // initializer inference can be generalized.
-    engine.enter_scope();
+    // Enter a rank-only scope for let-polymorphism (typeck.md §SG-5 / §GN-1).
+    // Matches the two sibling let-generalization sites (`infer_block` block-stmt
+    // let and `infer_try_stmt` try-block let): we elevate the unification rank
+    // so variables introduced while inferring `init` can be generalized, but
+    // we do NOT push an env.child() — the binding is installed in the outer
+    // env via `bind_pattern` below (after exit), so a child env push here
+    // would be dead weight.
+    engine.enter_rank_scope();
 
     let binding_name = pattern_first_name(pattern);
     let errors_before = engine.error_count();
@@ -174,11 +185,11 @@ pub(crate) fn infer_let(
         maybe_generalize(engine, arena, init, init_ty)
     };
 
-    // Exit scope (rank goes back down).
-    // The binding will be added to the outer environment.
-    engine.exit_scope();
+    // Exit the rank scope (rank goes back down); see enter_rank_scope comment
+    // above for why this matches the block-stmt + try-stmt siblings.
+    engine.exit_rank_scope();
 
-    // Bind the pattern to the (possibly generalized) type
+    // Bind the pattern to the (possibly generalized) type in the outer env.
     bind_pattern(engine, arena, pattern, final_ty);
 
     // Let expression returns unit
@@ -263,7 +274,7 @@ pub(crate) fn infer_lambda(
 /// This is the SSOT for the Value Restriction policy. Every let-binding
 /// generalization site in the type checker MUST call this function rather
 /// than inlining equivalent logic.
-pub(super) fn should_generalize(
+pub(crate) fn should_generalize(
     arena: &ExprArena,
     init: ExprId,
     outer_vars: &FxHashSet<Name>,
@@ -300,7 +311,7 @@ pub(super) fn should_generalize(
 /// un-unwrapped expression — the unwrap changes the type, not the
 /// expression kind, so the policy check still reads the source-level
 /// `ExprKind`.
-pub(super) fn maybe_generalize(
+pub(crate) fn maybe_generalize(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     init: ExprId,

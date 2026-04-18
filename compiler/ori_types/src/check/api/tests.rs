@@ -1,20 +1,6 @@
 use super::*;
 
-use ori_lexer::lex;
-use ori_parse::parse;
-
-fn parse_and_check(source: &str) -> (TypeCheckResult, StringInterner) {
-    let interner = StringInterner::new();
-    let tokens = lex(source, &interner);
-    let parsed = parse(&tokens, &interner);
-    assert!(
-        parsed.errors.is_empty(),
-        "parse errors: {:?}",
-        parsed.errors
-    );
-    let result = check_module(&parsed.module, &parsed.arena, &interner);
-    (result, interner)
-}
+use crate::check::test_utils::parse_and_check;
 
 #[test]
 fn check_empty_module() {
