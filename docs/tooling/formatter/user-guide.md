@@ -37,11 +37,12 @@ ori fmt [options] [paths...]
 
 | Option | Description |
 |--------|-------------|
-| `--width=N` | Set maximum line width (default: 100) |
 | `--check` | Check if files are formatted, exit 1 if any would change |
 | `--diff` | Show unified diff output instead of modifying files |
 | `--stdin` | Read from stdin, write to stdout (for editor integration) |
 | `--no-ignore` | Ignore `.orifmtignore` files and format everything |
+
+Line width is fixed at 100 chars (not configurable — zero-config style per `style-guide.md`).
 | `--help` | Show help message |
 
 ## Usage Patterns
