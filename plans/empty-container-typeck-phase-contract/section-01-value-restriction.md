@@ -43,7 +43,7 @@ sections:
     status: complete
   - id: "01.R-DRY"
     title: "Retrospective: InferEngine constructor + maybe_generalize DRY (F4+F5)"
-    status: not-started
+    status: complete
   - id: "01.R-SIDE-LOGIC"
     title: "Retrospective: dispatch-module side logic (F2+F3)"
     status: not-started
@@ -692,12 +692,12 @@ A lambda `() -> map.get("key")` passed to `list.map(...)` has `map` captured via
 **Summary:** `InferEngine::new(pool)` and `InferEngine::with_env(pool, env)` contain an identical ~27-line struct literal differing only in the `env` field (`TypeEnv::new()` vs caller-supplied `env`). Adding any new field to `InferEngine` requires editing both constructors; missing one silently produces a divergent state.
 
 **Fix plan:**
-- [ ] Extract `fn build(pool: &'pool mut Pool, env: TypeEnv) -> Self` as `pub(super)` (or `fn` if crate-local access suffices) with the single struct literal
-- [ ] `new(pool)` calls `build(pool, TypeEnv::new())`
-- [ ] `with_env(pool, env)` calls `build(pool, env)`
-- [ ] Verify no behavioral change — both callers produce identical state to pre-fix
-- [ ] Add a regression test: construct via both entry points and assert all-field equality
-- [ ] Follow-up: if new fields are added, only `build()` requires editing
+- [x] Extract `fn build(pool: &'pool mut Pool, env: TypeEnv) -> Self` as `pub(super)` (or `fn` if crate-local access suffices) with the single struct literal — landed as private `fn build` in `compiler/ori_types/src/infer/mod.rs` (§Visibility: `new`/`with_env` are same-impl callers; private minimizes pub surface per impl-hygiene.md §Visibility).
+- [x] `new(pool)` calls `build(pool, TypeEnv::new())`
+- [x] `with_env(pool, env)` calls `build(pool, env)`
+- [x] Verify no behavioral change — both callers produce identical state to pre-fix (verified: full `ori_types` suite 840/0 debug + release; full `test-all.sh` 16382/844/160 — `+1` pass over pre-F4 baseline, zero new failures).
+- [x] Add a regression test: construct via both entry points and assert all-field equality — landed as `infer_engine_new_and_with_env_produce_identical_default_state` in `compiler/ori_types/src/infer/tests.rs` using an `EngineSnapshot` record that compares every publicly-observable default-state accessor. Field-by-field `PartialEq` on `InferEngine` is impractical (borrowed `Pool`, internal `UnifyEngine`) — behavioral parity via snapshot is equivalent for the SSOT invariant and catches the "new field added to one constructor only" failure mode identically.
+- [x] Follow-up: if new fields are added, only `build()` requires editing (confirmed structurally — `new` and `with_env` are 1-line delegations).
 
 ### F5: should_generalize + generalize 3x duplication
 
@@ -714,14 +714,22 @@ if should_generalize(arena, *init) {
 The only variation is whether `ty` is the raw inferred type or `bound_ty` (after `unwrap_result_or_option`). The duplication means: a future change to generalization policy must be edited at 3 sites; a typo silently diverges one site's behavior.
 
 **Fix plan:**
-- [ ] Extract `pub(super) fn maybe_generalize(engine: &mut InferEngine<'_>, arena: &ExprArena, init: ExprId, ty: Idx) -> Idx` in `blocks.rs` (co-located with `should_generalize`)
-- [ ] Body: `if should_generalize(arena, init) { engine.generalize(ty) } else { ty }`
-- [ ] Replace all 3 call sites to use `maybe_generalize(engine, arena, *init, ty)`
-- [ ] At `sequences.rs:249`, preserve the semantically significant comment ("should_generalize tests the *original* init expression") by attaching it to the helper's docstring
-- [ ] Verify no behavioral change — all 8 existing §01 tests (positive + negative pins) continue to pass unchanged
-- [ ] Decide: demote `should_generalize` visibility (since `maybe_generalize` is the new SSOT) OR keep both `pub(super)` for granular access. Document the choice.
+- [x] Extract `pub(super) fn maybe_generalize(engine: &mut InferEngine<'_>, arena: &ExprArena, init: ExprId, ty: Idx) -> Idx` in `blocks.rs` (co-located with `should_generalize`) — landed at `compiler/ori_types/src/infer/expr/blocks.rs:303`.
+- [x] Body: `if should_generalize(arena, init, &outer_vars) { engine.generalize(ty) } else { ty }` — includes `collect_outer_vars(engine)` internally so callers don't repeat it. (Signature extends the plan with the `outer_vars` parameter threaded through by §01.R-HYGIENE; `maybe_generalize` subsumes that plumbing.)
+- [x] Replace all 3 call sites to use `maybe_generalize(engine, arena, *init, ty)`:
+  - `infer_block` block-statement let at `blocks.rs:96`
+  - `infer_let` ExprKind::Let dispatch at `blocks.rs:174`
+  - `infer_try_stmt` try-block let at `sequences.rs:250`
+- [x] At `sequences.rs:250`, preserve the semantically significant comment ("should_generalize tests the *original* init expression") — landed both on the call site as a 3-line block and in `maybe_generalize`'s docstring ("Important: `init` is the *original* initializer expression, NOT a derived type...").
+- [x] Verify no behavioral change — all 8 existing §01 tests (positive + negative pins) and all 7 §01.R-HYGIENE tests continue to pass unchanged. Debug + release full `ori_types`: 840/0. Full `test-all.sh`: 16382 pass / 844 fail / 160 skip — `+1` pass over pre-F4 baseline (the new F4 pin only; no new failures).
+- [x] Decide: demote `should_generalize` visibility (since `maybe_generalize` is the new SSOT) OR keep both `pub(super)` for granular access. **Decision: keep both `pub(super)`.** Rationale: they have distinct SSOT domains — `should_generalize` owns the *decision predicate* (pure, testable in isolation, consumed by the three `test_should_generalize_*` tests at `tests.rs:3026/3053/3077`); `maybe_generalize` owns the *apply-the-decision pattern* (imperative, engine-mutating, 3 call sites). Demoting `should_generalize` would break the existing test suite without a behavioral win. Documented in both docstrings ("This is the SSOT for *applying* the decision, alongside `should_generalize` which is the SSOT for *making* it").
 
-**Exit criteria for 01.R-DRY:** F4 and F5 fixes landed. `timeout 150 ./test-all.sh` green. All pre-existing §01 tests still pass. `/tpr-review` clean.
+**Exit criteria for 01.R-DRY:** F4 and F5 fixes landed. `timeout 150 ./test-all.sh` green (0 new failures over cache baseline). All pre-existing §01 tests still pass. `/tpr-review` DEFERRED to Retrospective Close-Out per the `- [ ]` anchor at end of this section (batched across 01.R-HYGIENE + 01.R-DRY + 01.R-SIDE-LOGIC + 01.R-TEST-HYGIENE — same rationale as §01.R-HYGIENE's deferral).
+
+### Retrospective on 01.R-DRY itself
+
+- **`/improve-tooling` retrospective (01.R-DRY):** no tooling gaps surfaced. Both extractions were mechanical (one struct-literal dedup, one 3-line pattern dedup) and the existing toolchain caught every issue promptly — LSP rejected the `TypeEnv::is_empty()` accessor I first reached for (no such method); the `grep 'engine.generalize'` / `grep 'maybe_generalize'` post-checks confirmed the exact 3-site-migration shape the section file documented as success criteria. The intelligence graph's `callers` queries for the extracted symbols returned empty (same-crate-private callers aren't indexed as CALLS edges), so the authoritative call-site list came from the section file itself — as designed. No new diagnostic scripts, flags, or tests needed.
+- **Repo hygiene:** verified via `diagnostics/repo-hygiene.sh --check` (see close-out task; expected clean modulo the pre-existing `/tmp/ori-tpr-*/` scratch-dir noise noted by the scanner at session start).
 
 ---
 

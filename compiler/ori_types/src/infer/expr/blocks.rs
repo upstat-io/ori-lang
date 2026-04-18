@@ -93,12 +93,7 @@ pub(crate) fn infer_block(
                     // constants) are monomorphic — their Vars must stay Unbound so the
                     // Section 02 validator can surface E2005 on empty containers.
                     // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
-                    let outer_vars = collect_outer_vars(engine);
-                    if should_generalize(arena, *init, &outer_vars) {
-                        engine.generalize(init_ty)
-                    } else {
-                        init_ty
-                    }
+                    maybe_generalize(engine, arena, *init, init_ty)
                 };
 
                 // Exit rank scope (but stay in block's binding scope)
@@ -176,12 +171,7 @@ pub(crate) fn infer_let(
 
         // Value Restriction: only non-capturing lambdas may be generalized.
         // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
-        let outer_vars = collect_outer_vars(engine);
-        if should_generalize(arena, init, &outer_vars) {
-            engine.generalize(init_ty)
-        } else {
-            init_ty
-        }
+        maybe_generalize(engine, arena, init, init_ty)
     };
 
     // Exit scope (rank goes back down).
@@ -284,6 +274,43 @@ pub(super) fn should_generalize(
             !body_captures_outer(arena, *body, &param_names, outer_vars)
         }
         _ => false,
+    }
+}
+
+/// Apply the Value Restriction generalization decision to `ty` for an
+/// initializer `init`. Returns `engine.generalize(ty)` iff `init` satisfies
+/// [`should_generalize`] (a non-capturing lambda), otherwise returns `ty`
+/// unchanged.
+///
+/// This is the SSOT for *applying* the decision, alongside
+/// [`should_generalize`] which is the SSOT for *making* it. Every
+/// let-binding generalization site in the type checker MUST call this
+/// function — inlining the `if should_generalize(...) { generalize } else
+/// { ty }` pattern at the call site would drift when the policy evolves.
+///
+/// The three live call sites are: `infer_block` (block-statement `let`),
+/// `infer_let` (`ExprKind::Let` dispatch), and `infer_try_stmt` (try-block
+/// `let`). Each calls this function; the policy check itself and the
+/// lexical-outer collection are handled here.
+///
+/// **Important**: `init` is the *original* initializer expression, NOT a
+/// derived type. In the try-block path, the caller unwraps the inferred
+/// `Result`/`Option` type with `unwrap_result_or_option` and passes the
+/// unwrapped `Idx` as `ty`, but the `init` it passes is still the user's
+/// un-unwrapped expression — the unwrap changes the type, not the
+/// expression kind, so the policy check still reads the source-level
+/// `ExprKind`.
+pub(super) fn maybe_generalize(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    init: ExprId,
+    ty: Idx,
+) -> Idx {
+    let outer_vars = collect_outer_vars(engine);
+    if should_generalize(arena, init, &outer_vars) {
+        engine.generalize(ty)
+    } else {
+        ty
     }
 }
 

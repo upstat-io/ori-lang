@@ -176,36 +176,21 @@ pub struct InferEngine<'pool> {
 impl<'pool> InferEngine<'pool> {
     /// Create a new inference engine.
     pub fn new(pool: &'pool mut Pool) -> Self {
-        Self {
-            unify: UnifyEngine::new(pool),
-            env: TypeEnv::new(),
-            expr_types: FxHashMap::default(),
-            context_stack: Vec::new(),
-            errors: Vec::new(),
-            warnings: Vec::new(),
-            interner: None,
-            well_known: None,
-            trait_registry: None,
-            signatures: None,
-            type_registry: None,
-            self_type: None,
-            impl_self_type: None,
-            loop_break_types: Vec::new(),
-            current_capabilities: FxHashSet::default(),
-            provided_capabilities: FxHashSet::default(),
-            pattern_resolutions: Vec::new(),
-            const_types: None,
-            mono_instances: Vec::new(),
-            deferred_mono_calls: Vec::new(),
-            current_function: None,
-            module_scope_snapshot: None,
-        }
+        Self::build(pool, TypeEnv::new())
     }
 
     /// Create a new inference engine with an existing environment.
     ///
     /// Use this when you need to share type bindings across inference sessions.
     pub fn with_env(pool: &'pool mut Pool, env: TypeEnv) -> Self {
+        Self::build(pool, env)
+    }
+
+    /// SSOT constructor: builds an `InferEngine` with all-default inner state
+    /// and the supplied type environment. Both [`Self::new`] and
+    /// [`Self::with_env`] delegate here so adding a new `InferEngine` field
+    /// requires exactly one edit.
+    fn build(pool: &'pool mut Pool, env: TypeEnv) -> Self {
         Self {
             unify: UnifyEngine::new(pool),
             env,
