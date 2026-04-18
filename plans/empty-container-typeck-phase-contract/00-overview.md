@@ -71,18 +71,26 @@ Canonicalizer (ori_canon) / ARC Pipeline (ori_arc) / AIMS / Realization
     ▼
 LLVM Codegen (ori_llvm)  ── DEFENSE-IN-DEPTH CONSUMER
     │
-    │  (3a) Pre-monomorphization input validation (Section 04a):
-    │       ↓ debug_assert!(no Tag::Var in arc_func.var_types) for each cached ArcFunction
-    │         BEFORE collect_mono_functions is called
-    │         JIT site:  compiler/ori_llvm/src/evaluator/compile.rs:230
-    │         AOT site:  compiler/oric/src/commands/codegen_pipeline.rs:112
+    │  PRIMARY SEAM (Section 04.2, load-bearing):
+    │       ↓ assert_no_unresolved_type_vars(pool, arc_func, interner, exempt)
+    │         at the SINGLE upstream choke point — both paths below converge here.
+    │       ↓ Per-function hook:
+    │         compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:315
+    │         (process_arc_function) — BEFORE ori_arc::run_arc_pipeline
+    │       ↓ Per-lambda hook:
+    │         compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:375
+    │         (declare_and_process_lambda) — BEFORE its own run_arc_pipeline
     │
-    │  (3b) Per-function validation (Section 04b):
-    │       ↓ debug_assert!(no Tag::Var in arc_func.var_types) inside
-    │         prepare_mono_cached / process_arc_function
+    │  SECONDARY pre-mono sites (Section 04.3, diagnostic localization only):
+    │       ↓ JIT site:  compiler/ori_llvm/src/evaluator/compile.rs:230
+    │       ↓ AOT site:  compiler/oric/src/commands/codegen_pipeline.rs:95,112
+    │       (non-load-bearing — primary seam catches the violation regardless;
+    │        secondary sites attribute to pre-mono input for better diagnostic)
     │
-    │  Release builds surface ICE with the ArcFunction name (not TypeCheckError)
-    │  per impl-hygiene.md §Cross-Phase Invariant Contracts
+    │  Both debug AND release surface a typed VerifyError::UnresolvedTypeVar
+    │  via the existing ori_arc::verify plumbing — NO debug_assert! fail-open.
+    │  Integrates with ORI_VERIFY_ARC=1 layering per codegen-rules.md §VR-1
+    │  (the assertion is ALWAYS-ON; verify_arc gates ADDITIONAL verification).
     ▼
 LLVM IR + AOT binary (no unresolved Tag::Var path)
 ```
@@ -166,11 +174,15 @@ Phase 3 — Bodies-Pass Integration (Section 03) — COMPLETE
   └─ 03.R: Third Party Review Findings (Rounds 0, 1, 2) — COMPLETE
   └─ 03.N: Completion Checklist — COMPLETE
 
-Phase 4 — Codegen Defense-in-Depth (Section 04)
-  └─ 04.1: debug_assert! hook in prepare_mono_cached (per-function seam)
-  └─ 04.2: debug_assert! hook at compile.rs:230 (JIT pre-mono)
-  └─ 04.3: debug_assert! hook at codegen_pipeline.rs:112 (AOT pre-mono)
-  └─ 04.4: Release-build ICE path with ArcFunction name in panic message
+Phase 4 — Codegen Defense-in-Depth (Section 04, restructured post /review-plan 2026-04-18)
+  └─ 04.1: New ori_arc::ir::validate module + typed UnresolvedTypeVar error
+  └─ 04.2: PRIMARY seam hooks — process_arc_function + declare_and_process_lambda
+           at define_phase.rs:315 and define_phase.rs:375 (load-bearing)
+  └─ 04.TPR-A: TPR checkpoint after primary seam + module
+  └─ 04.3: SECONDARY pre-mono sites — JIT compile.rs:230 + AOT codegen_pipeline.rs:95,112
+           (diagnostic localization only; non-load-bearing; may be dropped per reviewer caveat)
+  └─ 04.4: Unit tests — 9-cell matrix (resolved, unbound, exempt, BoundVar, Projection,
+           lambda-capture, first-violator-deterministic)
 
 Phase 5 — Poly-Lambda Mono Fix (Section 08, NEW — absorbs BUG-04-042) — COMMIT BLOCKER
   └─ 08.1: Investigation — reproduce lambda_mono.ori failure, bisect to root cause
