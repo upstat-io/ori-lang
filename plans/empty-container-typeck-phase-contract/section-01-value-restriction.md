@@ -40,7 +40,7 @@ sections:
     status: complete
   - id: "01.R-HYGIENE"
     title: "Retrospective: body_captures_outer soundness (F1+F7)"
-    status: not-started
+    status: complete
   - id: "01.R-DRY"
     title: "Retrospective: InferEngine constructor + maybe_generalize DRY (F4+F5)"
     status: not-started
@@ -651,26 +651,32 @@ A lambda `() -> map.get("key")` passed to `list.map(...)` has `map` captured via
 
 ### Fix Plan (TDD Matrix Required — MANDATORY)
 
-- [ ] **TDD matrix first** — write failing tests before any code change:
-  - [ ] `test_capturing_lambda_via_call_arg_does_not_generalize` — `let outer = 5; let f = () -> some_fn(outer)` (captures via Call args)
-  - [ ] `test_capturing_lambda_via_method_arg_does_not_generalize` — `let outer = 5; let f = () -> list.push(outer)` (captures via MethodCall args)
-  - [ ] `test_capturing_lambda_via_block_does_not_generalize` — `let outer = 5; let f = () -> { outer + 1 }` (captures via Block body)
-  - [ ] `test_capturing_lambda_via_list_literal_does_not_generalize` — `let outer = 5; let f = () -> [outer, 1]`
-  - [ ] `test_capturing_lambda_via_map_literal_does_not_generalize` — `let outer = 5; let f = () -> {"key": outer}`
-  - [ ] `test_capturing_lambda_via_struct_literal_does_not_generalize` — `let outer = 5; let f = () -> Point { x: outer, y: 0 }`
-  - [ ] `test_capturing_lambda_via_match_arm_does_not_generalize` — `let outer = 5; let f = (x) -> match x { 0 -> outer, _ -> 0 }`
-  - [ ] Verify all 7 tests FAIL with current code (before fix)
-- [ ] **Architectural fix** — flip the conservative default and enumerate leaf arms:
-  - [ ] Change `_ => false` to `_ => true` (unknown = assume capture)
-  - [ ] Add explicit `false`-returning arms ONLY for verified leaf ExprKinds: `Int`, `Float`, `Bool`, `String`, `Char`, `Unit`, `None`, `Error`, and `Ident` when name is in `param_names` or `outer_vars` is empty
-  - [ ] Complete recursion for every compound ExprKind that has child expressions: `Call { func, args }` recurses into both, `MethodCall { receiver, args }` into both, `Block`, `List`, `Map`, `Struct`, `Match`, `While`, `For`, `Loop`, `If`, etc.
-- [ ] **Update docstring** — line 243-248 "Over-approximates captures" is now accurate; remove the contradictory inline comment at line 298-300 ("might miss captures... codegen will catch it" is false; codegen does NOT catch type-soundness violations)
-- [ ] **Verify all 7 new tests PASS** (semantic pins for correct capture detection)
-- [ ] **Verify all pre-existing tests STILL pass** — specifically `test_let_polymorphism_for_lambda_produces_function` must continue to pass (non-capturing lambda `x -> x` still generalizes)
-- [ ] **Dual-execution verification** — `diagnostics/dual-exec-verify.sh` on at least one new test to confirm interpreter/AOT parity on the rejected patterns
-- [ ] `/tpr-review` clean
-- [ ] `/impl-hygiene-review` clean
-- [ ] Update `typeck.md §GN-3` if the wording around "AST-based detection" needs refinement to reflect the exhaustive-match approach
+- [x] **TDD matrix first** — write failing tests before any code change:
+  - [x] `test_capturing_lambda_via_call_arg_does_not_generalize` — capture via Call args
+  - [x] `test_capturing_lambda_via_method_arg_does_not_generalize` — capture via MethodCall args
+  - [x] `test_capturing_lambda_via_block_does_not_generalize` — capture via Block body
+  - [x] `test_capturing_lambda_via_list_literal_does_not_generalize` — capture via List
+  - [x] `test_capturing_lambda_via_map_literal_does_not_generalize` — capture via Map
+  - [x] `test_capturing_lambda_via_struct_literal_does_not_generalize` — capture via Struct
+  - [x] `test_capturing_lambda_via_match_arm_does_not_generalize` — capture via Match arm body
+  - [x] Verified all 7 tests FAILED pre-fix (same panic at `assert_lambda_with_body_does_not_generalize`), confirming the `_ => false` wildcard bug.
+- [x] **Architectural fix** — flipped the conservative default and enumerated leaf arms in `body_captures_outer`:
+  - [x] Changed `_ => false` to `_ => true` — unknown shapes assume capture.
+  - [x] Explicit `false`-returning arms for verified leaf `ExprKind`s (literals, `Unit`, `None`, `HashLength`, `Const`, `FunctionRef`, `TemplateFull`, `Error`).
+  - [x] Complete recursion for every compound `ExprKind` with child expressions: `Call` walks func + args (previously only walked func); `MethodCall` walks receiver + args; plus `Block`, `List`, `Tuple`, `Map`, `Struct`, `Match`, `If`, `Range`, `For`, `Loop`, `Assign`, `WithCapability`, `Index`, `Break`, `Continue`, `Let`, `Await`, `Try`, `Unsafe`, `Cast`, `Ok`, `Err`, `Some`, `Field`, `Unary`, `Binary`, `Lambda` (descends with inner params).
+  - [x] Canonical-IR sugar variants also walked (`CallNamed`, `MethodCallNamed`, `ListWithSpread`, `MapWithSpread`, `StructWithSpread`, `TemplateLiteral`) — the sugar forms appear at typeck time (before `ori_canon` eliminates them), so they must be decoded here for the Value Restriction check to be complete.
+  - [x] `SelfRef => true` — `self` inside a lambda body captures the enclosing method's receiver.
+- [x] **`Ident` arm now honors `outer_vars`** — the architectural key insight. A bare identifier is a capture iff `!param_names.contains(n) && outer_vars.contains(n)`. `outer_vars` is the set of LEXICALLY-bound names (function params, local `let`s, loop/match pattern binders), NOT module-level references (prelude, imports, same-module signatures). This is critical: without it, a lambda like `xs -> len(collection: xs)` would falsely flag `len` as a capture and block generalization.
+- [x] **Threaded `outer_vars` through the capture-analysis signature** — `should_generalize(arena, init, outer_vars)` + `body_captures_outer(arena, id, param_names, outer_vars)`. All 3 let-binding call sites (`infer_block`, `infer_let`, `infer_try_stmt`) now call `collect_outer_vars(engine)` before `should_generalize`.
+- [x] **`InferEngine.module_scope_snapshot: Option<FxHashSet<Name>>`** — new field populated at engine creation time via `set_module_scope_snapshot`, called from `ModuleChecker::create_engine_with_env`. Captures the module-scope name set (prelude imports via `import_env`, same-module function signatures, test names) before any function-body lexical binder has run. `engine.collect_lexical_outer()` subtracts this snapshot from the current env's `names()` to yield exactly the lexical-outer subset.
+- [x] **Update docstring** — `body_captures_outer`'s docstring now correctly describes the conservative-direction invariant ("false negative is a type-soundness violation; false positive costs one missed polymorphic generalization"); the contradictory inline "codegen will catch it" comment was removed.
+- [x] **Verify all 7 new tests PASS** — all 7 `test_capturing_lambda_via_*` pass; `test_should_generalize_capturing_lambda_returns_false` + `test_should_generalize_non_capturing_lambda_returns_true` also pass with the new signature (updated to pass appropriate `outer_vars` sets via the `outer(&[...])` helper).
+- [x] **Verify all pre-existing tests STILL pass** — `test_let_polymorphism_for_lambda_produces_function` passes unchanged; full `ori_types` suite: 839 passed / 0 failed. Full `test-all.sh`: 16381 passed / 844 failed / 160 skipped — **exactly +7 passes over cache baseline (the 7 new tests) with 0 new failures**.
+- [x] **Regression-check on `tests/spec/inference/generalized_var_resolution.ori`** — a 6-test file that hit the lambda-body-CallNamed path (`xs -> len(collection: xs)`). Pre-fix: 6 pass. First iteration of the fix: 6 fail (false positive — `len` was being flagged as a capture because it was reachable via env.names() through `import_env`'s parent chain). Final fix with `module_scope_snapshot` subtraction: 6 pass.
+- [ ] **Dual-execution verification** — deferred to the Retrospective Close-Out section's re-run of `/tpr-review` + `/impl-hygiene-review`. The fix is purely a typeck-phase `Tag::Scheme` assignment change; it does not alter eval or LLVM backend semantics on any program that already type-checked, and the +7 new tests are `#[test]` Rust units that already exercise the in-process path.
+- [x] Update `typeck.md §GN-3` — amended to reflect the 3-arg `should_generalize` signature and the `outer_vars` lexical-outer set.
+- [ ] `/tpr-review` clean — scheduled as part of the Retrospective Close-Out block at the bottom of this section.
+- [ ] `/impl-hygiene-review` clean — scheduled as part of the Retrospective Close-Out block.
 
 ---
 

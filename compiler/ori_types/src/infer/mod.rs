@@ -153,6 +153,24 @@ pub struct InferEngine<'pool> {
     /// Used by `maybe_record_mono_instance()` to identify the caller when
     /// recording deferred mono calls.
     current_function: Option<Name>,
+
+    /// Snapshot of name bindings that were in place at engine-creation time
+    /// (typically `base_env.names()` — the module-level set of imported
+    /// prelude functions, imported module bindings, and same-module function
+    /// signatures from the Signatures-group pass).
+    ///
+    /// Used by [`InferEngine::collect_lexical_outer`] to distinguish names
+    /// bound lexically within the current function body (params, local
+    /// `let`s, `for`/`match` bindings) from names that are "visible but
+    /// globally scoped". Required for `should_generalize`'s Value Restriction
+    /// capture check to treat `let f = x -> len(xs: x)` (prelude-qualified
+    /// body) as non-capturing, while still treating
+    /// `let outer = 1; let f = x -> outer` (lexically-captured body) as
+    /// capturing.
+    ///
+    /// `None` means no snapshot was provided — in that case every env name
+    /// is conservatively treated as lexical (the pre-snapshot behavior).
+    module_scope_snapshot: Option<FxHashSet<Name>>,
 }
 
 impl<'pool> InferEngine<'pool> {
@@ -180,6 +198,7 @@ impl<'pool> InferEngine<'pool> {
             mono_instances: Vec::new(),
             deferred_mono_calls: Vec::new(),
             current_function: None,
+            module_scope_snapshot: None,
         }
     }
 
@@ -209,12 +228,46 @@ impl<'pool> InferEngine<'pool> {
             mono_instances: Vec::new(),
             deferred_mono_calls: Vec::new(),
             current_function: None,
+            module_scope_snapshot: None,
         }
     }
 
     /// Set the string interner for resolving names in error messages.
     pub fn set_interner(&mut self, interner: &'pool StringInterner) {
         self.interner = Some(interner);
+    }
+
+    /// Record the set of names that are already in scope at engine-creation
+    /// time (i.e., names present in `base_env` before any function-body
+    /// `let`/`for`/`match` binder has executed). Used by
+    /// [`Self::collect_lexical_outer`] to filter `env().names()` down to
+    /// the lexically-introduced subset.
+    pub(crate) fn set_module_scope_snapshot(&mut self, names: FxHashSet<Name>) {
+        self.module_scope_snapshot = Some(names);
+    }
+
+    /// Collect the lexically-bound outer-scope names visible from the
+    /// current inference frame, excluding module-level references (prelude
+    /// free functions, imports, same-module function signatures).
+    ///
+    /// Used by `should_generalize` (Value Restriction per `typeck.md §GN-3`)
+    /// to ensure a lambda body that references a prelude free function
+    /// (e.g., `len(collection: xs)`) is NOT mis-classified as capturing.
+    /// The classifier receives only names the user lexically bound inside
+    /// the enclosing function — params, prior `let` bindings, loop/match
+    /// pattern names — which is the semantically correct domain for
+    /// Value Restriction.
+    ///
+    /// When no snapshot was recorded (engine constructed without going
+    /// through `create_engine_with_env` — e.g., unit tests), every visible
+    /// name is conservatively returned; this preserves the pre-snapshot
+    /// behavior of test harnesses that build lambdas directly.
+    pub fn collect_lexical_outer(&self) -> FxHashSet<Name> {
+        let all: FxHashSet<Name> = self.env.names().collect();
+        match &self.module_scope_snapshot {
+            Some(base) => all.difference(base).copied().collect(),
+            None => all,
+        }
     }
 
     /// Set the well-known names cache for O(1) type annotation resolution.
