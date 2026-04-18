@@ -94,7 +94,7 @@ Pure modules (no capabilities required):
 - `std.math` (Mathematical functions — except `std.math.rand`)
 - `std.collections` (Data structures)
 
-See [Capabilities](../spec/14-capabilities.md) for details.
+See [Capabilities](../spec/20-capabilities.md) for details.
 
 ---
 

@@ -37,7 +37,7 @@ Lexing is performance-sensitive: cooked-throughput target is ~208-240 MiB/s.
 cargo test -p ori_lexer
 ```
 
-Benchmark harness lives in `compiler/ori_lexer/benches/` (throughput tests against cooked/raw tiers).
+Benchmark harness lives in `compiler/oric/benches/lexer.rs` and `compiler/oric/benches/lexer_core.rs` (throughput tests against cooked/raw tiers run through the `oric` bench driver).
 
 ## References
 
