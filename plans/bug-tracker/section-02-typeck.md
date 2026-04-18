@@ -84,6 +84,21 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
   Found: 2026-04-14 | Source: impl-hygiene-review (Section 01 close-out)
   Fix: `plans/bug-tracker/fix-BUG-02-005.md` (via `/fix-bug`)
 
+- [ ] `[BUG-02-011][minor]` **`compiler/ori_types/src/infer/mod.rs` at 864 lines exceeds 500-line BLOAT limit** — found by impl-hygiene-review during §01 retrospective close-out.
+  Repro: `wc -l compiler/ori_types/src/infer/mod.rs` reports 864 lines (364 over the `impl-hygiene.md §File Organization` 500-line limit, excl. tests). Pre-existing trend: 825 lines pre-arc; the §01.R-DRY retrospective added `InferEngine::build()` SSOT + `set_module_scope_snapshot` (+39 lines net — correct, necessary additions that DRY'd the constructors but did not address the long-standing size).
+  File accumulates: field definitions, two constructors (`new` / `with_env`) + the shared `build` helper, scope management methods (`enter_scope`, `exit_scope`, `enter_rank_scope`, `exit_rank_scope`), rank management, type-inference helpers, trait-dispatch bridging, and generalization (`should_generalize` / `maybe_generalize` live in `infer/expr/blocks.rs` but `generalize` + `collect_lexical_outer` + defaulting live in `infer/mod.rs`). Natural split points: scope methods → `infer/scope_methods.rs`; generalization / defaulting → `infer/generalize.rs`.
+  Subsystem: `compiler/ori_types/src/infer/`
+  Found: 2026-04-18 | Source: impl-hygiene-review (§01 retrospective close-out)
+  Fix: `plans/bug-tracker/fix-BUG-02-011.md` (via `/fix-bug`)
+
+- [ ] `[BUG-02-012][informational]` **`ModuleChecker` dual constructors inline 20+ fields without a shared `build()` SSOT** — found by impl-hygiene-review during §01 retrospective close-out.
+  Repro: `compiler/ori_types/src/check/mod.rs:231` (`pub fn new`) and `compiler/ori_types/src/check/mod.rs:267` (`pub fn with_registries`) both independently initialize `current_function`, `current_capabilities`, `provided_capabilities`, `current_impl_self`, and ~16 other fields. The §01.R-DRY retrospective applied the same pattern to `InferEngine` via `InferEngine::build()` (both `new` and `with_env` delegate through `build`), but `ModuleChecker` was not touched in the same arc — the gap is pre-existing.
+  Consequence: a future field added to `ModuleChecker` requires edits in BOTH constructors. The `DRIFT` risk is the same class the `InferEngine` arc mitigated.
+  Fix: extract `ModuleChecker::build(registries: ..., base_env: ...) -> Self` and delegate both constructors to it, mirroring the `InferEngine::build` pattern established in §01.R-DRY.
+  Subsystem: `compiler/ori_types/src/check/mod.rs`
+  Found: 2026-04-18 | Source: impl-hygiene-review (§01 retrospective close-out)
+  Fix: `plans/bug-tracker/fix-BUG-02-012.md` (via `/fix-bug`)
+
 ---
 
 ## 02.R Third Party Review Findings

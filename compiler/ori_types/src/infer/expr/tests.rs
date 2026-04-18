@@ -7,9 +7,9 @@ use ori_ir::{
 use rustc_hash::FxHashSet;
 
 /// Build a lexical-outer-scope set for tests that call `should_generalize`
-/// directly. The post-01.R-HYGIENE signature requires this set to
-/// distinguish real captures from module-level references resolved via
-/// `ori_registry` (prelude free functions, etc.).
+/// directly. The signature requires this set to distinguish real captures
+/// from module-level references resolved via `ori_registry` (prelude free
+/// functions, etc.).
 fn outer(names: &[Name]) -> FxHashSet<Name> {
     names.iter().copied().collect()
 }
@@ -2222,10 +2222,10 @@ fn test_clone_not_satisfied_by_range() {
     );
 }
 
-// Trait Satisfaction Tests — Eq satisfied by compound types (§3.14)
+// Trait Satisfaction Tests — Eq satisfied by compound types
 //
 // Compound types satisfy Eq because `.equals()` is implemented in the
-// evaluator and type checker (delivered by roadmap §3.14).
+// evaluator and type checker.
 
 #[test]
 fn test_eq_satisfied_by_list() {
@@ -3742,7 +3742,7 @@ fn test_try_block_let_lambda_generalizes() {
     );
 }
 
-// body_captures_outer soundness — §01.R-HYGIENE F1 + F7
+// body_captures_outer soundness
 //
 // These tests pin the Value Restriction's conservative-direction soundness:
 // every capturing lambda MUST be rejected by `should_generalize`, regardless

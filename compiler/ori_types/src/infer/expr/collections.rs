@@ -1,10 +1,49 @@
 //! Collection inference — list, tuple, map, and range literals.
 
-use ori_ir::{ExprArena, ExprId, Name, Span};
+use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::InferEngine;
 use super::infer_expr;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag, TypeCheckError};
+
+/// Check-direction dispatch for `iter.collect()` when the expected type is `Set<T>`.
+///
+/// When `check_expr` has an expected type whose tag is `Set` AND the expression is
+/// a `MethodCall`, this helper resolves the call against `Set<T>` rather than the
+/// default `[T]`. Returns `Some(ty)` with the unified Set type when the dispatch
+/// fires, `None` otherwise (the caller falls through to default infer+check).
+///
+/// Extracted from `check_expr` in `infer/expr/mod.rs` to keep that module
+/// routing-only per `impl-hygiene.md §Side-Logic Rule` — the
+/// `MethodCall + expected Set` gate is collection-specific policy that
+/// belongs alongside the other `Collect`-trait helpers in this module.
+pub(crate) fn check_collect_method_call(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    expr_id: ExprId,
+    expr_kind: &ExprKind,
+    expected: &Expected,
+    expected_tag: Tag,
+    span: Span,
+) -> Option<Idx> {
+    if expected_tag != Tag::Set {
+        return None;
+    }
+    let ExprKind::MethodCall {
+        receiver,
+        method,
+        args,
+    } = expr_kind
+    else {
+        return None;
+    };
+    let ty = check_collect_to_set(engine, arena, expr_id, *receiver, *method, *args)?;
+    // Unify the inferred Set<Elem> with the expected Set<T> so the element
+    // type variable resolves (e.g., `[].iter().collect()` with expected
+    // `Set<int>` unifies Elem = int).
+    let _ = engine.check_type(ty, expected, span);
+    Some(ty)
+}
 
 /// Infer the type of a list literal.
 pub(crate) fn infer_list(

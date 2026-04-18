@@ -1,8 +1,12 @@
 //! Format-spec and interpolation validation for template literals.
 //!
-//! Home for the two checks previously inlined in the `infer/expr/mod.rs`
-//! dispatch module:
+//! Home for the template-literal inference entry point plus its two
+//! validators, all previously inlined in the `infer/expr/mod.rs` dispatch
+//! module:
 //!
+//! - `infer_template_literal` — iterates template parts, recursively infers
+//!   each interpolant, and routes to the validator that matches the part's
+//!   format-spec presence. Returns `Idx::STR`.
 //! - `check_interpolation_printable` — validates `{expr}` interpolation
 //!   arguments implement `Printable` (`E2038`).
 //! - `validate_format_spec` — parses and validates `{expr:spec}` format
@@ -11,10 +15,39 @@
 //! Relocated here to keep `infer/expr/mod.rs` a routing-only dispatch per
 //! `impl-hygiene.md §Side-Logic Rule`.
 
-use ori_ir::{Name, Span};
+use ori_ir::{ExprArena, Name, Span, TemplatePartRange};
 
 use super::super::InferEngine;
+use super::infer_expr;
 use crate::{Idx, Tag, TypeCheckError};
+
+/// Infer the type of a template literal expression.
+///
+/// Iterates template parts, recursively infers each interpolated expression,
+/// and routes to the appropriate validator based on whether a format spec is
+/// present (`{expr}` → [`check_interpolation_printable`], `{expr:spec}` →
+/// [`validate_format_spec`]). Returns `Idx::STR` — template literals always
+/// have type `str`.
+pub(crate) fn infer_template_literal(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    parts: TemplatePartRange,
+    span: Span,
+) -> Idx {
+    for part in arena.get_template_parts(parts) {
+        let part_ty = infer_expr(engine, arena, part.expr);
+
+        if part.format_spec == Name::EMPTY {
+            // {expr} — requires Printable for to_str() conversion (E2038)
+            check_interpolation_printable(engine, part_ty, span);
+        } else {
+            // {expr:spec} — validate format spec (E2034/E2035)
+            // Formattable requirement is implied; Printable not needed
+            validate_format_spec(engine, part.format_spec, part_ty, span);
+        }
+    }
+    Idx::STR
+}
 
 /// Validate that an interpolated expression's type implements `Printable` (E2038).
 ///
