@@ -40,6 +40,7 @@ mod collections;
 mod concurrency;
 mod constructors;
 mod control_flow;
+mod format;
 mod identifiers;
 mod methods;
 mod operators;
@@ -53,9 +54,13 @@ mod type_resolution;
 pub(super) use blocks::*;
 pub(super) use calls::*;
 pub(super) use collections::*;
+// Explicit named re-exports for 01.R-SIDE-LOGIC relocated symbols
+// (F14 in 01.R-TEST-HYGIENE will eventually drop the sibling globs).
+pub(super) use collections::check_collect_to_set;
 pub(super) use concurrency::*;
 pub(super) use constructors::*;
 pub(super) use control_flow::*;
+pub(super) use format::{check_interpolation_printable, validate_format_spec};
 pub(super) use identifiers::*;
 pub(super) use methods::*;
 pub(super) use operators::*;
@@ -335,143 +340,6 @@ pub fn check_expr(
     let inferred = infer_expr(engine, arena, expr_id);
     let _ = engine.check_type(inferred, expected, span);
     inferred
-}
-
-/// Bidirectional collect: resolve `iter.collect()` to `Set<T>` when expected.
-///
-/// Returns `Some(set_ty)` if the method is `collect` on an `Iterator<T>`,
-/// storing the resolved `Set<T>` type. Returns `None` to fall through
-/// to default inference.
-fn check_collect_to_set(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    expr_id: ExprId,
-    receiver: ExprId,
-    method: ori_ir::Name,
-    args: ori_ir::ExprRange,
-) -> Option<Idx> {
-    let method_str = engine.lookup_name(method)?;
-    if method_str != "collect" {
-        return None;
-    }
-
-    let recv_ty = infer_expr(engine, arena, receiver);
-    let resolved = engine.resolve(recv_ty);
-    if !engine.pool().tag(resolved).is_iterator() {
-        return None;
-    }
-
-    // Infer arguments (collect has none, but be consistent)
-    for &arg_id in arena.get_expr_list(args) {
-        infer_expr(engine, arena, arg_id);
-    }
-
-    let elem = engine.pool().iterator_elem(resolved);
-    let set_ty = engine.pool_mut().set(elem);
-    engine.store_type(expr_id.raw() as usize, set_ty);
-    Some(set_ty)
-}
-
-/// Validate that an interpolated expression's type implements `Printable` (E2038).
-///
-/// Follows the `check_map_key_hashable` pattern: resolve type, skip variables/errors,
-/// check primitives + compound types via `WellKnownNames`, then check user types
-/// via `TraitRegistry`.
-fn check_interpolation_printable(engine: &mut InferEngine<'_>, expr_type: Idx, span: Span) {
-    let resolved = engine.resolve(expr_type);
-    let tag = engine.pool().tag(resolved);
-
-    // Skip unresolved variables, error sentinels, and Never (coerces to anything)
-    if matches!(tag, Tag::Var | Tag::Infer | Tag::Never) || resolved == Idx::ERROR {
-        return;
-    }
-
-    // Check via WellKnownNames (primitives + compound types)
-    let satisfies_via_wellknown = {
-        engine
-            .well_known()
-            .is_some_and(|wk| wk.type_satisfies_trait(resolved, wk.printable, engine.pool()))
-    };
-    if satisfies_via_wellknown {
-        return;
-    }
-
-    // User-defined types: check trait registry for Printable impl
-    let has_impl = {
-        let printable_name = engine.well_known().map(|wk| wk.printable);
-        if let Some(p_name) = printable_name {
-            let printable_idx = engine.pool_mut().named(p_name);
-            engine
-                .trait_registry()
-                .is_some_and(|reg| reg.has_impl(printable_idx, resolved))
-        } else {
-            // No well-known cache — skip check (isolated test context)
-            return;
-        }
-    };
-    if !has_impl {
-        engine.push_error(crate::TypeCheckError::missing_printable(span, resolved));
-    }
-}
-
-/// Validate a format specification against the expression's inferred type.
-///
-/// Checks:
-/// 1. The format spec parses correctly (E2034 if not)
-/// 2. The format type is compatible with the expression type (E2035 if not):
-///    - `b`, `o`, `x`, `X` require `int`
-///    - `e`, `E`, `f`, `%` require `float`
-fn validate_format_spec(
-    engine: &mut InferEngine<'_>,
-    format_spec: Name,
-    expr_type: Idx,
-    span: Span,
-) {
-    use ori_ir::format_spec::parse_format_spec;
-
-    let Some(spec_str) = engine.lookup_name(format_spec) else {
-        return;
-    };
-
-    if spec_str.is_empty() {
-        return;
-    }
-
-    let parsed = match parse_format_spec(spec_str) {
-        Ok(p) => p,
-        Err(e) => {
-            engine.push_error(crate::TypeCheckError::invalid_format_spec(
-                span,
-                spec_str.to_owned(),
-                e.to_string(),
-            ));
-            return;
-        }
-    };
-
-    // Validate format type against expression type
-    let Some(fmt_type) = parsed.format_type else {
-        return;
-    };
-
-    let resolved = engine.resolve(expr_type);
-    let tag = engine.pool().tag(resolved);
-
-    if fmt_type.is_integer_only() && !matches!(tag, Tag::Int) {
-        engine.push_error(crate::TypeCheckError::format_type_mismatch(
-            span,
-            resolved,
-            fmt_type.name().to_owned(),
-            "int",
-        ));
-    } else if fmt_type.is_float_only() && !matches!(tag, Tag::Float) {
-        engine.push_error(crate::TypeCheckError::format_type_mismatch(
-            span,
-            resolved,
-            fmt_type.name().to_owned(),
-            "float",
-        ));
-    }
 }
 
 #[cfg(test)]

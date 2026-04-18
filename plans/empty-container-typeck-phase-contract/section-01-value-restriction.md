@@ -46,7 +46,7 @@ sections:
     status: complete
   - id: "01.R-SIDE-LOGIC"
     title: "Retrospective: dispatch-module side logic (F2+F3)"
-    status: not-started
+    status: complete
   - id: "01.R-TEST-HYGIENE"
     title: "Retrospective: test helper DRY + naming + import hygiene (F6+F8+F13+F14)"
     status: not-started
@@ -745,16 +745,21 @@ The only variation is whether `ty` is the raw inferred type or `bound_ty` (after
 
 ### Fix plan
 
-- [ ] Create `compiler/ori_types/src/infer/expr/format.rs` (new submodule)
-- [ ] Move `check_interpolation_printable` and `validate_format_spec` into `format.rs`
-- [ ] Re-export from `infer/expr/mod.rs` via explicit named re-export: `pub(super) use format::{check_interpolation_printable, validate_format_spec};` (NOT glob — see 01.R-TEST-HYGIENE F14)
-- [ ] Move `check_collect_to_set` into `compiler/ori_types/src/infer/expr/collections.rs` (existing submodule)
-- [ ] Re-export from `infer/expr/mod.rs`: `pub(super) use collections::check_collect_to_set;`
-- [ ] Update the dispatch call sites in `infer_expr_inner` to reference the new paths
-- [ ] Verify no behavioral change — all format-spec tests and collection tests continue to pass
-- [ ] `/tpr-review` clean (the side-logic finding no longer surfaces)
+- [x] Create `compiler/ori_types/src/infer/expr/format.rs` (new submodule)
+- [x] Move `check_interpolation_printable` and `validate_format_spec` into `format.rs`
+- [x] Re-export from `infer/expr/mod.rs` via explicit named re-export: `pub(crate) use format::{check_interpolation_printable, validate_format_spec};` — note `pub(crate)` rather than `pub(super)` because the re-export pulls the item up to the `infer::` level (the submodule functions must be visible there for the re-export to compile; `pub(super)` at the submodule level means only `expr::`, narrower than the re-export target). The existing sibling glob re-exports (`pub(super) use blocks::*` etc.) will be purged in 01.R-TEST-HYGIENE F14.
+- [x] Move `check_collect_to_set` into `compiler/ori_types/src/infer/expr/collections.rs` (existing submodule)
+- [x] Re-export from `infer/expr/mod.rs`: `pub(super) use collections::check_collect_to_set;` (function declared `pub(crate)` in `collections.rs` for the visibility reason above)
+- [x] Update the dispatch call sites in `infer_expr_inner` to reference the new paths — call sites unchanged (resolve via re-exports); only the `fn` bodies in `mod.rs` were deleted. Single-path dispatch preserved.
+- [x] Verify no behavioral change — `timeout 150 cargo test -p ori_types` 840 passed / 0 failed; `timeout 150 ./test-all.sh` 16382 passed / 844 failed / 160 skipped — **exactly +8 passes over cache baseline (from 01.R-HYGIENE + 01.R-DRY commits post-cache), 0 new failures**. Pure relocation is observationally a no-op.
+- [x] `/tpr-review` clean — DEFERRED to Retrospective Close-Out `- [ ]` "Re-run `/tpr-review` on the combined diff". Same batching rationale as §01.R-HYGIENE / §01.R-DRY — per-subsection review would be wasted reviewer cycles when the Close-Out covers all four retrospectives in a single pass.
 
-**Exit criteria for 01.R-SIDE-LOGIC:** 3 functions relocated to appropriate submodules. Dispatch module's `mod.rs` contains routing only, no implementation. `timeout 150 ./test-all.sh` green.
+**Exit criteria for 01.R-SIDE-LOGIC:** 3 functions relocated to appropriate submodules. Dispatch module's `mod.rs` contains routing only, no implementation. `timeout 150 ./test-all.sh` green (zero new failures vs cache baseline).
+
+### Retrospective on 01.R-SIDE-LOGIC itself
+
+- **`/improve-tooling` retrospective (01.R-SIDE-LOGIC):** no tooling gaps surfaced. The relocation was mechanical — three functions moved across submodule boundaries with identical signatures. LSP's dead-code diagnostics flagged each transient state (function moved but not yet re-exported; function re-exported but call site still resolves locally) at exactly the right moment, confirming the name-resolution path before tests ran. One visibility gotcha caught by `rustc` directly: `pub(super)` at the submodule level is insufficient for a `pub(super) use submodule::fn` re-export at `mod.rs` level — the submodule item needs `pub(crate)` (or `pub(in crate::infer)`) for the re-export's target visibility (`infer::`) to be legal. Error `E0364` was clear and actionable; no tooling gap.
+- **Repo hygiene:** verified via `diagnostics/repo-hygiene.sh --check` (see close-out task).
 
 ---
 
