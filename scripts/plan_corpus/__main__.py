@@ -11,7 +11,7 @@ from pathlib import Path
 
 from collections import defaultdict
 
-from .types import Finding, FindingSubtype, Outcome, REPO_ROOT
+from .types import Finding, FindingCategory, FindingSubtype, Outcome, PLANS_DIR, REPO_ROOT
 from .discovery import discover_corpus, load_and_validate
 from .docgen import generate_schema_reference
 
@@ -125,6 +125,42 @@ def main() -> int:
         from .dag import build_dag
         from .export_json import export_neo4j_json
         corpus = discover_corpus()
+        # Gate: refuse to export if any plan-admission file
+        # (`plans/<dir>/index.md` or `plans/<dir>/00-overview.md`, excluding
+        # plans/completed/, plans/roadmap/, plans/bug-tracker/) produced a
+        # parse_error finding. A parse failure on these files means the
+        # corresponding plan is silently dropped from the Neo4j graph —
+        # exit 1 is the correct signal so the sync pipeline
+        # (`sync_plan_bug_graph.py run_full()`) fails loudly instead of
+        # importing a partial corpus.
+        plans_root = PLANS_DIR.resolve()
+        admission_parse_errors = []
+        for f in corpus.gaps:
+            if f.category != FindingCategory.PARSE_ERROR:
+                continue
+            try:
+                rel = Path(f.source).resolve().relative_to(plans_root)
+            except ValueError:
+                continue
+            if rel.parts[0] in {"completed", "roadmap", "bug-tracker"}:
+                continue
+            if Path(f.source).name in {"index.md", "00-overview.md"}:
+                admission_parse_errors.append(f)
+        if admission_parse_errors:
+            print(
+                "ERROR: plan_corpus export refuses to emit — parse_error on "
+                f"{len(admission_parse_errors)} plan-admission file(s) would "
+                "silently drop plans from the Neo4j graph:",
+                file=sys.stderr,
+            )
+            for f in admission_parse_errors:
+                print(f"  - {f.source}: {f.description}", file=sys.stderr)
+            print(
+                "Fix the listed file(s) (add YAML frontmatter, fix YAML "
+                "syntax) and re-run.",
+                file=sys.stderr,
+            )
+            return 1
         dag = build_dag(corpus)
         envelope = export_neo4j_json(
             corpus, dag, include_references=not args.no_references

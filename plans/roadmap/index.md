@@ -1,3 +1,9 @@
+---
+name: "Roadmap"
+full_name: "Ori Compiler Roadmap"
+status: in-progress
+---
+
 # Roadmap Index
 
 > **Maintenance Notice:** This index must be updated whenever roadmap items are added, removed, or reorganized. When modifying any `section-*.md` file, update the corresponding keyword cluster below to keep the index accurate and searchable.

@@ -1,3 +1,10 @@
+---
+name: "Project Reorganization"
+full_name: "Project Reorganization"
+status: in-progress
+reviewed: false
+---
+
 # Project Reorganization Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.
