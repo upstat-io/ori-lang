@@ -143,7 +143,7 @@ Section 05 (Test Matrix) is written FIRST (TDD) but verified LAST.
 Phase 0 — TDD Stubs (Section 05 first wave)
   └─ 05: Write failing matrix tests + semantic pins + negative pins as STUBS
 
-Phase 1 — Generalization Policy (Section 01) — IN-PROGRESS (core complete; retrospective subsections open)
+Phase 1 — Generalization Policy (Section 01) — COMPLETE
   └─ 01.1–01.4: should_generalize helper + 3 migration sites — COMPLETE
   └─ 01.R-HYGIENE: body_captures_outer soundness (F1+F7 from §03.N hygiene sweep)
   └─ 01.R-DRY: InferEngine constructor + maybe_generalize DRY (F4+F5)
@@ -276,7 +276,7 @@ Bugs absorbed into the plan's scope per CLAUDE.md §Ownership & Deferral "Plan-b
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | AST-based Value Restriction | `section-01-value-restriction.md` | In-Progress (core complete; 4 retrospective subsections 01.R-HYGIENE / 01.R-DRY / 01.R-SIDE-LOGIC / 01.R-TEST-HYGIENE open from §03.N impl-hygiene-review sweep on 2026-04-18) |
+| 01 | AST-based Value Restriction | `section-01-value-restriction.md` | Complete |
 | 02 | Validator Module (`ori_types::check::validators`) | `section-02-validator-module.md` | Complete |
 | 03 | Bodies-Pass Integration (absorbs BUG-04-074, BUG-04-084) | `section-03-bodies-pass-integration.md` | Complete |
 | 04 | Codegen Defense-in-Depth Assertions | `section-04-codegen-assertions.md` | Not Started |

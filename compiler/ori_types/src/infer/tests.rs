@@ -244,9 +244,9 @@ fn snapshot(engine: &InferEngine<'_>) -> EngineSnapshot {
     }
 }
 
-/// Regression pin for F4 (section 01.R-DRY): both `InferEngine::new` and
-/// `InferEngine::with_env` must route through the `build` SSOT so that
-/// adding a new field to `InferEngine` requires exactly one edit, not two.
+/// Regression pin: both `InferEngine::new` and `InferEngine::with_env`
+/// must route through the `build` SSOT so that adding a new field to
+/// `InferEngine` requires exactly one edit, not two.
 ///
 /// If a future field is added to only one constructor, the snapshots will
 /// diverge on whatever observable that field affects — catching the
@@ -270,6 +270,6 @@ fn infer_engine_new_and_with_env_produce_identical_default_state() {
         "InferEngine::new and InferEngine::with_env(TypeEnv::new()) must \
          produce structurally identical engines — both MUST delegate to \
          Self::build. A divergence here means one constructor was edited \
-         without updating the other (section 01.R-DRY F4)."
+         without updating the other."
     );
 }

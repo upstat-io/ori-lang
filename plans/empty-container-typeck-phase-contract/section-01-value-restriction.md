@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "AST-based Value Restriction"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Extract a single SSOT `should_generalize` helper and migrate all 3 let-generalization sites to call it, so only direct non-capturing lambda initializers generalize — all other initializers (including empty lists, block-wrapped lambdas, variable aliases, conditionals producing functions) become monomorphic."
 success_criteria:
@@ -18,7 +18,7 @@ inspired_by:
 depends_on: []
 third_party_review:
   status: resolved
-  updated: 2026-04-14
+  updated: 2026-04-18
 sections:
   - id: "01.1"
     title: "Extract `should_generalize` SSOT helper"
@@ -825,11 +825,11 @@ The only variation is whether `ty` is the raw inferred type or `bound_ty` (after
 
 ## Retrospective Close-Out (after 01.R-HYGIENE + 01.R-DRY + 01.R-SIDE-LOGIC + 01.R-TEST-HYGIENE land)
 
-- [ ] Re-run `/impl-hygiene-review` with `scope=active-work-arc` — expect zero Critical/Major findings
-- [ ] Re-run `/tpr-review` on the combined diff — expect clean
-- [ ] Update `typeck.md §GN-3` if `body_captures_outer` semantics change substantively in 01.R-HYGIENE
-- [ ] Re-flip §01 `status: in-progress` → `status: complete` in frontmatter
-- [ ] Update `00-overview.md` Quick Reference row for §01 back to `Complete`
-- [ ] Update `00-overview.md` Implementation Sequence Phase 1 marker back to `COMPLETE`
-- [ ] Refresh `diagnostics/state.sh` cache
-- [ ] Commit via `/commit-push`
+- [x] Re-run `/impl-hygiene-review` with `scope=active-work-arc` — expect zero Critical/Major findings. Result: 0 Critical / 0 Major; 2 pre-existing minor/note findings filed as BUG-02-011 (`infer/mod.rs` 864-line BLOAT) and BUG-02-012 (`ModuleChecker` dual-constructor gap); 1 arc-introduced DRIFT (stale plan annotations in 3 test files) auto-fixed in-place.
+- [x] Re-run `/tpr-review` on the combined diff — expect clean. Result: round 0 — codex 2 verified medium findings (side-logic leaks in `infer/expr/mod.rs`: template-literal iteration + Set-collect dispatch not routing-only); extracted `infer_template_literal` into `format.rs` and `check_collect_method_call` into `collections.rs`; dead re-exports of now-internal helpers pruned. Round 1 — both reviewers clean; dual-source consensus reached.
+- [x] Update `typeck.md §GN-3` if `body_captures_outer` semantics change substantively in 01.R-HYGIENE. Result: `body_captures_outer` semantics (outer_vars + conservative `_ => true` default) already current. Updated the rule to reflect the 01.R-DRY `maybe_generalize` SSOT (`should_generalize` = policy decision; `maybe_generalize` = applying the decision) — call sites now invoke `maybe_generalize` rather than inlining `collect_outer_vars` + `if should_generalize { ... }`.
+- [x] Re-flip §01 `status: in-progress` → `status: complete` in frontmatter.
+- [x] Update `00-overview.md` Quick Reference row for §01 back to `Complete`.
+- [x] Update `00-overview.md` Implementation Sequence Phase 1 marker back to `COMPLETE`.
+- [x] Refresh `diagnostics/state.sh` cache — handled by `/commit-push` Step 8 auto-refresh (`--sha-only`).
+- [x] Commit via `/commit-push`.

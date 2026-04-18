@@ -60,7 +60,7 @@ pub(super) use blocks::{
 };
 pub(super) use calls::{infer_call, infer_call_named, infer_method_call, infer_method_call_named};
 pub(super) use collections::{
-    check_collect_to_set, infer_list, infer_list_spread, infer_map_literal, infer_map_spread,
+    check_collect_method_call, infer_list, infer_list_spread, infer_map_literal, infer_map_spread,
     infer_range, infer_tuple,
 };
 pub(super) use concurrency::{infer_cache, infer_catch, infer_recurse};
@@ -71,7 +71,7 @@ pub(super) use control_flow::{
     check_match_pattern, infer_break, infer_continue, infer_for, infer_if, infer_loop, infer_match,
     substitute_type_params_with_map,
 };
-pub(super) use format::{check_interpolation_printable, validate_format_spec};
+pub(super) use format::infer_template_literal;
 pub(super) use identifiers::{
     find_similar_type_names, infer_const, infer_function_ref, infer_ident, infer_self_ref,
 };
@@ -92,7 +92,7 @@ pub(super) use structs::{
 pub(super) use type_resolution::resolve_and_check_parsed_type;
 pub use type_resolution::resolve_parsed_type;
 
-use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
+use ori_ir::{ExprArena, ExprId, ExprKind, Span};
 use ori_stack::ensure_sufficient_stack;
 
 use super::InferEngine;
@@ -274,20 +274,7 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
 
         // Template Literals
         ExprKind::TemplateLiteral { parts, .. } => {
-            // Infer each interpolated expression and validate format specs
-            for part in arena.get_template_parts(*parts) {
-                let part_ty = infer_expr(engine, arena, part.expr);
-
-                if part.format_spec == Name::EMPTY {
-                    // {expr} — requires Printable for to_str() conversion (E2038)
-                    check_interpolation_printable(engine, part_ty, span);
-                } else {
-                    // {expr:spec} — validate format spec (E2034/E2035)
-                    // Formattable requirement is implied; Printable not needed
-                    validate_format_spec(engine, part.format_spec, part_ty, span);
-                }
-            }
-            Idx::STR
+            infer_template_literal(engine, arena, *parts, span)
         }
 
         // Error
@@ -335,26 +322,20 @@ pub fn check_expr(
         }
     }
 
-    // Type-directed collect: when `iter.collect()` is expected to produce a Set,
-    // resolve to `Set<T>` instead of the default `[T]`. This implements the
-    // Collect trait's bidirectional type inference.
-    if let ExprKind::MethodCall {
-        receiver,
-        method,
-        args,
-    } = &expr.kind
-    {
-        if expected_tag == Tag::Set {
-            if let Some(ty) =
-                check_collect_to_set(engine, arena, expr_id, *receiver, *method, *args)
-            {
-                // Unify the inferred Set<Elem> with the expected Set<T> so the
-                // element type variable resolves (e.g., `[].iter().collect()`
-                // with expected `Set<int>` unifies Elem = int).
-                let _ = engine.check_type(ty, expected, span);
-                return ty;
-            }
-        }
+    // Type-directed collect dispatch: `iter.collect()` with expected `Set<T>`
+    // resolves to `Set<T>` instead of the default `[T]` (Collect trait
+    // bidirectional inference). Policy lives in `collections.rs` so this
+    // function stays routing-only per `impl-hygiene.md §Side-Logic Rule`.
+    if let Some(ty) = check_collect_method_call(
+        engine,
+        arena,
+        expr_id,
+        &expr.kind,
+        expected,
+        expected_tag,
+        span,
+    ) {
+        return ty;
     }
 
     // Default: infer the type and check against expected
