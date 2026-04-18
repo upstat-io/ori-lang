@@ -28,7 +28,7 @@ Key modules:
 
 | Direction | Crates |
 |---|---|
-| Upstream | `ori_ir`, `ori_diagnostic`, `ori_stack`, `ori_lexer` |
+| Upstream | `ori_ir`, `ori_diagnostic`, `ori_stack` (runtime); `ori_lexer` (dev-dep only, for test fixtures) |
 | Downstream | `ori_types`, `ori_canon`, `ori_compiler`, `oric` |
 
 ## Invariants
@@ -44,7 +44,7 @@ Key modules:
 cargo test -p ori_parse
 ```
 
-Benchmarks in `compiler/ori_parse/benches/` — full-parse throughput ~95-128 MiB/s target.
+Benchmarks in `compiler/oric/benches/parser.rs` — full-parse throughput ~95-128 MiB/s target (benches run through the `oric` bench driver since `ori_parse` itself declares no `benches/` directory).
 
 ## Where to look
 

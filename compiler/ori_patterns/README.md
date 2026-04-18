@@ -28,7 +28,7 @@ Patterns invoke the evaluator only through the `PatternExecutor` trait — never
 
 | Direction | Crates |
 |---|---|
-| Upstream | `ori_ir`, `ori_registry` |
+| Upstream | `ori_ir`, `ori_diagnostic` |
 | Downstream | `ori_eval`, `ori_compiler`, `oric` |
 
 ## Invariants
