@@ -121,4 +121,5 @@ venv/
 .claude/discussions
 .claude/worktrees/
 .claude/.spec-proposal-active
+.claude/state/known-state.json
 scratchpad
