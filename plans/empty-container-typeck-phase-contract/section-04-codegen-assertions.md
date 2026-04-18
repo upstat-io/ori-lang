@@ -29,6 +29,11 @@ depends_on: ["03", "08"]
 third_party_review:
   status: none
   updated: null
+review_pipeline:
+  stage: editor-done
+  next_step: 6
+  updated: 2026-04-18
+  note: "Paused mid-pipeline at /tpr-review §9 context-pressure pause. Steps 2-5 complete; edits landed in commit 126212ca. Step 6 (/tpr-review) next. Resume via /review-plan on this file."
 sections:
   # Split into 04.1 (module), 04.2 (primary seam — the load-bearing site), 04.3 (pre-mono diagnostics localization), 04.4 (tests), 04.R (TPR), 04.N (checklist).
   # Prior version had 25 checkbox items > 20 (audit SIZE_VIOLATION). Restructuring collapses the per-site subsections into one primary-seam section + one secondary-sites section.
