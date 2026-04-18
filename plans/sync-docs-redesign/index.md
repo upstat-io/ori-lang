@@ -1,3 +1,10 @@
+---
+name: "Sync Docs Redesign"
+full_name: "Sync Docs Redesign"
+status: queued
+reviewed: false
+---
+
 # Sync Docs Redesign Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.

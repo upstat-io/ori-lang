@@ -13,15 +13,40 @@ import yaml
 
 from .types import (
     CorpusParseError,
-    YAML_ANCHOR_RE,
     YAML_MERGE_KEY_RE,
     ZERO_WIDTH_CHARS,
 )
 
 
 class _NoDuplicateKeyLoader(yaml.SafeLoader):
-    """SafeLoader subclass that raises on duplicate mapping keys."""
-    pass
+    """SafeLoader subclass that raises on duplicate mapping keys AND on
+    any YAML anchor (`&name`) or alias (`*name`).
+
+    Anchor/alias rejection is done at the composer layer (not via a raw-line
+    regex) because a regex cannot distinguish a real YAML alias at a value
+    position from `**bold**` markdown or `**/build` glob text inside a
+    quoted string value. PyYAML's composer sees post-parse events, so
+    anchors and aliases are unambiguous here.
+    """
+
+    def compose_node(self, parent, index):
+        # Alias events (`*name`) are rejected unconditionally.
+        if self.check_event(yaml.AliasEvent):
+            event = self.peek_event()
+            mark = event.start_mark
+            raise yaml.YAMLError(
+                f"YAML alias detected at line {mark.line + 1} column {mark.column + 1} (schema-bypass vector)"
+            )
+        event = self.peek_event()
+        # Anchored nodes (`&name ...`) are rejected too — the anchor
+        # attribute is set on ScalarEvent / SequenceStartEvent /
+        # MappingStartEvent when an anchor is attached.
+        if event.anchor is not None:
+            mark = event.start_mark
+            raise yaml.YAMLError(
+                f"YAML anchor `&{event.anchor}` detected at line {mark.line + 1} column {mark.column + 1} (schema-bypass vector)"
+            )
+        return super().compose_node(parent, index)
 
 
 def _no_duplicate_key_constructor(loader, node):
@@ -45,15 +70,14 @@ _NoDuplicateKeyLoader.add_constructor(
 
 
 def _validate_yaml_features(fm_lines: list[str], path: Path) -> None:
-    """Pre-scan frontmatter lines for anchors, aliases, merge keys,
-    and multi-document markers."""
+    """Pre-scan frontmatter lines for merge keys and multi-document markers.
+
+    Anchor/alias rejection lives in `_NoDuplicateKeyLoader.compose_node`
+    (PyYAML-layer) rather than here, because a raw-line regex cannot
+    distinguish real anchors/aliases from markdown / glob text inside
+    quoted string values.
+    """
     for line_no, line in enumerate(fm_lines, start=2):
-        if YAML_ANCHOR_RE.search(line):
-            raise CorpusParseError(
-                "YAML anchor/alias detected (schema-bypass vector)",
-                path,
-                line=line_no,
-            )
         if YAML_MERGE_KEY_RE.search(line):
             raise CorpusParseError(
                 "YAML merge key (<<:) detected",

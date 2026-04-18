@@ -25,7 +25,10 @@ BUG_TRACKER_DIR = PLANS_DIR / "bug-tracker"
 ROADMAP_DIR = PLANS_DIR / "roadmap"
 
 FRONTMATTER_FENCE = re.compile(r"^---\s*$")
-YAML_ANCHOR_RE = re.compile(r"[&*]\w")
+# YAML_ANCHOR_RE removed — anchor/alias rejection moved to the PyYAML
+# composer layer in `parser._NoDuplicateKeyLoader.compose_node`. A raw-line
+# regex cannot distinguish a real YAML alias at a value position from
+# `**bold**` markdown or `**/build` glob text inside a quoted string.
 YAML_MERGE_KEY_RE = re.compile(r"<<\s*:")
 ZERO_WIDTH_CHARS = frozenset("\u200b\ufeff\u200e\u200f")
 
