@@ -70,16 +70,20 @@ phase-contract enforcement, cross-phase invariant contract
 **File:** `section-04-codegen-assertions.md` | **Status:** Not Started
 
 ```
-debug_assert!, defense-in-depth, Cross-Phase Invariant Contract
-impl-hygiene.md, consumer-side assertion, release ICE
-internal compiler error, panic with ArcFunction name
-prepare_mono_cached, process_arc_function, ArcFunction.var_types
-compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs:95
-compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:315
-compiler/ori_llvm/src/evaluator/compile.rs:230 (JIT pre-mono hook)
-compiler/oric/src/commands/codegen_pipeline.rs:112 (AOT pre-mono hook)
-ArcVarId index u32, Vec<Idx> enumerate, collect_mono_functions
-MonoInstance generic_args Vec<GenericArg>, FunctionSig, StringInterner
+assert_no_unresolved_type_vars, UnresolvedTypeVar, ori_arc::ir::validate
+PRIMARY seam, process_arc_function, declare_and_process_lambda, single upstream choke point
+defense-in-depth, Cross-Phase Invariant Contract, typeck PC-2
+impl-hygiene.md §Cross-Phase Invariant Contracts, impl-hygiene.md §Side Logic
+codegen-rules.md §TR-2, codegen-rules.md §VR-1, ORI_VERIFY_ARC layering
+typed VerifyError variant (NOT Result<(), String>), exempt_var_ids, VarState::Generalized mirror
+no debug_assert! fail-open (release safe), ArcFunction.var_types, Tag::Var, Tag::Projection
+lambda coverage via declare_and_process_lambda, closure-captured var types
+compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:315 (process_arc_function)
+compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:375 (declare_and_process_lambda)
+compiler/ori_llvm/src/evaluator/compile.rs:230 (JIT pre-mono, diagnostic localization)
+compiler/oric/src/commands/codegen_pipeline.rs:95,112 (AOT pre-mono, diagnostic localization)
+compiler/ori_arc/src/ir/validate.rs (CREATE), compiler/ori_arc/src/ir/validate/tests.rs (CREATE)
+depends on Section 03 (producer-side validator) AND Section 08 (BUG-04-042 BoundVar bleed)
 ```
 
 ---
