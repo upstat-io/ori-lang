@@ -192,7 +192,7 @@ A key design choice is the **uniform collection layout**: lists, maps, and sets 
 
 ### JIT Compilation
 
-JIT execution compiles and runs code immediately in the same process. The `OwnedLLVMEvaluator` orchestrates the full pipeline: parse → type check → canonicalize → lower to ARC IR → emit LLVM IR → create `ExecutionEngine` → call the function. This is the path for `ori run` and `ori test`.
+JIT execution compiles and runs code immediately in the same process. The `OwnedLLVMEvaluator` orchestrates the full pipeline: parse → type check → canonicalize → lower to ARC IR → emit LLVM IR → create `ExecutionEngine` → call the function. This path is used for `ori run --compile` (JIT backend) and explicit JIT-backend test runs; **default `ori run` and `ori test` use the tree-walking interpreter** (`Backend::Interpreter` — see `compiler/oric/src/main.rs:112` and `compiler/oric/src/test/runner/mod.rs:65`).
 
 The JIT mode uses `setjmp`/`longjmp` for panic recovery — when an Ori `panic()` fires at runtime, control returns to the JIT harness rather than crashing the compiler process. After execution, the evaluator checks for ARC leaks by comparing live allocation counts before and after.
 
