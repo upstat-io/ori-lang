@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "AST-based Value Restriction"
-status: complete
+status: in-progress
 reviewed: true
 goal: "Extract a single SSOT `should_generalize` helper and migrate all 3 let-generalization sites to call it, so only direct non-capturing lambda initializers generalize — all other initializers (including empty lists, block-wrapped lambdas, variable aliases, conditionals producing functions) become monomorphic."
 success_criteria:
@@ -38,6 +38,18 @@ sections:
   - id: "01.N"
     title: "Completion Checklist"
     status: complete
+  - id: "01.R-HYGIENE"
+    title: "Retrospective: body_captures_outer soundness (F1+F7)"
+    status: not-started
+  - id: "01.R-DRY"
+    title: "Retrospective: InferEngine constructor + maybe_generalize DRY (F4+F5)"
+    status: not-started
+  - id: "01.R-SIDE-LOGIC"
+    title: "Retrospective: dispatch-module side logic (F2+F3)"
+    status: not-started
+  - id: "01.R-TEST-HYGIENE"
+    title: "Retrospective: test helper DRY + naming + import hygiene (F6+F8+F13+F14)"
+    status: not-started
 ---
 
 # Section 01: AST-based Value Restriction
@@ -602,3 +614,198 @@ When all findings are triaged:
 - [x] **Repo hygiene check** — `diagnostics/repo-hygiene.sh --check` clean
 
 **Exit Criteria:** All 4 subsections complete. Single `should_generalize` SSOT in `blocks.rs`. Three `engine.generalize` calls each gated by `if should_generalize(...)`. Eight new tests pass: 4 positive/semantic pins (lambda polymorphism, empty list, let-expr, try-block) + 4 negative pins (block-wrapped, aliased, conditional, capturing lambda). `test_let_polymorphism_for_lambda` passes unchanged (semantic pin). `timeout 150 ./test-all.sh` green in debug and release. `/tpr-review` and `/impl-hygiene-review` clean. `typeck.md §GN-3` updated to reflect the Value Restriction policy. Section 03 can now assume the 3 generalization sites are correctly gated and that empty-list element Vars flow as Unbound `Tag::Var` into the validator.
+
+---
+
+## Retrospective: Findings surfaced by §03.N `/impl-hygiene-review` (2026-04-18)
+
+**Why these are retrospectives, not new sections.** Running `/impl-hygiene-review` at §03.N close-out with `scope=active-work-arc` scanned code authored by §01/§02 and surfaced 5 Critical + 2 Major + 3 Minor findings that §01's own close-out hygiene review missed. Per CLAUDE.md §Ownership & Deferral "Plan-blocker bugs belong IN the plan — NEVER sibling fix files", these are absorbed into §01 rather than filed as sibling `/add-bug` entries. §01's `status` flipped from `complete` back to `in-progress` until these subsections land.
+
+**Auto-fixed under user pre-approval (memory `feedback_auto_fix_cleanup.md`):** F9-F12 (stale plan annotations referencing BUG-02-008, BUG-04-074, BUG-04-084, TPR Round 1 Codex-F2, Plan §02.4 T1) were cleaned by `plan-annotations.py --fix --apply` during the review's Phase 0 static-analysis pass. 8 automatic fixes + 5 manual edits (removed bug IDs from assertion string literals and doc comments in `empty_container.rs`, `check/bodies/tests.rs`, `check/validators/tests.rs`, `infer/mod.rs`). Verified via re-scan: 0 stale matches remaining in scoped files.
+
+---
+
+## 01.R-HYGIENE Retrospective: body_captures_outer soundness (F1+F7)
+
+**Severity:** Critical (F1) + Major (F7)
+**Source:** `/impl-hygiene-review` §03.N close-out sweep (2026-04-18)
+**File:** `compiler/ori_types/src/infer/expr/blocks.rs:243-302`
+
+**F1 finding summary:** The `body_captures_outer(arena, expr, param_names, outer_vars)` function's docstring claims "Over-approximates captures (any non-param, non-literal name counts) — conservative: we may skip generalization for some non-capturing lambdas, but never incorrectly generalize a capturing one." The inline comment admits the opposite: the `_ => false` match-arm wildcard returns `false` for every unrecognized `ExprKind`, which means "this ExprKind has no captures", which means a capturing lambda in an unrecognized variant is permitted to generalize. This is a **soundness inversion**: the conservative direction should be `_ => true` (unknown = assume capture = skip generalization), but the code does the opposite.
+
+**F7 finding summary:** Beyond the conservative-default inversion, the specific matched arms have blind spots:
+- `ExprKind::Call { func, args, .. }`: only `func` is recursed; `args` slice is in `_ => false`
+- `ExprKind::MethodCall { receiver, args, .. }`: only `receiver`; `args` unchecked
+- `ExprKind::Block(block_idx)`: block body not descended
+- `ExprKind::List(elements)` / `ExprKind::Map(entries)`: elements not scanned
+- `ExprKind::Struct { fields, .. }`: field initializers not scanned
+- `ExprKind::Match { arms, .. }`: arm bodies not scanned
+
+A lambda `() -> map.get("key")` passed to `list.map(...)` has `map` captured via the arg slot, which `body_captures_outer` does not descend into — the capturing lambda escapes detection and is unsoundly generalized.
+
+### Invariant Anchoring (per CLAUDE.md §Invariant-Anchoring Before Test-Chasing)
+
+1. **System invariant:** `typeck.md §GN-3` Value Restriction — only direct non-capturing lambda initializers generalize; capturing lambdas stay monomorphic. Soundness depends on `body_captures_outer` being conservative in the direction of *preventing* generalization (over-approximate captures), not the direction of allowing it.
+2. **Downstream consumer:** The type checker's `should_generalize` decision feeds the inference engine's generalization step (`GN-1`). Generalizing a capturing lambda produces a polymorphic scheme whose bound variables include captured variables from an outer scope — when instantiated at a use site, those variables are fresh and unrelated to the outer captures, silently producing incorrect types.
+3. **If tests fail after the fix:** fix the code-under-test, NOT `body_captures_outer`. The current `_ => false` arm is the bug; flipping it to `_ => true` will correctly reject capturing lambdas that previously passed through, and the test suite must then be updated to pin the correct behavior.
+
+### Fix Plan (TDD Matrix Required — MANDATORY)
+
+- [ ] **TDD matrix first** — write failing tests before any code change:
+  - [ ] `test_capturing_lambda_via_call_arg_does_not_generalize` — `let outer = 5; let f = () -> some_fn(outer)` (captures via Call args)
+  - [ ] `test_capturing_lambda_via_method_arg_does_not_generalize` — `let outer = 5; let f = () -> list.push(outer)` (captures via MethodCall args)
+  - [ ] `test_capturing_lambda_via_block_does_not_generalize` — `let outer = 5; let f = () -> { outer + 1 }` (captures via Block body)
+  - [ ] `test_capturing_lambda_via_list_literal_does_not_generalize` — `let outer = 5; let f = () -> [outer, 1]`
+  - [ ] `test_capturing_lambda_via_map_literal_does_not_generalize` — `let outer = 5; let f = () -> {"key": outer}`
+  - [ ] `test_capturing_lambda_via_struct_literal_does_not_generalize` — `let outer = 5; let f = () -> Point { x: outer, y: 0 }`
+  - [ ] `test_capturing_lambda_via_match_arm_does_not_generalize` — `let outer = 5; let f = (x) -> match x { 0 -> outer, _ -> 0 }`
+  - [ ] Verify all 7 tests FAIL with current code (before fix)
+- [ ] **Architectural fix** — flip the conservative default and enumerate leaf arms:
+  - [ ] Change `_ => false` to `_ => true` (unknown = assume capture)
+  - [ ] Add explicit `false`-returning arms ONLY for verified leaf ExprKinds: `Int`, `Float`, `Bool`, `String`, `Char`, `Unit`, `None`, `Error`, and `Ident` when name is in `param_names` or `outer_vars` is empty
+  - [ ] Complete recursion for every compound ExprKind that has child expressions: `Call { func, args }` recurses into both, `MethodCall { receiver, args }` into both, `Block`, `List`, `Map`, `Struct`, `Match`, `While`, `For`, `Loop`, `If`, etc.
+- [ ] **Update docstring** — line 243-248 "Over-approximates captures" is now accurate; remove the contradictory inline comment at line 298-300 ("might miss captures... codegen will catch it" is false; codegen does NOT catch type-soundness violations)
+- [ ] **Verify all 7 new tests PASS** (semantic pins for correct capture detection)
+- [ ] **Verify all pre-existing tests STILL pass** — specifically `test_let_polymorphism_for_lambda_produces_function` must continue to pass (non-capturing lambda `x -> x` still generalizes)
+- [ ] **Dual-execution verification** — `diagnostics/dual-exec-verify.sh` on at least one new test to confirm interpreter/AOT parity on the rejected patterns
+- [ ] `/tpr-review` clean
+- [ ] `/impl-hygiene-review` clean
+- [ ] Update `typeck.md §GN-3` if the wording around "AST-based detection" needs refinement to reflect the exhaustive-match approach
+
+---
+
+## 01.R-DRY Retrospective: algorithmic duplication (F4+F5)
+
+**Severity:** Critical (both)
+**Source:** `/impl-hygiene-review` §03.N close-out sweep (2026-04-18)
+
+### F4: InferEngine constructor duplication
+
+**File:** `compiler/ori_types/src/infer/mod.rs:~50-110`
+
+**Summary:** `InferEngine::new(pool)` and `InferEngine::with_env(pool, env)` contain an identical ~27-line struct literal differing only in the `env` field (`TypeEnv::new()` vs caller-supplied `env`). Adding any new field to `InferEngine` requires editing both constructors; missing one silently produces a divergent state.
+
+**Fix plan:**
+- [ ] Extract `fn build(pool: &'pool mut Pool, env: TypeEnv) -> Self` as `pub(super)` (or `fn` if crate-local access suffices) with the single struct literal
+- [ ] `new(pool)` calls `build(pool, TypeEnv::new())`
+- [ ] `with_env(pool, env)` calls `build(pool, env)`
+- [ ] Verify no behavioral change — both callers produce identical state to pre-fix
+- [ ] Add a regression test: construct via both entry points and assert all-field equality
+- [ ] Follow-up: if new fields are added, only `build()` requires editing
+
+### F5: should_generalize + generalize 3x duplication
+
+**Files:** `compiler/ori_types/src/infer/expr/blocks.rs:77-81, 158-163`; `compiler/ori_types/src/infer/expr/sequences.rs:249-253`
+
+**Summary:** At all 3 let-binding generalization sites, the same 3-line pattern appears:
+```rust
+if should_generalize(arena, *init) {
+    engine.generalize(ty)
+} else {
+    ty
+}
+```
+The only variation is whether `ty` is the raw inferred type or `bound_ty` (after `unwrap_result_or_option`). The duplication means: a future change to generalization policy must be edited at 3 sites; a typo silently diverges one site's behavior.
+
+**Fix plan:**
+- [ ] Extract `pub(super) fn maybe_generalize(engine: &mut InferEngine<'_>, arena: &ExprArena, init: ExprId, ty: Idx) -> Idx` in `blocks.rs` (co-located with `should_generalize`)
+- [ ] Body: `if should_generalize(arena, init) { engine.generalize(ty) } else { ty }`
+- [ ] Replace all 3 call sites to use `maybe_generalize(engine, arena, *init, ty)`
+- [ ] At `sequences.rs:249`, preserve the semantically significant comment ("should_generalize tests the *original* init expression") by attaching it to the helper's docstring
+- [ ] Verify no behavioral change — all 8 existing §01 tests (positive + negative pins) continue to pass unchanged
+- [ ] Decide: demote `should_generalize` visibility (since `maybe_generalize` is the new SSOT) OR keep both `pub(super)` for granular access. Document the choice.
+
+**Exit criteria for 01.R-DRY:** F4 and F5 fixes landed. `timeout 150 ./test-all.sh` green. All pre-existing §01 tests still pass. `/tpr-review` clean.
+
+---
+
+## 01.R-SIDE-LOGIC Retrospective: dispatch-module side logic (F2+F3)
+
+**Severity:** Critical (both, downgraded to Major per Phase 4 cross-check — reviewer noted `check_collect_to_set` is clearly critical, format functions are borderline)
+**Source:** `/impl-hygiene-review` §03.N close-out sweep (2026-04-18)
+**File:** `compiler/ori_types/src/infer/expr/mod.rs`
+
+**F2 summary:** `check_interpolation_printable` (~40 lines, ~L380-415) and `validate_format_spec` (~52 lines, ~L424-475) are substantive validation functions (format spec parsing, alignment/sign/type checking, `Printable` trait resolution) living in the general dispatch module rather than a dedicated submodule. Per `impl-hygiene.md §Side-Logic Rule`, non-trivial implementation logic must live in a named submodule.
+
+**F3 summary:** `check_collect_to_set` (~28 lines, ~L345-373) handles the `Collect::from_iter → Set<T>` bidirectional check — Set-specific builtin logic embedded in the general dispatch module instead of in the collections submodule.
+
+### Fix plan
+
+- [ ] Create `compiler/ori_types/src/infer/expr/format.rs` (new submodule)
+- [ ] Move `check_interpolation_printable` and `validate_format_spec` into `format.rs`
+- [ ] Re-export from `infer/expr/mod.rs` via explicit named re-export: `pub(super) use format::{check_interpolation_printable, validate_format_spec};` (NOT glob — see 01.R-TEST-HYGIENE F14)
+- [ ] Move `check_collect_to_set` into `compiler/ori_types/src/infer/expr/collections.rs` (existing submodule)
+- [ ] Re-export from `infer/expr/mod.rs`: `pub(super) use collections::check_collect_to_set;`
+- [ ] Update the dispatch call sites in `infer_expr_inner` to reference the new paths
+- [ ] Verify no behavioral change — all format-spec tests and collection tests continue to pass
+- [ ] `/tpr-review` clean (the side-logic finding no longer surfaces)
+
+**Exit criteria for 01.R-SIDE-LOGIC:** 3 functions relocated to appropriate submodules. Dispatch module's `mod.rs` contains routing only, no implementation. `timeout 150 ./test-all.sh` green.
+
+---
+
+## 01.R-TEST-HYGIENE Retrospective: test/import/name drift (F6+F8+F13+F14)
+
+**Severity:** Major (F6) + Minor (F8, F13, F14)
+**Source:** `/impl-hygiene-review` §03.N close-out sweep (2026-04-18)
+
+### F6: parse_and_check test helper duplicate
+
+**File:** `compiler/ori_types/src/check/bodies/tests.rs:~1-40`
+**Summary:** `parse_and_check` in `bodies/tests.rs` carries an inline comment acknowledging "copied from `check/api/tests.rs` — deduplication deferred". The "deferred" comment is itself a hygiene violation per `impl-hygiene.md §Algorithmic DRY` and CLAUDE.md banned phrases ("tracked for later" is banned without a concrete anchor).
+
+**Fix:** Move `parse_and_check` to a shared test utility location. Options:
+- [ ] **Option A (Recommended):** `compiler/ori_types/src/check/test_utils.rs` with `#[cfg(test)] pub(crate)` — both `bodies/tests.rs` and `api/tests.rs` import from there
+- [ ] **Option B:** Keep the helper in `api/tests.rs` and have `bodies/tests.rs` import via `use super::super::api::tests::parse_and_check;` — less clean but minimal reorganization
+- [ ] Remove the duplicate + the deferral comment
+- [ ] Verify all pre-existing tests in both files still pass
+
+### F8: enter_scope vs enter_rank_scope inconsistency
+
+**File:** `compiler/ori_types/src/infer/expr/blocks.rs` (`infer_let` vs block-stmt let in `infer_block`)
+
+**Summary:** `infer_let` at L124/L168 uses `engine.enter_scope()` / `engine.exit_scope()`; the block-statement let arm in `infer_block` at L41/L85 uses `engine.enter_rank_scope()` / `engine.exit_rank_scope()`. These are separate APIs. If they are semantically equivalent for rank elevation, the naming should be unified. If they differ in unification-engine behavior, that difference needs to be documented and the correct one selected per context.
+
+**Fix:**
+- [ ] Investigate `InferEngine::enter_scope` vs `enter_rank_scope` implementations
+- [ ] Document the semantic difference (if any) in both methods' docstrings
+- [ ] Unify the two let-binding sites to use the correct API for let-polymorphism (both should elevate rank per `typeck.md §GN-1`, §SC-2)
+- [ ] If the APIs are semantically identical, delete one and have the other forward
+- [ ] If they are semantically distinct, rename for clarity (e.g., `enter_env_scope` for env-only, `enter_rank_scope` for rank-only)
+- [ ] Verify no behavioral change in any existing test
+
+### F13: Test naming convention
+
+**File:** `compiler/ori_types/src/check/bodies/tests.rs`
+**Summary:** `check_empty_module_bodies` test name violates `<subject>_<scenario>_<expected>` convention per `impl-hygiene.md §Test Function Naming`.
+
+**Fix:**
+- [ ] Rename to: `check_module_with_no_function_bodies_returns_no_errors` (or similar following the three-part shape)
+- [ ] Update any doc comments to match
+- [ ] Verify test still passes under new name
+
+### F14: Glob re-exports in mod.rs
+
+**File:** `compiler/ori_types/src/infer/expr/mod.rs:53-63`
+**Summary:** `pub(super) use blocks::*;` and sibling glob re-exports across `calls`, `collections`, etc. violate `impl-hygiene.md §Import Hygiene` no-glob rule. The comment ("for tests and sibling access") is not an exemption — `#[cfg(test)]` is the test context, not the module itself.
+
+**Fix:**
+- [ ] For each `pub(super) use <submodule>::*`, replace with explicit named re-exports listing every symbol actually used by the dispatch module or its sibling modules
+- [ ] Use `cargo check` and grep to enumerate the actually-consumed symbols
+- [ ] After the replacement, remove the "for tests and sibling access" comment (no longer needed)
+- [ ] Verify no compile errors or behavioral changes
+
+**Exit criteria for 01.R-TEST-HYGIENE:** F6 test helper deduplicated, F8 API consistency resolved, F13 test renamed, F14 globs replaced with explicit re-exports. `timeout 150 ./test-all.sh` green.
+
+---
+
+## Retrospective Close-Out (after 01.R-HYGIENE + 01.R-DRY + 01.R-SIDE-LOGIC + 01.R-TEST-HYGIENE land)
+
+- [ ] Re-run `/impl-hygiene-review` with `scope=active-work-arc` — expect zero Critical/Major findings
+- [ ] Re-run `/tpr-review` on the combined diff — expect clean
+- [ ] Update `typeck.md §GN-3` if `body_captures_outer` semantics change substantively in 01.R-HYGIENE
+- [ ] Re-flip §01 `status: in-progress` → `status: complete` in frontmatter
+- [ ] Update `00-overview.md` Quick Reference row for §01 back to `Complete`
+- [ ] Update `00-overview.md` Implementation Sequence Phase 1 marker back to `COMPLETE`
+- [ ] Refresh `diagnostics/state.sh` cache
+- [ ] Commit via `/commit-push`

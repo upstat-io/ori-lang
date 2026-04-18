@@ -437,7 +437,7 @@ fn scheme_var_root_is_fresh_instantiation_var_no_false_e2005() {
     assert!(
         errors.is_empty(),
         "fresh instantiation var that is the root of a scheme var's \
-         equivalence class must be exempted (BUG-02-008)"
+         equivalence class must be exempted"
     );
 }
 

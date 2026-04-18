@@ -143,24 +143,28 @@ Section 05 (Test Matrix) is written FIRST (TDD) but verified LAST.
 Phase 0 — TDD Stubs (Section 05 first wave)
   └─ 05: Write failing matrix tests + semantic pins + negative pins as STUBS
 
-Phase 1 — Generalization Policy (Section 01) — COMPLETE
-  └─ 01.1–01.4: should_generalize helper + 3 migration sites
+Phase 1 — Generalization Policy (Section 01) — IN-PROGRESS (core complete; retrospective subsections open)
+  └─ 01.1–01.4: should_generalize helper + 3 migration sites — COMPLETE
+  └─ 01.R-HYGIENE: body_captures_outer soundness (F1+F7 from §03.N hygiene sweep)
+  └─ 01.R-DRY: InferEngine constructor + maybe_generalize DRY (F4+F5)
+  └─ 01.R-SIDE-LOGIC: dispatch-module side logic (F2+F3)
+  └─ 01.R-TEST-HYGIENE: test helper DRY + naming + import hygiene (F6+F8+F13+F14)
 
 Phase 2 — Validator Module (Section 02) — COMPLETE
   └─ 02.0: Pool scheme-flag propagation fix (prerequisite for §02.2 HAS_VAR gate)
            ⚠ Investigate in §07: possible cause of BUG-04-085 LLVM runner crash
   └─ 02.1–02.4: validator module + unit test matrix
 
-Phase 3 — Bodies-Pass Integration (Section 03) — IN-PROGRESS
+Phase 3 — Bodies-Pass Integration (Section 03) — COMPLETE
   └─ 03.0: Split bodies/mod.rs (BLOAT gate) — COMPLETE
   └─ 03.1: Wire validator into check_function — COMPLETE
   └─ 03.2: Wire validator into check_test — COMPLETE
   └─ 03.BUG-FIXES: Absorbed BUG-04-084 (end-of-body empty-literal defaulting) — COMPLETE
-  └─ 03.3: Wire validator into check_impl_method
-  └─ 03.4: Wire validator into check_def_impl_method
-  └─ 03.5: End-to-end regression suite and dual-execution parity
-  └─ 03.R: Third Party Review Findings (Rounds 0, 1, 2)
-  └─ 03.N: Completion Checklist
+  └─ 03.3: Wire validator into check_impl_method — COMPLETE
+  └─ 03.4: Wire validator into check_def_impl_method — COMPLETE
+  └─ 03.5: End-to-end regression suite and dual-execution parity — COMPLETE
+  └─ 03.R: Third Party Review Findings (Rounds 0, 1, 2) — COMPLETE
+  └─ 03.N: Completion Checklist — COMPLETE
 
 Phase 4 — Codegen Defense-in-Depth (Section 04)
   └─ 04.1: debug_assert! hook in prepare_mono_cached (per-function seam)
@@ -272,9 +276,9 @@ Bugs absorbed into the plan's scope per CLAUDE.md §Ownership & Deferral "Plan-b
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | AST-based Value Restriction | `section-01-value-restriction.md` | Complete |
+| 01 | AST-based Value Restriction | `section-01-value-restriction.md` | In-Progress (core complete; 4 retrospective subsections 01.R-HYGIENE / 01.R-DRY / 01.R-SIDE-LOGIC / 01.R-TEST-HYGIENE open from §03.N impl-hygiene-review sweep on 2026-04-18) |
 | 02 | Validator Module (`ori_types::check::validators`) | `section-02-validator-module.md` | Complete |
-| 03 | Bodies-Pass Integration (absorbs BUG-04-074, BUG-04-084) | `section-03-bodies-pass-integration.md` | In-Progress (§03.1, §03.2, §03.BUG-FIXES done; §03.3/§03.4/§03.5/§03.N remaining) |
+| 03 | Bodies-Pass Integration (absorbs BUG-04-074, BUG-04-084) | `section-03-bodies-pass-integration.md` | Complete |
 | 04 | Codegen Defense-in-Depth Assertions | `section-04-codegen-assertions.md` | Not Started |
 | 05 | Test Matrix + Semantic Pins | `section-05-test-matrix.md` | Not Started |
 | 06 | Diagnostics + Spec-Test Audit | `section-06-diagnostics-audit.md` | Not Started |
