@@ -54,7 +54,7 @@ fn check_empty_module_bodies() {
 /// must be caught by `validate_body_types` at the sig-position check.
 ///
 /// Note: originally tested with `let ages = []` (unannotated empty list). That
-/// case now defaults to `[Never]` via the BUG-04-084 end-of-body defaulting
+/// case now defaults to `[Never]` via the end-of-body defaulting
 /// pass and no longer fires E2005 — an unannotated param is the simplest
 /// remaining case that survives defaulting.
 #[test]
