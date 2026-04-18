@@ -1,30 +1,9 @@
 use super::*;
-use crate::{check::ModuleChecker, check_module, TypeCheckResult, TypeEnv, TypeErrorKind};
+use crate::{check::test_utils::parse_and_check, check::ModuleChecker, TypeEnv, TypeErrorKind};
 use ori_ir::{ExprArena, Module, StringInterner};
-use ori_lexer::lex;
-use ori_parse::parse;
-
-/// Parse-and-check harness used by body-pass regression tests.
-///
-/// Duplicates the helper in `check/api/tests.rs`. After §03.1–§03.4 wire the
-/// validator into all four body passes, `/improve-tooling` close-out should
-/// extract a shared `#[cfg(test)] pub(crate)` helper module rather than
-/// maintain two copies.
-fn parse_and_check(source: &str) -> (TypeCheckResult, StringInterner) {
-    let interner = StringInterner::new();
-    let tokens = lex(source, &interner);
-    let parsed = parse(&tokens, &interner);
-    assert!(
-        parsed.errors.is_empty(),
-        "parse errors: {:?}",
-        parsed.errors
-    );
-    let result = check_module(&parsed.module, &parsed.arena, &interner);
-    (result, interner)
-}
 
 #[test]
-fn check_empty_module_bodies() {
+fn check_module_with_no_function_bodies_produces_no_errors() {
     let arena = ExprArena::new();
     let interner = StringInterner::new();
     let mut checker = ModuleChecker::new(&arena, &interner);
