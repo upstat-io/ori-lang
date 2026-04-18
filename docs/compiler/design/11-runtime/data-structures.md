@@ -257,15 +257,17 @@ Like empty lists, empty maps require zero allocation and zero cleanup.
 
 ## OriSet
 
-Sets are structurally identical to lists — they use the `OriList` struct with contiguous element storage. The difference is operational: set COW operations accept equality callbacks for membership testing, and set-specific operations (union, intersection, difference) are provided.
+Sets share the `{len, cap, data}` 24-byte fat-pointer header with `OriList`, but the buffer layout is different: sets use an **open-addressing hash table** with the same probing scheme as maps. Source of truth: `compiler/ori_rt/src/set/mod.rs:3-5`.
 
 ```
-OriSet (24 bytes, same struct as OriList):
+OriSet (24-byte header, same struct as OriList / OriMap):
   +----------+----------+----------+
   | len: i64 | cap: i64 | data: *  |
   +----------+----------+----------+
-  Buffer: [elem0 | elem1 | ... | elemN | (unused)]
+  Buffer: [ metadata (1 byte/bucket) | elements ]
 ```
+
+`len` tracks live element count; `cap` tracks bucket count. Membership testing uses `elem_eq` + `elem_hash` callbacks supplied at COW-insertion time. Set-specific operations (union, intersection, difference) are provided via dedicated runtime entry points.
 
 ## OriStr
 
@@ -283,11 +285,11 @@ OriStr (24 bytes, union):
 
 | Field | Offset | Size | Description |
 |-------|--------|------|-------------|
-| `tag` | 0 | 1 byte | `0` = None, `1` = Some |
+| `tag` | 0 | 1 byte | `0` = Some, `1` = None |
 | (padding) | 1 | varies | Alignment padding for `T` |
-| `value` | aligned | `sizeof(T)` | The value (valid only when `tag == 1`) |
+| `value` | aligned | `sizeof(T)` | The value (valid only when `tag == 0`) |
 
-Total size is `1 + padding + sizeof(T)`, where padding brings the `value` field to `T`'s natural alignment. For `Option<int>` (where `T` = i64 with 8-byte alignment), the layout is 16 bytes: 1 byte tag + 7 bytes padding + 8 bytes value.
+Total size is `1 + padding + sizeof(T)`, where padding brings the `value` field to `T`'s natural alignment. For `Option<int>` (where `T` = i64 with 8-byte alignment), the layout is 16 bytes: 1 byte tag + 7 bytes padding + 8 bytes value. Source of truth: `compiler/ori_rt/src/lib.rs:154` (`tag = 0: Some, tag = 1: None`).
 
 The tag is a single byte (`i8`), not a pointer-sized integer. This minimizes padding waste for small payload types. The LLVM codegen generates the correct GEP offsets based on the concrete type's alignment requirements.
 

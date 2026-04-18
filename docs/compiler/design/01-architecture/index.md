@@ -205,7 +205,7 @@ with Logger = handler(state: []) {
 
 ### Salsa-Driven Incrementality
 
-Every major computation is a Salsa query with automatic memoization, dependency tracking, and early cutoff:
+The `oric` driver uses Salsa for incremental compilation. Every major computation in `oric` is a Salsa query with automatic memoization, dependency tracking, and early cutoff. A separate **Salsa-free** driver crate `ori_compiler` (see `compiler/ori_compiler/src/lib.rs`) provides the same compilation pipeline without Salsa or IO, suitable for embedding, WebAssembly, and the test harness where incrementality is not needed.
 
 ```rust
 #[salsa::tracked]
