@@ -34,10 +34,12 @@ third_party_review:
 review_pipeline:
   stage: editor-done
   next_step: 6
-  rounds_completed: 1
-  last_round_commit: f4a78b0b
-  last_round_findings: 6
-  note: "paused mid-loop (user_pause_and_resume after Round 0 via /tpr-review §9 context-pressure pause; 6 codex verified findings all fixed inline in f4a78b0b, 1 gemini finding dropped at verification)"
+  rounds_completed: 3
+  last_round_commit: aeceb167
+  last_round_findings: 2
+  max_rounds: 10
+  updated: "2026-04-19"
+  note: "paused mid-loop (user_pause_and_resume after Round 2 via /tpr-review §9 context-pressure pause; target 10 rounds total per user 2026-04-19; 7 rounds remaining. Cumulative 11 findings verified across Rounds 0-2, all fixed inline across commits f4a78b0b (Round 0: 6 findings), 16253c11 (Round 1: 3 findings), aeceb167 (Round 2: 2 findings); 2 gemini findings dropped at verification. When resuming, /tpr-review must receive max_rounds=10 (--max-rounds=10 or equivalent) AND initial iteration_counter=3 (via --resume-from-rounds=3 or marker-read)."
   updated: 2026-04-19
 sections:
   - id: "08.1"
