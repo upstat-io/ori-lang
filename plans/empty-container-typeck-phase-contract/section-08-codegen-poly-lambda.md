@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Codegen Poly-Lambda Monomorphization (absorbs BUG-04-042)"
-status: not-started
+status: in-progress
 reviewed: true
 goal: >
   Fix the polymorphic-lambda BoundVar bleed that prevents monomorphized imported
