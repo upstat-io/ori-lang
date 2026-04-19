@@ -34,6 +34,10 @@ third_party_review:
 review_pipeline:
   stage: editor-done
   next_step: 6
+  rounds_completed: 1
+  last_round_commit: f4a78b0b
+  last_round_findings: 6
+  note: "paused mid-loop (user_pause_and_resume after Round 0 via /tpr-review §9 context-pressure pause; 6 codex verified findings all fixed inline in f4a78b0b, 1 gemini finding dropped at verification)"
   updated: 2026-04-19
 sections:
   - id: "08.1"
