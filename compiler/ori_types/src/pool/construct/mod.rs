@@ -212,6 +212,36 @@ impl Pool {
         }
     }
 
+    /// Allocate a fresh pool-local `var_id` with a default `Unbound` slot, returning the `u32` id.
+    ///
+    /// Unlike [`fresh_var`], this does NOT intern a `Tag::Var` entry — the caller interns
+    /// with the desired tag (`Tag::Var`, `Tag::BoundVar`, or `Tag::RigidVar`) themselves.
+    /// Unlike [`ensure_var_capacity`], this always extends by one slot and returns the new id.
+    ///
+    /// Intended for cross-pool re-interning (`pool/re_intern/`): when an imported type
+    /// tree contains a `var_id` that must be remapped into the target pool, this allocates
+    /// the fresh destination id while leaving the destination `VarState` as a default
+    /// `Unbound` placeholder. The caller is expected to overwrite `var_state_mut(id)` with
+    /// a variant-aware rebuild from the source pool (see `rebuild_var_state` in
+    /// `pool/re_intern/mod.rs`).
+    pub fn allocate_var_id(&mut self) -> u32 {
+        self.allocate_var_id_with_rank(DEFAULT_RANK)
+    }
+
+    /// Allocate a fresh pool-local `var_id` at a specific rank.
+    ///
+    /// See [`allocate_var_id`] for usage.
+    pub fn allocate_var_id_with_rank(&mut self, rank: Rank) -> u32 {
+        let id = self.next_var_id;
+        self.next_var_id += 1;
+        self.var_states.push(VarState::Unbound {
+            id,
+            rank,
+            name: None,
+        });
+        id
+    }
+
     /// Create a fresh named type variable (for better error messages).
     pub fn fresh_named_var(&mut self, name: ori_ir::Name) -> Idx {
         self.fresh_named_var_with_rank(name, DEFAULT_RANK)

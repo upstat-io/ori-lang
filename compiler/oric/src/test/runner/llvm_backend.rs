@@ -150,8 +150,15 @@ impl TestRunner {
 
         // Re-map canon results per module: clone each CanonResult and remap
         // its TypeId values from the source pool to the merged pool. Build
-        // per-module re-interning caches so sig re-interning reuses them.
+        // per-module re-interning caches AND per-module var_remap maps so sig
+        // re-interning reuses them (all 3 consumer sites below — canon arena
+        // re-intern, concrete sig re-intern, generic sig re-intern — for a
+        // given imported module share the SAME var_remap, keeping
+        // scheme_var_ids and the leaf Tag::Var ids they bind coherent per
+        // §08.3).
         let mut per_module_caches: Vec<rustc_hash::FxHashMap<ori_types::Idx, ori_types::Idx>> =
+            vec![rustc_hash::FxHashMap::default(); imported_pools.len()];
+        let mut per_module_var_remaps: Vec<rustc_hash::FxHashMap<u32, u32>> =
             vec![rustc_hash::FxHashMap::default(); imported_pools.len()];
         let re_interned_canons: Vec<ori_ir::canon::CanonResult> = imported_canon_results
             .iter()
@@ -159,6 +166,7 @@ impl TestRunner {
             .map(|(module_idx, shared_canon)| {
                 let source_pool = &imported_pools[module_idx];
                 let cache = &mut per_module_caches[module_idx];
+                let var_remap = &mut per_module_var_remaps[module_idx];
 
                 // Cost: O(n) clone of the full CanonResult (struct-of-arrays arena)
                 // per imported module. Necessary because each import's TypeIds must
@@ -166,8 +174,13 @@ impl TestRunner {
                 let mut remapped: ori_ir::canon::CanonResult = (**shared_canon).clone();
                 remapped.arena.remap_types(|type_id| {
                     let source_idx = ori_types::Idx::from_raw(type_id.raw());
-                    let target_idx =
-                        ori_types::re_intern_type(source_pool, source_idx, &mut merged_pool, cache);
+                    let target_idx = ori_types::re_intern_type_with_var_remap(
+                        source_pool,
+                        source_idx,
+                        &mut merged_pool,
+                        cache,
+                        var_remap,
+                    );
                     ori_ir::TypeId::from_raw(target_idx.raw())
                 });
                 remapped
@@ -205,11 +218,19 @@ impl TestRunner {
                         continue;
                     }
                     // Re-intern the signature from the source pool into the merged pool,
-                    // reusing the per-module cache built during canon re-mapping.
+                    // reusing the per-module cache AND var_remap built during canon
+                    // re-mapping — scheme_var_ids and leaf Tag::Var ids must remap
+                    // coherently through the same var_remap (§08.3).
                     let source_pool = &imported_pools[func_ref.module_index];
                     let cache = &mut per_module_caches[func_ref.module_index];
-                    let re_interned =
-                        ori_types::re_intern_sig(sig, source_pool, &mut merged_pool, cache);
+                    let var_remap = &mut per_module_var_remaps[func_ref.module_index];
+                    let re_interned = ori_types::re_intern_sig_with_var_remap(
+                        sig,
+                        source_pool,
+                        &mut merged_pool,
+                        cache,
+                        var_remap,
+                    );
                     re_interned_sigs.push(re_interned);
                     fn_refs.push(FnRef {
                         func_index: idx,
@@ -247,8 +268,14 @@ impl TestRunner {
                 }
                 let source_pool = &imported_pools[func_ref.module_index];
                 let cache = &mut per_module_caches[func_ref.module_index];
-                let re_interned =
-                    ori_types::re_intern_sig(sig, source_pool, &mut merged_pool, cache);
+                let var_remap = &mut per_module_var_remaps[func_ref.module_index];
+                let re_interned = ori_types::re_intern_sig_with_var_remap(
+                    sig,
+                    source_pool,
+                    &mut merged_pool,
+                    cache,
+                    var_remap,
+                );
                 imported_generic_sigs.insert(
                     func_ref.local_name,
                     (re_interned, func_ref.module_index, func_ref.original_name),

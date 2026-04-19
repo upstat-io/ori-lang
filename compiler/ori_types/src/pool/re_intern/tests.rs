@@ -2,7 +2,9 @@
 
 use rustc_hash::FxHashMap;
 
-use crate::pool::re_intern::{re_intern_sig, re_intern_type};
+use crate::pool::re_intern::{
+    re_intern_sig, re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
+};
 use crate::{FunctionSig, Idx, Pool, Tag, VarState};
 
 // §08.3 WILL add `re_intern_type_with_var_remap` and
@@ -402,13 +404,16 @@ fn target_with_generalized_slot(var_id: u32) -> Pool {
     target
 }
 
-/// §08.2 cell (e1, negative pin) — `Tag::Var`.
+/// Regression guard — backward-compat `re_intern_type` delegates to the
+/// remap-aware entry point per §08.3.
 ///
-/// Confirms the collision: `re_intern_type` preserves the source `var_id`
-/// unchanged, so the imported `Tag::Var(0)` leaf reads target's unrelated
-/// `VarState::Generalized(0)` slot.
+/// The host-file poly-lambda residue at `target.var_states[0]` (a
+/// `VarState::Generalized` slot the imported source module never touched)
+/// MUST NOT be aliased by the imported `Tag::Var(0)` leaf. The backward-compat
+/// API must allocate a fresh `dst_id` via `target.allocate_var_id`, leaving
+/// slot 0 untouched.
 #[test]
-fn legacy_re_intern_var_leaf_reads_target_generalized_slot_on_id_collision() {
+fn re_intern_type_var_leaf_via_legacy_api_allocates_fresh_dst_id_and_does_not_alias_host_slot() {
     let mut source = Pool::new();
     let source_var = source.intern(Tag::Var, 0);
 
@@ -418,20 +423,21 @@ fn legacy_re_intern_var_leaf_reads_target_generalized_slot_on_id_collision() {
     let result = re_intern_type(&source, source_var, &mut target, &mut cache);
 
     assert_eq!(target.tag(result), Tag::Var);
-    assert_eq!(
-        target.data(result),
-        0,
-        "legacy path preserves source var_id — collision symptom"
+    let dst_id = target.data(result);
+    assert_ne!(
+        dst_id, 0,
+        "legacy `re_intern_type` must delegate to remap-aware path — \
+         fresh dst_id must not alias host slot 0"
     );
     assert!(
         matches!(target.var_state(0), VarState::Generalized { .. }),
-        "imported Tag::Var(0) now reads target's unrelated Generalized slot"
+        "host-owned slot 0 must be untouched by the imported leaf"
     );
 }
 
-/// §08.2 cell (e1, negative pin) — `Tag::BoundVar`.
+/// Regression guard — backward-compat `re_intern_type` delegation for `Tag::BoundVar`.
 #[test]
-fn legacy_re_intern_bound_var_leaf_reads_target_generalized_slot_on_id_collision() {
+fn re_intern_type_bound_var_leaf_via_legacy_api_allocates_fresh_dst_id() {
     let mut source = Pool::new();
     let source_var = source.intern(Tag::BoundVar, 0);
 
@@ -441,13 +447,17 @@ fn legacy_re_intern_bound_var_leaf_reads_target_generalized_slot_on_id_collision
     let result = re_intern_type(&source, source_var, &mut target, &mut cache);
 
     assert_eq!(target.tag(result), Tag::BoundVar);
-    assert_eq!(target.data(result), 0);
+    assert_ne!(
+        target.data(result),
+        0,
+        "fresh dst_id must not alias host slot 0"
+    );
     assert!(matches!(target.var_state(0), VarState::Generalized { .. }));
 }
 
-/// §08.2 cell (e1, negative pin) — `Tag::RigidVar`.
+/// Regression guard — backward-compat `re_intern_type` delegation for `Tag::RigidVar`.
 #[test]
-fn legacy_re_intern_rigid_var_leaf_reads_target_generalized_slot_on_id_collision() {
+fn re_intern_type_rigid_var_leaf_via_legacy_api_allocates_fresh_dst_id() {
     let mut source = Pool::new();
     let source_var = source.intern(Tag::RigidVar, 0);
 
@@ -457,7 +467,11 @@ fn legacy_re_intern_rigid_var_leaf_reads_target_generalized_slot_on_id_collision
     let result = re_intern_type(&source, source_var, &mut target, &mut cache);
 
     assert_eq!(target.tag(result), Tag::RigidVar);
-    assert_eq!(target.data(result), 0);
+    assert_ne!(
+        target.data(result),
+        0,
+        "fresh dst_id must not alias host slot 0"
+    );
     assert!(matches!(target.var_state(0), VarState::Generalized { .. }));
 }
 
@@ -470,7 +484,6 @@ fn legacy_re_intern_rigid_var_leaf_reads_target_generalized_slot_on_id_collision
 /// (pool-local id — NOT source's `0`), preserving `rank` and `name` verbatim
 /// from the source's shipped `VarState::Unbound` variant.
 #[test]
-#[cfg(any())] // §08.3 un-gates — see plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.3
 fn remap_aware_re_intern_var_leaf_allocates_fresh_dst_id_and_rebuilds_var_state() {
     let mut source = Pool::new();
     source.fresh_var(); // source.var_states[0] = Unbound { id: 0, .. }
@@ -502,7 +515,6 @@ fn remap_aware_re_intern_var_leaf_allocates_fresh_dst_id_and_rebuilds_var_state(
 
 /// §08.2 cell (e1, positive pin) — `Tag::BoundVar`.
 #[test]
-#[cfg(any())] // §08.3 un-gates — see plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.3
 fn remap_aware_re_intern_bound_var_leaf_allocates_fresh_dst_id() {
     let mut source = Pool::new();
     source.fresh_var();
@@ -523,7 +535,6 @@ fn remap_aware_re_intern_bound_var_leaf_allocates_fresh_dst_id() {
 
 /// §08.2 cell (e1, positive pin) — `Tag::RigidVar`.
 #[test]
-#[cfg(any())] // §08.3 un-gates — see plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.3
 fn remap_aware_re_intern_rigid_var_leaf_allocates_fresh_dst_id_and_preserves_rigid_name() {
     let mut source = Pool::new();
     let rigid_name = ori_ir::Name::from_raw(42);
@@ -555,14 +566,14 @@ fn remap_aware_re_intern_rigid_var_leaf_allocates_fresh_dst_id_and_preserves_rig
 
 // --- (e2) Scheme binder list remaps together with body leaves ---------------
 
-/// §08.2 cell (e2, negative pin).
+/// Regression guard — backward-compat `re_intern_type` on `Tag::Scheme`
+/// delegates to the remap-aware path per §08.3.
 ///
-/// Confirms that `re_intern_type` on a `Tag::Scheme` preserves the binder list
-/// verbatim (`pool/re_intern/mod.rs:187` `source.scheme_vars(idx).to_vec()`) —
-/// a binder-vs-body remap divergence that silently breaks substitution when
-/// the enclosing pool merge reallocates leaf `var_ids`.
+/// Binders `[7, 9]` and body-leaf `Tag::Var(7)` must remap coherently through
+/// a single `var_remap` map; the binder list in the target MUST NOT preserve
+/// the source ids verbatim (which was the pre-fix collision symptom).
 #[test]
-fn legacy_re_intern_scheme_preserves_source_binder_ids_unchanged() {
+fn re_intern_type_scheme_via_legacy_api_remaps_binders_and_body_coherently() {
     let mut source = Pool::new();
     // Scheme binders reference var_ids [7, 9]; body references Tag::Var(7).
     let body_leaf = source.intern(Tag::Var, 7);
@@ -574,10 +585,19 @@ fn legacy_re_intern_scheme_preserves_source_binder_ids_unchanged() {
     let result = re_intern_type(&source, scheme, &mut target, &mut cache);
 
     assert_eq!(target.tag(result), Tag::Scheme);
+    let dst_binders = target.scheme_vars(result).to_vec();
+    assert_ne!(
+        dst_binders,
+        vec![7, 9],
+        "legacy `re_intern_type` must delegate to remap-aware path — \
+         source binder ids must not leak through"
+    );
+    // Body leaf's var_id must match the remapped binder (internal consistency).
+    let dst_body = target.scheme_body(result);
     assert_eq!(
-        target.scheme_vars(result),
-        &[7, 9],
-        "legacy path clones binder list verbatim — source ids leak through"
+        target.data(dst_body),
+        dst_binders[0],
+        "body leaf Tag::Var uses the SAME remapped id as the first binder"
     );
 }
 
@@ -589,7 +609,6 @@ fn legacy_re_intern_scheme_preserves_source_binder_ids_unchanged() {
 /// touches body leaves but clones binders (or vice versa) produces an
 /// internally-inconsistent scheme.
 #[test]
-#[cfg(any())] // §08.3 un-gates — see plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.3
 fn remap_aware_re_intern_scheme_remaps_binders_and_body_leaves_coherently() {
     let mut source = Pool::new();
     let body_leaf_7 = source.intern(Tag::Var, 7);
@@ -631,15 +650,15 @@ fn remap_aware_re_intern_scheme_remaps_binders_and_body_leaves_coherently() {
 
 // --- (e3) FunctionSig.scheme_var_ids coherence with remapped type tree ------
 
-/// §08.2 cell (e3, negative pin).
+/// Regression guard — backward-compat `re_intern_sig` delegates to the
+/// remap-aware path per §08.3.
 ///
-/// `re_intern_sig` at `pool/re_intern/mod.rs:78-98` clones the signature
-/// (including `scheme_var_ids`) via `sig.clone()` and re-interns only the
-/// `param_types` / `return_type` tree. For the cross-pool-merge scenario where
-/// leaves would be remapped, the sig's binder ids drift from the leaf ids —
-/// the `var_subst` map built from `scheme_var_ids` no longer keys any leaf.
+/// Both `scheme_var_ids` and the leaf `Tag::Var` ids in `param_types` /
+/// `return_type` must remap through a single shared `var_remap`, so the
+/// monomorphizer's `var_subst = HashMap::from([(scheme_var_ids[i], concrete_arg[i])])`
+/// at call sites resolves every leaf `Tag::Var` in the remapped type tree.
 #[test]
-fn legacy_re_intern_sig_preserves_source_scheme_var_ids_unchanged() {
+fn re_intern_sig_via_legacy_api_remaps_scheme_var_ids_coherently_with_leaves() {
     let mut source = Pool::new();
     let leaf_7 = source.intern(Tag::Var, 7);
     let mut sig = FunctionSig::simple(ori_ir::Name::from_raw(1), vec![leaf_7], leaf_7);
@@ -651,15 +670,23 @@ fn legacy_re_intern_sig_preserves_source_scheme_var_ids_unchanged() {
 
     let result = re_intern_sig(&sig, &source, &mut target, &mut cache);
 
-    assert_eq!(
+    assert_ne!(
         result.scheme_var_ids,
         vec![7],
-        "legacy path clones scheme_var_ids verbatim — leaves and sig drift"
+        "legacy `re_intern_sig` must delegate to remap-aware path — \
+         source scheme_var_ids must not leak through"
     );
+    // Internal coherence: the remapped leaf in param_types uses the SAME
+    // dst_id as scheme_var_ids[0].
     assert_eq!(
         target.data(result.param_types[0]),
-        7,
-        "legacy path preserves source leaf var_id"
+        result.scheme_var_ids[0],
+        "remapped leaf in param_types must match remapped scheme_var_ids[0]"
+    );
+    assert_eq!(
+        target.data(result.return_type),
+        result.scheme_var_ids[0],
+        "remapped leaf in return_type must match remapped scheme_var_ids[0]"
     );
 }
 
@@ -670,7 +697,6 @@ fn legacy_re_intern_sig_preserves_source_scheme_var_ids_unchanged() {
 /// ids, so the monomorphizer's `var_subst = HashMap::from([(scheme_var_ids[0],
 /// concrete)])` resolves every leaf in `param_types` / `return_type`.
 #[test]
-#[cfg(any())] // §08.3 un-gates — see plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.3
 fn remap_aware_re_intern_sig_remaps_scheme_var_ids_coherently_with_leaves() {
     let mut source = Pool::new();
     let leaf_7 = source.intern(Tag::Var, 7);
@@ -712,7 +738,6 @@ fn remap_aware_re_intern_sig_remaps_scheme_var_ids_coherently_with_leaves() {
 /// the fresh `dst_id` (NOT source's `id`). A literal-byte clone that kept
 /// source's `id` would reintroduce the aliasing the remap exists to eliminate.
 #[test]
-#[cfg(any())] // §08.3 un-gates — see plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.3
 fn remap_aware_re_intern_rebuilds_unbound_with_fresh_id_and_preserved_rank_name() {
     let mut source = Pool::new();
     let src_name = ori_ir::Name::from_raw(7);
@@ -739,7 +764,6 @@ fn remap_aware_re_intern_rebuilds_unbound_with_fresh_id_and_preserved_rank_name(
 
 /// §08.2 cell (e4, positive pin) — `Generalized` variant.
 #[test]
-#[cfg(any())] // §08.3 un-gates — see plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.3
 fn remap_aware_re_intern_rebuilds_generalized_with_fresh_id_and_preserved_name() {
     let mut source = Pool::new();
     source.ensure_var_capacity(1);
@@ -776,7 +800,6 @@ fn remap_aware_re_intern_rebuilds_generalized_with_fresh_id_and_preserved_name()
 /// `Rigid.name` is a global `Name` intern (pool-independent); there is no `id`
 /// field on `Rigid`. Clone verbatim.
 #[test]
-#[cfg(any())] // §08.3 un-gates — see plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.3
 fn remap_aware_re_intern_rebuilds_rigid_with_preserved_name() {
     let mut source = Pool::new();
     let rigid_name = ori_ir::Name::from_raw(13);
@@ -807,7 +830,6 @@ fn remap_aware_re_intern_rebuilds_rigid_with_preserved_name() {
 /// .expect(...)` (panics on Link targets reachable ONLY through this Link,
 /// per the 2026-04-19 Round 2 F1 fix referenced in §08.3 step 6).
 #[test]
-#[cfg(any())] // §08.3 un-gates — see plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.3
 fn remap_aware_re_intern_rebuilds_link_with_recursively_reinterned_target() {
     let mut source = Pool::new();
     // Source has a list<int> reachable ONLY via VarState::Link (not traversed
@@ -869,15 +891,17 @@ fn scheme_with_var_bearing_binders_and_var_free_body_has_no_propagated_var_flags
     );
 }
 
-/// §08.2 cell (e5, negative pin ii).
+/// Regression guard — backward-compat `re_intern_type` on `Tag::Scheme` with a
+/// var-free body still remaps binders per §08.3.
 ///
-/// Confirms that the shipped `re_intern_type` — which clones scheme binder
-/// lists verbatim (`pool/re_intern/mod.rs:187`) — preserves the source
-/// binder id `[7]` when the body is var-free. A §08.3 variant that skipped
-/// binder-walk (step 5) while taking an unconditional `Tag::Scheme` fast-path
-/// skip (step 7) would produce the same leak.
+/// This is the edge case `PROPAGATE_MASK` (`types.md §TF-3`) does NOT flag on
+/// the scheme parent: the body has no var-bit, so a fast-path guard keyed only
+/// on `HAS_VAR | HAS_BOUND_VAR | HAS_RIGID_VAR` would MISS this scheme. The
+/// legacy entry point must still route through the remap-aware path AND the
+/// `Tag::Scheme` fast-path guard must fire (step 7 — unconditional Scheme skip)
+/// so the binder walks step 5 and allocates a fresh `dst_id` for binder `7`.
 #[test]
-fn legacy_re_intern_scheme_with_var_free_body_preserves_source_binder_id() {
+fn re_intern_type_scheme_with_var_free_body_via_legacy_api_remaps_binder() {
     let mut source = Pool::new();
     let scheme = source.scheme(&[7], Idx::INT);
 
@@ -887,7 +911,13 @@ fn legacy_re_intern_scheme_with_var_free_body_preserves_source_binder_id() {
     let result = re_intern_type(&source, scheme, &mut target, &mut cache);
 
     assert_eq!(target.tag(result), Tag::Scheme);
-    assert_eq!(target.scheme_vars(result), &[7]);
+    let dst_binders = target.scheme_vars(result).to_vec();
+    assert_eq!(dst_binders.len(), 1);
+    assert_ne!(
+        dst_binders[0], 7,
+        "legacy `re_intern_type` must delegate to remap-aware path — \
+         source binder id 7 must not leak through even when body is var-free"
+    );
     assert_eq!(target.scheme_body(result), Idx::INT);
 }
 
@@ -900,7 +930,6 @@ fn legacy_re_intern_scheme_with_var_free_body_preserves_source_binder_id() {
 /// is extra-backed per types.md §TI-3 — its hash in `target` differs from the
 /// source's hash even though the body re-intern is a no-op.
 #[test]
-#[cfg(any())] // §08.3 un-gates — see plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.3
 fn remap_aware_re_intern_scheme_with_var_free_body_remaps_binder_and_changes_hash() {
     let mut source = Pool::new();
     let scheme = source.scheme(&[7], Idx::INT);
