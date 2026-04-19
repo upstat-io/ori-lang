@@ -177,7 +177,7 @@ The runtime exports approximately 80 C-ABI functions. They fall into six categor
 
 ### C ABI Design Decisions
 
-All runtime functions use `#[no_mangle] extern "C"` for cross-language compatibility. Several design decisions shape the calling conventions:
+Runtime functions split across two ABI classes: most are `#[no_mangle] extern "C"` (non-unwinding — carry the `Nounwind` attribute in `ori_llvm`'s declaration table); panic/assertion/bounds-checking entry points that may unwind via Ori's exception mechanism are `#[no_mangle] extern "C-unwind"` (e.g., `ori_panic`, `ori_panic_cstr`, assertion helpers — these intentionally lack `Nounwind`, enforced by the `all_non_unwinding_functions_have_nounwind` audit test in `runtime_decl/tests.rs`). See `.claude/rules/runtime.md §Unwinding ABI` for the full unwinding-function table. Several design decisions shape the calling conventions:
 
 **sret output pattern.** Functions returning collections write results through an `out_ptr` parameter rather than returning by value. `OriList`, `OriMap`, and `OriStr` are all 24 bytes — above the 16-byte threshold for register return on x86-64 System V ABI. Explicit sret gives the codegen control over the destination address, which is essential for correct integration with LLVM's alloca/store/load pattern.
 

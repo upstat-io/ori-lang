@@ -210,7 +210,7 @@ flowchart TB
 
     Inter --> PerFn
 
-    subgraph PerFn["Per-Function (steps 3–14)"]
+    subgraph PerFn["Per-Function (steps 3–12, with letter-suffix sub-steps)"]
         VR["3. compute_var_reprs()
         + detect_immortals()"]
         NF["3a. normalize_function()
@@ -224,13 +224,15 @@ flowchart TB
         V1["6. verify()"]
         AV["7. run_aims_verify()"]
         TC["8. detect/rewrite tail calls"]
+        UC["8a. unwind_cleanup()
+        Invoke-unwind RC cleanup"]
         MB["9. merge_blocks()"]
         R2["10. realize_annotations()
         Phase 2: COW + drop hints"]
         V2["11. verify()"]
         FB["12. check_fbip_enforcement()"]
 
-        VR --> NF --> AF --> TV --> R1 --> FP --> V1 --> AV --> TC --> MB --> R2 --> V2 --> FB
+        VR --> NF --> AF --> TV --> R1 --> FP --> V1 --> AV --> TC --> UC --> MB --> R2 --> V2 --> FB
     end
 ```
 

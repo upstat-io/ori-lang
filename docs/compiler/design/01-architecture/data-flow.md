@@ -152,13 +152,17 @@ pub struct Module {
 }
 
 pub struct ExprArena {
-    exprs: Vec<Expr>,  // Indexed by ExprId
+    // Struct-of-Arrays layout — parallel arrays indexed by ExprId.
+    expr_kinds: Vec<ExprKind>,   // Expression kinds (24 bytes)
+    expr_spans: Vec<Span>,        // Expression spans (8 bytes, separate for cache locality)
+    expr_lists: Vec<ExprId>,      // Flattened child lists for Call args, List elements
+    // ... plus parallel arrays for stmts, params, arms, map_entries, field_inits,
+    //     struct_lit_fields, list_elements, map_elements, named_exprs, call_args,
+    //     generic_params (see compiler/ori_ir/src/arena/mod.rs).
 }
 
-pub struct Expr {
-    kind: ExprKind,
-    span: Span,
-}
+// Expr is a view constructed from parallel arrays, not a stored struct.
+// Consumers reconstruct it on demand from expr_kinds[id] + expr_spans[id].
 ```
 
 The parser performs three data transformations:
