@@ -549,3 +549,129 @@ fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
         other => panic!("expected AmbiguousType, got {other:?}"),
     }
 }
+
+// Poly-lambda return-type position semantic pins (T17-T19).
+//
+// These three tests pin the typeck-boundary invariant for polymorphic
+// lambda return-type positions per `typeck.md §PC-2` and `types.md §SC-1`:
+// a poly-lambda return may carry `Tag::BoundVar` (the `§SC-1` target shape)
+// OR `Tag::Var(VarState::Generalized)` (the currently shipped-pool
+// divergence explicitly documented in `validators/mod.rs::collect_first_unbound_var`),
+// and BOTH are legitimate. A surviving `Tag::Var(VarState::Unbound)` is a
+// genuine PC-2 violation and MUST fire `E2005`, even when wrapped inside a
+// `Tag::Function` / `Tag::Scheme` chain that matches the poly-lambda shape.
+//
+// The pool construction `Scheme([id], Function([Var], Var))` mirrors the
+// typed IR shape produced by `check_function_bodies` for a polymorphic
+// lambda like `(x -> x)` in a generic context — the two-level wrap
+// exercises `HAS_VAR` propagation through `Tag::Function` as well as
+// `Tag::Scheme`, distinct from T10's direct `Scheme([0], Var)` shape.
+
+/// Spec: `typeck.md §PC-2`, `types.md §SC-1`, `types.md §TF-1` — the
+/// `§SC-1` target shape for a polymorphic lambda return is `Tag::BoundVar`.
+/// `BoundVar` sets `HAS_BOUND_VAR`, NOT `HAS_VAR` (`types.md §TF-1`), so
+/// the outer scheme short-circuits at the validator's top-level
+/// `!HAS_VAR` gate and emits no diagnostic. This is the legitimate
+/// spec-target form of a generalized polymorphic lambda.
+///
+/// Semantic pin for the poly-lambda-return code path after §08.3 lands a
+/// fix that produces the target `BoundVar` shape rather than the currently
+/// shipped `Var(Generalized)` divergence.
+#[test]
+fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
+    let mut pool = Pool::new();
+    // ∀[0]. (BoundVar(0)) -> BoundVar(0) — identity poly-lambda spec shape.
+    let bound = pool.intern(Tag::BoundVar, 0);
+    let lambda_ty = pool.function(&[bound], bound);
+    let scheme = pool.scheme(&[0], lambda_ty);
+    assert!(
+        !pool.flags(scheme).contains(TypeFlags::HAS_VAR),
+        "scheme over BoundVar-returning lambda must NOT set HAS_VAR per §TF-1"
+    );
+    assert!(pool.flags(scheme).contains(TypeFlags::HAS_BOUND_VAR));
+
+    let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
+
+    assert!(errors.is_empty());
+}
+
+/// Spec: `typeck.md §PC-2`, `types.md §SC-1` (shipped divergence). The
+/// currently shipped pool stores generalized vars as
+/// `Tag::Var(VarState::Generalized)` rather than `Tag::BoundVar`. For a
+/// polymorphic lambda return-type position carrying this shape, the
+/// validator walks in (`HAS_VAR` is set on `Tag::Var` per `§TF-1`), reaches
+/// the `Tag::Var` leaf, observes `VarState::Generalized`, and returns
+/// `false` per the explicit exemption arm in
+/// `validators/mod.rs::collect_first_unbound_var`. No diagnostic fires.
+///
+/// Removing the `VarState::Generalized` exemption would fire `E2005` on
+/// every polymorphic let-binding AND every poly-lambda return, breaking
+/// let-polymorphism entirely — the canonical INVERTED-TDD anti-pattern per
+/// CLAUDE.md §INVERTED-TDD. This test pins that the exemption remains in
+/// place for the poly-lambda return shape specifically.
+#[test]
+fn polylambda_return_type_with_generalized_var_emits_no_diagnostic() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    let var_id = pool.data(var);
+    *pool.var_state_mut(var_id) = VarState::Generalized {
+        id: var_id,
+        name: None,
+    };
+    // ∀[var_id]. (Var(Generalized)) -> Var(Generalized) — shipped-pool
+    // representation of the same identity poly-lambda.
+    let lambda_ty = pool.function(&[var], var);
+    let scheme = pool.scheme(&[var_id], lambda_ty);
+    assert!(
+        pool.flags(scheme).contains(TypeFlags::HAS_VAR),
+        "scheme over Var(Generalized)-returning lambda MUST set HAS_VAR \
+         because Var carries HAS_VAR per §TF-1 (shipped §SC-1 divergence)"
+    );
+
+    let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
+
+    assert!(
+        errors.is_empty(),
+        "Var(Generalized) in poly-lambda return is legitimate per shipped \
+         §SC-1 divergence; lifting this exemption without lifting the \
+         divergence would break let-polymorphism (INVERTED-TDD)"
+    );
+}
+
+/// Spec: `typeck.md §PC-2` — a polymorphic-lambda return-type position
+/// carrying a surviving `Tag::Var(VarState::Unbound)` is a genuine PC-2
+/// violation and MUST fire `E2005`. This is the negative pin for the
+/// §08.1.5 audit: if any future refactor either (a) extends the
+/// `VarState::Generalized` exemption to cover `Unbound` at this position,
+/// or (b) silently drops the PC-2 walk inside `Tag::Function` /
+/// `Tag::Scheme`, this test fails — catching the over-exemption and
+/// preventing the INVERTED-TDD regression CLAUDE.md §INVERTED-TDD bans
+/// (the canonical example is exactly a PC-2 validator with a gate added
+/// to silence failing generic-body tests).
+///
+/// Distinct from T10 (`scheme_wrapping_unbound_var_body_emits_one_e2005`)
+/// which exercises `Scheme([0], Var)` direct wrap — this test threads the
+/// var through an additional `Tag::Function` layer, exercising `HAS_VAR`
+/// propagation through the composite Function-in-Scheme shape that models
+/// the typed IR's poly-lambda representation.
+#[test]
+fn polylambda_return_type_with_unbound_var_emits_one_e2005() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    // ∀[0]. (Var(Unbound)) -> Var(Unbound) — the PC-2 violation shape.
+    let lambda_ty = pool.function(&[var], var);
+    let scheme = pool.scheme(&[0], lambda_ty);
+    assert!(pool.flags(scheme).contains(TypeFlags::HAS_VAR));
+
+    // scheme_var_ids=&[] disables the exempt root set — any Unbound var in
+    // the scheme body is treated as a genuine inference failure, not a
+    // scheme-parameter var.
+    let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
+
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        TypeErrorKind::AmbiguousType { .. }
+    ));
+    assert_eq!(errors[0].span, BODY_SPAN);
+}

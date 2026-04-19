@@ -20,6 +20,15 @@ inspired_by:
   - "Rust `rustc_hir_typeck::check_body` — post-body validation pattern: Rust performs wfcheck (well-formed check) AFTER body inference completes, surfacing errors before the IR is used downstream. The same discipline applies here: validate after inference, not during."
   - "Swift `Sema` request-based post-body checks — type-checking requests emit diagnostics as a post-pass step once per body, avoiding cascade from partial inference state."
 depends_on: ["01", "02"]
+# <!-- cross-section:08.1.5 → 03 --> §08.1.5 decided option (ii) on 2026-04-18:
+# implementing a sibling pass `default_unbound_vars_from_polylambda_returns` in
+# `compiler/ori_types/src/infer/mod.rs` (next to this section's
+# `default_unbound_vars_from_empty_literals` pass at `infer/mod.rs:733`).
+# Implementation lives in §08.3 of
+# `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md`;
+# no §03 work is required, but the sibling pass shares this section's
+# defaulting-schedule idiom and the `VarState::Generalized` exemption
+# preserved by §02's validator. This note retires when §08 completes.
 third_party_review:
   status: resolved
   updated: "2026-04-17"
