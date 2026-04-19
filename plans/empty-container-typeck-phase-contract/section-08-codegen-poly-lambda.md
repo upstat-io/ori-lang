@@ -2,7 +2,7 @@
 section: "08"
 title: "Codegen Poly-Lambda Monomorphization (absorbs BUG-04-042)"
 status: not-started
-reviewed: false
+reviewed: true
 goal: >
   Fix the polymorphic-lambda BoundVar bleed that prevents monomorphized imported
   generics (assert_eq<T: Eq + Debug>) from compiling when the host module contains
@@ -22,13 +22,9 @@ inspired_by:
   - "Swift SIL Mono — monomorphizes polymorphic closures via dedicated substitution passes that isolate BoundVar from the mono context"
 depends_on: ["03"]
 third_party_review:
-  status: none
-  updated: null
-review_pipeline:
-  stage: tpr-done
-  next_step: 7
+  status: findings
   updated: 2026-04-18
-  note: "TPR ran 3 rounds (iter_cap_reached). 10 actionable findings fixed inline across commits bbc8e15d, 77af4126, e11972b0. 2 remaining findings are meta (exact duplicates of TPR-04-R0-001 and TPR-04-R0-002 already filed at §04.R.TPR). all_meta=true → accept-with-findings is the recommended cap-exit per /tpr-review §5."
+  notes: "user-accepted at iter_cap_reached after 3 rounds; 10 substantive findings fixed inline across commits bbc8e15d, 77af4126, e11972b0; 2 remaining findings are meta (duplicates of TPR-04-R0-001 and TPR-04-R0-002 already filed at §04.R.TPR); option key: accept-with-findings"
 sections:
   - id: "08.1"
     title: "Investigation and root cause analysis"
