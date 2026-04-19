@@ -44,7 +44,8 @@ sections:
     status: not-started
   - id: "08.2"
     title: "TDD matrix: poly-lambda + imported generics + pool-merge remap pins"
-    status: complete
+    status: in-progress
+
   - id: "08.3"
     title: "Implementation: remap-aware re-intern for cross-module pool merge"
     status: not-started
