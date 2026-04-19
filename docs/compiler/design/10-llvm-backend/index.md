@@ -83,25 +83,28 @@ The distinction matters everywhere. Incrementing an `Immediate(i64)` is a no-op;
 
 The LLVM backend is organized around a linear pipeline where each stage feeds the next:
 
+`ori_llvm`'s architectural input is **realized `ArcFunction`** (produced by `ori_arc` phase 7 — see `.claude/rules/missions.md §ori_llvm` and `.claude/rules/compiler.md §Architecture`: `ori_llvm` depends on `ori_arc` and `ori_repr`, **not on `ori_canon`**). `oric` runs the Canon → ARC Lower → AIMS Analyze → ARC Realize pipeline BEFORE invoking `ori_llvm`; the realized IR + `ReprPlan` are the boundary `ori_llvm` consumes. The subgraph below shows the codegen-internal stages inside `ori_llvm`:
+
 ```mermaid
 flowchart TB
-    Canon["Canonical IR
-    CanExpr + Pool + TypeCheck"]
+    ArcIn["Realized ArcFunction
+    (produced by ori_arc phase 7)
+    + type Pool"]
+
+    ReprPlan["ori_repr::compute_repr_plan
+    (sub-layer 7a, codegen-time)
+    Layout / alignment / discriminants"]
 
     TypeInfo["TypeInfoStore
     Idx → TypeInfo cache
-    Lazy population from Pool"]
+    Lazy population from Pool + ReprPlan"]
 
     FuncComp["FunctionCompiler
     Phase 1: Declare all functions
-    Phase 2: Define bodies via AIMS"]
-
-    ArcPipeline["AIMS Pipeline
-    Lower → Borrow → Liveness
-    RC Insert → Reset/Reuse → Eliminate"]
+    Phase 2: Define bodies from realized ARC IR"]
 
     Emitter["ArcIrEmitter
-    ARC IR → LLVM IR
+    Realized ARC IR → LLVM IR
     Drop functions, RC ops, control flow"]
 
     Builder["IrBuilder
@@ -119,11 +122,12 @@ flowchart TB
     Object emission → Linking
     ori build"]
 
-    Canon --> TypeInfo
-    Canon --> FuncComp
+    ArcIn --> ReprPlan
+    ArcIn --> TypeInfo
+    ReprPlan --> TypeInfo
     TypeInfo --> FuncComp
-    FuncComp --> ArcPipeline
-    ArcPipeline --> Emitter
+    ArcIn --> FuncComp
+    FuncComp --> Emitter
     Emitter --> Builder
     Builder --> Module
     Module --> JIT
@@ -134,10 +138,10 @@ flowchart TB
     classDef interpreter fill:#1a4731,stroke:#34d399,color:#d1fae5
     classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
 
-    class Canon canon
+    class ArcIn canon
+    class ReprPlan canon
     class TypeInfo native
     class FuncComp native
-    class ArcPipeline canon
     class Emitter native
     class Builder native
     class Module native

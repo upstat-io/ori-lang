@@ -91,8 +91,12 @@ The type system is organized into four layers, from storage at the bottom to mod
 ```mermaid
 flowchart TB
     checker["ModuleChecker
-    Multi-pass orchestration
-    (5 passes: register → sigs → bodies → tests → impls)"]
+    Multi-pass orchestration:
+    Pass 0a-0e register (types → aliases → extensions → traits → impls);
+    Pass 1 signatures; Pass 2 bodies; Pass 3 tests;
+    Pass 4 test-bound-fn bodies; Pass 5 def-impl bodies;
+    post-check intern_multi_clause_tuples() before export.
+    Authoritative order: .claude/rules/typeck.md §CK-1"]
     infer["InferEngine
     Hindley-Milner inference
     + bidirectional checking"]
