@@ -160,7 +160,7 @@ flowchart TB
     class AP,AO,AF,R native
 ```
 
-Contract results are cached per session. When a function body has not changed, its cached `MemoryContract` is reused without re-running analysis.
+Contracts are recomputed per pipeline invocation — `analyze_program()` runs fresh each time `apply_aims_ownership()` is invoked; there is no per-session `MemoryContract` cache today. Incrementality, per `.claude/rules/missions.md §Compiler`, is Salsa-based and structural — not ad-hoc caching — so this behavior is expected. A durable per-function contract cache is a target-only capability, tracked for future work.
 
 ## Prior Art
 

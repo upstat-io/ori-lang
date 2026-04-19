@@ -149,21 +149,26 @@ base_map.with(key, value)
 
 `ExprKind::MapWithSpread` becomes method calls on map operations.
 
-### 6. Struct Spread → Method Calls
+### 6. Struct Spread → Flat Struct with Field Extraction
 
-Struct spread creates a copy of a struct with some fields overridden:
+Struct spread creates a new struct value by copying fields from a base and overriding some:
 
 ```ori
 // Source
 Point { ...base, x: 10 }
 
-// Canonical
-base.with_x(10)
+// Canonical (pseudocode)
+Struct {
+    name: "Point",
+    fields: [
+        ("x", 10),                   // overridden inline
+        ("y", base.y),                // field extraction from base (CanExpr::Field)
+        // ...one Field entry per struct field not overridden
+    ]
+}
 ```
 
-This is a functional update — the original struct is not mutated. The desugared form uses synthesized `with_*` method calls that produce new struct values.
-
-`ExprKind::StructWithSpread` becomes method calls that produce updated struct values.
+This is a functional update — the original struct is not mutated. `ExprKind::StructWithSpread` lowers to a flat `CanExpr::Struct` literal whose non-overridden fields come from `CanExpr::Field` extractions off the spread base. **No synthesized `with_*` methods are created**; see `compiler/ori_canon/src/desugar/spread.rs`.
 
 ## Earlier Desugarings (Before Canonicalization)
 
