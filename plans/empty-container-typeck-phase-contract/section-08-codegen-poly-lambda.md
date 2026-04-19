@@ -34,18 +34,9 @@ inspired_by:
   - "Swift SIL Mono — monomorphizes polymorphic closures via dedicated substitution passes that isolate BoundVar from the mono context"
 depends_on: ["03"]
 third_party_review:
-  status: resolved
-  updated: 2026-04-18
-  notes: "user-accepted at iter_cap_reached after 3 rounds; 10 substantive findings fixed inline across commits bbc8e15d, 77af4126, e11972b0; 2 remaining findings are meta (duplicates of TPR-04-R0-001 and TPR-04-R0-002 already filed at §04.R.TPR); option key: accept-with-findings"
-review_pipeline:
-  stage: editor-done
-  next_step: 6
-  rounds_completed: 6
-  last_round_commit: 5c49002c
-  last_round_findings: 6
-  max_rounds: 10
-  updated: "2026-04-19"
-  note: "Round 5 (2026-04-19) completed via /tpr-review resume from rounds_completed=5. Cross-reviewer agreement (codex F1 + gemini F2) resolved the open TPR-08-R4-01 JIT/AOT scope-decision question in favor of option (b) — narrow §08 to JIT-only, file sibling BUG-04-AOT-MONO for the AOT imported-generic mono path. Direct code inspection showed `ori build` routes through `compile_common.rs` + `check/mod.rs` with no `re_intern_*` call; AOT tests fail with E5001 missing-mono-instance (different root cause than the JIT Idx(241) pool-merge collision). Round 5 fixes: (1) TPR-08-R4-01 closed in §08.R with option-(b) resolution + cross-reviewer evidence; (2) new §08.R item TPR-08-R5-01-codex tracking the overview sync landing in the same commit; (3) §08.2:222 AOT claim reframed to identify the AOT failure as a separate root cause; (4) §08.2:234 git-stash negative pin replaced with scoped-patch reversal (codex F2); (5) 4 banned phrases at lines 25/182/229/336 replaced per CLAUDE.md (gemini F4); (6) Section 08 added to `plans/empty-container-typeck-phase-contract/index.md` (new Quick Reference row + new keyword cluster; gemini F5); (7) 00-overview.md:35 + :304 synced to the JIT-only narrowing + matrix cell count (codex F4 + gemini F6); (8) §08:98 prose Status banner synced from 'Not Started' to 'In Progress' (codex F3); (9) new BUG-04-AOT-MONO filed in `plans/bug-tracker/section-04-codegen-llvm.md`. Drop count Round 5: 3 (gemini F1 — confused HISTORY block with §08.3 Step 2; gemini F3 — confabulated VarState::Rigid.id that doesn't exist in shipped enum; gemini F7 — explicit re-raise of the open TPR-08-R4-01 that the prompt forbade). Cumulative 26 findings verified across Rounds 0–5, all fixed or filed as §08.R items; cumulative drops 8 (5 via Rounds 0–4 + 3 in Round 5). When resuming for Round 6, /tpr-review must receive max_rounds=10 AND initial iteration_counter=6 (via --resume-from-rounds=6). User directive 2026-04-19: refocus Round 6+ prompts to evaluate whether the §08 fixes will resolve the ~800 failing tests currently on the test-all.sh surface (state.sh reports test_failed=844, known_failing=35)."
+  status: clean
+  updated: 2026-04-19
+  notes: "8 rounds (0-8 cumulative across sessions); clean convergence Round 8; 4 findings resolved this session across bd92ddc2 and 976ac726"
 sections:
   - id: "08.1"
     title: "Investigation and root cause analysis"
