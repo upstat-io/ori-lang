@@ -35,7 +35,7 @@ review_pipeline:
   stage: editor-done
   next_step: 6
   rounds_completed: 6
-  last_round_commit: PENDING-ROUND-5-COMMIT
+  last_round_commit: 5c49002c
   last_round_findings: 6
   max_rounds: 10
   updated: "2026-04-19"
