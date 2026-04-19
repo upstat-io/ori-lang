@@ -16,6 +16,11 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
 
 ## Open Bugs
 
+- [ ] `[BUG-08-014][low]` **impl-hygiene.md: missing `#[cfg(any())]` TDD-scaffolding idiom for cross-subsection positive pins**
+  Repro: Add a function calling `todo!()` anywhere in `compiler/*.rs`, attempt to commit — lefthook rejects on `clippy::todo` (project-wide denied per §Lint Discipline). No `#[expect(clippy::todo)]` precedent exists. The `#[cfg(any())]` idiom (compiles out all covered code, no denied-lint exposure, self-retires when the gated subsection lands) is the correct scaffolding gate per §Conditional Compilation, but is not named as such in the rules file. Concrete incident: §08.2 close-out of `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` — positive pins for `re_intern_type_with_var_remap` (§08.3-pending API) required gating until implementation lands.
+  Subsystem: `.claude/rules/impl-hygiene.md` (§Lint Discipline or §Conditional Compilation — add a `§TDD Scaffolding` sub-bullet naming `#[cfg(any())]` with a sibling-comment pointer at the pending subsection anchor as the canonical idiom)
+  Found: 2026-04-19 | Source: continue-roadmap
+
 - [ ] `[BUG-08-013][medium]` **Rules file documentation drift: 10 findings across compiler.md, registry.md, diagnostic.md, tests.md, fmt.md, impl-hygiene.md**
   Repro: Compare documented structures in `.claude/rules/compiler.md:12` (crate dep graph), `.claude/rules/registry.md:15` (TypeDef fields), `.claude/rules/diagnostic.md:31` (dedup contract) against actual code. Examples: compiler.md says `ori_canon -> ori_types` but `ori_canon/Cargo.toml` depends on `ori_arc`; registry.md TypeDef field count is wrong; diagnostic.md deduplication contract doesn't match `DiagnosticQueue` implementation.
   Subsystem: `.claude/rules/*.md` (compiler.md, registry.md, diagnostic.md, tests.md, fmt.md, impl-hygiene.md)
