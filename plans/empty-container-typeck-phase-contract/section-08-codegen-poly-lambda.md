@@ -34,7 +34,7 @@ sections:
     status: complete
   - id: "08.2"
     title: "TDD matrix: poly-lambda + imported generics + Scheme PROPAGATE_MASK pin"
-    status: in-progress
+    status: complete
   - id: "08.3"
     title: "Implementation: fix BoundVar bleed at identified call sites"
     status: not-started
@@ -178,7 +178,7 @@ The investigation in §08.1 will bisect by selectively reverting `ori_llvm` chan
   - **Tag::Scheme `PROPAGATE_MASK` regression pin** ✓ (`propagate_mask_nested_list` — `let $wrap = x -> [x, x, x]` exercises `Tag::Scheme HAS_VAR` propagation through `[T]` lambda body)
   - **`prepare_mono_cached` cache-miss fallback negative pin**: covered implicitly — every test runs from a fresh compilation context, so every `assert_eq<T>` mono call lowers through the cache-miss path at `nounwind/prepare.rs:119-139`. The plan's original framing required a scenario "where the imported metadata is unavailable" via metadata stripping at `llvm_backend.rs:448-450`; that framing applied when the cache-miss path was an optimization fallback. Current behavior is that cache-miss IS the primary path on first mono emission — no special scenario needed. If §08.3 introduces a persistent cache, this item escalates to an explicit scenario.
   - **Nested-container substitution pin** ✓ (`nested_container_param` — `let $first_of = xs -> xs[0]` with `xs: [T]` nested generic parameter)
-- [ ] **Negative pin**: deferred to §08.3 close-out — after §08.3's sibling pass lands and tests go green, `git stash` the pass, re-run the tests, confirm they fail again, then `git stash pop` to re-apply the fix. This is an EXECUTION-TIME verification that cannot run until §08.3 lands. **Concrete anchor**: §08.3 implementation checklist adds "Run negative pin: stash §08.3, confirm §08.2 tests fail, unstash" as the final step before §08.3 close-out.
+- [~] **Negative pin**: DEFERRED to §08.3 close-out — after §08.3's sibling pass lands and tests go green, `git stash` the pass, re-run the tests, confirm they fail again, then `git stash pop` to re-apply the fix. This is an EXECUTION-TIME verification that cannot run until §08.3 lands. **Concrete anchor**: §08.3 checklist item "Run §08.2 negative pin" (line 203) is the single canonical execution entry for this verification; this `[~]` marker tracks the §08.2-owned contract, the `[ ]` in §08.3 is the actual execution checkbox.
 - [x] **Verify all tests fail** before starting §08.3 implementation — verified 2026-04-18. Spec test: interpreter 10/10 pass + LLVM backend 10/10 compile-fail with `Idx(238)`/`Idx(241)` unresolved. AOT tests: 2/2 FAIL with E5001 `missing mono instance`. TDD discipline per `tests.md §TDD for Bugs` satisfied: failing tests are the exact shape §08.3 must make pass.
 
 **Tooling retrospective (2026-04-18):** no gaps. §08.2 was pure test-authoring backed by existing infrastructure — `cargo st` / `ori test --backend=llvm` for spec TDD signal verification, `assert_aot_success` in `compiler/ori_llvm/tests/aot/common.rs` for AOT integration tests, `cargo test -p ori_types validators` for typeck-side T17–T19 regression pins. The static-classification workflow that pinned Hypothesis (d) without runtime `ORI_LOG` / `ORI_DUMP_AFTER_TYPECK` traces was constrained by denied runtime access, not by tool deficiency — no tool change would have shortened it. No new diagnostic scripts or test helpers created.
