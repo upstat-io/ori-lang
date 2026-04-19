@@ -25,9 +25,10 @@ third_party_review:
   status: none
   updated: null
 review_pipeline:
-  stage: editor-done
-  next_step: 6
+  stage: tpr-done
+  next_step: 7
   updated: 2026-04-18
+  note: "TPR ran 3 rounds (iter_cap_reached). 10 actionable findings fixed inline across commits bbc8e15d, 77af4126, e11972b0. 2 remaining findings are meta (exact duplicates of TPR-04-R0-001 and TPR-04-R0-002 already filed at §04.R.TPR). all_meta=true → accept-with-findings is the recommended cap-exit per /tpr-review §5."
 sections:
   - id: "08.1"
     title: "Investigation and root cause analysis"
