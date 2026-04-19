@@ -23,7 +23,9 @@ pub mod substitute;
 pub use collection_surface::walk_collection_types;
 pub use construct::*;
 pub use descriptor::{TypeDescriptor, VariantDescriptor};
-pub use re_intern::{re_intern_sig, re_intern_type};
+pub use re_intern::{
+    re_intern_sig, re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
+};
 pub use substitute::{extract_var_from_types, substitute_in_pool};
 
 use rustc_hash::FxHashMap;

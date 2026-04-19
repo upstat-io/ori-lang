@@ -51,6 +51,13 @@ sections:
   - id: "08.3"
     title: "Implementation: remap-aware re-intern for cross-module pool merge"
     status: not-started
+
+  - id: "08.3b"
+    title: "Typeck scheme-body canonicalization: Generalized→BoundVar migration (unblocks success criterion #1 per /tp-help 2026-04-19 consensus)"
+    status: not-started
+  - id: "08.3c"
+    title: "LLVM newtype codegen regression from §08.3 pool-merge remap — investigation and fix (commit blocker)"
+    status: not-started
   - id: "08.4"
     title: "Coordination with roadmap Section 21A — import-resolution + 21.7/21.11 claim corrections"
     status: not-started
@@ -306,13 +313,139 @@ These cells live at the pool crate's re-intern boundary (where the fix actually 
 - [ ] **Run `timeout 150 cargo test -p ori_types pool::re_intern`** — the new unit tests in `pool/re_intern/tests.rs` pass (including the 5 failure-mode guard pins above).
 - [ ] **Run `timeout 150 cargo test -p ori_llvm`** — no regressions at the LLVM integration layer.
 - [ ] **Run `timeout 150 cargo st`** — interpreter parity preserved (interpreter does NOT use the test-runner pool merge; this is a smoke test that the pool-crate changes didn't break the common path).
-- [ ] **Run `timeout 150 ./target/release/ori test --backend=llvm tests/spec/expressions/poly_lambda_with_imported_generic.ori`** — the §08.2 spec corpus compiles cleanly via the LLVM backend.
+- [~] **Run `timeout 150 ./target/release/ori test --backend=llvm tests/spec/expressions/poly_lambda_with_imported_generic.ori`** — DEFERRED to §08.3b <!-- blocked-by:08.3b --> §08.3's pool-merge collision fix is necessary but not sufficient. Dual-source /tp-help consensus 2026-04-19 (codex + gemini converged on option (b)): the residual `Tag::Var(Generalized)` leak at codegen requires the `types.md §SC-1` scheme-body migration in §08.3b (Generalized→BoundVar at scheme construction in `compiler/ori_types/src/unify/generalization.rs`). Corrected diagnosis: codex's round-0 note — `lambda_mono.ori:87-103` already contains an unconstrained identity lambda that passes, so the differentiator is "scheme-shape survives to mono" (multi-instantiation at `poly_lambda_with_imported_generic.ori:136-140`; unused scheme at lines 110-112) vs "scheme collapses at one call site", NOT "constrained vs unconstrained body". §08.3 unit tests (35/35 in `pool::re_intern`), `lambda_mono.ori` (17/17), and `integer_safety.ori` (30/30) confirm the pool-merge fix is correct and complete on its narrowed scope; this test item becomes unblocked when §08.3b lands.
 - [ ] **Run `timeout 150 cargo test -p ori_llvm --test aot poly_lambda_mono`** — the §08.2 AOT integration tests STAY failing with `E5001 missing mono instance` (they track `BUG-04-AOT-MONO` in `plans/bug-tracker/section-04-codegen-llvm.md`, not §08.3); verify the failure mode is unchanged by §08.3's pool-crate edits (i.e., no new failure class introduced).
 - [ ] **Run §08.2 negative pin** (anchor for §08.2 deferral): after §08.3 tests are green, use the scoped-patch reversal workflow (NOT `git stash`, which touches the full working tree including parallel-session work — banned per `CLAUDE.md §NEVER Use Destructive Git Commands` + §NEVER Investigate "Pre-Existing?"): (1) `git diff compiler/ori_types/src/pool/re_intern/ compiler/oric/src/test/runner/llvm_backend.rs > /tmp/section-08-3.patch` to capture ONLY §08.3's edits; (2) `git apply -R /tmp/section-08-3.patch` to reverse-apply; (3) re-run `cargo st tests/spec/expressions/poly_lambda_with_imported_generic.ori` + `cargo test -p ori_types pool::re_intern`, confirm BOTH JIT-path suites fail again with the §08.1.R symptoms (AOT tests are NOT part of the §08 negative pin — they fail independently for `BUG-04-AOT-MONO`); (4) `git apply /tmp/section-08-3.patch` to restore the fix. This pins §08.2's JIT-scope semantic contract: the JIT tests pass ONLY because of §08.3's remap-aware re-intern, not because of unrelated changes.
 
 **Note on `lambda_mono/type_resolve.rs` reconnaissance items** (`apply_bound_var_map`, `fallback_bound_vars_to_int`, `is_polymorphic_lambda`): the Reviewer-surfaced reconnaissance block flagged these as places where the surface symptom (`Idx(241)` unresolved) LOOKS like a lambda_mono bug. Under the corrected §08.1.R diagnosis, the lambda_mono path is a consumer, not a producer — once §08.3's remap-aware re-intern is in place, the substitution map built at `llvm_backend.rs:321-328` correctly resolves every imported leaf `Tag::Var`, so `resolve_all_lambda_bound_vars` (`define_phase.rs:134`, `nounwind/prepare.rs:173`) sees only well-scoped `BoundVar`s and completes without fallback. If lambda_mono code changes are still required after §08.3 lands, §08.3 re-opens; if not, those items are documented as unneeded and the `fallback_bound_vars_to_int` audit becomes a separate BLOAT concern (silent fallback in a code path that should never fire), filed via `/add-bug` with subsystem `ori-codegen`, severity `low`, after §08.5 closes.
 
 **Note on `TypeInfoStore` size (audit BLOAT_RISK)**: `compiler/ori_llvm/src/codegen/type_info/store.rs` is 388 lines (audit minor finding). Under the corrected diagnosis this file is the OBSERVATION point where `Idx(241)` surfaces, not the root cause. Size concern is owned by a separate bug-tracker artifact whose lifecycle is independent from §08: file `/add-bug` titled `"BLOAT: ori_llvm::codegen::type_info::store.rs at 388 lines (approaching 500-line limit) — split into submodules"` with subsystem `ori-codegen`, severity `low`. Filing IS the concrete ownership transfer per CLAUDE.md §Ownership & Deferral. §08.3's pool-crate changes SHALL NOT add lines to `store.rs`; if they do (unexpected), the bug escalates to `medium` and the split happens inline before §08.5 closes.
+
+## 08.3b Typeck scheme-body canonicalization: Generalized→BoundVar migration
+
+**Goal:** Complete the `types.md §SC-1` target-conformance migration by canonicalizing generalized scheme-body vars from `VarState::Generalized` to `Tag::BoundVar` during scheme construction in `compiler/ori_types/src/unify/generalization.rs`. Unblocks §08's success criterion #1 (`tests/spec/expressions/poly_lambda_with_imported_generic.ori` compiles cleanly via LLVM backend) and retires the producer-side `VarState::Generalized` exemption documented in `compiler/ori_types/src/check/validators/mod.rs::collect_first_unbound_var`.
+
+**Why absorbed into §08 scope (not /add-bug):** Per `CLAUDE.md §Plan-Blocker Bugs Belong IN the Plan` — the plan cannot complete to its stated goal with `poly_lambda_with_imported_generic.ori` failing; the fix is therefore merged into plan scope. Plan-blocker classifying test: "Can the plan complete with this bug still open?" — NO.
+
+**Root cause (per /tp-help dual-source design consensus 2026-04-19; codex + gemini convergence on option (b)):**
+- `generalize()` at `compiler/ori_types/src/unify/generalization.rs:29-58` mutates unbound vars to `VarState::Generalized` and wraps the original body unchanged in `Tag::Scheme`. Body-leaf `Tag::Var(Generalized)` entries survive to codegen.
+- `validate_body_types` + `build_exempt_var_ids` at `compiler/ori_types/src/check/validators/mod.rs:100-165` exempt every `VarState::Generalized` var from PC-2 enforcement per `types.md §SC-1` shipped-divergence note.
+- Both substitution paths (`compiler/ori_types/src/unify/substitute.rs:28-49`, `compiler/ori_types/src/pool/substitute/mod.rs:28-90`) exist only to compensate for the Generalized-encoded body.
+- `TypeInfoStore::get_impl` at `compiler/ori_llvm/src/codegen/type_info/store.rs:341-364` trips on the leak; `pool.resolve_fully()` at `compiler/ori_types/src/pool/accessors.rs:418-437` only follows `VarState::Link` and leaves Generalized unresolved.
+- Target form per `types.md §SC-1`: scheme bodies contain `Tag::BoundVar` leaves bound by the scheme's declared binders, NOT `Tag::Var(Generalized)`. Migration retires the divergence; the exemption arm becomes unreachable and is stripped.
+
+**Corrected diagnosis note** (replaces §08.1.R Hypothesis (d) REFUTED classification):
+- Original "constraint gradient" framing (constrained body passes, unconstrained body fails) was an empirical confound. Codex round-0 correction: `tests/spec/expressions/lambda_mono.ori:87-103` already contains an unconstrained identity lambda (`let $inner = b -> ...`) with imported `assert_eq` AND it passes.
+- Real differentiator: "scheme-shape survives to mono" (multi-instantiation at `tests/spec/expressions/poly_lambda_with_imported_generic.ori:136-140`; unused scheme at lines 110-112) vs "scheme collapses at one call site". Fix must land at scheme-body representation, not at generalization control.
+- `lambda_mono.ori` passes because `a + b` constrains types before generalization fires — the body has NO Generalized at all. The failing corpus has genuinely scheme-shaped cases where polymorphism survives body inference.
+
+**Alternative seams considered + ruled out** (per /tp-help consensus):
+- (a) Narrow Value Restriction §GN-3 — `INVERTED-TDD:goal-drift`; breaks let-polymorphism.
+- (c) Extend end-of-body defaulting to Generalized — banned by `impl-hygiene.md §INVERTED-TDD`; was reverted at HEAD=3dd4ded6 for this reason.
+- (d) Per-call-site host-binding monomorphization — downstream specialization mechanism, not the root fix; leaves §SC-1 divergence in place.
+- (e) Codegen fallback in `TypeInfoStore::get_impl` — `canon.md §7.1` AIMS Invariant 2 violation (masks upstream incorrectness).
+- (f) Partial hybrid migration — `CLAUDE.md §NO SHORTCUTS`; split representation is structurally worse than full migration.
+
+**Primary surface:**
+- `compiler/ori_types/src/unify/generalization.rs` — `generalize()` scheme-construction site; rewrite body leaves to `Tag::BoundVar` with scheme-binder-indexed var_ids.
+- `compiler/ori_types/src/unify/substitute.rs`, `compiler/ori_types/src/pool/substitute/mod.rs` — instantiation paths: substitute `Tag::BoundVar` leaves against fresh `Tag::Var` per call site; remove `VarState::Generalized` compensation.
+- `compiler/ori_types/src/check/validators/mod.rs` — strip unreachable `VarState::Generalized` arms from `build_exempt_var_ids` + `collect_first_unbound_var`.
+- `compiler/ori_types/src/check/bodies/functions.rs` — body-group pass unchanged; Generalized exemption no longer needed.
+- `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_resolve.rs` — `apply_bound_var_map` + `fallback_bound_vars_to_int` verify they handle BoundVar-based schemes; `fallback_bound_vars_to_int` may become unreachable (audit per §08.3b close-out).
+
+**TDD matrix (authored before implementation — RED state):**
+- [ ] **Cell A — poly-lambda single-call at concrete type**: `let $id = x -> x; id(42)` — scheme body has `Tag::BoundVar` (not `Tag::Var(Generalized)`); instantiation unifies with `int` at call site; post-typeck IR has no `Tag::Var(Generalized)` anywhere.
+- [ ] **Cell B — poly-lambda multi-instantiation**: `let $id = x -> x; let $i = id(1); let $s = id("a")` — scheme instantiates independently at each call site with fresh `Tag::Var` per call; no shared `VarState::Generalized`; both call sites resolve to their concrete argument types.
+- [ ] **Cell C — unused poly-lambda**: `let $id = x -> x; 42` — scheme canonicalizes even with zero call sites; unused-scheme reachable via typed IR traversal contains `Tag::BoundVar`, never `Tag::Var(Generalized)`.
+- [ ] **Cell D — nested poly-lambda**: `let $pair = x -> y -> (x, y); pair(1)("a")` — both binders flow through scheme construction; nested scheme body has `Tag::BoundVar` for both `x` and `y`.
+- [ ] **Cell E — poly-lambda return-position poly-type**: `let $some = x -> Some(x); some(42)` — `Option<T>` return with `T=int` monomorphizes correctly.
+- [ ] **Cell F — PC-2 validator negative pin**: a typed IR with a surviving `Tag::Var` (unbound, non-generalized) still fires `E2005` via `validate_body_types`; exemption arm removal MUST NOT regress the Unbound detection path.
+- [ ] **Cell G — integration**: `tests/spec/expressions/poly_lambda_with_imported_generic.ori` compiles cleanly via LLVM backend (currently fails with `Idx(238)`/`Idx(241)` unresolved).
+
+**Implementation checklist (TDD — author cells A–G first, confirm all RED, then fix):**
+- [ ] **1. Design the scheme-body body-rewrite API in `unify/generalization.rs`**: new helper `rewrite_body_generalized_to_bound_var` that walks the scheme body, replaces every `Tag::Var(Generalized { id, .. })` leaf with `Tag::BoundVar(binder_idx)` where `binder_idx` is the scheme's `scheme_var_ids.iter().position(|&v| v == id).expect(...)`. Panic on missing binder — that's a soundness violation (every Generalized var in the body MUST be declared in scheme_var_ids).
+- [ ] **2. Update `generalize()` (line 29-58)**: after `VarState::Generalized` mutation, call `rewrite_body_generalized_to_bound_var(body_idx, &scheme_var_ids)` and use the rewritten body in `Tag::Scheme` construction.
+- [ ] **3. Update `pool/substitute/mod.rs` (line 28-90)**: add `Tag::BoundVar` arm that substitutes via `binder_idx → subst_args[binder_idx]`; retain `Tag::Var(Generalized)` arm for one migration round with a `debug_assert!(false, "Generalized should be pre-rewritten to BoundVar")` trap to catch missed sites.
+- [ ] **4. Update `unify/substitute.rs` (line 28-49)**: mirror the `Tag::BoundVar` substitution for unification-engine instantiation (`GN-2` instantiation — fresh Tag::Var per bound var at use sites).
+- [ ] **5. Strip `VarState::Generalized` arm from `build_exempt_var_ids` at `check/validators/mod.rs:161-180`**: arm becomes unreachable once scheme bodies have `Tag::BoundVar` leaves.
+- [ ] **6. Strip `VarState::Generalized` arm from `collect_first_unbound_var`**: same rationale.
+- [ ] **7. Remove the `VarState::Generalized` handling in `pool/accessors.rs:418-437` (`resolve_fully`)**: no longer encountered; document that the function follows `VarState::Link` and treats `VarState::Unbound` as genuinely unresolved (E2005 trigger).
+- [ ] **8. Migration verification**: run all of `cargo test -p ori_types`, `cargo test -p ori_llvm`, `cargo st`, `cargo run --bin ori -- test --backend=llvm tests/spec/expressions/poly_lambda_with_imported_generic.ori`. All must pass.
+- [ ] **9. Remove the trap in step 3 once cells A–G pass**: `VarState::Generalized` arm disappears entirely from substitution.
+- [ ] **10. Audit `fallback_bound_vars_to_int` at `lambda_mono/type_resolve.rs:392`**: if unreachable post-migration, file `/add-bug` with subsystem=ori-codegen, severity=low, for the dead-code removal (separate BLOAT concern per §08.3's existing note).
+
+**Downstream verification:**
+- [ ] `timeout 150 cargo test -p ori_types` — no regressions (860/0 baseline).
+- [ ] `timeout 150 cargo test -p ori_llvm` — no regressions (633/0 lib baseline; AOT poly_lambda_mono tests stay tracked under `BUG-04-AOT-MONO`).
+- [ ] `timeout 150 cargo st` — interpreter parity unchanged relative to §06.2-scope 843 failures baseline.
+- [ ] `timeout 150 cargo run --bin ori -- test --backend=llvm tests/spec/expressions/poly_lambda_with_imported_generic.ori` — PASSES (currently fails).
+- [ ] `timeout 150 cargo run --bin ori -- test --backend=llvm tests/spec/expressions/lambda_mono.ori` — still passes post-migration (17/0/0 baseline preserved).
+- [ ] `diagnostics/dual-exec-verify.sh` on poly-lambda corpus — interpreter/LLVM parity verified.
+- [ ] **Scoped-patch reversal negative pin** (section-level semantic pin, covers §08.3 + §08.3b joint diff): `git diff compiler/ori_types/src/pool/re_intern/ compiler/oric/src/test/runner/llvm_backend.rs compiler/ori_types/src/unify/generalization.rs compiler/ori_types/src/pool/substitute/ compiler/ori_types/src/unify/substitute.rs compiler/ori_types/src/check/validators/ > /tmp/section-08-joint.patch`; `git apply -R`; confirm failing-test symptoms reappear; `git apply` to restore.
+
+**Cross-plan sync after §08.3b lands:**
+- [ ] Update `.claude/rules/types.md §SC-1` — remove the "target-only divergence" / shipped-divergence note; the migration is shipped.
+- [ ] Update `.claude/rules/typeck.md §PC-2` if relevant — the Generalized exemption note retires.
+- [ ] Update `compiler/ori_types/src/check/validators/mod.rs::collect_first_unbound_var` doc comment — the divergence disclaimer retires.
+- [ ] Update `plans/empty-container-typeck-phase-contract/00-overview.md` success criteria + section list — §08.3b is a delivered subsection.
+
+**§08.3b close-out (per /roadmap-work SKILL.md Step 7):**
+- [ ] All §08.3b TDD cells (A–G) pass.
+- [ ] All implementation checklist items (1–10) complete.
+- [ ] Downstream verification green.
+- [ ] `/tpr-review` passed on §08.3b diff.
+- [ ] `/impl-hygiene-review` passed after TPR clean.
+- [ ] `/improve-tooling` retrospective (per-subsection).
+- [ ] `sync-claude` run — rule files updated to reflect retired divergence.
+- [ ] `/commit-push` — one commit for the migration (distinct from §08.3's pool-merge commit).
+- [ ] Mark §08.3's previously-deferred downstream verification item (poly_lambda_with_imported_generic.ori) as `[x]` — now unblocked.
+- [ ] Section 08 status ready to close per §08.N completion checklist.
+
+## 08.3c LLVM newtype codegen regression from §08.3 pool-merge remap — investigation and fix (commit blocker)
+
+**Goal:** Fix the LLVM backend codegen regression that surfaced on first `test-all.sh` run after §08.3's pool-merge remap-aware re-intern landed. Commit of §08.3's uncommitted code is BLOCKED on this.
+
+**Symptoms** (from `test-all.log` post-§08.3):
+- `Ori spec (LLVM backend): CRASHED` (was `passed 1851, failed 1, skipped 21, lc_fail 2615` at state.sh baseline HEAD `58c26963`).
+- `AOT integration tests: 0 passed, 2 failed` (2 failures expected and tracked under `BUG-04-AOT-MONO`; NEW: AOT suite also shows errors on `test_different_newtype_values`, `test_newtype_parameter`, `test_newtype_computation`).
+- `LLVM IR verification failed after codegen (emit_arc_function)` at `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` for newtype tests.
+- `emit_partial_apply: callee not found name="UserId"` / `"Score"` warnings in `compiler/ori_llvm/src/codegen/arc_emitter/closures.rs`.
+- `Call parameter type does not match function signature` LLVM assertions on newtype constructor call sites.
+- `ori panic: must be set` followed by `ori: fatal — _Unwind_RaiseException returned (code 5)`.
+
+**Hypothesis (root cause candidate — investigate first, do NOT jump to fix):**
+The §08.3 fix changed `re_intern_type`'s (legacy API) semantics for `Tag::Var | Tag::BoundVar | Tag::RigidVar` arms: previously preserved source `var_id` verbatim via `target.intern(tag, source.data(idx))`; now allocates a FRESH dst `var_id` via `get_or_allocate_var_id` + `Pool::allocate_var_id`. Any consumer of the legacy `re_intern_type` API outside the 3 llvm_backend.rs sites we updated that depends on source-id PRESERVATION semantics is now broken. Newtype constructors (`UserId`, `Score`) flow through `ori_llvm::codegen::arc_emitter::closures::emit_partial_apply` — which may key lookups by var_id. `partial_apply` "callee not found" suggests a name-resolution or mono-instance keyed by var_id is now missing.
+
+**Alternative hypothesis:** the crash pre-dates §08.3 and is caused by one of the 3 commits between state.sh baseline HEAD `58c26963` and current HEAD `dbc3492c` (d96cab30 §08.1.5 close, d0b3bcb3 §08.2 close, dbc3492c /add-bug skill edit). State.sh snapshot was last refreshed at §03.5 close and is stale.
+
+**Investigation checklist (phase 1 — isolate root cause):**
+- [ ] `git worktree add /tmp/baseline-verify dbc3492c` (pre-my-changes HEAD). Run `timeout 150 ./test-all.sh` there. Compare `Ori spec (LLVM backend)` status to current run's CRASHED result.
+- [ ] If CRASHED reproduces on baseline worktree (no §08.3 changes): crash is pre-existing. Split to a new plan-blocker subsection distinct from §08.3's work; §08.3 code gets --no-verify-approved commit as-is; §08.3c closes as "not caused by §08.3 — see follow-up".
+- [ ] If CRASHED does NOT reproduce on baseline (passes or non-CRASHED failure mode): §08.3 caused it. Proceed to phase 2.
+- [ ] `scripts/intel-query.sh --human callers "re_intern_type" --repo ori` — enumerate all callers of legacy API. Identify any caller path relevant to newtype codegen.
+- [ ] `scripts/intel-query.sh --human callers "emit_partial_apply" --repo ori` — trace the newtype constructor path. Check whether it queries var_ids from merged pool.
+- [ ] `Read` `compiler/ori_llvm/src/codegen/arc_emitter/closures.rs` — identify how newtype constructors are resolved. Does it key by var_id, name, or idx?
+- [ ] `Read` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` — verify the LLVM IR verification seam + find what signature mismatch is being reported.
+- [ ] `cargo run --bin ori -- test --backend=llvm tests/spec/types/newtypes/` directly against current tree — does it crash in isolation or only within `test-all.sh` context?
+- [ ] `diagnostics/codegen-audit.sh` on one newtype test file to see static-analysis classification.
+
+**Investigation checklist (phase 2 — only if §08.3 is the cause):**
+- [ ] Narrow to the SPECIFIC consumer of `re_intern_type` that broke. Does it:
+    - (a) Depend on var_id PRESERVATION across pool merges? Then: either revert the legacy API to preserve (keep `_with_var_remap` as the new correct path) and update all known-correct consumers to use the new API; OR migrate the broken consumer to use `_with_var_remap` properly.
+    - (b) Have an implicit dependency on a specific var_id VALUE (e.g., expecting var_id 0 to mean a specific binder)? Then: the consumer's logic is load-bearing on source-id identity, which was itself a bug waiting to happen — migrate to name-based or idx-based lookup.
+- [ ] Write a Rust unit test that reproduces the crash minimally (a newtype construction + merged-pool scenario). Land it in the owning crate's tests.
+- [ ] Implement the fix per the classification above.
+- [ ] Verify `timeout 150 ./test-all.sh` shows `Ori spec (LLVM backend)` passing (no CRASHED) AND AOT integration tests show only the 2 expected BUG-04-AOT-MONO failures.
+
+**Close-out:**
+- [ ] All investigation checklist items above are `[x]`.
+- [ ] Fix lands in a dedicated commit separate from §08.3's pool-merge commit (per CLAUDE.md §Stabilization Discipline "multi-commit sequences ordered by dependency").
+- [ ] `/tpr-review` clean on §08.3c diff.
+- [ ] `/impl-hygiene-review` clean on §08.3c diff.
+- [ ] state.sh refreshed post-commit — `ori_spec_llvm` status matches or exceeds the pre-§08.3 baseline.
+- [ ] Unblocks commit of §08.3's pool-merge code.
+
+**Why this is a §08 subsection, not a bug-tracker entry:** per CLAUDE.md §Plan-Blocker Bugs Belong IN the Plan, a regression that BLOCKS the plan's commit+close-out path must be absorbed into the plan. The classifying test is "can the plan complete with this bug open?" — NO (§08.3's work can't commit cleanly without resolving this), so it's in-scope.
 
 ## 08.4 Coordination with roadmap Section 21A — import-resolution + 21.7/21.11 claim corrections
 
@@ -384,7 +517,7 @@ These remain distinct mechanisms; §08.3's fix touches neither.
 
 ## 08.N Completion Checklist
 
-- [ ] All §08.1, §08.1.5, §08.2, §08.3, §08.4, §08.5, §08.6 tasks are `[x]` and behavior is verified
+- [ ] All §08.1, §08.1.5, §08.2, §08.3, §08.3b, §08.3c, §08.4, §08.5, §08.6 tasks are `[x]` and behavior is verified
 - [ ] `timeout 150 ./test-all.sh` is GREEN (no crashes, no new failures in this section's scope)
 - [ ] `timeout 150 ./clippy-all.sh` is clean
 - [ ] `diagnostics/dual-exec-verify.sh` clean on §08.2 corpus AND on the broader poly-lambda test corpus that existed before §08.2 landed (per §08.5 broadened parity audit)

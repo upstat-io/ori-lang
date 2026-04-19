@@ -46,9 +46,9 @@ pub use output::{
     TypedModule,
 };
 pub use pool::{
-    extract_var_from_types, re_intern_sig, re_intern_type, substitute_in_pool,
-    walk_collection_types, EnumVariant, Pool, TypeDescriptor, VarState, VariantDescriptor,
-    DEFAULT_RANK,
+    extract_var_from_types, re_intern_sig, re_intern_sig_with_var_remap, re_intern_type,
+    re_intern_type_with_var_remap, substitute_in_pool, walk_collection_types, EnumVariant, Pool,
+    TypeDescriptor, VarState, VariantDescriptor, DEFAULT_RANK,
 };
 pub use registry::{
     // Type registry
