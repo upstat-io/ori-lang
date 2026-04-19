@@ -34,12 +34,12 @@ third_party_review:
 review_pipeline:
   stage: editor-done
   next_step: 6
-  rounds_completed: 4
-  last_round_commit: 00dfd64e
-  last_round_findings: 5
+  rounds_completed: 5
+  last_round_commit: 4fed1239
+  last_round_findings: 4
   max_rounds: 10
   updated: "2026-04-19"
-  note: "paused mid-loop (user_pause_and_resume after Round 3 via /tpr-review §9 context-pressure pause; target 10 rounds total per user 2026-04-19; 6 rounds remaining. Cumulative 16 findings verified across Rounds 0-3, all fixed inline across commits f4a78b0b (Round 0: 6 findings), 16253c11 (Round 1: 3 findings), aeceb167 (Round 2: 2 findings), 00dfd64e (Round 3: 5 findings — 3 codex stealth-edits verified against source and retained, 1 gemini F1 §08.2 matrix cell e5 added, 1 gemini F2 absorbed by codex Drift 2 with unify_var_with function-name citation correction); 2 gemini findings dropped at verification during Rounds 0-1, Round 3 had 0 drops. When resuming, /tpr-review must receive max_rounds=10 (--max-rounds=10 or equivalent) AND initial iteration_counter=4 (via --resume-from-rounds=4 or marker-read)."
+  note: "paused mid-loop (user_pause_and_resume after Round 4 via /tpr-review §9 context-pressure pause; target 10 rounds total per user 2026-04-19; 5 rounds remaining. Cumulative 20 findings verified across Rounds 0-4, all fixed inline or filed as §08.R items, across commits f4a78b0b (Round 0: 6 findings), 16253c11 (Round 1: 3 findings), aeceb167 (Round 2: 2 findings), 00dfd64e (Round 3: 5 findings — 3 codex stealth-edits verified against source and retained, 1 gemini F1 §08.2 matrix cell e5 added, 1 gemini F2 absorbed by codex Drift 2 with unify_var_with function-name citation correction), 4fed1239 (Round 4: 4 codex findings — F1 scope question JIT/AOT filed in §08.R as TPR-08-R4-01 for scope-decision resolution, F2 §08.2 e4 Link.target pin matched to Round 2 F1 recursive re-intern rule, F3 negative-pin workflow replaced working-tree-wide shelving with scoped-patch reversal across §08.2/§08.3/§08.N, F4 overview quick-reference row synced to frontmatter state; 3 gemini critical findings dropped at verification — all cited shipped `pool/re_intern/mod.rs` bugs that §08.3 step 2/5/6 already prescribes the fix for, gemini confabulated by treating shipped code as target state). Drop count across all rounds: 5 (2 in R0+R1, 0 in R2+R3, 3 in R4). §08.R now carries TPR-08-R4-01-codex[high] scope-decision item requiring grep/intel-query verification of whether `ori build` uses the shared `re_intern_type_with_var_remap` call path. When resuming, /tpr-review must receive max_rounds=10 (--max-rounds=10 or equivalent) AND initial iteration_counter=5 (via --resume-from-rounds=5 or marker-read)."
 sections:
   - id: "08.1"
     title: "Investigation and root cause analysis"
