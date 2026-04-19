@@ -1,0 +1,205 @@
+// Spec: 14-expressions.md § Lambda; 08-types.md § Generic Types
+//
+// TDD matrix for plans/empty-container-typeck-phase-contract §08.2 —
+// poly-lambda presence must not break imported `assert_eq<T>` monomorphization.
+// Absorbs BUG-04-042.
+//
+// Root cause (per §08.1.R Hypothesis (d)): the type checker's end-of-body
+// defaulting pre-pass `default_unbound_vars_from_empty_literals`
+// (`compiler/ori_types/src/infer/mod.rs`) is scope-by-empty-literal, NOT
+// scope-by-lambda-return. Polymorphic-lambda return-position
+// `Tag::Var(Unbound)` generalizes to `Tag::Var(Generalized)` without ever
+// receiving a concrete-type constraint. `validate_body_types`
+// (`compiler/ori_types/src/check/validators/mod.rs`) exempts `Generalized`
+// per `types.md §SC-1` shipped divergence, so PC-2 does not fire. The
+// surviving `Tag::Var` reaches
+// `ori_llvm::codegen::type_info::store::get_impl()` where
+// `pool.resolve_fully()` cannot chase non-`Link` VarStates — emitting the
+// observed "unresolved type variable at codegen — type inference bug"
+// error on the specific `Idx(N)`.
+//
+// Fix (target §08.3): sibling pass `default_unbound_vars_from_polylambda_returns`
+// that defaults poly-lambda return-position `Unbound` vars to `Idx::NEVER`
+// before `validate_body_types` runs. The `Generalized`/`Rigid` exemptions
+// stay intact (load-bearing for let-polymorphism per `types.md §SC-1`).
+//
+// Expected TDD status BEFORE §08.3 lands:
+// - INTERPRETER (`cargo st`): all tests pass — the producer-side leak
+//   affects only the LLVM backend's `TypeInfoStore::get_impl()` consumer
+//   (verified 2026-04-18: `_poly_lambda_probe` harness green).
+// - LLVM backend (`ori test --backend=llvm`): every test fails at compile
+//   time with `unresolved type variable at codegen — type inference bug
+//   idx=Idx(N)` (verified 2026-04-18: same probe emits `Idx(238)` / `Idx(239)`).
+//
+// Expected TDD status AFTER §08.3 lands: all tests pass on BOTH backends,
+// with dual-execution parity verified by `diagnostics/dual-exec-verify.sh`
+// (per §08.5 broadened parity audit).
+//
+// Matrix scope note: the `.map(transform: x -> x * 2)` iterator-callback
+// cell (d) from the §08.2 plan text is covered by §08.5's broadened parity
+// audit on the existing `tests/spec/traits/iterator/` corpus rather than
+// here — the `.map` pattern is currently blocked on the interpreter by the
+// unrelated pre-existing BUG-04-030 interference (poly-lambda with list
+// type triggers unresolved type variable), which would make cell (d)
+// indistinguishable from the §08 bug today. §08.5 re-verifies the
+// iterator-callback path on the broader corpus after §08.3 closes the
+// producer-side leak.
+
+use std.testing { assert_eq }
+
+// ============================================================================
+// Type × Lambda-flavor (b: monomorphic call) × Import (std.testing.assert_eq)
+// ----------------------------------------------------------------------------
+// Each cell defines a polymorphic identity lambda AND calls `assert_eq<T>`
+// from `std.testing` in the same module. The failing path: poly-lambda
+// return-type `Tag::Var(Unbound)` leaks past typeck → imported
+// `assert_eq<T>` monomorphization observes the unresolved type variable in
+// its TypeInfoStore lookup → "Idx(N) unresolved at codegen".
+// ============================================================================
+
+@test_poly_mono_int tests @poly_mono_int () -> void = {
+    assert_eq(actual: poly_mono_int(), expected: 42)
+}
+
+@poly_mono_int () -> int = {
+    let $id = x -> x;
+    id(42)
+}
+
+@test_poly_mono_str tests @poly_mono_str () -> void = {
+    assert_eq(actual: poly_mono_str(), expected: "hello")
+}
+
+@poly_mono_str () -> str = {
+    let $id = x -> x;
+    id("hello")
+}
+
+@test_poly_mono_bool tests @poly_mono_bool () -> void = {
+    assert_eq(actual: poly_mono_bool(), expected: true)
+}
+
+@poly_mono_bool () -> bool = {
+    let $id = x -> x;
+    id(true)
+}
+
+@test_poly_mono_float tests @poly_mono_float () -> void = {
+    assert_eq(actual: poly_mono_float(), expected: 3.14)
+}
+
+@poly_mono_float () -> float = {
+    let $id = x -> x;
+    id(3.14)
+}
+
+// ============================================================================
+// Lambda-flavor (a): poly-lambda defined but never called
+// ----------------------------------------------------------------------------
+// The lambda's return-type `Tag::Var(Generalized)` must be defaulted even
+// when the lambda has no call sites that could constrain it. This is the
+// purest form of the leak — there is zero type-channel constraint on the
+// lambda's T, so the only thing keeping typeck green is the Generalized
+// exemption, which is precisely what lets the Var survive into codegen.
+// ============================================================================
+
+@test_poly_unused_int tests @poly_unused_int () -> void = {
+    assert_eq(actual: poly_unused_int(), expected: 7)
+}
+
+@poly_unused_int () -> int = {
+    let $id = x -> x;
+    7
+}
+
+@test_poly_unused_str tests @poly_unused_str () -> void = {
+    assert_eq(actual: poly_unused_str(), expected: "ok")
+}
+
+@poly_unused_str () -> str = {
+    let $id = x -> x;
+    "ok"
+}
+
+// ============================================================================
+// Lambda-flavor (c): single poly-lambda called at two distinct mono types
+// within the same function body, paired with distinct `assert_eq<T>`
+// monomorphizations. Guards against per-instantiation clone regressions
+// observed in prior lambda_mono TPR rounds (TPR-04B-001) interacting with
+// the imported-generic path.
+// ============================================================================
+
+@test_poly_multi_type_same_fn tests @poly_multi_type_same_fn () -> void = {
+    assert_eq(actual: poly_multi_type_same_fn(), expected: "a")
+}
+
+@poly_multi_type_same_fn () -> str = {
+    let $id = x -> x;
+    let $i = id(1);
+    let $s = id("a");
+    s
+}
+
+// ============================================================================
+// Import-dimension (b): locally-defined generic that mimics `assert_eq`'s
+// shape. Diagnostic triangulation:
+// - If this cell passes today while the `std.testing.assert_eq` cells fail,
+//   the bug is specifically in the IMPORTED-mono path (body_type_map at
+//   `compiler/oric/src/test/runner/llvm_backend.rs:317-355`).
+// - If both cells fail, the bug lives in shared lambda_mono / TypeInfoStore
+//   infrastructure consumed by both local and imported mono.
+// ============================================================================
+
+@check_eq_local<T: Eq + Debug> (got: T, want: T) -> void =
+    if got != want then panic(msg: "check_eq_local failed: " + got.debug() + " != " + want.debug());
+
+@test_poly_mono_with_local_generic tests @poly_mono_with_local_generic () -> void = {
+    check_eq_local(got: poly_mono_with_local_generic(), want: 99)
+}
+
+@poly_mono_with_local_generic () -> int = {
+    let $id = x -> x;
+    id(99)
+}
+
+// ============================================================================
+// Tag::Scheme PROPAGATE_MASK regression pin — coordinates with §07/BUG-04-085.
+// ----------------------------------------------------------------------------
+// Exercises a polymorphic lambda whose body contains nested generics
+// (`[T]` where `T` is the lambda's bound var), so §02.0's
+// `Tag::Scheme HAS_VAR` propagation fix at
+// `compiler/ori_types/src/pool/mod.rs` is exercised in the poly-lambda +
+// imported-generic context. Without this pin, §08 could silently undo
+// §07's fix (or vice versa).
+// ============================================================================
+
+@test_propagate_mask_nested_list tests @propagate_mask_nested_list () -> void = {
+    assert_eq(actual: propagate_mask_nested_list(), expected: 5)
+}
+
+@propagate_mask_nested_list () -> int = {
+    let $wrap = x -> [x, x, x];
+    let $xs = wrap(5);
+    xs[0]
+}
+
+// ============================================================================
+// Nested-container substitution pin — guards `apply_bound_var_map` at
+// `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_resolve.rs:142-175`.
+// ----------------------------------------------------------------------------
+// Per the §08 Reviewer-surfaced reconnaissance block, that helper only
+// fixes top-level vars; nested generics inside containers (`[T]`,
+// `Option<T>`) may remain unsubstituted. This pin runs a poly-lambda
+// whose parameter type is `[T]` (nested generic) against the
+// imported-generic path so any regression in nested-container
+// substitution surfaces here first.
+// ============================================================================
+
+@test_nested_container_param tests @nested_container_param () -> void = {
+    assert_eq(actual: nested_container_param(), expected: 10)
+}
+
+@nested_container_param () -> int = {
+    let $first_of = xs -> xs[0];
+    first_of([10, 20, 30])
+}

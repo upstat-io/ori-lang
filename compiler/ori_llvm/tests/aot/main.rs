@@ -47,6 +47,7 @@ pub mod narrowing;
 pub mod operators;
 pub mod panic;
 pub mod patterns;
+pub mod poly_lambda_mono;
 pub mod rc_matrix;
 pub mod recursion;
 pub mod repr;
