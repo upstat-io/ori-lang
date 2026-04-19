@@ -301,4 +301,4 @@ Bugs absorbed into the plan's scope per CLAUDE.md §Ownership & Deferral "Plan-b
 | 05 | Test Matrix + Semantic Pins | `section-05-test-matrix.md` | Not Started |
 | 06 | Diagnostics + Spec-Test Audit | `section-06-diagnostics-audit.md` | Not Started |
 | 07 | Close-out + Supersession (absorbs BUG-04-085 investigation) | `section-07-closeout.md` | Not Started |
-| 08 | **Codegen Poly-Lambda Monomorphization (absorbs BUG-04-042)** | `section-08-codegen-poly-lambda.md` | In Progress — §08.1 / §08.1.5 / §08.2 complete; §08.3 next (still blocks commits until §08.3 lands) |
+| 08 | **Codegen Poly-Lambda Monomorphization (absorbs BUG-04-042)** | `section-08-codegen-poly-lambda.md` | In Progress — §08.1 complete; §08.2 in-progress (8/10 cells); §08.1.5 / §08.3 / §08.4 / §08.5 / §08.6 / §08.N not-started; blocks commits until §08.3 lands |
