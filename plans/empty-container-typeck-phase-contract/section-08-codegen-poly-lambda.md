@@ -54,7 +54,8 @@ sections:
 
   - id: "08.3b"
     title: "Typeck scheme-body canonicalization: Generalized→BoundVar migration (unblocks success criterion #1 per /tp-help 2026-04-19 consensus)"
-    status: not-started
+    status: in-progress
+
   - id: "08.3c"
     title: "LLVM newtype codegen regression from §08.3 pool-merge remap — investigation and fix (commit blocker)"
     status: not-started
@@ -358,13 +359,16 @@ These cells live at the pool crate's re-intern boundary (where the fix actually 
 - `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_resolve.rs` — `apply_bound_var_map` + `fallback_bound_vars_to_int` verify they handle BoundVar-based schemes; `fallback_bound_vars_to_int` may become unreachable (audit per §08.3b close-out).
 
 **TDD matrix (authored before implementation — RED state):**
-- [ ] **Cell A — poly-lambda single-call at concrete type**: `let $id = x -> x; id(42)` — scheme body has `Tag::BoundVar` (not `Tag::Var(Generalized)`); instantiation unifies with `int` at call site; post-typeck IR has no `Tag::Var(Generalized)` anywhere.
-- [ ] **Cell B — poly-lambda multi-instantiation**: `let $id = x -> x; let $i = id(1); let $s = id("a")` — scheme instantiates independently at each call site with fresh `Tag::Var` per call; no shared `VarState::Generalized`; both call sites resolve to their concrete argument types.
-- [ ] **Cell C — unused poly-lambda**: `let $id = x -> x; 42` — scheme canonicalizes even with zero call sites; unused-scheme reachable via typed IR traversal contains `Tag::BoundVar`, never `Tag::Var(Generalized)`.
-- [ ] **Cell D — nested poly-lambda**: `let $pair = x -> y -> (x, y); pair(1)("a")` — both binders flow through scheme construction; nested scheme body has `Tag::BoundVar` for both `x` and `y`.
-- [ ] **Cell E — poly-lambda return-position poly-type**: `let $some = x -> Some(x); some(42)` — `Option<T>` return with `T=int` monomorphizes correctly.
-- [ ] **Cell F — PC-2 validator negative pin**: a typed IR with a surviving `Tag::Var` (unbound, non-generalized) still fires `E2005` via `validate_body_types`; exemption arm removal MUST NOT regress the Unbound detection path.
-- [ ] **Cell G — integration**: `tests/spec/expressions/poly_lambda_with_imported_generic.ori` compiles cleanly via LLVM backend (currently fails with `Idx(238)`/`Idx(241)` unresolved).
+- [x] **Cell A — poly-lambda single-call at concrete type**: `let $id = x -> x; id(42)` — scheme body has `Tag::BoundVar` (not `Tag::Var(Generalized)`); instantiation unifies with `int` at call site; post-typeck IR has no `Tag::Var(Generalized)` anywhere. Authored: `compiler/ori_types/src/unify/tests.rs::generalize_identity_lambda_body_contains_bound_var_leaves`.
+- [x] **Cell B — poly-lambda multi-instantiation**: `let $id = x -> x; let $i = id(1); let $s = id("a")` — scheme instantiates independently at each call site with fresh `Tag::Var` per call; no shared `VarState::Generalized`; both call sites resolve to their concrete argument types. Authored: `compiler/ori_types/src/unify/tests.rs::generalize_then_instantiate_twice_yields_independent_fresh_vars`.
+- [x] **Cell C — unused poly-lambda**: `let $id = x -> x; 42` — scheme canonicalizes even with zero call sites; unused-scheme reachable via typed IR traversal contains `Tag::BoundVar`, never `Tag::Var(Generalized)`. Authored: `compiler/ori_types/src/unify/tests.rs::generalize_unused_poly_lambda_canonicalizes_to_bound_var_body`.
+- [x] **Cell D — nested poly-lambda**: `let $pair = x -> y -> (x, y); pair(1)("a")` — both binders flow through scheme construction; nested scheme body has `Tag::BoundVar` for both `x` and `y`. Authored: `compiler/ori_types/src/unify/tests.rs::generalize_nested_lambda_rewrites_both_binders_to_bound_var`.
+- [x] **Cell E — poly-lambda return-position poly-type**: `let $some = x -> Some(x); some(42)` — `Option<T>` return with `T=int` monomorphizes correctly; scheme body has `Option<BoundVar>` post-rewrite (nested Var inside single-child container rewritten). Authored: `compiler/ori_types/src/unify/tests.rs::generalize_return_position_polymorphic_type_rewrites_nested_var`.
+- [x] **Cell F — PC-2 validator negative pin**: a typed IR with a surviving `Tag::Var` (unbound, non-generalized) still fires `E2005` via `validate_body_types`; exemption arm removal MUST NOT regress the Unbound detection path. Covered by existing `compiler/ori_types/src/check/validators/tests.rs::body_expr_types_with_unbound_var_emits_one_e2005` (T1) — a minimal `Pool::fresh_var()` in `expr_types` with empty `scheme_var_ids` asserts exactly one `E2005`. Per SSOT, we do not duplicate this cell; it stays GREEN before and after migration and is the canonical regression guard for the Unbound detection path.
+- [ ] **Cell G — integration**: `tests/spec/expressions/poly_lambda_with_imported_generic.ori` compiles cleanly via LLVM backend (currently fails with `Idx(238)`/`Idx(241)` unresolved). Verification target post-implementation; not a newly-authored cell. File already exists in the spec corpus.
+
+**Design decision ratified (2026-04-19) — `Tag::BoundVar.data = var_id`, not binder_idx:**
+Plan step 1's "binder_idx" wording is superseded. Per `types.md §SC-1` ("data = var_id matching one of the scheme's declared var ids") and the merkle-leaf semantics in `types.md §TK-1`, `Tag::BoundVar.data` stores the original `var_id` from `scheme_var_ids`, not a positional index. This integrates cleanly with both substitute paths' existing `FxHashMap<u32, Idx>` keyed by `var_id` — no re-keying required. The `rewrite_body_generalized_to_bound_var` helper replaces each `Tag::Var(Generalized { id, .. })` leaf with `pool.intern(Tag::BoundVar, id)`. Cells A–E all assert `BoundVar.data == scheme_vars[k]` where applicable.
 
 **Implementation checklist (TDD — author cells A–G first, confirm all RED, then fix):**
 - [ ] **1. Design the scheme-body body-rewrite API in `unify/generalization.rs`**: new helper `rewrite_body_generalized_to_bound_var` that walks the scheme body, replaces every `Tag::Var(Generalized { id, .. })` leaf with `Tag::BoundVar(binder_idx)` where `binder_idx` is the scheme's `scheme_var_ids.iter().position(|&v| v == id).expect(...)`. Panic on missing binder — that's a soundness violation (every Generalized var in the body MUST be declared in scheme_var_ids).
