@@ -34,7 +34,7 @@ sections:
     status: complete
   - id: "08.2"
     title: "TDD matrix: poly-lambda + imported generics + Scheme PROPAGATE_MASK pin"
-    status: complete
+    status: in-progress
   - id: "08.3"
     title: "Implementation: fix BoundVar bleed at identified call sites"
     status: not-started
