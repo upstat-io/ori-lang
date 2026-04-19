@@ -136,6 +136,21 @@ fix-BUG-04-074.md supersession, audit trail preservation
 
 ---
 
+### Section 08: Codegen Poly-Lambda Monomorphization (absorbs BUG-04-042)
+**File:** `section-08-codegen-poly-lambda.md` | **Status:** In Progress
+
+```
+cross-module pool-merge var_id collision, re_intern with var remap
+compiler/ori_types/src/pool/re_intern/, compiler/oric/src/test/runner/llvm_backend.rs
+assert_eq<T: Eq + Debug> monomorphization, imported generics + poly-lambda
+VarState::Generalized preservation, scheme binder remap, FunctionSig.scheme_var_ids coherence
+Tag::Scheme PROPAGATE_MASK regression pin (BUG-04-085 cross-coverage)
+types.md §TY-6 append-only, §TF-3 Merkle-hash propagation, §SC-1 scheme layout
+JIT-only scope; sibling BUG-04-AOT-MONO tracks AOT imported-generic mono
+```
+
+---
+
 ## Quick Reference
 
 | ID | Title | File |
@@ -147,3 +162,4 @@ fix-BUG-04-074.md supersession, audit trail preservation
 | 05 | Test Matrix + Semantic Pins | `section-05-test-matrix.md` |
 | 06 | Diagnostics + Spec-Test Audit | `section-06-diagnostics-audit.md` |
 | 07 | Close-out + Supersession | `section-07-closeout.md` |
+| 08 | Codegen Poly-Lambda Monomorphization (absorbs BUG-04-042, JIT-only) | `section-08-codegen-poly-lambda.md` |
