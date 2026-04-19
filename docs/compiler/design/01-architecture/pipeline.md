@@ -126,7 +126,7 @@ Key characteristics:
 - Unification with union-find and rank optimization
 - Pattern type checking and exhaustiveness preparation
 - Capability checking (`uses` declarations)
-- Some desugarings happen here: pipe (`|>`), comparison operators, `for...yield`
+- Surface desugarings handled in or before the type checker today: argument-punning + variant-pattern-punning field resolution (PC-2 feeds off these). **Pipe (`|>`), binary-operator structural rewrites (`a + b` → `Add::add(a, b)`, `a == b` → `Eq::equals(a, b)`, `a < b` → `Comparable::compare(a, b).is_less()`), and index/field-assignment rewrites are target-only per `.claude/rules/canon.md §2`** — spec-defined but NOT yet shipped in `ori_types`
 
 **Side-channel query**: `typed_pool(db, file) -> Option<Arc<Pool>>` provides access to the type `Pool` produced as a side effect of `typed()`. The Pool can't satisfy Salsa's `Clone + Eq + Hash` requirements, so it is stored in a session-scoped `PoolCache` rather than as a Salsa query output. Callers that need the Pool (error rendering, canonicalization, codegen) call `typed()` first, then `typed_pool()`.
 
