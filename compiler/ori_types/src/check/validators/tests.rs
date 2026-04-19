@@ -577,6 +577,9 @@ fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
 /// Semantic pin for the poly-lambda-return code path after §08.3 lands a
 /// fix that produces the target `BoundVar` shape rather than the currently
 /// shipped `Var(Generalized)` divergence.
+///
+/// Not the enforcement point for BUG-04-042 — see
+/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
 #[test]
 fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
     let mut pool = Pool::new();
@@ -609,6 +612,9 @@ fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
 /// let-polymorphism entirely — the canonical INVERTED-TDD anti-pattern per
 /// CLAUDE.md §INVERTED-TDD. This test pins that the exemption remains in
 /// place for the poly-lambda return shape specifically.
+///
+/// Not the enforcement point for BUG-04-042 — see
+/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
 #[test]
 fn polylambda_return_type_with_generalized_var_emits_no_diagnostic() {
     let mut pool = Pool::new();
@@ -654,6 +660,9 @@ fn polylambda_return_type_with_generalized_var_emits_no_diagnostic() {
 /// var through an additional `Tag::Function` layer, exercising `HAS_VAR`
 /// propagation through the composite Function-in-Scheme shape that models
 /// the typed IR's poly-lambda representation.
+///
+/// Not the enforcement point for BUG-04-042 — see
+/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
 #[test]
 fn polylambda_return_type_with_unbound_var_emits_one_e2005() {
     let mut pool = Pool::new();
