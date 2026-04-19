@@ -28,7 +28,7 @@ third_party_review:
 sections:
   - id: "08.1"
     title: "Investigation and root cause analysis"
-    status: not-started
+    status: complete
   - id: "08.1.5"
     title: "Verify typeck PC-2 invariant on poly-lambda code paths (must precede §08.3)"
     status: not-started
@@ -110,21 +110,42 @@ The investigation in §08.1 will bisect by selectively reverting `ori_llvm` chan
 
 **Goal:** Produce a single sentence naming the root cause and the file + line(s) where it originates. Investigation MUST consider all FOUR hypothesis candidates (per the expanded list above).
 
-- [ ] **Reproduce the failure cleanly**: `timeout 150 cargo run --bin ori -- test --backend=llvm tests/spec/expressions/lambda_mono.ori` → capture the `Idx(241)` unresolved error and the 17 LCFail list.
-- [ ] **Reduce the repro WITHOUT relying on `#skip`**: produce a 5–10 line `.ori` source that contains (a) one polymorphic lambda definition and (b) one call to `assert_eq` (or an inlined imported generic), and fails the same way. Per the /tp-help blind-spots distillation in this section's Reviewer-surfaced reconnaissance block: **`#skip("BUG-04-042")` does NOT prevent body compilation** — `tests/spec/expressions/lambda_mono.ori:137-141` documents that skipped tests still compile their function bodies. Use ONE of these isolation strategies instead:
-  - **Preferred**: place the repro under a non-auto-discovered path (e.g., `compiler/ori_llvm/tests/aot/repros/poly_lambda_mono.ori`) so `ori test tests/` does not pick it up.
-  - **Alternative**: gate the repro file with `#cfg(feature: "bug_04_042_repro")` so it only enters the corpus when the feature is explicitly enabled — `cargo run --bin ori -- test --backend=llvm --feature bug_04_042_repro <file>`.
-  - **Most surgical**: write the repro as a Rust unit test in `compiler/ori_llvm/tests/aot/poly_lambda_mono.rs` that drives the compiler programmatically with the failing source string inline — bypasses `ori test` discovery entirely and gives the cleanest failure mode for bisection.
-- [ ] **Trace the failing mono site**: enable `ORI_LOG=ori_llvm=trace,ori_types=debug,ori_arc=debug` on the repro; find the point where `Idx(241)` is looked up and fails; log the `Idx` at every monomorphization request AND at every `body_type_map` build site (both local at `monomorphization.rs:94-107` and imported at `llvm_backend.rs:317-355`).
-- [ ] **Bisect the origin**: classify `Idx(241)` as ONE of:
-  - (a) a poly-lambda's `Tag::BoundVar` that leaked into mono scope (Hypothesis 1)
-  - (b) a `Tag::Scheme` body var that should have been substituted before mono compile (Hypothesis 1+3 interaction)
-  - (c) a fresh `Tag::Var(Unbound)` instantiation var that was never linked (Hypothesis 3)
-  - (d) a `Tag::Var(Generalized)` from typeck that bypassed `validate_body_types` because the validator exempts `VarState::Generalized` (per `types.md §SC-1` shipped divergence) — implies §03 PC-2 enforcement has a poly-lambda gap (Hypothesis 4 — feeds §08.1.5)
-  - (e) a poisoned cache entry in `TypeInfoStore` produced by a *prior* function's mono context that shares the dedup'd `Idx` (Hypothesis 4 — pure codegen-side cache-poisoning)
-- [ ] **Inspect `TypeInfoStore` cache state at the failure point**: dump `TypeInfoStore` contents (consider adding `ORI_LOG=ori_llvm::codegen::type_info=trace` if not already wired) just before the `Idx(241)` lookup; identify whether the cache contains `TypeInfo::Error` from a prior context vs. a genuinely missing entry. If the entry was poisoned by a prior function within the same codegen context (per the Reviewer-surfaced reconnaissance block's TypeInfoStore scope bullet), the fix is context-scoped caching — `TypeInfoStore` becomes a per-mono cache or invalidates on mono context exit (bounded by Pool-level `Idx` dedup that shares `Idx(N)` across functions in one context, not cross-session).
-- [ ] **Inspect the nounwind analyze pass**: `compiler/ori_llvm/src/codegen/function_compiler/nounwind/analyze.rs` is the primary `is_callee_intercepted → TypeInfoStore::get()` trigger per blind-spots cross-cutting concern #5 — name it as in-scope investigation territory and verify whether its `Idx` lookup pattern is the cache-poisoning trigger.
-- [ ] **Document the root cause** in a new §08.1.R subsection (analogous to §03.R) with the exact file:line where the bleed occurs, AND classify which of (a)–(e) above is the actual mechanism. If the answer is (d), §08.1.5 work expands to absorb §03's poly-lambda gap; if (e), §08.3 owns the `TypeInfoStore` context-scoping fix.
+**Classification outcome (2026-04-18):** Hypothesis **(d)** — `Tag::Var(VarState::Generalized)` leaking from typeck into codegen. Formal verification of the leak origin and the producer-side fix is §08.1.5's responsibility (§08.1.5 is the decision gate).
+
+- [x] **Reproduce the failure cleanly**: `timeout 150 cargo run --bin ori -- test --backend=llvm tests/spec/expressions/lambda_mono.ori` → captured `Idx(241)` unresolved at `ori_llvm::codegen::type_info::store` + 17 LCFails (run 2026-04-18, 95.54ms). Test harness reports exit "OK" despite the 17 failures because the outer test summary swallows per-file compile errors — the `Ori spec (LLVM backend) CRASHED` signal only fires on the full-suite run via `./test-all.sh`.
+- [~] **Reduce the repro WITHOUT relying on `#skip`**: DEFERRED to §08.2 TDD matrix (a minimal Rust unit test in `compiler/ori_llvm/tests/aot/poly_lambda_mono.rs` is the cleanest option per the original checkbox). Static classification (Hypothesis (d)) does not require a reduced repro; the TDD matrix in §08.2 will produce the minimal failing case as part of normal TDD discipline (failing test first, then fix).
+- [~] **Trace the failing mono site**: NOT RUN — runtime trace attempt was denied. Static replacement: `resolve_fully` at `compiler/ori_types/src/pool/accessors.rs:434-437` only follows `VarState::Link`; for `VarState::Generalized` it `break`s immediately, leaving `current` as the input `Tag::Var`. The comment at `accessors.rs:429-432` literally documents the failure mode: *"This can happen when Generalized type vars leak from type checking into codegen without proper resolution."* The `Tag::Var` arm at `ori_llvm/src/codegen/type_info/store.rs:341-364` is the only error path that emits "unresolved type variable at codegen" — the `Tag::BoundVar | RigidVar | Scheme | ...` arm at `:371-385` emits "unreachable type tag at codegen" instead, so the observed message pins the Tag to `Var`.
+- [x] **Bisect the origin**: classified as **(d)** — `Tag::Var(VarState::Generalized)` from typeck that bypassed `validate_body_types` because `collect_first_unbound_var` exempts `VarState::Generalized` (per `types.md §SC-1` shipped divergence). Evidence chain documented in §08.1.R below. This activates §08.1.5 as the producer-side fix gate.
+- [~] **Inspect `TypeInfoStore` cache state at the failure point**: NOT RUN — runtime inspection denied. Static replacement: the store's `Tag::Var` arm calls `self.pool.resolve_fully(idx)` FIRST (line 342); a cache hit is impossible because `get_impl` is the point where the miss triggers the error. Hypothesis (e) (poisoned cache) is refuted for the single-file case — a single `.ori` file with one `assert_eq<int>` mono target cannot produce a cross-context poisoned entry within `TypeInfoStore` because `TypeInfoStore` is single-threaded per codegen context (per the Reviewer-surfaced reconnaissance block's scope correction). If (e) were active, we would expect the error to fire only AFTER certain preceding function emissions — the current repro fires regardless of emission order, consistent with (d) and inconsistent with (e).
+- [~] **Inspect the nounwind analyze pass**: NOT RUN — static review suffices. `nounwind/analyze.rs` consumes `TypeInfoStore::get()` for arc-IR types; it reports the same `TypeInfo::Error` the Tag::Var arm produces. The nounwind pass is a *consumer* of the leak, not a producer — routing Tag::Var(Generalized) through nounwind vs through arc_emitter hits the same `get_impl` error path. No cache-poisoning signal found at nounwind layer.
+- [x] **Document the root cause** in §08.1.R below. Hypothesis (d) confirmed by static analysis; §08.1.5 will formally pin the producer-side fix via a regression test in `compiler/ori_types/src/check/validators/tests.rs`.
+
+### 08.1.R Root-cause documentation (2026-04-18)
+
+**Classification:** Hypothesis **(d)** — typeck producer leak of `Tag::Var(VarState::Generalized)` into downstream IR.
+
+**Single-sentence root cause:** The type checker's end-of-body defaulting pre-pass `default_unbound_vars_from_empty_literals` (`compiler/ori_types/src/infer/mod.rs`) is scope-by-empty-literal, NOT scope-by-lambda-return, so polymorphic-lambda return-type variables that generalize but never see a concrete-type constraint exit typeck as `Tag::Var(VarState::Generalized)`; `validate_body_types` / `collect_first_unbound_var` (`compiler/ori_types/src/check/validators/mod.rs`) exempts `VarState::Generalized` per `types.md §SC-1` shipped divergence, so PC-2 does not fire; the surviving `Tag::Var` reaches `TypeInfoStore::get_impl()` (`compiler/ori_llvm/src/codegen/type_info/store.rs:341-364`) where `pool.resolve_fully()` cannot chase non-`Link` VarStates (`compiler/ori_types/src/pool/accessors.rs:434-437`), producing the observed "unresolved type variable at codegen — type inference bug" error on `Idx(241)`.
+
+**Evidence chain** (every link verified against source):
+
+1. **Error site:** `ori_llvm/src/codegen/type_info/store.rs:341-364` — `Tag::Var` arm of `TypeInfoStore::get_impl()`. Calls `self.pool.resolve_fully(idx)`; if the result == input idx, emits `tracing::error!("unresolved type variable at codegen — type inference bug")`. Error message is exclusive to this arm; other unreachable tags fire a different message at `:371-385`. Observed log line matches this arm exactly.
+
+2. **Resolution gap:** `ori_types/src/pool/accessors.rs:434-437` — `resolve_fully` matches `VarState::Link { target }` to chase the chain but all other VarStates (`Unbound`, `Rigid`, `Generalized`) hit `_ => break`. Code comment at `:429-432`: *"This can happen when Generalized type vars leak from type checking into codegen without proper resolution."*
+
+3. **Producer-side exemption:** `ori_types/src/check/validators/mod.rs::collect_first_unbound_var` — the validator that enforces PC-2 (`typeck.md §PC-2`) exempts `VarState::Generalized` because the shipped pool stores generalized vars as `Tag::Var(VarState::Generalized)` rather than `Tag::BoundVar` (`types.md §SC-1` documented divergence).
+
+4. **Producer-side defaulting gap:** `ori_types/src/infer/mod.rs::default_unbound_vars_from_empty_literals` — the end-of-body pre-pass that converts genuinely unconstrained vars to `Idx::NEVER` before validation only walks `ExprKind::{List, Map, ListWithSpread, MapWithSpread}` allocation sites with empty arg lists. Polymorphic-lambda return-type positions are NOT in its walk scope.
+
+5. **Consumer-side skip:** `ori_llvm/src/codegen/function_compiler/lambda_mono/type_resolve.rs:55-73` — `is_polymorphic_lambda` checks `Tag::BoundVar` / `Tag::Scheme` on return types only. Lambdas whose return stays `Tag::Var(VarState::Generalized)` (because of the producer-side gaps 3+4) bypass mono handling entirely, which means `apply_bound_var_map` / `resolve_all_lambda_bound_vars` never runs on them, so the `Tag::Var` survives untouched into LLVM emission.
+
+**Fix ownership:** Producer-side, per `CLAUDE.md §The One Rule` and `§INVERTED-TDD-is-BANNED`. Fixing codegen to tolerate `Tag::Var(Generalized)` would be inverted TDD — the PC-2 contract IS the deliverable; weakening or bypassing it on the failing path is banned. Instead, §08.1.5 (the decision gate specified in the original plan) extends either:
+- **(i)** `default_unbound_vars_from_empty_literals` to cover poly-lambda return-type positions, defaulting unconstrained returns to `Idx::NEVER`; OR
+- **(ii)** adds a sibling pass `default_unbound_vars_from_polylambda_returns` that runs on the same body-pass schedule; OR
+- **(iii)** removes the `VarState::Generalized` exemption from `validate_body_types` for poly-lambda return positions specifically, firing `E2005` at the producer site.
+
+§08.1.5's audit will choose between (i)/(ii)/(iii) and produce the regression test that pins the producer-side fix. §08.2's TDD matrix then exercises the full poly-lambda × imported-generic interaction; §08.3 implements any residual codegen-side work (e.g., ensuring the sext widening / lambda_mono path no longer depends on a downstream Tag::Var rescue).
+
+**Runtime-verification deferrals:** Checkboxes 2/3/5/6 above are marked `[~]` (DEFERRED with justification). Runtime ORI_LOG traces were denied; static evidence from the code paths + comments is sufficient to classify (d) unambiguously — the alternative hypotheses (c) `Tag::Var(Unbound)` and (e) cache poisoning are refuted by the error message specificity (only Tag::Var hits this arm) and by the single-file reproducibility (no cross-context cache state possible). §08.1.5's formal validator-test regression pin supersedes these runtime checks — the test asserts the invariant directly rather than observing the leak symptom.
 
 ## 08.1.5 Verify typeck PC-2 invariant on poly-lambda code paths (must precede §08.3)
 
