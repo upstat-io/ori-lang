@@ -73,6 +73,9 @@ sections:
   - id: "08.6"
     title: "§04 ↔ §08 seam coordination — confirm no seam-order change under corrected fix"
     status: not-started
+  - id: "08.H"
+    title: "Hygiene findings from /impl-hygiene-review on §08.3b — plan-close blockers"
+    status: not-started
   - id: "08.R"
     title: "Third Party Review Findings"
     status: complete
@@ -406,8 +409,8 @@ Plan step 1's "binder_idx" wording is superseded. Per `types.md §SC-1` ("data =
 - [ ] All §08.3b TDD cells (A–G) pass — Cells A-E green; Cell G blocked-by §08.3b.1.
 - [ ] All implementation checklist items (1–10) complete — items 1-4, 7, 9 done; items 5, 6, 8, 10 blocked-by §08.3b.1.
 - [ ] Downstream verification green — three passes done; LLVM integration blocked-by §08.3b.1.
-- [ ] `/tpr-review` passed on §08.3b diff — should run on the partial scheme-body diff to validate the substitute-paths + helper design before §08.3b.1 builds on top.
-- [ ] `/impl-hygiene-review` passed after TPR clean — runs after TPR.
+- [x] `/tpr-review` passed on §08.3b diff — Round 0 clean (codex + gemini both `status: clean`, 0 verified findings). Scratch dir `/tmp/tpr-round-ori_lang-joiY7bb1`. Exit reason: `clean`. 2026-04-19.
+- [x] `/impl-hygiene-review` passed after TPR clean — 0 §08.3b-introduced findings, 9 pre-existing BLOAT findings filed inline under §08.H as plan-close blockers. All 7 focus axes passed (SSOT/DRY, fast-path gate, dead-code totality, partial-migration disclaimer, Merkle determinism, test matrix, phase-purity). Scratch dir `/tmp/impl-hygiene-ori_lang-HY4lvpdu`. 2026-04-19.
 - [x] `/improve-tooling` retrospective (per-subsection) — captures the "scope-discovery during execution" pattern (plan steps 5/6 assumed scheme-body migration would suffice for validator strip; in practice expr_types/FunctionSig also leak Generalized).
 - [ ] `sync-claude` run — rule files updated to reflect retired divergence. <!-- blocked-by:plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md#083b1 -->
 - [ ] `/commit-push` — one commit for the partial scheme-body migration (distinct from §08.3's pool-merge commit); §08.3b.1 will land its own commit.
@@ -701,6 +704,34 @@ These remain distinct mechanisms; §08.3's fix touches neither.
 
 **Note on §08.1.5's investigation scope change:** the prior §08.6 text noted "§08.1.5's investigation may add a third surface (a typeck-side fix or a new pre-`process_arc_function` validation seam)". Under the corrected diagnosis, §08.1.5 does NOT add any typeck-side fix (the fix is pool-crate-side, upstream of typeck's output boundary) and does NOT add a new pre-`process_arc_function` validation seam (§04.2's seam remains sufficient because the fix runs pool-merge-side). §08.6 absorbs no additional coordination items.
 
+## 08.H Hygiene findings from /impl-hygiene-review on §08.3b — plan-close blockers
+
+**Source:** `/impl-hygiene-review` on §08.3b partial scheme-body migration, 2026-04-19. Scratch dir: `/tmp/impl-hygiene-ori_lang-HY4lvpdu`. Verdict on §08.3b-introduced findings: CLEAN (0 new). All 7 focus axes passed (SSOT/DRY, fast-path gate widening, dead-code totality, partial-migration disclaimer, Merkle determinism, test matrix, phase-purity).
+
+**Why inline to plan (not filed to external backlog):** Per user's rule 2026-04-19 — hygiene findings surfaced during plan work are plan-owned and must close before the plan can close, regardless of whether they were §08.3b-introduced. Cross-references to `plans/hygiene-full-2/section-08-file-size.md` exist where applicable; this plan is now the resolving owner for F3 + F7 (pool/mod.rs + pool/accessors.rs file splits).
+
+**Findings (9 total, all pre-existing BLOAT, severity minor — per Phase 3 of `/impl-hygiene-review`):**
+
+- [ ] **F1 — `collect_first_unbound_var` fn length (111 lines, limit 100)** at `compiler/ori_types/src/check/validators/mod.rs:188`. Self-heals when §08.3b.1 strips the `VarState::Generalized` exemption arm (lines 241-274 collapse). <!-- blocked-by:plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md#083b1 -->
+- [ ] **F2 — `collect_first_unbound_var` nesting depth (5, limit 4)** at `compiler/ori_types/src/check/validators/mod.rs:241`. Self-heals when §08.3b.1 simplifies the `VarState` dispatch (same root as F1). <!-- blocked-by:plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md#083b1 -->
+- [ ] **F3 — `compiler/ori_types/src/pool/accessors.rs` file length (691 lines, limit 500, over by 191)**. Split into submodules: `pool/accessors/mod.rs` as facade, `pool/accessors/resolution.rs` for `resolve_fully` + link-chase, `pool/accessors/queries.rs` for tag/data/flags/hashes getters, `pool/accessors/var_state.rs` for `VarState` ops. Cross-reference: `plans/hygiene-full-2/section-08-file-size.md:59` tracks the pre-§08.3b baseline (624 lines) — this plan becomes the resolving owner; update `hygiene-full-2 §08` to point here.
+- [ ] **F4 — `fn resolve_fully` nesting depth 5 (limit 4)** at `compiler/ori_types/src/pool/accessors.rs:512`. Flatten via early-return restructure on link-chase + cycle detection. Resolve together with F3's file split (the extracted `pool/accessors/resolution.rs` is the natural home).
+- [ ] **F5 — `fn merkle_hash_extra` length (107 lines, limit 100)** at `compiler/ori_types/src/pool/mod.rs:444`. Extract per-tag-category helpers (`merkle_hash_two_child`, `merkle_hash_complex`, `merkle_hash_named`, `merkle_hash_scheme`) per `types.md §TI-3` Merkle Hash Classification. Resolve together with F7's file split.
+- [ ] **F6 — `fn compute_flags` length (139 lines, limit 100)** at `compiler/ori_types/src/pool/mod.rs:553`. Extract per-tag-category flag-computation helpers (same pattern as F5). Resolve together with F7's file split.
+- [ ] **F7 — `compiler/ori_types/src/pool/mod.rs` file length (721 lines, limit 500, over by 221)**. Split: keep `mod.rs` as the public facade (`Pool` struct + `intern` + top-level queries), move interning into `pool/interning.rs`, flag computation into `pool/flags_compute.rs` (absorbs F6), Merkle hashing into `pool/hashing.rs` (absorbs F5). Cross-reference: `plans/hygiene-full-2/section-08-file-size.md:57` tracks the pre-§08.3b baseline (661 lines) — this plan becomes the resolving owner; update `hygiene-full-2 §08` to point here.
+- [ ] **F8 — `fn extract_var_from_types` length (103 lines, limit 100)** at `compiler/ori_types/src/pool/substitute/mod.rs:257`. Decompose by tag category (simple-container / two-child / complex / named / scheme), same pattern as F5/F6.
+- [ ] **F9 — `fn substitute` length (229 lines, limit 100)** at `compiler/ori_types/src/unify/substitute.rs:58`. Currently has `#[expect(clippy::too_many_lines)]` accepting the debt; decompose by tag category and retire the `#[expect]`. Same pattern as F5/F6/F8.
+
+**Close-out verification:**
+
+- [ ] All 9 findings resolved per close actions above.
+- [ ] `python3 scripts/hygiene-lint.py --files compiler/ori_types/src/pool/mod.rs compiler/ori_types/src/pool/accessors.rs compiler/ori_types/src/pool/substitute/mod.rs compiler/ori_types/src/unify/substitute.rs compiler/ori_types/src/check/validators/mod.rs` returns zero BLOAT findings (or only `#[expect(..., reason = "...")]`-annotated accepted debt with documented rationale).
+- [ ] `timeout 150 cargo t -p ori_types` green after all splits (no behavior change).
+- [ ] `timeout 150 ./test-all.sh` still at or below known_failing_count baseline after splits.
+- [ ] `plans/hygiene-full-2/section-08-file-size.md:57,59` entries for `pool/mod.rs` + `pool/accessors.rs` updated to cross-reference this plan as the resolving owner (avoids double-tracking per `impl-hygiene.md §SSOT`).
+
+**Dependency note:** F1 + F2 MUST be verified closed AFTER §08.3b.1 lands (the exemption strip is what collapses `collect_first_unbound_var` below the length + nesting limits). F3-F9 are independent refactors that can land in any order after their pool-module splits are coordinated.
+
 ## 08.R Third Party Review Findings
 
 - [x] `[TPR-08-R4-01-codex][high]` `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md:222` — §08 scope conflates JIT test-runner pool-merge and AOT `ori build` paths. **RESOLVED (2026-04-19, Round 5) — option (b) selected.** Round 5 cross-reviewer agreement (codex F1 + gemini F2, both from direct code inspection) confirmed: `ori build` goes through `compiler/oric/src/commands/compile_common.rs:70-110,184-240` and `compiler/ori_types/src/check/mod.rs:341-407` with NO `re_intern_*` call — cross-module pool merge is a JIT-test-runner-only path. Both AOT integration tests fail today with `E5001 unresolved function 'assert_eq' — missing mono instance?` (unresolved imported-generic function resolution), NOT the `Idx(241)` unresolved-type-variable symptom §08.1.R diagnoses. **Resolution landed in this same commit**: (1) §08.2 AOT test note (line 222) reframed to identify the AOT failure as a separate root cause (AOT `collect_mono_functions` does not traverse `import_sigs`); AOT tests stay in-tree as failing TDD pins for the sibling bug. (2) §08's effective scope is now JIT-only (pool-merge in `compiler/oric/src/test/runner/llvm_backend.rs:167-251` via `compiler/ori_types/src/pool/re_intern/`); success criteria on AOT are reframed as "AOT tests stay TDD-failing until the sibling bug lands". (3) New sibling bug filed at `plans/bug-tracker/section-04-codegen-llvm.md` — BUG-04-AOT-MONO (AOT `ori build` lacks imported generic monomorphization; `collect_mono_functions` in `compiler/ori_llvm/src/monomorphize/mod.rs` ignores `import_sigs`). Basis: cross-reviewer direct_file_inspection. Confidence: high.
@@ -718,7 +749,7 @@ These remain distinct mechanisms; §08.3's fix touches neither.
 
 ## 08.N Completion Checklist
 
-- [ ] All §08.1, §08.1.5, §08.2, §08.3, §08.3b, §08.3c, §08.4, §08.5, §08.6 tasks are `[x]` and behavior is verified
+- [ ] All §08.1, §08.1.5, §08.2, §08.3, §08.3b, §08.3b.1, §08.3c, §08.4, §08.5, §08.6, §08.H tasks are `[x]` and behavior is verified
 - [ ] `timeout 150 ./test-all.sh` is GREEN (no crashes, no new failures in this section's scope)
 - [ ] `timeout 150 ./clippy-all.sh` is clean
 - [ ] `diagnostics/dual-exec-verify.sh` clean on §08.2 corpus AND on the broader poly-lambda test corpus that existed before §08.2 landed (per §08.5 broadened parity audit)
