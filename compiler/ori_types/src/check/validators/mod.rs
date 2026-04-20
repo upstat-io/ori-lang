@@ -253,23 +253,28 @@ fn collect_first_unbound_var(
                 VarState::Link { target } => {
                     collect_first_unbound_var(pool, *target, span, exempt, errors)
                 }
-                // §08.3b — `Tag::Var(VarState::Generalized)` is a partial-
-                // migration residue. Scheme BODIES are now rewritten to
-                // `Tag::BoundVar` per `types.md §SC-1`
-                // (`unify::generalization::rewrite_generalized_to_bound_var`),
-                // but `expr_types` and `FunctionSig.param_types` for
-                // let-polymorphic lambdas still hold the pre-generalize
-                // `Tag::Var` leaves whose `var_state` was mutated to
-                // `Generalized` in place. Until a follow-up subsection
-                // ports those positions to `Tag::BoundVar`, the validator
-                // continues to exempt `Generalized` as a defensive net —
-                // stripping this arm without porting expr_types would
-                // fire `E2005` on every polymorphic let-binding
-                // (`CLAUDE.md §INVERTED-TDD`).
+                // §08.3b.1 — `Tag::Var(VarState::Generalized)` is a leak
+                // alarm after the end-of-body normalization pass in
+                // `check::bodies` rewrites every generalized leaf to
+                // `Tag::BoundVar` per `types.md §SC-1`. A surviving
+                // `Generalized` here means the normalization pass missed a
+                // position — treat it as a genuine PC-2 violation and emit
+                // `E2005`.
                 //
-                // `Rigid` is exempted because user-annotated parametric
-                // type parameters are legitimate at PC-2 exit (`§UN-6`).
-                VarState::Generalized { .. } | VarState::Rigid { .. } => false,
+                // `Rigid` remains exempt — user-annotated parametric type
+                // parameters are legitimate at PC-2 exit (`§UN-6`).
+                VarState::Generalized { .. } => {
+                    if exempt.contains(&var_id) {
+                        return false;
+                    }
+                    errors.push(TypeCheckError::ambiguous_type(
+                        span,
+                        var_id,
+                        "expression".to_string(),
+                    ));
+                    true
+                }
+                VarState::Rigid { .. } => false,
             }
         }
 

@@ -91,20 +91,13 @@ pub(super) fn maybe_record_mono_instance(
         .collect();
     let concrete_return_type = substitute_in_pool(pool, return_type, &var_subst);
 
-    // Build body_type_map: for every pool entry containing vars, compute the substituted version.
-    // Sorted by key for deterministic Eq/Hash (Salsa early cutoff).
-    let mut body_type_map = Vec::new();
-    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
-    for raw in crate::Idx::FIRST_DYNAMIC..pool_len {
-        let idx = crate::Idx::from_raw(raw);
-        if pool.flags(idx).contains(crate::TypeFlags::HAS_VAR) {
-            let substituted = substitute_in_pool(pool, idx, &var_subst);
-            if substituted != idx {
-                body_type_map.push((idx, substituted));
-            }
-        }
-    }
+    // Build body_type_map via the canonical SSOT helper; sort+dedup for
+    // deterministic Eq/Hash (Salsa early cutoff) is call-site-local
+    // post-processing per `pool::substitute::build_mono_body_type_map`.
+    let mut body_type_map: Vec<(crate::Idx, crate::Idx)> = Vec::new();
+    crate::pool::substitute::build_mono_body_type_map(pool, &var_subst, &mut body_type_map);
     body_type_map.sort_by_key(|(k, _)| k.raw());
+    body_type_map.dedup_by_key(|(k, _)| k.raw());
 
     // Register pool resolutions for concrete Applied types so the LLVM
     // TypeInfoStore can resolve them to struct layouts during codegen.

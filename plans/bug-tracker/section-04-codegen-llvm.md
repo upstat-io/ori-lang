@@ -16,6 +16,24 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-086][high]` **LLVM codegen: list destructuring `let [$first, $second, ..rest] = items` returns wrong values**
+  Repro: `tests/spec/expressions/immutable_bindings.ori::test_list_immutable` under `--backend=llvm`. `let items = [1, 2, 3]; let [$first, $second, ..rest] = items; first + second` returns 6 instead of 3 (`1 + 2`). Interpreter returns 3 correctly.
+  Surfaced: 2026-04-20 during §08.3b.1 Phase 4. The test was previously in `lc_fail` because `assert_eq` couldn't be monomorphized; Phase 1-3 + nounwind fix let it compile, exposing a pre-existing pattern-destructuring LLVM codegen bug.
+  Subsystem: `compiler/ori_llvm/` (pattern-matching lowering for `[head, ..rest]` patterns)
+  Found: 2026-04-20 | Source: §08.3b.1 Phase 4 harness-crash remediation
+
+- [ ] `[BUG-04-087][high]` **LLVM codegen: `catch(expr: 1 / 0)` does not catch the division-by-zero panic — panic escapes instead of producing `Err`**
+  Repro: `tests/spec/patterns/catch.ori::test_catch_div_zero` under `--backend=llvm`. `let result = catch(expr: 1 / 0); match result { Err(_) -> (), Ok(_) -> panic(...) }` — panic escapes instead of being caught into `Err`. Interpreter passes.
+  Surfaced: 2026-04-20 during §08.3b.1 Phase 4. Likely cause: the `catch` pattern's landing pad is generated but the divisor-check panic in `/` still emits a `call` (direct) rather than `invoke`, or the runtime's division helper is marked `nounwind` incorrectly.
+  Subsystem: `compiler/ori_llvm/` (catch pattern codegen, division operator panic path)
+  Found: 2026-04-20 | Source: §08.3b.1 Phase 4 harness-crash remediation
+
+- [ ] `[BUG-04-088][medium]` **LLVM codegen: map debug format missing quotes around string keys**
+  Repro: `tests/spec/traits/debug/collections.ori::test_map_debug` under `--backend=llvm`. Map `{x: 1}` formats as `"{x: 1}"` under LLVM but the test (and interpreter) expects `"{\"x\": 1}"` per the Debug trait's string-escape contract.
+  Surfaced: 2026-04-20 during §08.3b.1 Phase 4. LLVM-side map debug formatter skips the `Debug::debug` string-escape pass for keys.
+  Subsystem: `compiler/ori_llvm/` (map debug codegen — likely `builtins/collections/map_builtins.rs` or derive_codegen's FormatFields strategy for maps)
+  Found: 2026-04-20 | Source: §08.3b.1 Phase 4 harness-crash remediation
+
 - [ ] `[BUG-04-AOT-MONO][high]` **AOT `ori build` lacks imported generic monomorphization — `collect_mono_functions` does not traverse `import_sigs` for mono-instance emission**
   Found: 2026-04-19 | Source: tpr-review (round 5 on `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md`, cross-source codex F1 + gemini F2 agreement).
   Repro: `timeout 150 cargo test -p ori_llvm --test aot poly_lambda_mono -- --nocapture` — both `test_poly_lambda_with_imported_assert_eq_int` and `..._str` fail at compile step with `E5001 unresolved function 'assert_eq' in apply/invoke — missing mono instance?`. Symptom is distinct from BUG-04-042 (that is `Idx(241)` unresolved type variable on the JIT test-runner pool-merge path); this AOT symptom is unresolved imported-generic function reference — AOT never emits the mono instance at all.

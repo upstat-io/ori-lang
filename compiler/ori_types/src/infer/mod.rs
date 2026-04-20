@@ -171,6 +171,19 @@ pub struct InferEngine<'pool> {
     /// `None` means no snapshot was provided — in that case every env name
     /// is conservatively treated as lexical (the pre-snapshot behavior).
     module_scope_snapshot: Option<FxHashSet<Name>>,
+
+    /// Var ids that were generalized by `generalize()` during body
+    /// inference. Tracked so the end-of-body normalization pass
+    /// ([`InferEngine::normalize_body_generalized_to_bound_var`]) can rewrite
+    /// matching `Tag::Var` leaves in `expr_types` / `FunctionSig` positions
+    /// to `Tag::BoundVar` per `types.md §SC-1`.
+    ///
+    /// Drained per-body: between bodies, the set must be empty. Accumulates
+    /// via [`InferEngine::record_generalized_vars`] from the `generalize()`
+    /// call path (inner let-polymorphism); top-level polymorphic function
+    /// signatures' scheme var ids are passed directly to the normalization
+    /// method by the body-pass caller.
+    pending_generalized_vars: Vec<u32>,
 }
 
 impl<'pool> InferEngine<'pool> {
@@ -214,6 +227,7 @@ impl<'pool> InferEngine<'pool> {
             deferred_mono_calls: Vec::new(),
             current_function: None,
             module_scope_snapshot: None,
+            pending_generalized_vars: Vec::new(),
         }
     }
 
@@ -526,9 +540,23 @@ impl<'pool> InferEngine<'pool> {
     ///
     /// Returns a type scheme if any variables were generalized,
     /// or the original type if it's monomorphic.
-    #[inline]
+    ///
+    /// §08.3b.1 — Records every newly-generalized var id in
+    /// `pending_generalized_vars` so the end-of-body normalization pass
+    /// ([`InferEngine::normalize_body_generalized_to_bound_var`]) can rewrite
+    /// matching `Tag::Var` leaves in `expr_types` / `FunctionSig` positions
+    /// to `Tag::BoundVar` per `types.md §SC-1`.
     pub fn generalize(&mut self, ty: Idx) -> Idx {
-        self.unify.generalize(ty)
+        let scheme = self.unify.generalize(ty);
+        // If generalize returned a scheme, extract its bound var ids and
+        // record them for the end-of-body normalization pass. If no
+        // generalization happened (monomorphic), the returned idx is not
+        // a scheme — skip recording.
+        if self.unify.pool().tag(scheme) == Tag::Scheme {
+            let vars = self.unify.pool().scheme_vars(scheme).to_vec();
+            self.pending_generalized_vars.extend(vars);
+        }
+        scheme
     }
 
     /// Instantiate a type scheme with fresh variables.
@@ -808,6 +836,104 @@ impl<'pool> InferEngine<'pool> {
             *pool.var_state_mut(var_id) = VarState::Link { target };
         }
         true
+    }
+
+    /// Convenience wrapper mutating a whole [`FunctionSig`] in-place and
+    /// refreshing its Merkle hashes after normalization. Callers holding
+    /// only loose `param_types` / `return_type` (e.g., `check_impl_method`
+    /// which constructs its sig at the end via `build_method_sig`) should
+    /// call [`InferEngine::normalize_body_generalized_to_bound_var`] directly
+    /// and let the caller construct hashes from the normalized fields.
+    pub fn normalize_body_generalized_to_bound_var_sig(
+        &mut self,
+        expr_types: &mut FxHashMap<ExprIndex, Idx>,
+        sig: &mut FunctionSig,
+    ) {
+        let before_params = sig.param_types.clone();
+        let before_return = sig.return_type;
+        self.normalize_body_generalized_to_bound_var(
+            expr_types,
+            &mut sig.param_types,
+            &mut sig.return_type,
+            &sig.scheme_var_ids,
+        );
+        // If anything changed, refresh the Merkle hashes so cross-module
+        // identity (`output/mod.rs:442-457`) reflects the normalized shape.
+        let changed = sig.param_types != before_params || sig.return_type != before_return;
+        if changed {
+            let pool = self.unify.pool();
+            sig.param_hashes = sig.param_types.iter().map(|&idx| pool.hash(idx)).collect();
+            sig.return_hash = pool.hash(sig.return_type);
+        }
+    }
+
+    /// Normalize `Tag::Var` leaves matching generalized/scheme var ids to
+    /// `Tag::BoundVar` across `expr_types`, `param_types`, and `return_type`
+    /// per `types.md §SC-1`.
+    ///
+    /// Scheme bodies in the pool are already rewritten to `Tag::BoundVar`
+    /// leaves by [`UnifyEngine::generalize`] via
+    /// `rewrite_generalized_to_bound_var`, but the positions in
+    /// `expr_types`, `FunctionSig.param_types`, and `FunctionSig.return_type`
+    /// continue to reference the pre-generalize `Tag::Var` idxs whose
+    /// `var_state` was mutated to `Generalized` in place. Without this
+    /// normalization pass, those `expr_types` / sig-position idxs remain
+    /// `Tag::Var(Generalized)` post-typeck, causing `validate_body_types`
+    /// (`typeck.md §PC-2` enforcement) to either (a) spuriously flag them as
+    /// `E2005` if the exemption arm is stripped, or (b) silently permit them
+    /// to leak to downstream phases under the exemption arm — both paths are
+    /// partial-migration leaks relative to the `§SC-1` target.
+    ///
+    /// The rewrite is driven by the union of:
+    ///   1. `self.pending_generalized_vars` — drained here; these are var
+    ///      ids captured by inner `let` generalization during the body.
+    ///   2. `sig_scheme_var_ids` — the caller's pre-collected scheme var
+    ///      ids (e.g., top-level polymorphic function sigs where
+    ///      `generalize()` is never invoked on the body but `scheme_var_ids`
+    ///      were populated in the signatures pass).
+    ///
+    /// For each var id in the union, constructs a substitution entry
+    /// `{var_id → Pool::bound_var(var_id)}` and applies it via
+    /// [`substitute_in_pool`] (`impl-hygiene.md §Algorithmic DRY` — reuses
+    /// the canonical recursion skeleton used by `rewrite_generalized_to_bound_var`).
+    ///
+    /// Runs per-body: `pending_generalized_vars` is drained on entry and is
+    /// empty on exit. Callers invoke this immediately after the end-of-body
+    /// defaulting pass ([`InferEngine::default_unbound_vars_from_empty_literals`])
+    /// and before `validate_body_types` — ordering keeps defaulting's
+    /// `Idx::NEVER` substitutions intact while ensuring the validator sees
+    /// the `§SC-1` target shape.
+    pub fn normalize_body_generalized_to_bound_var(
+        &mut self,
+        expr_types: &mut FxHashMap<ExprIndex, Idx>,
+        param_types: &mut [Idx],
+        return_type: &mut Idx,
+        sig_scheme_var_ids: &[u32],
+    ) {
+        // Union of pending (from inner generalize() calls) + sig's scheme
+        // var ids (from signatures pass, for top-level polymorphic fns).
+        let mut all_vars: Vec<u32> = std::mem::take(&mut self.pending_generalized_vars);
+        all_vars.extend(sig_scheme_var_ids.iter().copied());
+        all_vars.sort_unstable();
+        all_vars.dedup();
+
+        if all_vars.is_empty() {
+            return;
+        }
+
+        let pool = self.unify.pool_mut();
+        let subst: FxHashMap<u32, Idx> = all_vars
+            .iter()
+            .map(|&id| (id, pool.bound_var(id)))
+            .collect();
+
+        for ty in expr_types.values_mut() {
+            *ty = substitute_in_pool(pool, *ty, &subst);
+        }
+        for ty in param_types.iter_mut() {
+            *ty = substitute_in_pool(pool, *ty, &subst);
+        }
+        *return_type = substitute_in_pool(pool, *return_type, &subst);
     }
 }
 

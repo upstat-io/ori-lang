@@ -44,10 +44,28 @@ pub(super) fn is_boxed_enum_field(pool: &Pool, enum_type: Idx, field_type: Idx) 
 
 // Callee interception detection
 
+/// Builtin method names whose intercepted emission may call `ori_panic`
+/// (e.g., `Option.expect`, `Result.unwrap`). These emit an inline
+/// `call ori_panic` on the failing variant and therefore may unwind
+/// through the caller — they are NOT nounwind even though they are
+/// intercepted. Used by the nounwind analyzer to avoid marking callers
+/// of these methods as nounwind.
+///
+/// The emission sites live in
+/// `codegen/arc_emitter/builtins/option_result_helpers.rs`
+/// (`emit_expect_branch`, `emit_unwrap_branch`). Keep this list in sync
+/// with the dispatch table in `option_result.rs`.
+pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] =
+    &["unwrap", "unwrap_err", "expect", "expect_err"];
+
 /// Check if a callee will be intercepted by builtin handlers during emission.
 ///
-/// Intercepted calls always emit `call` (never `invoke`), so they are
-/// effectively nounwind from the caller's perspective. Shared by both
+/// Intercepted calls always emit `call` (never `invoke`), so they skip the
+/// ARC-IR `Invoke` path. Most intercepts are nounwind — but a small set of
+/// builtin methods (`unwrap`, `expect`, etc.) emit an inline `call ori_panic`
+/// in their failing-variant branch and therefore MAY unwind. See
+/// [`MAY_UNWIND_INTERCEPTED_METHODS`] for the canonical list; nounwind
+/// analysis uses that list via [`intercepted_is_nounwind`]. Shared by
 /// [`FunctionCompiler::is_arc_function_nounwind`] (nounwind analysis) and
 /// [`ArcIrEmitter::callee_will_be_intercepted`] (emission).
 ///
@@ -118,6 +136,24 @@ pub(crate) fn is_callee_intercepted(
         }
     }
     false
+}
+
+/// Check whether an intercepted callee is guaranteed to be nounwind.
+///
+/// Called by the nounwind analyzer when [`is_callee_intercepted`] returned
+/// `true` to decide whether the intercept may unwind. The default is
+/// `true` (nounwind) — the exceptional cases in
+/// [`MAY_UNWIND_INTERCEPTED_METHODS`] return `false` because they emit
+/// an inline `call ori_panic` on a failing variant.
+///
+/// Matching is by unqualified method name (the callee `Name` already
+/// strips the type prefix, e.g., `expect` not `Option.expect`), because
+/// the may-unwind set is keyed on the method surface, not the receiver
+/// type — `Option.expect` and `Result.expect` both panic via the same
+/// emission helper.
+#[must_use]
+pub(crate) fn intercepted_is_nounwind(callee_name: &str) -> bool {
+    !MAY_UNWIND_INTERCEPTED_METHODS.contains(&callee_name)
 }
 
 /// Tagged LLVM value carrying its memory representation.
@@ -282,5 +318,51 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     )]
     pub(super) fn is_boxed_enum_field(&self, enum_type: Idx, field_type: Idx) -> bool {
         is_boxed_enum_field(self.pool, enum_type, field_type)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{intercepted_is_nounwind, MAY_UNWIND_INTERCEPTED_METHODS};
+
+    #[test]
+    fn intercepted_is_nounwind_defaults_true_for_unknown_methods() {
+        // A random builtin method name not in the may-unwind list should
+        // be treated as nounwind (the default behavior for intercepted
+        // methods like `map`, `filter`, `len`, `is_empty`).
+        assert!(intercepted_is_nounwind("map"));
+        assert!(intercepted_is_nounwind("filter"));
+        assert!(intercepted_is_nounwind("len"));
+        assert!(intercepted_is_nounwind("is_empty"));
+        assert!(intercepted_is_nounwind(""));
+    }
+
+    #[test]
+    fn intercepted_is_nounwind_rejects_may_unwind_methods() {
+        // Each entry in MAY_UNWIND_INTERCEPTED_METHODS must be recognized
+        // as may-unwind — their builtin emission includes `call ori_panic`
+        // on the failing variant, so callers must keep their invoke edges
+        // and not be marked nounwind.
+        for &name in MAY_UNWIND_INTERCEPTED_METHODS {
+            assert!(
+                !intercepted_is_nounwind(name),
+                "method {name:?} must be classified may-unwind"
+            );
+        }
+    }
+
+    #[test]
+    fn may_unwind_list_covers_option_result_panic_methods() {
+        // Regression pin: these are the exact method names that the
+        // builtins in `option_result_helpers.rs` route through
+        // `emit_expect_branch` / `emit_unwrap_branch`. If a new method
+        // is added to the dispatch in `option_result.rs`, it must also
+        // be added to `MAY_UNWIND_INTERCEPTED_METHODS`.
+        for expected in ["unwrap", "unwrap_err", "expect", "expect_err"] {
+            assert!(
+                MAY_UNWIND_INTERCEPTED_METHODS.contains(&expected),
+                "expected method {expected:?} missing from may-unwind list"
+            );
+        }
     }
 }

@@ -14,7 +14,7 @@ mod tests;
 
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
-use type_predicates::{contains_var, has_concrete_params};
+use type_predicates::{contains_bound_var, contains_var, has_concrete_params};
 use type_resolve::{
     apply_bound_var_map, apply_call_site_types, apply_concrete_param_types, build_bound_var_map,
     fallback_bound_vars_to_int, find_all_instantiation_types, find_apply_indirect_result_type,
@@ -226,8 +226,17 @@ fn build_single_inst_mappings(
             // Track return type resolution from ApplyIndirect results (not from
             // the function type, which may still contain unresolved Vars inside
             // containers like Option<Var>, Result<Var>).
+            //
+            // §08.3b.1 — the gate widened from `contains_var` to also detect
+            // `Tag::BoundVar` at any nesting depth. Post-normalization
+            // (`types.md §SC-1`) scheme-var leaves in curried closure return
+            // types are `Tag::BoundVar`, not `Tag::Var`; without this widening
+            // `find_apply_indirect_result_type` never runs and the container
+            // return type (e.g., `Function($b17) -> $b16`) reaches LLVM
+            // declaration with unresolved leaves, triggering a
+            // declared/emitted return type mismatch at verification.
             let schema_ret = lambdas[i].return_type;
-            if contains_var(pool, schema_ret) {
+            if contains_var(pool, schema_ret) || contains_bound_var(pool, schema_ret) {
                 if let Some(concrete_ret) =
                     find_apply_indirect_result_type(parent, lambdas[i].name, pool)
                 {
