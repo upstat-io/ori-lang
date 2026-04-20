@@ -640,6 +640,13 @@ that placement because:
    `UnresolvedTypeVar` variant flowing IN the same direction preserves the SSOT for error
    shape.
 
+### §04.2 post-landing forward-verification (absorbed from §08.6, 2026-04-20)
+
+These items were originally §08.6's forward-coordination checks; absorbed here to eliminate a same-plan self-blocker (§08.6 → §04.2) per CLAUDE.md §Plan-Blocker Bugs Belong IN the Plan. §04.2 naturally owns "the seam fires correctly against BOTH the intra-module lambda_mono path and the cross-module re-intern path from §08.3" as part of its own completion — it is not a §08 obligation, it is the deliverable of the seam itself.
+
+- [ ] **Post-substitution firing verification (both paths)**: after §04.2's `assert_no_unresolved_type_vars` hooks are inserted at `define_phase.rs:315` (`process_arc_function`) and `:375` (`declare_and_process_lambda`) AND §08.3's remap-aware re-intern is live in the merged pool, verify the assertion fires POST-substitution for (a) the intra-module lambda_mono path via `resolve_all_lambda_bound_vars` at `define_phase.rs:134` + `nounwind/prepare.rs:173`, and (b) the cross-module re-intern path via `pool/re_intern/`. Record the confirmation in §04.R close-out and backlink §08.6.R as "§04 seam order verified correct under §08.1.R corrected diagnosis; no change required." Seam-line-number shifts are acceptable as long as the POST-substitution invariant holds.
+- [ ] **Two-case assertion strictness holds under §08.3 remap**: validate that `assert_no_unresolved_type_vars`'s caller-parameterized two-case design (per `§04.2` `exempt_var_ids` contract, lines 239-244) remains sound after §08.3's remap-aware re-intern lands. Case (a) — monomorphized functions, `exempt_var_ids` EMPTY, strict `typeck.md §PC-2` + `canon.md §4.2` rule: §08.3 + `resolve_all_lambda_bound_vars` must leave zero `Tag::Var` at the seam; a surviving `Tag::Var` is a §08.3 completeness bug. Case (b) — non-monomorphized generic function bodies (pre-mono JIT path), `exempt_var_ids` populated from `FunctionSig.scheme_var_ids`: `Tag::Var(Generalized)` / `Rigid` vars legitimately survive per `types.md §SC-1` divergence; the exemption mirrors `ori_types::check::validators::build_exempt_var_ids`. §08.3's matrix cells e1–e5 must make case (a) sound WITHOUT regressing case (b). Record the verification in §04.R as "two-case seam strictness holds under §08.3 remap; §08.3's cell coverage adequate."
+
 ---
 
 ## 04.TPR-A — TPR Checkpoint After 04.1 + 04.2
