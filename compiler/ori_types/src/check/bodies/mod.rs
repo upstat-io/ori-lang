@@ -44,7 +44,67 @@ use rustc_hash::FxHashMap;
 use crate::check::validators::validate_body_types;
 use crate::check::ModuleChecker;
 use crate::output::FunctionSig;
-use crate::{ExprIndex, Idx, TypeCheckError};
+use crate::{
+    DeferredMonoCall, ExprIndex, Idx, MonoInstance, PatternKey, PatternResolution, TypeCheckError,
+    TypeCheckWarning,
+};
+
+/// Outputs drained from the `InferEngine` at end-of-body, plus the defaulted
+/// `expr_types` map. Consumed by [`finalize_body_and_export`].
+pub(super) struct BodyOutputs {
+    pub expr_types: FxHashMap<ExprIndex, Idx>,
+    pub errors: Vec<TypeCheckError>,
+    pub warnings: Vec<TypeCheckWarning>,
+    pub pat_resolutions: Vec<(PatternKey, PatternResolution)>,
+    pub mono_instances: Vec<MonoInstance>,
+    pub deferred_mono_calls: Vec<DeferredMonoCall>,
+}
+
+/// Shared post-inference spine for every body-checking pass (§03.1, §03.2,
+/// §03.3, §03.4).
+///
+/// Runs the PC-2 validator, stores expression types into the checker, pushes
+/// accumulated errors / warnings, and extends pattern-resolution / mono /
+/// deferred-call vectors. Per the F15 scope note ("extract ONLY the spine,
+/// not a giant wrapper"), this covers only the post-body common work — each
+/// caller still owns its own parameter binding, inference closure, and
+/// signature construction / export.
+pub(super) fn finalize_body_and_export(
+    checker: &mut ModuleChecker<'_>,
+    sig: &FunctionSig,
+    sig_span: ori_ir::Span,
+    outputs: BodyOutputs,
+) {
+    let BodyOutputs {
+        expr_types,
+        errors,
+        warnings,
+        pat_resolutions,
+        mono_instances,
+        deferred_mono_calls,
+    } = outputs;
+
+    // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
+    run_validator(checker, &expr_types, sig, sig_span);
+
+    // Store expression types.
+    for (expr_index, ty) in expr_types {
+        checker.store_expr_type(expr_index, ty);
+    }
+
+    // Store errors and warnings.
+    for error in errors {
+        checker.push_error(error);
+    }
+    for warning in warnings {
+        checker.push_warning(warning);
+    }
+
+    // Accumulate pattern resolutions, mono instances, and deferred calls.
+    checker.pattern_resolutions.extend(pat_resolutions);
+    checker.accumulate_mono_instances(mono_instances);
+    checker.accumulate_deferred_mono_calls(deferred_mono_calls);
+}
 
 /// Shared PC-2 contract enforcement for every body-checking pass.
 ///

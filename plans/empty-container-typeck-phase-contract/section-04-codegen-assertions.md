@@ -362,7 +362,11 @@ This makes the call sites in `ori_llvm` and `oric` as clean as
 
 ---
 
+<!-- coordinates-with: plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md -->
+
 ## 04.2 — PRIMARY Seam: `process_arc_function` + `declare_and_process_lambda` Hooks
+
+> **Cross-section coordination (2026-04-20)** — Before implementing this subsection's seam, consult `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.6`. §08.6 documents the caller-parameterized two-case `exempt_var_ids` contract: (a) mono path → empty set (strict `typeck.md §PC-2`); (b) pre-mono generic body path → populated from `FunctionSig.scheme_var_ids` (SC-1 exemption). §08.3's remap-aware re-intern fix runs upstream of this seam; §08.3's matrix (cells e1–e5) must make case (a) sound — zero `Tag::Var` at the seam for every mono instantiation — without regressing case (b). Any modification to this seam's strictness must preserve both cases.
 
 These are the LOAD-BEARING sites — the single upstream choke points through which every
 ARC-to-LLVM body flows. All other hooks (§04.3 secondary pre-mono sites) are diagnostic

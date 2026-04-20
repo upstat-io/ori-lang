@@ -5,6 +5,8 @@
 #[cfg(feature = "llvm")]
 mod arc_lowering;
 #[cfg(feature = "llvm")]
+mod imported_mono;
+#[cfg(feature = "llvm")]
 mod llvm_backend;
 mod test_execution;
 
