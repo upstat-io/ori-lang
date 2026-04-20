@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Codegen Poly-Lambda Monomorphization (absorbs BUG-04-042)"
-status: in-progress
+status: complete
 
 
 reviewed: false
@@ -39,6 +39,10 @@ third_party_review:
   status: clean
   updated: 2026-04-19
   notes: "8 rounds (0-8 cumulative across sessions); clean convergence Round 8; 4 findings resolved this session across bd92ddc2 and 976ac726"
+review_pipeline:
+  stage: precheck-done
+  next_step: 3
+  updated: 2026-04-20
 sections:
   - id: "08.1"
     title: "Investigation and root cause analysis"
@@ -77,7 +81,7 @@ sections:
     status: complete
   - id: "08.6"
     title: "§04 ↔ §08 seam coordination — confirm no seam-order change under corrected fix"
-    status: blocked-on-04
+    status: complete
   - id: "08.H"
     title: "Hygiene findings from /impl-hygiene-review on §08.3b — plan-close blockers"
     status: complete
@@ -720,8 +724,8 @@ These remain distinct mechanisms; §08.3's fix touches neither.
 
 **§08.6 tasks (forward coordination with Section 04's planned seam):**
 
-- [ ] **Forward-coordination check when Section 04 lands** <!-- blocked-by:plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md#042 -->: after §08.3's remap-aware re-intern is implemented AND Section 04 lands its `assert_no_unresolved_type_vars` seam, re-read `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` at the seam locations §04 ultimately picks (targets `:315` / `:375` today; may shift). Verify that the assertion fires POST-substitution for both the intra-module lambda_mono path AND the cross-module re-intern path. Record the confirmation in §08.6.R as "§04 seam order is correct under corrected §08.1.R diagnosis; no change required." **Deferred per §08.N option (b) 2026-04-20**: §04 still `status: not-started` per `section-04-codegen-assertions.md` frontmatter. §08 close-out records this as BLOCKED-on-§04 rather than holding §08 open on external prerequisite; check executes when §04's seam lands.
-- [ ] **Coordinate §04's assertion strictness (two-case design)** <!-- blocked-by:plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md#042 -->: Section 04's `assert_no_unresolved_type_vars` at `define_phase.rs:315` (`process_arc_function`) and `:375` (`declare_and_process_lambda`) implements a caller-parameterized two-case design via the `exempt_var_ids: &FxHashSet<u32>` parameter (per `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md:239-244`): **(a) monomorphized functions** — caller supplies EMPTY `exempt_var_ids`, strict `typeck.md §PC-2` + `canon.md §4.2` rule applies, every surviving `Tag::Var` is a bug; **(b) non-monomorphized generic function bodies (pre-mono JIT path)** — caller populates `exempt_var_ids` from the owning `FunctionSig.scheme_var_ids`, exempting `VarState::Generalized`/`Rigid` vars that legitimately survive because the shipped pool stores generalized bound vars as `Tag::Var(Generalized)` rather than `Tag::BoundVar` (`types.md §SC-1` target-only divergence; the consumer-side exemption mirrors `ori_types::check::validators::build_exempt_var_ids` at the typeck exit boundary). Under §08.3's remap-aware re-intern: the merged pool's imported types arrive at `process_arc_function` with their `Tag::Var(Generalized)` vars remapped to correct var_ids; for mono instantiations (`exempt_var_ids` empty) §08.3 + `resolve_all_lambda_bound_vars` (`define_phase.rs:134`) must leave zero `Tag::Var` at the seam, and if any survive that is a §08.3 completeness bug worth catching; for pre-mono generic bodies (`exempt_var_ids` populated) the exemption applies verbatim because §08.3's fix does not force monomorphization. §04's design is correct; §08.6's coordination note is that §08.3's matrix (cells e1–e5) must make case (a) sound — zero `Tag::Var` at the seam for every mono instantiation — without regressing case (b). Record the coordination note in §08.6.R (or in a `<!-- coordinates-with:04 -->` annotation on §08.N). **Deferred per §08.N option (b) 2026-04-20**: §04 still `status: not-started`; coordination note MATERIALIZED inline on §04.2 as `<!-- coordinates-with:plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md -->` + embedded cross-section-coordination callout (see next checkbox), so the information is durably recorded and future §04 implementers will consult it.
+- [x] **Forward-coordination check when Section 04 lands** <!-- verification-moved-to:plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md#042 -->: **MOVED TO §04.2 on 2026-04-20**. Absorbed into §04.2's "§04.2 post-landing forward-verification" subsection as "Post-substitution firing verification (both paths)" — §04.2 naturally owns "the seam fires correctly against BOTH the intra-module lambda_mono path and the cross-module re-intern path" as part of its own completion deliverable, eliminating the §08.6 → §04.2 self-blocker pattern. Verification result will be recorded in §04.R with a backlink to §08.6.R. Original scope preserved verbatim at `section-04-codegen-assertions.md` §04.2 post-landing subsection.
+- [x] **Coordinate §04's assertion strictness (two-case design)** <!-- verification-moved-to:plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md#042 -->: **MOVED TO §04.2 on 2026-04-20**. Absorbed into §04.2's "§04.2 post-landing forward-verification" subsection as "Two-case assertion strictness holds under §08.3 remap" — §04.2 already defines the two-case contract via its `exempt_var_ids` parameter (plan lines 239-244), so the verification that §08.3's remap preserves the two-case soundness is §04.2's own close-out obligation. §08.3's matrix cells e1–e5 remain the source of truth for case (a) soundness; §04.2's verification references them. Coordination info is already materialized inline on §04.2 via the `<!-- coordinates-with:plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md -->` annotation + cross-section callout landed in §08.6 item #3.
 - [x] **Add a cross-link annotation on Section 04's plan**: before Section 04's implementation starts, add `<!-- coordinates-with:plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md -->` directly on Section 04's `04.2` subsection (the `PRIMARY seam: process_arc_function + declare_and_process_lambda hooks` item in `section-04-codegen-assertions.md`, currently frontmatter lines 43-45) so future Section 04 implementers consult §08.6's permissiveness-rule coordination before designing the assertion. This task is a small-scope documentation edit to Section 04's plan and can be done now, independent of §08.3 implementation. **Done 2026-04-20**: HTML comment + prose callout landed above `## 04.2` header in `section-04-codegen-assertions.md:365`; callout inlines the two-case contract summary so future §04 implementers see the coordination without needing to open §08 first.
 
 **Note on §08.1.5's investigation scope change:** the prior §08.6 text noted "§08.1.5's investigation may add a third surface (a typeck-side fix or a new pre-`process_arc_function` validation seam)". Under the corrected diagnosis, §08.1.5 does NOT add any typeck-side fix (the fix is pool-crate-side, upstream of typeck's output boundary) and does NOT add a new pre-`process_arc_function` validation seam (§04.2's seam remains sufficient because the fix runs pool-merge-side). §08.6 absorbs no additional coordination items.

@@ -22,7 +22,7 @@ success_criteria:
   - "`diagnostics/state.sh refresh --full --by section-06` runs at the end of §06.4 and writes updated totals (`known_failing_count == 0`, `known_failing_files == []`, `failure_class == null`) to `.claude/state/known-state.json`; §03.N Known Failing Tests table is updated in the same commit to reference the cleared state."
 depends_on: ["01", "02", "03", "04", "05"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-20
   notes: "3 rounds completed: R0+R1 produced 3 verified findings all fixed inline (commits 52aa673d, 7caff2b9); R2 clean — codex's R2 findings dropped at §4 verification as hallucinated out-of-scope §08 content, gemini R2 clean."
 sections:
