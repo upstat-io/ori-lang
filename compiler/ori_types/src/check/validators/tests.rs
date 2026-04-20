@@ -580,7 +580,7 @@ fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
 /// fix that produces the target `BoundVar` shape rather than the currently
 /// shipped `Var(Generalized)` divergence.
 ///
-/// Not the enforcement point for BUG-04-042 — see
+/// Not the enforcement point — see
 /// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
 #[test]
 fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
@@ -616,7 +616,7 @@ fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
 /// let-binding — the canonical INVERTED-TDD anti-pattern per
 /// CLAUDE.md §INVERTED-TDD.
 ///
-/// Not the enforcement point for BUG-04-042 — see
+/// Not the enforcement point — see
 /// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
 #[test]
 fn polylambda_return_type_with_generalized_var_emits_no_diagnostic() {
@@ -664,7 +664,7 @@ fn polylambda_return_type_with_generalized_var_emits_no_diagnostic() {
 /// propagation through the composite Function-in-Scheme shape that models
 /// the typed IR's poly-lambda representation.
 ///
-/// Not the enforcement point for BUG-04-042 — see
+/// Not the enforcement point — see
 /// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
 #[test]
 fn polylambda_return_type_with_unbound_var_emits_one_e2005() {
