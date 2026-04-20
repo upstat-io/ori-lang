@@ -4,7 +4,7 @@ title: Foreign Function Interface (FFI)
 status: in-progress
 last_verified: "2026-03-29"
 verified_by: "Claude Opus 4.6 (1M context)"
-reviewed: true
+reviewed: false
 tier: 4
 goal: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
 estimated_completion: "~30% infrastructure, ~0% end-to-end functionality"

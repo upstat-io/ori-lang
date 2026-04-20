@@ -2,7 +2,7 @@
 section: "15C"
 title: Literals & Operators
 status: in-progress
-reviewed: true
+reviewed: false
 last_verified: "2026-03-29"
 tier: 5
 goal: Implement string interpolation, spread operator, range step syntax, and pipe operator

@@ -3,7 +3,7 @@ section: 20
 title: Compile-Time Reflection
 status: not-started
 last_verified: "2026-03-29"
-reviewed: true
+reviewed: false
 tier: 8
 goal: Enable zero-cost compile-time structural reflection via fields_of, variants_of, $for expansion, $if branching, and splice access
 spec:

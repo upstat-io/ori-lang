@@ -2,7 +2,7 @@
 section: "20A"
 title: "Compile-Time Struct Construction"
 status: not-started
-reviewed: true
+reviewed: false
 last_verified: "2026-03-29"
 tier: 8
 goal: "$construct<T> and $construct_partial<T> expand to direct struct literals during monomorphization — zero overhead, fully typed, complete field coverage"

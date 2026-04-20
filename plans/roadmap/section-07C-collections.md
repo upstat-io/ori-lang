@@ -2,7 +2,7 @@
 section: 7C
 title: Collections & Iteration
 status: in-progress
-reviewed: true
+reviewed: false
 last_verified: "2026-03-29"
 verification_summary: "26 verified, 36 stale checkboxes fixed, 8 NEEDS TESTS, 5 missing items added, #skip budget violation noted"
 tier: 2

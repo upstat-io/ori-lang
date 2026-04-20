@@ -3,7 +3,7 @@ section: 7B
 title: Option & Result
 status: in-progress
 last_verified: "2026-03-29"
-reviewed: true
+reviewed: false
 tier: 2
 goal: Option and Result type methods
 spec:

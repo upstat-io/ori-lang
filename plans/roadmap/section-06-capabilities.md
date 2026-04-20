@@ -2,7 +2,7 @@
 section: 6
 title: Capabilities System
 status: in-progress
-reviewed: true
+reviewed: false
 last_verified: "2026-03-29"
 tier: 2
 goal: Effect tracking (moved earlier to unblock Section 8 cache and Section 11 FFI)

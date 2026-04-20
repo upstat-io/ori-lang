@@ -2,7 +2,7 @@
 section: 7D
 title: Stdlib Modules
 status: partial
-reviewed: true
+reviewed: false
 last_verified: "2026-03-29"
 verification_notes: "7D.3.5 runtime overflow panics implemented (30+ tests), 7D.4 core assertions implemented (9 functions, used by 30+ test files), 7D.5 todo/unreachable implemented. DRIFT: dual testing files (library/std/testing.ori vs library/std/testing/mod.ori). JSON plan items describe superseded yyjson FFI approach."
 tier: 2

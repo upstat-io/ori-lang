@@ -2,7 +2,7 @@
 section: 17
 title: Concurrency Extended
 status: not-started
-reviewed: true
+reviewed: false
 last_verified: "2026-03-29"
 tier: 6
 goal: Complete concurrency support with Sendable trait, role-based channels, nursery pattern, and structured concurrency
