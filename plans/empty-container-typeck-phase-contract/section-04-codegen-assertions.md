@@ -12,6 +12,7 @@ success_criteria:
   # Primary seam (SINGLE upstream choke point)
   - "Primary site (PRIMARY, load-bearing): `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:315` — the `process_arc_function` helper — invokes `assert_no_unresolved_type_vars` for `arc_func` BEFORE `ori_arc::run_arc_pipeline(...)` is called (line ~331). The assertion is ALWAYS-ON in both debug and release builds; `self.verify_arc` gates ADDITIONAL verification (`fn_val.verify(true)` + AIMS oracle cross-check per `codegen-rules.md §VR-1`), NOT the assertion itself. The assertion produces a typed `VerifyError::UnresolvedTypeVar` at `self.builder.record_codegen_error()` — there is no `debug_assert!` fail-open path (gemini + codex consensus: release-strip of `debug_assert!` violates CLAUDE.md §The One Rule). Verifiable via `grep -n 'assert_no_unresolved_type_vars' compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` returning at least one hit inside `process_arc_function`."
   - "Primary site (PRIMARY, lambdas): `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:375` — the `declare_and_process_lambda` helper — invokes `assert_no_unresolved_type_vars` for `lambda` BEFORE `run_arc_pipeline(...)` at line ~443. Lambdas are compiled as separate `ArcFunction`s and do NOT flow through `process_arc_function`; they have their own `run_arc_pipeline` call which must be guarded. Verifiable via `grep -n 'assert_no_unresolved_type_vars' compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` returning at least TWO hits total (`process_arc_function` and `declare_and_process_lambda`)."
+  - "Explicit parent no-emit contract (TPR-04-R4-001 fix): `process_arc_function` returns `Result<(), VerifyError>` — NOT the prior `()` return. On PC-2 violation it returns `Err(VerifyError::UnresolvedTypeVar(_))` AFTER calling `self.builder.record_codegen_error()`. The two direct callers (`emit_arc_function` at `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:164` and `prepare_arc_function` at `compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs` — which itself cascades to `prepare_all_cached`/`prepare_mono_cached`) match on the `Result` and early-return on `Err` BEFORE invoking `ArcIrEmitter::emit_function` / `run_arc_pipeline`. This closes the gap identified in TPR-04-R4-001: `record_codegen_error()` at `compiler/ori_llvm/src/codegen/ir_builder/mod.rs:269` ONLY increments a counter — it does NOT suppress downstream emission. Implicit 'counter-based suppression' is banned by `impl-hygiene.md §Invariant Explicitness`. The cascade for Hook 1 mirrors Hook 2's Result-based cascade — both seams use the same explicit no-emit pattern. Verifiable: `grep -n 'process_arc_function' compiler/ori_llvm/src/codegen/function_compiler/` returns the two invocation sites, and each adjacent line shows `?` or `match … { Err(_) => return Err(…) }`."
   - "Explicit lambda no-emit contract (TPR-04-R0-003 fix): `declare_and_process_lambda` returns `Result<(Name, FunctionId, FunctionAbi), VerifyError>` — NOT the prior unary tuple. On PC-2 violation it returns `Err(VerifyError::UnresolvedTypeVar(_))` AFTER calling `self.builder.record_codegen_error()`. The two direct callers (`compile_lambda_arc` at `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:243` and `prepare_lambda` at `compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs:231`) match on the `Result` and early-return on `Err` BEFORE invoking `run_arc_pipeline` or `ArcIrEmitter`. This replaces the prior implicit 'record_codegen_error suppresses downstream emission' transitive invariant (banned by `impl-hygiene.md §Invariant Explicitness`). Verifiable: `grep -rn 'declare_and_process_lambda\\b' compiler/ori_llvm/src/` returns exactly the two invocation lines (plus doc-comment references in `purity_analysis.rs` + `nounwind/prepare.rs` + `define_phase.rs`), and each invocation's adjacent line shows a `?` operator or explicit `match … { Err(_) => return … }` rather than a bare unary call."
   # Secondary pre-seam sites (localize diagnostic — NOT load-bearing by themselves)
   - "Secondary site A (pre-mono entry, JIT): `compiler/ori_llvm/src/evaluator/compile.rs` around line ~230 (the point at which `mono_functions` are already in `arc_cache` and are about to be handed to `prepare_mono_cached`) — invokes `assert_no_unresolved_type_vars` for each `(arc_fn, lambdas)` triple in `arc_cache`. This site exists to surface the violation with the ORIGINAL pre-realization IR (AIMS mutates `arc_func` in place during `run_arc_pipeline`; the primary-seam assertion would see the post-lower IR, not the pre-mono IR). Without this secondary site the primary seam still catches the violation, but the diagnostic is attributed to a post-lowering state rather than the mono input — worse UX, same correctness gate. Verifiable via `grep -n 'assert_no_unresolved_type_vars' compiler/ori_llvm/src/evaluator/compile.rs` returning at least one hit."
@@ -434,7 +435,11 @@ place (borrow annotations, RC insertion, reuse emission); the assertion must run
 pre-pipeline IR.
 
 ```rust
-pub(super) fn process_arc_function(&mut self, name: Name, arc_func: &mut ori_arc::ArcFunction) {
+pub(super) fn process_arc_function(
+    &mut self,
+    name: Name,
+    arc_func: &mut ori_arc::ArcFunction,
+) -> Result<(), VerifyError> {
     // PC-2 contract check — see plan `empty-container-typeck-phase-contract` §04.
     // Runs ALWAYS (debug + release) — NOT gated by self.verify_arc because
     // phase-contract enforcement is mandatory per CLAUDE.md §The One Rule
@@ -456,20 +461,52 @@ pub(super) fn process_arc_function(&mut self, name: Name, arc_func: &mut ori_arc
              codegen-rules.md §TR-2)"
         );
         self.builder.record_codegen_error();
-        // Return early — do not invoke run_arc_pipeline on contract-violating
-        // IR. The error is already recorded; downstream emission for this
-        // function will be skipped by the existing record_codegen_error flow.
-        return;
+        // Return Err so the caller (emit_arc_function / prepare_arc_function)
+        // skips LLVM emission. `record_codegen_error` alone is INSUFFICIENT —
+        // it only increments a counter (compiler/ori_llvm/src/codegen/
+        // ir_builder/mod.rs:269); the caller's emission path does NOT check
+        // that counter. Explicit Result propagation is the only reliable
+        // no-emit contract per impl-hygiene.md §Invariant Explicitness.
+        return Err(VerifyError::UnresolvedTypeVar(err));
     }
 
     // ... existing body: AIMS param ownership, run_arc_pipeline, etc. ...
+    Ok(())
 }
 ```
 
-The early `return` is load-bearing: continuing into `run_arc_pipeline` on a contract-
-violating input risks panics inside AIMS analysis (it assumes resolved types). Skipping
-emission is the correct failure mode — the user sees a single clear PC-2 diagnostic rather
-than a cryptic LLVM verification failure or AIMS panic.
+The `Result` return is load-bearing: continuing into `run_arc_pipeline` on a contract-
+violating input risks panics inside AIMS analysis (it assumes resolved types), AND the
+caller's emission path would otherwise continue unconditionally past `process_arc_function`
+and call `ArcIrEmitter::emit_function` on the unpiped IR. Skipping at BOTH levels —
+within this function AND in the caller on `Err` — is the correct failure mode.
+
+### Hook 1 caller-site updates — mandatory co-change (TPR-04-R4-001)
+
+The two direct callers of `process_arc_function` MUST be updated in the same commit,
+mirroring the `prepare_lambda` cascade pattern from §04.2 Hook 2:
+
+- `emit_arc_function` at
+  `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:164`
+  (immediate-emit path): match on the `Result`; on `Err`, return early BEFORE
+  the `ArcIrEmitter::new(...)` + `emitter.emit_function(&arc_func, abi)` call.
+  `emit_arc_function` itself must also return `Result<(), VerifyError>` or similar
+  so its callers further up the stack skip as well.
+- `prepare_arc_function` at
+  `compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs` (cf.
+  the `process_arc_function(name, &mut arc_func)` call): match on the `Result`;
+  on `Err`, return early from `prepare_arc_function` (which already cascades to
+  `prepare_all_cached`/`prepare_mono_cached` per the §04.2 Hook 2 cascade —
+  same callers, extended with the parent-function failure path).
+
+The cascading `Result` propagation for Hook 1 is the SAME ARCHITECTURAL PATTERN as
+Hook 2's lambda cascade — they're not independent pipelines. Both the parent seam
+(`process_arc_function`) and the lambda seam (`declare_and_process_lambda`) must skip
+downstream emission via `Result` return; `record_codegen_error()` is NOT a no-emit
+signal and NEVER has been. Verifiable via `grep -n 'process_arc_function'
+compiler/ori_llvm/src/codegen/function_compiler/` returning the two invocation sites
+above AND each adjacent line showing a `?` or `match … { Err(_) => return Err(…) }`
+rather than a bare unary call.
 
 ### Hook 2: `declare_and_process_lambda` (line ~375)
 
@@ -888,6 +925,22 @@ Round 3 dispatched both reviewers against HEAD `93b17075`. Codex (HIGH trust) su
 - `meta_only_streak`: `0` (Round 3 produced 3 actionable findings — substantive, not meta).
 - `ever_verified_findings` across Rounds 0–3: 14 (R0: 3, R1: 5, R2: 3, R3: 3). `prior_verified_fixed`: 14 (all fixed inline). `remaining`: `[]`.
 - Round 4 dispatches next to verify Round 3's own fixes are themselves internally consistent.
+
+---
+
+### Round 4 findings (2026-04-20, after Round 3 fix-and-commit 635b6fc6; HEAD 635b6fc6)
+
+Round 4 dispatched both reviewers against HEAD `635b6fc6`. Codex surfaced one new HIGH-severity finding — a parallel architectural concern to the Round 0 lambda hook fix applied to the parent seam. Gemini returned three `informational` confirmation entries (verifying Round 3's fixes; no actionable rule_violated, no recommended_fix) — classified as meta/not-actionable per /tpr-review §6.
+
+- [x] `[TPR-04-R4-001-codex][high]` `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md:§04.2 Hook 1 (process_arc_function) at line 459` — The parent-function seam `process_arc_function` relies on the SAME implicit "record_codegen_error suppresses downstream emission" invariant that Round 0's TPR-04-R0-003 identified as banned for the lambda hook — but the fix was ONLY applied to the LAMBDA seam, not the PARENT seam. `record_codegen_error()` at `compiler/ori_llvm/src/codegen/ir_builder/mod.rs:269` only increments a counter; neither `emit_arc_function` at `define_phase.rs:164-188` nor `prepare_arc_function` at `nounwind/prepare.rs:208-222` checks that counter before continuing to emission. A PC-2 violation in `process_arc_function`'s input would record the error but the caller STILL calls `ArcIrEmitter::emit_function` on the (untouched by run_arc_pipeline but otherwise contract-violating) IR.
+  Disposition: fixed in this round. §04.2 Hook 1 code block rewritten to return `Result<(), VerifyError>` instead of `()`. On Err, returns `Err(VerifyError::UnresolvedTypeVar(err))` after calling `record_codegen_error()`. A new subsection "Hook 1 caller-site updates — mandatory co-change (TPR-04-R4-001)" specifies that `emit_arc_function` + `prepare_arc_function` must match on the Result and early-return — mirroring the Hook 2 cascade pattern. A new success_criteria bullet "Explicit parent no-emit contract" captures the Result signature + caller-match requirement. The Hook 1 + Hook 2 cascades now share the same explicit pattern — both seams converge on Result-based no-emit. Reviewer: codex-only (HIGH trust; gemini reported `status: findings` but all entries were informational confirmations — Gemini missed the architectural concern that Codex caught). Verified against `ir_builder/mod.rs:268-299` (counter-only semantics) + `define_phase.rs:164-188` (unconditional emit after process_arc_function).
+
+### Round-4 exit state (iteration_counter=5, max_rounds=6)
+
+- `iteration_counter` after Round 4 fix-and-commit: `5`. `max_rounds`: `6`. Next `while` check: `5 < 6 == TRUE` → loop continues. No cap exit this round.
+- `meta_only_streak`: `0` (Round 4 produced 1 actionable substantive finding; Gemini's 3 informational entries do not reset or increment the streak — they're not meta per §6 (not wording/phrasing/cosmetic/duplicate) and not actionable (no recommended_fix). They're verification confirmations).
+- `ever_verified_findings` across Rounds 0–4: 15 (R0: 3, R1: 5, R2: 3, R3: 3, R4: 1). `prior_verified_fixed`: 15. `remaining`: `[]`.
+- Round 5 dispatches next to verify Round 4's parent-seam Result cascade is architecturally sound.
 
 ---
 
