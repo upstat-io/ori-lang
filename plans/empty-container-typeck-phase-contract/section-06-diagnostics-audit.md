@@ -119,8 +119,8 @@ E2005 with "expression" as the context label regardless of where the unresolved
 message to distinguish empty-list sites from lambda-parameter sites.
 
 - [ ] Add a dispatch in the E2005 message builder (see `ori_types/src/type_error/check_error/message.rs`) that selects message text based on the expression's `ExprKind` at the error site:
-  - `ExprKind::List([])` / `ExprKind::Map([])` / `ExprKind::ListWithSpread([])` / `ExprKind::MapWithSpread([])` → `"cannot infer the type of this empty list; add a type annotation like \`let x: [int] = []\`"` (or `empty map` / `let x: {str: int} = {}` for map).
-  - `ExprKind::Lambda { params, .. }` where a parameter has unresolved `Tag::Var` → `"cannot infer the type of this closure parameter; add an annotation like \`(x: int) -> ...\`"`
+  - `ExprKind::List([])` / `ExprKind::ListWithSpread([])` → `"cannot infer the type of this empty list; add a type annotation like \`let x: [int] = []\`"` (per `00-overview.md:106` Design Principle 4: specialized E2005 wording targets lists only; `Map`/`MapWithSpread`/`Set` empty-literal sites stay on the generic fallback to preserve the overview's list-only scope).
+  - `ExprKind::Lambda { params, .. }` where a parameter has unresolved `Tag::Var` → `"cannot infer the type of this closure parameter; add a full typed-lambda annotation like \`(x: int) -> ReturnT = body\`"` (per spec `grammar.ebnf:550-553` typed_lambda rule — param type + return type + `=` body all required together; shorthand forms like `(x: int) -> body` are parse errors).
   - All other positions → preserve the current generic wording.
 - [ ] Span discipline: the primary span SHALL point to the `[]` or `{}` literal (empty-literal class) or to the parameter token (lambda-parameter class), NOT to the enclosing `let` binding or method call.
 - [ ] **Matrix test** (TDD): extend `compiler/ori_types/src/check/validators/tests.rs` with two new cells exercising the two message forms — `test_e2005_message_for_empty_list` and `test_e2005_message_for_lambda_param` — asserting the exact message string AND the span byte range.
@@ -357,7 +357,7 @@ cascade to every user.
 
 - [ ] Run the three discovery commands above; inspect each hit manually.
 - [ ] For each empty-literal hit: confirm type context (call site, end-of-body defaulting, explicit annotation) resolves the element type; if not, add `let x: [T] = []` at the binding. Expected result: no new annotations needed (per §03.N baseline).
-- [ ] For each lambda-parameter hit: confirm bidirectional propagation resolves the parameter; if not, add `(x: T) ->` annotation.
+- [ ] For each lambda-parameter hit: confirm bidirectional propagation resolves the parameter; if not, add the full typed_lambda form `(x: T) -> R = body` (spec grammar requires param type + return type + `=` body together — the `(x: T) ->` shorthand does not parse).
 - [ ] `timeout 150 cargo st library/std/` green (if a spec runner covers stdlib) AND `timeout 150 cargo t -p ori_std` green (if `ori_std` has its own Rust test surface).
 - [ ] Document findings in §06.N: if §06.3 added any annotations, list them; if it added zero, record "stdlib baseline preserved — no annotations needed".
 
