@@ -207,23 +207,29 @@ fn scheme_body_with_bound_var_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-/// Spec: `typeck.md §GN-1`, `types.md §SC-1` (partial-migration pin per
-/// plan §08.3b). A `Tag::Var` in `VarState::Generalized` is currently a
-/// legitimate polymorphic binding and the validator exempts it.
+/// Spec: `typeck.md §PC-2`, `types.md §SC-1`. Post-`expr_types` port, a
+/// `Tag::Var(VarState::Generalized)` surviving in `expr_types` is a
+/// partial-migration LEAK: the scheme body was rewritten to `Tag::BoundVar`
+/// by `rewrite_generalized_to_bound_var`, but the expression position
+/// carrying the lambda's body sub-expression was not re-pointed at the
+/// rewritten Idx. Stripping the validator's `VarState::Generalized` arm
+/// exposes the leak as `E2005` — a regression alarm, not a false positive.
 ///
-/// §08.3b retired the §SC-1 divergence at the scheme-body level
-/// (`unify::generalization::rewrite_generalized_to_bound_var` rewrites
-/// scheme BODIES to `Tag::BoundVar` leaves), but `expr_types` and
-/// `FunctionSig.param_types` for let-polymorphic lambdas still carry
-/// pre-generalize `Tag::Var` leaves whose `var_state` was mutated to
-/// `Generalized`. Until a follow-up subsection rewrites those positions,
-/// stripping this exemption would fire `E2005` on every polymorphic
-/// let-binding (`CLAUDE.md §INVERTED-TDD`).
+/// This test is RED until the post-generalize `expr_types` /
+/// `FunctionSig` port in §08.3b.1 plan item 2 ships AND the validator
+/// exemption arm is stripped in §08.3b.1 plan item 4. At that point the
+/// only remaining way for a `VarState::Generalized` to reach `expr_types`
+/// is a genuine port-side failure, and firing `E2005` is the correct
+/// behavior — the validator becomes the leak alarm. Prior to those two
+/// items landing, this assertion fails because the exemption still
+/// silences `Generalized` at `validators/mod.rs::collect_first_unbound_var`.
 ///
-/// Plan §02.4 T7 (Positive / Generalized — pinned by §08.3b's partial
-/// migration; will become tautological when the `expr_types` port lands).
+/// Replaces the former `generalized_var_in_expr_types_emits_no_diagnostic`
+/// (pre-§08.3b.1 exemption-is-correct assertion). See
+/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md`
+/// §08.3b.1 Cell L.
 #[test]
-fn generalized_var_in_expr_types_emits_no_diagnostic() {
+fn generalized_var_in_expr_types_emits_e2005_as_leak_alarm() {
     let mut pool = Pool::new();
     let var = pool.fresh_var();
     let var_id = pool.data(var);
@@ -234,7 +240,19 @@ fn generalized_var_in_expr_types_emits_no_diagnostic() {
 
     let errors = run(&pool, &[(0, var)], &empty_sig(), &[]);
 
-    assert!(errors.is_empty());
+    assert_eq!(
+        errors.len(),
+        1,
+        "post-§08.3b.1: Tag::Var(Generalized) in expr_types is a leak \
+         (the expr_types position was not re-pointed at the rewritten \
+         BoundVar Idx); validator strip MUST fire E2005 once per position"
+    );
+    assert!(
+        matches!(errors[0].kind, TypeErrorKind::AmbiguousType { .. }),
+        "leak-alarm diagnostic must be E2005 (AmbiguousType), got {:?}",
+        errors[0].kind
+    );
+    assert_eq!(errors[0].span, BODY_SPAN);
 }
 
 // Cascade / Determinism / Semantic pin
@@ -600,26 +618,31 @@ fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-/// Spec: `typeck.md §PC-2`, `types.md §SC-1` (partial-migration pin per
-/// plan §08.3b). The post-§08.3b shape for a polymorphic-lambda return
-/// position SHOULD be `Tag::BoundVar` (target shape, covered by
-/// `polylambda_return_type_with_boundvar_emits_no_diagnostic` above), but
-/// the migration is incomplete: `expr_types` and `FunctionSig.param_types`
-/// for let-polymorphic lambdas still carry the pre-§08.3b
-/// `Tag::Var(VarState::Generalized)` shape because the rewrite pass only
-/// covers scheme bodies, not expression positions. The validator exempts
-/// `Generalized` as a defensive net until a follow-up subsection ports
-/// expression positions.
+/// Spec: `typeck.md §PC-2`, `types.md §SC-1`. Post-`expr_types` port, a
+/// polymorphic-lambda return position carrying a
+/// `Tag::Var(VarState::Generalized)` inside its `Tag::Scheme` wrapper is a
+/// partial-migration LEAK — the target shape is
+/// `Tag::BoundVar` all the way down (covered by
+/// `polylambda_return_type_with_boundvar_emits_no_diagnostic` above), and
+/// any surviving `Tag::Var` inside a polymorphic scheme body after the
+/// rewrite pass runs is a genuine `§SC-1` divergence. Stripping the
+/// validator's `VarState::Generalized` exemption exposes the leak as
+/// `E2005` via the `HAS_VAR` propagation through `Tag::Scheme` →
+/// `Tag::Function` → `Tag::Var`.
 ///
-/// Removing the `VarState::Generalized` exemption while `expr_types` still
-/// carries the OLD shape would fire `E2005` on every polymorphic
-/// let-binding — the canonical INVERTED-TDD anti-pattern per
-/// CLAUDE.md §INVERTED-TDD.
+/// This test is RED until the §08.3b.1 `expr_types` / `FunctionSig` port
+/// (plan item 2) AND the validator exemption strip (plan item 4) land.
+/// Prior to those items, the exemption still silences `Generalized` and
+/// the E2005 assertion fails. Post-ship, the only way a `Generalized` var
+/// reaches a scheme-wrapped expression position is a genuine port-side
+/// failure, and firing `E2005` is the leak alarm's correct behavior.
 ///
-/// Not the enforcement point — see
-/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
+/// Replaces the former `polylambda_return_type_with_generalized_var_emits_no_diagnostic`
+/// (pre-§08.3b.1 exemption-is-correct assertion). See
+/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md`
+/// §08.3b.1 Cell L.
 #[test]
-fn polylambda_return_type_with_generalized_var_emits_no_diagnostic() {
+fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
     let mut pool = Pool::new();
     let var = pool.fresh_var();
     let var_id = pool.data(var);
@@ -627,24 +650,35 @@ fn polylambda_return_type_with_generalized_var_emits_no_diagnostic() {
         id: var_id,
         name: None,
     };
-    // ∀[var_id]. (Var(Generalized)) -> Var(Generalized) — pre-§08.3b shape
-    // still produced for expression positions (partial migration).
+    // ∀[var_id]. (Var(Generalized)) -> Var(Generalized) — post-§08.3b.1
+    // this shape SHOULD NOT reach the validator: the rewrite pass lands
+    // `Tag::BoundVar` at every position, and any surviving `Tag::Var`
+    // inside a scheme body is a port-side failure.
     let lambda_ty = pool.function(&[var], var);
     let scheme = pool.scheme(&[var_id], lambda_ty);
     assert!(
         pool.flags(scheme).contains(TypeFlags::HAS_VAR),
         "scheme over Var(Generalized)-returning lambda MUST set HAS_VAR \
-         because Var carries HAS_VAR per §TF-1"
+         because Var carries HAS_VAR per §TF-1 — this is the flag the \
+         leak-alarm relies on to walk into the scheme body and locate \
+         the surviving Tag::Var"
     );
 
     let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
 
-    assert!(
-        errors.is_empty(),
-        "Var(Generalized) in poly-lambda return is exempted while §08.3b's \
-         expr_types port is pending; lifting this exemption now would \
-         break let-polymorphism (INVERTED-TDD)"
+    assert_eq!(
+        errors.len(),
+        1,
+        "post-§08.3b.1: Tag::Var(Generalized) inside a scheme body is a \
+         port-side leak; validator strip MUST fire exactly one E2005 at \
+         the expression position"
     );
+    assert!(
+        matches!(errors[0].kind, TypeErrorKind::AmbiguousType { .. }),
+        "leak-alarm diagnostic must be E2005 (AmbiguousType), got {:?}",
+        errors[0].kind
+    );
+    assert_eq!(errors[0].span, BODY_SPAN);
 }
 
 /// Spec: `typeck.md §PC-2` — a polymorphic-lambda return-type position
