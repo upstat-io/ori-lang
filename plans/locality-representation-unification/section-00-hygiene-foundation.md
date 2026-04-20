@@ -2,7 +2,7 @@
 section: "00"
 title: "Hygiene Foundation"
 status: not-started
-reviewed: true
+reviewed: false
 goal: "Restructure five BLOAT files (lattice/mod.rs 552, transfer/mod.rs 524, interprocedural/extract.rs 517, intraprocedural/state_map.rs 646, interprocedural/mod.rs 536) to live below the 450-line proactive-split threshold and eliminate 99 stale Section 09.x plan annotations across the AIMS subtree, with zero semantic change to any analysis behavior"
 success_criteria:
   - "compiler/ori_arc/src/aims/lattice/mod.rs is ≤80 lines (becomes a dispatch hub: module doc + mod declarations + re-exports only)"

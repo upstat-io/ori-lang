@@ -1,11 +1,25 @@
 # Proposal: @cImport — Compile-Time C Header Import
 
-**Status:** Draft
+**Status:** Superseded
+**Superseded By:** `ffi-boundary-safety-proposal.md` (approved 2026-04-20)
 **Author:** Eric
 **Created:** 2026-02-23
+**Superseded:** 2026-04-20
 **Affects:** Compiler (parser, codegen), LLVM backend
 **Depends on:** Platform FFI (approved), Deep FFI (approved)
 **Extends:** Deep FFI `extern "c"` declarations — `@cImport` generates them, does not replace them
+
+---
+
+## Supersession Notice (2026-04-20)
+
+> This proposal is superseded by `ffi-boundary-safety-proposal.md` (approved 2026-04-20). The successor proposal adopts a block-scoped `#header("file.h")` attribute on `extern "c" { ... }` blocks with an **explicit function list** rather than a namespace-style `@cImport(...)` that imports every symbol in a header.
+>
+> **Why the successor was chosen:** The successor design keeps the boundary visible at the block declaration AND at the per-function list, which was the original Ori principle rejecting Zig's `@cImport` in the approved `deep-ffi-proposal.md`. It still eliminates the signature-boilerplate pain this proposal set out to solve — types are auto-derived from the header, struct layouts are verified at compile time, and drift is detected on every build. The net effect is strictly better than a namespace import: the pain point is removed and the boundary-visibility invariant is preserved.
+>
+> **What moves forward:** The libclang build-time header parsing infrastructure described in this proposal is reused verbatim by the successor's §2. The type-mapping table remains applicable. Only the import surface changed — `@cImport(...)` → block-level `#header(...)` attribute.
+>
+> New work on header-assisted FFI should target the successor proposal.
 
 ---
 
