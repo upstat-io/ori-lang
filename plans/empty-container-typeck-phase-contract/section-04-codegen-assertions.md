@@ -20,7 +20,7 @@ success_criteria:
   - "Error shape: `UnresolvedTypeVar` is a typed struct constructed in `validate.rs` and propagated via the existing `ori_arc::verify::VerifyError` enum as a new variant `UnresolvedTypeVar(UnresolvedTypeVar)`. The primary seam treats this exactly like other `VerifyError` variants — `verify_errors` collection, `builder.record_codegen_error()`, skip subsequent emission for this function. NO parallel error path, NO `Result<(), String>`, NO `tracing::error!` standalone. Verifiable via `grep -n 'UnresolvedTypeVar' compiler/ori_arc/src/verify/` returning hits in the `VerifyError` enum definition AND in `error/` variant construction sites."
   - "`ORI_VERIFY_ARC=1` integration: the primary-seam assertion is ALWAYS-ON in both debug and release. `self.verify_arc` gates ADDITIONAL verification (the `fn_val.verify(true)` LLVM IR verify + AIMS oracle cross-check per `codegen-rules.md §VR-1`, and Alive2 validation) — NOT the assertion itself. The assertion runs whether or not `ORI_VERIFY_ARC=1` is set because it is cheaper than LLVM IR verification AND mandatory for the phase-contract enforcement per `impl-hygiene.md §Cross-Phase Invariant Contracts` — gemini + codex consensus. Verifiable: a unit test disables the validator (via injected `skip_validate` test-only hook on `process_arc_function`) and confirms the downstream LLVM IR verifier still fails cleanly on `Tag::Var` inputs — establishing defense-in-depth layering rather than gating."
   # Testing + non-regression
-  - "Unit tests: `compiler/ori_arc/src/ir/validate/tests.rs` (to be CREATED) covers twelve cells across three axes (var_types / params / return / block-params):  (a) empty `var_types` → `Ok`; (b) all resolved → `Ok`; (c) first var is `Tag::Var` → `Err(UnresolvedTypeVar { var_id: 0, .. })`; (d) second var is `Tag::Var` → `Err` naming ArcVarId(1); (e) all vars `Tag::Var` → `Err` naming the first violator; (f) `Tag::Var` with `var_id` in `exempt_var_ids` → `Ok` (Generalized/Rigid exemption); (g) `Tag::BoundVar` → `Ok` (per `types.md §TK-9` — bound vars under a scheme are NOT PC-2 violations); (h) `Tag::Projection` → `Err` (PC-2 also forbids unresolved projections); (i) lambda capture environments (closure-captured var types enumerated in `ArcFunction.var_types`) covered by a separate test that builds a lambda with a `Tag::Var` in the capture env and confirms the validator flags it — closing the Blind Spot #5 (§04 blind-spots.json) about captured-closure types; (j) `Tag::Var` in `params[0].ty` (entry-block parameter) with clean `var_types` → `Err` — covers TPR-04-R0-002 axis; (k) `Tag::Var` in `return_type` with clean `var_types` → `Err(UnresolvedTypeVar { var_id: ArcVarId::INVALID, .. })` — sentinel reporting id; (l) `Tag::Var` in `blocks[1].params[0].ty` (non-entry CFG block) with clean `var_types` → `Err` — covers block-param axis the `blocks.iter().skip(1)` walk must hit."
+  - "Unit tests: `compiler/ori_arc/src/ir/validate/tests.rs` (to be CREATED) covers twelve cells across three axes (var_types / params / return / block-params):  (a) empty `var_types` → `Ok`; (b) all resolved → `Ok`; (c) first var is `Tag::Var` → `Err(UnresolvedTypeVar { var_id: 0, .. })`; (d) second var is `Tag::Var` → `Err` naming ArcVarId(1); (e) all vars `Tag::Var` → `Err` naming the first violator; (f) `Tag::Var` with `var_id` in `exempt_var_ids` → `Ok` (Generalized/Rigid exemption); (g) `Tag::BoundVar` → `Ok` (per `types.md §TK-9` — bound vars under a scheme are NOT PC-2 violations); (h) `Tag::Projection` → `Err` (PC-2 also forbids unresolved projections); (i) lambda capture environments (closure-captured var types enumerated in `ArcFunction.var_types`) covered by a separate test that builds a lambda with a `Tag::Var` in the capture env and confirms the validator flags it — closing the Blind Spot #5 (§04 blind-spots.json) about captured-closure types; (j) `Tag::Var` in `params[0].ty` (entry-block parameter) with clean `var_types` → `Err` — covers TPR-04-R0-002 axis; (k) `Tag::Var` in `return_type` with clean `var_types` → `Err(UnresolvedTypeVar { var_id: ArcVarId::INVALID, .. })` — sentinel reporting id; (l) `Tag::Var` in `blocks[1].params[0].1` (the `Idx` component of the tuple at non-entry CFG block; `ArcBlock.params` is `Vec<(ArcVarId, Idx)>`) with clean `var_types` → `Err(_)` with `var_id: blocks[1].params[0].0` — covers block-param axis the `blocks.iter().skip(1)` walk must hit."
   - "`timeout 150 ./test-all.sh` is green after landing (debug AND release). Dependency-gated: Sections 03 and 08 must be complete first — §03 ensures legitimate programs do not carry surviving `Tag::Var`s, §08 resolves BUG-04-042 BoundVar bleed which WOULD trip this assertion on valid generic code today. See `depends_on` below."
 inspired_by:
   - "Rust `rustc_middle::mir::visit::TyContext` — every MIR visitor receives the type context and `debug_assert!`s that types are fully resolved at traversal boundaries; the pattern here mirrors that per-function pre-emission gate but at a SINGLE upstream choke point rather than scattered across visitors."
@@ -52,7 +52,7 @@ sections:
     title: "SECONDARY pre-mono sites: JIT `compile.rs` + AOT `codegen_pipeline.rs` (diagnostic localization only)"
     status: not-started
   - id: "04.4"
-    title: "Unit tests: 9-cell matrix (resolved, unbound, exempt, BoundVar, Projection, lambda-capture, first-violator-deterministic)"
+    title: "Unit tests: 12-cell matrix across var_types / params / return / block-params axes (resolved, unbound, exempt, BoundVar, Projection, lambda-capture, first-violator-deterministic, entry-param, return-type, non-entry-block-param)"
     status: not-started
   - id: "04.R"
     title: "Close-out (code annotations, test-all.sh green, hygiene review)"
@@ -171,6 +171,8 @@ The assertion helper must live in `ori_arc` rather than `ori_llvm` because:
 | `compiler/ori_arc/src/ir/mod.rs` | EDIT — add `pub mod validate;` | +1 line |
 | `compiler/ori_arc/src/lib.rs` | EDIT — add `pub use ir::validate::{assert_no_unresolved_type_vars, UnresolvedTypeVar};` | +1 line |
 | `compiler/ori_arc/src/verify/mod.rs` | EDIT — add `UnresolvedTypeVar(UnresolvedTypeVar)` variant to `VerifyError` enum | +3 lines |
+| `compiler/ori_types/src/check/validators/mod.rs` | EDIT — change `pub(crate) fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32>` (line 161) to `pub fn ...` so the §04.3 pre-mono sites can call it from outside `ori_types::check` | +0 net lines (visibility keyword change) |
+| `compiler/ori_types/src/lib.rs` | EDIT — add `pub use check::validators::build_exempt_var_ids;` re-export so §04.3 callers write `ori_types::build_exempt_var_ids(pool, &sig.scheme_var_ids)` rather than the full path | +1 line |
 
 ### Implementation Outline
 
@@ -545,7 +547,20 @@ no way to ship a half-converted tree):
 - `prepare_lambda` at
   `compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs:231`
   (two-pass lambda path): same — on `Err`, skip the pipeline + emitter calls
-  downstream.
+  downstream. Because `prepare_lambda` currently has signature
+  `fn(…) -> PreparedLambda` and its only call site is `prepare_arc_function`
+  at `nounwind/prepare.rs:190` (verified via `grep -n 'prepare_lambda'
+  compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs`), the
+  `Err` propagation cascades one level further: change `prepare_lambda`'s
+  signature to `fn(…) -> Result<PreparedLambda, VerifyError>` and update the
+  `prepare_arc_function` caller to match on the `Result` and either propagate
+  (if `prepare_arc_function` itself returns `Result`) or filter failed lambdas
+  out of the `prepared_lambdas` list with a matching `record_codegen_error()`
+  call already absorbed by the `Err` arm of `declare_and_process_lambda`. The
+  filter-out approach matches the primary-seam pattern ("skip downstream
+  emission; the error is already recorded"). The cascading signature change
+  is mandatory — `clippy::must_use` on the new `Result` return forces it at
+  compile time.
 
 No other direct call sites of `declare_and_process_lambda` exist (verified
 via `grep -rn 'declare_and_process_lambda\b' compiler/ori_llvm/src/` —
@@ -625,9 +640,12 @@ empty set would spuriously fire on legitimate `Tag::RigidVar`s (and, pre-§08.3b
 // source bodies it returns the scheme_var_ids set. This mirrors §04.1's
 // doc-comment contract.
 for (fn_name, (arc_fn, lambdas)) in arc_cache.iter() {
+    // Look up the generic scheme for this function; imported mono
+    // instances may not be in `function_sigs`, in which case the helper
+    // default (empty set) is correct — they are fully substituted.
     let sig = function_sigs.get(fn_name);
     let exempt: rustc_hash::FxHashSet<u32> = sig
-        .map(ori_types::build_exempt_var_ids)
+        .map(|s| ori_types::build_exempt_var_ids(self.pool, &s.scheme_var_ids))
         .unwrap_or_default();
     if let Err(err) = ori_arc::assert_no_unresolved_type_vars(
         self.pool, arc_fn, interner, &exempt,
@@ -666,9 +684,10 @@ parameter (no `self`). Same diagnostic-only pattern as Site A — including the 
 per-function exempt-set requirement: the pre-mono loop operates on generic source bodies
 whose `FunctionSig.scheme_var_ids` must exempt rigid/generalized vars from spurious
 firing, while the mono loop operates on monomorphized instances where the exempt set is
-empty. Both loops use `ori_types::build_exempt_var_ids(sig)` with the corresponding
-`FunctionSig` rather than the empty default. The mono loop is the only one where the
-helper returns an empty set by design.
+empty. Both loops use `ori_types::build_exempt_var_ids(pool, &sig.scheme_var_ids)` with the
+corresponding `FunctionSig` rather than the empty default. The mono loop is the only one
+where the exempt set is empty by design (mono functions have empty `scheme_var_ids`);
+the pre-mono loop passes the generic source body's populated `scheme_var_ids`.
 
 ---
 
@@ -810,6 +829,27 @@ Round 1 of `/tpr-review --skill review-plan` on §04 dispatched both reviewers i
 
 ---
 
+### Round 2 findings (2026-04-20, verification round after Round 1 fix-and-commit 3acde80f)
+
+Round 2 dispatched both reviewers against HEAD `3acde80f`. Three verified findings emerged from the Round 1 fixes themselves (DRIFT in the new §04.3 pseudocode and a missing cascade on `prepare_lambda`'s signature) plus stale §04.4 metadata. All fixed in this round's commit. With Round 2's fix-and-commit, `iteration_counter == max_rounds == 3`; the loop exits at `iter_cap_reached`. All verified findings across the three rounds are fixed; zero outstanding.
+
+- [x] `[TPR-04-R2-001-codex+gemini][critical]` `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md:§04.3 Site A + Site B` — The Round 1 §04.3 exempt-set pseudocode (`sig.map(ori_types::build_exempt_var_ids)`) is not implementable: the real helper signature is `fn(pool: &Pool, scheme_var_ids: &[u32])` (two args), not a single `sig`; and its visibility is `pub(crate)` at `compiler/ori_types/src/check/validators/mod.rs:161`, NOT `pub`, so external crates cannot call it.
+  Disposition: fixed in this round. §04.3 Site A pseudocode rewritten to `sig.map(|s| ori_types::build_exempt_var_ids(self.pool, &s.scheme_var_ids)).unwrap_or_default()`. Site B prose updated with the same call form. §04.1 Files to Create table adds two new required edits: (1) change `build_exempt_var_ids` visibility from `pub(crate)` to `pub` in `check/validators/mod.rs`, and (2) add `pub use check::validators::build_exempt_var_ids;` re-export at `compiler/ori_types/src/lib.rs` so the §04.3 callers can write the ergonomic `ori_types::build_exempt_var_ids(…)` form. Agreement: codex F1 + gemini F1 — two verified data points.
+
+- [x] `[TPR-04-R2-002-gemini][high]` `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md:§04.2 caller-site-updates` — The Round 0 TPR-04-R0-003 `Result`-based contract propagates through `prepare_lambda` (at `nounwind/prepare.rs:231`), which still has signature `fn(…) -> PreparedLambda` and would fail to compile against `declare_and_process_lambda`'s new `Result` return. The prior Round-0 fix text did not call out the cascading signature change.
+  Disposition: fixed in this round. §04.2 caller-site-updates subsection extended to specify that `prepare_lambda` must itself change signature to `fn(…) -> Result<PreparedLambda, VerifyError>`, with cascading propagation to its sole call site `prepare_arc_function` at `nounwind/prepare.rs:190` (verified by `grep -n 'prepare_lambda' compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs`). The caller either propagates the `Err` or filters the failed lambda out of `prepared_lambdas`, matching the primary-seam "skip downstream emission" pattern. `clippy::must_use` on the new `Result` forces the cascade at compile time. Reviewer: gemini-only (LOWER trust; cross-verified by orchestrator grep + source read of lines 220–240).
+
+- [x] `[TPR-04-R2-003-codex][low]` `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md:line 55, 822, success_criteria cell (l)` — Stale `§04.4` metadata from the Round-0 cell-count expansion: sections-list title still said "9-cell matrix", the Completion Checklist bullet still said "9-cell matrix", and success_criteria cell (l) still used `blocks[1].params[0].ty` / `.var` struct-access syntax on the tuple type fixed in Round 1.
+  Disposition: fixed in this round. Three line updates: sections-list title now says "12-cell matrix across var_types / params / return / block-params axes"; checklist bullet mirrors the 12-cell wording; cell (l) uses tuple `.0` / `.1` syntax matching the §04.4 matrix row 12 and the §04.1 Rust stub's `for &(var, ty) in &block.params` loop.
+
+### Round-2 exit state (iter_cap_reached, zero outstanding)
+
+- `iteration_counter` after Round 2 fix-and-commit: `3`. `max_rounds`: `3`. Next `while` check: `3 < 3 == FALSE` → loop exits at `iter_cap_reached`.
+- `ever_verified_findings` across Rounds 0–2: 11 (Round 0: 3, Round 1: 5, Round 2: 3). `prior_verified_fixed`: 11 (all fixed inline). `remaining`: `[]`.
+- De-facto convergence at the cap boundary. Per `/tpr-review §5` terminal branch, `/review-plan` Step 6 owns the escalation UI — user picks between accept-with-findings (flip `reviewed: true` + cap-exit note), run-more (extend cap), escalate-to-plan (create new plan), or abort. With zero outstanding, accept-with-findings is the natural choice.
+
+---
+
 ## 04.N — Completion Checklist
 
 - [ ] `ori_arc::ir::validate` module exists with `assert_no_unresolved_type_vars` and `UnresolvedTypeVar`
@@ -819,7 +859,7 @@ Round 1 of `/tpr-review --skill review-plan` on §04 dispatched both reviewers i
 - [ ] `declare_and_process_lambda` calls the validator BEFORE its own `run_arc_pipeline`, with empty `exempt_var_ids`
 - [ ] (Optional, per §04.3 caveat) JIT pre-mono loop calls the validator for diagnostic localization
 - [ ] (Optional, per §04.3 caveat) AOT pre-mono loop calls the validator for diagnostic localization
-- [ ] Unit tests in `validate/tests.rs` cover the 9-cell matrix above + lambda-capture behavioral test
+- [ ] Unit tests in `validate/tests.rs` cover the 12-cell matrix above (9 var_types cells + cells 10/11/12 for params / return / block-params axes) + lambda-capture behavioral test
 - [ ] Integration test confirms `process_arc_function` records codegen error and returns early on violation
 - [ ] All diagnostic sites use `tracing::error!` + structured `VerifyError` — NO `debug_assert!` fail-open
 - [ ] `ORI_VERIFY_ARC=1` layering documented: assertion is ALWAYS-ON; `verify_arc` flag gates ADDITIONAL verification (fn_val.verify, oracle) per `codegen-rules.md §VR-1`
