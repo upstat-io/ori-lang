@@ -2,7 +2,7 @@
 section: "01"
 title: "Hygiene & Targeted Fixes"
 status: not-started
-reviewed: true
+reviewed: false
 goal: "Split bloated files so downstream sections have clean, right-sized modules to extend (BUG-04-029 shift overflow already fixed)"
 success_criteria:
   - "ori_types/src/registry/traits/mod.rs is under 500 lines after extraction"

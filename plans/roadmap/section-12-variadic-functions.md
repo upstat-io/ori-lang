@@ -3,7 +3,7 @@ section: 12
 title: Variadic Functions
 status: in-progress
 last_verified: "2026-03-29"
-reviewed: true
+reviewed: false
 tier: 4
 goal: Enable functions with variable number of arguments
 spec:

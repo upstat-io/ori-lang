@@ -3,7 +3,7 @@ section: 4
 title: Module System
 status: in-progress
 last_verified: "2026-03-29"
-reviewed: true
+reviewed: false
 tier: 1
 goal: Multi-file compilation
 spec:

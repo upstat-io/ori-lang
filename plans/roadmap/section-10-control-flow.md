@@ -2,7 +2,7 @@
 section: 10
 title: Control Flow
 status: in-progress
-reviewed: true
+reviewed: false
 last_verified: "2026-03-29"
 verification_stats:
   total_items: 82

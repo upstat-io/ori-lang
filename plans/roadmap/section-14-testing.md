@@ -3,7 +3,7 @@ section: 14
 title: Testing Framework
 status: in-progress
 last_verified: "2026-03-29"
-reviewed: true
+reviewed: false
 tier: 5
 goal: Configurable test enforcement with dependency-aware execution and incremental test execution during compilation
 spec:

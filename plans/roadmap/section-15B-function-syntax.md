@@ -2,7 +2,7 @@
 section: "15B"
 title: Function Syntax
 status: in-progress
-reviewed: true
+reviewed: false
 last_verified: "2026-03-29"
 tier: 5
 goal: Implement function-related syntax proposals
