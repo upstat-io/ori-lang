@@ -481,32 +481,44 @@ caller's emission path would otherwise continue unconditionally past `process_ar
 and call `ArcIrEmitter::emit_function` on the unpiped IR. Skipping at BOTH levels —
 within this function AND in the caller on `Err` — is the correct failure mode.
 
-### Hook 1 caller-site updates — mandatory co-change (TPR-04-R4-001)
+### Hook 1 caller-site updates — mandatory co-change (TPR-04-R4-001 + TPR-04-R5-001)
 
-The two direct callers of `process_arc_function` MUST be updated in the same commit,
-mirroring the `prepare_lambda` cascade pattern from §04.2 Hook 2:
+The full Hook 1 cascade chain — every caller between `process_arc_function` and the
+outermost JIT/AOT batch entry points — MUST be updated in the same commit. The
+cascading `Result` propagation is the SAME ARCHITECTURAL PATTERN as Hook 2's lambda
+cascade; both seams must skip downstream emission via explicit `Result` return because
+`record_codegen_error()` at `compiler/ori_llvm/src/codegen/ir_builder/mod.rs:269` is
+counter-only and has no suppression side effect.
 
-- `emit_arc_function` at
-  `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:164`
-  (immediate-emit path): match on the `Result`; on `Err`, return early BEFORE
-  the `ArcIrEmitter::new(...)` + `emitter.emit_function(&arc_func, abi)` call.
-  `emit_arc_function` itself must also return `Result<(), VerifyError>` or similar
-  so its callers further up the stack skip as well.
-- `prepare_arc_function` at
-  `compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs` (cf.
-  the `process_arc_function(name, &mut arc_func)` call): match on the `Result`;
-  on `Err`, return early from `prepare_arc_function` (which already cascades to
-  `prepare_all_cached`/`prepare_mono_cached` per the §04.2 Hook 2 cascade —
-  same callers, extended with the parent-function failure path).
+**Concrete caller chain (verified via `grep -rn 'emit_arc_function\|define_function_body_arc_with_subst\|process_arc_function\|prepare_arc_function' compiler/ori_llvm/src/` at HEAD `5f1beb20`; shift tolerance on line numbers):**
 
-The cascading `Result` propagation for Hook 1 is the SAME ARCHITECTURAL PATTERN as
-Hook 2's lambda cascade — they're not independent pipelines. Both the parent seam
-(`process_arc_function`) and the lambda seam (`declare_and_process_lambda`) must skip
-downstream emission via `Result` return; `record_codegen_error()` is NOT a no-emit
-signal and NEVER has been. Verifiable via `grep -n 'process_arc_function'
-compiler/ori_llvm/src/codegen/function_compiler/` returning the two invocation sites
-above AND each adjacent line showing a `?` or `match … { Err(_) => return Err(…) }`
-rather than a bare unary call.
+| Level | Site | Current signature | Required change |
+|---|---|---|---|
+| 0 | `process_arc_function` (define_phase.rs:~315) | `fn(&mut self, Name, &mut ArcFunction)` | `-> Result<(), VerifyError>` (§04.2 Hook 1 primary) |
+| 1a | `emit_arc_function` (define_phase.rs:~115) | `fn(&mut self, Name, FunctionId, &FunctionAbi, ArcFunction, Vec<ArcFunction>)` | `-> Result<(), VerifyError>` via `?` on `process_arc_function`. On `Err`, MUST call `self.exit_debug_scope()` before returning to match the normal-path `exit_debug_scope()` at define_phase.rs:~220; otherwise the debug scope entered by `define_function_body_arc_with_subst` (define_phase.rs:80) leaks. Use a scope-guard helper OR an explicit `match … { Err(e) => { self.exit_debug_scope(); return Err(e); } }` (TPR-04-R5-002). |
+| 1b | `compile_lambda_arc` (define_phase.rs:~243) | unary-tuple return | `-> Result<…, VerifyError>` (Hook 2 lambda cascade — already specified); must also propagate parent-seam failures when its own `emit_arc_function` chain fires. |
+| 2a | `define_function_body_arc_with_subst` (define_phase.rs:~67) | `fn(…)` | `-> Result<(), VerifyError>` via `?` on `emit_arc_function`. `exit_debug_scope` cleanup lives one level DOWN (in `emit_arc_function`) so this level just propagates. |
+| 2b | `compile_tests` branches (impls.rs:88, impls.rs:151) | — | On `Err`, use `continue` to skip to the next test iteration WITHOUT altering `compile_tests`'s return signature. The per-test failure is already recorded via `record_codegen_error()` and the suite continues. This mirrors Gemini R5-001's recommendation: not every outer caller must change signature — some outer-loop callers can absorb `Err` via `continue` or `let _ =` when their loop semantic is "keep going past individual failures". |
+| 3 | `prepare_arc_function` (nounwind/prepare.rs) | existing Hook 2 cascade | Already cascades to `prepare_all_cached` / `prepare_mono_cached` per Round 2's fix; now ALSO propagates Hook 1 `Err` via `?` on the `process_arc_function` call. No new callers above this level — the Round 2 cascade already covers them. |
+| 4 | JIT batch `evaluator/compile.rs` + AOT batch `oric/src/commands/codegen_pipeline.rs` | existing | Per the two-level cascade from Round 2: these already track per-function failures via `record_codegen_error()` counter. With Hook 1's Result cascade landed, the recorded failures now correspond to `Err` paths that also skipped emission — the counter stays the SSOT for end-of-batch pass/fail classification. |
+
+**`continue`-on-Err pattern (TPR-04-R5-001's `compile_tests` case):** when a caller's
+loop semantic is "keep going past individual failures and report all at the end",
+`continue` on `Err` is the correct pattern — it does NOT require the caller to change
+its own signature. The `record_codegen_error()` counter already tracks aggregate
+failures for end-of-batch reporting. Callers whose semantic is "stop emitting if ANY
+subcomponent fails" (e.g., `define_function_body_arc_with_subst` — a single function's
+body, emit-or-skip) MUST propagate via `?`. The distinction is per-caller: loop
+semantic → `continue`; single-function semantic → propagate.
+
+**Verifiable post-implementation:** `grep -rn 'process_arc_function\b'
+compiler/ori_llvm/src/codegen/function_compiler/` returns the two invocation sites
+with adjacent `?` or `match … { Err(_) => … }`. Additionally, `grep -rn
+'emit_arc_function\b' compiler/ori_llvm/src/` returns the three invocation sites
+(define_phase.rs:106 + impls.rs:88 + impls.rs:151), each with adjacent `?` OR
+`continue` OR explicit match (not a bare unary call). Finally, any `emit_arc_function`
+signature change to `-> Result<…>` forces `clippy::must_use` to catch unhandled
+call sites at compile time.
 
 ### Hook 2: `declare_and_process_lambda` (line ~375)
 
@@ -941,6 +953,25 @@ Round 4 dispatched both reviewers against HEAD `635b6fc6`. Codex surfaced one ne
 - `meta_only_streak`: `0` (Round 4 produced 1 actionable substantive finding; Gemini's 3 informational entries do not reset or increment the streak — they're not meta per §6 (not wording/phrasing/cosmetic/duplicate) and not actionable (no recommended_fix). They're verification confirmations).
 - `ever_verified_findings` across Rounds 0–4: 15 (R0: 3, R1: 5, R2: 3, R3: 3, R4: 1). `prior_verified_fixed`: 15. `remaining`: `[]`.
 - Round 5 dispatches next to verify Round 4's parent-seam Result cascade is architecturally sound.
+
+---
+
+### Round 5 findings (2026-04-20, after Round 4 fix-and-commit 5f1beb20; HEAD 5f1beb20)
+
+Round 5 dispatched both reviewers against HEAD `5f1beb20`. Codex surfaced 2 findings (high + medium); Gemini surfaced 1 high finding. Codex F1 + Gemini's single finding agree on the same gap — incomplete outer-caller cascade spec for `emit_arc_function`. Codex F2 adds a distinct concern about debug-scope cleanup on Err early-return.
+
+- [x] `[TPR-04-R5-001-codex+gemini][high]` `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md:§04.2 Hook 1 caller-site-updates` — The Round 4 Hook 1 caller-site-updates subsection used vague "or similar so its callers further up the stack skip as well" wording. Per actual codebase at HEAD `5f1beb20`, `emit_arc_function` has three concrete call sites: `define_function_body_arc_with_subst` (define_phase.rs:106) + two `compile_tests` branches (impls.rs:88, :151). Different callers need DIFFERENT propagation patterns: `define_function_body_arc_with_subst` must propagate via `?` (single-function semantic); `compile_tests` branches can use `continue` (loop-over-tests semantic — doesn't require caller signature change). The plan conflated these and did not name the three sites.
+  Disposition: fixed in this round. Hook 1 caller-site-updates subsection rewritten with a concrete 5-level caller-chain table enumerating every site (levels 0–4: `process_arc_function` → `emit_arc_function` + `compile_lambda_arc` → `define_function_body_arc_with_subst` + `compile_tests` branches → `prepare_arc_function` → JIT/AOT batch entries). Each row states the current signature and the required change (`-> Result<…>` via `?`, OR `continue`, OR signature-preserving absorption). A new explanatory subsection "continue-on-Err pattern" documents the per-caller decision rule: loop semantic → `continue`, single-function semantic → propagate via `?`. Agreement: codex F1 + gemini R5-001.
+
+- [x] `[TPR-04-R5-002-codex][medium]` `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md:§04.2 Hook 1 emit_arc_function early-return` — The Round 4 spec required `emit_arc_function` to early-return on `Err`, but `define_function_body_arc_with_subst` enters a debug scope at `define_phase.rs:80` (`self.enter_debug_scope(func_id)`) BEFORE calling `emit_arc_function`, and the normal-tail `self.exit_debug_scope()` sits at `define_phase.rs:220`. An early `return Err(…)` from `emit_arc_function` before reaching line 220 would skip the debug-scope exit, leaking the scope for every PC-2-violating function.
+  Disposition: fixed in this round. Level-1a row in the Hook 1 caller-chain table extended with an explicit debug-scope cleanup requirement: "On `Err`, MUST call `self.exit_debug_scope()` before returning … Use a scope-guard helper OR an explicit `match … { Err(e) => { self.exit_debug_scope(); return Err(e); } }`". The plan now makes the debug-scope cleanup a first-class part of the Err contract, not an afterthought.
+
+### Round-5 exit state (iter_cap_reached again)
+
+- `iteration_counter` after Round 5 fix-and-commit: `6`. `max_rounds`: `6`. Next `while` check: `6 < 6 == FALSE` → loop exits at `iter_cap_reached` (second cap hit).
+- `meta_only_streak`: `0` (Round 5 produced 2 actionable substantive findings — the cascade-spec gap and the debug-scope leak are both architectural concerns, neither meta).
+- `ever_verified_findings` across Rounds 0–5: 17 (R0: 3, R1: 5, R2: 3, R3: 3, R4: 1, R5: 2). `prior_verified_fixed`: 17. `remaining`: `[]`.
+- De-facto convergence at the second cap boundary. Each round since R1 has caught real follow-on errors from the previous round's fixes; the pattern continues to produce signal. User decides: accept-with-findings (flip reviewed:true, end review) | run-more (extend cap by 3 more rounds for third cycle) | escalate-to-plan | abort.
 
 ---
 
