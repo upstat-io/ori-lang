@@ -3,7 +3,7 @@ section: "06"
 title: "Diagnostics + Spec-Test Audit"
 status: in-progress
 
-reviewed: false
+reviewed: true
 goal: >
   Resolve the 35-file × 386-diagnostic E2005 ledger captured by §03.N by adding
   explicit type annotations (empty-literal class) and explicit lambda-parameter
@@ -25,13 +25,6 @@ third_party_review:
   status: findings
   updated: 2026-04-20
   notes: "3 rounds completed: R0+R1 produced 3 verified findings all fixed inline (commits 52aa673d, 7caff2b9); R2 clean — codex's R2 findings dropped at §4 verification as hallucinated out-of-scope §08 content, gemini R2 clean."
-review_pipeline:
-  stage: tpr-done
-  next_step: 7
-  rounds_completed: 3
-  last_round_commit: 7caff2b9
-  last_round_findings: 0
-  updated: 2026-04-20
 sections:
   - id: "06.1"
     title: "E2005 diagnostic wording + suggestion text"
@@ -50,7 +43,8 @@ sections:
     status: not-started
   - id: "06.R"
     title: "Third Party Review Findings"
-    status: in-progress
+    status: complete
+
 
   - id: "06.N"
     title: "Completion Checklist"
