@@ -4,7 +4,7 @@ title: "Codegen Poly-Lambda Monomorphization (absorbs BUG-04-042)"
 status: in-progress
 
 
-reviewed: true
+reviewed: false
 goal: >
   Fix the cross-module pool-merge var_id collision (corrected diagnosis 2026-04-19;
   see §08.1.R) at `compiler/oric/src/test/runner/llvm_backend.rs:320-360` by lifting
