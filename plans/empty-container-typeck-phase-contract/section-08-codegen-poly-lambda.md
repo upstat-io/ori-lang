@@ -3,6 +3,7 @@ section: "08"
 title: "Codegen Poly-Lambda Monomorphization (absorbs BUG-04-042)"
 status: in-progress
 
+
 reviewed: true
 goal: >
   Fix the cross-module pool-merge var_id collision (corrected diagnosis 2026-04-19;
@@ -55,12 +56,12 @@ sections:
 
   - id: "08.3b"
     title: "Typeck scheme-body canonicalization: Generalized→BoundVar migration (unblocks success criterion #1 per /tp-help 2026-04-19 consensus)"
-    status: in-progress
+    status: complete
 
 
   - id: "08.3b.1"
     title: "Inference-pipeline expr_types/FunctionSig port — finish §08.3b's Generalized→BoundVar migration"
-    status: in-progress
+    status: complete
 
 
 
@@ -388,7 +389,7 @@ Plan step 1's "binder_idx" wording is superseded. Per `types.md §SC-1` ("data =
 - [x] **2. Update `generalize()` (line 29-58)**: after `VarState::Generalized` mutation, call `rewrite_generalized_to_bound_var(self.pool, ty, &vars)` and pass the rewritten body to `Tag::Scheme` construction. Cells A-E now pass GREEN.
 - [x] **3. Update `pool/substitute/mod.rs` (line 28-90)**: added `Tag::BoundVar` arm via `substitute_bound_var` helper; widened fast-path gate to `intersects(HAS_VAR | HAS_BOUND_VAR)` (post-migration scheme bodies have `HAS_BOUND_VAR=true, HAS_VAR=false` — the old `!HAS_VAR` gate would skip them). **Trap removal (replaces step 9)**: the `VarState::Generalized` arm in `substitute_var` was REMOVED entirely (not retained with a trap as plan originally stipulated) because `maybe_record_mono_instance` walks the WHOLE pool by raw index and routinely encounters orphan `Tag::Var(Generalized)` entries from unrelated polymorphic functions — the legitimate fall-through (return `ty` unchanged) handles them. The old Generalized arm's `var_subst.get(&id)` fallback was redundant: `var_id == id` because both come from the same `fresh_var` allocation, so the direct `var_subst.get(&var_id)` lookup at the top covered every legitimate substitution path.
 - [x] **4. Update `unify/substitute.rs` (line 28-49)**: added `Tag::BoundVar` arm in the `substitute()` match; widened fast-path gate to include `HAS_BOUND_VAR`. The `VarState::Generalized` arm in the `Tag::Var` branch was REMOVED for the same reason as step 3 (instantiation walks may also encounter orphan Generalized vars during scheme-body recursion through outer-scope refs).
-- [ ] **5. ~~Strip `VarState::Generalized` arm from `build_exempt_var_ids`~~** — **NO-OP**: re-reading the source, `build_exempt_var_ids` (lines 161-173) has no Generalized arm; it builds an exempt set from `scheme_var_ids` directly. Plan step 5 was based on a misread of the validator's structure. <!-- blocked-by:plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md#083b1 — true exemption-strip requires the deeper expr_types port -->
+- [x] **5. ~~Strip `VarState::Generalized` arm from `build_exempt_var_ids`~~** — **NO-OP**: re-reading the source, `build_exempt_var_ids` (lines 161-173) has no Generalized arm; it builds an exempt set from `scheme_var_ids` directly. Plan step 5 was based on a misread of the validator's structure. The deeper exemption-strip work that step 5 originally implied landed in §08.3b.1 step 4 (`validators/mod.rs:256-276` — Generalized now emits E2005 unless in the scheme-var exempt set).
 - [x] **6. Strip `VarState::Generalized` arm from `collect_first_unbound_var`** — DONE in §08.3b.1 (step 4). The `Generalized` arm now emits `E2005` unless exempted by `scheme_var_ids`; Cell L pins the leak-alarm behavior.
 - [x] **7. Update `pool/accessors.rs:418-437` (`resolve_fully`)** comment: original code had no explicit Generalized handling (only follows `VarState::Link`), so step 7's "remove handling" is moot at the code level. Updated the defensive bounds-check comment to note that the §08.3b scheme-body migration retired the Generalized-leak path at the scheme-body level, leaving the bounds check as a pure cross-pool-collision guard.
 - [x] **8. Migration verification**: DONE post-§08.3b.1. `cargo test -p ori_types` 868/0, `cargo test -p ori_llvm --lib` 637/0, `cargo test -p ori_llvm --test aot` 2161/0, `cargo st` 3622/843/33 (baseline match), `cargo run --bin ori -- test --backend=llvm tests/spec/expressions/poly_lambda_with_imported_generic.ori` 10/0/0. Full `test-all.sh` Ori spec LLVM backend: 2389/4/27/lc_fail:2078 (vs pre-§08.3b.1 baseline 1851/1/21/lc_fail:2615 — **+538 passing**).
@@ -405,8 +406,8 @@ Plan step 1's "binder_idx" wording is superseded. Per `types.md §SC-1` ("data =
 - [x] **Scoped-patch reversal negative pin** (section-level semantic pin, covers §08.3 + §08.3b + §08.3b.1 joint diff): `git diff <affected files> > /tmp/section-08-joint.patch`; `git apply -R`; confirm failing-test symptoms reappear; `git apply` to restore. Run at `/commit-push` time. **Deferred to §08.N section-close gate** (see `08.N` line 797 "Semantic pin verification (section-level, JIT-scope)" — identical workflow consolidated there).
 
 **Cross-plan sync after §08.3b lands:**
-- [ ] Update `.claude/rules/types.md §SC-1` — retire target-only divergence note; migration is shipped. Handled by `/sync-claude` at `/commit-push` time.
-- [ ] Update `.claude/rules/typeck.md §PC-2` — retire Generalized exemption note. Handled by `/sync-claude`.
+- [x] Update `.claude/rules/types.md §SC-1` — retire target-only divergence note; migration is shipped. **Done 2026-04-20** (§08.H, commit `4ff5ca59`): §SC-1 now documents `rewrite_generalized_to_bound_var` + `normalize_body_generalized_to_bound_var_sig` as shipped; residual `Tag::Var(Generalized)` at PC-2 is a leak-alarm emitting `E2005`. Grep-verified against shipped code per §08.N line 799.
+- [x] Update `.claude/rules/typeck.md §PC-2` — retire Generalized exemption note. **Done 2026-04-20** (§08.H, commit `4ff5ca59`): §PC-2 now states the validator treats `VarState::Generalized` identically to `VarState::Unbound` (emits `E2005` unless in scheme-var exempt set); only `Rigid` stays unconditionally exempt per §UN-6. Grep-verified against shipped code per §08.N line 799.
 - [x] Update `compiler/ori_types/src/check/validators/mod.rs::collect_first_unbound_var` doc comment — DONE inline with §08.3b.1 step 4.
 - [x] Update `plans/empty-container-typeck-phase-contract/00-overview.md` success criteria + section list — §08.3b.1 delivered. Handled at `/commit-push` time. **Done 2026-04-20**: 00-overview.md already carries the `<!-- corrects: plans/roadmap/section-21A-llvm.md ... -->` cross-link (§08.4) plus the §08 entry at line 304 documenting JIT-only scope and BUG-04-AOT-MONO sibling. Section list already matches current plan structure (§08.3b/§08.3b.1/§08.3c present).
 
@@ -417,10 +418,10 @@ Plan step 1's "binder_idx" wording is superseded. Per `types.md §SC-1` ("data =
 - [x] `/tpr-review` passed on §08.3b diff — Round 0 clean (codex + gemini both `status: clean`, 0 verified findings). Scratch dir `/tmp/tpr-round-ori_lang-joiY7bb1`. Exit reason: `clean`. 2026-04-19.
 - [x] `/impl-hygiene-review` passed after TPR clean — 0 §08.3b-introduced findings, 9 pre-existing BLOAT findings filed inline under §08.H as plan-close blockers. All 7 focus axes passed (SSOT/DRY, fast-path gate, dead-code totality, partial-migration disclaimer, Merkle determinism, test matrix, phase-purity). Scratch dir `/tmp/impl-hygiene-ori_lang-HY4lvpdu`. 2026-04-19.
 - [x] `/improve-tooling` retrospective (per-subsection) — captures the "scope-discovery during execution" pattern (plan steps 5/6 assumed scheme-body migration would suffice for validator strip; in practice expr_types/FunctionSig also leak Generalized).
-- [ ] `sync-claude` run — rule files updated to reflect retired divergence. To run at `/commit-push` time.
-- [ ] `/commit-push` — one commit for the partial scheme-body migration (distinct from §08.3's pool-merge commit); §08.3b.1 will land its own commit.
+- [x] `sync-claude` run — rule files updated to reflect retired divergence. **Done 2026-04-20** (§08.H): types.md §SC-1 + typeck.md §PC-2 updates landed inline with §08.H BLOAT refactors in commit `4ff5ca59`; grep-verified against `rewrite_generalized_to_bound_var` + `normalize_body_generalized_to_bound_var_sig` + the merged Unbound|Generalized validator arm per §08.N line 799.
+- [x] `/commit-push` — one commit for the partial scheme-body migration (distinct from §08.3's pool-merge commit); §08.3b.1 landed its own commit. **Done**: §08.3b partial scheme-body migration shipped in commit `de135723` (fix(ori_arc): §08.3c newtype lowering + §08.3b scheme-body migration). §08.3b.1 shipped in `991b17d5`.
 - [x] Mark §08.3's previously-deferred downstream verification item (poly_lambda_with_imported_generic.ori) as `[x]` — now unblocked. (See line 398-399.)
-- [ ] Section 08 status ready to close per §08.N completion checklist.
+- [x] Section 08 status ready to close per §08.N completion checklist. **Done 2026-04-20**: §08.N completion checklist fully `[x]` (one `[~]` for the semantic-pin gate with documented "MADE REDUNDANT post-commit" justification); LLVM backend spec run GREEN (+538 passing / −537 lc_fail vs pre-§08 baseline).
 
 ## 08.3b.1 Inference-pipeline `expr_types` / `FunctionSig` port — finish §08.3b's `Generalized → BoundVar` migration
 
@@ -476,7 +477,7 @@ Scratch dir with full reviewer responses: `/tmp/tpr-round-ori_lang-Iv3X4D89/{cod
 - [x] `/tpr-review` passed on §08.3b.1 diff — 3 rounds, exit_reason `user_accepted_at_meta_cap_reached` 2026-04-20. Round 0: 1 HIGH architectural finding (F1 body_type_map wiring) resolved via Option B reconciliation (remove unused store plumbing + BoundVar arm as defensive ICE signal per `canon.md §7.1` AIMS Invariant 2). Rounds 1+2: plan-doc drift echoes (meta-only), all fixed inline across §08.3b.1 Goal / Cell J flip / Step 3 flip / Option 2B table row / Primary surface bullet. Both reviewers' round 2 summaries agreed on technical convergence (868/0 / 637/0 / 2161/0 / Cell M 10/0/0).
 - [x] `/impl-hygiene-review` passed after TPR clean — 2026-04-20. 16 findings (1 Critical + 2 Major + 6 Minor BLOAT + 7 NOTE). F10 Critical LEAK:algorithmic-duplication (body_type_map triplication) RESOLVED inline via `build_mono_body_type_map` + `BodyTypeMapSink` extraction at `pool/substitute/`. F3-doc ghost reference RESOLVED. F11-F16 filed in §08.H with concrete close actions (drift watch + BLOAT with concrete anchors per `impl-hygiene.md §Findings Disposition` — Minor BLOAT with anchors is deferred-valid; Critical was resolved inline). 868/0 ori_types + 2161/0 AOT preserved post-extraction.
 - [x] `/improve-tooling` retrospective — 2026-04-20 compact-form capture. Three tooling-improvement candidates surfaced from §08.3b.1's journey: (1) **Cross-crate structural duplication detection**: F10 Critical was caught by Phase 3 Opus multi-lens analysis but NOT by batch `hygiene-lint.py` — add a cheap pattern-match tool that flags functions with structurally similar control-flow skeletons across crates (target: catch 3+-site algorithmic duplication pre-commit). (2) **LLVM-spec-backend crash bisect automation**: Phase 4 manual bisect of the harness crash took 3-5 iterations to isolate `test_expect_none.ori`; script as `diagnostics/spec-crash-bisect.sh <subtree>` to short-circuit this. (3) **Scope-expansion contingency markers for plan subsections**: §08.3b.1's initial scope (steps 1-8) expanded ~4x through 4 sub-agent phases (recon+cells → impl → regression-fix → nounwind-fix); consider adding a `<!-- scope-uncertainty: high -->` marker format so the roadmap scanner can surface plan-subsection ranges that might need re-estimation before dispatch. All three are tracked as follow-up `/improve-tooling` candidates — not blocking §08.3b.1 close-out. Pattern reinforced: CLAUDE.md §Fix Interference protocol (Bug A → Bug B → classify + fix B first) was correctly followed across Phases 3+4 of this session.
-- [ ] `/commit-push` — one commit for the §08.3b.1 work.
+- [x] `/commit-push` — one commit for the §08.3b.1 work. **Done 2026-04-20**: shipped as commit `991b17d5` (refactor(ori_types,ori_llvm): §08.3b.1 Generalized→BoundVar + Option B). Follow-on §08.H BLOAT refactors shipped in `4ff5ca59`.
 
 **§08.3b.1 HISTORY** (captured 2026-04-20 after 4-phase implementation):
 
