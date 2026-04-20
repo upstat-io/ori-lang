@@ -269,8 +269,17 @@ fn generalize_identity_function() {
     let vars = engine.pool().scheme_vars(scheme);
     assert_eq!(vars.len(), 1);
 
-    // Body should be the function type
-    assert_eq!(engine.pool().scheme_body(scheme), fn_ty);
+    // §08.3b — Body is structurally a function `BoundVar -> BoundVar`, NOT
+    // the original `fn_ty` Idx. Generalization now rewrites scheme bodies
+    // to `Tag::BoundVar` leaves per `types.md §SC-1` (cell A pins the full
+    // shape; this test stays as a scheme-construction smoke check).
+    let body = engine.pool().scheme_body(scheme);
+    assert_eq!(engine.pool().tag(body), Tag::Function);
+    let params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let ret = engine.pool().function_return(body);
+    assert_eq!(params.len(), 1);
+    assert_eq!(engine.pool().tag(params[0]), Tag::BoundVar);
+    assert_eq!(engine.pool().tag(ret), Tag::BoundVar);
 }
 
 #[test]

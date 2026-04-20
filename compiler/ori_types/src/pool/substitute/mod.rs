@@ -26,13 +26,20 @@ use crate::{Idx, Pool, Tag, TypeFlags, VarState};
     reason = "always called with FxHashMap internally"
 )]
 pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    // Fast path: no variables to substitute
-    if !pool.flags(ty).contains(TypeFlags::HAS_VAR) {
+    // Fast path: no variables OR bound vars to substitute. §08.3b widened the
+    // gate to include HAS_BOUND_VAR — scheme bodies post-`types.md §SC-1`
+    // migration contain `Tag::BoundVar` leaves with HAS_BOUND_VAR=true and
+    // HAS_VAR=false; the old `!HAS_VAR` gate would skip them entirely.
+    if !pool
+        .flags(ty)
+        .intersects(TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR)
+    {
         return ty;
     }
 
     match pool.tag(ty) {
         Tag::Var => substitute_var(pool, ty, var_subst),
+        Tag::BoundVar => substitute_bound_var(pool, ty, var_subst),
 
         // Single-child containers
         Tag::List => substitute_single_child(pool, ty, var_subst, Pool::list),
@@ -64,7 +71,18 @@ pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, I
     }
 }
 
-/// Substitute a type variable: check `var_id`, follow links, check generalized.
+/// Substitute a type variable: check `var_id`, then follow links.
+///
+/// `Tag::Var` leaves whose `var_state` is `Generalized` or `Rigid` fall
+/// through to the bottom and return `ty` unchanged — they are orphan
+/// references to scheme-bound vars that the substitution map (keyed by
+/// the callee's `var_id`s) does not target. The whole-pool walk in
+/// `infer::expr::calls::monomorphization::maybe_record_mono_instance`
+/// routinely hits such orphans and relies on this no-op fall-through.
+///
+/// Post-§08.3b, scheme bodies themselves carry `Tag::BoundVar` leaves
+/// (see `substitute_bound_var`); the only legitimate `Tag::Var(Generalized)`
+/// pool entries are the orphan inference residues just described.
 fn substitute_var(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
     let var_id = pool.data(ty);
 
@@ -79,14 +97,22 @@ fn substitute_var(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> 
         return substitute_in_pool(pool, target, var_subst);
     }
 
-    // Check for generalized variable (same id, different state)
-    if let VarState::Generalized { id, .. } = pool.var_state(var_id) {
-        let id = *id;
-        if let Some(&replacement) = var_subst.get(&id) {
-            return replacement;
-        }
-    }
+    ty
+}
 
+/// Substitute a scheme-bound type variable.
+///
+/// `Tag::BoundVar.data` is the `var_id` declared by the enclosing scheme
+/// (`types.md §SC-1`). Substitution looks it up directly in `var_subst`;
+/// missing entries leave the leaf unchanged — non-substituted bound vars
+/// are legitimate (e.g., when `default_unbound_vars_in_scope` walks an
+/// expression tree carrying a fresh-instantiation handle whose underlying
+/// scheme is unrelated to the substitution map).
+fn substitute_bound_var(pool: &Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
+    let var_id = pool.data(ty);
+    if let Some(&replacement) = var_subst.get(&var_id) {
+        return replacement;
+    }
     ty
 }
 

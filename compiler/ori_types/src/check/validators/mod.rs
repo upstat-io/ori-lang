@@ -253,22 +253,22 @@ fn collect_first_unbound_var(
                 VarState::Link { target } => {
                     collect_first_unbound_var(pool, *target, span, exempt, errors)
                 }
-                // The current pool stores generalized vars as
-                // Tag::Var(VarState::Generalized), NOT as Tag::BoundVar
-                // (diverges from types.md §SC-1 which says BoundVar).
-                // Because of this, HAS_VAR is set on scheme bodies
-                // containing generalized vars — the HAS_VAR gate alone
-                // cannot distinguish "free unbound" from "generalized"
-                // at the outer scheme level.
+                // §08.3b — `Tag::Var(VarState::Generalized)` is a partial-
+                // migration residue. Scheme BODIES are now rewritten to
+                // `Tag::BoundVar` per `types.md §SC-1`
+                // (`unify::generalization::rewrite_generalized_to_bound_var`),
+                // but `expr_types` and `FunctionSig.param_types` for
+                // let-polymorphic lambdas still hold the pre-generalize
+                // `Tag::Var` leaves whose `var_state` was mutated to
+                // `Generalized` in place. Until a follow-up subsection
+                // ports those positions to `Tag::BoundVar`, the validator
+                // continues to exempt `Generalized` as a defensive net —
+                // stripping this arm without porting expr_types would
+                // fire `E2005` on every polymorphic let-binding
+                // (`CLAUDE.md §INVERTED-TDD`).
                 //
-                // The validator MUST exempt VarState::Generalized here:
-                // rejecting it would fire E2005 on every polymorphic
-                // let-binding, breaking let-polymorphism entirely. This
-                // is correct behavior for the current implementation.
-                //
-                // If a future SC-1 conformance fix changes generalized
-                // vars to Tag::BoundVar, this arm becomes unreachable
-                // and can be removed.
+                // `Rigid` is exempted because user-annotated parametric
+                // type parameters are legitimate at PC-2 exit (`§UN-6`).
                 VarState::Generalized { .. } | VarState::Rigid { .. } => false,
             }
         }

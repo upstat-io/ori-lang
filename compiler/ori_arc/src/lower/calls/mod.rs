@@ -14,7 +14,7 @@ use ori_ir::canon::{CanExpr, CanId, CanRange};
 use ori_ir::{Name, Span};
 use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcVarId, CtorKind};
+use crate::ir::{ArcValue, ArcVarId, CtorKind};
 
 use super::expr::ArcLowerer;
 
@@ -106,6 +106,49 @@ impl ArcLowerer<'_> {
         ))
     }
 
+    /// Try to emit a newtype constructor as a transparent wrap. Returns `None`
+    /// if `name` is not a registered newtype constructor.
+    ///
+    /// Newtypes are layout-transparent per `repr.md §RP-24` — `N(value)`
+    /// produces the same runtime bytes as `value`. The wrap is purely
+    /// type-level (the type stamp changes from the inner type to the newtype),
+    /// so the IR emits `Let { Var(arg) }` with no additional storage or
+    /// allocation. This dispatch fires before the indirect-call wildcard so
+    /// newtype constructor names never reach `lower_ident`'s `Tag::Function`
+    /// arm, which would emit unresolvable `PartialApply` (plan §08.3c).
+    fn try_emit_newtype_ctor(
+        &mut self,
+        name: Name,
+        ty: Idx,
+        arg_vars: &[ArcVarId],
+        span: Span,
+    ) -> Option<ArcVarId> {
+        if !self.pool.is_newtype_ctor(name) {
+            return None;
+        }
+        if arg_vars.len() != 1 {
+            // Arity mismatch — newtype constructors take exactly one argument.
+            // Fall through (return None) so the typechecker's existing arity
+            // diagnostic is the user-visible error rather than a downstream
+            // codegen confusion. Emit a warning so the codegen path is
+            // observable in trace output.
+            tracing::warn!(
+                ctor = self.name_str(name),
+                arity = arg_vars.len(),
+                "newtype constructor arity mismatch — expected 1 argument"
+            );
+            return None;
+        }
+        tracing::trace!(
+            ctor = self.name_str(name),
+            "call: newtype constructor (transparent wrap)"
+        );
+        Some(
+            self.builder
+                .emit_let(ty, ArcValue::Var(arg_vars[0]), Some(span)),
+        )
+    }
+
     // Call (positional -- named args already desugared)
 
     /// Lower a function call expression to ARC IR.
@@ -125,6 +168,9 @@ impl ArcLowerer<'_> {
         match func_kind {
             CanExpr::FunctionRef(name) => {
                 if let Some(var) = self.try_emit_variant_ctor(name, ty, arg_vars.clone(), span) {
+                    return var;
+                }
+                if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
                     return var;
                 }
                 tracing::trace!(
@@ -156,6 +202,9 @@ impl ArcLowerer<'_> {
                 if let Some(var) = self.try_emit_variant_ctor(name, ty, arg_vars.clone(), span) {
                     return var;
                 }
+                if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
+                    return var;
+                }
                 let resolved = self.resolve_ident_callee(name);
                 tracing::trace!(
                     func = self.name_str(resolved),
@@ -169,6 +218,25 @@ impl ArcLowerer<'_> {
                     }
                 }
                 self.emit_call_or_invoke(ty, resolved, arg_vars, span)
+            }
+            CanExpr::TypeRef(name) => {
+                // `TypeRef` callees are how the canonicalizer represents
+                // type-name references in call position (e.g., `UserId(x)` for
+                // a newtype). The newtype ctor dispatch must fire here too —
+                // otherwise the wildcard arm below would lower the `TypeRef`
+                // via `lower_ident`, which routes through the `Tag::Function`
+                // arm and emits unresolvable `PartialApply` (plan §08.3c root
+                // cause).
+                if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
+                    return var;
+                }
+                let closure_var = self.lower_expr(func);
+                tracing::trace!(
+                    name = self.name_str(name),
+                    args = arg_vars.len(),
+                    "call: indirect (TypeRef fallthrough)"
+                );
+                self.emit_indirect_call(ty, closure_var, arg_vars, span)
             }
             _ => {
                 let closure_var = self.lower_expr(func);
@@ -207,6 +275,16 @@ impl ArcLowerer<'_> {
         // Dec's the receiver. Lower as Project + PrimOp instead.
         if !is_type_qualified {
             if let Some(var) = self.try_lower_tag_check(receiver, method, span) {
+                return var;
+            }
+            // Newtype `unwrap` is layout-transparent (repr.md §RP-24) — emit
+            // identity wrap. Without this, `id.unwrap()` lowers as `Apply`
+            // with method name `unwrap`, which the codegen treats as a
+            // monomorphization lookup miss (`unresolved function 'unwrap' in
+            // apply — missing mono instance?` per plan §08.3c). Newtype
+            // accessors have no compiled function — they are pure type-level
+            // erasure of the newtype tag.
+            if let Some(var) = self.try_lower_newtype_unwrap(receiver, method, ty, span) {
                 return var;
             }
         }
@@ -296,6 +374,70 @@ impl ArcLowerer<'_> {
         let recv_var = self.lower_expr(receiver);
         let recv_ty = self.expr_type(receiver);
         self.emit_tag_check(method, recv_var, recv_ty, span)
+    }
+
+    /// Try to lower a newtype `.unwrap()` method call as a transparent wrap.
+    ///
+    /// Returns `Some(var)` iff the receiver type is a registered newtype
+    /// (per `Pool::is_newtype_ctor`) AND the method is `unwrap`. The wrap
+    /// emits `Let { Var(receiver_var) }` because newtypes are layout-identical
+    /// to their inner type (`repr.md §RP-24`). Without this dispatch, the
+    /// method call path emits `Apply { func: Name("unwrap") }` which the
+    /// codegen cannot resolve (no compiled `unwrap` function exists for
+    /// newtype receivers — newtype accessors are type-level erasure, not
+    /// runtime function dispatch).
+    fn try_lower_newtype_unwrap(
+        &mut self,
+        receiver: CanId,
+        method: Name,
+        ty: Idx,
+        span: Span,
+    ) -> Option<ArcVarId> {
+        // Quick pre-check: bail early for non-unwrap methods.
+        if self.name_str(method) != "unwrap" {
+            return None;
+        }
+        // Check the receiver's UNRESOLVED type — newtype `Tag::Named` entries
+        // now register a pool resolution to their underlying type (so codegen
+        // can compute layout per `repr.md §RP-24`), which means
+        // `pool.resolve_fully` would transparently unwrap the newtype to its
+        // underlying primitive/struct/etc. and `pool.tag(resolved) ==
+        // Tag::Named` would never match. Read the surface type and chase
+        // `Tag::Var` links manually so we still see the `Tag::Named` layer.
+        let mut recv_ty = self.expr_type(receiver);
+        for _ in 0..16 {
+            if self.pool.tag(recv_ty) != Tag::Var {
+                break;
+            }
+            // Step through Var links without crossing the Named→underlying
+            // resolution boundary.
+            let next = self.pool.resolve_fully(recv_ty);
+            if next == recv_ty {
+                break;
+            }
+            // If `resolve_fully` jumped past the Named layer (e.g., returned
+            // a primitive), we cannot identify the newtype here — bail.
+            if self.pool.tag(next) != Tag::Var && self.pool.tag(next) != Tag::Named {
+                return None;
+            }
+            recv_ty = next;
+        }
+        if self.pool.tag(recv_ty) != Tag::Named {
+            return None;
+        }
+        let recv_name = self.pool.named_name(recv_ty);
+        if !self.pool.is_newtype_ctor(recv_name) {
+            return None;
+        }
+        let recv_var = self.lower_expr(receiver);
+        tracing::trace!(
+            newtype = self.name_str(recv_name),
+            "method_call: newtype unwrap (transparent wrap)"
+        );
+        Some(
+            self.builder
+                .emit_let(ty, ArcValue::Var(recv_var), Some(span)),
+        )
     }
 }
 
