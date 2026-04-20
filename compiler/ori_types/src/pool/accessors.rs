@@ -359,6 +359,42 @@ impl Pool {
         self.resolutions.insert(named, concrete);
     }
 
+    /// Register a newtype constructor: `type N = Existing` produces an entry
+    /// `N → Existing.idx`.
+    ///
+    /// Called from `check::registration::user_types::register_user_type` when
+    /// processing `TypeDeclKind::Newtype`. The `name` is the newtype's
+    /// source-level identifier; `underlying` is the resolved `Idx` of the
+    /// wrapped type (primitive, container, struct, etc.).
+    ///
+    /// Consumers (`ori_arc::lower`) call `newtype_underlying(name)` at call
+    /// sites to detect newtype constructor invocations and emit transparent
+    /// `Let { Var(arg) }` instead of unresolvable `PartialApply`. See
+    /// `repr.md §RP-24` for the layout-transparent invariant this preserves.
+    pub fn register_newtype_ctor(&mut self, name: ori_ir::Name, underlying: Idx) {
+        self.newtype_ctors.insert(name, underlying);
+    }
+
+    /// Look up a newtype constructor by name.
+    ///
+    /// Returns the underlying type's `Idx` if `name` is a registered newtype
+    /// constructor (per `register_newtype_ctor`), otherwise `None`. This is
+    /// the discriminator that `ori_arc::lower::calls::lower_call` uses to
+    /// dispatch `UserId("hello")` to a transparent wrap rather than to the
+    /// indirect-call path that misroutes through `lower_ident`'s
+    /// `Tag::Function` arm.
+    pub fn newtype_underlying(&self, name: ori_ir::Name) -> Option<Idx> {
+        self.newtype_ctors.get(&name).copied()
+    }
+
+    /// True iff `name` is a registered newtype constructor.
+    ///
+    /// Convenience wrapper over [`Self::newtype_underlying`] for predicate use
+    /// at lowering call sites (`if pool.is_newtype_ctor(name) { ... }`).
+    pub fn is_newtype_ctor(&self, name: ori_ir::Name) -> bool {
+        self.newtype_ctors.contains_key(&name)
+    }
+
     /// Resolve a Named/Applied type to its concrete Struct/Enum definition.
     ///
     /// Follows resolution chains (e.g., alias -> named -> struct) with a depth
@@ -427,8 +463,11 @@ impl Pool {
             let var_id = self.data(current);
             if (var_id as usize) >= self.var_states.len() {
                 // Var references a non-existent var state — unresolvable.
-                // This can happen when Generalized type vars leak from
-                // type checking into codegen without proper resolution.
+                // §08.3b retired the prior Generalized-leak path (scheme
+                // bodies now hold `Tag::BoundVar` per `types.md §SC-1`),
+                // so this defensive bounds check now guards only against
+                // genuinely malformed inputs (e.g., cross-pool `var_id`
+                // collisions caught by the pool re-intern path).
                 break;
             }
             match self.var_state(var_id) {

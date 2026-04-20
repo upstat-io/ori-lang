@@ -70,6 +70,25 @@ pub struct Pool {
     /// Pool definitions (Struct/Enum with full field data).
     resolutions: FxHashMap<Idx, Idx>,
 
+    // === Newtype Registry ===
+    /// Maps newtype `Name` -> underlying `Idx` for newtype declarations
+    /// (`type N = Existing`).
+    ///
+    /// Newtypes are layout-transparent per `repr.md §RP-24` (same `abi_size`,
+    /// `abi_alignment`, `layout`, `niche` as the inner type) but nominally
+    /// distinct at the type level. Constructor calls `N(value)` and accessors
+    /// `n.unwrap()` / `n.inner` should lower to no-op transparent wraps in
+    /// codegen. This map is the SSOT for "which names are newtype constructors"
+    /// — `ori_arc::lower` consults it to dispatch newtype calls to transparent
+    /// `Let { Var(arg) }` instead of unresolvable `PartialApply` (the prior
+    /// behavior surfaced as `emit_partial_apply: callee not found name="UserId"`
+    /// per plan §08.3c).
+    ///
+    /// Unlike `resolutions`, this map is keyed by `Name`, not `Idx`, because
+    /// the lowering pass sees the constructor's source-level name (`Ident`,
+    /// `FunctionRef`, `TypeRef`) before any pool lookup.
+    newtype_ctors: FxHashMap<ori_ir::Name, Idx>,
+
     // === Type Variables ===
     /// State for each type variable.
     var_states: Vec<VarState>,
@@ -121,6 +140,7 @@ impl Pool {
             extra: Vec::with_capacity(1024),
             intern_map: FxHashMap::default(),
             resolutions: FxHashMap::default(),
+            newtype_ctors: FxHashMap::default(),
             var_states: Vec::new(),
             next_var_id: 0,
         };

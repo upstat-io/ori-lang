@@ -56,32 +56,49 @@ impl UnifyEngine<'_> {
         reason = "exhaustive Tag dispatch for type variable substitution across all type forms"
     )]
     fn substitute(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
-        // Fast path: no variables to substitute
-        if !self.pool.flags(ty).contains(TypeFlags::HAS_VAR) {
+        // Fast path: no variables OR bound vars to substitute. §08.3b widened
+        // the gate to include HAS_BOUND_VAR — instantiation now walks scheme
+        // bodies whose leaves are `Tag::BoundVar` (HAS_BOUND_VAR=true,
+        // HAS_VAR=false) per `types.md §SC-1`.
+        if !self
+            .pool
+            .flags(ty)
+            .intersects(TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR)
+        {
             return ty;
         }
 
         match self.pool.tag(ty) {
             Tag::Var => {
+                // §08.3b — `instantiate(scheme)` walks scheme bodies whose
+                // free variables are `Tag::BoundVar` (handled below), but
+                // may also encounter `Tag::Var` leaves from outer scopes
+                // (Rigid parameters, link chains). Direct `var_id` match
+                // covers any explicit substitution; link chains follow
+                // through. `Generalized` orphans — pool residue from prior
+                // generalize() calls — fall through and return `ty`
+                // unchanged (the substitution map does not target them).
                 let var_id = self.pool.data(ty);
 
-                // Check if this variable should be substituted
                 if let Some(&replacement) = subst.get(&var_id) {
                     return replacement;
                 }
 
-                // Follow link if present
                 if let VarState::Link { target } = self.pool.var_state(var_id) {
                     return self.substitute(*target, subst);
                 }
 
-                // Check for generalized variable
-                if let VarState::Generalized { id, .. } = self.pool.var_state(var_id) {
-                    if let Some(&replacement) = subst.get(id) {
-                        return replacement;
-                    }
-                }
+                ty
+            }
 
+            Tag::BoundVar => {
+                // §08.3b — scheme-bound variable. `data` holds the scheme's
+                // declared `var_id` per `types.md §SC-1`; instantiation
+                // substitutes via the per-call-site fresh-var subst map.
+                let var_id = self.pool.data(ty);
+                if let Some(&replacement) = subst.get(&var_id) {
+                    return replacement;
+                }
                 ty
             }
 

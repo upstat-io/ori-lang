@@ -207,19 +207,21 @@ fn scheme_body_with_bound_var_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-/// Spec: `typeck.md §GN-1` — a `Tag::Var` in `VarState::Generalized` is a
-/// legitimate polymorphic binding, not a PC-2 violation. The validator
-/// explicitly exempts this state (see the rationale in
-/// `check/validators/mod.rs::collect_first_unbound_var`). Removing this
-/// exemption would fire `E2005` on every polymorphic let-binding.
+/// Spec: `typeck.md §GN-1`, `types.md §SC-1` (partial-migration pin per
+/// plan §08.3b). A `Tag::Var` in `VarState::Generalized` is currently a
+/// legitimate polymorphic binding and the validator exempts it.
 ///
-/// This is a divergence from `types.md §SC-1`: the implementation stores
-/// generalized vars as `Tag::Var(VarState::Generalized)` rather than
-/// rewriting them to `Tag::BoundVar`. If a future SC-1 conformance fix
-/// rewrites the pool layout, this test becomes tautological (all
-/// `Tag::Var` entries would be Unbound) and can be removed.
+/// §08.3b retired the §SC-1 divergence at the scheme-body level
+/// (`unify::generalization::rewrite_generalized_to_bound_var` rewrites
+/// scheme BODIES to `Tag::BoundVar` leaves), but `expr_types` and
+/// `FunctionSig.param_types` for let-polymorphic lambdas still carry
+/// pre-generalize `Tag::Var` leaves whose `var_state` was mutated to
+/// `Generalized`. Until a follow-up subsection rewrites those positions,
+/// stripping this exemption would fire `E2005` on every polymorphic
+/// let-binding (`CLAUDE.md §INVERTED-TDD`).
 ///
-/// Plan §02.4 T7 (Positive / Generalized).
+/// Plan §02.4 T7 (Positive / Generalized — pinned by §08.3b's partial
+/// migration; will become tautological when the `expr_types` port lands).
 #[test]
 fn generalized_var_in_expr_types_emits_no_diagnostic() {
     let mut pool = Pool::new();
@@ -598,20 +600,21 @@ fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-/// Spec: `typeck.md §PC-2`, `types.md §SC-1` (shipped divergence). The
-/// currently shipped pool stores generalized vars as
-/// `Tag::Var(VarState::Generalized)` rather than `Tag::BoundVar`. For a
-/// polymorphic lambda return-type position carrying this shape, the
-/// validator walks in (`HAS_VAR` is set on `Tag::Var` per `§TF-1`), reaches
-/// the `Tag::Var` leaf, observes `VarState::Generalized`, and returns
-/// `false` per the explicit exemption arm in
-/// `validators/mod.rs::collect_first_unbound_var`. No diagnostic fires.
+/// Spec: `typeck.md §PC-2`, `types.md §SC-1` (partial-migration pin per
+/// plan §08.3b). The post-§08.3b shape for a polymorphic-lambda return
+/// position SHOULD be `Tag::BoundVar` (target shape, covered by
+/// `polylambda_return_type_with_boundvar_emits_no_diagnostic` above), but
+/// the migration is incomplete: `expr_types` and `FunctionSig.param_types`
+/// for let-polymorphic lambdas still carry the pre-§08.3b
+/// `Tag::Var(VarState::Generalized)` shape because the rewrite pass only
+/// covers scheme bodies, not expression positions. The validator exempts
+/// `Generalized` as a defensive net until a follow-up subsection ports
+/// expression positions.
 ///
-/// Removing the `VarState::Generalized` exemption would fire `E2005` on
-/// every polymorphic let-binding AND every poly-lambda return, breaking
-/// let-polymorphism entirely — the canonical INVERTED-TDD anti-pattern per
-/// CLAUDE.md §INVERTED-TDD. This test pins that the exemption remains in
-/// place for the poly-lambda return shape specifically.
+/// Removing the `VarState::Generalized` exemption while `expr_types` still
+/// carries the OLD shape would fire `E2005` on every polymorphic
+/// let-binding — the canonical INVERTED-TDD anti-pattern per
+/// CLAUDE.md §INVERTED-TDD.
 ///
 /// Not the enforcement point for BUG-04-042 — see
 /// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
@@ -624,23 +627,23 @@ fn polylambda_return_type_with_generalized_var_emits_no_diagnostic() {
         id: var_id,
         name: None,
     };
-    // ∀[var_id]. (Var(Generalized)) -> Var(Generalized) — shipped-pool
-    // representation of the same identity poly-lambda.
+    // ∀[var_id]. (Var(Generalized)) -> Var(Generalized) — pre-§08.3b shape
+    // still produced for expression positions (partial migration).
     let lambda_ty = pool.function(&[var], var);
     let scheme = pool.scheme(&[var_id], lambda_ty);
     assert!(
         pool.flags(scheme).contains(TypeFlags::HAS_VAR),
         "scheme over Var(Generalized)-returning lambda MUST set HAS_VAR \
-         because Var carries HAS_VAR per §TF-1 (shipped §SC-1 divergence)"
+         because Var carries HAS_VAR per §TF-1"
     );
 
     let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
 
     assert!(
         errors.is_empty(),
-        "Var(Generalized) in poly-lambda return is legitimate per shipped \
-         §SC-1 divergence; lifting this exemption without lifting the \
-         divergence would break let-polymorphism (INVERTED-TDD)"
+        "Var(Generalized) in poly-lambda return is exempted while §08.3b's \
+         expr_types port is pending; lifting this exemption now would \
+         break let-polymorphism (INVERTED-TDD)"
     );
 }
 
