@@ -7,7 +7,6 @@
 use ori_ir::{ExprId, ImplMethod, Module, Name, Param, TraitDef, TraitItem};
 use rustc_hash::FxHashSet;
 
-use super::run_validator;
 use crate::check::registration::{resolve_parsed_type_simple, resolve_type_with_self};
 use crate::check::ModuleChecker;
 use crate::{check_expr, ContextKind, Expected, ExpectedOrigin, FunctionSig, Idx, Pool};
@@ -245,24 +244,20 @@ fn check_impl_method(
         checker.pool(),
     );
 
-    // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
-    // §CK-4 guarantees sig's Tag::Var positions were left for this body pass to
-    // resolve; any survivor is an inference gap the validator must surface.
-    run_validator(checker, &expr_types, &sig, method.span);
-
-    // Store results
-    for (expr_index, ty) in expr_types {
-        checker.store_expr_type(expr_index, ty);
-    }
-    for error in errors {
-        checker.push_error(error);
-    }
-    for warning in warnings {
-        checker.push_warning(warning);
-    }
-    checker.pattern_resolutions.extend(pat_resolutions);
-    checker.accumulate_mono_instances(mono_instances);
-    checker.accumulate_deferred_mono_calls(deferred_mono_calls);
+    // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
+    super::finalize_body_and_export(
+        checker,
+        &sig,
+        method.span,
+        super::BodyOutputs {
+            expr_types,
+            errors,
+            warnings,
+            pat_resolutions,
+            mono_instances,
+            deferred_mono_calls,
+        },
+    );
 
     // Export impl method signature for codegen.
     // Codegen needs param_types, return_type, and type_params to compute ABI.
@@ -394,22 +389,18 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
         checker.pool(),
     );
 
-    // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
-    // §CK-4 guarantees sig's Tag::Var positions were left for this body pass to
-    // resolve; any survivor is an inference gap the validator must surface.
-    run_validator(checker, &expr_types, &sig, method.span);
-
-    // Store results
-    for (expr_index, ty) in expr_types {
-        checker.store_expr_type(expr_index, ty);
-    }
-    for error in errors {
-        checker.push_error(error);
-    }
-    for warning in warnings {
-        checker.push_warning(warning);
-    }
-    checker.pattern_resolutions.extend(pat_resolutions);
-    checker.accumulate_mono_instances(mono_instances);
-    checker.accumulate_deferred_mono_calls(deferred_mono_calls);
+    // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
+    super::finalize_body_and_export(
+        checker,
+        &sig,
+        method.span,
+        super::BodyOutputs {
+            expr_types,
+            errors,
+            warnings,
+            pat_resolutions,
+            mono_instances,
+            deferred_mono_calls,
+        },
+    );
 }

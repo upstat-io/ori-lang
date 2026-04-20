@@ -54,9 +54,9 @@ Worst offenders (pre-DRY measurements):
 - `infer/expr/control_flow.rs` -- 746 lines. Split: if/match vs loops (for/while/loop/break/continue)
 - `output/mod.rs` -- 694 lines
 - `infer/mod.rs` -- 690 lines. Split: InferEngine definition vs inference entry points
-- `pool/mod.rs` -- 661 lines
+- `pool/mod.rs` -- 661 lines (RESOLVED 2026-04-20 via `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.H F7` split into `pool/{mod,interning,flags_compute,hashing}.rs`)
 - `pool/format/mod.rs` -- 632 lines
-- `pool/accessors.rs` -- 624 lines
+- `pool/accessors.rs` -- 624 lines (RESOLVED 2026-04-20 via `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.H F3` split into `pool/accessors/{mod,resolution,nominal}.rs`)
 - `check/signatures/mod.rs` -- 568 lines
 - `check/bodies/mod.rs` -- 545 lines
 - `type_error/context/mod.rs` -- 527 lines

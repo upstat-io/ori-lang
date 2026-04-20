@@ -7,7 +7,6 @@
 use ori_ir::{Function, Module, Name, TestDef};
 use rustc_hash::FxHashSet;
 
-use super::run_validator;
 use crate::check::validators::build_exempt_var_ids;
 use crate::check::ModuleChecker;
 use crate::{check_expr, infer_expr, ContextKind, Expected, ExpectedOrigin, Idx};
@@ -160,27 +159,20 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             )
         });
 
-    // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
-    // §CK-4 guarantees sig's Tag::Var positions were left for the body pass to resolve.
-    run_validator(checker, &expr_types, &sig, func.span);
-
-    // Store expression types
-    for (expr_index, ty) in expr_types {
-        checker.store_expr_type(expr_index, ty);
-    }
-
-    // Store errors and warnings
-    for error in errors {
-        checker.push_error(error);
-    }
-    for warning in warnings {
-        checker.push_warning(warning);
-    }
-
-    // Accumulate pattern resolutions, mono instances, and deferred calls
-    checker.pattern_resolutions.extend(pat_resolutions);
-    checker.accumulate_mono_instances(mono_instances);
-    checker.accumulate_deferred_mono_calls(deferred_mono_calls);
+    // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
+    super::finalize_body_and_export(
+        checker,
+        &sig,
+        func.span,
+        super::BodyOutputs {
+            expr_types,
+            errors,
+            warnings,
+            pat_resolutions,
+            mono_instances,
+            deferred_mono_calls,
+        },
+    );
 
     // (Plan TPR Round 1 Codex-F2): write the defaulted signature
     // back to the checker's signature map so cross-function lookups and the
@@ -274,26 +266,20 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let mono_instances = engine.take_mono_instances();
     let deferred_mono_calls = engine.take_deferred_mono_calls();
 
-    // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
-    run_validator(checker, &expr_types, &sig, test.span);
-
-    // Store expression types
-    for (expr_index, ty) in expr_types {
-        checker.store_expr_type(expr_index, ty);
-    }
-
-    // Store errors and warnings
-    for error in errors {
-        checker.push_error(error);
-    }
-    for warning in warnings {
-        checker.push_warning(warning);
-    }
-
-    // Accumulate pattern resolutions, mono instances, and deferred calls
-    checker.pattern_resolutions.extend(pat_resolutions);
-    checker.accumulate_mono_instances(mono_instances);
-    checker.accumulate_deferred_mono_calls(deferred_mono_calls);
+    // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
+    super::finalize_body_and_export(
+        checker,
+        &sig,
+        test.span,
+        super::BodyOutputs {
+            expr_types,
+            errors,
+            warnings,
+            pat_resolutions,
+            mono_instances,
+            deferred_mono_calls,
+        },
+    );
 
     // write the defaulted test signature back so the hash channel
     // (cross-module identity) reflects post-defaulted types, matching

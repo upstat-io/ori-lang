@@ -94,6 +94,10 @@ Resolving remaining root causes (A, B, C) would unblock completion of the JIT Ex
 
 ## Import Resolution (Unified Pipeline)
 
+<!-- corrected-by: plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md -->
+
+> **Correction callout (2026-04-20):** The Import Resolution behavior documented below, plus subsection 21.7 (generic monomorphization) and 21.11 (lambda / closure support), was CORRECTED by `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` (resolves BUG-04-042). The "verified 2026-03-29" monomorphization claim below was contradicted by a commit-wall regression where `assert_eq<T>` failed to monomorphize in poly-lambda hosts — root cause was cross-module pool-merge `var_id` collision in the JIT test runner's pool merge (fix landed in §08.3 `pool/re_intern/`) plus scheme-body `Generalized→BoundVar` canonicalization (§08.3b / §08.3b.1) plus newtype constructor lowering (§08.3c). **Any future §21A resumption MUST consult §08 before modifying generic monomorphization or lambda_mono / poly-lambda paths in `compiler/ori_llvm/src/codegen/function_compiler/` and the test-runner pool-merge path in `compiler/oric/src/test/runner/llvm_backend.rs`.**
+
 The JIT test runner resolves imports via `oric::imports::resolve_imports()` and compiles
 imported function bodies directly into the JIT module. This uses the same `declare_all` /
 `define_all` path as main module functions, so **most new codegen features automatically
@@ -103,7 +107,7 @@ work for imported functions too**.
 
 When implementing these features, ensure they also work across module boundaries:
 
-- **Generic monomorphization**: IMPLEMENTED (verified 2026-03-29). 33 generics tests pass including cross-module `assert_eq` instantiation.
+- **Generic monomorphization**: IMPLEMENTED (verified 2026-03-29; **corrected 2026-04-20 by §08.3/§08.3b/§08.3b.1 — see correction callout above**). 33 generics tests pass including cross-module `assert_eq` instantiation.
 
 - **Impl blocks from imported modules**: IMPLEMENTED (verified 2026-03-29). Imported modules' impl blocks are compiled via `compile_impls()`.
 
@@ -395,7 +399,9 @@ When implementing these features, ensure they also work across module boundaries
 
 ---
 
-## 21.7 Function Sequences & Expressions (verified 2026-03-29)
+<!-- corrected-by: plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md -->
+
+## 21.7 Function Sequences & Expressions (verified 2026-03-29; corrected 2026-04-20 per §08)
 
 - [x] **Implement**: Generic function monomorphization (verified 2026-03-29 -- 33 generics tests pass)
   - [x] Collect monomorphization sites (call sites with concrete type args)
@@ -668,7 +674,9 @@ When implementing these features, ensure they also work across module boundaries
 
 ---
 
-## 21.11 Lambda & Closure Support (verified 2026-03-29)
+<!-- corrected-by: plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md -->
+
+## 21.11 Lambda & Closure Support (verified 2026-03-29; corrected 2026-04-20 per §08)
 
 - [x] **Implement**: Basic lambdas
   - [x] Simple lambda syntax: `x -> x + 1`
