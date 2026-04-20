@@ -239,7 +239,9 @@ pub struct UnresolvedTypeVar {
 /// - `func.var_types[*]`          — SSA-variable types (primary storage)
 /// - `func.params[*].ty`          — entry-block parameter types (`ArcParam.ty`)
 /// - `func.return_type`           — declared return-type `Idx`
-/// - `func.blocks[*].params[*].ty` — CFG-block parameter types
+/// - `func.blocks[*].params[*].1` — CFG-block parameter types (tuple
+///                                    `.1` = `Idx`; `ArcBlock.params` is
+///                                    `Vec<(ArcVarId, Idx)>`)
 ///
 /// `var_types`-only scope would let a `Tag::Var` in a parameter or return
 /// position bypass the check entirely, defeating `typeck.md §PC-2` /
@@ -291,7 +293,7 @@ pub fn assert_no_unresolved_type_vars(
     //   1. var_types[*]            (SSA storage; primary)
     //   2. params[*].ty            (entry-block parameters)
     //   3. return_type             (function return Idx)
-    //   4. blocks[*].params[*].ty  (CFG-block parameters)
+    //   4. blocks[*].params[*].1   (CFG-block parameters; tuple .1 = Idx)
     //
     // When a violating `Tag::Var` appears in a non-var_types position, the
     // error's `var_id` field reports the ArcVarId recorded ON THE PARAM
@@ -551,16 +553,24 @@ no way to ship a half-converted tree):
   `fn(…) -> PreparedLambda` and its only call site is `prepare_arc_function`
   at `nounwind/prepare.rs:190` (verified via `grep -n 'prepare_lambda'
   compiler/ori_llvm/src/codegen/function_compiler/nounwind/prepare.rs`), the
-  `Err` propagation cascades one level further: change `prepare_lambda`'s
-  signature to `fn(…) -> Result<PreparedLambda, VerifyError>` and update the
-  `prepare_arc_function` caller to match on the `Result` and either propagate
-  (if `prepare_arc_function` itself returns `Result`) or filter failed lambdas
-  out of the `prepared_lambdas` list with a matching `record_codegen_error()`
-  call already absorbed by the `Err` arm of `declare_and_process_lambda`. The
-  filter-out approach matches the primary-seam pattern ("skip downstream
-  emission; the error is already recorded"). The cascading signature change
-  is mandatory — `clippy::must_use` on the new `Result` return forces it at
-  compile time.
+  `Err` propagation cascades TWO levels further: change `prepare_lambda`'s
+  signature to `fn(…) -> Result<PreparedLambda, VerifyError>` AND change
+  `prepare_arc_function`'s signature to match (`fn(…) -> Result<…, VerifyError>`),
+  propagating up to `prepare_all_cached` + `prepare_mono_cached` callers that
+  already track per-function success/failure via `record_codegen_error()`.
+  **Filter-out is NOT sound** — dropping a failed lambda from the
+  `prepared_lambdas: Vec<PreparedLambda>` collection at lines 186–196 leaves
+  the parent `arc_func` to later emit a `PartialApply` against the removed
+  lambda's original name (the `remap_partial_apply_names` call at line 201
+  rewrites names but does not drop references to missing callees). Parent
+  emission MUST also be skipped when any of its lambdas fails validation,
+  matching the immediate-emit path `compile_lambda_arc` + `emit_arc_function`.
+  The cascading signature change is mandatory at every level — `clippy::must_use`
+  on the new `Result` return forces the propagation at compile time. Analogous
+  cascading treatment applies to `compile_lambda_arc` (immediate-emit path at
+  `define_phase.rs:243`): its caller `emit_arc_function` must also receive
+  the `Err` and skip parent emission before calling `run_arc_pipeline` on the
+  parent `arc_func`.
 
 No other direct call sites of `declare_and_process_lambda` exist (verified
 via `grep -rn 'declare_and_process_lambda\b' compiler/ori_llvm/src/` —
@@ -639,11 +649,20 @@ empty set would spuriously fire on legitimate `Tag::RigidVar`s (and, pre-§08.3b
 // monomorphized functions the helper returns an empty set. For generic
 // source bodies it returns the scheme_var_ids set. This mirrors §04.1's
 // doc-comment contract.
+// `function_sigs: &[FunctionSig]` is a slice (verified at
+// `compiler/ori_llvm/src/evaluator/compile.rs:69`), NOT a `Name`-keyed
+// map. Build a name→&sig lookup once at loop entry so the inner
+// exempt-set construction is O(1) per function; the slice itself is
+// typically dozens of entries, so the one-time HashMap build is cheap
+// and keeps the per-function scheme_var_ids query correct.
+let sig_by_name: rustc_hash::FxHashMap<ori_ir::Name, &ori_types::FunctionSig> =
+    function_sigs.iter().map(|s| (s.name, s)).collect();
+
 for (fn_name, (arc_fn, lambdas)) in arc_cache.iter() {
     // Look up the generic scheme for this function; imported mono
     // instances may not be in `function_sigs`, in which case the helper
     // default (empty set) is correct — they are fully substituted.
-    let sig = function_sigs.get(fn_name);
+    let sig = sig_by_name.get(fn_name).copied();
     let exempt: rustc_hash::FxHashSet<u32> = sig
         .map(|s| ori_types::build_exempt_var_ids(self.pool, &s.scheme_var_ids))
         .unwrap_or_default();
@@ -846,7 +865,29 @@ Round 2 dispatched both reviewers against HEAD `3acde80f`. Three verified findin
 
 - `iteration_counter` after Round 2 fix-and-commit: `3`. `max_rounds`: `3`. Next `while` check: `3 < 3 == FALSE` → loop exits at `iter_cap_reached`.
 - `ever_verified_findings` across Rounds 0–2: 11 (Round 0: 3, Round 1: 5, Round 2: 3). `prior_verified_fixed`: 11 (all fixed inline). `remaining`: `[]`.
-- De-facto convergence at the cap boundary. Per `/tpr-review §5` terminal branch, `/review-plan` Step 6 owns the escalation UI — user picks between accept-with-findings (flip `reviewed: true` + cap-exit note), run-more (extend cap), escalate-to-plan (create new plan), or abort. With zero outstanding, accept-with-findings is the natural choice.
+- De-facto convergence at the cap boundary. Per `/tpr-review §5` terminal branch, `/review-plan` Step 6 owns the escalation UI — user picks between accept-with-findings (flip `reviewed: true` + cap-exit note), run-more (extend cap), escalate-to-plan (create new plan), or abort. User chose run-more: cap extended to `max_rounds=6`, `meta_cap=3`; Round 3 dispatched.
+
+---
+
+### Round 3 findings (2026-04-20, after user extended cap; HEAD 93b17075)
+
+Round 3 dispatched both reviewers against HEAD `93b17075`. Codex (HIGH trust) surfaced three new findings — all follow-ons to Round 2's own fixes. Gemini (LOWER trust) returned `status: clean` (zero actionable findings); the single informational confirmation note was not a finding. Disagreement handled per `/tpr-review §4` trust-tier posture: Codex's findings verified against actual code before acting, Gemini's `clean` noted but not treated as a veto.
+
+- [x] `[TPR-04-R3-001-codex][medium]` `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md:§04.3 Site A` — The Round 2 fix used `function_sigs.get(fn_name)`, but `function_sigs` at `compiler/ori_llvm/src/evaluator/compile.rs:69` is `&[FunctionSig]` (slice), NOT a `Name`-keyed map. The `.get(fn_name)` call would be `slice::get(usize)` (type error) or undefined if `FxHashMap::get` is expected. Pseudocode would not compile.
+  Disposition: fixed in this round. §04.3 Site A pseudocode rewritten to first build `let sig_by_name: FxHashMap<Name, &FunctionSig> = function_sigs.iter().map(|s| (s.name, s)).collect();` once at loop entry (the slice is typically dozens of entries, so the one-time HashMap build is cheap), then do `sig_by_name.get(fn_name).copied()` in the body. `FunctionSig.name: Name` verified at `compiler/ori_types/src/output/mod.rs:375`. Reviewer: codex-only (HIGH trust; gemini reported `clean` — Gemini missed this).
+
+- [x] `[TPR-04-R3-002-codex][high]` `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md:§04.2 caller-site-updates` — The Round 2 "filter-out failed lambdas from `prepared_lambdas`" branch is NOT sound. Reading `nounwind/prepare.rs:186-208` + `define_phase.rs:142-164`: parent `prepare_arc_function` collects `prepared_lambdas: Vec<PreparedLambda>`, then calls `remap_partial_apply_names(&mut arc_func, &lambda_renames)` to rewrite name references, then calls `self.process_arc_function(name, &mut arc_func)` to process the parent. Dropping a failed lambda from `prepared_lambdas` leaves the parent `arc_func` with surviving `PartialApply` ops referencing the original (now-missing) lambda name — `remap_partial_apply_names` only rewrites callees that DID get renamed, not callees that vanished. Parent emission would later fail (bad LLVM IR or runtime error).
+  Disposition: fixed in this round. §04.2 caller-site-updates subsection rewritten to remove the filter-out option entirely. Cascading signature change extended TWO levels: `prepare_lambda → prepare_arc_function → prepare_all_cached`/`prepare_mono_cached` (all return `Result<…, VerifyError>`). The record_codegen_error()` already absorbed by `declare_and_process_lambda`'s `Err` arm propagates up the chain so the PARENT function is also skipped. Analogous treatment specified for `compile_lambda_arc` → `emit_arc_function` on the immediate-emit path. Reviewer: codex-only (HIGH trust; real architectural soundness concern, not cosmetic).
+
+- [x] `[TPR-04-R3-003-codex][low]` `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md:242,294` — Two §04.1 doc-comment references still used `blocks[*].params[*].ty` tuple-incompatible syntax that Round 1's TPR-04-R1-001 fix missed. Line 242 (Rust doc comment enumerating type-bearing positions) and line 294 (inline comment in validator body) both carried the stale syntax.
+  Disposition: fixed in this round. Both updated to tuple `.1` syntax: line 242 reads `func.blocks[*].params[*].1 — CFG-block parameter types (tuple .1 = Idx; ArcBlock.params is Vec<(ArcVarId, Idx)>)` and line 294 reads `blocks[*].params[*].1 (CFG-block parameters; tuple .1 = Idx)`. `grep -nE '\.params\[[0-9*]+\]\.(ty|var)' §04` now returns only the `ArcParam` entry-param references (which ARE valid — `ArcParam` is a struct with `.var` and `.ty` fields per `ori_arc/src/ir/mod.rs:241`), not tuple-incompatible block-param references.
+
+### Round-3 exit state (iteration_counter=4, max_rounds=6)
+
+- `iteration_counter` after Round 3 fix-and-commit: `4`. `max_rounds`: `6` (extended from 3 by user run-more choice). Next `while` check: `4 < 6 == TRUE` → loop continues. No cap exit this round.
+- `meta_only_streak`: `0` (Round 3 produced 3 actionable findings — substantive, not meta).
+- `ever_verified_findings` across Rounds 0–3: 14 (R0: 3, R1: 5, R2: 3, R3: 3). `prior_verified_fixed`: 14 (all fixed inline). `remaining`: `[]`.
+- Round 4 dispatches next to verify Round 3's own fixes are themselves internally consistent.
 
 ---
 
