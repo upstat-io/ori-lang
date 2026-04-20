@@ -164,7 +164,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         &self,
         func: &ori_arc::ArcFunction,
     ) -> bool {
-        use crate::codegen::arc_emitter::context::is_callee_intercepted;
+        use crate::codegen::arc_emitter::context::{
+            intercepted_is_nounwind, is_callee_intercepted,
+        };
         use crate::codegen::runtime_decl::runtime_functions::is_rt_fn_nounwind;
 
         func.blocks.iter().all(|block| {
@@ -183,14 +185,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                             Some(false) => false,
                             None => {
                                 self.codegen_ctx.nounwind_functions.contains(callee)
-                                    || is_callee_intercepted(
+                                    || (is_callee_intercepted(
                                         s,
                                         *callee,
                                         args,
                                         func,
                                         &self.codegen_ctx,
                                         self.type_info,
-                                    )
+                                    ) && intercepted_is_nounwind(s))
                             }
                         }
                     }
@@ -213,16 +215,20 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                         // Not a runtime function — check user function set,
                         // then check if the callee will be intercepted by
                         // builtin handlers (which always emit `call`).
+                        // Intercepted builtins are nounwind by default, with
+                        // a small exception set for builtin methods that
+                        // emit inline panics (Option.expect etc.) — those
+                        // are filtered out here via intercepted_is_nounwind.
                         None => {
                             self.codegen_ctx.nounwind_functions.contains(callee)
-                                || is_callee_intercepted(
+                                || (is_callee_intercepted(
                                     s,
                                     *callee,
                                     args,
                                     func,
                                     &self.codegen_ctx,
                                     self.type_info,
-                                )
+                                ) && intercepted_is_nounwind(s))
                         }
                     }
                 }

@@ -261,7 +261,14 @@ pub fn extract_var_from_types(
     target_var_id: u32,
 ) -> Option<Idx> {
     match pool.tag(generic_ty) {
-        Tag::Var => {
+        // §08.3b.1 — match both `Tag::Var` (pre-normalization) and
+        // `Tag::BoundVar` (post-normalization scheme-body leaves per
+        // `types.md §SC-1`). Function sigs carry BoundVar leaves after
+        // the end-of-body normalization pass; extract_var_from_types
+        // must recognize them so nested-generic call sites (e.g.,
+        // `first(p: Pair<int, int>)` where `first<A, B>`'s param is
+        // `Pair<BoundVar(A), BoundVar(B)>`) can resolve their type args.
+        Tag::Var | Tag::BoundVar => {
             if pool.data(generic_ty) == target_var_id {
                 return Some(concrete_ty);
             }
@@ -379,6 +386,93 @@ fn substitute_struct(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) 
         pool.struct_type(name, &new_fields)
     } else {
         ty
+    }
+}
+
+/// Sink for [`build_mono_body_type_map`] entries — abstracts over the
+/// accumulator shape used by each monomorphization call site. `Vec<(Idx, Idx)>`
+/// callers (typeck-side: `maybe_record_mono_instance`, `build_mono_instance`)
+/// post-process with `sort_by_key` + `dedup_by_key` to land a deterministic
+/// Salsa-friendly `MonoInstance.body_type_map`. The `FxHashMap<Idx, Idx>`
+/// caller (`oric::test::runner::llvm_backend::run_file_llvm` imported-mono
+/// construction) keys insertions directly because it feeds the LLVM-side
+/// `MonoFunction.body_type_map` which already requires hash lookup.
+pub trait BodyTypeMapSink {
+    /// Record a `(source_idx → substituted_idx)` entry.
+    fn record(&mut self, key: Idx, value: Idx);
+}
+
+impl BodyTypeMapSink for Vec<(Idx, Idx)> {
+    fn record(&mut self, key: Idx, value: Idx) {
+        self.push((key, value));
+    }
+}
+
+impl<S: std::hash::BuildHasher> BodyTypeMapSink for std::collections::HashMap<Idx, Idx, S> {
+    fn record(&mut self, key: Idx, value: Idx) {
+        self.insert(key, value);
+    }
+}
+
+/// Build a monomorphization body-type map in `sink` for the mono instance
+/// identified by `var_subst`.
+///
+/// Two-pass structure mirrors the three shipped call sites (typeck
+/// `maybe_record_mono_instance`, typeck `build_mono_instance`, test-runner
+/// imported-mono construction) — extracted as the SSOT per
+/// `impl-hygiene.md §Algorithmic DRY` after `/impl-hygiene-review`
+/// 2026-04-20 Phase 3 F1 (Critical).
+///
+/// Pass 1 — existing-pool scan:
+///   For every dynamic `Idx` (skip pre-interned primitives) whose
+///   `TypeFlags::HAS_VAR | HAS_BOUND_VAR` is set, substitute via `var_subst`
+///   and record when the result differs from the source. This covers
+///   `sig`/`expr_types` positions carrying generic `Tag::Var` leaves from
+///   pre-generalize inference AND post-§08.3b.1 normalization-rewritten
+///   `Tag::BoundVar` leaves.
+///
+/// Pass 2 — scheme-var `BoundVar` pre-intern:
+///   For every `(var_id, concrete_idx)` in `var_subst`, pre-intern
+///   `Tag::BoundVar(var_id)` and record `(bound_idx → concrete_idx)` in
+///   the sink. The end-of-body normalization pass
+///   ([`crate::infer::InferEngine::normalize_body_generalized_to_bound_var`])
+///   rewrites `Tag::Var(Generalized)` leaves to `Tag::BoundVar` per
+///   `types.md §SC-1` AFTER mono instances are recorded; without the
+///   pre-intern, post-normalization `sig`/`expr_types` referencing
+///   `Tag::BoundVar` would not be substituted at ARC lowering, leading to
+///   `Tag::BoundVar` reaching codegen's `TypeInfoStore` as a defensive ICE
+///   signal per `canon.md §7.1` AIMS Invariant 2.
+///
+/// Callers are responsible for any per-site post-processing (sort+dedup
+/// for `Vec` sinks to reach a Salsa-deterministic shape; Applied-type
+/// resolution registration; etc.).
+#[expect(
+    clippy::implicit_hasher,
+    reason = "var_subst is consistently FxHashMap<u32, Idx> across the whole ori_types \
+              crate (matches `substitute_in_pool`'s signature); generalizing would force \
+              BuildHasher plumbing through every caller for no measurable benefit."
+)]
+pub fn build_mono_body_type_map<Sink: BodyTypeMapSink>(
+    pool: &mut Pool,
+    var_subst: &FxHashMap<u32, Idx>,
+    sink: &mut Sink,
+) {
+    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+    let mask = TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR;
+    for raw in Idx::FIRST_DYNAMIC..pool_len {
+        let idx = Idx::from_raw(raw);
+        if pool.flags(idx).intersects(mask) {
+            let substituted = substitute_in_pool(pool, idx, var_subst);
+            if substituted != idx {
+                sink.record(idx, substituted);
+            }
+        }
+    }
+    for (&var_id, &concrete_idx) in var_subst {
+        let bound_idx = pool.bound_var(var_id);
+        if bound_idx != concrete_idx {
+            sink.record(bound_idx, concrete_idx);
+        }
     }
 }
 

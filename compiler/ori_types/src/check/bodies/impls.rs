@@ -209,6 +209,18 @@ fn check_impl_method(
                     &FxHashSet::default(),
                 );
 
+                // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves to
+                // `Tag::BoundVar` per `types.md §SC-1`. Impl methods have no
+                // top-level scheme_var_ids (generic params are RigidVars),
+                // so only pending_generalized_vars from inner let-polymorphism
+                // drives the rewrite here. See `check_function` for full rationale.
+                engine.normalize_body_generalized_to_bound_var(
+                    &mut expr_types,
+                    param_types_ref,
+                    return_type_ref,
+                    &[],
+                );
+
                 (
                     expr_types,
                     engine.take_errors(),
@@ -343,6 +355,17 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
                 param_types_ref,
                 return_type_ref,
                 &FxHashSet::default(),
+            );
+
+            // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves to
+            // `Tag::BoundVar` per `types.md §SC-1`. def-impl methods have
+            // no top-level scheme_var_ids; only inner let-polymorphism
+            // generalization contributes via pending_generalized_vars.
+            engine.normalize_body_generalized_to_bound_var(
+                &mut expr_types,
+                param_types_ref,
+                return_type_ref,
+                &[],
             );
 
             (

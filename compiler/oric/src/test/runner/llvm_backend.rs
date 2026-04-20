@@ -34,10 +34,6 @@ impl TestRunner {
         clippy::too_many_lines,
         reason = "JIT test pipeline — splitting would fragment the compile→run flow"
     )]
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "JIT pipeline has inherent control flow (sig collection, mono dispatch, error handling)"
-    )]
     pub(super) fn run_file_llvm(
         summary: &mut FileSummary,
         db: &crate::db::CompilerDb,
@@ -369,20 +365,17 @@ impl TestRunner {
                     merged_pool.ensure_var_capacity(max_id + 1);
                 }
 
+                // Build body_type_map via the canonical SSOT helper (typeck-
+                // side), FxHashMap sink variant for LLVM-side MonoFunction
+                // consumption. The helper handles the HAS_VAR|HAS_BOUND_VAR
+                // mask + scheme-var BoundVar pre-intern per §08.3b.1.
                 let mut body_type_map: FxHashMap<ori_types::Idx, ori_types::Idx> =
                     FxHashMap::default();
-                for merged_idx in cache_values {
-                    if merged_pool
-                        .flags(merged_idx)
-                        .contains(ori_types::TypeFlags::HAS_VAR)
-                    {
-                        let substituted =
-                            ori_types::substitute_in_pool(&mut merged_pool, merged_idx, &var_subst);
-                        if substituted != merged_idx {
-                            body_type_map.insert(merged_idx, substituted);
-                        }
-                    }
-                }
+                ori_types::build_mono_body_type_map(
+                    &mut merged_pool,
+                    &var_subst,
+                    &mut body_type_map,
+                );
 
                 imported_mono_fns.push((
                     ori_llvm::monomorphize::MonoFunction {
