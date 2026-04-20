@@ -1,7 +1,8 @@
 ---
 section: "06"
 title: "Diagnostics + Spec-Test Audit"
-status: not-started
+status: in-progress
+
 reviewed: false
 goal: >
   Resolve the 35-file × 386-diagnostic E2005 ledger captured by §03.N by adding
@@ -21,11 +22,15 @@ success_criteria:
   - "`diagnostics/state.sh refresh --full --by section-06` runs at the end of §06.4 and writes updated totals (`known_failing_count == 0`, `known_failing_files == []`, `failure_class == null`) to `.claude/state/known-state.json`; §03.N Known Failing Tests table is updated in the same commit to reference the cleared state."
 depends_on: ["01", "02", "03", "04", "05"]
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: 2026-04-20
+  notes: "3 rounds completed: R0+R1 produced 3 verified findings all fixed inline (commits 52aa673d, 7caff2b9); R2 clean — codex's R2 findings dropped at §4 verification as hallucinated out-of-scope §08 content, gemini R2 clean."
 review_pipeline:
-  stage: editor-done
-  next_step: 6
+  stage: tpr-done
+  next_step: 7
+  rounds_completed: 3
+  last_round_commit: 7caff2b9
+  last_round_findings: 0
   updated: 2026-04-20
 sections:
   - id: "06.1"
@@ -45,10 +50,12 @@ sections:
     status: not-started
   - id: "06.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: in-progress
+
   - id: "06.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
+
 ---
 
 ## Intelligence Reconnaissance
@@ -555,6 +562,25 @@ ledger.
 what §07 inherits (the `BUG-04-074|empty-container-typeck` regex sweep over
 tests/ and library/).
 
+### Round 6 — /review-plan Step 6 TPR convergence (dual-source codex + gemini, 2026-04-20) — CONVERGED
+
+3 rounds dispatched (R0+R1+R2); 3 verified findings total, all fixed inline.
+Gemini converged clean by R1. Codex raised 4 additional claims across R1+R2; 2
+verified (both fixed), 4 dropped at §4 verification as hallucinated/misapplied.
+
+- [x] `[TPR-06-R0-001-codex][high]` §06:N/A — "seven `- [ ]` items re: error codes". Fixed (dropped at verification): quoted evidence absent from §06 per grep — codex hallucinated different-plan content. No code change.
+- [x] `[TPR-06-R0-002-codex][medium]` §06:frontmatter — "no blocker annotation". Fixed (dropped at verification): §06 frontmatter has canonical `depends_on: [01..05]`; §07 has `depends_on: [...06...]`. Rule was misapplied — `<!-- blocked-by -->` is item-level. No code change.
+- [x] `[TPR-06-R0-003-gemini][high]` §06:99,259,311 — "Invalid lambda syntax `(d: Duration) -> d.minutes()` violates spec grammar.ebnf §550-553". Fixed in `52aa673d`: all 3 instances use spec-compliant typed_lambda `(d: Duration) -> int = d.minutes()`.
+- [x] `[TPR-06-R0-004-gemini][low]` §06:396 — "Stale state.sh:400-401 line ref". Fixed (dropped at verification): verified `diagnostics/state.sh:400` IS the manual-ledger note (2-line range correct). No code change.
+- [x] `[TPR-06-R1-001-codex][medium]` §06:123,360 — "Residual typed-lambda shorthand in diagnostic message + checklist prose". Fixed in `7caff2b9`: diagnostic now `(x: int) -> ReturnT = body`; checklist prose now `(x: T) -> R = body` with explicit spec-grammar note.
+- [x] `[TPR-06-R1-002-codex][medium]` §06:122 — "E2005 wording widened to Map violates overview Design Principle 4 (list-only scope)". Fixed in `7caff2b9`: ExprKind dispatch restricted to List/ListWithSpread; Map/Set sites fall back to generic.
+- [x] `[TPR-06-R1-INFO-gemini][informational]` §06:259 — Confirms Round 0 lambda fix valid per spec grammar. No action (advisory).
+- [x] `[TPR-06-R2-001-codex][high]` §08:N/A — "fabricated spec clause 8.4 lambda codegen". Fixed (dropped at verification): phrase doesn't exist in §08 (grep count 0); also out-of-scope for §06 review. No code change.
+- [x] `[TPR-06-R2-002-codex][medium]` §08:N/A — "missing dual-execution parity success criterion". Fixed (dropped at verification): §08 has 3 explicit dual-exec-verify success criteria at lines 405, 697, 797. No code change.
+- [x] `[TPR-06-R2-INFO-gemini][informational]` §06:259 — Re-confirms typed_lambda fix. No action (advisory).
+
+**Convergence verdict:** Clean exit after R2. Gemini `status: clean` both R1 and R2. Codex R2 returned `status: findings` but all claims dropped at §4 verification (fabricated content about out-of-scope §08). Functionally converged — zero remaining verified findings. `reviewed: true` to be flipped by /review-plan Step 7+8.
+
 ---
 
 ## 06.N Completion Checklist
@@ -567,7 +593,7 @@ tests/ and library/).
 - [ ] **06.4.2 complete** — all five directory spot checks green.
 - [ ] **06.4.3 complete** — `diagnostics/state.sh show --json` reports `known_failing_count: 0`, `known_failing_files: []`; §03.N Known Failing Tests table strike-through update landed.
 - [ ] **06.4.4 complete** — §04's codegen diagnostic returns zero hits on `tests/spec/`; §07 handoff checklist satisfied (no `BUG-04-074|empty-container-typeck` markers in spec/stdlib edits).
-- [ ] `/tpr-review` passed on this section (Round 5+ — the editor-mode edits need a fresh dual-source review).
+- [x] `/tpr-review` passed on this section — Round 6 converged clean after 3 dual-source rounds (commits `52aa673d`, `7caff2b9`); all 3 verified findings fixed inline; remaining codex claims dropped at §4 verification. Details in §06.R Round 6 block.
 - [ ] `/impl-hygiene-review` passed — no prose violations in this file; no mechanical annotations in `tests/spec/types/empty_literals/`.
 - [ ] `/improve-tooling` sweep — any regex or discovery-command limitations hit during §06.2 / §06.2B surfaced as tooling improvements (expected: `state.sh` probably wants an explicit `clear-known-failing --plan <name>` subcommand; file `/improve-tooling` at close-out).
 - [ ] **Plan sync** — this section's frontmatter `status` → `complete`; `00-overview.md` Quick Reference table entry updated to `Complete`; `index.md` section 06 status updated; `00-overview.md` Mission Success Criteria checkboxes for E2005/annotation/state.sh-cache-clear satisfied.
