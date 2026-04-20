@@ -3,7 +3,7 @@ section: "04"
 title: "Codegen Defense-in-Depth Assertions"
 status: in-progress
 
-reviewed: false
+reviewed: true
 goal: "Insert an `assert_no_unresolved_type_vars` call at the single upstream codegen seam (`ori_llvm::function_compiler::process_arc_function` + the lambda counterpart in `declare_and_process_lambda`) so that any `Tag::Var` surviving the typeck → ARC → codegen boundary is caught immediately with a typed error, a clear diagnostic, and integration with the existing `ORI_VERIFY_ARC` plumbing — NOT a collection of 4 fragile consumer-site hooks that bypass the seam. A small number of secondary pre-seam hooks (at the 4 monomorphization entry points) remain ONLY to localize the diagnostic to the pre-realization IR; the load-bearing gate is the seam hook."
 success_criteria:
   # Module / API
@@ -30,13 +30,9 @@ inspired_by:
   - "Lean 4 `Compiler/IR/RC.lean` — Lean places its structural RC/IR checks at a SINGLE pipeline stage rather than at per-consumer emission sites, matching the single-seam decision here."
 depends_on: ["03", "08"]
 third_party_review:
-  status: none
-  updated: null
-review_pipeline:
-  stage: tpr-round-0-paused
-  next_step: 6
-  updated: 2026-04-18
-  note: "Paused at /tpr-review Round 0 via the §9 context-pressure pause-and-resume option (exit_reason = user_pause_and_resume; NOT a convergence cap or transport failure). Round 0 executed both reviewers in parallel; all 3 actionable findings verified against source and filed as - [ ] items in §04.R.TPR (TPR-04-R0-001-codex+gemini medium, TPR-04-R0-002-codex critical, TPR-04-R0-003-codex high). Fresh session resumes via /continue-roadmap: Step 6 re-runs — a fresh /tpr-review should apply the 3 fixes inline (line 12 ORI_VERIFY_ARC wording, §04.1 validator scope expansion to cover params[*].ty + return_type + block-param types, §04.2 explicit lambda no-emit control path), then re-dispatch Round 1 to verify convergence. Prior session pause at the same point: commit 126212ca."
+  status: findings
+  updated: 2026-04-20
+  notes: "user_accepted_at_iter_cap_reached after 6 rounds (R0–R5); 17 verified findings all fixed inline across commits 7df958c3 → 3acde80f → 93b17075 → 635b6fc6 → 5f1beb20 → a9745c51; zero outstanding at accept time. max_rounds was extended once from 3→6 via run-more after Round 2; second cap fired after Round 5. Core design validated: §04.1 validator (walks var_types + params + return_type + blocks[*].params), §04.2 Hook 1 + Hook 2 explicit Result-based no-emit cascades (process_arc_function + declare_and_process_lambda; counter-based suppression via record_codegen_error banned per impl-hygiene.md §Invariant Explicitness), §04.3 diagnostic sites with per-function exempt sets via build_exempt_var_ids, §04.4 12-cell test matrix. Ready for implementation; drift against HEAD-at-implementation-time to be caught during coding."
 sections:
   # Split into 04.1 (module), 04.2 (primary seam — the load-bearing site), 04.3 (pre-mono diagnostics localization), 04.4 (tests), 04.R (TPR), 04.N (checklist).
   # Prior version had 25 checkbox items > 20 (audit SIZE_VIOLATION). Restructuring collapses the per-site subsections into one primary-seam section + one secondary-sites section.
@@ -971,7 +967,14 @@ Round 5 dispatched both reviewers against HEAD `5f1beb20`. Codex surfaced 2 find
 - `iteration_counter` after Round 5 fix-and-commit: `6`. `max_rounds`: `6`. Next `while` check: `6 < 6 == FALSE` → loop exits at `iter_cap_reached` (second cap hit).
 - `meta_only_streak`: `0` (Round 5 produced 2 actionable substantive findings — the cascade-spec gap and the debug-scope leak are both architectural concerns, neither meta).
 - `ever_verified_findings` across Rounds 0–5: 17 (R0: 3, R1: 5, R2: 3, R3: 3, R4: 1, R5: 2). `prior_verified_fixed`: 17. `remaining`: `[]`.
-- De-facto convergence at the second cap boundary. Each round since R1 has caught real follow-on errors from the previous round's fixes; the pattern continues to produce signal. User decides: accept-with-findings (flip reviewed:true, end review) | run-more (extend cap by 3 more rounds for third cycle) | escalate-to-plan | abort.
+- De-facto convergence at the second cap boundary. Each round since R1 has caught real follow-on errors from the previous round's fixes; the pattern continues to produce signal.
+
+### Final accept decision (2026-04-20)
+
+- User chose `accept-with-findings` at the second `iter_cap_reached` prompt (Round 5 exit).
+- `exit_reason`: `user_accepted_at_iter_cap_reached`.
+- Frontmatter updated: `reviewed: true`, `third_party_review.status: findings`, `third_party_review.updated: 2026-04-20`, `third_party_review.notes` records the 6-round trace + core-design validation. The `review_pipeline:` block is removed entirely per `/review-plan SKILL.md §Step 1d` ("Step 7+8 on clean exit removes the marker entirely").
+- Total review cost: 6 TPR rounds (3 dispatched under original `max_rounds=3`; 3 under extended `max_rounds=6`). 17 findings fixed inline across 6 fix-and-commit cycles. Core §04 design validated; §04 ready for implementation. Cumulative plan diff vs pre-review state: roughly +900 / -200 lines of spec prose (R0–R5 combined).
 
 ---
 
