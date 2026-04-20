@@ -228,6 +228,52 @@ cmd_known_failing() {
     fi
 }
 
+# ---- Skeleton seed -----------------------------------------------------------
+# Write a minimal schema-v1 state file with every content block marked
+# status: "unknown" and the given head_sha / updated_at / updated_by. Every
+# refresh mode layers its real values on top — the sha-only path leaves
+# test_suite / clippy / hygiene at "unknown" (honest: the cache really
+# doesn't know yet), hygiene-only overwrites the hygiene block, --full
+# overwrites test_suite + clippy. Consumers already fail-safe on
+# status != "clean", so the seeded file reads as "nothing trusted yet"
+# until a --full or explicit mode populates fields.
+seed_skeleton_state() {
+    local sha="$1" at="$2" by="$3"
+    mkdir -p "$STATE_DIR"
+    write_state "$(cat <<EOF
+{
+  "schema_version": 1,
+  "head_sha": "$sha",
+  "updated_at": "$at",
+  "updated_by": "$by",
+  "notes": "Seeded by state.sh first-run bootstrap. Run refresh --full to populate test_suite + clippy with real values.",
+  "test_suite": {
+    "status": "unknown",
+    "last_run_sha": "",
+    "last_run_at": "",
+    "last_run_kind": "",
+    "totals": { "passed": 0, "failed": 0, "skipped": 0 },
+    "known_failing_files": [],
+    "known_failing_count": 0,
+    "failure_class": "",
+    "remediation": []
+  },
+  "clippy": {
+    "status": "unknown",
+    "last_run_sha": "",
+    "last_run_at": ""
+  },
+  "hygiene": {
+    "status": "unknown",
+    "last_run_sha": "",
+    "last_run_at": "",
+    "notes": ""
+  }
+}
+EOF
+)"
+}
+
 # ---- Subcommand: refresh -----------------------------------------------------
 cmd_refresh() {
     require_jq
@@ -236,8 +282,15 @@ cmd_refresh() {
     updated_at=$(iso_now)
     updated_by_val="${UPDATED_BY:-manual}"
 
+    # First-run bootstrap: every mode seeds a skeleton with status:unknown so
+    # the normal per-mode jq update below finds a valid file. Invariant S1
+    # (design log §2) was amended 2026-04-20 to permit this on the grounds
+    # that fail-safe semantics come from per-block status fields, not from
+    # the file's existence. See script-state-design.md §6 entry.
+    local seeded=0
     if [[ ! -f "$STATE_FILE" ]]; then
-        die "refresh --sha-only requires an existing state file. For first-time setup, use refresh --full."
+        seed_skeleton_state "$current_sha" "$updated_at" "$updated_by_val (auto-seed)"
+        seeded=1
     fi
 
     case "$REFRESH_MODE" in
@@ -250,8 +303,17 @@ cmd_refresh() {
                     '.head_sha = $sha | .updated_at = $at | .updated_by = $by' \
                     "$STATE_FILE")
             write_state "$tmp"
-            [[ "$OUTPUT" == "json" ]] && printf '{"status":"refreshed","mode":"sha-only","head_sha":"%s"}\n' "$current_sha"
-            [[ "$OUTPUT" == "human" ]] && echo "state refreshed (sha-only): head_sha=$current_sha updated_by=$updated_by_val"
+            local seeded_bool=false
+            local seed_tag=""
+            if [[ $seeded -eq 1 ]]; then
+                seeded_bool=true
+                seed_tag=" (seeded; run refresh --full to populate test_suite + clippy)"
+            fi
+            if [[ "$OUTPUT" == "json" ]]; then
+                printf '{"status":"refreshed","mode":"sha-only","head_sha":"%s","seeded":%s}\n' "$current_sha" "$seeded_bool"
+            else
+                echo "state refreshed (sha-only): head_sha=$current_sha updated_by=$updated_by_val$seed_tag"
+            fi
             ;;
         hygiene-only)
             local hygiene_output hygiene_status
@@ -276,8 +338,11 @@ cmd_refresh() {
                      | .hygiene.notes = $notes' \
                     "$STATE_FILE")
             write_state "$tmp"
-            [[ "$OUTPUT" == "json" ]] && printf '{"status":"refreshed","mode":"hygiene-only","hygiene_status":"%s"}\n' "$hygiene_status"
-            [[ "$OUTPUT" == "human" ]] && echo "hygiene block refreshed: status=$hygiene_status"
+            if [[ "$OUTPUT" == "json" ]]; then
+                printf '{"status":"refreshed","mode":"hygiene-only","hygiene_status":"%s"}\n' "$hygiene_status"
+            else
+                echo "hygiene block refreshed: status=$hygiene_status"
+            fi
             ;;
         full)
             echo "Running ./test-all.sh + ./clippy-all.sh (this takes ~3 minutes)..." >&2
@@ -327,8 +392,11 @@ cmd_refresh() {
                      | .clippy.last_run_at = $at' \
                     "$STATE_FILE")
             write_state "$tmp"
-            [[ "$OUTPUT" == "json" ]] && printf '{"status":"refreshed","mode":"full","test_status":"%s","clippy_status":"%s","passed":%s,"failed":%s}\n' "$test_status" "$clippy_status" "$passed" "$failed"
-            [[ "$OUTPUT" == "human" ]] && echo "full refresh complete: tests=$test_status clippy=$clippy_status totals=$passed/$failed/$skipped"
+            if [[ "$OUTPUT" == "json" ]]; then
+                printf '{"status":"refreshed","mode":"full","test_status":"%s","clippy_status":"%s","passed":%s,"failed":%s}\n' "$test_status" "$clippy_status" "$passed" "$failed"
+            else
+                echo "full refresh complete: tests=$test_status clippy=$clippy_status totals=$passed/$failed/$skipped"
+            fi
             echo "Note: known_failing_files list is NOT auto-populated from test-all.sh — it reflects plan intent." >&2
             echo "      If the failing set changed, update plan Known Failing Tests + edit state file accordingly." >&2
             ;;
