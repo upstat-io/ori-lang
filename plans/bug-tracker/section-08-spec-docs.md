@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Spec & Docs"
-status: complete
+status: in-progress
 goal: "Track and resolve all known spec/documentation bugs"
 sections: []
 ---
@@ -15,6 +15,13 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
 ---
 
 ## Open Bugs
+
+- [ ] `[BUG-08-015][low]` **Spec/parser drift: `grammar.ebnf:311` `inherent_impl` uses `type_path` (no `type_args`) but shipped parser accepts `impl<T> Box<T>`**
+  Repro: `docs/ori_lang/v2026/spec/grammar.ebnf:311` writes `inherent_impl = "impl" [ generics ] type_path ...` where `type_path` is dotted identifiers only (no `type_args` per line 341). Shipped parser accepts a more permissive form — e.g., `tests/spec/traits/generic_impl.ori:26` uses `impl<T> Box<T> {` and passes both parse and typeck. Either the grammar must gain `type_args` in the `inherent_impl` production (to match the parser) OR the parser must tighten to match the grammar.
+  Subsystem: `docs/ori_lang/v2026/spec/grammar.ebnf` (resolve via proposal governance per `/create-draft-proposal` → `/review-draft-proposal`); fix may also touch `compiler/ori_parse/` if the parser is tightened to match the stricter grammar.
+  Note: Pre-existing drift documented during §04.2.B planning (TPR-04.2.B Round 2 F1); outside §04.2.B scope (which was codegen defense). Spec/grammar changes require the proposal workflow per CLAUDE.md §Spec & Grammar Changes Require Proposal Workflow — this bug is a tracking anchor for the proposal, not a direct-commit fix.
+  Related: `BUG-01-002` (parser lacks method-level generics); this bug is the separate, pre-existing impl-header drift called out in that bug's body.
+  Found: 2026-04-21 | Source: manual (close-out of `plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md §04.2.B`)
 
 - [ ] `[BUG-08-014][low]` **impl-hygiene.md: missing `#[cfg(any())]` TDD-scaffolding idiom for cross-subsection positive pins**
   Repro: Add a function calling `todo!()` anywhere in `compiler/*.rs`, attempt to commit — lefthook rejects on `clippy::todo` (project-wide denied per §Lint Discipline). No `#[expect(clippy::todo)]` precedent exists. The `#[cfg(any())]` idiom (compiles out all covered code, no denied-lint exposure, self-retires when the gated subsection lands) is the correct scaffolding gate per §Conditional Compilation, but is not named as such in the rules file. Concrete incident: §08.2 close-out of `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` — positive pins for `re_intern_type_with_var_remap` (§08.3-pending API) required gating until implementation lands.
