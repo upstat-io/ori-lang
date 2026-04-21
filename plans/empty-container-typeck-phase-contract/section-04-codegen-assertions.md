@@ -824,8 +824,9 @@ The bug is an **asymmetry between the two monomorphization paths** in `ori_types
 
 **Fix sites (ranked):**
 
-1. **Primary**: `compiler/ori_types/src/check/exports.rs` — add root-extension call between line 205 (end of `resolved_var_subst` build) and line 231 (call to `build_mono_instance`). This is the symmetry-restoring fix.
-2. **Refactor** (optional, reviewer-preferred per Phase 1.75): extract `extend_var_subst_with_roots` from `monomorphization.rs:279-302` into a shared helper in `ori_types::pool::substitute` (or on `Pool` as an inherent method) so both the non-deferred and deferred paths call the same SSOT implementation. The current duplication risk is 2 copies; per `impl-hygiene.md §Algorithmic DRY` the threshold is "extract at 2 instances".
+1. **Primary (typeck-side deferred path)**: `compiler/ori_types/src/check/exports.rs` — add root-extension call between line 205 (end of `resolved_var_subst` build) and line 231 (call to `build_mono_instance`). This is the symmetry-restoring fix on the side that today misses root extension entirely.
+2. **Primary (test-runner JIT imported-mono path)**: `compiler/oric/src/test/runner/imported_mono.rs:109-110` — a THIRD call site carrying the same defect, surfaced by TPR Round 0 2026-04-21. The runner builds `var_subst` from `generic_sig.scheme_var_ids` at lines 83-88, then calls `build_mono_body_type_map` directly at line 110 with NO root extension. Same asymmetry class as `exports.rs`. Without this fix, imported generic JIT compilation silently miscompiles or fires the §04.2 PC-2 seam assertion on any imported generic where the callee's scheme var is not the union-find representative. Fix: insert `extend_var_subst_with_roots(merged_pool, &generic_sig.scheme_var_ids, &mut var_subst)` between lines 104 and 110.
+3. **Refactor**: extract `extend_var_subst_with_roots` from `monomorphization.rs:279-302` into a shared helper in `ori_types::pool::substitute` (or on `Pool` as an inherent method) so ALL THREE call sites — eager typeck, deferred typeck, JIT imported-mono — call the same SSOT implementation. Per `impl-hygiene.md §Algorithmic DRY`, the 2-instance threshold is already crossed; with 3 instances the extraction is non-negotiable.
 
 **Alternative (rejected):** modify `substitute_var:90-105` in `pool/substitute/mod.rs` to `resolve_fully` at entry. Wider-reaching, affects ALL substitution call sites (not just mono), could unintentionally alter behavior for other consumers (e.g., `default_unbound_vars_in_scope` uses `substitute_in_pool`).
 
@@ -839,6 +840,7 @@ The bug is an **asymmetry between the two monomorphization paths** in `ori_types
 - [ ] `cargo test --test aot generics::test_generic_chain_three_levels` passes (both variants).
 - [ ] `timeout 150 ./test-all.sh` returns green (or same-baseline: same known-failing set, no new failures vs state.sh at close-of-fix HEAD).
 - [ ] Matrix test added at the fix's owning plan section (§03 or §08 or wherever the root cause lives) exercising `Applied<Applied<Applied<T>>>` / 3-level-chain shape; positive + negative pin per CLAUDE.md §Matrix Testing Rule.
+- [ ] Imported-mono JIT path covered: `oric::test::runner::imported_mono::tests` has a 3-hop imported-generic test exercising a callee whose scheme var is not the union-find representative, confirming File 4 of the fix (per TPR-04.2.B-F1-codex).
 - [ ] §04.2 status flipped to `complete` after §04.2.B success criteria all `[x]` AND §04.TPR-A clean.
 - [ ] This subsection's backlink to owning plan section recorded (either §03 close notes or §08.3 close notes, per which subsystem owns the root cause).
 
@@ -908,6 +910,12 @@ All tests written BEFORE Phase 4 implementation, verified failing against curren
 - [ ] `test_generic_chain_forwarded_in_deep_field` — `@f<T> (x: int) -> Option<(int, T)> = g()`; T appears in a nested field position.
 - [ ] `test_generic_multiple_deferred_callees` — `@f<T> (x: T) -> T = { let a = g(x: x); h(x: a) }`; two deferred callees in one body.
 - [ ] `test_generic_recursive_chain` — `@f<T> (x: T, n: int) -> T = if n == 0 then x else f(x: x, n: n - 1)`; self-recursive generic.
+- [ ] `test_generic_chain_five_levels` — 5-hop int chain (`@main → @a<T> → @b<T> → @c<T> → @d<T> → @id<T>`); confirms the fix holds beyond 3-hop, guarding against off-by-one in the root-extension recursion.
+- [ ] `test_generic_mutual_recursion_scc` — two mutually-recursive generics `@f<T> (x: T) -> T = g(x: x)` / `@g<T> (x: T) -> T = f(x: x)`; exercises SCC-sensitive deferred-mono resolution where the same call site can produce multiple deferred entries for members of the same SCC.
+- [ ] `test_generic_trait_dispatch_through_forwarder` — `@forward<T: Printable> (x: T) -> str = x.to_str()` called from a 3-hop chain; ensures trait-method dispatch resolution does not introduce a fresh instantiation var that bypasses the root-extension.
+- [ ] `test_generic_iterator_item_only_positional` — `@fwd<T> () -> impl Iterator where Item == T`; `T` appears ONLY via the existential's associated type, not as a direct parameter/return. Exercises projection-normalization interaction with root-extension.
+- [ ] `test_generic_closure_capture_forwarded` — generic forwarder captures a `T` in a lambda: `@fwd<T> (x: T) -> () -> T = (() -> x)`. Exercises capture-analysis interaction where the closure's captured `T` is routed through the forwarder's deferred-mono path.
+- [ ] `test_generic_method_on_generic_type` — `impl<T> Box<T>: { @map<U> (self, f: T -> U) -> Box<U> = ... }`; generic method on a generic type exercises two-level rigid-var scoping through the deferred-mono resolution.
 
 #### Semantic pins (CLAUDE.md §Matrix Clamping)
 
@@ -960,27 +968,46 @@ pub fn extend_var_subst_with_roots(
         }
     }
     for (vid, concrete) in extensions {
-        var_subst.insert(vid, concrete);
+        // Preserve-existing semantics: the caller-supplied var_subst
+        // already encodes the authoritative `scheme_var_id → concrete`
+        // mappings; the helper only ADDS root-var entries for roots
+        // that are not already keys. This matches the idempotent
+        // `build_exempt_var_ids` pattern at `validators/mod.rs:161-173`
+        // and keeps the contract "root extension is additive, never
+        // clobbering." The TDD matrix's
+        // `extend_var_subst_with_roots_via_pool_preserves_existing_entries`
+        // test pins this semantics.
+        var_subst.entry(vid).or_insert(concrete);
     }
 }
 ```
 
 #### File 2: `compiler/ori_types/src/infer/expr/calls/monomorphization.rs` (refactor)
 
-Replace `extend_var_subst_with_roots` at lines 279-302 with a thin delegator:
+Replace `extend_var_subst_with_roots` at lines 279-302 with a thin delegator that threads the caller's declared `scheme_var_ids` through explicitly — do NOT recover the list by `collect`ing `var_subst.keys()`, which conflates "declared scheme vars" with "whatever happens to be in the map at call time" (LEAK:inline-policy per `impl-hygiene.md §Single Source of Truth`):
 
 ```rust
-fn extend_var_subst_with_roots(engine: &mut InferEngine<'_>, var_subst: &mut FxHashMap<u32, Idx>) {
+fn extend_var_subst_with_roots(
+    engine: &mut InferEngine<'_>,
+    scheme_var_ids: &[u32],
+    var_subst: &mut FxHashMap<u32, Idx>,
+) {
     // Delegate to the pool-scoped SSOT helper. `engine.pool()` is the frozen
     // pool at this point in the inference pipeline; the helper is read-only.
-    let scheme_var_ids: Vec<u32> = var_subst.keys().copied().collect();
+    // `scheme_var_ids` is the caller's declared list (from `sig.scheme_var_ids`
+    // at the eager site; from `deferred.callee_scheme_var_ids` at the deferred
+    // site; from `generic_sig.scheme_var_ids` at the imported-mono site) —
+    // the helper's semantics are "extend for THESE scheme vars", never
+    // "extend for whatever happens to be in var_subst."
     crate::pool::substitute::extend_var_subst_with_roots(
         engine.pool(),
-        &scheme_var_ids,
+        scheme_var_ids,
         var_subst,
     );
 }
 ```
+
+The caller at `monomorphization.rs:69-71` (eager path) updates to pass `&sig.scheme_var_ids` through explicitly: `extend_var_subst_with_roots(engine, &sig.scheme_var_ids, &mut var_subst);`. The field name at the eager site — `sig` — is already in scope at line 69 (it is the `FunctionSig` looked up for the callee); no additional plumbing.
 
 #### File 3: `compiler/ori_types/src/check/exports.rs` (add call at deferred-resolve site)
 
@@ -1000,21 +1027,50 @@ crate::pool::substitute::extend_var_subst_with_roots(
 );
 ```
 
+#### File 4: `compiler/oric/src/test/runner/imported_mono.rs` (add root-extension call)
+
+The test-runner's JIT imported-mono reconstruction at lines 83-110 builds `var_subst` from `generic_sig.scheme_var_ids` and calls `build_mono_body_type_map` directly — a third call site carrying the same asymmetry class as the `exports.rs` deferred path. Insert the shared-helper call immediately before line 110 (just BEFORE the `build_mono_body_type_map` invocation and AFTER the `max_imported_var_id`/`ensure_var_capacity` block that prepares the merged pool's var_states):
+
+```rust
+// Extend var_subst with union-find root var_ids so build_mono_body_type_map
+// can substitute raw Tag::Var leaves whose var_id is the root rather than
+// the declared scheme var (see §04.2.B root cause analysis + the shared
+// helper in `ori_types::pool::substitute::extend_var_subst_with_roots`).
+// Without this extension, imported generic JIT compilation with a callee
+// scheme var that is NOT the union-find representative would silently
+// miscompile (pre-§04.2) or fire the §04.2 PC-2 seam assertion (post-§04.2)
+// at codegen time.
+ori_types::extend_var_subst_with_roots(
+    merged_pool,
+    &generic_sig.scheme_var_ids,
+    &mut var_subst,
+);
+
+// Build body_type_map via the canonical SSOT helper ...
+```
+
+The helper must be re-exported from the `ori_types` crate root (add a `pub use pool::substitute::extend_var_subst_with_roots;` in `compiler/ori_types/src/lib.rs` alongside the existing `build_mono_body_type_map` re-export) so `oric` can call it without taking a new deep-path dependency.
+
 #### Test-file additions
 
-New `.ori` spec tests + Rust AOT tests per the TDD matrix above; new unit tests in `pool/substitute/tests.rs` + `check/integration_tests.rs`.
+New `.ori` spec tests + Rust AOT tests per the TDD matrix above; new unit tests in `pool/substitute/tests.rs` + `check/integration_tests.rs`. Additionally, add a JIT-path regression test in `compiler/oric/src/test/runner/imported_mono/tests.rs` (or the sibling tests module) that constructs a 3-hop import chain where the imported callee's scheme var is not the union-find representative; confirm the fix fires at the runner path as well as the two typeck paths.
 
 ### 2.5 Fix Plan TPR Findings
 
-**Status**: paused-for-resume — `/tpr-review` dispatched for adversarial plan review at §04.2.B. Gate: MANDATORY per /fix-bug Phase 2.5 (severity `high` + complexity-elevated subsystem `ori_types` mono + `ori_arc` ARC lowering + `ori_llvm` codegen interaction). **Resume point for fresh /continue-roadmap session: re-enter /tpr-review Round 0 against this subsection.** No phases beyond 2.5 have run; §3 implementation is drafted in the subsection body but has NOT been written to disk (Phase 4 not started, Phase 5 not started).
+**Status**: complete — `/tpr-review` round 0 dispatched 2026-04-21 (fresh `/continue-roadmap` session, scratch `/tmp/tpr-round-ori_lang-MRXpo5io`, pre-dispatch HEAD `91ff743d`). Codex returned `status: findings` with 4 verified findings via Tier-1 extraction (reading 30 rule files + 28 source files). Gemini returned `sub_agent_contract_violation` (I22 banned phrase "The monitor is running. I'll wait for the completion notification without polling."); underlying CLI exhausted wrapper retries on `API Error: No capacity available for model gemini-3.1-pro-preview` (BUG-08-012 remains active). Survivor-mode with codex HIGH-trust per /tpr-review §4 + §9, consistent with Phase 1.5 precedent.
 
-**Round 0 (2026-04-21, scratch `/tmp/tpr-round-ori_lang-viGHygH6`)**: both reviewer sub-agents returned sub_agent_contract_violation per /tpr-review §9 (banned I22 partial-status phrase before Bash termination). Underlying CLIs: codex was making substantive investigative progress on a 2-hop-passes analysis gap (visible in monitor event stream before violation); gemini hit `API Error: No capacity available for model gemini-3.1-pro-preview` (BUG-08-012 confirmed). Orchestrator forbidden from inspecting scratch artifacts per I23 invariant.
+**Round 0 findings (all 4 verified against code + all 4 applied inline in this plan body):**
 
-**Resolution**: user-selected pause-and-resume (exit_reason `user_pause_and_resume`). Context was deep (nested /continue-roadmap → /fix-bug → /tpr-review) which may have contributed to the I22 regression. Fresh session with cleared context is the structurally preferred recovery path — BUG-08-012 gemini-capacity windows also tend to clear off-peak. Prior session's work preserved in commits `9d854cf9` (TPR-seam + fix-consensus + TDD-matrix + implementation plan) and `5b259639` (Phase 1 findings).
+1. `[TPR-04.2.B-F1-codex][high]` — `compiler/oric/src/test/runner/imported_mono.rs:109` is a THIRD call site with the same asymmetry: builds `var_subst` from `generic_sig.scheme_var_ids` at lines 83-88, then calls `build_mono_body_type_map` directly at line 110 with no root extension. Verified by reading the file. Applied: §1 "Fix sites" expanded to 3 primary sites; §3 added File 4; success criteria got imported-mono checkbox.
+2. `[TPR-04.2.B-F2-codex][high]` — TDD matrix missed 5-hop+, SCC, trait-dispatch, Iterator::Item-only, closure-capture, method-on-generic-type cells. Applied: 6 new AOT cells appended to §2.
+3. `[TPR-04.2.B-F3-codex][medium]` — Plan's drafted thin delegator in §3 recovered scheme_var_ids from `var_subst.keys().collect()` (LEAK:inline-policy: scheme-var list ≠ map contents). Applied: signature rewritten to take `scheme_var_ids: &[u32]` explicitly; callers thread the real list (`sig.scheme_var_ids` at eager site, `deferred.callee_scheme_var_ids` at deferred site, `generic_sig.scheme_var_ids` at JIT site).
+4. `[TPR-04.2.B-F4-codex][medium]` — Helper body used `.insert()` (overwrite) but Phase 2 test case `extend_var_subst_with_roots_via_pool_preserves_existing_entries` demanded preserve-existing. Applied: impl changed to `.entry().or_insert()` with rationale comment citing the `build_exempt_var_ids` idempotent-set precedent.
+
+**Round 0 exit state**: `exit_reason: clean_after_fix` — all 4 findings verified and resolved inline; zero residual open findings; ready for Phase 4 implementation. Gemini re-dispatch not attempted; BUG-08-012 is documented and survivor-mode is the plan-precedent disposition. If Phase 5 code-TPR re-surfaces Round-0-style findings, those will be addressed in Phase 5 against real code (not drafted code).
 
 ### R. TPR Findings
 
-**Status**: pending — populated during Phase 5 code-TPR after implementation lands.
+**Status**: pending — populated during Phase 5 code-TPR after implementation lands. Phase 2.5's round 0 findings are resolved inline above (in the §1 / §2 / §3 subsection bodies) and do NOT pre-populate this block, per /tpr-review §7 ("Fix NOW" disposition).
 
 ### N. Completion Checklist
 
