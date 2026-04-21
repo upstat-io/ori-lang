@@ -1,0 +1,12 @@
+// 3-hop chain with Result<T, E> as the generic type argument.
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+@double_wrap <T> (x: T) -> T = wrap(x: x);
+
+@main () -> int = {
+    let r: Result<int, str> = double_wrap(x: Ok(42));
+    match r {
+        Ok(n) -> if n == 42 then 0 else 1,
+        Err(_) -> 2,
+    }
+}

@@ -1,0 +1,11 @@
+// T: Printable bound, called from a 3-hop chain. Ensures trait-method
+// dispatch resolution does not introduce a fresh instantiation var
+// that bypasses root-extension at the deferred mono site.
+@show <T: Printable> (x: T) -> str = x.to_str();
+@forward <T: Printable> (x: T) -> str = show(x: x);
+@double_forward <T: Printable> (x: T) -> str = forward(x: x);
+
+@main () -> int = {
+    let s = double_forward(x: 42);
+    if s == "42" then 0 else 1
+}

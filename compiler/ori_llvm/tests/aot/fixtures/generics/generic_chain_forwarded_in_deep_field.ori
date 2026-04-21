@@ -1,0 +1,14 @@
+// 3-hop chain where T appears in a nested field position
+// (`Option<(int, T)>`), forcing root-extension to traverse through
+// container types to locate the deferred scheme var.
+@make_wrapped <T> (x: T, tag: int) -> Option<(int, T)> = Some((tag, x));
+@forward_wrap <T> (x: T, tag: int) -> Option<(int, T)> = make_wrapped(x: x, tag: tag);
+@double_forward <T> (x: T, tag: int) -> Option<(int, T)> = forward_wrap(x: x, tag: tag);
+
+@main () -> int = {
+    let o = double_forward(x: 42, tag: 7);
+    match o {
+        Some(pair) -> if pair.0 == 7 && pair.1 == 42 then 0 else 1,
+        None -> 2,
+    }
+}
