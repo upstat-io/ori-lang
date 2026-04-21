@@ -915,7 +915,7 @@ All tests written BEFORE Phase 4 implementation, verified failing against curren
 - [ ] `test_generic_trait_dispatch_through_forwarder` — `@forward<T: Printable> (x: T) -> str = x.to_str()` called from a 3-hop chain; ensures trait-method dispatch resolution does not introduce a fresh instantiation var that bypasses the root-extension.
 - [ ] `test_generic_iterator_item_only_positional` — `@fwd<T> () -> impl Iterator where Item == T`; `T` appears ONLY via the existential's associated type, not as a direct parameter/return. Exercises projection-normalization interaction with root-extension.
 - [ ] `test_generic_closure_capture_forwarded` — generic forwarder captures a `T` in a lambda: `@fwd<T> (x: T) -> () -> T = (() -> x)`. Exercises capture-analysis interaction where the closure's captured `T` is routed through the forwarder's deferred-mono path.
-- [ ] `test_generic_method_on_generic_type` — `impl<T> Box<T>: { @map<U> (self, f: T -> U) -> Box<U> = ... }`; generic method on a generic type exercises two-level rigid-var scoping through the deferred-mono resolution.
+- [ ] `test_generic_method_on_generic_type` — `impl<T> Box<T> { @map<U> (self, f: T -> U) -> Box<U> = ... }`; inherent-impl form (no colon — `impl Type { ... }` per `ori-syntax.md §Impls`; the colon is reserved for trait-impl form `impl Type: Trait`). Generic method on a generic type exercises two-level rigid-var scoping through the deferred-mono resolution.
 
 #### Semantic pins (CLAUDE.md §Matrix Clamping)
 
@@ -1007,7 +1007,7 @@ fn extend_var_subst_with_roots(
 }
 ```
 
-The caller at `monomorphization.rs:69-71` (eager path) updates to pass `&sig.scheme_var_ids` through explicitly: `extend_var_subst_with_roots(engine, &sig.scheme_var_ids, &mut var_subst);`. The field name at the eager site — `sig` — is already in scope at line 69 (it is the `FunctionSig` looked up for the callee); no additional plumbing.
+The caller at `monomorphization.rs:71` (eager path) updates to pass the already-cloned `&scheme_var_ids` local variable: `extend_var_subst_with_roots(engine, &scheme_var_ids, &mut var_subst);`. **Why `scheme_var_ids` and not `sig.scheme_var_ids`:** the callee `FunctionSig` binding named `sig` at line 28 is lifted out and scoped to the inline block `{ ... }` at lines 27-40, which clones `sig.scheme_var_ids` into the local `scheme_var_ids: Vec<u32>` (line 35) before the block ends (line 40 closes the destructuring block, at which point `sig` is dropped). By line 71 only the local clone is in scope — using `&sig.scheme_var_ids` there would fail to compile (borrow-checker: `sig` is out of scope). This passes the same authoritative list without requiring a re-lookup of the signature.
 
 #### File 3: `compiler/ori_types/src/check/exports.rs` (add call at deferred-resolve site)
 
@@ -1057,7 +1057,7 @@ New `.ori` spec tests + Rust AOT tests per the TDD matrix above; new unit tests 
 
 ### 2.5 Fix Plan TPR Findings
 
-**Status**: complete — `/tpr-review` round 0 dispatched 2026-04-21 (fresh `/continue-roadmap` session, scratch `/tmp/tpr-round-ori_lang-MRXpo5io`, pre-dispatch HEAD `91ff743d`). Codex returned `status: findings` with 4 verified findings via Tier-1 extraction (reading 30 rule files + 28 source files). Gemini returned `sub_agent_contract_violation` (I22 banned phrase "The monitor is running. I'll wait for the completion notification without polling."); underlying CLI exhausted wrapper retries on `API Error: No capacity available for model gemini-3.1-pro-preview` (BUG-08-012 remains active). Survivor-mode with codex HIGH-trust per /tpr-review §4 + §9, consistent with Phase 1.5 precedent.
+**Status**: in-progress — multiple TPR rounds dispatched 2026-04-21 (fresh `/continue-roadmap` session). Round 0 at scratch `/tmp/tpr-round-ori_lang-MRXpo5io`, pre-dispatch HEAD `91ff743d`: codex `status: findings` (Tier-1 extraction, 30 rule files + 28 source files); gemini `sub_agent_contract_violation` (I22 banned phrase) + underlying BUG-08-012 capacity-429 exhausted. Round 1 at scratch `/tmp/tpr-round-ori_lang-rN32GzwC`, pre-dispatch HEAD `7d75b47e`: both reviewers returned Tier-1 clean extractions (BUG-08-012 resolved); codex 3 findings, gemini 5 findings (2 agreements, 1 codex-unique, 2 gemini-unique; one gemini-unique dropped at verification for wrong line numbers). Survivor-mode was used in round 0 per /tpr-review §4 + §9 and Phase 1.5 precedent; round 1 had both reviewers active.
 
 **Round 0 findings (all 4 verified against code + all 4 applied inline in this plan body):**
 
@@ -1066,11 +1066,21 @@ New `.ori` spec tests + Rust AOT tests per the TDD matrix above; new unit tests 
 3. `[TPR-04.2.B-F3-codex][medium]` — Plan's drafted thin delegator in §3 recovered scheme_var_ids from `var_subst.keys().collect()` (LEAK:inline-policy: scheme-var list ≠ map contents). Applied: signature rewritten to take `scheme_var_ids: &[u32]` explicitly; callers thread the real list (`sig.scheme_var_ids` at eager site, `deferred.callee_scheme_var_ids` at deferred site, `generic_sig.scheme_var_ids` at JIT site).
 4. `[TPR-04.2.B-F4-codex][medium]` — Helper body used `.insert()` (overwrite) but Phase 2 test case `extend_var_subst_with_roots_via_pool_preserves_existing_entries` demanded preserve-existing. Applied: impl changed to `.entry().or_insert()` with rationale comment citing the `build_exempt_var_ids` idempotent-set precedent.
 
-**Round 0 exit state**: `exit_reason: clean_after_fix` — all 4 findings verified and resolved inline; zero residual open findings; ready for Phase 4 implementation. Gemini re-dispatch not attempted; BUG-08-012 is documented and survivor-mode is the plan-precedent disposition. If Phase 5 code-TPR re-surfaces Round-0-style findings, those will be addressed in Phase 5 against real code (not drafted code).
+**Round 0 disposition**: 4 findings with `Fix NOW` disposition per /tpr-review §7 — all verified against code and applied inline to this plan body; loop continued to round 1 for convergence verification. Not a canonical terminal `exit_reason` (the loop did not terminate at round 0).
+
+**Round 1 findings (dispatched 2026-04-21, scratch `/tmp/tpr-round-ori_lang-rN32GzwC`, pre-dispatch HEAD `7d75b47e`; both reviewers Tier-1 clean):**
+
+1. `[TPR-04.2.B-R1-F1-dual][high]` (codex + gemini agreement, gemini-high / codex-medium; high wins) — Eager-path caller rewrite drafted `extend_var_subst_with_roots(engine, &sig.scheme_var_ids, &mut var_subst)` but `sig` is bound in the block scope at `monomorphization.rs:27-40` and dropped at line 40; at the call site line 71 only the local `scheme_var_ids: Vec<u32>` clone (assigned at line 35) is in scope. Verified by reading lines 17-80. Applied: §3 File 2 caller rewrite updated to `&scheme_var_ids`, rationale clarified.
+2. `[TPR-04.2.B-R1-F2-dual][medium]` (codex + gemini agreement) — `test_generic_method_on_generic_type` snippet used invalid Ori impl syntax `impl<T> Box<T>: { ... }` (colon is for trait-impl form per `ori-syntax.md §Impls`; inherent impl is `impl Type { ... }` without colon). Applied: §2 matrix cell updated to `impl<T> Box<T> { @map<U> ... }` with rationale pointing at the ori-syntax rule.
+3. `[TPR-04.2.B-R1-F3-dual][low]` (codex + gemini agreement) — Round 0 disposition used non-canonical `exit_reason: clean_after_fix`. Applied: replaced with "Round 0 disposition" prose + `Fix NOW` reference to /tpr-review §7.
+4. `[TPR-04.2.B-R1-F4-gemini][informational]` (gemini only; verified) — §2.5 body "Status: complete" contradicted §N Completion Checklist "§2.5 Fix Plan TPR clean (Phase 2.5 — pending)". Applied: §2.5 status flipped to `in-progress` to match the iteration state; §N checkbox stays unchecked until round convergence.
+5. `[TPR-04.2.B-R1-F5-gemini][informational]` (gemini only; **DROPPED at §4 verification** — gemini claimed `exports.rs` line 203 / 223 but the actual file has 205 / 231 matching the plan's citations. Reading `exports.rs` lines 180-237 confirms the plan's cited line numbers. Gemini misread. Per /tpr-review §4 LOWER-trust verification: "Drop any finding that fails verification.")
+
+**Round 1 exit**: findings applied; loop iterates to round 2 for convergence verification.
 
 ### R. TPR Findings
 
-**Status**: pending — populated during Phase 5 code-TPR after implementation lands. Phase 2.5's round 0 findings are resolved inline above (in the §1 / §2 / §3 subsection bodies) and do NOT pre-populate this block, per /tpr-review §7 ("Fix NOW" disposition).
+**Status**: pending — populated during Phase 5 code-TPR after implementation lands. Phase 2.5's rounds 0+1 findings are resolved inline above (in the §1 / §2 / §3 / §2.5 subsection bodies) and do NOT pre-populate this block, per /tpr-review §7 ("Fix NOW" disposition).
 
 ### N. Completion Checklist
 
