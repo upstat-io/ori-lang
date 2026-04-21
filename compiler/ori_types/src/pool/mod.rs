@@ -30,7 +30,8 @@ pub use re_intern::{
     re_intern_sig, re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
 };
 pub use substitute::{
-    build_mono_body_type_map, extract_var_from_types, substitute_in_pool, BodyTypeMapSink,
+    build_mono_body_type_map, extend_var_subst_with_roots, extract_var_from_types,
+    substitute_in_pool, BodyTypeMapSink,
 };
 
 use rustc_hash::FxHashMap;

@@ -68,7 +68,18 @@ pub(super) fn maybe_record_mono_instance(
 
     // Extend var_subst with root var_ids of equivalence classes so
     // substitute_in_pool can handle root vars from inner instantiations.
-    extend_var_subst_with_roots(engine, &mut var_subst);
+    // Threads the declared scheme_var_ids (the cloned Vec from the
+    // sig-lookup block above) explicitly, rather than recovering the
+    // list from var_subst's keys — the helper's contract is "extend
+    // for THESE declared scheme vars" (SSOT per impl-hygiene.md
+    // §Algorithmic DRY; shared with the deferred-resolve site in
+    // check::exports::resolve_deferred_mono_calls and the JIT imported-mono
+    // site in oric::test::runner::imported_mono).
+    crate::pool::substitute::extend_var_subst_with_roots(
+        engine.pool(),
+        &scheme_var_ids,
+        &mut var_subst,
+    );
 
     // Collect struct type params before taking pool_mut(), so
     // register_concrete_applied_resolutions can build Named->Idx
@@ -266,38 +277,6 @@ fn record_deferred_mono_call(
             "recorded deferred mono call (generic calling generic)"
         );
         engine.record_deferred_mono_call(deferred);
-    }
-}
-
-/// Extend `var_subst` with root `var_ids` of each scheme var's equivalence class.
-///
-/// When a generic function's body calls another generic, unification creates a
-/// union-find chain: `scheme_var` -> `fresh_body_var` -> `instantiation_root`.
-/// `substitute_in_pool` follows links child->parent but can't substitute root
-/// vars whose `var_id` isn't in `var_subst`. Adding root `var_ids` ensures all
-/// vars in the equivalence class are substitutable.
-fn extend_var_subst_with_roots(engine: &mut InferEngine<'_>, var_subst: &mut FxHashMap<u32, Idx>) {
-    let mut root_extensions: Vec<(u32, crate::Idx)> = Vec::new();
-    for (&sv_id, &concrete) in var_subst.iter() {
-        // Borrow dance: find the scheme var Idx in a scoped borrow,
-        // then resolve with &mut engine after the borrow drops.
-        let sv_idx = {
-            let pool = engine.pool();
-            pool.var_idx_for_id(sv_id)
-        };
-        if let Some(sv_idx) = sv_idx {
-            let root = engine.resolve(sv_idx);
-            let pool = engine.pool();
-            if pool.tag(root) == Tag::Var {
-                let root_vid = pool.data(root);
-                if root_vid != sv_id {
-                    root_extensions.push((root_vid, concrete));
-                }
-            }
-        }
-    }
-    for (vid, concrete) in root_extensions {
-        var_subst.insert(vid, concrete);
     }
 }
 
