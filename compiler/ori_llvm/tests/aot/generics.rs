@@ -431,12 +431,13 @@ fn test_generic_chain_result_wrapped() {
 }
 
 #[test]
-#[ignore = "blocked: pre-existing RC codegen double-free when a generic forwarder \
-            returns [T]. Minimal repro: `@id<T>(x: T) -> T = x; let xs = id(x: [1,2,3]); \
-            xs.len()` aborts with 'ori_rc_dec called on already-freed allocation at …'. \
-            Reproduces at 2-hop as well (generic_calling_generic shape with [int] argument), \
-            so this is NOT a §04.2.B regression — root-extension fix landed cleanly; \
-            the [T] through-generic RC path was already broken. Filed separately."]
+#[ignore = "blocked-by: BUG-04-090 — AOT codegen generic forwarder applied to [T] causes \
+            ori_rc_dec on already-freed allocation. Minimal repro: `@id<T>(x: T) -> T = x; \
+            let xs = id(x: [1,2,3]); xs.len()` aborts with 'ori_rc_dec called on \
+            already-freed allocation at …'. Reproduces at 2-hop (generic_calling_generic \
+            with [int] element), so this is NOT a §04.2.B regression — root-extension fix \
+            landed cleanly; the [T] through-generic RC path was already broken. \
+            Tracked: plans/bug-tracker/section-04-codegen-llvm.md BUG-04-090."]
 fn test_generic_chain_list_element() {
     // 3-hop with [T] — RC-managed element type.
     assert_aot_success(
