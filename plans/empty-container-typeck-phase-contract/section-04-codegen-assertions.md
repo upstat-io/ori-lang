@@ -33,12 +33,17 @@ third_party_review:
   status: resolved
   updated: 2026-04-20
   notes: "user_accepted_at_iter_cap_reached after 6 rounds (R0–R5); 17 verified findings all fixed inline across commits 7df958c3 → 3acde80f → 93b17075 → 635b6fc6 → 5f1beb20 → a9745c51; zero outstanding at accept time. max_rounds was extended once from 3→6 via run-more after Round 2; second cap fired after Round 5. Core design validated: §04.1 validator (walks var_types + params + return_type + blocks[*].params), §04.2 Hook 1 + Hook 2 explicit Result-based no-emit cascades (process_arc_function + declare_and_process_lambda; counter-based suppression via record_codegen_error banned per impl-hygiene.md §Invariant Explicitness), §04.3 diagnostic sites with per-function exempt sets via build_exempt_var_ids, §04.4 12-cell test matrix. Ready for implementation; drift against HEAD-at-implementation-time to be caught during coding."
+review_pipeline:
+  stage: editor-done
+  next_step: 6
+  updated: 2026-04-21
 sections:
   # Split into 04.1 (module), 04.2 (primary seam — the load-bearing site), 04.3 (pre-mono diagnostics localization), 04.4 (tests), 04.R (TPR), 04.N (checklist).
   # Prior version had 25 checkbox items > 20 (audit SIZE_VIOLATION). Restructuring collapses the per-site subsections into one primary-seam section + one secondary-sites section.
   - id: "04.1"
     title: "New `ori_arc::ir::validate` module with typed error shape and exemption set"
-    status: not-started
+    status: in-progress
+    notes: "Module + error shape + re-exports + build_exempt_var_ids visibility already landed at HEAD (verified 2026-04-21). Remaining work: populate validate/tests.rs body with §04.4 12-cell matrix + lambda-capture behavioral test."
   - id: "04.2"
     title: "PRIMARY seam: `process_arc_function` + `declare_and_process_lambda` hooks (load-bearing)"
     status: not-started
@@ -159,17 +164,25 @@ The assertion helper must live in `ori_arc` rather than `ori_llvm` because:
 3. The typed error enum `UnresolvedTypeVar` lives alongside `ori_arc::verify::VerifyError`
    (same crate), so integrating into the existing `VerifyError` variant set is a local change.
 
-### Files to Create / Edit (files do NOT exist yet — `plan-audit.py` DEAD_PATH is expected pre-implementation)
+### Files to Create / Edit
 
-| File | Action | Approx. LOC |
-|------|--------|-------------|
-| `compiler/ori_arc/src/ir/validate.rs` | CREATE | ~80 |
-| `compiler/ori_arc/src/ir/validate/tests.rs` | CREATE | ~200 (12-cell matrix + lambda-capture + integration) |
-| `compiler/ori_arc/src/ir/mod.rs` | EDIT — add `pub mod validate;` | +1 line |
-| `compiler/ori_arc/src/lib.rs` | EDIT — add `pub use ir::validate::{assert_no_unresolved_type_vars, UnresolvedTypeVar};` | +1 line |
-| `compiler/ori_arc/src/verify/mod.rs` | EDIT — add `UnresolvedTypeVar(UnresolvedTypeVar)` variant to `VerifyError` enum | +3 lines |
-| `compiler/ori_types/src/check/validators/mod.rs` | EDIT — change `pub(crate) fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32>` (line 161) to `pub fn ...` so the §04.3 pre-mono sites can call it from outside `ori_types::check` | +0 net lines (visibility keyword change) |
-| `compiler/ori_types/src/lib.rs` | EDIT — add `pub use check::validators::build_exempt_var_ids;` re-export so §04.3 callers write `ori_types::build_exempt_var_ids(pool, &sig.scheme_var_ids)` rather than the full path | +1 line |
+**State at HEAD (verified via file inspection 2026-04-21):** the §04.1 MODULE surface is ~85% landed; the §04.4 TEST BODY is the remaining §04.1 work. Table below is ground-truthed against actual file sizes and grep hits.
+
+| File | State at HEAD | Action | Approx. LOC |
+|------|---------------|--------|-------------|
+| `compiler/ori_arc/src/ir/validate.rs` | **DONE** (7302B at HEAD; full `assert_no_unresolved_type_vars` + `UnresolvedTypeVar` per §04.1 spec) | No further action this section | — |
+| `compiler/ori_arc/src/ir/validate/tests.rs` | **STUB** (344B — `//! Unit tests for assert_no_unresolved_type_vars.` header only) | CREATE body — 12-cell matrix + lambda-capture + first-violator-deterministic per §04.4 | ~200 |
+| `compiler/ori_arc/src/ir/mod.rs` | **DONE** (`pub mod validate;` present at line 25) | No further action | — |
+| `compiler/ori_arc/src/lib.rs` | **DONE** (`pub use ir::validate::{assert_no_unresolved_type_vars, UnresolvedTypeVar};` at line 92) | No further action | — |
+| `compiler/ori_arc/src/verify/mod.rs` | **DONE** (`UnresolvedTypeVar(crate::ir::validate::UnresolvedTypeVar)` variant at line 83; `From<UnresolvedTypeVar>` impl at line 86) | No further action | — |
+| `compiler/ori_types/src/check/validators/mod.rs` | **DONE** (`pub fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32>` at line 161 — visibility is already `pub`) | No further action | — |
+| `compiler/ori_types/src/lib.rs` | **DONE** (`pub use check::validators::{build_exempt_var_ids, validate_body_types};` at line 32) | No further action | — |
+
+**What still requires implementation (the actionable §04.1 tail):**
+
+- Populate the `compiler/ori_arc/src/ir/validate/tests.rs` body with the 12-cell matrix (§04.4) + the `test_lambda_with_tag_var_in_capture_environment_fails` behavioral test. This is the only §04.1 work remaining — the module + error shape + re-exports + exempt-set helper are all already landed.
+
+**Rationale for leaving already-done items in the section as documentation**: the module architecture decisions (typed error shape, `UnresolvedTypeVar` struct, re-export chain, `build_exempt_var_ids` visibility) are load-bearing for §04.2's hook signatures and §04.3's secondary-site contract. Stripping them would force §04.2/§04.3 implementers to re-derive the decisions. The HEAD-state column makes the drift visible without removing the architectural reference.
 
 ### Implementation Outline
 
@@ -420,6 +433,73 @@ This makes the call sites in `ori_llvm` and `oric` as clean as
 These are the LOAD-BEARING sites — the single upstream choke points through which every
 ARC-to-LLVM body flows. All other hooks (§04.3 secondary pre-mono sites) are diagnostic
 localization, NOT correctness gates.
+
+### §04.2 Design Decision: Seam Placement and `exempt_var_ids` Contract (Editor Pass 2026-04-21)
+
+Two substantive reviewer positions on the primary-seam design surfaced during /review-plan Phase 2
+(blind-spots scan). Editor resolves BOTH explicitly so §04.2 implementers do not re-litigate them:
+
+**Decision 1 — Seam placement: PRE-`run_arc_pipeline` is the correct gate for this section.**
+
+- **Context**: Gemini flagged that AIMS injects `Tag::Var`s during pipeline passes (notably during
+  generalization of polymorphic callees and during lattice analysis of erased-generic returns).
+  Running the assertion BEFORE `run_arc_pipeline` misses those injected vars, per Gemini's analysis.
+- **Editor resolution**: §04 enforces `typeck.md §PC-2` (the TYPE-CHECKER→CODEGEN invariant) —
+  NOT `aims-rules.md` soundness. `typeck.md §PC-2` explicitly says: "No `Tag::Var` in any
+  type-bearing IR position" at the typeck OUTPUT contract. This invariant is violated IFF the
+  upstream typeck emitted an unresolved var — which is precisely what §04's defense-in-depth
+  assertion is designed to catch at the codegen entry seam (`impl-hygiene.md §Cross-Phase
+  Invariant Contracts`).
+- **AIMS-injected vars are a separate concern**: if `run_arc_pipeline` itself produces a
+  `Tag::Var`, that is an AIMS invariant violation (per `canon.md §7.1` Invariant 5: "the unified
+  model must stay unified") — owned by `arc.md` + `aims-rules.md §9` verification layers, NOT by
+  §04. A post-pipeline assertion for AIMS-injected vars is architecturally redundant with
+  `aims-rules.md` VF-1/VF-2 (structural + contract verification), which already runs when
+  `verify_arc` is enabled per `codegen-rules.md §VR-1`.
+- **Verification**: the §04.2 pre-pipeline placement is correct for typeck PC-2. Any AIMS-emitted
+  `Tag::Var` that survives `verify_arc=true` is a separate AIMS bug — file via `/add-bug`, do not
+  absorb into §04. §04 is scope-limited to the typeck→codegen phase contract per its mission.
+- **Citations**: `typeck.md §PC-2`, `canon.md §4.2`, `impl-hygiene.md §Cross-Phase Invariant
+  Contracts` (Type Checker → Codegen row), `codegen-rules.md §TR-2`, `codegen-rules.md §VR-1`
+  (existing AIMS verification is the AIMS-injection detector).
+
+**Decision 2 — `exempt_var_ids` at the primary seam: EMPTY is correct for Hook 1 and Hook 2.**
+
+- **Context**: Codex said keep the seam architecture as-is with empty `exempt_var_ids` at the
+  primary sites AND prove the empty-exempt invariant. Gemini said the set must be DYNAMIC
+  (populated from `FunctionSig.scheme_var_ids`) because JIT/test paths bypass `prepare_all_cached`
+  and retain non-empty `scheme_var_ids` on generic bodies.
+- **Editor resolution**: the primary seams (`process_arc_function`, `declare_and_process_lambda`)
+  fire on ARC functions that are EITHER (a) monomorphized instances from the mono loop, OR
+  (b) fully-resolved non-generic bodies. Both categories have empty `scheme_var_ids` at the seam
+  by construction of the upstream lowering pipeline. Per `canon.md §4.2`, generic scheme bodies
+  exit `infer/body_finalize::normalize_body_generalized_to_bound_var_sig` with `Tag::BoundVar`
+  leaves — any residual `Tag::Var(Generalized)` at this point is a leak-alarm for a missed
+  normalization position (§03 producer-side defect), NOT a legitimate state the seam should exempt.
+- **Invariant pin**: the §04.4 test matrix MUST include a test that passes a non-empty
+  `scheme_var_ids` bag to `build_exempt_var_ids` and confirms the seam fires on ALL resulting
+  `Tag::Var`s (because at the primary seam, post-monomorphization, no legitimate `VarState::Rigid`
+  or `VarState::Generalized` survives — the set being empty in practice is the load-bearing
+  invariant §04 enforces). This closes the hole Gemini identified: if a future refactor introduces
+  a JIT/test path that DOES carry non-empty `scheme_var_ids` into the primary seam, the test
+  matrix fails loudly rather than silently masking the drift.
+- **Secondary sites (§04.3) ARE dynamic**: §04.3 explicitly populates `exempt_var_ids` from
+  `FunctionSig.scheme_var_ids` per function because pre-mono loops operate on generic source
+  bodies — both reviewers agree on this, and the §04.3 code already does it (see §04.3 Site A
+  code block using `ori_types::build_exempt_var_ids(self.pool, &s.scheme_var_ids)`).
+- **What this closes**: Gemini's concern about JIT/test paths bypassing `prepare_all_cached` is
+  valid ONLY at §04.3 pre-mono sites, where the exempt set IS already populated dynamically. At
+  the primary §04.2 seams (post-mono, post-lowering), empty is the architecturally correct set.
+  The §04.4 matrix pin makes the invariant testable.
+- **Action for §04.2 implementer**: keep the empty `FxHashSet::default()` at both primary hooks
+  as documented in the existing Hook 1 and Hook 2 code blocks below. Add one `#[test]` to
+  `validate/tests.rs` confirming that a non-empty `scheme_var_ids` bag passed to
+  `build_exempt_var_ids` — and then to the seam — does NOT suppress firing (modeling the JIT/test
+  path bypass Gemini flagged). This test is the semantic pin for the "empty set is invariant"
+  decision.
+- **Citations**: `typeck.md §PC-2`, `canon.md §4.2`, `types.md §SC-1` (scheme/BoundVar migration),
+  `impl-hygiene.md §Invariant Explicitness` (explicit tests over implicit invariants),
+  `impl-hygiene.md §Cross-Phase Invariant Contracts`.
 
 ### File: `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs`
 
@@ -679,6 +759,37 @@ Secondary sites are an optimization, not a correctness gate. If the TPR at §04.
 the dual-hook pattern as `LEAK:scattered-knowledge` per `impl-hygiene.md §SSOT`, §04.3 is
 removed without regret.
 
+### §04.3 Drop-or-Keep Decision (Editor Pass 2026-04-21)
+
+**Editor resolution: KEEP §04.3, but gate its inclusion behind §04.TPR-A TPR reviewer consensus.**
+
+- **Why keep by default**: §04.3's purpose (diagnostic localization to the pre-mono input) is a
+  real UX win — when a PC-2 violation fires, attributing it to the original mono input rather
+  than the post-lowering IR saves the implementer a round of IR archaeology. `ori_llvm`'s
+  existing `ORI_DUMP_AFTER_ARC=1` dump is post-lowering; the pre-mono IR at §04.3's sites is
+  NOT dumped by default, so without §04.3 the implementer has no cheap way to see the original
+  input when the seam fires.
+- **SSOT risk assessment**: §04.3 sites delegate to `assert_no_unresolved_type_vars` — they do
+  NOT reimplement the walk. Per `impl-hygiene.md §SSOT`, this is a QUERY pattern, not a
+  `LEAK:scattered-knowledge`. The only scattered concern is the `tracing::error!` call site —
+  §04.3 emits diagnostic trace without calling `record_codegen_error()` (the primary seam owns
+  that). This asymmetry is the documented contract: §04.3 is diagnostic-only, §04.2 is the gate.
+  If §04.TPR-A flags this asymmetry as `LEAK:inline-policy` (scattered error-reporting policy),
+  DROP §04.3 per the existing reviewer caveat.
+- **When to drop**: drop §04.3 iff §04.TPR-A identifies ANY of:
+  (a) §04.3 secondary sites produce different assertion semantics than §04.2 primary sites
+      (violates `impl-hygiene.md §SSOT` — single source of truth for PC-2 check);
+  (b) §04.3's dynamic `exempt_var_ids` population from `FunctionSig.scheme_var_ids` introduces
+      complexity that a `--verbose-codegen-diagnostic` CLI flag could handle instead (defer the
+      diagnostic-localization UX to a tooling improvement per `/improve-tooling`);
+  (c) §04.3 requires a new error channel distinct from `VerifyError::UnresolvedTypeVar` (violates
+      the single-error-shape invariant §04.1's success criteria pin).
+- **Action for §04.3 implementer**: implement per the existing code blocks below. Invoke
+  `/tpr-review` at §04.TPR-A with the drop-or-keep question as an EXPLICIT review objective.
+  Do NOT land §04.3 if §04.TPR-A's reviewers flag any of the three drop-triggers above.
+- **Citations**: `impl-hygiene.md §SSOT`, `impl-hygiene.md §Inline policy` (LEAK subcategory),
+  `impl-hygiene.md §Finding Categories` (NOTE severity for diagnostic-only helpers).
+
 ### Site A: JIT pre-mono loop at `evaluator/compile.rs` (~line 230)
 
 Insert between the `mono_functions` extension (line 236) and the `run_interprocedural_analyses`
@@ -800,6 +911,17 @@ Additional behavioral tests (not in the core matrix but required by the success 
   asserting that the primary-seam hook calls `builder.record_codegen_error()` and returns
   early without invoking `run_arc_pipeline`. (Located in
   `compiler/ori_llvm/src/codegen/function_compiler/tests.rs`, not in `validate/tests.rs`.)
+- `test_primary_seam_empty_exempt_set_invariant_pin` (editor-added 2026-04-21) — semantic
+  pin for the §04.2 Design Decision 2 "empty `exempt_var_ids` at primary seam" invariant.
+  Constructs an `ArcFunction` whose owning `FunctionSig.scheme_var_ids = [1, 2, 3]` (modeling
+  the Gemini-flagged JIT/test bypass path where `prepare_all_cached` is NOT the entry), calls
+  `build_exempt_var_ids(pool, &[1, 2, 3])` to produce the same set the §04.3 sites would build,
+  then invokes `assert_no_unresolved_type_vars` at the PRIMARY seam with `exempt_var_ids = &empty
+  FxHashSet` (matching the Hook 1 / Hook 2 code blocks). Confirms the seam fires on ALL
+  `Tag::Var`s regardless of the scheme metadata — i.e., the empty set is load-bearing and a
+  future refactor that routes non-empty `scheme_var_ids` into the primary seam gets caught. This
+  closes the Gemini blind spot without changing the primary-seam architecture. Located in
+  `compiler/ori_arc/src/ir/validate/tests.rs`.
 
 ### Test Fixture Strategy
 
@@ -994,7 +1116,7 @@ Round 5 dispatched both reviewers against HEAD `5f1beb20`. Codex surfaced 2 find
 - [ ] `declare_and_process_lambda` calls the validator BEFORE its own `run_arc_pipeline`, with empty `exempt_var_ids`
 - [ ] (Optional, per §04.3 caveat) JIT pre-mono loop calls the validator for diagnostic localization
 - [ ] (Optional, per §04.3 caveat) AOT pre-mono loop calls the validator for diagnostic localization
-- [ ] Unit tests in `validate/tests.rs` cover the 12-cell matrix above (9 var_types cells + cells 10/11/12 for params / return / block-params axes) + lambda-capture behavioral test
+- [ ] Unit tests in `validate/tests.rs` cover the 12-cell matrix above (9 var_types cells + cells 10/11/12 for params / return / block-params axes) + lambda-capture behavioral test + `test_primary_seam_empty_exempt_set_invariant_pin` (semantic pin for §04.2 Design Decision 2)
 - [ ] Integration test confirms `process_arc_function` records codegen error and returns early on violation
 - [ ] All diagnostic sites use `tracing::error!` + structured `VerifyError` — NO `debug_assert!` fail-open
 - [ ] `ORI_VERIFY_ARC=1` layering documented: assertion is ALWAYS-ON; `verify_arc` flag gates ADDITIONAL verification (fn_val.verify, oracle) per `codegen-rules.md §VR-1`
