@@ -158,7 +158,7 @@ pub fn validate_body_types(
 /// Uses [`Pool::var_idx_for_id`] (the canonical `var_id` → Idx helper)
 /// to avoid duplicating the linear-scan pattern from monomorphization
 /// (`impl-hygiene.md §Algorithmic DRY`).
-pub(crate) fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
+pub fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
     let mut exempt = FxHashSet::default();
     exempt.extend(scheme_var_ids.iter().copied());
     for &sv_id in scheme_var_ids {
