@@ -267,9 +267,16 @@ pub struct UnresolvedTypeVar {
 /// - `exempt_var_ids`: var IDs that are legitimately `Tag::Var` because they
 ///   are `VarState::Generalized` or `VarState::Rigid` (mirrors the producer
 ///   side `build_exempt_var_ids` in `ori_types/check/validators/mod.rs`).
-///   For monomorphized functions this set is EMPTY. For non-monomorphized
-///   function bodies (e.g., pre-mono JIT path) the caller populates it from
-///   the owning `FunctionSig.scheme_var_ids`.
+///   In practice this set is always EMPTY at the shipping call sites: the
+///   primary seam (§04.2) fires post-monomorphization; the secondary sites
+///   (§04.3 A + B) iterate caches pre-filtered by `lower_and_infer_borrows`
+///   at `compiler/oric/src/test/runner/arc_lowering.rs:39` (JIT) and the
+///   `if sig.is_generic() { continue; }` gate at
+///   `compiler/oric/src/commands/codegen_pipeline.rs:92-94` (AOT), so no
+///   generic bodies reach either call site. The parameter remains in the
+///   signature as a defense-in-depth hook: a future call site that needs
+///   to exempt rigid/generalized vars can populate it from the owning
+///   `FunctionSig.scheme_var_ids` without breaking the invariant.
 ///
 /// # Returns
 ///
@@ -475,14 +482,8 @@ Two substantive reviewer positions on the primary-seam design surfaced during /r
   invariant §04 enforces). This closes the hole Gemini identified: if a future refactor introduces
   a JIT/test path that DOES carry non-empty `scheme_var_ids` into the primary seam, the test
   matrix fails loudly rather than silently masking the drift.
-- **Secondary sites (§04.3) ARE dynamic**: §04.3 explicitly populates `exempt_var_ids` from
-  `FunctionSig.scheme_var_ids` per function because pre-mono loops operate on generic source
-  bodies — both reviewers agree on this, and the §04.3 code already does it (see §04.3 Site A
-  code block using `ori_types::build_exempt_var_ids(self.pool, &s.scheme_var_ids)`).
-- **What this closes**: Gemini's concern about JIT/test paths bypassing `prepare_all_cached` is
-  valid ONLY at §04.3 pre-mono sites, where the exempt set IS already populated dynamically. At
-  the primary §04.2 seams (post-mono, post-lowering), empty is the architecturally correct set.
-  The §04.4 matrix pin makes the invariant testable.
+- **Secondary sites (§04.3) ALSO empty — updated 2026-04-21 post-TPR-R2**: §04.3 Sites A + B also use empty `FxHashSet::default()`. `lower_and_infer_borrows` at `compiler/oric/src/test/runner/arc_lowering.rs:39` filters `sig.is_generic()` at :59/:81/:147/:207 before populating JIT `arc_cache`; `compiler/oric/src/commands/codegen_pipeline.rs:92-94` filters generics before the AOT pre-mono loop; both AOT loops operate on entries with empty `scheme_var_ids` (non-generic tops or fully-substituted mono). No dynamic `build_exempt_var_ids` call is required at the shipping sites. The prior "§04.3 is dynamic" narrative was corrected after verification — earlier rounds' fix landed the simplified stub (§04.3 Site A code block now uses `FxHashSet::default()` directly).
+- **What this closes**: Gemini's concern about JIT/test paths bypassing `prepare_all_cached` — every JIT path filters generics upstream, so no bypass carries non-empty `scheme_var_ids` into any seam. The §04.4 matrix pin makes the empty-set invariant testable across primary + secondary sites.
 - **Action for §04.2 implementer**: keep the empty `FxHashSet::default()` at both primary hooks
   as documented in the existing Hook 1 and Hook 2 code blocks below. Add one `#[test]` to
   `validate/tests.rs` confirming that a non-empty `scheme_var_ids` bag passed to
@@ -719,7 +720,7 @@ that placement because:
 These items were originally §08.6's forward-coordination checks; absorbed here to eliminate a same-plan self-blocker (§08.6 → §04.2) per CLAUDE.md §Plan-Blocker Bugs Belong IN the Plan. §04.2 naturally owns "the seam fires correctly against BOTH the intra-module lambda_mono path and the cross-module re-intern path from §08.3" as part of its own completion — it is not a §08 obligation, it is the deliverable of the seam itself.
 
 - [ ] **Post-substitution firing verification (both paths)**: after §04.2's `assert_no_unresolved_type_vars` hooks are inserted at `define_phase.rs:315` (`process_arc_function`) and `:375` (`declare_and_process_lambda`) AND §08.3's remap-aware re-intern is live in the merged pool, verify the assertion fires POST-substitution for (a) the intra-module lambda_mono path via `resolve_all_lambda_bound_vars` at `define_phase.rs:134` + `nounwind/prepare.rs:173`, and (b) the cross-module re-intern path via `pool/re_intern/`. Record the confirmation in §04.R close-out and backlink §08.6.R as "§04 seam order verified correct under §08.1.R corrected diagnosis; no change required." Seam-line-number shifts are acceptable as long as the POST-substitution invariant holds.
-- [ ] **Two-case assertion strictness holds under §08.3 remap**: validate that `assert_no_unresolved_type_vars`'s caller-parameterized two-case design (per `§04.2` `exempt_var_ids` contract, lines 239-244) remains sound after §08.3's remap-aware re-intern lands. Case (a) — monomorphized functions, `exempt_var_ids` EMPTY, strict `typeck.md §PC-2` + `canon.md §4.2` rule: §08.3 + `resolve_all_lambda_bound_vars` must leave zero `Tag::Var` at the seam; a surviving `Tag::Var` is a §08.3 completeness bug. Case (b) — non-monomorphized generic function bodies (pre-mono JIT path), `exempt_var_ids` populated from `FunctionSig.scheme_var_ids`: `Tag::Var(Generalized)` / `Rigid` vars legitimately survive per `types.md §SC-1` divergence; the exemption mirrors `ori_types::check::validators::build_exempt_var_ids`. §08.3's matrix cells e1–e5 must make case (a) sound WITHOUT regressing case (b). Record the verification in §04.R as "two-case seam strictness holds under §08.3 remap; §08.3's cell coverage adequate."
+- [ ] **Empty-exempt assertion strictness holds under §08.3 remap**: validate that `assert_no_unresolved_type_vars`'s empty-`exempt_var_ids` contract at all shipping sites (§04.2 primary seam + §04.3 secondary Sites A/B) remains sound after §08.3's remap-aware re-intern lands. Strict `typeck.md §PC-2` + `canon.md §4.2` rule: §08.3 + `resolve_all_lambda_bound_vars` + upstream generic filters (`lower_and_infer_borrows` / `codegen_pipeline.rs:92-94`) together must leave zero `Tag::Var` at every call site; a surviving `Tag::Var` is a §08.3 completeness bug or an upstream-filter regression. §08.3's matrix cells e1–e5 must preserve this invariant. The `exempt_var_ids` parameter stays in the validator signature as a defense-in-depth hook — a future call site that DOES need dynamic exemption (e.g. non-generic-filtered pre-mono path not yet shipped) can populate it from `FunctionSig.scheme_var_ids` without breaking the contract. Record the verification in §04.R as "empty-exempt seam strictness holds under §08.3 remap + upstream generic filters; §08.3's cell coverage adequate."
 
 ---
 
