@@ -136,7 +136,7 @@ Section 05 (Test Matrix) is written FIRST (TDD) but verified LAST.
 
 - **Sections 01 and 02 are independent** and can be drafted in parallel (different code paths: generalization policy vs. validator module).
 - **Section 03 depends on Sections 01 + 02** — wires the validator into the 4 bodies-pass sites AFTER the generalization policy no longer bleeds unresolved vars for lambda-typed bindings. §03.BUG-FIXES (BUG-04-084) added the end-of-body defaulting pre-pass so legitimate empty literals default to `[Never]` before the validator runs.
-- **Section 04 depends on Section 03** — defense-in-depth `debug_assert!`s at codegen rely on the producer being clean; enabling them before Section 03 would trigger on legitimate typed IR.
+- **Section 04 depends on Section 03** — defense-in-depth always-on `assert_no_unresolved_type_vars` hooks at the primary codegen seam rely on the producer being clean; enabling them before Section 03 would trigger on legitimate typed IR. The hook produces a typed `VerifyError::UnresolvedTypeVar` (not a `debug_assert!` fail-open — per §04 Design Decision, phase-contract enforcement is ALWAYS-ON in both debug and release).
 - **Section 08 depends on Section 03** (for the same clean-producer invariant) but is otherwise independent — it fixes a different codegen bug (poly-lambda `BoundVar` bleed into the mono pipeline). Section 08 **must complete before `test-all.sh` passes**, which means **plan commits are blocked until Section 08 lands**. This is the new reality after absorbing BUG-04-042.
 - **Section 06 depends on Sections 03 + 04** — the diagnostic audit runs after enforcement is live so we can detect what needs annotation.
 - **Section 07 depends on all above** — in addition to the original close-out work, §07 now owns investigating BUG-04-085 (LLVM spec runner crash) and either fixing the consumer that depended on the old `Tag::Scheme` flag semantics or adjusting §02.0's propagation for compatibility.
@@ -181,8 +181,11 @@ Phase 4 — Codegen Defense-in-Depth (Section 04, restructured post /review-plan
   └─ 04.TPR-A: TPR checkpoint after primary seam + module
   └─ 04.3: SECONDARY pre-mono sites — JIT compile.rs:230 + AOT codegen_pipeline.rs:95,112
            (diagnostic localization only; non-load-bearing; may be dropped per reviewer caveat)
-  └─ 04.4: Unit tests — 9-cell matrix (resolved, unbound, exempt, BoundVar, Projection,
-           lambda-capture, first-violator-deterministic)
+  └─ 04.4: Unit tests — 12-cell matrix across var_types / params / return / block-params axes
+           (resolved, unbound, exempt, BoundVar, Projection, lambda-capture,
+           first-violator-deterministic, entry-param, return-type, non-entry-block-param) +
+           `test_primary_seam_empty_exempt_set_invariant_pin` (semantic pin for §04.2 Design
+           Decision 2: empty exempt set at primary seam)
 
 Phase 5 — Poly-Lambda Mono Fix (Section 08, NEW — absorbs BUG-04-042) — COMMIT BLOCKER
   └─ 08.1: Investigation — reproduce lambda_mono.ori failure; diagnosis CORRECTED 2026-04-19
@@ -223,7 +226,7 @@ Phase 7 — Close-out + BUG-04-085 Investigation (Section 07, expanded)
 **Why this order:**
 - Phase 0 is TDD discipline — tests frame the implementation per `CLAUDE.md §TDD for Bugs`.
 - Phase 1 (Section 01) precedes Phase 2 (Section 02) because if Section 02 runs first, the validator would reject legitimate lambda-polymorphism — the generalization policy must land first.
-- Phase 3 is the critical typeck-side path — it's where E2005 starts firing on user programs. Phase 4 (debug_assert!) depends on Phase 3 being clean.
+- Phase 3 is the critical typeck-side path — it's where E2005 starts firing on user programs. Phase 4 (always-on typed `VerifyError::UnresolvedTypeVar` seam hooks) depends on Phase 3 being clean.
 - **Phase 5 (Section 08) is the new commit-unblocker** — absorbed from BUG-04-042. The plan cannot land atomic commits until this section completes, because `test-all.sh` fails on the LLVM backend spec run due to the poly-lambda `BoundVar` bleed. §08 is an independent codegen fix that runs in parallel with §04/§06 but must finish before any commit attempt for sections landing after §03.
 - Phase 6 runs AFTER enforcement is live so the audit detects real annotation needs.
 - Phase 7 (Section 07) adds the BUG-04-085 investigation: §02.0's `Tag::Scheme PROPAGATE_MASK` fix may be the root cause of the `ArcIrEmitter: variable not yet defined` crash in the mono pipeline. Either fix the downstream consumer or adjust the propagation.
@@ -268,13 +271,15 @@ Baseline measurements (pre-implementation) from the codebase as of plan creation
 | 03 Bodies-Pass Integration | ~80 (4×15 integration + 20 tests) | Low | 01, 02 |
 |   ↳ 03.1–03.4 4 integration sites | ~60 | Low | 02 |
 |   ↳ 03.5 End-to-end tests | ~20 | Low | 03.1–03.4 |
-| 04 Codegen Assertions | ~60 (3×15 assertions + 15 ICE path + 15 tests) | Low | 03 |
-|   ↳ 04.1–04.3 3 assertion sites | ~45 | Low | 03 |
-|   ↳ 04.4 Release ICE path | ~15 | Low | 04.1–04.3 |
+| 04 Codegen Assertions | ~380 (see breakdown below — scope expanded during /review-plan 6-round TPR) | Medium | 03, 08 |
+|   ↳ 04.1 `validate` module + typed `UnresolvedTypeVar` + exempt-set helper | ~30 (DONE at HEAD — only test body remains) | Low | — |
+|   ↳ 04.2 Primary seam + 5-level `Result<…, VerifyError>` caller cascade (process_arc_function, emit_arc_function + 3 call sites, prepare cascade) + debug-scope cleanup on Err + Hook 2 lambda cascade (compile_lambda_arc + prepare_lambda + 2-level propagation) | ~120 | Medium | 04.1 |
+|   ↳ 04.3 Secondary pre-mono sites (JIT compile.rs + AOT codegen_pipeline.rs) with dynamic `exempt_var_ids` population via `build_exempt_var_ids` | ~60 | Low | 04.1, 04.TPR-A |
+|   ↳ 04.4 12-cell test matrix + lambda-capture behavioral test + primary-seam empty-exempt invariant pin | ~220 | Low | 04.1 |
 | 05 Test Matrix | ~200 (matrix + pins + cross-backend) | Medium | — (written first, TDD) |
 | 06 Diagnostics + Audit | ~80 (30 message + 50 audit/annotations) | Low | 03 |
 | 07 Close-out | ~40 (annotation removal + bug-tracker update) | Low | All |
-| **Total new** | **~830** | | |
+| **Total new** | **~1,150** | | |
 | **Total deleted** | **~20** (plan annotations stripped at close) | | |
 
 ## Known Bugs (Absorbed into This Plan)
