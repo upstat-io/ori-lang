@@ -34,8 +34,12 @@ third_party_review:
   updated: 2026-04-20
   notes: "user_accepted_at_iter_cap_reached after 6 rounds (R0–R5); 17 verified findings all fixed inline across commits 7df958c3 → 3acde80f → 93b17075 → 635b6fc6 → 5f1beb20 → a9745c51; zero outstanding at accept time. max_rounds was extended once from 3→6 via run-more after Round 2; second cap fired after Round 5. Core design validated: §04.1 validator (walks var_types + params + return_type + blocks[*].params), §04.2 Hook 1 + Hook 2 explicit Result-based no-emit cascades (process_arc_function + declare_and_process_lambda; counter-based suppression via record_codegen_error banned per impl-hygiene.md §Invariant Explicitness), §04.3 diagnostic sites with per-function exempt sets via build_exempt_var_ids, §04.4 12-cell test matrix. Ready for implementation; drift against HEAD-at-implementation-time to be caught during coding."
 review_pipeline:
-  stage: editor-done
-  next_step: 6
+  stage: tpr-done
+  next_step: 7
+  rounds_completed: 3
+  last_round_commit: e7e91572
+  last_round_findings: 3
+  note: "user_accepted_at_iter_cap_reached"
   updated: 2026-04-21
 sections:
   # Split into 04.1 (module), 04.2 (primary seam — the load-bearing site), 04.3 (pre-mono diagnostics localization), 04.4 (tests), 04.R (TPR), 04.N (checklist).
