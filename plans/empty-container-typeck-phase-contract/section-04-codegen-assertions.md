@@ -450,18 +450,10 @@ Two substantive reviewer positions on the primary-seam design surfaced during /r
   upstream typeck emitted an unresolved var — which is precisely what §04's defense-in-depth
   assertion is designed to catch at the codegen entry seam (`impl-hygiene.md §Cross-Phase
   Invariant Contracts`).
-- **AIMS-injected vars are a separate concern**: if `run_arc_pipeline` itself produces a
-  `Tag::Var`, that is an AIMS invariant violation (per `canon.md §7.1` Invariant 5: "the unified
-  model must stay unified") — owned by `arc.md` + `aims-rules.md §9` verification layers, NOT by
-  §04. A post-pipeline assertion for AIMS-injected vars is architecturally redundant with
-  `aims-rules.md` VF-1/VF-2 (structural + contract verification), which already runs when
-  `verify_arc` is enabled per `codegen-rules.md §VR-1`.
-- **Verification**: the §04.2 pre-pipeline placement is correct for typeck PC-2. Any AIMS-emitted
-  `Tag::Var` that survives `verify_arc=true` is a separate AIMS bug — file via `/add-bug`, do not
-  absorb into §04. §04 is scope-limited to the typeck→codegen phase contract per its mission.
+- **AIMS-injected vars are a separate concern, NOT covered by shipped `aims-rules.md` VF-1/VF-2**: if `run_arc_pipeline` itself produces a `Tag::Var`, that is an AIMS invariant violation (per `canon.md §7.1` Invariant 5: "the unified model must stay unified") — owned by `arc.md` + `aims-rules.md §9` verification layers. HEAD's `aims-rules.md §9` VF-1 (line 714) checks structural well-formedness only — use-before-def, dangling block refs, RC on scalar, dec on borrowed, arg ownership length mismatch; no type-variable check. VF-2 (line 716) has only subcheck (a) `AbsentParamHasUses` shipped, with subchecks (b)/(c)/(d) target-only. Any `Tag::Var` surviving `run_arc_pipeline` is therefore an UNDETECTED class at HEAD — file via `/add-bug` (subsystem `aims`, scope "§9 VF-* extension for post-pipeline unresolved type variables"); §04's pre-AIMS seam does NOT cover it.
+- **Verification**: the §04.2 pre-pipeline placement is correct for typeck PC-2. §04 is scope-limited to the typeck→codegen phase contract per its mission — post-AIMS unresolved-type-var detection is a separate verification-layer extension, not a §04 deliverable.
 - **Citations**: `typeck.md §PC-2`, `canon.md §4.2`, `impl-hygiene.md §Cross-Phase Invariant
-  Contracts` (Type Checker → Codegen row), `codegen-rules.md §TR-2`, `codegen-rules.md §VR-1`
-  (existing AIMS verification is the AIMS-injection detector).
+  Contracts` (Type Checker → Codegen row), `codegen-rules.md §TR-2`, `aims-rules.md §9` VF-1 (line 714 — structural scope) + VF-2 (line 716 — shipped subcheck inventory).
 
 **Decision 2 — `exempt_var_ids` at the primary seam: EMPTY is correct for Hook 1 and Hook 2.**
 
@@ -574,7 +566,9 @@ counter-only and has no suppression side effect.
 | 1a | `emit_arc_function` (define_phase.rs:~115) | `fn(&mut self, Name, FunctionId, &FunctionAbi, ArcFunction, Vec<ArcFunction>)` | `-> Result<(), VerifyError>` via `?` on `process_arc_function`. On `Err`, MUST call `self.exit_debug_scope()` before returning to match the normal-path `exit_debug_scope()` at define_phase.rs:~220; otherwise the debug scope entered by `define_function_body_arc_with_subst` (define_phase.rs:80) leaks. Use a scope-guard helper OR an explicit `match … { Err(e) => { self.exit_debug_scope(); return Err(e); } }` (TPR-04-R5-002). |
 | 1b | `compile_lambda_arc` (define_phase.rs:~243) | unary-tuple return | `-> Result<…, VerifyError>` (Hook 2 lambda cascade — already specified); must also propagate parent-seam failures when its own `emit_arc_function` chain fires. |
 | 2a | `define_function_body_arc_with_subst` (define_phase.rs:~67) | `fn(…)` | `-> Result<(), VerifyError>` via `?` on `emit_arc_function`. `exit_debug_scope` cleanup lives one level DOWN (in `emit_arc_function`) so this level just propagates. |
+| 2a' | `define_function_body` (define_phase.rs:47) | `fn(&mut self, Name, FunctionId, &FunctionAbi, CanId, &CanonResult, bool)` | `-> Result<(), VerifyError>` via `?` on `define_function_body_arc_with_subst`. Pure wrapper (delegates at define_phase.rs:56); propagation only. Omitted from the Round 5 table; §04.2 implementation MUST carry the signature change through this wrapper or the `?` in 2a does not compile. |
 | 2b | `compile_tests` branches (impls.rs:88, impls.rs:151) | — | On `Err`, use `continue` to skip to the next test iteration WITHOUT altering `compile_tests`'s return signature. The per-test failure is already recorded via `record_codegen_error()` and the suite continues. This mirrors Gemini R5-001's recommendation: not every outer caller must change signature — some outer-loop callers can absorb `Err` via `continue` or `let _ =` when their loop semantic is "keep going past individual failures". |
+| 2c | `compile_impl_method_from_sig` (impls.rs:241) | `fn<'sig>(…)` | On `Err` from `define_function_body` (called at impls.rs:321), use `continue`-on-Err. The two callers at impls.rs:199 and impls.rs:221 are both inside impl-method iteration loops — "keep going past individual failures" semantic applies, matching 2b's pattern. Per-method failure is already recorded via `record_codegen_error()` through the 1a `exit_debug_scope` path. |
 | 3 | `prepare_arc_function` (nounwind/prepare.rs) | existing Hook 2 cascade | Already cascades to `prepare_all_cached` / `prepare_mono_cached` per Round 2's fix; now ALSO propagates Hook 1 `Err` via `?` on the `process_arc_function` call. No new callers above this level — the Round 2 cascade already covers them. |
 | 4 | JIT batch `evaluator/compile.rs` + AOT batch `oric/src/commands/codegen_pipeline.rs` | existing | Per the two-level cascade from Round 2: these already track per-function failures via `record_codegen_error()` counter. With Hook 1's Result cascade landed, the recorded failures now correspond to `Err` paths that also skipped emission — the counter stays the SSOT for end-of-batch pass/fail classification. |
 
@@ -790,16 +784,15 @@ removed without regret.
 - **Citations**: `impl-hygiene.md §SSOT`, `impl-hygiene.md §Inline policy` (LEAK subcategory),
   `impl-hygiene.md §Finding Categories` (NOTE severity for diagnostic-only helpers).
 
-### Site A: JIT pre-mono loop at `evaluator/compile.rs` (~line 230)
+### Site A: JIT pre-mono loop at `evaluator/compile.rs` (~line 236)
 
-Insert between the `mono_functions` extension (line 236) and the `run_interprocedural_analyses`
-call (line 238). For each `(arc_fn, lambdas)` in `arc_cache`, invoke the assertion. Because
-`arc_cache` at this point contains BOTH monomorphized instances AND generic source bodies
-(per the caller's pre-lowered layout verified at `compiler/ori_llvm/src/evaluator/compile.rs`),
-the exempt set MUST be populated per-function from `FunctionSig.scheme_var_ids`; using an
-empty set would spuriously fire on legitimate `Tag::RigidVar`s (and, pre-§08.3b, on
-`Tag::Var(Generalized)`) that survive in generic bodies. Identified by TPR-04-R1-F2
-(critical) via the §04.3 empty-set/generic-body contradiction with §04.1's doc comment.
+Insert between the `mono_functions` extension (line 236 — `mono_functions.extend(imported_mono_functions);`) and the `run_interprocedural_analyses` call (line 238). At this JIT insertion point, `arc_cache` is the caller-pre-populated input parameter (`evaluator/compile.rs:75`) containing source-body `ArcFunction`s from the caller's pre-lowering pass — these may include generic bodies; `mono_functions` is a SEPARATE vector populated at `evaluator/compile.rs:230` via `collect_mono_functions` and later lowered through `fc.prepare_mono_cached(&mono_functions, canon, arc_cache)` at line 319. Site A scope:
+
+- For each `(arc_fn, lambdas)` in `arc_cache`, invoke the assertion. Entries may include generic source bodies (pre-monomorphization), so the exempt set MUST be populated per-function from `FunctionSig.scheme_var_ids` to avoid spurious firing on legitimate `Tag::RigidVar`s (and, pre-§08.3b, on `Tag::Var(Generalized)`) that survive in generic bodies.
+- Mono instances in the `mono_functions` vector are NOT covered by Site A at this insertion point (they are not yet in `arc_cache`). They flow into `prepare_mono_cached` at line 319 and reach the primary seam (`process_arc_function`) post-substitution; primary-seam coverage is sufficient for mono instances per §04.2 Decision 2 (empty exempt set is the invariant there).
+- AOT has an analogous arc_cache layout: `codegen_pipeline.rs:105` inserts pre-mono entries from `module.functions`, `codegen_pipeline.rs:129` inserts mono entries from `collect_mono_functions`. Site B (AOT below) iterates post-insertion — covers BOTH pre-mono and mono, distinct from Site A's JIT-only pre-mono scope.
+
+Identified by TPR-04-R1-F2 (critical) via the §04.3 empty-set/generic-body contradiction with §04.1's doc comment.
 
 ```rust
 // PC-2 contract check — early diagnostic localization. Non-load-bearing
