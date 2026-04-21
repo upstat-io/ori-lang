@@ -45,8 +45,10 @@ sections:
     status: implementation-done-close-blocked
     notes: "Hook 1 + Hook 2 + 9-site Result cascade landed at HEAD (2026-04-21; unstaged in tree). cargo c + clippy clean workspace-wide. Assertion fires correctly — -537 LCFails, +538 passes in ori_spec_llvm. Close-out blocked by §04.2.B: upstream Tag::Var leak on 3-level generic chain surfaces as 2 new AOT failures (generics::test_generic_chain_three_levels + _string). Close §04.2 only after §04.2.B fix lands AND test-all.sh returns green."
   - id: "04.2.B"
+    kind: plan-blocker-inline
     title: "BLOCKER: upstream Tag::Var leak on 3-level generic chain (generics::test_generic_chain_three_levels)"
-    status: not-started
+    status: in-progress
+
     notes: "Classification B finding surfaced by §04.2's PC-2 assertion hook. 2 AOT integration tests fail with UnresolvedTypeVar { var_id: ArcVarId(2), idx: Idx(220), tag: Tag::var }. Plan anticipated this exact class at line 719: '§08.3 completeness bug or upstream-filter regression'. Root-cause investigation required — likely typeck/canon/ARC normalization gap on 3-level generic chaining not covered by §08.3's e1–e5 matrix cells. Full /fix-bug rigor mandatory (blocker to §04.2 close-out; §04 cannot complete until fixed)."
   - id: "04.TPR-A"
     title: "TPR checkpoint after 04.1 + 04.2 (the load-bearing surface)"
@@ -760,23 +762,47 @@ error[E5001]: LLVM module verification failed
 - Baseline (pre-§04.2, commit `58c26963`): both tests **passed** despite the surviving `Tag::Var` in ARC IR. The pass was accidental — LLVM codegen produced either coincidentally-correct output OR output the test's assertions did not discriminate. State.sh `aot_integration: 2161/0/22` included both tests as passing.
 - Post-§04.2 (HEAD): assertion fires at `process_arc_function` seam, codegen emission skipped, AOT compile returns error. 2 tests fail; remainder of suite at 2159/2/24 (net delta: 2 new failures, assertion working as designed).
 
-### Root-cause hypothesis (investigation required — full /fix-bug Phase 1 rigor)
+### Phase 1 investigation findings (2026-04-21)
 
-Plan line 719 explicitly anticipated this finding: *"a surviving Tag::Var is a §08.3 completeness bug or an upstream-filter regression."* Candidate upstream phases to investigate in `/fix-bug` Phase 1:
+**Fixture reality-check — the program is NOT a 3-level nested type.** The failing fixtures `compiler/ori_llvm/tests/aot/fixtures/generics/generic_chain_three_levels{,_string}.ori` are 3-hop identity-like generic call chains, NOT `Applied<Applied<Applied<T>>>` shapes:
+```
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+@double_wrap <T> (x: T) -> T = wrap(x: x);
+@main () -> int = { let n = double_wrap(x: 42); ... }
+```
+This exercises the **monomorphization discovery chain** (mono engine's ability to cascade substitution across 3 generic function instantiations with rigid-to-rigid param flow), NOT a nested-type remap matrix. The hypothesis list above assumed the wrong shape.
 
-1. **§03 (typeck body-group remediation)** — `default_unbound_vars_from_empty_literals` / `default_unbound_vars_in_scope` pre-pass may have a coverage gap on 3-level generic chain (A<B<C<T>>> style) where the unconstrained `Tag::Var` flows through nested generic applications without hitting a defaulting site.
-2. **§08.3 (pool/re_intern/ remap)** — matrix cells e1–e5 cover leaf-var remap, scheme-binder remap, `scheme_var_ids` remap, VarState clone-vs-blank-init; a 3-level chain may exercise a path not covered (e.g., nested scheme-within-scheme, or applied-of-applied-of-applied).
-3. **`resolve_all_lambda_bound_vars` (define_phase.rs:134 + nounwind/prepare.rs:173)** — the lambda-substitution pass may not recurse into deeply-nested generic type shapes.
-4. **ARC lowering (`ori_canon` → `ori_arc`)** — `lower_and_infer_borrows` and pre-mono filter gates at `codegen_pipeline.rs:92-94` may let a 3-level generic chain slip past with a surviving `Tag::Var` in its `var_types` vector.
+**Leak is present AT typeck exit, not introduced downstream.** `ORI_DUMP_AFTER_TYPECK=1` on the repro shows:
+```
+Function @wrap<T> (x: $b6) -> $b6              ← signature correctly BoundVar
+  CallNamed : $t8 (unresolved)                 ← body: Tag::Var($t8) leaked
+    Ident(id) : ($t8) -> $t8                   ← instantiated scheme, never link-resolved
+Function @double_wrap<T> (x: $b7) -> $b7
+  CallNamed : $t9 (unresolved)                 ← body: Tag::Var($t9) leaked
+    Ident(wrap) : ($t9) -> $t9
+```
+Typeck reports "0 errors" — `validate_body_types` does NOT fire `E2005` on `$t8`/`$t9`. Same shape exists in 2-hop `@wrap → @id` (dumped from `/tmp/gen_chain_2.ori`), confirming the leak is not 3-level-specific at typeck exit.
 
-Concrete investigation start:
-- Dump pre-seam IR for the failing program: `ORI_DUMP_AFTER_TYPECK=1 cargo run --bin ori -- compile tests/spec/generics/chain_three_levels.ori` to see whether the `Tag::Var(Idx(220))` is emitted by typeck or introduced by a later phase.
-- Walk the `generics::test_generic_chain_three_levels` source in `compiler/ori_llvm/tests/aot/generics.rs` and the referenced `.ori` program to identify the specific 3-level chain shape.
-- Check whether §08.3 matrix cells e1–e5 cover `Applied<Applied<Applied<T>>>` — if not, that's the gap.
+**Validator exemption is intentional.** `compiler/ori_types/src/check/validators/mod.rs:161-173` `build_exempt_var_ids` exempts `$t7/$t8/$t9` because rank-weighted union-find (`typeck.md §UN-7`) can make a fresh instantiation var the root of a scheme var's equivalence class. The validator resolves each `scheme_var_ids[i]` through `resolve_fully`, and if the root is still `Tag::Var`, adds the root's `var_id` to the exempt set. This is per-design and covered by regression test `scheme_var_root_is_fresh_instantiation_var_no_false_e2005` at `validators/tests.rs:441`. The exempt `Tag::Var` leaves in `expr_types` are equivalent (via union-find) to scheme vars — they MUST be substituted to concrete types at monomorphization time, but legitimately survive typeck.
+
+**Contract: body expr_types carry Tag::Var leaves that are union-find-linked to scheme vars.** Downstream consumers (mono engine, ARC lowering, codegen) must either (a) call `resolve_fully` at each walk step of body types before substitution, or (b) trust that `substitute_in_pool` with a `{scheme_var_root.var_id → concrete}` mapping rewrites every such leaf. §04.2.B fails because this contract is not fully honored at 3 levels.
+
+**Why 2-hop accidentally passes and 3-hop breaks (hypothesis, needs verification in Phase 1.75 /tp-help):** At mono-time substitution for `@apply_identity<int>` (2-hop), the substitution pipeline produces a body whose `$t7` leaf either (a) gets resolved through `resolve_fully` via direct union-find link to the outer scheme var's root AND the root's var_id appears in the substitution map, OR (b) the LLVM codegen path doesn't observe the residual `Tag::Var` because `test_generic_calling_generic`'s output assertions don't discriminate the wrong value. For 3-hop, `@double_wrap<int>` → `@wrap<int>` adds a second layer where `$t8` (inside `@wrap`) is NOT linked to `@double_wrap`'s outer scheme var — it is linked to `@wrap`'s OWN scheme var, which is only substituted to `int` when `@wrap<int>` is monomorphized. If `substitute_in_pool` doesn't call `resolve_fully` at each walk step, `$t8` survives as a raw `Tag::Var` in `@wrap<int>`'s realized ARC IR, and `process_arc_function` at §04.2's hook fires `UnresolvedTypeVar`.
+
+**Root-cause localization target (Phase 1.75 consensus should confirm):**
+1. Most likely: `compiler/ori_types/src/pool/substitute/` — `substitute_in_pool` does not `resolve_fully` at each walk step of body expr_types, so `Tag::Var` leaves with linkage to scheme vars are preserved literally instead of resolving through to the substitution map.
+2. Alternative: the LLVM mono engine (`compiler/ori_llvm/src/monomorphize.rs` module — confirmed exists via intel graph) substitutes at the signature level but doesn't walk body expr_types with the same substitution map.
+3. Less likely: `resolve_all_lambda_bound_vars` (define_phase.rs) — this pass targets lambda captures, not plain generic body calls; the failing program has no lambdas.
+4. Ruled out: `default_unbound_vars_from_empty_literals` — the repro has no empty collection literals.
+5. Ruled out: §08.3 `pool/re_intern/` — the repro is single-module, no cross-module re-intern.
+
+**Phase 1 status**: `in-progress` — findings above cover repro + leak-site identification + validator-contract understanding + candidate root-cause list. Remaining Phase 1 sub-steps before Phase 1.5: (a) read `ori_types/src/pool/substitute/` to confirm/deny hypothesis 1, (b) read `ori_llvm/src/monomorphize/` to confirm/deny hypothesis 2, (c) query reference compilers (Rust/Swift/Koka) for prior art on "union-find-linked scheme-var-root Tag::Var leaves at substitution sites."
 
 ### Success criteria
 
-- [ ] Root cause identified and documented (phase + function + invariant violated).
+- [x] Root cause phase narrowed (pool/substitute or llvm/monomorphize — final selection at Phase 1.75 /tp-help consensus).
+- [ ] Root cause function identified (specific offending walk step or missing `resolve_fully` call).
 - [ ] Fix implemented at the correct upstream site (NOT in §04.2's assertion — the assertion MUST continue to fire if the underlying leak recurs; weakening it is INVERTED-TDD per CLAUDE.md).
 - [ ] `cargo test --test aot generics::test_generic_chain_three_levels` passes (both variants).
 - [ ] `timeout 150 ./test-all.sh` returns green (or same-baseline: same known-failing set, no new failures vs state.sh at close-of-fix HEAD).
