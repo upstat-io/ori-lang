@@ -46,9 +46,10 @@ pub use output::{
     TypedModule,
 };
 pub use pool::{
-    build_mono_body_type_map, extract_var_from_types, re_intern_sig, re_intern_sig_with_var_remap,
-    re_intern_type, re_intern_type_with_var_remap, substitute_in_pool, walk_collection_types,
-    BodyTypeMapSink, EnumVariant, Pool, TypeDescriptor, VarState, VariantDescriptor, DEFAULT_RANK,
+    build_mono_body_type_map, extend_var_subst_with_roots, extract_var_from_types, re_intern_sig,
+    re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
+    substitute_in_pool, walk_collection_types, BodyTypeMapSink, EnumVariant, Pool, TypeDescriptor,
+    VarState, VariantDescriptor, DEFAULT_RANK,
 };
 pub use registry::{
     // Type registry

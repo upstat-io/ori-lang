@@ -361,5 +361,63 @@ pub fn build_mono_body_type_map<Sink: BodyTypeMapSink>(
     }
 }
 
+/// Extend `var_subst` with `{union_find_root_var_id → concrete}` entries for
+/// every scheme var whose equivalence-class root differs from the scheme
+/// var's own `var_id`.
+///
+/// Rank-weighted union-find (`typeck.md §UN-7`) can make a fresh instantiation
+/// var the root of a scheme var's equivalence class. In that case,
+/// `substitute_var` (see lines 90-105) finds the scheme var's `var_id` via
+/// direct map lookup, but walking a body type that carries the ROOT's
+/// `Tag::Var(root_var_id)` leaf falls through to `VarState::Unbound` (the
+/// root has no `Link` to follow) and returns unchanged. Adding the root's
+/// `var_id` to the map ensures pool-walk visits of the root `Tag::Var`
+/// entry find the concrete type through a direct hit.
+///
+/// **Semantics: preserve-existing** — mirrors the idempotent-set pattern of
+/// `build_exempt_var_ids` at `check/validators/mod.rs:161-173`. Caller-supplied
+/// map entries (declared scheme-var → concrete) are authoritative and MUST
+/// NOT be overwritten; the helper only ADDS root-var entries that were not
+/// already keys.
+///
+/// **Invoked by every monomorphization path** to maintain the SSOT invariant
+/// per `impl-hygiene.md §Algorithmic DRY` and `§SSOT`:
+/// - Eager typeck: `infer::expr::calls::monomorphization::maybe_record_mono_instance`
+/// - Deferred typeck: `check::exports::resolve_deferred_mono_calls`
+/// - JIT imported-mono: `oric::test::runner::imported_mono`
+///
+/// Idempotent and side-effect-free on `pool` (read-only queries).
+#[expect(
+    clippy::implicit_hasher,
+    reason = "var_subst is consistently FxHashMap<u32, Idx> across the whole ori_types crate \
+              (matches substitute_in_pool's signature); generalizing would force BuildHasher \
+              plumbing through every caller for no measurable benefit."
+)]
+pub fn extend_var_subst_with_roots(
+    pool: &Pool,
+    scheme_var_ids: &[u32],
+    var_subst: &mut FxHashMap<u32, Idx>,
+) {
+    let mut extensions: Vec<(u32, Idx)> = Vec::new();
+    for &sv_id in scheme_var_ids {
+        let Some(concrete) = var_subst.get(&sv_id).copied() else {
+            continue;
+        };
+        let Some(sv_idx) = pool.var_idx_for_id(sv_id) else {
+            continue;
+        };
+        let root = pool.resolve_fully(sv_idx);
+        if pool.tag(root) == Tag::Var {
+            let root_vid = pool.data(root);
+            if root_vid != sv_id {
+                extensions.push((root_vid, concrete));
+            }
+        }
+    }
+    for (vid, concrete) in extensions {
+        var_subst.entry(vid).or_insert(concrete);
+    }
+}
+
 #[cfg(test)]
 mod tests;

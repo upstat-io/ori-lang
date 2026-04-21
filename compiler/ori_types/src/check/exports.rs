@@ -208,6 +208,22 @@ pub(super) fn resolve_deferred_mono_calls(
                 continue;
             }
 
+            // Extend resolved_var_subst with union-find root var_ids so
+            // build_mono_body_type_map can substitute raw Tag::Var leaves
+            // whose var_id is the root rather than the declared callee
+            // scheme var. Without this extension, a 3-hop generic chain
+            // where the middle layer takes the deferred path leaks
+            // Tag::Var leaves into the realized ARC IR and fires the §04.2
+            // PC-2 seam assertion (typeck.md §UN-7 rank-weighted union).
+            // SSOT per impl-hygiene.md §Algorithmic DRY — shared with the
+            // eager-path site at infer::expr::calls::monomorphization and
+            // the JIT imported-mono site at oric::test::runner::imported_mono.
+            crate::pool::substitute::extend_var_subst_with_roots(
+                pool,
+                &deferred.callee_scheme_var_ids,
+                &mut resolved_var_subst,
+            );
+
             // Build generic_args in scheme_var_ids order.
             let generic_args: Vec<GenericArg> = deferred
                 .callee_scheme_var_ids

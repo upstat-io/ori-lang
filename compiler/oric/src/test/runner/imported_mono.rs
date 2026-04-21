@@ -102,6 +102,22 @@ pub(super) fn build_imported_mono_functions(
             merged_pool.ensure_var_capacity(max_id + 1);
         }
 
+        // Extend var_subst with union-find root var_ids so
+        // build_mono_body_type_map can substitute raw Tag::Var leaves
+        // whose var_id is the root rather than the declared scheme var.
+        // Shared SSOT helper per impl-hygiene.md §Algorithmic DRY — also
+        // invoked at the eager-path (infer::expr::calls::monomorphization)
+        // and deferred-path (check::exports::resolve_deferred_mono_calls)
+        // sites. Without this extension, imported generic JIT compilation
+        // where the callee's scheme var is not the union-find representative
+        // would silently miscompile (pre-§04.2) or fire the §04.2 PC-2 seam
+        // assertion (post-§04.2) at codegen time.
+        ori_types::extend_var_subst_with_roots(
+            merged_pool,
+            &generic_sig.scheme_var_ids,
+            &mut var_subst,
+        );
+
         // Build body_type_map via the canonical SSOT helper (typeck-
         // side), FxHashMap sink variant for LLVM-side MonoFunction
         // consumption. The helper handles the HAS_VAR|HAS_BOUND_VAR
