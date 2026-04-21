@@ -199,7 +199,9 @@ Phase 5 — Poly-Lambda Mono Fix (Section 08, NEW — absorbs BUG-04-042) — CO
   └─ 08.6: Confirm §04.2 seam order is correct under corrected fix (no rework needed)
   └─ 08.R: TPR review
   └─ 08.N: Completion checklist
-     Gate: test-all.sh is GREEN on Ori spec (LLVM backend); commits unblock
+     Gate: `test-all.sh` reports no `Ori spec (LLVM backend) CRASHED` line; commits unblock
+           (full-green of test-all.sh is NOT §08's gate — §08's success criterion is scoped
+            to "no CRASHED line" per section-08 frontmatter line 28)
 
 Phase 6 — Diagnostics + Test Audit (Section 06)
   └─ 06.1: Refine E2005 message wording + suggestion format
