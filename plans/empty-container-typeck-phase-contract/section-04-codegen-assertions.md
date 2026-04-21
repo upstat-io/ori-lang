@@ -1006,7 +1006,11 @@ New `.ori` spec tests + Rust AOT tests per the TDD matrix above; new unit tests 
 
 ### 2.5 Fix Plan TPR Findings
 
-**Status**: pending — run `/tpr-review` via the `Skill` tool after Phase 2 fix plan is finalized, scoped to §04.2.B. MANDATORY per /fix-bug Phase 2.5 trigger gate: severity `high` + complexity-elevated subsystem (`ori_types` mono + `ori_arc` ARC lowering). Trigger criteria: MET.
+**Status**: paused-for-resume — `/tpr-review` dispatched for adversarial plan review at §04.2.B. Gate: MANDATORY per /fix-bug Phase 2.5 (severity `high` + complexity-elevated subsystem `ori_types` mono + `ori_arc` ARC lowering + `ori_llvm` codegen interaction). **Resume point for fresh /continue-roadmap session: re-enter /tpr-review Round 0 against this subsection.** No phases beyond 2.5 have run; §3 implementation is drafted in the subsection body but has NOT been written to disk (Phase 4 not started, Phase 5 not started).
+
+**Round 0 (2026-04-21, scratch `/tmp/tpr-round-ori_lang-viGHygH6`)**: both reviewer sub-agents returned sub_agent_contract_violation per /tpr-review §9 (banned I22 partial-status phrase before Bash termination). Underlying CLIs: codex was making substantive investigative progress on a 2-hop-passes analysis gap (visible in monitor event stream before violation); gemini hit `API Error: No capacity available for model gemini-3.1-pro-preview` (BUG-08-012 confirmed). Orchestrator forbidden from inspecting scratch artifacts per I23 invariant.
+
+**Resolution**: user-selected pause-and-resume (exit_reason `user_pause_and_resume`). Context was deep (nested /continue-roadmap → /fix-bug → /tpr-review) which may have contributed to the I22 regression. Fresh session with cleared context is the structurally preferred recovery path — BUG-08-012 gemini-capacity windows also tend to clear off-peak. Prior session's work preserved in commits `9d854cf9` (TPR-seam + fix-consensus + TDD-matrix + implementation plan) and `5b259639` (Phase 1 findings).
 
 ### R. TPR Findings
 
