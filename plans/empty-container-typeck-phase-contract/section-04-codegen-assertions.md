@@ -568,7 +568,7 @@ counter-only and has no suppression side effect.
 | 2a | `define_function_body_arc_with_subst` (define_phase.rs:~67) | `fn(…)` | `-> Result<(), VerifyError>` via `?` on `emit_arc_function`. `exit_debug_scope` cleanup lives one level DOWN (in `emit_arc_function`) so this level just propagates. |
 | 2a' | `define_function_body` (define_phase.rs:47) | `fn(&mut self, Name, FunctionId, &FunctionAbi, CanId, &CanonResult, bool)` | `-> Result<(), VerifyError>` via `?` on `define_function_body_arc_with_subst`. Pure wrapper (delegates at define_phase.rs:56); propagation only. Omitted from the Round 5 table; §04.2 implementation MUST carry the signature change through this wrapper or the `?` in 2a does not compile. |
 | 2b | `compile_tests` branches (impls.rs:88, impls.rs:151) | — | On `Err`, use `continue` to skip to the next test iteration WITHOUT altering `compile_tests`'s return signature. The per-test failure is already recorded via `record_codegen_error()` and the suite continues. This mirrors Gemini R5-001's recommendation: not every outer caller must change signature — some outer-loop callers can absorb `Err` via `continue` or `let _ =` when their loop semantic is "keep going past individual failures". |
-| 2c | `compile_impl_method_from_sig` (impls.rs:241) | `fn<'sig>(…)` | On `Err` from `define_function_body` (called at impls.rs:321), use `continue`-on-Err. The two callers at impls.rs:199 and impls.rs:221 are both inside impl-method iteration loops — "keep going past individual failures" semantic applies, matching 2b's pattern. Per-method failure is already recorded via `record_codegen_error()` through the 1a `exit_debug_scope` path. |
+| 2c | `compile_impl_method_from_sig` (impls.rs:241) | `fn<'sig>(…)` returning `()` | **Helper, not a loop.** Its body has early-`return` guards (sig-iter exhaustion, `sig.is_generic()`) and calls `self.define_function_body(...)` as the final statement at impls.rs:321. Simplest shape: keep the unit return and absorb Err at the call site — `let _ = self.define_function_body(...);` — OR change to `-> Result<(), VerifyError>` and propagate via `?`. The `continue`-on-Err handling belongs in the two CALLERS at impls.rs:199 and impls.rs:221, which are the `for method in &impl_def.methods` loops; record them explicitly in this row's description. Per-method failure is recorded via `record_codegen_error()` through the 1a `exit_debug_scope` path regardless of the chosen shape. |
 | 3 | `prepare_arc_function` (nounwind/prepare.rs) | existing Hook 2 cascade | Already cascades to `prepare_all_cached` / `prepare_mono_cached` per Round 2's fix; now ALSO propagates Hook 1 `Err` via `?` on the `process_arc_function` call. No new callers above this level — the Round 2 cascade already covers them. |
 | 4 | JIT batch `evaluator/compile.rs` + AOT batch `oric/src/commands/codegen_pipeline.rs` | existing | Per the two-level cascade from Round 2: these already track per-function failures via `record_codegen_error()` counter. With Hook 1's Result cascade landed, the recorded failures now correspond to `Err` paths that also skipped emission — the counter stays the SSOT for end-of-batch pass/fail classification. |
 
@@ -788,9 +788,9 @@ removed without regret.
 
 Insert between the `mono_functions` extension (line 236 — `mono_functions.extend(imported_mono_functions);`) and the `run_interprocedural_analyses` call (line 238). At this JIT insertion point, `arc_cache` is the caller-pre-populated input parameter (`evaluator/compile.rs:75`) containing source-body `ArcFunction`s from the caller's pre-lowering pass — these may include generic bodies; `mono_functions` is a SEPARATE vector populated at `evaluator/compile.rs:230` via `collect_mono_functions` and later lowered through `fc.prepare_mono_cached(&mono_functions, canon, arc_cache)` at line 319. Site A scope:
 
-- For each `(arc_fn, lambdas)` in `arc_cache`, invoke the assertion. Entries may include generic source bodies (pre-monomorphization), so the exempt set MUST be populated per-function from `FunctionSig.scheme_var_ids` to avoid spurious firing on legitimate `Tag::RigidVar`s (and, pre-§08.3b, on `Tag::Var(Generalized)`) that survive in generic bodies.
-- Mono instances in the `mono_functions` vector are NOT covered by Site A at this insertion point (they are not yet in `arc_cache`). They flow into `prepare_mono_cached` at line 319 and reach the primary seam (`process_arc_function`) post-substitution; primary-seam coverage is sufficient for mono instances per §04.2 Decision 2 (empty exempt set is the invariant there).
-- AOT has an analogous arc_cache layout: `codegen_pipeline.rs:105` inserts pre-mono entries from `module.functions`, `codegen_pipeline.rs:129` inserts mono entries from `collect_mono_functions`. Site B (AOT below) iterates post-insertion — covers BOTH pre-mono and mono, distinct from Site A's JIT-only pre-mono scope.
+- For each `(arc_fn, lambdas)` in `arc_cache`, invoke the assertion. JIT `arc_cache` is pre-populated by `lower_and_infer_borrows` at `compiler/oric/src/test/runner/arc_lowering.rs:39`, which SKIPS every `sig.is_generic()` function (filters at arc_lowering.rs:59, 81, 147, 207) — so entries are exclusively non-generic bodies + imported monomorphized instances. The exempt set is therefore **empty** at this site (non-generic entries have empty `scheme_var_ids`, and imported mono instances are fully substituted before insertion); dynamic exempt-set logic is not required here.
+- Mono instances collected at `evaluator/compile.rs:230` (`mono_functions`, the SEPARATE vector from `arc_cache`) are NOT covered by Site A at this insertion point. They flow into `prepare_mono_cached` at line 319 and reach the primary seam (`process_arc_function`) post-substitution; primary-seam coverage is sufficient for mono instances per §04.2 Decision 2 (empty exempt set is the invariant there).
+- AOT has an analogous arc_cache layout at `codegen_pipeline.rs:92-105` (non-generic top-level pre-mono loop, skipping generics at `codegen_pipeline.rs:92-94`) and `codegen_pipeline.rs:118-129` (mono loop). Site B (AOT below) iterates post-insertion — covers non-generic-top-level + mono entries, distinct from Site A's JIT-only scope.
 
 Identified by TPR-04-R1-F2 (critical) via the §04.3 empty-set/generic-body contradiction with §04.1's doc comment.
 
@@ -799,29 +799,14 @@ Identified by TPR-04-R1-F2 (critical) via the §04.3 empty-set/generic-body cont
 // (the process_arc_function seam is the correctness gate); this site exists
 // only to attribute the diagnostic to the pre-mono input.
 //
-// `build_exempt_var_ids` is the producer-side helper at
-// `compiler/ori_types/src/check/validators/mod.rs`; it returns the set of
-// rigid + generalized scheme var_ids for a given FunctionSig. For
-// monomorphized functions the helper returns an empty set. For generic
-// source bodies it returns the scheme_var_ids set. This mirrors §04.1's
-// doc-comment contract.
-// `function_sigs: &[FunctionSig]` is a slice (verified at
-// `compiler/ori_llvm/src/evaluator/compile.rs:69`), NOT a `Name`-keyed
-// map. Build a name→&sig lookup once at loop entry so the inner
-// exempt-set construction is O(1) per function; the slice itself is
-// typically dozens of entries, so the one-time HashMap build is cheap
-// and keeps the per-function scheme_var_ids query correct.
-let sig_by_name: rustc_hash::FxHashMap<ori_ir::Name, &ori_types::FunctionSig> =
-    function_sigs.iter().map(|s| (s.name, s)).collect();
+// Exempt set is empty: `lower_and_infer_borrows` at
+// `compiler/oric/src/test/runner/arc_lowering.rs:39` skips generics at
+// :59/:81/:147/:207, so arc_cache contains only non-generic bodies +
+// imported monomorphized instances. Both categories have empty
+// scheme_var_ids; no dynamic exempt-set lookup is required at Site A.
+let exempt: rustc_hash::FxHashSet<u32> = rustc_hash::FxHashSet::default();
 
-for (fn_name, (arc_fn, lambdas)) in arc_cache.iter() {
-    // Look up the generic scheme for this function; imported mono
-    // instances may not be in `function_sigs`, in which case the helper
-    // default (empty set) is correct — they are fully substituted.
-    let sig = sig_by_name.get(fn_name).copied();
-    let exempt: rustc_hash::FxHashSet<u32> = sig
-        .map(|s| ori_types::build_exempt_var_ids(self.pool, &s.scheme_var_ids))
-        .unwrap_or_default();
+for (_fn_name, (arc_fn, lambdas)) in arc_cache.iter() {
     if let Err(err) = ori_arc::assert_no_unresolved_type_vars(
         self.pool, arc_fn, interner, &exempt,
     ) {
@@ -835,8 +820,6 @@ for (fn_name, (arc_fn, lambdas)) in arc_cache.iter() {
         // when process_arc_function runs. This is diagnostic-only.
     }
     for lambda in lambdas {
-        // Lambdas inherit their parent function's scheme; reuse the same
-        // `exempt` set rather than re-querying function_sigs.
         if let Err(err) = ori_arc::assert_no_unresolved_type_vars(
             self.pool, lambda, interner, &exempt,
         ) {
@@ -853,16 +836,14 @@ for (fn_name, (arc_fn, lambdas)) in arc_cache.iter() {
 
 ### Site B: AOT pre-mono loop at `oric/src/commands/codegen_pipeline.rs` (~lines 95-129)
 
-Analogous insertion after each `arc_cache.insert(arc_fn.name, (arc_fn, lambdas))` (both the
-pre-mono loop at lines ~95-105 and the mono loop at lines ~119-129). Uses the bare `pool`
-parameter (no `self`). Same diagnostic-only pattern as Site A — including the same
-per-function exempt-set requirement: the pre-mono loop operates on generic source bodies
-whose `FunctionSig.scheme_var_ids` must exempt rigid/generalized vars from spurious
-firing, while the mono loop operates on monomorphized instances where the exempt set is
-empty. Both loops use `ori_types::build_exempt_var_ids(pool, &sig.scheme_var_ids)` with the
-corresponding `FunctionSig` rather than the empty default. The mono loop is the only one
-where the exempt set is empty by design (mono functions have empty `scheme_var_ids`);
-the pre-mono loop passes the generic source body's populated `scheme_var_ids`.
+Analogous insertion after each `arc_cache.insert(arc_fn.name, (arc_fn, lambdas))` — both the pre-mono loop at lines ~95-105 AND the mono loop at lines ~119-129. Uses the bare `pool` parameter (no `self`). Diagnostic-only pattern per Site A.
+
+Both loops operate on fully-resolved entries:
+
+- **Pre-mono loop (codegen_pipeline.rs:86-105)** — the first guard at lines 92-94 skips generic signatures via `if sig.is_generic() { continue; }` BEFORE lowering. Only non-generic top-level functions reach `arc_cache.insert` at :105. `scheme_var_ids` is empty on every inserted sig.
+- **Mono loop (codegen_pipeline.rs:112-129)** — `collect_mono_functions` at :112 produces monomorphized instances with fully-substituted types. `scheme_var_ids` is empty by construction.
+
+Exempt set is therefore **empty** at both Site B invocation points. `build_exempt_var_ids(pool, &sig.scheme_var_ids)` would return an empty set; using `FxHashSet::default()` directly is cleaner and matches the primary-seam `exempt_var_ids` contract from §04.2 Decision 2. No dynamic exempt-set logic is required at Site B.
 
 ---
 
