@@ -75,6 +75,18 @@ pub enum VerifyError {
     /// `BoundedExceeded`) that represent genuine internal compiler bugs
     /// — the interprocedural analysis produced an inconsistent contract.
     FipStructural { message: String },
+
+    /// A variable's type is `Tag::Var` or `Tag::Projection` after typeck
+    /// exit — a PC-2 invariant violation. Wraps
+    /// [`crate::ir::validate::UnresolvedTypeVar`] so existing verification
+    /// error handling works unchanged.
+    UnresolvedTypeVar(crate::ir::validate::UnresolvedTypeVar),
+}
+
+impl From<crate::ir::validate::UnresolvedTypeVar> for VerifyError {
+    fn from(violation: crate::ir::validate::UnresolvedTypeVar) -> Self {
+        VerifyError::UnresolvedTypeVar(violation)
+    }
 }
 
 impl std::fmt::Display for VerifyError {
@@ -140,6 +152,17 @@ impl std::fmt::Display for VerifyError {
             }
             VerifyError::FipStructural { message } => {
                 write!(f, "FIP structural violation: {message}")
+            }
+            VerifyError::UnresolvedTypeVar(violation) => {
+                write!(
+                    f,
+                    "unresolved type variable (PC-2 violation): function name_id={:?}, \
+                     ArcVarId({}), idx={:?}, tag={:?}",
+                    violation.function,
+                    violation.var_id.raw(),
+                    violation.idx,
+                    violation.tag,
+                )
             }
         }
     }

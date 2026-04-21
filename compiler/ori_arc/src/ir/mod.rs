@@ -22,6 +22,7 @@ mod function;
 mod instr;
 mod repr;
 mod terminator;
+pub mod validate;
 
 pub use instr::ArcInstr;
 pub use repr::{compute_var_reprs, RcStrategy, ValueRepr};
