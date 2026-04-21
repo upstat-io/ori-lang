@@ -40,7 +40,7 @@ inspired_by:
   - "Swift SIL Mono — monomorphizes polymorphic closures via dedicated substitution passes that isolate BoundVar from the mono context"
 depends_on: ["03"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-21
   notes: "user-accepted at iter_cap_reached after 3 rounds; 0 findings filed (all 5 verified findings fixed inline across rounds 0-2: body-status-banner/GREEN-wording/commit-blocker-tense/00-overview-Phase-5-gate/semantic-pin-mislabel)"
 sections:

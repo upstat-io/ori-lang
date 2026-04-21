@@ -9,7 +9,7 @@ use ori_ir::canon::CanonResult;
 use ori_ir::{Name, Span, TestDef, TraitDef, TraitItem};
 use ori_types::{FunctionSig, Idx};
 use rustc_hash::{FxHashMap, FxHashSet};
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use super::FunctionCompiler;
 use crate::codegen::abi::{CallConv, FunctionAbi, ReturnAbi, ReturnPassing};
@@ -63,98 +63,157 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 call_conv: CallConv::C,
             };
 
-            if use_invoke_wrapper {
-                let body_name = format!("{wrapper_name}_body");
-
-                // --- Inner body function (the actual test code) ---
-                let body_func_id = self.builder.declare_void_function(&body_name, &[]);
-                self.builder.set_ccc(body_func_id);
-                self.builder.set_current_function(body_func_id);
-
-                let mut problems = Vec::new();
-                let (arc_func, lambdas) = lower_function_can(
-                    test.name,
-                    &[],
-                    Idx::UNIT,
-                    body,
-                    canon,
-                    self.interner,
-                    self.pool,
-                    &mut problems,
-                    false,
-                    None,
-                );
-
-                self.emit_arc_function(test.name, body_func_id, &abi, arc_func, lambdas);
-
-                // --- Outer wrapper with catch-all exception handling ---
-                let outer_func_id = self.builder.declare_void_function(&wrapper_name, &[]);
-                self.builder.set_ccc(outer_func_id);
-                self.builder.set_current_function(outer_func_id);
-
-                let eh_model = self.builder.eh_model();
-                let personality_name = eh_model.personality_name();
-                let personality_id = self.builder.runtime_fn(personality_name);
-                self.builder.set_personality(outer_func_id, personality_id);
-
-                let entry_block = self.builder.append_block(outer_func_id, "entry");
-                let normal_block = self.builder.append_block(outer_func_id, "normal");
-                let catch_block = self.builder.append_block(outer_func_id, "catch");
-
-                self.builder.position_at_end(entry_block);
-                self.builder
-                    .invoke(body_func_id, &[], normal_block, catch_block, "");
-
-                self.builder.position_at_end(normal_block);
-                self.builder.ret_void();
-
-                self.builder.position_at_end(catch_block);
-                let lp = self.builder.landingpad_catch_all(personality_id, "lp.test");
-                if let Some(exc_ptr) = self.builder.extract_value(lp, 0, "exc.ptr") {
-                    let cleanup_fn = self.builder.runtime_fn("ori_catch_cleanup");
-                    self.builder.call(cleanup_fn, &[exc_ptr], "");
-                }
-                self.builder.ret_void();
-
-                // Function-level LLVM IR verification for the outer wrapper.
-                if self.verify_arc {
-                    let outer_fn_val = self.builder.get_function_value(outer_func_id);
-                    if !outer_fn_val.verify(true) {
-                        tracing::error!(
-                            name = test_name_str,
-                            "LLVM IR verification failed (compile_tests outer wrapper)"
-                        );
-                        self.builder.record_codegen_error();
-                    }
-                }
+            let emitted = if use_invoke_wrapper {
+                self.compile_test_with_invoke_wrapper(test, &wrapper_name, body, canon, &abi)
             } else {
-                // Windows JIT: single function, no invoke/landingpad wrapper.
-                // Panic recovery handled by jit_run_protected on the Rust side.
-                let func_id = self.builder.declare_void_function(&wrapper_name, &[]);
-                self.builder.set_ccc(func_id);
-                self.builder.set_current_function(func_id);
+                self.compile_test_without_invoke_wrapper(test, &wrapper_name, body, canon, &abi)
+            };
 
-                let mut problems = Vec::new();
-                let (arc_func, lambdas) = lower_function_can(
-                    test.name,
-                    &[],
-                    Idx::UNIT,
-                    body,
-                    canon,
-                    self.interner,
-                    self.pool,
-                    &mut problems,
-                    false,
-                    None,
-                );
-
-                self.emit_arc_function(test.name, func_id, &abi, arc_func, lambdas);
+            if emitted {
+                test_wrappers.insert(test.name, wrapper_name);
             }
-
-            test_wrappers.insert(test.name, wrapper_name);
         }
 
         test_wrappers
+    }
+
+    /// Compile a single test with the Itanium EH invoke/landingpad wrapper.
+    ///
+    /// Returns `true` if the test was successfully emitted (both inner body
+    /// and outer wrapper); `false` if the PC-2 contract check on the inner
+    /// body fired (per-test failure — outer wrapper skipped).
+    fn compile_test_with_invoke_wrapper(
+        &mut self,
+        test: &TestDef,
+        wrapper_name: &str,
+        body: ori_ir::canon::CanId,
+        canon: &CanonResult,
+        abi: &FunctionAbi,
+    ) -> bool {
+        let test_name_str = self.interner.lookup(test.name);
+        let body_name = format!("{wrapper_name}_body");
+
+        // --- Inner body function (the actual test code) ---
+        let body_func_id = self.builder.declare_void_function(&body_name, &[]);
+        self.builder.set_ccc(body_func_id);
+        self.builder.set_current_function(body_func_id);
+
+        let mut problems = Vec::new();
+        let (arc_func, lambdas) = lower_function_can(
+            test.name,
+            &[],
+            Idx::UNIT,
+            body,
+            canon,
+            self.interner,
+            self.pool,
+            &mut problems,
+            false,
+            None,
+        );
+
+        if let Err(err) = self.emit_arc_function(test.name, body_func_id, abi, arc_func, lambdas) {
+            // PC-2 contract violation — error already recorded via
+            // `record_codegen_error()` inside the hook. Skip this test's
+            // outer wrapper; the suite continues past this failure.
+            warn!(
+                name = test_name_str,
+                ?err,
+                "PC-2 contract violation — skipping test body"
+            );
+            return false;
+        }
+
+        // --- Outer wrapper with catch-all exception handling ---
+        let outer_func_id = self.builder.declare_void_function(wrapper_name, &[]);
+        self.builder.set_ccc(outer_func_id);
+        self.builder.set_current_function(outer_func_id);
+
+        let eh_model = self.builder.eh_model();
+        let personality_name = eh_model.personality_name();
+        let personality_id = self.builder.runtime_fn(personality_name);
+        self.builder.set_personality(outer_func_id, personality_id);
+
+        let entry_block = self.builder.append_block(outer_func_id, "entry");
+        let normal_block = self.builder.append_block(outer_func_id, "normal");
+        let catch_block = self.builder.append_block(outer_func_id, "catch");
+
+        self.builder.position_at_end(entry_block);
+        self.builder
+            .invoke(body_func_id, &[], normal_block, catch_block, "");
+
+        self.builder.position_at_end(normal_block);
+        self.builder.ret_void();
+
+        self.builder.position_at_end(catch_block);
+        let lp = self.builder.landingpad_catch_all(personality_id, "lp.test");
+        if let Some(exc_ptr) = self.builder.extract_value(lp, 0, "exc.ptr") {
+            let cleanup_fn = self.builder.runtime_fn("ori_catch_cleanup");
+            self.builder.call(cleanup_fn, &[exc_ptr], "");
+        }
+        self.builder.ret_void();
+
+        // Function-level LLVM IR verification for the outer wrapper.
+        if self.verify_arc {
+            let outer_fn_val = self.builder.get_function_value(outer_func_id);
+            if !outer_fn_val.verify(true) {
+                tracing::error!(
+                    name = test_name_str,
+                    "LLVM IR verification failed (compile_tests outer wrapper)"
+                );
+                self.builder.record_codegen_error();
+            }
+        }
+
+        true
+    }
+
+    /// Compile a single test without the invoke/landingpad wrapper
+    /// (Windows JIT path; panic recovery handled by `jit_run_protected`).
+    ///
+    /// Returns `true` if the test was successfully emitted; `false` if the
+    /// PC-2 contract check fired.
+    fn compile_test_without_invoke_wrapper(
+        &mut self,
+        test: &TestDef,
+        wrapper_name: &str,
+        body: ori_ir::canon::CanId,
+        canon: &CanonResult,
+        abi: &FunctionAbi,
+    ) -> bool {
+        let test_name_str = self.interner.lookup(test.name);
+        let func_id = self.builder.declare_void_function(wrapper_name, &[]);
+        self.builder.set_ccc(func_id);
+        self.builder.set_current_function(func_id);
+
+        let mut problems = Vec::new();
+        let (arc_func, lambdas) = lower_function_can(
+            test.name,
+            &[],
+            Idx::UNIT,
+            body,
+            canon,
+            self.interner,
+            self.pool,
+            &mut problems,
+            false,
+            None,
+        );
+
+        if let Err(err) = self.emit_arc_function(test.name, func_id, abi, arc_func, lambdas) {
+            // PC-2 contract violation — error already recorded via
+            // `record_codegen_error()` inside the hook. Skip wrapper
+            // insertion so the test harness does not try to invoke an
+            // incompletely-emitted function.
+            warn!(
+                name = test_name_str,
+                ?err,
+                "PC-2 contract violation — skipping test (Windows JIT)"
+            );
+            return false;
+        }
+
+        true
     }
 
     /// Compile impl block methods.
@@ -318,7 +377,21 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             .or_else(|| canon.root_for(method_name))
             .unwrap_or(canon.root);
 
-        self.define_function_body(method_name, func_id, &abi, body, canon, sig.is_fbip);
+        // Absorb PC-2 contract violation: the hook records the error via
+        // `record_codegen_error()` so the driver will refuse to emit the
+        // malformed module; `compile_impls` continues to the next method
+        // so a single bad impl does not hide other errors (per-method
+        // failure pattern mirrors `compile_tests`).
+        if let Err(err) =
+            self.define_function_body(method_name, func_id, &abi, body, canon, sig.is_fbip)
+        {
+            warn!(
+                method = %self.interner.lookup(method_name),
+                type_name,
+                ?err,
+                "PC-2 contract violation — skipping impl method"
+            );
+        }
     }
 
     /// Compile derived trait methods for types with `#[derive(...)]`.

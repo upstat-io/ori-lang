@@ -6,10 +6,11 @@
 //! and shared ARC processing helpers.
 
 use ori_arc::lower_function_can;
+use ori_arc::verify::VerifyError;
 use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span};
 use ori_types::Idx;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::{debug, trace};
 
 use super::FunctionCompiler;
@@ -44,6 +45,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Define a single function body via the ARC codegen pipeline.
     ///
     /// Runs: lower -> borrow annotate -> ARC pipeline -> `ArcIrEmitter`.
+    ///
+    /// Returns `Err(VerifyError::UnresolvedTypeVar(_))` when the PC-2 contract
+    /// check at `process_arc_function` / `declare_and_process_lambda` fires,
+    /// short-circuiting downstream emission for this function.
     pub(super) fn define_function_body(
         &mut self,
         name: Name,
@@ -52,8 +57,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         body: CanId,
         canon: &CanonResult,
         is_fbip: bool,
-    ) {
-        self.define_function_body_arc_with_subst(name, func_id, abi, body, canon, is_fbip, None);
+    ) -> Result<(), VerifyError> {
+        self.define_function_body_arc_with_subst(name, func_id, abi, body, canon, is_fbip, None)
     }
 
     /// ARC IR -> LLVM IR codegen (with RC lifecycle).
@@ -73,7 +78,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         canon: &CanonResult,
         is_fbip: bool,
         type_subst: Option<&FxHashMap<Idx, Idx>>,
-    ) {
+    ) -> Result<(), VerifyError> {
         let name_str = self.interner.lookup(name);
         debug!(name = name_str, tier = 2, "defining function body (ARC)");
 
@@ -103,7 +108,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             debug!(?problem, "ARC lowering problem");
         }
 
-        self.emit_arc_function(name, func_id, abi, arc_func, lambdas);
+        self.emit_arc_function(name, func_id, abi, arc_func, lambdas)
     }
 
     /// Shared post-lowering pipeline: apply borrows -> compile lambdas ->
@@ -117,9 +122,27 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         name: Name,
         func_id: FunctionId,
         abi: &FunctionAbi,
+        arc_func: ori_arc::ArcFunction,
+        lambdas: Vec<ori_arc::ArcFunction>,
+    ) -> Result<(), VerifyError> {
+        // All early-return paths must `exit_debug_scope()` — the enclosing
+        // caller (`define_function_body_arc_with_subst`) entered the scope
+        // and relies on this function to exit it (TPR-04-R5-002).
+        let result = self.emit_arc_function_inner(name, func_id, abi, arc_func, lambdas);
+        self.exit_debug_scope();
+        result
+    }
+
+    /// Inner helper for [`Self::emit_arc_function`] — omitted `exit_debug_scope`
+    /// so the outer function can run it on both Ok and Err paths.
+    fn emit_arc_function_inner(
+        &mut self,
+        name: Name,
+        func_id: FunctionId,
+        abi: &FunctionAbi,
         mut arc_func: ori_arc::ArcFunction,
         mut lambdas: Vec<ori_arc::ArcFunction>,
-    ) {
+    ) -> Result<(), VerifyError> {
         // Compile lambda ArcFunctions (closures).
         // Each lambda is compiled as a separate LLVM function, registered in
         // self.codegen_ctx.functions so that emit_partial_apply can look it up by Name.
@@ -142,7 +165,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
         for mut lambda in lambdas {
             let original_name = lambda.name;
-            self.compile_lambda_arc(&mut lambda);
+            self.compile_lambda_arc(&mut lambda)?;
             // After compile_lambda_arc, lambda.name is the globally unique name
             if lambda.name != original_name {
                 lambda_renames.push((original_name, lambda.name));
@@ -161,7 +184,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         self.builder.set_current_function(func_id);
 
         // Shared ARC processing: borrow annotations -> arg ownership -> pipeline
-        self.process_arc_function(name, &mut arc_func);
+        self.process_arc_function(name, &mut arc_func)?;
 
         let name_str = self.interner.lookup(name);
         let is_nounwind = self.is_arc_function_nounwind(&arc_func);
@@ -217,7 +240,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             debug!(name = name_str, "marked nounwind");
         }
 
-        self.exit_debug_scope();
+        Ok(())
     }
 
     /// Compile a lambda `ArcFunction` as a standalone LLVM function.
@@ -227,7 +250,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// generated later by `emit_partial_apply` in the ARC emitter.
     ///
     /// Registers the lambda in `self.codegen_ctx.functions` so the emitter can look it up.
-    fn compile_lambda_arc(&mut self, lambda: &mut ori_arc::ArcFunction) {
+    fn compile_lambda_arc(&mut self, lambda: &mut ori_arc::ArcFunction) -> Result<(), VerifyError> {
         // Verify no BoundVar types remain after resolution — captures ARE leading
         // params, so resolve_all_lambda_bound_vars must have resolved them too.
         debug_assert!(
@@ -239,8 +262,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.interner.lookup(lambda.name),
         );
 
-        // Shared setup: declare, register, run ARC pipeline
-        let (lambda_name, func_id, abi) = self.declare_and_process_lambda(lambda);
+        // Shared setup: declare, register, run ARC pipeline.
+        // On PC-2 violation, return early WITHOUT invoking run_arc_pipeline /
+        // ArcIrEmitter — the IR is not safe to process further.
+        let (lambda_name, func_id, abi) = self.declare_and_process_lambda(lambda)?;
 
         let is_nounwind = self.is_arc_function_nounwind(lambda);
 
@@ -276,6 +301,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.codegen_ctx.nounwind_functions.insert(lambda_name);
             self.builder.add_nounwind_attribute(func_id);
         }
+
+        Ok(())
     }
 
     /// Compute a `FunctionAbi` from an `ArcFunction`'s parameter and return types.
@@ -312,7 +339,42 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ///
     /// Shared by both the immediate-emit path ([`Self::emit_arc_function`]) and
     /// the two-pass prepare path ([`Self::prepare_arc_function`]).
-    pub(super) fn process_arc_function(&mut self, name: Name, arc_func: &mut ori_arc::ArcFunction) {
+    ///
+    /// Returns `Err(VerifyError::UnresolvedTypeVar(_))` when the PC-2
+    /// cross-phase contract check (`typeck.md §PC-2`,
+    /// `impl-hygiene.md §Cross-Phase Invariant Contracts`,
+    /// `codegen-rules.md §TR-2`) detects `Tag::Var` or `Tag::Projection` in
+    /// the ARC IR — this is ALWAYS-ON contract enforcement per
+    /// `CLAUDE.md §The One Rule`, not gated by `self.verify_arc` which
+    /// controls additional downstream verification (VR-1 LLVM IR verification).
+    pub(super) fn process_arc_function(
+        &mut self,
+        name: Name,
+        arc_func: &mut ori_arc::ArcFunction,
+    ) -> Result<(), VerifyError> {
+        // PC-2 contract check — plan `empty-container-typeck-phase-contract`
+        // §04.2 Hook 1. Runs BEFORE run_arc_pipeline because the pipeline
+        // mutates `arc_func` in place; assertion on post-pipeline IR would
+        // validate the wrong structure.
+        //
+        // Empty exempt set: generic bodies reach this seam only post-
+        // monomorphization; non-generic bodies have no scheme_var_ids. See
+        // plan §04.2 Decision 2.
+        let exempt: FxHashSet<u32> = FxHashSet::default();
+        if let Err(err) =
+            ori_arc::assert_no_unresolved_type_vars(self.pool, arc_func, self.interner, &exempt)
+        {
+            tracing::error!(
+                contract_violation = true,
+                error = ?err,
+                "Tag::Var in ARC IR violates PC-2 contract \
+                 (impl-hygiene.md §Cross-Phase Invariant Contracts, \
+                  codegen-rules.md §TR-2)"
+            );
+            self.builder.record_codegen_error();
+            return Err(VerifyError::UnresolvedTypeVar(err));
+        }
+
         // Apply AIMS param ownership from pre-computed contracts.
         // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
         // AIMS contracts (from compute_aims_contracts()) provide the correct
@@ -355,6 +417,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 ));
             }
         }
+
+        Ok(())
     }
 
     /// Declare a lambda LLVM function, register it in `codegen_ctx`, and run
@@ -375,7 +439,25 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     pub(super) fn declare_and_process_lambda(
         &mut self,
         lambda: &mut ori_arc::ArcFunction,
-    ) -> (Name, FunctionId, FunctionAbi) {
+    ) -> Result<(Name, FunctionId, FunctionAbi), VerifyError> {
+        // PC-2 contract check — plan `empty-container-typeck-phase-contract`
+        // §04.2 Hook 2. Runs BEFORE run_arc_pipeline below because the
+        // pipeline mutates `lambda` in place; assertion on post-pipeline IR
+        // would validate the wrong structure. Mirrors Hook 1 in
+        // `process_arc_function`.
+        let exempt: FxHashSet<u32> = FxHashSet::default();
+        if let Err(err) =
+            ori_arc::assert_no_unresolved_type_vars(self.pool, lambda, self.interner, &exempt)
+        {
+            tracing::error!(
+                contract_violation = true,
+                error = ?err,
+                "Tag::Var in lambda ARC IR violates PC-2 contract"
+            );
+            self.builder.record_codegen_error();
+            return Err(VerifyError::UnresolvedTypeVar(err));
+        }
+
         let is_non_capturing = lambda.num_captures == 0;
 
         // Apply AIMS param ownership from pre-computed contracts BEFORE the
@@ -482,6 +564,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 .insert(unique_name, capture_ownership);
         }
 
-        (unique_name, func_id, abi)
+        Ok((unique_name, func_id, abi))
     }
 }
