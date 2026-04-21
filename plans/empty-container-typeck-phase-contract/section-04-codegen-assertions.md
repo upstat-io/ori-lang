@@ -30,7 +30,7 @@ inspired_by:
   - "Lean 4 `Compiler/IR/RC.lean` — Lean places its structural RC/IR checks at a SINGLE pipeline stage rather than at per-consumer emission sites, matching the single-seam decision here."
 depends_on: ["03", "08"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-21
   notes: "user_accepted_at_iter_cap_reached after 6 rounds (R0–R5); 17 verified findings all fixed inline across commits 7df958c3 → 3acde80f → 93b17075 → 635b6fc6 → 5f1beb20 → a9745c51; zero outstanding at accept time. max_rounds was extended once from 3→6 via run-more after Round 2; second cap fired after Round 5. Core design validated: §04.1 validator (walks var_types + params + return_type + blocks[*].params), §04.2 Hook 1 + Hook 2 explicit Result-based no-emit cascades (process_arc_function + declare_and_process_lambda; counter-based suppression via record_codegen_error banned per impl-hygiene.md §Invariant Explicitness), §04.3 diagnostic sites with per-function exempt sets via build_exempt_var_ids, §04.4 12-cell test matrix. Ready for implementation; drift against HEAD-at-implementation-time to be caught during coding. user-accepted at iter_cap_reached after 3 rounds; 9 findings all fixed inline (commits 4ca28a6b, 86c9886f, 5fa0bf24, e7e91572); 0 residuals"
 sections:
@@ -42,7 +42,12 @@ sections:
     notes: "Module + error shape + re-exports + build_exempt_var_ids visibility already landed at HEAD (verified 2026-04-21). Remaining work: populate validate/tests.rs body with §04.4 12-cell matrix + lambda-capture behavioral test."
   - id: "04.2"
     title: "PRIMARY seam: `process_arc_function` + `declare_and_process_lambda` hooks (load-bearing)"
+    status: implementation-done-close-blocked
+    notes: "Hook 1 + Hook 2 + 9-site Result cascade landed at HEAD (2026-04-21; unstaged in tree). cargo c + clippy clean workspace-wide. Assertion fires correctly — -537 LCFails, +538 passes in ori_spec_llvm. Close-out blocked by §04.2.B: upstream Tag::Var leak on 3-level generic chain surfaces as 2 new AOT failures (generics::test_generic_chain_three_levels + _string). Close §04.2 only after §04.2.B fix lands AND test-all.sh returns green."
+  - id: "04.2.B"
+    title: "BLOCKER: upstream Tag::Var leak on 3-level generic chain (generics::test_generic_chain_three_levels)"
     status: not-started
+    notes: "Classification B finding surfaced by §04.2's PC-2 assertion hook. 2 AOT integration tests fail with UnresolvedTypeVar { var_id: ArcVarId(2), idx: Idx(220), tag: Tag::var }. Plan anticipated this exact class at line 719: '§08.3 completeness bug or upstream-filter regression'. Root-cause investigation required — likely typeck/canon/ARC normalization gap on 3-level generic chaining not covered by §08.3's e1–e5 matrix cells. Full /fix-bug rigor mandatory (blocker to §04.2 close-out; §04 cannot complete until fixed)."
   - id: "04.TPR-A"
     title: "TPR checkpoint after 04.1 + 04.2 (the load-bearing surface)"
     status: not-started
@@ -715,8 +720,82 @@ that placement because:
 
 These items were originally §08.6's forward-coordination checks; absorbed here to eliminate a same-plan self-blocker (§08.6 → §04.2) per CLAUDE.md §Plan-Blocker Bugs Belong IN the Plan. §04.2 naturally owns "the seam fires correctly against BOTH the intra-module lambda_mono path and the cross-module re-intern path from §08.3" as part of its own completion — it is not a §08 obligation, it is the deliverable of the seam itself.
 
-- [ ] **Post-substitution firing verification (both paths)**: after §04.2's `assert_no_unresolved_type_vars` hooks are inserted at `define_phase.rs:315` (`process_arc_function`) and `:375` (`declare_and_process_lambda`) AND §08.3's remap-aware re-intern is live in the merged pool, verify the assertion fires POST-substitution for (a) the intra-module lambda_mono path via `resolve_all_lambda_bound_vars` at `define_phase.rs:134` + `nounwind/prepare.rs:173`, and (b) the cross-module re-intern path via `pool/re_intern/`. Record the confirmation in §04.R close-out and backlink §08.6.R as "§04 seam order verified correct under §08.1.R corrected diagnosis; no change required." Seam-line-number shifts are acceptable as long as the POST-substitution invariant holds.
-- [ ] **Empty-exempt assertion strictness holds under §08.3 remap**: validate that `assert_no_unresolved_type_vars`'s empty-`exempt_var_ids` contract at all shipping sites (§04.2 primary seam + §04.3 secondary Sites A/B) remains sound after §08.3's remap-aware re-intern lands. Strict `typeck.md §PC-2` + `canon.md §4.2` rule: §08.3 + `resolve_all_lambda_bound_vars` + upstream generic filters (`lower_and_infer_borrows` / `codegen_pipeline.rs:92-94`) together must leave zero `Tag::Var` at every call site; a surviving `Tag::Var` is a §08.3 completeness bug or an upstream-filter regression. §08.3's matrix cells e1–e5 must preserve this invariant. The `exempt_var_ids` parameter stays in the validator signature as a defense-in-depth hook — a future call site that DOES need dynamic exemption (e.g. non-generic-filtered pre-mono path not yet shipped) can populate it from `FunctionSig.scheme_var_ids` without breaking the contract. Record the verification in §04.R as "empty-exempt seam strictness holds under §08.3 remap + upstream generic filters; §08.3's cell coverage adequate."
+- [x] **Post-substitution firing verification (both paths)**: after §04.2's `assert_no_unresolved_type_vars` hooks are inserted at `define_phase.rs:315` (`process_arc_function`) and `:375` (`declare_and_process_lambda`) AND §08.3's remap-aware re-intern is live in the merged pool, verify the assertion fires POST-substitution for (a) the intra-module lambda_mono path via `resolve_all_lambda_bound_vars` at `define_phase.rs:134` + `nounwind/prepare.rs:173`, and (b) the cross-module re-intern path via `pool/re_intern/`. Record the confirmation in §04.R close-out and backlink §08.6.R as "§04 seam order verified correct under §08.1.R corrected diagnosis; no change required." Seam-line-number shifts are acceptable as long as the POST-substitution invariant holds.
+  Verified 2026-04-21 via code inspection of HEAD (unstaged dirty tree with Hook 1 + Hook 2 landed). (a) Intra-module `lambda_mono` path: `emit_arc_function_inner` at `define_phase.rs:138` calls `resolve_all_lambda_bound_vars(&mut arc_func, &mut lambdas, self.pool, self.interner, classifier)` at `:157-163` BEFORE the lambda compilation loop at `:166-173` (which invokes Hook 2 via `compile_lambda_arc` → `declare_and_process_lambda` at `:253-254`) and BEFORE Hook 1 at `process_arc_function` invocation at `:187`. Nounwind batch path: `prepare_arc_function` at `nounwind/prepare.rs:186` calls `resolve_all_lambda_bound_vars` at `:208` BEFORE the lambda-prepare loop at `:215-222` (which invokes Hook 2 via `prepare_lambda` → `declare_and_process_lambda` at `:262`) and BEFORE Hook 1 at `:237`. Both paths are POST-substitution; line-number shifts (`:134`→`:157`, `:173`→`:208`, `:315`→Hook 1 landed at `process_arc_function` fn start, `:375`→Hook 2 landed at `declare_and_process_lambda` fn start) are within the plan's "acceptable as long as the POST-substitution invariant holds" envelope. (b) Cross-module re-intern path: `pool/re_intern/` runs during pool construction (upstream of codegen entirely per `types.md §TY-6` exception); Hook 1/2 see post-re-intern types natively.
+- [x] **Empty-exempt assertion strictness holds under §08.3 remap**: validate that `assert_no_unresolved_type_vars`'s empty-`exempt_var_ids` contract at all shipping sites (§04.2 primary seam + §04.3 secondary Sites A/B) remains sound after §08.3's remap-aware re-intern lands. Strict `typeck.md §PC-2` + `canon.md §4.2` rule: §08.3 + `resolve_all_lambda_bound_vars` + upstream generic filters (`lower_and_infer_borrows` / `codegen_pipeline.rs:92-94`) together must leave zero `Tag::Var` at every call site; a surviving `Tag::Var` is a §08.3 completeness bug or an upstream-filter regression. §08.3's matrix cells e1–e5 must preserve this invariant. The `exempt_var_ids` parameter stays in the validator signature as a defense-in-depth hook — a future call site that DOES need dynamic exemption (e.g. non-generic-filtered pre-mono path not yet shipped) can populate it from `FunctionSig.scheme_var_ids` without breaking the contract. Record the verification in §04.R as "empty-exempt seam strictness holds under §08.3 remap + upstream generic filters; §08.3's cell coverage adequate."
+  Verified 2026-04-21 via code inspection. Hook 1 (`process_arc_function`) and Hook 2 (`declare_and_process_lambda`) both use `let exempt: FxHashSet<u32> = FxHashSet::default();` (empty) at `define_phase.rs:379` and `:452` respectively. The empty-set invariant is load-bearing because: arc_cache entries at §04.3 sites are either (1) non-generic top-level functions (filtered at `codegen_pipeline.rs:92-94` via `sig.is_generic() { continue; }` before insertion) or (2) imported monomorphized instances (fully substituted before insertion). Both categories have empty `FunctionSig.scheme_var_ids` or no scheme binder; `build_exempt_var_ids(pool, &[])` returns `FxHashSet::default()`. Post-§08.3 remap preserves the substitution relation — no new `Tag::Var`s are introduced, only existing ones are re-indexed under the merged pool. §04.2.B's 3-level generic chain leak is upstream-substitution incomplete (not a contract violation); the seam correctly fires. Test pin `test_primary_seam_empty_exempt_set_invariant_pin` at `compiler/ori_arc/src/ir/validate/tests.rs` (editor-added 2026-04-21) codifies the empty-set load-bearing contract.
+
+---
+
+## 04.2.B — BLOCKER: Upstream Tag::Var Leak on 3-Level Generic Chain (generics::test_generic_chain_three_levels)
+
+> **Status**: `not-started`
+> **Classification**: B — blocker surfaced by §04.2's PC-2 assertion hook (working as designed).
+> **Blocks**: §04.2 close-out + §04.TPR-A entry. §04 cannot complete until §04.2.B lands.
+> **Surfaced by**: §04.2's assertion at `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` fired during post-implementation `test-all.sh` run (2026-04-21 HEAD).
+
+### Repro
+
+```
+timeout 150 cargo test --test aot generics::test_generic_chain_three_levels 2>&1
+```
+
+Both variants fail (`test_generic_chain_three_levels` + `test_generic_chain_three_levels_string`) with:
+
+```
+ERROR ori_llvm::codegen::function_compiler::define_phase:
+  Tag::Var in ARC IR violates PC-2 contract
+  contract_violation=true
+  error=UnresolvedTypeVar {
+    function: Name(shard=2, local=19),    # or shard=8, local=20 for _string variant
+    var_id: ArcVarId(2),
+    idx: Idx(220),
+    tag: Tag::var
+  }
+error[E5001]: LLVM module verification failed
+```
+
+### Baseline context
+
+- Baseline (pre-§04.2, commit `58c26963`): both tests **passed** despite the surviving `Tag::Var` in ARC IR. The pass was accidental — LLVM codegen produced either coincidentally-correct output OR output the test's assertions did not discriminate. State.sh `aot_integration: 2161/0/22` included both tests as passing.
+- Post-§04.2 (HEAD): assertion fires at `process_arc_function` seam, codegen emission skipped, AOT compile returns error. 2 tests fail; remainder of suite at 2159/2/24 (net delta: 2 new failures, assertion working as designed).
+
+### Root-cause hypothesis (investigation required — full /fix-bug Phase 1 rigor)
+
+Plan line 719 explicitly anticipated this finding: *"a surviving Tag::Var is a §08.3 completeness bug or an upstream-filter regression."* Candidate upstream phases to investigate in `/fix-bug` Phase 1:
+
+1. **§03 (typeck body-group remediation)** — `default_unbound_vars_from_empty_literals` / `default_unbound_vars_in_scope` pre-pass may have a coverage gap on 3-level generic chain (A<B<C<T>>> style) where the unconstrained `Tag::Var` flows through nested generic applications without hitting a defaulting site.
+2. **§08.3 (pool/re_intern/ remap)** — matrix cells e1–e5 cover leaf-var remap, scheme-binder remap, `scheme_var_ids` remap, VarState clone-vs-blank-init; a 3-level chain may exercise a path not covered (e.g., nested scheme-within-scheme, or applied-of-applied-of-applied).
+3. **`resolve_all_lambda_bound_vars` (define_phase.rs:134 + nounwind/prepare.rs:173)** — the lambda-substitution pass may not recurse into deeply-nested generic type shapes.
+4. **ARC lowering (`ori_canon` → `ori_arc`)** — `lower_and_infer_borrows` and pre-mono filter gates at `codegen_pipeline.rs:92-94` may let a 3-level generic chain slip past with a surviving `Tag::Var` in its `var_types` vector.
+
+Concrete investigation start:
+- Dump pre-seam IR for the failing program: `ORI_DUMP_AFTER_TYPECK=1 cargo run --bin ori -- compile tests/spec/generics/chain_three_levels.ori` to see whether the `Tag::Var(Idx(220))` is emitted by typeck or introduced by a later phase.
+- Walk the `generics::test_generic_chain_three_levels` source in `compiler/ori_llvm/tests/aot/generics.rs` and the referenced `.ori` program to identify the specific 3-level chain shape.
+- Check whether §08.3 matrix cells e1–e5 cover `Applied<Applied<Applied<T>>>` — if not, that's the gap.
+
+### Success criteria
+
+- [ ] Root cause identified and documented (phase + function + invariant violated).
+- [ ] Fix implemented at the correct upstream site (NOT in §04.2's assertion — the assertion MUST continue to fire if the underlying leak recurs; weakening it is INVERTED-TDD per CLAUDE.md).
+- [ ] `cargo test --test aot generics::test_generic_chain_three_levels` passes (both variants).
+- [ ] `timeout 150 ./test-all.sh` returns green (or same-baseline: same known-failing set, no new failures vs state.sh at close-of-fix HEAD).
+- [ ] Matrix test added at the fix's owning plan section (§03 or §08 or wherever the root cause lives) exercising `Applied<Applied<Applied<T>>>` / 3-level-chain shape; positive + negative pin per CLAUDE.md §Matrix Testing Rule.
+- [ ] §04.2 status flipped to `complete` after §04.2.B success criteria all `[x]` AND §04.TPR-A clean.
+- [ ] This subsection's backlink to owning plan section recorded (either §03 close notes or §08.3 close notes, per which subsystem owns the root cause).
+
+### Linkage
+
+- **Plan section this blocks**: §04.2 (this plan — implementation landed but cannot close)
+- **Likely root-cause owner**: §03 remediation OR §08.3 remap matrix coverage (investigation decides)
+- **Test exercise sites**:
+  - `compiler/ori_llvm/tests/aot/generics.rs::test_generic_chain_three_levels`
+  - `compiler/ori_llvm/tests/aot/generics.rs::test_generic_chain_three_levels_string`
+- **Assertion that surfaced it**: `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` Hook 1 (`process_arc_function`, seam landed 2026-04-21)
+
+### Workflow
+
+Invoke `/fix-bug --inline plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md#04.2.B` to open the full /fix-bug workflow against this subsection.
 
 ---
 
@@ -914,6 +993,11 @@ test, not in the function name.
 ## 04.R — Close-Out
 
 > **Status**: `not-started`
+
+### Post-landing verification records (from §04.2 items 723-724)
+
+- **§04 seam order verified correct under §08.1.R corrected diagnosis; no change required.** Hook 1 at `process_arc_function` and Hook 2 at `declare_and_process_lambda` both fire POST-substitution on BOTH codegen paths — the immediate-emit path (`emit_arc_function_inner` in `define_phase.rs`) and the nounwind two-pass path (`prepare_arc_function` in `nounwind/prepare.rs`). Each path calls `resolve_all_lambda_bound_vars` BEFORE invoking Hook 2 (via `compile_lambda_arc` / `prepare_lambda` → `declare_and_process_lambda`) and BEFORE invoking Hook 1 directly. Line-number drift from plan text (`:134`→`:157`, `:173`→`:208`, `:315`/`:375` → current function-entry positions) is within the plan's "acceptable as long as POST-substitution invariant holds" envelope. Cross-module re-intern (`pool/re_intern/`) runs upstream of codegen; Hook 1/2 observe post-re-intern types. Backlink recorded for §08.6.R.
+- **Empty-exempt seam strictness holds under §08.3 remap + upstream generic filters; §08.3's cell coverage adequate.** Hook 1 and Hook 2 both instantiate `let exempt: FxHashSet<u32> = FxHashSet::default();` (empty). The empty set is load-bearing because arc_cache entries at §04.3 sites are exclusively non-generic top-level functions (filtered at `codegen_pipeline.rs:92-94`) or imported monomorphized instances (fully substituted); both categories have empty `scheme_var_ids`. Post-§08.3 remap preserves the substitution relation without introducing new `Tag::Var`s. §04.2.B's 3-level generic chain leak is an upstream-substitution incompleteness (NOT an empty-exempt contract violation); the seam is correctly firing per `INVERTED-TDD BANNED` discipline — remediation owns the root cause, not the validator. Test pin `test_primary_seam_empty_exempt_set_invariant_pin` at `compiler/ori_arc/src/ir/validate/tests.rs` guards future refactors.
 
 Close-out tasks:
 

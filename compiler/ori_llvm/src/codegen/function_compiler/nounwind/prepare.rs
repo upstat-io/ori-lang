@@ -1,6 +1,7 @@
 //! Preparation phase: lower functions through ARC pipeline without emitting LLVM IR.
 
 use ori_arc::lower_function_can;
+use ori_arc::verify::VerifyError;
 use ori_ir::canon::CanonResult;
 use ori_ir::{Function, Name};
 use ori_types::{FunctionSig, Idx};
@@ -81,7 +82,19 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 result
             };
 
-            prepared.push(self.prepare_arc_function(func.name, func_id, &abi, arc_func, lambdas));
+            match self.prepare_arc_function(func.name, func_id, &abi, arc_func, lambdas) {
+                Ok(pf) => prepared.push(pf),
+                Err(err) => {
+                    // PC-2 contract violation — error already recorded via
+                    // `record_codegen_error()` inside the hook. Skip this
+                    // function's emission; continue the batch.
+                    debug!(
+                        name = %self.interner.lookup(func.name),
+                        ?err,
+                        "PC-2 contract violation — skipping function"
+                    );
+                }
+            }
         }
 
         prepared
@@ -138,13 +151,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 result
             };
 
-            prepared.push(self.prepare_arc_function(
-                mono_fn.mangled_name,
-                func_id,
-                &abi,
-                arc_func,
-                lambdas,
-            ));
+            match self.prepare_arc_function(mono_fn.mangled_name, func_id, &abi, arc_func, lambdas)
+            {
+                Ok(pf) => prepared.push(pf),
+                Err(err) => {
+                    debug!(
+                        name = %self.interner.lookup(mono_fn.mangled_name),
+                        ?err,
+                        "PC-2 contract violation — skipping mono function"
+                    );
+                }
+            }
         }
 
         prepared
@@ -155,6 +172,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Uses [`Self::process_arc_function`] for shared ARC processing and
     /// [`Self::prepare_lambda`] for lambda preparation. Returns a
     /// [`PreparedFunction`] ready for nounwind analysis and LLVM emission.
+    ///
+    /// Returns `Err(VerifyError::UnresolvedTypeVar(_))` if the PC-2 contract
+    /// check fires on the parent function or on ANY lambda. Filter-out of a
+    /// single failing lambda is NOT sound — the parent's `PartialApply` would
+    /// then reference a never-emitted lambda name. Parent emission is skipped
+    /// on any lambda failure.
     fn prepare_arc_function(
         &mut self,
         name: Name,
@@ -162,7 +185,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         abi: &FunctionAbi,
         mut arc_func: ori_arc::ArcFunction,
         lambdas: Vec<ori_arc::ArcFunction>,
-    ) -> PreparedFunction {
+    ) -> Result<PreparedFunction, VerifyError> {
         debug!(
             name = %self.interner.lookup(name),
             "preparing function (ARC pipeline, no emit)"
@@ -182,18 +205,19 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // declare_and_process_lambda renames each lambda to a globally unique
         // name. We collect the (old → new) mapping so we can update the
         // parent function's PartialApply references.
+        //
+        // A failing lambda fails the WHOLE parent: filter-out would leave a
+        // dangling PartialApply callee (plan §04.2 Hook 2 cascade note).
         let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
-        let prepared_lambdas: Vec<PreparedLambda> = lambdas
-            .into_iter()
-            .map(|lambda| {
-                let original_name = lambda.name;
-                let prepared = self.prepare_lambda(lambda);
-                if prepared.name != original_name {
-                    lambda_renames.push((original_name, prepared.name));
-                }
-                prepared
-            })
-            .collect();
+        let mut prepared_lambdas: Vec<PreparedLambda> = Vec::with_capacity(lambdas.len());
+        for lambda in lambdas {
+            let original_name = lambda.name;
+            let prepared = self.prepare_lambda(lambda)?;
+            if prepared.name != original_name {
+                lambda_renames.push((original_name, prepared.name));
+            }
+            prepared_lambdas.push(prepared);
+        }
 
         // Remap PartialApply callee references in the parent function to use
         // the globally unique lambda names assigned during preparation.
@@ -205,7 +229,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
 
         // Shared ARC processing: borrow annotations → arg ownership → pipeline
-        self.process_arc_function(name, &mut arc_func);
+        self.process_arc_function(name, &mut arc_func)?;
 
         tracing::trace!(
             name = %self.interner.lookup(name),
@@ -213,13 +237,13 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             "ARC pipeline complete (prepared, not emitted)"
         );
 
-        PreparedFunction {
+        Ok(PreparedFunction {
             name,
             func_id,
             abi: abi.clone(),
             arc_func,
             lambdas: prepared_lambdas,
-        }
+        })
     }
 
     /// Prepare a lambda through the ARC pipeline without emitting LLVM IR.
@@ -227,13 +251,16 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Uses [`Self::declare_and_process_lambda`] for shared setup + ARC
     /// processing. The actual LLVM body emission is deferred to
     /// [`Self::emit_prepared_functions`].
-    fn prepare_lambda(&mut self, mut lambda: ori_arc::ArcFunction) -> PreparedLambda {
-        let (name, func_id, abi) = self.declare_and_process_lambda(&mut lambda);
-        PreparedLambda {
+    fn prepare_lambda(
+        &mut self,
+        mut lambda: ori_arc::ArcFunction,
+    ) -> Result<PreparedLambda, VerifyError> {
+        let (name, func_id, abi) = self.declare_and_process_lambda(&mut lambda)?;
+        Ok(PreparedLambda {
             name,
             func_id,
             abi,
             arc_func: lambda,
-        }
+        })
     }
 }
