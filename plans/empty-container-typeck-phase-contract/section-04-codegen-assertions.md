@@ -46,6 +46,7 @@ sections:
     notes: "Hook 1 + Hook 2 + 9-site Result cascade landed at HEAD (2026-04-21; unstaged in tree). cargo c + clippy clean workspace-wide. Assertion fires correctly — -537 LCFails, +538 passes in ori_spec_llvm. Close-out blocked by §04.2.B: upstream Tag::Var leak on 3-level generic chain surfaces as 2 new AOT failures (generics::test_generic_chain_three_levels + _string). Close §04.2 only after §04.2.B fix lands AND test-all.sh returns green."
   - id: "04.2.B"
     kind: plan-blocker-inline
+    severity: high
     title: "BLOCKER: upstream Tag::Var leak on 3-level generic chain (generics::test_generic_chain_three_levels)"
     status: in-progress
 
@@ -731,8 +732,10 @@ These items were originally §08.6's forward-coordination checks; absorbed here 
 
 ## 04.2.B — BLOCKER: Upstream Tag::Var Leak on 3-Level Generic Chain (generics::test_generic_chain_three_levels)
 
-> **Status**: `not-started`
+> **Status**: `in-progress` (Phase 1 complete, Phase 1.5 complete, Phase 1.75 pending)
 > **Classification**: B — blocker surfaced by §04.2's PC-2 assertion hook (working as designed).
+> **Severity**: **high** (reclassified 2026-04-21 Phase 1.5) — complexity-elevated subsystem (`ori_types` mono + `ori_arc` ARC lowering + `ori_llvm` codegen), cross-crate visibility, systemic blast radius (every 3+ hop generic chain where intermediate callees receive type-variable args), blocker to §04.2 + §04 + §04.N close-out.
+> **Scope**: **point fix** — 1-2 files, <30 LOC, no architectural change. Extract-or-inline-call of existing `extend_var_subst_with_roots` at the deferred-mono-resolve site in `check/exports.rs`.
 > **Blocks**: §04.2 close-out + §04.TPR-A entry. §04 cannot complete until §04.2.B lands.
 > **Surfaced by**: §04.2's assertion at `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` fired during post-implementation `test-all.sh` run (2026-04-21 HEAD).
 
@@ -790,14 +793,43 @@ Typeck reports "0 errors" — `validate_body_types` does NOT fire `E2005` on `$t
 
 **Why 2-hop accidentally passes and 3-hop breaks (hypothesis, needs verification in Phase 1.75 /tp-help):** At mono-time substitution for `@apply_identity<int>` (2-hop), the substitution pipeline produces a body whose `$t7` leaf either (a) gets resolved through `resolve_fully` via direct union-find link to the outer scheme var's root AND the root's var_id appears in the substitution map, OR (b) the LLVM codegen path doesn't observe the residual `Tag::Var` because `test_generic_calling_generic`'s output assertions don't discriminate the wrong value. For 3-hop, `@double_wrap<int>` → `@wrap<int>` adds a second layer where `$t8` (inside `@wrap`) is NOT linked to `@double_wrap`'s outer scheme var — it is linked to `@wrap`'s OWN scheme var, which is only substituted to `int` when `@wrap<int>` is monomorphized. If `substitute_in_pool` doesn't call `resolve_fully` at each walk step, `$t8` survives as a raw `Tag::Var` in `@wrap<int>`'s realized ARC IR, and `process_arc_function` at §04.2's hook fires `UnresolvedTypeVar`.
 
-**Root-cause localization target (Phase 1.75 consensus should confirm):**
-1. Most likely: `compiler/ori_types/src/pool/substitute/` — `substitute_in_pool` does not `resolve_fully` at each walk step of body expr_types, so `Tag::Var` leaves with linkage to scheme vars are preserved literally instead of resolving through to the substitution map.
-2. Alternative: the LLVM mono engine (`compiler/ori_llvm/src/monomorphize.rs` module — confirmed exists via intel graph) substitutes at the signature level but doesn't walk body expr_types with the same substitution map.
-3. Less likely: `resolve_all_lambda_bound_vars` (define_phase.rs) — this pass targets lambda captures, not plain generic body calls; the failing program has no lambdas.
-4. Ruled out: `default_unbound_vars_from_empty_literals` — the repro has no empty collection literals.
-5. Ruled out: §08.3 `pool/re_intern/` — the repro is single-module, no cross-module re-intern.
+**Root cause — PINPOINTED to line numbers (Phase 1 code-reading round 2, 2026-04-21):**
 
-**Phase 1 status**: `in-progress` — findings above cover repro + leak-site identification + validator-contract understanding + candidate root-cause list. Remaining Phase 1 sub-steps before Phase 1.5: (a) read `ori_types/src/pool/substitute/` to confirm/deny hypothesis 1, (b) read `ori_llvm/src/monomorphize/` to confirm/deny hypothesis 2, (c) query reference compilers (Rust/Swift/Koka) for prior art on "union-find-linked scheme-var-root Tag::Var leaves at substitution sites."
+The bug is an **asymmetry between the two monomorphization paths** in `ori_types`. Both paths ultimately call `build_mono_body_type_map` + `substitute_in_pool`, but only one calls `extend_var_subst_with_roots` on the substitution map beforehand:
+
+- **Non-deferred path** (`maybe_record_mono_instance` at `compiler/ori_types/src/infer/expr/calls/monomorphization.rs:17-121`): the call-site mono when `@main` directly requests `double_wrap<int>` with a concrete type arg. Line 71 invokes `extend_var_subst_with_roots` (monomorphization.rs:279-302) which adds `{union_find_root_var_id → concrete}` entries for every scheme var whose equivalence-class root differs from the declared var id. Only after that extension does `build_mono_body_type_map` run at line 98.
+
+- **Deferred path** (`resolve_deferred_mono_calls` loop at `compiler/ori_types/src/check/exports.rs:180-247`): the resolve-pass that picks up recorded `DeferredMonoCall` entries when the caller is monomorphized. Line 180-205 builds `resolved_var_subst` with callee's scheme_var_ids only (`resolved_var_subst.insert(*callee_var_id, concrete)` at line 204) and calls `build_mono_instance(pool, ..., &resolved_var_subst)` at line 231 — **with NO equivalent of `extend_var_subst_with_roots`**. Inside `build_mono_instance` at `exports.rs:257-288`, `build_mono_body_type_map` at line 277 walks the pool with this non-extended map.
+
+**Walk-through for the failing repro:**
+
+1. `@main` calls `double_wrap(x: 42)`. `maybe_record_mono_instance` enters the non-deferred branch (concrete arg). `var_subst = {double_wrap_scheme_var_id → int}` + `extend_var_subst_with_roots` adds `{double_wrap_root_var_id → int}` if the root differs. MonoInstance for `double_wrap<int>` recorded correctly.
+2. Typeck of `@double_wrap`'s body (runs earlier, at function-definition time) encounters `wrap(x: x)` where `x: T_double_wrap` (still a type variable). `maybe_record_mono_instance` for `wrap` at this call site: `has_unresolved_vars = true` (the arg type is a `Tag::Var`). Enters deferred branch at line 57-67, calls `record_deferred_mono_call`. The deferred entry stores `{wrap_scheme_var_id → CallerSchemeVar(0)}` mapping wrap's T to double_wrap's T position.
+3. Later, at export time, `resolve_deferred_mono_calls` walks the deferred list. For the `wrap` entry, it looks up double_wrap's mono instances: `double_wrap<int>` → caller_generic_args=[Type(int)]. Resolves the deferred binding: `resolved_var_subst.insert(wrap_scheme_var_id, int)` at line 204. Calls `build_mono_instance` at line 231 with this map.
+4. Inside `build_mono_instance`, `build_mono_body_type_map` walks the pool. For `wrap`'s body expression types (stored in `expr_types` at typeck time), the body contains `CallNamed: $t7_wrap_body` where `$t7_wrap_body` is a fresh instantiation var allocated when typing `id(x: x)` inside `@wrap`'s body.
+5. Rank-weighted union-find made `$t7_wrap_body` the **root** of `@wrap`'s scheme var T equivalence class (`wrap.T` linked TO `$t7_wrap_body`, not vice-versa). `substitute_var($t7_wrap_body)`:
+   - `var_id = 7` — not in map (map has `wrap_scheme_var_id`, which is a different u32).
+   - `VarState::Unbound` (because `$t7_wrap_body` is the root; no Link to follow).
+   - Falls through, returns `$t7_wrap_body` unchanged.
+6. `wrap<int>`'s mono'd body carries a raw `Tag::Var($t7_wrap_body)`. ARC lowering preserves it (ARC doesn't re-resolve types — `canon.md §4.2` PC-2 guarantees clean IR arriving). `process_arc_function` at §04.2's seam fires `UnresolvedTypeVar { var_id: ArcVarId(2), idx: Idx(220), tag: Tag::Var }`.
+
+**Why 2-hop `apply_identity<int>` accidentally passes pre-§04.2:** the non-deferred path runs for it (concrete arg at the call site). `extend_var_subst_with_roots` fires. The body's `$t7` gets substituted to `int`. No residual `Tag::Var`. No assertion fires.
+
+**Why 3-hop fails:** the MIDDLE layer (`wrap`) takes the deferred path, which misses the root extension.
+
+**Affected surface:**
+- Any 3+ hop generic call chain where intermediate callees receive type variables (not concrete types) as generic args. This is EVERY non-trivial generic composition, not just the failing fixtures.
+- Currently failing (post-§04.2): `test_generic_chain_three_levels` + `test_generic_chain_three_levels_string`.
+- Currently passing but likely silently miscompiling (pre-§04.2 undiagnosed, now surfaced with §04.2's PC-2 assertion active): unknown; to be probed by the TDD matrix in Phase 3.
+
+**Fix sites (ranked):**
+
+1. **Primary**: `compiler/ori_types/src/check/exports.rs` — add root-extension call between line 205 (end of `resolved_var_subst` build) and line 231 (call to `build_mono_instance`). This is the symmetry-restoring fix.
+2. **Refactor** (optional, reviewer-preferred per Phase 1.75): extract `extend_var_subst_with_roots` from `monomorphization.rs:279-302` into a shared helper in `ori_types::pool::substitute` (or on `Pool` as an inherent method) so both the non-deferred and deferred paths call the same SSOT implementation. The current duplication risk is 2 copies; per `impl-hygiene.md §Algorithmic DRY` the threshold is "extract at 2 instances".
+
+**Alternative (rejected):** modify `substitute_var:90-105` in `pool/substitute/mod.rs` to `resolve_fully` at entry. Wider-reaching, affects ALL substitution call sites (not just mono), could unintentionally alter behavior for other consumers (e.g., `default_unbound_vars_in_scope` uses `substitute_in_pool`).
+
+**Phase 1 status**: **complete**. Repro confirmed, leak-site pinpointed, fix-site identified to specific line numbers, architectural symmetry principle established (both mono paths must use the same substitution-extension logic). Ready for Phase 1.5.
 
 ### Success criteria
 
@@ -822,6 +854,182 @@ Typeck reports "0 errors" — `validate_body_types` does NOT fire `E2005` on `$t
 ### Workflow
 
 Invoke `/fix-bug --inline plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md#04.2.B` to open the full /fix-bug workflow against this subsection.
+
+### 1.5 Fix Consensus
+
+**Round 1 (codex)**: agree-with-refinements. Gemini unavailable (sub-agent contract violation per /tpr-review §9; BUG-08-012 `gemini-3.1-pro-preview` capacity-429). Survivor-mode with HIGH-trust reviewer per /tpr-review §4.
+
+**Codex verdict — all 6 questions answered with file:line evidence:**
+
+1. **Correctness**: confirmed. Both mono paths end in `substitute_in_pool` + `build_mono_body_type_map`; the deferred path needs the SAME representative-closure on `var_subst` as the eager path. No edge case requires different semantics.
+2. **Extract-vs-inline**: EXTRACT. Per `impl-hygiene.md §Algorithmic DRY` (2-instance threshold). Place helper in `pool::substitute` taking `(&Pool, &[u32], &mut FxHashMap<u32, Idx>)`. Refactor `monomorphization.rs:279-302` to call the shared helper AND add a new call at `exports.rs:205-230`.
+3. **Record-side vs resolve-side**: RESOLVE-SIDE. Recording physical root var_ids at `record_deferred_mono_call:229-251` would freeze a union-find representative before inference completes; the representative can still change post-record. Resolve-time query via `pool.var_idx_for_id + pool.resolve_fully` is correct and matches the existing `build_exempt_var_ids` pattern at `check/validators/mod.rs:161-172`.
+4. **Blast radius**: larger than 2 failing tests. Every deferred generic call where the callee scheme var stops being the representative can leak today. Phase 3 TDD matrix dimensions: 3-hop, 4-hop, multi-parameter forwarding, reordering, nested shapes (`Option`, `Result`, list, tuple, user ADT), forwarded vars in return/deep-field positions, multiple deferred callees in one body, recursive/SCC cases.
+5. **INVERTED-TDD check**: CLEAN. Fix repairs producer-side monomorphization; the §04.2 seam assertion stays fully active. Satisfies `impl-hygiene.md §INVERTED-TDD` and CLAUDE.md §The One Rule.
+6. **Reference-compiler prior-art**: DISPROVED. Codex verified: Rust's `rustc_monomorphize::collector` has a single instantiate-and-normalize path but no eager/deferred representative-extension analogue. Swift's `SubstitutionMap` composition (`SILTypeSubstitution.cpp:465-472,515-541`) is a different pattern. Koka's `Core/Specialize.hs:199-205` specializes by post-inlining type-arg substitution with no union-find-root analogue. **Drop the prior-art claim from Phase 1 findings above.**
+
+**Consensus outcome**: proceed to Phase 2 with Codex's refinements. Note: single-reviewer consensus (HIGH-trust) is sufficient here because (a) Codex ran `cargo test -p ori_llvm generic_chain_three_levels` and verified the failure reproduces at the claimed seam, (b) every code claim carries a verified file:line citation, (c) the INVERTED-TDD check is straightforward (assertion stays active), (d) Gemini's absence is a known tracked issue (BUG-08-012), not a review-content problem.
+
+**Independent code verification** (per `feedback_reviewer_grounding_and_trust.md`):
+
+- `monomorphization.rs:69-71` + `:279-302` — extend_var_subst_with_roots is at the cited location. Verified in Phase 1 code reading.
+- `exports.rs:178-205` + `:231-238` — deferred-resolve loop builds resolved_var_subst without root extension and calls build_mono_instance. Verified in Phase 1.
+- `pool/substitute/mod.rs:90-105` — substitute_var handles direct var_id lookup + VarState::Link follow-through; Unbound falls through. Verified in Phase 1.
+- `check/validators/mod.rs:161-172` — build_exempt_var_ids is the existing producer-side precedent for root-tracking. Verified in Phase 1.
+- `ori_arc/src/ir/validate.rs:97-130` — Codex's new citation; not in my Phase 1 list. **VERIFIED 2026-04-21**: `assert_no_unresolved_type_vars` walks `var_types`/`params`/`return`/`blocks[*].params` in the ARC IR and emits `VerifyError::UnresolvedTypeVar` on any non-exempt `Tag::Var`. This is the §04.2 seam that fires for `$t7_wrap_body`. Citation is correct.
+
+### 2. TDD Matrix
+
+All tests written BEFORE Phase 4 implementation, verified failing against current HEAD, then passing after the fix. Dimensions from Codex Q4 + CLAUDE.md §TDD for Bugs + §Matrix Testing Rule.
+
+#### Unit tests — `compiler/ori_types/src/pool/substitute/tests.rs` (new test cases)
+
+- [ ] `extend_var_subst_with_roots_via_pool_adds_root_when_different` — scheme var's root is a distinct fresh instantiation var; helper inserts `{root_var_id → concrete}`.
+- [ ] `extend_var_subst_with_roots_via_pool_noop_when_root_equals_scheme_var` — scheme var IS its own root; no new entries.
+- [ ] `extend_var_subst_with_roots_via_pool_empty_scheme_vars` — monomorphic function; map unchanged.
+- [ ] `extend_var_subst_with_roots_via_pool_preserves_existing_entries` — pre-populated map; helper adds without overwriting.
+
+#### Unit tests — `compiler/ori_types/src/check/integration_tests.rs` (new test cases)
+
+- [ ] `deferred_mono_resolution_root_extension_applied_3_hop` — `@main → @double_wrap<int> → @wrap<int> → @id<int>`; after export, all three MonoInstances have `body_type_map` entries covering the body's Tag::Var leaves.
+- [ ] `deferred_mono_resolution_root_extension_applied_4_hop` — 4-hop chain `@main → a → b → c → d`; middle two deferred.
+- [ ] `deferred_mono_resolution_multi_param_forwarding` — `@f<A, B> (x: A, y: B) -> B = g(x: y, y: x)`; parameters reorder.
+
+#### AOT integration tests — `compiler/ori_llvm/tests/aot/generics.rs` (new tests alongside existing `test_generic_chain_three_levels`)
+
+- [ ] `test_generic_chain_four_levels` — 4-hop int chain. Positive pin.
+- [ ] `test_generic_chain_four_levels_string` — 4-hop str chain (RC-managed).
+- [ ] `test_generic_chain_option_wrapped` — 3-hop chain with `Option<T>` as the type arg.
+- [ ] `test_generic_chain_result_wrapped` — 3-hop chain with `Result<T, E>`.
+- [ ] `test_generic_chain_list_element` — 3-hop chain with `[T]`.
+- [ ] `test_generic_chain_tuple_element` — 3-hop chain with `(T, T)`.
+- [ ] `test_generic_chain_user_struct` — 3-hop chain with user-defined struct carrying a generic field.
+- [ ] `test_generic_chain_forwarded_in_return_only` — `@f<T> (x: int) -> T = g()`; T appears only in return position.
+- [ ] `test_generic_chain_forwarded_in_deep_field` — `@f<T> (x: int) -> Option<(int, T)> = g()`; T appears in a nested field position.
+- [ ] `test_generic_multiple_deferred_callees` — `@f<T> (x: T) -> T = { let a = g(x: x); h(x: a) }`; two deferred callees in one body.
+- [ ] `test_generic_recursive_chain` — `@f<T> (x: T, n: int) -> T = if n == 0 then x else f(x: x, n: n - 1)`; self-recursive generic.
+
+#### Semantic pins (CLAUDE.md §Matrix Clamping)
+
+- [ ] `test_generic_chain_three_levels` (already failing; becomes positive pin after fix).
+- [ ] Negative pin: `test_pc2_assertion_fires_on_synthetic_leak` — handcrafted ARC IR with a raw `Tag::Var` in a function body; confirms `assert_no_unresolved_type_vars` DOES fire (guards against weakening §04.2's assertion per INVERTED-TDD).
+
+#### Cross-phase verification
+
+- [ ] `timeout 150 ./test-all.sh` returns green (no new failures vs state.sh baseline; the two failing tests flip to passing).
+- [ ] Dual-execution parity: `cargo st` (interpreter) + `cargo run --release -- test --backend=llvm tests/spec/generics/` (LLVM) both pass on any new `.ori` spec tests added for generic chaining.
+- [ ] `ORI_CHECK_LEAKS=1` clean on `generic_chain_three_levels` fixture (AOT binary + run with leak tracking).
+
+### 3. Implementation
+
+#### File 1: `compiler/ori_types/src/pool/substitute/mod.rs` (new public helper)
+
+Add after `build_mono_body_type_map` (near line 362):
+
+```rust
+/// Extend `var_subst` with `{union_find_root_var_id → concrete}` entries for
+/// every scheme var whose equivalence-class root differs from the scheme
+/// var's own `var_id`.
+///
+/// Invoked by BOTH monomorphization paths before `substitute_in_pool` walks
+/// body types. Mirrors the producer-side exemption logic in
+/// [`crate::check::validators::build_exempt_var_ids`] — rank-weighted
+/// union-find (`typeck.md §UN-7`) can make a fresh instantiation var the
+/// root of a scheme var's equivalence class, in which case `substitute_var`
+/// would find the scheme var's key via Link-follow but NOT the root's
+/// var_id. Adding the root's var_id to the map ensures pool-walk visits
+/// find the concrete type through a direct hit at `substitute_var:90-105`.
+///
+/// Idempotent and side-effect-free on `pool` (read-only queries).
+pub fn extend_var_subst_with_roots(
+    pool: &Pool,
+    scheme_var_ids: &[u32],
+    var_subst: &mut FxHashMap<u32, Idx>,
+) {
+    let mut extensions: Vec<(u32, Idx)> = Vec::new();
+    for &sv_id in scheme_var_ids {
+        let Some(concrete) = var_subst.get(&sv_id).copied() else { continue };
+        if let Some(sv_idx) = pool.var_idx_for_id(sv_id) {
+            let root = pool.resolve_fully(sv_idx);
+            if pool.tag(root) == Tag::Var {
+                let root_vid = pool.data(root);
+                if root_vid != sv_id {
+                    extensions.push((root_vid, concrete));
+                }
+            }
+        }
+    }
+    for (vid, concrete) in extensions {
+        var_subst.insert(vid, concrete);
+    }
+}
+```
+
+#### File 2: `compiler/ori_types/src/infer/expr/calls/monomorphization.rs` (refactor)
+
+Replace `extend_var_subst_with_roots` at lines 279-302 with a thin delegator:
+
+```rust
+fn extend_var_subst_with_roots(engine: &mut InferEngine<'_>, var_subst: &mut FxHashMap<u32, Idx>) {
+    // Delegate to the pool-scoped SSOT helper. `engine.pool()` is the frozen
+    // pool at this point in the inference pipeline; the helper is read-only.
+    let scheme_var_ids: Vec<u32> = var_subst.keys().copied().collect();
+    crate::pool::substitute::extend_var_subst_with_roots(
+        engine.pool(),
+        &scheme_var_ids,
+        var_subst,
+    );
+}
+```
+
+#### File 3: `compiler/ori_types/src/check/exports.rs` (add call at deferred-resolve site)
+
+Insert between line 205 (end of `resolved_var_subst` build) and line 231 (call to `build_mono_instance`):
+
+```rust
+// Mirror the eager path's representative-closure on var_subst before
+// body-type substitution. Without this, fresh instantiation vars from
+// the callee's body (e.g., $t7_wrap_body inside @wrap when @wrap is a
+// deferred-mono callee) that became union-find roots fall through
+// substitute_var:90-105 unsubstituted, leaking Tag::Var into the
+// monomorphized body.
+crate::pool::substitute::extend_var_subst_with_roots(
+    pool,
+    &deferred.callee_scheme_var_ids,
+    &mut resolved_var_subst,
+);
+```
+
+#### Test-file additions
+
+New `.ori` spec tests + Rust AOT tests per the TDD matrix above; new unit tests in `pool/substitute/tests.rs` + `check/integration_tests.rs`.
+
+### 2.5 Fix Plan TPR Findings
+
+**Status**: pending — run `/tpr-review` via the `Skill` tool after Phase 2 fix plan is finalized, scoped to §04.2.B. MANDATORY per /fix-bug Phase 2.5 trigger gate: severity `high` + complexity-elevated subsystem (`ori_types` mono + `ori_arc` ARC lowering). Trigger criteria: MET.
+
+### R. TPR Findings
+
+**Status**: pending — populated during Phase 5 code-TPR after implementation lands.
+
+### N. Completion Checklist
+
+- [ ] §1 Root cause analysis complete (Phase 1 ✓)
+- [ ] §1.5 Fix consensus complete (Phase 1.75 ✓ — codex agree-with-refinements)
+- [ ] §2 TDD matrix finalized (Phase 2 ✓)
+- [ ] §2.5 Fix Plan TPR clean (Phase 2.5 — pending)
+- [ ] §3 Implementation complete (Phase 4)
+- [ ] All matrix tests pass without modification (Phase 4)
+- [ ] `timeout 150 ./test-all.sh` returns green, same-baseline known-failing set
+- [ ] Dual-execution parity verified (interpreter + LLVM)
+- [ ] `ORI_CHECK_LEAKS=1` clean on AOT binary
+- [ ] Code TPR clean (Phase 5)
+- [ ] Hygiene review clean (Phase 5)
+- [ ] `/improve-tooling` retrospective run (Phase 5)
+- [ ] `/sync-claude` doc sync clean (Phase 5)
+- [ ] §04.2.B subsection `status: complete` in frontmatter
+- [ ] §04.2 status flipped from `implementation-done-close-blocked` → `complete`
+- [ ] §04.TPR-A reachable (unblocked) after this closes
 
 ---
 
