@@ -835,9 +835,9 @@ The bug is an **asymmetry between the two monomorphization paths** in `ori_types
 ### Success criteria
 
 - [x] Root cause phase narrowed (pool/substitute or llvm/monomorphize — final selection at Phase 1.75 /tp-help consensus).
-- [ ] Root cause function identified (specific offending walk step or missing `resolve_fully` call).
-- [ ] Fix implemented at the correct upstream site (NOT in §04.2's assertion — the assertion MUST continue to fire if the underlying leak recurs; weakening it is INVERTED-TDD per CLAUDE.md).
-- [ ] `cargo test --test aot generics::test_generic_chain_three_levels` passes (both variants).
+- [x] Root cause function identified (specific offending walk step or missing `resolve_fully` call).
+- [x] Fix implemented at the correct upstream site (NOT in §04.2's assertion — the assertion MUST continue to fire if the underlying leak recurs; weakening it is INVERTED-TDD per CLAUDE.md).
+- [x] `cargo test --test aot generics::test_generic_chain_three_levels` passes (both variants).
 - [ ] `timeout 150 ./test-all.sh` returns green (or same-baseline: same known-failing set, no new failures vs state.sh at close-of-fix HEAD).
 - [ ] Matrix test added at the fix's owning plan section (§03 or §08 or wherever the root cause lives) exercising `Applied<Applied<Applied<T>>>` / 3-level-chain shape; positive + negative pin per CLAUDE.md §Matrix Testing Rule.
 - [ ] Imported-mono JIT path covered: `oric::test::runner::imported_mono::tests` has a 3-hop imported-generic test exercising a callee whose scheme var is not the union-find representative, confirming File 4 of the fix (per TPR-04.2.B-F1-codex).
@@ -886,16 +886,16 @@ All tests written BEFORE Phase 4 implementation, verified failing against curren
 
 #### Unit tests — `compiler/ori_types/src/pool/substitute/tests.rs` (new test cases)
 
-- [ ] `extend_var_subst_with_roots_via_pool_adds_root_when_different` — scheme var's root is a distinct fresh instantiation var; helper inserts `{root_var_id → concrete}`.
-- [ ] `extend_var_subst_with_roots_via_pool_noop_when_root_equals_scheme_var` — scheme var IS its own root; no new entries.
-- [ ] `extend_var_subst_with_roots_via_pool_empty_scheme_vars` — monomorphic function; map unchanged.
-- [ ] `extend_var_subst_with_roots_via_pool_preserves_existing_entries` — pre-populated map; helper adds without overwriting.
+- [x] `extend_var_subst_with_roots_via_pool_adds_root_when_different` — scheme var's root is a distinct fresh instantiation var; helper inserts `{root_var_id → concrete}`.
+- [x] `extend_var_subst_with_roots_via_pool_noop_when_root_equals_scheme_var` — scheme var IS its own root; no new entries.
+- [x] `extend_var_subst_with_roots_via_pool_empty_scheme_vars` — monomorphic function; map unchanged.
+- [x] `extend_var_subst_with_roots_via_pool_preserves_existing_entries` — pre-populated map; helper adds without overwriting.
 
 #### Unit tests — `compiler/ori_types/src/check/integration_tests.rs` (new test cases)
 
-- [ ] `deferred_mono_resolution_root_extension_applied_3_hop` — `@main → @double_wrap<int> → @wrap<int> → @id<int>`; after export, all three MonoInstances have `body_type_map` entries covering the body's Tag::Var leaves.
-- [ ] `deferred_mono_resolution_root_extension_applied_4_hop` — 4-hop chain `@main → a → b → c → d`; middle two deferred.
-- [ ] `deferred_mono_resolution_multi_param_forwarding` — `@f<A, B> (x: A, y: B) -> B = g(x: y, y: x)`; parameters reorder.
+- [x] `deferred_mono_resolution_root_extension_applied_3_hop` — `@main → @double_wrap<int> → @wrap<int> → @id<int>`; after export, all three MonoInstances have `body_type_map` entries covering the body's Tag::Var leaves.
+- [x] `deferred_mono_resolution_root_extension_applied_4_hop` — 4-hop chain `@main → a → b → c → d`; middle two deferred.
+- [x] `deferred_mono_resolution_multi_param_forwarding` — `@f<A, B> (x: A, y: B) -> B = g(x: y, y: x)`; parameters reorder.
 
 #### AOT integration tests — `compiler/ori_llvm/tests/aot/generics.rs` (new tests alongside existing `test_generic_chain_three_levels`)
 

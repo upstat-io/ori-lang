@@ -452,3 +452,129 @@ fn extract_var_direct_match() {
         Some(Idx::INT)
     );
 }
+
+// === extend_var_subst_with_roots ===
+//
+// Regression pins for the §04.2.B root-cause fix: rank-weighted union-find
+// (`typeck.md §UN-7`) can make a fresh instantiation var the root of a
+// scheme var's equivalence class. `substitute_var` finds the scheme var's
+// direct entry in `var_subst` but a pool-walk that lands on the ROOT's
+// `Tag::Var(root_var_id)` leaf falls through unchanged — the helper extends
+// the map with `{root_var_id → concrete}` so the root is also substituted.
+
+use super::extend_var_subst_with_roots;
+
+#[test]
+fn extend_var_subst_with_roots_via_pool_adds_root_when_different() {
+    // Scheme var's equivalence-class root is a DIFFERENT fresh instantiation
+    // var (simulating the 3-hop deferred-mono scenario). Helper should insert
+    // {root_var_id → concrete}.
+    let mut pool = Pool::new();
+
+    // Allocate the scheme var (what the callee's signature holds).
+    let scheme_var = pool.fresh_var();
+    let scheme_var_id = pool.data(scheme_var);
+
+    // Allocate a fresh instantiation var and make it the root by linking
+    // the scheme var to it. Union-find: scheme_var → inst_var.
+    let inst_var = pool.fresh_var();
+    let inst_var_id = pool.data(inst_var);
+    *pool.var_state_mut(scheme_var_id) = crate::VarState::Link { target: inst_var };
+
+    // Seed the map with the authoritative {scheme_var_id → concrete} entry
+    // (this is what the caller's var_subst build produces).
+    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
+    var_subst.insert(scheme_var_id, Idx::INT);
+
+    // Sanity: before the helper runs, the root var_id is NOT in the map.
+    assert!(!var_subst.contains_key(&inst_var_id));
+
+    // Helper adds the root's var_id → concrete.
+    extend_var_subst_with_roots(&pool, &[scheme_var_id], &mut var_subst);
+
+    assert_eq!(
+        var_subst.get(&inst_var_id),
+        Some(&Idx::INT),
+        "root var_id {inst_var_id} should be mapped to Idx::INT after extension"
+    );
+    // Original entry preserved.
+    assert_eq!(var_subst.get(&scheme_var_id), Some(&Idx::INT));
+    assert_eq!(var_subst.len(), 2);
+}
+
+#[test]
+fn extend_var_subst_with_roots_via_pool_noop_when_root_equals_scheme_var() {
+    // Scheme var IS its own root (no Link) — the helper MUST NOT add any
+    // new entry. This is the monomorphic-signature / non-forwarded path.
+    let mut pool = Pool::new();
+
+    let scheme_var = pool.fresh_var();
+    let scheme_var_id = pool.data(scheme_var);
+    // Keep the scheme var Unbound (its default state on fresh_var): it's
+    // its own root.
+
+    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
+    var_subst.insert(scheme_var_id, Idx::STR);
+    let before_len = var_subst.len();
+
+    extend_var_subst_with_roots(&pool, &[scheme_var_id], &mut var_subst);
+
+    assert_eq!(
+        var_subst.len(),
+        before_len,
+        "helper must not add entries when scheme var IS its own root"
+    );
+    assert_eq!(var_subst.get(&scheme_var_id), Some(&Idx::STR));
+}
+
+#[test]
+fn extend_var_subst_with_roots_via_pool_empty_scheme_vars() {
+    // Monomorphic function (empty scheme_var_ids) — map unchanged.
+    let pool = Pool::new();
+    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
+    // Pre-seed an unrelated entry to prove the helper doesn't stomp it.
+    var_subst.insert(99, Idx::BOOL);
+    let before = var_subst.clone();
+
+    extend_var_subst_with_roots(&pool, &[], &mut var_subst);
+
+    assert_eq!(
+        var_subst, before,
+        "empty scheme_var_ids must leave var_subst unchanged"
+    );
+}
+
+#[test]
+fn extend_var_subst_with_roots_via_pool_preserves_existing_entries() {
+    // Root already keyed in the map BEFORE the helper runs. The helper's
+    // preserve-existing semantics (.entry().or_insert()) MUST NOT overwrite
+    // that entry — mirrors the idempotent `build_exempt_var_ids` pattern.
+    let mut pool = Pool::new();
+
+    // scheme_var linked to inst_var (union-find shape as in the "adds root"
+    // test), but pre-seed var_subst with a DIFFERENT concrete for the root
+    // to detect any overwrite.
+    let scheme_var = pool.fresh_var();
+    let scheme_var_id = pool.data(scheme_var);
+    let inst_var = pool.fresh_var();
+    let inst_var_id = pool.data(inst_var);
+    *pool.var_state_mut(scheme_var_id) = crate::VarState::Link { target: inst_var };
+
+    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
+    var_subst.insert(scheme_var_id, Idx::INT);
+    // Pre-populate the root's var_id with a DIFFERENT concrete (Str). The
+    // helper must NOT clobber this authoritative caller-supplied entry.
+    var_subst.insert(inst_var_id, Idx::STR);
+
+    extend_var_subst_with_roots(&pool, &[scheme_var_id], &mut var_subst);
+
+    // Existing entry preserved — Str, not Int.
+    assert_eq!(
+        var_subst.get(&inst_var_id),
+        Some(&Idx::STR),
+        "pre-existing root-var entry must NOT be overwritten by the helper"
+    );
+    // Original scheme var entry also preserved.
+    assert_eq!(var_subst.get(&scheme_var_id), Some(&Idx::INT));
+    assert_eq!(var_subst.len(), 2);
+}

@@ -1,0 +1,34 @@
+// Regression pin for §04.2.B File 4 (test-runner JIT imported-mono path):
+// `compiler/oric/src/test/runner/imported_mono.rs:115`
+// `extend_var_subst_with_roots` call.
+//
+// Exercises the imported-mono path by calling an imported generic
+// (`std.testing.assert_eq<T>`) from a 3-hop local generic chain.
+// The imported generic's scheme var flows through the runner's
+// `imported_mono` path; without root-extension, the deferred-mono
+// resolution would leak `Tag::Var` through the JIT-compiled callee.
+
+use std.testing { assert_eq }
+
+// 3-hop local generic chain — each call site is a deferred mono
+// resolution. At the terminal hop, the concrete type instantiates the
+// imported `assert_eq<T>`, which is compiled through the JIT
+// imported-mono path.
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+@double_wrap <T> (x: T) -> T = wrap(x: x);
+
+@test_imported_mono_chain_3hop_int tests _ () -> void = {
+    let n = double_wrap(x: 42);
+    assert_eq(actual: n, expected: 42)
+};
+
+@test_imported_mono_chain_3hop_str tests _ () -> void = {
+    let s = double_wrap(x: "hello");
+    assert_eq(actual: s, expected: "hello")
+};
+
+@test_imported_mono_chain_3hop_bool tests _ () -> void = {
+    let b = double_wrap(x: true);
+    assert_eq(actual: b, expected: true)
+};

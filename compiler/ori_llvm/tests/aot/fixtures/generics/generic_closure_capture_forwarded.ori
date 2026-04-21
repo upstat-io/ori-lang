@@ -1,0 +1,12 @@
+// Generic forwarder that captures a T in a lambda. Exercises capture
+// analysis interaction where the closure's captured T is routed through
+// a forwarder's deferred-mono path.
+@make_thunk <T> (x: T) -> () -> T = () -> x;
+@forward_thunk <T> (x: T) -> () -> T = make_thunk(x: x);
+@double_forward_thunk <T> (x: T) -> () -> T = forward_thunk(x: x);
+
+@main () -> int = {
+    let thunk = double_forward_thunk(x: 42);
+    let n = thunk();
+    if n == 42 then 0 else 1
+}

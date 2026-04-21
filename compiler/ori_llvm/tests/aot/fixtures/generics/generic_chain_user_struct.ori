@@ -1,0 +1,13 @@
+// 3-hop chain with user-defined generic-carrying struct (Box<T> shape).
+// Existing test_generic_chain_with_struct is 2-hop; this adds a third hop
+// so the deferred-mono root-extension fix is exercised end-to-end.
+type Wrap = { value: int };
+
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+@double_wrap <T> (x: T) -> T = wrap(x: x);
+
+@main () -> int = {
+    let w = double_wrap(x: Wrap { value: 42 });
+    if w.value == 42 then 0 else 1
+}
