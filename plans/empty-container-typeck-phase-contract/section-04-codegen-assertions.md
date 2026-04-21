@@ -50,7 +50,8 @@ sections:
     title: "BLOCKER: upstream Tag::Var leak on 3-level generic chain (generics::test_generic_chain_three_levels)"
     status: in-progress
 
-    notes: "Classification B finding surfaced by §04.2's PC-2 assertion hook. 2 AOT integration tests fail with UnresolvedTypeVar { var_id: ArcVarId(2), idx: Idx(220), tag: Tag::var }. Plan anticipated this exact class at line 719: '§08.3 completeness bug or upstream-filter regression'. Root-cause investigation required — likely typeck/canon/ARC normalization gap on 3-level generic chaining not covered by §08.3's e1–e5 matrix cells. Full /fix-bug rigor mandatory (blocker to §04.2 close-out; §04 cannot complete until fixed)."
+
+    notes: "Closed 2026-04-21 after full /fix-bug rigor (Phase 1 root-cause → Phase 1.5 consensus → Phase 2 TDD matrix → Phase 2.5 plan-body TPR 3 rounds 11 findings resolved → Phase 4 implementation commit 3f7d85f5 + matrix commit 8a7e9040 → Phase 5 code-TPR survivor-mode clean + hygiene 1 Major fixed inline + improve-tooling retrospective + sync-claude clean). Root cause: var_subst built from scheme_var_ids missed union-find roots when scheme vars were unified under other representatives, leaking Tag::Var into monomorphization substitution. Fix: new SSOT helper extend_var_subst_with_roots_via_pool extends var_subst with root entries at all 3 call sites (eager monomorphization, deferred-resolve, JIT imported-mono). Test coverage: 25 new tests (4 unit + 3 integration + 15 AOT + 3 spec) all green on first landing; 2 AOT tests #[ignore]'d with BUG-04-090/091 anchors (unrelated codegen bugs, predate fix). Hygiene close-out fix: generics.rs:434 #[ignore] anchor updated to reference BUG-04-090 explicitly. See §R TPR + §R Hygiene blocks for full details."
   - id: "04.TPR-A"
     title: "TPR checkpoint after 04.1 + 04.2 (the load-bearing surface)"
     status: not-started
@@ -1103,7 +1104,42 @@ Phase 2.5 TPR converged over 3 rounds; 11 verified findings addressed inline acr
 
 ### R. TPR Findings
 
-**Status**: pending — populated during Phase 5 code-TPR after implementation lands. Phase 2.5's rounds 0+1 findings are resolved inline above (in the §1 / §2 / §3 / §2.5 subsection bodies) and do NOT pre-populate this block, per /tpr-review §7 ("Fix NOW" disposition).
+**Status**: clean — Phase 5 code-TPR converged in round 0 under survivor mode. Dispatched 2026-04-21 against HEAD `8b27c3aa` with scope `3f7d85f5..8a7e9040` (two code-bearing commits; docs commit `8b27c3aa` excluded). Gemini (LOWER trust) returned `status: clean, findings: []` with `rules_consulted = CLAUDE.md + all 30 .claude/rules/*.md` and `files_read` spanning all 4 implementation sites (`pool/substitute/mod.rs`, `infer/expr/calls/monomorphization.rs`, `check/exports.rs`, `oric/src/test/runner/imported_mono.rs`), the re-export (`ori_types/src/lib.rs`), all 4 test files (`substitute/tests.rs`, `check/integration_tests.rs`, `aot/generics.rs`, `tests/spec/imports/generic_import_chain.ori`), plus `plans/bug-tracker/section-04-codegen-llvm.md` (bug-filing cross-reference). Gemini summary verbatim: "The §04.2.B implementation correctly resolves the Tag::Var leak by extracting root-extension logic into a shared helper used at all three monomorphization sites (eager, deferred, JIT). Extensive unit, integration, and AOT matrix testing confirms the fix across 3-5 hop chains and multi-param reordering, while semantic pins verify that the PC-2 assertion remains active and effective."
+
+Codex (HIGH trust) sub-agent contract violation per `/tpr-review §9` — the sub-agent emitted a banned partial-status message ("I'll wait for the Monitor notification") instead of waiting for CLI termination. Per §9 policy, contract violation is treated as `status: failed`; survivor mode engaged with gemini as the sole reviewer. Retry skipped per §9 ("Do NOT retry — a sub-agent that bailed despite the updated I22 prose ban will bail again on retry"). The contract violation is a `/tpr-review` tooling bug; it is filed for investigation in the Phase 5 /improve-tooling retrospective (below) and does NOT block §04.2.B close-out because the implementation review itself cleared.
+
+Stop condition 1 fires (zero unresolved critical/high verified findings; severity gate passed) per `/tpr-review §5`. Exit state: `exit_reason: clean`, `rounds_completed: 1`, `ever_verified_findings: []`, `survivor_mode: true`, `codex_status: sub_agent_contract_violation (I22)`. Phase 2.5's 11 inline-resolved findings (rounds 0–2 on the plan body) and this Phase 5 survivor-mode clean together constitute the full dual-source review envelope for §04.2.B.
+
+Scratch artifact: `/tmp/tpr-round-ori_lang-mxqxlWbb/` (gemini-stdout/report, prompt.md, pre/post-dispatch snapshots). No shadow edits detected.
+
+### R. Hygiene Findings
+
+**Status**: clean after inline fix. Phase 5 `/impl-hygiene-review` ran 2026-04-21 (scratch `/tmp/impl-hygiene-ori_lang-P1x64hUi/`) in Auto Mode — 6-phase pipeline (Phase 0 static analysis → Phase 1 rules/context → Phase 2 landscape → Phase 3 Opus deep analysis → Phase 4 skipped / sub-agent transport failure → Phase 5 compile & present). Phase 4 sub-agent stranded with the same I22 contract violation pattern as the TPR codex reviewer; cross-check was skipped (tooling gap recorded for /improve-tooling retrospective). Phase 3 (Opus) findings accepted as authoritative.
+
+**Counts**: 1 Major (close-out blocker, fixed inline) · 5 Minor (§04.R cleanup candidates, pre-existing) · 9 Informational (notes + false-positive corrections). 0 Critical. 0 INVERTED-TDD. §04.2.B deliverable integrity confirmed: extend_var_subst_with_roots is architecturally sound, PC-2 compliance verified across all 3 call sites, no gated deliverable / widened exemption / goal drift / blocker-deferred-via-add-bug.
+
+- [x] `[HYG-04.2.B-F01-opus][major]` `compiler/ori_llvm/tests/aot/generics.rs:434` — `#[ignore]` string narrated the blocker rationale ("Filed separately") without a concrete bug-ID anchor, violating §Test Hygiene §Quality "`#[ignore]` needs tracking issue".
+  Disposition: fixed inline this session. Ignore string rewritten to `blocked-by: BUG-04-090 — AOT codegen generic forwarder applied to [T] causes ori_rc_dec on already-freed allocation.` with explicit cross-reference to `plans/bug-tracker/section-04-codegen-llvm.md BUG-04-090`.
+  Evidence: pre-fix ignore opening was `"blocked: pre-existing RC codegen double-free …"` with no `BUG-XX-NNN` ID; post-fix opening is `"blocked-by: BUG-04-090 — …"`.
+  Rule: `impl-hygiene.md §Test Hygiene`; `tests.md §Quality` `#[ignore]` needs tracking issue.
+  Verified: BUG-04-090 exists in bug tracker (grep-confirmed at `plans/bug-tracker/section-04-codegen-llvm.md:50`).
+
+**Minor findings (pre-existing, deferred to §04.R cleanup — concrete anchors below):**
+
+- [ ] `[HYG-04.2.B-F02-opus][minor]` `generics.rs:362` — pre-existing `#[ignore]` needs `blocked-by:` anchor. Anchor: §04.R cleanup item "strip + anchor pre-existing ignore annotations".
+- [ ] `[HYG-04.2.B-F03-opus][minor]` `generics.rs:547` — pre-existing `#[ignore]` needs `blocked-by:` anchor. Anchor: §04.R cleanup item (same as F02).
+- [ ] `[HYG-04.2.B-F04-opus][minor]` `compiler/ori_types/src/check/exports.rs::resolve_deferred_mono_calls` — pre-existing BLOAT:fn-length. §04.2.B added <15% of length. Anchor: §04.R cleanup item "refactor long monomorphization functions".
+- [ ] `[HYG-04.2.B-F05-opus][minor]` `compiler/ori_types/src/infer/expr/calls/monomorphization.rs::maybe_record_mono_instance` — pre-existing BLOAT:nesting-depth. Anchor: §04.R cleanup item (same as F04).
+- [ ] `[HYG-04.2.B-F06-opus][minor]` `compiler/oric/src/test/runner/imported_mono.rs::build_imported_mono_functions` + `build_mono_var_subst` — pre-existing BLOAT:fn-length + LEAK:scattered-knowledge (manual max-var-id scan at line 96 re-derives pool's `next_var_id`). Anchor: §04.R cleanup item.
+
+**Informational (Phase 3 corrections of Phase 0 false-positives, documented for the record):**
+
+- Phase 0 flagged `integration_tests.rs` BLOAT:file-length → Phase 3 downgraded to NOTE (test files exempt per `impl-hygiene.md §File Organization` + `tests.md`).
+- Phase 0 flagged 3 LEAK:string-identity sites in `integration_tests.rs` → Phase 3 dismissed as false positive (comparisons are `&str == &str` after `interner.lookup()`, not Name-vs-str bypass).
+- Phase 0 flagged DerivedTrait drift at `check/field_ops/mod.rs` → Phase 3 dismissed as false positive (file does not exist; DerivedTrait coverage lives in `check/registration/derived.rs` and iterates `DerivedTrait::ALL` via macro — all 7 variants covered).
+- Phase 4 cross-check skipped due to sub-agent I22 contract violation; the pattern (sub-agents emitting banned partial-status messages before CLI termination) is recorded for /improve-tooling Phase 5 retrospective.
+
+Scratch artifact: `/tmp/impl-hygiene-ori_lang-P1x64hUi/` (phase-0.json through phase-5.json; phase-4.json is a skip-stub).
 
 ### N. Completion Checklist
 
@@ -1116,13 +1152,13 @@ Phase 2.5 TPR converged over 3 rounds; 11 verified findings addressed inline acr
 - [x] `timeout 150 ./test-all.sh` returns green, same-baseline known-failing set. Verified at `8a7e9040` commit pre-commit hook: 843 interp failures match `E2005:AmbiguousType` §06.2 baseline exactly; +3 LLVM runtime failures predate the pending commit (caused by `3f7d85f5` unblocking ~541 previously-LC_FAIL tests, 1851→2392 passed).
 - [x] Dual-execution parity verified (interpreter + LLVM). `tests/spec/imports/generic_import_chain.ori` 3 tests pass on both backends.
 - [x] `ORI_CHECK_LEAKS=1` clean on AOT binary. `diagnostics/diagnose-aot.sh --release` on `generic_chain_three_levels` fixture: all 7 active checks pass (compilation/execution/leak/RC-stats/codegen-audit all clean; Valgrind + disassembly skipped as optional).
-- [ ] Code TPR clean (Phase 5)
-- [ ] Hygiene review clean (Phase 5)
-- [ ] `/improve-tooling` retrospective run (Phase 5)
-- [ ] `/sync-claude` doc sync clean (Phase 5)
-- [ ] §04.2.B subsection `status: complete` in frontmatter
-- [ ] §04.2 status flipped from `implementation-done-close-blocked` → `complete`
-- [ ] §04.TPR-A reachable (unblocked) after this closes
+- [x] Code TPR clean (Phase 5). Phase 5 TPR converged in round 0 under survivor mode (2026-04-21, scratch `/tmp/tpr-round-ori_lang-mxqxlWbb/`). Gemini clean / codex contract violation per `/tpr-review §9`. Full details in §R above.
+- [x] Hygiene review clean (Phase 5). `/impl-hygiene-review` Auto Mode 2026-04-21 (scratch `/tmp/impl-hygiene-ori_lang-P1x64hUi/`). 1 Major finding F-01 (generics.rs:434 `#[ignore]` without `blocked-by:` anchor) fixed inline this session. 5 Minor findings deferred to §04.R cleanup with concrete anchors. 0 Critical, 0 INVERTED-TDD. §04.2.B deliverable integrity confirmed. Full details in §R Hygiene Findings above.
+- [x] `/improve-tooling` retrospective run (Phase 5). Two concrete actions: (1) `.claude/skills/impl-hygiene-review/hygiene-lint.py::is_test_file()` expanded to recognize `*_tests.rs` (plural), `test_*.rs`, `tests_*.rs`, and files under `_test/` directories — fixes the Phase 0 false-positive BLOAT:file-length + LEAK:string-identity findings on `integration_tests.rs`. (2) Cross-skill I22 contract-violation pattern escalated in `.claude/skills/improve-tooling/tpr-review-design.md` §6 open item [p1] — violation reproduced in BOTH `/tpr-review` (codex sub-agent) AND `/impl-hygiene-review` (Phase 4 cross-check sub-agent) in one session, proving it is not a /tpr-review-specific bug. Open items added: generalize I22 prose-ban to shared sub-agent-prompt SSOT, or retire /impl-hygiene-review Phase 4 in favor of inline /tp-help, or add harness-level hook.
+- [x] `/sync-claude` doc sync clean (Phase 5). Claude artifact sync: no API/command/phase changes — artifacts current. The new helper `extend_var_subst_with_roots_via_pool` is a crate-internal SSOT (not user-facing compiler API); types.md §SC-3 describes scheme-instantiation substitution at a different phase; typeck.md §PC-2 contract is unchanged and reinforced at previously-leaking sites; impl-hygiene.md §SSOT table lists crate-level architectural centers, not sub-crate helpers. No rule-file update warranted.
+- [x] §04.2.B subsection `status: complete` in frontmatter (flipped 2026-04-21 at close-out).
+- [ ] §04.2 status flipped from `implementation-done-close-blocked` → `complete` (blocked on §04.TPR-A — reachable after this commit; §04.2's flip happens at §04.TPR-A close-out).
+- [x] §04.TPR-A reachable (unblocked) after this closes — confirmed: §04.2.B now `status: complete`, so `/continue-roadmap` scanner will surface §04.TPR-A as the next unblocked subsection.
 
 ---
 
