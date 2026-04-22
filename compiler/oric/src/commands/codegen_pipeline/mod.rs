@@ -6,9 +6,16 @@
 //!
 //! Helpers extracted into sibling modules:
 //! - `repr_setup`: repr plan computation and impl-method ARC lowering for analysis
+//! - `pc2_hooks`: PC-2 invariant check helper for AOT pre-mono / mono sites
+//! - `finalize`: ARC phase dumps + post-codegen diagnostics-and-verify
 //!
 //! Called from `compile_common::compile_to_llvm` and
 //! `compile_common::compile_to_llvm_with_imports`.
+
+#[cfg(feature = "llvm")]
+mod finalize;
+#[cfg(feature = "llvm")]
+mod pc2_hooks;
 
 #[cfg(feature = "llvm")]
 use ori_ir::canon::CanonResult;
@@ -61,11 +68,11 @@ pub(super) struct BorrowInferenceResult {
 #[cfg(feature = "llvm")]
 #[expect(
     clippy::too_many_arguments,
-    reason = "pipeline helper — each param is a distinct data flow input from the compilation stages"
+    reason = "pipeline helper — distinct data flow inputs per compilation stage"
 )]
 #[expect(
     clippy::too_many_lines,
-    reason = "§04.3 added PC-2 hook loops inline; submodule extract pending per plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md §04.R HYG-04.3-F01..F04 anchor"
+    reason = "pipeline driver composing SCC analysis + ARC lowering loops"
 )]
 pub(super) fn run_borrow_inference(
     db: &CompilerDb,
@@ -87,14 +94,9 @@ pub(super) fn run_borrow_inference(
         FxHashMap::default();
     let mut arc_problems = Vec::new();
 
-    // PC-2 contract check (types.md §PC-2) — diagnostic localization for both
-    // AOT pre-mono (non-generic) and AOT mono IR. Non-load-bearing: the primary
-    // seam in process_arc_function owns record_codegen_error(); these sites
-    // only attribute diagnostics to the just-lowered arc_fn + lambdas.
-    //
-    // Empty exempt set at both loops: pre-mono loop skips generics via
-    // sig.is_generic(), and collect_mono_functions produces fully-substituted
-    // instances — every inserted entry has empty scheme_var_ids.
+    // PC-2 diagnostic localization (types.md §PC-2); primary seam owns
+    // record_codegen_error(). Empty exempt set: pre-mono skips generics via
+    // sig.is_generic(); mono instances are fully substituted (empty scheme_var_ids).
     let exempt: FxHashSet<u32> = FxHashSet::default();
 
     for (func, sig) in parse_result
@@ -116,27 +118,15 @@ pub(super) fn run_borrow_inference(
             &mut arc_problems,
             None,
         );
-        if let Err(err) = ori_arc::assert_no_unresolved_type_vars(pool, &arc_fn, interner, &exempt)
-        {
-            tracing::error!(
-                contract_violation = true,
-                error = ?err,
-                site = "aot_pre_mono",
-                "Tag::Var in AOT pre-mono ARC IR (codegen-rules.md §TR-2)"
-            );
-        }
-        for lambda in &lambdas {
-            if let Err(err) =
-                ori_arc::assert_no_unresolved_type_vars(pool, lambda, interner, &exempt)
-            {
-                tracing::error!(
-                    contract_violation = true,
-                    error = ?err,
-                    site = "aot_pre_mono_lambda",
-                    "Tag::Var in AOT pre-mono lambda ARC IR"
-                );
-            }
-        }
+        pc2_hooks::run_pc2_hook_aot(
+            pool,
+            &arc_fn,
+            &lambdas,
+            interner,
+            &exempt,
+            "aot_pre_mono",
+            "aot_pre_mono_lambda",
+        );
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 
@@ -161,27 +151,15 @@ pub(super) fn run_borrow_inference(
             &mut arc_problems,
             Some(&mono_fn.body_type_map),
         );
-        if let Err(err) = ori_arc::assert_no_unresolved_type_vars(pool, &arc_fn, interner, &exempt)
-        {
-            tracing::error!(
-                contract_violation = true,
-                error = ?err,
-                site = "aot_mono",
-                "Tag::Var in AOT mono ARC IR (codegen-rules.md §TR-2)"
-            );
-        }
-        for lambda in &lambdas {
-            if let Err(err) =
-                ori_arc::assert_no_unresolved_type_vars(pool, lambda, interner, &exempt)
-            {
-                tracing::error!(
-                    contract_violation = true,
-                    error = ?err,
-                    site = "aot_mono_lambda",
-                    "Tag::Var in AOT mono lambda ARC IR"
-                );
-            }
-        }
+        pc2_hooks::run_pc2_hook_aot(
+            pool,
+            &arc_fn,
+            &lambdas,
+            interner,
+            &exempt,
+            "aot_mono",
+            "aot_mono_lambda",
+        );
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 
@@ -347,22 +325,15 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             &type_result.typed.mono_instances,
         );
 
-        // Phase dump: ARC IR after lowering + pipeline (gated behind ORI_DUMP_AFTER_ARC=1)
-        crate::dbg_do!(crate::debug_flags::ORI_DUMP_AFTER_ARC, {
-            crate::arc_dump::dump_arc_ir(
-                &arc_cache,
-                &annotated_sigs,
-                &classifier,
-                pool,
-                interner,
-                source_path,
-            );
-        });
-
-        // Phase dump: ARC IR as GraphViz DOT (gated behind ORI_EMIT_ARC_DOT=1)
-        crate::dbg_do!(crate::debug_flags::ORI_EMIT_ARC_DOT, {
-            crate::arc_dot::emit_arc_dot(&arc_cache, &annotated_sigs, &classifier, pool, interner);
-        });
+        // ARC-IR phase dumps (ORI_DUMP_AFTER_ARC + ORI_EMIT_ARC_DOT gates)
+        finalize::dump_arc_phases(
+            &arc_cache,
+            &annotated_sigs,
+            &classifier,
+            pool,
+            interner,
+            source_path,
+        );
 
         // 3a. Compute representation plan.
         // Include impl methods in the analysis set so interprocedural range
@@ -490,25 +461,22 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         // no invoke instructions in the final LLVM IR.
         fc.apply_posthoc_nounwind();
 
-        // 7. Generate C main() entry point wrapper for @main (AOT only)
-        // Also detect @panic handler for registration in main()
+        // 7. Generate C main() entry-point wrapper for @main (AOT only),
+        // registering the @panic handler with it when present.
         let panic_name = parse_result
             .module
             .functions
             .iter()
             .find(|f| interner.lookup(f.name) == "panic")
             .map(|f| f.name);
-
-        for (func, sig) in parse_result
+        if let Some((func, sig)) = parse_result
             .module
             .functions
             .iter()
             .zip(function_sigs.iter())
+            .find(|(_, sig)| sig.is_main)
         {
-            if sig.is_main {
-                fc.generate_main_wrapper(func.name, sig, panic_name);
-                break;
-            }
+            fc.generate_main_wrapper(func.name, sig, panic_name);
         }
 
         // Extract soft codegen error info before builder goes out of scope.
@@ -520,53 +488,17 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         )
     };
 
-    if codegen_errors > 0 {
-        let details = if codegen_descriptions.is_empty() {
-            String::new()
-        } else {
-            format!(":\n  - {}", codegen_descriptions.join("\n  - "))
-        };
-        return Err(format!(
-            "LLVM codegen had {codegen_errors} error(s) — aborting AOT compilation{details}",
-        ));
-    }
-
-    // Phase dump: annotated LLVM IR (gated behind ORI_DUMP_AFTER_LLVM=1 or
-    // ORI_DEBUG_LLVM=1). Runs BEFORE verify/clone so IR is visible even when
-    // the module has structural errors — mirrors the JIT path pattern.
-    if crate::llvm_dump::llvm_dump_requested() {
-        crate::llvm_dump::dump_llvm_ir(
-            &scx.llmod.print_to_string().to_string_lossy(),
-            pool,
-            interner,
-            source_path,
-        );
-    }
-
-    // Codegen audit (debug builds only, gated behind ORI_AUDIT_CODEGEN=1).
-    crate::dbg_do!(crate::debug_flags::ORI_AUDIT_CODEGEN, {
-        let audit_report = ori_llvm::verify::audit_module(&scx.llmod);
-        audit_report.emit_to_stderr();
-        if audit_report.has_errors() {
-            return Err(format!(
-                "RC audit found {} error(s) — aborting",
-                audit_report.error_count()
-            ));
-        }
-    });
-
-    // Explicit LLVM IR verification. Done before clone() because inkwell's
-    // clone_module() internally verifies and panics on invalid IR — by
-    // verifying first, the IR dump above is already emitted for debugging.
-    if let Err(msg) = scx.llmod.verify() {
-        return Err(format!("LLVM IR verification failed: {msg}"));
-    }
-
-    // SAFETY: ManuallyDrop is used only to suppress the borrow checker.
-    // The compilation block's borrows have ended; we extract the module
-    // by reading the field (Module implements Clone via LLVMCloneModule).
-    // We can't call into_inner() because SimpleCx has other fields that
-    // would be moved while the ManuallyDrop still exists, so we clone
-    // the module instead.
-    Ok(scx.llmod.clone())
+    // SAFETY: ManuallyDrop is used only to suppress the borrow checker — the
+    // compilation block's borrows have ended. `finalize_module` runs post-codegen
+    // dump + audit + verify and returns the cloned module. We can't call
+    // into_inner() because SimpleCx has other fields that would be moved while
+    // the ManuallyDrop still exists, so the helper clones the module internally.
+    finalize::finalize_module(
+        &scx,
+        codegen_errors,
+        &codegen_descriptions,
+        source_path,
+        pool,
+        interner,
+    )
 }

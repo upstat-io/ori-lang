@@ -81,11 +81,23 @@ pub enum VerifyError {
     /// [`crate::ir::validate::UnresolvedTypeVar`] so existing verification
     /// error handling works unchanged.
     UnresolvedTypeVar(crate::ir::validate::UnresolvedTypeVar),
+
+    /// A lambda parameter's type is `Tag::BoundVar` at codegen entry — a
+    /// monomorphization-resolution invariant violation (sibling to PC-2;
+    /// `types.md §SC-1` + `typeck.md §GN-2`). Wraps
+    /// [`crate::ir::validate::UnresolvedBoundVar`].
+    UnresolvedBoundVar(crate::ir::validate::UnresolvedBoundVar),
 }
 
 impl From<crate::ir::validate::UnresolvedTypeVar> for VerifyError {
     fn from(violation: crate::ir::validate::UnresolvedTypeVar) -> Self {
         VerifyError::UnresolvedTypeVar(violation)
+    }
+}
+
+impl From<crate::ir::validate::UnresolvedBoundVar> for VerifyError {
+    fn from(violation: crate::ir::validate::UnresolvedBoundVar) -> Self {
+        VerifyError::UnresolvedBoundVar(violation)
     }
 }
 
@@ -162,6 +174,16 @@ impl std::fmt::Display for VerifyError {
                     violation.var_id.raw(),
                     violation.idx,
                     violation.tag,
+                )
+            }
+            VerifyError::UnresolvedBoundVar(violation) => {
+                write!(
+                    f,
+                    "unresolved bound variable (monomorphization-resolution violation): \
+                     lambda name_id={:?}, ArcVarId({}), idx={:?}",
+                    violation.function,
+                    violation.var_id.raw(),
+                    violation.idx,
                 )
             }
         }

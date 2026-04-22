@@ -251,16 +251,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ///
     /// Registers the lambda in `self.codegen_ctx.functions` so the emitter can look it up.
     fn compile_lambda_arc(&mut self, lambda: &mut ori_arc::ArcFunction) -> Result<(), VerifyError> {
-        // Verify no BoundVar types remain after resolution — captures ARE leading
-        // params, so resolve_all_lambda_bound_vars must have resolved them too.
-        debug_assert!(
-            !lambda
-                .params
-                .iter()
-                .any(|p| matches!(self.pool.tag(p.ty), ori_types::Tag::BoundVar)),
-            "lambda {} has unresolved BoundVar params after resolution",
-            self.interner.lookup(lambda.name),
-        );
+        // PC-2 + BoundVar invariant checks run inside
+        // `declare_and_process_lambda` (the shared primary seam for both this
+        // immediate-emit path and the two-pass `prepare_lambda` path) — no
+        // duplicate check needed here.
 
         // Shared setup: declare, register, run ARC pipeline.
         // On PC-2 violation, return early WITHOUT invoking run_arc_pipeline /
@@ -364,15 +358,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         if let Err(err) =
             ori_arc::assert_no_unresolved_type_vars(self.pool, arc_func, self.interner, &exempt)
         {
-            tracing::error!(
-                contract_violation = true,
-                error = ?err,
-                "Tag::Var in ARC IR violates PC-2 contract \
-                 (impl-hygiene.md §Cross-Phase Invariant Contracts, \
-                  codegen-rules.md §TR-2)"
-            );
-            self.builder.record_codegen_error();
-            return Err(VerifyError::UnresolvedTypeVar(err));
+            return Err(self.report_primary_seam_violation(
+                err,
+                "Tag::Var in ARC IR violates PC-2 contract (impl-hygiene.md §Cross-Phase Invariant Contracts, codegen-rules.md §TR-2)",
+            ));
         }
 
         // Apply AIMS param ownership from pre-computed contracts.
@@ -380,14 +369,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // AIMS contracts (from compute_aims_contracts()) provide the correct
         // Owned/Borrowed per param.
         debug!(name = %self.interner.lookup(name), "processing ARC function");
-        if let Some(contract) = self.aims_contracts.get(&arc_func.name) {
-            for (param, pc) in arc_func.params.iter_mut().zip(&contract.params) {
-                param.ownership = match pc.access {
-                    ori_arc::aims::lattice::AccessClass::Borrowed => ori_arc::Ownership::Borrowed,
-                    ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
-                };
-            }
-        }
+        self.apply_aims_param_ownership(arc_func);
 
         // AIMS pipeline handles arg_ownership internally (Step 4: emit_arg_ownership).
         let arc_problems = ori_arc::run_arc_pipeline(
@@ -421,6 +403,51 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         Ok(())
     }
 
+    /// Report a contract-violation at a primary PC-2 / monomorphization-resolution
+    /// seam: emit structured `contract_violation=true` tracing event, increment
+    /// the codegen-error counter (so AOT callers see the failure through
+    /// `builder.codegen_error_count()`), and convert the typed error to the
+    /// shared `VerifyError` variant via `Into`. Returns the converted error so
+    /// the caller can `return Err(...)` directly.
+    ///
+    /// Callers: `process_arc_function` (PC-2 on top-level functions),
+    /// `declare_and_process_lambda` (PC-2 + `BoundVar` on lambdas). Secondary-site
+    /// hooks (`pc2_hooks::run_pc2_hook_aot` AOT path, `evaluator/compile.rs` JIT
+    /// path) do NOT use this helper — they emit `tracing::error!` only per the
+    /// secondary-site contract (no `record_codegen_error()`, no `return Err`).
+    fn report_primary_seam_violation<E>(&mut self, err: E, msg: &'static str) -> VerifyError
+    where
+        E: std::fmt::Debug + Into<VerifyError>,
+    {
+        tracing::error!(
+            contract_violation = true,
+            error = ?err,
+            "{}", msg,
+        );
+        self.builder.record_codegen_error();
+        err.into()
+    }
+
+    /// Translate AIMS `ParamContract` → `Ownership` for every param on `func`.
+    ///
+    /// Lowering defaults all params to `Ownership::Owned` (see
+    /// `ori_arc/src/lower/mod.rs`); AIMS contracts (from `compute_aims_contracts()`)
+    /// carry the correct Owned/Borrowed classification per param. This helper
+    /// consumes the interprocedural contract for `func.name` (when present) and
+    /// writes the per-param ownership in-place. Callers: `process_arc_function`
+    /// (top-level) + `declare_and_process_lambda` (lambdas); both forms share
+    /// identical translation logic (§impl-hygiene.md §Algorithmic DRY).
+    fn apply_aims_param_ownership(&self, func: &mut ori_arc::ArcFunction) {
+        if let Some(contract) = self.aims_contracts.get(&func.name) {
+            for (param, pc) in func.params.iter_mut().zip(&contract.params) {
+                param.ownership = match pc.access {
+                    ori_arc::aims::lattice::AccessClass::Borrowed => ori_arc::Ownership::Borrowed,
+                    ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
+                };
+            }
+        }
+    }
+
     /// Declare a lambda LLVM function, register it in `codegen_ctx`, and run
     /// the ARC pipeline.
     ///
@@ -449,13 +476,27 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         if let Err(err) =
             ori_arc::assert_no_unresolved_type_vars(self.pool, lambda, self.interner, &exempt)
         {
-            tracing::error!(
-                contract_violation = true,
-                error = ?err,
-                "Tag::Var in lambda ARC IR violates PC-2 contract"
-            );
-            self.builder.record_codegen_error();
-            return Err(VerifyError::UnresolvedTypeVar(err));
+            return Err(self.report_primary_seam_violation(
+                err,
+                "Tag::Var in lambda ARC IR violates PC-2 contract",
+            ));
+        }
+
+        // Monomorphization-resolution sibling invariant — plan §04.R item 8.
+        // Runs at the same seam as the PC-2 check so BOTH the immediate-emit
+        // path (`compile_lambda_arc`) and the two-pass prepare path
+        // (`prepare_lambda`) are covered. `resolve_all_lambda_bound_vars`
+        // must have substituted every `Tag::BoundVar` before this point;
+        // survivors mean monomorphization did not finish (types.md §SC-1,
+        // typeck.md §GN-2). Always-on per §04.2 "no debug_assert fail-open"
+        // discipline; routes through `report_primary_seam_violation` so AOT
+        // callers see the BoundVar failure through the same `codegen_errors`
+        // counter they rely on for PC-2 failures.
+        if let Err(err) = ori_arc::assert_no_unresolved_bound_vars_in_params(self.pool, lambda) {
+            return Err(self.report_primary_seam_violation(
+                err,
+                "Tag::BoundVar in lambda params violates monomorphization-resolution invariant",
+            ));
         }
 
         let is_non_capturing = lambda.num_captures == 0;
@@ -468,14 +509,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Without this, edge cleanup emits spurious RcDec for
         // borrowed-param aliases (double-free on captured non-scalar
         // values like str, [T]).
-        if let Some(contract) = self.aims_contracts.get(&lambda.name) {
-            for (param, pc) in lambda.params.iter_mut().zip(&contract.params) {
-                param.ownership = match pc.access {
-                    ori_arc::aims::lattice::AccessClass::Borrowed => ori_arc::Ownership::Borrowed,
-                    ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
-                };
-            }
-        }
+        self.apply_aims_param_ownership(lambda);
 
         let mut abi = self.compute_arc_function_abi(lambda);
 

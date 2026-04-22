@@ -175,5 +175,76 @@ impl UnresolvedTypeVar {
     }
 }
 
+/// A single unresolved `Tag::BoundVar` encountered in lambda parameters
+/// after monomorphization-resolution should have run.
+///
+/// Constructed by [`assert_no_unresolved_bound_vars_in_params`] on invariant
+/// violation. Wrapped by `ori_arc::verify::VerifyError::UnresolvedBoundVar(_)`.
+///
+/// Distinct from [`UnresolvedTypeVar`]: PC-2 forbids `Tag::Var` / `Tag::Projection`
+/// at codegen (the monomorphization-resolution invariant for `Tag::BoundVar`
+/// is a sibling, not a restatement). `types.md §SC-1` + `typeck.md §GN-2` —
+/// scheme-body `BoundVar` leaves SHALL be substituted with fresh `Var`s at
+/// instantiation; any surviving `BoundVar` at codegen means monomorphization
+/// did not finish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct UnresolvedBoundVar {
+    /// The lambda `ArcFunction.name` where the violation was detected.
+    pub function: Name,
+    /// The parameter `ArcVarId` whose type is `Tag::BoundVar`.
+    pub var_id: ArcVarId,
+    /// The raw type-pool index that resolved to `Tag::BoundVar`.
+    pub idx: Idx,
+}
+
+/// Check that no `Tag::BoundVar` appears in lambda-parameter types.
+///
+/// Scoped to `lambda.params` specifically — this mirrors the invariant
+/// previously enforced by the `debug_assert!` at `define_phase.rs::compile_lambda_arc`
+/// entry. The check runs AFTER `resolve_all_lambda_bound_vars` has substituted
+/// every bound var in the lambda's captures + user params; any surviving
+/// `BoundVar` at this point means monomorphization did not finish.
+///
+/// # When to Call
+///
+/// Call from `compile_lambda_arc` in `ori_llvm::codegen::function_compiler::define_phase`
+/// BEFORE `declare_and_process_lambda` / `run_arc_pipeline` so failures short-circuit
+/// the emission of a lambda whose IR is not safe to process further.
+///
+/// # Returns
+///
+/// `Ok(())` when the invariant holds. `Err(UnresolvedBoundVar)` with the FIRST
+/// offending parameter (deterministic iteration order).
+pub fn assert_no_unresolved_bound_vars_in_params(
+    pool: &Pool,
+    func: &ArcFunction,
+) -> Result<(), UnresolvedBoundVar> {
+    for param in &func.params {
+        let resolved = pool.resolve_fully(param.ty);
+        if matches!(pool.tag(resolved), Tag::BoundVar) {
+            return Err(UnresolvedBoundVar {
+                function: func.name,
+                var_id: param.var,
+                idx: resolved,
+            });
+        }
+    }
+    Ok(())
+}
+
+impl UnresolvedBoundVar {
+    /// Render a user-facing diagnostic message for this violation.
+    pub fn render(&self, interner: &StringInterner) -> String {
+        format!(
+            "Tag::BoundVar reached codegen: lambda `{}`, ArcVarId({}) param has \
+             unresolved bound-var at type index {:?}. Monomorphization-resolution \
+             did not finish (types.md §SC-1, typeck.md §GN-2).",
+            interner.lookup(self.function),
+            self.var_id.index(),
+            self.idx,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests;
