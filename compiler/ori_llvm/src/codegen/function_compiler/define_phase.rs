@@ -127,7 +127,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ) -> Result<(), VerifyError> {
         // All early-return paths must `exit_debug_scope()` — the enclosing
         // caller (`define_function_body_arc_with_subst`) entered the scope
-        // and relies on this function to exit it (TPR-04-R5-002).
+        // and relies on this function to exit it.
         let result = self.emit_arc_function_inner(name, func_id, abi, arc_func, lambdas);
         self.exit_debug_scope();
         result
@@ -346,14 +346,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         name: Name,
         arc_func: &mut ori_arc::ArcFunction,
     ) -> Result<(), VerifyError> {
-        // PC-2 contract check — plan `empty-container-typeck-phase-contract`
-        // §04.2 Hook 1. Runs BEFORE run_arc_pipeline because the pipeline
-        // mutates `arc_func` in place; assertion on post-pipeline IR would
-        // validate the wrong structure.
+        // PC-2 contract check. Runs BEFORE run_arc_pipeline because the
+        // pipeline mutates `arc_func` in place; assertion on post-pipeline
+        // IR would validate the wrong structure.
         //
         // Empty exempt set: generic bodies reach this seam only post-
-        // monomorphization; non-generic bodies have no scheme_var_ids. See
-        // plan §04.2 Decision 2.
+        // monomorphization; non-generic bodies have no scheme_var_ids.
         let exempt: FxHashSet<u32> = FxHashSet::default();
         if let Err(err) =
             ori_arc::assert_no_unresolved_type_vars(self.pool, arc_func, self.interner, &exempt)
@@ -467,11 +465,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         &mut self,
         lambda: &mut ori_arc::ArcFunction,
     ) -> Result<(Name, FunctionId, FunctionAbi), VerifyError> {
-        // PC-2 contract check — plan `empty-container-typeck-phase-contract`
-        // §04.2 Hook 2. Runs BEFORE run_arc_pipeline below because the
-        // pipeline mutates `lambda` in place; assertion on post-pipeline IR
-        // would validate the wrong structure. Mirrors Hook 1 in
-        // `process_arc_function`.
+        // PC-2 contract check. Runs BEFORE run_arc_pipeline below because
+        // the pipeline mutates `lambda` in place; assertion on post-pipeline
+        // IR would validate the wrong structure. Mirrors the sibling check
+        // in `process_arc_function`.
         let exempt: FxHashSet<u32> = FxHashSet::default();
         if let Err(err) =
             ori_arc::assert_no_unresolved_type_vars(self.pool, lambda, self.interner, &exempt)
@@ -482,16 +479,16 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             ));
         }
 
-        // Monomorphization-resolution sibling invariant — plan §04.R item 8.
-        // Runs at the same seam as the PC-2 check so BOTH the immediate-emit
-        // path (`compile_lambda_arc`) and the two-pass prepare path
+        // Monomorphization-resolution sibling invariant. Runs at the same
+        // seam as the PC-2 check so BOTH the immediate-emit path
+        // (`compile_lambda_arc`) and the two-pass prepare path
         // (`prepare_lambda`) are covered. `resolve_all_lambda_bound_vars`
         // must have substituted every `Tag::BoundVar` before this point;
         // survivors mean monomorphization did not finish (types.md §SC-1,
-        // typeck.md §GN-2). Always-on per §04.2 "no debug_assert fail-open"
-        // discipline; routes through `report_primary_seam_violation` so AOT
-        // callers see the BoundVar failure through the same `codegen_errors`
-        // counter they rely on for PC-2 failures.
+        // typeck.md §GN-2). Always-on (no `debug_assert!` fail-open);
+        // routes through `report_primary_seam_violation` so AOT callers see
+        // the BoundVar failure through the same `codegen_errors` counter
+        // they rely on for PC-2 failures.
         if let Err(err) = ori_arc::assert_no_unresolved_bound_vars_in_params(self.pool, lambda) {
             return Err(self.report_primary_seam_violation(
                 err,
