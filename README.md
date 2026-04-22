@@ -292,3 +292,7 @@ ori test                 # Language test suite
 Ori is distributed under the terms of both the MIT license and the Apache License (Version 2.0).
 
 See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE) for details.
+
+---
+
+<sub>_AI-assisted tooling is used in the development of this project. All contributions reviewed and accepted by the maintainer._</sub>
