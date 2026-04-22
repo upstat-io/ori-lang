@@ -3,7 +3,10 @@
 //! Implements let-polymorphism by generalizing unbound type variables
 //! at or above the current rank into type schemes (forall quantifiers).
 
-use crate::{Idx, Rank, Tag, TypeFlags, VarState};
+use rustc_hash::FxHashMap;
+
+use crate::pool::substitute::substitute_in_pool;
+use crate::{Idx, Pool, Rank, Tag, TypeFlags, VarState};
 
 use super::UnifyEngine;
 
@@ -54,8 +57,17 @@ impl UnifyEngine<'_> {
             }
         }
 
+        // §08.3b — Canonicalize scheme body to `Tag::BoundVar` leaves per
+        // `types.md §SC-1`. The body returned by upstream inference contains
+        // `Tag::Var` leaves whose var_states were just mutated to
+        // `VarState::Generalized` above; rewrite them to `Tag::BoundVar` with
+        // `data = var_id` so the scheme body matches the target representation
+        // and downstream consumers (PC-2 validator, codegen, instantiation)
+        // see a single canonical shape.
+        let body = rewrite_generalized_to_bound_var(self.pool, ty, &vars);
+
         // Create type scheme
-        self.pool.scheme(&vars, ty)
+        self.pool.scheme(&vars, body)
     }
 
     /// Collect unbound type variables at or above the given rank.
@@ -145,4 +157,31 @@ impl UnifyEngine<'_> {
             _ => {}
         }
     }
+}
+
+/// Rewrite `Tag::Var(Generalized)` leaves in a scheme body to `Tag::BoundVar`
+/// leaves bearing the same `var_id` (per `types.md §SC-1`).
+///
+/// Builds a substitution map `{var_id → BoundVar(var_id)}` for each
+/// scheme-declared `var_id`, then delegates to the canonical
+/// [`substitute_in_pool`] machinery to walk the body and rewrite matching
+/// `Tag::Var` leaves. The new `Tag::BoundVar` leaf carries `data == var_id`,
+/// satisfying `types.md §SC-1`'s "data = `var_id` matching one of the scheme's
+/// declared var ids" rule.
+///
+/// Reusing `substitute_in_pool` keeps the structural recursion in one place
+/// (`impl-hygiene.md §Algorithmic DRY`) — no parallel walker needed.
+///
+/// Called once per `generalize()` invocation, between `var_states` mutation
+/// and scheme construction. The substitution applies because
+/// `substitute_var` matches by `var_id` directly — the post-§08.3b
+/// `substitute_var` no longer carries a Generalized-state fallback (orphan
+/// `Tag::Var(Generalized)` entries simply fall through to return `ty`
+/// unchanged).
+fn rewrite_generalized_to_bound_var(pool: &mut Pool, body: Idx, scheme_var_ids: &[u32]) -> Idx {
+    let subst: FxHashMap<u32, Idx> = scheme_var_ids
+        .iter()
+        .map(|&id| (id, pool.bound_var(id)))
+        .collect();
+    substitute_in_pool(pool, body, &subst)
 }

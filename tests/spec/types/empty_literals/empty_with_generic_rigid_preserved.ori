@@ -1,0 +1,21 @@
+// BUG-04-084 (Codex /tp-help Round 1): generic RigidVar from outer scheme
+// must NOT be defaulted, even when code in the caller function's body
+// triggers the defaulting pass. `identity`'s `T` is a RigidVar in its
+// own scheme; the caller's empty literal is a separate var.
+
+use std.testing { assert_eq }
+
+@identity<T> (x: T) -> T = x;
+
+@test_rigid_preserved tests @rigid_preserved () -> void = {
+    let _ = [];
+    let n = identity(x: 42);
+    let s = identity(x: "hi");
+    assert_eq(actual: n, expected: 42);
+    assert_eq(actual: s, expected: "hi")
+}
+
+@rigid_preserved () -> int = {
+    let _ = [];
+    identity(x: 42)
+}

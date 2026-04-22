@@ -1,0 +1,6 @@
+// BUG-04-084: empty map in for-yield body. Whole expression: `[{Never: Never}]`.
+
+@main () -> int = {
+    let nested = for x in [1, 2, 3] yield {};
+    0
+}

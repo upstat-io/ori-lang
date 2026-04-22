@@ -17,7 +17,6 @@ The standard library provides production-ready implementations for common progra
 | **Text** | [std.fmt](std.fmt/), [std.text](std.text/) | Formatting and text processing |
 | **Time** | [std.time](std.time/) | Dates, times, and durations |
 | **Math** | [std.math](std.math/) | Mathematical functions and random |
-| **Caching** | [std.cache](std.cache/) | Key-value caching |
 | **Security** | [std.crypto](std.crypto/) | Cryptographic primitives |
 | **System** | [std.env](std.env/), [std.process](std.process/) | Environment and processes |
 | **Development** | [std.log](std.log/), [std.testing](std.testing/) | Logging and testing utilities |
@@ -95,7 +94,7 @@ Pure modules (no capabilities required):
 - `std.math` (Mathematical functions — except `std.math.rand`)
 - `std.collections` (Data structures)
 
-See [Capabilities](../spec/14-capabilities.md) for details.
+See [Capabilities](../spec/20-capabilities.md) for details.
 
 ---
 

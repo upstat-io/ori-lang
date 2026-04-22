@@ -1,0 +1,10 @@
+// BUG-04-084 NEGATIVE PIN (Plan TPR Round 2 Codex-R2-F4): mixed-branch
+// empty literals of DIFFERENT shapes (list vs map) must still emit an
+// E2001 branch-type mismatch via bidirectional unification — defaulting
+// must NOT silently reconcile `[]` (list) with `{}` (map).
+
+#compile_fail("E2001")
+@main () -> int = {
+    for x in [1, 2, 3] do (if x == 1 then [] else {});
+    0
+}

@@ -1,0 +1,9 @@
+// BUG-04-084 (Plan TPR Round 1 Codex-F5 correction): per typeck.md §GN-3,
+// Value Restriction is LAMBDA-ONLY. An immutable binding `let $` of a
+// value literal like `[]` does NOT trigger generalization — it stays
+// monomorphic and defaults to `[Never]`, exactly as the mutable case would.
+
+@main () -> int = {
+    let $empty = [];
+    0
+}

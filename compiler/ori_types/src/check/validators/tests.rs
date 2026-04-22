@@ -47,7 +47,7 @@ const SIG_SPAN: Span = Span::new(100, 101);
 /// than map setup boilerplate.
 ///
 /// `scheme_var_ids` is passed through to the validator for the exempt
-/// root set (BUG-02-008). Existing tests pass `&[]` for monomorphic
+/// root set. Existing tests pass `&[]` for monomorphic
 /// scenarios; new tests (T13+) supply real scheme var ids.
 fn run(
     pool: &Pool,
@@ -207,21 +207,29 @@ fn scheme_body_with_bound_var_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-/// Spec: `typeck.md §GN-1` — a `Tag::Var` in `VarState::Generalized` is a
-/// legitimate polymorphic binding, not a PC-2 violation. The validator
-/// explicitly exempts this state (see the rationale in
-/// `check/validators/mod.rs::collect_first_unbound_var`). Removing this
-/// exemption would fire `E2005` on every polymorphic let-binding.
+/// Spec: `typeck.md §PC-2`, `types.md §SC-1`. Post-`expr_types` port, a
+/// `Tag::Var(VarState::Generalized)` surviving in `expr_types` is a
+/// partial-migration LEAK: the scheme body was rewritten to `Tag::BoundVar`
+/// by `rewrite_generalized_to_bound_var`, but the expression position
+/// carrying the lambda's body sub-expression was not re-pointed at the
+/// rewritten Idx. Stripping the validator's `VarState::Generalized` arm
+/// exposes the leak as `E2005` — a regression alarm, not a false positive.
 ///
-/// This is a divergence from `types.md §SC-1`: the implementation stores
-/// generalized vars as `Tag::Var(VarState::Generalized)` rather than
-/// rewriting them to `Tag::BoundVar`. If a future SC-1 conformance fix
-/// rewrites the pool layout, this test becomes tautological (all
-/// `Tag::Var` entries would be Unbound) and can be removed.
+/// This test is RED until the post-generalize `expr_types` /
+/// `FunctionSig` port in §08.3b.1 plan item 2 ships AND the validator
+/// exemption arm is stripped in §08.3b.1 plan item 4. At that point the
+/// only remaining way for a `VarState::Generalized` to reach `expr_types`
+/// is a genuine port-side failure, and firing `E2005` is the correct
+/// behavior — the validator becomes the leak alarm. Prior to those two
+/// items landing, this assertion fails because the exemption still
+/// silences `Generalized` at `validators/mod.rs::collect_first_unbound_var`.
 ///
-/// Plan §02.4 T7 (Positive / Generalized).
+/// Replaces the former `generalized_var_in_expr_types_emits_no_diagnostic`
+/// (pre-§08.3b.1 exemption-is-correct assertion). See
+/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md`
+/// §08.3b.1 Cell L.
 #[test]
-fn generalized_var_in_expr_types_emits_no_diagnostic() {
+fn generalized_var_in_expr_types_emits_e2005_as_leak_alarm() {
     let mut pool = Pool::new();
     let var = pool.fresh_var();
     let var_id = pool.data(var);
@@ -232,7 +240,19 @@ fn generalized_var_in_expr_types_emits_no_diagnostic() {
 
     let errors = run(&pool, &[(0, var)], &empty_sig(), &[]);
 
-    assert!(errors.is_empty());
+    assert_eq!(
+        errors.len(),
+        1,
+        "post-§08.3b.1: Tag::Var(Generalized) in expr_types is a leak \
+         (the expr_types position was not re-pointed at the rewritten \
+         BoundVar Idx); validator strip MUST fire E2005 once per position"
+    );
+    assert!(
+        matches!(errors[0].kind, TypeErrorKind::AmbiguousType { .. }),
+        "leak-alarm diagnostic must be E2005 (AmbiguousType), got {:?}",
+        errors[0].kind
+    );
+    assert_eq!(errors[0].span, BODY_SPAN);
 }
 
 // Cascade / Determinism / Semantic pin
@@ -403,9 +423,9 @@ fn map_with_two_unbound_vars_emits_one_e2005_not_two() {
     );
 }
 
-// BUG-02-008 — Scheme-var exemption tests (T13–T16)
+// Scheme-var exemption tests (T13–T16)
 
-/// Semantic pin for BUG-02-008: a fresh instantiation var that became the
+/// Semantic pin for a fresh instantiation var that became the
 /// union-find root of a scheme var's equivalence class must NOT emit E2005.
 ///
 /// Simulates `@apply_identity<T>(x: T) = identity(x: x)` where:
@@ -437,7 +457,7 @@ fn scheme_var_root_is_fresh_instantiation_var_no_false_e2005() {
     assert!(
         errors.is_empty(),
         "fresh instantiation var that is the root of a scheme var's \
-         equivalence class must be exempted (BUG-02-008)"
+         equivalence class must be exempted"
     );
 }
 
@@ -548,4 +568,156 @@ fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
         }
         other => panic!("expected AmbiguousType, got {other:?}"),
     }
+}
+
+// Poly-lambda return-type position semantic pins (T17-T19).
+//
+// These three tests pin the typeck-boundary invariant for polymorphic
+// lambda return-type positions per `typeck.md §PC-2` and `types.md §SC-1`:
+// a poly-lambda return may carry `Tag::BoundVar` (the `§SC-1` target shape)
+// OR `Tag::Var(VarState::Generalized)` (the currently shipped-pool
+// divergence explicitly documented in `validators/mod.rs::collect_first_unbound_var`),
+// and BOTH are legitimate. A surviving `Tag::Var(VarState::Unbound)` is a
+// genuine PC-2 violation and MUST fire `E2005`, even when wrapped inside a
+// `Tag::Function` / `Tag::Scheme` chain that matches the poly-lambda shape.
+//
+// The pool construction `Scheme([id], Function([Var], Var))` mirrors the
+// typed IR shape produced by `check_function_bodies` for a polymorphic
+// lambda like `(x -> x)` in a generic context — the two-level wrap
+// exercises `HAS_VAR` propagation through `Tag::Function` as well as
+// `Tag::Scheme`, distinct from T10's direct `Scheme([0], Var)` shape.
+
+/// Spec: `typeck.md §PC-2`, `types.md §SC-1`, `types.md §TF-1` — the
+/// `§SC-1` target shape for a polymorphic lambda return is `Tag::BoundVar`.
+/// `BoundVar` sets `HAS_BOUND_VAR`, NOT `HAS_VAR` (`types.md §TF-1`), so
+/// the outer scheme short-circuits at the validator's top-level
+/// `!HAS_VAR` gate and emits no diagnostic. This is the legitimate
+/// spec-target form of a generalized polymorphic lambda.
+///
+/// Semantic pin for the poly-lambda-return code path after §08.3 lands a
+/// fix that produces the target `BoundVar` shape rather than the currently
+/// shipped `Var(Generalized)` divergence.
+///
+/// Not the enforcement point — see
+/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
+#[test]
+fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
+    let mut pool = Pool::new();
+    // ∀[0]. (BoundVar(0)) -> BoundVar(0) — identity poly-lambda spec shape.
+    let bound = pool.intern(Tag::BoundVar, 0);
+    let lambda_ty = pool.function(&[bound], bound);
+    let scheme = pool.scheme(&[0], lambda_ty);
+    assert!(
+        !pool.flags(scheme).contains(TypeFlags::HAS_VAR),
+        "scheme over BoundVar-returning lambda must NOT set HAS_VAR per §TF-1"
+    );
+    assert!(pool.flags(scheme).contains(TypeFlags::HAS_BOUND_VAR));
+
+    let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
+
+    assert!(errors.is_empty());
+}
+
+/// Spec: `typeck.md §PC-2`, `types.md §SC-1`. Post-`expr_types` port, a
+/// polymorphic-lambda return position carrying a
+/// `Tag::Var(VarState::Generalized)` inside its `Tag::Scheme` wrapper is a
+/// partial-migration LEAK — the target shape is
+/// `Tag::BoundVar` all the way down (covered by
+/// `polylambda_return_type_with_boundvar_emits_no_diagnostic` above), and
+/// any surviving `Tag::Var` inside a polymorphic scheme body after the
+/// rewrite pass runs is a genuine `§SC-1` divergence. Stripping the
+/// validator's `VarState::Generalized` exemption exposes the leak as
+/// `E2005` via the `HAS_VAR` propagation through `Tag::Scheme` →
+/// `Tag::Function` → `Tag::Var`.
+///
+/// This test is RED until the §08.3b.1 `expr_types` / `FunctionSig` port
+/// (plan item 2) AND the validator exemption strip (plan item 4) land.
+/// Prior to those items, the exemption still silences `Generalized` and
+/// the E2005 assertion fails. Post-ship, the only way a `Generalized` var
+/// reaches a scheme-wrapped expression position is a genuine port-side
+/// failure, and firing `E2005` is the leak alarm's correct behavior.
+///
+/// Replaces the former `polylambda_return_type_with_generalized_var_emits_no_diagnostic`
+/// (pre-§08.3b.1 exemption-is-correct assertion). See
+/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md`
+/// §08.3b.1 Cell L.
+#[test]
+fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    let var_id = pool.data(var);
+    *pool.var_state_mut(var_id) = VarState::Generalized {
+        id: var_id,
+        name: None,
+    };
+    // ∀[var_id]. (Var(Generalized)) -> Var(Generalized) — post-§08.3b.1
+    // this shape SHOULD NOT reach the validator: the rewrite pass lands
+    // `Tag::BoundVar` at every position, and any surviving `Tag::Var`
+    // inside a scheme body is a port-side failure.
+    let lambda_ty = pool.function(&[var], var);
+    let scheme = pool.scheme(&[var_id], lambda_ty);
+    assert!(
+        pool.flags(scheme).contains(TypeFlags::HAS_VAR),
+        "scheme over Var(Generalized)-returning lambda MUST set HAS_VAR \
+         because Var carries HAS_VAR per §TF-1 — this is the flag the \
+         leak-alarm relies on to walk into the scheme body and locate \
+         the surviving Tag::Var"
+    );
+
+    let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "post-§08.3b.1: Tag::Var(Generalized) inside a scheme body is a \
+         port-side leak; validator strip MUST fire exactly one E2005 at \
+         the expression position"
+    );
+    assert!(
+        matches!(errors[0].kind, TypeErrorKind::AmbiguousType { .. }),
+        "leak-alarm diagnostic must be E2005 (AmbiguousType), got {:?}",
+        errors[0].kind
+    );
+    assert_eq!(errors[0].span, BODY_SPAN);
+}
+
+/// Spec: `typeck.md §PC-2` — a polymorphic-lambda return-type position
+/// carrying a surviving `Tag::Var(VarState::Unbound)` is a genuine PC-2
+/// violation and MUST fire `E2005`. This is the negative pin for the
+/// §08.1.5 audit: if any future refactor either (a) extends the
+/// `VarState::Generalized` exemption to cover `Unbound` at this position,
+/// or (b) silently drops the PC-2 walk inside `Tag::Function` /
+/// `Tag::Scheme`, this test fails — catching the over-exemption and
+/// preventing the INVERTED-TDD regression CLAUDE.md §INVERTED-TDD bans
+/// (the canonical example is exactly a PC-2 validator with a gate added
+/// to silence failing generic-body tests).
+///
+/// Distinct from T10 (`scheme_wrapping_unbound_var_body_emits_one_e2005`)
+/// which exercises `Scheme([0], Var)` direct wrap — this test threads the
+/// var through an additional `Tag::Function` layer, exercising `HAS_VAR`
+/// propagation through the composite Function-in-Scheme shape that models
+/// the typed IR's poly-lambda representation.
+///
+/// Not the enforcement point — see
+/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
+#[test]
+fn polylambda_return_type_with_unbound_var_emits_one_e2005() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    // ∀[0]. (Var(Unbound)) -> Var(Unbound) — the PC-2 violation shape.
+    let lambda_ty = pool.function(&[var], var);
+    let scheme = pool.scheme(&[0], lambda_ty);
+    assert!(pool.flags(scheme).contains(TypeFlags::HAS_VAR));
+
+    // scheme_var_ids=&[] disables the exempt root set — any Unbound var in
+    // the scheme body is treated as a genuine inference failure, not a
+    // scheme-parameter var.
+    let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
+
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        TypeErrorKind::AmbiguousType { .. }
+    ));
+    assert_eq!(errors[0].span, BODY_SPAN);
 }

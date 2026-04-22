@@ -1,0 +1,14 @@
+// One generic body calls TWO deferred generic callees — each must get
+// root extension applied independently.
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+
+@fan_out <T> (x: T) -> T = {
+    let a = id(x: x);
+    wrap(x: a)
+};
+
+@main () -> int = {
+    let n = fan_out(x: 42);
+    if n == 42 then 0 else 1
+}

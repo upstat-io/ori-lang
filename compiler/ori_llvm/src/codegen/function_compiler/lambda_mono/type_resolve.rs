@@ -56,14 +56,18 @@ pub(super) fn is_polymorphic_lambda(lambda: &ori_arc::ArcFunction, pool: &ori_ty
     // Params: check both top-level and nested vars (e.g., List<Var>).
     // The nested check is essential for Generalized vars in container types
     // that need resolution via map_types_structural or call-site extraction.
+    //
+    // §08.3b.1 — `contains_bound_var` added for params: post-normalization,
+    // scheme-var leaves in param types are `Tag::BoundVar` (not `Tag::Var`).
+    // Without this, polymorphic lambdas with BoundVar params bypass the
+    // mono pipeline, leaving unresolved types in ARC IR.
     lambda.params.iter().any(|p| {
-        matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var) || contains_var(pool, p.ty)
+        matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var)
+            || contains_var(pool, p.ty)
+            || contains_bound_var(pool, p.ty)
     })
-    // Return type: only check BoundVar/Scheme (original behavior).
-    // Do NOT add contains_var here — iterator callback lambdas (e.g., `s -> s`
-    // in `.map(transform: s -> s)`) have Generalized Var return types that are
-    // correctly handled by the existing resolve_lambda_return_types +
-    // find_apply_indirect_result_type mechanism without entering the mono pipeline.
+    // Return type: check BoundVar (top-level or nested).
+    // §08.3b.1 — post-normalization, scheme-var leaves are `Tag::BoundVar`.
     || contains_bound_var(pool, lambda.return_type)
     // var_types: only check for BoundVar (original behavior).
     || lambda
@@ -386,9 +390,15 @@ pub(super) fn apply_call_site_types(
 /// Fall back: any remaining `BoundVar`s/`Var`s → `Idx::INT`.
 ///
 /// Only replaces TOP-LEVEL `BoundVar`/`Var` types. Container types with nested
-/// vars (e.g., `List<Var>`) are left as-is — they should have been resolved by
-/// `apply_concrete_param_types` or `apply_call_site_types` before this runs.
-/// Replacing a container type with INT would cause ABI mismatches.
+/// vars (e.g., `List<Var>`, `Function($b17) -> $b16`) are left as-is — they
+/// should have been resolved by `apply_concrete_param_types` or
+/// `apply_call_site_types` before this runs. Replacing a container type with
+/// INT would cause ABI mismatches (e.g., declaring a curried closure's return
+/// type as `i64` while the body emits `ret {ptr, ptr}`).
+///
+/// §08.3b.1 — the `return_type` guard was tightened from the over-eager
+/// `contains_bound_var` walk to a top-level tag check for the same reason
+/// container return types must not collapse to `Idx::INT`.
 pub(super) fn fallback_bound_vars_to_int(
     lambda: &mut ori_arc::ArcFunction,
     pool: &ori_types::Pool,
@@ -403,13 +413,24 @@ pub(super) fn fallback_bound_vars_to_int(
             *ty = Idx::INT;
         }
     }
-    if contains_bound_var(pool, lambda.return_type) {
+    if matches!(pool.tag(lambda.return_type), Tag::BoundVar | Tag::Var) {
         lambda.return_type = Idx::INT;
     }
 }
 
-/// Resolve a lambda's return type, `var_types`, and `Construct` instruction types
-/// from a schema->concrete mapping.
+/// Resolve a lambda's return type, `var_types`, and `Construct` / `PartialApply`
+/// instruction types from a schema->concrete mapping.
+///
+/// §08.3b.1 — `PartialApply.ty` is now substituted alongside `Construct.ty`.
+/// Curried closures emit a `PartialApply` whose dst-type IS the schema return
+/// type (e.g., the outer `a -> b -> a` lambda's body emits
+/// `PartialApply @inner(a)` with dst-type `(B) -> A`). Without the
+/// `PartialApply` arm, the dst-type remained a container carrying unresolved
+/// `BoundVar` leaves while the lambda's declared return type was substituted,
+/// triggering LLVM verifier failure "Function return type does not match
+/// operand type of return inst" (the `ret` instruction's value has the stale
+/// closure-pair type while the function's declared return is the substituted
+/// concrete shape).
 pub(super) fn resolve_lambda_return_types(
     lambda: &mut ori_arc::ArcFunction,
     schema_ret: Idx,
@@ -423,10 +444,14 @@ pub(super) fn resolve_lambda_return_types(
     }
     for block in &mut lambda.blocks {
         for instr in &mut block.body {
-            if let ori_arc::ir::ArcInstr::Construct { ty, .. } = instr {
-                if *ty == schema_ret {
-                    *ty = concrete_ret;
+            match instr {
+                ori_arc::ir::ArcInstr::Construct { ty, .. }
+                | ori_arc::ir::ArcInstr::PartialApply { ty, .. } => {
+                    if *ty == schema_ret {
+                        *ty = concrete_ret;
+                    }
                 }
+                _ => {}
             }
         }
     }

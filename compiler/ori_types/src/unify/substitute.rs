@@ -51,110 +51,94 @@ impl UnifyEngine<'_> {
     /// Substitute variables according to the given mapping.
     ///
     /// Returns the original type if no substitutions apply.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive Tag dispatch for type variable substitution across all type forms"
-    )]
     fn substitute(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
-        // Fast path: no variables to substitute
-        if !self.pool.flags(ty).contains(TypeFlags::HAS_VAR) {
+        // Fast path: no variables OR bound vars to substitute. §08.3b widened
+        // the gate to include HAS_BOUND_VAR — instantiation now walks scheme
+        // bodies whose leaves are `Tag::BoundVar` (HAS_BOUND_VAR=true,
+        // HAS_VAR=false) per `types.md §SC-1`.
+        if !self
+            .pool
+            .flags(ty)
+            .intersects(TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR)
+        {
             return ty;
         }
 
         match self.pool.tag(ty) {
-            Tag::Var => {
-                let var_id = self.pool.data(ty);
+            Tag::Var => self.substitute_var(ty, subst),
+            Tag::BoundVar => self.substitute_bound_var(ty, subst),
 
-                // Check if this variable should be substituted
-                if let Some(&replacement) = subst.get(&var_id) {
-                    return replacement;
-                }
+            Tag::List
+            | Tag::Option
+            | Tag::Set
+            | Tag::Channel
+            | Tag::Range
+            | Tag::Iterator
+            | Tag::DoubleEndedIterator => self.substitute_simple_container(ty, subst),
 
-                // Follow link if present
-                if let VarState::Link { target } = self.pool.var_state(var_id) {
-                    return self.substitute(*target, subst);
-                }
+            Tag::Map | Tag::Result | Tag::Borrowed => self.substitute_two_child(ty, subst),
 
-                // Check for generalized variable
-                if let VarState::Generalized { id, .. } = self.pool.var_state(var_id) {
-                    if let Some(&replacement) = subst.get(id) {
-                        return replacement;
-                    }
-                }
+            Tag::Function => self.substitute_function(ty, subst),
+            Tag::Tuple => self.substitute_tuple(ty, subst),
+            Tag::Applied => self.substitute_applied(ty, subst),
 
-                ty
-            }
+            // Schemes have their own bound variables, other types don't contain variables
+            _ => ty,
+        }
+    }
 
-            Tag::List => {
-                let child = Idx::from_raw(self.pool.data(ty));
-                let new_child = self.substitute(child, subst);
-                if new_child == child {
-                    ty
-                } else {
-                    self.pool.list(new_child)
-                }
-            }
+    /// `Tag::Var` substitution. Direct `var_id` match replaces; otherwise follow
+    /// a `VarState::Link` chain. `Generalized` / `Unbound` / `Rigid` fall
+    /// through and return `ty` unchanged.
+    fn substitute_var(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
+        let var_id = self.pool.data(ty);
 
-            Tag::Option => {
-                let child = Idx::from_raw(self.pool.data(ty));
-                let new_child = self.substitute(child, subst);
-                if new_child == child {
-                    ty
-                } else {
-                    self.pool.option(new_child)
-                }
-            }
+        if let Some(&replacement) = subst.get(&var_id) {
+            return replacement;
+        }
 
-            Tag::Set => {
-                let child = Idx::from_raw(self.pool.data(ty));
-                let new_child = self.substitute(child, subst);
-                if new_child == child {
-                    ty
-                } else {
-                    self.pool.set(new_child)
-                }
-            }
+        if let VarState::Link { target } = self.pool.var_state(var_id) {
+            return self.substitute(*target, subst);
+        }
 
-            Tag::Channel => {
-                let child = Idx::from_raw(self.pool.data(ty));
-                let new_child = self.substitute(child, subst);
-                if new_child == child {
-                    ty
-                } else {
-                    self.pool.channel(new_child)
-                }
-            }
+        ty
+    }
 
-            Tag::Range => {
-                let child = Idx::from_raw(self.pool.data(ty));
-                let new_child = self.substitute(child, subst);
-                if new_child == child {
-                    ty
-                } else {
-                    self.pool.range(new_child)
-                }
-            }
+    /// `Tag::BoundVar` substitution. `data` holds the scheme's declared
+    /// `var_id` per `types.md §SC-1`; the substitution map provides the
+    /// per-call-site fresh var.
+    fn substitute_bound_var(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
+        let var_id = self.pool.data(ty);
+        if let Some(&replacement) = subst.get(&var_id) {
+            return replacement;
+        }
+        ty
+    }
 
-            Tag::Iterator => {
-                let child = Idx::from_raw(self.pool.data(ty));
-                let new_child = self.substitute(child, subst);
-                if new_child == child {
-                    ty
-                } else {
-                    self.pool.iterator(new_child)
-                }
-            }
+    /// Single-child containers share the same pattern: recurse on the child,
+    /// rebuild only when the child changed. Dispatches via tag for the
+    /// rebuild constructor.
+    fn substitute_simple_container(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
+        let child = Idx::from_raw(self.pool.data(ty));
+        let new_child = self.substitute(child, subst);
+        if new_child == child {
+            return ty;
+        }
+        match self.pool.tag(ty) {
+            Tag::List => self.pool.list(new_child),
+            Tag::Option => self.pool.option(new_child),
+            Tag::Set => self.pool.set(new_child),
+            Tag::Channel => self.pool.channel(new_child),
+            Tag::Range => self.pool.range(new_child),
+            Tag::Iterator => self.pool.iterator(new_child),
+            Tag::DoubleEndedIterator => self.pool.double_ended_iterator(new_child),
+            other => unreachable!("substitute_simple_container: unexpected tag {:?}", other),
+        }
+    }
 
-            Tag::DoubleEndedIterator => {
-                let child = Idx::from_raw(self.pool.data(ty));
-                let new_child = self.substitute(child, subst);
-                if new_child == child {
-                    ty
-                } else {
-                    self.pool.double_ended_iterator(new_child)
-                }
-            }
-
+    /// Two-child containers: `Map`, `Result`, `Borrowed` (lifetime is structural).
+    fn substitute_two_child(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
+        match self.pool.tag(ty) {
             Tag::Map => {
                 let key = self.pool.map_key(ty);
                 let value = self.pool.map_value(ty);
@@ -166,7 +150,6 @@ impl UnifyEngine<'_> {
                     self.pool.map(new_key, new_value)
                 }
             }
-
             Tag::Result => {
                 let ok = self.pool.result_ok(ty);
                 let err = self.pool.result_err(ty);
@@ -178,7 +161,6 @@ impl UnifyEngine<'_> {
                     self.pool.result(new_ok, new_err)
                 }
             }
-
             Tag::Borrowed => {
                 let inner = self.pool.borrowed_inner(ty);
                 let lt = self.pool.borrowed_lifetime(ty);
@@ -189,82 +171,84 @@ impl UnifyEngine<'_> {
                     self.pool.borrowed(new_inner, lt)
                 }
             }
+            other => unreachable!("substitute_two_child: unexpected tag {:?}", other),
+        }
+    }
 
-            Tag::Function => {
-                let params = self.pool.function_params(ty);
-                let ret = self.pool.function_return(ty);
+    /// Function type: recurse through params, then return. Rebuild if any
+    /// child changed.
+    fn substitute_function(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
+        let params = self.pool.function_params(ty);
+        let ret = self.pool.function_return(ty);
 
-                let mut changed = false;
-                let new_params: Vec<Idx> = params
-                    .iter()
-                    .map(|&p| {
-                        let new_p = self.substitute(p, subst);
-                        if new_p != p {
-                            changed = true;
-                        }
-                        new_p
-                    })
-                    .collect();
-
-                let new_ret = self.substitute(ret, subst);
-                if new_ret != ret {
+        let mut changed = false;
+        let new_params: Vec<Idx> = params
+            .iter()
+            .map(|&p| {
+                let new_p = self.substitute(p, subst);
+                if new_p != p {
                     changed = true;
                 }
+                new_p
+            })
+            .collect();
 
-                if changed {
-                    self.pool.function(&new_params, new_ret)
-                } else {
-                    ty
+        let new_ret = self.substitute(ret, subst);
+        if new_ret != ret {
+            changed = true;
+        }
+
+        if changed {
+            self.pool.function(&new_params, new_ret)
+        } else {
+            ty
+        }
+    }
+
+    /// Tuple: recurse through elements.
+    fn substitute_tuple(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
+        let elems = self.pool.tuple_elems(ty);
+
+        let mut changed = false;
+        let new_elems: Vec<Idx> = elems
+            .iter()
+            .map(|&e| {
+                let new_e = self.substitute(e, subst);
+                if new_e != e {
+                    changed = true;
                 }
-            }
+                new_e
+            })
+            .collect();
 
-            Tag::Tuple => {
-                let elems = self.pool.tuple_elems(ty);
+        if changed {
+            self.pool.tuple(&new_elems)
+        } else {
+            ty
+        }
+    }
 
-                let mut changed = false;
-                let new_elems: Vec<Idx> = elems
-                    .iter()
-                    .map(|&e| {
-                        let new_e = self.substitute(e, subst);
-                        if new_e != e {
-                            changed = true;
-                        }
-                        new_e
-                    })
-                    .collect();
+    /// Applied generic: recurse through type arguments; preserve the name.
+    fn substitute_applied(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
+        let name = self.pool.applied_name(ty);
+        let args = self.pool.applied_args(ty);
 
-                if changed {
-                    self.pool.tuple(&new_elems)
-                } else {
-                    ty
+        let mut changed = false;
+        let new_args: Vec<Idx> = args
+            .iter()
+            .map(|&a| {
+                let new_a = self.substitute(a, subst);
+                if new_a != a {
+                    changed = true;
                 }
-            }
+                new_a
+            })
+            .collect();
 
-            Tag::Applied => {
-                let name = self.pool.applied_name(ty);
-                let args = self.pool.applied_args(ty);
-
-                let mut changed = false;
-                let new_args: Vec<Idx> = args
-                    .iter()
-                    .map(|&a| {
-                        let new_a = self.substitute(a, subst);
-                        if new_a != a {
-                            changed = true;
-                        }
-                        new_a
-                    })
-                    .collect();
-
-                if changed {
-                    self.pool.applied(name, &new_args)
-                } else {
-                    ty
-                }
-            }
-
-            // Schemes have their own bound variables, other types don't contain variables
-            _ => ty,
+        if changed {
+            self.pool.applied(name, &new_args)
+        } else {
+            ty
         }
     }
 }

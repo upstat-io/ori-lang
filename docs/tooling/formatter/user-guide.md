@@ -1,6 +1,6 @@
 # User Guide: ori fmt
 
-The Ori formatter produces canonical source code formatting with minimal configuration. Like Go's `gofmt`, the formatter output is the canonical Ori style. The only configurable option is line width.
+The Ori formatter produces canonical source code formatting with zero configuration. Like Go's `gofmt`, the formatter output is the canonical Ori style — there are no style knobs (no configurable line width, indent, trailing-comma policy, etc.). The CLI surface is `--check`, `--diff`, `--stdin`, and `--no-ignore`; the style itself is fixed by `.claude/rules/fmt.md`.
 
 ## Quick Start
 
@@ -37,11 +37,12 @@ ori fmt [options] [paths...]
 
 | Option | Description |
 |--------|-------------|
-| `--width=N` | Set maximum line width (default: 100) |
 | `--check` | Check if files are formatted, exit 1 if any would change |
 | `--diff` | Show unified diff output instead of modifying files |
 | `--stdin` | Read from stdin, write to stdout (for editor integration) |
 | `--no-ignore` | Ignore `.orifmtignore` files and format everything |
+
+Line width is fixed at 100 chars (not configurable — zero-config style per `style-guide.md`).
 | `--help` | Show help message |
 
 ## Usage Patterns

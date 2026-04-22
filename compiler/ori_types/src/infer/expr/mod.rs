@@ -40,6 +40,7 @@ mod collections;
 mod concurrency;
 mod constructors;
 mod control_flow;
+mod format;
 mod identifiers;
 mod methods;
 mod operators;
@@ -49,24 +50,49 @@ mod sequences;
 mod structs;
 mod type_resolution;
 
-// Re-export submodule contents for tests and sibling access
-pub(super) use blocks::*;
-pub(super) use calls::*;
-pub(super) use collections::*;
-pub(super) use concurrency::*;
-pub(super) use constructors::*;
-pub(super) use control_flow::*;
-pub(super) use identifiers::*;
-pub(super) use methods::*;
-pub(super) use operators::*;
-pub(super) use sequences::*;
-pub(super) use structs::*;
+// Named re-exports for tests and sibling access. Kept alphabetical per
+// submodule so drift is easy to spot at review time.
+
+#[cfg(test)]
+pub(super) use blocks::should_generalize;
+pub(super) use blocks::{
+    infer_block, infer_lambda, infer_let, maybe_generalize, pattern_first_name,
+};
+pub(super) use calls::{infer_call, infer_call_named, infer_method_call, infer_method_call_named};
+pub(super) use collections::{
+    check_collect_method_call, infer_list, infer_list_spread, infer_map_literal, infer_map_spread,
+    infer_range, infer_tuple,
+};
+pub(super) use concurrency::{infer_cache, infer_catch, infer_recurse};
+pub(super) use constructors::{
+    infer_await, infer_err, infer_none, infer_ok, infer_some, infer_try, infer_with_capability,
+};
+pub(super) use control_flow::{
+    check_match_pattern, infer_break, infer_continue, infer_for, infer_if, infer_loop, infer_match,
+    substitute_type_params_with_map,
+};
+pub(super) use format::infer_template_literal;
+pub(super) use identifiers::{
+    find_similar_type_names, infer_const, infer_function_ref, infer_ident, infer_self_ref,
+};
+pub(super) use methods::resolve_builtin_method;
+// `range_method_requires_iteration` keeps its narrower `pub(in crate::infer::expr)`
+// source visibility — re-exporting at the same level lets `calls/method_call.rs`
+// reach it via `super::super::range_method_requires_iteration`.
+pub(in crate::infer::expr) use methods::range_method_requires_iteration;
+pub(super) use operators::{infer_assign, infer_binary, infer_cast, infer_unary};
+#[cfg(test)]
+pub(super) use sequences::infer_try_stmt;
+pub(super) use sequences::{bind_pattern, infer_function_exp, infer_function_seq};
+pub(super) use structs::{
+    infer_field, infer_index, infer_struct, infer_struct_spread, lookup_struct_field_types,
+};
 // Public re-exports for the crate's public API
 // (re-exported through infer/mod.rs)
 pub(super) use type_resolution::resolve_and_check_parsed_type;
 pub use type_resolution::resolve_parsed_type;
 
-use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
+use ori_ir::{ExprArena, ExprId, ExprKind, Span};
 use ori_stack::ensure_sufficient_stack;
 
 use super::InferEngine;
@@ -248,20 +274,7 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
 
         // Template Literals
         ExprKind::TemplateLiteral { parts, .. } => {
-            // Infer each interpolated expression and validate format specs
-            for part in arena.get_template_parts(*parts) {
-                let part_ty = infer_expr(engine, arena, part.expr);
-
-                if part.format_spec == Name::EMPTY {
-                    // {expr} — requires Printable for to_str() conversion (E2038)
-                    check_interpolation_printable(engine, part_ty, span);
-                } else {
-                    // {expr:spec} — validate format spec (E2034/E2035)
-                    // Formattable requirement is implied; Printable not needed
-                    validate_format_spec(engine, part.format_spec, part_ty, span);
-                }
-            }
-            Idx::STR
+            infer_template_literal(engine, arena, *parts, span)
         }
 
         // Error
@@ -309,169 +322,26 @@ pub fn check_expr(
         }
     }
 
-    // Type-directed collect: when `iter.collect()` is expected to produce a Set,
-    // resolve to `Set<T>` instead of the default `[T]`. This implements the
-    // Collect trait's bidirectional type inference.
-    if let ExprKind::MethodCall {
-        receiver,
-        method,
-        args,
-    } = &expr.kind
-    {
-        if expected_tag == Tag::Set {
-            if let Some(ty) =
-                check_collect_to_set(engine, arena, expr_id, *receiver, *method, *args)
-            {
-                // Unify the inferred Set<Elem> with the expected Set<T> so the
-                // element type variable resolves (e.g., `[].iter().collect()`
-                // with expected `Set<int>` unifies Elem = int).
-                let _ = engine.check_type(ty, expected, span);
-                return ty;
-            }
-        }
+    // Type-directed collect dispatch: `iter.collect()` with expected `Set<T>`
+    // resolves to `Set<T>` instead of the default `[T]` (Collect trait
+    // bidirectional inference). Policy lives in `collections.rs` so this
+    // function stays routing-only per `impl-hygiene.md §Side-Logic Rule`.
+    if let Some(ty) = check_collect_method_call(
+        engine,
+        arena,
+        expr_id,
+        &expr.kind,
+        expected,
+        expected_tag,
+        span,
+    ) {
+        return ty;
     }
 
     // Default: infer the type and check against expected
     let inferred = infer_expr(engine, arena, expr_id);
     let _ = engine.check_type(inferred, expected, span);
     inferred
-}
-
-/// Bidirectional collect: resolve `iter.collect()` to `Set<T>` when expected.
-///
-/// Returns `Some(set_ty)` if the method is `collect` on an `Iterator<T>`,
-/// storing the resolved `Set<T>` type. Returns `None` to fall through
-/// to default inference.
-fn check_collect_to_set(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    expr_id: ExprId,
-    receiver: ExprId,
-    method: ori_ir::Name,
-    args: ori_ir::ExprRange,
-) -> Option<Idx> {
-    let method_str = engine.lookup_name(method)?;
-    if method_str != "collect" {
-        return None;
-    }
-
-    let recv_ty = infer_expr(engine, arena, receiver);
-    let resolved = engine.resolve(recv_ty);
-    if !engine.pool().tag(resolved).is_iterator() {
-        return None;
-    }
-
-    // Infer arguments (collect has none, but be consistent)
-    for &arg_id in arena.get_expr_list(args) {
-        infer_expr(engine, arena, arg_id);
-    }
-
-    let elem = engine.pool().iterator_elem(resolved);
-    let set_ty = engine.pool_mut().set(elem);
-    engine.store_type(expr_id.raw() as usize, set_ty);
-    Some(set_ty)
-}
-
-/// Validate that an interpolated expression's type implements `Printable` (E2038).
-///
-/// Follows the `check_map_key_hashable` pattern: resolve type, skip variables/errors,
-/// check primitives + compound types via `WellKnownNames`, then check user types
-/// via `TraitRegistry`.
-fn check_interpolation_printable(engine: &mut InferEngine<'_>, expr_type: Idx, span: Span) {
-    let resolved = engine.resolve(expr_type);
-    let tag = engine.pool().tag(resolved);
-
-    // Skip unresolved variables, error sentinels, and Never (coerces to anything)
-    if matches!(tag, Tag::Var | Tag::Infer | Tag::Never) || resolved == Idx::ERROR {
-        return;
-    }
-
-    // Check via WellKnownNames (primitives + compound types)
-    let satisfies_via_wellknown = {
-        engine
-            .well_known()
-            .is_some_and(|wk| wk.type_satisfies_trait(resolved, wk.printable, engine.pool()))
-    };
-    if satisfies_via_wellknown {
-        return;
-    }
-
-    // User-defined types: check trait registry for Printable impl
-    let has_impl = {
-        let printable_name = engine.well_known().map(|wk| wk.printable);
-        if let Some(p_name) = printable_name {
-            let printable_idx = engine.pool_mut().named(p_name);
-            engine
-                .trait_registry()
-                .is_some_and(|reg| reg.has_impl(printable_idx, resolved))
-        } else {
-            // No well-known cache — skip check (isolated test context)
-            return;
-        }
-    };
-    if !has_impl {
-        engine.push_error(crate::TypeCheckError::missing_printable(span, resolved));
-    }
-}
-
-/// Validate a format specification against the expression's inferred type.
-///
-/// Checks:
-/// 1. The format spec parses correctly (E2034 if not)
-/// 2. The format type is compatible with the expression type (E2035 if not):
-///    - `b`, `o`, `x`, `X` require `int`
-///    - `e`, `E`, `f`, `%` require `float`
-fn validate_format_spec(
-    engine: &mut InferEngine<'_>,
-    format_spec: Name,
-    expr_type: Idx,
-    span: Span,
-) {
-    use ori_ir::format_spec::parse_format_spec;
-
-    let Some(spec_str) = engine.lookup_name(format_spec) else {
-        return;
-    };
-
-    if spec_str.is_empty() {
-        return;
-    }
-
-    let parsed = match parse_format_spec(spec_str) {
-        Ok(p) => p,
-        Err(e) => {
-            engine.push_error(crate::TypeCheckError::invalid_format_spec(
-                span,
-                spec_str.to_owned(),
-                e.to_string(),
-            ));
-            return;
-        }
-    };
-
-    // Validate format type against expression type
-    let Some(fmt_type) = parsed.format_type else {
-        return;
-    };
-
-    let resolved = engine.resolve(expr_type);
-    let tag = engine.pool().tag(resolved);
-
-    if fmt_type.is_integer_only() && !matches!(tag, Tag::Int) {
-        engine.push_error(crate::TypeCheckError::format_type_mismatch(
-            span,
-            resolved,
-            fmt_type.name().to_owned(),
-            "int",
-        ));
-    } else if fmt_type.is_float_only() && !matches!(tag, Tag::Float) {
-        engine.push_error(crate::TypeCheckError::format_type_mismatch(
-            span,
-            resolved,
-            fmt_type.name().to_owned(),
-            "float",
-        ));
-    }
 }
 
 #[cfg(test)]

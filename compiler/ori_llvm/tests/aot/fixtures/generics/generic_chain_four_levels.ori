@@ -1,0 +1,10 @@
+// 4-hop chain (regression for §04.2.B root-extension fix).
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+@double_wrap <T> (x: T) -> T = wrap(x: x);
+@triple_wrap <T> (x: T) -> T = double_wrap(x: x);
+
+@main () -> int = {
+    let n = triple_wrap(x: 42);
+    if n == 42 then 0 else 1
+}

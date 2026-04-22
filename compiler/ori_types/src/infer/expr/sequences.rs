@@ -4,8 +4,8 @@ use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::InferEngine;
 use super::{
-    check_match_pattern, infer_expr, infer_match, lookup_struct_field_types, pattern_first_name,
-    resolve_and_check_parsed_type, should_generalize,
+    check_match_pattern, infer_expr, infer_match, lookup_struct_field_types, maybe_generalize,
+    pattern_first_name, resolve_and_check_parsed_type,
 };
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag, TypeCheckError};
 
@@ -243,14 +243,11 @@ pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, st
                 let bound_ty = unwrap_result_or_option(engine, init_ty);
 
                 // Value Restriction: only non-capturing lambdas may be generalized.
-                // Note: should_generalize tests the *original* init expression (before
-                // unwrapping), not bound_ty — the unwrap changes the type, not the kind.
+                // Note: maybe_generalize reads the *original* init expression (before
+                // unwrapping), not bound_ty — the unwrap changes the type, not the
+                // expression kind. See maybe_generalize's doc comment in blocks.rs.
                 // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
-                if should_generalize(arena, *init) {
-                    engine.generalize(bound_ty)
-                } else {
-                    bound_ty
-                }
+                maybe_generalize(engine, arena, *init, bound_ty)
             };
 
             // Exit rank scope before binding (generalization happens at current rank)

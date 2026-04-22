@@ -29,7 +29,7 @@ But value semantics, naively implemented, is catastrophically expensive. Every l
 
 **AIMS (ARC Intelligent Memory System)** is that pipeline. It is a unified semantic framework in the `ori_arc` crate that transforms canonical IR into memory-managed code with explicit reference counting, then systematically eliminates the overhead that value semantics would normally impose. Unlike traditional ARC optimizers that stack sequential passes (borrow inference, liveness, RC insertion, reuse detection, RC elimination), AIMS replaces all of these with a single formally-grounded lattice analysis and a unified realization step. The pipeline is **backend-independent** — it has no LLVM dependency and produces an IR that any backend can consume. The LLVM backend's `arc_emitter` translates ARC IR to LLVM IR, but AIMS itself knows nothing about LLVM.
 
-ARC IR is the **sole codegen path** — all native code generation flows through ARC IR.
+ARC IR is the codegen path for ordinary function bodies — user-defined functions, closures, and lowered control flow all flow from `CanExpr` into ARC IR before reaching LLVM. Derived trait methods (`Eq`, `Clone`, `Debug`, `Printable`, `Default`, `Comparable`, `Hashable`) are generated directly as LLVM IR by `compiler/ori_llvm/src/codegen/derive_codegen/` (invoked from `FunctionCompiler::compile_derives`) and do NOT flow through ARC IR; their structural componentwise semantics are synthesized from registry metadata, not from a canonical body.
 
 ## What Makes AIMS Distinctive
 
@@ -210,7 +210,7 @@ flowchart TB
 
     Inter --> PerFn
 
-    subgraph PerFn["Per-Function (steps 3–14)"]
+    subgraph PerFn["Per-Function (steps 3–12, with letter-suffix sub-steps)"]
         VR["3. compute_var_reprs()
         + detect_immortals()"]
         NF["3a. normalize_function()
@@ -224,13 +224,15 @@ flowchart TB
         V1["6. verify()"]
         AV["7. run_aims_verify()"]
         TC["8. detect/rewrite tail calls"]
+        UC["8a. unwind_cleanup()
+        Invoke-unwind RC cleanup"]
         MB["9. merge_blocks()"]
         R2["10. realize_annotations()
         Phase 2: COW + drop hints"]
         V2["11. verify()"]
         FB["12. check_fbip_enforcement()"]
 
-        VR --> NF --> AF --> TV --> R1 --> FP --> V1 --> AV --> TC --> MB --> R2 --> V2 --> FB
+        VR --> NF --> AF --> TV --> R1 --> FP --> V1 --> AV --> TC --> UC --> MB --> R2 --> V2 --> FB
     end
 ```
 

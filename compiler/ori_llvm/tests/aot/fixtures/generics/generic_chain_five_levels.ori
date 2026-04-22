@@ -1,0 +1,11 @@
+// 5-hop chain — guards against off-by-one in root-extension recursion.
+@id <T> (x: T) -> T = x;
+@a <T> (x: T) -> T = id(x: x);
+@b <T> (x: T) -> T = a(x: x);
+@c <T> (x: T) -> T = b(x: x);
+@d <T> (x: T) -> T = c(x: x);
+
+@main () -> int = {
+    let n = d(x: 42);
+    if n == 42 then 0 else 1
+}

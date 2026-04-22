@@ -125,9 +125,9 @@ In heap mode, the 24 bytes are interpreted as three 64-bit fields:
 | `cap` | 8 | Total capacity (or seamless slice encoding if negative) |
 | `data` | 16 | Pointer to RC-managed buffer via `ori_rc_alloc` |
 
-The `data` pointer points to the user data region of an RC allocation (past the 32-byte RC header). The buffer is managed by the standard RC protocol: `ori_rc_inc` on copy, `ori_rc_dec` on drop, `ori_rc_is_unique` for COW.
+The `data` pointer points to the user data region of an RC allocation (past the 32-byte RC header). Because a heap string may be a **seamless slice** into a larger allocation, `str` values MUST use the slice-aware RC helpers `ori_str_rc_inc(data, cap)` and `ori_str_rc_dec(data, cap)` on copy/drop — these recover the original allocation pointer when `cap < 0` before touching the shared refcount. The underlying allocation itself is still managed by the standard RC header (`ori_rc_alloc`/`ori_rc_is_unique` for COW); `ori_rc_inc`/`ori_rc_dec` are the underlying primitives the `str`-aware helpers dispatch to on the original (non-slice) allocation.
 
-Heap strings also support **seamless slices** using the same negative-capacity encoding as lists: when `cap < 0`, `data` points into another string's buffer, and the lower 63 bits of `cap` encode the byte offset from the original allocation's data start. This enables zero-copy `substring`, `split`, and `trim` operations.
+Seamless-slice encoding: when `cap < 0`, `data` points into another string's buffer, and the lower 63 bits of `cap` encode the byte offset from the original allocation's data start. This enables zero-copy `substring`, `split`, and `trim` operations without duplicating the underlying buffer or double-incrementing its refcount.
 
 ## Promotion and Demotion
 

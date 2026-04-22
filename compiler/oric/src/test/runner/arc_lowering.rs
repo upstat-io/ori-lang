@@ -48,7 +48,7 @@ pub(crate) fn lower_and_infer_borrows(
     user_types: &[ori_types::TypeEntry],
     imported_mono_fns: &[(ori_llvm::monomorphize::MonoFunction, usize, Name)],
     re_interned_canons: &[ori_ir::canon::CanonResult],
-) -> ArcLoweringResult {
+) -> Option<ArcLoweringResult> {
     let classifier = ori_arc::ArcClassifier::new(pool);
     let mut local_lowered: Vec<(ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> = Vec::new();
     let mut imported_lowered: Vec<(ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> = Vec::new();
@@ -292,12 +292,21 @@ pub(crate) fn lower_and_infer_borrows(
     // Check for ARC lowering problems (unsupported patterns, internal errors).
     // Mirrors the check in compile_common.rs — without this, the JIT runner
     // silently swallows lowering errors that the AOT path would report.
+    //
+    // Returning `None` (vs. `Some(empty_maps)`) is load-bearing: the caller
+    // distinguishes "analysis errored" from "nothing to compile" and treats
+    // the former as a compile failure. Compiling with an empty arc_cache when
+    // tests expect live function definitions recurses in codegen trying to
+    // resolve the missing callees — reproducible on
+    // `tests/run-pass/rosetta/001_100_doors/` via the §EX-17 index-assignment
+    // gap (E4003). See `plans/bug-tracker/section-04-codegen-llvm.md` entry
+    // for the underlying feature gap.
     if !arc_problems.is_empty() {
         use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};
         let mut acc = CodegenDiagnostics::new();
         acc.add_arc_problems(&arc_problems);
         if emit_codegen_diagnostics(acc) {
-            return (FxHashMap::default(), FxHashMap::default());
+            return None;
         }
     }
 
@@ -324,5 +333,5 @@ pub(crate) fn lower_and_infer_borrows(
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 
-    (annotated_sigs, arc_cache)
+    Some((annotated_sigs, arc_cache))
 }

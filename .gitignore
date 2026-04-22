@@ -117,8 +117,7 @@ __pycache__/
 venv/
 .venv/
 
-#claude
-.claude/discussions
-.claude/worktrees/
-.claude/.spec-proposal-active
+/.claude/
+/.codex/
+/.gemini/
 scratchpad

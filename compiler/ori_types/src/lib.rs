@@ -29,7 +29,7 @@ mod type_error;
 mod unify;
 mod value_category;
 
-pub use check::validators::validate_body_types;
+pub use check::validators::{build_exempt_var_ids, validate_body_types};
 pub use check::{
     check_module, check_module_with_imports, check_module_with_pool, check_module_with_registries,
     ModuleChecker,
@@ -46,9 +46,10 @@ pub use output::{
     TypedModule,
 };
 pub use pool::{
-    extract_var_from_types, re_intern_sig, re_intern_type, substitute_in_pool,
-    walk_collection_types, EnumVariant, Pool, TypeDescriptor, VarState, VariantDescriptor,
-    DEFAULT_RANK,
+    build_mono_body_type_map, extend_var_subst_with_roots, extract_var_from_types, re_intern_sig,
+    re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
+    substitute_in_pool, walk_collection_types, BodyTypeMapSink, EnumVariant, Pool, TypeDescriptor,
+    VarState, VariantDescriptor, DEFAULT_RANK,
 };
 pub use registry::{
     // Type registry

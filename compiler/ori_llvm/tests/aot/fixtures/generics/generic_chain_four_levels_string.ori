@@ -1,0 +1,10 @@
+// 4-hop chain with str elements (exercises RC through deep chain).
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+@double_wrap <T> (x: T) -> T = wrap(x: x);
+@triple_wrap <T> (x: T) -> T = double_wrap(x: x);
+
+@main () -> int = {
+    let s = triple_wrap(x: "world");
+    if s == "world" then 0 else 1
+}

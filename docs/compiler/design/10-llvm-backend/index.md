@@ -41,9 +41,11 @@ But Ori's LLVM backend is not a straightforward AST-to-LLVM translator. Between 
 
 Most compilers that use LLVM translate their high-level IR directly into LLVM IR. Rust lowers its MIR (Mid-level IR) to LLVM IR. Swift lowers its SIL (Swift Intermediate Language) to LLVM IR. Zig lowers its AIR (Analyzed Intermediate Representation) to LLVM IR. In each case, there is a relatively direct correspondence between the compiler's own IR and the LLVM instructions that result.
 
-Ori takes a different path. **Every function body** — whether user-defined, derived from a trait, or generated for a closure — is first lowered from canonical IR to ARC IR by the `ori_arc` crate, and only then translated to LLVM IR by the `ArcIrEmitter`. There is no "direct" codegen path that bypasses AIMS. This means the LLVM backend never sees high-level expressions like `a + b` or `if x then y else z` — it sees basic blocks with explicit reference counting instructions, ownership annotations, and reuse tokens.
+Ori takes a different path. **Ordinary function bodies** — user-defined functions, closures, and lowered control flow — are first lowered from canonical IR to ARC IR by the `ori_arc` crate, and only then translated to LLVM IR by the `ArcIrEmitter`. The LLVM backend never sees high-level expressions like `a + b` or `if x then y else z` for these functions — it sees basic blocks with explicit reference counting instructions, ownership annotations, and reuse tokens.
 
-This single-path design eliminates an entire class of bugs that plague dual-path backends. When a compiler has both a "simple" direct path and an "optimized" managed path, the two inevitably diverge: one handles an edge case the other doesn't, one emits correct RC operations while the other leaks, one handles closures correctly while the other miscompiles captures. By routing everything through ARC IR, Ori guarantees that the same instruction selection, calling convention, and RC lifecycle logic handles every function uniformly.
+**Derived trait methods** (`Eq`, `Clone`, `Debug`, `Printable`, `Default`, `Comparable`, `Hashable`) take a separate direct-codegen path: `compiler/ori_llvm/src/codegen/derive_codegen/` generates LLVM IR structurally from `TypeRegistry` metadata (invoked from `FunctionCompiler::compile_derives`), bypassing the canonical IR → ARC IR pipeline entirely. The componentwise semantics are synthesized from registry fields, not from a body `CanExpr`. This split keeps the ordinary path uniformly managed by AIMS while letting mechanical trait synthesis skip the lowering overhead where there is no user body to analyze.
+
+The ordinary-function managed pipeline still eliminates an entire class of bugs that plague fully-dual-path backends for hand-written code: one consistent instruction-selection, calling-convention, and RC-lifecycle surface for every user-written function. The direct derive-codegen surface is narrow and trait-family scoped, with its own test suite.
 
 ### ID-Based LLVM Abstraction
 
@@ -81,25 +83,28 @@ The distinction matters everywhere. Incrementing an `Immediate(i64)` is a no-op;
 
 The LLVM backend is organized around a linear pipeline where each stage feeds the next:
 
+`ori_llvm`'s architectural input is **realized `ArcFunction`** (produced by `ori_arc` phase 7 — see `.claude/rules/missions.md §ori_llvm` and `.claude/rules/compiler.md §Architecture`: `ori_llvm` depends on `ori_arc` and `ori_repr`, **not on `ori_canon`**). `oric` runs the Canon → ARC Lower → AIMS Analyze → ARC Realize pipeline BEFORE invoking `ori_llvm`; the realized IR + `ReprPlan` are the boundary `ori_llvm` consumes. The subgraph below shows the codegen-internal stages inside `ori_llvm`:
+
 ```mermaid
 flowchart TB
-    Canon["Canonical IR
-    CanExpr + Pool + TypeCheck"]
+    ArcIn["Realized ArcFunction
+    (produced by ori_arc phase 7)
+    + type Pool"]
+
+    ReprPlan["ori_repr::compute_repr_plan
+    (sub-layer 7a, codegen-time)
+    Layout / alignment / discriminants"]
 
     TypeInfo["TypeInfoStore
     Idx → TypeInfo cache
-    Lazy population from Pool"]
+    Lazy population from Pool + ReprPlan"]
 
     FuncComp["FunctionCompiler
     Phase 1: Declare all functions
-    Phase 2: Define bodies via AIMS"]
-
-    ArcPipeline["AIMS Pipeline
-    Lower → Borrow → Liveness
-    RC Insert → Reset/Reuse → Eliminate"]
+    Phase 2: Define bodies from realized ARC IR"]
 
     Emitter["ArcIrEmitter
-    ARC IR → LLVM IR
+    Realized ARC IR → LLVM IR
     Drop functions, RC ops, control flow"]
 
     Builder["IrBuilder
@@ -117,11 +122,12 @@ flowchart TB
     Object emission → Linking
     ori build"]
 
-    Canon --> TypeInfo
-    Canon --> FuncComp
+    ArcIn --> ReprPlan
+    ArcIn --> TypeInfo
+    ReprPlan --> TypeInfo
     TypeInfo --> FuncComp
-    FuncComp --> ArcPipeline
-    ArcPipeline --> Emitter
+    ArcIn --> FuncComp
+    FuncComp --> Emitter
     Emitter --> Builder
     Builder --> Module
     Module --> JIT
@@ -132,10 +138,10 @@ flowchart TB
     classDef interpreter fill:#1a4731,stroke:#34d399,color:#d1fae5
     classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
 
-    class Canon canon
+    class ArcIn canon
+    class ReprPlan canon
     class TypeInfo native
     class FuncComp native
-    class ArcPipeline canon
     class Emitter native
     class Builder native
     class Module native
@@ -190,7 +196,7 @@ A key design choice is the **uniform collection layout**: lists, maps, and sets 
 
 ### JIT Compilation
 
-JIT execution compiles and runs code immediately in the same process. The `OwnedLLVMEvaluator` orchestrates the full pipeline: parse → type check → canonicalize → lower to ARC IR → emit LLVM IR → create `ExecutionEngine` → call the function. This is the path for `ori run` and `ori test`.
+JIT execution compiles and runs code immediately in the same process. The `OwnedLLVMEvaluator` orchestrates the full pipeline: parse → type check → canonicalize → lower to ARC IR → emit LLVM IR → create `ExecutionEngine` → call the function. This path is used for `ori run --compile` (JIT backend) and explicit JIT-backend test runs; **default `ori run` and `ori test` use the tree-walking interpreter** (`Backend::Interpreter` — see `compiler/oric/src/main.rs:112` and `compiler/oric/src/test/runner/mod.rs:65`).
 
 The JIT mode uses `setjmp`/`longjmp` for panic recovery — when an Ori `panic()` fires at runtime, control returns to the JIT harness rather than crashing the compiler process. After execution, the evaluator checks for ARC leaks by comparing live allocation counts before and after.
 

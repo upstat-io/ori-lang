@@ -1,0 +1,9 @@
+// 3-hop chain with Option<T> as the generic type argument.
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+@double_wrap <T> (x: T) -> T = wrap(x: x);
+
+@main () -> int = {
+    let o = double_wrap(x: Some(42));
+    if o.is_some() && o.unwrap() == 42 then 0 else 1
+}

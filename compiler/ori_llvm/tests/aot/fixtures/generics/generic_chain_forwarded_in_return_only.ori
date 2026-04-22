@@ -1,0 +1,21 @@
+// 3-hop chain where T only appears in the return position.
+// Exercises root-extension for schemes whose var is consumed exclusively
+// via the return type. T is inferred from the `let _n: int` annotation.
+@make_default <T> (x: int) -> T = panic(msg: "unreachable");
+
+@make_zero <T> (x: int) -> T = make_default(x: x);
+@make_zero_wrap <T> (x: int) -> T = make_zero(x: x);
+
+@main () -> int = {
+    // Call a 3-hop forward chain specialized at int with a guard that
+    // never triggers the panic body — the panic body type-checks but
+    // the call site is guarded by `if false`. The goal is to exercise
+    // deferred-mono resolution for a scheme var used only in the
+    // return type, not runtime behavior.
+    if false then {
+        let _n: int = make_zero_wrap(x: 1);
+        1
+    } else {
+        0
+    }
+}

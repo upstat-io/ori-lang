@@ -101,32 +101,41 @@ fn test_list_last_list_payload_rc_retain() {
 // --- Negative pins: unwrap on wrong variant must panic ---
 //
 // These tests verify that the new `emit_unwrap_branch` actually fires.
+// Valid panic termination paths, in order of "correctness":
+//
+// 1. Exit code 1 — `ori_run_main` / LLVM-generated `main()` caught the
+//    panic cleanly via `invoke`/`landingpad` (Itanium) or SEH (MSVC).
+//    This is the designed flow; see `runtime.md` §Unwinding ABI and
+//    `ori_run_main` doc comment: "1: panic".
+// 2. SIGABRT (exit code 134 / signal -134) — panic bubbled past the
+//    main wrapper and hit `abort()` (e.g., uncaught unwind on an
+//    older toolchain path, or when the caller path lacks a landingpad).
+//    Historically produced on Linux when a panic unwound through a
+//    `nounwind`-attributed frame (UB, but happened to terminate here).
+// 3. Windows `STATUS_STACK_BUFFER_OVERRUN` (0xC0000409 /
+//    -1_073_740_791) — MSVC `abort()` triggering
+//    `__fastfail(FAST_FAIL_FATAL_APP_EXIT)`.
+// 4. Windows exit code 3 — traditional MSVC `abort()` exit code.
+//
 // We reject compile failures (exit_code == -1), clean exits (0), and
-// non-SIGABRT signal crashes (SIGSEGV, SIGBUS). SIGABRT is the expected
-// panic termination path on Linux (ori_panic_cstr → _Unwind_RaiseException
-// → fallback abort).
+// other crash signals (SIGSEGV -139/139, SIGBUS -135/135) that would
+// indicate a memory-safety bug rather than a controlled panic.
 
 /// Assert that `exit_code` represents a panic (not compile failure, not clean
-/// exit, not a crash signal other than SIGABRT).
+/// exit, not a non-panic crash signal).
 fn assert_panic_exit(exit_code: i32, label: &str, stderr: &str) {
     const STATUS_STACK_BUFFER_OVERRUN: i32 = -1_073_740_791; // 0xC0000409
     assert_ne!(exit_code, -1, "{label}: compilation failed:\n{stderr}");
     assert_ne!(exit_code, 0, "{label}: should panic, but exited 0");
-    // Accept SIGABRT as valid panic termination:
-    //   -134 = signal detected via status.signal() (-(128+6))
-    //    134 = exit code via status.code() (128+6, bash convention)
-    // On Windows, MSVC abort() triggers __fastfail(FAST_FAIL_FATAL_APP_EXIT),
-    // producing STATUS_STACK_BUFFER_OVERRUN (0xC0000409 = -1073740791 as i32).
-    // Also accept exit code 3 (traditional MSVC abort exit code).
-    // Reject SIGSEGV (-139/139), SIGBUS (-135/135), and arbitrary non-zero
-    // codes like 1 (generic error) that don't indicate abort termination.
-    let is_abort = exit_code == -134
+    // Accept the four valid panic-termination codes enumerated above.
+    let is_panic_exit = exit_code == 1
+        || exit_code == -134
         || exit_code == 134
         || exit_code == STATUS_STACK_BUFFER_OVERRUN
         || exit_code == 3;
     assert!(
-        is_abort,
-        "{label}: expected abort (SIGABRT 134/-134, Windows 0xC0000409/3), \
+        is_panic_exit,
+        "{label}: expected panic exit (1, SIGABRT 134/-134, Windows 0xC0000409/3), \
          got exit code {exit_code}:\n{stderr}",
     );
 }

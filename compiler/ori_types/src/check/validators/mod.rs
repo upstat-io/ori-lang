@@ -130,7 +130,6 @@ pub fn validate_body_types(
     // This allows the validator to distinguish "unbound because it's a
     // generic parameter" from "unbound because inference genuinely failed"
     // even when union-find made a fresh instantiation var the root
-    // (BUG-02-008).
     let exempt = build_exempt_var_ids(pool, scheme_var_ids);
 
     // 1. Signature positions first (declaration order):
@@ -159,7 +158,7 @@ pub fn validate_body_types(
 /// Uses [`Pool::var_idx_for_id`] (the canonical `var_id` → Idx helper)
 /// to avoid duplicating the linear-scan pattern from monomorphization
 /// (`impl-hygiene.md §Algorithmic DRY`).
-fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
+pub fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
     let mut exempt = FxHashSet::default();
     exempt.extend(scheme_var_ids.iter().copied());
     for &sv_id in scheme_var_ids {
@@ -228,51 +227,7 @@ fn collect_first_unbound_var(
     }
 
     match pool.tag(ty) {
-        Tag::Var => {
-            // Consult the var's state — only Unbound is a PC-2 violation.
-            let var_id = pool.data(ty); // Tag::Var: data IS the var_id
-            match pool.var_state(var_id) {
-                VarState::Unbound { .. } => {
-                    // Scheme-var exemption (BUG-02-008): if this unbound
-                    // `var_id` is in the exempt root set — either a scheme
-                    // var itself or a fresh instantiation var that became
-                    // the union-find root of a scheme var's equivalence
-                    // class — it is a legitimate polymorphic parameter,
-                    // not an inference failure.
-                    if exempt.contains(&var_id) {
-                        return false;
-                    }
-                    errors.push(TypeCheckError::ambiguous_type(
-                        span,
-                        var_id,
-                        "expression".to_string(),
-                    ));
-                    true
-                }
-                // Resolved via link — resolve_fully above should have
-                // removed these, but guard defensively.
-                VarState::Link { target } => {
-                    collect_first_unbound_var(pool, *target, span, exempt, errors)
-                }
-                // The current pool stores generalized vars as
-                // Tag::Var(VarState::Generalized), NOT as Tag::BoundVar
-                // (diverges from types.md §SC-1 which says BoundVar).
-                // Because of this, HAS_VAR is set on scheme bodies
-                // containing generalized vars — the HAS_VAR gate alone
-                // cannot distinguish "free unbound" from "generalized"
-                // at the outer scheme level.
-                //
-                // The validator MUST exempt VarState::Generalized here:
-                // rejecting it would fire E2005 on every polymorphic
-                // let-binding, breaking let-polymorphism entirely. This
-                // is correct behavior for the current implementation.
-                //
-                // If a future SC-1 conformance fix changes generalized
-                // vars to Tag::BoundVar, this arm becomes unreachable
-                // and can be removed.
-                VarState::Generalized { .. } | VarState::Rigid { .. } => false,
-            }
-        }
+        Tag::Var => check_var_tag(pool, ty, span, exempt, errors),
 
         // Scheme-quantified — legitimate; HAS_VAR should not be set on
         // BoundVar (types.md §TF-1). If it is, that's a separate pool
@@ -296,6 +251,71 @@ fn collect_first_unbound_var(
             emitted
         }
     }
+}
+
+/// Handle the `Tag::Var` arm of `collect_first_unbound_var`.
+///
+/// Dispatches on `VarState`: `Unbound` / `Generalized` (non-exempt) emit `E2005`;
+/// `Link` recurses; `Rigid` and exempt scheme-vars are legitimate (return `false`).
+///
+/// # Why this is a helper
+///
+/// `types.md §SC-1` migration (§08.3b.1) adds the `Generalized → E2005` leak-alarm
+/// path mirroring the `Unbound` path. Extracting this arm keeps the parent's
+/// nesting depth ≤ 4 and its length < 100 (F1/F2/F16 in `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.H`).
+fn check_var_tag(
+    pool: &Pool,
+    ty: Idx,
+    span: Span,
+    exempt: &FxHashSet<u32>,
+    errors: &mut Vec<TypeCheckError>,
+) -> bool {
+    let var_id = pool.data(ty); // Tag::Var: data IS the var_id
+    match pool.var_state(var_id) {
+        // Unbound: inference failure — PC-2 violation unless exempt.
+        //
+        // Generalized: post-§08.3b.1 leak alarm — after the end-of-body
+        // normalization pass in `check::bodies` rewrites every generalized
+        // leaf to `Tag::BoundVar` per `types.md §SC-1`, a surviving
+        // `Generalized` here means the pass missed a position. Treat
+        // identically to Unbound (same exempt-scheme-var semantics, same
+        // `E2005` emission).
+        //
+        // Scheme-var exemption applies to both: if `var_id` is in the
+        // exempt root set — either a scheme var itself or a fresh
+        // instantiation var that became the union-find root of a scheme
+        // var's equivalence class — it is a legitimate polymorphic
+        // parameter, not an inference failure.
+        VarState::Unbound { .. } | VarState::Generalized { .. } => {
+            emit_ambiguous_if_not_exempt(var_id, span, exempt, errors)
+        }
+        // Resolved via link — resolve_fully above should have removed these,
+        // but guard defensively by recursing on the target.
+        VarState::Link { target } => collect_first_unbound_var(pool, *target, span, exempt, errors),
+        // Rigid remains exempt — user-annotated parametric type parameters
+        // are legitimate at PC-2 exit (`§UN-6`).
+        VarState::Rigid { .. } => false,
+    }
+}
+
+/// Emit `E2005` for `var_id` at `span` unless the var is in the exempt set.
+///
+/// Returns `true` iff a diagnostic was pushed.
+fn emit_ambiguous_if_not_exempt(
+    var_id: u32,
+    span: Span,
+    exempt: &FxHashSet<u32>,
+    errors: &mut Vec<TypeCheckError>,
+) -> bool {
+    if exempt.contains(&var_id) {
+        return false;
+    }
+    errors.push(TypeCheckError::ambiguous_type(
+        span,
+        var_id,
+        "expression".to_string(),
+    ));
+    true
 }
 
 #[cfg(test)]

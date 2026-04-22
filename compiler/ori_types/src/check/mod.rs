@@ -84,6 +84,9 @@ pub(crate) use well_known::{is_concrete_named_type, resolve_well_known_generic, 
 #[cfg(test)]
 mod integration_tests;
 
+#[cfg(test)]
+mod test_utils;
+
 /// Module-level type checker.
 ///
 /// Orchestrates all passes of type checking for a single module,

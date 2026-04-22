@@ -1,0 +1,15 @@
+// BUG-04-084: empty list method call. `len()` and `is_empty()` don't
+// constrain the element type, so elem var defaults to Never.
+
+use std.testing { assert_eq, assert }
+
+@test_empty_len_zero tests @empty_len_zero () -> void = {
+    let empty = [];
+    assert_eq(actual: empty.len(), expected: 0);
+    assert(cond: empty.is_empty())
+}
+
+@empty_len_zero () -> int = {
+    let empty = [];
+    empty.len()
+}

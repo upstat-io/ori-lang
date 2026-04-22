@@ -32,12 +32,28 @@ post-commit:
           CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD -- 'compiler/*.rs' 'library/*.ori' 'library/*.rs')
           if [ -n "$CHANGED" ]; then
             mkdir -p ../lang_intelligence/logs
-            ../lang_intelligence/scripts/sync-ori-graph.sh --changed "$CHANGED" >> ../lang_intelligence/logs/ori-sync.log 2>&1 &
+            setsid --fork ../lang_intelligence/scripts/sync-ori-graph.sh --changed "$CHANGED" >> ../lang_intelligence/logs/ori-sync.log 2>&1 < /dev/null
           fi
         fi
-      # Fire-and-forget: returns immediately, sync runs in background
-      # If lang_intelligence doesn't exist, the -x test fails silently
-      # Scoped to compiler/ and library/ per repos.yaml include roots
+      # Fire-and-forget: setsid --fork starts the sync in a new session detached
+      # from lefthook's process group so it survives past hook completion.
+      # Bare '&' was silently killed by lefthook's pgid cleanup (discovered §03 close-out).
+      # If lang_intelligence doesn't exist, the -x test fails silently.
+      # Scoped to compiler/ and library/ per repos.yaml include roots.
+    intel-plan-sync:
+      run: |
+        if [ -x ../lang_intelligence/scripts/sync-plan-bug-graph.sh ]; then
+          CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD -- 'plans/*.md' 'plans/**/*.md')
+          if [ -n "$CHANGED" ]; then
+            mkdir -p ../lang_intelligence/logs
+            setsid --fork ../lang_intelligence/scripts/sync-plan-bug-graph.sh --full >> ../lang_intelligence/logs/plan-bug-sync.log 2>&1 < /dev/null
+          fi
+        fi
+      # Fire-and-forget: setsid --fork starts the rebuild in a new session so it
+      # survives past lefthook's hook completion (bare '&' was silently killed).
+      # If lang_intelligence doesn't exist, the -x test fails silently.
+      # Scoped to plans/**.md — any plan file change triggers a full DAG rebuild
+      # (dag.py classifiers are whole-corpus: incremental is unsound, see §03 context).
 
 commit-msg:
   commands:

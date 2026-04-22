@@ -1,0 +1,12 @@
+// 3-hop chain where T appears ONLY through an iterator element channel
+// (`.first()` on the `[T]` parameter). Exercises root-extension on a
+// scheme var that flows through the collection's element position,
+// not a direct scalar parameter/return.
+@take_first <T> (xs: [T]) -> Option<T> = xs.first();
+@forward_take <T> (xs: [T]) -> Option<T> = take_first(xs: xs);
+@double_forward_take <T> (xs: [T]) -> Option<T> = forward_take(xs: xs);
+
+@main () -> int = {
+    let o = double_forward_take(xs: [42, 1, 2]);
+    if o.is_some() && o.unwrap() == 42 then 0 else 1
+}

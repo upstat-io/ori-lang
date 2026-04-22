@@ -33,9 +33,13 @@
 //! - `Pool` for O(1) type equality
 //! - Rich error context for helpful diagnostic messages
 
+mod body_finalize;
 mod context;
 mod env;
 mod expr;
+mod scope;
+mod state;
+mod type_builders;
 
 pub use env::TypeEnv;
 pub(crate) use expr::OP_TRAIT_MAP;
@@ -45,7 +49,7 @@ use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    check::WellKnownNames, ContextKind, FunctionSig, Idx, PatternKey, PatternResolution, Pool,
+    check::WellKnownNames, ContextKind, FunctionSig, Idx, PatternKey, PatternResolution, Pool, Tag,
     TraitRegistry, TypeCheckError, TypeCheckWarning, TypeRegistry, UnifyEngine, UnifyError,
 };
 
@@ -151,40 +155,57 @@ pub struct InferEngine<'pool> {
     /// Used by `maybe_record_mono_instance()` to identify the caller when
     /// recording deferred mono calls.
     current_function: Option<Name>,
+
+    /// Snapshot of name bindings that were in place at engine-creation time
+    /// (typically `base_env.names()` — the module-level set of imported
+    /// prelude functions, imported module bindings, and same-module function
+    /// signatures from the Signatures-group pass).
+    ///
+    /// Used by [`InferEngine::collect_lexical_outer`] to distinguish names
+    /// bound lexically within the current function body (params, local
+    /// `let`s, `for`/`match` bindings) from names that are "visible but
+    /// globally scoped". Required for `should_generalize`'s Value Restriction
+    /// capture check to treat `let f = x -> len(xs: x)` (prelude-qualified
+    /// body) as non-capturing, while still treating
+    /// `let outer = 1; let f = x -> outer` (lexically-captured body) as
+    /// capturing.
+    ///
+    /// `None` means no snapshot was provided — in that case every env name
+    /// is conservatively treated as lexical (the pre-snapshot behavior).
+    module_scope_snapshot: Option<FxHashSet<Name>>,
+
+    /// Var ids that were generalized by `generalize()` during body
+    /// inference. Tracked so the end-of-body normalization pass
+    /// ([`InferEngine::normalize_body_generalized_to_bound_var`]) can rewrite
+    /// matching `Tag::Var` leaves in `expr_types` / `FunctionSig` positions
+    /// to `Tag::BoundVar` per `types.md §SC-1`.
+    ///
+    /// Drained per-body: between bodies, the set must be empty. Accumulates
+    /// via [`InferEngine::record_generalized_vars`] from the `generalize()`
+    /// call path (inner let-polymorphism); top-level polymorphic function
+    /// signatures' scheme var ids are passed directly to the normalization
+    /// method by the body-pass caller.
+    pending_generalized_vars: Vec<u32>,
 }
 
 impl<'pool> InferEngine<'pool> {
     /// Create a new inference engine.
     pub fn new(pool: &'pool mut Pool) -> Self {
-        Self {
-            unify: UnifyEngine::new(pool),
-            env: TypeEnv::new(),
-            expr_types: FxHashMap::default(),
-            context_stack: Vec::new(),
-            errors: Vec::new(),
-            warnings: Vec::new(),
-            interner: None,
-            well_known: None,
-            trait_registry: None,
-            signatures: None,
-            type_registry: None,
-            self_type: None,
-            impl_self_type: None,
-            loop_break_types: Vec::new(),
-            current_capabilities: FxHashSet::default(),
-            provided_capabilities: FxHashSet::default(),
-            pattern_resolutions: Vec::new(),
-            const_types: None,
-            mono_instances: Vec::new(),
-            deferred_mono_calls: Vec::new(),
-            current_function: None,
-        }
+        Self::build(pool, TypeEnv::new())
     }
 
     /// Create a new inference engine with an existing environment.
     ///
     /// Use this when you need to share type bindings across inference sessions.
     pub fn with_env(pool: &'pool mut Pool, env: TypeEnv) -> Self {
+        Self::build(pool, env)
+    }
+
+    /// SSOT constructor: builds an `InferEngine` with all-default inner state
+    /// and the supplied type environment. Both [`Self::new`] and
+    /// [`Self::with_env`] delegate here so adding a new `InferEngine` field
+    /// requires exactly one edit.
+    fn build(pool: &'pool mut Pool, env: TypeEnv) -> Self {
         Self {
             unify: UnifyEngine::new(pool),
             env,
@@ -207,12 +228,47 @@ impl<'pool> InferEngine<'pool> {
             mono_instances: Vec::new(),
             deferred_mono_calls: Vec::new(),
             current_function: None,
+            module_scope_snapshot: None,
+            pending_generalized_vars: Vec::new(),
         }
     }
 
     /// Set the string interner for resolving names in error messages.
     pub fn set_interner(&mut self, interner: &'pool StringInterner) {
         self.interner = Some(interner);
+    }
+
+    /// Record the set of names that are already in scope at engine-creation
+    /// time (i.e., names present in `base_env` before any function-body
+    /// `let`/`for`/`match` binder has executed). Used by
+    /// [`Self::collect_lexical_outer`] to filter `env().names()` down to
+    /// the lexically-introduced subset.
+    pub(crate) fn set_module_scope_snapshot(&mut self, names: FxHashSet<Name>) {
+        self.module_scope_snapshot = Some(names);
+    }
+
+    /// Collect the lexically-bound outer-scope names visible from the
+    /// current inference frame, excluding module-level references (prelude
+    /// free functions, imports, same-module function signatures).
+    ///
+    /// Used by `should_generalize` (Value Restriction per `typeck.md §GN-3`)
+    /// to ensure a lambda body that references a prelude free function
+    /// (e.g., `len(collection: xs)`) is NOT mis-classified as capturing.
+    /// The classifier receives only names the user lexically bound inside
+    /// the enclosing function — params, prior `let` bindings, loop/match
+    /// pattern names — which is the semantically correct domain for
+    /// Value Restriction.
+    ///
+    /// When no snapshot was recorded (engine constructed without going
+    /// through `create_engine_with_env` — e.g., unit tests), every visible
+    /// name is conservatively returned; this preserves the pre-snapshot
+    /// behavior of test harnesses that build lambdas directly.
+    pub fn collect_lexical_outer(&self) -> FxHashSet<Name> {
+        let all: FxHashSet<Name> = self.env.names().collect();
+        match &self.module_scope_snapshot {
+            Some(base) => all.difference(base).copied().collect(),
+            None => all,
+        }
     }
 
     /// Set the well-known names cache for O(1) type annotation resolution.
@@ -271,73 +327,6 @@ impl<'pool> InferEngine<'pool> {
     /// Get the current impl's `Self` type.
     pub fn impl_self_type(&self) -> Option<Idx> {
         self.impl_self_type
-    }
-
-    /// Push a loop break type variable onto the stack.
-    /// Called when entering a `loop()` expression.
-    pub fn push_loop_break_type(&mut self, ty: Idx) {
-        self.loop_break_types.push(ty);
-    }
-
-    /// Pop the loop break type variable.
-    /// Called when exiting a `loop()` expression.
-    pub fn pop_loop_break_type(&mut self) -> Option<Idx> {
-        self.loop_break_types.pop()
-    }
-
-    /// Get the current loop's break type variable (innermost loop).
-    pub fn current_loop_break_type(&self) -> Option<Idx> {
-        self.loop_break_types.last().copied()
-    }
-
-    // Capability Management
-
-    /// Set capabilities for the current function scope.
-    ///
-    /// `current` contains capabilities declared via `uses` on the function.
-    /// `provided` contains capabilities introduced via `with...in`.
-    pub fn set_capabilities(&mut self, current: FxHashSet<Name>, provided: FxHashSet<Name>) {
-        self.current_capabilities = current;
-        self.provided_capabilities = provided;
-    }
-
-    /// Check if a capability is available (declared or provided).
-    pub fn has_capability(&self, cap: Name) -> bool {
-        self.current_capabilities.contains(&cap) || self.provided_capabilities.contains(&cap)
-    }
-
-    /// Get all available capabilities (declared + provided).
-    pub fn available_capabilities(&self) -> Vec<Name> {
-        self.current_capabilities
-            .union(&self.provided_capabilities)
-            .copied()
-            .collect()
-    }
-
-    /// Add a provided capability (for `with...in` scoping).
-    pub fn add_provided_capability(&mut self, cap: Name) {
-        self.provided_capabilities.insert(cap);
-    }
-
-    /// Remove a provided capability.
-    pub fn remove_provided_capability(&mut self, cap: Name) {
-        self.provided_capabilities.remove(&cap);
-    }
-
-    /// Execute a closure with a temporarily provided capability.
-    ///
-    /// The capability is added before executing `f` and removed after.
-    /// This implements the scoped semantics of `with...in`.
-    pub fn with_provided_capability<T, F>(&mut self, cap: Name, f: F) -> T
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        let was_present = self.provided_capabilities.insert(cap);
-        let result = f(self);
-        if !was_present {
-            self.provided_capabilities.remove(&cap);
-        }
-        result
     }
 
     /// Get the trait registry (if set).
@@ -486,9 +475,23 @@ impl<'pool> InferEngine<'pool> {
     ///
     /// Returns a type scheme if any variables were generalized,
     /// or the original type if it's monomorphic.
-    #[inline]
+    ///
+    /// §08.3b.1 — Records every newly-generalized var id in
+    /// `pending_generalized_vars` so the end-of-body normalization pass
+    /// ([`InferEngine::normalize_body_generalized_to_bound_var`]) can rewrite
+    /// matching `Tag::Var` leaves in `expr_types` / `FunctionSig` positions
+    /// to `Tag::BoundVar` per `types.md §SC-1`.
     pub fn generalize(&mut self, ty: Idx) -> Idx {
-        self.unify.generalize(ty)
+        let scheme = self.unify.generalize(ty);
+        // If generalize returned a scheme, extract its bound var ids and
+        // record them for the end-of-body normalization pass. If no
+        // generalization happened (monomorphic), the returned idx is not
+        // a scheme — skip recording.
+        if self.unify.pool().tag(scheme) == Tag::Scheme {
+            let vars = self.unify.pool().scheme_vars(scheme).to_vec();
+            self.pending_generalized_vars.extend(vars);
+        }
+        scheme
     }
 
     /// Instantiate a type scheme with fresh variables.
@@ -497,170 +500,6 @@ impl<'pool> InferEngine<'pool> {
     #[inline]
     pub fn instantiate(&mut self, scheme: Idx) -> Idx {
         self.unify.instantiate(scheme)
-    }
-
-    // Expression Type Storage
-
-    /// Store the inferred type for an expression.
-    pub fn store_type(&mut self, expr: ExprIndex, ty: Idx) {
-        self.expr_types.insert(expr, ty);
-    }
-
-    /// Get the inferred type for an expression.
-    pub fn get_type(&self, expr: ExprIndex) -> Option<Idx> {
-        self.expr_types.get(&expr).copied()
-    }
-
-    /// Get all expression types.
-    pub fn expr_types(&self) -> &FxHashMap<ExprIndex, Idx> {
-        &self.expr_types
-    }
-
-    /// Take expression types, leaving an empty map.
-    pub fn take_expr_types(&mut self) -> FxHashMap<ExprIndex, Idx> {
-        std::mem::take(&mut self.expr_types)
-    }
-
-    // Pattern Resolution
-
-    /// Record that a `Binding` pattern was resolved to a unit variant.
-    pub fn record_pattern_resolution(&mut self, key: PatternKey, res: PatternResolution) {
-        self.pattern_resolutions.push((key, res));
-    }
-
-    /// Take pattern resolutions, leaving an empty vector.
-    pub fn take_pattern_resolutions(&mut self) -> Vec<(PatternKey, PatternResolution)> {
-        std::mem::take(&mut self.pattern_resolutions)
-    }
-
-    // Monomorphization Recording
-
-    /// Record a concrete instantiation of a generic function.
-    pub fn record_mono_instance(&mut self, instance: crate::MonoInstance) {
-        self.mono_instances.push(instance);
-    }
-
-    /// Take mono instances, leaving an empty vector.
-    pub fn take_mono_instances(&mut self) -> Vec<crate::MonoInstance> {
-        std::mem::take(&mut self.mono_instances)
-    }
-
-    /// Record a deferred mono call (generic calling generic).
-    pub fn record_deferred_mono_call(&mut self, call: crate::DeferredMonoCall) {
-        self.deferred_mono_calls.push(call);
-    }
-
-    /// Take deferred mono calls, leaving an empty vector.
-    pub fn take_deferred_mono_calls(&mut self) -> Vec<crate::DeferredMonoCall> {
-        std::mem::take(&mut self.deferred_mono_calls)
-    }
-
-    /// Set the current function being type-checked.
-    pub fn set_current_function(&mut self, name: Option<Name>) {
-        self.current_function = name;
-    }
-
-    /// Get the current function being type-checked.
-    pub fn current_function(&self) -> Option<Name> {
-        self.current_function
-    }
-
-    // Literal Inference Helpers
-
-    /// Infer the type of an integer literal.
-    #[inline]
-    pub fn infer_int(&self) -> Idx {
-        Idx::INT
-    }
-
-    /// Infer the type of a float literal.
-    #[inline]
-    pub fn infer_float(&self) -> Idx {
-        Idx::FLOAT
-    }
-
-    /// Infer the type of a boolean literal.
-    #[inline]
-    pub fn infer_bool(&self) -> Idx {
-        Idx::BOOL
-    }
-
-    /// Infer the type of a string literal.
-    #[inline]
-    pub fn infer_str(&self) -> Idx {
-        Idx::STR
-    }
-
-    /// Infer the type of a character literal.
-    #[inline]
-    pub fn infer_char(&self) -> Idx {
-        Idx::CHAR
-    }
-
-    /// Infer the type of a byte literal.
-    #[inline]
-    pub fn infer_byte(&self) -> Idx {
-        Idx::BYTE
-    }
-
-    /// Infer the type of a unit literal.
-    #[inline]
-    pub fn infer_unit(&self) -> Idx {
-        Idx::UNIT
-    }
-
-    // Collection Inference Helpers
-
-    /// Infer the type of an empty list.
-    ///
-    /// Returns `[?a]` where `?a` is a fresh type variable.
-    pub fn infer_empty_list(&mut self) -> Idx {
-        let elem = self.fresh_var();
-        self.pool_mut().list(elem)
-    }
-
-    /// Infer the type of a list with a known element type.
-    pub fn infer_list(&mut self, elem_ty: Idx) -> Idx {
-        self.pool_mut().list(elem_ty)
-    }
-
-    /// Infer the type of an empty map.
-    ///
-    /// Returns `{?k: ?v}` where `?k` and `?v` are fresh type variables.
-    pub fn infer_empty_map(&mut self) -> Idx {
-        let key = self.fresh_var();
-        let value = self.fresh_var();
-        self.pool_mut().map(key, value)
-    }
-
-    /// Infer the type of a map with known key and value types.
-    pub fn infer_map(&mut self, key_ty: Idx, value_ty: Idx) -> Idx {
-        self.pool_mut().map(key_ty, value_ty)
-    }
-
-    /// Infer the type of a tuple.
-    pub fn infer_tuple(&mut self, elem_types: &[Idx]) -> Idx {
-        self.pool_mut().tuple(elem_types)
-    }
-
-    /// Infer the type of an option with known inner type.
-    pub fn infer_option(&mut self, inner_ty: Idx) -> Idx {
-        self.pool_mut().option(inner_ty)
-    }
-
-    /// Infer the type of a result with known ok and error types.
-    pub fn infer_result(&mut self, ok_ty: Idx, err_ty: Idx) -> Idx {
-        self.pool_mut().result(ok_ty, err_ty)
-    }
-
-    /// Infer the type of a function.
-    pub fn infer_function(&mut self, params: &[Idx], ret: Idx) -> Idx {
-        self.pool_mut().function(params, ret)
-    }
-
-    /// Infer the type of an iterator with known element type.
-    pub fn infer_iterator(&mut self, elem_ty: Idx) -> Idx {
-        self.pool_mut().iterator(elem_ty)
     }
 }
 

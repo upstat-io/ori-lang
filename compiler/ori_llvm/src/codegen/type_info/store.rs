@@ -368,9 +368,33 @@ impl<'tcx> TypeInfoStore<'tcx> {
                 element: self.pool.iterator_elem(idx),
             },
 
+            // `Tag::BoundVar` is defensive ICE signal at codegen. Scheme
+            // bodies post-§SC-1 carry `Tag::BoundVar(var_id)` leaves;
+            // substitution to concrete types happens UPSTREAM in
+            // `lower_function_can` via `type_subst` threaded from
+            // `MonoFunction.body_type_map` (see `function_compiler/
+            // nounwind/prepare.rs:133`). By the time codegen queries
+            // `TypeInfoStore`, a correctly-substituted mono body has
+            // NO `Tag::BoundVar` leaves left.
+            //
+            // If a `Tag::BoundVar` reaches this arm, an upstream layer
+            // (ARC lowering's type substitution, or scheme-var normalization
+            // in `InferEngine::normalize_body_generalized_to_bound_var_sig`)
+            // missed a leaf. Returning `TypeInfo::Error` surfaces the bug
+            // rather than masking it per `canon.md §7.1` AIMS Invariant 2.
+            Tag::BoundVar => {
+                tracing::warn!(
+                    ?idx,
+                    "Tag::BoundVar reached codegen — upstream substitution \
+                     missed a leaf (ARC lowering `type_subst` or typeck \
+                     end-of-body normalization gap)"
+                );
+                self.type_error_count.set(self.type_error_count.get() + 1);
+                TypeInfo::Error
+            }
+
             // These tags should genuinely never reach codegen.
-            Tag::BoundVar
-            | Tag::RigidVar
+            Tag::RigidVar
             | Tag::Borrowed
             | Tag::Scheme
             | Tag::Projection
@@ -386,3 +410,6 @@ impl<'tcx> TypeInfoStore<'tcx> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

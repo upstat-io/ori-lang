@@ -212,3 +212,64 @@ fn test_let_polymorphism() {
     assert_eq!(engine.resolve(params_int[0]), Idx::INT);
     assert_eq!(engine.resolve(params_str[0]), Idx::STR);
 }
+
+/// Observable snapshot of an `InferEngine`'s default state — covers every
+/// field that `new` / `with_env` initialize. Adding a new `InferEngine`
+/// field requires extending this snapshot so the build-SSOT regression
+/// test continues to pin "both constructors produce identical state".
+#[derive(Debug, PartialEq, Eq)]
+struct EngineSnapshot {
+    error_count: usize,
+    has_context: bool,
+    self_type: Option<Idx>,
+    impl_self_type: Option<Idx>,
+    has_current_loop_break_type: bool,
+    env_is_empty: bool,
+    pool_int_idx: Idx,
+    pool_unit_idx: Idx,
+    pool_never_idx: Idx,
+}
+
+fn snapshot(engine: &InferEngine<'_>) -> EngineSnapshot {
+    EngineSnapshot {
+        error_count: engine.error_count(),
+        has_context: engine.current_context().is_some(),
+        self_type: engine.self_type(),
+        impl_self_type: engine.impl_self_type(),
+        has_current_loop_break_type: engine.current_loop_break_type().is_some(),
+        env_is_empty: engine.env().names().next().is_none(),
+        pool_int_idx: Idx::INT,
+        pool_unit_idx: Idx::UNIT,
+        pool_never_idx: Idx::NEVER,
+    }
+}
+
+/// Regression pin: both `InferEngine::new` and `InferEngine::with_env`
+/// must route through the `build` SSOT so that adding a new field to
+/// `InferEngine` requires exactly one edit, not two.
+///
+/// If a future field is added to only one constructor, the snapshots will
+/// diverge on whatever observable that field affects — catching the
+/// duplication before it drifts further.
+#[test]
+fn infer_engine_new_and_with_env_produce_identical_default_state() {
+    let snap_new = {
+        let mut pool = Pool::new();
+        let engine = InferEngine::new(&mut pool);
+        snapshot(&engine)
+    };
+
+    let snap_with_env = {
+        let mut pool = Pool::new();
+        let engine = InferEngine::with_env(&mut pool, TypeEnv::new());
+        snapshot(&engine)
+    };
+
+    assert_eq!(
+        snap_new, snap_with_env,
+        "InferEngine::new and InferEngine::with_env(TypeEnv::new()) must \
+         produce structurally identical engines — both MUST delegate to \
+         Self::build. A divergence here means one constructor was edited \
+         without updating the other."
+    );
+}

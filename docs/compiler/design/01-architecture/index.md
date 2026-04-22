@@ -205,7 +205,7 @@ with Logger = handler(state: []) {
 
 ### Salsa-Driven Incrementality
 
-Every major computation is a Salsa query with automatic memoization, dependency tracking, and early cutoff:
+The `oric` driver uses Salsa for incremental compilation. Every major computation in `oric` is a Salsa query with automatic memoization, dependency tracking, and early cutoff. A separate **Salsa-free** driver crate `ori_compiler` (see `compiler/ori_compiler/src/lib.rs`) provides the same compilation pipeline without Salsa or IO, suitable for embedding, WebAssembly, and the test harness where incrementality is not needed.
 
 ```rust
 #[salsa::tracked]
@@ -301,7 +301,7 @@ flowchart TB
     class ori_llvm,ori_arc,ori_rt native
 ```
 
-> Only key dependency edges shown — all crates ultimately depend on `ori_ir`. `ori_llvm` and `ori_rt` are workspace members but not in `default-members` (require LLVM 21).
+> Only key dependency edges shown — all crates ultimately depend on `ori_ir`. `ori_llvm` is in `default-members` and LLVM 21 is required for all builds; `compile_error!` prevents building `oric` without LLVM. `ori_rt` is also a workspace member shipped as both an rlib (JIT) and a staticlib (AOT linking).
 
 **Key dependency invariants:**
 

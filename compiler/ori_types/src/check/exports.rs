@@ -208,6 +208,22 @@ pub(super) fn resolve_deferred_mono_calls(
                 continue;
             }
 
+            // Extend resolved_var_subst with union-find root var_ids so
+            // build_mono_body_type_map can substitute raw Tag::Var leaves
+            // whose var_id is the root rather than the declared callee
+            // scheme var. Without this extension, a 3-hop generic chain
+            // where the middle layer takes the deferred path leaks
+            // Tag::Var leaves into the realized ARC IR and fires the §04.2
+            // PC-2 seam assertion (typeck.md §UN-7 rank-weighted union).
+            // SSOT per impl-hygiene.md §Algorithmic DRY — shared with the
+            // eager-path site at infer::expr::calls::monomorphization and
+            // the JIT imported-mono site at oric::test::runner::imported_mono.
+            crate::pool::substitute::extend_var_subst_with_roots(
+                pool,
+                &deferred.callee_scheme_var_ids,
+                &mut resolved_var_subst,
+            );
+
             // Build generic_args in scheme_var_ids order.
             let generic_args: Vec<GenericArg> = deferred
                 .callee_scheme_var_ids
@@ -262,8 +278,8 @@ fn build_mono_instance(
     return_type: crate::Idx,
     var_subst: &rustc_hash::FxHashMap<u32, crate::Idx>,
 ) -> crate::MonoInstance {
-    use crate::pool::substitute::substitute_in_pool;
-    use crate::{Idx, TypeFlags};
+    use crate::pool::substitute::{build_mono_body_type_map, substitute_in_pool};
+    use crate::Idx;
 
     let concrete_param_types: Vec<Idx> = param_types
         .iter()
@@ -271,18 +287,12 @@ fn build_mono_instance(
         .collect();
     let concrete_return_type = substitute_in_pool(pool, return_type, var_subst);
 
-    let mut body_type_map = Vec::new();
-    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
-    for raw in Idx::FIRST_DYNAMIC..pool_len {
-        let idx = Idx::from_raw(raw);
-        if pool.flags(idx).contains(TypeFlags::HAS_VAR) {
-            let substituted = substitute_in_pool(pool, idx, var_subst);
-            if substituted != idx {
-                body_type_map.push((idx, substituted));
-            }
-        }
-    }
+    // Build body_type_map via the canonical SSOT helper; sort+dedup for
+    // Salsa-deterministic shape is call-site-local post-processing.
+    let mut body_type_map: Vec<(Idx, Idx)> = Vec::new();
+    build_mono_body_type_map(pool, var_subst, &mut body_type_map);
     body_type_map.sort_by_key(|(k, _)| k.raw());
+    body_type_map.dedup_by_key(|(k, _)| k.raw());
 
     crate::MonoInstance {
         fn_name,

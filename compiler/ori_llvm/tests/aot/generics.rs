@@ -375,3 +375,185 @@ fn test_mono_may_unwind_callee_uses_invoke() {
          IR:\n{main_section}"
     );
 }
+
+// ─── Generic chain root-extension regression matrix (§04.2.B) ───
+//
+// Coverage for the union-find root-extension fix that lets deferred
+// monomorphization resolve callees whose scheme var is NOT the
+// representative of its equivalence class. The fix landed in
+// `extend_var_subst_with_roots` (`pool/substitute/mod.rs`) and is invoked
+// at the three mono call sites: eager typeck, deferred typeck exports,
+// and JIT imported-mono. Each fixture exercises a different shape through
+// the 3+ hop chain; pre-fix all of these either silently miscompiled or
+// fired the §04.2 PC-2 assertion at codegen.
+
+#[test]
+fn test_generic_chain_four_levels() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_chain_four_levels.ori"),
+        "generic_chain_four_levels",
+    );
+}
+
+#[test]
+fn test_generic_chain_four_levels_string() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_chain_four_levels_string.ori"),
+        "generic_chain_four_levels_string",
+    );
+}
+
+#[test]
+fn test_generic_chain_five_levels() {
+    // Guards against off-by-one in the root-extension recursion.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_chain_five_levels.ori"),
+        "generic_chain_five_levels",
+    );
+}
+
+#[test]
+fn test_generic_chain_option_wrapped() {
+    // 3-hop with Option<T> as the type argument.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_chain_option_wrapped.ori"),
+        "generic_chain_option_wrapped",
+    );
+}
+
+#[test]
+fn test_generic_chain_result_wrapped() {
+    // 3-hop with Result<T, E>.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_chain_result_wrapped.ori"),
+        "generic_chain_result_wrapped",
+    );
+}
+
+#[test]
+#[ignore = "blocked-by: BUG-04-090 — AOT codegen generic forwarder applied to [T] causes \
+            ori_rc_dec on already-freed allocation. Minimal repro: `@id<T>(x: T) -> T = x; \
+            let xs = id(x: [1,2,3]); xs.len()` aborts with 'ori_rc_dec called on \
+            already-freed allocation at …'. Reproduces at 2-hop (generic_calling_generic \
+            with [int] element), so this is NOT a §04.2.B regression — root-extension fix \
+            landed cleanly; the [T] through-generic RC path was already broken. \
+            Tracked: plans/bug-tracker/section-04-codegen-llvm.md BUG-04-090."]
+fn test_generic_chain_list_element() {
+    // 3-hop with [T] — RC-managed element type.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_chain_list_element.ori"),
+        "generic_chain_list_element",
+    );
+}
+
+#[test]
+fn test_generic_chain_tuple_element() {
+    // 3-hop with (T, T).
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_chain_tuple_element.ori"),
+        "generic_chain_tuple_element",
+    );
+}
+
+#[test]
+fn test_generic_chain_user_struct() {
+    // 3-hop with user-defined struct. The existing
+    // `test_generic_chain_with_struct` is 2-hop (main → apply_identity →
+    // identity); this one is 3-hop so the deferred-mono root-extension
+    // path is exercised end-to-end with a struct type argument.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_chain_user_struct.ori"),
+        "generic_chain_user_struct",
+    );
+}
+
+#[test]
+fn test_generic_chain_forwarded_in_return_only() {
+    // T appears only in the return position; the scheme var flows
+    // through deferred mono on the return channel.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_chain_forwarded_in_return_only.ori"),
+        "generic_chain_forwarded_in_return_only",
+    );
+}
+
+#[test]
+fn test_generic_chain_forwarded_in_deep_field() {
+    // T appears in a nested field position — Option<(int, T)>.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_chain_forwarded_in_deep_field.ori"),
+        "generic_chain_forwarded_in_deep_field",
+    );
+}
+
+#[test]
+fn test_generic_multiple_deferred_callees() {
+    // Two deferred callees in one body — each gets root extension.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_multiple_deferred_callees.ori"),
+        "generic_multiple_deferred_callees",
+    );
+}
+
+#[test]
+fn test_generic_recursive_chain() {
+    // Self-recursive generic — each recursive call site is a deferred
+    // mono resolution on the same scheme var.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_recursive_chain.ori"),
+        "generic_recursive_chain",
+    );
+}
+
+#[test]
+fn test_generic_mutual_recursion_scc() {
+    // Two mutually-recursive generics in one SCC.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_mutual_recursion_scc.ori"),
+        "generic_mutual_recursion_scc",
+    );
+}
+
+#[test]
+fn test_generic_trait_dispatch_through_forwarder() {
+    // T: Printable called from a 3-hop chain — ensures trait-method
+    // dispatch resolution doesn't bypass root-extension.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_trait_dispatch_through_forwarder.ori"),
+        "generic_trait_dispatch_through_forwarder",
+    );
+}
+
+#[test]
+fn test_generic_iterator_item_only_positional() {
+    // T appears only via an iterator element channel (.iter() on [T]) —
+    // not as a direct scalar parameter.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_iterator_item_only_positional.ori"),
+        "generic_iterator_item_only_positional",
+    );
+}
+
+#[test]
+fn test_generic_closure_capture_forwarded() {
+    // Generic forwarder captures T in a lambda; the returned closure is
+    // invoked at the call site.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_closure_capture_forwarded.ori"),
+        "generic_closure_capture_forwarded",
+    );
+}
+
+#[test]
+#[ignore = "blocked: inherent method on generic type (impl<T> Box<T> { @m (self) -> T }) \
+            triggers 'unresolved function in apply — missing mono instance' at codegen; \
+            method-level generic parameter (@map<U>) additionally not parsed \
+            (parser: `expected (, found <`). Both are pre-existing gaps unrelated to the \
+            §04.2.B root-extension fix. Reduced shape (3-hop chain on a user-defined \
+            generic struct via field access) is covered by test_generic_chain_user_struct; \
+            the method-dispatch shape cannot be reduced without losing the test's purpose \
+            (two-level rigid-var scoping)."]
+fn test_generic_method_on_generic_type() {
+    // impl<T> Box<T> { @map<U> ... } — generic method on a generic type.
+    // Two-level rigid-var scoping through deferred-mono resolution.
+}

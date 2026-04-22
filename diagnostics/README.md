@@ -22,6 +22,8 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
 | `tpr-failure-summary.sh` | Summarize TPR failure patterns across runs | Investigating Gemini/Codex failures, capacity errors |
+| `tpr-liveness.sh` | Classify a TPR reviewer sub-agent as alive/quiet/dead | `/tpr-review` §9 retry decision — BEFORE deciding a silent reviewer is hung |
+| `state.sh` | Read/write the global repo state indicator (test totals, known-failing set, clippy, hygiene) at `.claude/state/known-state.json` | First query on any new session — skips the rediscover-from-scratch loop (`show`, `check`, `known-failing`, `refresh --sha-only`/`--full`/`--hygiene-only`) |
 | `self-test.sh` | Self-test all scripts against fixtures | After modifying any diagnostic script |
 
 ## Usage
@@ -198,6 +200,63 @@ diagnostics/tpr-failure-summary.sh --reviewer gemini --verbose --failures  # All
 ```
 
 Scans `/tmp/ori-tpr-*/` run directories for failure patterns. Reports success rates, API capacity errors, watchdog kills, envelope repair/rescue stats, and per-run failure details. Extracts the actual API error message from JSONL result events.
+
+### tpr-liveness.sh — TPR Reviewer Liveness Probe
+
+```bash
+diagnostics/tpr-liveness.sh /tmp/tpr-round-ori_lang-abc123 codex --human
+diagnostics/tpr-liveness.sh /tmp/tpr-round-ori_lang-abc123 gemini --json
+diagnostics/tpr-liveness.sh "$scratch" codex --grace-seconds 300 --tail-lines 20
+```
+
+Classifies a `/tpr-review` sub-agent as `alive` (exit 0), `quiet` (exit 1), or `dead` (exit 2) by inspecting `$scratch/{reviewer}-stdout.txt` — the tee'd CLI output guaranteed by invariant I14 (dual-path transport).
+
+**When to use:** consult this BEFORE retrying or aborting a silent reviewer. The orchestrator in `.claude/skills/tpr-review/SKILL.md §9` invokes this probe as the first step of failure handling — it prevents the "kill deep-investigating agent" bias where reviewer silence during a long `cargo build` or `grep` looks identical to a hang.
+
+**How it decides:**
+
+| Condition | Verdict |
+|---|---|
+| `<<<TPR-REPORT` sentinel in tail | `alive` (final report in progress) |
+| Empty stdout, mtime < grace | `alive` (CLI cold-starting) |
+| mtime < grace | `alive` |
+| mtime ∈ [grace, 2·grace), tail shows `tool_call` / `thinking` | `alive` (deep work in flight) |
+| mtime ∈ [grace, 2·grace), no signal | `quiet` |
+| mtime ∈ [2·grace, 4·grace), tail shows `tool_call` | `quiet` (slow Bash invocation suspected) |
+| mtime ≥ 2·grace, no strong signal | `dead` |
+
+Default grace is 300s (5 min). The 45-min ceiling on the reviewer CLI (`block-banned-commands.sh`) bounds the absolute worst case externally — the probe never extends that ceiling.
+
+### state.sh — Global State Indicator
+
+```bash
+diagnostics/state.sh show                         # Human-readable summary
+diagnostics/state.sh show --json                  # JSON for skill consumption
+diagnostics/state.sh check                        # Exit 0 fresh / 1 dirty / 2 obsolete / 3 missing
+diagnostics/state.sh known-failing                # List expected-failing files
+diagnostics/state.sh known-failing --json         # Same as JSON array
+diagnostics/state.sh refresh --sha-only --by commit-push   # Cheap: update HEAD SHA only
+diagnostics/state.sh refresh --hygiene-only                # Run repo-hygiene.sh + update notes
+diagnostics/state.sh refresh --full --by section-close     # Slow: re-run test-all.sh + clippy-all.sh
+```
+
+Caches the result of `./test-all.sh`, `./clippy-all.sh`, and `diagnostics/repo-hygiene.sh --check` in `.claude/state/known-state.json` (schema v1) so new sessions skip the rediscover-from-scratch loop.
+
+**When to use:**
+- **First query on any fresh session** — skills that need to know "is the tree known-failing?" should consult `state.sh show --json` before running tests.
+- **At every commit** (`/commit-push` post-commit hook) — refresh the cached HEAD SHA so `check` correctly reports OBSOLETE when the commit isn't yet reflected.
+- **At section close** (`/continue-roadmap` close-out) — `refresh --full --by section-close` captures a fresh baseline.
+- **Before any TPR or review** — reviewers should see current known-state instead of flagging expected failures as regressions.
+
+**Freshness semantics:** `check` returns:
+- `0 / fresh` — cache SHA matches HEAD, working tree clean → trust the cache
+- `1 / stale` — SHA matches but working tree is dirty → consult but verify for current task
+- `2 / obsolete` — SHA mismatch → run `refresh --sha-only` (cheap) or `refresh --full` (truthful)
+- `3 / missing` — state file absent → run `refresh --full`
+
+**Source of truth:** plan-documented "Known Failing Tests" sections remain the SSOT for intent. This cache is an index over that intent. `refresh --full` does NOT auto-populate `known_failing_files` from test output — that list is an editorial decision tied to plan remediation sections.
+
+**Design log:** `.claude/skills/improve-tooling/script-state-design.md` (schema v1 invariants, load-bearing rules, improvement log).
 
 ## Environment Variables
 

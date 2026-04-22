@@ -1,0 +1,7 @@
+// BUG-04-084: empty list in for-do body.
+// Expected: body expression defaults to `[Never]`; discarded by for-do.
+
+@main () -> int = {
+    for x in [1, 2, 3] do [];
+    0
+}
