@@ -1,4 +1,0 @@
----
-<<: {status: active}
-name: test
----
