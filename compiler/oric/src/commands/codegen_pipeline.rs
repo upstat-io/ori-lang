@@ -23,7 +23,7 @@ use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
 use oric::{CompilerDb, Db};
 #[cfg(feature = "llvm")]
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Result of borrow inference: annotated signatures + pre-lowered ARC cache.
 ///
@@ -63,6 +63,10 @@ pub(super) struct BorrowInferenceResult {
     clippy::too_many_arguments,
     reason = "pipeline helper — each param is a distinct data flow input from the compilation stages"
 )]
+#[expect(
+    clippy::too_many_lines,
+    reason = "§04.3 added PC-2 hook loops inline; submodule extract pending per plans/empty-container-typeck-phase-contract/section-04-codegen-assertions.md §04.R HYG-04.3-F01..F04 anchor"
+)]
 pub(super) fn run_borrow_inference(
     db: &CompilerDb,
     parse_result: &ParseOutput,
@@ -83,6 +87,16 @@ pub(super) fn run_borrow_inference(
         FxHashMap::default();
     let mut arc_problems = Vec::new();
 
+    // PC-2 contract check (types.md §PC-2) — diagnostic localization for both
+    // AOT pre-mono (non-generic) and AOT mono IR. Non-load-bearing: the primary
+    // seam in process_arc_function owns record_codegen_error(); these sites
+    // only attribute diagnostics to the just-lowered arc_fn + lambdas.
+    //
+    // Empty exempt set at both loops: pre-mono loop skips generics via
+    // sig.is_generic(), and collect_mono_functions produces fully-substituted
+    // instances — every inserted entry has empty scheme_var_ids.
+    let exempt: FxHashSet<u32> = FxHashSet::default();
+
     for (func, sig) in parse_result
         .module
         .functions
@@ -102,6 +116,27 @@ pub(super) fn run_borrow_inference(
             &mut arc_problems,
             None,
         );
+        if let Err(err) = ori_arc::assert_no_unresolved_type_vars(pool, &arc_fn, interner, &exempt)
+        {
+            tracing::error!(
+                contract_violation = true,
+                error = ?err,
+                site = "aot_pre_mono",
+                "Tag::Var in AOT pre-mono ARC IR (codegen-rules.md §TR-2)"
+            );
+        }
+        for lambda in &lambdas {
+            if let Err(err) =
+                ori_arc::assert_no_unresolved_type_vars(pool, lambda, interner, &exempt)
+            {
+                tracing::error!(
+                    contract_violation = true,
+                    error = ?err,
+                    site = "aot_pre_mono_lambda",
+                    "Tag::Var in AOT pre-mono lambda ARC IR"
+                );
+            }
+        }
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 
@@ -126,6 +161,27 @@ pub(super) fn run_borrow_inference(
             &mut arc_problems,
             Some(&mono_fn.body_type_map),
         );
+        if let Err(err) = ori_arc::assert_no_unresolved_type_vars(pool, &arc_fn, interner, &exempt)
+        {
+            tracing::error!(
+                contract_violation = true,
+                error = ?err,
+                site = "aot_mono",
+                "Tag::Var in AOT mono ARC IR (codegen-rules.md §TR-2)"
+            );
+        }
+        for lambda in &lambdas {
+            if let Err(err) =
+                ori_arc::assert_no_unresolved_type_vars(pool, lambda, interner, &exempt)
+            {
+                tracing::error!(
+                    contract_violation = true,
+                    error = ?err,
+                    site = "aot_mono_lambda",
+                    "Tag::Var in AOT mono lambda ARC IR"
+                );
+            }
+        }
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 

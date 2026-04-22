@@ -27,9 +27,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# CLAUDE.md and .claude/ live one directory above this repo.
+PROJECT_ROOT="$(cd "$ROOT_DIR/.." && pwd)"
 
 DEBUG_FLAGS="$ROOT_DIR/compiler/oric/src/debug_flags.rs"
-CLAUDE_MD="$ROOT_DIR/CLAUDE.md"
+CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
 
 # --- Defaults ---
 USE_COLOR=auto
@@ -213,7 +215,7 @@ fi
 printf "\n${C_BOLD}4. Documentation (CLAUDE.md + .claude/rules/):${C_NC}\n"
 undoc_count=0
 
-RULES_DIR="$ROOT_DIR/.claude/rules"
+RULES_DIR="$PROJECT_ROOT/.claude/rules"
 
 # Extract wildcard prefixes (ORI_XXX_*) from CLAUDE.md once so the
 # per-flag loop is O(flags × prefixes) instead of repeatedly grepping.
