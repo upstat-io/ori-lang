@@ -1,0 +1,15 @@
+// Matrix §05.2 item 11 POSITIVE PIN: annotated empty list interacts cleanly
+// with pattern matching. `xs.is_empty()` yields `bool` and the `match` arms
+// select on it — empty-container inference flows through the match scrutinee
+// without the signature-position defaulting hazard of §05.1 §05.2 items 5/7.
+
+use std.testing { assert_eq }
+
+@test_empty_list_pattern_match tests _ () -> void = {
+    let xs: [int] = [];
+    let $result = match xs.is_empty() {
+        true -> 0,
+        false -> 1,
+    };
+    assert_eq(actual: result, expected: 0)
+}

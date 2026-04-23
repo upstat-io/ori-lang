@@ -1,0 +1,15 @@
+// Matrix §05.2 item 13 POSITIVE PIN: annotated empty list captured by a
+// lambda. Capture is by value, so the lambda sees an empty `[int]` and
+// `.push(value:)` produces a 1-length list; the element-type inference on
+// the captured list flows through the closure body.
+
+use std.testing { assert_eq }
+
+@test_empty_list_closure_capture tests _ () -> void = {
+    let shared: [int] = [];
+    let $add_and_count = (x: int) -> {
+        let updated = shared.push(value: x);
+        updated.len()
+    };
+    assert_eq(actual: add_and_count(x: 42), expected: 1)
+}

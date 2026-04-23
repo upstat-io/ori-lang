@@ -1,0 +1,11 @@
+// Matrix §05.2 item 15 NEGATIVE PIN: unannotated empty list passed to a
+// generic free function leaves `T` unbound at the call site. Propagation
+// from the empty-literal defaulting scope doesn't reach the generic
+// signature position — `T` stays a rigid Tag::Var and the bodies-pass
+// validator fires E2005 on the ambiguous signature hole.
+
+#compile_fail(code: "E2005")
+
+@generic_wrap<T> (xs: [T]) -> int = xs.len();
+
+@main () -> int = generic_wrap(xs: []);
