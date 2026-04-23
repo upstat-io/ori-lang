@@ -18,7 +18,7 @@ use crate::util::assert_aot_success;
 /// Annotated empty `[bool]` with `push` + `is_empty` compiles clean and
 /// exits 0 through the AOT backend.
 ///
-/// Matrix cell: B=bool × C=push+is_empty. After push, `is_empty()` must
+/// Matrix cell: `B=bool` × `C=push+is_empty`. After push, `is_empty()` must
 /// be false; a non-zero exit would indicate either an inference regression
 /// (element type unresolved) or a codegen regression on the `[bool]`
 /// narrowed-element path.
@@ -37,7 +37,7 @@ fn aot_empty_list_bool_push_is_empty_compiles_and_exits_zero() {
 /// Annotated empty `[str]` with `push` + `iter().count()` compiles clean
 /// and exits 0 through the AOT backend.
 ///
-/// Matrix cell: B=str × C=push+iter. Exercises the iterator pipeline over
+/// Matrix cell: `B=str` × `C=push+iter`. Exercises the iterator pipeline over
 /// an element type that requires full fat-pointer element stride (24 bytes),
 /// ensuring the narrowed-pointer sext widening path is NOT engaged for
 /// non-integer elements and that iterator drop cleans up remaining `str`
@@ -58,7 +58,7 @@ fn aot_empty_list_str_push_iter_compiles_and_exits_zero() {
 /// Annotated empty `[Option<int>]` with `push` + `len` compiles clean and
 /// exits 0 through the AOT backend.
 ///
-/// Matrix cell: B=Option<int> × C=push+len. Exercises a sum-type payload
+/// Matrix cell: `B=Option<int>` × `C=push+len`. Exercises a sum-type payload
 /// element. Tests that niche/tagged representation of `Option<int>` is
 /// preserved through the empty-list inference path and element storage.
 #[test]
@@ -76,7 +76,7 @@ fn aot_empty_list_option_push_compiles_and_exits_zero() {
 /// Annotated empty `[[int]]` with `push` + `len` compiles clean and exits
 /// 0 through the AOT backend.
 ///
-/// Matrix cell: C=nested. Exercises nested-container RC: the outer list
+/// Matrix cell: `C=nested`. Exercises nested-container RC: the outer list
 /// owns inner `[int]` values, each carrying its own RC header. On drop,
 /// the outer `elem_dec_fn` must release each inner list's backing buffer.
 /// A leak here would trip `ORI_CHECK_LEAKS=1` in `assert_aot_success`.
