@@ -1,0 +1,18 @@
+// Matrix §05.2 item 7 NEGATIVE PIN: unannotated parameter in an inherent-impl
+// method body reached via `[]` call-site. Bodies-pass validator
+// (check_impl_bodies) fires E2005 on the method signature-position Tag::Var.
+// Inherent-impl method bodies are a distinct pass from free functions; the
+// same invariant must hold.
+
+#compile_fail(code: "E2005")
+
+type Container = { name: str }
+
+impl Container {
+    @process (self, xs) -> int = xs.len();
+}
+
+@main () -> int = {
+    let c = Container { name: "test" };
+    c.process(xs: [])
+};

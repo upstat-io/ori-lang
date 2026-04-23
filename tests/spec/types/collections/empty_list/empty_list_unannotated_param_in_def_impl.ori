@@ -1,0 +1,17 @@
+// Matrix §05.2 item 8 NEGATIVE PIN: unannotated parameter in a `def impl`
+// default-trait-implementation method body. Bodies-pass validator
+// (check_def_impl_bodies) fires E2005 on the method signature-position
+// Tag::Var — default-impl bodies are a distinct pass from inherent impls
+// and free functions; the same PC-2 invariant must hold. `def impl`
+// methods are stateless (no `self`) per the spec.
+
+trait Processor {
+    @process (xs: [int]) -> int
+}
+
+def impl Processor {
+    @process (xs) -> int = xs.len();
+}
+
+#compile_fail(code: "E2005")
+@main () -> int = 0;

@@ -1,0 +1,10 @@
+// Matrix §05.2 item 5 NEGATIVE PIN: unannotated parameter in a free function
+// body reached via `[]` call-site. Bodies-pass validator (check_function_bodies)
+// fires E2005 on the signature-position Tag::Var — signature holes sit outside
+// the empty-literal defaulting scope and stay ambiguous.
+
+#compile_fail(code: "E2005")
+
+@process (xs) -> int = xs.len();
+
+@main () -> int = process(xs: []);

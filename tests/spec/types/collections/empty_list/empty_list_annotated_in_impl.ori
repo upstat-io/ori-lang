@@ -1,0 +1,19 @@
+// Matrix §05.2 item 7 POSITIVE PIN: annotated `[int]` parameter in an
+// inherent-impl method body type-checks cleanly and returns the expected
+// length. Paired with the negative `empty_list_unannotated_param_in_impl`
+// file; the two together clamp the impl-method-body pass boundary.
+
+use std.testing { assert_eq }
+
+type Container = { name: str }
+
+impl Container {
+    @process (self, xs: [int]) -> int = xs.len();
+}
+
+@test_annotated_in_impl tests @_use_container () -> void = {
+    let c = Container { name: "test" };
+    assert_eq(actual: c.process(xs: [1, 2, 3]), expected: 3)
+}
+
+@_use_container (c: Container) -> str = c.name;

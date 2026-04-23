@@ -1,0 +1,12 @@
+// Matrix §05.2 item 6 POSITIVE PIN: annotated empty list inside a test body
+// type-checks cleanly and behaves as a zero-length `[int]` that `.push()`
+// extends. Paired with the negative `empty_list_unannotated_param_in_test`
+// file; the two together clamp the test-body pass boundary.
+
+use std.testing { assert_eq }
+
+@test_annotated_in_body tests _ () -> void = {
+    let xs: [int] = [];
+    xs = xs.push(value: 1);
+    assert_eq(actual: xs.len(), expected: 1)
+}

@@ -1,0 +1,25 @@
+// Matrix §05.2 item 8 POSITIVE PIN: annotated `[int]` parameter in a
+// `def impl` default-trait-implementation method body type-checks cleanly
+// (no E2005). Paired with the negative `empty_list_unannotated_param_in_def_impl`
+// file; the two together clamp the def-impl-body pass boundary.
+//
+// NOTE: `def impl` methods are stateless (no `self`), per the spec; this
+// test verifies the body type-checks and returns via a sibling free
+// function, matching the shipped `tests/spec/lexical/keywords.ori`
+// precedent (§"Test 'def' impl").
+
+use std.testing { assert_eq }
+
+trait Processor {
+    @process (xs: [int]) -> int
+}
+
+def impl Processor {
+    @process (xs: [int]) -> int = xs.len();
+}
+
+@annotated_def_impl_compiles () -> int = 3;
+
+@test_annotated_in_def_impl tests @annotated_def_impl_compiles () -> void = {
+    assert_eq(actual: annotated_def_impl_compiles(), expected: 3)
+}
