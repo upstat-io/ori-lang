@@ -147,7 +147,7 @@ impl<T> Box<T> {
 }
 
 @test_ok_or_ok tests @ok_or () -> void = {
-    let res = Ok(10);
+    let res: Result<int, str> = Ok(10);
     let value = ok_or(result: res, default: 42);
     assert_eq(actual: value, expected: 10)
 }

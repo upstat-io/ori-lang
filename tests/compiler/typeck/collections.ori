@@ -124,7 +124,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Valid: None
 @test_option_none tests _ () -> void = {
-    let opt = None;
+    let opt: Option<int> = None;
     assert(cond: is_none(opt: opt))
 }
 
@@ -134,13 +134,13 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Valid: Ok
 @test_result_ok tests _ () -> void = {
-    let res = Ok(42);
+    let res: Result<int, str> = Ok(42);
     assert(cond: is_ok(r: res))
 }
 
 // Valid: Err
 @test_result_err tests _ () -> void = {
-    let res = Err("error");
+    let res: Result<int, str> = Err("error");
     assert(cond: is_err(r: res))
 }
 
