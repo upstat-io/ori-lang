@@ -2,7 +2,7 @@ use super::*;
 use ori_diagnostic::ErrorCode;
 use ori_ir::{Name, Span, StringInterner};
 
-use crate::{ArityMismatchKind, ContextKind, TypeProblem};
+use crate::{AmbiguousTypeSite, ArityMismatchKind, ContextKind, TypeProblem};
 
 /// Create a test `Pool` and `StringInterner`.
 fn test_env() -> (Pool, StringInterner) {
@@ -244,7 +244,8 @@ fn error_codes_map_correctly() {
     assert_eq!(renderer.render(&infinite).code, ErrorCode::E2008);
 
     // AmbiguousType -> E2005
-    let ambiguous = TypeCheckError::ambiguous_type(Span::new(0, 5), 1, "expression".into());
+    let ambiguous =
+        TypeCheckError::ambiguous_type(Span::new(0, 5), 1, AmbiguousTypeSite::Expression);
     assert_eq!(renderer.render(&ambiguous).code, ErrorCode::E2005);
 }
 

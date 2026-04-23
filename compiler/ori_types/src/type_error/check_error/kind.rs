@@ -8,6 +8,32 @@ use ori_ir::{DerivedTrait, Name, Span};
 use crate::type_error::{ContextKind, ExpectedOrigin, TypeProblem};
 use crate::{Idx, ObjectSafetyViolation};
 
+/// Classifies the expression position where an unresolved type variable was
+/// observed — drives specialized E2005 diagnostic wording per plan §06.1.
+///
+/// The producer (`validate_body_types` in `check/validators/mod.rs`) inspects
+/// the `ExprKind` at the error site and selects the variant. The consumer
+/// (`TypeCheckError::message()` in `check_error/message.rs`) dispatches on
+/// the variant to produce actionable, site-specific message text. The
+/// structured form (vs. a free-form `String`) is SSOT — message wording lives
+/// in exactly one match arm.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum AmbiguousTypeSite {
+    /// Generic fallback — used for signature-position vars (no `ExprKind`
+    /// in scope) and for any body-expression `ExprKind` not specifically
+    /// classified below.
+    Expression,
+    /// Empty list literal `[]` (or `ListWithSpread([])` — spec-canonical
+    /// forms for an empty-literal list site). Per plan §06.1, map/set
+    /// literals stay on the generic fallback; this variant is list-only.
+    EmptyList,
+    /// Closure parameter position within a `Lambda` expression whose
+    /// parameter type could not be inferred from the receiver/context.
+    /// Signals the user should write the full `typed_lambda` form
+    /// (`(x: T) -> R = body`) per spec `grammar.ebnf:550-553`.
+    LambdaParam,
+}
+
 /// What kind of type error occurred.
 ///
 /// # Salsa Compatibility
@@ -72,8 +98,8 @@ pub enum TypeErrorKind {
     AmbiguousType {
         /// Variable ID that couldn't be resolved.
         var_id: u32,
-        /// Description of where the ambiguity occurred.
-        context: String,
+        /// Classification of the error site, drives message wording.
+        site: AmbiguousTypeSite,
     },
 
     /// Pattern type doesn't match scrutinee type.

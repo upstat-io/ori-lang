@@ -33,7 +33,8 @@ mod suggest;
 mod warning;
 
 pub use check_error::{
-    ArityMismatchKind, ErrorContext, ImportErrorKind, TypeCheckError, TypeErrorKind,
+    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind, TypeCheckError,
+    TypeErrorKind,
 };
 pub use context::ContextKind;
 pub use diff::{diff_types, edit_distance, find_closest_field, suggest_field_typo};

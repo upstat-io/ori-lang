@@ -6,7 +6,7 @@
 use ori_diagnostic::ErrorCode;
 
 use super::format::problem_message_with;
-use super::kind::TypeErrorKind;
+use super::kind::{AmbiguousTypeSite, TypeErrorKind};
 use super::TypeCheckError;
 
 impl TypeCheckError {
@@ -70,9 +70,17 @@ impl TypeCheckError {
             }
             TypeErrorKind::MissingCapability { .. } => "missing required capability".to_string(),
             TypeErrorKind::InfiniteType { .. } => "infinite type detected".to_string(),
-            TypeErrorKind::AmbiguousType { context, .. } => {
-                format!("cannot infer type in {context}")
-            }
+            TypeErrorKind::AmbiguousType { site, .. } => match site {
+                AmbiguousTypeSite::Expression => "cannot infer type in expression".to_string(),
+                AmbiguousTypeSite::EmptyList => {
+                    "cannot infer the type of this empty list; add a type annotation like `let x: [int] = []`"
+                        .to_string()
+                }
+                AmbiguousTypeSite::LambdaParam => {
+                    "cannot infer the type of this closure parameter; add a full typed-lambda annotation like `(x: int) -> ReturnT = body`"
+                        .to_string()
+                }
+            },
             TypeErrorKind::PatternMismatch { expected, found } => {
                 format!(
                     "pattern type mismatch: expected {}, found {}",
