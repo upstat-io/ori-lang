@@ -1,0 +1,16 @@
+// Spec: 14-expressions.md:1224-1228 — annotated empty list clears type ambiguity.
+// Matrix: B=struct dimension (element type) × C=push+len usage × D=annotated.
+
+use std.testing { assert_eq }
+
+type Point = { x: int, y: int };
+
+@test_empty_list_element_struct tests @empty_list_element_struct () -> void = {
+    assert_eq(actual: empty_list_element_struct(), expected: 1)
+}
+
+@empty_list_element_struct () -> int = {
+    let points: [Point] = [];
+    points = points.push(value: Point { x: 1, y: 2 });
+    points.len()
+}

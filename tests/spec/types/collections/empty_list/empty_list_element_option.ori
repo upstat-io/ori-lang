@@ -1,0 +1,14 @@
+// Spec: 14-expressions.md:1224-1228 — annotated empty list clears type ambiguity.
+// Matrix: B=Option<int> dimension (element type) × C=push+len usage × D=annotated.
+
+use std.testing { assert_eq }
+
+@test_empty_list_element_option tests @empty_list_element_option () -> void = {
+    assert_eq(actual: empty_list_element_option(), expected: 1)
+}
+
+@empty_list_element_option () -> int = {
+    let xs: [Option<int>] = [];
+    xs = xs.push(value: Some(42));
+    xs.len()
+}

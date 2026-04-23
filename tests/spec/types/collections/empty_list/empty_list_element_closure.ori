@@ -1,0 +1,14 @@
+// Spec: 14-expressions.md:1224-1228 — annotated empty list clears type ambiguity.
+// Matrix: B=closure dimension (element type `(int) -> int`) × C=push+len usage × D=annotated.
+
+use std.testing { assert_eq }
+
+@test_empty_list_element_closure tests @empty_list_element_closure () -> void = {
+    assert_eq(actual: empty_list_element_closure(), expected: 1)
+}
+
+@empty_list_element_closure () -> int = {
+    let fns: [(int) -> int] = [];
+    fns = fns.push(value: x -> x * 2);
+    fns.len()
+}

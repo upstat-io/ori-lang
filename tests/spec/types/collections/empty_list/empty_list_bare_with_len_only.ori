@@ -1,0 +1,10 @@
+// BUG-04-084 NEGATIVE PIN: unannotated parameter used only via `.len()` does
+// not constrain the element type. The parameter's signature-position var
+// stays unresolved — it's outside the empty-literal defaulting scope, so
+// E2005 fires on the ambiguous signature hole.
+
+#compile_fail(code: "E2005")
+
+@length_of (xs) -> int = xs.len();
+
+@main () -> int = length_of(xs: []);
