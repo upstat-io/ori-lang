@@ -721,3 +721,209 @@ fn polylambda_return_type_with_unbound_var_emits_one_e2005() {
     ));
     assert_eq!(errors[0].span, BODY_SPAN);
 }
+
+// §05.1 additions (Plan `empty-container-typeck-phase-contract` §05.1.2 T13
+// + §05.1.4 semantic and negative pins). Tests are synthetic unit tests
+// that drive `validate_body_types` directly, mirroring the T1–T12 harness.
+
+/// Spec: `tests.md §Cross-Phase Verification #3` fault-tolerance — two
+/// unbound `Tag::Var`s at DISTINCT `ExprIndex` positions MUST emit two
+/// independent `E2005` diagnostics (no cross-ExprIndex dedup). Distinct
+/// from T12 (`map_with_two_unbound_vars_emits_one_e2005_not_two`) which
+/// verifies same-ExprIndex collapse — this test is the count-2 companion
+/// for the planned Item 17 fault-tolerance spec file
+/// `empty_list_multiple_unannotated.ori` (scheduled under §05.2 of the
+/// `empty-container-typeck-phase-contract` plan; the `.ori` fixture ships
+/// with the §05.2 corpus, at which point the spec-side `#compile_fail(code:
+/// "E2005")` and this Rust-side `diagnostics.len() == 2` together anchor
+/// the multi-error fault-tolerance contract).
+///
+/// Models the repro `let xs = []; let ys = []; xs.len() + ys.len()`: two
+/// distinct let-bindings with independent unbound element vars, each
+/// carried by its own `ExprIndex`.
+///
+/// Plan §05.1.2 T13 + §05.R TPR-05-R2-002.
+#[test]
+fn validate_body_types_emits_one_e2005_per_unbound_var() {
+    let mut pool = Pool::new();
+    let xs_elem = pool.fresh_var();
+    let ys_elem = pool.fresh_var();
+    // Two bindings at distinct ExprIndex positions — no dedup across indices.
+    let errors = run(&pool, &[(0, xs_elem), (1, ys_elem)], &empty_sig(), &[]);
+
+    assert_eq!(
+        errors.len(),
+        2,
+        "distinct ExprIndices must each emit one diagnostic; dedup is \
+         per-ExprIndex (see T12), not cross-ExprIndex"
+    );
+    for err in &errors {
+        assert!(
+            matches!(err.kind, TypeErrorKind::AmbiguousType { .. }),
+            "both diagnostics must be E2005 (AmbiguousType), got {:?}",
+            err.kind
+        );
+        assert_eq!(err.span, BODY_SPAN);
+    }
+}
+
+/// Semantic pin SP-1: the validator-skips-codegen-leak shape — an unbound
+/// element `Tag::Var` inside a `Tag::List` reaches `expr_types` and is
+/// rejected at the typeck boundary with `E2005`
+/// (`TypeErrorKind::AmbiguousType`). Once the validator emits E2005, the
+/// driver's codegen gate (`typeck.md §PC-4`) suppresses emission — the
+/// "not a codegen error" half of the pin is the diagnostic kind itself:
+/// an `AmbiguousType` is a typeck-origin diagnostic, not a codegen-origin
+/// one.
+///
+/// Reverting Sections 01 (Value Restriction) or 03 (bodies-pass wiring)
+/// allows the element var to survive to codegen and surface as an
+/// "unresolved type variable at codegen" failure instead; this pin asserts
+/// the E2005 path is the one that fires.
+///
+/// Plan §05.1.4 SP-1.
+#[test]
+fn empty_list_bare_use_emits_ambiguous_type_before_codegen() {
+    let mut pool = Pool::new();
+    let elem_var = pool.fresh_var();
+    let list_var = pool.list(elem_var);
+
+    let errors = run(&pool, &[(0, list_var)], &empty_sig(), &[]);
+
+    assert_eq!(errors.len(), 1, "bare `[]` element var must emit one E2005");
+    assert!(
+        matches!(errors[0].kind, TypeErrorKind::AmbiguousType { .. }),
+        "diagnostic kind is E2005 (AmbiguousType) — a typeck-origin error, \
+         proving the validator intercepted before codegen; got {:?}",
+        errors[0].kind
+    );
+    assert_eq!(errors[0].span, BODY_SPAN);
+}
+
+/// Semantic pin SP-2: `Tag::Error` at one `ExprIndex` MUST NOT spuriously
+/// induce an `E2005` at a sibling well-formed `ExprIndex`. Verifies the
+/// validator is monotone (`typeck.md §ER-2`) across sibling expression
+/// positions — error presence in one `ExprIndex` neither propagates to
+/// nor suppresses a CONCRETE resolved type at another `ExprIndex`.
+///
+/// Distinct from T8 (`tuple_with_error_and_unbound_var_suppresses_diagnostic`)
+/// which verifies intra-type cascade suppression; SP-2 verifies
+/// cross-ExprIndex monotonicity: the Error-typed slot emits nothing (it is
+/// poison per `types.md §TK-3`), and the int-typed slot emits nothing
+/// (it is fully resolved per T4's fast-path).
+///
+/// Plan §05.1.4 SP-2.
+#[test]
+fn error_typed_expr_with_sibling_wellformed_expr_emits_no_diagnostic() {
+    let pool = Pool::new();
+
+    let errors = run(&pool, &[(0, Idx::ERROR), (1, Idx::INT)], &empty_sig(), &[]);
+
+    assert!(
+        errors.is_empty(),
+        "monotone recovery: Error-typed sibling does not cascade into a \
+         false-positive E2005 on the well-formed int slot, and the \
+         Error-typed slot itself emits nothing (poison per types.md §TK-3)"
+    );
+}
+
+/// Negative pin NP-1: an unannotated signature parameter carries a fresh
+/// `Tag::Var` that the `ori_types::check::bodies` end-of-body defaulting
+/// pre-pass does NOT cover — defaulting is scoped to vars reachable from
+/// empty-literal expression roots (`typeck.md §PC-2` "End-of-body
+/// defaulting pre-pass"). An unannotated param `@f (x) -> int = 0` is
+/// unreachable from any empty-literal root; the validator catches it at
+/// `SIG_SPAN` with `E2005`.
+///
+/// Companion spec file:
+/// `compiler_repo/tests/spec/types/empty_literals/negative_unrelated_signature_var_still_errors.ori`
+/// (shipped §03 corpus). The Rust pin proves the diagnostic identity
+/// (E2005 at `sig_span`), which the `.ori` file cannot assert directly
+/// beyond the error-code match.
+///
+/// Distinct from T3 (`signature_with_unbound_param_type_emits_at_sig_span`)
+/// which establishes the baseline sig-position emission. NP-1 explicitly
+/// documents the §03-defaulting exclusion — defaulting is scope-by-var,
+/// not scope-by-position; sig-position vars stay Unbound and fire E2005.
+///
+/// Plan §05.1.4 NP-1.
+#[test]
+fn unannotated_signature_param_emits_ambiguous_type_not_codegen_error() {
+    let mut pool = Pool::new();
+    let param_var = pool.fresh_var();
+    // @f(x: <unbound>) -> int — sig-position Var, no empty-literal root
+    // anywhere in the body, so §03 defaulting cannot touch it.
+    let sig = FunctionSig::simple(Name::from_raw(1), vec![param_var], Idx::INT);
+
+    let errors = run(&pool, &[], &sig, &[]);
+
+    assert_eq!(errors.len(), 1, "sig-position Var fires exactly once");
+    assert!(
+        matches!(errors[0].kind, TypeErrorKind::AmbiguousType { .. }),
+        "diagnostic is E2005 (AmbiguousType), a typeck-origin error — \
+         proving the defense-in-depth validator catches sig-position Vars \
+         before codegen ever sees them; got {:?}",
+        errors[0].kind
+    );
+    assert_eq!(
+        errors[0].span, SIG_SPAN,
+        "sig-origin diagnostic must emit at sig_span (defaulting does not \
+         cover sig positions; they stay Unbound)"
+    );
+}
+
+/// Negative pin NP-2: a `Tag::Scheme` body containing a captured outer
+/// `Tag::Var` (`var_id` NOT in the scheme's bound-var list) MUST emit
+/// `E2005`. Prevents an over-eager "skip Scheme" fix that would miss
+/// captured-outer-var violations — the validator MUST walk scheme bodies
+/// and check every Unbound Var against the scheme's bound list.
+///
+/// Distinct from T6 (`scheme_body_with_bound_var_emits_no_diagnostic` —
+/// a `BoundVar` body, no unbound anywhere) and T10
+/// (`scheme_wrapping_unbound_var_body_emits_one_e2005` — an Unbound var
+/// with `var_id` IN the scheme's bound list, exercising the
+/// `PROPAGATE_MASK` propagation fix). NP-2 uses a DIFFERENT `var_id` than
+/// the scheme's bound
+/// list: the scheme binds a synthetic id derived via
+/// `outer_var_id.wrapping_add(1000)` — guaranteed distinct from
+/// `outer_var_id` (belt-and-suspenders `assert_ne!` inside this test) — while
+/// the body references the freshly-allocated outer Var. The Var is
+/// therefore a genuine capture (not in the scheme's bound list) and fires
+/// E2005.
+///
+/// Plan §05.1.4 NP-2.
+#[test]
+fn scheme_body_with_captured_outer_var_emits_one_e2005() {
+    let mut pool = Pool::new();
+    let outer_var = pool.fresh_var();
+    let outer_var_id = pool.data(outer_var);
+    // Scheme binds a synthetic id that is guaranteed distinct from
+    // `outer_var_id` — the outer Var is captured from an enclosing scope,
+    // NOT bound by this scheme.
+    let synthetic_bound_id: u32 = outer_var_id.wrapping_add(1000);
+    assert_ne!(
+        synthetic_bound_id, outer_var_id,
+        "synthetic bound id must be distinct from the captured var's id"
+    );
+    let scheme = pool.scheme(&[synthetic_bound_id], outer_var);
+    assert!(
+        pool.flags(scheme).contains(TypeFlags::HAS_VAR),
+        "scheme body with captured Unbound var must carry HAS_VAR via \
+         PROPAGATE_MASK (types.md §TF-3)"
+    );
+
+    let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "captured outer Var (var_id not in scheme bounds) is a PC-2 \
+         violation and MUST emit E2005 — a 'skip schemes entirely' fix \
+         would miss this"
+    );
+    assert!(matches!(
+        errors[0].kind,
+        TypeErrorKind::AmbiguousType { .. }
+    ));
+    assert_eq!(errors[0].span, BODY_SPAN);
+}
