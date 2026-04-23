@@ -1,8 +1,6 @@
 # ori_eval
 
 > **`ori_eval` exists to execute canonical IR with identical observable behavior to the LLVM backend**, serving both const-evaluation and `ori run`. Parity with LLVM is the load-bearing invariant.
->
-> Full mission: [`.claude/rules/missions.md §ori_eval`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -57,7 +55,4 @@ cargo st
 
 ## References
 
-- [`.claude/rules/eval.md`](../../.claude/rules/eval.md) — evaluator rules
-- [`.claude/rules/canon.md §1`](../../.claude/rules/canon.md) — Evaluator (parallel)
-- [`.claude/rules/impl-hygiene.md §Lowering Completeness`](../../.claude/rules/impl-hygiene.md) — dual-execution parity rule
 - `CLAUDE.md §Fix Completeness` — "Interpreter and LLVM produce identical results" contract

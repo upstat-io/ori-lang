@@ -1,8 +1,6 @@
 # ori_lexer_core
 
 > **`ori_lexer_core` exists to provide the minimal scanning primitives and interfaces shared by the cooked lexer.** Raw scan only — no semantic state.
->
-> Full mission: [`.claude/rules/missions.md §ori_lexer_core`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -34,9 +32,3 @@ This crate is the leaf of the lexing front. It owns character classification, to
 ```bash
 cargo test -p ori_lexer_core
 ```
-
-## References
-
-- [`.claude/rules/canon.md §1`](../../.claude/rules/canon.md) — phase 1 Lex position in the pipeline
-- [`.claude/rules/compiler.md §Phase-Specific Purity`](../../.claude/rules/compiler.md) — lexer purity contract
-- [`.claude/rules/parse.md §LB-2`, `§LB-4`](../../.claude/rules/parse.md) — parallel-array output layout that `ori_lexer` builds on top of this

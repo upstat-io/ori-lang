@@ -1,8 +1,6 @@
 # ori_ir
 
 > **`ori_ir` is the interned, flat, Salsa-compatible data foundation every other crate depends on.** Three design principles: **Intern Everything**, **Flatten Everything**, **Interface Segregation**.
->
-> Full mission: [`.claude/rules/missions.md §ori_ir`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -55,9 +53,3 @@ cargo test -p ori_ir
 - Name interning: `src/name/`
 - AST: `src/ast/`
 - Derived traits SSOT: `src/derives/mod.rs`
-
-## References
-
-- [`.claude/rules/ir.md`](../../.claude/rules/ir.md) — IR rules + `DerivedTrait` sync points
-- [`.claude/rules/canon.md §1`](../../.claude/rules/canon.md) — pipeline context
-- [`.claude/rules/compiler.md §Memory`](../../.claude/rules/compiler.md) — arena/ID discipline

@@ -1,8 +1,6 @@
 # ori_rt
 
 > **`ori_rt` is the AOT runtime** — a C-ABI static library emitted binaries link against for RC operations, panic/unwind, and any intrinsic Ori's code generator produces calls for.
->
-> Full mission: [`.claude/rules/missions.md §ori_rt`](../../.claude/rules/missions.md)
 
 ## Role in the runtime
 
@@ -50,9 +48,3 @@ scripts/sanitizer-smoke.sh
 # Runtime with debug assertions
 ORI_RT_DEBUG=1 ./target/debug/ori run file.ori
 ```
-
-## References
-
-- [`.claude/rules/runtime.md`](../../.claude/rules/runtime.md) — runtime rules + ABI contract
-- [`.claude/rules/impl-hygiene.md §Unsafe & FFI`](../../.claude/rules/impl-hygiene.md) — FFI discipline
-- [`.claude/rules/aot.md`](../../.claude/rules/aot.md) — AOT pipeline that links against this

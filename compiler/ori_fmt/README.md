@@ -1,8 +1,6 @@
 # Ori Formatter (`ori_fmt`)
 
 > **`ori_fmt` exists to format Ori source to the single canonical shape specified by the spec** — one way, no options, no debates.
->
-> Full mission: [`.claude/rules/missions.md §ori_fmt`](../../.claude/rules/missions.md)
 
 Code formatter for the Ori programming language. Rules come from the spec (Annex D) and approved proposals (e.g., `always-stack-named-params.md`); `ori_fmt` implements those specs — it does not author them. When a format choice seems arbitrary, it is a spec question; propose a change via `/create-draft-proposal`, do not ship user options.
 

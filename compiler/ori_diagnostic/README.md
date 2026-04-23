@@ -1,8 +1,6 @@
 # ori_diagnostic
 
 > **`ori_diagnostic` exists to turn compiler facts into diagnostic output users can act on.** Error codes are stable API; messages are user experience.
->
-> Full mission: [`.claude/rules/missions.md §ori_diagnostic`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -57,8 +55,3 @@ cargo test -p ori_diagnostic
 - Diagnostic builder: `src/diagnostic/`
 - Error codes catalog: `src/codes/`
 - Renderers: `src/renderer/`
-
-## References
-
-- [`.claude/rules/diagnostic.md`](../../.claude/rules/diagnostic.md) — diagnostic rules + message style + deduplication contract
-- [`.claude/rules/impl-hygiene.md §Error Handling`](../../.claude/rules/impl-hygiene.md) — error-handling paradigm

@@ -67,6 +67,4 @@ When the language changes, ALL parts update together in a new version.
 
 ## Contributing
 
-Documentation guidelines and synchronization rules are defined in `.claude/rules/ori-lang.md`.
-
 **Key rule:** Changes to any document type may require updates to others. Always keep spec, design, guide, and modules in sync.

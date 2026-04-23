@@ -1,8 +1,6 @@
 # ori_canon
 
 > **`ori_canon` exists to produce the canonical IR that every backend consumes identically.** One shape per source construct, consumed identically by every backend.
->
-> Full mission: [`.claude/rules/missions.md §ori_canon`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -47,7 +45,4 @@ cargo test -p ori_canon
 
 ## References
 
-- [`.claude/rules/canonicalization.md`](../../.claude/rules/canonicalization.md) — canonicalization rules
-- [`.claude/rules/canon.md §1` (row 4), `§3`](../../.claude/rules/canon.md) — phase 4 + Maranget
-- [`.claude/rules/impl-hygiene.md §Cross-Phase Invariant Contracts`](../../.claude/rules/impl-hygiene.md) — Canon → All contract
 - [`docs/compiler/design/07-canonicalization/pattern-compilation.md`](../../docs/compiler/design/07-canonicalization/pattern-compilation.md) — Maranget design notes
