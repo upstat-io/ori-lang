@@ -53,13 +53,13 @@ use std.testing { assert_eq }
 
 @test_join_ints_via_map tests @join_ints_via_map () -> void = {
     assert_eq(
-        actual: [1, 2, 3].iter().map(transform: n -> n.to_str()).join(sep: ", "),
+        actual: [1, 2, 3].iter().map(transform: (n: int) -> str = n.to_str()).join(sep: ", "),
         expected: "1, 2, 3",
     )
 }
 
 @join_ints_via_map () -> str =
-    [1, 2, 3].iter().map(transform: n -> n.to_str()).join(sep: ", ");
+    [1, 2, 3].iter().map(transform: (n: int) -> str = n.to_str()).join(sep: ", ");
 
 // =============================================================================
 // Chaining with other iterator methods
@@ -68,14 +68,14 @@ use std.testing { assert_eq }
 @test_join_after_filter tests @join_after_filter () -> void = {
     assert_eq(
         actual: ["a", "b", "c", "d"].iter()
-            .filter(predicate: s -> s != "b")
+            .filter(predicate: (s: str) -> bool = s != "b")
             .join(sep: "-"),
         expected: "a-c-d",
     )
 }
 
 @join_after_filter () -> str =
-    ["a", "b", "c", "d"].iter().filter(predicate: s -> s != "b").join(sep: "-");
+    ["a", "b", "c", "d"].iter().filter(predicate: (s: str) -> bool = s != "b").join(sep: "-");
 
 @test_join_after_take tests @join_after_take () -> void = {
     assert_eq(
@@ -105,13 +105,13 @@ use std.testing { assert_eq }
     // This is the pattern used by Debug trait for collection formatting:
     //   iter().map(x -> x.debug()).join(sep: ", ")
     let items = [10, 20, 30];
-    let debug_strs = items.iter().map(transform: x -> x.debug());
+    let debug_strs = items.iter().map(transform: (x: int) -> str = x.debug());
     assert_eq(actual: debug_strs.join(sep: ", "), expected: "10, 20, 30")
 }
 
 @join_debug_pattern () -> str = {
     let items = [10, 20, 30];
-    items.iter().map(transform: x -> x.debug()).join(sep: ", ")
+    items.iter().map(transform: (x: int) -> str = x.debug()).join(sep: ", ")
 }
 
 // =============================================================================
@@ -120,10 +120,10 @@ use std.testing { assert_eq }
 
 @test_join_range tests @join_range () -> void = {
     assert_eq(
-        actual: (1..4).iter().map(transform: n -> n.to_str()).join(sep: "+"),
+        actual: (1..4).iter().map(transform: (n: int) -> str = n.to_str()).join(sep: "+"),
         expected: "1+2+3",
     )
 }
 
 @join_range () -> str =
-    (1..4).iter().map(transform: n -> n.to_str()).join(sep: "+");
+    (1..4).iter().map(transform: (n: int) -> str = n.to_str()).join(sep: "+");

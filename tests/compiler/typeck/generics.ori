@@ -106,7 +106,7 @@ impl<T> Box<T> {
 // Valid: type parameter inferred in chain
 @test_inferred_chain tests _ () -> void = {
     let nums = [1, 2, 3];
-    let doubled = nums.map(transform: x -> x * 2);
+    let doubled = nums.map(transform: (x: int) -> int = x * 2);
     assert_eq(actual: doubled, expected: [2, 4, 6])
 }
 

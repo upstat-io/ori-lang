@@ -34,7 +34,7 @@ use std.testing { assert, assert_eq }
 // Test 'for', 'in', 'do'
 @keyword_for_in_do () -> int = {
     // for..do is used for side effects; sum with fold instead
-    [1, 2, 3].fold(initial: 0, combine: (a, b) -> a + b)
+    [1, 2, 3].fold(initial: 0, combine: (a: int, b: int) -> int = a + b)
 }
 
 @test_keyword_for_in_do tests @keyword_for_in_do () -> void = {
@@ -321,7 +321,7 @@ def impl KeywordDefTrait {
 
 @keyword_chained () -> int = {
     let result = for x in [1, 2, 3, 4, 5] if x % 2 == 0 yield x * 2;
-    result.fold(initial: 0, combine: (a, b) -> a + b)
+    result.fold(initial: 0, combine: (a: int, b: int) -> int = a + b)
 }
 
 @test_keyword_chained tests @keyword_chained () -> void = {

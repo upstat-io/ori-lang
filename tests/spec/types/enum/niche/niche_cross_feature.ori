@@ -53,7 +53,7 @@ use std.testing { assert_eq }
 
 @option_map_chain () -> Option<int> = {
     let $x: Option<int> = Some(5);
-    x.map(v -> v * 2)
+    x.map((v: int) -> int = v * 2)
 }
 
 @test_option_map_chain_none tests @option_map_chain_none () -> void = {
@@ -62,7 +62,7 @@ use std.testing { assert_eq }
 
 @option_map_chain_none () -> Option<int> = {
     let $x: Option<int> = None;
-    x.map(v -> v * 2)
+    x.map((v: int) -> int = v * 2)
 }
 
 // === filter on list of options ===
@@ -73,7 +73,7 @@ use std.testing { assert_eq }
 
 @filter_options () -> int = {
     let $items: [Option<int>] = [Some(1), None, Some(2), None, Some(3)];
-    let $somes = items.filter(x -> is_some(option: x));
+    let $somes: [Option<int>] = items.filter((x: Option<int>) -> bool = is_some(option: x));
     somes.len()
 }
 
@@ -107,7 +107,7 @@ use std.testing { assert_eq }
 
 @and_then_some () -> Option<int> = {
     let $x: Option<int> = Some(5);
-    x.and_then(v -> if v > 0 then Some(v * 2) else None)
+    x.and_then((v: int) -> Option<int> = if v > 0 then Some(v * 2) else None)
 }
 
 @test_and_then_none tests @and_then_none () -> void = {
@@ -116,5 +116,5 @@ use std.testing { assert_eq }
 
 @and_then_none () -> Option<int> = {
     let $x: Option<int> = Some(-1);
-    x.and_then(v -> if v > 0 then Some(v * 2) else None)
+    x.and_then((v: int) -> Option<int> = if v > 0 then Some(v * 2) else None)
 }

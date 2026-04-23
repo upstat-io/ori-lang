@@ -1576,29 +1576,29 @@ use std.testing { assert, assert_eq, assert_ne }
 // Chaining in list context with map
 @test_duration_list_chain tests @duration_list_map () -> void = {
     let durations = [Duration.from_seconds(s: 60), Duration.from_seconds(s: 120), Duration.from_seconds(s: 180)];
-    let minutes = durations.map(d -> d.minutes());
+    let minutes = durations.map((d: Duration) -> int = d.minutes());
     assert_eq(actual: minutes, expected: [1, 2, 3])
 }
 @duration_list_map () -> [int] =
     [Duration.from_seconds(s: 60), Duration.from_seconds(s: 120), Duration.from_seconds(s: 180)]
-        .map(d -> d.minutes());
+        .map((d: Duration) -> int = d.minutes());
 
 @test_size_list_chain tests @size_list_map () -> void = {
     let sizes = [Size.from_kilobytes(kb: 1024), Size.from_kilobytes(kb: 2048)];
-    let mbs = sizes.map(s -> s.megabytes());
+    let mbs = sizes.map((s: Size) -> int = s.megabytes());
     assert_eq(actual: mbs, expected: [1, 2])
 }
 @size_list_map () -> [int] =
-    [Size.from_kilobytes(kb: 1024), Size.from_kilobytes(kb: 2048)].map(s -> s.megabytes());
+    [Size.from_kilobytes(kb: 1024), Size.from_kilobytes(kb: 2048)].map((s: Size) -> int = s.megabytes());
 
 // Chaining with filter
 @test_duration_filter_chain tests @duration_filter () -> void = {
-    let long_durations = [
+    let long_durations: [Duration] = [
         Duration.from_seconds(s: 30),
         Duration.from_minutes(m: 2),
         Duration.from_seconds(s: 45),
         Duration.from_minutes(m: 5),
-    ].filter(d -> d > Duration.from_minutes(m: 1));
+    ].filter((d: Duration) -> bool = d > Duration.from_minutes(m: 1));
     assert_eq(actual: len(collection: long_durations), expected: 2)
 }
 @duration_filter () -> [Duration] = [
@@ -1606,22 +1606,28 @@ use std.testing { assert, assert_eq, assert_ne }
     Duration.from_minutes(m: 2),
     Duration.from_seconds(s: 45),
     Duration.from_minutes(m: 5),
-].filter(d -> d > Duration.from_minutes(m: 1));
+].filter((d: Duration) -> bool = d > Duration.from_minutes(m: 1));
 
 // Chaining map and filter together
 @test_duration_map_filter_chain tests @duration_map_filter () -> void = {
-    let result = [
+    let durs: [Duration] = [
         Duration.from_seconds(s: 30),
         Duration.from_minutes(m: 2),
         Duration.from_seconds(s: 90),
-    ].map(d -> d.seconds()).filter(s -> s >= 60);
+    ];
+    let secs: [int] = durs.map((d: Duration) -> int = d.seconds());
+    let result: [int] = secs.filter((s: int) -> bool = s >= 60);
     assert_eq(actual: result, expected: [120, 90])
 }
-@duration_map_filter () -> [int] = [
-    Duration.from_seconds(s: 30),
-    Duration.from_minutes(m: 2),
-    Duration.from_seconds(s: 90),
-].map(d -> d.seconds()).filter(s -> s >= 60);
+@duration_map_filter () -> [int] = {
+    let durs: [Duration] = [
+        Duration.from_seconds(s: 30),
+        Duration.from_minutes(m: 2),
+        Duration.from_seconds(s: 90),
+    ];
+    let secs: [int] = durs.map((d: Duration) -> int = d.seconds());
+    secs.filter((s: int) -> bool = s >= 60)
+}
 
 // Chaining with fold
 @test_duration_fold_chain tests @duration_fold () -> void = {
@@ -1629,14 +1635,14 @@ use std.testing { assert, assert_eq, assert_ne }
         Duration.from_minutes(m: 10),
         Duration.from_minutes(m: 20),
         Duration.from_minutes(m: 30),
-    ].fold(init: 0ns, f: (acc, d) -> acc + d);
+    ].fold(init: 0ns, f: (acc: Duration, d: Duration) -> Duration = acc + d);
     assert_eq(actual: total, expected: 60m)
 }
 @duration_fold () -> Duration = [
     Duration.from_minutes(m: 10),
     Duration.from_minutes(m: 20),
     Duration.from_minutes(m: 30),
-].fold(init: 0ns, f: (acc, d) -> acc + d);
+].fold(init: 0ns, f: (acc: Duration, d: Duration) -> Duration = acc + d);
 
 // Arithmetic with factory results
 @test_duration_factory_arithmetic tests @duration_factory_add () -> void = {

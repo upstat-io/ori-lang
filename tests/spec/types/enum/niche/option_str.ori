@@ -76,6 +76,6 @@ use std.testing { assert_eq }
 
 @option_str_map () -> bool = {
     let $x: Option<str> = Some("hello");
-    let $mapped = x.map(s -> s.len());
+    let $mapped = x.map((s: str) -> int = s.len());
     mapped == Some(5)
 }

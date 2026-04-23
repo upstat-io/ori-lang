@@ -9,7 +9,7 @@ use std.testing { assert, assert_eq }
 
 // fold: accumulate values
 @iter_fold () -> int = {
-    [1, 2, 3].iter().fold(initial: 0, op: (acc, x) -> acc + x)
+    [1, 2, 3].iter().fold(initial: 0, op: (acc: int, x: int) -> int = acc + x)
 }
 
 @test_iter_fold tests @iter_fold () -> void = {
@@ -27,7 +27,7 @@ use std.testing { assert, assert_eq }
 
 // find: first matching element
 @iter_find () -> int = {
-    let result = [1, 2, 3].iter().find(predicate: x -> x > 1);
+    let result = [1, 2, 3].iter().find(predicate: (x: int) -> bool = x > 1);
     match result { Some(v) -> v, None -> -1}
 }
 
@@ -37,7 +37,7 @@ use std.testing { assert, assert_eq }
 
 // find: no match returns None
 @iter_find_none () -> bool = {
-    let result = [1, 2, 3].iter().find(predicate: x -> x > 10);
+    let result = [1, 2, 3].iter().find(predicate: (x: int) -> bool = x > 10);
     match result { Some(_) -> false, None -> true}
 }
 
@@ -47,7 +47,7 @@ use std.testing { assert, assert_eq }
 
 // any: true if any element matches
 @iter_any_true () -> bool = {
-    [1, 2, 3].iter().any(predicate: x -> x == 2)
+    [1, 2, 3].iter().any(predicate: (x: int) -> bool = x == 2)
 }
 
 @test_iter_any_true tests @iter_any_true () -> void = {
@@ -56,7 +56,7 @@ use std.testing { assert, assert_eq }
 
 // any: false if no element matches
 @iter_any_false () -> bool = {
-    [1, 2, 3].iter().any(predicate: x -> x == 10)
+    [1, 2, 3].iter().any(predicate: (x: int) -> bool = x == 10)
 }
 
 @test_iter_any_false tests @iter_any_false () -> void = {
@@ -65,7 +65,7 @@ use std.testing { assert, assert_eq }
 
 // all: true if all match
 @iter_all_true () -> bool = {
-    [1, 2, 3].iter().all(predicate: x -> x > 0)
+    [1, 2, 3].iter().all(predicate: (x: int) -> bool = x > 0)
 }
 
 @test_iter_all_true tests @iter_all_true () -> void = {
@@ -74,7 +74,7 @@ use std.testing { assert, assert_eq }
 
 // all: false if any fails
 @iter_all_false () -> bool = {
-    [1, 2, 3].iter().all(predicate: x -> x > 1)
+    [1, 2, 3].iter().all(predicate: (x: int) -> bool = x > 1)
 }
 
 @test_iter_all_false tests @iter_all_false () -> void = {
@@ -83,7 +83,7 @@ use std.testing { assert, assert_eq }
 
 // for_each: verify it runs and returns void
 @iter_for_each () -> void = {
-    [1, 2, 3].iter().for_each(f: x -> x + 1)
+    [1, 2, 3].iter().for_each(f: (x: int) -> int = x + 1)
 }
 
 @test_iter_for_each tests @iter_for_each () -> void = {
@@ -105,7 +105,7 @@ use std.testing { assert, assert_eq }
 
 // map: transform each element
 @iter_map () -> [int] = {
-    [1, 2, 3].iter().map(transform: x -> x * 2).collect()
+    [1, 2, 3].iter().map(transform: (x: int) -> int = x * 2).collect()
 }
 
 @test_iter_map tests @iter_map () -> void = {
@@ -114,7 +114,7 @@ use std.testing { assert, assert_eq }
 
 // filter: keep only matching elements
 @iter_filter () -> [int] = {
-    [1, 2, 3, 4, 5].iter().filter(predicate: x -> x > 2).collect()
+    [1, 2, 3, 4, 5].iter().filter(predicate: (x: int) -> bool = x > 2).collect()
 }
 
 @test_iter_filter tests @iter_filter () -> void = {
@@ -164,8 +164,8 @@ use std.testing { assert, assert_eq }
 // filter + map + collect
 @iter_chain_filter_map () -> [int] = {
     [1, 2, 3, 4, 5].iter()
-        .filter(predicate: x -> x > 2)
-        .map(transform: x -> x * 10)
+        .filter(predicate: (x: int) -> bool = x > 2)
+        .map(transform: (x: int) -> int = x * 10)
         .collect()
 }
 
@@ -176,9 +176,9 @@ use std.testing { assert, assert_eq }
 // filter + map + fold
 @iter_chain_fold () -> int = {
     [1, 2, 3, 4, 5].iter()
-        .filter(predicate: x -> x > 2)
-        .map(transform: x -> x * 10)
-        .fold(initial: 0, op: (acc, x) -> acc + x)
+        .filter(predicate: (x: int) -> bool = x > 2)
+        .map(transform: (x: int) -> int = x * 10)
+        .fold(initial: 0, op: (acc: int, x: int) -> int = acc + x)
 }
 
 @test_iter_chain_fold tests @iter_chain_fold () -> void = {
@@ -200,7 +200,7 @@ use std.testing { assert, assert_eq }
 // map + count
 @iter_map_count () -> int = {
     [1, 2, 3].iter()
-        .map(transform: x -> x * 2)
+        .map(transform: (x: int) -> int = x * 2)
         .count()
 }
 
@@ -211,8 +211,8 @@ use std.testing { assert, assert_eq }
 // filter + any
 @iter_filter_any () -> bool = {
     [1, 2, 3, 4, 5].iter()
-        .filter(predicate: x -> x > 3)
-        .any(predicate: x -> x == 5)
+        .filter(predicate: (x: int) -> bool = x > 3)
+        .any(predicate: (x: int) -> bool = x == 5)
 }
 
 @test_iter_filter_any tests @iter_filter_any () -> void = {
@@ -244,7 +244,7 @@ use std.testing { assert, assert_eq }
 
 @iter_empty_any () -> bool = {
     let empty: [int] = [];
-    empty.iter().any(predicate: x -> x > 0)
+    empty.iter().any(predicate: (x: int) -> bool = x > 0)
 }
 
 @test_iter_empty_any tests @iter_empty_any () -> void = {
@@ -253,7 +253,7 @@ use std.testing { assert, assert_eq }
 
 @iter_empty_all () -> bool = {
     let empty: [int] = [];
-    empty.iter().all(predicate: x -> x > 0)
+    empty.iter().all(predicate: (x: int) -> bool = x > 0)
 }
 
 @test_iter_empty_all tests @iter_empty_all () -> void = {
@@ -275,7 +275,7 @@ use std.testing { assert, assert_eq }
 
 // Range map via iterator
 @range_iter_map () -> [int] = {
-    (1..=3).iter().map(transform: x -> x * x).collect()
+    (1..=3).iter().map(transform: (x: int) -> int = x * x).collect()
 }
 
 @test_range_iter_map tests @range_iter_map () -> void = {
@@ -284,7 +284,7 @@ use std.testing { assert, assert_eq }
 
 // Range filter via iterator
 @range_iter_filter () -> [int] = {
-    (0..10).iter().filter(predicate: x -> x % 2 == 0).collect()
+    (0..10).iter().filter(predicate: (x: int) -> bool = x % 2 == 0).collect()
 }
 
 @test_range_iter_filter tests @range_iter_filter () -> void = {
@@ -293,7 +293,7 @@ use std.testing { assert, assert_eq }
 
 // Range fold via iterator
 @range_iter_fold () -> int = {
-    (1..=10).iter().fold(initial: 0, op: (acc, x) -> acc + x)
+    (1..=10).iter().fold(initial: 0, op: (acc: int, x: int) -> int = acc + x)
 }
 
 @test_range_iter_fold tests @range_iter_fold () -> void = {
@@ -413,7 +413,7 @@ use std.testing { assert, assert_eq }
 @iter_chain_filter () -> [int] = {
     let a = [1, 2, 3].iter();
     let b = [4, 5, 6].iter();
-    a.chain(other: b).filter(predicate: x -> x > 2).collect()
+    a.chain(other: b).filter(predicate: (x: int) -> bool = x > 2).collect()
 }
 
 @test_iter_chain_filter tests @iter_chain_filter () -> void = {
@@ -423,7 +423,7 @@ use std.testing { assert, assert_eq }
 // flatten: list of lists via map + flatten
 @iter_flatten () -> [int] = {
     [[1, 2], [3], [4, 5]].iter()
-        .map(transform: sub -> sub.iter())
+        .map(transform: (sub: [int]) -> Iterator<int> = sub.iter())
         .flatten()
         .collect()
 }
@@ -436,7 +436,7 @@ use std.testing { assert, assert_eq }
 @iter_flatten_empty () -> [int] = {
     let empty: [[int]] = [];
     empty.iter()
-        .map(transform: sub -> sub.iter())
+        .map(transform: (sub: [int]) -> Iterator<int> = sub.iter())
         .flatten()
         .collect()
 }
@@ -450,7 +450,7 @@ use std.testing { assert, assert_eq }
     let empty1: [int] = [];
     let empty2: [int] = [];
     [empty1, [1], empty2, [2]].iter()
-        .map(transform: sub -> sub.iter())
+        .map(transform: (sub: [int]) -> Iterator<int> = sub.iter())
         .flatten()
         .collect()
 }
@@ -462,7 +462,7 @@ use std.testing { assert, assert_eq }
 // flat_map: expand each item
 @iter_flat_map () -> [int] = {
     [1, 2, 3].iter()
-        .flat_map(transform: x -> [x, x * 10].iter())
+        .flat_map(transform: (x: int) -> Iterator<int> = [x, x * 10].iter())
         .collect()
 }
 
@@ -474,7 +474,7 @@ use std.testing { assert, assert_eq }
 @iter_flat_map_empty () -> [int] = {
     let empty: [int] = [];
     empty.iter()
-        .flat_map(transform: x -> [x, x].iter())
+        .flat_map(transform: (x: int) -> Iterator<int> = [x, x].iter())
         .collect()
 }
 

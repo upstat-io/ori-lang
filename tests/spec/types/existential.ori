@@ -127,22 +127,22 @@ use std.testing { assert, assert_eq }
 
 @test_iter_from_list tests @iter_from_list () -> void = {
     let items = [1, 2, 3];
-    let doubled = items.map(transform: x -> x * 2);
+    let doubled = items.map(transform: (x: int) -> int = x * 2);
     assert_eq(actual: doubled, expected: [2, 4, 6])
 }
 
-@iter_from_list () -> [int] = [1, 2, 3].map(transform: x -> x * 2);
+@iter_from_list () -> [int] = [1, 2, 3].map(transform: (x: int) -> int = x * 2);
 
 @test_iter_chain tests @iter_chain () -> void = {
     let result = [1, 2, 3]
-        .map(transform: x -> x * 2)
-        .filter(predicate: x -> x > 2);
+        .map(transform: (x: int) -> int = x * 2)
+        .filter(predicate: (x: int) -> bool = x > 2);
     assert_eq(actual: result, expected: [4, 6])
 }
 
 @iter_chain () -> [int] = [1, 2, 3]
-    .map(transform: x -> x * 2)
-    .filter(predicate: x -> x > 2);
+    .map(transform: (x: int) -> int = x * 2)
+    .filter(predicate: (x: int) -> bool = x > 2);
 
 // =============================================================================
 // Opaque Type Semantics Test
