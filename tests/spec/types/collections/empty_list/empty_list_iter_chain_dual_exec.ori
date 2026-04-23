@@ -1,0 +1,17 @@
+// §05.3.4 DUAL-EXEC PARITY (optional axis — iter.map.collect chain):
+// annotated empty list feeding a map→collect pipeline. Mirrors §05.4
+// Dimension C `iter.map.filter.collect` row and the §05.2 item 8 shape
+// as an @main program so `diagnostics/dual-exec-verify.sh` can prove
+// interpreter and AOT agree on the realized collect output. Companion
+// to the test-body fixture `empty_list_iter_chain.ori` which exercises
+// the same path from within `tests @fn` rather than `@main`.
+
+@main () -> int = {
+    let xs: [int] = [];
+    xs = xs.push(value: 1);
+    xs = xs.push(value: 2);
+    xs = xs.push(value: 3);
+    let doubled: [int] = xs.iter().map(transform: x -> x * 2).collect();
+    print(msg: `doubled_len={doubled.len()}`);
+    0
+}

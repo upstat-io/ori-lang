@@ -1,0 +1,17 @@
+// §05.3.4 DUAL-EXEC PARITY: bare empty list that exits body-inference
+// unconstrained and is defaulted to `[Never]` by §03's end-of-body
+// defaulting pre-pass (`default_unbound_vars_from_empty_literals`). The
+// program reads `.len()` only — no push, no iter, no annotation — so the
+// element-type variable never receives a usage-driven constraint and the
+// defaulting pass MUST fire to produce a codegen-safe `[Never]` shape.
+//
+// The parity sample in §05.3.4 MUST include this axis because it is the
+// ONLY axis that exercises the §03 defaulting path end-to-end; both
+// interpreter and AOT must agree that `.len()` on a defaulted `[Never]`
+// literal returns 0 and does not panic or diverge.
+
+@main () -> int = {
+    let xs = [];
+    print(msg: `empty_len={xs.len()}`);
+    0
+}
