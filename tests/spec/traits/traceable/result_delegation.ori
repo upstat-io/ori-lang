@@ -3,6 +3,10 @@
 
 use std.testing { assert_eq, assert }
 
+// Helpers bind Result<int, Error> via function return type
+@mk_ok (v: int) -> Result<int, Error> = Ok(v);
+@mk_err (msg: str) -> Result<int, Error> = Err(Error(msg));
+
 // Setup: Result with a traced error
 @fail () -> Result<int, Error> =
     Err(Error("fail"));
@@ -50,7 +54,7 @@ use std.testing { assert_eq, assert }
 
 // Ok has no trace
 @test_ok_has tests @ok_has () -> void = {
-    let r: Result<int, Error> = Ok(42);
+    let r = mk_ok(v: 42);
     assert_eq(
         actual: r.has_trace(),
         expected: false,
@@ -58,23 +62,23 @@ use std.testing { assert_eq, assert }
 }
 
 @ok_has () -> bool = {
-    let r: Result<int, Error> = Ok(42);
+    let r = mk_ok(v: 42);
     r.has_trace()
 }
 
 @test_ok_trace tests @ok_trace () -> void = {
-    let r: Result<int, Error> = Ok(42);
+    let r = mk_ok(v: 42);
     assert_eq(actual: r.trace(), expected: "")
 }
 
 @ok_trace () -> str = {
-    let r: Result<int, Error> = Ok(42);
+    let r = mk_ok(v: 42);
     r.trace()
 }
 
 @test_ok_entries tests @ok_entries () -> void =
     {
-        let r: Result<int, Error> = Ok(42);
+        let r = mk_ok(v: 42);
         assert_eq(
             actual: r.trace_entries().len(),
             expected: 0,
@@ -82,13 +86,13 @@ use std.testing { assert_eq, assert }
     }
 
 @ok_entries () -> int = {
-    let r: Result<int, Error> = Ok(42);
+    let r = mk_ok(v: 42);
     r.trace_entries().len()
 }
 
 // Fresh Err (no ?) has no trace
 @test_fresh tests @fresh () -> void = {
-    let r = Err(Error("fresh"));
+    let r = mk_err(msg: "fresh");
     assert_eq(
         actual: r.has_trace(),
         expected: false,
@@ -96,6 +100,6 @@ use std.testing { assert_eq, assert }
 }
 
 @fresh () -> bool = {
-    let r = Err(Error("fresh"));
+    let r = mk_err(msg: "fresh");
     r.has_trace()
 }

@@ -42,8 +42,8 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 @test_filter_positive tests @filter_positive () -> void = {
-    let nums = [1, -2, 3, -4, 5];
-    let positive = nums.filter(predicate: (x: int) -> bool = x > 0);
+    let nums: [int] = [1, -2, 3, -4, 5];
+    let positive: [int] = nums.filter(predicate: (x: int) -> bool = x > 0);
     assert_eq(
         actual: len(collection: positive),
         expected: 3,
@@ -65,8 +65,8 @@ use std.testing { assert, assert_eq, assert_ne }
 @filter_positive () -> int = 0;
 
 @test_filter_even tests @filter_even () -> void = {
-    let nums = [1, 2, 3, 4, 5, 6];
-    let evens = nums.filter(predicate: (x: int) -> bool = x % 2 == 0);
+    let nums: [int] = [1, 2, 3, 4, 5, 6];
+    let evens: [int] = nums.filter(predicate: (x: int) -> bool = x % 2 == 0);
     assert_eq(
         actual: len(collection: evens),
         expected: 3,
@@ -80,8 +80,8 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 @test_fold_sum tests @fold_sum () -> void = {
-    let nums = [1, 2, 3, 4, 5];
-    let sum = nums.fold(
+    let nums: [int] = [1, 2, 3, 4, 5];
+    let sum: int = nums.fold(
         initial: 0,
         op: (acc: int, x: int) -> int = acc + x,
     );
@@ -94,8 +94,8 @@ use std.testing { assert, assert_eq, assert_ne }
 @fold_sum () -> int = 0;
 
 @test_fold_product tests @fold_product () -> void = {
-    let nums = [1, 2, 3, 4];
-    let product = nums.fold(
+    let nums: [int] = [1, 2, 3, 4];
+    let product: int = nums.fold(
         initial: 1,
         op: (acc: int, x: int) -> int = acc * x,
     );
@@ -112,9 +112,9 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 @test_map_filter_chain tests @map_filter_chain () -> void = {
-    let nums = [1, 2, 3, 4, 5];
-    let doubled = nums.map(transform: (x: int) -> int = x * 2);
-    let big = doubled.filter(predicate: (x: int) -> bool = x > 5);
+    let nums: [int] = [1, 2, 3, 4, 5];
+    let doubled: [int] = nums.map(transform: (x: int) -> int = x * 2);
+    let big: [int] = doubled.filter(predicate: (x: int) -> bool = x > 5);
     assert_eq(
         actual: len(collection: big),
         expected: 3,
@@ -124,10 +124,10 @@ use std.testing { assert, assert_eq, assert_ne }
 @map_filter_chain () -> int = 0;
 
 @test_filter_map_fold tests @filter_map_fold () -> void = {
-    let nums = [1, 2, 3, 4, 5, 6];
-    let evens = nums.filter(predicate: (x: int) -> bool = x % 2 == 0);
-    let squared = evens.map(transform: (x: int) -> int = x * x);
-    let sum = squared.fold(
+    let nums: [int] = [1, 2, 3, 4, 5, 6];
+    let evens: [int] = nums.filter(predicate: (x: int) -> bool = x % 2 == 0);
+    let squared: [int] = evens.map(transform: (x: int) -> int = x * x);
+    let sum: int = squared.fold(
         initial: 0,
         op: (acc: int, x: int) -> int = acc + x,
     );
@@ -145,8 +145,8 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 @test_find_first_match tests @find_first_match () -> void = {
-    let nums = [1, 2, 3, 4, 5];
-    let found = nums.find(where: (x: int) -> bool = x > 2);
+    let nums: [int] = [1, 2, 3, 4, 5];
+    let found: Option<int> = nums.find(where: (x: int) -> bool = x > 2);
     assert(
         cond: is_some(opt: found),
     )
@@ -155,8 +155,8 @@ use std.testing { assert, assert_eq, assert_ne }
 @find_first_match () -> Option<int> = None;
 
 @test_find_no_match tests @find_no_match () -> void = {
-    let nums = [1, 2, 3];
-    let found = nums.find(where: (x: int) -> bool = x > 10);
+    let nums: [int] = [1, 2, 3];
+    let found: Option<int> = nums.find(where: (x: int) -> bool = x > 10);
     assert(
         cond: is_none(opt: found),
     )
@@ -210,8 +210,8 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // map with identity function
 @test_map_identity tests @map_identity () -> void = {
-    let nums = [1, 2, 3];
-    let same = nums.map(transform: (x: int) -> int = x);
+    let nums: [int] = [1, 2, 3];
+    let same: [int] = nums.map(transform: (x: int) -> int = x);
     assert_eq(actual: same[0], expected: 1);
     assert_eq(actual: same[1], expected: 2);
     assert_eq(actual: same[2], expected: 3)
@@ -222,7 +222,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // map on empty list
 @test_map_empty tests @map_empty () -> void = {
     let empty: [int] = [];
-    let result = empty.map(transform: (x: int) -> int = x * 2);
+    let result: [int] = empty.map(transform: (x: int) -> int = x * 2);
     assert_eq(actual: len(collection: result), expected: 0)
 }
 
@@ -230,8 +230,8 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // map with constant function
 @test_map_constant tests @map_constant () -> void = {
-    let nums = [1, 2, 3, 4];
-    let ones = nums.map(transform: (x: int) -> int = 1);
+    let nums: [int] = [1, 2, 3, 4];
+    let ones: [int] = nums.map(transform: (x: int) -> int = 1);
     assert_eq(actual: ones[0], expected: 1);
     assert_eq(actual: ones[3], expected: 1)
 }
@@ -240,8 +240,8 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // filter keeping all
 @test_filter_all tests @filter_all () -> void = {
-    let nums = [1, 2, 3];
-    let all = nums.filter(predicate: (x: int) -> bool = true);
+    let nums: [int] = [1, 2, 3];
+    let all: [int] = nums.filter(predicate: (x: int) -> bool = true);
     assert_eq(actual: len(collection: all), expected: 3)
 }
 
@@ -249,8 +249,8 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // filter keeping none
 @test_filter_none tests @filter_none () -> void = {
-    let nums = [1, 2, 3];
-    let none = nums.filter(predicate: (x: int) -> bool = false);
+    let nums: [int] = [1, 2, 3];
+    let none: [int] = nums.filter(predicate: (x: int) -> bool = false);
     assert_eq(actual: len(collection: none), expected: 0)
 }
 
@@ -259,7 +259,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // filter empty list
 @test_filter_empty tests @filter_empty () -> void = {
     let empty: [int] = [];
-    let result = empty.filter(predicate: (x: int) -> bool = x > 0);
+    let result: [int] = empty.filter(predicate: (x: int) -> bool = x > 0);
     assert_eq(actual: len(collection: result), expected: 0)
 }
 
@@ -268,7 +268,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // fold with empty list
 @test_fold_empty tests @fold_empty () -> void = {
     let empty: [int] = [];
-    let result = empty.fold(initial: 42, op: (acc: int, x: int) -> int = acc + x);
+    let result: int = empty.fold(initial: 42, op: (acc: int, x: int) -> int = acc + x);
     assert_eq(actual: result, expected: 42)
 }
 
@@ -276,8 +276,8 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // fold building string
 @test_fold_string tests @fold_string () -> void = {
-    let nums = [1, 2, 3];
-    let result = nums.fold(initial: "", op: (acc: str, x: int) -> str = acc + str(x));
+    let nums: [int] = [1, 2, 3];
+    let result: str = nums.fold(initial: "", op: (acc: str, x: int) -> str = acc + str(x));
     assert_eq(actual: result, expected: "123")
 }
 
@@ -285,8 +285,8 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // fold counting elements
 @test_fold_count tests @fold_count () -> void = {
-    let items = ["a", "b", "c", "d"];
-    let count = items.fold(initial: 0, op: (acc: int, x: str) -> int = acc + 1);
+    let items: [str] = ["a", "b", "c", "d"];
+    let count: int = items.fold(initial: 0, op: (acc: int, x: str) -> int = acc + 1);
     assert_eq(actual: count, expected: 4)
 }
 
@@ -294,9 +294,9 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // find returns first match
 @test_find_first tests @find_first () -> void = {
-    let nums = [10, 20, 30];
-    let found = nums.find(where: (x: int) -> bool = x >= 15);
-    let value = found.unwrap_or(default: 0);
+    let nums: [int] = [10, 20, 30];
+    let found: Option<int> = nums.find(where: (x: int) -> bool = x >= 15);
+    let value: int = found.unwrap_or(default: 0);
     assert_eq(actual: value, expected: 20)
 }
 
@@ -305,7 +305,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // find in empty list
 @test_find_empty tests @find_empty () -> void = {
     let empty: [int] = [];
-    let found = empty.find(where: (x: int) -> bool = x > 0);
+    let found: Option<int> = empty.find(where: (x: int) -> bool = x > 0);
     assert(cond: is_none(opt: found))
 }
 
@@ -330,10 +330,10 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Method chaining: map then find
 @test_map_then_find tests @map_then_find () -> void = {
-    let nums = [1, 2, 3, 4, 5];
-    let doubled = nums.map(transform: (x: int) -> int = x * 2);
-    let found = doubled.find(where: (x: int) -> bool = x > 5);
-    let value = found.unwrap_or(default: 0);
+    let nums: [int] = [1, 2, 3, 4, 5];
+    let doubled: [int] = nums.map(transform: (x: int) -> int = x * 2);
+    let found: Option<int> = doubled.find(where: (x: int) -> bool = x > 5);
+    let value: int = found.unwrap_or(default: 0);
     assert_eq(actual: value, expected: 6)
 }
 
@@ -341,9 +341,9 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Method chaining: filter then fold
 @test_filter_then_fold tests @filter_then_fold () -> void = {
-    let nums = [1, 2, 3, 4, 5];
-    let even = nums.filter(predicate: (x: int) -> bool = x % 2 == 0);
-    let sum = even.fold(initial: 0, op: (acc: int, x: int) -> int = acc + x);
+    let nums: [int] = [1, 2, 3, 4, 5];
+    let even: [int] = nums.filter(predicate: (x: int) -> bool = x % 2 == 0);
+    let sum: int = even.fold(initial: 0, op: (acc: int, x: int) -> int = acc + x);
     assert_eq(actual: sum, expected: 6)
 }
 
@@ -351,10 +351,10 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Triple chain: filter -> map -> fold
 @test_triple_chain tests @triple_chain () -> void = {
-    let nums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    let filtered = nums.filter(predicate: (x: int) -> bool = x % 2 == 0);
-    let mapped = filtered.map(transform: (x: int) -> int = x * x);
-    let result = mapped.fold(initial: 0, op: (acc: int, x: int) -> int = acc + x);
+    let nums: [int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let filtered: [int] = nums.filter(predicate: (x: int) -> bool = x % 2 == 0);
+    let mapped: [int] = filtered.map(transform: (x: int) -> int = x * x);
+    let result: int = mapped.fold(initial: 0, op: (acc: int, x: int) -> int = acc + x);
     // 2^2 + 4^2 + 6^2 + 8^2 + 10^2 = 4 + 16 + 36 + 64 + 100 = 220
     assert_eq(actual: result, expected: 220)
 }
@@ -363,9 +363,9 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // map with closure capturing outer variable
 @test_map_with_capture tests @map_with_capture () -> void = {
-    let multiplier = 3;
-    let nums = [1, 2, 3];
-    let result = nums.map(transform: (x: int) -> int = x * multiplier);
+    let multiplier: int = 3;
+    let nums: [int] = [1, 2, 3];
+    let result: [int] = nums.map(transform: (x: int) -> int = x * multiplier);
     assert_eq(actual: result[0], expected: 3);
     assert_eq(actual: result[1], expected: 6);
     assert_eq(actual: result[2], expected: 9)
@@ -375,9 +375,9 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // filter with closure capturing outer variable
 @test_filter_with_capture tests @filter_with_capture () -> void = {
-    let threshold = 3;
-    let nums = [1, 2, 3, 4, 5];
-    let result = nums.filter(predicate: (x: int) -> bool = x > threshold);
+    let threshold: int = 3;
+    let nums: [int] = [1, 2, 3, 4, 5];
+    let result: [int] = nums.filter(predicate: (x: int) -> bool = x > threshold);
     assert_eq(actual: len(collection: result), expected: 2)
 }
 

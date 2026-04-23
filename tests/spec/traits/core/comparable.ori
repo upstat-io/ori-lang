@@ -383,20 +383,37 @@ use std.testing { assert, assert_eq }
 
 // --- Option<T>.compare() ---
 
-@test_option_compare_none_none tests @opt_cmp_nn () -> void =
-    assert(cond: None.compare(other: None).is_equal());
+@test_option_compare_none_none tests @opt_cmp_nn () -> void = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    assert(cond: a.compare(other: b).is_equal())
+}
 
-@opt_cmp_nn () -> Ordering = None.compare(other: None);
+@opt_cmp_nn () -> Ordering = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    a.compare(other: b)
+}
 
-@test_option_compare_none_some tests @opt_cmp_ns () -> void =
-    assert(cond: None.compare(other: Some(1)).is_less());
+@test_option_compare_none_some tests @opt_cmp_ns () -> void = {
+    let a: Option<int> = None;
+    assert(cond: a.compare(other: Some(1)).is_less())
+}
 
-@opt_cmp_ns () -> Ordering = None.compare(other: Some(1));
+@opt_cmp_ns () -> Ordering = {
+    let a: Option<int> = None;
+    a.compare(other: Some(1))
+}
 
-@test_option_compare_some_none tests @opt_cmp_sn () -> void =
-    assert(cond: Some(1).compare(other: None).is_greater());
+@test_option_compare_some_none tests @opt_cmp_sn () -> void = {
+    let b: Option<int> = None;
+    assert(cond: Some(1).compare(other: b).is_greater())
+}
 
-@opt_cmp_sn () -> Ordering = Some(1).compare(other: None);
+@opt_cmp_sn () -> Ordering = {
+    let b: Option<int> = None;
+    Some(1).compare(other: b)
+}
 
 @test_option_compare_some_some tests @opt_cmp_ss () -> void = {
     assert(cond: Some(1).compare(other: Some(2)).is_less());
@@ -409,30 +426,64 @@ use std.testing { assert, assert_eq }
 // --- Result<T, E>.compare() ---
 
 @test_result_compare_ok_ok tests @res_cmp_oo () -> void = {
-    assert(cond: Ok(1).compare(other: Ok(2)).is_less());
-    assert(cond: Ok(5).compare(other: Ok(5)).is_equal());
-    assert(cond: Ok(10).compare(other: Ok(3)).is_greater())
+    let a1: Result<int, str> = Ok(1);
+    let a2: Result<int, str> = Ok(2);
+    let b1: Result<int, str> = Ok(5);
+    let b2: Result<int, str> = Ok(5);
+    let c1: Result<int, str> = Ok(10);
+    let c2: Result<int, str> = Ok(3);
+    assert(cond: a1.compare(other: a2).is_less());
+    assert(cond: b1.compare(other: b2).is_equal());
+    assert(cond: c1.compare(other: c2).is_greater())
 }
 
-@res_cmp_oo () -> Ordering = Ok(1).compare(other: Ok(2));
+@res_cmp_oo () -> Ordering = {
+    let a: Result<int, str> = Ok(1);
+    let b: Result<int, str> = Ok(2);
+    a.compare(other: b)
+}
 
-@test_result_compare_ok_err tests @res_cmp_oe () -> void =
-    assert(cond: Ok(1).compare(other: Err("error")).is_less());
+@test_result_compare_ok_err tests @res_cmp_oe () -> void = {
+    let a: Result<int, str> = Ok(1);
+    let b: Result<int, str> = Err("error");
+    assert(cond: a.compare(other: b).is_less())
+}
 
-@res_cmp_oe () -> Ordering = Ok(1).compare(other: Err("error"));
+@res_cmp_oe () -> Ordering = {
+    let a: Result<int, str> = Ok(1);
+    let b: Result<int, str> = Err("error");
+    a.compare(other: b)
+}
 
-@test_result_compare_err_ok tests @res_cmp_eo () -> void =
-    assert(cond: Err("error").compare(other: Ok(1)).is_greater());
+@test_result_compare_err_ok tests @res_cmp_eo () -> void = {
+    let a: Result<int, str> = Err("error");
+    let b: Result<int, str> = Ok(1);
+    assert(cond: a.compare(other: b).is_greater())
+}
 
-@res_cmp_eo () -> Ordering = Err("error").compare(other: Ok(1));
+@res_cmp_eo () -> Ordering = {
+    let a: Result<int, str> = Err("error");
+    let b: Result<int, str> = Ok(1);
+    a.compare(other: b)
+}
 
 @test_result_compare_err_err tests @res_cmp_ee () -> void = {
-    assert(cond: Err("a").compare(other: Err("b")).is_less());
-    assert(cond: Err("x").compare(other: Err("x")).is_equal());
-    assert(cond: Err("z").compare(other: Err("a")).is_greater())
+    let a1: Result<int, str> = Err("a");
+    let a2: Result<int, str> = Err("b");
+    let b1: Result<int, str> = Err("x");
+    let b2: Result<int, str> = Err("x");
+    let c1: Result<int, str> = Err("z");
+    let c2: Result<int, str> = Err("a");
+    assert(cond: a1.compare(other: a2).is_less());
+    assert(cond: b1.compare(other: b2).is_equal());
+    assert(cond: c1.compare(other: c2).is_greater())
 }
 
-@res_cmp_ee () -> Ordering = Err("a").compare(other: Err("b"));
+@res_cmp_ee () -> Ordering = {
+    let a: Result<int, str> = Err("a");
+    let b: Result<int, str> = Err("b");
+    a.compare(other: b)
+}
 
 // --- Ordering.compare() ---
 

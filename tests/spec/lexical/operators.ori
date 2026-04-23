@@ -366,7 +366,8 @@ type DotTestStruct = { x: int, y: int }
 
 @dot_method_chain () -> int = {
     let list = [1, 2, 3, 4, 5];
-    list.filter(predicate: (x: int) -> bool = x % 2 == 0).len()
+    let filtered: [int] = list.filter(predicate: (x: int) -> bool = x % 2 == 0);
+    filtered.len()
 }
 
 @test_dot_method_chain tests @dot_method_chain () -> void = {

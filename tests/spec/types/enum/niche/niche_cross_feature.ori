@@ -4,6 +4,9 @@
 
 use std.testing { assert_eq }
 
+// Helper binds Result<str, Error> via function return type
+@mk_ok_str (v: str) -> Result<str, Error> = Ok(v);
+
 // === for...yield with match on niche-encoded Option<str> ===
 
 @test_for_yield_match tests @for_yield_match () -> void = {
@@ -84,7 +87,7 @@ use std.testing { assert_eq }
 }
 
 @question_mark_ok () -> Result<str, Error> = {
-    let $r: Result<str, Error> = Ok("hello");
+    let $r: Result<str, Error> = mk_ok_str(v: "hello");
     let $val = r?;
     Ok(val + " world")
 }

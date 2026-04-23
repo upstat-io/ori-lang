@@ -489,9 +489,8 @@ type DelimNestedStruct = { point: DelimTestPoint, value: int }
 }
 
 @dot_method_chain () -> int = {
-    [1, 2, 3, 4, 5]
-        .map(transform: (x: int) -> int = x * 2)
-        .fold(initial: 0, combine: (a: int, b: int) -> int = a + b)
+    let mapped: [int] = [1, 2, 3, 4, 5].map(transform: (x: int) -> int = x * 2);
+    mapped.fold(initial: 0, combine: (a: int, b: int) -> int = a + b)
 }
 
 @test_dot_method_chain tests @dot_method_chain () -> void = {

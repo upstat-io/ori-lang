@@ -3,20 +3,24 @@
 
 use std.testing { assert_eq, assert }
 
+// Helpers bind Result<T, Error> via function return type so Ok-side E is inferable
+@mk_err (msg: str) -> Result<int, Error> = Err(Error(msg));
+@mk_ok (v: int) -> Result<int, Error> = Ok(v);
+
 // Error type works with Err()
 @test_err tests @err () -> void = {
-    let r = Err(Error("hello"));
+    let r = mk_err(msg: "hello");
     assert(cond: r.is_err())
 }
 
 @err () -> bool = {
-    let r = Err(Error("hello"));
+    let r = mk_err(msg: "hello");
     r.is_err()
 }
 
 // has_trace callable on Result<T, Error>
 @test_has tests @has () -> void = {
-    let r = Err(Error("test"));
+    let r = mk_err(msg: "test");
     assert_eq(
         actual: r.has_trace(),
         expected: false,
@@ -24,13 +28,13 @@ use std.testing { assert_eq, assert }
 }
 
 @has () -> bool = {
-    let r = Err(Error("test"));
+    let r = mk_err(msg: "test");
     r.has_trace()
 }
 
 // trace() callable on Result<T, Error>
 @test_trace tests @trace () -> void = {
-    let r = Err(Error("test"));
+    let r = mk_err(msg: "test");
     assert_eq(
         actual: r.trace(),
         expected: "",
@@ -38,13 +42,13 @@ use std.testing { assert_eq, assert }
 }
 
 @trace () -> str = {
-    let r = Err(Error("test"));
+    let r = mk_err(msg: "test");
     r.trace()
 }
 
 // trace_entries() callable
 @test_entries tests @entries () -> void = {
-    let r = Err(Error("test"));
+    let r = mk_err(msg: "test");
     assert_eq(
         actual: r.trace_entries().len(),
         expected: 0,
@@ -52,13 +56,13 @@ use std.testing { assert_eq, assert }
 }
 
 @entries () -> int = {
-    let r = Err(Error("test"));
+    let r = mk_err(msg: "test");
     r.trace_entries().len()
 }
 
 // All methods work on Ok variant
 @test_ok tests @ok () -> void = {
-    let r: Result<int, Error> = Ok(42);
+    let r = mk_ok(v: 42);
     assert_eq(
         actual: r.has_trace(),
         expected: false,
@@ -74,6 +78,6 @@ use std.testing { assert_eq, assert }
 }
 
 @ok () -> bool = {
-    let r: Result<int, Error> = Ok(42);
+    let r = mk_ok(v: 42);
     r.has_trace() == false
 }

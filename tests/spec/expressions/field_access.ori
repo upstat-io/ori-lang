@@ -230,7 +230,10 @@ impl Point {
     assert_eq(actual: default_value, expected: 99)
 }
 
-@result_coalesce () -> int = Ok(42) ?? 0;
+@result_coalesce () -> int = {
+    let r: Result<int, str> = Ok(42);
+    r ?? 0
+}
 
 // =============================================================================
 // For-Yield as Map/Filter (equivalent to iterator methods)

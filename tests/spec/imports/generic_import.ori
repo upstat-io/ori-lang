@@ -20,10 +20,19 @@ use std.prelude { is_some, is_none, is_ok, is_err }
 @test_is_some_str tests _ () -> void = assert(cond: is_some(opt: Some("hello")));
 
 // Test is_none with Option<int>
-@test_is_none_int tests _ () -> void = assert(cond: is_none(opt: None));
+@test_is_none_int tests _ () -> void = {
+    let x: Option<int> = None;
+    assert(cond: is_none(opt: x))
+}
 
 // Test is_ok with Result<int, str>
-@test_is_ok tests _ () -> void = assert(cond: is_ok(r: Ok(42)));
+@test_is_ok tests _ () -> void = {
+    let r: Result<int, str> = Ok(42);
+    assert(cond: is_ok(r: r))
+}
 
 // Test is_err with Result<int, str>
-@test_is_err tests _ () -> void = assert(cond: is_err(r: Err("error")));
+@test_is_err tests _ () -> void = {
+    let r: Result<int, str> = Err("error");
+    assert(cond: is_err(r: r))
+}
