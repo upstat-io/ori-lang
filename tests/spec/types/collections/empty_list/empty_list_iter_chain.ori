@@ -1,0 +1,20 @@
+// Spec: 14-expressions.md:1224-1228 — annotated empty list feeds iter.map.filter.collect chain.
+// Matrix: B=int × C=iter.map.filter.collect usage × D=annotated.
+
+use std.testing { assert_eq }
+
+@test_empty_list_iter_chain tests @empty_list_iter_chain () -> void = {
+    assert_eq(actual: empty_list_iter_chain(), expected: 2)
+}
+
+@empty_list_iter_chain () -> int = {
+    let xs: [int] = [];
+    xs = xs.push(value: 1);
+    xs = xs.push(value: 2);
+    xs = xs.push(value: 3);
+    let result: [int] = xs.iter()
+        .map(transform: x -> x * 2)
+        .filter(predicate: x -> x > 3)
+        .collect();
+    result.len()
+}

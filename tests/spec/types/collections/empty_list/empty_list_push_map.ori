@@ -1,0 +1,19 @@
+// Spec: 14-expressions.md:1224-1228 — annotated empty list compiles clean through map transform.
+// Matrix: B=int × C=push+map usage × D=annotated.
+// Note: `doubled: [int]` annotation required — lambda-parameter inference in method chains is
+// a known E2005 class (§05.2.0 line 337; §06.2B annotation sweep). This file pins the
+// ANNOTATED form; an unannotated companion is a separate negative-pin candidate.
+
+use std.testing { assert_eq }
+
+@test_empty_list_push_map tests @empty_list_push_map () -> void = {
+    assert_eq(actual: empty_list_push_map(), expected: 30)
+}
+
+@empty_list_push_map () -> int = {
+    let xs: [int] = [];
+    xs = xs.push(value: 10);
+    xs = xs.push(value: 5);
+    let doubled: [int] = xs.map(transform: x -> x * 2);
+    doubled.fold(initial: 0, op: (acc, x) -> acc + x)
+}
