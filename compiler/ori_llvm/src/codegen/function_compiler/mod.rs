@@ -25,6 +25,7 @@ mod nounwind;
 mod panic_trampoline;
 mod purity_analysis;
 mod seh_main_thunk;
+mod shared_seam;
 
 pub use nounwind::PreparedFunction;
 

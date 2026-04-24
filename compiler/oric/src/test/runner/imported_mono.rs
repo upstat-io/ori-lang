@@ -10,25 +10,34 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use ori_types::TypeCheckResult;
+use ori_types::{FunctionSig, GenericArg, Idx, MonoInstance, Pool, TypeCheckResult};
 
-/// Build imported monomorphization functions for the LLVM JIT backend.
-///
-/// Returns `Vec<(MonoFunction, module_index, source_body_name)>`:
+/// Tuple returned for each resolved imported monomorphization.
 ///
 /// - `MonoFunction.original_name` is the LOCAL/aliased name (for call-site
 ///   dispatch in the test's ARC IR).
+/// - `module_index` identifies which imported module owns the source body.
 /// - `source_body_name` is the function's name in the SOURCE module
 ///   (for `canon.root_for()` lookup in the imported canon).
+pub(super) type ImportedMonoFn = (ori_llvm::monomorphize::MonoFunction, usize, ori_ir::Name);
+
+/// Build imported monomorphization functions for the LLVM JIT backend.
+///
+/// Returns one entry per unique imported mono instance. Dedups by mangled
+/// name; skips instances whose `fn_name` is not in `imported_generic_sigs`.
 pub(super) fn build_imported_mono_functions(
     type_result: &TypeCheckResult,
-    imported_generic_sigs: &FxHashMap<ori_ir::Name, (ori_types::FunctionSig, usize, ori_ir::Name)>,
-    per_module_caches: &[FxHashMap<ori_types::Idx, ori_types::Idx>],
-    merged_pool: &mut ori_types::Pool,
+    imported_generic_sigs: &FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
+    // `_per_module_caches` was previously scanned to re-derive the merged
+    // pool's `next_var_id` watermark (LEAK:scattered-knowledge — now
+    // replaced by `Pool::next_var_id`). The caller still threads the
+    // caches through so the signature stays stable for upstream test
+    // orchestration code that may add new uses later.
+    _per_module_caches: &[FxHashMap<Idx, Idx>],
+    merged_pool: &mut Pool,
     interner: &crate::ir::StringInterner,
-) -> Vec<(ori_llvm::monomorphize::MonoFunction, usize, ori_ir::Name)> {
-    let mut imported_mono_fns: Vec<(ori_llvm::monomorphize::MonoFunction, usize, ori_ir::Name)> =
-        Vec::new();
+) -> Vec<ImportedMonoFn> {
+    let mut imported_mono_fns: Vec<ImportedMonoFn> = Vec::new();
     let mut seen_mono_names = FxHashSet::default();
 
     for instance in &type_result.typed.mono_instances {
@@ -37,6 +46,7 @@ pub(super) fn build_imported_mono_functions(
         else {
             continue;
         };
+
         let mangled = ori_llvm::monomorphize::mangle_mono_name(
             instance.fn_name,
             &instance.generic_args,
@@ -47,83 +57,8 @@ pub(super) fn build_imported_mono_functions(
             continue;
         }
 
-        // Build concrete sig (same pattern as collect_mono_functions)
-        let param_hashes: Vec<u64> = instance
-            .concrete_param_types
-            .iter()
-            .map(|&idx| merged_pool.hash(idx))
-            .collect();
-        let return_hash = merged_pool.hash(instance.concrete_return_type);
-        let concrete_sig = ori_types::FunctionSig {
-            name: mangled,
-            type_params: vec![],
-            const_params: vec![],
-            param_names: generic_sig.param_names.clone(),
-            param_types: instance.concrete_param_types.clone(),
-            return_type: instance.concrete_return_type,
-            capabilities: generic_sig.capabilities.clone(),
-            is_public: false,
-            is_test: false,
-            is_main: false,
-            is_fbip: generic_sig.is_fbip,
-            type_param_bounds: vec![],
-            where_clauses: vec![],
-            generic_param_mapping: vec![],
-            scheme_var_ids: vec![],
-            required_params: generic_sig.required_params,
-            param_defaults: generic_sig.param_defaults.clone(),
-            param_hashes,
-            return_hash,
-        };
-
-        // Build fresh body_type_map from re-interned types.
-        // scheme_var_ids are u32 var_ids preserved by re-interning.
-        // Iterate per_module_cache values only (scoped to imported types,
-        // avoiding var_id collisions with test file types).
-        let mut var_subst: FxHashMap<u32, ori_types::Idx> = FxHashMap::default();
-        for (i, &var_id) in generic_sig.scheme_var_ids.iter().enumerate() {
-            if let Some(ori_types::GenericArg::Type(concrete)) = instance.generic_args.get(i) {
-                var_subst.insert(var_id, *concrete);
-            }
-        }
-        // Ensure merged pool has var_states for imported var_ids.
-        // Re-interned Vars carry source var_ids, but the merged pool's
-        // var_states array was cloned from the test file's pool and may
-        // not cover imported var_ids. substitute_in_pool follows links
-        // via var_state(), which panics on out-of-bounds var_ids.
-        let cache_values: Vec<ori_types::Idx> =
-            per_module_caches[*module_idx].values().copied().collect();
-        let max_imported_var_id = cache_values
-            .iter()
-            .filter(|&&idx| merged_pool.tag(idx) == ori_types::Tag::Var)
-            .map(|&idx| merged_pool.data(idx))
-            .max();
-        if let Some(max_id) = max_imported_var_id {
-            merged_pool.ensure_var_capacity(max_id + 1);
-        }
-
-        // Extend var_subst with union-find root var_ids so
-        // build_mono_body_type_map can substitute raw Tag::Var leaves
-        // whose var_id is the root rather than the declared scheme var.
-        // Shared SSOT helper per impl-hygiene.md §Algorithmic DRY — also
-        // invoked at the eager-path (infer::expr::calls::monomorphization)
-        // and deferred-path (check::exports::resolve_deferred_mono_calls)
-        // sites. Without this extension, imported generic JIT compilation
-        // where the callee's scheme var is not the union-find representative
-        // would silently miscompile (pre-§04.2) or fire the §04.2 PC-2 seam
-        // assertion (post-§04.2) at codegen time.
-        ori_types::extend_var_subst_with_roots(
-            merged_pool,
-            &generic_sig.scheme_var_ids,
-            &mut var_subst,
-        );
-
-        // Build body_type_map via the canonical SSOT helper (typeck-
-        // side), FxHashMap sink variant for LLVM-side MonoFunction
-        // consumption. The helper handles the HAS_VAR|HAS_BOUND_VAR
-        // mask + scheme-var BoundVar pre-intern per §08.3b.1.
-        let mut body_type_map: FxHashMap<ori_types::Idx, ori_types::Idx> = FxHashMap::default();
-        ori_types::build_mono_body_type_map(merged_pool, &var_subst, &mut body_type_map);
+        let concrete_sig = build_concrete_sig(instance, generic_sig, merged_pool, mangled);
+        let body_type_map = build_body_type_map(merged_pool, instance, generic_sig);
 
         imported_mono_fns.push((
             ori_llvm::monomorphize::MonoFunction {
@@ -135,10 +70,103 @@ pub(super) fn build_imported_mono_functions(
                 body_type_map,
             },
             *module_idx,
-            // Source body name for canon.root_for() lookup in imported canon
+            // Source body name for canon.root_for() lookup in imported canon.
             *source_original_name,
         ));
     }
 
     imported_mono_fns
+}
+
+/// Build a concrete `FunctionSig` for one mono instance.
+///
+/// Copies every non-generic field from `generic_sig` unchanged and
+/// substitutes the concrete param / return types and their merged-pool
+/// hashes from `instance`. `scheme_var_ids` and `type_param_bounds` are
+/// emptied — the mono function has no remaining generics.
+fn build_concrete_sig(
+    instance: &MonoInstance,
+    generic_sig: &FunctionSig,
+    merged_pool: &Pool,
+    mangled: ori_ir::Name,
+) -> FunctionSig {
+    let param_hashes: Vec<u64> = instance
+        .concrete_param_types
+        .iter()
+        .map(|&idx| merged_pool.hash(idx))
+        .collect();
+    let return_hash = merged_pool.hash(instance.concrete_return_type);
+
+    FunctionSig {
+        name: mangled,
+        type_params: vec![],
+        const_params: vec![],
+        param_names: generic_sig.param_names.clone(),
+        param_types: instance.concrete_param_types.clone(),
+        return_type: instance.concrete_return_type,
+        capabilities: generic_sig.capabilities.clone(),
+        is_public: false,
+        is_test: false,
+        is_main: false,
+        is_fbip: generic_sig.is_fbip,
+        type_param_bounds: vec![],
+        where_clauses: vec![],
+        generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
+        required_params: generic_sig.required_params,
+        param_defaults: generic_sig.param_defaults.clone(),
+        param_hashes,
+        return_hash,
+    }
+}
+
+/// Build the `body_type_map` (`generic_idx` → `concrete_idx`) for one mono
+/// instance on the merged pool.
+///
+/// Steps:
+/// 1. Seed `var_subst` from `scheme_var_ids` × `generic_args`.
+/// 2. Ensure the merged pool has `VarState` capacity for every `var_id`
+///    we may follow during substitution — `substitute_in_pool` panics on
+///    out-of-bounds `var_id`s. The merged pool's own `next_var_id()` is
+///    the authoritative upper bound; `ensure_var_capacity` is a no-op
+///    when the pool is already sized.
+/// 3. Extend `var_subst` with union-find root `var_id`s via the shared
+///    SSOT helper (see `impl-hygiene.md §Algorithmic DRY`). Mirrors the
+///    eager-path site in `ori_types::check::exports::resolve_deferred_mono_calls`
+///    and the deferred-path site in
+///    `ori_types::infer::expr::calls::monomorphization::maybe_record_mono_instance`.
+/// 4. Delegate to `build_mono_body_type_map` — `FxHashMap` sink variant
+///    for LLVM-side `MonoFunction` consumption. The helper handles the
+///    `HAS_VAR|HAS_BOUND_VAR` mask + scheme-var `BoundVar` pre-intern
+///    per §08.3b.1.
+fn build_body_type_map(
+    merged_pool: &mut Pool,
+    instance: &MonoInstance,
+    generic_sig: &FunctionSig,
+) -> FxHashMap<Idx, Idx> {
+    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
+    for (i, &var_id) in generic_sig.scheme_var_ids.iter().enumerate() {
+        if let Some(GenericArg::Type(concrete)) = instance.generic_args.get(i) {
+            var_subst.insert(var_id, *concrete);
+        }
+    }
+
+    // Query the pool's own var_id watermark instead of re-deriving it via a
+    // cache scan (LEAK:scattered-knowledge — `Pool::next_var_id` is the SSOT).
+    // `ensure_var_capacity` is idempotent when already sized, so this is
+    // cheap; the re-intern path (`pool/re_intern/mod.rs`) already extends
+    // capacity as var_ids land, and this call guards against any future
+    // re-intern path that forgets to extend.
+    let watermark = merged_pool.next_var_id();
+    merged_pool.ensure_var_capacity(watermark);
+
+    ori_types::extend_var_subst_with_roots(
+        merged_pool,
+        &generic_sig.scheme_var_ids,
+        &mut var_subst,
+    );
+
+    let mut body_type_map: FxHashMap<Idx, Idx> = FxHashMap::default();
+    ori_types::build_mono_body_type_map(merged_pool, &var_subst, &mut body_type_map);
+    body_type_map
 }

@@ -144,11 +144,10 @@ pub(super) fn resolve_deferred_mono_calls(
     mono_instances: &mut Vec<crate::MonoInstance>,
     deferred_calls: &[crate::DeferredMonoCall],
 ) {
-    use rustc_hash::{FxHashMap, FxHashSet};
+    use rustc_hash::FxHashSet;
 
-    use crate::{GenericArg, Idx};
+    use crate::GenericArg;
 
-    // Track already-seen (fn_name, generic_args) to avoid duplicates.
     let mut seen: FxHashSet<(Name, Vec<GenericArg>)> = mono_instances
         .iter()
         .map(|m| (m.fn_name, m.generic_args.clone()))
@@ -167,103 +166,139 @@ pub(super) fn resolve_deferred_mono_calls(
         let caller_generic_args = mono_instances[i].generic_args.clone();
 
         for deferred in deferred_calls.iter().filter(|d| d.caller == caller_name) {
-            tracing::trace!(
-                caller = ?caller_name,
-                callee = ?deferred.callee,
-                caller_generic_args = ?caller_generic_args,
-                var_subst = ?deferred.var_subst,
-                "processing deferred call"
-            );
-
-            // Resolve the callee's var_subst: map each callee var_id to a concrete
-            // type by looking up the caller's generic_args at the stored position.
-            let mut resolved_var_subst: FxHashMap<u32, Idx> = FxHashMap::with_capacity_and_hasher(
-                deferred.var_subst.len(),
-                rustc_hash::FxBuildHasher,
-            );
-            let mut all_concrete = true;
-
-            for (callee_var_id, binding) in &deferred.var_subst {
-                let concrete = match binding {
-                    crate::DeferredVarBinding::CallerSchemeVar(pos) => {
-                        let Some(GenericArg::Type(idx)) = caller_generic_args.get(*pos) else {
-                            all_concrete = false;
-                            break;
-                        };
-                        *idx
-                    }
-                    crate::DeferredVarBinding::Concrete(idx) => *idx,
-                };
-
-                tracing::trace!(callee_var_id, ?binding, ?concrete, "resolved deferred var");
-
-                if pool.tag(concrete) == crate::Tag::Var {
-                    all_concrete = false;
-                    break;
-                }
-                resolved_var_subst.insert(*callee_var_id, concrete);
-            }
-
-            if !all_concrete {
-                continue;
-            }
-
-            // Extend resolved_var_subst with union-find root var_ids so
-            // build_mono_body_type_map can substitute raw Tag::Var leaves
-            // whose var_id is the root rather than the declared callee
-            // scheme var. Without this extension, a 3-hop generic chain
-            // where the middle layer takes the deferred path leaks
-            // Tag::Var leaves into the realized ARC IR and fires the §04.2
-            // PC-2 seam assertion (typeck.md §UN-7 rank-weighted union).
-            // SSOT per impl-hygiene.md §Algorithmic DRY — shared with the
-            // eager-path site at infer::expr::calls::monomorphization and
-            // the JIT imported-mono site at oric::test::runner::imported_mono.
-            crate::pool::substitute::extend_var_subst_with_roots(
+            try_resolve_deferred_call(
                 pool,
-                &deferred.callee_scheme_var_ids,
-                &mut resolved_var_subst,
+                mono_instances,
+                &mut seen,
+                caller_name,
+                &caller_generic_args,
+                deferred,
             );
-
-            // Build generic_args in scheme_var_ids order.
-            let generic_args: Vec<GenericArg> = deferred
-                .callee_scheme_var_ids
-                .iter()
-                .filter_map(|var_id| {
-                    resolved_var_subst
-                        .get(var_id)
-                        .map(|&idx| GenericArg::Type(idx))
-                })
-                .collect();
-
-            if generic_args.len() != deferred.callee_scheme_var_ids.len() {
-                continue;
-            }
-
-            let key = (deferred.callee, generic_args.clone());
-            if !seen.insert(key) {
-                continue;
-            }
-
-            let instance = build_mono_instance(
-                pool,
-                deferred.callee,
-                generic_args,
-                &deferred.callee_param_types,
-                deferred.callee_return_type,
-                &resolved_var_subst,
-            );
-
-            tracing::debug!(
-                callee = ?deferred.callee,
-                args = ?instance.generic_args,
-                "resolved transitive mono instance"
-            );
-
-            mono_instances.push(instance);
         }
 
         i += 1;
     }
+}
+
+/// Attempt to resolve a single deferred call against the caller's
+/// already-realized `generic_args`. Pushes a fresh `MonoInstance` onto
+/// `mono_instances` iff the call's `var_subst` is fully concrete, the
+/// generic-args vector is complete, and the resulting `(callee, args)`
+/// key has not been seen before. Silently skips the call on any failure
+/// — the outer worklist will retry once a later iteration realizes the
+/// missing pieces.
+fn try_resolve_deferred_call(
+    pool: &mut Pool,
+    mono_instances: &mut Vec<crate::MonoInstance>,
+    seen: &mut rustc_hash::FxHashSet<(Name, Vec<crate::GenericArg>)>,
+    caller_name: Name,
+    caller_generic_args: &[crate::GenericArg],
+    deferred: &crate::DeferredMonoCall,
+) {
+    tracing::trace!(
+        caller = ?caller_name,
+        callee = ?deferred.callee,
+        ?caller_generic_args,
+        var_subst = ?deferred.var_subst,
+        "processing deferred call"
+    );
+
+    let Some(mut resolved_var_subst) =
+        resolve_deferred_var_subst(pool, caller_generic_args, deferred)
+    else {
+        return;
+    };
+
+    // Extend resolved_var_subst with union-find root var_ids so
+    // build_mono_body_type_map can substitute raw Tag::Var leaves
+    // whose var_id is the root rather than the declared callee
+    // scheme var. Without this extension, a 3-hop generic chain
+    // where the middle layer takes the deferred path leaks
+    // Tag::Var leaves into the realized ARC IR and fires the §04.2
+    // PC-2 seam assertion (typeck.md §UN-7 rank-weighted union).
+    // SSOT per impl-hygiene.md §Algorithmic DRY — shared with the
+    // eager-path site at infer::expr::calls::monomorphization and
+    // the JIT imported-mono site at oric::test::runner::imported_mono.
+    crate::pool::substitute::extend_var_subst_with_roots(
+        pool,
+        &deferred.callee_scheme_var_ids,
+        &mut resolved_var_subst,
+    );
+
+    let generic_args: Vec<crate::GenericArg> = deferred
+        .callee_scheme_var_ids
+        .iter()
+        .filter_map(|var_id| {
+            resolved_var_subst
+                .get(var_id)
+                .map(|&idx| crate::GenericArg::Type(idx))
+        })
+        .collect();
+
+    if generic_args.len() != deferred.callee_scheme_var_ids.len() {
+        return;
+    }
+
+    let key = (deferred.callee, generic_args.clone());
+    if !seen.insert(key) {
+        return;
+    }
+
+    let instance = build_mono_instance(
+        pool,
+        deferred.callee,
+        generic_args,
+        &deferred.callee_param_types,
+        deferred.callee_return_type,
+        &resolved_var_subst,
+    );
+
+    tracing::debug!(
+        callee = ?deferred.callee,
+        args = ?instance.generic_args,
+        "resolved transitive mono instance"
+    );
+
+    mono_instances.push(instance);
+}
+
+/// Resolve the callee's `var_subst` into a concrete `(callee_var_id →
+/// Idx)` map by looking up each binding against the caller's realized
+/// `generic_args`. Returns `None` if any binding refers to a
+/// still-unrealized caller generic (missing position) or if the
+/// resolved concrete type is itself still a `Tag::Var` — in both cases
+/// the caller retries on the next worklist iteration once more
+/// instances land.
+fn resolve_deferred_var_subst(
+    pool: &Pool,
+    caller_generic_args: &[crate::GenericArg],
+    deferred: &crate::DeferredMonoCall,
+) -> Option<rustc_hash::FxHashMap<u32, crate::Idx>> {
+    use rustc_hash::FxHashMap;
+
+    let mut resolved: FxHashMap<u32, crate::Idx> =
+        FxHashMap::with_capacity_and_hasher(deferred.var_subst.len(), rustc_hash::FxBuildHasher);
+
+    for (callee_var_id, binding) in &deferred.var_subst {
+        let concrete = match binding {
+            crate::DeferredVarBinding::CallerSchemeVar(pos) => {
+                let Some(crate::GenericArg::Type(idx)) = caller_generic_args.get(*pos) else {
+                    return None;
+                };
+                *idx
+            }
+            crate::DeferredVarBinding::Concrete(idx) => *idx,
+        };
+
+        tracing::trace!(callee_var_id, ?binding, ?concrete, "resolved deferred var");
+
+        if pool.tag(concrete) == crate::Tag::Var {
+            return None;
+        }
+        resolved.insert(*callee_var_id, concrete);
+    }
+
+    Some(resolved)
 }
 
 /// Build a `MonoInstance` by substituting type variables with concrete types.

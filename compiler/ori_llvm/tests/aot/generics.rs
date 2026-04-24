@@ -359,7 +359,7 @@ fn test_generic_str_compound() {
 }
 
 #[test]
-#[ignore = "Pre-existing: nounwind analysis doesn't yet distinguish may-unwind monomorphized callees"]
+#[ignore = "blocked-by: plans/roadmap/section-21A-llvm.md nounwind-analysis item — does not distinguish may-unwind monomorphized callees. Pre-existing; unrelated to §04.2.B."]
 fn test_mono_may_unwind_callee_uses_invoke() {
     // A generic function that calls panic should still use `invoke`.
     let ir = crate::util::compile_and_capture_ir(include_str!(
@@ -545,8 +545,9 @@ fn test_generic_closure_capture_forwarded() {
 }
 
 #[test]
-#[ignore = "blocked: inherent method on generic type (impl<T> Box<T> { @m (self) -> T }) \
-            triggers 'unresolved function in apply — missing mono instance' at codegen; \
+#[ignore = "blocked-by: BUG-04-091 (inherent method on generic type codegen mono resolution gap) + BUG-01-002 (parser grammar for impl<T> method-level @m<U>). \
+            Inherent method on generic type (impl<T> Box<T> { @m (self) -> T }) triggers \
+            'unresolved function in apply — missing mono instance' at codegen; \
             method-level generic parameter (@map<U>) additionally not parsed \
             (parser: `expected (, found <`). Both are pre-existing gaps unrelated to the \
             §04.2.B root-extension fix. Reduced shape (3-hop chain on a user-defined \

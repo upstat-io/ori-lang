@@ -320,6 +320,18 @@ impl Pool {
         self.var_states.get(var_id as usize)
     }
 
+    /// Return the number of `var_id`s the pool has allocated.
+    ///
+    /// Equivalent to `var_states.len() as u32`. Any `var_id < next_var_id()`
+    /// is guaranteed to have a backing `VarState` slot; callers preparing
+    /// to re-intern or substitute foreign `var_id`s can pass this directly
+    /// to [`Self::ensure_var_capacity`] instead of walking cache maps to
+    /// re-derive the bound.
+    #[inline]
+    pub fn next_var_id(&self) -> u32 {
+        self.next_var_id
+    }
+
     /// Get the number of types in the pool.
     #[inline]
     pub fn len(&self) -> usize {

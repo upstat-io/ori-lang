@@ -10,7 +10,29 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::{Idx, Pool};
 
-use crate::{ArcClass, ArcClassification};
+use crate::ArcClass;
+
+/// Classification trait for ARC analysis.
+///
+/// Provides the core `arc_class` query plus convenience predicates.
+/// Implemented by [`ArcClassifier`], which wraps a `Pool` reference
+/// with caching and cycle detection.
+pub trait ArcClassification {
+    /// Classify a type by its pool index.
+    fn arc_class(&self, idx: Idx) -> ArcClass;
+
+    /// Returns `true` if this type is scalar (no RC operations needed).
+    fn is_scalar(&self, idx: Idx) -> bool {
+        self.arc_class(idx) == ArcClass::Scalar
+    }
+
+    /// Returns `true` if this type might need reference counting.
+    ///
+    /// This is `true` for both `DefiniteRef` and `PossibleRef`.
+    fn needs_rc(&self, idx: Idx) -> bool {
+        self.arc_class(idx) != ArcClass::Scalar
+    }
+}
 
 /// Type classifier for ARC analysis.
 ///

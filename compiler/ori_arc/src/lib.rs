@@ -65,8 +65,6 @@ pub mod verify;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
-use ori_types::Idx;
-
 pub use aims::contract::MemoryContract;
 pub use pipeline::{
     compute_aims_contracts, run_arc_pipeline, run_arc_pipeline_all, run_arc_pipeline_with_observer,
@@ -77,7 +75,7 @@ pub use borrow::{
     borrowing_builtin_names, extract_callees, infer_borrow_fixed_point, infer_borrow_single,
     infer_borrows_scc, BuiltinOwnershipSets,
 };
-pub use classify::ArcClassifier;
+pub use classify::{ArcClassification, ArcClassifier};
 pub use decision_tree::{
     DecisionTree, FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestKind,
     TestValue,
@@ -130,28 +128,6 @@ pub enum ArcClass {
     /// Might contain a reference-counted pointer depending on unresolved
     /// type variables. Conservatively treated as needing RC.
     PossibleRef,
-}
-
-/// Classification trait for ARC analysis.
-///
-/// Provides the core `arc_class` query plus convenience predicates.
-/// Implemented by [`ArcClassifier`], which wraps a `Pool` reference
-/// with caching and cycle detection.
-pub trait ArcClassification {
-    /// Classify a type by its pool index.
-    fn arc_class(&self, idx: Idx) -> ArcClass;
-
-    /// Returns `true` if this type is scalar (no RC operations needed).
-    fn is_scalar(&self, idx: Idx) -> bool {
-        self.arc_class(idx) == ArcClass::Scalar
-    }
-
-    /// Returns `true` if this type might need reference counting.
-    ///
-    /// This is `true` for both `DefiniteRef` and `PossibleRef`.
-    fn needs_rc(&self, idx: Idx) -> bool {
-        self.arc_class(idx) != ArcClass::Scalar
-    }
 }
 
 #[cfg(test)]
