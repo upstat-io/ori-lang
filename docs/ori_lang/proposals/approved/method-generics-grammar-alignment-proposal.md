@@ -1,9 +1,10 @@
 # Proposal: Method-Generics-and-Where-Clause Grammar Alignment
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-04-24
-**Updated:** 2026-04-24 — revised after 3-reviewer TPR consensus (codex + gemini + opencode)
+**Approved:** 2026-04-24
+**Updated:** 2026-04-24 — revised twice after two 3-reviewer TPR consensus rounds (codex + gemini + opencode)
 **Affects:** grammar, spec (Clauses 8, 11, 14, 20, 27), parser, AST/IR, type checker, object-safety check, Salsa query keys, monomorphization keys
 **Depends On:** none (cites already-approved proposals)
 
@@ -28,6 +29,8 @@ Ori's grammar authority splits across `compiler_repo/docs/ori_lang/v2026/spec/gr
 ```ori
 impl Unknown {
     @new<T: Reflect> (value: T) -> Unknown;
+    // @type_name (self) -> str;         // non-generic methods omitted
+    // @type_info (self) -> TypeInfo;    //   for clarity — see spec
     @is<T: Reflect> (self) -> bool;
     @downcast<T: Reflect> (self) -> Option<T>;
     @unwrap<T: Reflect> (self) -> T;
@@ -68,7 +71,6 @@ All of the above fails to parse against `grammar.ebnf:299, 300, 314, 315`, where
 | `object-safety-rules-proposal.md` | 90-93 | `@convert<T> (self) -> T` | Method-level generics |
 | `object-safety-rules-proposal.md` | 219 | `note: method 'convert' has generic type parameters` | Object-safety violation diagnostic |
 | `fixed-capacity-list-proposal.md` | 348-349, 438 item 6 | `[T].to_fixed<$N: int>()` + "Allow generic instance methods with const-generic parameters" | Method-level const generics |
-| `iterator-traits-proposal.md` | 26 | `@iter (self) -> impl Iterator where Item == Self.Item` | Method where-clause |
 | `iterator-traits-proposal.md` | 30, 355 | `@from_iter<I: Iterator> (iter: I) -> Self where I.Item == T` | Method generics + where-clause |
 | `iterator-traits-proposal.md` | 149, 156 | `@map<U> (self, ...) -> MapIterator<Self, U>`, `@fold<U> (self, initial: U, op: ...) -> U` | Method-level generics |
 | `rules/types.md` | 428 | `trait Collect<T> { @from_iter<I: Iterator> (iter: I) -> Self where I.Item == T; }` | Method generics + where-clause at trait level |
@@ -132,6 +134,7 @@ No other EBNF production changes. No new tokens, no new non-terminals.
 - **Where-clauses**: reuse existing `where_clause` constraint-collection path; constraints are added to `InferEngine` before body-checking.
 - **Const generics**: `@take<$N: int>` uses the existing `const_param` production; this is what `fixed-capacity-list-proposal.md §438 item 6` already approves.
 - **Object safety**: trait methods carrying generics are object-unsafe per `object-safety-rules-proposal.md`, which already encodes this rule as a latent check (see §Implementation Touchpoints below for wire-up).
+- **Same-binder name uniqueness**: a single generic parameter list (e.g. `<T, T>` within one method or one impl) MUST be rejected — standard HM scoping. Name reuse ACROSS binders (impl-level `T` + method-level `T`) is NOT an error; it is shadowing per §Shadowing Semantics below.
 
 ### "No new language feature" — but parser/AST/typeck/registry work IS required
 
@@ -139,14 +142,14 @@ The proposal does NOT introduce new semantic rules, but it DOES activate load-be
 
 **AST / IR**
 
-- `TraitMethodSig` (`compiler_repo/compiler/ori_ir/src/ast/items/traits.rs:181`) gains optional `generics: Option<GenericsId>` and `where_clause: Option<WhereClauseId>` fields.
+- `TraitMethodSig` (`compiler_repo/compiler/ori_ir/src/ast/items/traits.rs:180`) gains optional `generics: Option<GenericsId>` and `where_clause: Option<WhereClauseId>` fields.
 - `TraitDefaultMethod` (`compiler_repo/compiler/ori_ir/src/ast/items/traits.rs:196`) gains the same two fields.
-- `ImplMethod` / `DefImplMethod` (matching structs in `ori_ir`) gain the same two fields.
+- `ImplMethod` (`compiler_repo/compiler/ori_ir/src/ast/items/traits.rs:303`) gains the same two fields. `DefImplDef` (`:389`) stores `Vec<ImplMethod>`, so that path inherits the field additions through `ImplMethod` — no separate `DefImplMethod` type exists.
 - Constructors and spanned implementations updated accordingly.
 
 **Parser**
 
-- Method-header parser (definition-site in `ori_parse/src/grammar/declarations/`) accepts `[ generics ]` and `[ where_clause ]` at the new positions. Reuses existing `parse_generics()` and `parse_where_clause()` helpers.
+- Method-header parser accepts `[ generics ]` and `[ where_clause ]` at the new positions. The trait-method path is `compiler_repo/compiler/ori_parse/src/grammar/item/trait_def.rs` (`parse_trait_item` starts at line 74); the impl-method path is `compiler_repo/compiler/ori_parse/src/grammar/item/impl_def/mod.rs` (`parse_impl_method` starts at line 117). Both reuse existing `parse_generics()` (`grammar/item/generics/mod.rs:43`) and `parse_where_clauses()` (`grammar/item/generics/mod.rs:294`) helpers.
 - Call-site parsing is scoped separately — see §Call-Site Grammar below.
 
 **Typeck / registry**
@@ -154,7 +157,7 @@ The proposal does NOT introduce new semantic rules, but it DOES activate load-be
 - Object-safety check at `compiler_repo/compiler/ori_types/src/check/registration/traits.rs:156-159` gets wired up. The existing inline comment literally says: *"Generic methods — currently trait methods cannot have their own generics (TraitMethodSig has no `generics` field), so this rule cannot be violated. When per-method generics are added to the parser, this check will need to be implemented."* This proposal triggers that wire-up.
 - `ImplMethodDef` / `TraitMethodDef` gain scheme metadata comparable to `FunctionSig.scheme_var_ids` (see `ori_types/src/output/mod.rs:373-428`).
 - Method-level type/const args participate in monomorphization and Salsa query cache keys — method resolution keys must include the full `(impl_params, method_params)` tuple rather than just impl-level params.
-- Duplicate generic names across impl/trait/method binders MUST be rejected (new diagnostic or existing name-resolution check extended).
+- Duplicate generic names **within a single binder** (e.g. `<T, T>` inside one parameter list) MUST be rejected per standard HM scoping. Cross-binder reuse (impl-level `T` + method-level `T`) is permitted and semantically produces shadowing — see §Shadowing Semantics.
 
 **None of this is new language design** — it is implementation work the grammar gap has been masking.
 
@@ -218,7 +221,7 @@ No new error codes required. Existing errors apply unchanged:
 
 **If not, why:** EBNF is the formal syntax specification; adjusting it requires recompiling the parser with updated production rules. No amount of stdlib-side work can make the parser accept syntax it does not parse.
 
-**Recommendation:** Proceed as compiler feature. This is the smallest possible compiler change at the grammar level (6 optional slots across 4 productions — 2 × `[ generics ]` + 2 × `[ where_clause ]` per quad, minus the one `method` line that already has `[ uses_clause ]`). Implementation scope is larger but all downstream work is already well-understood existing machinery.
+**Recommendation:** Proceed as compiler feature. This is the smallest possible compiler change at the grammar level — 8 optional slots total across 4 productions (each gains both `[ generics ]` and `[ where_clause ]`). Implementation scope is larger but all downstream work is already well-understood existing machinery.
 
 ---
 
@@ -266,13 +269,15 @@ Add bullets to the method-related sections documenting method-level generics + w
 Enumerated so the implementation PR has a checklist, not a scavenger hunt:
 
 **AST / IR** (`compiler_repo/compiler/ori_ir/src/ast/items/traits.rs`)
-- `TraitMethodSig` (line 181): add `generics: Option<GenericsId>` + `where_clause: Option<WhereClauseId>`
+- `TraitMethodSig` (line 180): add `generics: Option<GenericsId>` + `where_clause: Option<WhereClauseId>`
 - `TraitDefaultMethod` (line 196): same
-- `ImplMethod` / `DefImplMethod` structs: same
+- `ImplMethod` (line 303): same. `DefImplDef` (line 389) stores `Vec<ImplMethod>` and inherits the additions automatically — no separate `DefImplMethod` type exists.
 
-**Parser** (`compiler_repo/compiler/ori_parse/src/grammar/declarations/`)
-- Method-header parser accepts `[ generics ]` + `[ where_clause ]` via existing `parse_generics()` + `parse_where_clause()` helpers.
-- Add negative test: duplicate generic names across impl + method binders produce a clear error.
+**Parser** (`compiler_repo/compiler/ori_parse/src/grammar/item/`)
+- Trait-method path `trait_def.rs` (`parse_trait_item` at line 74): accept `[ generics ]` + `[ where_clause ]` in the method-sig + default-method branches.
+- Impl-method path `impl_def/mod.rs` (`parse_impl_method` at line 117): accept `[ generics ]` + `[ where_clause ]` at the method-header positions.
+- Both paths reuse `parse_generics()` (`generics/mod.rs:43`) and `parse_where_clauses()` (`generics/mod.rs:294`) helpers.
+- Add negative test: duplicate names **within a single binder** (e.g. `@f<T, T>`) emit a clear error. Cross-binder reuse (impl `T` + method `T`) is NOT an error — it is shadowing per §Shadowing Semantics.
 
 **Typeck / object-safety check** (`compiler_repo/compiler/ori_types/src/check/registration/traits.rs:156-159`)
 - Replace the current inline comment ("currently trait methods cannot have their own generics... when per-method generics are added to the parser, this check will need to be implemented") with active enforcement: reject generic methods at object-safe trait positions, citing `object-safety-rules-proposal.md`.
@@ -350,7 +355,6 @@ Existing parser rejections (`expected (, found <`) at method-header position bec
 | **Swift** | Standard | `extension Array { func map<U>(_ transform: (Element) -> U) -> [U] { ... } }` |
 | **TypeScript** | Standard | Open issues center on inference/inheritance, not grammar |
 | **Koka** | Standard | Effect-typed methods can carry additional type parameters |
-| **Go** | In debate (open proposals #75526, #77273, #64846) | Go's debate is about methods of NON-generic receivers carrying type parameters — a harder sub-problem than Ori's receiver-type-param `@map<U>` on `impl<T> Box<T>` case, where HM inference + explicit `:` bounds avoid the interface-satisfaction soundness concerns Go faces. Cited here only for methodological contrast, not as a load-bearing precedent. |
 
 ### Grammar-vs-parser-drift precedent
 
@@ -360,7 +364,7 @@ Existing parser rejections (`expected (, found <`) at method-header position bec
 
 - `object-safety-rules-proposal.md:90-93, 219` — `@convert<T> (self) -> T` + diagnostic
 - `fixed-capacity-list-proposal.md:348-349, 438` — `[T].to_fixed<$N: int>()` + item 6
-- `iterator-traits-proposal.md:26, 30, 149, 156, 355` — method generics + where-clauses
+- `iterator-traits-proposal.md:30, 149, 156, 355` — method generics + where-clauses (line 26's `@iter ... where Item == Self.Item` is an `impl Trait` return-type constraint, not a method where-clause; excluded)
 - `iterator-extended-methods-proposal.md:84, 99` — method where-clauses
 - `cache-pattern-proposal.md:248-251` — cache pattern uses generic methods
 
