@@ -426,17 +426,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// a wrong stride into memory operations. The `pool.iterator_elem` callee
     /// has its own `debug_assert!` that strips in release; this assert is the
     /// load-bearing guard that catches a violation BEFORE `iterator_elem`
-    /// reads garbage from the data field. See
-    /// `bug-tracker/plans/completed/BUG-04-076/` and `impl-hygiene.md`
-    /// §Panic & Assertion.
+    /// reads garbage from the data field. See `bug-tracker/plans/BUG-04-076/`
+    /// and `impl-hygiene.md` §Panic & Assertion.
+    ///
+    /// `pool.resolve_fully` is called first per `codegen-rules.md §TR-2`
+    /// ("All type indices SHALL be fully resolved via `pool.resolve_fully(idx)`
+    /// before LLVM type construction") to chase any binding-chain aliases
+    /// before the iterator-tag check.
     fn flatten_inner_elem_size(&self, outer_elem_ty: Idx) -> i64 {
-        let outer_tag = self.pool.tag(outer_elem_ty);
+        let resolved = self.pool.resolve_fully(outer_elem_ty);
+        let outer_tag = self.pool.tag(resolved);
         assert!(
             outer_tag.is_iterator(),
             "ori_iter_flatten requires outer iterator to yield iterator handles, \
-             got tag {outer_tag:?} for elem_ty {outer_elem_ty:?}",
+             got tag {outer_tag:?} for elem_ty {outer_elem_ty:?} (resolved {resolved:?})",
         );
-        let inner_ty = self.pool.iterator_elem(outer_elem_ty);
+        let inner_ty = self.pool.iterator_elem(resolved);
         self.element_store_size(inner_ty) as i64
     }
 
@@ -468,11 +473,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // The mapped iterator's element type is the closure's RETURN type —
         // an iterator handle (`Iterator<U>` or `DoubleEndedIterator<U>`).
+        // resolve_fully chases binding-chain aliases per codegen-rules.md §TR-2;
         // Tag::Function guard mirrors `emit_iter_map:360` defensive pattern
         // for unresolved-type cases that shouldn't reach codegen but are
         // returned as None rather than asserted (consistency with sibling
         // emitter precedent).
-        let closure_ty = arc_func.var_type(args[1]);
+        let closure_ty = self.pool.resolve_fully(arc_func.var_type(args[1]));
         let closure_return = if self.pool.tag(closure_ty) == ori_types::Tag::Function {
             self.pool.function_return(closure_ty)
         } else {
