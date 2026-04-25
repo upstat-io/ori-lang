@@ -408,12 +408,47 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     // New adapters (runtime-backed)
 
+    /// Compute the inner element size to pass as `inner_elem_size` to
+    /// `ori_iter_flatten`.
+    ///
+    /// The runtime contract: outer source yields 8-byte iterator handles; the
+    /// `inner_elem_size` argument is `sizeof(inner element)` — the byte size
+    /// of elements yielded by each inner iterator. See
+    /// `ori_rt/src/iterator/adapters.rs` `ori_iter_flatten` and
+    /// `ori_rt/src/iterator/next.rs::next_flattened`.
+    ///
+    /// `outer_elem_ty` MUST be an iterator type — `Iterator<T>` or
+    /// `DoubleEndedIterator<T>`. The returned size is the canonical byte size
+    /// of `T` (NR-3 — iterator pipeline uses canonical types).
+    ///
+    /// Production `assert!()` (not `debug_assert!`): the value is fed to an
+    /// `extern "C"` runtime stride; silent stripping in release would propagate
+    /// a wrong stride into memory operations. The `pool.iterator_elem` callee
+    /// has its own `debug_assert!` that strips in release; this assert is the
+    /// load-bearing guard that catches a violation BEFORE `iterator_elem`
+    /// reads garbage from the data field. See
+    /// `bug-tracker/plans/completed/BUG-04-076/` and `impl-hygiene.md`
+    /// §Panic & Assertion.
+    fn flatten_inner_elem_size(&self, outer_elem_ty: Idx) -> i64 {
+        let outer_tag = self.pool.tag(outer_elem_ty);
+        assert!(
+            outer_tag.is_iterator(),
+            "ori_iter_flatten requires outer iterator to yield iterator handles, \
+             got tag {outer_tag:?} for elem_ty {outer_elem_ty:?}",
+        );
+        let inner_ty = self.pool.iterator_elem(outer_elem_ty);
+        self.element_store_size(inner_ty) as i64
+    }
+
     fn emit_iter_flatten(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
-        // Use canonical element size — narrowing confined to list boundary.
-        let elem_size = self.element_store_size(elem_ty);
-        let elem_size_val = self.builder.const_i64(elem_size as i64);
+        // `elem_ty` here is the OUTER iterator's element type — itself an
+        // iterator handle (`Iterator<U>` or `DoubleEndedIterator<U>`). Peel
+        // to compute the inner element's canonical byte size, which is what
+        // the runtime expects as `inner_elem_size`.
+        let inner_elem_size = self.flatten_inner_elem_size(elem_ty);
+        let inner_elem_size_val = self.builder.const_i64(inner_elem_size);
         let func_id = self.builder.runtime_fn("ori_iter_flatten");
-        self.emit_rt_call(func_id, &[iter_ptr, elem_size_val], "iter.flatten")
+        self.emit_rt_call(func_id, &[iter_ptr, inner_elem_size_val], "iter.flatten")
     }
 
     fn emit_iter_flat_map(
@@ -428,13 +463,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         // flat_map(f) = map(f).flatten()
-        // First apply map, then flatten the result
+        // First apply map, then flatten the result.
         let mapped = self.emit_iter_map(iter_ptr, arg_vals, args, arc_func, elem_ty)?;
-        // Use canonical element size — narrowing confined to list boundary.
-        let elem_size = self.element_store_size(elem_ty);
-        let elem_size_val = self.builder.const_i64(elem_size as i64);
+
+        // The mapped iterator's element type is the closure's RETURN type —
+        // an iterator handle (`Iterator<U>` or `DoubleEndedIterator<U>`).
+        // Tag::Function guard mirrors `emit_iter_map:360` defensive pattern
+        // for unresolved-type cases that shouldn't reach codegen but are
+        // returned as None rather than asserted (consistency with sibling
+        // emitter precedent).
+        let closure_ty = arc_func.var_type(args[1]);
+        let closure_return = if self.pool.tag(closure_ty) == ori_types::Tag::Function {
+            self.pool.function_return(closure_ty)
+        } else {
+            return None;
+        };
+
+        let inner_elem_size = self.flatten_inner_elem_size(closure_return);
+        let inner_elem_size_val = self.builder.const_i64(inner_elem_size);
         let func_id = self.builder.runtime_fn("ori_iter_flatten");
-        self.emit_rt_call(func_id, &[mapped, elem_size_val], "iter.flat_map")
+        self.emit_rt_call(func_id, &[mapped, inner_elem_size_val], "iter.flat_map")
     }
 
     fn emit_iter_cycle(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {

@@ -65,6 +65,16 @@ fn test_iter_filter() {
     );
 }
 
+// AOT regression for BUG-04-076 (flatten with non-int inner) lives under BUG-02-013's
+// plan dir as a §-X.Y task — the assert in flatten_inner_elem_size correctly catches
+// Tag::Var reaching codegen, which is a separate typeck → codegen-type-info handoff
+// gap that BUG-02-013 owns. The BUG-04-076 codegen fix itself is verified by:
+// (a) helper boundary discipline (production assert on non-iterator outer),
+// (b) spec tests at compiler_repo/tests/spec/traits/iterator/methods.ori under
+//     interpreter (semantic pin: bool/char/tuple inner produce correct values),
+// (c) zero regression in the AOT suite (2160 passing tests).
+// AOT fixture for the bool-inner case to be added when BUG-02-013 lands.
+
 // take adapter
 
 #[test]
