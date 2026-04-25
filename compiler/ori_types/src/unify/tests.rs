@@ -810,3 +810,263 @@ fn occurs_check_finds_var_in_dei() {
     let result = engine.unify(var, dei_var);
     assert!(matches!(result, Err(UnifyError::InfiniteType { .. })));
 }
+
+// BUG-02-007 — Generalization compound-tag delegation (impl-hygiene §Algorithmic DRY).
+//
+// `collect_free_vars_inner` historically open-coded a tag-dispatch ladder over
+// the seven simple containers, Map, Result, Borrowed, Function, Tuple, and
+// Applied — duplicating the partition `Pool::visit_children` already
+// canonicalizes (pool/descriptor.rs). The `_ => {}` catch-all silently dropped
+// `Tag::Struct` / `Tag::Enum` / `Tag::Scheme`, missing free vars under those
+// shapes (under-generalization). The fix delegates compound recursion to
+// `visit_children`, mirroring `check::validators::collect_first_unbound_var`.
+//
+// Cells below clamp the contract from three sides:
+//   1. **Compound-tag matrix** — every container shape currently in the
+//      ladder MUST keep generalizing correctly under delegation.
+//   2. **Behavior-delta pins** (Struct / Enum / Scheme) — free vars under
+//      these tags MUST now be collected. Before the fix these tests fail
+//      (`generalize` returns the type unchanged). After the fix they pass.
+//   3. **Negative pin** — a contrived shape that demonstrates active
+//      delegation: regressing the `_ => visit_children(...)` arm to
+//      `_ => {}` would flip the assertion.
+
+/// Cell — compound-tag matrix.
+///
+/// For every container shape currently enumerated in the ladder, build a
+/// monomorphic body containing a fresh inner-rank `Var`, generalize at the
+/// inner rank, and assert exactly one var is bound. This pins continuity of
+/// behavior across the 13 container tags after delegation.
+#[test]
+fn generalize_collects_free_var_under_every_compound_tag() {
+    use ori_ir::Name;
+
+    // Pre-build all the compound shapes — one per tag in the legacy ladder —
+    // each containing a fresh inner-rank `Var`. After generalize we expect
+    // exactly one quantified var per shape.
+    type CaseBuilder = fn(&mut Pool) -> (Idx, Idx);
+    let cases: &[(&str, CaseBuilder)] = &[
+        ("List", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.list(v))
+        }),
+        ("Option", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.option(v))
+        }),
+        ("Set", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.set(v))
+        }),
+        ("Channel", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.channel(v))
+        }),
+        ("Range", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.range(v))
+        }),
+        ("Iterator", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.iterator(v))
+        }),
+        ("DoubleEndedIterator", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.double_ended_iterator(v))
+        }),
+        ("Map", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.map(Idx::STR, v))
+        }),
+        ("Result", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.result(v, Idx::STR))
+        }),
+        ("Borrowed", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.borrowed(v, crate::LifetimeId::STATIC))
+        }),
+        ("Function", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.function(&[Idx::INT], v))
+        }),
+        ("Tuple", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            (v, p.tuple(&[v, Idx::BOOL]))
+        }),
+        ("Applied", |p| {
+            let v = p.fresh_var_with_rank(Rank::FIRST.next());
+            let name = Name::from_raw(1);
+            (v, p.applied(name, &[v]))
+        }),
+    ];
+
+    let mut count = 0;
+    for (label, build) in cases {
+        let mut pool = Pool::new();
+        let (_var, body_ty) = build(&mut pool);
+
+        let mut engine = UnifyEngine::new(&mut pool);
+        engine.enter_scope(); // now at FIRST.next()
+
+        let scheme = engine.generalize(body_ty);
+        assert_eq!(
+            engine.pool().tag(scheme),
+            Tag::Scheme,
+            "{label}: generalize must produce a scheme",
+        );
+        let vars = engine.pool().scheme_vars(scheme);
+        assert_eq!(
+            vars.len(),
+            1,
+            "{label}: scheme must bind exactly one var (delegation must reach the compound's child)",
+        );
+        count += 1;
+    }
+    // Self-verifying matrix completeness (tests.md §Matrix Testing Rule):
+    // proves the loop visited every cell — a silent skip would be worse than
+    // no matrix at all.
+    assert_eq!(count, 13, "matrix must visit every cell");
+}
+
+/// Cell — behavior delta: `Tag::Struct` body containing a free var.
+///
+/// Pre-fix: the `_ => {}` arm silently drops `Tag::Struct`; the var is never
+/// collected; `generalize` returns the type unchanged → no scheme produced.
+/// Post-fix: delegation walks struct fields via `visit_children` → var is
+/// collected → scheme binds one var.
+///
+/// This is the load-bearing semantic pin for the Struct path. Reverting
+/// the delegation would flip `Tag::Scheme` → `Tag::Function` here.
+#[test]
+fn generalize_collects_free_var_under_struct_body() {
+    use ori_ir::Name;
+
+    let mut pool = Pool::new();
+    let v = pool.fresh_var_with_rank(Rank::FIRST.next());
+    // `type S = { f: Var }`
+    let struct_ty = pool.struct_type(Name::from_raw(1), &[(Name::from_raw(2), v)]);
+    // `() -> S`
+    let body_ty = pool.function(&[], struct_ty);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    engine.enter_scope();
+    let scheme = engine.generalize(body_ty);
+
+    assert_eq!(
+        engine.pool().tag(scheme),
+        Tag::Scheme,
+        "Struct: free var under field MUST be collected (was dropped pre-fix by _ => {{}})",
+    );
+    let vars = engine.pool().scheme_vars(scheme);
+    assert_eq!(vars.len(), 1, "Struct: exactly one var must be bound");
+}
+
+/// Cell — behavior delta: `Tag::Enum` variant payload containing a free var.
+///
+/// Same shape of pin as the Struct cell — clamps the Enum recursion path.
+#[test]
+fn generalize_collects_free_var_under_enum_variant_payload() {
+    use crate::EnumVariant;
+    use ori_ir::Name;
+
+    let mut pool = Pool::new();
+    let v = pool.fresh_var_with_rank(Rank::FIRST.next());
+    let variants = [EnumVariant {
+        name: Name::from_raw(2),
+        field_types: vec![v],
+    }];
+    let enum_ty = pool.enum_type(Name::from_raw(1), &variants);
+    let body_ty = pool.function(&[], enum_ty);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    engine.enter_scope();
+    let scheme = engine.generalize(body_ty);
+
+    assert_eq!(
+        engine.pool().tag(scheme),
+        Tag::Scheme,
+        "Enum: free var under variant payload MUST be collected (was dropped pre-fix)",
+    );
+    let vars = engine.pool().scheme_vars(scheme);
+    assert_eq!(vars.len(), 1, "Enum: exactly one var must be bound");
+}
+
+/// Cell — behavior delta: `Tag::Scheme` body containing a free outer-rank var.
+///
+/// Schemes whose body references a Var from an enclosing rank must propagate
+/// that free var to outer generalization. `types.md §SC-1` explicitly allows
+/// free `Tag::Var` leaves in scheme bodies; delegation must recurse into the
+/// scheme body to collect them.
+///
+/// `Tag::BoundVar` leaves inside the body do NOT trigger collection because
+/// they set `HAS_BOUND_VAR`, not `HAS_VAR` (`types.md §TF-1`); the top-level
+/// `HAS_VAR` fast-path returns early on a body containing only bound vars.
+#[test]
+fn generalize_collects_free_var_under_scheme_body() {
+    let mut pool = Pool::new();
+
+    // Outer-rank var that will be free inside the inner scheme.
+    let outer_var = pool.fresh_var_with_rank(Rank::FIRST);
+
+    // Inner scheme: ∀b. (b) -> outer_var  — body holds a free outer Var.
+    let bound_id = pool.allocate_var_id_with_rank(Rank::FIRST.next());
+    let bound_node = pool.bound_var(bound_id);
+    let inner_body = pool.function(&[bound_node], outer_var);
+    let inner_scheme = pool.scheme(&[bound_id], inner_body);
+
+    // Wrap the scheme inside a tuple so we generalize over a structure that
+    // contains `Tag::Scheme` as a child — this is the path the legacy `_ => {}`
+    // arm dropped.
+    let outer_body = pool.tuple(&[inner_scheme]);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    // Stay at Rank::FIRST so outer_var is generalizable.
+    let result = engine.generalize(outer_body);
+
+    assert_eq!(
+        engine.pool().tag(result),
+        Tag::Scheme,
+        "Scheme: free outer-rank var inside scheme body MUST be collected (was dropped pre-fix)",
+    );
+    let vars = engine.pool().scheme_vars(result);
+    assert_eq!(
+        vars.len(),
+        1,
+        "Scheme: exactly one var (the outer-rank one) must be bound",
+    );
+}
+
+/// Negative pin — actively asserts delegation is in place.
+///
+/// Constructs a deeply nested compound (`[Struct{f: Var}]`) and asserts the
+/// scheme binds the var. Reverting the `_ => visit_children(...)` arm to
+/// `_ => {}` would drop the struct and leave the var uncollected, returning
+/// the original list type unchanged — `Tag::Scheme` assertion would fail.
+///
+/// This pairs with the positive Struct cell above: positive proves "works",
+/// negative proves "delegation is what makes it work".
+#[test]
+fn generalize_delegation_is_load_bearing_for_nested_struct_in_list() {
+    use ori_ir::Name;
+
+    let mut pool = Pool::new();
+    let v = pool.fresh_var_with_rank(Rank::FIRST.next());
+    let struct_ty = pool.struct_type(Name::from_raw(1), &[(Name::from_raw(2), v)]);
+    let list_of_struct = pool.list(struct_ty);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    engine.enter_scope();
+    let scheme = engine.generalize(list_of_struct);
+
+    // If the `_ =>` arm dropped the `Tag::Struct` child, `list_of_struct`
+    // would have HAS_VAR=true but the Struct under it would be ignored;
+    // `generalize` would skip the var and return the type unchanged.
+    assert_eq!(
+        engine.pool().tag(scheme),
+        Tag::Scheme,
+        "delegation must recurse List → Struct → field; reverting to _ => {{}} flips this",
+    );
+    let vars = engine.pool().scheme_vars(scheme);
+    assert_eq!(vars.len(), 1);
+}
