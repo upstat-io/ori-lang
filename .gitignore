@@ -118,6 +118,6 @@ venv/
 .venv/
 
 /.claude/
-/.codex/
+/.codex
 /.gemini/
 scratchpad
