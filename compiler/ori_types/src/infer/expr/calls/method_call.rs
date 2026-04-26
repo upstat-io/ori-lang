@@ -448,7 +448,7 @@ fn check_range_float_iteration(
 /// fresh-var return because `U` is determined by the closure body, not
 /// the signature.
 ///
-/// **Step ordering** — load-bearing per `bug-tracker/plans/completed/BUG-02-013/`
+/// **Step ordering** — load-bearing per `bug-tracker/plans/BUG-02-013/`
 /// Plan TPR Round 0 finding A1: param-elem unification runs FIRST, then
 /// we re-resolve the closure return, then we check the shape. The reverse
 /// order would silently accept identity closures `x -> x` because the
@@ -492,8 +492,18 @@ fn unify_flat_map_constraints(
     // returns like `[Error]`, `Option<Error>`, `Function<.., Error>` carry
     // `HAS_ERROR` propagated upward per `types.md §TF-3 PROPAGATE_MASK`
     // while keeping their outer tag intact. Without this absorb, the
-    // diagnostic arm fires E2001 on top of the upstream E2003 — a
-    // `typeck.md §ER-4` cascade.
+    // diagnostic arm would fire E2001 on top of the upstream E2003 — a
+    // `typeck.md §ER-4` cascade. The `return` is a SILENT defer: the
+    // upstream `Tag::Error`-producing site already pushed E2003 (or
+    // similar), and `typeck.md §UN-4` absorb semantics mean a downstream
+    // unify of `elem_var` with `Idx::ERROR` would NOT bind `elem_var`
+    // (Error absorbs without writing to the var). Leaving `elem_var`
+    // unbound here is intentional: the result-iterator's element-type
+    // ambiguity surfaces only via tests whose `.collect()` target is
+    // unbound (e.g., `let _ = …collect()`), which is a separate inference
+    // limitation; well-formed callers (`let _: [int] = …collect()`,
+    // typed function returns) anchor `.collect()` and the chain resolves
+    // cleanly.
     if engine.pool().flags(resolved_inner).has_errors() {
         return;
     }
@@ -565,18 +575,25 @@ fn unify_flat_map_constraints(
 
 /// Tag-specialized fix suggestion for the `flat_map` closure-return diagnostic.
 ///
-/// Types in the suggestion-friendly set (`List`, `Set`, `Map`, `Str`,
-/// `Range`, `Option`) have a `.iter()` method that yields the requested
-/// `Iterator<U>`; the suggestion points users straight at that fix. Other
-/// types (primitives, structs, sums, tuples, `BoundVar`/`RigidVar`, etc.)
-/// get a generic message because there is no canonical wrapping that turns
-/// them into an iterator without wrapping them in a list first.
+/// Queries `ori_registry` (the SSOT for builtin type behavior per
+/// `impl-hygiene.md §SSOT`) to determine whether the actual closure-return
+/// tag has a callable `.iter()` method that yields `Iterator<U>`. When yes,
+/// the suggestion points users straight at that fix. When no (or when the
+/// tag has no registry mapping — type variables, named types, projections,
+/// etc.), the suggestion falls back to the generic "wrap in iterator" message.
+///
+/// Replaces the hardcoded tag set (`List | Set | Map | Str | Range | Option`)
+/// flagged by Phase 5 Code TPR Round 0 (codex F4 + gemini F2 + opencode F3 —
+/// LEAK:scattered-knowledge violation duplicating registry method knowledge).
 pub(crate) fn suggest_iterator_fix(inner_tag: Tag) -> Suggestion {
-    let text = match inner_tag {
-        Tag::List | Tag::Set | Tag::Map | Tag::Str | Tag::Range | Tag::Option => {
-            "this type is not an Iterator; call `.iter()` on it (e.g., `[x, x * 10].iter()`)"
-        }
-        _ => "this type is not an Iterator; `flat_map` requires the closure to return an iterator type",
+    use super::super::registry_bridge::tag_to_type_tag;
+    let has_iter = tag_to_type_tag(inner_tag)
+        .and_then(|tt| ori_registry::find_method(tt, "iter"))
+        .is_some();
+    let text = if has_iter {
+        "this type is not an Iterator; call `.iter()` on it (e.g., `[x, x * 10].iter()`)"
+    } else {
+        "this type is not an Iterator; `flat_map` requires the closure to return an iterator type"
     };
     Suggestion::text(text, 1)
 }

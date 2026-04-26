@@ -7,7 +7,7 @@
 
 #[compile_fail(code: "E2001", message: "Iterator")]
 @bad_flat_map_dei_receiver tests _ () -> void = {
-    let _ = [1, 2, 3].iter().rev()
+    let _: [int] = [1, 2, 3].iter().rev()
         .flat_map(transform: (x: int) -> [int] = [x, x * 10])
         .collect();
     ()

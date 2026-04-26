@@ -4,6 +4,15 @@
 // against the new flat_map check accidentally narrowing the success path
 // to plain Iterator and rejecting DEI returns.
 // See: bug-tracker/plans/BUG-02-013/
+
+use std.testing { assert_eq };
+
 @iter_flat_map_dei () -> [int] = {
-    [1, 2, 3].iter().flat_map(transform: x -> [x, x * 10].iter()).collect()
+    [1, 2, 3].iter()
+        .flat_map(transform: x -> [x, x * 10].iter())
+        .collect()
+}
+
+@test_iter_flat_map_dei tests @iter_flat_map_dei () -> void = {
+    assert_eq(actual: iter_flat_map_dei(), expected: [1, 10, 2, 20, 3, 30])
 }

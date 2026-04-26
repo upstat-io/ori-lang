@@ -6,7 +6,7 @@ type Pair = { a: int, b: int }
 
 #[compile_fail(code: "E2001", message: "Iterator")]
 @bad_flat_map_struct tests _ () -> void = {
-    let _ = [1, 2, 3].iter()
+    let _: [int] = [1, 2, 3].iter()
         .flat_map(transform: (x: int) -> Pair = Pair { a: x, b: x * 10 })
         .collect();
     ()

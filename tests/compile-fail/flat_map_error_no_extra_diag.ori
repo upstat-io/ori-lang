@@ -6,7 +6,7 @@
 
 #[compile_fail(code: "E2003")]
 @flat_map_pure_error tests _ () -> void = {
-    let _ = [1, 2, 3].iter()
+    let _: [int] = [1, 2, 3].iter()
         .flat_map(transform: x -> nonexistent_helper(x))
         .collect();
     ()
