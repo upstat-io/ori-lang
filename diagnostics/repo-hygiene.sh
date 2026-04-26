@@ -10,6 +10,7 @@
 #   diagnostics/repo-hygiene.sh --check      # Exit 1 if temp files found (CI gate)
 #   diagnostics/repo-hygiene.sh --clean      # Remove detected temp files
 #   diagnostics/repo-hygiene.sh --gitignore  # Show patterns to add to .gitignore
+#   diagnostics/repo-hygiene.sh --check-root # Exit 1 if root has unrecognized entries
 #   diagnostics/repo-hygiene.sh --help       # Show this help
 
 set -euo pipefail
@@ -19,7 +20,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ── Defaults ──────────────────────────────────────────────────────────────
 
-MODE="list"       # list | check | clean | gitignore
+MODE="list"       # list | check | clean | gitignore | check-root
 NO_COLOR="${NO_COLOR:-}"
 COLOR=true
 
@@ -36,6 +37,7 @@ Modes:
   --check       Exit 0 if clean, exit 1 if temp files found (CI/skill gate)
   --clean       Remove detected temp files (prints what it removes)
   --gitignore   Suggest .gitignore patterns for detected files
+  --check-root  Exit 0 if root matches .root-inventory, 1 otherwise (CI gate)
 
 Options:
   --no-color    Disable colored output
@@ -62,6 +64,7 @@ while [[ $# -gt 0 ]]; do
         --check)    MODE="check"; shift ;;
         --clean)    MODE="clean"; shift ;;
         --gitignore) MODE="gitignore"; shift ;;
+        --check-root) MODE="check-root"; shift ;;
         --no-color) COLOR=false; shift ;;
         --color)    COLOR=true; NO_COLOR=""; shift ;;
         --help|-h)  usage; exit 0 ;;
@@ -324,5 +327,62 @@ case "$MODE" in
             printf "\n# Core dumps\n"
             printf "core\ncore.*\n"
         fi
+        ;;
+
+    check-root)
+        # Allowlist gate: every entry in the repo root must be declared in
+        # .root-inventory. Anything else is a stray (test artifact, debug
+        # dump, editor cruft) and blocks the commit until resolved.
+        INVENTORY_FILE="$ROOT_DIR/.root-inventory"
+        if [[ ! -f "$INVENTORY_FILE" ]]; then
+            printf "${RED}repo-hygiene: missing %s${RESET}\n" "$INVENTORY_FILE" >&2
+            exit 2
+        fi
+
+        # Parse inventory: drop comments and blank lines, take first whitespace-
+        # delimited field per line, sort+dedupe.
+        ALLOWED=$(sed -e 's/#.*$//' -e 's/[[:space:]]*$//' "$INVENTORY_FILE" \
+                  | awk 'NF{print $1}' | sort -u)
+        # ACTUAL = top-level entries that git considers "in" the repo:
+        # tracked files + untracked-not-ignored. This deliberately excludes
+        # gitignored build/test outputs (target/, *.log) so the gate fires
+        # on REAL strays — anything a contributor could accidentally commit —
+        # without false-failing on routine local artifacts.
+        ACTUAL=$(cd "$ROOT_DIR" \
+                 && git ls-files --cached --others --exclude-standard \
+                 | awk -F/ 'NF{print $1}' | sort -u)
+
+        STRAYS=$(comm -23 <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$ALLOWED"))
+        MISSING=$(comm -13 <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$ALLOWED"))
+
+        if [[ -z "$STRAYS" ]]; then
+            printf "${GREEN}root-inventory: clean${RESET}"
+            if [[ -n "$MISSING" ]]; then
+                MISS_COUNT=$(printf '%s\n' "$MISSING" | wc -l | awk '{print $1}')
+                printf " ${DIM}(%d inventory entr%s not on disk)${RESET}" \
+                    "$MISS_COUNT" "$( [[ $MISS_COUNT -ne 1 ]] && echo 'ies' || echo 'y' )"
+            fi
+            printf "\n"
+            exit 0
+        fi
+
+        STRAY_COUNT=$(printf '%s\n' "$STRAYS" | wc -l | awk '{print $1}')
+        printf "${RED}${BOLD}root-inventory: %d unrecognized root entr%s${RESET}\n" \
+            "$STRAY_COUNT" "$( [[ $STRAY_COUNT -ne 1 ]] && echo 'ies' || echo 'y' )"
+        while IFS= read -r s; do
+            [[ -z "$s" ]] && continue
+            if [[ -d "$ROOT_DIR/$s" ]]; then
+                printf "  ${RED}+${RESET} %s/\n" "$s"
+            else
+                printf "  ${RED}+${RESET} %s\n" "$s"
+            fi
+        done <<< "$STRAYS"
+
+        printf "\n${BOLD}.root-inventory${RESET} declares which entries are permitted at the\n"
+        printf "repository root. To resolve, choose ONE per offender:\n\n"
+        printf "  1. ${BOLD}Remove${RESET}      stray test/debug artifact   ${DIM}rm <name> | git rm <name>${RESET}\n"
+        printf "  2. ${BOLD}Gitignore${RESET}   build/cache output           ${DIM}echo '/<name>' >> .gitignore${RESET}\n"
+        printf "  3. ${BOLD}Bless${RESET}       legitimate new top-level     ${DIM}edit .root-inventory${RESET}\n"
+        exit 1
         ;;
 esac

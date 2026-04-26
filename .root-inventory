@@ -1,0 +1,45 @@
+# Root inventory — permitted top-level entries for this repository.
+# Enforced by diagnostics/repo-hygiene.sh --check-root (pre-commit gate).
+# To add: append the entry, keep the file sorted. To remove: delete the line.
+# Comments (#) and blank lines ignored.
+
+.cargo
+.editorconfig
+.github
+.gitignore
+.lefthook
+.root-inventory
+BUILD_NUMBER
+CHANGELOG.md
+CONTRIBUTING.md
+Cargo.lock
+Cargo.toml
+LICENSE-APACHE
+LICENSE-MIT
+README.md
+blog
+build
+build-all.sh
+clippy-all.sh
+clippy.toml
+compiler
+diagnostics
+docker
+docs
+editors
+examples
+fmt-all.sh
+full-check.sh
+install.sh
+lefthook.yml
+library
+llvm-build.sh
+llvm-clippy.sh
+llvm-test.sh
+rebuild-playground.sh
+rustfmt.toml
+scripts
+setup.sh
+test-all.sh
+tests
+tools

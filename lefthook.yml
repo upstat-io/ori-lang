@@ -23,6 +23,8 @@ pre-commit:
     intel-query-ssot:
       glob: ".claude/**/*.md"
       run: .lefthook/check-intel-query-ssot.sh
+    root-inventory:
+      run: diagnostics/repo-hygiene.sh --check-root --no-color
 
 post-commit:
   commands:
