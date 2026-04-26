@@ -1,5 +1,6 @@
 //! Method call type inference: `receiver.method(args)`.
 
+use ori_diagnostic::Suggestion;
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::super::InferEngine;
@@ -7,6 +8,7 @@ use super::super::{infer_expr, range_method_requires_iteration, resolve_builtin_
 use super::impl_lookup::{
     emit_into_not_implemented, lookup_impl_method, resolve_impl_signature, ImplMethodSig,
 };
+use crate::type_error::ErrorContext;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError, TypeCheckWarning};
 
 /// Infer the type of a method call expression: `receiver.method(args)`.
@@ -30,12 +32,24 @@ pub(crate) fn infer_method_call(
             ret_ty,
             receiver_ty,
         } => {
-            let arg_types: Vec<Idx> = arena
-                .get_expr_list(args)
+            let arg_ids: Vec<ExprId> = arena.get_expr_list(args).to_vec();
+            let arg_types: Vec<Idx> = arg_ids
                 .iter()
                 .map(|&arg_id| infer_expr(engine, arena, arg_id))
                 .collect();
-            unify_higher_order_constraints(engine, method, ret_ty, receiver_ty, &arg_types);
+            let arg_spans: Vec<Span> = arg_ids
+                .iter()
+                .map(|&arg_id| arena.get_expr(arg_id).span)
+                .collect();
+            unify_higher_order_constraints(
+                engine,
+                method,
+                ret_ty,
+                receiver_ty,
+                &arg_types,
+                &arg_spans,
+                span,
+            );
             return ret_ty;
         }
         ReceiverDispatch::Continue { resolved } => resolved,
@@ -72,12 +86,27 @@ pub(crate) fn infer_method_call_named(
             ret_ty,
             receiver_ty,
         } => {
-            let arg_types: Vec<Idx> = arena
-                .get_call_args(args)
+            let call_args = arena.get_call_args(args);
+            let arg_types: Vec<Idx> = call_args
                 .iter()
                 .map(|arg| infer_expr(engine, arena, arg.value))
                 .collect();
-            unify_higher_order_constraints(engine, method, ret_ty, receiver_ty, &arg_types);
+            // Per Plan TPR finding A4: use arena.get_expr(arg.value).span
+            // (value-only span) instead of arg.span (whole `name: value` range)
+            // so diagnostics anchor at the closure body, not the keyword.
+            let arg_spans: Vec<Span> = call_args
+                .iter()
+                .map(|arg| arena.get_expr(arg.value).span)
+                .collect();
+            unify_higher_order_constraints(
+                engine,
+                method,
+                ret_ty,
+                receiver_ty,
+                &arg_types,
+                &arg_spans,
+                span,
+            );
             return ret_ty;
         }
         ReceiverDispatch::Continue { resolved } => resolved,
@@ -167,7 +196,15 @@ fn unify_higher_order_constraints(
     ret_ty: Idx,
     receiver_ty: Idx,
     arg_types: &[Idx],
+    arg_spans: &[Span],
+    call_span: Span,
 ) {
+    debug_assert_eq!(
+        arg_types.len(),
+        arg_spans.len(),
+        "arg_types and arg_spans must be parallel (one entry per arg)"
+    );
+
     let Some(method_str) = engine.lookup_name(method) else {
         return;
     };
@@ -193,27 +230,14 @@ fn unify_higher_order_constraints(
             }
         }
         "flat_map" => {
-            // ret_ty is Iterator<var>.
-            // arg_types[0] is closure (T) -> Iterator<U>. Unify var with U.
-            let Some(&closure_ty) = arg_types.first() else {
-                return;
-            };
-            let resolved_ret = engine.resolve(ret_ty);
-            if !engine.pool().tag(resolved_ret).is_iterator() {
-                return;
-            }
-            let elem_var = engine.pool().iterator_elem(resolved_ret);
-            let resolved_closure = engine.resolve(closure_ty);
-            if engine.pool().tag(resolved_closure) == Tag::Function {
-                let closure_ret = engine.pool().function_return(resolved_closure);
-                let resolved_inner = engine.resolve(closure_ret);
-                if engine.pool().tag(resolved_inner).is_iterator() {
-                    let inner_elem = engine.pool().iterator_elem(resolved_inner);
-                    let _ = engine.unify().unify(elem_var, inner_elem);
-                }
-                // Unify closure param with source iterator element
-                unify_closure_param_with_iterator_elem(engine, resolved_closure, receiver_ty);
-            }
+            unify_flat_map_constraints(
+                engine,
+                ret_ty,
+                receiver_ty,
+                arg_types,
+                arg_spans,
+                call_span,
+            );
         }
         // filter, any, all, find, for_each: closure (T) -> bool/void
         "filter" | "any" | "all" | "find" | "for_each" => {
@@ -414,6 +438,147 @@ fn check_range_float_iteration(
         "(0..10).iter().map((i) -> i.to_float() / 10.0)",
     ));
     Some(Idx::ERROR)
+}
+
+/// Type-check `flat_map`'s closure-return shape requirement.
+///
+/// `flat_map` requires the closure to return `Iterator<U>` or
+/// `DoubleEndedIterator<U>`. This is the only place that requirement is
+/// enforceable at typecheck time — the registry signature carries a
+/// fresh-var return because `U` is determined by the closure body, not
+/// the signature.
+///
+/// **Step ordering** — load-bearing per `bug-tracker/plans/completed/BUG-02-013/`
+/// Plan TPR Round 0 finding A1: param-elem unification runs FIRST, then
+/// we re-resolve the closure return, then we check the shape. The reverse
+/// order would silently accept identity closures `x -> x` because the
+/// shape check would see an unbound `Tag::Var`, defer, and only afterwards
+/// bind the var to `receiver_elem` — never re-checking.
+fn unify_flat_map_constraints(
+    engine: &mut InferEngine<'_>,
+    ret_ty: Idx,
+    receiver_ty: Idx,
+    arg_types: &[Idx],
+    arg_spans: &[Span],
+    call_span: Span,
+) {
+    let Some(&closure_ty) = arg_types.first() else {
+        return;
+    };
+    let closure_span = arg_spans.first().copied().unwrap_or(call_span);
+    let resolved_ret = engine.resolve(ret_ty);
+    if !engine.pool().tag(resolved_ret).is_iterator() {
+        return;
+    }
+    let elem_var = engine.pool().iterator_elem(resolved_ret);
+    let resolved_closure = engine.resolve(closure_ty);
+    if engine.pool().tag(resolved_closure) != Tag::Function {
+        return;
+    }
+
+    // STEP 3a — Param-elem unification first (the REORDER per A1). For
+    // `(α) -> α`, this binds α to receiver_elem so STEP 3b's re-resolve
+    // sees a concrete type instead of an unbound var.
+    unify_closure_param_with_iterator_elem(engine, resolved_closure, receiver_ty);
+
+    // STEP 3b — Re-resolve the closure return now that the param-elem
+    // binding may have transitively bound vars reachable from closure_ret.
+    let closure_ret = engine.pool().function_return(resolved_closure);
+    let resolved_inner = engine.resolve(closure_ret);
+    let inner_tag = engine.pool().tag(resolved_inner);
+
+    // STEP 3c-PRE — Compound-poison absorb (Plan TPR Round 1 finding R1-A).
+    // The OUTER tag check below catches `Tag::Error` directly, but compound
+    // returns like `[Error]`, `Option<Error>`, `Function<.., Error>` carry
+    // `HAS_ERROR` propagated upward per `types.md §TF-3 PROPAGATE_MASK`
+    // while keeping their outer tag intact. Without this absorb, the
+    // diagnostic arm fires E2001 on top of the upstream E2003 — a
+    // `typeck.md §ER-4` cascade.
+    if engine.pool().flags(resolved_inner).has_errors() {
+        return;
+    }
+
+    if inner_tag.is_iterator() {
+        // Success path — propagate inner element to result iter.
+        let inner_elem = engine.pool().iterator_elem(resolved_inner);
+        let _ = engine.unify().unify(elem_var, inner_elem);
+    } else if inner_tag == Tag::Never {
+        // Divergent closure body (panic/unreachable/loop). Per
+        // `typeck.md §UN-3`, `Never` absorbs unification with any type.
+        // Bind elem_var to `Never` so the result iterator's element
+        // resolves cleanly to `Never` (uninhabited iterator —
+        // semantically consistent: a closure that never returns a value
+        // yields a never-producing iterator). Without this bind,
+        // `validate_body_types` fires E2005 on the unbound elem_var.
+        let _ = engine.unify().unify(elem_var, Idx::NEVER);
+    } else if matches!(inner_tag, Tag::Var)
+        || inner_tag == Tag::Projection
+        || inner_tag == Tag::Error
+        || inner_tag == Tag::Alias
+    {
+        // Silent defer / absorb (no elem_var binding — that's the point of "defer"):
+        //   Tag::Var       — STILL unbound after STEP 3a; validate_body_types
+        //                    fires E2005 if it survives. matches!(inner_tag, Tag::Var)
+        //                    NOT Tag::is_type_variable() — that includes
+        //                    BoundVar/RigidVar which the validator silently skips
+        //                    (different defer semantics).
+        //   Tag::Projection — kept symbolic per typeck.md §UN-8; resolved later
+        //                     when receiver concretizes.
+        //   Tag::Error     — poison absorbed silently per §UN-4; compound-poison
+        //                    case handled by §3c-PRE.
+        //   Tag::Alias     — engine.resolve() chases VarState::Link only; per
+        //                    types.md §TK-9 user-writable aliases are parsed as
+        //                    Newtype, so this case is unreachable from user
+        //                    surface today (defensive).
+    } else {
+        // BoundVar, RigidVar, primitives, structs, sums, tuples, List, Map,
+        // Set, Option, Range, Str, Char, Byte, Duration, Size, Ordering, etc.
+        // — concrete-enough non-iterator returns that warrant a clear
+        // diagnostic now.
+        //
+        // Use `unsatisfied_bound` (TypeErrorKind::UnsatisfiedBound, E2001)
+        // over `mismatch` for two reasons: (a) the precedent in this same
+        // file (`resolve_receiver_and_builtin` line 360 for the DEI-required
+        // diagnostic) uses the same constructor for an analogous "method
+        // requires X-shaped argument" diagnostic; (b) the message renders
+        // verbatim, no Pool dependency — the test harness's pool-less
+        // `Idx::display_name()` path would render `Iterator<U>` as `<type>`
+        // for the Mismatch variant, masking the diagnostic.
+        let err = TypeCheckError::unsatisfied_bound(
+            closure_span,
+            "`flat_map` closure must return an iterator type (`Iterator<U>` or `DoubleEndedIterator<U>`)",
+        )
+        .with_context(ErrorContext::new(ContextKind::HigherOrderClosureReturn {
+            adapter_name: "flat_map",
+        }))
+        .with_suggestion(suggest_iterator_fix(inner_tag));
+        engine.push_error(err);
+
+        // Absorb the result-iterator's element variable so it doesn't
+        // surface as a downstream E2005 from `validate_body_types`. Per
+        // `typeck.md §UN-4`, unifying with `Tag::Error` absorbs silently —
+        // the user sees one precise error at the closure body, not a
+        // cascade of confused E2005s pointing at the call site.
+        let _ = engine.unify().unify(elem_var, Idx::ERROR);
+    }
+}
+
+/// Tag-specialized fix suggestion for the `flat_map` closure-return diagnostic.
+///
+/// Types in the suggestion-friendly set (`List`, `Set`, `Map`, `Str`,
+/// `Range`, `Option`) have a `.iter()` method that yields the requested
+/// `Iterator<U>`; the suggestion points users straight at that fix. Other
+/// types (primitives, structs, sums, tuples, `BoundVar`/`RigidVar`, etc.)
+/// get a generic message because there is no canonical wrapping that turns
+/// them into an iterator without wrapping them in a list first.
+pub(crate) fn suggest_iterator_fix(inner_tag: Tag) -> Suggestion {
+    let text = match inner_tag {
+        Tag::List | Tag::Set | Tag::Map | Tag::Str | Tag::Range | Tag::Option => {
+            "this type is not an Iterator; call `.iter()` on it (e.g., `[x, x * 10].iter()`)"
+        }
+        _ => "this type is not an Iterator; `flat_map` requires the closure to return an iterator type",
+    };
+    Suggestion::text(text, 1)
 }
 
 /// Methods that consume an entire iterator and will never terminate on infinite sources.

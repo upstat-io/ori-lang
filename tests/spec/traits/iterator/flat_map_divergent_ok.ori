@@ -1,0 +1,26 @@
+// Positive pin P4 — load-bearing A2 case from Plan TPR Round 0.
+// Closure body always panics and returns `Tag::Never`. Per typeck.md §UN-3
+// (`Never` absorbs unification with any type), divergent closures are
+// legitimate flat_map input — the new shape check MUST silently accept
+// `Tag::Never` and bind the result iterator's element type to Never.
+// Without the A2 fix this test would fail with a spurious E2001.
+//
+// Methodology: the helper's `() -> [int]` return type pins .collect()'s
+// target collection (avoiding the orthogonal collect-target ambiguity that
+// fires E2005 on `let _ = ...collect()` without a type annotation).
+// Function-level return annotations are formatter-stable; `let _ : T = ...`
+// inside a body is not.
+// `#[skip(...)]` prevents runtime execution; type-check happens regardless.
+// See: bug-tracker/plans/BUG-02-013/
+
+@flat_map_divergent_ok_helper () -> [int] = {
+    [1, 2, 3].iter()
+        .flat_map(transform: x -> panic(msg: "unreachable in this test"))
+        .collect()
+}
+
+#[skip("body panics at runtime; this test verifies type-check acceptance only")]
+@flat_map_divergent_ok tests _ () -> void = {
+    let _ = flat_map_divergent_ok_helper();
+    ()
+}

@@ -1,0 +1,9 @@
+// Positive pin P3 — flat_map closure returning DoubleEndedIterator<int>
+// SHALL still typecheck cleanly. `Tag::is_iterator()` subsumes both
+// `Iterator` and `DoubleEndedIterator` per types.md TK-1; this test guards
+// against the new flat_map check accidentally narrowing the success path
+// to plain Iterator and rejecting DEI returns.
+// See: bug-tracker/plans/BUG-02-013/
+@iter_flat_map_dei () -> [int] = {
+    [1, 2, 3].iter().flat_map(transform: x -> [x, x * 10].iter()).collect()
+}

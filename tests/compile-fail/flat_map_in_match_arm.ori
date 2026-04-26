@@ -1,0 +1,17 @@
+// Cross-feature interaction pin I3 — flat_map call inside a match arm.
+// The closure returns `Option<int>` (non-iterator). The new diagnostic must
+// anchor at the closure body, not at the match arm or the match expression
+// itself. Match-arm context does not change the error site.
+// See: bug-tracker/plans/BUG-02-013/
+
+#[compile_fail(code: "E2001", message: "Iterator")]
+@bad_flat_map_in_match tests _ () -> void = {
+    let $tag = 1;
+    let _ = match tag {
+        1 -> [1, 2, 3].iter()
+            .flat_map(transform: (x: int) -> Option<int> = Some(x))
+            .collect(),
+        _ -> [],
+    };
+    ()
+}

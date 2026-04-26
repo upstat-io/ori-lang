@@ -126,6 +126,15 @@ pub enum ContextKind {
     /// Implicit return of a lambda.
     LambdaReturn,
 
+    /// Closure return position inside a higher-order iterator adapter
+    /// (e.g., `flat_map(transform: x -> ...)`). Distinct from `LambdaReturn`
+    /// because the closure's return type has a structural requirement
+    /// (must be `Iterator<U>`) imposed by the enclosing adapter.
+    HigherOrderClosureReturn {
+        /// Adapter method name as a static string (e.g., `"flat_map"`).
+        adapter_name: &'static str,
+    },
+
     /// Receiver of a method call (the value before the dot).
     MethodReceiver {
         /// Name of the method being called.
@@ -329,6 +338,9 @@ impl ContextKind {
                 format!("in the {} lambda parameter", ordinal(*index + 1))
             }
             Self::LambdaReturn => "in the lambda return".to_string(),
+            Self::HigherOrderClosureReturn { adapter_name } => {
+                format!("in the closure return of `{adapter_name}`")
+            }
             Self::MethodReceiver { .. } => "in the method receiver".to_string(),
 
             // Operators
@@ -410,6 +422,7 @@ impl ContextKind {
             Self::LambdaBody => "lambda body determines return type",
             Self::LambdaParameter { .. } => "parameter type is fixed",
             Self::LambdaReturn => "lambda return type is fixed",
+            Self::HigherOrderClosureReturn { .. } => "closure must return an iterator type",
             Self::MethodReceiver { .. } => "method requires this receiver type",
 
             // Operators

@@ -14,4 +14,9 @@ pub(crate) use method_call::{infer_method_call, infer_method_call_named};
 #[cfg(test)]
 pub(crate) use method_call::find_infinite_source;
 #[cfg(test)]
+pub(crate) use method_call::suggest_iterator_fix;
+#[cfg(test)]
 pub(crate) use traits::type_satisfies_trait;
+
+#[cfg(test)]
+mod tests;

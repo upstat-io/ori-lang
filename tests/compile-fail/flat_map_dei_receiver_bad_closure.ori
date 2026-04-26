@@ -1,0 +1,14 @@
+// Cross-feature interaction pin I4 — flat_map on a DoubleEndedIterator receiver.
+// Receiver `[1, 2, 3].iter()` produces a DEI; closure returns `[int]` (List,
+// not Iterator). `Tag::is_iterator()` subsumes both Iterator and DEI per
+// types.md TK-1, so the receiver shape doesn't matter — the closure-return
+// requirement still fires E2001.
+// See: bug-tracker/plans/BUG-02-013/
+
+#[compile_fail(code: "E2001", message: "Iterator")]
+@bad_flat_map_dei_receiver tests _ () -> void = {
+    let _ = [1, 2, 3].iter().rev()
+        .flat_map(transform: (x: int) -> [int] = [x, x * 10])
+        .collect();
+    ()
+}

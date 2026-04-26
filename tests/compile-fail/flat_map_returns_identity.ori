@@ -1,0 +1,16 @@
+// Regression — load-bearing A1 case from Plan TPR Round 0.
+// Identity closure `x -> x`: closure return is the same fresh var as the
+// param. Without the STEP 3a -> 3b -> 3c reorder in `unify_higher_order_constraints`,
+// `Tag::Var` would be silently deferred, then `unify_closure_param_with_iterator_elem`
+// would bind the var to receiver_elem (int), and the wrong-shape diagnostic
+// would never fire — user sees E2005 (ambiguous type) downstream instead of
+// E2001 at the closure span.
+// See: bug-tracker/plans/BUG-02-013/
+
+#[compile_fail(code: "E2001", message: "Iterator")]
+@bad_flat_map_identity tests _ () -> void = {
+    let _ = [1, 2, 3].iter()
+        .flat_map(transform: x -> x)
+        .collect();
+    ()
+}

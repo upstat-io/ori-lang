@@ -1,0 +1,22 @@
+// Cross-feature interaction pin I1 (per Plan TPR Round 1 finding R1-B).
+// Original I1 form `flat_map(closure)?` was invalid Ori (the `?` operator per
+// Spec Clause 17 only applies to Result/Option, not Iterator). Redesigned to
+// exercise `?` WITHIN the closure body. When `?` is used inside a closure,
+// the closure's return type must be Result<_, _> — which is non-iterator,
+// so the new flat_map check must fire E2001 at the closure span. This guards
+// against any future short-circuit that lets `?`-using closures bypass the
+// new shape check.
+// See: bug-tracker/plans/BUG-02-013/
+
+@maybe_parse (s: str) -> Result<int, str> = Ok(0);
+
+#[compile_fail(code: "E2001", message: "iterator")]
+@bad_flat_map_closure_uses_try tests _ () -> Result<void, str> = {
+    let _ = ["1", "2"].iter()
+        .flat_map(transform: s -> {
+            let $n = maybe_parse(s)?;
+            Ok(n)
+        })
+        .collect();
+    Ok(())
+}

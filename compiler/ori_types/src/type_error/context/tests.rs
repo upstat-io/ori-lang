@@ -57,3 +57,60 @@ fn context_category_checks() {
     }
     .is_function_call());
 }
+
+// Regression: see bug-tracker/plans/BUG-02-013/
+// HigherOrderClosureReturn distinguishes a closure return position inside a
+// higher-order iterator adapter (e.g., flat_map) from a generic LambdaReturn,
+// because the closure return carries a structural Iterator<U> requirement
+// imposed by the enclosing adapter.
+
+#[test]
+fn higher_order_closure_return_describe_names_adapter() {
+    assert_eq!(
+        ContextKind::HigherOrderClosureReturn {
+            adapter_name: "flat_map",
+        }
+        .describe(),
+        "in the closure return of `flat_map`"
+    );
+}
+
+#[test]
+fn higher_order_closure_return_expectation_reason_demands_iterator() {
+    assert_eq!(
+        ContextKind::HigherOrderClosureReturn {
+            adapter_name: "flat_map",
+        }
+        .expectation_reason(),
+        "closure must return an iterator type"
+    );
+}
+
+#[test]
+fn higher_order_closure_return_is_function_call_false() {
+    // The closure-return position is NOT a function-call site — the enclosing
+    // method call (flat_map itself) is the function call; the closure body is
+    // a separately-typed expression whose return shape is being constrained.
+    assert!(!ContextKind::HigherOrderClosureReturn {
+        adapter_name: "flat_map",
+    }
+    .is_function_call());
+}
+
+#[test]
+fn higher_order_closure_return_is_control_flow_false() {
+    // Closure-return is structural shape enforcement, not control flow.
+    assert!(!ContextKind::HigherOrderClosureReturn {
+        adapter_name: "flat_map",
+    }
+    .is_control_flow());
+}
+
+#[test]
+fn higher_order_closure_return_expects_bool_false() {
+    // The expected type is Iterator<U>, never bool.
+    assert!(!ContextKind::HigherOrderClosureReturn {
+        adapter_name: "flat_map",
+    }
+    .expects_bool());
+}

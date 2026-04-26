@@ -1,0 +1,14 @@
+// Cross-feature interaction pin I2 — chained flat_map calls.
+// `.flat_map(c1).flat_map(c2)` where c1 is correct (returns Iterator) but c2
+// returns the wrong shape (`int`). The new diagnostic must fire at c2's
+// closure span — chained higher-order calls do not mask inner errors.
+// See: bug-tracker/plans/BUG-02-013/
+
+#[compile_fail(code: "E2001", message: "Iterator")]
+@bad_flat_map_chained tests _ () -> void = {
+    let _ = [1, 2, 3].iter()
+        .flat_map(transform: (x: int) -> Iterator<int> = [x, x * 10].iter())
+        .flat_map(transform: (y: int) -> int = y * 2)
+        .collect();
+    ()
+}
