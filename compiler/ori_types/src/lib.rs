@@ -80,9 +80,10 @@ pub use reporting::{render_type_errors, TypeErrorRenderer};
 pub use tag::Tag;
 pub use triviality::{classify_triviality, Triviality};
 pub use type_error::{
-    diff_types, edit_distance, find_closest_field, suggest_field_typo, ArityMismatchKind,
-    ContextKind, ErrorContext, Expected, ExpectedOrigin, ImportErrorKind, SequenceKind, Severity,
-    TypeCheckError, TypeCheckWarning, TypeCheckWarningKind, TypeErrorKind, TypeProblem,
+    diff_types, edit_distance, find_closest_field, suggest_field_typo, AmbiguousTypeSite,
+    ArityMismatchKind, ContextKind, ErrorContext, Expected, ExpectedOrigin, ImportErrorKind,
+    SequenceKind, Severity, TypeCheckError, TypeCheckWarning, TypeCheckWarningKind, TypeErrorKind,
+    TypeProblem,
 };
 pub use unify::{ArityKind, Rank, UnifyContext, UnifyEngine, UnifyError};
 pub use value_category::ValueCategory;

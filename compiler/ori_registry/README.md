@@ -1,8 +1,6 @@
 # ori_registry
 
 > **`ori_registry` is the single source of truth for builtin type behavior.** Pure data, not logic.
->
-> Full mission: [`.claude/rules/missions.md §ori_registry`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -49,6 +47,4 @@ cargo test -p ori_registry
 
 ## References
 
-- [`.claude/rules/registry.md`](../../.claude/rules/registry.md) — registry rules + method/type addition workflow
-- [`.claude/rules/impl-hygiene.md §SSOT`](../../.claude/rules/impl-hygiene.md) — architectural centers
 - `CLAUDE.md §Key Patterns` — Method Dispatch

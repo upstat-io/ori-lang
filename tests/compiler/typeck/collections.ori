@@ -124,7 +124,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Valid: None
 @test_option_none tests _ () -> void = {
-    let opt = None;
+    let opt: Option<int> = None;
     assert(cond: is_none(opt: opt))
 }
 
@@ -134,13 +134,13 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Valid: Ok
 @test_result_ok tests _ () -> void = {
-    let res = Ok(42);
+    let res: Result<int, str> = Ok(42);
     assert(cond: is_ok(r: res))
 }
 
 // Valid: Err
 @test_result_err tests _ () -> void = {
-    let res = Err("error");
+    let res: Result<int, str> = Err("error");
     assert(cond: is_err(r: res))
 }
 
@@ -151,7 +151,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // Valid: map preserves inner type transformation
 @test_list_map_type tests _ () -> void = {
     let nums = [1, 2, 3];
-    let strs: [str] = nums.map(transform: x -> str(x));
+    let strs: [str] = nums.map(transform: (x: int) -> str = str(x));
     ()
 }
 
@@ -159,21 +159,21 @@ use std.testing { assert, assert_eq, assert_ne }
 #[compile_fail("type mismatch")]
 @test_list_map_wrong_type tests _ () -> void = {
     let nums = [1, 2, 3];
-    let result: [int] = nums.map(transform: x -> str(x));
+    let result: [int] = nums.map(transform: (x: int) -> str = str(x));
     ()
 }
 
 // Valid: filter preserves element type
 @test_list_filter_type tests _ () -> void = {
     let nums = [1, 2, 3, 4];
-    let evens: [int] = nums.filter(predicate: x -> x % 2 == 0);
+    let evens: [int] = nums.filter(predicate: (x: int) -> bool = x % 2 == 0);
     assert_eq(actual: evens, expected: [2, 4])
 }
 
 // Valid: fold with accumulator type
 @test_list_fold_type tests _ () -> void = {
     let nums = [1, 2, 3];
-    let sum: int = nums.fold(initial: 0, op: (acc, x) -> acc + x);
+    let sum: int = nums.fold(initial: 0, op: (acc: int, x: int) -> int = acc + x);
     assert_eq(actual: sum, expected: 6)
 }
 
@@ -181,7 +181,7 @@ use std.testing { assert, assert_eq, assert_ne }
 #[compile_fail("type mismatch")]
 @test_list_fold_wrong_acc tests _ () -> void = {
     let nums = [1, 2, 3];
-    let sum: str = nums.fold(initial: 0, op: (acc, x) -> acc + x);
+    let sum: str = nums.fold(initial: 0, op: (acc: int, x: int) -> int = acc + x);
     ()
 }
 

@@ -268,29 +268,63 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             // For trait impls, compile unoverridden default methods.
             // The type checker registers their sigs in the same order after
             // explicit methods, so sig_iter stays aligned.
-            if let Some(trait_path) = &impl_def.trait_path {
-                if let Some(&trait_name) = trait_path.last() {
-                    if let Some(trait_def) = trait_map.get(&trait_name) {
-                        let overridden: FxHashSet<Name> =
-                            impl_def.methods.iter().map(|m| m.name).collect();
+            self.compile_trait_default_methods_for_impl(
+                impl_def,
+                type_name_name,
+                &type_name,
+                &trait_map,
+                &mut sig_iter,
+                canon,
+            );
+        }
+    }
 
-                        for item in &trait_def.items {
-                            if let TraitItem::DefaultMethod(default) = item {
-                                if !overridden.contains(&default.name) {
-                                    self.compile_impl_method_from_sig(
-                                        &mut sig_iter,
-                                        default.name,
-                                        default.span,
-                                        type_name_name,
-                                        &type_name,
-                                        canon,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
+    /// Compile the unoverridden default methods of any trait this impl
+    /// implements. Each `impl Type: Trait { ... }` inherits every default
+    /// body from `Trait` that the impl block does not explicitly override;
+    /// the type checker has already registered one sig for each inherited
+    /// default in positional order AFTER the explicit-method sigs, so
+    /// `sig_iter` stays aligned with the compile order used here.
+    ///
+    /// No-op when `impl_def` is an inherent (non-trait) impl, when the
+    /// trait path does not resolve, or when every method is overridden.
+    /// Extracted from `compile_impls` to keep nesting depth ≤ 4.
+    fn compile_trait_default_methods_for_impl<'sig>(
+        &mut self,
+        impl_def: &ori_ir::ImplDef,
+        type_name_name: Option<Name>,
+        type_name: &str,
+        trait_map: &FxHashMap<Name, &TraitDef>,
+        sig_iter: &mut impl Iterator<Item = &'sig (Name, FunctionSig)>,
+        canon: &CanonResult,
+    ) {
+        let Some(trait_path) = &impl_def.trait_path else {
+            return;
+        };
+        let Some(&trait_name) = trait_path.last() else {
+            return;
+        };
+        let Some(trait_def) = trait_map.get(&trait_name) else {
+            return;
+        };
+
+        let overridden: FxHashSet<Name> = impl_def.methods.iter().map(|m| m.name).collect();
+
+        for item in &trait_def.items {
+            let TraitItem::DefaultMethod(default) = item else {
+                continue;
+            };
+            if overridden.contains(&default.name) {
+                continue;
             }
+            self.compile_impl_method_from_sig(
+                sig_iter,
+                default.name,
+                default.span,
+                type_name_name,
+                type_name,
+                canon,
+            );
         }
     }
 

@@ -1,0 +1,13 @@
+// Matrix §05.2 item 12 POSITIVE PIN: annotated empty list flows through a
+// generic free function. The caller pins `T = int` at the call site via the
+// annotated argument `ints: [int] = []`, so the generic signature resolves
+// cleanly and `.len()` returns the expected zero.
+
+use std.testing { assert_eq }
+
+@count_items<T> (xs: [T]) -> int = xs.len();
+
+@test_empty_list_generic tests _ () -> void = {
+    let ints: [int] = [];
+    assert_eq(actual: count_items(xs: ints), expected: 0)
+}

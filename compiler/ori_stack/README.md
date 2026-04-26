@@ -1,8 +1,6 @@
 # ori_stack
 
 > **`ori_stack` exists to let recursive compiler code handle arbitrarily deep input without host stack overflow.**
->
-> Full mission: [`.claude/rules/missions.md §ori_stack`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -48,8 +46,3 @@ These values are chosen to handle deeply nested code (100k+ recursion depth) whi
 ```bash
 cargo test -p ori_stack
 ```
-
-## References
-
-- [`.claude/rules/compiler.md §Crates`](../../.claude/rules/compiler.md) — crate role
-- [`.claude/rules/impl-hygiene.md §Panic & Assertion`](../../.claude/rules/impl-hygiene.md) — recursion depth limit

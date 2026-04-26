@@ -1,0 +1,13 @@
+// BUG-04-084 NEGATIVE PIN: unannotated parameter consumed inside a `try`
+// block where the body does not constrain the element type still leaves
+// the signature-position var unresolved. The try block's Result wrapping
+// does not propagate a constraint back to the bare parameter.
+
+#compile_fail(code: "E2005")
+
+@try_len (xs) -> Result<int, str> = try {
+    let $n = xs.len();
+    Ok(n)
+};
+
+@main () -> int = 0;

@@ -8,6 +8,7 @@ use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
 use crate::context::SimpleCx;
 use inkwell::context::Context;
 use ori_arc::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
+use ori_arc::verify::VerifyError;
 use ori_arc::{AnnotatedSig, ArcClassifier, ArcFunction};
 use ori_ir::canon::CanId;
 use ori_ir::Name;
@@ -1821,5 +1822,95 @@ fn main_wrapper_has_noundef_return() {
     assert!(
         main_line.contains("noundef"),
         "C main wrapper return should have noundef attribute:\n{main_line}"
+    );
+}
+
+/// PC-2 seam pin (§04.4 row 9): `process_arc_function` short-circuits with
+/// `Err(VerifyError::UnresolvedTypeVar(_))` and records a codegen error when
+/// the ARC IR carries a raw `Tag::Var`, WITHOUT invoking `run_arc_pipeline`.
+///
+/// Guards against INVERTED-TDD weakening of the primary PC-2 seam hook at
+/// `define_phase.rs` — any gate that would let a `Tag::Var`-bearing function
+/// reach the pipeline MUST cause this test to fail.
+#[test]
+fn test_process_arc_function_records_codegen_error_on_violation() {
+    let mut pool = Pool::new();
+    // Allocate the raw Tag::Var BEFORE the FunctionCompiler borrows the pool
+    // immutably. Mirrors the synthetic-leak pattern at
+    // `ori_arc/src/ir/validate/tests.rs::test_pc2_assertion_fires_on_synthetic_leak`.
+    let leak_var_ty: Idx = pool.fresh_var();
+    let leak_var_id = ArcVarId::new(0);
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_pc2_seam_err"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let mut fc = FunctionCompiler::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        "",
+        &annotated_sigs,
+        &classifier,
+        None,
+        FxHashMap::default(),
+        FxHashMap::default(),
+        false,
+    );
+
+    let func_name = interner.intern("leaky");
+    // Synthesize an ArcFunction whose entry block carries a Tag::Var as a
+    // block parameter type AND in `var_types`. The validator
+    // (`ori_arc::assert_no_unresolved_type_vars`) walks these positions and
+    // must fire — exactly the input path the primary PC-2 seam is designed
+    // to catch.
+    let entry_block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![(leak_var_id, leak_var_ty)],
+        body: vec![],
+        terminator: ArcTerminator::Unreachable,
+    };
+    let mut arc_func = ArcFunction {
+        name: func_name,
+        params: vec![],
+        return_type: Idx::UNIT,
+        blocks: vec![entry_block],
+        entry: ArcBlockId::new(0),
+        var_types: vec![leak_var_ty],
+        var_reprs: vec![],
+        spans: vec![vec![]],
+        ..Default::default()
+    };
+
+    let result = fc.process_arc_function(func_name, &mut arc_func);
+
+    assert!(
+        matches!(result, Err(VerifyError::UnresolvedTypeVar(_))),
+        "process_arc_function MUST short-circuit with UnresolvedTypeVar on \
+         Tag::Var leaks — gating this check off is INVERTED-TDD \
+         (impl-hygiene.md §INVERTED-TDD); got: {result:?}"
+    );
+    assert!(
+        fc.builder.has_codegen_errors(),
+        "primary PC-2 seam violation MUST record a codegen error via \
+         builder.record_codegen_error() (define_phase.rs \
+         report_primary_seam_violation)"
+    );
+    // Exactly one error was recorded — consistent with the seam short-
+    // circuiting via the `return Err(...)` path before `run_arc_pipeline`
+    // could emit any additional codegen errors. A second recorded error
+    // would indicate the pipeline ran on a Tag::Var-leaking IR.
+    assert_eq!(
+        fc.builder.codegen_error_count(),
+        1,
+        "exactly one codegen error expected — the primary PC-2 seam short-\
+         circuits before run_arc_pipeline can add further errors"
     );
 }

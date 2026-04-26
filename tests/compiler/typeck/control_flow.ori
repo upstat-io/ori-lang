@@ -104,7 +104,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Valid: match on Result
 @test_match_result tests _ () -> void = {
-    let res = Ok(42);
+    let res: Result<int, str> = Ok(42);
     let result: int = match res {
         Ok(x) -> x,
         Err(e) -> 0

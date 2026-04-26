@@ -57,36 +57,41 @@ use std.testing { assert_some, assert_ok, assert_err }
 
 // Semantic pin: assert_ok returns the Ok value
 @test_assert_ok_returns_inner tests @target () -> void = {
-    let x = assert_ok(result: Ok(99));
+    let input: Result<int, str> = Ok(99);
+    let x = assert_ok(result: input);
     assert_eq(actual: x, expected: 99);
 }
 
 // Semantic pin: assert_err returns the Err value
 @test_assert_err_returns_inner tests @target () -> void = {
-    let x = assert_err(result: Err("oops"));
+    let input: Result<int, str> = Err("oops");
+    let x = assert_err(result: input);
     assert_eq(actual: x, expected: "oops");
 }
 
 // Negative: assert_some still panics on None
 @test_assert_some_panics_on_none tests @target () -> void = {
+    let input: Option<int> = None;
     let result = catch(
-        expr: assert_some(opt: None),
+        expr: assert_some(opt: input),
     );
     assert(condition: is_err(result: result));
 }
 
 // Negative: assert_ok still panics on Err
 @test_assert_ok_panics_on_err tests @target () -> void = {
+    let input: Result<int, str> = Err("bad");
     let result = catch(
-        expr: assert_ok(result: Err("bad")),
+        expr: assert_ok(result: input),
     );
     assert(condition: is_err(result: result));
 }
 
 // Negative: assert_err still panics on Ok
 @test_assert_err_panics_on_ok tests @target () -> void = {
+    let input: Result<int, str> = Ok(1);
     let result = catch(
-        expr: assert_err(result: Ok(1)),
+        expr: assert_err(result: input),
     );
     assert(condition: is_err(result: result));
 }

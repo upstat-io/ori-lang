@@ -1,8 +1,6 @@
 # ori_llvm
 
 > **`ori_llvm` exists to emit LLVM IR from realized ARC IR without re-deriving any information an earlier phase already owns.** Faithful emission is the deliverable.
->
-> Full mission: [`.claude/rules/missions.md §ori_llvm`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -51,11 +49,3 @@ AIMS snapshot tests: `cargo test -p oric --test aims_snapshots`.
 - Derive codegen: `src/codegen/derive_codegen/`
 - AOT driver: `src/aot/`
 - FileCheck corpus: `tests/codegen/`
-
-## References
-
-- [`.claude/rules/llvm.md`](../../.claude/rules/llvm.md) — LLVM codegen rules
-- [`.claude/rules/codegen-rules.md`](../../.claude/rules/codegen-rules.md) — codegen invariants
-- [`.claude/rules/aot.md`](../../.claude/rules/aot.md) — AOT pipeline
-- [`.claude/rules/canon.md §1`](../../.claude/rules/canon.md) — phase 8 + sub-layer 7a
-- [`.claude/rules/impl-hygiene.md §Cross-Phase Invariant Contracts`](../../.claude/rules/impl-hygiene.md)

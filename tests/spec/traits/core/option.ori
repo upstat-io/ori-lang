@@ -58,14 +58,16 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @test_is_some_builtin tests @is_some_builtin () -> void = {
+    let none_i: Option<int> = None;
     assert(cond: is_some(opt: Some(1)));
-    assert(cond: !is_some(opt: None))
+    assert(cond: !is_some(opt: none_i))
 }
 
 @is_some_builtin () -> bool = is_some(opt: Some(1));
 
 @test_is_none_builtin tests @is_none_builtin () -> void = {
-    assert(cond: is_none(opt: None));
+    let none_i: Option<int> = None;
+    assert(cond: is_none(opt: none_i));
     assert(cond: !is_none(opt: Some(1)))
 }
 

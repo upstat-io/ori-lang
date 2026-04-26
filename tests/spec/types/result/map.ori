@@ -2,7 +2,8 @@
 use std.testing { assert_eq }
 
 @map_ok () -> Result<int, str> = {
-    Ok(2).map(x -> x * 3)
+    let r: Result<int, str> = Ok(2);
+    r.map((x: int) -> int = x * 3)
 }
 
 @test_map_ok tests @map_ok () -> void = {
@@ -11,7 +12,7 @@ use std.testing { assert_eq }
 
 @map_err_passthrough () -> Result<int, str> = {
     let e: Result<int, str> = Err("e");
-    e.map(x -> x * 3)
+    e.map((x: int) -> int = x * 3)
 }
 
 @test_map_err_passthrough tests @map_err_passthrough () -> void = {

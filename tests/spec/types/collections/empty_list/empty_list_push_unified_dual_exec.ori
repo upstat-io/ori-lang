@@ -1,0 +1,17 @@
+// §05.3.4 DUAL-EXEC PARITY: bare empty list whose element type is unified
+// via the `.push(value: int)` constraint. Mirrors the BUG-04-074 core repro
+// shape (`let xs = []; xs = xs.push(value: N)`) as an @main program so
+// `diagnostics/dual-exec-verify.sh` can prove interpreter and AOT agree on
+// the §03 unification outcome (usage-driven element binding, NOT defaulting).
+//
+// The parity sample in §05.3.4 MUST exercise this axis because the unification
+// path is the one BUG-04-074 originally broke in AOT — identical output on
+// both backends is the permanent regression pin against a reintroduction.
+
+@main () -> int = {
+    let xs = [];
+    xs = xs.push(value: 42);
+    let total = xs.iter().fold(initial: 0, op: (acc, x) -> acc + x);
+    print(msg: `sum={total}`);
+    0
+}

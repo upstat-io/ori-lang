@@ -1,0 +1,22 @@
+// Matrix §05.2 item 14 POSITIVE PIN: annotated empty list threaded through
+// a `?` try-propagation chain. `maybe_list` returns `Result<[int], str>`
+// whose `Ok` payload is an annotated `[int] = []`; `?` unwraps inside
+// `get_len`, and the outer wrapper re-wraps the `.len()` result. Pins the
+// interaction of empty-literal inference with `?`-propagation through
+// annotated `Result` payloads.
+
+use std.testing { assert_eq }
+
+@maybe_list () -> Result<[int], str> = {
+    let xs: [int] = [];
+    Ok(xs)
+}
+
+@get_len () -> Result<int, str> = {
+    let xs = maybe_list()?;
+    Ok(xs.len())
+}
+
+@test_empty_list_question_mark tests _ () -> void = {
+    assert_eq(actual: get_len().unwrap(), expected: 0)
+}

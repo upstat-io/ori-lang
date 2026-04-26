@@ -273,14 +273,14 @@ use std.testing { assert, assert_eq }
 @range_excl () -> [int] = for x in 0..5 yield x;
 
 @test_range_excl tests @range_excl () -> void = {
-    let sum = range_excl().fold(initial: 0, combine: (a, b) -> a + b);
+    let sum = range_excl().fold(initial: 0, combine: (a: int, b: int) -> int = a + b);
     assert_eq(actual: sum, expected: 10) // 0+1+2+3+4
 }
 
 @range_incl () -> [int] = for x in 0..=4 yield x;
 
 @test_range_incl tests @range_incl () -> void = {
-    let sum = range_incl().fold(initial: 0, combine: (a, b) -> a + b);
+    let sum = range_incl().fold(initial: 0, combine: (a: int, b: int) -> int = a + b);
     assert_eq(actual: sum, expected: 10) // 0+1+2+3+4
 }
 
@@ -366,7 +366,8 @@ type DotTestStruct = { x: int, y: int }
 
 @dot_method_chain () -> int = {
     let list = [1, 2, 3, 4, 5];
-    list.filter(predicate: x -> x % 2 == 0).len()
+    let filtered: [int] = list.filter(predicate: (x: int) -> bool = x % 2 == 0);
+    filtered.len()
 }
 
 @test_dot_method_chain tests @dot_method_chain () -> void = {

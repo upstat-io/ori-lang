@@ -1,8 +1,6 @@
 # ori_types
 
 > **`ori_types` exists to prove, before the next phase runs, that every expression in a module has a single resolved type and every trait dispatch has a known target.** The crate's non-negotiable output contract is PC-2.
->
-> Full mission: [`.claude/rules/missions.md §ori_types`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -51,7 +49,4 @@ cargo test -p ori_types
 
 ## References
 
-- [`.claude/rules/typeck.md §PC-2`](../../.claude/rules/typeck.md) — canonical phase contract for PC-2
-- [`.claude/rules/types.md`](../../.claude/rules/types.md) — type system rules
-- [`.claude/rules/canon.md §1`, `§2`](../../.claude/rules/canon.md) — phase 3 + operator desugars
 - [`docs/ori_lang/v2026/spec/operator-rules.md`](../../docs/ori_lang/v2026/spec/operator-rules.md) — operator semantics

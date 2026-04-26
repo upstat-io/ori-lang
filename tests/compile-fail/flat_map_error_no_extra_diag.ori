@@ -1,0 +1,13 @@
+// Defer-pin — closure body references an undefined name directly, producing
+// `Tag::Error` (not compound). The flat_map check must silently absorb the
+// poison via STEP 3c's `Tag::Error` arm — only the upstream E2003 surfaces;
+// E2001 SHALL NOT be added on top (typeck.md §UN-4 + §ER-4).
+// See: bug-tracker/plans/BUG-02-013/
+
+#[compile_fail(code: "E2003")]
+@flat_map_pure_error tests _ () -> void = {
+    let _ = [1, 2, 3].iter()
+        .flat_map(transform: x -> nonexistent_helper(x))
+        .collect();
+    ()
+}

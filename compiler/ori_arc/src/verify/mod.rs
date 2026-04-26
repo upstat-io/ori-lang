@@ -15,6 +15,8 @@
 //! The entry point [`check_function`] runs all applicable checks and returns
 //! a list of [`VerifyError`]s (empty = all invariants hold).
 
+mod error;
+
 use ori_ir::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -24,157 +26,8 @@ use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ValueRepr};
 use crate::Ownership;
 
-/// A verification error found in the ARC IR.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum VerifyError {
-    /// Variable used before being defined (or not defined at all).
-    UseBeforeDef {
-        var: ArcVarId,
-        block: ArcBlockId,
-        span: Option<Span>,
-    },
-
-    /// Terminator references a block that doesn't exist.
-    DanglingBlockRef {
-        from_block: ArcBlockId,
-        target: ArcBlockId,
-    },
-
-    /// `RcInc` or `RcDec` on a variable with `ValueRepr::Scalar`.
-    RcOnScalar {
-        var: ArcVarId,
-        block: ArcBlockId,
-        is_inc: bool,
-        span: Option<Span>,
-    },
-
-    /// `RcDec` on a borrowed parameter (borrowed values must not be freed).
-    DecOnBorrowed {
-        var: ArcVarId,
-        block: ArcBlockId,
-        span: Option<Span>,
-    },
-
-    /// Parameter with `Cardinality::Absent` has uses in the function body.
-    /// This indicates an inconsistency between the AIMS analysis result
-    /// and the actual IR: Absent means "zero forward uses", so no
-    /// instruction or terminator should reference this variable.
-    AbsentParamHasUses { var: ArcVarId, param_index: usize },
-
-    /// `arg_ownership` length doesn't match `args` length (when non-empty).
-    /// Empty `arg_ownership` is valid (pre-annotation state).
-    ArgOwnershipLenMismatch {
-        block: ArcBlockId,
-        expected: usize,
-        actual: usize,
-    },
-
-    /// FIP structural violation detected during pipeline verification.
-    ///
-    /// Wraps FIP verification errors (`CertifiedButUnboundedStack`,
-    /// `BoundedExceeded`) that represent genuine internal compiler bugs
-    /// — the interprocedural analysis produced an inconsistent contract.
-    FipStructural { message: String },
-
-    /// A variable's type is `Tag::Var` or `Tag::Projection` after typeck
-    /// exit — a PC-2 invariant violation. Wraps
-    /// [`crate::ir::validate::UnresolvedTypeVar`] so existing verification
-    /// error handling works unchanged.
-    UnresolvedTypeVar(crate::ir::validate::UnresolvedTypeVar),
-}
-
-impl From<crate::ir::validate::UnresolvedTypeVar> for VerifyError {
-    fn from(violation: crate::ir::validate::UnresolvedTypeVar) -> Self {
-        VerifyError::UnresolvedTypeVar(violation)
-    }
-}
-
-impl std::fmt::Display for VerifyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VerifyError::UseBeforeDef { var, block, span } => {
-                write!(f, "use-before-def: v{} in block {}", var.raw(), block.raw())?;
-                fmt_span(f, *span)
-            }
-            VerifyError::DanglingBlockRef { from_block, target } => {
-                write!(
-                    f,
-                    "dangling block ref: block {} references non-existent block {}",
-                    from_block.raw(),
-                    target.raw()
-                )
-            }
-            VerifyError::RcOnScalar {
-                var,
-                block,
-                is_inc,
-                span,
-            } => {
-                let op = if *is_inc { "RcInc" } else { "RcDec" };
-                write!(
-                    f,
-                    "{op} on scalar: v{} in block {} has ValueRepr::Scalar",
-                    var.raw(),
-                    block.raw()
-                )?;
-                fmt_span(f, *span)
-            }
-            VerifyError::DecOnBorrowed { var, block, span } => {
-                write!(
-                    f,
-                    "RcDec on borrowed param: v{} in block {}",
-                    var.raw(),
-                    block.raw()
-                )?;
-                fmt_span(f, *span)
-            }
-            VerifyError::AbsentParamHasUses { var, param_index } => {
-                write!(
-                    f,
-                    "absent param has uses: v{} (param {param_index}) has Cardinality::Absent \
-                     but is referenced in the function body",
-                    var.raw(),
-                )
-            }
-            VerifyError::ArgOwnershipLenMismatch {
-                block,
-                expected,
-                actual,
-            } => {
-                write!(
-                    f,
-                    "arg_ownership length mismatch in block {}: \
-                     expected {} (args.len()) but got {}",
-                    block.raw(),
-                    expected,
-                    actual,
-                )
-            }
-            VerifyError::FipStructural { message } => {
-                write!(f, "FIP structural violation: {message}")
-            }
-            VerifyError::UnresolvedTypeVar(violation) => {
-                write!(
-                    f,
-                    "unresolved type variable (PC-2 violation): function name_id={:?}, \
-                     ArcVarId({}), idx={:?}, tag={:?}",
-                    violation.function,
-                    violation.var_id.raw(),
-                    violation.idx,
-                    violation.tag,
-                )
-            }
-        }
-    }
-}
-
-fn fmt_span(f: &mut std::fmt::Formatter<'_>, span: Option<Span>) -> std::fmt::Result {
-    if let Some(s) = span {
-        write!(f, " at {}..{}", s.start, s.end)
-    } else {
-        Ok(())
-    }
-}
+pub use error::VerifyError;
+use error::{push_dec_on_borrowed, push_rc_on_scalar, push_use_before_def};
 
 /// Safely look up the source span for an instruction.
 ///
@@ -221,10 +74,16 @@ pub fn check_function(func: &ArcFunction) -> Vec<VerifyError> {
 // Dominator-based scope checking would catch more bugs but the current check is
 // sufficient for the invariants we need to maintain (use-before-def for SSA vars).
 fn check_variable_scope(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
-    // Collect all definitions globally (function params + block params +
-    // instruction defs + invoke dsts).
-    let mut defined: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
+    let defined = collect_defined_vars(func);
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        check_block_uses(func, block, block_idx, &defined, errors);
+    }
+}
 
+/// Collect every variable defined in the function: function params, block
+/// params, instruction defs, and invoke dsts.
+fn collect_defined_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut defined: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     for block in &func.blocks {
         for (var, _ty) in &block.params {
             defined.insert(*var);
@@ -234,39 +93,39 @@ fn check_variable_scope(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
                 defined.insert(dst);
             }
         }
-        // Invoke/InvokeIndirect dst is a definition visible in the normal successor.
         match &block.terminator {
-            crate::ir::ArcTerminator::Invoke { dst, .. }
-            | crate::ir::ArcTerminator::InvokeIndirect { dst, .. } => {
+            ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => {
                 defined.insert(*dst);
             }
             _ => {}
         }
     }
+    defined
+}
 
-    // Check all uses against the global defined set.
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for (instr_idx, instr) in block.body.iter().enumerate() {
-            for used in instr.used_vars() {
-                if !defined.contains(&used) {
-                    errors.push(VerifyError::UseBeforeDef {
-                        var: used,
-                        block: block.id,
-                        span: get_span(func, block_idx, instr_idx),
-                    });
-                }
+/// Check every use within `block` against `defined`, recording
+/// `UseBeforeDef` for any miss.
+fn check_block_uses(
+    func: &ArcFunction,
+    block: &crate::ir::ArcBlock,
+    block_idx: usize,
+    defined: &FxHashSet<ArcVarId>,
+    errors: &mut Vec<VerifyError>,
+) {
+    for (instr_idx, instr) in block.body.iter().enumerate() {
+        for used in instr.used_vars() {
+            if defined.contains(&used) {
+                continue;
             }
+            push_use_before_def(errors, used, block.id, get_span(func, block_idx, instr_idx));
         }
-        // Terminators don't have instruction-level spans.
-        for used in block.terminator.used_vars() {
-            if !defined.contains(&used) {
-                errors.push(VerifyError::UseBeforeDef {
-                    var: used,
-                    block: block.id,
-                    span: None,
-                });
-            }
+    }
+    // Terminators don't have instruction-level spans.
+    for used in block.terminator.used_vars() {
+        if defined.contains(&used) {
+            continue;
         }
+        push_use_before_def(errors, used, block.id, None);
     }
 }
 
@@ -300,31 +159,35 @@ fn check_no_rc_on_scalar(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
 
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
-            match instr {
-                ArcInstr::RcInc { var, .. } => {
-                    if is_scalar_var(func, *var) {
-                        errors.push(VerifyError::RcOnScalar {
-                            var: *var,
-                            block: block.id,
-                            is_inc: true,
-                            span: get_span(func, block_idx, instr_idx),
-                        });
-                    }
-                }
-                ArcInstr::RcDec { var, .. } => {
-                    if is_scalar_var(func, *var) {
-                        errors.push(VerifyError::RcOnScalar {
-                            var: *var,
-                            block: block.id,
-                            is_inc: false,
-                            span: get_span(func, block_idx, instr_idx),
-                        });
-                    }
-                }
-                _ => {}
-            }
+            check_rc_instr_scalar(func, block.id, instr, block_idx, instr_idx, errors);
         }
     }
+}
+
+/// Inspect a single instruction for `RcInc`/`RcDec` on a scalar variable.
+fn check_rc_instr_scalar(
+    func: &ArcFunction,
+    block_id: ArcBlockId,
+    instr: &ArcInstr,
+    block_idx: usize,
+    instr_idx: usize,
+    errors: &mut Vec<VerifyError>,
+) {
+    let (var, is_inc) = match instr {
+        ArcInstr::RcInc { var, .. } => (*var, true),
+        ArcInstr::RcDec { var, .. } => (*var, false),
+        _ => return,
+    };
+    if !is_scalar_var(func, var) {
+        return;
+    }
+    push_rc_on_scalar(
+        errors,
+        var,
+        block_id,
+        is_inc,
+        get_span(func, block_idx, instr_idx),
+    );
 }
 
 /// `RcDec` must never target a borrowed parameter.
@@ -345,15 +208,13 @@ fn check_no_dec_on_borrowed(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
 
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
-            if let ArcInstr::RcDec { var, .. } = instr {
-                if borrowed_params.contains(var) {
-                    errors.push(VerifyError::DecOnBorrowed {
-                        var: *var,
-                        block: block.id,
-                        span: get_span(func, block_idx, instr_idx),
-                    });
-                }
+            let ArcInstr::RcDec { var, .. } = instr else {
+                continue;
+            };
+            if !borrowed_params.contains(var) {
+                continue;
             }
+            push_dec_on_borrowed(errors, *var, block.id, get_span(func, block_idx, instr_idx));
         }
     }
 }
@@ -365,51 +226,73 @@ fn check_no_dec_on_borrowed(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
 /// bug where annotation populated an incorrect number of entries.
 fn check_arg_ownership_len(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
     for block in &func.blocks {
-        // Check instructions (Apply, ApplyIndirect)
         for instr in &block.body {
-            let (args_len, ownership_len) = match instr {
-                ArcInstr::Apply {
-                    args,
-                    arg_ownership,
-                    ..
-                }
-                | ArcInstr::ApplyIndirect {
-                    args,
-                    arg_ownership,
-                    ..
-                } => (args.len(), arg_ownership.len()),
-                _ => continue,
-            };
-            if ownership_len != 0 && ownership_len != args_len {
-                errors.push(VerifyError::ArgOwnershipLenMismatch {
-                    block: block.id,
-                    expected: args_len,
-                    actual: ownership_len,
-                });
-            }
+            check_instr_arg_ownership(block.id, instr, errors);
         }
-        // Check terminators (Invoke, InvokeIndirect)
-        let (args_len, ownership_len) = match &block.terminator {
-            crate::ir::ArcTerminator::Invoke {
-                args,
-                arg_ownership,
-                ..
-            }
-            | crate::ir::ArcTerminator::InvokeIndirect {
-                args,
-                arg_ownership,
-                ..
-            } => (args.len(), arg_ownership.len()),
-            _ => continue,
-        };
-        if ownership_len != 0 && ownership_len != args_len {
-            errors.push(VerifyError::ArgOwnershipLenMismatch {
-                block: block.id,
-                expected: args_len,
-                actual: ownership_len,
-            });
-        }
+        check_terminator_arg_ownership(block.id, &block.terminator, errors);
     }
+}
+
+/// Check `arg_ownership` length on `Apply` / `ApplyIndirect` instructions.
+fn check_instr_arg_ownership(
+    block_id: ArcBlockId,
+    instr: &ArcInstr,
+    errors: &mut Vec<VerifyError>,
+) {
+    let (args_len, ownership_len) = match instr {
+        ArcInstr::Apply {
+            args,
+            arg_ownership,
+            ..
+        }
+        | ArcInstr::ApplyIndirect {
+            args,
+            arg_ownership,
+            ..
+        } => (args.len(), arg_ownership.len()),
+        _ => return,
+    };
+    record_arg_ownership_mismatch(block_id, args_len, ownership_len, errors);
+}
+
+/// Check `arg_ownership` length on `Invoke` / `InvokeIndirect` terminators.
+fn check_terminator_arg_ownership(
+    block_id: ArcBlockId,
+    term: &ArcTerminator,
+    errors: &mut Vec<VerifyError>,
+) {
+    let (args_len, ownership_len) = match term {
+        ArcTerminator::Invoke {
+            args,
+            arg_ownership,
+            ..
+        }
+        | ArcTerminator::InvokeIndirect {
+            args,
+            arg_ownership,
+            ..
+        } => (args.len(), arg_ownership.len()),
+        _ => return,
+    };
+    record_arg_ownership_mismatch(block_id, args_len, ownership_len, errors);
+}
+
+/// Push an `ArgOwnershipLenMismatch` when `arg_ownership` is non-empty
+/// but its length diverges from `args`.
+fn record_arg_ownership_mismatch(
+    block_id: ArcBlockId,
+    args_len: usize,
+    ownership_len: usize,
+    errors: &mut Vec<VerifyError>,
+) {
+    if ownership_len == 0 || ownership_len == args_len {
+        return;
+    }
+    errors.push(VerifyError::ArgOwnershipLenMismatch {
+        block: block_id,
+        expected: args_len,
+        actual: ownership_len,
+    });
 }
 
 fn is_scalar_var(func: &ArcFunction, var: ArcVarId) -> bool {
@@ -465,8 +348,22 @@ fn check_absent_param_no_uses(
 
     // Live blocks = forward-reachable from entry ∩ backward-reachable to Return.
     let live = live_blocks(func);
+    let used = collect_used_vars_in_live_blocks(func, &live);
 
-    // Collect used variables only from live blocks.
+    for (param_index, var) in absent_params {
+        if used.contains(&var) {
+            errors.push(VerifyError::AbsentParamHasUses { var, param_index });
+        }
+    }
+}
+
+/// Collect every variable referenced by an instruction or terminator in a
+/// block that is part of `live`. Blocks outside `live` are dead code and
+/// are silently ignored.
+fn collect_used_vars_in_live_blocks(
+    func: &ArcFunction,
+    live: &FxHashSet<ArcBlockId>,
+) -> FxHashSet<ArcVarId> {
     let mut used = FxHashSet::default();
     for block in &func.blocks {
         if !live.contains(&block.id) {
@@ -481,12 +378,7 @@ fn check_absent_param_no_uses(
             used.insert(var);
         }
     }
-
-    for (param_index, var) in absent_params {
-        if used.contains(&var) {
-            errors.push(VerifyError::AbsentParamHasUses { var, param_index });
-        }
-    }
+    used
 }
 
 /// Compute blocks that are both forward-reachable from `func.entry` AND
@@ -495,64 +387,73 @@ fn check_absent_param_no_uses(
 /// A block on a path that always ends in `Unreachable` is dead.
 /// `Resume` IS a real exit (exceptional unwind path carries demand).
 fn live_blocks(func: &ArcFunction) -> FxHashSet<ArcBlockId> {
-    // Forward reachability: BFS from func.entry (not hardcoded block 0 —
-    // TRMC normalization may create a prologue that moves entry).
-    let forward = {
-        let mut reached = FxHashSet::default();
-        let mut worklist = vec![func.entry];
-        while let Some(id) = worklist.pop() {
-            if !reached.insert(id) {
-                continue;
-            }
-            if let Some(b) = func.blocks.iter().find(|b| b.id == id) {
-                for succ in successor_block_ids(&b.terminator) {
-                    worklist.push(succ);
-                }
-            }
-        }
-        reached
-    };
+    let forward = forward_reachable(func);
+    let preds = build_predecessor_map(func);
+    let backward = backward_reachable_from_exits(func, &preds);
+    forward.intersection(&backward).copied().collect()
+}
 
-    // Build predecessor map for backward reachability.
+/// BFS from `func.entry` over successor edges. Entry may be non-zero
+/// after TRMC prologue insertion.
+fn forward_reachable(func: &ArcFunction) -> FxHashSet<ArcBlockId> {
+    let mut reached = FxHashSet::default();
+    let mut worklist = vec![func.entry];
+    while let Some(id) = worklist.pop() {
+        if !reached.insert(id) {
+            continue;
+        }
+        let Some(b) = func.blocks.iter().find(|b| b.id == id) else {
+            continue;
+        };
+        for succ in successor_block_ids(&b.terminator) {
+            worklist.push(succ);
+        }
+    }
+    reached
+}
+
+/// Build `successor → predecessors` map for backward BFS.
+fn build_predecessor_map(func: &ArcFunction) -> FxHashMap<ArcBlockId, Vec<ArcBlockId>> {
     let mut preds: FxHashMap<ArcBlockId, Vec<ArcBlockId>> = FxHashMap::default();
     for block in &func.blocks {
         for succ in successor_block_ids(&block.terminator) {
             preds.entry(succ).or_default().push(block.id);
         }
     }
+    preds
+}
 
-    // Backward reachability: BFS from all real-exit blocks.
-    // Return = normal exit, Resume = exceptional unwind exit.
-    // Unreachable is NOT a real exit — blocks leading only to
-    // Unreachable are dead code.
-    let backward = {
-        let mut reached = FxHashSet::default();
-        let mut worklist: Vec<ArcBlockId> = func
-            .blocks
-            .iter()
-            .filter(|b| {
-                matches!(
-                    b.terminator,
-                    ArcTerminator::Return { .. } | ArcTerminator::Resume
-                )
-            })
-            .map(|b| b.id)
-            .collect();
-        while let Some(id) = worklist.pop() {
-            if !reached.insert(id) {
-                continue;
-            }
-            if let Some(pred_list) = preds.get(&id) {
-                for &pred in pred_list {
-                    worklist.push(pred);
-                }
-            }
+/// BFS backward from every `Return`/`Resume` block over predecessor edges.
+/// `Unreachable` is NOT a real exit — blocks leading only to `Unreachable`
+/// are dead code and are excluded from the live set.
+fn backward_reachable_from_exits(
+    func: &ArcFunction,
+    preds: &FxHashMap<ArcBlockId, Vec<ArcBlockId>>,
+) -> FxHashSet<ArcBlockId> {
+    let mut reached = FxHashSet::default();
+    let mut worklist: Vec<ArcBlockId> = func
+        .blocks
+        .iter()
+        .filter(|b| {
+            matches!(
+                b.terminator,
+                ArcTerminator::Return { .. } | ArcTerminator::Resume
+            )
+        })
+        .map(|b| b.id)
+        .collect();
+    while let Some(id) = worklist.pop() {
+        if !reached.insert(id) {
+            continue;
         }
-        reached
-    };
-
-    // Live = intersection.
-    forward.intersection(&backward).copied().collect()
+        let Some(pred_list) = preds.get(&id) else {
+            continue;
+        };
+        for &pred in pred_list {
+            worklist.push(pred);
+        }
+    }
+    reached
 }
 
 #[cfg(test)]

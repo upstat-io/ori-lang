@@ -1,8 +1,6 @@
 # ori_patterns
 
 > **`ori_patterns` exists to own the runtime value model and the function-pattern dispatch system.** Evaluator-abstracted, not evaluator-coupled.
->
-> Full mission: [`.claude/rules/missions.md §ori_patterns`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -50,8 +48,3 @@ cargo test -p ori_patterns
 - `Pattern` enum + registry: `src/registry/mod.rs`
 - Pattern implementations: `src/recurse/`, `src/parallel/`, etc.
 - Value model: `src/value/`
-
-## References
-
-- [`.claude/rules/patterns.md`](../../.claude/rules/patterns.md) — pattern system rules + registry details
-- [`.claude/rules/compiler.md §Crates`](../../.claude/rules/compiler.md) — crate role

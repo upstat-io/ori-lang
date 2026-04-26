@@ -150,34 +150,15 @@ fn build_mono_var_subst(
     let mut has_unresolved_vars = false;
 
     for (i, &var_id) in scheme_var_ids.iter().enumerate() {
-        let concrete = if let Some(Some(param_idx)) = generic_param_mapping.get(i) {
-            // Type param appears directly as a function parameter -- resolve it.
-            if let Some(&param_ty) = params.get(*param_idx) {
-                engine.resolve(param_ty)
-            } else {
-                continue;
-            }
-        } else {
-            // Indirect type param (e.g., T in Pair<T, int>) -- extract concrete
-            // type by walking generic and concrete param types in parallel.
-            let mut found_concrete = None;
-            for (j, &param_type) in param_types.iter().enumerate() {
-                if let Some(&actual) = params.get(j) {
-                    if let Some(c) =
-                        extract_var_from_types(engine.pool(), param_type, actual, var_id)
-                    {
-                        // Resolve through link chains (extracted type may be a
-                        // fresh var linked to a concrete type via unification).
-                        found_concrete = Some(engine.resolve(c));
-                        break;
-                    }
-                }
-            }
-            if let Some(c) = found_concrete {
-                c
-            } else {
-                continue;
-            }
+        let Some(concrete) = resolve_scheme_var(
+            engine,
+            i,
+            var_id,
+            generic_param_mapping,
+            param_types,
+            params,
+        ) else {
+            continue;
         };
 
         if engine.pool().tag(concrete) == Tag::Var {
@@ -189,6 +170,54 @@ fn build_mono_var_subst(
     }
 
     (var_subst, generic_args, has_unresolved_vars)
+}
+
+/// Resolve a single scheme variable at position `i` to a concrete type, either
+/// directly from a function parameter (when `generic_param_mapping[i]` points
+/// at a parameter) or indirectly by structural extraction from the generic
+/// parameter types. Returns `None` when no concrete type can be resolved yet
+/// — the outer worklist skips the var and revisits on a later iteration.
+fn resolve_scheme_var(
+    engine: &mut InferEngine<'_>,
+    i: usize,
+    var_id: u32,
+    generic_param_mapping: &[Option<usize>],
+    param_types: &[Idx],
+    params: &[Idx],
+) -> Option<Idx> {
+    if let Some(Some(param_idx)) = generic_param_mapping.get(i) {
+        // Type param appears directly as a function parameter -- resolve it.
+        let &param_ty = params.get(*param_idx)?;
+        return Some(engine.resolve(param_ty));
+    }
+
+    // Indirect type param (e.g., T in Pair<T, int>) -- extract concrete
+    // type by walking generic and concrete param types in parallel.
+    extract_indirect_scheme_var(engine, var_id, param_types, params)
+}
+
+/// Walk generic and concrete parameter types in parallel looking for a
+/// concrete substitution for `var_id`. Resolves the extracted type through
+/// link chains (the extracted type may itself be a fresh var unified with a
+/// concrete type).
+fn extract_indirect_scheme_var(
+    engine: &mut InferEngine<'_>,
+    var_id: u32,
+    param_types: &[Idx],
+    params: &[Idx],
+) -> Option<Idx> {
+    for (j, &param_type) in param_types.iter().enumerate() {
+        let Some(&actual) = params.get(j) else {
+            continue;
+        };
+        let Some(c) = extract_var_from_types(engine.pool(), param_type, actual, var_id) else {
+            continue;
+        };
+        // Resolve through link chains (extracted type may be a
+        // fresh var linked to a concrete type via unification).
+        return Some(engine.resolve(c));
+    }
+    None
 }
 
 /// Record a deferred monomorphization call when a generic function calls another

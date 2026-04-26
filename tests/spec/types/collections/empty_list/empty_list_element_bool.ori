@@ -1,0 +1,21 @@
+// Spec: 14-expressions.md:1224-1228 — annotated empty list clears type ambiguity.
+// Matrix: B=bool dimension (element type) × C=push+is_empty usage × D=annotated.
+
+use std.testing { assert, assert_eq }
+
+@test_empty_list_element_bool tests @empty_list_element_bool () -> void = {
+    assert_eq(actual: empty_list_element_bool_len(), expected: 1);
+    assert(cond: !empty_list_element_bool_is_empty_after_push())
+}
+
+@empty_list_element_bool_len () -> int = {
+    let flags: [bool] = [];
+    flags = flags.push(value: true);
+    flags.len()
+}
+
+@empty_list_element_bool_is_empty_after_push () -> bool = {
+    let flags: [bool] = [];
+    flags = flags.push(value: true);
+    flags.is_empty()
+}

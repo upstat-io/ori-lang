@@ -2,7 +2,7 @@
 use std.testing { assert_eq }
 
 @map_some () -> Option<int> = {
-    Some(2).map(x -> x * 3)
+    Some(2).map((x: int) -> int = x * 3)
 }
 
 @test_map_some tests @map_some () -> void = {
@@ -11,7 +11,7 @@ use std.testing { assert_eq }
 
 @map_none () -> Option<int> = {
     let n: Option<int> = None;
-    n.map(x -> x * 3)
+    n.map((x: int) -> int = x * 3)
 }
 
 @test_map_none tests @map_none () -> void = {
@@ -20,7 +20,9 @@ use std.testing { assert_eq }
 
 // Semantic pin: map + unwrap_or confirms transform applied
 @map_pin () -> int = {
-    Some(5).map(x -> x + 1).unwrap_or(default: 0)
+    let opt: Option<int> = Some(5);
+    let mapped: Option<int> = opt.map((x: int) -> int = x + 1);
+    mapped.unwrap_or(default: 0)
 }
 
 @test_map_pin tests @map_pin () -> void = {

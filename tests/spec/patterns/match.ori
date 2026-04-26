@@ -99,7 +99,7 @@ use std.testing { assert, assert_eq, assert_ne }
     )
 }
 
-@match_option (opt) -> int = match opt {
+@match_option (opt: Option<int>) -> int = match opt {
     Some(x) -> x,
     None -> 0
 }
@@ -124,7 +124,7 @@ use std.testing { assert, assert_eq, assert_ne }
     )
 }
 
-@match_result (res) -> int = match res {
+@match_result (res: Result<int, str>) -> int = match res {
     Ok(x) -> x,
     Err(_) -> -1
 }

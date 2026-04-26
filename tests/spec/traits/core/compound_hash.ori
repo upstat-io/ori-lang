@@ -76,38 +76,57 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @test_option_hash_consistent tests @option_hash () -> void = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
     assert_eq(actual: Some(42).hash(), expected: Some(42).hash());
-    assert_eq(actual: None.hash(), expected: None.hash())
+    assert_eq(actual: a.hash(), expected: b.hash())
 }
 
 @option_hash () -> int = Some(1).hash();
 
 @test_option_hash_none_vs_some tests @opt_hash_diff () -> void = {
-    let h_none = None.hash();
-    let h_some = Some(0).hash();
+    let none_i: Option<int> = None;
+    let h_none: int = none_i.hash();
+    let h_some: int = Some(0).hash();
     assert(cond: h_none != h_some)
 }
 
-@opt_hash_diff () -> bool = None.hash() != Some(0).hash();
+@opt_hash_diff () -> bool = {
+    let none_i: Option<int> = None;
+    none_i.hash() != Some(0).hash()
+}
 
 // =============================================================================
 // Result .hash()
 // =============================================================================
 
 @test_result_hash_consistent tests @result_hash () -> void = {
-    assert_eq(actual: Ok(1).hash(), expected: Ok(1).hash());
-    assert_eq(actual: Err("x").hash(), expected: Err("x").hash())
+    let ok_a: Result<int, str> = Ok(1);
+    let ok_b: Result<int, str> = Ok(1);
+    let err_a: Result<int, str> = Err("x");
+    let err_b: Result<int, str> = Err("x");
+    assert_eq(actual: ok_a.hash(), expected: ok_b.hash());
+    assert_eq(actual: err_a.hash(), expected: err_b.hash())
 }
 
-@result_hash () -> int = Ok(1).hash();
+@result_hash () -> int = {
+    let a: Result<int, str> = Ok(1);
+    a.hash()
+}
 
 @test_result_hash_ok_vs_err tests @res_hash_diff () -> void = {
-    let h_ok = Ok(1).hash();
-    let h_err = Err(1).hash();
+    let ok_r: Result<int, int> = Ok(1);
+    let err_r: Result<int, int> = Err(1);
+    let h_ok: int = ok_r.hash();
+    let h_err: int = err_r.hash();
     assert(cond: h_ok != h_err)
 }
 
-@res_hash_diff () -> bool = Ok(1).hash() != Err(1).hash();
+@res_hash_diff () -> bool = {
+    let ok_r: Result<int, int> = Ok(1);
+    let err_r: Result<int, int> = Err(1);
+    ok_r.hash() != err_r.hash()
+}
 
 // =============================================================================
 // Map .hash()

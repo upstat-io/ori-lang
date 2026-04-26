@@ -1,0 +1,14 @@
+// Matrix §05.2 item 16 POSITIVE PIN: annotated empty list flows through a
+// generic function whose element type is constrained by a trait bound
+// (`T: Printable`). The caller pins `T = int` via the annotated argument,
+// and `int` satisfies `Printable` — bound-check and empty-literal inference
+// both succeed.
+
+use std.testing { assert_eq }
+
+@print_all<T: Printable> (xs: [T]) -> int = xs.len();
+
+@test_empty_list_trait_bounds tests _ () -> void = {
+    let ints: [int] = [];
+    assert_eq(actual: print_all(xs: ints), expected: 0)
+}

@@ -4,9 +4,9 @@
 //! and pipeline tests. Only compiled in test builds.
 
 use ori_ir::{Name, Span};
-use ori_types::Idx;
+use ori_types::{Idx, Pool, Tag};
 
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcParam, ArcVarId};
+use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId};
 use crate::ownership::Ownership;
 
 /// Shorthand for `ArcVarId::new(n)`.
@@ -59,6 +59,21 @@ pub(crate) fn make_func_named(
     }
 }
 
+/// Build a minimal empty `ArcBlock` with no params, empty body, and
+/// `Unreachable` terminator. `id = ArcBlockId::new(n)`.
+///
+/// Used by validator tests that need a block skeleton but no actual
+/// control flow (§04.4 Test Fixture Strategy — the validator walks
+/// `blocks[*].params[*].1` type positions, not the body or terminator).
+pub(crate) fn minimal_block(n: u32) -> ArcBlock {
+    ArcBlock {
+        id: ArcBlockId::new(n),
+        params: Vec::new(),
+        body: Vec::new(),
+        terminator: ArcTerminator::Unreachable,
+    }
+}
+
 /// Create an owned parameter.
 pub(crate) fn owned_param(var: u32, ty: Idx) -> ArcParam {
     ArcParam {
@@ -75,4 +90,19 @@ pub(crate) fn borrowed_param(var: u32, ty: Idx) -> ArcParam {
         ty,
         ownership: Ownership::Borrowed,
     }
+}
+
+/// Allocate a `Tag::Var` with the caller-specified pool var id.
+///
+/// Ensures pool var-state capacity covers `var_id`, then interns
+/// `Tag::Var(var_id)`. Distinct from `Pool::fresh_var()` which
+/// auto-increments the next available id.
+///
+/// Used by validator tests that need deterministic pool var ids for
+/// exemption-set contrast (e.g., §04.4 Test Fixture Strategy — primary-seam
+/// empty-exempt pin needs `Tag::Var(1)` to contrast against a synthetic
+/// `scheme_var_ids = [1, 2, 3]` secondary-site exempt set).
+pub(crate) fn allocate_pool_var_with_id(pool: &mut Pool, var_id: u32) -> Idx {
+    pool.ensure_var_capacity(var_id + 1);
+    pool.intern(Tag::Var, var_id)
 }

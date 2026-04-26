@@ -45,12 +45,61 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use ori_ir::Span;
+use ori_ir::{ExprKind, Span};
 
 use crate::output::FunctionSig;
 use crate::pool::VarState;
 use crate::tag::Tag;
-use crate::{ExprIndex, Idx, Pool, TypeCheckError, TypeFlags};
+use crate::{AmbiguousTypeSite, ExprIndex, Idx, Pool, TypeCheckError, TypeFlags};
+
+/// Source-attribution closures the validator calls while walking body
+/// expressions: look up the source [`Span`] of an [`ExprIndex`], look up
+/// the source [`ExprKind`] (for [`AmbiguousTypeSite`] classification), and
+/// look up a specific lambda parameter's token span (for
+/// [`AmbiguousTypeSite::LambdaParam`] span narrowing per plan §06.1 item
+/// 2). Bundled into one struct per `compiler.md §API` — the three closures
+/// always travel together.
+///
+/// - `span` — callable that maps an [`ExprIndex`] to the source [`Span`]
+///   for body diagnostic attribution.
+/// - `kind` — callable that maps an [`ExprIndex`] to its source
+///   [`ExprKind`] when one is available. Used to classify the error site
+///   for specialized E2005 wording per plan §06.1 (empty lists get a
+///   `[int]`-annotation hint; lambda params get a typed-lambda hint).
+///   Callers that cannot look up an `ExprKind` (invalid index) return
+///   `None`; the site defaults to `AmbiguousTypeSite::Expression`.
+/// - `param_span` — callable that maps a `(Lambda ExprIndex, param_index)`
+///   pair to the source [`Span`] of that parameter's token. Used to narrow
+///   the E2005 diagnostic to the specific parameter that carries the
+///   unresolved `Tag::Var` per plan §06.1 item 2 — the whole-lambda span
+///   is too wide. Returns `None` when the `ExprIndex` does not point at a
+///   `Lambda` or when `param_index` is out of range; the validator falls
+///   back to the lambda's own span.
+pub struct ValidatorContext<'a> {
+    /// Callable: [`ExprIndex`] → source [`Span`] for body diagnostics.
+    pub span: &'a dyn Fn(ExprIndex) -> Span,
+    /// Callable: [`ExprIndex`] → [`ExprKind`] for site classification.
+    pub kind: &'a dyn Fn(ExprIndex) -> Option<ExprKind>,
+    /// Callable: `(Lambda ExprIndex, param_index)` → parameter-token span.
+    pub param_span: &'a dyn Fn(ExprIndex, usize) -> Option<Span>,
+}
+
+/// Classify the error site from the `ExprKind` at the validator's top-level
+/// body-expression entry point. Signature positions (no `ExprKind` in scope)
+/// pass `None` and default to `AmbiguousTypeSite::Expression`.
+///
+/// The classification drives specialized E2005 wording per plan §06.1:
+/// empty list literals (both `List([])` and `ListWithSpread([])`) map to
+/// `EmptyList`; `Lambda` expressions map to `LambdaParam`; everything else
+/// (including empty maps/sets per plan §06.1) falls back to `Expression`.
+fn site_from_expr_kind(kind: Option<ExprKind>) -> AmbiguousTypeSite {
+    match kind {
+        Some(ExprKind::List(r)) if r.is_empty() => AmbiguousTypeSite::EmptyList,
+        Some(ExprKind::ListWithSpread(r)) if r.is_empty() => AmbiguousTypeSite::EmptyList,
+        Some(ExprKind::Lambda { .. }) => AmbiguousTypeSite::LambdaParam,
+        _ => AmbiguousTypeSite::Expression,
+    }
+}
 
 /// Validate that no unbound [`Tag::Var`] survives in `expr_types`, param
 /// types, or the return type after body inference completes, enforcing
@@ -106,8 +155,11 @@ use crate::{ExprIndex, Idx, Pool, TypeCheckError, TypeFlags};
 ///   to the set so that fresh instantiation vars (which may have become
 ///   roots due to rank-weighted union-find direction) are also exempted.
 ///   Pass `&[]` for monomorphic functions.
-/// - `span_of` — function mapping an [`ExprIndex`] to the source [`Span`]
-///   for body diagnostic attribution.
+/// - `ctx` — source-attribution closures bundled into
+///   [`ValidatorContext`] (span, expr-kind, and param-span lookups).
+///   Bundling keeps the parameter count within `compiler.md §API`'s
+///   `>3 params → config struct` guidance and lets callers construct
+///   the closure set once per body-checking pass.
 /// - `errors` — mutable accumulator; new [`TypeCheckError`] values are
 ///   appended (`typeck.md §ER-1` — accumulate, don't bail).
 #[expect(
@@ -123,7 +175,7 @@ pub fn validate_body_types(
     sig: &FunctionSig,
     sig_span: Span,
     scheme_var_ids: &[u32],
-    span_of: &dyn Fn(ExprIndex) -> Span,
+    ctx: &ValidatorContext<'_>,
     errors: &mut Vec<TypeCheckError>,
 ) {
     // Build the exempt root set: scheme var ids + their union-find roots.
@@ -133,11 +185,14 @@ pub fn validate_body_types(
     let exempt = build_exempt_var_ids(pool, scheme_var_ids);
 
     // 1. Signature positions first (declaration order):
-    //    param_types[0..N], then return_type.
+    //    param_types[0..N], then return_type. No ExprKind in scope at
+    //    signature positions — the site is always `Expression` (generic
+    //    fallback wording per plan §06.1 item 4).
+    let sig_site = AmbiguousTypeSite::Expression;
     for param_ty in &sig.param_types {
-        collect_first_unbound_var(pool, *param_ty, sig_span, &exempt, errors);
+        collect_first_unbound_var(pool, *param_ty, sig_span, sig_site, &exempt, errors);
     }
-    collect_first_unbound_var(pool, sig.return_type, sig_span, &exempt, errors);
+    collect_first_unbound_var(pool, sig.return_type, sig_span, sig_site, &exempt, errors);
 
     // 2. Body expressions in ascending ExprIndex order.
     //    FxHashMap iteration is non-deterministic; sort once
@@ -146,8 +201,85 @@ pub fn validate_body_types(
     entries.sort_unstable_by_key(|(idx, _)| *idx);
 
     for (expr_idx, ty) in entries {
-        collect_first_unbound_var(pool, ty, span_of(expr_idx), &exempt, errors);
+        let site = site_from_expr_kind((ctx.kind)(expr_idx));
+        // Plan §06.1 item 2: for LambdaParam sites, narrow the primary
+        // diagnostic span from the whole-lambda span to the specific
+        // parameter-token span that carries the unresolved `Tag::Var`.
+        // The whole-lambda span (e.g., `x -> x.method()`) is too wide for a
+        // targeted "add a type annotation to this parameter" message. Fall
+        // back to the lambda's own span if the Lambda's return type is the
+        // unresolved position (no narrow param available) or if the type
+        // shape is not a function (defensive).
+        let primary_span = match site {
+            AmbiguousTypeSite::LambdaParam => {
+                narrow_to_lambda_param_span(pool, ty, expr_idx, ctx.param_span)
+                    .unwrap_or_else(|| (ctx.span)(expr_idx))
+            }
+            _ => (ctx.span)(expr_idx),
+        };
+        collect_first_unbound_var(pool, ty, primary_span, site, &exempt, errors);
     }
+}
+
+/// Narrow the diagnostic span for a `LambdaParam` site to the specific
+/// parameter-token span that carries the unresolved `Tag::Var`.
+///
+/// Plan §06.1 item 2: the lambda expression's span covers the entire
+/// `x -> body` form, but the E2005 wording "cannot infer the type of this
+/// closure parameter; add a full typed-lambda annotation like `(x: int) ->
+/// ReturnT = body`" is actionable only against the parameter token. This
+/// helper resolves the lambda's inferred type, unwraps any enclosing
+/// [`Tag::Scheme`] (polymorphic lambdas carry a scheme wrapper per
+/// `types.md §SC-1`), and walks the function signature's parameter types
+/// for the first one containing an unresolved `Tag::Var` (via
+/// [`TypeFlags::HAS_VAR`] per `types.md §TF-5`).
+///
+/// Returns `None` when:
+/// - The lambda's ty does not resolve to a `Tag::Function` (target shape is
+///   `Function` or `Scheme(Function(...))`; anything else is defensive).
+/// - No parameter carries `HAS_VAR` (the return-type slot may be the
+///   unresolved position; callers fall back to the lambda's own span).
+/// - `param_span_of(expr_idx, i)` returns `None` (the `ExprIndex` does
+///   not point at a `Lambda` or `i` is out of range).
+///
+/// `HAS_VAR` is the canonical fast-path gate (`types.md §TF-3` propagation
+/// and `§02.0` scheme-flag fix) — it is set iff an unbound `Tag::Var` is
+/// reachable under the type. The helper reads it after `resolve_fully`
+/// (staleness guard per `types.md §TF-2`).
+fn narrow_to_lambda_param_span(
+    pool: &Pool,
+    ty: Idx,
+    expr_idx: ExprIndex,
+    param_span_of: &dyn Fn(ExprIndex, usize) -> Option<Span>,
+) -> Option<Span> {
+    // Resolve the lambda's ty; unwrap a `Tag::Scheme` wrapper (poly-lambda
+    // shape per `types.md §SC-1`: `Scheme([var_ids], Function(...))`).
+    let resolved = pool.resolve_fully(ty);
+    let fn_ty = match pool.tag(resolved) {
+        Tag::Function => resolved,
+        Tag::Scheme => {
+            let body = pool.resolve_fully(pool.scheme_body(resolved));
+            if pool.tag(body) == Tag::Function {
+                body
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+
+    // Walk param types in declaration order; return the span of the first
+    // one carrying `HAS_VAR`. Resolve-then-check closes the staleness
+    // window (`types.md §TF-2` — flags are cached at intern time but
+    // `VarState::Link` may mutate later).
+    let param_count = pool.function_param_count(fn_ty);
+    for i in 0..param_count {
+        let p = pool.resolve_fully(pool.function_param(fn_ty, i));
+        if pool.flags(p).contains(TypeFlags::HAS_VAR) {
+            return param_span_of(expr_idx, i);
+        }
+    }
+    None
 }
 
 /// Build the set of `var_id`s that are legitimate scheme-parameter vars
@@ -185,10 +317,16 @@ pub fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u3
 /// traversal to `Pool::visit_children`. There is no `_ => {}` arm in the
 /// `match pool.tag(ty)` below that silently drops a compound variant —
 /// the catch-all explicitly recurses via `visit_children`.
+///
+/// `site` is the site classification selected by the caller per `ExprKind`
+/// at the error position (plan §06.1). It is threaded unchanged through
+/// recursion — classification is a property of the top-level expression,
+/// not of its type subchildren.
 fn collect_first_unbound_var(
     pool: &Pool,
     ty: Idx,
     span: Span,
+    site: AmbiguousTypeSite,
     exempt: &FxHashSet<u32>,
     errors: &mut Vec<TypeCheckError>,
 ) -> bool {
@@ -227,7 +365,7 @@ fn collect_first_unbound_var(
     }
 
     match pool.tag(ty) {
-        Tag::Var => check_var_tag(pool, ty, span, exempt, errors),
+        Tag::Var => check_var_tag(pool, ty, span, site, exempt, errors),
 
         // Scheme-quantified — legitimate; HAS_VAR should not be set on
         // BoundVar (types.md §TF-1). If it is, that's a separate pool
@@ -244,7 +382,7 @@ fn collect_first_unbound_var(
                     // Dedup: one diagnostic per top-level span.
                     return;
                 }
-                if collect_first_unbound_var(pool, child, span, exempt, errors) {
+                if collect_first_unbound_var(pool, child, span, site, exempt, errors) {
                     emitted = true;
                 }
             });
@@ -267,6 +405,7 @@ fn check_var_tag(
     pool: &Pool,
     ty: Idx,
     span: Span,
+    site: AmbiguousTypeSite,
     exempt: &FxHashSet<u32>,
     errors: &mut Vec<TypeCheckError>,
 ) -> bool {
@@ -287,34 +426,34 @@ fn check_var_tag(
         // var's equivalence class — it is a legitimate polymorphic
         // parameter, not an inference failure.
         VarState::Unbound { .. } | VarState::Generalized { .. } => {
-            emit_ambiguous_if_not_exempt(var_id, span, exempt, errors)
+            emit_ambiguous_if_not_exempt(var_id, span, site, exempt, errors)
         }
         // Resolved via link — resolve_fully above should have removed these,
         // but guard defensively by recursing on the target.
-        VarState::Link { target } => collect_first_unbound_var(pool, *target, span, exempt, errors),
+        VarState::Link { target } => {
+            collect_first_unbound_var(pool, *target, span, site, exempt, errors)
+        }
         // Rigid remains exempt — user-annotated parametric type parameters
         // are legitimate at PC-2 exit (`§UN-6`).
         VarState::Rigid { .. } => false,
     }
 }
 
-/// Emit `E2005` for `var_id` at `span` unless the var is in the exempt set.
+/// Emit `E2005` for `var_id` at `span` with the caller-supplied `site`
+/// classification, unless the var is in the exempt set.
 ///
 /// Returns `true` iff a diagnostic was pushed.
 fn emit_ambiguous_if_not_exempt(
     var_id: u32,
     span: Span,
+    site: AmbiguousTypeSite,
     exempt: &FxHashSet<u32>,
     errors: &mut Vec<TypeCheckError>,
 ) -> bool {
     if exempt.contains(&var_id) {
         return false;
     }
-    errors.push(TypeCheckError::ambiguous_type(
-        span,
-        var_id,
-        "expression".to_string(),
-    ));
+    errors.push(TypeCheckError::ambiguous_type(span, var_id, site));
     true
 }
 

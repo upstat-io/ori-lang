@@ -25,12 +25,14 @@
 
 use rustc_hash::FxHashMap;
 
-use ori_ir::{Name, Span};
+use ori_ir::{ExprKind, ExprRange, Name, Span};
 
-use crate::check::validators::validate_body_types;
+use crate::check::validators::{validate_body_types, ValidatorContext};
 use crate::output::FunctionSig;
 use crate::tag::Tag;
-use crate::{ExprIndex, Idx, Pool, TypeCheckError, TypeErrorKind, TypeFlags, VarState};
+use crate::{
+    AmbiguousTypeSite, ExprIndex, Idx, Pool, TypeCheckError, TypeErrorKind, TypeFlags, VarState,
+};
 
 /// Span returned by the per-`ExprIndex` `span_of` closure in these tests.
 /// Distinct from [`SIG_SPAN`] so cells that mix signature and body origins
@@ -40,6 +42,13 @@ const BODY_SPAN: Span = Span::new(0, 1);
 /// Span passed as `sig_span` to [`validate_body_types`] in these tests.
 /// Distinct from [`BODY_SPAN`].
 const SIG_SPAN: Span = Span::new(100, 101);
+
+/// Span returned by the per-`(ExprIndex, param_index)` `param_span_of`
+/// closure in `test_e2005_message_for_lambda_param`. Distinct from
+/// [`BODY_SPAN`] so the narrow-to-param-span contract can be pinned — if
+/// the validator falls back to the whole-lambda span, `errors[0].span`
+/// would be `BODY_SPAN` and the plan §06.1 item 2 assertion fails.
+const PARAM_SPAN: Span = Span::new(15, 16);
 
 /// Build an `FxHashMap<ExprIndex, Idx>` from `entries`, invoke
 /// [`validate_body_types`] with the standard test spans, and return the
@@ -60,13 +69,76 @@ fn run(
         expr_types.insert(idx, ty);
     }
     let mut errors = Vec::new();
+    let span_of = |_| BODY_SPAN;
+    let expr_kind_of = |_| None;
+    let param_span_of = |_, _| None;
+    let ctx = ValidatorContext {
+        span: &span_of,
+        kind: &expr_kind_of,
+        param_span: &param_span_of,
+    };
     validate_body_types(
         pool,
         &expr_types,
         sig,
         SIG_SPAN,
         scheme_var_ids,
-        &|_| BODY_SPAN,
+        &ctx,
+        &mut errors,
+    );
+    errors
+}
+
+/// `run` variant that supplies a per-`ExprIndex` `ExprKind` lookup. Used by
+/// the §06.1 cells that assert site-specific E2005 wording — the validator
+/// classifies the error site from the `ExprKind` at the top-level body
+/// expression entry point per plan §06.1.
+fn run_with_expr_kinds(
+    pool: &Pool,
+    entries: &[(ExprIndex, Idx, Option<ExprKind>)],
+    sig: &FunctionSig,
+    scheme_var_ids: &[u32],
+) -> Vec<TypeCheckError> {
+    let no_param_spans = |_, _| None;
+    run_with_expr_kinds_and_param_spans(pool, entries, sig, scheme_var_ids, &no_param_spans)
+}
+
+/// `run_with_expr_kinds` variant that additionally supplies a
+/// `param_span_of` closure. Used by the plan §06.1 item 2 cells that pin
+/// the narrow-to-parameter-span contract for `LambdaParam` sites — the
+/// validator must pick up the Lambda's nth parameter's span (not the
+/// whole-Lambda span) when an unresolved `Tag::Var` surfaces at parameter
+/// slot `n` of the Lambda's inferred function type.
+fn run_with_expr_kinds_and_param_spans(
+    pool: &Pool,
+    entries: &[(ExprIndex, Idx, Option<ExprKind>)],
+    sig: &FunctionSig,
+    scheme_var_ids: &[u32],
+    param_span_of: &dyn Fn(ExprIndex, usize) -> Option<Span>,
+) -> Vec<TypeCheckError> {
+    let mut expr_types: FxHashMap<ExprIndex, Idx> = FxHashMap::default();
+    let mut kinds: FxHashMap<ExprIndex, ExprKind> = FxHashMap::default();
+    for &(idx, ty, ref kind) in entries {
+        expr_types.insert(idx, ty);
+        if let Some(k) = kind {
+            kinds.insert(idx, *k);
+        }
+    }
+    let mut errors = Vec::new();
+    let span_of = |_| BODY_SPAN;
+    let expr_kind_of = |expr_index| kinds.get(&expr_index).copied();
+    let ctx = ValidatorContext {
+        span: &span_of,
+        kind: &expr_kind_of,
+        param_span: param_span_of,
+    };
+    validate_body_types(
+        pool,
+        &expr_types,
+        sig,
+        SIG_SPAN,
+        scheme_var_ids,
+        &ctx,
         &mut errors,
     );
     errors
@@ -720,4 +792,397 @@ fn polylambda_return_type_with_unbound_var_emits_one_e2005() {
         TypeErrorKind::AmbiguousType { .. }
     ));
     assert_eq!(errors[0].span, BODY_SPAN);
+}
+
+// §05.1 additions (Plan `empty-container-typeck-phase-contract` §05.1.2 T13
+// + §05.1.4 semantic and negative pins). Tests are synthetic unit tests
+// that drive `validate_body_types` directly, mirroring the T1–T12 harness.
+
+/// Spec: `tests.md §Cross-Phase Verification #3` fault-tolerance — two
+/// unbound `Tag::Var`s at DISTINCT `ExprIndex` positions MUST emit two
+/// independent `E2005` diagnostics (no cross-ExprIndex dedup). Distinct
+/// from T12 (`map_with_two_unbound_vars_emits_one_e2005_not_two`) which
+/// verifies same-ExprIndex collapse — this test is the count-2 companion
+/// for the planned Item 17 fault-tolerance spec file
+/// `empty_list_multiple_unannotated.ori` (scheduled under §05.2 of the
+/// `empty-container-typeck-phase-contract` plan; the `.ori` fixture ships
+/// with the §05.2 corpus, at which point the spec-side `#compile_fail(code:
+/// "E2005")` and this Rust-side `diagnostics.len() == 2` together anchor
+/// the multi-error fault-tolerance contract).
+///
+/// Models the repro `let xs = []; let ys = []; xs.len() + ys.len()`: two
+/// distinct let-bindings with independent unbound element vars, each
+/// carried by its own `ExprIndex`.
+///
+/// Plan §05.1.2 T13 + §05.R TPR-05-R2-002.
+#[test]
+fn validate_body_types_emits_one_e2005_per_unbound_var() {
+    let mut pool = Pool::new();
+    let xs_elem = pool.fresh_var();
+    let ys_elem = pool.fresh_var();
+    // Two bindings at distinct ExprIndex positions — no dedup across indices.
+    let errors = run(&pool, &[(0, xs_elem), (1, ys_elem)], &empty_sig(), &[]);
+
+    assert_eq!(
+        errors.len(),
+        2,
+        "distinct ExprIndices must each emit one diagnostic; dedup is \
+         per-ExprIndex (see T12), not cross-ExprIndex"
+    );
+    for err in &errors {
+        assert!(
+            matches!(err.kind, TypeErrorKind::AmbiguousType { .. }),
+            "both diagnostics must be E2005 (AmbiguousType), got {:?}",
+            err.kind
+        );
+        assert_eq!(err.span, BODY_SPAN);
+    }
+}
+
+/// Semantic pin SP-1: the validator-skips-codegen-leak shape — an unbound
+/// element `Tag::Var` inside a `Tag::List` reaches `expr_types` and is
+/// rejected at the typeck boundary with `E2005`
+/// (`TypeErrorKind::AmbiguousType`). Once the validator emits E2005, the
+/// driver's codegen gate (`typeck.md §PC-4`) suppresses emission — the
+/// "not a codegen error" half of the pin is the diagnostic kind itself:
+/// an `AmbiguousType` is a typeck-origin diagnostic, not a codegen-origin
+/// one.
+///
+/// Reverting Sections 01 (Value Restriction) or 03 (bodies-pass wiring)
+/// allows the element var to survive to codegen and surface as an
+/// "unresolved type variable at codegen" failure instead; this pin asserts
+/// the E2005 path is the one that fires.
+///
+/// Plan §05.1.4 SP-1.
+#[test]
+fn empty_list_bare_use_emits_ambiguous_type_before_codegen() {
+    let mut pool = Pool::new();
+    let elem_var = pool.fresh_var();
+    let list_var = pool.list(elem_var);
+
+    let errors = run(&pool, &[(0, list_var)], &empty_sig(), &[]);
+
+    assert_eq!(errors.len(), 1, "bare `[]` element var must emit one E2005");
+    assert!(
+        matches!(errors[0].kind, TypeErrorKind::AmbiguousType { .. }),
+        "diagnostic kind is E2005 (AmbiguousType) — a typeck-origin error, \
+         proving the validator intercepted before codegen; got {:?}",
+        errors[0].kind
+    );
+    assert_eq!(errors[0].span, BODY_SPAN);
+}
+
+/// Semantic pin SP-2: `Tag::Error` at one `ExprIndex` MUST NOT spuriously
+/// induce an `E2005` at a sibling well-formed `ExprIndex`. Verifies the
+/// validator is monotone (`typeck.md §ER-2`) across sibling expression
+/// positions — error presence in one `ExprIndex` neither propagates to
+/// nor suppresses a CONCRETE resolved type at another `ExprIndex`.
+///
+/// Distinct from T8 (`tuple_with_error_and_unbound_var_suppresses_diagnostic`)
+/// which verifies intra-type cascade suppression; SP-2 verifies
+/// cross-ExprIndex monotonicity: the Error-typed slot emits nothing (it is
+/// poison per `types.md §TK-3`), and the int-typed slot emits nothing
+/// (it is fully resolved per T4's fast-path).
+///
+/// Plan §05.1.4 SP-2.
+#[test]
+fn error_typed_expr_with_sibling_wellformed_expr_emits_no_diagnostic() {
+    let pool = Pool::new();
+
+    let errors = run(&pool, &[(0, Idx::ERROR), (1, Idx::INT)], &empty_sig(), &[]);
+
+    assert!(
+        errors.is_empty(),
+        "monotone recovery: Error-typed sibling does not cascade into a \
+         false-positive E2005 on the well-formed int slot, and the \
+         Error-typed slot itself emits nothing (poison per types.md §TK-3)"
+    );
+}
+
+/// Negative pin NP-1: an unannotated signature parameter carries a fresh
+/// `Tag::Var` that the `ori_types::check::bodies` end-of-body defaulting
+/// pre-pass does NOT cover — defaulting is scoped to vars reachable from
+/// empty-literal expression roots (`typeck.md §PC-2` "End-of-body
+/// defaulting pre-pass"). An unannotated param `@f (x) -> int = 0` is
+/// unreachable from any empty-literal root; the validator catches it at
+/// `SIG_SPAN` with `E2005`.
+///
+/// Companion spec file:
+/// `compiler_repo/tests/spec/types/empty_literals/negative_unrelated_signature_var_still_errors.ori`
+/// (shipped §03 corpus). The Rust pin proves the diagnostic identity
+/// (E2005 at `sig_span`), which the `.ori` file cannot assert directly
+/// beyond the error-code match.
+///
+/// Distinct from T3 (`signature_with_unbound_param_type_emits_at_sig_span`)
+/// which establishes the baseline sig-position emission. NP-1 explicitly
+/// documents the §03-defaulting exclusion — defaulting is scope-by-var,
+/// not scope-by-position; sig-position vars stay Unbound and fire E2005.
+///
+/// Plan §05.1.4 NP-1.
+#[test]
+fn unannotated_signature_param_emits_ambiguous_type_not_codegen_error() {
+    let mut pool = Pool::new();
+    let param_var = pool.fresh_var();
+    // @f(x: <unbound>) -> int — sig-position Var, no empty-literal root
+    // anywhere in the body, so §03 defaulting cannot touch it.
+    let sig = FunctionSig::simple(Name::from_raw(1), vec![param_var], Idx::INT);
+
+    let errors = run(&pool, &[], &sig, &[]);
+
+    assert_eq!(errors.len(), 1, "sig-position Var fires exactly once");
+    assert!(
+        matches!(errors[0].kind, TypeErrorKind::AmbiguousType { .. }),
+        "diagnostic is E2005 (AmbiguousType), a typeck-origin error — \
+         proving the defense-in-depth validator catches sig-position Vars \
+         before codegen ever sees them; got {:?}",
+        errors[0].kind
+    );
+    assert_eq!(
+        errors[0].span, SIG_SPAN,
+        "sig-origin diagnostic must emit at sig_span (defaulting does not \
+         cover sig positions; they stay Unbound)"
+    );
+}
+
+/// Negative pin NP-2: a `Tag::Scheme` body containing a captured outer
+/// `Tag::Var` (`var_id` NOT in the scheme's bound-var list) MUST emit
+/// `E2005`. Prevents an over-eager "skip Scheme" fix that would miss
+/// captured-outer-var violations — the validator MUST walk scheme bodies
+/// and check every Unbound Var against the scheme's bound list.
+///
+/// Distinct from T6 (`scheme_body_with_bound_var_emits_no_diagnostic` —
+/// a `BoundVar` body, no unbound anywhere) and T10
+/// (`scheme_wrapping_unbound_var_body_emits_one_e2005` — an Unbound var
+/// with `var_id` IN the scheme's bound list, exercising the
+/// `PROPAGATE_MASK` propagation fix). NP-2 uses a DIFFERENT `var_id` than
+/// the scheme's bound
+/// list: the scheme binds a synthetic id derived via
+/// `outer_var_id.wrapping_add(1000)` — guaranteed distinct from
+/// `outer_var_id` (belt-and-suspenders `assert_ne!` inside this test) — while
+/// the body references the freshly-allocated outer Var. The Var is
+/// therefore a genuine capture (not in the scheme's bound list) and fires
+/// E2005.
+///
+/// Plan §05.1.4 NP-2.
+#[test]
+fn scheme_body_with_captured_outer_var_emits_one_e2005() {
+    let mut pool = Pool::new();
+    let outer_var = pool.fresh_var();
+    let outer_var_id = pool.data(outer_var);
+    // Scheme binds a synthetic id that is guaranteed distinct from
+    // `outer_var_id` — the outer Var is captured from an enclosing scope,
+    // NOT bound by this scheme.
+    let synthetic_bound_id: u32 = outer_var_id.wrapping_add(1000);
+    assert_ne!(
+        synthetic_bound_id, outer_var_id,
+        "synthetic bound id must be distinct from the captured var's id"
+    );
+    let scheme = pool.scheme(&[synthetic_bound_id], outer_var);
+    assert!(
+        pool.flags(scheme).contains(TypeFlags::HAS_VAR),
+        "scheme body with captured Unbound var must carry HAS_VAR via \
+         PROPAGATE_MASK (types.md §TF-3)"
+    );
+
+    let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "captured outer Var (var_id not in scheme bounds) is a PC-2 \
+         violation and MUST emit E2005 — a 'skip schemes entirely' fix \
+         would miss this"
+    );
+    assert!(matches!(
+        errors[0].kind,
+        TypeErrorKind::AmbiguousType { .. }
+    ));
+    assert_eq!(errors[0].span, BODY_SPAN);
+}
+
+// §06.1 — E2005 diagnostic dispatch by ExprKind
+//
+// Three cells that pin the site-specific wording added per plan §06.1.
+// Positive pins T17 + T18 assert the specialized message text for empty-list
+// and lambda-param sites (plan items 3). Negative pin T19 asserts that a
+// signature-position var (no ExprKind in scope) still produces the generic
+// `"cannot infer type in expression"` wording (plan item 4).
+
+/// Positive pin: empty-list literal site produces the specialized
+/// `"cannot infer the type of this empty list"` wording with a
+/// `[int]`-annotation hint, and the span points at the list expression.
+///
+/// Drives plan §06.1 items 3 (wording) and 2 (span discipline). Fails if
+/// (a) `AmbiguousTypeSite::EmptyList` is not selected at a bare `[]` site,
+/// (b) the message text drifts, or (c) the diagnostic's span does not
+/// match the body-expression span supplied by `span_of`.
+#[test]
+fn test_e2005_message_for_empty_list() {
+    let mut pool = Pool::new();
+    let elem_var = pool.fresh_var();
+    let list_var = pool.list(elem_var);
+    // ExprKind::List(empty range) — the bare `[]` shape per plan §06.1.
+    let empty_list_kind = ExprKind::List(ExprRange::EMPTY);
+
+    let errors = run_with_expr_kinds(
+        &pool,
+        &[(0, list_var, Some(empty_list_kind))],
+        &empty_sig(),
+        &[],
+    );
+
+    assert_eq!(errors.len(), 1, "one E2005 per unbound element var");
+    assert_eq!(
+        errors[0].span, BODY_SPAN,
+        "span must match the List ExprId's span (plan §06.1 item 2)"
+    );
+    match &errors[0].kind {
+        TypeErrorKind::AmbiguousType { site, .. } => {
+            assert_eq!(
+                *site,
+                AmbiguousTypeSite::EmptyList,
+                "validator must select EmptyList site for ExprKind::List([])"
+            );
+        }
+        other => panic!("expected AmbiguousType, got {other:?}"),
+    }
+    assert_eq!(
+        errors[0].message(),
+        "cannot infer the type of this empty list; \
+         add a type annotation like `let x: [int] = []`",
+        "plan §06.1 specialized wording for empty-list site"
+    );
+}
+
+/// Positive pin: lambda-parameter site produces the specialized
+/// `"cannot infer the type of this closure parameter"` wording with a
+/// typed-lambda-annotation hint, and the primary diagnostic span narrows
+/// to the specific parameter token (NOT the whole-Lambda span).
+///
+/// Drives plan §06.1 items 3 (wording) and 2 (span discipline). Fails if
+/// (a) `AmbiguousTypeSite::LambdaParam` is not selected at a `Lambda` site,
+/// (b) the message text drifts, or (c) the diagnostic's span falls back to
+/// the whole-Lambda span instead of narrowing to [`PARAM_SPAN`] — a
+/// whole-Lambda span is too wide for an actionable "add a type annotation
+/// to this parameter" message.
+///
+/// The lambda's inferred type is `(Var) -> int` — a `Tag::Function` with
+/// a single unresolved-var parameter at slot 0. The validator must:
+///   1. Classify the site as `LambdaParam` from `ExprKind::Lambda`.
+///   2. Walk the function sig's param types and find `HAS_VAR` at slot 0.
+///   3. Call `param_span_of(lambda_expr_idx, 0)` to get the narrow span.
+///   4. Emit E2005 at [`PARAM_SPAN`] (NOT [`BODY_SPAN`]).
+///
+/// [`PARAM_SPAN`] is deliberately distinct from [`BODY_SPAN`] so a
+/// validator falling back to `span_of(expr_idx)` (whole-Lambda span)
+/// reports `BODY_SPAN` and this assertion fails — confirming the test
+/// actively pins the narrow-span contract (per INVERTED-TDD avoidance).
+#[test]
+fn test_e2005_message_for_lambda_param() {
+    let mut pool = Pool::new();
+    let param_var = pool.fresh_var();
+    // Lambda inferred type: `(Var) -> int` — function with a single
+    // unresolved param at slot 0. This is the type stored in
+    // `expr_types[lambda_expr_idx]` by InferEngine for a lambda whose
+    // parameter type could not be resolved.
+    let lambda_ty = pool.function(&[param_var], Idx::INT);
+    // ExprKind::Lambda — site-classification trigger per §06.1. Actual
+    // params/body/ret_ty values don't need to be arena-resolvable here —
+    // the validator only (a) dispatches on the discriminant for site
+    // classification and (b) calls `param_span_of(expr_idx, i)` for the
+    // narrow span, which the test wires below.
+    let lambda_kind = ExprKind::Lambda {
+        params: ori_ir::ParamRange::EMPTY,
+        ret_ty: ori_ir::ParsedTypeId::INVALID,
+        body: ori_ir::ExprId::INVALID,
+    };
+
+    // Wire `param_span_of` to return `PARAM_SPAN` for (lambda_expr_idx=0,
+    // param_index=0). Any other (expr_idx, i) returns `None` — the
+    // validator falls back to the whole-Lambda span only when the Lambda's
+    // return slot is the unresolved one, which is not the case here.
+    let errors = run_with_expr_kinds_and_param_spans(
+        &pool,
+        &[(0, lambda_ty, Some(lambda_kind))],
+        &empty_sig(),
+        &[],
+        &|expr_index, param_index| {
+            if expr_index == 0 && param_index == 0 {
+                Some(PARAM_SPAN)
+            } else {
+                None
+            }
+        },
+    );
+
+    assert_eq!(errors.len(), 1, "one E2005 per unbound lambda-param var");
+    assert_ne!(
+        PARAM_SPAN, BODY_SPAN,
+        "test setup: PARAM_SPAN must be distinct from BODY_SPAN so the \
+         narrow-span assertion actively pins the narrowing contract — \
+         a validator falling back to span_of(expr_idx) would report \
+         BODY_SPAN and this test would fail"
+    );
+    assert_eq!(
+        errors[0].span, PARAM_SPAN,
+        "plan §06.1 item 2: span must narrow to the parameter token \
+         (PARAM_SPAN), NOT the whole-Lambda span (BODY_SPAN)"
+    );
+    match &errors[0].kind {
+        TypeErrorKind::AmbiguousType { site, .. } => {
+            assert_eq!(
+                *site,
+                AmbiguousTypeSite::LambdaParam,
+                "validator must select LambdaParam site for ExprKind::Lambda"
+            );
+        }
+        other => panic!("expected AmbiguousType, got {other:?}"),
+    }
+    assert_eq!(
+        errors[0].message(),
+        "cannot infer the type of this closure parameter; \
+         add a full typed-lambda annotation like `(x: int) -> ReturnT = body`",
+        "plan §06.1 specialized wording for lambda-param site"
+    );
+}
+
+/// Negative pin: an unbound `Tag::Var` in `FunctionSig.param_types[0]` (a
+/// signature position, not a lambda body) STILL produces the generic
+/// `"cannot infer type in expression"` wording.
+///
+/// Drives plan §06.1 item 4. Guards against over-eager specialized
+/// dispatch — regular unannotated function parameters must NOT pick up
+/// the typed-lambda wording. Signature positions have no `ExprKind` in
+/// scope (the validator cannot look one up from a `FunctionSig` position),
+/// so the site defaults to `AmbiguousTypeSite::Expression`.
+#[test]
+fn test_e2005_message_falls_back_to_generic_for_signature_var() {
+    let mut pool = Pool::new();
+    let param_var = pool.fresh_var();
+    // @f(x: <unbound>) -> int — sig-position Var, no ExprKind in scope.
+    let sig = FunctionSig::simple(Name::from_raw(1), vec![param_var], Idx::INT);
+
+    let errors = run(&pool, &[], &sig, &[]);
+
+    assert_eq!(errors.len(), 1, "sig-position var fires exactly once");
+    assert_eq!(
+        errors[0].span, SIG_SPAN,
+        "sig-origin diagnostic must emit at sig_span"
+    );
+    match &errors[0].kind {
+        TypeErrorKind::AmbiguousType { site, .. } => {
+            assert_eq!(
+                *site,
+                AmbiguousTypeSite::Expression,
+                "sig positions (no ExprKind in scope) must default to the \
+                 generic Expression site — not LambdaParam"
+            );
+        }
+        other => panic!("expected AmbiguousType, got {other:?}"),
+    }
+    assert_eq!(
+        errors[0].message(),
+        "cannot infer type in expression",
+        "plan §06.1 item 4: sig-position vars stay on generic wording"
+    );
 }

@@ -20,12 +20,12 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_infer_result_type tests @infer_result_type () -> void = {
     // Result type inferred from argument
-    let res = Ok(42);
+    let res: Result<int, str> = Ok(42);
     assert(cond: is_ok(r: res))
 }
 
 @infer_result_type () -> bool = {
-    let res = Ok(42);
+    let res: Result<int, str> = Ok(42);
     is_ok(r: res)
 }
 
@@ -233,12 +233,12 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_infer_result_in_option tests @infer_result_in_option () -> void = {
     // Nested: Option<Result<int, str>>
-    let opt = Some(Ok(42));
+    let opt: Option<Result<int, str>> = Some(Ok(42));
     assert(cond: is_some(opt: opt))
 }
 
 @infer_result_in_option () -> bool = {
-    let opt = Some(Ok(42));
+    let opt: Option<Result<int, str>> = Some(Ok(42));
     is_some(opt: opt)
 }
 

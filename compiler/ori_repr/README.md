@@ -1,8 +1,6 @@
 # ori_repr
 
 > **`ori_repr` exists to compute the `ReprPlan` once** — the layout, alignment, discriminant encoding, and ABI decisions for every type. One layout per type, computed once, consumed everywhere.
->
-> Full mission: [`.claude/rules/missions.md §ori_repr`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -48,9 +46,3 @@ cargo test -p ori_repr
 - `ReprPlan` entry point: `src/plan/mod.rs`
 - Layout algorithm: `src/layout/`
 - `#repr` pragma handling: `src/repr_pragma/`
-
-## References
-
-- [`.claude/rules/repr.md`](../../.claude/rules/repr.md) — representation rules
-- [`.claude/rules/canon.md §1`](../../.claude/rules/canon.md) — sub-layer 7a position
-- [`.claude/rules/impl-hygiene.md §Layout Computation`](../../.claude/rules/impl-hygiene.md) — single-computation-point rule

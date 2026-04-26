@@ -1,0 +1,13 @@
+// BUG-04-084 NEGATIVE PIN: unannotated parameter rebound via a nested let
+// and then consumed only via `.len()` still leaves the signature-position
+// var unconstrained. Defaulting is scoped to empty-literal-reachable vars;
+// a signature hole not reached by any empty literal still fires E2005.
+
+#compile_fail(code: "E2005")
+
+@nested_len (xs) -> int = {
+    let $inner = xs;
+    inner.len()
+};
+
+@main () -> int = nested_len(xs: []);

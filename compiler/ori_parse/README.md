@@ -1,8 +1,6 @@
 # ori_parse
 
 > **`ori_parse` exists to produce a parse tree the rest of the compiler can trust absolutely.** `grammar.ebnf` is authoritative; the parser implements it with zero deviation.
->
-> Full mission: [`.claude/rules/missions.md §ori_parse`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -55,6 +53,4 @@ Benchmarks in `compiler/oric/benches/parser.rs` — full-parse throughput ~95-12
 
 ## References
 
-- [`.claude/rules/canon.md §1`, `§2`](../../.claude/rules/canon.md) — phase 2 + parse-time desugars
-- [`.claude/rules/parse.md`](../../.claude/rules/parse.md) — parser rules
 - [`docs/ori_lang/v2026/spec/grammar.ebnf`](../../docs/ori_lang/v2026/spec/grammar.ebnf) — authoritative grammar

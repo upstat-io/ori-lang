@@ -28,13 +28,13 @@ type Color = Red | Green | Blue;
 // Map with match in lambda (untyped)
 @test_map_match tests @_use_color () -> void = {
     let colors = [Red, Green, Blue, Red];
-    let mapped = colors.map(f: (c) -> match c { Red -> 1, _ -> 0});
+    let mapped = colors.map(f: (c: Color) -> int = match c { Red -> 1, _ -> 0});
     assert_eq(actual: mapped, expected: [1, 0, 0, 1])
 }
 
 // Fold with match in lambda - minimal
 @test_fold_match tests @_use_color () -> void = {
     let colors = [Red, Green, Blue, Red];
-    let count = colors.fold(initial: 0, op: (acc, c) -> acc + match c { Red -> 1, _ -> 0});
+    let count = colors.fold(initial: 0, op: (acc: int, c: Color) -> int = acc + match c { Red -> 1, _ -> 0});
     assert_eq(actual: count, expected: 2)
 }

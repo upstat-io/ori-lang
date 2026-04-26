@@ -133,9 +133,12 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: value, expected: 100)
 }
 
-@match_multiple_never () -> int = match Ok(100) {
-    Ok(x) -> x,
-    Err(e) -> panic(msg: e)
+@match_multiple_never () -> int = {
+    let result: Result<int, str> = Ok(100);
+    match result {
+        Ok(x) -> x,
+        Err(e) -> panic(msg: e)
+    }
 }
 
 // =============================================================================
@@ -149,7 +152,10 @@ use std.testing { assert_eq, assert }
     assert(cond: is_err(r: result))
 }
 
-@result_never_ok () -> bool = is_err(r: Err("error"));
+@result_never_ok () -> bool = {
+    let result: Result<int, str> = Err("error");
+    is_err(r: result)
+}
 
 // Option<Never> can only be None (conceptually)
 @test_option_never tests @option_never () -> void = {
@@ -157,7 +163,10 @@ use std.testing { assert_eq, assert }
     assert(cond: is_none(opt: opt))
 }
 
-@option_never () -> bool = is_none(opt: None);
+@option_never () -> bool = {
+    let opt: Option<int> = None;
+    is_none(opt: opt)
+}
 
 // =============================================================================
 // Never in Else Branch

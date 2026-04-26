@@ -80,8 +80,17 @@ impl UnifyEngine<'_> {
     }
 
     /// Inner traversal for collecting free variables.
+    ///
+    /// Delegates compound-tag child traversal to the canonical
+    /// `Pool::visit_children` walker (`types.md §TF-3`, `pool/descriptor.rs`)
+    /// rather than open-coding a parallel tag-dispatch ladder
+    /// (`impl-hygiene.md §Algorithmic DRY`). Mirrors the shape of
+    /// `check::validators::collect_first_unbound_var` — the in-repo
+    /// reference for this delegation pattern.
     fn collect_free_vars_inner(&self, ty: Idx, min_rank: Rank, vars: &mut Vec<u32>) {
-        // Fast path: no variables
+        // Fast path: no variables. `Tag::BoundVar` sets `HAS_BOUND_VAR`, not
+        // `HAS_VAR` (`types.md §TF-1`), so scheme bodies whose only inner
+        // variables are bound short-circuit here.
         if !self.pool.flags(ty).contains(TypeFlags::HAS_VAR) {
             return;
         }
@@ -100,61 +109,20 @@ impl UnifyEngine<'_> {
                 }
             }
 
-            Tag::List
-            | Tag::Option
-            | Tag::Set
-            | Tag::Channel
-            | Tag::Range
-            | Tag::Iterator
-            | Tag::DoubleEndedIterator => {
-                let child = Idx::from_raw(self.pool.data(ty));
-                self.collect_free_vars_inner(child, min_rank, vars);
-            }
+            // Defensive against a stale-flag edge case: `BoundVar` sets
+            // `HAS_BOUND_VAR`, not `HAS_VAR`, so this arm should be
+            // unreachable under the top-level gate. Skip silently if reached.
+            Tag::BoundVar => {}
 
-            Tag::Map => {
-                let key = self.pool.map_key(ty);
-                let value = self.pool.map_value(ty);
-                self.collect_free_vars_inner(key, min_rank, vars);
-                self.collect_free_vars_inner(value, min_rank, vars);
+            // Every compound tag — recurse via the canonical child walker.
+            // No `_ => {}` arm silently drops a compound variant;
+            // `visit_children` handles `Tag::Named` / `Tag::Alias` /
+            // `Tag::Projection` as leaves (`pool/descriptor.rs:365`).
+            _ => {
+                self.pool.visit_children(ty, |child| {
+                    self.collect_free_vars_inner(child, min_rank, vars);
+                });
             }
-
-            Tag::Result => {
-                let ok = self.pool.result_ok(ty);
-                let err = self.pool.result_err(ty);
-                self.collect_free_vars_inner(ok, min_rank, vars);
-                self.collect_free_vars_inner(err, min_rank, vars);
-            }
-
-            Tag::Borrowed => {
-                let inner = self.pool.borrowed_inner(ty);
-                self.collect_free_vars_inner(inner, min_rank, vars);
-            }
-
-            Tag::Function => {
-                let params = self.pool.function_params(ty);
-                let ret = self.pool.function_return(ty);
-                for p in params {
-                    self.collect_free_vars_inner(p, min_rank, vars);
-                }
-                self.collect_free_vars_inner(ret, min_rank, vars);
-            }
-
-            Tag::Tuple => {
-                let elems = self.pool.tuple_elems(ty);
-                for e in elems {
-                    self.collect_free_vars_inner(e, min_rank, vars);
-                }
-            }
-
-            Tag::Applied => {
-                let args = self.pool.applied_args(ty);
-                for a in args {
-                    self.collect_free_vars_inner(a, min_rank, vars);
-                }
-            }
-
-            // Schemes have their own quantification, other types don't contain variables
-            _ => {}
         }
     }
 }

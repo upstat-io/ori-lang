@@ -63,16 +63,24 @@ use std.testing { assert, assert_eq }
 // Option .equals()
 // =============================================================================
 
-@test_option_equals_none tests @opt_eq_none () -> void =
-    assert(cond: None.equals(other: None));
+@test_option_equals_none tests @opt_eq_none () -> void = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    assert(cond: a.equals(other: b))
+}
 
-@opt_eq_none () -> bool = None.equals(other: None);
+@opt_eq_none () -> bool = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    a.equals(other: b)
+}
 
 @test_option_equals_some tests @opt_eq_some () -> void = {
+    let none_i: Option<int> = None;
     assert(cond: Some(42).equals(other: Some(42)));
     assert(cond: !Some(1).equals(other: Some(2)));
-    assert(cond: !Some(1).equals(other: None));
-    assert(cond: !None.equals(other: Some(1)))
+    assert(cond: !Some(1).equals(other: none_i));
+    assert(cond: !none_i.equals(other: Some(1)))
 }
 
 @opt_eq_some () -> bool = Some(5).equals(other: Some(5));
@@ -82,25 +90,49 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @test_result_equals_ok tests @res_eq_ok () -> void = {
-    assert(cond: Ok(1).equals(other: Ok(1)));
-    assert(cond: !Ok(1).equals(other: Ok(2)))
+    let a1: Result<int, str> = Ok(1);
+    let a2: Result<int, str> = Ok(1);
+    let b1: Result<int, str> = Ok(1);
+    let b2: Result<int, str> = Ok(2);
+    assert(cond: a1.equals(other: a2));
+    assert(cond: !b1.equals(other: b2))
 }
 
-@res_eq_ok () -> bool = Ok(1).equals(other: Ok(1));
+@res_eq_ok () -> bool = {
+    let a: Result<int, str> = Ok(1);
+    let b: Result<int, str> = Ok(1);
+    a.equals(other: b)
+}
 
 @test_result_equals_err tests @res_eq_err () -> void = {
-    assert(cond: Err("x").equals(other: Err("x")));
-    assert(cond: !Err("a").equals(other: Err("b")))
+    let a1: Result<int, str> = Err("x");
+    let a2: Result<int, str> = Err("x");
+    let b1: Result<int, str> = Err("a");
+    let b2: Result<int, str> = Err("b");
+    assert(cond: a1.equals(other: a2));
+    assert(cond: !b1.equals(other: b2))
 }
 
-@res_eq_err () -> bool = Err("x").equals(other: Err("x"));
+@res_eq_err () -> bool = {
+    let a: Result<int, str> = Err("x");
+    let b: Result<int, str> = Err("x");
+    a.equals(other: b)
+}
 
 @test_result_equals_mixed tests @res_eq_mixed () -> void = {
-    assert(cond: !Ok(1).equals(other: Err("x")));
-    assert(cond: !Err("x").equals(other: Ok(1)))
+    let a1: Result<int, str> = Ok(1);
+    let a2: Result<int, str> = Err("x");
+    let b1: Result<int, str> = Err("x");
+    let b2: Result<int, str> = Ok(1);
+    assert(cond: !a1.equals(other: a2));
+    assert(cond: !b1.equals(other: b2))
 }
 
-@res_eq_mixed () -> bool = !Ok(1).equals(other: Err("x"));
+@res_eq_mixed () -> bool = {
+    let a: Result<int, str> = Ok(1);
+    let b: Result<int, str> = Err("x");
+    !a.equals(other: b)
+}
 
 // =============================================================================
 // Tuple .equals()

@@ -1,8 +1,6 @@
 # ori_lexer
 
 > **`ori_lexer` exists to turn source bytes into a `TokenList` the parser consumes with zero fixups.** Scan-only; no parsing, no semantic validation; output is three parallel arrays optimized for cache locality.
->
-> Full mission: [`.claude/rules/missions.md §ori_lexer`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -41,7 +39,4 @@ Benchmark harness lives in `compiler/oric/benches/lexer.rs` and `compiler/oric/b
 
 ## References
 
-- [`.claude/rules/canon.md §1`](../../.claude/rules/canon.md) — phase 1 position
-- [`.claude/rules/parse.md §LB-2`, `§LB-4`](../../.claude/rules/parse.md) — parallel array layout
-- [`.claude/rules/compiler.md §Phase-Specific Purity`](../../.claude/rules/compiler.md) — lexer purity
 - MEMORY `§Parser Performance` — throughput benchmarks

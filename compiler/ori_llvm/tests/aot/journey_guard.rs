@@ -34,23 +34,28 @@ const J19_RC_LIFECYCLE: i32 = 51;
 const J20_COW_PATTERNS: i32 = 105;
 
 /// Get the path to a journey `.ori` file. Panics if the file doesn't exist.
+///
+/// Walks ancestors from `CARGO_MANIFEST_DIR` and returns the first one that
+/// contains `plans/code-journeys/<name>.ori`. Robust to the
+/// compiler-vs-wrapper root separation — `plans/` may live at the compiler
+/// root or one level above it.
 fn journey_path(name: &str) -> PathBuf {
-    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let file_name = format!("{name}.ori");
+    let resolved = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
-        .find(|p| p.join("Cargo.toml").exists() && p.join("compiler").exists())
-        .map_or_else(|| PathBuf::from("/workspace"), std::path::Path::to_path_buf);
+        .find_map(|p| {
+            let candidate = p.join("plans/code-journeys").join(&file_name);
+            candidate.exists().then_some(candidate)
+        });
 
-    let path = workspace_root
-        .join("plans/code-journeys")
-        .join(format!("{name}.ori"));
-
-    assert!(
-        path.exists(),
-        "Journey file missing: {} — journey guard tests require all journey \
-         .ori files to be present. This is a hard failure, not a skip.",
-        path.display()
-    );
-    path
+    match resolved {
+        Some(path) => path,
+        None => panic!(
+            "Journey file missing: plans/code-journeys/{file_name} — journey guard \
+             tests require all journey .ori files to be present. This is a hard \
+             failure, not a skip.",
+        ),
+    }
 }
 
 /// Compile and run a journey file through AOT with leak detection.

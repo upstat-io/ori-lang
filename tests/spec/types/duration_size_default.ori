@@ -31,8 +31,8 @@ use std.testing { assert, assert_eq }
 
 @test_duration_default_equality tests @duration_default_eq () -> void = {
     // Two calls to default() produce equal values
-    let d1 = Duration.default();
-    let d2 = Duration.default();
+    let d1: Duration = Duration.default();
+    let d2: Duration = Duration.default();
     assert_eq(actual: d1, expected: d2)
 }
 
@@ -84,8 +84,8 @@ use std.testing { assert, assert_eq }
 
 @test_size_default_equality tests @size_default_eq () -> void = {
     // Two calls to default() produce equal values
-    let s1 = Size.default();
-    let s2 = Size.default();
+    let s1: Size = Size.default();
+    let s2: Size = Size.default();
     assert_eq(actual: s1, expected: s2)
 }
 

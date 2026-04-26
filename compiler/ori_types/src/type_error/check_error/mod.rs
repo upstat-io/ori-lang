@@ -28,7 +28,9 @@ mod format;
 pub(crate) mod kind;
 mod message;
 
-pub use kind::{ArityMismatchKind, ErrorContext, ImportErrorKind, TypeErrorKind};
+pub use kind::{
+    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind, TypeErrorKind,
+};
 
 use ori_diagnostic::Suggestion;
 use ori_ir::{Name, Span};
@@ -233,13 +235,17 @@ impl TypeCheckError {
     }
 
     /// Create an ambiguous type error.
-    pub fn ambiguous_type(span: Span, var_id: u32, context_desc: String) -> Self {
+    ///
+    /// `site` classifies the expression position so the consumer
+    /// (`TypeCheckError::message()`) can dispatch on the `AmbiguousTypeSite`
+    /// variant and produce site-specific wording per plan §06.1. Callers in
+    /// the validator compute the site from the `ExprKind` at the error
+    /// position; signature positions (no `ExprKind` in scope) pass
+    /// `AmbiguousTypeSite::Expression`.
+    pub fn ambiguous_type(span: Span, var_id: u32, site: AmbiguousTypeSite) -> Self {
         Self {
             span,
-            kind: TypeErrorKind::AmbiguousType {
-                var_id,
-                context: context_desc,
-            },
+            kind: TypeErrorKind::AmbiguousType { var_id, site },
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
                 "add a type annotation to clarify the expected type",

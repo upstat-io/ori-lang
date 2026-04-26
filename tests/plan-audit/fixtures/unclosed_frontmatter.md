@@ -1,3 +1,0 @@
----
-title: Unclosed
-status: active

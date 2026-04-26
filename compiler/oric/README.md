@@ -1,8 +1,6 @@
 # oric
 
 > **`oric` is the native compiler driver.** The only impure crate in the compiler — absorbs IO, Salsa, and LLVM so the rest of the pipeline stays pure.
->
-> Full mission: [`.claude/rules/missions.md §oric`](../../.claude/rules/missions.md)
 
 ## Role in the system
 
@@ -70,7 +68,7 @@ cargo run -- build path/to/file.ori
 
 ## Key env vars
 
-See `CLAUDE.md §Tracing` / `.claude/rules/compiler.md §Tracing` for the full set. Commonly used:
+See `CLAUDE.md §Tracing` for the full set. Commonly used:
 
 - `ORI_LOG=debug` — tracing filter (like `RUST_LOG`)
 - `ORI_LOG_TREE=1` — hierarchical tree output
@@ -79,6 +77,4 @@ See `CLAUDE.md §Tracing` / `.claude/rules/compiler.md §Tracing` for the full s
 
 ## References
 
-- [`.claude/rules/compiler.md`](../../.claude/rules/compiler.md) — compiler architecture + IO rules + tracing
-- [`.claude/rules/aot.md`](../../.claude/rules/aot.md) — AOT build flow
 - `CLAUDE.md §Commands` — primary harnesses

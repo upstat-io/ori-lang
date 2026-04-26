@@ -1,8 +1,6 @@
 # ori_compiler
 
 > **`ori_compiler` exists to be a pure, IO-free orchestration facade** — one entry point a WASM-hosted or embedded consumer can drive without `oric`'s Salsa runtime or filesystem access.
->
-> Full mission: [`.claude/rules/missions.md §ori_compiler`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -35,8 +33,3 @@ Primary use case: the Ori language website (`ori-lang-website`) and any future e
 ```bash
 cargo test -p ori_compiler
 ```
-
-## References
-
-- [`.claude/rules/compiler.md §Architecture`](../../.claude/rules/compiler.md) — IO boundary rules
-- [`.claude/rules/compiler.md §Crates`](../../.claude/rules/compiler.md) — crate roles

@@ -7,7 +7,7 @@
 
 use std::mem::ManuallyDrop;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::{debug, instrument};
 
 use ori_ir::ast::{Module, TestDef};
@@ -234,6 +234,41 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             self.pool,
         );
         mono_functions.extend(imported_mono_functions);
+
+        // PC-2 contract check (types.md §PC-2) — diagnostic localization for
+        // JIT pre-mono IR. Non-load-bearing: the primary seam in
+        // process_arc_function owns record_codegen_error(); this site only
+        // attributes diagnostics to the caller-pre-populated arc_cache.
+        //
+        // Empty exempt set: lower_and_infer_borrows skips generics in
+        // arc_lowering.rs; arc_cache contains only non-generic bodies +
+        // imported monomorphized instances — both categories have empty
+        // scheme_var_ids.
+        let exempt: FxHashSet<u32> = FxHashSet::default();
+        for (_fn_name, (arc_fn, lambdas)) in arc_cache.iter() {
+            if let Err(err) =
+                ori_arc::assert_no_unresolved_type_vars(self.pool, arc_fn, interner, &exempt)
+            {
+                tracing::error!(
+                    contract_violation = true,
+                    error = ?err,
+                    site = "jit_pre_mono",
+                    "Tag::Var in JIT pre-mono ARC IR (codegen-rules.md §TR-2)"
+                );
+            }
+            for lambda in lambdas {
+                if let Err(err) =
+                    ori_arc::assert_no_unresolved_type_vars(self.pool, lambda, interner, &exempt)
+                {
+                    tracing::error!(
+                        contract_violation = true,
+                        error = ?err,
+                        site = "jit_pre_mono_lambda",
+                        "Tag::Var in JIT pre-mono lambda ARC IR"
+                    );
+                }
+            }
+        }
 
         let (uniqueness_summaries, aims_contracts) =
             Self::run_interprocedural_analyses(arc_cache, &classifier, interner);

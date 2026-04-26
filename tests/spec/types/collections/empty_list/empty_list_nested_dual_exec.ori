@@ -1,0 +1,15 @@
+// §05.3.4 DUAL-EXEC PARITY (optional axis — nested list of lists):
+// annotated empty outer list `[[int]]` seeded by pushing two inner lists.
+// Mirrors the nested-collection axis from the §05.4 matrix (Dimension D —
+// constraint availability with explicit annotation, propagated through a
+// nested container). Interpreter and AOT must agree on the outer `.len()`
+// after two pushes — any divergence is a nested-RC or fat-pointer-stride
+// bug per `aims-rules.md` §8 `RL-2` (propagation through elem_dec_fn).
+
+@main () -> int = {
+    let xs: [[int]] = [];
+    xs = xs.push(value: [1, 2, 3]);
+    xs = xs.push(value: [4, 5]);
+    print(msg: `outer_len={xs.len()}`);
+    0
+}

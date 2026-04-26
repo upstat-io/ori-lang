@@ -1,0 +1,13 @@
+// Matrix §05.2 item 6 NEGATIVE PIN: unannotated lambda parameter inside a
+// test body reached via `[]` call-site. Bodies-pass validator
+// (check_test_bodies) fires E2005 on the lambda signature-position Tag::Var —
+// test-body scope is distinct from function-body scope; both must enforce
+// the same invariant that signature holes stay outside empty-literal
+// defaulting reach.
+
+#compile_fail(code: "E2005")
+@test_unannotated_in_body tests _ () -> void = {
+    let $f = (xs) -> xs.len();
+    let $_r = f([]);
+    ()
+}

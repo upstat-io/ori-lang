@@ -1,10 +1,6 @@
 # ori_arc
 
 > **`ori_arc` is the crate locus of AIMS** — phases 5 (ARC lowering), 6 (AIMS lattice analysis), 7 (ARC realization). Every public surface of this crate must extend the unified model, never parallel it.
->
-> Full mission: [`.claude/rules/missions.md §ori_arc`](../../.claude/rules/missions.md)
->
-> Sub-system mission: [`.claude/rules/missions.md §AIMS`](../../.claude/rules/missions.md)
 
 ## Role in the pipeline
 
@@ -66,7 +62,4 @@ AIMS snapshot tests live in `compiler/oric/tests/aims-snapshots/` — run via `c
 
 ## References
 
-- [`.claude/rules/arc.md`](../../.claude/rules/arc.md) — ARC pipeline rules
-- [`.claude/rules/aims-rules.md`](../../.claude/rules/aims-rules.md) — lattice dimensions + PC-* invariants
-- [`.claude/rules/canon.md §1`, `§7.1`](../../.claude/rules/canon.md) — phases 5-7 + Five Load-Bearing Invariants
 - `CLAUDE.md §AIMS` — sub-system mission + through-line

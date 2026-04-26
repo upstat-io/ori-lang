@@ -54,7 +54,8 @@ use std.testing { assert_eq }
 
 // Chain: ok_or into Result methods
 @ok_or_chain () -> int = {
-    Some(10).ok_or(err: "fail").unwrap_or(default: 0)
+    let r: Result<int, str> = Some(10).ok_or(err: "fail");
+    r.unwrap_or(default: 0)
 }
 
 @test_ok_or_chain tests @ok_or_chain () -> void = {
