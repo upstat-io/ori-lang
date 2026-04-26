@@ -7,12 +7,13 @@
 //! and template strings are eliminated during canonicalization.
 
 use ori_ir::canon::{CanFieldRange, CanId, CanMapEntryRange, CanRange};
-use ori_ir::{Name, Span};
+use ori_ir::{Name, Span, StringInterner};
 use ori_types::{Idx, Tag};
 
 use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
 
 use super::expr::ArcLowerer;
+use super::ArcIrBuilder;
 
 impl ArcLowerer<'_> {
     // Tuple
@@ -367,6 +368,48 @@ impl ArcLowerer<'_> {
         );
         0
     }
+}
+
+// Shared helpers — list element access and rest-slicing
+//
+// Consumed by `lower::patterns::bind_pattern_inner` (let-binding destructuring)
+// and `decision_tree::emit::resolve_path` (match-pattern decision-tree
+// lowering). Both paths must emit the same primitives so `let` and `match`
+// produce identical observable behavior on list patterns. Re BUG-04-086.
+
+pub(crate) fn emit_list_element(
+    builder: &mut ArcIrBuilder,
+    interner: &StringInterner,
+    list_value: ArcVarId,
+    idx: u32,
+    elem_ty: Idx,
+    span: Option<Span>,
+) -> ArcVarId {
+    let idx_var = builder.emit_let(
+        Idx::INT,
+        ArcValue::Literal(LitValue::Int(i64::from(idx))),
+        span,
+    );
+    let index_fn =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
+    builder.emit_apply(elem_ty, index_fn, vec![list_value, idx_var], span)
+}
+
+pub(crate) fn emit_list_rest_slice(
+    builder: &mut ArcIrBuilder,
+    interner: &StringInterner,
+    list_value: ArcVarId,
+    start_idx: u32,
+    list_ty: Idx,
+    span: Option<Span>,
+) -> ArcVarId {
+    let start_var = builder.emit_let(
+        Idx::INT,
+        ArcValue::Literal(LitValue::Int(i64::from(start_idx))),
+        span,
+    );
+    let slice_fn = interner.intern("ori_list_slice_drop");
+    builder.emit_apply(list_ty, slice_fn, vec![list_value, start_var], span)
 }
 
 // Tests

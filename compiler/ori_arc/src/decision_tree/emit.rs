@@ -13,6 +13,7 @@ use ori_ir::{Name, Span};
 use ori_types::{Idx, Tag};
 
 use crate::ir::ArcVarId;
+use crate::lower::collections::{emit_list_element, emit_list_rest_slice};
 use crate::lower::scope::ArcScope;
 
 use super::{DecisionTree, PathInstruction, ScrutineePath};
@@ -303,34 +304,27 @@ pub(super) fn resolve_path(
                 } else {
                     Idx::UNIT
                 };
-                (*idx, elem_ty)
+                current = emit_list_element(
+                    lowerer.builder,
+                    lowerer.interner,
+                    current,
+                    *idx,
+                    elem_ty,
+                    Some(span),
+                );
+                current_ty = elem_ty;
+                continue;
             }
             PathInstruction::ListRest(start_idx) => {
-                // Emit a runtime call to slice the list from `start_idx` onward.
-                // The ARC IR uses Apply("ori_list_slice_drop", [list, start]),
-                // and the LLVM emitter expands this into the full sret call
-                // (extracting data/len/cap, computing elem_size, calling runtime).
-                let resolved = pool.resolve_fully(current_ty);
                 let list_ty = current_ty;
-                let elem_ty = if pool.tag(resolved) == Tag::List {
-                    pool.list_elem(resolved)
-                } else {
-                    Idx::UNIT
-                };
-                let _ = elem_ty; // Used by LLVM emitter via the list type
-                let start_const = lowerer.builder.emit_let(
-                    Idx::INT,
-                    crate::ir::ArcValue::Literal(crate::ir::LitValue::Int(i64::from(*start_idx))),
-                    Some(span),
-                );
-                let slice_fn = lowerer.interner.intern("ori_list_slice_drop");
-                let result = lowerer.builder.emit_apply(
+                current = emit_list_rest_slice(
+                    lowerer.builder,
+                    lowerer.interner,
+                    current,
+                    *start_idx,
                     list_ty,
-                    slice_fn,
-                    vec![current, start_const],
                     Some(span),
                 );
-                current = result;
                 current_ty = list_ty;
                 continue;
             }

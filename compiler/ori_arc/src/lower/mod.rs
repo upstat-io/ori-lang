@@ -21,7 +21,7 @@
 
 mod builder;
 mod calls;
-mod collections;
+pub(crate) mod collections;
 mod constructs;
 mod control_flow;
 mod expr;

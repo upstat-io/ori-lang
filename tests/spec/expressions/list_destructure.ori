@@ -1,0 +1,407 @@
+// Spec: 10-patterns.md § List Destructuring; canon.md §3 Maranget; arc.md
+// Regression: BUG-04-086 — LLVM list-pattern destructuring used field
+// projection on the fat-pointer struct {len, cap, data} instead of __index
+// protocol calls. Same root cause appears in let-binding lowering
+// (lower/patterns/mod.rs::CanBindingPattern::List) and in match decision-tree
+// lowering (decision_tree/emit.rs::PathInstruction::ListElement). Plan dir:
+// bug-tracker/plans/BUG-04-086/
+
+use std.testing { assert, assert_eq, assert_ne }
+
+type Point = { x: int, y: int }
+
+// =============================================================================
+// Length axis — heads count varies, with/without rest
+// =============================================================================
+
+@test_list_destructure_single_head_no_rest tests @list_destructure_single_head_no_rest () -> void = {
+    assert_eq(actual: list_destructure_single_head_no_rest(), expected: 42)
+}
+
+@list_destructure_single_head_no_rest () -> int = {
+    let [$a] = [42];
+    a
+}
+
+@test_list_destructure_single_head_with_rest tests @list_destructure_single_head_with_rest () -> void = {
+    assert_eq(actual: list_destructure_single_head_with_rest(), expected: 12)
+}
+
+@list_destructure_single_head_with_rest () -> int = {
+    let [$a, ..rest] = [10, 20, 30];
+    a + rest.len()
+}
+
+@test_list_destructure_three_heads_no_rest tests @list_destructure_three_heads_no_rest () -> void = {
+    assert_eq(actual: list_destructure_three_heads_no_rest(), expected: 123)
+}
+
+@list_destructure_three_heads_no_rest () -> int = {
+    let [$a, $b, $c] = [1, 2, 3];
+    a * 100 + b * 10 + c
+}
+
+@test_list_destructure_three_heads_with_rest tests @list_destructure_three_heads_with_rest () -> void = {
+    assert_eq(actual: list_destructure_three_heads_with_rest(), expected: 8)
+}
+
+@list_destructure_three_heads_with_rest () -> int = {
+    let [$a, $b, $c, ..rest] = [1, 2, 3, 4, 5];
+    a + b + c + rest.len()
+}
+
+@test_list_destructure_rest_only tests @list_destructure_rest_only () -> void = {
+    assert_eq(actual: list_destructure_rest_only(), expected: 3)
+}
+
+@list_destructure_rest_only () -> int = {
+    let [..rest] = [1, 2, 3];
+    rest.len()
+}
+
+@test_list_destructure_empty_list_with_rest_only tests @list_destructure_empty_list_with_rest_only () -> void = {
+    assert_eq(actual: list_destructure_empty_list_with_rest_only(), expected: 0)
+}
+
+@list_destructure_empty_list_with_rest_only () -> int = {
+    let items: [int] = [];
+    let [..rest] = items;
+    rest.len()
+}
+
+// =============================================================================
+// Cross-type axis — element type matters for ARC + narrowing
+// =============================================================================
+
+@test_list_destructure_float tests @list_destructure_float () -> void = {
+    assert_eq(actual: list_destructure_float(), expected: 4.0)
+}
+
+@list_destructure_float () -> float = {
+    let [$x, $y, ..rest] = [1.5, 2.5, 3.5];
+    x + y
+}
+
+@test_list_destructure_str tests @list_destructure_str () -> void = {
+    assert_eq(actual: list_destructure_str(), expected: 10)
+}
+
+@list_destructure_str () -> int = {
+    let [$a, $b, ..rest] = ["hello", "world", "extra"];
+    a.length() + b.length()
+}
+
+@test_list_destructure_bool tests @list_destructure_bool () -> void = {
+    assert_eq(actual: list_destructure_bool(), expected: true)
+}
+
+@list_destructure_bool () -> bool = {
+    let [$x, $y] = [true, false];
+    x && !y
+}
+
+@test_list_destructure_nested_list_element_access tests @list_destructure_nested_list_element_access () -> void = {
+    assert_eq(actual: list_destructure_nested_list_element_access(), expected: 3)
+}
+
+@list_destructure_nested_list_element_access () -> int = {
+    let [$a, ..rest] = [[1, 2], [3, 4]];
+    a[0] + a[1]
+}
+
+@test_list_destructure_nested_pattern_recursive tests @list_destructure_nested_pattern_recursive () -> void = {
+    assert_eq(actual: list_destructure_nested_pattern_recursive(), expected: 4)
+}
+
+@list_destructure_nested_pattern_recursive () -> int = {
+    let [[$inner, ..ri], ..ro] = [[1, 2, 3], [4, 5]];
+    inner + ri.len() + ro.len()
+}
+
+@test_list_destructure_struct_field_within_element tests @list_destructure_struct_field_within_element () -> void = {
+    assert_eq(actual: list_destructure_struct_field_within_element(), expected: 3)
+}
+
+@list_destructure_struct_field_within_element () -> int = {
+    let [{ x: $a, y: $b }, ..rest] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }];
+    a + b
+}
+
+// =============================================================================
+// Cross-pattern axis — within `let` only; match paths covered separately
+// =============================================================================
+
+@test_list_destructure_with_wildcard tests @list_destructure_with_wildcard () -> void = {
+    assert_eq(actual: list_destructure_with_wildcard(), expected: 7)
+}
+
+@list_destructure_with_wildcard () -> int = {
+    let [_, $b] = [99, 7];
+    b
+}
+
+@test_list_destructure_mixed_mutability tests @list_destructure_mixed_mutability () -> void = {
+    assert_eq(actual: list_destructure_mixed_mutability(), expected: 100)
+}
+
+@list_destructure_mixed_mutability () -> int = {
+    let [$a, b] = [1, 2];
+    b = 99;
+    a + b
+}
+
+@test_list_destructure_immutable_rest tests @list_destructure_immutable_rest () -> void = {
+    assert_eq(actual: list_destructure_immutable_rest(), expected: 3)
+}
+
+@list_destructure_immutable_rest () -> int = {
+    let [$a, ..$rest] = [1, 2, 3];
+    a + rest.len()
+}
+
+@test_list_destructure_then_shadowing_rebind tests @list_destructure_then_shadowing_rebind () -> void = {
+    assert_eq(actual: list_destructure_then_shadowing_rebind(), expected: 119)
+}
+
+@list_destructure_then_shadowing_rebind () -> int = {
+    let [$a, $b, ..rest] = [10, 20, 30];
+    let a = 99;
+    a + b
+}
+
+// =============================================================================
+// Cross-feature axis — interaction with other features
+// =============================================================================
+
+@test_list_destructure_in_function_body tests @list_destructure_in_function_body () -> void = {
+    assert_eq(actual: list_destructure_in_function_body(), expected: 3)
+}
+
+@list_destructure_in_function_body () -> int = {
+    let items = [1, 2, 3];
+    let [$first, $second, ..rest] = items;
+    first + second
+}
+
+@test_list_destructure_inside_for_yield tests @list_destructure_inside_for_yield () -> void = {
+    assert_eq(actual: list_destructure_inside_for_yield(), expected: [3, 9])
+}
+
+@list_destructure_inside_for_yield () -> [int] = {
+    for x in [[1, 2, 3], [4, 5, 6]] yield {
+        let [$a, $b, ..rest] = x;
+        a + b
+    }
+}
+
+@test_list_destructure_inside_for_do tests @list_destructure_inside_for_do () -> void = {
+    list_destructure_inside_for_do()
+}
+
+@list_destructure_inside_for_do () -> void = {
+    for x in [[1, 2, 3], [4, 5, 6]] do {
+        let [$a, $b, ..rest] = x;
+        assert_eq(actual: a + b, expected: x[0] + x[1])
+    }
+}
+
+@test_list_destructure_with_struct_elements tests @list_destructure_with_struct_elements () -> void = {
+    assert_eq(actual: list_destructure_with_struct_elements(), expected: 5)
+}
+
+@list_destructure_with_struct_elements () -> int = {
+    let [$p, $q, ..rest] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }];
+    p.x + q.y
+}
+
+@test_list_destructure_inside_lambda tests @list_destructure_inside_lambda () -> void = {
+    assert_eq(actual: list_destructure_inside_lambda(), expected: 42)
+}
+
+@list_destructure_inside_lambda () -> int = {
+    let f = lst -> {
+        let [$x, $y, ..rest] = lst;
+        x * y
+    };
+    f([6, 7, 8])
+}
+
+@test_let_destructure_fixed_capacity_list tests @let_destructure_fixed_capacity_list () -> void = {
+    assert_eq(actual: let_destructure_fixed_capacity_list(), expected: 4)
+}
+
+@let_destructure_fixed_capacity_list () -> int = {
+    let xs: [int, max 8] = [1, 2, 3];
+    let [$a, $b, ..rest] = xs;
+    a + b + rest.len()
+}
+
+@test_let_destructure_collected_list tests @let_destructure_collected_list () -> void = {
+    assert_eq(actual: let_destructure_collected_list(), expected: 4)
+}
+
+@let_destructure_collected_list () -> int = {
+    let result: [int] = [1, 2, 3].iter().collect();
+    let [$a, $b, ..rest] = result;
+    a + b + rest.len()
+}
+
+// =============================================================================
+// Match-path parity — decision_tree/emit.rs::PathInstruction::ListElement fix
+// =============================================================================
+
+@test_match_list_two_heads tests @match_list_two_heads () -> void = {
+    assert_eq(actual: match_list_two_heads(), expected: 210)
+}
+
+@match_list_two_heads () -> int = {
+    match [10, 20, 30] {
+        [a, b, ..rest] -> a + b * 10,
+        _ -> 0
+    }
+}
+
+@test_match_list_three_heads_no_rest tests @match_list_three_heads_no_rest () -> void = {
+    assert_eq(actual: match_list_three_heads_no_rest(), expected: 6)
+}
+
+@match_list_three_heads_no_rest () -> int = {
+    match [1, 2, 3] {
+        [a, b, c] -> a + b + c,
+        _ -> 0
+    }
+}
+
+@test_match_list_str_elements tests @match_list_str_elements () -> void = {
+    assert_eq(actual: match_list_str_elements(), expected: "xy")
+}
+
+@match_list_str_elements () -> str = {
+    match ["x", "y", "z"] {
+        [a, b, ..rest] -> a + b,
+        _ -> ""
+    }
+}
+
+// =============================================================================
+// ARC / Memory pins — heap-element discipline
+// =============================================================================
+// Verified externally under ORI_CHECK_LEAKS=1 / ORI_TRACE_RC=1. The test
+// bodies exercise the same code paths as the cross-type str cell, with
+// per-test functions so leak / RC-balance checks attribute to specific cells.
+
+@test_list_destructure_str_no_leak tests @list_destructure_str_no_leak () -> void = {
+    assert_eq(actual: list_destructure_str_no_leak(), expected: 10)
+}
+
+@list_destructure_str_no_leak () -> int = {
+    let [$a, $b, ..rest] = ["hello", "world", "extra"];
+    a.length() + b.length()
+}
+
+@test_list_destructure_str_with_drop_count tests @list_destructure_str_with_drop_count () -> void = {
+    assert_eq(actual: list_destructure_str_with_drop_count(), expected: 5)
+}
+
+@list_destructure_str_with_drop_count () -> int = {
+    let [$a, $b, ..rest] = ["hello", "world"];
+    a.length()
+}
+
+@test_list_destructure_rest_slice_no_leak tests @list_destructure_rest_slice_no_leak () -> void = {
+    assert_eq(actual: list_destructure_rest_slice_no_leak(), expected: 2)
+}
+
+@list_destructure_rest_slice_no_leak () -> int = {
+    let [$a, ..rest] = ["x", "y", "z"];
+    rest.len()
+}
+
+// =============================================================================
+// Semantic + negative pins — match-based for CF-3 future-proofing
+// =============================================================================
+// Match-based pins remain valid post-CF-3 (typeck.md §CF-3 only restricts
+// `let` patterns; `match` permits refutable patterns). Once BUG-02-022 lands,
+// the let-binding cells above migrate to #compile_fail("E2001"); these
+// match-based pins remain the permanent regression guard.
+
+@test_list_destructure_semantic_pin_via_match tests @list_destructure_semantic_pin_via_match () -> void = {
+    let items = [1, 2, 3];
+    let result = match items {
+        [first, second, ..rest] -> first + second,
+        _ -> -1
+    };
+    assert_eq(actual: result, expected: 3)
+}
+
+@list_destructure_semantic_pin_via_match () -> int = {
+    let items = [1, 2, 3];
+    match items {
+        [first, second, ..rest] -> first + second,
+        _ -> -1
+    }
+}
+
+@test_list_destructure_negative_pin_via_match tests @list_destructure_negative_pin_via_match () -> void = {
+    let items = [1, 2, 3];
+    let result = match items {
+        [first, second, ..rest] -> first + second,
+        _ -> -1
+    };
+    assert_ne(actual: result, unexpected: 6)
+}
+
+@list_destructure_negative_pin_via_match () -> int = {
+    let items = [1, 2, 3];
+    match items {
+        [first, second, ..rest] -> first + second,
+        _ -> -1
+    }
+}
+
+// =============================================================================
+// Reference / always-passing-pre-fix
+// =============================================================================
+// These tests pass under current code AND under the fix; they pin behavior
+// the fix MUST preserve. A regression in the fix would convert them to RED.
+
+@test_match_list_too_short_falls_through_to_wildcard tests @match_list_too_short_falls_through_to_wildcard () -> void = {
+    assert_eq(actual: match_list_too_short_falls_through_to_wildcard(), expected: 0)
+}
+
+@match_list_too_short_falls_through_to_wildcard () -> int = {
+    match [42] {
+        [a, b] -> a + b,
+        _ -> 0
+    }
+}
+
+#fail("out of bounds")
+@test_direct_indexing_oob_panics tests @direct_indexing_oob_panics () -> void = {
+    let _ = direct_indexing_oob_panics();
+    ()
+}
+
+@direct_indexing_oob_panics () -> int = {
+    let xs = [42];
+    xs[1]
+}
+
+// =============================================================================
+// Transient let-form OOB — DEFERRED pending parity + CF-3
+// =============================================================================
+// Cell `test_list_destructure_let_too_short_*` originally pinned the runtime
+// OOB panic of `let [$a, $b] = [42]`. Cannot be expressed as a single
+// `#fail("...")` substring because the interpreter and post-fix LLVM
+// diverge on the panic message:
+//   - Interpreter (`ori_eval/.../control_flow.rs`): "list pattern too long
+//     for value" — pre-indexing length check.
+//   - LLVM post-BUG-04-086-fix: "index out of bounds" — `ori_list_get`
+//     bounds check at indexing time.
+// Cross-backend divergence in error messages is a dual-execution-parity bug
+// distinct from BUG-04-086's value-correctness invariant. Filed separately.
+// Once BUG-02-022 (CF-3 enforcement) lands, this case becomes
+// `#compile_fail("E2001")` and the runtime divergence becomes unreachable.
+// Direct-indexing OOB parity is already pinned by
+// `test_direct_indexing_oob_panics` (uniform across backends via the
+// indexing protocol).

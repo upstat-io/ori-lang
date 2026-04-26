@@ -11,6 +11,7 @@ use ori_ir::Name;
 use ori_types::Idx;
 
 use crate::ir::ArcVarId;
+use crate::lower::collections::{emit_list_element, emit_list_rest_slice};
 
 use super::expr::ArcLowerer;
 
@@ -114,20 +115,32 @@ impl ArcLowerer<'_> {
                 let elem_ids: Vec<_> = self.arena.get_binding_pattern_list(*elements).to_vec();
                 for (i, &sub_pat_id) in elem_ids.iter().enumerate() {
                     let sub_pattern = self.arena.get_binding_pattern(sub_pat_id);
-                    let proj = self
-                        .builder
-                        .emit_project(elem_ty_inner, value, i as u32, None);
-                    self.bind_pattern_inner(sub_pattern, proj, elem_ty_inner, force_immutable);
+                    let elem_var = emit_list_element(
+                        self.builder,
+                        self.interner,
+                        value,
+                        i as u32,
+                        elem_ty_inner,
+                        None,
+                    );
+                    self.bind_pattern_inner(sub_pattern, elem_var, elem_ty_inner, force_immutable);
                 }
                 if let Some((rest_name, rest_mut)) = rest {
                     let rest_is_mut = !force_immutable && rest_mut.is_mutable();
+                    let rest_val = emit_list_rest_slice(
+                        self.builder,
+                        self.interner,
+                        value,
+                        elem_ids.len() as u32,
+                        ty,
+                        None,
+                    );
                     if rest_is_mut {
                         self.block_let_names.insert(*rest_name);
-                        self.scope.bind_mutable(*rest_name, value);
+                        self.scope.bind_mutable(*rest_name, rest_val);
                     } else {
-                        self.scope.bind(*rest_name, value);
+                        self.scope.bind(*rest_name, rest_val);
                     }
-                    tracing::debug!("list rest pattern bound to full value (subslice pending)");
                 }
             }
         }

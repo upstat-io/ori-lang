@@ -114,6 +114,16 @@ fn seed_internal_runtime_contracts(
         is_fbip: false,
     });
 
+    // ori_list_slice_drop returns a seamless slice (negative cap, interior data
+    // pointer) sharing the parent buffer's RC. Without an explicit MaybeShared
+    // contract, backward demand narrows uniqueness to Unique, drop_hints flag
+    // it as is_unique_drop, and codegen emits ori_buffer_drop_unique which
+    // panics on slice caps (`ori_rt/src/rc/list_rc.rs:212`). The MaybeShared
+    // contract routes drops through the slice-aware ori_buffer_rc_dec.
+    let ori_list_slice_drop = interner.intern("ori_list_slice_drop");
+    sigs.entry(ori_list_slice_drop)
+        .or_insert_with(sharing_return_contract);
+
     // Iterator adapter and consumer runtime functions.
     //
     // Every `ori_iter_*` adapter/consumer that takes `iter: *mut u8` as
