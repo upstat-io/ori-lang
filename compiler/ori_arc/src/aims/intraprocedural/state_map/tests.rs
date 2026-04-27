@@ -797,7 +797,7 @@ fn effective_uniqueness_join_contract_maybe_shared_lattice_shared_lattice_wins()
 
 /// Plan TPR Round 2 codex F1 (critical, locality dimension): symmetric pin
 /// for `effective_locality_at_block_*` — present contract value MUST lose
-/// to a wider lattice value. max(FunctionLocal, HeapEscaping) = HeapEscaping.
+/// to a wider lattice value. `max(FunctionLocal, HeapEscaping) = HeapEscaping`.
 #[test]
 fn effective_locality_join_contract_function_local_lattice_heap_escaping_lattice_wins() {
     use super::super::super::lattice::{AimsState, Locality};

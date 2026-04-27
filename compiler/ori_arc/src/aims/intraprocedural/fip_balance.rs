@@ -333,15 +333,16 @@ pub(crate) fn populate_fip_gate_events(
                     requires_unique_params,
                 } = &contract.fip
                 {
-                    let all_unique = args.iter().zip(requires_unique_params.iter()).all(
-                        |(arg, &required)| {
-                            if !required {
-                                return true;
-                            }
-                            state_map.effective_uniqueness_at_block_entry(blk, *arg)
-                                == Uniqueness::Unique
-                        },
-                    );
+                    let all_unique =
+                        args.iter()
+                            .zip(requires_unique_params.iter())
+                            .all(|(arg, &required)| {
+                                if !required {
+                                    return true;
+                                }
+                                state_map.effective_uniqueness_at_block_entry(blk, *arg)
+                                    == Uniqueness::Unique
+                            });
                     if all_unique {
                         state_map.record_event(AimsEvent::FipGate {
                             block: blk,

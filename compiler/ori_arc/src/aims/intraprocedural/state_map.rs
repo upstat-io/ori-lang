@@ -228,6 +228,38 @@ pub struct AimsStateMap {
     /// Plan TPR Round 1 F1 (2026-04-26).
     var_locality: FxHashMap<ArcVarId, Locality>,
 
+    /// Per-Invoke-block-and-dst demand captured BEFORE the normal-successor's
+    /// strip removes the Invoke-defined dst from its entry state. Keyed by
+    /// `(invoke_owner_block, invoke_dst)` — predecessor lookups for an
+    /// Invoke-terminator dst find the captured demand here, even though the
+    /// successor's `block_entry_states` no longer carries the var.
+    ///
+    /// # Why this exists
+    ///
+    /// `compute_block_entry_state` strips Invoke-defined dsts from successor
+    /// entry states (block.rs §"Invoke defs" comment) so demand doesn't
+    /// propagate backward past the def point. But this also erases the
+    /// legitimate predecessor-exit demand on the Invoke dst — predecessors
+    /// querying `var_state_at_block_exit(invoke_block, dst)` would get BOTTOM,
+    /// missing the post-def demand from the normal successor (e.g.,
+    /// Return-widened `HeapEscaping` locality). This side table captures the
+    /// demand AT the strip site so predecessor lookups can recover it.
+    ///
+    /// # Population
+    ///
+    /// Populated by `analyze_function` from `BlockAnalysisResult.invoke_def_demand`
+    /// AFTER each `compute_block_entry_state` call, keyed by the predecessor
+    /// Invoke block (looked up via the inverse map `invoke_dst_to_owner`).
+    /// Cleared at the start of each iteration so the captured demand reflects
+    /// the current iteration's converged successor entry states.
+    ///
+    /// # Consumer
+    ///
+    /// `var_state_at_block_exit` consults this table FIRST for any var, falling
+    /// back to standard `block_exit_states` when no entry exists. Empty by
+    /// default — non-Invoke vars never have entries here.
+    invoke_def_demand: FxHashMap<(ArcBlockId, ArcVarId), AimsState>,
+
     /// Tracks whether any state changed in the last iteration.
     /// Reset to `false` at the start of each iteration; set to `true`
     /// by `update_block_entry` when a state changes.
@@ -264,6 +296,7 @@ impl AimsStateMap {
             var_shapes: FxHashMap::default(),
             var_uniqueness: FxHashMap::default(),
             var_locality: FxHashMap::default(),
+            invoke_def_demand: FxHashMap::default(),
             changed: false,
             cross_dimension_detected: false,
         }
@@ -319,16 +352,59 @@ impl AimsStateMap {
     ///
     /// Returns `SCALAR` for scalar variables, `BOTTOM` for variables
     /// not present in the state map (no demand from successors).
+    ///
+    /// # Invoke-terminator dsts
+    ///
+    /// For variables defined by an `ArcTerminator::Invoke` in `block`,
+    /// `block_exit_states[block][var]` is BOTTOM because the normal
+    /// successor's strip in `compute_block_entry_state` erases the var
+    /// from its entry state before the predecessor's exit JOIN reads
+    /// it. The `invoke_def_demand` side table captures the pre-strip
+    /// demand and is consulted FIRST for any `(block, var)` pair,
+    /// recovering the post-def demand (e.g., Return-widened
+    /// `HeapEscaping` locality from a successor that returns the dst).
+    /// Non-Invoke vars never have entries in `invoke_def_demand`, so
+    /// the fallthrough to standard `block_exit_states` covers all
+    /// other queries.
     #[must_use]
     pub fn var_state_at_block_exit(&self, block: ArcBlockId, var: ArcVarId) -> AimsState {
         if self.is_scalar(var) || self.is_immortal(var) {
             return AimsState::SCALAR;
+        }
+        if let Some(&state) = self.invoke_def_demand.get(&(block, var)) {
+            return state;
         }
         self.block_exit_states
             .get(block.index())
             .and_then(|states| states.get(&var))
             .copied()
             .unwrap_or(AimsState::BOTTOM)
+    }
+
+    /// Record the pre-strip demand for an Invoke-terminator-defined dst.
+    ///
+    /// Called by `analyze_function` after `compute_block_entry_state` returns
+    /// the captured demand for the normal successor's stripped vars. Keyed by
+    /// `(invoke_owner_block, invoke_dst)` — the owner block is the predecessor
+    /// whose terminator is the Invoke that defines `var`.
+    ///
+    /// See `invoke_def_demand` field doc for the full mechanism.
+    pub(crate) fn set_invoke_def_demand(
+        &mut self,
+        block: ArcBlockId,
+        var: ArcVarId,
+        state: AimsState,
+    ) {
+        self.invoke_def_demand.insert((block, var), state);
+    }
+
+    /// Clear the invoke-def demand side table.
+    ///
+    /// Called at the start of each `analyze_function` iteration so the
+    /// captured demand reflects the current iteration's successor entry
+    /// states (which converge across iterations).
+    pub(crate) fn clear_invoke_def_demand(&mut self) {
+        self.invoke_def_demand.clear();
     }
 
     /// Get the state of a variable at a block's entry (before first instruction).

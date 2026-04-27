@@ -51,6 +51,33 @@ use crate::ArcClassification;
 use super::contract::{ContextRegion, MemoryContract};
 use super::lattice::AimsState;
 
+/// Build the inverse map: Invoke-defined var → owner block whose terminator
+/// is the Invoke that defines it.
+///
+/// SSA invariant: each var is defined at most once, so this map is a simple
+/// `var → block` lookup. Used by [`analyze_function`] to route the
+/// `BlockAnalysisResult.invoke_def_demand` (captured at the SUCCESSOR's strip
+/// site in `compute_block_entry_state`) back to the PREDECESSOR Invoke block,
+/// where `var_state_at_block_exit(invoke_block, dst)` consults it via the
+/// `invoke_def_demand` side table on `AimsStateMap`.
+fn build_invoke_dst_to_owner(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcBlockId> {
+    func.blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, block)| {
+            if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "ARC IR block counts fit in u32"
+                )]
+                Some((*dst, ArcBlockId::new(idx as u32)))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 /// Run backward dataflow analysis on a single function.
 ///
 /// Iterates blocks in postorder (successors before predecessors in the
@@ -118,6 +145,14 @@ pub fn analyze_function(
     // remove these from the normal successor's entry state.
     let invoke_defs = crate::graph::collect_invoke_defs(func);
 
+    // Inverse map: Invoke-defined var → owner block whose terminator is
+    // the Invoke that defines it. SSA invariant: each var is defined at
+    // most once, so this map is a simple var → block lookup. Used to
+    // route the BlockAnalysisResult's pre-strip demand (captured at the
+    // SUCCESSOR's strip site) back to the PREDECESSOR Invoke block, where
+    // `var_state_at_block_exit(invoke_block, dst)` consults it.
+    let invoke_dst_to_owner = build_invoke_dst_to_owner(func);
+
     // Precompute Project destination + transitive Let alias → Project source
     // map. Static structure — computed once, reused across worklist iterations.
     let project_alias_sources = project_aliases::compute_project_alias_sources(func);
@@ -127,6 +162,12 @@ pub fn analyze_function(
 
     loop {
         state_map.reset_changed();
+        // Clear pre-strip Invoke-def demand at iteration start so the
+        // capture reflects the CURRENT iteration's converged successor
+        // entry states (which propagate across iterations to fixpoint).
+        // Stale entries from prior iterations would mix demand from
+        // different convergence states and break monotonicity.
+        state_map.clear_invoke_def_demand();
         iteration += 1;
 
         // Process blocks in postorder (successors first for backward analysis).
@@ -174,6 +215,18 @@ pub fn analyze_function(
             );
             state_map.accumulate_effect(result.effects);
             state_map.update_block_entry(block_id, result.entry_state);
+
+            // Propagate pre-strip Invoke-def demand to the predecessor Invoke
+            // block's exit-state side table. The demand was captured BEFORE
+            // the strip removed `dst` from this block's entry state; routing
+            // it to the OWNER (predecessor Invoke block) makes
+            // `var_state_at_block_exit(invoke_block, dst)` return the
+            // post-def demand instead of BOTTOM.
+            for (var, state) in result.invoke_def_demand {
+                if let Some(&owner_block) = invoke_dst_to_owner.get(&var) {
+                    state_map.set_invoke_def_demand(owner_block, var, state);
+                }
+            }
         }
 
         if state_map.is_converged() {

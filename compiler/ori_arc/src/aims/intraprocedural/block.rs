@@ -27,14 +27,23 @@ use super::state_map::AimsStateMap;
 
 /// Result of computing a block's entry state.
 ///
-/// Contains the backward-computed entry state (per-variable demand) and
-/// the block's accumulated effect summary (forward effect aggregation).
+/// Contains the backward-computed entry state (per-variable demand), the
+/// block's accumulated effect summary (forward effect aggregation), and
+/// any Invoke-defined dst demand captured BEFORE the strip removed it
+/// from the entry state.
 pub(crate) struct BlockAnalysisResult {
     /// Per-variable demand at block entry.
     pub entry_state: FxHashMap<ArcVarId, AimsState>,
     /// Effects accumulated from instructions in this block.
     /// Section 09.2: precise effect computation during analysis.
     pub effects: EffectSummary,
+    /// Pre-strip demand for Invoke-defined dsts that flow into this block's
+    /// entry state. Captured at the strip site so predecessor lookups can
+    /// recover the post-def demand (e.g., Return-widened locality) that the
+    /// strip erases from `entry_state`. Maps `dst → AimsState`. Empty when
+    /// this block has no Invoke-defined dsts. The owner Invoke block is
+    /// determined by the caller via the `invoke_dst_to_owner` inverse map.
+    pub invoke_def_demand: FxHashMap<ArcVarId, AimsState>,
 }
 
 /// Compute the EXIT state of a block from its successors' ENTRY states.
@@ -255,8 +264,18 @@ pub(crate) fn compute_block_entry_state(
     // of the `normal` successor only. These act like block params and must
     // be removed from the entry state so demand doesn't propagate backward
     // past the definition point.
+    //
+    // BUT: the predecessor (the Invoke block) needs the post-def demand on
+    // `dst` for `var_state_at_block_exit(invoke_block, dst)` queries from
+    // FIP balance + LocalAllocCandidate emission. Without capture, those
+    // queries return BOTTOM and miss Return-widened locality / consumed
+    // demand from the normal successor's body. Capture here BEFORE removing.
+    let mut invoke_def_demand: FxHashMap<ArcVarId, AimsState> = FxHashMap::default();
     if let Some(vars) = invoke_defs.get(&block_id) {
         for &var in vars {
+            if let Some(state) = current.get(&var).copied() {
+                invoke_def_demand.insert(var, state);
+            }
             current.remove(&var);
         }
     }
@@ -264,6 +283,7 @@ pub(crate) fn compute_block_entry_state(
     BlockAnalysisResult {
         entry_state: current,
         effects: block_effects,
+        invoke_def_demand,
     }
 }
 

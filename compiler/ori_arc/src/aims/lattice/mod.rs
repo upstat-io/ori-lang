@@ -320,10 +320,16 @@ impl AimsState {
             self.consumption = Consumption::Dead;
         }
 
-        // Rule 3: Shared values cannot be reused via constructor reset
-        if self.uniqueness == Uniqueness::Shared
-            && matches!(self.shape, ShapeClass::ReusableCtor(_))
-        {
+        // Rule 3 (CN-3): Shared values cannot be reused via constructor reset.
+        // Per `aims-rules.md` §2 CN-3: applies to ALL reusable shapes —
+        // `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`, `CollectionBuffer`,
+        // and `ContextHole`. A Shared value has RC > 1; resetting any reusable
+        // allocation type would corrupt other references regardless of which
+        // reusable shape it carries. The check `!= NonReusable` covers all
+        // reusable variants in one branch; equivalent to the explicit
+        // `ReusableCtor(_) | CollectionBuffer | ContextHole` enumeration but
+        // resilient to future shape additions.
+        if self.uniqueness == Uniqueness::Shared && self.shape != ShapeClass::NonReusable {
             self.shape = ShapeClass::NonReusable;
         }
 

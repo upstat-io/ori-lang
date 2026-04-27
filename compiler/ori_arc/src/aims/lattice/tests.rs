@@ -719,17 +719,24 @@ mod canonicalization {
     }
 
     #[test]
-    fn shared_collection_buffer_preserved() {
-        // CollectionBuffer is not collapsed by shared uniqueness
-        // (only ReusableCtor is affected)
+    fn shared_collection_buffer_collapses_to_nonreusable() {
+        // Per `aims-rules.md` §2 CN-3: Shared values cannot be reused via
+        // ANY reusable shape. The pre-fix implementation only handled
+        // `ReusableCtor(_)` and silently left `CollectionBuffer` alone —
+        // a CN-3 violation that allowed Shared collections to claim
+        // reusable shape, breaking the invariant that downstream reuse
+        // emission depends on. Round 8 codex F2 surfaced this; the fix
+        // broadened the canonicalize check to `shape != NonReusable`.
+        //
+        // See `canonicalize_cn3_shared_collection_buffer_demoted_to_nonreusable`
+        // in the cross_dimensional submodule for the explicit pin form.
         let mut s = AimsState {
             uniqueness: Uniqueness::Shared,
             shape: ShapeClass::CollectionBuffer,
             ..AimsState::TOP
         };
-        let before_shape = s.shape;
         s.canonicalize();
-        assert_eq!(s.shape, before_shape);
+        assert_eq!(s.shape, ShapeClass::NonReusable);
     }
 
     // Rule 4: REMOVED — was anti-monotone, broke join associativity.
@@ -1667,13 +1674,67 @@ mod pairwise_interactions {
                     ..AimsState::FRESH
                 };
                 s.canonicalize();
-                // Shared + ReusableCtor → NonReusable
-                if uniqueness == Uniqueness::Shared && matches!(shape, ShapeClass::ReusableCtor(_))
-                {
-                    assert_eq!(s.shape, ShapeClass::NonReusable);
+                // CN-3: Shared + ANY reusable shape → NonReusable. Per
+                // `aims-rules.md` §2 CN-3, applies to ALL reusable shapes —
+                // `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`,
+                // `CollectionBuffer`, AND `ContextHole`. A Shared value has
+                // RC > 1; resetting any reusable allocation type would
+                // corrupt other references regardless of which reusable
+                // variant it carries.
+                if uniqueness == Uniqueness::Shared && shape != ShapeClass::NonReusable {
+                    assert_eq!(
+                        s.shape,
+                        ShapeClass::NonReusable,
+                        "CN-3 violation: Shared + {shape:?} should canonicalize to NonReusable"
+                    );
                 }
             }
         }
+    }
+
+    /// CN-3 explicit pin: Shared + `CollectionBuffer` → `NonReusable`.
+    /// Pre-fix bug (Round 8 codex F2): the canonicalize check used
+    /// `matches!(self.shape, ShapeClass::ReusableCtor(_))` which only
+    /// covered `ReusableCtor` variants, leaving `CollectionBuffer` + Shared
+    /// uncanonicalized — a Shared collection's `var_shape` would still
+    /// claim `CollectionBuffer`, contradicting CN-3 spec.
+    #[test]
+    fn canonicalize_cn3_shared_collection_buffer_demoted_to_nonreusable() {
+        let mut s = AimsState {
+            uniqueness: Uniqueness::Shared,
+            shape: ShapeClass::CollectionBuffer,
+            ..AimsState::FRESH
+        };
+        s.canonicalize();
+        assert_eq!(
+            s.shape,
+            ShapeClass::NonReusable,
+            "CN-3: Shared values cannot be reused — CollectionBuffer must \
+             demote to NonReusable per aims-rules.md §2 CN-3 (applies to \
+             ALL reusable shapes, not just ReusableCtor)"
+        );
+    }
+
+    /// CN-3 explicit pin: Shared + `ContextHole` → `NonReusable`.
+    /// Same pre-fix bug as `canonicalize_cn3_shared_collection_buffer`:
+    /// the narrow `matches!(_, ReusableCtor(_))` left `ContextHole` +
+    /// Shared uncanonicalized.
+    #[test]
+    fn canonicalize_cn3_shared_context_hole_demoted_to_nonreusable() {
+        let mut s = AimsState {
+            uniqueness: Uniqueness::Shared,
+            shape: ShapeClass::ContextHole,
+            ..AimsState::FRESH
+        };
+        s.canonicalize();
+        assert_eq!(
+            s.shape,
+            ShapeClass::NonReusable,
+            "CN-3: Shared + ContextHole must demote to NonReusable. The \
+             TRMC ContextHole is a reusable shape; resetting it on a \
+             Shared value would corrupt the constructor context across \
+             aliases."
+        );
     }
 }
 

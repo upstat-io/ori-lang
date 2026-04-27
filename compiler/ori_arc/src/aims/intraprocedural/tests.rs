@@ -4460,14 +4460,32 @@ fn populate_call_result_states_block_local_filtered_no_event() {
     );
 }
 
-/// Plan TPR Round 4 F2 (gemini singleton medium GAP): `populate_sparse_events`
-/// MUST walk `block.terminator` for Invoke dst, not just `block.body`. The
-/// pre-Round-4 implementation skipped Invoke results entirely, so contract-
-/// narrowed locality on Invoke terminator dst never reached `LocalAllocCandidate`.
+/// Negative pin: an Invoke result that the normal successor RETURNS escapes
+/// the function (per spec IA-6 Return widening: returned values are widened
+/// to `HeapEscaping` locality + `Owned` access). Such an escaping value
+/// MUST NOT be a `LocalAllocCandidate` — stack-promoting it would create a
+/// dangling stack-to-heap pointer.
+///
+/// Pre-fix bug (Round 7+ verification): `var_state_at_block_exit(invoke_block, dst)`
+/// returned `BOTTOM` because the normal successor's strip
+/// (`block.rs` `compute_block_entry_state` "Invoke defs" branch) erased the
+/// dst from its entry state before the predecessor's exit JOIN read it.
+/// `effective_locality_at_block_exit` then joined BOTTOM (`BlockLocal`) with
+/// the side-table contract value (`FunctionLocal`) → `FunctionLocal` → fired
+/// `LocalAllocCandidate` incorrectly.
+///
+/// Fix: `AimsStateMap::invoke_def_demand` captures pre-strip demand keyed
+/// by the predecessor Invoke block. `var_state_at_block_exit` consults
+/// it FIRST. Now the captured demand reflects Return-widening
+/// (`HeapEscaping`), JOIN with side-table `FunctionLocal` still gives
+/// `HeapEscaping` (max), and the `LocalAllocCandidate` filter (`FunctionLocal`
+/// or `BlockLocal`) correctly rejects.
 #[test]
-fn populate_sparse_events_walks_invoke_terminator() {
+fn populate_sparse_events_invoke_terminator_returned_dst_no_local_alloc_candidate() {
     let callee_name = Name::from_raw(100);
     // func(p0): block 0 → Invoke(callee, [p0]) normal=b1, unwind=b2
+    //           block 1 → Return v1   (returns the Invoke result)
+    //           block 2 → Resume
     let func = ArcFunction {
         var_types: vec![ty(0), ty(0)],
         params: vec![crate::test_helpers::owned_param(0, ty(0))],
@@ -4516,8 +4534,96 @@ fn populate_sparse_events_walks_invoke_terminator() {
     let classifier = TestClassifier::all_ref(2);
     let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
 
-    // Block 0 is the Invoke block — the terminator-defined dst (v1) should
-    // have a LocalAllocCandidate event recorded for it.
+    // Block 0 is the Invoke block. v1 is returned from block 1 → Return
+    // widening promotes locality to HeapEscaping. The
+    // `populate_sparse_events` Invoke-terminator arm MUST NOT record
+    // LocalAllocCandidate for an escaping value.
+    let events = state_map.events_in_block(block_id(0));
+    let local_alloc_v1 = events.iter().any(|e| {
+        matches!(
+            e,
+            super::AimsEvent::LocalAllocCandidate { var: v, .. } if v == &var(1)
+        )
+    });
+    assert!(
+        !local_alloc_v1,
+        "populate_sparse_events MUST NOT record LocalAllocCandidate for an Invoke \
+         result that escapes via Return — IA-6 Return widening pushes locality \
+         to HeapEscaping; stack-promoting an escaping value would dangle. \
+         (Required: invoke_def_demand side table captures pre-strip Return-widened \
+         demand so var_state_at_block_exit returns HeapEscaping.)"
+    );
+}
+
+/// Positive pin: an Invoke result that does NOT escape the function (the
+/// normal successor terminates without returning the value, e.g. via
+/// `Unreachable`) is eligible for `LocalAllocCandidate` — its locality
+/// stays at the contract-narrowed value (`FunctionLocal` here), which
+/// matches the `LocalAllocCandidate` filter.
+///
+/// This pin demonstrates that `populate_sparse_events`' Invoke-terminator
+/// arm still emits events when the value is genuinely local — the fix
+/// removes false positives (returned/escaping values) without removing
+/// true positives (local-consumed values). The filter behavior is
+/// preserved across the pre-fix → post-fix transition.
+#[test]
+fn populate_sparse_events_invoke_terminator_local_dst_emits_local_alloc_candidate() {
+    let callee_name = Name::from_raw(100);
+    // func(p0): block 0 → Invoke(callee, [p0]) normal=b1, unwind=b2
+    //           block 1 → Unreachable  (does NOT return v1; v1 stays local)
+    //           block 2 → Resume
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: callee_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    normal: block_id(1),
+                    unwind: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::FunctionLocal,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // v1 is unused by the normal successor (Unreachable) — pre-strip
+    // demand is BOTTOM (no use), captured into invoke_def_demand. JOIN
+    // with side-table contract (FunctionLocal) gives FunctionLocal, which
+    // matches the LocalAllocCandidate filter → event SHOULD fire.
     let events = state_map.events_in_block(block_id(0));
     let local_alloc_v1 = events.iter().any(|e| {
         matches!(
@@ -4527,8 +4633,11 @@ fn populate_sparse_events_walks_invoke_terminator() {
     });
     assert!(
         local_alloc_v1,
-        "populate_sparse_events MUST record LocalAllocCandidate for Invoke terminator dst — \
-         Plan TPR Round 4 F2 GAP correction"
+        "populate_sparse_events MUST record LocalAllocCandidate when an Invoke \
+         result has FunctionLocal contract-narrowed locality AND does not escape \
+         via the normal successor — Plan TPR Round 4 F2 walks-Invoke-terminator \
+         requirement (preserves the precision improvement, just routes through \
+         the corrected pre-strip demand path)."
     );
 }
 
@@ -4602,11 +4711,11 @@ fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
 /// regardless of pipeline ordering because BOTH `BlockLocal` (lattice BOTTOM
 /// fallback) and `FunctionLocal` (contract-narrowed) emit `LocalAllocCandidate`.
 ///
-/// This negative pin discriminates: with no contract registered, populate_call_result_states
-/// writes CONSERVATIVE (locality=Unknown), so effective_locality = max(Unknown, BlockLocal)
-/// = Unknown → no event fires. If pipeline ordering broke (populate_sparse_events ran
-/// before populate_call_result_states), the side table would be empty, contract_locality
-/// would return None, effective would fall through to lattice BOTTOM=BlockLocal, and the
+/// This negative pin discriminates: with no contract registered, `populate_call_result_states`
+/// writes CONSERVATIVE (locality=`Unknown`), so `effective_locality = max(Unknown, BlockLocal)`
+/// = `Unknown` → no event fires. If pipeline ordering broke (`populate_sparse_events` ran
+/// before `populate_call_result_states`), the side table would be empty, `contract_locality`
+/// would return None, effective would fall through to lattice `BOTTOM=BlockLocal`, and the
 /// event would fire incorrectly. The assertion `no_local_alloc_v1` is therefore load-bearing
 /// proof that ordering + side-table population work together.
 #[test]
@@ -4636,9 +4745,9 @@ fn populate_sparse_events_no_event_for_no_contract_apply_pins_ordering() {
     );
 }
 
-/// TPR Round 0 codex F2 + opencode F2 (AGREEMENT, GAP): InvokeIndirect terminator
-/// CONSERVATIVE branch — symmetric to ApplyIndirect (Round 5 F2) but tests the
-/// terminator-walking arm of populate_call_result_states. Plan TPR §02 §6.12.2.
+/// TPR Round 0 codex F2 + opencode F2 (AGREEMENT, GAP): `InvokeIndirect` terminator
+/// CONSERVATIVE branch — symmetric to `ApplyIndirect` (Round 5 F2) but tests the
+/// terminator-walking arm of `populate_call_result_states`. Plan TPR §02 §6.12.2.
 #[test]
 fn populate_call_result_states_invoke_indirect_uses_conservative() {
     // func(p0): v1 = PartialApply(f, [p0]); block 0 ends with InvokeIndirect on v1.
@@ -4698,7 +4807,7 @@ fn populate_call_result_states_invoke_indirect_uses_conservative() {
 
 /// TPR Round 0 opencode F1 (GAP): Invoke without contract — TF-6b CONSERVATIVE
 /// path, symmetric to the body-Apply no-contract case. Pins that the terminator
-/// arm of populate_call_result_states applies the same fallback logic as the
+/// arm of `populate_call_result_states` applies the same fallback logic as the
 /// body arm.
 #[test]
 fn populate_call_result_states_invoke_no_contract_uses_conservative() {
