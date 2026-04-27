@@ -219,6 +219,28 @@ fn compute_block_fip_balance(
         }
     }
 
+    // Plan TPR Round 4 gemini F1 (high GAP, exposed by BUG-04-065): the
+    // body loop above does not visit `block.terminator`. Invoke is the
+    // only terminator that defines a `dst` variable; before BUG-04-065
+    // an Invoke result's shape was always BOTTOM=NonReusable so missing
+    // it here was harmless. After BUG-04-065 `populate_call_result_states`
+    // can write `ReusableCtor(_)` to `var_shapes` for an Invoke result
+    // when the callee's `return_info.shape` narrows it; missing this
+    // terminator visit causes consumed reusable Invoke results to be
+    // omitted from the deaths count, miscounting FIP balance.
+    if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
+        if !state_map.is_excluded(*dst) {
+            let exit_state = state_map.var_state_at_block_exit(block_id, *dst);
+            let is_consumed = matches!(
+                exit_state.consumption,
+                Consumption::Dead | Consumption::Unrestricted
+            );
+            if is_consumed && matches!(state_map.var_shape(*dst), ShapeClass::ReusableCtor(_)) {
+                deaths = deaths.saturating_add(1);
+            }
+        }
+    }
+
     allocs.saturating_sub(deaths)
 }
 
@@ -290,6 +312,44 @@ pub(crate) fn populate_fip_gate_events(
                     block: blk,
                     instr: instr_idx,
                 });
+            }
+        }
+
+        // Plan TPR Round 4 gemini F2 (high GAP, exposed by BUG-04-065):
+        // the body loop above only matches `ArcInstr::Apply`. Invoke
+        // terminators with `FipContract::Conditional` and Unique args
+        // also need FipGate events recorded; the body-only walk skips
+        // them. Symmetric to populate_sparse_events' Invoke-terminator
+        // walk added in BUG-04-065 Round 0 + populate_call_result_states'
+        // body+terminator coverage.
+        if let ArcTerminator::Invoke {
+            func: callee_name,
+            args,
+            ..
+        } = &block.terminator
+        {
+            if let Some(contract) = sigs.get(callee_name) {
+                if let FipContract::Conditional {
+                    requires_unique_params,
+                } = &contract.fip
+                {
+                    let all_unique = args.iter().zip(requires_unique_params.iter()).all(
+                        |(arg, &required)| {
+                            if !required {
+                                return true;
+                            }
+                            state_map.effective_uniqueness_at_block_entry(blk, *arg)
+                                == Uniqueness::Unique
+                        },
+                    );
+                    if all_unique {
+                        state_map.record_event(AimsEvent::FipGate {
+                            block: blk,
+                            // Terminator notional instr_idx = body length.
+                            instr: block.body.len(),
+                        });
+                    }
+                }
             }
         }
     }
