@@ -4596,3 +4596,159 @@ fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
          MaybeShared for DeathEvent — emit_reuse downstream filters death.uniqueness == Unique"
     );
 }
+
+/// TPR Round 0 codex F1 (critical INVERTED-TDD): the existing
+/// `populate_sparse_events_sees_function_local_contract_locality` test passes
+/// regardless of pipeline ordering because BOTH `BlockLocal` (lattice BOTTOM
+/// fallback) and `FunctionLocal` (contract-narrowed) emit `LocalAllocCandidate`.
+///
+/// This negative pin discriminates: with no contract registered, populate_call_result_states
+/// writes CONSERVATIVE (locality=Unknown), so effective_locality = max(Unknown, BlockLocal)
+/// = Unknown → no event fires. If pipeline ordering broke (populate_sparse_events ran
+/// before populate_call_result_states), the side table would be empty, contract_locality
+/// would return None, effective would fall through to lattice BOTTOM=BlockLocal, and the
+/// event would fire incorrectly. The assertion `no_local_alloc_v1` is therefore load-bearing
+/// proof that ordering + side-table population work together.
+#[test]
+fn populate_sparse_events_no_event_for_no_contract_apply_pins_ordering() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+    // No contract registered for callee_name → CONSERVATIVE (Unknown locality).
+    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    let events = state_map.events_in_block(block_id(0));
+    let local_alloc_v1 = events.iter().any(|e| {
+        matches!(
+            e,
+            super::AimsEvent::LocalAllocCandidate { var: v, .. } if v == &var(1)
+        )
+    });
+    assert!(
+        !local_alloc_v1,
+        "no-contract Apply: populate_call_result_states writes Unknown locality → \
+         effective_locality_at_block_exit = max(Unknown, BlockLocal) = Unknown → \
+         LocalAllocCandidate MUST NOT fire. If this test fails, either pipeline \
+         ordering broke (sparse_events ran before call_result_states) or the \
+         effective_locality migration was reverted."
+    );
+}
+
+/// TPR Round 0 codex F2 + opencode F2 (AGREEMENT, GAP): InvokeIndirect terminator
+/// CONSERVATIVE branch — symmetric to ApplyIndirect (Round 5 F2) but tests the
+/// terminator-walking arm of populate_call_result_states. Plan TPR §02 §6.12.2.
+#[test]
+fn populate_call_result_states_invoke_indirect_uses_conservative() {
+    // func(p0): v1 = PartialApply(f, [p0]); block 0 ends with InvokeIndirect on v1.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::PartialApply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: Name::from_raw(100),
+                    args: vec![var(0)],
+                }],
+                terminator: ArcTerminator::InvokeIndirect {
+                    dst: var(2),
+                    ty: ty(0),
+                    closure: var(1),
+                    args: vec![],
+                    arg_ownership: vec![],
+                    normal: block_id(1),
+                    unwind: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_uniqueness(var(2)),
+        Some(Uniqueness::MaybeShared),
+        "InvokeIndirect: spec TF-6c CONSERVATIVE.uniqueness = MaybeShared per Round 5 F2"
+    );
+    assert_eq!(
+        state_map.contract_locality(var(2)),
+        Some(Locality::Unknown),
+        "InvokeIndirect: CONSERVATIVE.locality = Unknown"
+    );
+}
+
+/// TPR Round 0 opencode F1 (GAP): Invoke without contract — TF-6b CONSERVATIVE
+/// path, symmetric to the body-Apply no-contract case. Pins that the terminator
+/// arm of populate_call_result_states applies the same fallback logic as the
+/// body arm.
+#[test]
+fn populate_call_result_states_invoke_no_contract_uses_conservative() {
+    let callee_name = Name::from_raw(100);
+    // func(p0): block 0 ends with Invoke (no contract registered).
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: callee_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    normal: block_id(1),
+                    unwind: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(1) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        Some(Uniqueness::MaybeShared),
+        "Invoke without contract: spec TF-6b CONSERVATIVE.uniqueness = MaybeShared"
+    );
+    assert_eq!(
+        state_map.contract_locality(var(1)),
+        Some(Locality::Unknown),
+        "Invoke without contract: CONSERVATIVE.locality = Unknown"
+    );
+}
