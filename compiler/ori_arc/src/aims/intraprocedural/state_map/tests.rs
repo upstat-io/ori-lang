@@ -750,6 +750,108 @@ fn effective_uniqueness_join_contract_maybe_shared_lattice_unique() {
     );
 }
 
+/// Plan TPR Round 2 codex F1 (critical INVERTED-TDD):pseudo-tested-method.
+/// The prior JOIN tests set `contract = Unique` which the BOTTOM-default
+/// sparse filter strips, so `contract_uniqueness` returned None and
+/// effective fell through to lattice — never exercising the JOIN code path.
+/// This test pins the case where the side table HAS a present narrower
+/// value AND the lattice value is wider: max(MaybeShared, Shared) = Shared
+/// must win. If `effective_uniqueness_at_block_*` were rewritten as an
+/// override (return contract value when Some), this test would fail.
+#[test]
+fn effective_uniqueness_join_contract_maybe_shared_lattice_shared_lattice_wins() {
+    use super::super::super::lattice::{
+        AccessClass, AimsState, Cardinality, Consumption, Uniqueness,
+    };
+
+    let mut map = make_state_map(2, 3);
+    // Lattice value at block(0) entry shows Shared (most conservative —
+    // backward demand widened past MaybeShared). This is reachable when a
+    // call result is later passed to a may_share=true callee or stored
+    // into a heap-escaping aggregate.
+    let mut entry = FxHashMap::default();
+    entry.insert(
+        var(0),
+        AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Unrestricted,
+            cardinality: Cardinality::Many,
+            uniqueness: Uniqueness::Shared,
+            ..AimsState::BOTTOM
+        },
+    );
+    map.update_block_entry(block(0), entry);
+    // Contract narrowed to MaybeShared from a prior call's return_info.
+    map.set_var_uniqueness(var(0), Uniqueness::MaybeShared);
+    // JOIN must preserve lattice widening: max(MaybeShared, Shared) = Shared.
+    // An override implementation (return contract when Some) would return
+    // MaybeShared here — that's the rejected pre-Plan-TPR-Round-0-F1 design.
+    assert_eq!(
+        map.effective_uniqueness_at_block_entry(block(0), var(0)),
+        Uniqueness::Shared,
+        "JOIN(contract=MaybeShared, lattice=Shared) MUST = Shared (lattice wider \
+         than contract; lattice widening preserved). If this returns MaybeShared, \
+         the helper has been rewritten as override semantics."
+    );
+}
+
+/// Plan TPR Round 2 codex F1 (critical, locality dimension): symmetric pin
+/// for `effective_locality_at_block_*` — present contract value MUST lose
+/// to a wider lattice value. max(FunctionLocal, HeapEscaping) = HeapEscaping.
+#[test]
+fn effective_locality_join_contract_function_local_lattice_heap_escaping_lattice_wins() {
+    use super::super::super::lattice::{AimsState, Locality};
+
+    let mut map = make_state_map(2, 3);
+    // Lattice value at block(0) entry shows HeapEscaping (call result was
+    // stored into a heap aggregate and that demand widened backward).
+    let mut entry = FxHashMap::default();
+    entry.insert(
+        var(0),
+        AimsState {
+            locality: Locality::HeapEscaping,
+            ..AimsState::FRESH
+        },
+    );
+    map.update_block_entry(block(0), entry);
+    // Contract narrowed to FunctionLocal from a prior call's return_info.
+    map.set_var_locality(var(0), Locality::FunctionLocal);
+    // JOIN must preserve lattice widening: max(FunctionLocal, HeapEscaping)
+    // = HeapEscaping per `aims-rules.md` §1.5 ordering BlockLocal <
+    // FunctionLocal < HeapEscaping < Unknown.
+    assert_eq!(
+        map.effective_locality_at_block_entry(block(0), var(0)),
+        Locality::HeapEscaping,
+        "JOIN(contract=FunctionLocal, lattice=HeapEscaping) MUST = HeapEscaping \
+         (lattice wider; lattice widening preserved). Override semantics would \
+         return FunctionLocal."
+    );
+}
+
+/// Plan TPR Round 2 codex F1 (locality, Unknown-wins case): max(HeapEscaping,
+/// Unknown) = Unknown. Pins JOIN at the lattice top end.
+#[test]
+fn effective_locality_join_contract_heap_escaping_lattice_unknown_lattice_wins() {
+    use super::super::super::lattice::{AimsState, Locality};
+
+    let mut map = make_state_map(2, 3);
+    let mut entry = FxHashMap::default();
+    entry.insert(
+        var(0),
+        AimsState {
+            locality: Locality::Unknown,
+            ..AimsState::FRESH
+        },
+    );
+    map.update_block_entry(block(0), entry);
+    map.set_var_locality(var(0), Locality::HeapEscaping);
+    assert_eq!(
+        map.effective_locality_at_block_entry(block(0), var(0)),
+        Locality::Unknown,
+        "JOIN(contract=HeapEscaping, lattice=Unknown) MUST = Unknown."
+    );
+}
+
 #[test]
 fn effective_uniqueness_join_contract_shared_lattice_unique() {
     // Contract Shared × lattice Unique → Shared (max-join).

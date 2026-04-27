@@ -89,8 +89,13 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
 
         for (instr_idx, instr) in block.body.iter().enumerate() {
             // Reusable allocation candidates: Construct with reusable ctor.
+            // Plan TPR Round 2 gemini F1: use `is_excluded` (skips both
+            // scalars AND immortals) — `is_scalar` alone leaks immortal
+            // heap-allocated constants into reuse candidates, where they
+            // cannot be reused because their MAX_REFCOUNT prevents the
+            // reset/reuse pipeline from acquiring the allocation.
             if let ArcInstr::Construct { dst, ctor, .. } = instr {
-                if !state_map.is_scalar(*dst)
+                if !state_map.is_excluded(*dst)
                     && matches!(ctor, CtorKind::Struct(_) | CtorKind::EnumVariant { .. })
                 {
                     state_map.record_event(AimsEvent::ReusableAllocation {
@@ -104,8 +109,10 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
             // Local-allocation eligibility: variables with local exit state.
             // Uses `effective_locality_at_block_exit` (NOT raw lattice
             // locality) so contract-narrowed call results surface here.
+            // Plan TPR Round 2 gemini F1: `is_excluded` excludes both
+            // scalars and immortals from local-alloc candidacy.
             if let Some(dst) = instr.defined_var() {
-                if state_map.is_scalar(dst) {
+                if state_map.is_excluded(dst) {
                     continue;
                 }
                 let effective_loc = state_map.effective_locality_at_block_exit(blk, dst);
@@ -126,8 +133,10 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
         // forward-defined call result; treat symmetrically to body-Apply
         // per `populate_call_result_states`. The body loop above never
         // visits the terminator — Invoke results were silently skipped.
+        // Plan TPR Round 2 gemini F1: `is_excluded` matches the body
+        // loop's exclusion criteria (scalars + immortals).
         if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
-            if !state_map.is_scalar(*dst) {
+            if !state_map.is_excluded(*dst) {
                 let effective_loc = state_map.effective_locality_at_block_exit(blk, *dst);
                 if matches!(
                     effective_loc,
