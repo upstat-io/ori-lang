@@ -533,3 +533,345 @@ fn var_shape_non_reusable_not_stored() {
     // NonReusable is not stored (optimization: sparse map)
     assert_eq!(map.var_shape(var(0)), ShapeClass::NonReusable);
 }
+
+// TF-6 contract-narrowed call-result side tables (BUG-04-065)
+//
+// These tests exercise the `var_uniqueness` and `var_locality` side tables
+// that mirror `var_shapes`, populated by the post-convergence pass
+// `populate_call_result_states` per Plan TPR Round 5 architectural shape.
+//
+// Sparse filter is BOTTOM-default per Plan TPR Round 1 F1 correction:
+//   - Uniqueness: skip Unique (BOTTOM); store MaybeShared / Shared.
+//   - Locality:   skip BlockLocal (BOTTOM); store FunctionLocal / HeapEscaping
+//                 / Unknown (CONSERVATIVE).
+//   - Shape:      skip NonReusable (BOTTOM = CONSERVATIVE for shape — handled
+//                 by existing var_shapes; sparse filter unchanged).
+//
+// Presence-aware lookup distinguishes "unset" (None) from "set to BOTTOM"
+// (also None — BOTTOM never inserts) from "set to a narrower value" (Some(...)).
+// This is load-bearing for `effective_uniqueness_at_block_*` JOIN semantics
+// per Plan TPR Round 0 F1.
+
+#[test]
+fn set_var_uniqueness_unique_does_not_insert() {
+    // BOTTOM-default sparse filter: Uniqueness::Unique IS BOTTOM, so
+    // set_var_uniqueness(Unique) is a no-op. contract_uniqueness returns
+    // None — effective_uniqueness will fall through to lattice (Unique).
+    use super::super::super::lattice::Uniqueness;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_uniqueness(var(0), Uniqueness::Unique);
+    assert_eq!(map.contract_uniqueness(var(0)), None);
+}
+
+#[test]
+fn set_var_uniqueness_maybe_shared_inserts() {
+    // Plan TPR Round 1 F1 LOAD-BEARING: MaybeShared IS the value the side
+    // table must store — without this insert, `ori_list_slice_drop`'s
+    // contract is silently dropped, effective falls through to lattice
+    // BOTTOM=Unique, drop_hints classify as Unique, codegen routes to
+    // ori_buffer_drop_unique → BUG-04-086 slice-rest panic UNFIXED.
+    use super::super::super::lattice::Uniqueness;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_uniqueness(var(0), Uniqueness::MaybeShared);
+    assert_eq!(
+        map.contract_uniqueness(var(0)),
+        Some(Uniqueness::MaybeShared)
+    );
+}
+
+#[test]
+fn set_var_uniqueness_shared_inserts() {
+    use super::super::super::lattice::Uniqueness;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_uniqueness(var(0), Uniqueness::Shared);
+    assert_eq!(map.contract_uniqueness(var(0)), Some(Uniqueness::Shared));
+}
+
+#[test]
+fn set_var_locality_block_local_does_not_insert() {
+    // BOTTOM-default sparse filter: Locality::BlockLocal IS BOTTOM.
+    use super::super::super::lattice::Locality;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_locality(var(0), Locality::BlockLocal);
+    assert_eq!(map.contract_locality(var(0)), None);
+}
+
+#[test]
+fn set_var_locality_function_local_inserts() {
+    use super::super::super::lattice::Locality;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_locality(var(0), Locality::FunctionLocal);
+    assert_eq!(map.contract_locality(var(0)), Some(Locality::FunctionLocal));
+}
+
+#[test]
+fn set_var_locality_heap_escaping_inserts() {
+    use super::super::super::lattice::Locality;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_locality(var(0), Locality::HeapEscaping);
+    assert_eq!(map.contract_locality(var(0)), Some(Locality::HeapEscaping));
+}
+
+#[test]
+fn set_var_locality_unknown_inserts() {
+    // CONSERVATIVE.locality = Unknown — must insert (it differs from
+    // BOTTOM=BlockLocal). Without this, `populate_call_result_states`
+    // populating direct-no-contract Apply with CONSERVATIVE would silently
+    // drop the Unknown locality, leaving optimistic BlockLocal in effect.
+    use super::super::super::lattice::Locality;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_locality(var(0), Locality::Unknown);
+    assert_eq!(map.contract_locality(var(0)), Some(Locality::Unknown));
+}
+
+#[test]
+fn contract_uniqueness_returns_none_when_unset() {
+    // Presence-aware lookup: distinguishes "unset" from "set to BOTTOM"
+    // (which doesn't insert). Without presence-awareness, an unset var
+    // would conflate with a set-to-Unique var, breaking JOIN semantics
+    // per Plan TPR Round 0 F1.
+    let map = make_state_map(2, 3);
+    assert_eq!(map.contract_uniqueness(var(0)), None);
+    assert_eq!(map.contract_uniqueness(var(1)), None);
+}
+
+#[test]
+fn contract_locality_returns_none_when_unset() {
+    let map = make_state_map(2, 3);
+    assert_eq!(map.contract_locality(var(0)), None);
+    assert_eq!(map.contract_locality(var(2)), None);
+}
+
+// Effective-state helper tests — JOIN semantics (Plan TPR Round 0 F1)
+//
+// Per `aims-rules.md` §1.4, Uniqueness join is `max` (Unique < MaybeShared
+// < Shared). `effective_uniqueness_at_block_*` uses presence-aware match:
+// - None (no side-table entry) → return lattice value directly
+// - Some(contract) → contract.join(lattice) — JOIN preserves widening
+//
+// This is the unified-model semantics per CLAUDE.md §AIMS Invariant 5:
+// the side table FEEDS INTO the lattice via JOIN, never overrides it.
+
+#[test]
+fn effective_uniqueness_at_block_entry_no_side_table_returns_lattice() {
+    // No side-table entry → fall through to var_state_at_block_entry.
+    // For an unset block-state the lattice returns BOTTOM.uniqueness=Unique.
+    use super::super::super::lattice::Uniqueness;
+
+    let map = make_state_map(2, 3);
+    assert_eq!(
+        map.effective_uniqueness_at_block_entry(block(0), var(0)),
+        Uniqueness::Unique
+    );
+}
+
+#[test]
+fn effective_uniqueness_at_block_exit_no_side_table_returns_lattice() {
+    use super::super::super::lattice::Uniqueness;
+
+    let map = make_state_map(2, 3);
+    assert_eq!(
+        map.effective_uniqueness_at_block_exit(block(0), var(0)),
+        Uniqueness::Unique
+    );
+}
+
+#[test]
+fn effective_uniqueness_join_contract_unique_lattice_unique() {
+    // Contract Unique × lattice Unique → Unique (no widening).
+    // Note: contract Unique is filtered out (not stored), so this is the
+    // no-side-table path. Documented for completeness of the JOIN matrix.
+    use super::super::super::lattice::Uniqueness;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_uniqueness(var(0), Uniqueness::Unique);
+    assert_eq!(
+        map.effective_uniqueness_at_block_entry(block(0), var(0)),
+        Uniqueness::Unique
+    );
+}
+
+#[test]
+fn effective_uniqueness_join_contract_unique_lattice_maybe_shared() {
+    // Contract Unique × lattice MaybeShared → MaybeShared (lattice widening
+    // preserved per `aims-rules.md` §1.4 max-join). This is the critical
+    // JOIN-vs-override pin: an OVERRIDE pattern would return Unique here,
+    // suppressing the backward demand widening that pushed lattice to
+    // MaybeShared. Plan TPR Round 0 F1 caught this as a critical AIMS
+    // Invariant 5 violation; the JOIN semantics are the durable fix.
+    use super::super::super::lattice::{
+        AccessClass, AimsState, Cardinality, Consumption, Uniqueness,
+    };
+
+    let mut map = make_state_map(2, 3);
+    // Lattice state at block(0) entry shows MaybeShared (widened by demand).
+    let mut entry = FxHashMap::default();
+    entry.insert(
+        var(0),
+        AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Unrestricted,
+            cardinality: Cardinality::Many,
+            uniqueness: Uniqueness::MaybeShared,
+            ..AimsState::BOTTOM
+        },
+    );
+    map.update_block_entry(block(0), entry);
+    // Contract claims Unique. Filter strips it, so contract_uniqueness is
+    // None and effective falls through to lattice = MaybeShared.
+    map.set_var_uniqueness(var(0), Uniqueness::Unique);
+    assert_eq!(
+        map.effective_uniqueness_at_block_entry(block(0), var(0)),
+        Uniqueness::MaybeShared
+    );
+}
+
+#[test]
+fn effective_uniqueness_join_contract_maybe_shared_lattice_unique() {
+    // Contract MaybeShared × lattice Unique → MaybeShared.
+    // BUG-04-086 ORI_LIST_SLICE_DROP CASE: contract narrows the call-result
+    // dst from optimistic lattice BOTTOM=Unique to MaybeShared, ensuring
+    // drop_hints route through ori_buffer_rc_dec (slice-aware path).
+    use super::super::super::lattice::Uniqueness;
+
+    let mut map = make_state_map(2, 3);
+    // Lattice has no entry → returns BOTTOM.uniqueness = Unique.
+    map.set_var_uniqueness(var(0), Uniqueness::MaybeShared);
+    assert_eq!(
+        map.effective_uniqueness_at_block_entry(block(0), var(0)),
+        Uniqueness::MaybeShared
+    );
+}
+
+#[test]
+fn effective_uniqueness_join_contract_shared_lattice_unique() {
+    // Contract Shared × lattice Unique → Shared (max-join).
+    use super::super::super::lattice::Uniqueness;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_uniqueness(var(0), Uniqueness::Shared);
+    assert_eq!(
+        map.effective_uniqueness_at_block_entry(block(0), var(0)),
+        Uniqueness::Shared
+    );
+}
+
+#[test]
+fn effective_uniqueness_entry_exit_asymmetry() {
+    // Entry-side and exit-side helpers MUST query different lattice maps.
+    // Pin against any future "share one helper for both sides" refactor
+    // that would silently couple consumer sites that read different sides.
+    // Per Plan TPR Round 0 gemini F2.
+    use super::super::super::lattice::{
+        AccessClass, AimsState, Cardinality, Consumption, Uniqueness,
+    };
+
+    let mut map = make_state_map(2, 3);
+    // Entry has var(0) with Unique uniqueness.
+    let mut entry = FxHashMap::default();
+    entry.insert(
+        var(0),
+        AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            ..AimsState::BOTTOM
+        },
+    );
+    map.update_block_entry(block(0), entry);
+    // Exit has var(0) with MaybeShared uniqueness (widened by successor).
+    let mut exit = FxHashMap::default();
+    exit.insert(
+        var(0),
+        AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Unrestricted,
+            cardinality: Cardinality::Many,
+            uniqueness: Uniqueness::MaybeShared,
+            ..AimsState::BOTTOM
+        },
+    );
+    map.update_block_exit(block(0), exit);
+    // No side-table entry → effective returns the asymmetric lattice values.
+    assert_eq!(
+        map.effective_uniqueness_at_block_entry(block(0), var(0)),
+        Uniqueness::Unique
+    );
+    assert_eq!(
+        map.effective_uniqueness_at_block_exit(block(0), var(0)),
+        Uniqueness::MaybeShared
+    );
+}
+
+#[test]
+fn effective_locality_join_contract_function_local_lattice_block_local() {
+    // Contract FunctionLocal × lattice BlockLocal → FunctionLocal
+    // (max-join — narrowed contract widens optimistic lattice).
+    use super::super::super::lattice::Locality;
+
+    let mut map = make_state_map(2, 3);
+    // No block-state entry → lattice returns BOTTOM.locality = BlockLocal.
+    map.set_var_locality(var(0), Locality::FunctionLocal);
+    assert_eq!(
+        map.effective_locality_at_block_entry(block(0), var(0)),
+        Locality::FunctionLocal
+    );
+}
+
+#[test]
+fn effective_locality_join_contract_unknown_lattice_block_local() {
+    // CONSERVATIVE.locality=Unknown × lattice BlockLocal → Unknown.
+    // This is the direct-no-contract Apply path: TF-5 says CONSERVATIVE,
+    // sparse filter inserts Unknown (it's NOT BOTTOM).
+    use super::super::super::lattice::Locality;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_locality(var(0), Locality::Unknown);
+    assert_eq!(
+        map.effective_locality_at_block_entry(block(0), var(0)),
+        Locality::Unknown
+    );
+}
+
+#[test]
+fn effective_locality_entry_exit_asymmetry() {
+    use super::super::super::lattice::{AimsState, Locality};
+
+    let mut map = make_state_map(2, 3);
+    // Entry has var(0) with FunctionLocal locality.
+    let mut entry = FxHashMap::default();
+    entry.insert(
+        var(0),
+        AimsState {
+            locality: Locality::FunctionLocal,
+            ..AimsState::FRESH
+        },
+    );
+    map.update_block_entry(block(0), entry);
+    // Exit has var(0) with HeapEscaping locality.
+    let mut exit = FxHashMap::default();
+    exit.insert(
+        var(0),
+        AimsState {
+            locality: Locality::HeapEscaping,
+            ..AimsState::FRESH
+        },
+    );
+    map.update_block_exit(block(0), exit);
+    assert_eq!(
+        map.effective_locality_at_block_entry(block(0), var(0)),
+        Locality::FunctionLocal
+    );
+    assert_eq!(
+        map.effective_locality_at_block_exit(block(0), var(0)),
+        Locality::HeapEscaping
+    );
+}

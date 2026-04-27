@@ -19,7 +19,7 @@ use rustc_hash::FxHashMap;
 use crate::ir::{ArcBlockId, ArcFunction, ArcVarId};
 
 use super::super::contract::EffectSummary;
-use super::super::lattice::{AimsState, BorrowSource, ShapeClass};
+use super::super::lattice::{AimsState, BorrowSource, Locality, ShapeClass, Uniqueness};
 
 // Per-invoke edge state
 
@@ -194,9 +194,39 @@ pub struct AimsStateMap {
     /// side table makes shape available at all program points via
     /// [`var_shape`](Self::var_shape).
     ///
-    /// Populated post-convergence by `populate_var_shapes()`.
+    /// Populated post-convergence by `populate_var_shapes()` (for Construct/
+    /// Reuse/CollectionReuse) and `populate_call_result_states()` (for
+    /// Apply/Invoke results from contracts).
     /// Section 09.2 Shape Activation.
     var_shapes: FxHashMap<ArcVarId, ShapeClass>,
+
+    /// Per-variable contract-narrowed return uniqueness for Apply/Invoke results.
+    ///
+    /// Populated by `populate_call_result_states` post-convergence pass from
+    /// each direct call's `MemoryContract.return_info.uniqueness` (or
+    /// `CONSERVATIVE.uniqueness = MaybeShared` when no contract is available,
+    /// per spec TF-5/TF-5a/TF-6c).
+    ///
+    /// Sparse — BOTTOM-default filter: `Unique` is the lattice BOTTOM for
+    /// uniqueness and is NOT stored. `MaybeShared` and `Shared` ARE stored
+    /// (they narrow below CONSERVATIVE). This asymmetry vs `var_shapes` is
+    /// load-bearing: BOTTOM ≠ CONSERVATIVE for uniqueness. Without storing
+    /// `MaybeShared` the call-result side table would silently drop
+    /// `ori_list_slice_drop`'s contract, leaving `drop_hints` to read lattice
+    /// BOTTOM=Unique → `ori_buffer_drop_unique` → BUG-04-086 panic.
+    /// Plan TPR Round 1 F1 (codex+opencode AGREEMENT, 2026-04-26).
+    ///
+    /// Spec: aims-rules.md §3 TF-6 / TF-6a; CLAUDE.md §AIMS Invariant 5
+    /// (side-table extension feeds the lattice via JOIN, never overrides it).
+    var_uniqueness: FxHashMap<ArcVarId, Uniqueness>,
+
+    /// Per-variable contract-narrowed return locality for Apply/Invoke results.
+    ///
+    /// Populated by `populate_call_result_states`. Sparse — BOTTOM-default
+    /// filter: `BlockLocal` is the lattice BOTTOM for locality and is NOT
+    /// stored. `FunctionLocal`, `HeapEscaping`, and `Unknown` ARE stored.
+    /// Plan TPR Round 1 F1 (2026-04-26).
+    var_locality: FxHashMap<ArcVarId, Locality>,
 
     /// Tracks whether any state changed in the last iteration.
     /// Reset to `false` at the start of each iteration; set to `true`
@@ -232,6 +262,8 @@ impl AimsStateMap {
             fip_construct_count: 0,
             fip_consumed_count: 0,
             var_shapes: FxHashMap::default(),
+            var_uniqueness: FxHashMap::default(),
+            var_locality: FxHashMap::default(),
             changed: false,
             cross_dimension_detected: false,
         }
@@ -545,6 +577,134 @@ impl AimsStateMap {
     pub fn set_var_shape(&mut self, var: ArcVarId, shape: ShapeClass) {
         if !matches!(shape, ShapeClass::NonReusable) {
             self.var_shapes.insert(var, shape);
+        }
+    }
+
+    // Per-variable contract-narrowed call-result side tables (BUG-04-065)
+
+    /// Record the contract-narrowed uniqueness for a call-result variable.
+    ///
+    /// BOTTOM-default sparse filter: `Uniqueness::Unique` is the lattice
+    /// BOTTOM and is NOT stored — effective queries fall through to lattice
+    /// (which is also Unique by default), giving identical behavior. The
+    /// filter SHALL skip `Unique` (NOT `MaybeShared`); skipping `MaybeShared`
+    /// would erase the load-bearing `ori_list_slice_drop` case where
+    /// `return_info.uniqueness = MaybeShared` overrides the optimistic
+    /// lattice default — that override is what fixes BUG-04-086.
+    /// Plan TPR Round 1 F1 (codex+opencode AGREEMENT, 2026-04-26).
+    pub fn set_var_uniqueness(&mut self, var: ArcVarId, uniq: Uniqueness) {
+        if !matches!(uniq, Uniqueness::Unique) {
+            self.var_uniqueness.insert(var, uniq);
+        }
+    }
+
+    /// Record the contract-narrowed locality for a call-result variable.
+    ///
+    /// BOTTOM-default sparse filter: `Locality::BlockLocal` is the lattice
+    /// BOTTOM and is NOT stored. `FunctionLocal`, `HeapEscaping`, and
+    /// `Unknown` (the CONSERVATIVE default for direct-no-contract calls)
+    /// ARE stored. The filter SHALL skip BOTTOM, NOT CONSERVATIVE — the
+    /// asymmetry is the same as `set_var_uniqueness` and serves the same
+    /// architectural purpose.
+    pub fn set_var_locality(&mut self, var: ArcVarId, loc: Locality) {
+        if !matches!(loc, Locality::BlockLocal) {
+            self.var_locality.insert(var, loc);
+        }
+    }
+
+    /// Get the contract-narrowed uniqueness if the side table has an entry
+    /// for `var`. Returns `None` when no contract narrowing applies.
+    ///
+    /// Distinguishes "unset" from "set to BOTTOM" (also None — BOTTOM never
+    /// inserts). This presence-awareness is load-bearing for the
+    /// `effective_uniqueness_at_block_*` JOIN semantics — an unset variable
+    /// is NOT semantically equivalent to one set to `MaybeShared`, despite
+    /// both differing from Unique. Plan TPR Round 0 F1 (codex+gemini
+    /// AGREEMENT) caught the override-pattern alternative as a critical
+    /// AIMS Invariant 5 violation; presence-aware lookup + JOIN is the
+    /// durable fix.
+    #[must_use]
+    pub fn contract_uniqueness(&self, var: ArcVarId) -> Option<Uniqueness> {
+        self.var_uniqueness.get(&var).copied()
+    }
+
+    /// Get the contract-narrowed locality if the side table has an entry
+    /// for `var`. Returns `None` when no contract narrowing applies.
+    #[must_use]
+    pub fn contract_locality(&self, var: ArcVarId) -> Option<Locality> {
+        self.var_locality.get(&var).copied()
+    }
+
+    /// Effective uniqueness combining contract-narrowed forward state with
+    /// the lattice's block-entry value for a call-result variable.
+    ///
+    /// Semantics: presence-aware lookup with lattice JOIN. When the side
+    /// table is unset, returns the lattice value directly (no contract
+    /// narrowing). When set, JOINs the contract value with the lattice
+    /// value (`max` per `aims-rules.md` §1.4: Unique < `MaybeShared` < Shared).
+    ///
+    /// JOIN preserves lattice widening: a contract claiming Unique that
+    /// conflicts with backward demand's `MaybeShared` converges to `MaybeShared`,
+    /// not Unique. This is the unified-model semantics per CLAUDE.md §AIMS
+    /// Invariant 5 — the side table FEEDS INTO the lattice via JOIN, never
+    /// overrides it. The override alternative (returning the side-table
+    /// value when present, ignoring the lattice) suppresses backward demand
+    /// widening and was rejected at Plan TPR Round 0 F1.
+    #[must_use]
+    pub fn effective_uniqueness_at_block_entry(
+        &self,
+        block: ArcBlockId,
+        var: ArcVarId,
+    ) -> Uniqueness {
+        let lattice = self.var_state_at_block_entry(block, var).uniqueness;
+        match self.contract_uniqueness(var) {
+            Some(contract) => contract.join(lattice),
+            None => lattice,
+        }
+    }
+
+    /// Effective uniqueness combining contract-narrowed forward state with
+    /// the lattice's block-exit value. See [`effective_uniqueness_at_block_entry`]
+    /// for JOIN semantics; this variant queries the exit-side lattice value.
+    ///
+    /// Entry-side and exit-side variants are NOT interchangeable — consumer
+    /// sites that read different sides (COW reads entry, `drop_hints` read
+    /// exit) MUST call the matching helper. Plan TPR Round 0 gemini F2.
+    #[must_use]
+    pub fn effective_uniqueness_at_block_exit(
+        &self,
+        block: ArcBlockId,
+        var: ArcVarId,
+    ) -> Uniqueness {
+        let lattice = self.var_state_at_block_exit(block, var).uniqueness;
+        match self.contract_uniqueness(var) {
+            Some(contract) => contract.join(lattice),
+            None => lattice,
+        }
+    }
+
+    /// Effective locality combining contract-narrowed forward state with
+    /// the lattice's block-entry value. JOIN semantics (`max` per
+    /// `aims-rules.md` §1.5: `BlockLocal` < `FunctionLocal` < `HeapEscaping` <
+    /// Unknown — shipped 4-value chain; the spec's 5-value `ArgEscaping`
+    /// is target-only per the aims-rules.md preamble).
+    #[must_use]
+    pub fn effective_locality_at_block_entry(&self, block: ArcBlockId, var: ArcVarId) -> Locality {
+        let lattice = self.var_state_at_block_entry(block, var).locality;
+        match self.contract_locality(var) {
+            Some(contract) => contract.join(lattice),
+            None => lattice,
+        }
+    }
+
+    /// Effective locality combining contract-narrowed forward state with
+    /// the lattice's block-exit value. See [`effective_locality_at_block_entry`].
+    #[must_use]
+    pub fn effective_locality_at_block_exit(&self, block: ArcBlockId, var: ArcVarId) -> Locality {
+        let lattice = self.var_state_at_block_exit(block, var).locality;
+        match self.contract_locality(var) {
+            Some(contract) => contract.join(lattice),
+            None => lattice,
         }
     }
 

@@ -247,11 +247,18 @@ fn record_death_event(
     let shape = ctx.state_map.var_shape(var);
     let ty = ctx.func.var_types[var.index()];
 
+    // BUG-04-065: read uniqueness via the contract-aware effective
+    // helper. Load-bearing for emit_reuse cross-block reuse: emit_reuse/
+    // detect.rs and planner.rs filter `death.uniqueness`, so without
+    // contract narrowing here a MaybeShared call result would pass the
+    // filter and route to ori_buffer_drop_unique → BUG-04-086 panic.
     death_events.push(DeathEvent {
         var,
         block: ctx.blk,
         instr_idx,
-        uniqueness: state.uniqueness,
+        uniqueness: ctx
+            .state_map
+            .effective_uniqueness_at_block_exit(ctx.blk, var),
         cardinality: state.cardinality,
         ty,
         shape,
@@ -291,13 +298,18 @@ fn has_live_borrowed_children(ctx: &BlockCtx<'_>, var: ArcVarId, instr_idx: usiz
 /// Build the reuse context for a dying variable from the state map.
 ///
 /// Queries shape (per-variable), uniqueness and cardinality (block exit state).
+/// BUG-04-065: uniqueness is queried via `effective_uniqueness_at_block_exit`
+/// so contract-narrowed call results (populated by
+/// `populate_call_result_states`) reach reuse decisions through this site.
 fn build_reuse_context(ctx: &BlockCtx<'_>, var: ArcVarId) -> ReuseContext {
     let state = ctx.state_map.var_state_at_block_exit(ctx.blk, var);
     let shape = ctx.state_map.var_shape(var);
 
     ReuseContext {
         shape,
-        uniqueness: state.uniqueness,
+        uniqueness: ctx
+            .state_map
+            .effective_uniqueness_at_block_exit(ctx.blk, var),
         cardinality: state.cardinality,
     }
 }

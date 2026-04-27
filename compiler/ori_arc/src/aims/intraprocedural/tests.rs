@@ -4010,3 +4010,589 @@ fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
          v8 (merge param) aliases v5 = Project v4.0"
     );
 }
+
+// TF-6 contract-narrowed call-result side tables (BUG-04-065)
+//
+// `populate_call_result_states` pass populates per-variable forward-state
+// side tables on `AimsStateMap` from each Apply/Invoke instruction's
+// `MemoryContract.return_info` (or CONSERVATIVE for direct calls without
+// a contract; CONSERVATIVE for indirect calls per spec TF-5a/TF-6c).
+//
+// Pipeline order: position 1.5 (between `populate_borrow_sources` and
+// `populate_sparse_events`) — Plan TPR Round 0 F4. Side tables MUST be
+// populated BEFORE consumers read them; locality narrowing in the side
+// table MUST reach `populate_sparse_events` for `LocalAllocCandidate`
+// emission.
+//
+// Sparse filter is BOTTOM-default per Plan TPR Round 1 F1: skip Unique /
+// BlockLocal / NonReusable; store everything else (including CONSERVATIVE
+// values like MaybeShared / Unknown that override the optimistic lattice
+// default).
+//
+// Canonicalization (Plan TPR Round 5 F1): contract dimensions are written
+// to a temporary `AimsState`, `canonicalize()` runs to enforce CN-3 (Shared+
+// ReusableCtor → NonReusable) and CN-6 (HeapEscaping+Unique → MaybeShared),
+// then canonicalized values are written to side tables.
+
+/// Helper: construct a minimal `MemoryContract` with a single Borrowed param
+/// and the given `return_info`.
+fn contract_with_return(return_info: ReturnContract) -> MemoryContract {
+    MemoryContract {
+        params: vec![ParamContract {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            may_escape: false,
+            may_share: false,
+            locality_bound: Locality::FunctionLocal,
+            uniqueness: Uniqueness::MaybeShared,
+        }],
+        return_info,
+        effects: EffectSummary::default(),
+        context_behavior: ContextBehavior::default(),
+        fip: FipContract::Never,
+        is_fbip: false,
+    }
+}
+
+/// Helper: `ArcFunction` with a single block doing `v1 = Apply(callee, [p0]); return v1`.
+fn func_with_apply_call(callee_name: Name) -> ArcFunction {
+    ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: var(1),
+                ty: ty(0),
+                func: callee_name,
+                args: vec![var(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    }
+}
+
+/// PRIMARY BUG-04-086 LOAD-BEARING TEST.
+///
+/// Apply call with contract `return_info.uniqueness = MaybeShared` populates
+/// the side table at `dst`. Without this, `effective_uniqueness_at_block_*`
+/// would fall through to lattice BOTTOM=Unique, `drop_hints` would classify the
+/// slice-rest as Unique, and codegen would route through
+/// `ori_buffer_drop_unique` → BUG-04-086 panic UNFIXED.
+#[test]
+fn populate_call_result_states_apply_maybe_shared_contract_inserts_dst() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        Some(Uniqueness::MaybeShared),
+        "Apply with MaybeShared contract must populate side table — \
+         BUG-04-086 closure depends on this exact override of optimistic lattice BOTTOM=Unique"
+    );
+}
+
+/// Apply with Unique contract: BOTTOM-default sparse filter skips the insert.
+/// `contract_uniqueness(dst) = None`; effective falls through to lattice
+/// (which already has Unique demand from a fresh-Unique-contract callee).
+#[test]
+fn populate_call_result_states_apply_unique_contract_filtered() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::Unique,
+            preserves_freshness: true,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        None,
+        "Unique contract is BOTTOM — sparse filter must skip; effective falls through to lattice"
+    );
+    assert_eq!(
+        state_map.contract_locality(var(1)),
+        None,
+        "BlockLocal contract is BOTTOM — sparse filter must skip"
+    );
+}
+
+/// Apply WITHOUT contract receives CONSERVATIVE per spec TF-5
+/// (Plan TPR Round 1 codex F2 correction). CONSERVATIVE.uniqueness =
+/// `MaybeShared` overrides optimistic lattice BOTTOM=Unique.
+#[test]
+fn populate_call_result_states_apply_no_contract_uses_conservative() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+
+    // No contract registered.
+    let sigs = no_sigs();
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        Some(Uniqueness::MaybeShared),
+        "Apply without contract: spec TF-5 says CONSERVATIVE = MaybeShared, \
+         not optimistic BOTTOM=Unique"
+    );
+    assert_eq!(
+        state_map.contract_locality(var(1)),
+        Some(Locality::Unknown),
+        "CONSERVATIVE.locality = Unknown — must override optimistic BOTTOM=BlockLocal"
+    );
+}
+
+/// `ApplyIndirect` populates with CONSERVATIVE per spec TF-5a (Plan TPR Round 5
+/// F2 codex correction). Spec says indirect calls receive "Same as TF-5"
+/// (CONSERVATIVE = `MaybeShared`), NOT excluded from the side table entirely.
+#[test]
+fn populate_call_result_states_apply_indirect_uses_conservative() {
+    // func(p0): v1 = PartialApply(f, [p0]); v2 = ApplyIndirect(v1, []); return v2
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::PartialApply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: Name::from_raw(100),
+                    args: vec![var(0)],
+                },
+                ArcInstr::ApplyIndirect {
+                    dst: var(2),
+                    ty: ty(0),
+                    closure: var(1),
+                    args: vec![],
+                    arg_ownership: vec![],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_uniqueness(var(2)),
+        Some(Uniqueness::MaybeShared),
+        "ApplyIndirect: spec TF-5a CONSERVATIVE.uniqueness = MaybeShared per Round 5 F2"
+    );
+    assert_eq!(
+        state_map.contract_locality(var(2)),
+        Some(Locality::Unknown),
+        "ApplyIndirect: CONSERVATIVE.locality = Unknown"
+    );
+}
+
+/// Invoke with contract: symmetric to Apply (Plan TPR Round 2 F3 +
+/// Round 4 F2 — terminator path also walked by `populate_call_result_states`).
+#[test]
+fn populate_call_result_states_invoke_with_contract_inserts_dst() {
+    let callee_name = Name::from_raw(100);
+    // func(p0): block 0 ends with Invoke; b1 = return v1; b2 = Resume.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: callee_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    normal: block_id(1),
+                    unwind: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(1) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        Some(Uniqueness::MaybeShared),
+        "Invoke terminator: side table populated symmetrically with Apply body instruction"
+    );
+    assert_eq!(
+        state_map.contract_locality(var(1)),
+        Some(Locality::HeapEscaping),
+        "Invoke terminator locality narrowing"
+    );
+}
+
+/// Canonicalization fires before side-table writes (Plan TPR Round 5 F1
+/// codex critical correction). CN-3: Shared + `ReusableCtor` → `NonReusable`.
+/// Without canonicalization, the side table would store an infeasible
+/// (Shared, `ReusableCtor`) state, breaking AIMS Invariant 5 cross-dimensional
+/// feasibility (`aims-rules.md` §2 CN-3).
+#[test]
+fn populate_call_result_states_canonicalizes_cn3() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+
+    // Contract: (Shared, BlockLocal, ReusableCtor(Struct))
+    // CN-3 forces shape := NonReusable.
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::Shared,
+            preserves_freshness: false,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        Some(Uniqueness::Shared),
+        "Shared uniqueness preserved (passes BOTTOM-default filter)"
+    );
+    assert_eq!(
+        state_map.var_shape(var(1)),
+        ShapeClass::NonReusable,
+        "CN-3 must demote Shared+ReusableCtor → NonReusable BEFORE side-table write — \
+         pre-Round-5 raw write would have stored ReusableCtor here"
+    );
+}
+
+/// Canonicalization CN-6: `HeapEscaping` + Unique → `MaybeShared`.
+/// Without canonicalization, an infeasible (Unique, `HeapEscaping`) state
+/// would be written, violating `aims-rules.md` §2 CN-6.
+#[test]
+fn populate_call_result_states_canonicalizes_cn6() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+
+    // Contract: (Unique, HeapEscaping, NonReusable)
+    // CN-6 forces uniqueness := MaybeShared.
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::Unique,
+            preserves_freshness: true,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        Some(Uniqueness::MaybeShared),
+        "CN-6 must demote Unique→MaybeShared when locality is HeapEscaping — \
+         pre-Round-5 raw write would have stored Unique here, falsely claiming a \
+         heap-escaping value is RC==1"
+    );
+    assert_eq!(
+        state_map.contract_locality(var(1)),
+        Some(Locality::HeapEscaping),
+        "Locality preserved through canonicalization"
+    );
+}
+
+/// Excluded variables (scalar / immortal) MUST NOT receive side-table entries.
+/// Mirrors the `is_excluded` guard in `populate_var_shapes` (`post_convergence.rs:131`).
+#[test]
+fn populate_call_result_states_skips_scalar_dst() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    // Mark var(1)'s type (ty(0)) as scalar — the dst type is scalar.
+    let classifier = TestClassifier::all_ref(2).with_scalar(0);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        None,
+        "scalar dst MUST be excluded from side-table population"
+    );
+}
+
+/// Pipeline ordering: `populate_call_result_states` runs BEFORE
+/// `populate_sparse_events` (Plan TPR Round 0 F4 + Round 2 F1 corrections).
+/// `FunctionLocal` contract locality must reach `LocalAllocCandidate` event
+/// emission. `BlockLocal` alternative would be tautological under
+/// BOTTOM-default filter (Round 2 F1) — using `FunctionLocal` restores
+/// discriminating power.
+#[test]
+fn populate_sparse_events_sees_function_local_contract_locality() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::FunctionLocal,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    let events = state_map.events_in_block(block_id(0));
+    let local_alloc_v1 = events.iter().any(|e| {
+        matches!(
+            e,
+            super::AimsEvent::LocalAllocCandidate { var: v, .. } if v == &var(1)
+        )
+    });
+    assert!(
+        local_alloc_v1,
+        "populate_sparse_events MUST see contract-derived FunctionLocal via the \
+         side-table (effective_locality_at_block_exit) and emit LocalAllocCandidate. \
+         Without correct ordering (or without effective_* migration), no event fires."
+    );
+}
+
+/// Round 2 F1 negative pin: `BlockLocal` contract does NOT insert into the
+/// side table (BOTTOM-default filter) — guards against the tautological
+/// pipeline-ordering test the prior Round 0 design used.
+#[test]
+fn populate_call_result_states_block_local_filtered_no_event() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    assert_eq!(
+        state_map.contract_locality(var(1)),
+        None,
+        "BlockLocal MUST be filtered out (it is the BOTTOM default) — \
+         the side table only stores narrower-than-BOTTOM values"
+    );
+}
+
+/// Plan TPR Round 4 F2 (gemini singleton medium GAP): `populate_sparse_events`
+/// MUST walk `block.terminator` for Invoke dst, not just `block.body`. The
+/// pre-Round-4 implementation skipped Invoke results entirely, so contract-
+/// narrowed locality on Invoke terminator dst never reached `LocalAllocCandidate`.
+#[test]
+fn populate_sparse_events_walks_invoke_terminator() {
+    let callee_name = Name::from_raw(100);
+    // func(p0): block 0 → Invoke(callee, [p0]) normal=b1, unwind=b2
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: callee_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    normal: block_id(1),
+                    unwind: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(1) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::FunctionLocal,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // Block 0 is the Invoke block — the terminator-defined dst (v1) should
+    // have a LocalAllocCandidate event recorded for it.
+    let events = state_map.events_in_block(block_id(0));
+    let local_alloc_v1 = events.iter().any(|e| {
+        matches!(
+            e,
+            super::AimsEvent::LocalAllocCandidate { var: v, .. } if v == &var(1)
+        )
+    });
+    assert!(
+        local_alloc_v1,
+        "populate_sparse_events MUST record LocalAllocCandidate for Invoke terminator dst — \
+         Plan TPR Round 4 F2 GAP correction"
+    );
+}
+
+/// Consumer integration: Apply with `MaybeShared` contract → `effective_uniqueness`
+/// at block entry returns `MaybeShared` (load-bearing for COW emission at
+/// `emit_rc/cow.rs:67`). Pre-fix consumer reads `state.uniqueness` from
+/// `var_state_at_block_entry` and gets BOTTOM=Unique, missing the `IsShared`
+/// runtime check.
+#[test]
+fn effective_uniqueness_at_block_entry_reflects_apply_maybe_shared_contract() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    let effective = state_map.effective_uniqueness_at_block_entry(block_id(0), var(1));
+    assert_eq!(
+        effective,
+        Uniqueness::MaybeShared,
+        "consumer at block entry (cow.rs:67 / realize/mod.rs:302+346) must see \
+         contract-narrowed MaybeShared — JOIN(MaybeShared, lattice_BOTTOM=Unique) = MaybeShared"
+    );
+}
+
+/// Consumer integration: Apply with `MaybeShared` contract → `effective_uniqueness`
+/// at block exit returns `MaybeShared` (load-bearing for DeathEvent.uniqueness
+/// at `realize/walk_dec.rs:250` and downstream `emit_reuse/detect.rs:86` +
+/// `emit_reuse/planner.rs:83`).
+#[test]
+fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_call(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    let effective = state_map.effective_uniqueness_at_block_exit(block_id(0), var(1));
+    assert_eq!(
+        effective,
+        Uniqueness::MaybeShared,
+        "consumer at block exit (walk_dec.rs:250+254+300) must see contract-narrowed \
+         MaybeShared for DeathEvent — emit_reuse downstream filters death.uniqueness == Unique"
+    );
+}

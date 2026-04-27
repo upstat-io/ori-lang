@@ -205,7 +205,15 @@ fn compute_block_fip_balance(
                 exit_state.consumption,
                 Consumption::Dead | Consumption::Unrestricted
             );
-            if is_consumed && matches!(exit_state.shape, ShapeClass::ReusableCtor(_)) {
+            // BUG-04-065: read shape via the per-variable side table
+            // (`var_shape`) instead of `exit_state.shape`. For forward-
+            // defined Apply/Invoke results, the lattice gives BOTTOM=
+            // NonReusable; the contract-derived shape lives in
+            // `var_shapes`, populated by `populate_call_result_states`
+            // / `populate_var_shapes`. For shape, BOTTOM coincides with
+            // CONSERVATIVE so no `effective_*` helper is needed —
+            // `var_shape` is already presence-aware.
+            if is_consumed && matches!(state_map.var_shape(dst), ShapeClass::ReusableCtor(_)) {
                 deaths = deaths.saturating_add(1);
             }
         }
@@ -261,6 +269,11 @@ pub(crate) fn populate_fip_gate_events(
             // per-instruction state would require replay, but entry state
             // is sufficient — uniqueness can only widen from entry to the
             // instruction point).
+            //
+            // BUG-04-065: read uniqueness via `effective_uniqueness_at_block_entry`
+            // so prior-Apply-result args read contract-narrowed MaybeShared
+            // (instead of lattice BOTTOM=Unique) and FIP gates correctly
+            // decline to fire on may-be-shared call results.
             let all_unique =
                 args.iter()
                     .zip(requires_unique_params.iter())
@@ -268,8 +281,8 @@ pub(crate) fn populate_fip_gate_events(
                         if !required {
                             return true;
                         }
-                        let state = state_map.var_state_at_block_entry(blk, *arg);
-                        state.uniqueness == Uniqueness::Unique
+                        state_map.effective_uniqueness_at_block_entry(blk, *arg)
+                            == Uniqueness::Unique
                     });
 
             if all_unique {

@@ -208,7 +208,12 @@ pub fn analyze_function(
     );
 
     // Post-convergence passes (see post_convergence.rs).
+    // Position-load-bearing ordering — `populate_call_result_states` MUST
+    // run BEFORE `populate_sparse_events` so the side tables are populated
+    // when sparse_events queries `effective_locality_at_block_exit` for
+    // `LocalAllocCandidate` emission. Plan TPR Round 0 F4. BUG-04-065.
     post_convergence::populate_borrow_sources(&mut state_map, func);
+    post_convergence::populate_call_result_states(&mut state_map, func, sigs);
     post_convergence::populate_sparse_events(&mut state_map, func);
     post_convergence::populate_var_shapes(&mut state_map, func);
 

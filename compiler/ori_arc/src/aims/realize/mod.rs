@@ -297,9 +297,14 @@ fn annotate_block(
         };
 
         let state = ctx.state_map.var_state_at_block_entry(blk, var);
+        // BUG-04-065: read uniqueness via the contract-aware effective
+        // helper so a callee's ReturnContract reaches the COW Apply
+        // annotation site. Other dimensions (access, consumption,
+        // cardinality) are not contract-narrowed by TF-6 and continue
+        // reading the raw lattice value.
         let site_ctx = AnnotationSiteContext {
             var,
-            uniqueness: state.uniqueness,
+            uniqueness: ctx.state_map.effective_uniqueness_at_block_entry(blk, var),
             rc_incremented: ctx.rc_incremented.contains(&var),
             is_param: ctx.param_vars.contains(&var),
             is_param_borrowed: ctx.param_borrowed_vars.contains(&var),
@@ -341,9 +346,15 @@ fn annotate_block(
         if ctx.cow_names.contains(callee) && !args.is_empty() {
             let receiver = args[0];
             let state = ctx.state_map.var_state_at_block_entry(blk, receiver);
+            // BUG-04-065: same effective_uniqueness migration as the
+            // body-Apply path above; symmetric for Invoke terminators
+            // whose dst's contract narrowing is populated by
+            // populate_call_result_states.
             let site_ctx = AnnotationSiteContext {
                 var: receiver,
-                uniqueness: state.uniqueness,
+                uniqueness: ctx
+                    .state_map
+                    .effective_uniqueness_at_block_entry(blk, receiver),
                 rc_incremented: ctx.rc_incremented.contains(&receiver),
                 is_param: ctx.param_vars.contains(&receiver),
                 is_param_borrowed: ctx.param_borrowed_vars.contains(&receiver),

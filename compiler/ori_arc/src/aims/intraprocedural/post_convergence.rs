@@ -13,12 +13,16 @@
 //!
 //! These passes are called from [`super::analyze_function`] after convergence.
 
-use rustc_hash::FxHashSet;
+use ori_ir::Name;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId, CtorKind};
+use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
 
-use super::super::contract::ContextRegion;
-use super::super::lattice::{AimsState, Locality, ReuseCtorKind, ShapeClass, Uniqueness};
+use super::super::contract::{ContextRegion, MemoryContract, ReturnContract};
+use super::super::lattice::{
+    AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ReuseCtorKind,
+    ShapeClass, Uniqueness,
+};
 use super::super::transfer::transfer_def;
 use super::state_map::{AimsEvent, AimsStateMap};
 
@@ -60,9 +64,21 @@ pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFu
 ///    reuse.
 ///
 /// 2. **Local-allocation eligibility** (`AimsEvent::LocalAllocCandidate`):
-///    Variables whose converged exit state shows `Locality::FunctionLocal` or
-///    `BlockLocal`, indicating they never escape the function and may be
-///    eligible for stack allocation in a future optimization pass.
+///    Variables whose effective exit-locality (`effective_locality_at_block_exit`,
+///    which JOINs the lattice value with the contract-narrowed value populated
+///    by `populate_call_result_states`) shows `Locality::FunctionLocal` or
+///    `BlockLocal`. The effective query is load-bearing for direct call results:
+///    without it, a callee with `return_info.locality = FunctionLocal` would
+///    not surface as a `LocalAllocCandidate` because the lattice's BOTTOM
+///    locality is `BlockLocal` (already FunctionLocal-eligible) but the
+///    contract-derived narrowing is invisible. Plan TPR Round 0 F4.
+///
+/// Walks both `block.body` (covers Apply / Construct / etc.) AND
+/// `block.terminator` (covers Invoke — the only terminator that defines
+/// a variable). Plan TPR Round 4 F2 (gemini singleton medium GAP) added
+/// the terminator walk after identifying that Invoke results were silently
+/// skipped, leaving terminator-defined call results without
+/// `LocalAllocCandidate` events even when their contract narrowed locality.
 pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for (block_idx, block) in func.blocks.iter().enumerate() {
         #[expect(
@@ -86,13 +102,15 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
             }
 
             // Local-allocation eligibility: variables with local exit state.
+            // Uses `effective_locality_at_block_exit` (NOT raw lattice
+            // locality) so contract-narrowed call results surface here.
             if let Some(dst) = instr.defined_var() {
                 if state_map.is_scalar(dst) {
                     continue;
                 }
-                let exit_state = state_map.var_state_at_block_exit(blk, dst);
+                let effective_loc = state_map.effective_locality_at_block_exit(blk, dst);
                 if matches!(
-                    exit_state.locality,
+                    effective_loc,
                     Locality::FunctionLocal | Locality::BlockLocal
                 ) {
                     state_map.record_event(AimsEvent::LocalAllocCandidate {
@@ -102,6 +120,157 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
                     });
                 }
             }
+        }
+
+        // Plan TPR Round 4 F2: Invoke terminator's dst is also a
+        // forward-defined call result; treat symmetrically to body-Apply
+        // per `populate_call_result_states`. The body loop above never
+        // visits the terminator — Invoke results were silently skipped.
+        if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
+            if !state_map.is_scalar(*dst) {
+                let effective_loc = state_map.effective_locality_at_block_exit(blk, *dst);
+                if matches!(
+                    effective_loc,
+                    Locality::FunctionLocal | Locality::BlockLocal
+                ) {
+                    state_map.record_event(AimsEvent::LocalAllocCandidate {
+                        block: blk,
+                        // Terminator instruction index = body length
+                        // (terminators are notionally at body-end).
+                        instr: block.body.len(),
+                        var: *dst,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Populate per-variable contract-narrowed call-result side tables on
+/// [`AimsStateMap`] for every direct Apply/Invoke instruction.
+///
+/// Pipeline position: 1.5, between [`populate_borrow_sources`] (position 1)
+/// and [`populate_sparse_events`] (position 2). The side tables MUST be
+/// populated BEFORE `populate_sparse_events` reads them via
+/// `effective_locality_at_block_exit` (Plan TPR Round 0 F4 ordering).
+///
+/// # Per-spec coverage
+///
+/// - **TF-6** (direct Apply/Invoke WITH contract): writes `contract.return_info`
+///   dimensions (uniqueness, locality, shape) into the side tables, after
+///   canonicalization. Spec: `aims-rules.md` §3 TF-6 / TF-6a.
+/// - **TF-5** (direct Apply WITHOUT contract): writes
+///   `ReturnContract::CONSERVATIVE` (uniqueness=MaybeShared, locality=Unknown,
+///   shape=NonReusable). NOT lattice BOTTOM — TF-5 says CONSERVATIVE, which
+///   has `MaybeShared` uniqueness encoding the "unknown callee, runtime
+///   `IsShared` check" semantics. Plan TPR Round 1 codex F2.
+/// - **TF-5a / TF-6c** (indirect `ApplyIndirect` / InvokeIndirect): same
+///   CONSERVATIVE per spec "Same as TF-5". Plan TPR Round 5 F2 corrected
+///   prior round's "exclude indirect calls" treatment — the spec mandates
+///   CONSERVATIVE for spec-symmetric handling between direct-no-contract
+///   and indirect calls.
+///
+/// # Canonicalization
+///
+/// Plan TPR Round 5 F1 (codex critical): direct field writes from
+/// `return_info` would bypass cross-dimensional feasibility invariants
+/// (CN-3 Shared+ReusableCtor → `NonReusable`; CN-6 HeapEscaping+Unique →
+/// `MaybeShared`). The pass builds a temporary `AimsState` from
+/// CONSERVATIVE plus `return_info`, calls `canonicalize()` to enforce
+/// CN-* rules, then extracts the canonicalized dimensions for side-table
+/// writes.
+///
+/// # Sparse filter (BOTTOM-default)
+///
+/// `set_var_uniqueness` / `set_var_locality` skip BOTTOM values (Unique,
+/// `BlockLocal`) — the side table stays sparse, and effective queries fall
+/// through to the lattice (which is also BOTTOM by default) for those
+/// values. CONSERVATIVE values (`MaybeShared`, Unknown) ARE stored — they
+/// override the optimistic lattice default. Plan TPR Round 1 F1.
+///
+/// `set_var_shape` keeps its existing `NonReusable` filter (BOTTOM = CONSERVATIVE
+/// for shape — they coincide).
+///
+/// # Excluded variables
+///
+/// Scalar and immortal variables are skipped via `is_excluded` — same
+/// treatment as `populate_var_shapes`.
+pub(crate) fn populate_call_result_states(
+    state_map: &mut AimsStateMap,
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+) {
+    let canonicalize_contract_state = |return_info: ReturnContract| -> AimsState {
+        let mut s = AimsState {
+            // Call results are always Owned to caller; refine() does NOT
+            // narrow access/consumption/cardinality/effect (per TF-6 spec).
+            access: AccessClass::Owned,
+            consumption: Consumption::Unrestricted,
+            cardinality: Cardinality::Many,
+            uniqueness: return_info.uniqueness,
+            locality: return_info.locality,
+            shape: return_info.shape,
+            effect: EffectClass::ALL,
+        };
+        // Enforce CN-3 (Shared+ReusableCtor → NonReusable) and CN-6
+        // (HeapEscaping+Unique → MaybeShared) before side-table writes.
+        s.canonicalize();
+        s
+    };
+
+    let write_canonicalized =
+        |state_map: &mut AimsStateMap, dst: ArcVarId, return_info: ReturnContract| {
+            let canonical = canonicalize_contract_state(return_info);
+            state_map.set_var_uniqueness(dst, canonical.uniqueness);
+            state_map.set_var_locality(dst, canonical.locality);
+            state_map.set_var_shape(dst, canonical.shape);
+        };
+
+    for block in &func.blocks {
+        // Body — direct Apply (with-or-without contract per TF-5/TF-6) AND
+        // indirect ApplyIndirect (CONSERVATIVE per TF-5a).
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Apply {
+                    dst, func: callee, ..
+                } => {
+                    if state_map.is_excluded(*dst) {
+                        continue;
+                    }
+                    let return_info = sigs
+                        .get(callee)
+                        .map_or(ReturnContract::CONSERVATIVE, |c| c.return_info);
+                    write_canonicalized(state_map, *dst, return_info);
+                }
+                ArcInstr::ApplyIndirect { dst, .. } => {
+                    if !state_map.is_excluded(*dst) {
+                        // TF-5a: indirect calls receive CONSERVATIVE
+                        // (no contract available).
+                        write_canonicalized(state_map, *dst, ReturnContract::CONSERVATIVE);
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Terminator — direct Invoke (TF-6 / TF-6b) AND indirect
+        // InvokeIndirect (TF-6c CONSERVATIVE).
+        match &block.terminator {
+            ArcTerminator::Invoke {
+                dst, func: callee, ..
+            } => {
+                if !state_map.is_excluded(*dst) {
+                    let return_info = sigs
+                        .get(callee)
+                        .map_or(ReturnContract::CONSERVATIVE, |c| c.return_info);
+                    write_canonicalized(state_map, *dst, return_info);
+                }
+            }
+            ArcTerminator::InvokeIndirect { dst, .. } => {
+                if !state_map.is_excluded(*dst) {
+                    write_canonicalized(state_map, *dst, ReturnContract::CONSERVATIVE);
+                }
+            }
+            _ => {}
         }
     }
 }
