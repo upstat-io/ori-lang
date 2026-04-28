@@ -1,0 +1,20 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 §B.3.2 — shadow-positive-method-only
+//
+// Method-level binder is usable in a body that doesn't try to thread
+// impl-level types through it.
+
+use std.testing { assert_eq }
+
+type Box<T> = { value: T }
+
+impl<T> Box<T> {
+    @method_only<T> (self, val: T) -> T = val;
+}
+
+@test_method_only tests _ () -> void = {
+    let b: Box<int> = Box { value: 1 };
+    let r: str = b.method_only(val: "hello");
+    assert_eq(actual: r, expected: "hello")
+}

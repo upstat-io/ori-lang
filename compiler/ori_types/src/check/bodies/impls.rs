@@ -5,9 +5,9 @@
 //! `bodies/mod.rs` for the architecture docstring that covers all four body passes.
 
 use ori_ir::{ExprId, ImplMethod, Module, Name, Param, TraitDef, TraitItem};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::check::registration::{resolve_parsed_type_simple, resolve_type_with_self};
+use crate::check::registration::{resolve_parsed_type_simple, resolve_type_with_method_generics};
 use crate::check::ModuleChecker;
 use crate::{check_expr, ContextKind, Expected, ExpectedOrigin, FunctionSig, Idx, Pool};
 
@@ -125,7 +125,46 @@ fn check_impl_block(
     }
 }
 
+/// Allocate fresh `RigidVar`s for a method's type-level generics.
+///
+/// Phase B Step 5 (BUG-01-002): `pool.rigid_var(name)` allocates a fresh
+/// `var_id` per call, so the resulting `Idx` is distinct from any other
+/// `Tag::RigidVar` or `Tag::Named` with the same name. This is the
+/// binder-identity guarantee per types.md §TK-6 + §B.2 line 139 — method-level
+/// `T@method` and impl-level `T@impl` resolve to distinct pool entries even
+/// when names collide.
+///
+/// Returns `(method_substitutions, method_generic_param_names)`. Callers use
+/// the substitution map as the overlay for `resolve_type_with_method_generics`
+/// and the param-name vec to build the combined resolver scope (impl-level +
+/// method-level) and to bind the `RigidVar`s in `param_env` for body-level
+/// type-annotation lookups.
+fn allocate_method_binders(
+    checker: &mut ModuleChecker<'_>,
+    method: &ImplMethod,
+) -> (FxHashMap<Name, Idx>, Vec<Name>) {
+    let method_generic_params: Vec<Name> = checker
+        .arena()
+        .get_generic_params(method.generics)
+        .iter()
+        .filter(|p| !p.is_const)
+        .map(|p| p.name)
+        .collect();
+    let mut method_substitutions: FxHashMap<Name, Idx> = FxHashMap::default();
+    for &mname in &method_generic_params {
+        let rigid_idx = checker.pool_mut().rigid_var(mname);
+        method_substitutions.insert(mname, rigid_idx);
+    }
+    (method_substitutions, method_generic_params)
+}
+
 /// Type check a single impl method body.
+#[expect(
+    clippy::too_many_lines,
+    reason = "rank-scope-wrapped body-inference closure with method-binder setup \
+              matches the canonical body-checking shape shared with check_function; \
+              splitting across helpers would obscure §SG-5 enter/exit pairing"
+)]
 fn check_impl_method(
     checker: &mut ModuleChecker<'_>,
     method: &ImplMethod,
@@ -137,7 +176,19 @@ fn check_impl_method(
         return;
     };
 
-    // Resolve parameter types with Self substitution
+    // Phase B Step 5: bind method-level type generics as fresh RigidVars.
+    let (method_substitutions, method_generic_params) = allocate_method_binders(checker, method);
+
+    // Combined scope for type resolution: impl-level (parent) + method-level
+    // (child). Without method-level names in scope, `(self, f: T -> U) -> Box<U>`
+    // shapes would fail to resolve `U` at body-check time.
+    let combined_type_params: Vec<Name> = type_params
+        .iter()
+        .copied()
+        .chain(method_generic_params.iter().copied())
+        .collect();
+
+    // Resolve parameter types with Self substitution + method-level overlay
     let params: Vec<_> = checker.arena().get_params(method.params).to_vec();
     let mut param_env = child_env;
 
@@ -145,7 +196,13 @@ fn check_impl_method(
     for p in &params {
         let is_self = p.name == checker.well_known().self_kw;
         let ty = match &p.ty {
-            Some(parsed_ty) => resolve_type_with_self(checker, parsed_ty, type_params, self_type),
+            Some(parsed_ty) => resolve_type_with_method_generics(
+                checker,
+                parsed_ty,
+                &method_substitutions,
+                &combined_type_params,
+                self_type,
+            ),
             None if is_self => self_type,
             None => checker.pool_mut().fresh_var(),
         };
@@ -153,11 +210,25 @@ fn check_impl_method(
         param_types.push(ty);
     }
 
-    // Resolve return type with Self substitution. `mut` so the
-    // defaulting pass can refresh it to `Idx::NEVER` before `build_method_sig`
-    // bakes it into the exported sig.
-    let mut return_type =
-        resolve_type_with_self(checker, &method.return_ty, type_params, self_type);
+    // Resolve return type with Self substitution + method-level overlay. `mut`
+    // so the defaulting pass can refresh it to `Idx::NEVER` before
+    // `build_method_sig` bakes it into the exported sig.
+    let mut return_type = resolve_type_with_method_generics(
+        checker,
+        &method.return_ty,
+        &method_substitutions,
+        &combined_type_params,
+        self_type,
+    );
+
+    // §B.2 step 2: push method-level RigidVar bindings into the TypeEnv child
+    // map. Body-level type-annotation lookups (e.g., `let x: T = expr;` inside
+    // the method body) consult `param_env`; the child-map shadowing here is
+    // what makes those lookups see the method-level `RigidVar` rather than
+    // any impl-level `Tag::Named("T")` that happens to share the name.
+    for (&mname, &rigid_idx) in &method_substitutions {
+        param_env.bind(mname, rigid_idx);
+    }
 
     // Build function type for recursion support
     let fn_type = checker.pool_mut().function(&param_types, return_type);
@@ -180,6 +251,15 @@ fn check_impl_method(
             c.with_function_scope(fn_type, FxHashSet::default(), |c| {
                 let arena = c.arena();
                 let mut engine = c.create_engine_with_env(param_env);
+
+                // Phase B Step 5 (BUG-01-002): rank scope per typeck.md §SG-5
+                // + §CK-2 / §GN-1. Method-level binders live at strictly
+                // higher rank than impl-level bindings; the push/pop pair
+                // here is manually matched (no RAII) — exit MUST happen on
+                // every path, including error recovery, hence the explicit
+                // `engine.exit_rank_scope()` immediately before the result
+                // tuple is built.
+                engine.enter_rank_scope();
 
                 engine.push_context(ContextKind::FunctionReturn {
                     func_name: Some(method.name),
@@ -219,6 +299,9 @@ fn check_impl_method(
                     return_type_ref,
                     &[],
                 );
+
+                // Pop rank scope (matching push above per §SG-5 one-to-one rule).
+                engine.exit_rank_scope();
 
                 (
                     expr_types,
@@ -285,13 +368,26 @@ fn check_def_impl_block(checker: &mut ModuleChecker<'_>, def_impl: &ori_ir::DefI
 }
 
 /// Type check a single def impl method body.
+#[expect(
+    clippy::too_many_lines,
+    reason = "rank-scope-wrapped body-inference closure with method-binder setup \
+              matches the canonical body-checking shape shared with check_function; \
+              splitting across helpers would obscure §SG-5 enter/exit pairing"
+)]
 fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     // Create child environment from frozen base
     let Some(child_env) = checker.child_of_base() else {
         return;
     };
 
-    // Resolve parameter types (no Self substitution for def impl)
+    // Phase B Step 5: bind method-level type generics as fresh RigidVars.
+    // Def-impl methods have no impl-level type params and no `Self`, so the
+    // resolver scope is method-level only and `self_type` is `Idx::ERROR`
+    // (matching the pre-existing `resolve_parsed_type_simple` semantics for
+    // `SelfType`).
+    let (method_substitutions, method_generic_params) = allocate_method_binders(checker, method);
+
+    // Resolve parameter types (no Self for def impl, but method-level overlay applies)
     let arena = checker.arena();
     let params: Vec<_> = arena.get_params(method.params).to_vec();
     let mut param_env = child_env;
@@ -299,7 +395,21 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     let mut param_types = Vec::with_capacity(params.len());
     for p in &params {
         let ty = match &p.ty {
-            Some(parsed_ty) => resolve_parsed_type_simple(checker, parsed_ty, arena),
+            Some(parsed_ty) => {
+                if method_substitutions.is_empty() {
+                    // Fast path: preserves existing behavior for the common
+                    // no-method-generics case (avoids needless empty-map probe).
+                    resolve_parsed_type_simple(checker, parsed_ty, arena)
+                } else {
+                    resolve_type_with_method_generics(
+                        checker,
+                        parsed_ty,
+                        &method_substitutions,
+                        &method_generic_params,
+                        Idx::ERROR,
+                    )
+                }
+            }
             None => checker.pool_mut().fresh_var(),
         };
         param_env.bind(p.name, ty);
@@ -307,7 +417,23 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     }
 
     // Resolve return type. `mut` so defaulting can refresh it.
-    let mut return_type = resolve_parsed_type_simple(checker, &method.return_ty, arena);
+    let mut return_type = if method_substitutions.is_empty() {
+        resolve_parsed_type_simple(checker, &method.return_ty, arena)
+    } else {
+        resolve_type_with_method_generics(
+            checker,
+            &method.return_ty,
+            &method_substitutions,
+            &method_generic_params,
+            Idx::ERROR,
+        )
+    };
+
+    // §B.2 step 2: bind method-level RigidVars in TypeEnv child for body-level
+    // type-annotation lookups (e.g., `let x: T = expr;`).
+    for (&mname, &rigid_idx) in &method_substitutions {
+        param_env.bind(mname, rigid_idx);
+    }
 
     // Build function type
     let fn_type = checker.pool_mut().function(&param_types, return_type);

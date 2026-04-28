@@ -1,0 +1,16 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 §B.3.1 — shadow-negative-binder-identity
+//
+// Permanent regression guard against the "naïve same-Idx shadowing" bug.
+// Method-level T@method is a DISTINCT pool Idx from impl-level T@impl even
+// when names collide; returning self.value (T@impl) where T@method is
+// expected MUST be a type error per §05 B.2 line 126.
+
+#compile_fail(message: "type")
+
+type Box<T> = { value: T }
+
+impl<T> Box<T> {
+    @bad_shadow<T> (self) -> T = self.value;
+}

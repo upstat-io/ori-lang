@@ -36,7 +36,7 @@ pub use user_types::register_user_types;
 pub(super) use traits::register_imported_traits;
 
 // Re-export shared type resolution for bodies/mod.rs and signatures/tests.rs
-pub(super) use type_resolution::{resolve_parsed_type_simple, resolve_type_with_self};
+pub(super) use type_resolution::{resolve_parsed_type_simple, resolve_type_with_method_generics};
 
 // Re-exports for tests — internal functions accessed by registration/tests.rs
 #[cfg(test)]
@@ -44,7 +44,9 @@ use derived::{build_derived_methods, register_derived_impl};
 #[cfg(test)]
 use traits::compute_object_safety_violations;
 #[cfg(test)]
-use type_resolution::{parsed_type_contains_self, resolve_type_with_params};
+use type_resolution::{
+    parsed_type_contains_self, resolve_type_with_params, resolve_type_with_self,
+};
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]

@@ -5,6 +5,7 @@
 //! (user types, traits, impls, derived).
 
 use ori_ir::{ExprArena, GenericParamRange, Name, ParsedType, TypeId, WhereClause};
+use rustc_hash::FxHashMap;
 
 use crate::{GenericParamMeta, Idx, ModuleChecker, WhereConstraint};
 
@@ -251,13 +252,52 @@ pub(crate) fn resolve_type_with_self(
     self_type: Idx,
 ) -> Idx {
     let arena = checker.arena();
-    resolve_type_with_self_inner(checker, parsed, type_params, self_type, arena)
+    let empty: FxHashMap<Name, Idx> = FxHashMap::default();
+    resolve_type_with_overlay_inner(checker, parsed, &empty, type_params, self_type, arena)
 }
 
-/// Inner implementation of Self-substituting type resolution.
-fn resolve_type_with_self_inner(
+/// Resolve a parsed type with Self substitution AND a method-level binder overlay.
+///
+/// Phase B Step 5 (BUG-01-002): when a `Named { name }` matches a key in
+/// `method_substitutions`, return the substituted `Idx` (a fresh `RigidVar`
+/// allocated by the caller via `pool.rigid_var(name)`). This is the
+/// binder-identity wiring per §B.2 line 139 — method-level `T` and impl-level
+/// `T` resolve to distinct pool entries even when names collide, because
+/// `pool.rigid_var(name)` allocates a fresh `var_id` per call and interning
+/// keys on `(Tag::RigidVar, var_id)`.
+///
+/// `type_params` carries the COMBINED outer scope (impl-level + method-level
+/// names) so that names not in the substitution map still resolve to the
+/// existing `pool.named(name)` interning shape (impl-level T continues to
+/// behave as `Tag::Named` per the pre-Phase-B-Step-5 contract).
+pub(crate) fn resolve_type_with_method_generics(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
+    method_substitutions: &FxHashMap<Name, Idx>,
+    type_params: &[Name],
+    self_type: Idx,
+) -> Idx {
+    let arena = checker.arena();
+    resolve_type_with_overlay_inner(
+        checker,
+        parsed,
+        method_substitutions,
+        type_params,
+        self_type,
+        arena,
+    )
+}
+
+/// Inner implementation of Self-substituting type resolution with optional overlay.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive ParsedType match — splitting hides the dispatch shape; \
+              see types.md §TK-1 for the canonical tag enumeration"
+)]
+fn resolve_type_with_overlay_inner(
+    checker: &mut ModuleChecker<'_>,
+    parsed: &ParsedType,
+    method_substitutions: &FxHashMap<Name, Idx>,
     type_params: &[Name],
     self_type: Idx,
     arena: &ExprArena,
@@ -265,8 +305,13 @@ fn resolve_type_with_self_inner(
     match parsed {
         ParsedType::SelfType => self_type,
         ParsedType::Named { name, .. } => {
-            // Check if this is a type parameter
-            if type_params.contains(name) {
+            // Method-level overlay first (Phase B Step 5: binder-identity
+            // per §B.2 line 139). The caller pre-allocated fresh RigidVars
+            // for method-level type generics; honor those overrides before
+            // falling through to the impl-level Named-interning path.
+            if let Some(&idx) = method_substitutions.get(name) {
+                idx
+            } else if type_params.contains(name) {
                 checker.pool_mut().named(*name)
             } else {
                 resolve_parsed_type_simple(checker, parsed, arena)
@@ -274,17 +319,35 @@ fn resolve_type_with_self_inner(
         }
         ParsedType::List(elem_id) => {
             let elem = arena.get_parsed_type(*elem_id);
-            let elem_ty =
-                resolve_type_with_self_inner(checker, elem, type_params, self_type, arena);
+            let elem_ty = resolve_type_with_overlay_inner(
+                checker,
+                elem,
+                method_substitutions,
+                type_params,
+                self_type,
+                arena,
+            );
             checker.pool_mut().list(elem_ty)
         }
         ParsedType::Map { key, value } => {
             let key_parsed = arena.get_parsed_type(*key);
             let value_parsed = arena.get_parsed_type(*value);
-            let key_ty =
-                resolve_type_with_self_inner(checker, key_parsed, type_params, self_type, arena);
-            let value_ty =
-                resolve_type_with_self_inner(checker, value_parsed, type_params, self_type, arena);
+            let key_ty = resolve_type_with_overlay_inner(
+                checker,
+                key_parsed,
+                method_substitutions,
+                type_params,
+                self_type,
+                arena,
+            );
+            let value_ty = resolve_type_with_overlay_inner(
+                checker,
+                value_parsed,
+                method_substitutions,
+                type_params,
+                self_type,
+                arena,
+            );
             checker.pool_mut().map(key_ty, value_ty)
         }
         ParsedType::Tuple(elems) => {
@@ -293,7 +356,14 @@ fn resolve_type_with_self_inner(
                 .iter()
                 .map(|&elem_id| {
                     let elem = arena.get_parsed_type(elem_id);
-                    resolve_type_with_self_inner(checker, elem, type_params, self_type, arena)
+                    resolve_type_with_overlay_inner(
+                        checker,
+                        elem,
+                        method_substitutions,
+                        type_params,
+                        self_type,
+                        arena,
+                    )
                 })
                 .collect();
             checker.pool_mut().tuple(&elem_types)
@@ -304,12 +374,25 @@ fn resolve_type_with_self_inner(
                 .iter()
                 .map(|&param_id| {
                     let param = arena.get_parsed_type(param_id);
-                    resolve_type_with_self_inner(checker, param, type_params, self_type, arena)
+                    resolve_type_with_overlay_inner(
+                        checker,
+                        param,
+                        method_substitutions,
+                        type_params,
+                        self_type,
+                        arena,
+                    )
                 })
                 .collect();
             let ret_parsed = arena.get_parsed_type(*ret);
-            let ret_ty =
-                resolve_type_with_self_inner(checker, ret_parsed, type_params, self_type, arena);
+            let ret_ty = resolve_type_with_overlay_inner(
+                checker,
+                ret_parsed,
+                method_substitutions,
+                type_params,
+                self_type,
+                arena,
+            );
             checker.pool_mut().function(&param_types, ret_ty)
         }
         // Bounded trait object: resolve first bound with self-substitution
@@ -317,7 +400,14 @@ fn resolve_type_with_self_inner(
             let bound_ids = arena.get_parsed_type_list(*bounds);
             if let Some(&first_id) = bound_ids.first() {
                 let first = arena.get_parsed_type(first_id);
-                resolve_type_with_self_inner(checker, first, type_params, self_type, arena)
+                resolve_type_with_overlay_inner(
+                    checker,
+                    first,
+                    method_substitutions,
+                    type_params,
+                    self_type,
+                    arena,
+                )
             } else {
                 Idx::ERROR
             }
