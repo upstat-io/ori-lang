@@ -84,13 +84,27 @@ pub(super) fn resolve_impl_signature(
         LookupOutcome::NotFound => return None,
     };
 
+    // Phase B Step 5b (BUG-01-002): if the registered signature is a
+    // `Tag::Scheme` (set by `build_impl_method` when the method has
+    // method-level type generics), instantiate it now so each call site gets
+    // fresh unification vars in place of the scheme's bound vars. This is the
+    // `GN-2` (`typeck.md §GN-2`) instantiation pattern, mirrored from the
+    // top-level identifier path at `infer/expr/identifiers.rs:16-17`.
+    // Method-level binders that previously failed to unify against function-
+    // type arguments (`UN-6` rigid mismatch) now unify cleanly because they
+    // have been replaced by fresh, narrowable `Tag::Var`s.
     let resolved_sig = engine.resolve(sig_ty);
-    if engine.pool().tag(resolved_sig) != Tag::Function {
+    let instantiated_sig = if engine.pool().tag(resolved_sig) == Tag::Scheme {
+        engine.instantiate(resolved_sig)
+    } else {
+        resolved_sig
+    };
+    if engine.pool().tag(instantiated_sig) != Tag::Function {
         return Some(Err(()));
     }
 
-    let params = engine.pool().function_params(resolved_sig);
-    let ret = engine.pool().function_return(resolved_sig);
+    let params = engine.pool().function_params(instantiated_sig);
+    let ret = engine.pool().function_return(instantiated_sig);
 
     // For instance methods (has_self), skip the first `self` param
     let skip = usize::from(has_self);

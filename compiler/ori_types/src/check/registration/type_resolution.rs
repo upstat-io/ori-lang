@@ -304,14 +304,46 @@ fn resolve_type_with_overlay_inner(
 ) -> Idx {
     match parsed {
         ParsedType::SelfType => self_type,
-        ParsedType::Named { name, .. } => {
+        ParsedType::Named { name, type_args } => {
             // Method-level overlay first (Phase B Step 5: binder-identity
             // per §B.2 line 139). The caller pre-allocated fresh RigidVars
             // for method-level type generics; honor those overrides before
             // falling through to the impl-level Named-interning path.
             if let Some(&idx) = method_substitutions.get(name) {
-                idx
-            } else if type_params.contains(name) {
+                return idx;
+            }
+            // Phase B Step 5b extension (BUG-01-002): recurse into type_args
+            // through the overlay so types like `Box<T>` with a method-level
+            // `T` resolve as `Applied("Box", [overlay(T)])` instead of leaking
+            // back through `resolve_parsed_type_simple` which is overlay-blind.
+            // Without this, the body's expected return type for
+            // `@map<U> (...) -> Box<U>` resolves Box's type-arg `U` as a plain
+            // `Tag::Named("U")` while the body's actual return value carries
+            // the overlay's fresh-Var/RigidVar — UN-6 fails to unify them.
+            let arg_ids = arena.get_parsed_type_list(*type_args);
+            if !arg_ids.is_empty() {
+                let resolved_args: Vec<Idx> = arg_ids
+                    .iter()
+                    .map(|&arg_id| {
+                        let arg = arena.get_parsed_type(arg_id);
+                        resolve_type_with_overlay_inner(
+                            checker,
+                            arg,
+                            method_substitutions,
+                            type_params,
+                            self_type,
+                            arena,
+                        )
+                    })
+                    .collect();
+                if let Some(idx) =
+                    checker.resolve_well_known_generic_cached(*name, &resolved_args)
+                {
+                    return idx;
+                }
+                return checker.pool_mut().applied(*name, &resolved_args);
+            }
+            if type_params.contains(name) {
                 checker.pool_mut().named(*name)
             } else {
                 resolve_parsed_type_simple(checker, parsed, arena)
@@ -504,8 +536,15 @@ pub(crate) fn build_where_constraint(
 
 /// Deep-copy method-level generics + where-clauses into arena-independent owned form.
 ///
-/// Returns `(scheme_var_ids, generic_param_metadata, where_clause_metadata)`:
+/// Returns `(scheme_var_ids, scheme_overlay, generic_param_metadata, where_clause_metadata)`:
 /// - `scheme_var_ids` — pool `var_ids` parallel to declaration order of TYPE-generic params (skip const)
+/// - `scheme_overlay` — `Name → Idx` map from each method-level type-generic name to the fresh
+///   `Tag::Var` Idx allocated for it. Used by callers (e.g. `build_impl_method`) as the
+///   substitution overlay for `resolve_type_with_method_generics`, so method-level type-name
+///   references in the registered signature resolve to the SAME `Tag::Var` Idx whose `var_id` is
+///   recorded in `scheme_var_ids`. The signature is then wrappable in `Tag::Scheme(scheme_var_ids,
+///   fn_type)` and `engine.instantiate(...)` at call-site replaces those vars with fresh ones —
+///   the `GN-2` pattern (`typeck.md §GN-2`) extended to method-level binders.
 /// - `generic_param_metadata` — full owned `GenericParamMeta` per param (type AND const), declaration order
 /// - `where_clause_metadata` — type-bound `WhereConstraint` entries (const bounds skipped)
 ///
@@ -518,7 +557,12 @@ pub(crate) fn build_method_generic_metadata(
     where_clauses: &[WhereClause],
     outer_type_params: &[Name],
     self_type: Idx,
-) -> (Vec<u32>, Vec<GenericParamMeta>, Vec<WhereConstraint>) {
+) -> (
+    Vec<u32>,
+    FxHashMap<Name, Idx>,
+    Vec<GenericParamMeta>,
+    Vec<WhereConstraint>,
+) {
     let generic_params = checker.arena().get_generic_params(generics).to_vec();
 
     let method_type_param_names: Vec<Name> = generic_params
@@ -533,6 +577,7 @@ pub(crate) fn build_method_generic_metadata(
         .collect();
 
     let mut scheme_var_ids: Vec<u32> = Vec::new();
+    let mut scheme_overlay: FxHashMap<Name, Idx> = FxHashMap::default();
     let mut param_meta: Vec<GenericParamMeta> = Vec::with_capacity(generic_params.len());
 
     for p in &generic_params {
@@ -556,6 +601,7 @@ pub(crate) fn build_method_generic_metadata(
             let var_idx = checker.pool_mut().fresh_named_var(p.name);
             let var_id = checker.pool().data(var_idx);
             scheme_var_ids.push(var_id);
+            scheme_overlay.insert(p.name, var_idx);
         }
 
         param_meta.push(GenericParamMeta {
@@ -574,5 +620,5 @@ pub(crate) fn build_method_generic_metadata(
         .filter_map(|wc| build_where_constraint(checker, wc, &combined_scope, self_type))
         .collect();
 
-    (scheme_var_ids, param_meta, where_meta)
+    (scheme_var_ids, scheme_overlay, param_meta, where_meta)
 }

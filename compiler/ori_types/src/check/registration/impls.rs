@@ -10,7 +10,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::type_resolution::{
     build_method_generic_metadata, build_where_constraint, collect_generic_params,
-    resolve_parsed_type_simple, resolve_type_with_self,
+    resolve_parsed_type_simple, resolve_type_with_method_generics, resolve_type_with_self,
 };
 use crate::{
     Idx, ImplEntry, ImplMethodDef, ImplSpecificity, ModuleChecker, TypeCheckError, WhereConstraint,
@@ -300,40 +300,37 @@ fn has_coherence_violation(
 }
 
 /// Build an `ImplMethodDef` from an impl method.
+///
+/// Phase B Step 5b (BUG-01-002): when the method declares method-level type
+/// generics (e.g. `@map<U> (self, f: T -> U) -> Box<U>` in `impl<T> Box<T>`),
+/// the registered `signature` is wrapped in a `Tag::Scheme(scheme_var_ids,
+/// fn_type)`. The scheme's body carries fresh `Tag::Var` Idx values (one per
+/// method-level type-generic) whose `var_id`s match `scheme_var_ids`. At
+/// call-site, `resolve_impl_signature` invokes `engine.instantiate(...)` —
+/// the standard `GN-2` (`typeck.md §GN-2`) instantiation pattern — so each
+/// call gets fresh unification vars that DO unify with concrete types per
+/// `UN-6`. Without this wrapping, method-level binders in the registered sig
+/// would either be bare `Tag::Var`s (which lower-rank generalization would
+/// incorrectly capture) or unresolved `Tag::Named` (which fails to unify
+/// against function-typed arguments).
+///
+/// Body-checking (`check/bodies/impls.rs::check_impl_method`) allocates a
+/// SEPARATE set of `Tag::RigidVar`s per method-level binder via
+/// `pool.rigid_var(name)` — those RigidVars enforce body-internal
+/// parametricity (the §B.3 negative pin `shadow_negative_binder_identity.ori`).
+/// Registration's fresh-Var-in-Scheme and body-check's RigidVars are distinct
+/// pool entries serving distinct purposes; no sharing is required.
 fn build_impl_method(
     checker: &mut ModuleChecker<'_>,
     method: &ori_ir::ImplMethod,
     type_params: &[Name],
     self_type: Idx,
 ) -> ImplMethodDef {
-    // Resolve parameter types, substituting Self with the actual type
-    let params: Vec<_> = checker.arena().get_params(method.params).to_vec();
-    let param_types: Vec<Idx> = params
-        .iter()
-        .map(|p| {
-            let is_self = p.name == checker.well_known().self_kw;
-            match p.ty.as_ref() {
-                Some(ty) => resolve_type_with_self(checker, ty, type_params, self_type),
-                None if is_self => self_type,
-                None => Idx::ERROR,
-            }
-        })
-        .collect();
-
-    // Resolve return type (return_ty is a ParsedType, not Option)
-    let return_ty = resolve_type_with_self(checker, &method.return_ty, type_params, self_type);
-
-    // Detect whether the first parameter is `self` (instance method vs associated function)
-    let has_self = params
-        .first()
-        .is_some_and(|p| p.name == checker.well_known().self_kw);
-
-    // Create function type for signature
-    let signature = checker.pool_mut().function(&param_types, return_ty);
-
     // Phase B Step 3: deep-copy method-level generics + where-clauses into
     // arena-independent owned form for downstream bound enforcement.
-    let (scheme_var_ids, generic_param_metadata, where_clause_metadata) =
+    // Phase B Step 5b: also collect the `Name → Idx` overlay for fresh-Var
+    // substitution of method-level type names in param/return resolution.
+    let (scheme_var_ids, scheme_overlay, generic_param_metadata, where_clause_metadata) =
         build_method_generic_metadata(
             checker,
             method.generics,
@@ -341,6 +338,63 @@ fn build_impl_method(
             type_params,
             self_type,
         );
+
+    // Combined scope for type resolution: impl-level (outer) + method-level
+    // (inner) names. `resolve_type_with_method_generics` checks the overlay
+    // first (method-level → fresh `Tag::Var`), then falls through to
+    // `type_params.contains` (impl-level → `Tag::Named`).
+    let method_param_names: Vec<Name> = scheme_overlay.keys().copied().collect();
+    let combined_type_params: Vec<Name> = type_params
+        .iter()
+        .copied()
+        .chain(method_param_names.iter().copied())
+        .collect();
+
+    // Resolve parameter types, substituting Self with the actual type and
+    // method-level binders with their fresh-Var Idx via the overlay.
+    let params: Vec<_> = checker.arena().get_params(method.params).to_vec();
+    let param_types: Vec<Idx> = params
+        .iter()
+        .map(|p| {
+            let is_self = p.name == checker.well_known().self_kw;
+            match p.ty.as_ref() {
+                Some(ty) => resolve_type_with_method_generics(
+                    checker,
+                    ty,
+                    &scheme_overlay,
+                    &combined_type_params,
+                    self_type,
+                ),
+                None if is_self => self_type,
+                None => Idx::ERROR,
+            }
+        })
+        .collect();
+
+    // Resolve return type with the same overlay.
+    let return_ty = resolve_type_with_method_generics(
+        checker,
+        &method.return_ty,
+        &scheme_overlay,
+        &combined_type_params,
+        self_type,
+    );
+
+    // Detect whether the first parameter is `self` (instance method vs associated function)
+    let has_self = params
+        .first()
+        .is_some_and(|p| p.name == checker.well_known().self_kw);
+
+    // Create the function-type body. When the method has method-level type
+    // generics (scheme_var_ids non-empty), wrap in Tag::Scheme so call-site
+    // resolution can instantiate per `GN-2`. When empty, store the bare
+    // function type (zero behavioral change for non-method-generic methods).
+    let fn_type = checker.pool_mut().function(&param_types, return_ty);
+    let signature = if scheme_var_ids.is_empty() {
+        fn_type
+    } else {
+        checker.pool_mut().scheme(&scheme_var_ids, fn_type)
+    };
 
     ImplMethodDef {
         name: method.name,

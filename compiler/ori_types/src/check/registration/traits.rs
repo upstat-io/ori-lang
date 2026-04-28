@@ -268,7 +268,12 @@ fn build_trait_method_sig(
     // Phase B Step 3: deep-copy method-level generics + where-clauses into
     // arena-independent owned form for downstream bound enforcement. In trait
     // context `Self` stays symbolic, so we pass `Idx::ERROR` as the self_type.
-    let (scheme_var_ids, generic_param_metadata, where_clause_metadata) =
+    // The Phase B Step 5b `_overlay` is consumed by `build_impl_method` for
+    // call-site instantiable scheme wrapping; trait-side scheme wrapping is
+    // not yet wired (see `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
+    // §B.2 — trait registration today builds plain `Tag::Function`; trait-method
+    // schemes activate when trait-bound generic dispatch lands).
+    let (scheme_var_ids, _overlay, generic_param_metadata, where_clause_metadata) =
         build_method_generic_metadata(
             checker,
             sig.generics,
@@ -314,8 +319,9 @@ fn build_trait_default_method(
     let signature = checker.pool_mut().function(&param_types, return_ty);
 
     // Phase B Step 3: deep-copy method-level generics + where-clauses (see
-    // `build_trait_method_sig` for rationale on the `Idx::ERROR` self_type).
-    let (scheme_var_ids, generic_param_metadata, where_clause_metadata) =
+    // `build_trait_method_sig` for rationale on the `Idx::ERROR` self_type and
+    // for the Phase B Step 5b `_overlay` discard).
+    let (scheme_var_ids, _overlay, generic_param_metadata, where_clause_metadata) =
         build_method_generic_metadata(
             checker,
             method.generics,

@@ -1,0 +1,19 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-type coverage — plain type var <T>
+
+use std.testing { assert_eq }
+
+type Box<T> = { value: T }
+
+impl<U> Box<U> {
+    @map<T> (self, f: (U) -> T) -> Box<T> = Box { value: f(self.value) }
+}
+
+@int_to_str (n: int) -> str = `{n}`;
+
+@test_plain_type_var tests _ () -> void = {
+    let b = Box { value: 1 };
+    let s: Box<str> = b.map(int_to_str);
+    assert_eq(actual: s.value, expected: "1")
+}
