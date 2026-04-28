@@ -22,6 +22,80 @@ pub fn register_traits(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module)
     }
 }
 
+/// Propagate object-safety violations from super-traits to their children.
+///
+/// This is the second phase of two-phase trait registration:
+/// `register_traits` populates each trait's *direct* `object_safety_violations`
+/// from its own `items` (Rules 1, 2, 3 against the trait's own methods); this
+/// pass walks each trait's transitive super-trait DAG and propagates inherited
+/// `GenericMethod` violations to the child, with the child's span as the
+/// declaration site of the inherited violation.
+///
+/// The pass MUST run BETWEEN `register_traits` and `register_impls` so that
+/// impl-resolution sees the correct violation set on parent traits when
+/// constructing trait-object types.
+///
+/// # Order-Independence
+///
+/// Naïve "iterate super-traits during `register_trait`" is source-order
+/// dependent — if `Sub` is declared before `Super`, `Super`'s `TraitEntry`
+/// doesn't exist yet. Two-phase registration solves this: by the time this
+/// pass runs, every trait is registered, so super-trait queries always
+/// succeed regardless of declaration order.
+///
+/// # Multi-level Hierarchies
+///
+/// `TraitRegistry::all_super_traits` performs the transitive DAG walk with
+/// cycle protection (BFS). Each visited super-trait contributes its DIRECT
+/// `GenericMethod` violations to the child — no fixpoint iteration needed,
+/// because direct violations are stable after `register_traits`.
+///
+/// # Why Only `GenericMethod` Propagates
+///
+/// `SelfReturn` and `SelfParam` violations reference the trait's own `Self`,
+/// which is rebound in each trait that inherits from it (`Self` for `Sub` is
+/// distinct from `Self` for `Super`). They do not transitively pollute.
+/// `GenericMethod` violations reference the method's OWN type parameters,
+/// which exist at every level of the hierarchy regardless of `Self` rebinding.
+///
+/// Spec: Clause 8.8 (trait objects); types.md §BI-6 (object safety);
+/// `compiler_repo/docs/ori_lang/proposals/approved/object-safety-rules-proposal.md`.
+pub fn register_object_safety_violations(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) {
+    // Pass 1: read-only — collect inherited GenericMethod violations
+    // for each trait by walking the transitive super-trait DAG.
+    let mut inherited: FxHashMap<Name, Vec<ObjectSafetyViolation>> = FxHashMap::default();
+    for trait_def in &module.traits {
+        let registry = checker.trait_registry();
+        let trait_idx = match registry.get_trait_by_name(trait_def.name) {
+            Some(entry) => entry.idx,
+            None => continue,
+        };
+        let mut here: Vec<ObjectSafetyViolation> = Vec::new();
+        for super_idx in registry.all_super_traits(trait_idx) {
+            if let Some(super_entry) = registry.get_trait_by_idx(super_idx) {
+                for violation in &super_entry.object_safety_violations {
+                    if let ObjectSafetyViolation::GenericMethod { method, .. } = violation {
+                        here.push(ObjectSafetyViolation::GenericMethod {
+                            method: *method,
+                            span: trait_def.span,
+                        });
+                    }
+                }
+            }
+        }
+        if !here.is_empty() {
+            inherited.insert(trait_def.name, here);
+        }
+    }
+
+    // Pass 2: apply collected inherited violations.
+    for (name, violations) in inherited {
+        checker
+            .trait_registry_mut()
+            .extend_object_safety_violations(name, violations);
+    }
+}
+
 /// Register public traits from a foreign module (e.g., prelude).
 ///
 /// Uses the foreign module's arena to resolve generic params and method

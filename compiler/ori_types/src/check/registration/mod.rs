@@ -29,7 +29,7 @@ pub use builtin_types::register_builtin_types;
 pub use consts::register_consts;
 pub use derived::register_derived_impls;
 pub use impls::register_impls;
-pub use traits::register_traits;
+pub use traits::{register_object_safety_violations, register_traits};
 pub use user_types::register_user_types;
 
 // Re-export for check/mod.rs (foreign module trait registration)

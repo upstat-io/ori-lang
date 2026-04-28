@@ -323,6 +323,23 @@ impl TraitRegistry {
         self.traits.push(entry);
     }
 
+    /// Append additional object-safety violations to a registered trait.
+    ///
+    /// Used by the second-phase `register_object_safety_violations` pass to
+    /// propagate `GenericMethod` violations from super-traits to children
+    /// (Spec: Clause 8.8; types.md §BI-6).
+    pub fn extend_object_safety_violations(
+        &mut self,
+        name: Name,
+        additional: Vec<ObjectSafetyViolation>,
+    ) {
+        if let Some(&trait_idx) = self.traits_by_name.get(&name) {
+            if let Some(entry) = self.traits.get_mut(trait_idx) {
+                entry.object_safety_violations.extend(additional);
+            }
+        }
+    }
+
     /// Register a trait implementation.
     ///
     /// Returns the impl index for reference.

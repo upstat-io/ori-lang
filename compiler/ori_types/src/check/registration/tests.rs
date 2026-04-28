@@ -441,6 +441,270 @@ fn self_in_receiver_position_is_allowed() {
     );
 }
 
+// ── Super-trait inheritance (Phase B.1 — register_object_safety_violations) ──
+
+/// Helper: build a `TraitDef` with one generic method `@<method_name><T> (self) -> T`.
+/// The trait's direct items therefore violate object-safety Rule 3 (`GenericMethod`).
+fn make_trait_with_generic_method(
+    arena: &mut ExprArena,
+    interner: &StringInterner,
+    trait_name: Name,
+    method_name: Name,
+    super_traits: Vec<ori_ir::TraitBound>,
+) -> ori_ir::TraitDef {
+    let self_name = interner.intern("self");
+    let t_param_name = interner.intern("T");
+    let params = arena.alloc_params(vec![make_param(self_name, None)]);
+    let method_generics = arena.alloc_generic_params(vec![ori_ir::GenericParam {
+        name: t_param_name,
+        bounds: vec![],
+        default_type: None,
+        is_const: false,
+        const_type: None,
+        default_value: None,
+        span: ori_ir::Span::DUMMY,
+    }]);
+    ori_ir::TraitDef {
+        name: trait_name,
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits,
+        items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+            name: method_name,
+            generics: method_generics,
+            params,
+            // Return type is `int` here for simplicity — the GenericMethod
+            // violation is triggered by the method's own generics being
+            // non-empty, not by what the return type is.
+            return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(0)),
+            where_clauses: vec![],
+            span: ori_ir::Span::DUMMY,
+        })],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    }
+}
+
+/// Helper: build a non-generic trait with optional super-trait list. Direct
+/// items are object-safe; violations only appear via inheritance from
+/// `super_traits` after `register_object_safety_violations` runs.
+fn make_trait_no_generic_method(
+    arena: &mut ExprArena,
+    interner: &StringInterner,
+    trait_name: Name,
+    method_name: Name,
+    super_traits: Vec<ori_ir::TraitBound>,
+) -> ori_ir::TraitDef {
+    let self_name = interner.intern("self");
+    let params = arena.alloc_params(vec![make_param(self_name, None)]);
+    ori_ir::TraitDef {
+        name: trait_name,
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits,
+        items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+            name: method_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
+            params,
+            return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(0)), // int
+            where_clauses: vec![],
+            span: ori_ir::Span::DUMMY,
+        })],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    }
+}
+
+#[test]
+fn super_trait_propagates_generic_method_parent_first() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let super_name = interner.intern("Super");
+    let sub_name = interner.intern("Sub");
+    let generic_method = interner.intern("generic");
+    let ok_method = interner.intern("ok");
+
+    let super_def =
+        make_trait_with_generic_method(&mut arena, &interner, super_name, generic_method, vec![]);
+    let super_bound = ori_ir::TraitBound {
+        first: super_name,
+        rest: vec![],
+        span: ori_ir::Span::DUMMY,
+    };
+    let sub_def = make_trait_no_generic_method(
+        &mut arena,
+        &interner,
+        sub_name,
+        ok_method,
+        vec![super_bound],
+    );
+
+    let module = Module {
+        traits: vec![super_def, sub_def], // parent first
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_traits(&mut checker, &module);
+    register_object_safety_violations(&mut checker, &module);
+
+    let sub_entry = checker
+        .trait_registry()
+        .get_trait_by_name(sub_name)
+        .expect("Sub registered");
+    assert_eq!(
+        sub_entry.object_safety_violations.len(),
+        1,
+        "Sub should inherit one GenericMethod violation from Super"
+    );
+    assert!(
+        matches!(
+            &sub_entry.object_safety_violations[0],
+            ObjectSafetyViolation::GenericMethod { method, .. } if *method == generic_method
+        ),
+        "inherited violation must be the GenericMethod from Super.@generic<T>"
+    );
+}
+
+#[test]
+fn super_trait_propagates_generic_method_child_first() {
+    // Order-independence: declaring Sub before Super must still produce the
+    // inherited violation, because two-phase registration computes violations
+    // AFTER all traits are registered.
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let super_name = interner.intern("Super");
+    let sub_name = interner.intern("Sub");
+    let generic_method = interner.intern("generic");
+    let ok_method = interner.intern("ok");
+
+    let super_bound = ori_ir::TraitBound {
+        first: super_name,
+        rest: vec![],
+        span: ori_ir::Span::DUMMY,
+    };
+    let sub_def = make_trait_no_generic_method(
+        &mut arena,
+        &interner,
+        sub_name,
+        ok_method,
+        vec![super_bound],
+    );
+    let super_def =
+        make_trait_with_generic_method(&mut arena, &interner, super_name, generic_method, vec![]);
+
+    let module = Module {
+        traits: vec![sub_def, super_def], // child first
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_traits(&mut checker, &module);
+    register_object_safety_violations(&mut checker, &module);
+
+    let sub_entry = checker
+        .trait_registry()
+        .get_trait_by_name(sub_name)
+        .expect("Sub registered");
+    assert_eq!(
+        sub_entry.object_safety_violations.len(),
+        1,
+        "child-first ordering must still inherit Super's GenericMethod"
+    );
+    assert!(matches!(
+        &sub_entry.object_safety_violations[0],
+        ObjectSafetyViolation::GenericMethod { method, .. } if *method == generic_method
+    ));
+}
+
+#[test]
+fn super_trait_propagates_through_multi_level_chain() {
+    // C: B, B: A, A has generic method. C MUST inherit transitively.
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let a_name = interner.intern("A");
+    let b_name = interner.intern("B");
+    let c_name = interner.intern("C");
+    let generic_method = interner.intern("generic");
+    let ok_b = interner.intern("ok_b");
+    let ok_c = interner.intern("ok_c");
+
+    let a_def =
+        make_trait_with_generic_method(&mut arena, &interner, a_name, generic_method, vec![]);
+    let a_bound = ori_ir::TraitBound {
+        first: a_name,
+        rest: vec![],
+        span: ori_ir::Span::DUMMY,
+    };
+    let b_def = make_trait_no_generic_method(&mut arena, &interner, b_name, ok_b, vec![a_bound]);
+    let b_bound = ori_ir::TraitBound {
+        first: b_name,
+        rest: vec![],
+        span: ori_ir::Span::DUMMY,
+    };
+    let c_def = make_trait_no_generic_method(&mut arena, &interner, c_name, ok_c, vec![b_bound]);
+
+    let module = Module {
+        traits: vec![a_def, b_def, c_def],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_traits(&mut checker, &module);
+    register_object_safety_violations(&mut checker, &module);
+
+    // Both B and C must inherit A's GenericMethod via the transitive DAG walk.
+    let b_entry = checker
+        .trait_registry()
+        .get_trait_by_name(b_name)
+        .expect("B registered");
+    assert_eq!(
+        b_entry.object_safety_violations.len(),
+        1,
+        "B inherits A's GenericMethod"
+    );
+
+    let c_entry = checker
+        .trait_registry()
+        .get_trait_by_name(c_name)
+        .expect("C registered");
+    assert_eq!(
+        c_entry.object_safety_violations.len(),
+        1,
+        "C inherits A's GenericMethod transitively through B"
+    );
+}
+
+#[test]
+fn no_super_trait_means_no_inheritance() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let plain_name = interner.intern("Plain");
+    let plain_method = interner.intern("plain");
+    let plain_def =
+        make_trait_no_generic_method(&mut arena, &interner, plain_name, plain_method, vec![]);
+
+    let module = Module {
+        traits: vec![plain_def],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_traits(&mut checker, &module);
+    register_object_safety_violations(&mut checker, &module);
+
+    let entry = checker
+        .trait_registry()
+        .get_trait_by_name(plain_name)
+        .expect("Plain registered");
+    assert!(
+        entry.object_safety_violations.is_empty(),
+        "trait with no super-traits and no own violations stays object-safe"
+    );
+}
+
 // ── E2029: Derive Hashable without Eq ────────────────────────────────
 
 #[test]

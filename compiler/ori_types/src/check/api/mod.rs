@@ -32,7 +32,7 @@ use super::bodies::{
 };
 use super::registration::{
     register_builtin_types, register_consts, register_derived_impls, register_impls,
-    register_traits, register_user_types,
+    register_object_safety_violations, register_traits, register_user_types,
 };
 use super::signatures::collect_signatures;
 use super::ModuleChecker;
@@ -185,8 +185,17 @@ fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
     // Pass 0b: Register user-defined types
     register_user_types(checker, module);
 
-    // Pass 0c: Register traits and implementations
+    // Pass 0c: Register traits and implementations.
+    // The trait/impl side runs in two phases:
+    //   1. `register_traits` — register every trait skeleton + each trait's
+    //      *direct* object-safety violations from its own items.
+    //   2. `register_object_safety_violations` — propagate `GenericMethod`
+    //      violations from super-traits to children via the transitive DAG.
+    // Phase 2 MUST run before `register_impls` so impl-resolution sees the
+    // correct violation set on parent traits when constructing trait-object
+    // types (Spec: Clause 8.8; types.md §BI-6).
     register_traits(checker, module);
+    register_object_safety_violations(checker, module);
     register_impls(checker, module);
 
     // Pass 0d: Register derived implementations
