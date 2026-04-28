@@ -1,10 +1,13 @@
 //! Capability and where-clause constraint checking for function calls.
 
+use rustc_hash::FxHashMap;
+
 use ori_ir::{Name, Span};
 
 use super::super::super::InferEngine;
 use super::traits::type_satisfies_trait;
-use crate::{Idx, Tag, TypeCheckError, TypeFlags, WhereConstraint};
+use crate::pool::substitute::substitute_in_pool;
+use crate::{GenericParamMeta, Idx, Tag, TypeCheckError, TypeFlags, WhereConstraint};
 
 /// Validate that required capabilities are available at a call site.
 ///
@@ -222,6 +225,7 @@ pub(super) fn check_where_clauses(
 pub(super) fn check_method_where_clauses(
     engine: &mut InferEngine<'_>,
     where_clause_metadata: &[WhereConstraint],
+    subst: &FxHashMap<u32, Idx>,
     call_span: Span,
 ) {
     struct PreparedMethodCheck {
@@ -233,10 +237,21 @@ pub(super) fn check_method_where_clauses(
         return;
     }
 
-    // Phase 1 (mutable): resolve each WhereConstraint's `ty`, skip unresolved
+    // Phase 1 (mutable): resolve each WhereConstraint's `ty`, skip unresolved.
+    // BUG-01-002 §05 Phase B residual: `wc.ty` is the fresh-Var Idx
+    // allocated by `build_method_generic_metadata`'s `scheme_overlay` at
+    // registration. Call-site `instantiate_with_subst` mapped that scheme
+    // Idx to a fresh Var via `subst`; walk wc.ty so resolution sees the
+    // post-instantiation chain that arg unification has bound to a
+    // concrete type.
     let mut prepared: Vec<PreparedMethodCheck> = Vec::new();
     for wc in where_clause_metadata {
-        let concrete_type = engine.resolve(wc.ty);
+        let instantiated_ty = if subst.is_empty() {
+            wc.ty
+        } else {
+            substitute_in_pool(engine.pool_mut(), wc.ty, subst)
+        };
+        let concrete_type = engine.resolve(instantiated_ty);
         let flags = engine.pool().flags(concrete_type);
         let unresolved = TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR | TypeFlags::HAS_RIGID_VAR;
         if flags.intersects(unresolved) {
@@ -261,6 +276,134 @@ pub(super) fn check_method_where_clauses(
         }
 
         prepared.push(PreparedMethodCheck {
+            concrete_type,
+            bound_entries,
+        });
+    }
+
+    // Phase 2 (immutable): check each (concrete_type, bound) pair
+    let errors = {
+        let Some(trait_registry) = engine.trait_registry() else {
+            return;
+        };
+        let pool = engine.pool();
+        let well_known = engine.well_known();
+
+        let mut errors: Vec<String> = Vec::new();
+        for check in &prepared {
+            for &(bound_name, bound_idx) in &check.bound_entries {
+                if trait_registry.has_impl(bound_idx, check.concrete_type) {
+                    continue;
+                }
+                let satisfies = if let Some(wk) = well_known {
+                    wk.type_satisfies_trait(check.concrete_type, bound_name, pool)
+                } else {
+                    let s = engine.lookup_name(bound_name).unwrap_or("");
+                    type_satisfies_trait(check.concrete_type, s, pool)
+                };
+                if !satisfies {
+                    let bound_str = engine.lookup_name(bound_name).unwrap_or("?");
+                    errors.push(format!("does not satisfy trait bound `{bound_str}`"));
+                }
+            }
+        }
+        errors
+    };
+
+    // Phase 3 (mutable): push errors
+    for msg in errors {
+        engine.push_error(TypeCheckError::unsatisfied_bound(call_span, msg));
+    }
+}
+
+/// Validate inline trait bounds on method-level type-generic parameters.
+///
+/// Mirrors the three-phase borrow-dance shape of `check_method_where_clauses`,
+/// but operates on the inline `<T: Bound + Bound2>` form via
+/// `generic_param_metadata` rather than the trailing `where T: Bound` form via
+/// `where_clause_metadata`. Together these two helpers cover both bound surfaces
+/// for method-level binders.
+///
+/// # Substitution model
+///
+/// `scheme_var_ids` is parallel (in declaration order) to non-const entries of
+/// `generic_param_metadata` — it carries each method-level binder's
+/// registration-time pool `var_id`. After call-site `instantiate_with_subst`
+/// runs, `subst[var_id]` is the fresh `Tag::Var` Idx allocated for that binder.
+/// Argument unification (via `check_positional_args`) binds those Vars to
+/// concrete types, so `engine.resolve(subst[var_id])` follows the union-find
+/// chain and returns the post-unification concrete type.
+///
+/// When the resolved type still carries unresolved binders
+/// (`HAS_VAR | HAS_BOUND_VAR | HAS_RIGID_VAR`), the bound is conservatively
+/// skipped — best-effort enforcement, mirrors the `TF-5` fast-path gate
+/// precedent set by `check_method_where_clauses`.
+///
+/// # Three phases
+/// 1. Mutable resolve: zip non-const params with `scheme_var_ids`, look up each
+///    var's fresh Idx in `subst`, resolve via union-find. Skip when the
+///    resolved type is unresolved or `Idx::ERROR`.
+/// 2. Immutable: query `trait_registry.has_impl` and `type_satisfies_trait` for
+///    each bound; collect failure messages.
+/// 3. Mutable push: emit `E2001` (unsatisfied bound) per failure.
+pub(super) fn check_method_inline_bounds(
+    engine: &mut InferEngine<'_>,
+    generic_param_metadata: &[GenericParamMeta],
+    scheme_var_ids: &[u32],
+    subst: &FxHashMap<u32, Idx>,
+    call_span: Span,
+) {
+    struct PreparedInlineCheck {
+        concrete_type: Idx,
+        bound_entries: Vec<(Name, Idx)>,
+    }
+
+    if generic_param_metadata.is_empty() || subst.is_empty() {
+        return;
+    }
+
+    // Phase 1 (mutable): zip non-const params with scheme_var_ids in declaration
+    // order, look up each binder's fresh Var Idx in subst, resolve to concrete.
+    let mut prepared: Vec<PreparedInlineCheck> = Vec::new();
+    let mut var_id_iter = scheme_var_ids.iter();
+    for param in generic_param_metadata {
+        if param.is_const {
+            continue;
+        }
+        let Some(&var_id) = var_id_iter.next() else {
+            // scheme_var_ids exhausted before generic_param_metadata — registration drift
+            break;
+        };
+        if param.bounds.is_empty() {
+            continue;
+        }
+        let Some(&fresh_idx) = subst.get(&var_id) else {
+            continue;
+        };
+
+        let concrete_type = engine.resolve(fresh_idx);
+        let flags = engine.pool().flags(concrete_type);
+        let unresolved = TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR | TypeFlags::HAS_RIGID_VAR;
+        if flags.intersects(unresolved) {
+            continue;
+        }
+        if concrete_type == Idx::ERROR {
+            continue;
+        }
+
+        let mut bound_entries: Vec<(Name, Idx)> = Vec::new();
+        for &bound_idx in &param.bounds {
+            if engine.pool().tag(bound_idx) != Tag::Named {
+                continue;
+            }
+            let bound_name = engine.pool().named_name(bound_idx);
+            bound_entries.push((bound_name, bound_idx));
+        }
+        if bound_entries.is_empty() {
+            continue;
+        }
+
+        prepared.push(PreparedInlineCheck {
             concrete_type,
             bound_entries,
         });

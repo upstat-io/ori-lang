@@ -394,6 +394,20 @@ impl TraitRegistry {
             .and_then(|t| t.methods.get(&method_name))
     }
 
+    /// Iterate `(impl_idx, &ImplEntry)` over every registered impl.
+    ///
+    /// Used by the base-name dispatch fallback in `infer/expr/calls/impl_lookup.rs`
+    /// when exact-`Idx` `lookup_method_checked` misses on a generic impl whose
+    /// `entry.self_type = Applied(Name, [Named(U)])` no longer matches a
+    /// concrete receiver `Applied(Name, [int])` per `types.md §TI-2`. The
+    /// engine iterates, filters by base name + method name, then unifies the
+    /// receiver against `entry.self_type` to produce the impl-level
+    /// substitution map. BUG-01-002 §05 Phase B residual.
+    #[inline]
+    pub fn impls_iter(&self) -> impl Iterator<Item = (usize, &ImplEntry)> {
+        self.impls.iter().enumerate()
+    }
+
     /// Get an associated type definition from a trait.
     pub fn trait_assoc_type(&self, trait_idx: Idx, assoc_name: Name) -> Option<&TraitAssocTypeDef> {
         self.get_trait_by_idx(trait_idx)

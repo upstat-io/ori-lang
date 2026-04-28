@@ -90,10 +90,16 @@ fn register_impl(
     }
 
     // 6. Process where clauses (const bounds filtered out — not yet evaluated)
+    // Empty scheme_overlay: impl-level where-clauses don't reference method-level
+    // binders. Method-level where-clauses go through `build_method_generic_metadata`
+    // with a populated overlay (BUG-01-002 §05 Phase B residual).
+    let empty_overlay: FxHashMap<Name, Idx> = FxHashMap::default();
     let where_clause: Vec<WhereConstraint> = impl_def
         .where_clauses
         .iter()
-        .filter_map(|wc| build_where_constraint(checker, wc, &type_params, self_type))
+        .filter_map(|wc| {
+            build_where_constraint(checker, wc, &type_params, &empty_overlay, self_type)
+        })
         .collect();
 
     // 7. Validate associated types, check conflicting defaults, check coherence
@@ -316,9 +322,9 @@ fn has_coherence_violation(
 ///
 /// Body-checking (`check/bodies/impls.rs::check_impl_method`) allocates a
 /// SEPARATE set of `Tag::RigidVar`s per method-level binder via
-/// `pool.rigid_var(name)` — those RigidVars enforce body-internal
+/// `pool.rigid_var(name)` — those `RigidVars` enforce body-internal
 /// parametricity (the §B.3 negative pin `shadow_negative_binder_identity.ori`).
-/// Registration's fresh-Var-in-Scheme and body-check's RigidVars are distinct
+/// Registration's fresh-Var-in-Scheme and body-check's `RigidVars` are distinct
 /// pool entries serving distinct purposes; no sharing is required.
 fn build_impl_method(
     checker: &mut ModuleChecker<'_>,

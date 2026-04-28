@@ -336,8 +336,7 @@ fn resolve_type_with_overlay_inner(
                         )
                     })
                     .collect();
-                if let Some(idx) =
-                    checker.resolve_well_known_generic_cached(*name, &resolved_args)
+                if let Some(idx) = checker.resolve_well_known_generic_cached(*name, &resolved_args)
                 {
                     return idx;
                 }
@@ -504,18 +503,33 @@ pub(super) fn convert_visibility(ir_vis: ori_ir::Visibility) -> crate::Visibilit
 /// Build a `WhereConstraint` from a single AST `WhereClause`.
 ///
 /// Returns `None` for const bounds (deferred per `WhereClause::as_type_bound`).
+///
 /// `type_params` is the combined scope of outer + method-level type params;
 /// `self_type` substitutes `Self` references in the constrained-param position
 /// (pass `Idx::ERROR` in trait-method context where `Self` remains symbolic).
+///
+/// `scheme_overlay` maps method-level binder names to the fresh `Tag::Var`
+/// Idx allocated for them at registration (BUG-01-002 §05 Phase B residual).
+/// When `param` is a method-level binder, `wc.ty` is the same Idx that flows
+/// through the registered method signature's `Tag::Scheme` body. Call-site
+/// `instantiate_with_subst` substitutes that Idx with a fresh Var Idx; the
+/// downstream `check_method_where_clauses` helper applies the same
+/// substitution to `wc.ty` before resolving so the bound check sees the
+/// post-instantiation concrete type. Without this overlay, `wc.ty` was a
+/// fresh `Tag::Named(param)` lookup that union-find never updated (the
+/// `INVERTED-TDD:goal-drift` shape per `impl-hygiene.md` §Finding Categories).
 pub(crate) fn build_where_constraint(
     checker: &mut ModuleChecker<'_>,
     wc: &WhereClause,
     type_params: &[Name],
+    scheme_overlay: &FxHashMap<Name, Idx>,
     self_type: Idx,
 ) -> Option<WhereConstraint> {
     let (param, _projection, bounds, _span) = wc.as_type_bound()?;
 
-    let ty = if type_params.contains(&param) {
+    let ty = if let Some(&overlay_idx) = scheme_overlay.get(&param) {
+        overlay_idx
+    } else if type_params.contains(&param) {
         checker.pool_mut().named(param)
     } else if param == checker.interner().intern("Self") {
         self_type
@@ -617,7 +631,9 @@ pub(crate) fn build_method_generic_metadata(
 
     let where_meta: Vec<WhereConstraint> = where_clauses
         .iter()
-        .filter_map(|wc| build_where_constraint(checker, wc, &combined_scope, self_type))
+        .filter_map(|wc| {
+            build_where_constraint(checker, wc, &combined_scope, &scheme_overlay, self_type)
+        })
         .collect();
 
     (scheme_var_ids, scheme_overlay, param_meta, where_meta)

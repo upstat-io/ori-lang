@@ -26,15 +26,27 @@ impl UnifyEngine<'_> {
     /// // Now concrete is: int -> int
     /// ```
     pub fn instantiate(&mut self, scheme_idx: Idx) -> Idx {
+        self.instantiate_with_subst(scheme_idx).0
+    }
+
+    /// Instantiate a scheme and return both the substituted body AND the
+    /// `scheme_var_id → fresh_var_idx` substitution map.
+    ///
+    /// Callers needing the map (e.g. `check_method_inline_bounds` to find the
+    /// post-instantiation Var Idx of each method-level binder by its
+    /// declared `var_id`) use this instead of `instantiate`. Non-scheme
+    /// inputs return `(scheme_idx, empty_map)`; monomorphic schemes return
+    /// `(body, empty_map)`.
+    pub fn instantiate_with_subst(&mut self, scheme_idx: Idx) -> (Idx, FxHashMap<u32, Idx>) {
         if self.pool.tag(scheme_idx) != Tag::Scheme {
-            return scheme_idx; // Not a scheme, return as-is
+            return (scheme_idx, FxHashMap::default());
         }
 
         let vars = self.pool.scheme_vars(scheme_idx).to_vec();
         let body = self.pool.scheme_body(scheme_idx);
 
         if vars.is_empty() {
-            return body; // Monomorphic scheme
+            return (body, FxHashMap::default());
         }
 
         // Create fresh variables for each quantified variable
@@ -45,7 +57,8 @@ impl UnifyEngine<'_> {
         }
 
         // Substitute in the body
-        self.substitute(body, &subst)
+        let new_body = self.substitute(body, &subst);
+        (new_body, subst)
     }
 
     /// Substitute variables according to the given mapping.

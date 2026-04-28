@@ -501,6 +501,21 @@ impl<'pool> InferEngine<'pool> {
     pub fn instantiate(&mut self, scheme: Idx) -> Idx {
         self.unify.instantiate(scheme)
     }
+
+    /// Instantiate a scheme and expose the `scheme_var_id → fresh_var_idx` map.
+    ///
+    /// Used by the impl-method call path to enforce method-level inline bounds
+    /// (`<T: Bound>`): the substitution map lets the bound checker find the
+    /// post-instantiation Var Idx for each method-level binder by its
+    /// registration-time `var_id` (recorded in
+    /// `ImplMethodDef.scheme_var_ids`).
+    #[inline]
+    pub fn instantiate_with_subst(
+        &mut self,
+        scheme: Idx,
+    ) -> (Idx, rustc_hash::FxHashMap<u32, Idx>) {
+        self.unify.instantiate_with_subst(scheme)
+    }
 }
 
 #[cfg(test)]
