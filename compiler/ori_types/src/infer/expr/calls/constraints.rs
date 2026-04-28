@@ -4,7 +4,7 @@ use ori_ir::{Name, Span};
 
 use super::super::super::InferEngine;
 use super::traits::type_satisfies_trait;
-use crate::{Idx, TypeCheckError};
+use crate::{Idx, Tag, TypeCheckError, TypeFlags, WhereConstraint};
 
 /// Validate that required capabilities are available at a call site.
 ///
@@ -186,6 +186,116 @@ pub(super) fn check_where_clauses(
     };
 
     // Phase 3 (mutable): Push collected errors
+    for msg in errors {
+        engine.push_error(TypeCheckError::unsatisfied_bound(call_span, msg));
+    }
+}
+
+/// Validate method-level where-clause constraints at a method call site.
+///
+/// Mirrors the three-phase borrow-dance shape of `check_where_clauses` for
+/// `FunctionSig` top-level generics, but operates on the method's deep-copied
+/// `where_clause_metadata: Vec<WhereConstraint>` (registered by
+/// `build_method_generic_metadata` in `check/registration/type_resolution.rs`).
+///
+/// # Substitution model
+///
+/// Method-level binders are stored as `Tag::Var` (per `fresh_named_var` in
+/// registration). Argument unification at the call site (via
+/// `check_positional_args`) binds those Vars to concrete arg types, so
+/// `engine.resolve(wc.ty)` follows the union-find chain and returns the
+/// post-unification concrete type.
+///
+/// When the resolved type still carries unresolved binders
+/// (`HAS_VAR | HAS_BOUND_VAR | HAS_RIGID_VAR`), the constraint is conservatively
+/// skipped — best-effort enforcement, mirrors the `TF-5` fast-path gate. A
+/// follow-up commit (§05 B.2 inline-bound enforcement) will extend coverage
+/// to `generic_param_metadata.bounds` (the `<T: Eq>` inline form).
+///
+/// # Three phases
+/// 1. Mutable resolve: walk each `WhereConstraint`, resolve `ty`, prepare
+///    `(concrete_ty, bound_idx)` checks; skip when `concrete_ty` is unresolved.
+/// 2. Immutable: query `trait_registry.get_trait_by_idx(bound)` for the trait
+///    Name, run `type_satisfies_trait` for primitives or `has_impl` for
+///    user-defined types, collect failure messages.
+/// 3. Mutable push: emit `E2001` (unsatisfied bound) per failure.
+pub(super) fn check_method_where_clauses(
+    engine: &mut InferEngine<'_>,
+    where_clause_metadata: &[WhereConstraint],
+    call_span: Span,
+) {
+    struct PreparedMethodCheck {
+        concrete_type: Idx,
+        bound_entries: Vec<(Name, Idx)>,
+    }
+
+    if where_clause_metadata.is_empty() {
+        return;
+    }
+
+    // Phase 1 (mutable): resolve each WhereConstraint's `ty`, skip unresolved
+    let mut prepared: Vec<PreparedMethodCheck> = Vec::new();
+    for wc in where_clause_metadata {
+        let concrete_type = engine.resolve(wc.ty);
+        let flags = engine.pool().flags(concrete_type);
+        let unresolved = TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR | TypeFlags::HAS_RIGID_VAR;
+        if flags.intersects(unresolved) {
+            // Conservatively skip: substitution incomplete (TF-5 fast-path)
+            continue;
+        }
+        if concrete_type == Idx::ERROR {
+            continue;
+        }
+
+        // Extract trait Name from each bound Idx (Tag::Named, deep-copied at registration)
+        let mut bound_entries: Vec<(Name, Idx)> = Vec::new();
+        for &bound_idx in &wc.bounds {
+            if engine.pool().tag(bound_idx) != Tag::Named {
+                continue;
+            }
+            let bound_name = engine.pool().named_name(bound_idx);
+            bound_entries.push((bound_name, bound_idx));
+        }
+        if bound_entries.is_empty() {
+            continue;
+        }
+
+        prepared.push(PreparedMethodCheck {
+            concrete_type,
+            bound_entries,
+        });
+    }
+
+    // Phase 2 (immutable): check each (concrete_type, bound) pair
+    let errors = {
+        let Some(trait_registry) = engine.trait_registry() else {
+            return;
+        };
+        let pool = engine.pool();
+        let well_known = engine.well_known();
+
+        let mut errors: Vec<String> = Vec::new();
+        for check in &prepared {
+            for &(bound_name, bound_idx) in &check.bound_entries {
+                if trait_registry.has_impl(bound_idx, check.concrete_type) {
+                    continue;
+                }
+                let satisfies = if let Some(wk) = well_known {
+                    wk.type_satisfies_trait(check.concrete_type, bound_name, pool)
+                } else {
+                    let s = engine.lookup_name(bound_name).unwrap_or("");
+                    type_satisfies_trait(check.concrete_type, s, pool)
+                };
+                if !satisfies {
+                    let bound_str = engine.lookup_name(bound_name).unwrap_or("?");
+                    errors.push(format!("does not satisfy trait bound `{bound_str}`"));
+                }
+            }
+        }
+        errors
+    };
+
+    // Phase 3 (mutable): push errors
     for msg in errors {
         engine.push_error(TypeCheckError::unsatisfied_bound(call_span, msg));
     }

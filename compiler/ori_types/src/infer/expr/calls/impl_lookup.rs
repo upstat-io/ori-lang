@@ -3,11 +3,17 @@
 use ori_ir::{Name, Span};
 
 use super::super::super::InferEngine;
-use crate::{Idx, MethodLookupResult, Tag, TypeCheckError};
+use crate::{Idx, MethodLookupResult, Tag, TypeCheckError, WhereConstraint};
 
 /// Result of looking up a method in the `TraitRegistry`.
 pub(super) enum LookupOutcome {
-    Found { sig: Idx, has_self: bool },
+    Found {
+        sig: Idx,
+        has_self: bool,
+        /// Method-level where-clause constraints, deep-copied owned form.
+        /// Empty when the method has no `where` clause.
+        where_clause_metadata: Vec<WhereConstraint>,
+    },
     Ambiguous(Vec<ori_ir::Name>),
     NotFound,
 }
@@ -18,6 +24,9 @@ pub(super) struct ImplMethodSig {
     pub(super) params: Vec<Idx>,
     /// Return type.
     pub(super) ret: Idx,
+    /// Method-level where-clause constraints, forwarded from `LookupOutcome::Found`
+    /// for call-site bound enforcement (`check_method_where_clauses`).
+    pub(super) where_clause_metadata: Vec<WhereConstraint>,
 }
 
 /// Perform the borrow-dance lookup for impl methods via `TraitRegistry`.
@@ -33,10 +42,14 @@ pub(super) fn lookup_impl_method(
     match trait_registry {
         None => LookupOutcome::NotFound,
         Some(reg) => match reg.lookup_method_checked(receiver_ty, method) {
-            MethodLookupResult::Found(lookup) => LookupOutcome::Found {
-                sig: lookup.method().signature,
-                has_self: lookup.method().has_self,
-            },
+            MethodLookupResult::Found(lookup) => {
+                let m = lookup.method();
+                LookupOutcome::Found {
+                    sig: m.signature,
+                    has_self: m.has_self,
+                    where_clause_metadata: m.where_clause_metadata.clone(),
+                }
+            }
             MethodLookupResult::Ambiguous { candidates } => {
                 LookupOutcome::Ambiguous(candidates.iter().map(|&(_, n)| n).collect())
             }
@@ -58,8 +71,12 @@ pub(super) fn resolve_impl_signature(
     arg_count: usize,
     span: Span,
 ) -> Option<Result<ImplMethodSig, ()>> {
-    let (sig_ty, has_self) = match outcome {
-        LookupOutcome::Found { sig, has_self } => (sig, has_self),
+    let (sig_ty, has_self, where_clause_metadata) = match outcome {
+        LookupOutcome::Found {
+            sig,
+            has_self,
+            where_clause_metadata,
+        } => (sig, has_self, where_clause_metadata),
         LookupOutcome::Ambiguous(trait_names) => {
             engine.push_error(TypeCheckError::ambiguous_method(span, method, trait_names));
             return Some(Err(()));
@@ -92,6 +109,7 @@ pub(super) fn resolve_impl_signature(
     Some(Ok(ImplMethodSig {
         params: method_params,
         ret,
+        where_clause_metadata,
     }))
 }
 

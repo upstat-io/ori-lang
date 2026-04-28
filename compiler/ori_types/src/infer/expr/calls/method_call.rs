@@ -5,6 +5,7 @@ use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::super::InferEngine;
 use super::super::{infer_expr, range_method_requires_iteration, resolve_builtin_method};
+use super::constraints::check_method_where_clauses;
 use super::impl_lookup::{
     emit_into_not_implemented, lookup_impl_method, resolve_impl_signature, ImplMethodSig,
 };
@@ -58,7 +59,9 @@ pub(crate) fn infer_method_call(
     let arg_ids = arena.get_expr_list(args);
     let outcome = lookup_impl_method(engine, resolved, method);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, arg_ids.len(), span) {
-        return check_positional_args(engine, arena, arg_ids, &sig, span);
+        let ret_ty = check_positional_args(engine, arena, arg_ids, &sig, span);
+        check_method_where_clauses(engine, &sig.where_clause_metadata, span);
+        return ret_ty;
     }
 
     // Error or not found -- infer all args for side effects
@@ -130,6 +133,7 @@ pub(crate) fn infer_method_call_named(
             let arg_ty = infer_expr(engine, arena, arg.value);
             let _ = engine.check_type(arg_ty, &expected, arg.span);
         }
+        check_method_where_clauses(engine, &sig.where_clause_metadata, span);
         return sig.ret;
     }
 

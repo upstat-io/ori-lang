@@ -1,0 +1,19 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-feature — method-level × where-clauses
+//
+// Where-clause processing pipeline runs INSIDE method-level binder scope.
+
+use std.testing { assert_eq }
+
+type Box<U> = { value: U }
+
+impl<U> Box<U> {
+    @clone_check<T> (self, val: T) -> bool where T: Clone = true;
+}
+
+@test_method_where_clause tests _ () -> void = {
+    let b = Box { value: 1 };
+    let r: bool = b.clone_check(val: "x");
+    assert_eq(actual: r, expected: true)
+}
