@@ -443,6 +443,10 @@ impl<'a> ModuleChecker<'a> {
             impl_sigs: self.impl_sigs,
             trait_impl_fn_names: self.trait_impl_fn_names,
             mono_instances,
+            // Phase C.2 sub-step 1a: schema landing only — populated in
+            // sub-step 1b when inference call sites record their resolved
+            // `MonoInstanceId` per `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2.
+            mono_dispatch_map: Vec::new(),
             type_descriptors,
             exported_type_metadata,
             exported_collection_surfaces,

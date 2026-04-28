@@ -42,8 +42,8 @@ pub use lifetime::LifetimeId;
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
     ConstParamInfo, ConstValue, DeferredMonoCall, DeferredVarBinding, EffectClass,
-    ExportedTypeMetadata, FnWhereClause, FunctionSig, GenericArg, MonoInstance, TypeCheckResult,
-    TypedModule,
+    ExportedTypeMetadata, FnWhereClause, FunctionSig, GenericArg, MonoInstance, MonoInstanceId,
+    TypeCheckResult, TypedModule,
 };
 pub use pool::{
     build_mono_body_type_map, extend_var_subst_with_roots, extract_var_from_types, re_intern_sig,

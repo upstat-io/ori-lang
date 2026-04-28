@@ -88,6 +88,27 @@ pub enum GenericArg {
     Const(ConstValue),
 }
 
+/// Typed handle into [`TypedModule::mono_instances`].
+///
+/// Used by canonical IR (`CanExpr::Call` / `CanExpr::MethodCall`) and ARC
+/// IR (`ArcInstr::Apply` / `ArcTerminator::Invoke`) to identify which
+/// monomorphic specialization a call site dispatches to. The mangled
+/// LLVM symbol name is computed locally inside `ori_llvm` via
+/// `mangle_mono_name`; typeck produces only this abstract index, keeping
+/// the LLVM-specific name format owned by the codegen crate per
+/// `canon.md §1` (phase ownership) and `impl-hygiene.md`
+/// §LEAK:phase-bleeding (the load-bearing reason for the abstract handoff
+/// shape).
+///
+/// Inner `u32` is the index into [`TypedModule::mono_instances`];
+/// equality / hashing match index identity, so two `MonoInstanceId` values
+/// that compare equal point at the same `MonoInstance` in the same module.
+/// Construct directly via `MonoInstanceId(idx)` and read the index via
+/// `id.0` — the tuple-struct shape mirrors how callers use index handles
+/// elsewhere in the crate (e.g., `ConstParamInfo` indexes).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MonoInstanceId(pub u32);
+
 /// A concrete instantiation of a generic function or method discovered during type checking.
 ///
 /// Two shapes share this struct, distinguished by `receiver_type`:
@@ -365,6 +386,33 @@ pub struct TypedModule {
     /// concrete specializations of generic functions.
     pub mono_instances: Vec<MonoInstance>,
 
+    /// Map from AST `ExprId` of a generic call site to its resolved
+    /// monomorphic instance index.
+    ///
+    /// Populated during inference at every `Call` / `MethodCall` site that
+    /// resolves to a generic function or method instantiated with concrete
+    /// arguments at this call site. `ori_canon` reads this side-table while
+    /// lowering each `CanExpr::Call` / `CanExpr::MethodCall` and writes the
+    /// resolved [`MonoInstanceId`] onto the canonical-IR node, from where
+    /// it propagates through ARC IR (`ArcInstr::Apply` / `ArcTerminator::Invoke`)
+    /// to LLVM dispatch + `ori_eval` dispatch — the same-index handoff shape
+    /// preserves dual-execution parity per `canon.md §4.3`.
+    ///
+    /// Key is the AST `ExprId` of the call expression itself (NOT the
+    /// receiver, NOT a sub-argument). Value is an index into
+    /// [`Self::mono_instances`].
+    ///
+    /// Stored as `Vec<(ExprId, MonoInstanceId)>` sorted by `ExprId` (NOT
+    /// `FxHashMap`) for Salsa compatibility per `types.md §SL-3` — the
+    /// `TypedModule` struct derives `Eq + Hash` and `FxHashMap` cannot
+    /// satisfy them. Mirrors the shape of `pattern_resolutions:
+    /// Vec<(PatternKey, PatternResolution)>`. Lookup is binary search via
+    /// `dispatch_map_lookup()`.
+    ///
+    /// Empty for non-generic call sites — only populated when a generic
+    /// callee is instantiated with concrete arguments at the call site.
+    pub mono_dispatch_map: Vec<(ExprId, MonoInstanceId)>,
+
     /// Portable type descriptors for all types referenced in exported signatures.
     ///
     /// Topologically sorted: leaves first. Each entry is `(merkle_hash, descriptor)`.
@@ -409,6 +457,7 @@ impl TypedModule {
             impl_sigs: Vec::new(),
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
+            mono_dispatch_map: Vec::new(),
             type_descriptors: Vec::new(),
             exported_type_metadata: Vec::new(),
             exported_collection_surfaces: Vec::new(),
