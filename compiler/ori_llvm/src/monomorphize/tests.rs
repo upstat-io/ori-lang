@@ -104,13 +104,13 @@ fn collect_produces_concrete_sig() {
     let pool = Pool::new();
     let generic_sig = make_generic_sig(&interner);
 
-    let instance = MonoInstance {
-        fn_name: generic_sig.name,
-        generic_args: vec![GenericArg::Type(Idx::INT)],
-        concrete_param_types: vec![Idx::INT],
-        concrete_return_type: Idx::INT,
-        body_type_map: Vec::new(),
-    };
+    let instance = MonoInstance::new_top_level(
+        generic_sig.name,
+        vec![GenericArg::Type(Idx::INT)],
+        vec![Idx::INT],
+        Idx::INT,
+        Vec::new(),
+    );
 
     let mono_fns = collect_mono_functions(&[instance], &[generic_sig], &interner, &pool);
 
@@ -133,13 +133,13 @@ fn collect_skips_unknown_function() {
     let pool = Pool::new();
     let unknown_name = interner.intern("nonexistent");
 
-    let instance = MonoInstance {
-        fn_name: unknown_name,
-        generic_args: vec![GenericArg::Type(Idx::INT)],
-        concrete_param_types: vec![Idx::INT],
-        concrete_return_type: Idx::INT,
-        body_type_map: Vec::new(),
-    };
+    let instance = MonoInstance::new_top_level(
+        unknown_name,
+        vec![GenericArg::Type(Idx::INT)],
+        vec![Idx::INT],
+        Idx::INT,
+        Vec::new(),
+    );
 
     let mono_fns = collect_mono_functions(
         &[instance],

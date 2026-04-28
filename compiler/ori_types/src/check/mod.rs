@@ -60,6 +60,22 @@ use crate::{
     TypeCheckResult, TypeCheckWarning, TypeEnv, TypeRegistry, TypedModule,
 };
 
+/// Identity tuple for `MonoInstance` deduplication at `finish_with_pool()`.
+///
+/// Encodes the full distinguishing identity per `output/mod.rs MonoInstance`
+/// invariant: `(fn_name, generic_args, impl_args, method_args,
+/// concrete_param_types, receiver_type)`. Two instances are duplicates iff
+/// every field of the tuple matches; the dedup at finish-time uses an
+/// `FxHashSet<MonoIdentityKey>` retain to collapse them.
+type MonoIdentityKey = (
+    Name,
+    Vec<crate::GenericArg>,
+    Vec<crate::GenericArg>,
+    Vec<crate::GenericArg>,
+    Vec<crate::Idx>,
+    Option<crate::Idx>,
+);
+
 // Re-export main API
 pub use api::{
     check_module, check_module_with_imports, check_module_with_pool, check_module_with_registries,
@@ -365,10 +381,38 @@ impl<'a> ModuleChecker<'a> {
             );
         }
 
-        // Dedup mono instances by (fn_name, generic_args).
-        // Sort by fn_name for determinism, then dedup adjacent entries.
+        // Dedup mono instances by the full identity tuple — `fn_name` alone
+        // is insufficient once method instances flow through this list:
+        //
+        // - Method-level args collision: `Foo<int>::bar<U>` instantiated via
+        //   typed-binding inference at `U = str` vs `U = int` share `fn_name`
+        //   AND empty `generic_args`; only `method_args` differ.
+        // - Receiver-type collision: `Box<int>::map<U>` and `Option<int>::map<U>`
+        //   both have `fn_name = "map"` and identical `impl_args = [int]`;
+        //   only `receiver_type` (or `concrete_param_types[0]`) discriminates.
+        // - Trait-method-from-different-impls: two impls of the same trait
+        //   method on different self types — distinguished by `receiver_type`.
+        //
+        // Use FxHashSet retain — order-independent dedup that handles
+        // non-adjacent equal elements correctly without requiring `Idx: Ord`
+        // / `GenericArg: Ord` (neither derive `Ord` today). FxHasher is
+        // deterministic (no per-process random seed), satisfying Salsa SL-1.
+        //
+        // Identity tuple: (fn_name, generic_args, impl_args, method_args,
+        // concrete_param_types, receiver_type) — see `MonoIdentityKey` alias.
+        let mut seen: rustc_hash::FxHashSet<MonoIdentityKey> = rustc_hash::FxHashSet::default();
+        mono_instances.retain(|m| {
+            seen.insert((
+                m.fn_name,
+                m.generic_args.clone(),
+                m.impl_args.clone(),
+                m.method_args.clone(),
+                m.concrete_param_types.clone(),
+                m.receiver_type,
+            ))
+        });
+        // Re-sort by fn_name for deterministic output ordering after retain.
         mono_instances.sort_by_key(|m| m.fn_name);
-        mono_instances.dedup_by(|a, b| a.fn_name == b.fn_name && a.generic_args == b.generic_args);
 
         // Generate portable type descriptors for all public function signatures.
         // These enable cross-module type reconstruction without AST access.

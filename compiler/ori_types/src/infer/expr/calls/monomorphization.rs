@@ -114,13 +114,13 @@ pub(super) fn maybe_record_mono_instance(
     // TypeInfoStore can resolve them to struct layouts during codegen.
     register_concrete_applied_resolutions(pool, &body_type_map, &struct_type_params);
 
-    let instance = MonoInstance {
+    let instance = MonoInstance::new_top_level(
         fn_name,
         generic_args,
         concrete_param_types,
         concrete_return_type,
         body_type_map,
-    };
+    );
 
     tracing::debug!(
         fn_name = ?fn_name,

@@ -329,11 +329,11 @@ fn build_mono_instance(
     body_type_map.sort_by_key(|(k, _)| k.raw());
     body_type_map.dedup_by_key(|(k, _)| k.raw());
 
-    crate::MonoInstance {
+    crate::MonoInstance::new_top_level(
         fn_name,
         generic_args,
         concrete_param_types,
         concrete_return_type,
         body_type_map,
-    }
+    )
 }
