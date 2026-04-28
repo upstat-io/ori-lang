@@ -7,7 +7,9 @@
 
 use super::super::ranges::{GenericParamRange, ParamRange};
 use super::super::Visibility;
-use crate::{CfgAttr, ExprId, Name, ParsedType, ParsedTypeRange, Span, Spanned, TargetAttr};
+use crate::{
+    CapabilityRef, CfgAttr, ExprId, Name, ParsedType, ParsedTypeRange, Span, Spanned, TargetAttr,
+};
 
 /// Generic parameter: type param (`T`, `T: Bound`) or const param (`$N: int`).
 ///
@@ -179,9 +181,15 @@ impl TraitItem {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TraitMethodSig {
     pub name: Name,
+    /// Method-level generic parameters: `<T, U: Bound>`.
+    /// Empty range when the method has no generics.
+    pub generics: GenericParamRange,
     pub params: ParamRange,
     /// The parsed return type.
     pub return_ty: ParsedType,
+    /// Method-level where clauses: `where T: Clone, U: Default`.
+    /// Empty when the method has no where clause.
+    pub where_clauses: Vec<WhereClause>,
     pub span: Span,
 }
 
@@ -195,9 +203,15 @@ impl Spanned for TraitMethodSig {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TraitDefaultMethod {
     pub name: Name,
+    /// Method-level generic parameters: `<T, U: Bound>`.
+    /// Empty range when the method has no generics.
+    pub generics: GenericParamRange,
     pub params: ParamRange,
     /// The parsed return type.
     pub return_ty: ParsedType,
+    /// Method-level where clauses: `where T: Clone, U: Default`.
+    /// Empty when the method has no where clause.
+    pub where_clauses: Vec<WhereClause>,
     pub body: ExprId,
     pub span: Span,
 }
@@ -302,19 +316,37 @@ impl Spanned for ImplDef {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ImplMethod {
     pub name: Name,
+    /// Method-level generic parameters: `<T, U: Bound>`.
+    /// Empty range when the method has no generics.
+    pub generics: GenericParamRange,
     pub params: ParamRange,
     /// The parsed return type.
     pub return_ty: ParsedType,
+    /// Capabilities required by this method: `uses Http, FileSystem`.
+    /// Empty for `def_impl_method` (stateless) and methods without `uses`.
+    pub capabilities: Vec<CapabilityRef>,
+    /// Method-level where clauses: `where T: Clone, U: Default`.
+    /// Empty when the method has no where clause.
+    pub where_clauses: Vec<WhereClause>,
     pub body: ExprId,
     pub span: Span,
 }
 
 impl From<&TraitDefaultMethod> for ImplMethod {
     fn from(default: &TraitDefaultMethod) -> Self {
+        // Phase 2.5 Round 0 directive: COPY generics + where_clauses (load-bearing
+        // for default-method body type-checking — the inherited body references
+        // method-level binders that must remain in scope on the impl side).
+        // Capabilities are not part of TraitDefaultMethod (trait method_sig +
+        // default_method productions in grammar.ebnf carry no `[ uses_clause ]`),
+        // so impl-side capabilities default to empty when inheriting a default.
         Self {
             name: default.name,
+            generics: default.generics,
             params: default.params,
             return_ty: default.return_ty.clone(),
+            capabilities: Vec::new(),
+            where_clauses: default.where_clauses.clone(),
             body: default.body,
             span: default.span,
         }

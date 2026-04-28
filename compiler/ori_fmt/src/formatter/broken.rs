@@ -58,7 +58,10 @@ impl<I: StringLookup> Formatter<'_, I> {
                 method,
                 args,
             } => {
-                self.format_receiver(*receiver);
+                // All-or-nothing chain breaking per fmt.md "Idempotency" +
+                // MethodChainRule::ALL_METHODS_BREAK: when this call breaks,
+                // any chained receiver must also break.
+                self.format_receiver_broken(*receiver);
                 self.ctx.emit(".");
                 self.ctx.emit(self.interner.lookup(*method));
                 self.ctx.emit("(");
@@ -70,7 +73,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 method,
                 args,
             } => {
-                self.format_receiver(*receiver);
+                self.format_receiver_broken(*receiver);
                 self.ctx.emit(".");
                 self.ctx.emit(self.interner.lookup(*method));
                 self.ctx.emit("(");

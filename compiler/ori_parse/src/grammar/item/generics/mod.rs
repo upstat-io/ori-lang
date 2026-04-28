@@ -61,6 +61,10 @@ impl Parser<'_> {
         committed!(self.cursor.expect(&TokenKind::Lt));
 
         let start = self.arena.start_generic_params();
+        // Track seen parameter names to reject `<T, T>` and `<$N, $N>` duplicates.
+        // Cross-binder shadowing (impl `T` + method `T`) is NOT an error per HM
+        // scoping; this check is scoped to a single binder list only.
+        let mut seen_names: Vec<ori_ir::Name> = Vec::new();
         committed!(
             self.series_direct(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
                 if p.cursor.check(&TokenKind::Gt) {
@@ -75,7 +79,23 @@ impl Parser<'_> {
                     p.cursor.advance(); // consume $
                 }
 
+                let name_span = p.cursor.current_span();
                 let name = p.cursor.expect_ident()?;
+
+                if seen_names.contains(&name) {
+                    return Err(ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        format!(
+                            "duplicate generic parameter `{}` in this binder list",
+                            p.cursor.interner().lookup(name)
+                        ),
+                        name_span,
+                    )
+                    .with_help(
+                        "Each generic parameter in `<...>` must have a unique name within the same binder; cross-binder shadowing (e.g., outer `<T>` shadowed by inner `<T>`) is permitted",
+                    ));
+                }
+                seen_names.push(name);
 
                 if is_const {
                     // Const generic: $N: int [= default]

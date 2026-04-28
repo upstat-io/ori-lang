@@ -115,7 +115,8 @@ impl Parser<'_> {
 
         let mut methods = Vec::new();
         while !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
-            let method = committed!(self.parse_impl_method());
+            // Extension methods follow the regular impl method grammar — `uses` clause allowed.
+            let method = committed!(self.parse_impl_method(false));
             methods.push(method);
             self.cursor.skip_newlines();
         }

@@ -257,8 +257,10 @@ fn object_safe_trait_has_no_violations() {
         super_traits: vec![],
         items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
             name: method_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
             params,
             return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(3)), // str
+            where_clauses: vec![],
             span: ori_ir::Span::DUMMY,
         })],
         span: ori_ir::Span::DUMMY,
@@ -288,8 +290,10 @@ fn self_return_violates_object_safety() {
         super_traits: vec![],
         items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
             name: method_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
             params,
             return_ty: ParsedType::SelfType,
+            where_clauses: vec![],
             span: ori_ir::Span::DUMMY,
         })],
         span: ori_ir::Span::DUMMY,
@@ -325,8 +329,10 @@ fn self_param_violates_object_safety() {
         super_traits: vec![],
         items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
             name: method_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
             params,
             return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(2)), // bool
+            where_clauses: vec![],
             span: ori_ir::Span::DUMMY,
         })],
         span: ori_ir::Span::DUMMY,
@@ -368,14 +374,18 @@ fn multiple_violations_in_single_trait() {
         items: vec![
             ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
                 name: clone_name,
+                generics: ori_ir::GenericParamRange::EMPTY,
                 params: params1,
                 return_ty: ParsedType::SelfType,
+                where_clauses: vec![],
                 span: ori_ir::Span::DUMMY,
             }),
             ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
                 name: eq_name,
+                generics: ori_ir::GenericParamRange::EMPTY,
                 params: params2,
                 return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(2)),
+                where_clauses: vec![],
                 span: ori_ir::Span::DUMMY,
             }),
         ],
@@ -413,8 +423,10 @@ fn self_in_receiver_position_is_allowed() {
         super_traits: vec![],
         items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
             name: method_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
             params,
             return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(3)), // str
+            where_clauses: vec![],
             span: ori_ir::Span::DUMMY,
         })],
         span: ori_ir::Span::DUMMY,

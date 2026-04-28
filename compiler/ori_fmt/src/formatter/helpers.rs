@@ -75,18 +75,32 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
     }
 
-    /// Format a receiver expression, wrapping in parentheses if needed for precedence.
+    /// Format a receiver in broken-mode chain context: forces broken rendering
+    /// when the receiver is itself part of a method chain, so all chain
+    /// elements break together (`MethodChainRule::ALL_METHODS_BREAK`).
     ///
-    /// # Layer Integration
-    ///
-    /// Uses `ParenthesesRule` from Layer 4 (Breaking Rules) for parentheses decisions.
-    pub(super) fn format_receiver(&mut self, receiver: ExprId) {
-        if crate::rules::needs_parens(self.arena, receiver, ParenPosition::Receiver) {
+    /// Without this, an outer broken `.method(args)` rendering would call
+    /// `format()` on its chain receiver, which would re-evaluate fit at the
+    /// current position and may pick inline rendering — producing partial
+    /// chain breaks that violate idempotence (formatting a partially-broken
+    /// chain decides to keep more inline, then the chain re-breaks differently
+    /// next pass).
+    pub(super) fn format_receiver_broken(&mut self, receiver: ExprId) {
+        let is_chain = matches!(
+            self.arena.get_expr(receiver).kind,
+            ori_ir::ExprKind::MethodCall { .. } | ori_ir::ExprKind::MethodCallNamed { .. }
+        );
+        let needs_p = crate::rules::needs_parens(self.arena, receiver, ParenPosition::Receiver);
+        if needs_p {
             self.ctx.emit("(");
-            self.format(receiver);
-            self.ctx.emit(")");
+        }
+        if is_chain {
+            self.format_broken(receiver);
         } else {
             self.format(receiver);
+        }
+        if needs_p {
+            self.ctx.emit(")");
         }
     }
 

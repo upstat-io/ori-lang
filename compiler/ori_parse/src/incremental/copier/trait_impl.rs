@@ -62,10 +62,27 @@ impl AstCopier<'_> {
             .map(|p| self.copy_param(p, new_arena))
             .collect();
 
+        // Deep-copy method-level generics across arena boundaries.
+        // GenericParamRange indexes the old arena; reusing it would silently
+        // point at wrong (or out-of-bounds) param data on the new arena.
+        let old_generics = self.old_arena.get_generic_params(sig.generics);
+        let new_generics: Vec<_> = old_generics
+            .iter()
+            .map(|g| self.copy_generic_param(g, new_arena))
+            .collect();
+
+        let new_where_clauses: Vec<_> = sig
+            .where_clauses
+            .iter()
+            .map(|w| self.copy_where_clause(w, new_arena))
+            .collect();
+
         TraitMethodSig {
             name: sig.name,
+            generics: new_arena.alloc_generic_params(new_generics),
             params: new_arena.alloc_params(new_params),
             return_ty: self.copy_parsed_type(&sig.return_ty, new_arena),
+            where_clauses: new_where_clauses,
             span: self.adjust_span(sig.span),
         }
     }
@@ -82,10 +99,25 @@ impl AstCopier<'_> {
             .map(|p| self.copy_param(p, new_arena))
             .collect();
 
+        // Deep-copy method-level generics + where-clauses across arena boundaries.
+        let old_generics = self.old_arena.get_generic_params(method.generics);
+        let new_generics: Vec<_> = old_generics
+            .iter()
+            .map(|g| self.copy_generic_param(g, new_arena))
+            .collect();
+
+        let new_where_clauses: Vec<_> = method
+            .where_clauses
+            .iter()
+            .map(|w| self.copy_where_clause(w, new_arena))
+            .collect();
+
         TraitDefaultMethod {
             name: method.name,
+            generics: new_arena.alloc_generic_params(new_generics),
             params: new_arena.alloc_params(new_params),
             return_ty: self.copy_parsed_type(&method.return_ty, new_arena),
+            where_clauses: new_where_clauses,
             body: self.copy_expr(method.body, new_arena),
             span: self.adjust_span(method.span),
         }
@@ -168,10 +200,26 @@ impl AstCopier<'_> {
             .map(|p| self.copy_param(p, new_arena))
             .collect();
 
+        // Deep-copy method-level generics + where-clauses across arena boundaries.
+        let old_generics = self.old_arena.get_generic_params(method.generics);
+        let new_generics: Vec<_> = old_generics
+            .iter()
+            .map(|g| self.copy_generic_param(g, new_arena))
+            .collect();
+
+        let new_where_clauses: Vec<_> = method
+            .where_clauses
+            .iter()
+            .map(|w| self.copy_where_clause(w, new_arena))
+            .collect();
+
         ImplMethod {
             name: method.name,
+            generics: new_arena.alloc_generic_params(new_generics),
             params: new_arena.alloc_params(new_params),
             return_ty: self.copy_parsed_type(&method.return_ty, new_arena),
+            capabilities: method.capabilities.clone(),
+            where_clauses: new_where_clauses,
             body: self.copy_expr(method.body, new_arena),
             span: self.adjust_span(method.span),
         }

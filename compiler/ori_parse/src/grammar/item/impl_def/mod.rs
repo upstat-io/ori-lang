@@ -78,7 +78,7 @@ impl Parser<'_> {
                 assoc_types.push(at);
             } else if self.cursor.check(&TokenKind::At) {
                 // Method: @name (...) -> Type = body
-                let method = committed!(self.parse_impl_method());
+                let method = committed!(self.parse_impl_method(false));
                 methods.push(method);
             } else {
                 return ParseOutcome::consumed_err(
@@ -115,12 +115,31 @@ impl Parser<'_> {
     }
 
     /// Parse a method in an impl block.
-    pub(crate) fn parse_impl_method(&mut self) -> Result<ImplMethod, ParseError> {
+    ///
+    /// Grammar (per `compiler_repo/docs/ori_lang/v2026/spec/grammar.ebnf`):
+    /// ```text
+    /// method          = "@" identifier [ generics ] params "->" type [ uses_clause ] [ where_clause ] "=" expression [ ";" ] .
+    /// def_impl_method = "@" identifier [ generics ] params "->" type [ where_clause ] "=" expression [ ";" ] .  /* no self, no uses */
+    /// ```
+    ///
+    /// `def_impl_context` selects the `def impl` variant: `uses_clause` is
+    /// rejected with a parse-error diagnostic. Stateless-default contract.
+    pub(crate) fn parse_impl_method(
+        &mut self,
+        def_impl_context: bool,
+    ) -> Result<ImplMethod, ParseError> {
         let start_span = self.cursor.current_span();
 
         // @name
         self.cursor.expect(&TokenKind::At)?;
         let name = self.cursor.expect_ident()?;
+
+        // Optional method-level generics: <T, U: Bound>
+        let generics = if self.cursor.check(&TokenKind::Lt) {
+            self.parse_generics().into_result()?
+        } else {
+            GenericParamRange::EMPTY
+        };
 
         // (params)
         self.cursor.expect(&TokenKind::LParen)?;
@@ -130,6 +149,29 @@ impl Parser<'_> {
         // -> Type
         self.cursor.expect(&TokenKind::Arrow)?;
         let return_ty = self.parse_type_required().into_result()?;
+
+        // Optional uses clause: uses Http, FileSystem
+        // Forbidden in `def impl` methods (stateless-default contract).
+        let capabilities = if self.cursor.check(&TokenKind::Uses) {
+            if def_impl_context {
+                let uses_span = self.cursor.current_span();
+                return Err(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "`uses` clause not allowed in `def impl` method (def-impl methods are stateless by definition)".to_string(),
+                    uses_span,
+                ));
+            }
+            self.parse_uses_clause().into_result()?
+        } else {
+            Vec::new()
+        };
+
+        // Optional method-level where clauses: where T: Clone
+        let where_clauses = if self.cursor.check(&TokenKind::Where) {
+            self.parse_where_clauses().into_result()?
+        } else {
+            Vec::new()
+        };
 
         // = body
         self.cursor.expect(&TokenKind::Eq)?;
@@ -144,8 +186,11 @@ impl Parser<'_> {
 
         Ok(ImplMethod {
             name,
+            generics,
             params,
             return_ty,
+            capabilities,
+            where_clauses,
             body,
             span: start_span.merge(end_span),
         })
@@ -218,8 +263,8 @@ impl Parser<'_> {
 
         while !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
             if self.cursor.check(&TokenKind::At) {
-                // Method: @name (...) -> Type = body
-                let method = committed!(self.parse_impl_method());
+                // Method: @name (...) -> Type = body (def-impl context: forbids `uses` clause)
+                let method = committed!(self.parse_impl_method(true));
                 methods.push(method);
             } else {
                 return ParseOutcome::consumed_err(

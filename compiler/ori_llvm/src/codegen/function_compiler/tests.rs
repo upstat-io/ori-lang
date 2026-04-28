@@ -389,8 +389,11 @@ fn compile_impls_populates_method_functions_map() {
         where_clauses: vec![],
         methods: vec![ImplMethod {
             name: distance_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
             params: ori_ir::ParamRange::EMPTY,
             return_ty: ParsedType::Primitive(ori_ir::TypeId::FLOAT),
+            capabilities: vec![],
+            where_clauses: vec![],
             body: ori_ir::ExprId::INVALID,
             span: Span::new(0, 0),
         }],
@@ -412,8 +415,11 @@ fn compile_impls_populates_method_functions_map() {
         where_clauses: vec![],
         methods: vec![ImplMethod {
             name: distance_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
             params: ori_ir::ParamRange::EMPTY,
             return_ty: ParsedType::Primitive(ori_ir::TypeId::FLOAT),
+            capabilities: vec![],
+            where_clauses: vec![],
             body: ori_ir::ExprId::INVALID,
             span: Span::new(0, 0),
         }],
