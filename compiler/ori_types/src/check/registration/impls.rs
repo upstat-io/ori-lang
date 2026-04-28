@@ -9,7 +9,8 @@ use ori_ir::{ExprId, Name, Span};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::type_resolution::{
-    collect_generic_params, resolve_parsed_type_simple, resolve_type_with_self,
+    build_method_generic_metadata, build_where_constraint, collect_generic_params,
+    resolve_parsed_type_simple, resolve_type_with_self,
 };
 use crate::{
     Idx, ImplEntry, ImplMethodDef, ImplSpecificity, ModuleChecker, TypeCheckError, WhereConstraint,
@@ -330,52 +331,25 @@ fn build_impl_method(
     // Create function type for signature
     let signature = checker.pool_mut().function(&param_types, return_ty);
 
+    // Phase B Step 3: deep-copy method-level generics + where-clauses into
+    // arena-independent owned form for downstream bound enforcement.
+    let (scheme_var_ids, generic_param_metadata, where_clause_metadata) =
+        build_method_generic_metadata(
+            checker,
+            method.generics,
+            &method.where_clauses,
+            type_params,
+            self_type,
+        );
+
     ImplMethodDef {
         name: method.name,
         signature,
         has_self,
         body: method.body,
-        scheme_var_ids: Vec::new(),
-        generic_param_metadata: Vec::new(),
-        where_clause_metadata: Vec::new(),
+        scheme_var_ids,
+        generic_param_metadata,
+        where_clause_metadata,
         span: method.span,
     }
-}
-
-/// Build a `WhereConstraint` from a where clause.
-///
-/// Returns `None` for const bounds (not yet evaluated).
-fn build_where_constraint(
-    checker: &mut ModuleChecker<'_>,
-    wc: &ori_ir::WhereClause,
-    type_params: &[Name],
-    self_type: Idx,
-) -> Option<WhereConstraint> {
-    let (param, _projection, bounds, _span) = wc.as_type_bound()?;
-
-    // Resolve the constrained type parameter
-    let ty = if type_params.contains(&param) {
-        checker.pool_mut().named(param)
-    } else if param == checker.interner().intern("Self") {
-        self_type
-    } else {
-        // Fallback to named type
-        checker.pool_mut().named(param)
-    };
-
-    // Resolve the trait bounds
-    // TraitBound has `first` and `rest` fields for path segments
-    // Use the `name()` method to get the last segment (the actual trait name)
-    let resolved_bounds: Vec<Idx> = bounds
-        .iter()
-        .map(|bound| {
-            // Use the name() method which returns the last segment (or first if rest is empty)
-            checker.pool_mut().named(bound.name())
-        })
-        .collect();
-
-    Some(WhereConstraint {
-        ty,
-        bounds: resolved_bounds,
-    })
 }

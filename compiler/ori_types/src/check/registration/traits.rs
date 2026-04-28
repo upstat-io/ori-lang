@@ -8,7 +8,8 @@ use ori_ir::{ExprArena, Name, TraitItem};
 use rustc_hash::FxHashMap;
 
 use super::type_resolution::{
-    collect_generic_params, parsed_type_contains_self, resolve_type_with_params,
+    build_method_generic_metadata, collect_generic_params, parsed_type_contains_self,
+    resolve_type_with_params,
 };
 use crate::{
     Idx, ModuleChecker, ObjectSafetyViolation, TraitAssocTypeDef, TraitEntry, TraitMethodDef,
@@ -264,14 +265,26 @@ fn build_trait_method_sig(
     // Create function type for signature
     let signature = checker.pool_mut().function(&param_types, return_ty);
 
+    // Phase B Step 3: deep-copy method-level generics + where-clauses into
+    // arena-independent owned form for downstream bound enforcement. In trait
+    // context `Self` stays symbolic, so we pass `Idx::ERROR` as the self_type.
+    let (scheme_var_ids, generic_param_metadata, where_clause_metadata) =
+        build_method_generic_metadata(
+            checker,
+            sig.generics,
+            &sig.where_clauses,
+            type_params,
+            Idx::ERROR,
+        );
+
     TraitMethodDef {
         name: sig.name,
         signature,
         has_default: false,
         default_body: None,
-        scheme_var_ids: Vec::new(),
-        generic_param_metadata: Vec::new(),
-        where_clause_metadata: Vec::new(),
+        scheme_var_ids,
+        generic_param_metadata,
+        where_clause_metadata,
         span: sig.span,
     }
 }
@@ -300,14 +313,25 @@ fn build_trait_default_method(
     // Create function type for signature
     let signature = checker.pool_mut().function(&param_types, return_ty);
 
+    // Phase B Step 3: deep-copy method-level generics + where-clauses (see
+    // `build_trait_method_sig` for rationale on the `Idx::ERROR` self_type).
+    let (scheme_var_ids, generic_param_metadata, where_clause_metadata) =
+        build_method_generic_metadata(
+            checker,
+            method.generics,
+            &method.where_clauses,
+            type_params,
+            Idx::ERROR,
+        );
+
     TraitMethodDef {
         name: method.name,
         signature,
         has_default: true,
         default_body: Some(method.body),
-        scheme_var_ids: Vec::new(),
-        generic_param_metadata: Vec::new(),
-        where_clause_metadata: Vec::new(),
+        scheme_var_ids,
+        generic_param_metadata,
+        where_clause_metadata,
         span: method.span,
     }
 }

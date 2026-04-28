@@ -54,6 +54,7 @@ pub use pool::{
 pub use registry::{
     // Type registry
     FieldDef,
+    GenericParamMeta,
     // Trait registry
     ImplEntry,
     ImplMethodDef,

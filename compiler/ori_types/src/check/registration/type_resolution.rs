@@ -4,9 +4,9 @@
 //! handles in the Pool. They are used across all registration submodules
 //! (user types, traits, impls, derived).
 
-use ori_ir::{ExprArena, Name, ParsedType, TypeId};
+use ori_ir::{ExprArena, GenericParamRange, Name, ParsedType, TypeId, WhereClause};
 
-use crate::{Idx, ModuleChecker};
+use crate::{GenericParamMeta, Idx, ModuleChecker, WhereConstraint};
 
 /// Collect type generic parameter names from a generic param range.
 ///
@@ -377,4 +377,112 @@ pub(super) fn convert_visibility(ir_vis: ori_ir::Visibility) -> crate::Visibilit
         ori_ir::Visibility::Public => crate::Visibility::Public,
         ori_ir::Visibility::Private => crate::Visibility::Private,
     }
+}
+
+/// Build a `WhereConstraint` from a single AST `WhereClause`.
+///
+/// Returns `None` for const bounds (deferred per `WhereClause::as_type_bound`).
+/// `type_params` is the combined scope of outer + method-level type params;
+/// `self_type` substitutes `Self` references in the constrained-param position
+/// (pass `Idx::ERROR` in trait-method context where `Self` remains symbolic).
+pub(crate) fn build_where_constraint(
+    checker: &mut ModuleChecker<'_>,
+    wc: &WhereClause,
+    type_params: &[Name],
+    self_type: Idx,
+) -> Option<WhereConstraint> {
+    let (param, _projection, bounds, _span) = wc.as_type_bound()?;
+
+    let ty = if type_params.contains(&param) {
+        checker.pool_mut().named(param)
+    } else if param == checker.interner().intern("Self") {
+        self_type
+    } else {
+        checker.pool_mut().named(param)
+    };
+
+    let resolved_bounds: Vec<Idx> = bounds
+        .iter()
+        .map(|b| checker.pool_mut().named(b.name()))
+        .collect();
+
+    Some(WhereConstraint {
+        ty,
+        bounds: resolved_bounds,
+    })
+}
+
+/// Deep-copy method-level generics + where-clauses into arena-independent owned form.
+///
+/// Returns `(scheme_var_ids, generic_param_metadata, where_clause_metadata)`:
+/// - `scheme_var_ids` — pool `var_ids` parallel to declaration order of TYPE-generic params (skip const)
+/// - `generic_param_metadata` — full owned `GenericParamMeta` per param (type AND const), declaration order
+/// - `where_clause_metadata` — type-bound `WhereConstraint` entries (const bounds skipped)
+///
+/// `outer_type_params` carries impl-level / trait-level type params already in scope.
+/// `self_type` is `Idx::ERROR` in trait-method context (Self stays symbolic) or the
+/// implementing type in impl-method context.
+pub(crate) fn build_method_generic_metadata(
+    checker: &mut ModuleChecker<'_>,
+    generics: GenericParamRange,
+    where_clauses: &[WhereClause],
+    outer_type_params: &[Name],
+    self_type: Idx,
+) -> (Vec<u32>, Vec<GenericParamMeta>, Vec<WhereConstraint>) {
+    let generic_params = checker.arena().get_generic_params(generics).to_vec();
+
+    let method_type_param_names: Vec<Name> = generic_params
+        .iter()
+        .filter(|p| !p.is_const)
+        .map(|p| p.name)
+        .collect();
+    let combined_scope: Vec<Name> = outer_type_params
+        .iter()
+        .copied()
+        .chain(method_type_param_names.iter().copied())
+        .collect();
+
+    let mut scheme_var_ids: Vec<u32> = Vec::new();
+    let mut param_meta: Vec<GenericParamMeta> = Vec::with_capacity(generic_params.len());
+
+    for p in &generic_params {
+        let bounds: Vec<Idx> = p
+            .bounds
+            .iter()
+            .map(|tb| checker.pool_mut().named(tb.name()))
+            .collect();
+
+        let default_type = p
+            .default_type
+            .as_ref()
+            .map(|dt| resolve_type_with_self(checker, dt, &combined_scope, self_type));
+
+        let const_type = p
+            .const_type
+            .as_ref()
+            .map(|ct| resolve_type_with_self(checker, ct, &combined_scope, self_type));
+
+        if !p.is_const {
+            let var_idx = checker.pool_mut().fresh_named_var(p.name);
+            let var_id = checker.pool().data(var_idx);
+            scheme_var_ids.push(var_id);
+        }
+
+        param_meta.push(GenericParamMeta {
+            name: p.name,
+            is_const: p.is_const,
+            bounds,
+            default_type,
+            const_type,
+            const_default_value: None,
+            projection_bounds: Vec::new(),
+        });
+    }
+
+    let where_meta: Vec<WhereConstraint> = where_clauses
+        .iter()
+        .filter_map(|wc| build_where_constraint(checker, wc, &combined_scope, self_type))
+        .collect();
+
+    (scheme_var_ids, param_meta, where_meta)
 }
