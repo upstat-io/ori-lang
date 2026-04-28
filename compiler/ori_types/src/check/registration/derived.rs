@@ -294,6 +294,11 @@ pub(super) fn build_derived_methods(
             signature,
             has_self,
             body: ExprId::INVALID,
+            // Derived methods have no method-level binders by construction
+            // — the deriver synthesizes monomorphic-shape methods.
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
             span,
         },
     );

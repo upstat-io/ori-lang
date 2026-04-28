@@ -145,6 +145,19 @@ pub struct TraitMethodDef {
     /// Default implementation body (if `has_default` is true).
     pub default_body: Option<ExprId>,
 
+    /// Pool `var_id`s for the method's own quantified type variables.
+    /// Mirrors `FunctionSig.scheme_var_ids` — empty for non-generic methods.
+    pub scheme_var_ids: Vec<u32>,
+
+    /// Method-level generic parameter metadata, deep-copied from the AST's
+    /// `GenericParamRange` into arena-independent owned form.
+    /// Empty when the method has no generic parameters.
+    pub generic_param_metadata: Vec<GenericParamMeta>,
+
+    /// Method-level where-clause constraints, deep-copied into resolved form.
+    /// Empty when the method has no where clause.
+    pub where_clause_metadata: Vec<WhereConstraint>,
+
     /// Source location.
     pub span: Span,
 }
@@ -229,6 +242,19 @@ pub struct ImplMethodDef {
     /// Method body expression.
     pub body: ExprId,
 
+    /// Pool `var_id`s for the method's own quantified type variables.
+    /// Mirrors `FunctionSig.scheme_var_ids` — empty for non-generic methods.
+    pub scheme_var_ids: Vec<u32>,
+
+    /// Method-level generic parameter metadata, deep-copied from the AST's
+    /// `GenericParamRange` into arena-independent owned form.
+    /// Empty when the method has no generic parameters.
+    pub generic_param_metadata: Vec<GenericParamMeta>,
+
+    /// Method-level where-clause constraints, deep-copied into resolved form.
+    /// Empty when the method has no where clause.
+    pub where_clause_metadata: Vec<WhereConstraint>,
+
     /// Source location.
     pub span: Span,
 }
@@ -241,6 +267,42 @@ pub struct WhereConstraint {
 
     /// The trait bounds on this type.
     pub bounds: Vec<Idx>,
+}
+
+/// Method-level generic parameter metadata, arena-independent.
+///
+/// Deep-copied from the AST's `GenericParamRange` at registration time so
+/// the registry-side definition does not leak arena lifetimes — mirrors the
+/// `FunctionSig.scheme_var_ids` precedent of resolving AST data into owned
+/// form. All trait/index fields use the type pool's stable `Idx` and the
+/// existing `WhereConstraint` shape.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct GenericParamMeta {
+    /// Parameter name (e.g., `T` in `<T: Eq>`).
+    pub name: Name,
+
+    /// `false` for type-generic params (`<T>`); `true` for const-generic
+    /// params (`<$N: int>`).
+    pub is_const: bool,
+
+    /// Trait bounds for this parameter, fully resolved.
+    /// `T: Eq + Clone` becomes `vec![Idx_of_Eq, Idx_of_Clone]`.
+    pub bounds: Vec<Idx>,
+
+    /// Default type for type-generic parameters (e.g., `<T = int>`).
+    pub default_type: Option<Idx>,
+
+    /// Type of a const-generic parameter (e.g., the `int` in `<$N: int>`).
+    /// Always `None` when `is_const == false`.
+    pub const_type: Option<Idx>,
+
+    /// Default value of a const-generic parameter (e.g., `<$N: int = 42>`).
+    /// Always `None` when `is_const == false`.
+    pub const_default_value: Option<Idx>,
+
+    /// Projection-bound constraints attached to this parameter
+    /// (e.g., `T.Item: Eq` shape per associated-type clarification note).
+    pub projection_bounds: Vec<WhereConstraint>,
 }
 
 impl TraitRegistry {

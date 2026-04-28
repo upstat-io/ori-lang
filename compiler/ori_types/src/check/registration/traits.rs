@@ -123,9 +123,11 @@ pub(super) fn compute_object_safety_violations(
     let mut violations = Vec::new();
 
     for item in &trait_def.items {
-        let (name, params_range, return_ty, span) = match item {
-            TraitItem::MethodSig(sig) => (sig.name, sig.params, &sig.return_ty, sig.span),
-            TraitItem::DefaultMethod(m) => (m.name, m.params, &m.return_ty, m.span),
+        let (name, params_range, return_ty, span, generics) = match item {
+            TraitItem::MethodSig(sig) => {
+                (sig.name, sig.params, &sig.return_ty, sig.span, sig.generics)
+            }
+            TraitItem::DefaultMethod(m) => (m.name, m.params, &m.return_ty, m.span, m.generics),
             TraitItem::AssocType(_) => continue,
         };
 
@@ -153,10 +155,12 @@ pub(super) fn compute_object_safety_violations(
             }
         }
 
-        // Rule 3: Generic methods — currently trait methods cannot have their
-        // own generics (TraitMethodSig has no `generics` field), so this rule
-        // cannot be violated. When per-method generics are added to the parser,
-        // this check will need to be implemented.
+        // Rule 3: Generic methods — methods with their own type parameters
+        // require monomorphization, which is incompatible with vtable dispatch.
+        // Spec: Clause 8.8 (trait objects); types.md §BI-6 (object safety).
+        if !generics.is_empty() {
+            violations.push(ObjectSafetyViolation::GenericMethod { method: name, span });
+        }
     }
 
     violations
@@ -191,6 +195,9 @@ fn build_trait_method_sig(
         signature,
         has_default: false,
         default_body: None,
+        scheme_var_ids: Vec::new(),
+        generic_param_metadata: Vec::new(),
+        where_clause_metadata: Vec::new(),
         span: sig.span,
     }
 }
@@ -224,6 +231,9 @@ fn build_trait_default_method(
         signature,
         has_default: true,
         default_body: Some(method.body),
+        scheme_var_ids: Vec::new(),
+        generic_param_metadata: Vec::new(),
+        where_clause_metadata: Vec::new(),
         span: method.span,
     }
 }

@@ -190,6 +190,9 @@ fn inherit_default_methods(
                 signature,
                 has_self: true,
                 body,
+                scheme_var_ids: Vec::new(),
+                generic_param_metadata: Vec::new(),
+                where_clause_metadata: Vec::new(),
                 span,
             });
         }
@@ -332,6 +335,9 @@ fn build_impl_method(
         signature,
         has_self,
         body: method.body,
+        scheme_var_ids: Vec::new(),
+        generic_param_metadata: Vec::new(),
+        where_clause_metadata: Vec::new(),
         span: method.span,
     }
 }

@@ -32,6 +32,9 @@ fn register_and_lookup_trait() {
             signature: Idx::from_raw(300),
             has_default: false,
             default_body: None,
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
             span: test_span(),
         },
     );
@@ -92,6 +95,9 @@ fn register_and_lookup_impl() {
             signature: Idx::from_raw(301),
             has_self: true,
             body: test_expr(),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
             span: test_span(),
         },
     );
@@ -141,6 +147,9 @@ fn inherent_impl() {
             signature: Idx::from_raw(400),
             has_self: true,
             body: test_expr(),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
             span: test_span(),
         },
     );
@@ -198,6 +207,9 @@ fn method_lookup_priority() {
             signature: Idx::from_raw(300),
             has_self: true,
             body: test_expr(),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
             span: test_span(),
         },
     );
@@ -223,6 +235,9 @@ fn method_lookup_priority() {
             signature: Idx::from_raw(400),
             has_self: true,
             body: test_expr(),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
             span: test_span(),
         },
     );
@@ -422,6 +437,9 @@ fn collected_methods_deduplication() {
             signature: Idx::from_raw(300),
             has_default: true,
             default_body: Some(test_expr()),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
             span: test_span(),
         },
     );
@@ -438,6 +456,9 @@ fn collected_methods_deduplication() {
             signature: Idx::from_raw(400),
             has_default: true,
             default_body: Some(test_expr()),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
             span: test_span(),
         },
     );
@@ -448,6 +469,9 @@ fn collected_methods_deduplication() {
             signature: Idx::from_raw(401),
             has_default: false,
             default_body: None,
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
             span: test_span(),
         },
     );
