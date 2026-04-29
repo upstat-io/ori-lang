@@ -64,21 +64,47 @@ fn register_impl(
             .collect()
     };
 
-    // 4. Process explicitly defined methods
+    // 4. Process explicitly defined methods.
+    //
+    // BUG-01-002 sub-gap (b): explicit user-written impl methods reference
+    // impl-level binders directly (e.g. `op: (T, X) -> T` where `X` is the
+    // impl's own type-param) — no trait→impl substitution is needed. Pass an
+    // empty `trait_substitutions` overlay. The substitution path matters only
+    // for inherited defaults at step 4b below (see `inherit_default_methods`).
+    let empty_trait_subst: FxHashMap<Name, Idx> = FxHashMap::default();
     let mut methods = FxHashMap::default();
     for impl_method in &impl_def.methods {
-        let method_def = build_impl_method(checker, impl_method, &type_params, self_type);
+        let method_def = build_impl_method(
+            checker,
+            impl_method,
+            &type_params,
+            self_type,
+            &empty_trait_subst,
+        );
         methods.insert(impl_method.name, method_def);
     }
 
-    // 4b. Inherit unoverridden default methods (direct + transitive from super-traits)
+    // 4b. Inherit unoverridden default methods (direct + transitive from super-traits).
+    //
+    // `ImplBuildContext` bundles the three co-varying impl-instance fields
+    // (`type_params`, `self_type`, `trait_type_args`) per impl-hygiene.md
+    // §PARAM_SPRAWL :domain-fragment. `trait_type_args` is required so
+    // direct-default inheritance can build the trait→impl binder substitution
+    // map (e.g. `F → X` for `impl<X> Reducer<X>` over `trait Reducer<F>`) —
+    // without it, the inherited default's `op: (T, F) -> T` body would carry
+    // a dangling `Tag::Named("F")` that fails to unify at call sites
+    // (BUG-01-002 sub-gap (b)).
+    let impl_ctx = ImplBuildContext {
+        type_params: &type_params,
+        self_type,
+        trait_type_args: &trait_type_args,
+    };
     let explicit_methods = inherit_default_methods(
         checker,
         impl_def,
         traits,
         trait_idx,
-        &type_params,
-        self_type,
+        &impl_ctx,
         &mut methods,
     );
 
@@ -136,6 +162,31 @@ fn register_impl(
     checker.trait_registry_mut().register_impl(entry);
 }
 
+/// Per-impl resolver context.
+///
+/// Bundles the three impl-instance descriptors that travel together for any
+/// per-impl operation: the impl-level type-generic param names, the resolved
+/// `Self` type, and the resolved trait type arguments. Pre-BUG-01-002 sub-gap
+/// (b), `inherit_default_methods` and `build_impl_method` took the first two
+/// as flat params; landing the trait→impl substitution required threading a
+/// third co-varying field. Per `impl-hygiene.md §PARAM_SPRAWL :domain-fragment`
+/// (≥3 fields co-varying at every site), bundle into a domain newtype rather
+/// than grow the flat signature past clippy's `too_many_arguments` threshold.
+///
+/// Note: `build_impl_method` does not consume `trait_type_args` (only param
+/// + return type resolution, which uses `trait_substitutions` directly), so
+/// `ImplBuildContext` is consumed only by `inherit_default_methods` today.
+struct ImplBuildContext<'a> {
+    /// Impl-level type-generic param names (e.g. `["X"]` for
+    /// `impl<X> Reducer<X> for Container<X>`).
+    type_params: &'a [Name],
+    /// Resolved `Self` type for the impl block (e.g. `Container<X>`).
+    self_type: Idx,
+    /// Resolved trait type arguments (e.g. `[pool.named("X")]` for
+    /// `Reducer<X>`). Used by Step 1 to build the trait→impl substitution.
+    trait_type_args: &'a [Idx],
+}
+
 /// Inherit unoverridden default methods from trait definitions.
 ///
 /// For trait impls, collects default methods from both the direct trait (AST)
@@ -147,8 +198,7 @@ fn inherit_default_methods(
     impl_def: &ori_ir::ImplDef,
     traits: &[ori_ir::TraitDef],
     trait_idx: Option<Idx>,
-    type_params: &[Name],
-    self_type: Idx,
+    impl_ctx: &ImplBuildContext<'_>,
     methods: &mut FxHashMap<Name, ImplMethodDef>,
 ) -> FxHashSet<Name> {
     let Some(trait_path) = &impl_def.trait_path else {
@@ -156,14 +206,56 @@ fn inherit_default_methods(
         return methods.keys().copied().collect();
     };
 
-    // Step 1: Direct defaults from the AST trait definition
+    // Step 1: Direct defaults from the AST trait definition.
+    //
+    // BUG-01-002 sub-gap (b) — Inherited default-method binder remapping:
+    // `From<&TraitDefaultMethod> for ImplMethod` at
+    // `compiler/ori_ir/src/ast/items/traits.rs:335` shares the parsed param/return
+    // types verbatim, so the trait's view of `(T, F) -> T` survives unchanged
+    // into the impl-side `ImplMethodDef`. Without a trait→impl substitution,
+    // resolving `F` finds neither a method-level overlay entry NOR an impl-level
+    // type_param, so it falls through to a dangling `Tag::Named("F")` that fails
+    // to unify at call sites (display-equal `int ≠ int` error per the §05 trace).
+    //
+    // Build `trait_subst: trait_param_name → impl_trait_arg_Idx` from the trait
+    // declaration's generics zipped with the impl's resolved trait_type_args
+    // (e.g. `F → pool.named("X")` for `impl<X> Reducer<X>` over
+    // `trait Reducer<F>`). Pass it through `build_impl_method` so the resolver
+    // overlay sees both method-level binders (fresh Vars) AND trait-level
+    // binders (impl trait args).
     if let Some(&trait_name) = trait_path.last() {
         if let Some(trait_def) = traits.iter().find(|t| t.name == trait_name) {
+            // Collect trait-level type-generic param names (skip const).
+            let trait_param_names: Vec<Name> = checker
+                .arena()
+                .get_generic_params(trait_def.generics)
+                .iter()
+                .filter(|p| !p.is_const)
+                .map(|p| p.name)
+                .collect();
+            // Build the trait→impl substitution by zipping the trait's
+            // declared type-params with the impl's resolved trait_type_args.
+            // Length mismatch (e.g. arity-error impl) is silently truncated by
+            // zip — the type-checker's earlier coherence/arity checks emit the
+            // user-facing diagnostic; the inherited body's resolver simply
+            // sees no substitution for the unmapped trait params, which
+            // degrades to today's behavior (dangling `Tag::Named`).
+            let trait_subst: FxHashMap<Name, Idx> = trait_param_names
+                .iter()
+                .zip(impl_ctx.trait_type_args.iter())
+                .map(|(&name, &idx)| (name, idx))
+                .collect();
             for item in &trait_def.items {
                 if let ori_ir::TraitItem::DefaultMethod(default) = item {
                     methods.entry(default.name).or_insert_with(|| {
                         let as_impl = ori_ir::ImplMethod::from(default);
-                        build_impl_method(checker, &as_impl, type_params, self_type)
+                        build_impl_method(
+                            checker,
+                            &as_impl,
+                            impl_ctx.type_params,
+                            impl_ctx.self_type,
+                            &trait_subst,
+                        )
                     });
                 }
             }
@@ -331,6 +423,7 @@ fn build_impl_method(
     method: &ori_ir::ImplMethod,
     type_params: &[Name],
     self_type: Idx,
+    trait_substitutions: &FxHashMap<Name, Idx>,
 ) -> ImplMethodDef {
     // Phase B Step 3: deep-copy method-level generics + where-clauses into
     // arena-independent owned form for downstream bound enforcement.
@@ -345,10 +438,32 @@ fn build_impl_method(
             self_type,
         );
 
+    // BUG-01-002 sub-gap (b): merge `trait_substitutions` into the resolver
+    // overlay used for param/return type resolution. The trait→impl
+    // substitution carries impl-level `Idx` values for the trait's declared
+    // type-params (e.g. `F → pool.named("X")` for `impl<X> Reducer<X>` over
+    // `trait Reducer<F>`); the method-level `scheme_overlay` carries fresh
+    // `Tag::Var` Idx values for method-level binders (e.g. `T → V_T_var`).
+    // The two are at different scopes by construction (trait scope vs method
+    // scope) — collisions are vanishingly rare, but if they happen the
+    // method-level binder shadows per HM scoping, so use `or_insert` to
+    // preserve `scheme_overlay`'s entries on collision. The combined overlay
+    // is used ONLY for param/return resolution; `scheme_var_ids` and
+    // `generic_param_metadata` describe method-level binders alone and are
+    // not affected. (Where-clause resolution inside
+    // `build_method_generic_metadata` still runs against `scheme_overlay`
+    // only — inherited defaults whose where-clauses reference trait-level
+    // binders are tracked as a follow-up `- [ ]` in §05.)
+    let mut combined_overlay = scheme_overlay.clone();
+    for (&tname, &tidx) in trait_substitutions {
+        combined_overlay.entry(tname).or_insert(tidx);
+    }
+
     // Combined scope for type resolution: impl-level (outer) + method-level
     // (inner) names. `resolve_type_with_method_generics` checks the overlay
-    // first (method-level → fresh `Tag::Var`), then falls through to
-    // `type_params.contains` (impl-level → `Tag::Named`).
+    // first (method-level → fresh `Tag::Var`, OR trait-level → impl arg Idx
+    // for inherited defaults), then falls through to `type_params.contains`
+    // (impl-level → `Tag::Named`).
     let method_param_names: Vec<Name> = scheme_overlay.keys().copied().collect();
     let combined_type_params: Vec<Name> = type_params
         .iter()
@@ -367,7 +482,7 @@ fn build_impl_method(
                 Some(ty) => resolve_type_with_method_generics(
                     checker,
                     ty,
-                    &scheme_overlay,
+                    &combined_overlay,
                     &combined_type_params,
                     self_type,
                 ),
@@ -377,11 +492,11 @@ fn build_impl_method(
         })
         .collect();
 
-    // Resolve return type with the same overlay.
+    // Resolve return type with the same combined overlay.
     let return_ty = resolve_type_with_method_generics(
         checker,
         &method.return_ty,
-        &scheme_overlay,
+        &combined_overlay,
         &combined_type_params,
         self_type,
     );
