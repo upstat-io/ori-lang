@@ -4,7 +4,8 @@
 //! collection surface hashes, and resolved monomorphization instances for
 //! cross-module transport.
 
-use ori_ir::Name;
+use ori_ir::canon::MonoInstanceId;
+use ori_ir::{ExprId, Name};
 use rustc_hash::FxHashSet;
 
 use crate::pool::TypeDescriptor;
@@ -142,6 +143,7 @@ pub(super) fn generate_exported_collection_surfaces(
 pub(super) fn resolve_deferred_mono_calls(
     pool: &mut Pool,
     mono_instances: &mut Vec<crate::MonoInstance>,
+    mono_dispatch_pre_dedup: &mut Vec<(ExprId, MonoInstanceId)>,
     deferred_calls: &[crate::DeferredMonoCall],
 ) {
     use rustc_hash::FxHashSet;
@@ -169,6 +171,7 @@ pub(super) fn resolve_deferred_mono_calls(
             try_resolve_deferred_call(
                 pool,
                 mono_instances,
+                mono_dispatch_pre_dedup,
                 &mut seen,
                 caller_name,
                 &caller_generic_args,
@@ -190,6 +193,7 @@ pub(super) fn resolve_deferred_mono_calls(
 fn try_resolve_deferred_call(
     pool: &mut Pool,
     mono_instances: &mut Vec<crate::MonoInstance>,
+    mono_dispatch_pre_dedup: &mut Vec<(ExprId, MonoInstanceId)>,
     seen: &mut rustc_hash::FxHashSet<(Name, Vec<crate::GenericArg>)>,
     caller_name: Name,
     caller_generic_args: &[crate::GenericArg],
@@ -260,6 +264,18 @@ fn try_resolve_deferred_call(
     );
 
     mono_instances.push(instance);
+
+    // Publish a dispatch entry for the deferred call so downstream phases
+    // (canon → ARC → ori_llvm/ori_eval) see the same `MonoInstanceId` they
+    // see for eager-path calls. The new instance was just pushed, so its
+    // pre-dedup id is `len() - 1`; this entry flows through the same
+    // dedup-remap pipeline as eager entries (see `check/mod.rs` export
+    // pipeline). Closes the gap noted in `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
+    // §C.2 sub-step 1b-deferred.
+    let new_id = MonoInstanceId(
+        u32::try_from(mono_instances.len() - 1).expect("mono_instances index fits in u32"),
+    );
+    mono_dispatch_pre_dedup.push((deferred.call_expr_id, new_id));
 }
 
 /// Resolve the callee's `var_subst` into a concrete `(callee_var_id →

@@ -15,12 +15,16 @@ use crate::{GenericArg, Idx, MonoInstance, Pool, Tag};
 /// builds a substitution map from `scheme_var_ids`, and computes the `body_type_map`
 /// for the ARC lowerer.
 ///
-/// `call_expr_id` is the AST `ExprId` of the call expression itself; the eager
-/// (concrete) path threads it into `engine.record_mono_with_dispatch` so a
-/// dispatch entry lands in `TypedModule.mono_dispatch_map`. The deferred
-/// (still-unresolved-vars) path does NOT publish a dispatch entry today —
+/// `call_expr_id` is the AST `ExprId` of the call expression itself. Both the
+/// eager (concrete) path and the deferred (still-unresolved-vars) path thread
+/// it forward so a dispatch entry lands in `TypedModule.mono_dispatch_map`:
+/// the eager path calls `engine.record_mono_with_dispatch` directly; the
+/// deferred path stores the id on `DeferredMonoCall.call_expr_id`, and
+/// `check::exports::resolve_deferred_mono_calls` publishes the entry once
+/// the deferred call resolves to a concrete `MonoInstance` (per
 /// `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2 sub-step
-/// 1b-deferred extends `DeferredMonoCall` to carry `ExprId` and closes the gap.
+/// 1b-deferred). Both paths therefore land in the same pre-dedup buffer and
+/// flow through the same dedup-remap pipeline downstream.
 pub(super) fn maybe_record_mono_instance(
     engine: &mut InferEngine<'_>,
     call_expr_id: ExprId,
@@ -65,6 +69,7 @@ pub(super) fn maybe_record_mono_instance(
     if has_unresolved_vars {
         record_deferred_mono_call(
             engine,
+            call_expr_id,
             fn_name,
             &scheme_var_ids,
             &var_subst,
@@ -241,6 +246,7 @@ fn extract_indirect_scheme_var(
 /// are already resolved at the call site).
 fn record_deferred_mono_call(
     engine: &mut InferEngine<'_>,
+    call_expr_id: ExprId,
     callee: Name,
     callee_scheme_var_ids: &[u32],
     var_subst: &FxHashMap<u32, Idx>,
@@ -311,6 +317,7 @@ fn record_deferred_mono_call(
             var_subst: semantic_subst,
             callee_param_types,
             callee_return_type,
+            call_expr_id,
         };
         tracing::debug!(
             caller = ?caller,

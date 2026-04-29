@@ -366,7 +366,7 @@ impl<'a> ModuleChecker<'a> {
     ///
     /// Use this when you need access to the pool for type resolution
     /// after checking is complete.
-    pub fn finish_with_pool(self) -> (TypeCheckResult, Pool) {
+    pub fn finish_with_pool(mut self) -> (TypeCheckResult, Pool) {
         let mut pool = self.pool;
         let deferred_mono_calls = self.deferred_mono_calls;
 
@@ -384,11 +384,17 @@ impl<'a> ModuleChecker<'a> {
         pattern_resolutions.dedup_by_key(|(k, _)| *k);
 
         // Resolve transitive mono calls (generic calling generic) before dedup.
+        // Per §C.2 sub-step 1b-deferred, the resolver publishes dispatch entries
+        // into `mono_dispatch_pre_dedup` for each successfully-resolved deferred
+        // call, using the `DeferredMonoCall.call_expr_id` recorded at inference
+        // time. Pre-dedup ids are remapped through the same dedup pipeline as
+        // eager-path entries below.
         let mut mono_instances = self.mono_instances;
         if !deferred_mono_calls.is_empty() {
             exports::resolve_deferred_mono_calls(
                 &mut pool,
                 &mut mono_instances,
+                &mut self.mono_dispatch_pre_dedup,
                 &deferred_mono_calls,
             );
         }
@@ -518,11 +524,12 @@ impl<'a> ModuleChecker<'a> {
             // `mono_dispatch_pre_dedup` after remapping pre-dedup
             // `MonoInstanceId`s through dedup + sort, then sorted by
             // `ExprId` for binary-search lookup per `output/mod.rs:405-410`.
-            // The deferred-resolution path
-            // (`exports::resolve_deferred_mono_calls`) does NOT publish
-            // entries today — `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
-            // §C.2 sub-step 1b-deferred extends `DeferredMonoCall` to
-            // carry `ExprId` and closes the gap.
+            // Phase C.2 sub-step 1b-deferred (shipped): the deferred-
+            // resolution path `exports::resolve_deferred_mono_calls` now
+            // publishes pre-dedup entries via `DeferredMonoCall.call_expr_id`,
+            // so transitive (generic-calls-generic) instantiations land in
+            // this map alongside eager-path instantiations. Both flow
+            // through the same dedup-remap pipeline.
             mono_dispatch_map,
             type_descriptors,
             exported_type_metadata,

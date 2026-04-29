@@ -283,6 +283,15 @@ pub struct DeferredMonoCall {
     pub callee_param_types: Vec<Idx>,
     /// The callee's return type (from its generic signature).
     pub callee_return_type: Idx,
+    /// The AST `ExprId` of the call expression that recorded this deferred
+    /// call. Used by the deferred-resolution path
+    /// (`check::exports::resolve_deferred_mono_calls`) to publish a dispatch
+    /// entry into `ModuleChecker.mono_dispatch_pre_dedup` once the deferred
+    /// call resolves to a concrete `MonoInstance`. After dedup-remap (per
+    /// the `check/mod.rs` export pipeline), the entry lands in
+    /// `TypedModule.mono_dispatch_map` and flows downstream symmetrically
+    /// with eager-path entries.
+    pub call_expr_id: ExprId,
 }
 
 /// Type-checked module.
