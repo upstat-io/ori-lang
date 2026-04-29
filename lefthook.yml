@@ -14,6 +14,13 @@ pre-commit:
     full-check:
       glob: "*.{rs,toml,ori,sh,json,yml,yaml,js,ts}"
       run: ./full-check.sh
+    sprawl-lint:
+      # PARAM_SPRAWL detector — see impl-hygiene.md §Finding Categories.
+      # Bedding-in mode (--warn-only): always exits 0; surfaces findings to
+      # stderr without gating commits. Promote to gating by dropping --warn-only
+      # once the rule has shown true-positive rate is reliable in practice.
+      glob: "**/*.rs"
+      run: python3 scripts/sprawl-lint.py --warn-only
     version-sync:
       glob: "**/Cargo.toml|**/package.json|**/BaseLayout.astro"
       run: ./scripts/sync-version.sh --check
