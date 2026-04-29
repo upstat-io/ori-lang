@@ -545,14 +545,12 @@ fn test_generic_closure_capture_forwarded() {
 }
 
 #[test]
-#[ignore = "blocked-by: BUG-04-091 (inherent method on generic type codegen mono resolution gap) + BUG-01-002 (parser grammar for impl<T> method-level @m<U>). \
-            Inherent method on generic type (impl<T> Box<T> { @m (self) -> T }) triggers \
-            'unresolved function in apply — missing mono instance' at codegen; \
-            method-level generic parameter (@map<U>) additionally not parsed \
-            (parser: `expected (, found <`). Both are pre-existing gaps unrelated to the \
-            §04.2.B root-extension fix. Reduced shape (3-hop chain on a user-defined \
-            generic struct via field access) is covered by test_generic_chain_user_struct; \
-            the method-dispatch shape cannot be reduced without losing the test's purpose \
+#[ignore = "blocked-by: BUG-04-091 (inherent method on generic type codegen mono \
+            resolution gap). Inherent method on generic type (impl<T> Box<T> { @m (self) \
+            -> T }) triggers 'unresolved function in apply — missing mono instance' at \
+            codegen. Reduced shape (3-hop chain on a user-defined generic struct via \
+            field access) is covered by test_generic_chain_user_struct; the \
+            method-dispatch shape cannot be reduced without losing the test's purpose \
             (two-level rigid-var scoping)."]
 fn test_generic_method_on_generic_type() {
     // impl<T> Box<T> { @map<U> ... } — generic method on a generic type.
