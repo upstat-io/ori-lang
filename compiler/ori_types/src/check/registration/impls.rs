@@ -173,8 +173,10 @@ fn register_impl(
 /// (≥3 fields co-varying at every site), bundle into a domain newtype rather
 /// than grow the flat signature past clippy's `too_many_arguments` threshold.
 ///
-/// Note: `build_impl_method` does not consume `trait_type_args` (only param
-/// + return type resolution, which uses `trait_substitutions` directly), so
+/// # Note
+///
+/// `build_impl_method` does not consume `trait_type_args` (only param + return
+/// type resolution, which uses `trait_substitutions` directly), so
 /// `ImplBuildContext` is consumed only by `inherit_default_methods` today.
 struct ImplBuildContext<'a> {
     /// Impl-level type-generic param names (e.g. `["X"]` for

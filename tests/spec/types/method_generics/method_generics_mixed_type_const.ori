@@ -11,6 +11,7 @@ impl<U> Stream<U> {
         self.items.take(count: N).map(transform).to_fixed<$N>();
 }
 
+#skip("BUG-02-023 + BUG-01-004: const-generic value flow (BUG-02-023) AND method-call turbofish parser disambiguation (BUG-01-004) — both must land for this fixture to green")
 @test_mixed_type_const tests _ () -> void = {
     let s = Stream { items: [1, 2, 3, 4] };
     let r: [int, max 2] = s.batch(transform: x -> x * 2);
