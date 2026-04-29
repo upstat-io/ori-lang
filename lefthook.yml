@@ -21,6 +21,17 @@ pre-commit:
       # once the rule has shown true-positive rate is reliable in practice.
       glob: "**/*.rs"
       run: python3 scripts/sprawl-lint.py --warn-only
+    test-weakening-lint:
+      # Diff-driven detector for test-weakening edits — see
+      # `python3 scripts/test-weakening-lint.py --help` for full reference.
+      # Diff-pair gate: P1-P5 fire ONLY when production code (compiler/**/*.rs)
+      # is ALSO modified in the same diff, so a standalone test refactor
+      # never trips this lint. Existing-test-only: never flags new test files.
+      # Bedding-in mode (--warn-only): always exits 0; surfaces findings to
+      # stderr without gating commits. Promote to gating by dropping --warn-only
+      # once dogfood shows true-positive rate is reliable.
+      glob: "**/*.{rs,ori}"
+      run: python3 scripts/test-weakening-lint.py --warn-only
     version-sync:
       glob: "**/Cargo.toml|**/package.json|**/BaseLayout.astro"
       run: ./scripts/sync-version.sh --check
@@ -70,3 +81,8 @@ commit-msg:
       run: .lefthook/commit-msg.sh {1}
     spec-proposal-gate:
       run: .lefthook/check-spec-proposal-msg.sh {1}
+    test-change-gate:
+      # Require a `Test-Change: <justification>` line in the commit body
+      # when the commit touches BOTH tests/spec/** AND compiler/**/*.rs.
+      # Presence-only check; review pipelines judge quality.
+      run: .lefthook/check-test-change-msg.sh {1}

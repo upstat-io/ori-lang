@@ -14,8 +14,24 @@ set -e
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m'
+
+# When this hook rejects a commit, print a specific directive — not a wall
+# of text. Test failures are bugs; weakening tests to make the hook pass is
+# banned by project testing discipline.
+print_hook_failure_directive() {
+    local exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        echo "" >&2
+        echo -e "${YELLOW}${BOLD}── Hook-failure directive ──${NC}" >&2
+        echo "Test failures are bugs. Fix the production code, not the tests." >&2
+        echo "BANNED: editing tests to make the hook pass (see project testing discipline)." >&2
+        echo "" >&2
+    fi
+}
+trap print_hook_failure_directive EXIT
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
