@@ -21,28 +21,24 @@ pub fn stdlib_path() -> PathBuf {
     workspace_root().join("library")
 }
 
-/// Ensure the workspace `ori` binary matching the current test profile is
-/// freshly built, invoking `cargo build -p oric --bin ori [--release]` exactly
-/// once per test process.
+/// Ensure the workspace `ori` binary for the given profile is freshly built.
 ///
-/// **Why this exists**: `cargo test -p ori_llvm` compiles and runs `ori_llvm`
-/// tests but does NOT rebuild the workspace `ori` binary at `target/debug/ori`
-/// (or `target/release/ori`). The AOT test harness shells out to that binary
-/// to compile Ori fixtures. A session that edits `ori_arc`, `ori_rt`, or any
-/// `oric` dependency and runs `cargo test -p ori_llvm` directly sees **ghost
-/// test results**: the test process loads fresh `ori_llvm.rlib` via Cargo's
-/// dep graph, but spawns the stale `ori` binary to compile fixtures.
-///
-/// **What it does**: Uses `OnceLock` to run `cargo build -p oric --bin ori`
-/// exactly once at the first `ori_binary()` call, matching the test profile
-/// (`cfg!(debug_assertions)` → debug, else release). Subsequent calls skip
-/// the build. Uses `env!("CARGO")` for the cargo path so the same toolchain
-/// that launched the test is used.
-fn ensure_ori_binary_fresh() {
-    static BUILD_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
+/// Cached per profile via independent `OnceLock` cells: calling for debug
+/// after release (or vice versa) within the same test process does NOT skip
+/// the build. This matters because IR-capture tests always need the debug
+/// binary (only debug enables `ORI_DEBUG_LLVM` phase dumps via `dbg_set!`)
+/// regardless of the test process's own build profile.
+fn ensure_ori_binary_fresh_for_profile(release: bool) {
+    static DEBUG_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
+    static RELEASE_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
 
-    let result = BUILD_RESULT.get_or_init(|| {
-        let release = !cfg!(debug_assertions);
+    let cell = if release {
+        &RELEASE_RESULT
+    } else {
+        &DEBUG_RESULT
+    };
+
+    let result = cell.get_or_init(|| {
         let profile_label = if release { "release" } else { "debug" };
 
         eprintln!(
@@ -75,6 +71,27 @@ fn ensure_ori_binary_fresh() {
              Try running `cargo b` (or `cargo b --release`) manually from the workspace root."
         );
     }
+}
+
+/// Ensure the workspace `ori` binary matching the current test profile is
+/// freshly built, invoking `cargo build -p oric --bin ori [--release]` exactly
+/// once per test process.
+///
+/// **Why this exists**: `cargo test -p ori_llvm` compiles and runs `ori_llvm`
+/// tests but does NOT rebuild the workspace `ori` binary at `target/debug/ori`
+/// (or `target/release/ori`). The AOT test harness shells out to that binary
+/// to compile Ori fixtures. A session that edits `ori_arc`, `ori_rt`, or any
+/// `oric` dependency and runs `cargo test -p ori_llvm` directly sees **ghost
+/// test results**: the test process loads fresh `ori_llvm.rlib` via Cargo's
+/// dep graph, but spawns the stale `ori` binary to compile fixtures.
+///
+/// **What it does**: Delegates to `ensure_ori_binary_fresh_for_profile()` with
+/// the profile matching the test binary (`cfg!(debug_assertions)` → debug,
+/// else release). The IR-capture path uses the profile-parameterized helper
+/// directly to always refresh debug, since IR-quality tests need debug
+/// regardless of how the test binary was built.
+fn ensure_ori_binary_fresh() {
+    ensure_ori_binary_fresh_for_profile(!cfg!(debug_assertions));
 }
 
 /// Get the path to an LLVM-enabled `ori` binary.
@@ -155,9 +172,21 @@ fn has_llvm_support(binary: &Path) -> bool {
 /// binary compiles out phase dumps via `dbg_set!`. IR-quality tests must use the
 /// debug binary to capture IR, regardless of the test harness build profile.
 ///
-/// Panics if no debug binary exists. This is intentional: IR-quality tests are
-/// semantic pins that must never silently degrade to no-ops.
+/// **Freshness guarantee**: The first call per test process invokes
+/// `ensure_ori_binary_fresh_for_profile(false)` which runs
+/// `cargo build -p oric --bin ori` (always debug, independent of the test
+/// process profile) via a debug-specific `OnceLock`. Subsequent calls skip
+/// the build. Without this, `cargo test --release ... aot::generics::*`
+/// shells to a stale `target/debug/ori` and produces misleading errors —
+/// e.g. "unresolved function `identity` — missing mono instance?" — when
+/// the working tree is already fixed.
+///
+/// Panics if no debug binary exists after refresh. This is intentional:
+/// IR-quality tests are semantic pins that must never silently degrade to
+/// no-ops.
 pub fn ir_capture_binary() -> PathBuf {
+    ensure_ori_binary_fresh_for_profile(false);
+
     let workspace_root = workspace_root();
     let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
     let debug_path = workspace_root.join("target/debug").join(&exe);
@@ -166,7 +195,8 @@ pub fn ir_capture_binary() -> PathBuf {
         return debug_path;
     }
     panic!(
-        "No debug ori binary found for IR capture.\n\
-         Run `cargo build` to build the debug binary first."
+        "No debug ori binary found for IR capture after refresh.\n\
+         Run `cargo build -p oric --bin ori` manually from the workspace root \
+         to investigate."
     );
 }
