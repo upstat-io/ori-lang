@@ -32,6 +32,7 @@ fn invoke_indirect_resume_inserts_iter_drop() {
                 func: iter_name,
                 args: vec![ArcVarId::new(0)],
                 arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(1),
@@ -121,6 +122,7 @@ fn invoke_indirect_non_resume_no_cleanup() {
                 func: iter_name,
                 args: vec![ArcVarId::new(0)],
                 arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(1),
@@ -260,6 +262,7 @@ fn sibling_branch_iterator_not_live_at_invoke() {
                 func: iter_name,
                 args: vec![ArcVarId::new(2)],
                 arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return {
                 value: ArcVarId::new(1),

@@ -9,6 +9,7 @@ mod emission;
 #[cfg(test)]
 mod tests;
 
+use ori_ir::canon::MonoInstanceId;
 use ori_ir::{Name, Span};
 use ori_types::Idx;
 
@@ -16,6 +17,18 @@ use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
     LitValue,
 };
+
+/// Routing metadata for `Invoke`-family terminators: CFG successors plus the
+/// abstract dispatch index. Bundled so `terminate_invoke` stays under the
+/// `clippy::too_many_arguments` threshold (per `compiler.md §API`
+/// ">3 params → config struct"). All fields are `Copy`, so the struct itself
+/// is `Copy` — passing by value is zero-cost and satisfies clippy.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct InvokeTargets {
+    pub normal: ArcBlockId,
+    pub unwind: ArcBlockId,
+    pub mono_instance_id: Option<MonoInstanceId>,
+}
 
 /// In-progress basic block being constructed.
 pub(super) struct BlockBuilder {
@@ -297,8 +310,7 @@ impl ArcIrBuilder {
         ty: Idx,
         func: Name,
         args: Vec<ArcVarId>,
-        normal: ArcBlockId,
-        unwind: ArcBlockId,
+        targets: InvokeTargets,
     ) {
         let block = &mut self.blocks[self.current_block.index()];
         debug_assert!(
@@ -313,8 +325,9 @@ impl ArcIrBuilder {
             func,
             args,
             arg_ownership: vec![crate::ir::ArgOwnership::Owned; arg_count],
-            normal,
-            unwind,
+            mono_instance_id: targets.mono_instance_id,
+            normal: targets.normal,
+            unwind: targets.unwind,
         });
     }
 

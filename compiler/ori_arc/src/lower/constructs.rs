@@ -80,7 +80,7 @@ impl ArcLowerer<'_> {
 
         let fn_name = self.interner.intern(runtime_fn);
         self.builder
-            .emit_apply(Idx::UNIT, fn_name, vec![val], Some(span));
+            .emit_apply(Idx::UNIT, fn_name, vec![val], Some(span), None);
         self.emit_unit()
     }
 
@@ -112,7 +112,7 @@ impl ArcLowerer<'_> {
             // landing pads for RC-managed variables on the unwind path.
             // The normal continuation is unreachable (panic never returns).
             self.builder
-                .emit_invoke(Idx::UNIT, fn_name, vec![val], Some(span));
+                .emit_invoke(Idx::UNIT, fn_name, vec![val], Some(span), None);
         } else {
             let msg = self.interner.intern("explicit panic");
             let msg_var = self.builder.emit_let(
@@ -122,7 +122,7 @@ impl ArcLowerer<'_> {
             );
             let fn_name = self.interner.intern("ori_panic_cstr");
             self.builder
-                .emit_invoke(Idx::UNIT, fn_name, vec![msg_var], Some(span));
+                .emit_invoke(Idx::UNIT, fn_name, vec![msg_var], Some(span), None);
         }
 
         // emit_invoke already created normal + unwind blocks and positioned
@@ -152,7 +152,7 @@ impl ArcLowerer<'_> {
         );
         let fn_name = self.interner.intern("ori_panic_cstr");
         self.builder
-            .emit_invoke(Idx::UNIT, fn_name, vec![msg_var], Some(span));
+            .emit_invoke(Idx::UNIT, fn_name, vec![msg_var], Some(span), None);
         self.builder.terminate_unreachable();
         self.emit_unit_in_new_block()
     }
@@ -272,7 +272,7 @@ impl ArcLowerer<'_> {
         let recover_fn = self.interner.intern("ori_catch_recover");
         let msg_var = self
             .builder
-            .emit_apply(Idx::STR, recover_fn, vec![], Some(span));
+            .emit_apply(Idx::STR, recover_fn, vec![], Some(span), None);
         let err_var = self.builder.emit_construct(
             result_ty,
             CtorKind::EnumVariant {
@@ -344,7 +344,7 @@ impl ArcLowerer<'_> {
 
         let fn_name = self.interner.intern(runtime_fn);
         self.builder
-            .emit_apply(ty, fn_name, vec![val, spec_var], Some(span))
+            .emit_apply(ty, fn_name, vec![val, spec_var], Some(span), None)
     }
 
     // Helpers

@@ -53,9 +53,9 @@ impl ArcLowerer<'_> {
     fn prepare_iterator(&mut self, iter_val: ArcVarId, iter_ty: Idx, tag: Tag) -> (ArcVarId, Idx) {
         if tag == Tag::Range {
             let iter_name = self.interner.intern("iter");
-            let iter_handle = self
-                .builder
-                .emit_apply(Idx::INT, iter_name, vec![iter_val], None);
+            let iter_handle =
+                self.builder
+                    .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
             (iter_handle, Idx::INT)
         } else if tag.is_iterator() {
             let elem_ty = self.pool.iterator_elem(iter_ty);
@@ -64,9 +64,9 @@ impl ArcLowerer<'_> {
             let elem_ty = self.extract_yield_elem_type(tag, iter_ty);
 
             let iter_name = self.interner.intern("iter");
-            let iter_handle = self
-                .builder
-                .emit_apply(Idx::INT, iter_name, vec![iter_val], None);
+            let iter_handle =
+                self.builder
+                    .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
 
             (iter_handle, elem_ty)
         }
@@ -175,7 +175,7 @@ impl ArcLowerer<'_> {
         // ori_list_new returns ptr (opaque); use INT type in ARC IR (scalar, no RC).
         let list_ptr =
             self.builder
-                .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None);
+                .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None, None);
 
         // Header params: mutable vars from enclosing scope.
         let mut header_mut_params = Vec::new();
@@ -213,9 +213,13 @@ impl ArcLowerer<'_> {
         let elem_ty_marker =
             self.builder
                 .emit_let(elem_ty, ArcValue::Literal(LitValue::Int(0)), None);
-        let next_result =
-            self.builder
-                .emit_apply(Idx::INT, iter_next, vec![iter_val, elem_ty_marker], None);
+        let next_result = self.builder.emit_apply(
+            Idx::INT,
+            iter_next,
+            vec![iter_val, elem_ty_marker],
+            None,
+            None,
+        );
 
         let tag = self.builder.emit_project(Idx::INT, next_result, 0, None);
         let zero = self
@@ -293,6 +297,7 @@ impl ArcLowerer<'_> {
                 list_push,
                 vec![list_ptr, body_val, elem_size_var],
                 None,
+                None,
             );
 
             // Jump back to header with updated mutable var values.
@@ -319,7 +324,7 @@ impl ArcLowerer<'_> {
         self.builder.position_at(exit_block);
         let iter_drop = self.interner.intern("ori_iter_drop");
         self.builder
-            .emit_apply(Idx::UNIT, iter_drop, vec![iter_val], None);
+            .emit_apply(Idx::UNIT, iter_drop, vec![iter_val], None, None);
 
         // Restore scope with final mutable var values from the exit block.
         self.scope = pre_scope;
@@ -329,7 +334,7 @@ impl ArcLowerer<'_> {
 
         let list_take = self.interner.intern("ori_list_take");
         self.builder
-            .emit_apply(result_ty, list_take, vec![list_ptr], None)
+            .emit_apply(result_ty, list_take, vec![list_ptr], None, None)
     }
 
     /// Compute element size in bytes for a given type.

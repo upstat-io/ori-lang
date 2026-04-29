@@ -976,6 +976,7 @@ fn nounwind_direct_safe_call() {
             func: interner.intern("ori_str_len"),
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Borrowed],
+            mono_instance_id: None,
         }],
         ArcTerminator::Return {
             value: ArcVarId::new(1),
@@ -1016,6 +1017,7 @@ fn nounwind_panic_call_is_not_nounwind() {
             func: interner.intern("ori_panic"),
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         ArcTerminator::Return {
             value: ArcVarId::new(1),
@@ -1107,6 +1109,7 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
             func: unknown_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1150,6 +1153,7 @@ fn nounwind_mixed_safe_and_indirect_is_not_nounwind() {
                 func: interner.intern("ori_str_len"),
                 args: vec![ArcVarId::new(0)],
                 arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
             },
             ArcInstr::ApplyIndirect {
                 dst: ArcVarId::new(3),
@@ -1201,6 +1205,7 @@ fn nounwind_may_panic_runtime_call_is_not_nounwind() {
             func: interner.intern("ori_list_get"),
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Borrowed],
+            mono_instance_id: None,
         }],
         ArcTerminator::Return {
             value: ArcVarId::new(1),
@@ -1247,6 +1252,7 @@ fn nounwind_unknown_user_function_is_not_nounwind() {
             func: interner.intern("some_user_function"),
             args: vec![],
             arg_ownership: vec![],
+            mono_instance_id: None,
         }],
         ArcTerminator::Return {
             value: ArcVarId::new(1),
@@ -1356,6 +1362,7 @@ fn compute_nounwind_set_caller_sees_callee() {
             func: callee_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1437,6 +1444,7 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
             func: interner.intern("ori_panic"),
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         ArcTerminator::Return {
             value: ArcVarId::new(1),
@@ -1454,6 +1462,7 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
             func: callee_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1535,6 +1544,7 @@ fn compute_nounwind_set_three_level_chain() {
             func: c_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1552,6 +1562,7 @@ fn compute_nounwind_set_three_level_chain() {
             func: b_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1709,6 +1720,7 @@ fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
             func: interner.intern("ori_panic"),
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         ArcTerminator::Return {
             value: ArcVarId::new(1),

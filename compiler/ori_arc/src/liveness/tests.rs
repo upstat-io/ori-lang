@@ -249,6 +249,7 @@ fn loop_back_edge() {
                     func: Name::from_raw(99),
                     args: vec![v(1)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }],
                 terminator: ArcTerminator::Jump {
                     target: b(1),
@@ -376,6 +377,7 @@ fn multiple_uses_same_var() {
                 func: Name::from_raw(99),
                 args: vec![v(0), v(0)], // same var twice
                 arg_ownership: vec![ArgOwnership::Owned; 2],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -442,6 +444,7 @@ fn invoke_dst_not_live_in_unwind() {
                     func: Name::from_raw(99),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -515,6 +518,7 @@ fn invoke_live_var_propagates_to_unwind() {
                     func: Name::from_raw(99),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -696,6 +700,7 @@ fn refined_used_var_is_live_for_use() {
                 func: Name::from_raw(99),
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -781,6 +786,7 @@ fn refined_use_then_dec_is_live_for_use() {
                     func: Name::from_raw(99),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::RcDec {
                     var: v(0),

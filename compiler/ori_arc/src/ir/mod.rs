@@ -291,6 +291,14 @@ pub enum ArcTerminator {
         /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
         /// Defaults to all `Owned`; populated by RC insertion.
         arg_ownership: Vec<ArgOwnership>,
+        /// Abstract dispatch index for generic-instantiated calls.
+        /// Mirrors the `mono_instance_id` slot on `ArcInstr::Apply`;
+        /// `Invoke` is the may-unwind sibling carrier produced by
+        /// `lower::calls::emit_call_or_invoke` when `is_nounwind_call`
+        /// returns false. Sourced from `CanonResult.mono_dispatch_map_can`
+        /// during ARC lowering; consumed downstream by `ori_llvm` and
+        /// `ori_eval` to look up `TypedModule.mono_instances[id.0]`.
+        mono_instance_id: Option<ori_ir::canon::MonoInstanceId>,
         normal: ArcBlockId,
         unwind: ArcBlockId,
     },

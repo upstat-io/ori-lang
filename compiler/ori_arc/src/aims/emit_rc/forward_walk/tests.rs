@@ -341,6 +341,7 @@ fn invoke_with_duplicated_owned_args_emits_one_rc_inc() {
         func: Name::from_raw(2),
         args: vec![v(0), v(0)],
         arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+        mono_instance_id: None,
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };
@@ -363,6 +364,7 @@ fn invoke_with_triple_duplicated_mixed_ownership_args_emits_two_rc_incs() {
             ArgOwnership::Borrowed,
             ArgOwnership::Owned,
         ],
+        mono_instance_id: None,
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };
@@ -565,6 +567,7 @@ fn jump_with_duplicated_arg_after_body_use_counts_terminator_locally() {
         func: Name::from_raw(99),
         args: vec![v(0)],
         arg_ownership: vec![ArgOwnership::Borrowed],
+        mono_instance_id: None,
     }];
     let term = ArcTerminator::Jump {
         target: ArcBlockId::new(1),

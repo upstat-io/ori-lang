@@ -214,6 +214,7 @@ fn instr_apply() {
         func: Name::from_raw(10),
         args: vec![ArcVarId::new(0)],
         arg_ownership: vec![ArgOwnership::Owned],
+        mono_instance_id: None,
     };
     assert!(matches!(instr, ArcInstr::Apply { .. }));
 }
@@ -495,6 +496,7 @@ fn defined_var_apply() {
         func: Name::from_raw(10),
         args: vec![ArcVarId::new(0)],
         arg_ownership: vec![ArgOwnership::Owned],
+        mono_instance_id: None,
     };
     assert_eq!(instr.defined_var(), Some(ArcVarId::new(3)));
 }
@@ -647,6 +649,7 @@ fn used_vars_apply() {
         func: Name::from_raw(10),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         arg_ownership: vec![ArgOwnership::Owned; 2],
+        mono_instance_id: None,
     };
     assert_eq!(
         instr.used_vars().as_slice(),
@@ -832,6 +835,7 @@ fn terminator_used_vars_invoke() {
         func: Name::from_raw(1),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         arg_ownership: vec![ArgOwnership::Owned; 2],
+        mono_instance_id: None,
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };
@@ -982,6 +986,7 @@ fn test_arc_ir_all_instr_variants() {
             func: Name::from_raw(10),
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         },
         ArcInstr::ApplyIndirect {
             dst: ArcVarId::new(4),
@@ -1082,6 +1087,7 @@ fn test_arc_ir_all_terminator_variants() {
             func: Name::from_raw(10),
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1202,6 +1208,7 @@ fn is_owned_position_apply_respects_arg_ownership() {
         func: Name::new(1, 1),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Owned],
+        mono_instance_id: None,
     };
     assert!(!instr.is_owned_position(0), "borrowed arg is not owned");
     assert!(instr.is_owned_position(1), "owned arg is owned");
@@ -1334,6 +1341,7 @@ fn is_owned_position_invoke_with_ownership() {
         func: Name::new(1, 1),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Owned],
+        mono_instance_id: None,
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };
@@ -1352,6 +1360,7 @@ fn is_owned_position_invoke_empty_defaults_owned() {
         func: Name::new(1, 1),
         args: vec![ArcVarId::new(0)],
         arg_ownership: vec![],
+        mono_instance_id: None,
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };

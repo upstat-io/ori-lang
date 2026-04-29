@@ -115,6 +115,7 @@ fn full_pipeline_on_reuse_pattern() {
                     func: Name::from_raw(99),
                     args: vec![v(1)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: v(4),
@@ -192,6 +193,7 @@ fn pipeline_determinism() {
                     func: Name::from_raw(99),
                     args: vec![v(1)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: v(4),

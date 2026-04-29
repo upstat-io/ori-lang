@@ -118,6 +118,7 @@ fn test_whole_variable_usage() {
             func: Name::new(0, 1),
             args: vec![v(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         terminator: ArcTerminator::Unreachable,
     }]);
@@ -245,6 +246,7 @@ fn test_whole_variable_overrides_projection() {
                 func: Name::new(0, 1),
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Unreachable,

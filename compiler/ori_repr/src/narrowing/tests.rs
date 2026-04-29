@@ -1809,6 +1809,7 @@ fn phase_c_apply_returning_list_int_widens_to_top() {
         func: func_name,
         args: vec![src, elem],
         arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+        mono_instance_id: None,
     };
 
     let ranges: HashMap<ArcVarId, ValueRange> = HashMap::new();
@@ -1856,6 +1857,7 @@ fn phase_c_literal_plus_apply_widens_to_top() {
         func: Name::from_raw(42),
         args: vec![src_var, elem_var],
         arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+        mono_instance_id: None,
     };
 
     let mut ranges: HashMap<ArcVarId, ValueRange> = HashMap::new();
@@ -1901,6 +1903,7 @@ fn phase_c_apply_returning_int_does_not_affect_elements() {
         func: Name::from_raw(99),
         args: vec![arg],
         arg_ownership: vec![ArgOwnership::Owned],
+        mono_instance_id: None,
     };
 
     let ranges: HashMap<ArcVarId, ValueRange> = HashMap::new();
@@ -1937,6 +1940,7 @@ fn phase_c_invoke_returning_list_int_widens_to_top() {
         func: Name::from_raw(42),
         args: vec![ArcVarId::new(1), ArcVarId::new(2)],
         arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+        mono_instance_id: None,
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };

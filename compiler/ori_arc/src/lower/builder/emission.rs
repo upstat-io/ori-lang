@@ -4,12 +4,13 @@
 //! block: `Let`, `Apply`, `ApplyIndirect`, `Construct`, `PartialApply`,
 //! `Project`, `Select`, and `Invoke` (which also creates unwind blocks).
 
+use ori_ir::canon::MonoInstanceId;
 use ori_ir::{Name, Span};
 use ori_types::Idx;
 
 use crate::ir::{ArcBlockId, ArcInstr, ArcValue, ArcVarId, ArgOwnership, CtorKind};
 
-use super::ArcIrBuilder;
+use super::{ArcIrBuilder, InvokeTargets};
 
 impl ArcIrBuilder {
     // Instruction emission
@@ -24,12 +25,17 @@ impl ArcIrBuilder {
     }
 
     /// Emit an `Apply` (direct function call) instruction.
+    ///
+    /// `mono_instance_id` is the abstract dispatch index for generic-instantiated
+    /// calls (sourced from `CanonResult.mono_dispatch_map_can` during ARC
+    /// lowering); pass `None` for non-generic calls and builtin emissions.
     pub fn emit_apply(
         &mut self,
         ty: Idx,
         func: Name,
         args: Vec<ArcVarId>,
         span: Option<Span>,
+        mono_instance_id: Option<MonoInstanceId>,
     ) -> ArcVarId {
         let dst = self.fresh_var(ty);
         let block = &mut self.blocks[self.current_block.index()];
@@ -40,6 +46,7 @@ impl ArcIrBuilder {
             func,
             args,
             arg_ownership: vec![ArgOwnership::Owned; arg_count],
+            mono_instance_id,
         });
         block.spans.push(span);
         dst
@@ -170,6 +177,7 @@ impl ArcIrBuilder {
         func: Name,
         args: Vec<ArcVarId>,
         span: Option<Span>,
+        mono_instance_id: Option<MonoInstanceId>,
     ) -> ArcVarId {
         let dst = self.fresh_var(ty);
         let normal = self.new_block();
@@ -180,7 +188,17 @@ impl ArcIrBuilder {
         // terminators don't have span slots in the current design).
         let _ = span;
 
-        self.terminate_invoke(dst, ty, func, args, normal, unwind);
+        self.terminate_invoke(
+            dst,
+            ty,
+            func,
+            args,
+            InvokeTargets {
+                normal,
+                unwind,
+                mono_instance_id,
+            },
+        );
 
         // Unwind block terminator depends on context:
         // - Normal code: Resume (re-raise after cleanup)

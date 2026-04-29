@@ -270,7 +270,7 @@ impl ArcLowerer<'_> {
         );
         let panic_fn = self.interner.intern("ori_panic");
         self.builder
-            .emit_apply(Idx::UNIT, panic_fn, vec![msg_var], None);
+            .emit_apply(Idx::UNIT, panic_fn, vec![msg_var], None, None);
         self.builder.terminate_unreachable();
 
         // Continue in loop entry block.

@@ -306,13 +306,15 @@ impl ArcLowerer<'_> {
                 fallible,
             } => self.lower_cast(expr, fallible, ty, span),
 
-            // Calls
-            CanExpr::Call { func, args } => self.lower_call(func, args, ty, span),
+            // Calls — `id` is the call expression's own CanId, used as the
+            // key into `CanonResult.mono_dispatch_map_can` to recover the
+            // abstract dispatch index for generic-instantiated calls.
+            CanExpr::Call { func, args } => self.lower_call(id, func, args, ty, span),
             CanExpr::MethodCall {
                 receiver,
                 method,
                 args,
-            } => self.lower_method_call(receiver, method, args, ty, span),
+            } => self.lower_method_call(id, receiver, method, args, ty, span),
             CanExpr::Lambda { params, body } => self.lower_lambda(params, body, ty, span),
 
             // Special forms

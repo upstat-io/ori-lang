@@ -424,6 +424,7 @@ pub struct MethodRoot {
 /// `id.0` — the tuple-struct shape mirrors how callers use index handles
 /// elsewhere (e.g., `CanId`, `ExprId`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct MonoInstanceId(pub u32);
 
 /// Output of the canonicalization pass.

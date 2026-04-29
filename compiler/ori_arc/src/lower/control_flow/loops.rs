@@ -169,9 +169,9 @@ impl ArcLowerer<'_> {
             let iter_name = self.interner.intern("iter");
             // Use INT for the iterator handle — it's an opaque pointer with no
             // RC semantics (cleanup is via ori_iter_drop, not RC dec).
-            let iter_result = self
-                .builder
-                .emit_apply(Idx::INT, iter_name, vec![iter_val], None);
+            let iter_result =
+                self.builder
+                    .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
             self.lower_for_iterator(pattern, iter_result, elem_ty, guard, body)
         }
     }

@@ -50,6 +50,7 @@ fn derive_param_linear_when_no_rc_ops() {
             func: ori_ir::Name::from_raw(100),
             args: vec![v(0)],
             arg_ownership: vec![],
+            mono_instance_id: None,
         }],
     );
 
@@ -140,6 +141,7 @@ fn oracle_accepts_conservative_inference() {
             func: ori_ir::Name::from_raw(100),
             args: vec![v(0)],
             arg_ownership: vec![],
+            mono_instance_id: None,
         }],
     );
 
@@ -303,6 +305,7 @@ fn oracle_accounts_for_arg_ownership_transfer() {
             func: ori_ir::Name::from_raw(100),
             args: vec![v(0)],
             arg_ownership: vec![ArgOwnership::Owned], // ownership transfer!
+            mono_instance_id: None,
         }],
     );
 
@@ -374,6 +377,7 @@ fn oracle_distinguishes_affine_from_linear() {
                 func: ori_ir::Name::from_raw(100),
                 args: vec![v(0)],
                 arg_ownership: vec![], // empty = default Borrowed
+                mono_instance_id: None,
             },
             // Then: RcDec (cleanup after use)
             ArcInstr::RcDec {
@@ -549,6 +553,7 @@ fn oracle_detects_owned_transfer_via_invoke() {
                 func: ori_ir::Name::from_raw(100),
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
                 normal: ArcBlockId::new(1),
                 unwind: ArcBlockId::new(2),
             },
@@ -667,6 +672,7 @@ fn oracle_accepts_conservative_may_share() {
             func: ori_ir::Name::from_raw(100),
             args: vec![v(0)],
             arg_ownership: vec![],
+            mono_instance_id: None,
         }],
     );
 

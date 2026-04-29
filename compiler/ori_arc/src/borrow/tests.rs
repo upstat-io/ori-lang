@@ -436,6 +436,7 @@ fn mutual_recursion_converges() {
                 func: Name::from_raw(2), // calls g
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -455,6 +456,7 @@ fn mutual_recursion_converges() {
                 func: Name::from_raw(1), // calls f
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -497,6 +499,7 @@ fn mutual_recursion_with_store_propagates() {
                 func: Name::from_raw(2), // calls g
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -593,6 +596,7 @@ fn tail_call_promotes_borrowed_to_owned() {
                 func: Name::from_raw(2), // calls g
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -653,6 +657,7 @@ fn unknown_callee_marks_args_owned() {
                 func: Name::from_raw(999), // not in set
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -732,6 +737,7 @@ fn derived_projection_borrows_from_source() {
                     func: Name::from_raw(99),
                     args: vec![],
                     arg_ownership: vec![],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Project {
                     dst: v(1),
@@ -782,6 +788,7 @@ fn derived_projection_chain() {
                     func: Name::from_raw(99),
                     args: vec![],
                     arg_ownership: vec![],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Project {
                     dst: v(1),
@@ -881,6 +888,7 @@ fn derived_apply_result_is_owned() {
                 func: Name::from_raw(99),
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -1074,6 +1082,7 @@ fn single_with_callee_owned_promotes() {
                 func: Name::from_raw(99),
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -1121,6 +1130,7 @@ fn single_with_callee_borrowed_stays_borrowed() {
                 func: Name::from_raw(99),
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -1159,6 +1169,7 @@ fn fixed_point_mutual_recursion() {
                 func: Name::from_raw(2),
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -1178,6 +1189,7 @@ fn fixed_point_mutual_recursion() {
                 func: Name::from_raw(1),
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -1233,6 +1245,7 @@ fn fixed_point_with_external_callee() {
                 func: Name::from_raw(99), // external
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -1252,6 +1265,7 @@ fn fixed_point_with_external_callee() {
                 func: Name::from_raw(1), // calls f
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned; 1],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -1297,6 +1311,7 @@ fn extract_callees_finds_apply_and_partial() {
                     func: Name::from_raw(10),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned; 1],
+                    mono_instance_id: None,
                 },
                 ArcInstr::PartialApply {
                     dst: v(2),
@@ -1333,6 +1348,7 @@ fn extract_callees_finds_invoke() {
                     func: Name::from_raw(42),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned; 1],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -1458,6 +1474,7 @@ fn promote_protocol_index_does_not_promote() {
                 func: index_name,
                 args: vec![v(0), v(1)],
                 arg_ownership: vec![ArgOwnership::Owned; 2],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(2) },
         }],
@@ -1508,6 +1525,7 @@ fn promote_protocol_iter_drop_promotes_param() {
                     func: iter_drop_name,
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Let {
                     dst: v(2),
@@ -1558,6 +1576,7 @@ fn promote_protocol_iter_next_promotes_first_arg_only() {
                 func: iter_next_name,
                 args: vec![v(0), v(1)],
                 arg_ownership: vec![ArgOwnership::Owned; 2],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(2) },
         }],

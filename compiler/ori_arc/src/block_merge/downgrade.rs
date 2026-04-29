@@ -29,20 +29,30 @@ pub(crate) fn downgrade_trivial_invokes(func: &mut ArcFunction) {
         };
 
         // Extract invoke fields. We know the terminator is Invoke from
-        // the check above.
-        let (dst, ty, callee, args, arg_ownership) = {
+        // the check above. The `mono_instance_id` slot must transfer to
+        // the downgraded Apply so generic-instantiated calls retain their
+        // abstract dispatch index after the trivial-invoke rewrite.
+        let (dst, ty, callee, args, arg_ownership, mono_instance_id) = {
             let ArcTerminator::Invoke {
                 dst,
                 ty,
                 func: callee,
                 args,
                 arg_ownership,
+                mono_instance_id,
                 ..
             } = &func.blocks[block_idx].terminator
             else {
                 continue;
             };
-            (*dst, *ty, *callee, args.clone(), arg_ownership.clone())
+            (
+                *dst,
+                *ty,
+                *callee,
+                args.clone(),
+                arg_ownership.clone(),
+                *mono_instance_id,
+            )
         };
 
         // Append Apply to body.
@@ -52,6 +62,7 @@ pub(crate) fn downgrade_trivial_invokes(func: &mut ArcFunction) {
             func: callee,
             args,
             arg_ownership,
+            mono_instance_id,
         });
 
         // Append None span for the new Apply.

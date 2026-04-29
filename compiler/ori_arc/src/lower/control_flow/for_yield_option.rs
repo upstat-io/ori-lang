@@ -83,7 +83,7 @@ impl ArcLowerer<'_> {
         );
         let list_ptr =
             self.builder
-                .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None);
+                .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None, None);
 
         // Exit block params: mutable vars.
         let mut exit_mut_params = Vec::new();
@@ -169,6 +169,7 @@ impl ArcLowerer<'_> {
                 list_push,
                 vec![list_ptr, body_val, elem_size_var],
                 None,
+                None,
             );
 
             let exit_args: Vec<_> = mut_info
@@ -193,6 +194,6 @@ impl ArcLowerer<'_> {
 
         let list_take = self.interner.intern("ori_list_take");
         self.builder
-            .emit_apply(result_ty, list_take, vec![list_ptr], None)
+            .emit_apply(result_ty, list_take, vec![list_ptr], None, None)
     }
 }

@@ -1014,6 +1014,7 @@ fn annotate_protocol_index_produces_borrowed_vector() {
             func: index_name,
             args: vec![ArcVarId::new(0), ArcVarId::new(1)],
             arg_ownership: vec![ArgOwnership::Owned; 2], // pre-annotation default
+            mono_instance_id: None,
         }],
         terminator: ArcTerminator::Return {
             value: ArcVarId::new(2),
@@ -1058,6 +1059,7 @@ fn annotate_protocol_iter_next_produces_owned_borrowed() {
             func: iter_next_name,
             args: vec![ArcVarId::new(0), ArcVarId::new(1)],
             arg_ownership: vec![ArgOwnership::Owned; 2],
+            mono_instance_id: None,
         }],
         terminator: ArcTerminator::Return {
             value: ArcVarId::new(2),
@@ -1102,6 +1104,7 @@ fn annotate_protocol_iter_drop_produces_owned() {
             func: iter_drop_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         terminator: ArcTerminator::Return {
             value: ArcVarId::new(1),
@@ -1146,6 +1149,7 @@ fn annotate_protocol_collect_set_produces_owned() {
             func: collect_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         terminator: ArcTerminator::Return {
             value: ArcVarId::new(1),
@@ -1194,6 +1198,7 @@ fn annotate_protocol_iter_produces_borrowed() {
             func: iter_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         terminator: ArcTerminator::Return {
             value: ArcVarId::new(1),
@@ -1248,6 +1253,7 @@ fn annotate_iter_on_collection_overrides_to_owned() {
             func: iter_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         terminator: ArcTerminator::Return {
             value: ArcVarId::new(1),

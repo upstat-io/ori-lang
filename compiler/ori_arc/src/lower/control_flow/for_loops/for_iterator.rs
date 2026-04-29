@@ -102,6 +102,7 @@ impl ArcLowerer<'_> {
             iter_next_name,
             vec![iter_val, elem_ty_marker],
             None,
+            None,
         );
 
         // Tag is field 0: 0 = done, 1 = has element
@@ -187,7 +188,7 @@ impl ArcLowerer<'_> {
         self.builder.position_at(exit_block);
         let iter_drop_name = self.interner.intern("ori_iter_drop");
         self.builder
-            .emit_apply(Idx::UNIT, iter_drop_name, vec![iter_val], None);
+            .emit_apply(Idx::UNIT, iter_drop_name, vec![iter_val], None, None);
 
         self.scope = pre_scope;
         for &(name, param) in &exit_mut_params {

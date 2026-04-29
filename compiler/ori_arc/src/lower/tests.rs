@@ -106,7 +106,7 @@ fn builder_switch_terminator() {
 fn builder_emit_apply() {
     let mut builder = ArcIrBuilder::new();
     let arg = builder.emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(1)), None);
-    let _result = builder.emit_apply(Idx::INT, Name::from_raw(10), vec![arg], None);
+    let _result = builder.emit_apply(Idx::INT, Name::from_raw(10), vec![arg], None, None);
     assert_eq!(builder.blocks[0].body.len(), 2);
 }
 

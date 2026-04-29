@@ -90,6 +90,7 @@ fn no_coalesce_across_call() {
             func: Name::new(0, 0),
             args: vec![],
             arg_ownership: vec![],
+            mono_instance_id: None,
         },
         ArcInstr::RcDec { var: v0, strategy },
     ];

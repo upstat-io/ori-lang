@@ -100,6 +100,7 @@ fn caller_function(name: Name, callee: Name) -> ArcFunction {
                 func: callee,
                 args: vec![ArcVarId::new(0)],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return {
                 value: ArcVarId::new(1),

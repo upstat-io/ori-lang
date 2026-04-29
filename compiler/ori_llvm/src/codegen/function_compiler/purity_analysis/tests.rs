@@ -88,6 +88,7 @@ fn apply_blocks_purity() {
         ty: Idx::INT,
         args: vec![ArcVarId::new(0)],
         arg_ownership: vec![],
+        mono_instance_id: None,
     }]);
     assert!(!has_only_pure_arc_instructions(&func));
 }

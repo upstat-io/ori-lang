@@ -10,7 +10,7 @@
 
 mod lambda;
 
-use ori_ir::canon::{CanExpr, CanId, CanRange};
+use ori_ir::canon::{CanExpr, CanId, CanRange, MonoInstanceId};
 use ori_ir::{Name, Span};
 use ori_types::{Idx, Tag};
 
@@ -39,18 +39,43 @@ impl ArcLowerer<'_> {
         s.starts_with("ori_") || s.starts_with("__")
     }
 
+    /// Look up the abstract dispatch index for a generic-instantiated call.
+    ///
+    /// Returns `Some(id)` when the canon-side `mono_dispatch_map_can` carries
+    /// an entry for `call_expr_id` (populated during canon lowering by
+    /// `Lowerer::record_mono_dispatch_if_present`); `None` otherwise.
+    /// The map is sorted by `CanId.raw()` per `lower/mod.rs:367`, enabling
+    /// O(log n) binary search lookup.
+    fn lookup_mono_dispatch(&self, call_expr_id: CanId) -> Option<MonoInstanceId> {
+        let key = call_expr_id.raw();
+        self.canon
+            .mono_dispatch_map_can
+            .binary_search_by_key(&key, |(c, _)| c.raw())
+            .ok()
+            .map(|idx| self.canon.mono_dispatch_map_can[idx].1)
+    }
+
     /// Emit either Apply (nounwind) or Invoke (may-unwind) for a direct call.
+    ///
+    /// `mono_instance_id` is the abstract dispatch index threaded onto the
+    /// emitted carrier; sourced via `lookup_mono_dispatch` at the call site
+    /// (`lower_call` / `lower_method_call`). Built-in calls emitted from
+    /// other lowering helpers go directly through `emit_apply`/`emit_invoke`
+    /// with `None` and do not flow through this helper.
     fn emit_call_or_invoke(
         &mut self,
         ty: Idx,
         name: Name,
         args: Vec<ArcVarId>,
         span: Span,
+        mono_instance_id: Option<MonoInstanceId>,
     ) -> ArcVarId {
         if self.is_nounwind_call(name) {
-            self.builder.emit_apply(ty, name, args, Some(span))
+            self.builder
+                .emit_apply(ty, name, args, Some(span), mono_instance_id)
         } else {
-            self.builder.emit_invoke(ty, name, args, Some(span))
+            self.builder
+                .emit_invoke(ty, name, args, Some(span), mono_instance_id)
         }
     }
 
@@ -152,14 +177,21 @@ impl ArcLowerer<'_> {
     // Call (positional -- named args already desugared)
 
     /// Lower a function call expression to ARC IR.
+    ///
+    /// `call_expr_id` is the `CanId` of the call expression itself (the
+    /// `CanExpr::Call` node), used as the lookup key into
+    /// `CanonResult.mono_dispatch_map_can` to recover the abstract dispatch
+    /// index for generic-instantiated calls.
     pub(crate) fn lower_call(
         &mut self,
+        call_expr_id: CanId,
         func: CanId,
         args: CanRange,
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
         let func_kind = *self.arena.kind(func);
+        let mono_instance_id = self.lookup_mono_dispatch(call_expr_id);
 
         // Lower all arguments first.
         let arg_ids: Vec<_> = self.arena.get_expr_list(args).to_vec();
@@ -178,7 +210,7 @@ impl ArcLowerer<'_> {
                     args = arg_vars.len(),
                     "call: direct (FunctionRef)"
                 );
-                self.emit_call_or_invoke(ty, name, arg_vars, span)
+                self.emit_call_or_invoke(ty, name, arg_vars, span, mono_instance_id)
             }
             CanExpr::SelfRef => {
                 tracing::trace!(
@@ -186,7 +218,7 @@ impl ArcLowerer<'_> {
                     args = arg_vars.len(),
                     "call: self-recursive (SelfRef)"
                 );
-                self.emit_call_or_invoke(ty, self.func_name, arg_vars, span)
+                self.emit_call_or_invoke(ty, self.func_name, arg_vars, span, mono_instance_id)
             }
             CanExpr::Ident(name) if self.scope.lookup(name).is_some() => {
                 let closure_var = self.lower_expr(func);
@@ -217,7 +249,7 @@ impl ArcLowerer<'_> {
                         return var;
                     }
                 }
-                self.emit_call_or_invoke(ty, resolved, arg_vars, span)
+                self.emit_call_or_invoke(ty, resolved, arg_vars, span, mono_instance_id)
             }
             CanExpr::TypeRef(name) => {
                 // `TypeRef` callees are how the canonicalizer represents
@@ -254,11 +286,17 @@ impl ArcLowerer<'_> {
 
     /// Lower a method call expression to ARC IR.
     ///
+    /// `call_expr_id` is the `CanId` of the method-call expression itself
+    /// (the `CanExpr::MethodCall` node), used as the lookup key into
+    /// `CanonResult.mono_dispatch_map_can` to recover the abstract dispatch
+    /// index for generic-instantiated method calls.
+    ///
     /// For type-qualified calls (receiver is `TypeRef`, e.g. `Point.default()`),
     /// the receiver is NOT passed as an argument — these are static/associated
     /// methods with no `self` parameter.
     pub(crate) fn lower_method_call(
         &mut self,
+        call_expr_id: CanId,
         receiver: CanId,
         method: Name,
         args: CanRange,
@@ -267,6 +305,7 @@ impl ArcLowerer<'_> {
     ) -> ArcVarId {
         let receiver_kind = *self.arena.kind(receiver);
         let is_type_qualified = matches!(receiver_kind, CanExpr::TypeRef(_));
+        let mono_instance_id = self.lookup_mono_dispatch(call_expr_id);
 
         // Inline lowering for tag-check builtins (is_err, is_ok, is_some,
         // is_none). These are compiled inline by LLVM codegen and don't go
@@ -310,7 +349,7 @@ impl ArcLowerer<'_> {
             args = all_args.len(),
             "method_call: dispatch"
         );
-        self.emit_call_or_invoke(ty, method, all_args, span)
+        self.emit_call_or_invoke(ty, method, all_args, span, mono_instance_id)
     }
 
     /// Emit an inline tag comparison for a Result/Option type.

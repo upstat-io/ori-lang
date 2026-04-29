@@ -218,6 +218,7 @@ fn apply_conservative_is_owned_maybe_shared() {
         func: ori_ir::Name::new(0, 0),
         args: vec![var(0)],
         arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+        mono_instance_id: None,
     };
     let result = transfer_def(&instr, &top_lookup).expect("should define a variable");
     assert_eq!(result.state.access, AccessClass::Owned);
@@ -397,6 +398,7 @@ fn invoke_def_is_conservative() {
         func: ori_ir::Name::new(0, 0),
         args: vec![var(0)],
         arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+        mono_instance_id: None,
         normal: crate::ir::ArcBlockId::new(1),
         unwind: crate::ir::ArcBlockId::new(2),
     };
@@ -862,6 +864,7 @@ fn transfer_def_covers_all_instr_variants() {
                 func: ori_ir::Name::new(0, 0),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             true,
         ),

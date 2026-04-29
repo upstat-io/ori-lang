@@ -173,6 +173,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 func,
                 args,
                 arg_ownership: _,
+                mono_instance_id: _,
                 normal,
                 unwind,
             } => {

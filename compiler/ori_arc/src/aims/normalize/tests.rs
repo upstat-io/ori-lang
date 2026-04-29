@@ -49,6 +49,7 @@ fn detect_context_region_for_recursive_construct() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // v2 = Construct(v1) — constructor wrapping recursive result
                 ArcInstr::Construct {
@@ -106,6 +107,7 @@ fn no_context_regions_for_non_recursive_function() {
                     func: other_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -149,6 +151,7 @@ fn no_context_regions_when_recursive_result_not_in_construct() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Let {
                     dst: var(2),
@@ -194,6 +197,7 @@ fn detect_context_region_for_enum_variant() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -238,6 +242,7 @@ fn no_context_regions_for_tuple_construct() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -285,6 +290,7 @@ fn hole_field_tracks_correct_arg_index() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // Construct with non-recursive v1 at field 0, recursive v2 at field 1
                 ArcInstr::Construct {
@@ -364,6 +370,7 @@ fn lifting_a_normal_form_is_noop() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -536,6 +543,7 @@ fn make_recursive_construct_func() -> ArcFunction {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // v2 = Construct { v0, v1 }
                 ArcInstr::Construct {
@@ -621,6 +629,7 @@ fn rewrite_trmc_enum_variant() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -748,6 +757,7 @@ fn rewrite_trmc_multi_arm_match() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -823,6 +833,7 @@ fn rewrite_trmc_preserves_non_recursive_arms() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -887,6 +898,7 @@ fn rewrite_trmc_skipped_when_construct_not_tail() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // Construct is NOT the last instruction — there's a Let after it.
                 ArcInstr::Construct {
@@ -1043,6 +1055,7 @@ fn verify_multi_arm_rewrite_passes() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -1097,6 +1110,7 @@ fn verify_non_tail_call_fails() {
         func: self_name,
         args: vec![var(0)],
         arg_ownership: vec![ArgOwnership::Owned],
+        mono_instance_id: None,
     });
     // Ensure var_types is large enough.
     while func.var_types.len() <= 50 {
@@ -1148,6 +1162,7 @@ fn verify_non_linear_context_fails() {
             func: other_fn,
             args: vec![ctx_hole_obj],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         },
     );
     while func.var_types.len() <= 60 {
@@ -1211,6 +1226,7 @@ fn verify_rollback_restores_original() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -1562,6 +1578,7 @@ fn pipeline_rollback_on_verification_failure() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -1644,6 +1661,7 @@ fn make_two_arg_recursive_func() -> ArcFunction {
                     func: self_name,
                     args: vec![var(0), var(1)],
                     arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // v3 = Construct { v0, v2 }
                 ArcInstr::Construct {
@@ -1916,6 +1934,7 @@ fn d6_base_case_with_context_applies_set_and_returns_ctx_res() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -2022,6 +2041,7 @@ fn d7_base_case_without_context_returns_directly() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -2108,6 +2128,7 @@ fn d8_enum_variant_hole_at_field_0() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // v3 = EnumVariant(v2, v1) — recursive result at field 0
                 ArcInstr::Construct {
@@ -2178,6 +2199,7 @@ fn d9_enum_variant_hole_at_field_1() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // v3 = EnumVariant(v1, v2) — recursive result at field 1
                 ArcInstr::Construct {
@@ -2245,6 +2267,7 @@ fn d10_rewrite_skipped_for_non_tail_construct() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -2297,6 +2320,7 @@ fn d11_rewrite_skipped_for_cross_block_region() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }],
                 terminator: ArcTerminator::Jump {
                     target: block_id(1),
@@ -2404,6 +2428,7 @@ fn d_three_field_ctor_hole_at_last_field() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // 3-field Construct: (v1, v2, v3) — hole at field 2
                 ArcInstr::Construct {

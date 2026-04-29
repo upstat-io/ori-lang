@@ -133,6 +133,7 @@ pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_i
                     func: iter_drop_name,
                     args: vec![iter_var],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }
             })
             .collect();

@@ -28,6 +28,7 @@ fn apply(dst: u32, func: Name, args: Vec<ArcVarId>) -> ArcInstr {
         func,
         args,
         arg_ownership: vec![],
+        mono_instance_id: None,
     }
 }
 
@@ -976,6 +977,7 @@ fn invoke_block(
             func,
             args,
             arg_ownership: vec![],
+            mono_instance_id: None,
             normal: b(normal),
             unwind: b(unwind),
         },

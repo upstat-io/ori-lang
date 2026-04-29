@@ -6,6 +6,7 @@
 
 use smallvec::{smallvec, SmallVec};
 
+use ori_ir::canon::MonoInstanceId;
 use ori_types::Idx;
 
 use super::{ArcValue, ArcVarId, ArgOwnership, CtorKind, RcStrategy};
@@ -35,6 +36,16 @@ pub enum ArcInstr {
         /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
         /// Defaults to all `Owned`; populated by RC insertion.
         arg_ownership: Vec<ArgOwnership>,
+        /// Abstract dispatch index for generic-instantiated calls.
+        /// `Some(id)` when the call resolved to a specific monomorphic
+        /// instance during type checking; `None` otherwise (most builtins
+        /// and non-generic calls). Sourced from
+        /// `CanonResult.mono_dispatch_map_can` during ARC lowering;
+        /// consumed by `ori_llvm` (and `ori_eval` for parity) to look up
+        /// `TypedModule.mono_instances[id.0]` and call `mangle_mono_name`
+        /// locally — keeping the LLVM-specific name format owned by
+        /// codegen per `canon.md §1` phase ownership.
+        mono_instance_id: Option<MonoInstanceId>,
     },
 
     /// Indirect call through a closure: `let dst: ty = closure(args...)`.

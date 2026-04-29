@@ -658,6 +658,7 @@ fn fixpoint_switch_multi_case_same_block_joins() {
             func: ori_ir::Name::from_raw(99),
             args: vec![],
             arg_ownership: vec![],
+            mono_instance_id: None,
         }],
         // Cases 0 and 1 both target block 1; case 2 targets block 2.
         terminator: ArcTerminator::Switch {
@@ -1107,6 +1108,7 @@ fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
                 func: ori_ir::Name::from_raw(99),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::IsShared {
                 dst: v_cond,
@@ -1550,6 +1552,7 @@ fn fixpoint_invoke_defines_dst_variable() {
             func: ori_ir::Name::from_raw(99), // unknown function
             args: vec![v_arg],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },

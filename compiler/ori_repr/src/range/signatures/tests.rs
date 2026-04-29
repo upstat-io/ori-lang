@@ -111,6 +111,7 @@ fn run_branch_call_scenario(
                 func: ori_ir::Name::from_raw(base_name + 1),
                 args: vec![v_a0],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
             ArcInstr::Let {
                 dst: v_ahi,
@@ -123,6 +124,7 @@ fn run_branch_call_scenario(
                 func: ori_ir::Name::from_raw(base_name + 1),
                 args: vec![v_ahi],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_rhi,
@@ -170,6 +172,7 @@ fn build_branch_blocks(
         func: ori_ir::Name::from_raw(helper_name),
         args: vec![x_param],
         arg_ownership: vec![ArgOwnership::Owned],
+        mono_instance_id: None,
     };
     let zero_instr = ArcInstr::Let {
         dst: v_zero,
@@ -298,6 +301,7 @@ fn single_call_site_constant_arg() {
                 func: ori_ir::Name::from_raw(100),
                 args: vec![v_arg],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_result,
@@ -355,6 +359,7 @@ fn two_call_sites_join_param_ranges() {
                 func: ori_ir::Name::from_raw(101),
                 args: vec![v_arg1],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
             ArcInstr::Let {
                 dst: v_arg2,
@@ -367,6 +372,7 @@ fn two_call_sites_join_param_ranges() {
                 func: ori_ir::Name::from_raw(101),
                 args: vec![v_arg2],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_r2,
@@ -523,6 +529,7 @@ fn self_recursive_converges_or_widens() {
                 func: ori_ir::Name::from_raw(104),
                 args: vec![v_sub],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Return { value: v_rec },
@@ -615,6 +622,7 @@ fn transitive_propagation_a_b_c() {
             func: ori_ir::Name::from_raw(300),
             args: vec![v_bx],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         v_br,
         ori_types::Idx::INT,
@@ -639,6 +647,7 @@ fn transitive_propagation_a_b_c() {
                 func: ori_ir::Name::from_raw(200),
                 args: vec![v_a42],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_ar,
@@ -705,6 +714,7 @@ fn caller_dst_narrows_from_callee_return_range() {
             func: ori_ir::Name::from_raw(400),
             args: vec![],
             arg_ownership: vec![],
+            mono_instance_id: None,
         }],
         v_dst,
         ori_types::Idx::INT,
@@ -796,6 +806,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
                 func: ori_ir::Name::from_raw(601),
                 args: vec![v_fsub],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Return { value: v_frec },
@@ -883,6 +894,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
                 func: ori_ir::Name::from_raw(600),
                 args: vec![v_gsub],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Return { value: v_grec },
@@ -932,6 +944,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
                 func: ori_ir::Name::from_raw(600),
                 args: vec![v_m10],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_mr,
@@ -1047,6 +1060,7 @@ fn scc_budget_exhaustion_clears_stale_results() {
                 func: ori_ir::Name::from_raw(800),
                 args: vec![v_sub],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Return { value: v_rec },
@@ -1160,6 +1174,7 @@ fn return_range_feeds_downstream_parameter_collection() {
                 func: ori_ir::Name::from_raw(900),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::Apply {
                 dst: v_c_result,
@@ -1167,6 +1182,7 @@ fn return_range_feeds_downstream_parameter_collection() {
                 func: ori_ir::Name::from_raw(901),
                 args: vec![v_h_result],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_c_result,
@@ -1211,6 +1227,7 @@ fn build_passthrough_func(name: u32, callee_id: u32) -> ArcFunction {
             func: ori_ir::Name::from_raw(callee_id),
             args: vec![v_x],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         v_r,
         ori_types::Idx::INT,
@@ -1267,6 +1284,7 @@ fn multi_hop_return_range_chain() {
                 func: ori_ir::Name::from_raw(800),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::Apply {
                 dst: v_ab,
@@ -1274,6 +1292,7 @@ fn multi_hop_return_range_chain() {
                 func: ori_ir::Name::from_raw(803),
                 args: vec![v_h],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_ab,
@@ -1347,6 +1366,7 @@ fn callee_return_derived_local_propagates() {
                 func: ori_ir::Name::from_raw(900),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::Let {
                 dst: v_one,
@@ -1447,6 +1467,7 @@ fn callee_return_derived_local_forwards_to_callee_param() {
                 func: ori_ir::Name::from_raw(910),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::Let {
                 dst: v_one,
@@ -1467,6 +1488,7 @@ fn callee_return_derived_local_forwards_to_callee_param() {
                 func: ori_ir::Name::from_raw(911),
                 args: vec![v_y],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_r,
@@ -1511,6 +1533,7 @@ fn build_func_with_unreachable_return(name: u32, callee_id: u32) -> ArcFunction 
             func: ori_ir::Name::from_raw(callee_id),
             args: vec![],
             arg_ownership: vec![],
+            mono_instance_id: None,
         }],
         terminator: ArcTerminator::Jump {
             target: ArcBlockId::new(2),
@@ -1561,6 +1584,7 @@ fn build_two_call_caller(name: u32, callee_a: u32, callee_b: u32) -> ArcFunction
                 func: ori_ir::Name::from_raw(callee_a),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::Apply {
                 dst: v_cb,
@@ -1568,6 +1592,7 @@ fn build_two_call_caller(name: u32, callee_a: u32, callee_b: u32) -> ArcFunction
                 func: ori_ir::Name::from_raw(callee_b),
                 args: vec![v_ca],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_cb,
@@ -1696,6 +1721,7 @@ fn build_self_recursive_func(name: u32) -> ArcFunction {
                 func: ori_ir::Name::from_raw(name),
                 args: vec![v_sub],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Return { value: v_rec },
@@ -1753,6 +1779,7 @@ fn total_scc_budget_caps_recursive_scc() {
                 func: ori_ir::Name::from_raw(950),
                 args: vec![v_arg],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_result,
@@ -1804,6 +1831,7 @@ fn build_invoke_caller(name: u32, callee_id: u32, num_vars: usize) -> ArcFunctio
             func: ori_ir::Name::from_raw(callee_id),
             args: vec![],
             arg_ownership: vec![],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1848,6 +1876,86 @@ fn build_invoke_caller(name: u32, callee_id: u32, num_vars: usize) -> ArcFunctio
         var_types: vec![ori_types::Idx::INT; num_vars],
         var_reprs: vec![ValueRepr::Scalar; num_vars],
         spans: vec![vec![None; 0], vec![None; 2], vec![None; 0]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    }
+}
+
+/// Builds a 3-block function:
+///   B0: `Invoke(helper_id)` → normal: B1, unwind: B2
+///   B1: [let one = 1; let y = x + one; apply `callee_id(y)` → r] → Return(r)
+///   B2: Unreachable
+fn build_invoke_apply_caller(helper_id: u32, callee_id: u32, name: u32) -> ArcFunction {
+    use ori_arc::ir::{ArcBlock, ArcTerminator, PrimOp, ValueRepr};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    let v_x = ArcVarId::new(0);
+    let v_one = ArcVarId::new(1);
+    let v_y = ArcVarId::new(2);
+    let v_r = ArcVarId::new(3);
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Invoke {
+            dst: v_x,
+            ty: ori_types::Idx::INT,
+            func: ori_ir::Name::from_raw(helper_id),
+            args: vec![],
+            arg_ownership: vec![],
+            mono_instance_id: None,
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+    };
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: v_y,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![v_x, v_one],
+                },
+            },
+            ArcInstr::Apply {
+                dst: v_r,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(callee_id),
+                args: vec![v_y],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_r },
+    };
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Unreachable,
+    };
+    ArcFunction {
+        name: ori_ir::Name::from_raw(name),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT; 4],
+        var_reprs: vec![ValueRepr::Scalar; 4],
+        spans: vec![vec![None; 0], vec![None; 3], vec![None; 0]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
@@ -1943,76 +2051,7 @@ fn invoke_dst_forwards_to_callee_param() {
 
     // caller: invoke helper → x; let one = 1; let y = x + one; apply callee(y) → r; return r
     // Uses Invoke for helper call, Apply for callee call.
-    let v_x = ArcVarId::new(0);
-    let v_one = ArcVarId::new(1);
-    let v_y = ArcVarId::new(2);
-    let v_r = ArcVarId::new(3);
-
-    let block0 = ArcBlock {
-        id: ArcBlockId::new(0),
-        params: vec![],
-        body: vec![],
-        terminator: ArcTerminator::Invoke {
-            dst: v_x,
-            ty: ori_types::Idx::INT,
-            func: ori_ir::Name::from_raw(940),
-            args: vec![],
-            arg_ownership: vec![],
-            normal: ArcBlockId::new(1),
-            unwind: ArcBlockId::new(2),
-        },
-    };
-
-    let block1 = ArcBlock {
-        id: ArcBlockId::new(1),
-        params: vec![],
-        body: vec![
-            ArcInstr::Let {
-                dst: v_one,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Literal(LitValue::Int(1)),
-            },
-            ArcInstr::Let {
-                dst: v_y,
-                ty: ori_types::Idx::INT,
-                value: ori_arc::ir::ArcValue::PrimOp {
-                    op: ori_arc::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
-                    args: vec![v_x, v_one],
-                },
-            },
-            ArcInstr::Apply {
-                dst: v_r,
-                ty: ori_types::Idx::INT,
-                func: ori_ir::Name::from_raw(941),
-                args: vec![v_y],
-                arg_ownership: vec![ArgOwnership::Owned],
-            },
-        ],
-        terminator: ArcTerminator::Return { value: v_r },
-    };
-
-    let block2 = ArcBlock {
-        id: ArcBlockId::new(2),
-        params: vec![],
-        body: vec![],
-        terminator: ArcTerminator::Unreachable,
-    };
-
-    let caller = ArcFunction {
-        name: ori_ir::Name::from_raw(942),
-        params: vec![],
-        return_type: ori_types::Idx::INT,
-        blocks: vec![block0, block1, block2],
-        entry: ArcBlockId::new(0),
-        var_types: vec![ori_types::Idx::INT; 4],
-        var_reprs: vec![ori_arc::ir::ValueRepr::Scalar; 4],
-        spans: vec![vec![None; 0], vec![None; 3], vec![None; 0]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
-        drop_hints: ori_arc::uniqueness::DropHints::default(),
-        tail_calls: vec![],
-    };
+    let caller = build_invoke_apply_caller(940, 941, 942);
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
@@ -2107,6 +2146,7 @@ fn pub_function_params_top_regardless_of_call_sites() {
                 func: ori_ir::Name::from_raw(980),
                 args: vec![v_arg],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_ret,
@@ -2183,6 +2223,7 @@ fn trait_impl_method_params_top() {
                 func: ori_ir::Name::from_raw(990),
                 args: vec![v_a0, v_a1],
                 arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_ret,
@@ -2258,6 +2299,7 @@ fn closure_params_top_via_num_captures() {
                 func: ori_ir::Name::from_raw(1000),
                 args: vec![v_a0, v_a1],
                 arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_ret,

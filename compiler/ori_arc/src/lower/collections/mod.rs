@@ -185,7 +185,7 @@ impl ArcLowerer<'_> {
             .interner
             .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
         self.builder
-            .emit_apply(ty, index_fn, vec![recv, idx_var], Some(span))
+            .emit_apply(ty, index_fn, vec![recv, idx_var], Some(span), None)
     }
 
     // Range
@@ -326,7 +326,8 @@ impl ArcLowerer<'_> {
     ) -> ArcVarId {
         let val = self.lower_expr(expr);
         let cast_fn = self.interner.intern("__cast");
-        self.builder.emit_apply(ty, cast_fn, vec![val], Some(span))
+        self.builder
+            .emit_apply(ty, cast_fn, vec![val], Some(span), None)
     }
 
     // Helpers
@@ -392,7 +393,7 @@ pub(crate) fn emit_list_element(
     );
     let index_fn =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
-    builder.emit_apply(elem_ty, index_fn, vec![list_value, idx_var], span)
+    builder.emit_apply(elem_ty, index_fn, vec![list_value, idx_var], span, None)
 }
 
 pub(crate) fn emit_list_rest_slice(
@@ -409,7 +410,7 @@ pub(crate) fn emit_list_rest_slice(
         span,
     );
     let slice_fn = interner.intern("ori_list_slice_drop");
-    builder.emit_apply(list_ty, slice_fn, vec![list_value, start_var], span)
+    builder.emit_apply(list_ty, slice_fn, vec![list_value, start_var], span, None)
 }
 
 // Tests

@@ -258,8 +258,13 @@ impl ArcLowerer<'_> {
             // For-yield break: optionally push value, then jump to exit.
             if value.is_valid() {
                 let val = self.lower_expr(value);
-                self.builder
-                    .emit_apply(Idx::UNIT, push_name, vec![list_ptr, val, elem_size], None);
+                self.builder.emit_apply(
+                    Idx::UNIT,
+                    push_name,
+                    vec![list_ptr, val, elem_size],
+                    None,
+                    None,
+                );
             }
             // Re-borrow loop_ctx for jump args (mutable borrows are done).
             if let Some(ref ctx) = self.loop_ctx {
@@ -322,8 +327,13 @@ impl ArcLowerer<'_> {
             // For-yield continue: optionally push value, then jump to header.
             if value.is_valid() {
                 let val = self.lower_expr(value);
-                self.builder
-                    .emit_apply(Idx::UNIT, push_name, vec![list_ptr, val, elem_size], None);
+                self.builder.emit_apply(
+                    Idx::UNIT,
+                    push_name,
+                    vec![list_ptr, val, elem_size],
+                    None,
+                    None,
+                );
             }
             // Re-borrow loop_ctx for jump args (mutable borrows are done).
             if let Some(ref ctx) = self.loop_ctx {

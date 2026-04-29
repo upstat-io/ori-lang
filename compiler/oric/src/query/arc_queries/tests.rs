@@ -275,6 +275,7 @@ fn calling_function(name: Name, callee: Name) -> ArcFunction {
                 func: callee,
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return {
                 value: ArcVarId::new(0),
@@ -775,6 +776,7 @@ fn param_forwarder(name: Name, callee: Name) -> ArcFunction {
                 func: callee,
                 args: vec![ArcVarId::new(0)],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return {
                 value: ArcVarId::new(1),
@@ -1175,6 +1177,7 @@ fn incremental_mutual_recursion_body_change_same_sig() {
                     func: name_b,
                     args: vec![ArcVarId::new(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
             ],
             terminator: ArcTerminator::Return {

@@ -1049,6 +1049,7 @@ fn synergy_pure_callee_preserves_uniqueness() {
                     func: syn_name(1), // calls callee
                     args: vec![syn_var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
             ],
             terminator: ArcTerminator::Return { value: syn_var(1) },
@@ -1393,6 +1394,7 @@ fn synergy_local_pure_chain_effects() {
                     func: syn_name(1),
                     args: vec![syn_var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Apply {
                     dst: syn_var(2),
@@ -1400,6 +1402,7 @@ fn synergy_local_pure_chain_effects() {
                     func: syn_name(1),
                     args: vec![syn_var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Apply {
                     dst: syn_var(3),
@@ -1407,6 +1410,7 @@ fn synergy_local_pure_chain_effects() {
                     func: syn_name(1),
                     args: vec![syn_var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
             ],
             terminator: ArcTerminator::Return { value: syn_var(3) },
