@@ -7,6 +7,7 @@
 
 use rustc_hash::FxHashMap;
 
+use ori_ir::canon::MonoInstanceId;
 use ori_ir::{Name, StringInterner};
 use ori_types::{ConstValue, FunctionSig, GenericArg, Idx, MonoInstance, Pool, Tag};
 
@@ -26,6 +27,15 @@ pub struct MonoFunction {
     pub sig: FunctionSig,
     /// Generic `Idx` → concrete `Idx` map for ARC lowering.
     pub body_type_map: FxHashMap<Idx, Idx>,
+    /// Source `MonoInstance` indices that dedup to this entry.
+    ///
+    /// Multiple `MonoInstance` records may collapse to one `MonoFunction` when
+    /// they share the same mangled name (e.g., two call sites instantiating
+    /// `identity` at `int`). Each id is the position of a `MonoInstance` in
+    /// the slice passed to [`collect_mono_functions`]. Consumed by
+    /// `declare_mono_functions` to populate `CodegenContext.mono_dispatch_by_id`
+    /// for the abstract-index dispatch path.
+    pub instance_ids: Vec<MonoInstanceId>,
 }
 
 // Collection
@@ -48,10 +58,15 @@ pub fn collect_mono_functions(
     let sig_by_name: FxHashMap<Name, &FunctionSig> =
         function_sigs.iter().map(|s| (s.name, s)).collect();
 
-    let mut result = Vec::with_capacity(mono_instances.len());
-    let mut seen_names = rustc_hash::FxHashSet::default();
+    let mut result: Vec<MonoFunction> = Vec::with_capacity(mono_instances.len());
+    let mut name_to_index: FxHashMap<Name, usize> = FxHashMap::default();
 
-    for instance in mono_instances {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
+    )]
+    for (idx, instance) in mono_instances.iter().enumerate() {
+        let instance_id = MonoInstanceId(idx as u32);
         let Some(generic_sig) = sig_by_name.get(&instance.fn_name) else {
             let name_str = interner.lookup(instance.fn_name);
             tracing::debug!(
@@ -65,10 +80,12 @@ pub fn collect_mono_functions(
         let mangled_name =
             mangle_mono_name(instance.fn_name, &instance.generic_args, interner, pool);
 
-        // Skip duplicate specializations (same function + same type args).
-        // The type checker may produce duplicate MonoInstance entries when the
-        // same generic is called from multiple sites.
-        if !seen_names.insert(mangled_name) {
+        // Dedup specializations sharing a mangled name (same function + same
+        // type args from multiple call sites). The first instance produces the
+        // MonoFunction; later collisions append their id so the abstract-index
+        // dispatch table can map every contributing instance to the survivor.
+        if let Some(&existing) = name_to_index.get(&mangled_name) {
+            result[existing].instance_ids.push(instance_id);
             continue;
         }
 
@@ -104,11 +121,13 @@ pub fn collect_mono_functions(
             return_hash,
         };
 
+        name_to_index.insert(mangled_name, result.len());
         result.push(MonoFunction {
             mangled_name,
             original_name: instance.fn_name,
             sig: concrete_sig,
             body_type_map: instance.body_type_map.iter().copied().collect(),
+            instance_ids: vec![instance_id],
         });
     }
 

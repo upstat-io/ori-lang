@@ -173,7 +173,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 func,
                 args,
                 arg_ownership: _,
-                mono_instance_id: _,
+                mono_instance_id,
                 normal,
                 unwind,
             } => {
@@ -190,9 +190,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     );
 
                 if is_seh_catch {
-                    self.emit_seh_catch_invoke(*dst, *func, args, *normal, *unwind, arc_func);
+                    self.emit_seh_catch_invoke(
+                        *dst,
+                        *func,
+                        args,
+                        *normal,
+                        *unwind,
+                        arc_func,
+                        *mono_instance_id,
+                    );
                 } else {
-                    self.emit_invoke(*dst, *func, args, *normal, *unwind, arc_func);
+                    self.emit_invoke(
+                        *dst,
+                        *func,
+                        args,
+                        *normal,
+                        *unwind,
+                        arc_func,
+                        *mono_instance_id,
+                    );
                 }
             }
 
@@ -284,6 +300,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// When the callee is in [`nounwind_functions`], emits `call` + `br` instead
     /// of `invoke`, eliminating the unwind edge and its associated landing pad.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Invoke emission threads dst/callee/args/edges/mono_id"
+    )]
     fn emit_invoke(
         &mut self,
         dst: ArcVarId,
@@ -292,6 +312,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         normal: ori_arc::ir::ArcBlockId,
         unwind: ori_arc::ir::ArcBlockId,
         arc_func: &ArcFunction,
+        mono_instance_id: Option<ori_ir::canon::MonoInstanceId>,
     ) {
         let func_name_str = self.interner.lookup(callee);
         let normal_block = self.block(normal);
@@ -344,7 +365,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let arg_vals: Vec<ValueId> = arc_args.iter().map(|a| self.var(*a)).collect();
 
-        let resolved = self.resolve_invoke_callee(callee, arc_args, dst, arc_func);
+        let resolved =
+            self.resolve_invoke_callee(callee, arc_args, dst, arc_func, mono_instance_id);
 
         if let Some((func_id, params, ret_passing, ret_ty_idx)) = resolved {
             self.emit_abi_resolved_call(
@@ -612,17 +634,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Resolve the callee for an Invoke terminator via the 5-step dispatch chain.
     ///
     /// Tries: receiver-based → return-type-based → unqualified → monomorphized → fallback.
+    /// `mono_instance_id` is forwarded into `lookup_mono_dispatch` for the
+    /// abstract-index fast path (sub-step 1e); when `None`, the chain
+    /// degrades to argument-type matching.
     fn resolve_invoke_callee(
         &self,
         callee: Name,
         arc_args: &[ArcVarId],
         dst: ArcVarId,
         arc_func: &ArcFunction,
+        mono_instance_id: Option<ori_ir::canon::MonoInstanceId>,
     ) -> Option<(FunctionId, Vec<ParamAbi>, ReturnPassing, Idx)> {
         self.lookup_method_by_receiver(callee, arc_args, arc_func)
             .or_else(|| self.lookup_method_by_return_type(callee, dst, arc_func))
             .or_else(|| self.ctx.functions.get(&callee))
-            .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func))
+            .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func, mono_instance_id))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| {
                 (

@@ -39,6 +39,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         clippy::too_many_lines,
         reason = "SEH catch/invoke emits thunk + try_call + branch"
     )]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "SEH catch invoke threads dst/callee/args/edges/mono_id"
+    )]
     pub(super) fn emit_seh_catch_invoke(
         &mut self,
         dst: ArcVarId,
@@ -47,6 +51,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         normal: ori_arc::ir::ArcBlockId,
         unwind: ori_arc::ir::ArcBlockId,
         arc_func: &ArcFunction,
+        mono_instance_id: Option<ori_ir::canon::MonoInstanceId>,
     ) {
         let func_name_str = self.interner.lookup(callee);
         let normal_block = self.block(normal);
@@ -60,7 +65,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .lookup_method_by_receiver(callee, arc_args, arc_func)
             .or_else(|| self.lookup_method_by_return_type(callee, dst, arc_func))
             .or_else(|| self.ctx.functions.get(&callee))
-            .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func))
+            .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func, mono_instance_id))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi));
 

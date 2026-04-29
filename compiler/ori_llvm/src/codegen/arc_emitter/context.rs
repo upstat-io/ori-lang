@@ -9,6 +9,7 @@
 
 use ori_arc::ir::ValueRepr;
 use ori_arc::ownership::Ownership;
+use ori_ir::canon::MonoInstanceId;
 use ori_ir::Name;
 use ori_types::{Idx, Pool, Tag};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -281,8 +282,21 @@ pub struct CodegenContext {
     ///
     /// When a non-generic function calls a generic one (e.g., `identity(42)`), the ARC IR
     /// uses the original name (`"identity"`), but the LLVM function is declared under the
-    /// mangled name (`"identity$m$int"`). This index resolves the call by matching arg types.
+    /// mangled name (`"identity$m$int"`). This index resolves the call by matching arg types
+    /// — the legacy fallback used when the call site does not carry a `MonoInstanceId`
+    /// (e.g., deferred-resolution mono instances awaiting sub-step 1b-deferred wiring).
     pub mono_dispatch: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+    /// Monomorphized generic dispatch keyed by abstract instance id.
+    ///
+    /// Populated alongside `mono_dispatch` from each `MonoFunction.instance_ids`
+    /// in `declare_mono_functions`. When an `ArcInstr::Apply` /
+    /// `ArcTerminator::Invoke` carries `mono_instance_id: Some(id)`,
+    /// `lookup_mono_dispatch` resolves the call directly via this map — no
+    /// argument-type matching, no generic-name lookup. The mangled string
+    /// remains owned exclusively by `ori_llvm` (computed in
+    /// `mangle_mono_name`); upstream phases only ever produce the abstract
+    /// index, satisfying the phase-purity contract for LLVM-specific names.
+    pub mono_dispatch_by_id: FxHashMap<MonoInstanceId, Name>,
     /// Known-nounwind user function names: `Invoke` terminators calling these
     /// emit `call` + `br` instead of LLVM `invoke`, eliminating landing pads.
     pub nounwind_functions: FxHashSet<Name>,

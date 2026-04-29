@@ -32,11 +32,22 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.declare_function(mono_fn.mangled_name, &mono_fn.sig, Span::DUMMY);
 
             // Build mono dispatch index: original_name -> [(param_types, mangled_name)]
+            // (legacy arg-type-matching fallback for `mono_instance_id: None`)
             self.codegen_ctx
                 .mono_dispatch
                 .entry(mono_fn.original_name)
                 .or_default()
                 .push((mono_fn.sig.param_types.clone(), mono_fn.mangled_name));
+
+            // Build abstract-index dispatch map: every contributing
+            // `MonoInstanceId` points at this function's mangled name.
+            // Multiple ids may map to the same mangled name when distinct
+            // instances dedup to one specialization (sub-step 1e).
+            for &instance_id in &mono_fn.instance_ids {
+                self.codegen_ctx
+                    .mono_dispatch_by_id
+                    .insert(instance_id, mono_fn.mangled_name);
+            }
         }
     }
 

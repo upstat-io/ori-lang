@@ -8,7 +8,7 @@
 //! function mutates it via `build_mono_body_type_map` (which pre-interns
 //! scheme-var `BoundVar` entries per §08.3b.1).
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 use ori_types::{FunctionSig, GenericArg, Idx, MonoInstance, Pool, TypeCheckResult};
 
@@ -38,9 +38,14 @@ pub(super) fn build_imported_mono_functions(
     interner: &crate::ir::StringInterner,
 ) -> Vec<ImportedMonoFn> {
     let mut imported_mono_fns: Vec<ImportedMonoFn> = Vec::new();
-    let mut seen_mono_names = FxHashSet::default();
+    let mut name_to_index: FxHashMap<ori_ir::Name, usize> = FxHashMap::default();
 
-    for instance in &type_result.typed.mono_instances {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
+    )]
+    for (idx, instance) in type_result.typed.mono_instances.iter().enumerate() {
+        let instance_id = ori_ir::canon::MonoInstanceId(idx as u32);
         let Some((generic_sig, module_idx, source_original_name)) =
             imported_generic_sigs.get(&instance.fn_name)
         else {
@@ -53,13 +58,15 @@ pub(super) fn build_imported_mono_functions(
             interner,
             merged_pool,
         );
-        if !seen_mono_names.insert(mangled) {
+        if let Some(&existing) = name_to_index.get(&mangled) {
+            imported_mono_fns[existing].0.instance_ids.push(instance_id);
             continue;
         }
 
         let concrete_sig = build_concrete_sig(instance, generic_sig, merged_pool, mangled);
         let body_type_map = build_body_type_map(merged_pool, instance, generic_sig);
 
+        name_to_index.insert(mangled, imported_mono_fns.len());
         imported_mono_fns.push((
             ori_llvm::monomorphize::MonoFunction {
                 mangled_name: mangled,
@@ -68,6 +75,7 @@ pub(super) fn build_imported_mono_functions(
                 original_name: instance.fn_name,
                 sig: concrete_sig,
                 body_type_map,
+                instance_ids: vec![instance_id],
             },
             *module_idx,
             // Source body name for canon.root_for() lookup in imported canon.

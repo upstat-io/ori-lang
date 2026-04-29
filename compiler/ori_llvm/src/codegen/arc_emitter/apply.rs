@@ -12,6 +12,7 @@
 //!   and aggregate-to-pointer coercion
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
+use ori_ir::canon::MonoInstanceId;
 use ori_ir::{Name, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
 use ori_types::{Idx, Tag};
 
@@ -116,14 +117,34 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// The ARC IR uses the **original** generic name (e.g., `"identity"`),
     /// but the LLVM function was declared under the **mangled** name
-    /// (e.g., `"identity$m$int"`). This method matches the concrete argument
-    /// types at the call site to find the correct monomorphization.
+    /// (e.g., `"identity$m$int"`). Two paths:
+    ///
+    /// 1. **Abstract-index fast path** (sub-step 1e): when the ARC carrier
+    ///    supplies `mono_instance_id`, look up the mangled name directly
+    ///    from `ctx.mono_dispatch_by_id`. This is the canonical post-1e
+    ///    path — typeck → canon → ARC publish the instance id, and
+    ///    `ori_llvm` is the sole producer of the LLVM-specific mangling.
+    /// 2. **Argument-type fallback**: legacy path used when the carrier
+    ///    has `None` (deferred-resolution mono instances awaiting
+    ///    sub-step 1b-deferred wiring) or when the abstract id has no
+    ///    entry yet. Matches concrete argument types against
+    ///    `ctx.mono_dispatch[callee]`.
     pub(super) fn lookup_mono_dispatch(
         &self,
         callee: Name,
         args: &[ArcVarId],
         func: &ArcFunction,
+        mono_instance_id: Option<MonoInstanceId>,
     ) -> Option<&(FunctionId, FunctionAbi)> {
+        if let Some(id) = mono_instance_id {
+            if let Some(mangled) = self.ctx.mono_dispatch_by_id.get(&id) {
+                return self.ctx.functions.get(mangled);
+            }
+            // Fall through to arg-type matching when an id has no entry —
+            // deferred-path edge until sub-step 1b-deferred publishes
+            // dispatch entries for transitive generic-calling-generic chains.
+        }
+
         let entries = self.ctx.mono_dispatch.get(&callee)?;
         let arg_types: Vec<Idx> = args
             .iter()
@@ -148,6 +169,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         callee: Name,
         args: &[ArcVarId],
         func: &ArcFunction,
+        mono_instance_id: Option<MonoInstanceId>,
     ) {
         let callee_name_str = self.interner.lookup(callee);
 
@@ -182,7 +204,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .lookup_method_by_receiver(callee, args, func)
             .or_else(|| self.lookup_method_by_return_type(callee, dst, func))
             .or_else(|| self.ctx.functions.get(&callee))
-            .or_else(|| self.lookup_mono_dispatch(callee, args, func))
+            .or_else(|| self.lookup_mono_dispatch(callee, args, func, mono_instance_id))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi));
 

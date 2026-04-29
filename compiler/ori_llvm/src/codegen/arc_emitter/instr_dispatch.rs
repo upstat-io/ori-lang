@@ -372,8 +372,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 func: callee,
                 args,
                 arg_ownership: _,
-                mono_instance_id: _,
-            } => self.emit_apply(*dst, *callee, args, func),
+                mono_instance_id,
+            } => self.emit_apply(*dst, *callee, args, func, *mono_instance_id),
 
             ArcInstr::ApplyIndirect {
                 dst,
