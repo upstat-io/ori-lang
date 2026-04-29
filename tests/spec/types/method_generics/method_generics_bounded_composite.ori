@@ -1,0 +1,19 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-type coverage — composite bound <T: Eq + Clone>
+
+use std.testing { assert_eq }
+
+type Box<T> = { value: T }
+
+impl<U> Box<U> {
+    @duplicate<T: Eq + Clone> (self, other: T) -> [T] = [other.clone(), other];
+}
+
+@test_bounded_composite tests _ () -> void = {
+    let b: Box<int> = Box { value: 0 };
+    let r: [int] = b.duplicate(other: 7);
+    assert_eq(actual: r.len(), expected: 2);
+    assert_eq(actual: r[0], expected: 7);
+    assert_eq(actual: r[1], expected: 7)
+}

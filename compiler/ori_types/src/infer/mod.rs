@@ -138,6 +138,27 @@ pub struct InferEngine<'pool> {
     /// Module-level constant types for `$name` reference resolution.
     const_types: Option<&'pool FxHashMap<Name, Idx>>,
 
+    /// Method-level const-generic parameter types for `$name` reference
+    /// resolution inside an impl/def-impl method body. Phase B-Residual-2 (a):
+    /// populated at body-check entry so that bodies can use `$N` in type-arg
+    /// positions (e.g., `to_fixed<$N>()`). Owned (not borrowed) because the
+    /// scope is per-method, not module-level. Consulted by `const_type` AFTER
+    /// the module-level lookup misses.
+    method_const_types: FxHashMap<Name, Idx>,
+
+    /// Method-level `RigidVar` trait-bound assumptions for body-internal trait
+    /// dispatch. Phase B-Residual-2 (c): populated at impl/def-impl body-check
+    /// entry from inline `<T: Bound>` and trailing `where T: Bound` forms so
+    /// that body-internal trait queries on a method-level `RigidVar` (e.g.,
+    /// `prefix.to_str()` in `@to_string<T: Printable> (prefix: T) -> str`)
+    /// succeed when the trait is in the binder's declared bounds.
+    ///
+    /// Keyed by the `RigidVar`'s `var_id` (extractable via `pool.data(idx)`);
+    /// value is the `Vec` of trait `Name`s assumed for that binder. Owned (not
+    /// borrowed) because the scope is per-method, not module-level.
+    /// Consulted by `rigid_var_satisfies_bound`.
+    method_rigid_bounds: FxHashMap<u32, Vec<Name>>,
+
     /// Monomorphization instances discovered during inference.
     ///
     /// Populated by `record_mono_instance()` when a generic function is called
@@ -245,6 +266,8 @@ impl<'pool> InferEngine<'pool> {
             provided_capabilities: FxHashSet::default(),
             pattern_resolutions: Vec::new(),
             const_types: None,
+            method_const_types: FxHashMap::default(),
+            method_rigid_bounds: FxHashMap::default(),
             mono_instances: Vec::new(),
             mono_dispatch_pre_dedup: Vec::new(),
             deferred_mono_calls: Vec::new(),
@@ -326,8 +349,65 @@ impl<'pool> InferEngine<'pool> {
     }
 
     /// Look up a constant's type by name.
+    ///
+    /// Checks module-level constants first, then method-level const generics
+    /// (Phase B-Residual-2 (a)). Method-level const generics shadow module-
+    /// level constants of the same name only inside their owning method body.
     pub fn const_type(&self, name: Name) -> Option<Idx> {
-        self.const_types.and_then(|m| m.get(&name).copied())
+        if let Some(ty) = self.const_types.and_then(|m| m.get(&name).copied()) {
+            return Some(ty);
+        }
+        self.method_const_types.get(&name).copied()
+    }
+
+    /// Bind a method-level const generic in scope for the body being checked.
+    ///
+    /// Called by `check_impl_method` / `check_def_impl_method` at body-check
+    /// entry, mirroring the `param_env.bind` for identifier-position lookups.
+    /// This binding makes `$name` references inside the body's type-arg
+    /// positions (e.g., `to_fixed<$N>()`) resolve correctly.
+    pub fn bind_method_const(&mut self, name: Name, ty: Idx) {
+        self.method_const_types.insert(name, ty);
+    }
+
+    /// Register a trait-bound assumption on a method-level `RigidVar`.
+    ///
+    /// Called by `check_impl_method` / `check_def_impl_method` at body-check
+    /// entry for each declared bound on a method-level type generic. Multiple
+    /// calls for the same `RigidVar` accumulate (`<T: Eq + Clone>` registers
+    /// both `Eq` and `Clone` independently). Body-internal trait dispatch
+    /// queries (e.g., string-interpolation `Printable` check, map-key
+    /// `Hashable` check) consult these assumptions via
+    /// `rigid_var_satisfies_bound`.
+    pub fn bind_method_rigid_bound(&mut self, rigid_idx: Idx, trait_name: Name) {
+        let var_id = self.pool().data(rigid_idx);
+        self.method_rigid_bounds
+            .entry(var_id)
+            .or_default()
+            .push(trait_name);
+    }
+
+    /// Check whether a method-level `RigidVar` satisfies a trait via its
+    /// declared bounds.
+    ///
+    /// Returns `false` for any non-`RigidVar` `Idx` (callers handle non-rigid
+    /// types through the standard `type_satisfies_trait` /
+    /// `TraitRegistry::has_impl` paths). Returns `true` iff `ty` is a
+    /// `RigidVar` AND the declared bounds set for that `RigidVar` contains
+    /// `trait_name`.
+    ///
+    /// Supertrait transitivity is NOT applied here — a binder declared
+    /// `T: Hashable` does not implicitly satisfy `Eq` via Hashable's
+    /// supertrait chain at this query layer. Callers requiring supertrait
+    /// transitivity should expand the bound list at registration time.
+    pub fn rigid_var_satisfies_bound(&self, ty: Idx, trait_name: Name) -> bool {
+        if self.pool().tag(ty) != Tag::RigidVar {
+            return false;
+        }
+        let var_id = self.pool().data(ty);
+        self.method_rigid_bounds
+            .get(&var_id)
+            .is_some_and(|bounds| bounds.contains(&trait_name))
     }
 
     /// Set the current function type for `self` references.

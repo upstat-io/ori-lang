@@ -1,0 +1,22 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-feature — method-level × def-impl block
+//
+// def-impl-method path (parsed via parse_impl_method per §A.2) routes
+// method-level binders identically to inherent impl methods, EXCEPT that
+// the def-impl-context guard rejects `uses_clause` AND the method body
+// is checked without a `self`-typed receiver in scope.
+
+use std.testing { assert_eq }
+
+trait Convertible<T> {
+    @to_string (val: int, prefix: T) -> str
+}
+
+def impl Convertible {
+    @to_string<T: Printable> (val: int, prefix: T) -> str = `{prefix}{val}`;
+}
+
+@test_method_def_impl tests _ () -> void = {
+    assert_eq(actual: 1, expected: 1)
+}

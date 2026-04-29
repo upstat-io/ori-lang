@@ -1,0 +1,31 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-pattern coverage — trait method_sig (no body)
+//
+// Exercises method-level generics on a trait MethodSig (no default body).
+// Trait registers correctly with the method-level binder. The trait is
+// NOT object-safe per object-safety-rules-proposal.md (no test pin here
+// — the negative pin lives in method_generics_trait_obj_negative.ori).
+//
+// Concrete return types (int) keep the impl's body type-check decoupled
+// from trait-object dispatch — this fixture targets parse + typeck of
+// the method-level binder on a trait method sig, NOT trait-object
+// existential return.
+
+use std.testing { assert_eq }
+
+trait HasGenericMethod {
+    @count<T> (self, val: T) -> int
+}
+
+type Box<U> = { value: U }
+
+impl<U> HasGenericMethod for Box<U> {
+    @count<T> (self, val: T) -> int = 1;
+}
+
+@test_method_sig tests _ () -> void = {
+    let b = Box { value: 1 };
+    let r: int = b.count(val: "hello");
+    assert_eq(actual: r, expected: 1)
+}

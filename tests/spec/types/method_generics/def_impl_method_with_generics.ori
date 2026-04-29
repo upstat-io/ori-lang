@@ -1,0 +1,21 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-pattern coverage — def_impl_method (def-impl block)
+//
+// def-impl methods are stateless by definition (no `self` parameter); the
+// def-impl-context guard rejects `uses_clause` per §05 §A.2 directive.
+// Method-level generics route through parse_impl_method identically.
+
+use std.testing { assert_eq }
+
+trait Convertible<T> {
+    @convert (val: int) -> Option<T>
+}
+
+def impl Convertible {
+    @convert<T> (val: int) -> Option<T> = None;
+}
+
+@test_def_impl_method tests _ () -> void = {
+    assert_eq(actual: 1, expected: 1)
+}

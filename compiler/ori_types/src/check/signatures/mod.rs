@@ -352,7 +352,10 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
 ///
 /// Handles both `Primitive` (parser recognized the keyword) and `Named`
 /// (parser treated it as a named type) representations of `int`/`bool`.
-fn resolve_const_param_type(checker: &ModuleChecker<'_>, param: &ori_ir::GenericParam) -> Idx {
+pub(crate) fn resolve_const_param_type(
+    checker: &ModuleChecker<'_>,
+    param: &ori_ir::GenericParam,
+) -> Idx {
     match &param.const_type {
         Some(ParsedType::Primitive(tid)) => match tid.raw() {
             0 => Idx::INT,

@@ -1,0 +1,20 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// Proposal: docs/ori_lang/proposals/approved/object-safety-rules-proposal.md
+// BUG-01-002 §03 super-trait inheritance — child declared first
+//
+// Child trait declared BEFORE parent — the case naïve Option A misses
+// (Super's TraitEntry doesn't exist when Sub is registered). Two-phase
+// registration computes violations AFTER all traits are registered, so
+// this case must reject with E2024 just like the parent-first ordering.
+
+trait Sub: Super {
+    @ok (self) -> int
+}
+
+trait Super {
+    @generic<T> (self) -> T
+}
+
+#compile_fail(code: "E2024", message: "not object-safe")
+@uses_sub (s: Sub) -> int = s.ok();

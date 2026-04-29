@@ -1,0 +1,31 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 §C.4.1 — mangling-no-collision
+//
+// Two typed-binding call sites driving impl-args=int + method-args=str on
+// one site, impl-args=str + method-args=int on the other. The LLVM-symbol
+// mangled names are distinct: bar$m$3_int$im$3_str vs bar$m$3_str$im$3_int
+// (length-prefixed per §05 C.2:185). Verifies length-prefix injection-bijectivity.
+//
+// `#fail("not yet implemented")` matches the runtime panic from `todo()`
+// in `@bar`'s body. The test compiles + monomorphizes end-to-end
+// successfully; the runtime panic is the expected outcome that pins
+// the §C.4.1 mangling-injection-bijectivity invariant.
+
+use std.testing { assert_eq }
+
+type Foo<T> = { tag: T }
+type Box<U> = { value: U }
+
+impl<T> Foo<T> {
+    @bar<U> (self) -> Box<U> = Box { value: todo() };
+}
+
+#fail("not yet implemented")
+@test_mangling_no_collision tests _ () -> void = {
+    let f1: Foo<int> = Foo { tag: 1 };
+    let f2: Foo<str> = Foo { tag: "x" };
+    let r1: Box<str> = f1.bar();    // impl=int, method=str
+    let r2: Box<int> = f2.bar();    // impl=str, method=int
+    assert_eq(actual: 1, expected: 1)
+}

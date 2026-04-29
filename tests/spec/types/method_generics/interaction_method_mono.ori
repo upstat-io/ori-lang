@@ -1,0 +1,32 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-feature — method-level × monomorphization
+//
+// Monomorphization produces 4 distinct mono instances driven by argument
+// types (not explicit call-site type-args, which are deferred per the
+// proposal Open Questions §Call-Site Grammar). Verifies the §05 C.1:174
+// dedup predicate — fn_name && impl_args && method_args &&
+// concrete_param_types && receiver_type.
+
+use std.testing { assert_eq }
+
+type Vec<U> = { items: [U] }
+
+impl<U> Vec<U> {
+    @find<T> (self, key: T) -> Option<int> = None;
+}
+
+@test_method_mono tests _ () -> void = {
+    let v_int: Vec<int> = Vec { items: [1, 2, 3] };
+    let v_str: Vec<str> = Vec { items: ["a", "b"] };
+    let some_int: int = 42;
+    let some_str: str = "key";
+    let r1: Option<int> = v_int.find(key: some_int);    // U=int, T=int
+    let r2: Option<int> = v_int.find(key: some_str);    // U=int, T=str
+    let r3: Option<int> = v_str.find(key: some_int);    // U=str, T=int
+    let r4: Option<int> = v_str.find(key: some_str);    // U=str, T=str
+    assert_eq(actual: r1.is_none(), expected: true);
+    assert_eq(actual: r2.is_none(), expected: true);
+    assert_eq(actual: r3.is_none(), expected: true);
+    assert_eq(actual: r4.is_none(), expected: true)
+}

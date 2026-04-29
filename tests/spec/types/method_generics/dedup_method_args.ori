@@ -1,0 +1,35 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 §C.4.3 — dedup-preserves-method-args
+//
+// Same impl-args (Foo<int>) with DIFFERENT method-args inferred from
+// return-type ascription. mono_instances post-dedup contains BOTH
+// (count == 2, not 1). Tests check/mod.rs:371 mono_instances.dedup_by
+// correctness post-§C.1 fix.
+//
+// Workaround for BUG-01-003: cannot use `Foo<int>.bar()` at expression
+// position (type-instantiation turbofish on type path is unsupported).
+// Drives method-args distinction through LHS type-ascription on a
+// real Foo<int> instance instead.
+//
+// `#fail("not yet implemented")` matches the runtime panic from `todo()`
+// in `@bar`'s body. The test compiles + monomorphizes end-to-end
+// successfully; the runtime panic is the expected outcome that pins
+// the §C.4.3 dedup invariant.
+
+type Foo<T> = { tag: T }
+type Box<U> = { value: U }
+
+impl<T> Foo<T> {
+    @bar<U> (self) -> Box<U> = Box { value: todo() };
+}
+
+#fail("not yet implemented")
+@test_dedup_method_args tests _ () -> void = {
+    let f: Foo<int> = Foo { tag: 1 };
+    let r1: Box<str> = f.bar();
+    let r2: Box<int> = f.bar();
+    let _ = r1;
+    let _ = r2;
+    ()
+}

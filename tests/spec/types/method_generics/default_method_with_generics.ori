@@ -1,0 +1,25 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-pattern coverage — trait default_method (default body)
+//
+// Default body type-checks against method-level T. Phase A.1 directive:
+// From<&TraitDefaultMethod> for ImplMethod COPIES generics + where_clauses
+// (REVERSED at Phase 2.5 Round 0). Inherited binders must remain in scope.
+
+use std.testing { assert_eq }
+
+trait Reducer<F> {
+    @reduce<T> (self, init: T, op: (T, F) -> T) -> T = init;
+}
+
+type Cell<X> = { value: X }
+
+impl<X> Reducer<X> for Cell<X> {
+    @reduce<T> (self, init: T, op: (T, X) -> T) -> T = op(init, self.value);
+}
+
+@test_default_method tests _ () -> void = {
+    let c = Cell { value: 3 };
+    let r: int = c.reduce(init: 10, op: (acc, x) -> acc + x);
+    assert_eq(actual: r, expected: 13)
+}

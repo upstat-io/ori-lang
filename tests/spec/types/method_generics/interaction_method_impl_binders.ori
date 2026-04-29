@@ -1,0 +1,21 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-feature — method-level × impl-level binder interaction
+//
+// Both binders in scope simultaneously (no shadowing — distinct names);
+// return type tuples both binders.
+
+use std.testing { assert_eq }
+
+type Foo<T> = { value: T }
+
+impl<T> Foo<T> {
+    @m<U> (self, x: U) -> (T, U) = (self.value, x);
+}
+
+@test_method_impl_binders tests _ () -> void = {
+    let f = Foo { value: 1 };
+    let r: (int, str) = f.m(x: "hello");
+    assert_eq(actual: r.0, expected: 1);
+    assert_eq(actual: r.1, expected: "hello")
+}

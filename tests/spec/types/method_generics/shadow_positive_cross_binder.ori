@@ -1,0 +1,21 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 §B.3.3 — shadow-positive-cross-binder
+//
+// Distinct names, no shadowing collision; both impl-level and method-level
+// binders used in concert. Permanent regression guard against the "method
+// binders can't see impl binders" bug.
+
+use std.testing { assert_eq }
+
+type Box<U> = { value: U }
+
+impl<U> Box<U> {
+    @transform<T> (self, f: (U) -> T) -> Box<T> = Box { value: f(self.value) };
+}
+
+@test_cross_binder tests _ () -> void = {
+    let b = Box { value: 7 };
+    let r: Box<str> = b.transform(f: x -> `{x}`);
+    assert_eq(actual: r.value, expected: "7")
+}

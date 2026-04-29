@@ -1,0 +1,32 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 §C.4.5 — dedup-preserves-receiver-type-assoc-fn
+//
+// Associated functions WITHOUT self on different generic containers. Tests
+// receiver_type: Option<Idx> discriminator (Round 5 Codex F3 rule
+// clarification — Some(Self) for any function in impl block).
+//
+// Workaround for BUG-01-003: cannot use `Box<int>.new(v: 5)` syntax
+// (type-instantiation turbofish on type path is unsupported). Drives
+// type-args via LHS type-ascription + value-arg type inference instead:
+// `let r: Box<int> = Box.new(v: 5)` unifies `Box<int> ~ Box<T>` so T=int.
+
+use std.testing { assert_eq }
+
+type Box<T> = { value: T }
+type MyOption<T> = { tag: int, val: T }
+
+impl<T> Box<T> {
+    @new (v: T) -> Box<T> = Box { value: v };
+}
+
+impl<T> MyOption<T> {
+    @new (v: T) -> MyOption<T> = MyOption { tag: 1, val: v };
+}
+
+@test_dedup_receiver_assoc_fn tests _ () -> void = {
+    let r1: Box<int> = Box.new(v: 5);
+    let r2: MyOption<int> = MyOption.new(v: 5);
+    assert_eq(actual: r1.value, expected: 5);
+    assert_eq(actual: r2.val, expected: 5)
+}

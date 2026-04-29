@@ -1,0 +1,16 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// Proposal: docs/ori_lang/proposals/approved/object-safety-rules-proposal.md
+// BUG-01-002 §03 Cross-type coverage — trait-object position negative pin
+//
+// Asserts the dormant object-safety check at
+// ori_types/check/registration/traits.rs:156-159 activates: a trait with a
+// generic method is NOT object-safe and must be rejected at trait-object
+// positions with E2024.
+
+trait Converter {
+    @convert<T> (self) -> T
+}
+
+#compile_fail(code: "E2024", message: "not object-safe")
+@uses_trait_object (c: Converter) -> int = 0;

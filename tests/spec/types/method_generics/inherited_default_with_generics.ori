@@ -1,0 +1,27 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-pattern coverage — inherited default-method conversion
+//
+// Verifies From<&TraitDefaultMethod> for ImplMethod at
+// ori_ir/src/ast/items/traits.rs:312-322 PRESERVES the method-level binders
+// when an impl inherits without overriding. If binders are dropped during
+// conversion, the inherited body's `T` references resolve to nothing and
+// type-check produces "unbound type variable" errors.
+
+use std.testing { assert_eq }
+
+trait Reducer<F> {
+    @reduce<T> (self, init: T, op: (T, F) -> T) -> T = init;
+}
+
+type Container<X> = { value: X }
+
+impl<X> Reducer<X> for Container<X> {
+    // Inherits @reduce from default — no override.
+}
+
+@test_inherited_default tests _ () -> void = {
+    let c = Container { value: 1 };
+    let r: int = c.reduce(init: 0, op: (acc, x) -> acc + x);
+    assert_eq(actual: r, expected: 0)
+}

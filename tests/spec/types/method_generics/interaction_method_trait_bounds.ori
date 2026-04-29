@@ -1,0 +1,20 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-feature — method-level × composite trait bounds
+//
+// Composite trait bounds resolve against method-level binders; bound
+// failure (e.g., T = NotHashable) produces E2001.
+
+use std.testing { assert_eq }
+
+type Box<U> = { value: U }
+
+impl<U> Box<U> {
+    @hash_eq<T: Hashable + Eq> (self, val: T) -> int = val.hash();
+}
+
+@test_method_trait_bounds tests _ () -> void = {
+    let b = Box { value: 1 };
+    let h: int = b.hash_eq(val: 42);
+    assert_eq(actual: h, expected: h)
+}

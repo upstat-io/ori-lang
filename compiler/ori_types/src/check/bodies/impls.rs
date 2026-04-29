@@ -4,12 +4,26 @@
 //! block/method helpers, and the shared `build_method_sig` constructor. See
 //! `bodies/mod.rs` for the architecture docstring that covers all four body passes.
 
-use ori_ir::{ExprId, ImplMethod, Module, Name, Param, TraitDef, TraitItem};
+use ori_ir::{ExprId, ImplMethod, Module, Name, Param, TraitBound, TraitDef, TraitItem};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::check::registration::{resolve_parsed_type_simple, resolve_type_with_method_generics};
+use crate::check::signatures::resolve_const_param_type;
 use crate::check::ModuleChecker;
+use crate::output::ConstParamInfo;
 use crate::{check_expr, ContextKind, Expected, ExpectedOrigin, FunctionSig, Idx, Pool};
+
+/// Result of `allocate_method_binders` — bundles the four method-binder data
+/// products: the substitution map (binder name → fresh `RigidVar` Idx), the
+/// type-generic param-name list, per-const-generic info, and inline trait-bound
+/// assumptions per non-const binder. Tuple-typedef keeps the helper signature
+/// readable; clippy `type_complexity` flagged the bare 4-tuple.
+type MethodBinderInfo = (
+    FxHashMap<Name, Idx>,
+    Vec<Name>,
+    Vec<ConstParamInfo>,
+    Vec<(Idx, Vec<Name>)>,
+);
 
 /// Build a `FunctionSig` from the resolved method parameters and return type.
 ///
@@ -31,6 +45,7 @@ fn build_method_sig(
     param_types: Vec<Idx>,
     return_type: Idx,
     type_params: &[Name],
+    const_params: Vec<ConstParamInfo>,
     pool: &Pool,
 ) -> FunctionSig {
     let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
@@ -41,7 +56,7 @@ fn build_method_sig(
     FunctionSig {
         name: method_name,
         type_params: type_params.to_vec(),
-        const_params: vec![],
+        const_params,
         param_names,
         param_types,
         return_type,
@@ -142,10 +157,9 @@ fn check_impl_block(
 fn allocate_method_binders(
     checker: &mut ModuleChecker<'_>,
     method: &ImplMethod,
-) -> (FxHashMap<Name, Idx>, Vec<Name>) {
-    let method_generic_params: Vec<Name> = checker
-        .arena()
-        .get_generic_params(method.generics)
+) -> MethodBinderInfo {
+    let generic_params = checker.arena().get_generic_params(method.generics).to_vec();
+    let method_generic_params: Vec<Name> = generic_params
         .iter()
         .filter(|p| !p.is_const)
         .map(|p| p.name)
@@ -155,7 +169,41 @@ fn allocate_method_binders(
         let rigid_idx = checker.pool_mut().rigid_var(mname);
         method_substitutions.insert(mname, rigid_idx);
     }
-    (method_substitutions, method_generic_params)
+    // Phase B-Residual-2 (a) — collect method-level const generics. Their names are
+    // bound into `param_env` at body-check entry as their declared type (`int` /
+    // `bool`) so the body can reference them as values, mirroring the top-level
+    // function pattern in `check/bodies/functions.rs`.
+    let const_params: Vec<ConstParamInfo> = generic_params
+        .iter()
+        .filter(|p| p.is_const)
+        .map(|p| ConstParamInfo {
+            name: p.name,
+            const_type: resolve_const_param_type(checker, p),
+            default_value: p.default_value,
+        })
+        .collect();
+    // Phase B-Residual-2 (c) — collect inline `<T: Bound>` trait-bound assumptions
+    // per non-const binder. Each entry pairs the binder's allocated RigidVar Idx
+    // with the simple Names of every declared trait bound. The body-check entry
+    // registers these on the InferEngine so body-internal trait dispatch (e.g.,
+    // `Printable.to_str(prefix)` in string interpolation) treats `prefix : T` as
+    // satisfying the bound. Empty-bounds entries are skipped to keep the table
+    // tight.
+    let inline_bounds: Vec<(Idx, Vec<Name>)> = generic_params
+        .iter()
+        .filter(|p| !p.is_const && !p.bounds.is_empty())
+        .map(|p| {
+            let rigid_idx = method_substitutions[&p.name];
+            let trait_names: Vec<Name> = p.bounds.iter().map(TraitBound::name).collect();
+            (rigid_idx, trait_names)
+        })
+        .collect();
+    (
+        method_substitutions,
+        method_generic_params,
+        const_params,
+        inline_bounds,
+    )
 }
 
 /// Type check a single impl method body.
@@ -177,7 +225,12 @@ fn check_impl_method(
     };
 
     // Phase B Step 5: bind method-level type generics as fresh RigidVars.
-    let (method_substitutions, method_generic_params) = allocate_method_binders(checker, method);
+    // Phase B-Residual-2 (a): also collect method-level const generics for
+    // body-scope binding below.
+    // Phase B-Residual-2 (c): also collect inline `<T: Bound>` assumptions
+    // for body-internal trait dispatch.
+    let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
+        allocate_method_binders(checker, method);
 
     // Combined scope for type resolution: impl-level (parent) + method-level
     // (child). Without method-level names in scope, `(self, f: T -> U) -> Box<U>`
@@ -230,6 +283,13 @@ fn check_impl_method(
         param_env.bind(mname, rigid_idx);
     }
 
+    // Phase B-Residual-2 (a): bind method-level const generics as their
+    // declared type. For `@first_n<$N: int>`, bind N -> int so the body can
+    // reference N (e.g., `take(count: N)`). Mirrors functions.rs:54-58.
+    for cp in &method_const_params {
+        param_env.bind(cp.name, cp.const_type);
+    }
+
     // Build function type for recursion support
     let fn_type = checker.pool_mut().function(&param_types, return_type);
 
@@ -246,6 +306,8 @@ fn check_impl_method(
     // naturally skips them per `VarState::Rigid` branch.
     let param_types_ref = &mut param_types;
     let return_type_ref = &mut return_type;
+    let const_params_for_engine = method_const_params.clone();
+    let inline_bounds_for_engine = method_inline_bounds.clone();
     let (
         expr_types,
         errors,
@@ -258,6 +320,24 @@ fn check_impl_method(
         c.with_function_scope(fn_type, FxHashSet::default(), |c| {
             let arena = c.arena();
             let mut engine = c.create_engine_with_env(param_env);
+
+            // Phase B-Residual-2 (a): bind method-level const generics on the
+            // engine for `$N` const-position lookups inside the body
+            // (e.g., `to_fixed<$N>()`). Identifier-position lookups (`count: N`)
+            // are already covered by `param_env.bind` above.
+            for cp in &const_params_for_engine {
+                engine.bind_method_const(cp.name, cp.const_type);
+            }
+
+            // Phase B-Residual-2 (c): register inline `<T: Bound>` trait-bound
+            // assumptions on the engine so body-internal trait dispatch
+            // (e.g., `Printable.to_str(prefix)` in string interpolation when
+            // `prefix : T` and `T: Printable`) succeeds for the RigidVar.
+            for (rigid_idx, trait_names) in &inline_bounds_for_engine {
+                for &tname in trait_names {
+                    engine.bind_method_rigid_bound(*rigid_idx, tname);
+                }
+            }
 
             // Phase B Step 5 (BUG-01-002): rank scope per typeck.md §SG-5
             // + §CK-2 / §GN-1. Method-level binders live at strictly
@@ -332,6 +412,7 @@ fn check_impl_method(
         param_types,
         return_type,
         type_params,
+        method_const_params,
         checker.pool(),
     );
 
@@ -390,11 +471,16 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     };
 
     // Phase B Step 5: bind method-level type generics as fresh RigidVars.
+    // Phase B-Residual-2 (a): also collect method-level const generics for
+    // body-scope binding below.
+    // Phase B-Residual-2 (c): also collect inline `<T: Bound>` assumptions
+    // for body-internal trait dispatch.
     // Def-impl methods have no impl-level type params and no `Self`, so the
     // resolver scope is method-level only and `self_type` is `Idx::ERROR`
     // (matching the pre-existing `resolve_parsed_type_simple` semantics for
     // `SelfType`).
-    let (method_substitutions, method_generic_params) = allocate_method_binders(checker, method);
+    let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
+        allocate_method_binders(checker, method);
 
     // Resolve parameter types (no Self for def impl, but method-level overlay applies)
     let arena = checker.arena();
@@ -444,6 +530,13 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
         param_env.bind(mname, rigid_idx);
     }
 
+    // Phase B-Residual-2 (a): bind method-level const generics as their
+    // declared type for body identifier resolution. Mirrors the
+    // `check_impl_method` and `functions.rs:54-58` patterns.
+    for cp in &method_const_params {
+        param_env.bind(cp.name, cp.const_type);
+    }
+
     // Build function type
     let fn_type = checker.pool_mut().function(&param_types, return_type);
 
@@ -455,6 +548,8 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     // roots before returning from the closure.
     let param_types_ref = &mut param_types;
     let return_type_ref = &mut return_type;
+    let const_params_for_engine = method_const_params.clone();
+    let inline_bounds_for_engine = method_inline_bounds.clone();
     let (
         expr_types,
         errors,
@@ -466,6 +561,22 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     ) = checker.with_function_scope(fn_type, FxHashSet::default(), |c| {
         let arena = c.arena();
         let mut engine = c.create_engine_with_env(param_env);
+
+        // Phase B-Residual-2 (a): bind method-level const generics on the
+        // engine for `$N` const-position lookups inside the body. Mirrors
+        // the `check_impl_method` engine-binding pattern.
+        for cp in &const_params_for_engine {
+            engine.bind_method_const(cp.name, cp.const_type);
+        }
+
+        // Phase B-Residual-2 (c): register inline `<T: Bound>` trait-bound
+        // assumptions on the engine for body-internal trait dispatch.
+        // Mirrors the `check_impl_method` engine-binding pattern.
+        for (rigid_idx, trait_names) in &inline_bounds_for_engine {
+            for &tname in trait_names {
+                engine.bind_method_rigid_bound(*rigid_idx, tname);
+            }
+        }
 
         engine.push_context(ContextKind::FunctionReturn {
             func_name: Some(method.name),
@@ -529,6 +640,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
         param_types,
         return_type,
         &[],
+        method_const_params,
         checker.pool(),
     );
 
