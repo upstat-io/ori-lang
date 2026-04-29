@@ -230,6 +230,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         let mut mono_functions = crate::monomorphize::collect_mono_functions(
             mono_instances,
             function_sigs,
+            impl_sigs,
             interner,
             self.pool,
         );

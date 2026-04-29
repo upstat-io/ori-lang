@@ -272,6 +272,7 @@ pub(crate) fn lower_and_infer_borrows(
     let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
         mono_instances,
         function_sigs,
+        impl_sigs,
         interner,
         pool,
     );

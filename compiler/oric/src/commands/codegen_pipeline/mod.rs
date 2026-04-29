@@ -78,6 +78,7 @@ pub(super) fn run_borrow_inference(
     db: &CompilerDb,
     parse_result: &ParseOutput,
     function_sigs: &[FunctionSig],
+    impl_sigs: &[(Name, FunctionSig)],
     canon: &CanonResult,
     interner: &StringInterner,
     pool: &Pool,
@@ -137,6 +138,7 @@ pub(super) fn run_borrow_inference(
     let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
         mono_instances,
         function_sigs,
+        impl_sigs,
         interner,
         pool,
     );
@@ -318,6 +320,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             db,
             parse_result,
             &function_sigs,
+            &type_result.typed.impl_sigs,
             canon,
             interner,
             pool,

@@ -263,18 +263,19 @@ fn try_resolve_deferred_call(
         "resolved transitive mono instance"
     );
 
-    mono_instances.push(instance);
-
     // Publish a dispatch entry for the deferred call so downstream phases
     // (canon → ARC → ori_llvm/ori_eval) see the same `MonoInstanceId` they
-    // see for eager-path calls. The new instance was just pushed, so its
-    // pre-dedup id is `len() - 1`; this entry flows through the same
+    // see for eager-path calls. The new instance lands at the current
+    // `mono_instances.len()` slot; this entry flows through the same
     // dedup-remap pipeline as eager entries (see `check/mod.rs` export
     // pipeline). Closes the gap noted in `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
     // §C.2 sub-step 1b-deferred.
-    let new_id = MonoInstanceId(
-        u32::try_from(mono_instances.len() - 1).expect("mono_instances index fits in u32"),
-    );
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
+    )]
+    let new_id = MonoInstanceId(mono_instances.len() as u32);
+    mono_instances.push(instance);
     mono_dispatch_pre_dedup.push((deferred.call_expr_id, new_id));
 }
 

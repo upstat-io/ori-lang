@@ -55,6 +55,8 @@ pub(super) fn build_imported_mono_functions(
         let mangled = ori_llvm::monomorphize::mangle_mono_name(
             instance.fn_name,
             &instance.generic_args,
+            &instance.impl_args,
+            &instance.method_args,
             interner,
             merged_pool,
         );

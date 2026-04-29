@@ -41,9 +41,17 @@ fn mangle_single_type_param_int() {
     let pool = Pool::new();
     let fn_name = interner.intern("identity");
 
-    let mangled = mangle_mono_name(fn_name, &[GenericArg::Type(Idx::INT)], &interner, &pool);
+    let mangled = mangle_mono_name(
+        fn_name,
+        &[GenericArg::Type(Idx::INT)],
+        &[],
+        &[],
+        &interner,
+        &pool,
+    );
 
-    assert_eq!(interner.lookup(mangled), "identity$m$int");
+    // Length-prefixed top-level: "int" is 3 bytes → "3_int".
+    assert_eq!(interner.lookup(mangled), "identity$m$3_int");
 }
 
 #[test]
@@ -55,11 +63,16 @@ fn mangle_two_type_params() {
     let mangled = mangle_mono_name(
         fn_name,
         &[GenericArg::Type(Idx::INT), GenericArg::Type(Idx::BOOL)],
+        &[],
+        &[],
         &interner,
         &pool,
     );
 
-    assert_eq!(interner.lookup(mangled), "make_pair$m$int_bool");
+    // Length prefix replaces inter-arg "_" separator: each arg carries its
+    // own byte length, so successive prefixed payloads concatenate
+    // unambiguously: "3_int" then "4_bool".
+    assert_eq!(interner.lookup(mangled), "make_pair$m$3_int4_bool");
 }
 
 #[test]
@@ -69,9 +82,17 @@ fn mangle_list_type() {
     let list_int = pool.list(Idx::INT);
     let fn_name = interner.intern("filter");
 
-    let mangled = mangle_mono_name(fn_name, &[GenericArg::Type(list_int)], &interner, &pool);
+    let mangled = mangle_mono_name(
+        fn_name,
+        &[GenericArg::Type(list_int)],
+        &[],
+        &[],
+        &interner,
+        &pool,
+    );
 
-    assert_eq!(interner.lookup(mangled), "filter$m$Lint");
+    // encode_type produces "Lint" (4 bytes) for [int].
+    assert_eq!(interner.lookup(mangled), "filter$m$4_Lint");
 }
 
 #[test]
@@ -81,9 +102,17 @@ fn mangle_option_type() {
     let opt_str = pool.option(Idx::STR);
     let fn_name = interner.intern("unwrap");
 
-    let mangled = mangle_mono_name(fn_name, &[GenericArg::Type(opt_str)], &interner, &pool);
+    let mangled = mangle_mono_name(
+        fn_name,
+        &[GenericArg::Type(opt_str)],
+        &[],
+        &[],
+        &interner,
+        &pool,
+    );
 
-    assert_eq!(interner.lookup(mangled), "unwrap$m$Ostr");
+    // encode_type produces "Ostr" (4 bytes) for Option<str>.
+    assert_eq!(interner.lookup(mangled), "unwrap$m$4_Ostr");
 }
 
 #[test]
@@ -93,9 +122,17 @@ fn mangle_tuple_type() {
     let tup = pool.tuple(&[Idx::INT, Idx::BOOL]);
     let fn_name = interner.intern("swap");
 
-    let mangled = mangle_mono_name(fn_name, &[GenericArg::Type(tup)], &interner, &pool);
+    let mangled = mangle_mono_name(
+        fn_name,
+        &[GenericArg::Type(tup)],
+        &[],
+        &[],
+        &interner,
+        &pool,
+    );
 
-    assert_eq!(interner.lookup(mangled), "swap$m$Tint_bool");
+    // encode_type produces "Tint_bool" (9 bytes) for (int, bool).
+    assert_eq!(interner.lookup(mangled), "swap$m$9_Tint_bool");
 }
 
 #[test]
@@ -112,11 +149,11 @@ fn collect_produces_concrete_sig() {
         Vec::new(),
     );
 
-    let mono_fns = collect_mono_functions(&[instance], &[generic_sig], &interner, &pool);
+    let mono_fns = collect_mono_functions(&[instance], &[generic_sig], &[], &interner, &pool);
 
     assert_eq!(mono_fns.len(), 1);
     let mf = &mono_fns[0];
-    assert_eq!(interner.lookup(mf.mangled_name), "identity$m$int");
+    assert_eq!(interner.lookup(mf.mangled_name), "identity$m$3_int");
     assert_eq!(interner.lookup(mf.original_name), "identity");
     assert!(
         mf.sig.type_params.is_empty(),
@@ -143,7 +180,8 @@ fn collect_skips_unknown_function() {
 
     let mono_fns = collect_mono_functions(
         &[instance],
-        &[], // no sigs
+        &[], // no top-level sigs
+        &[], // no impl sigs either
         &interner,
         &pool,
     );
@@ -152,4 +190,120 @@ fn collect_skips_unknown_function() {
         mono_fns.is_empty(),
         "should skip instances for unknown functions"
     );
+}
+
+// --------------------------------------------------------------------
+// §C.2 supplementary mangling edge cases (BUG-01-002 §C.4):
+// these unit-tests verify the four mangling shapes — top-level,
+// method-impl-only, method-with-method-args, and method-no-impl-args —
+// at the API surface, independent of upstream typeck wiring.
+
+#[test]
+fn mangle_method_distinct_from_top_level() {
+    // §C.4 supplementary cell: top-level vs method distinction.
+    // A top-level instance with one type arg and a method instance whose
+    // impl_args carry the same type arg MUST produce different symbols —
+    // the trailing $im$ separator on the method form is the discriminator.
+    let interner = make_interner();
+    let pool = Pool::new();
+    let identity_name = interner.intern("identity");
+    let bar_name = interner.intern("bar");
+
+    let top_level = mangle_mono_name(
+        identity_name,
+        &[GenericArg::Type(Idx::INT)],
+        &[],
+        &[],
+        &interner,
+        &pool,
+    );
+    let method_impl_only = mangle_mono_name(
+        bar_name,
+        &[],
+        &[GenericArg::Type(Idx::INT)],
+        &[],
+        &interner,
+        &pool,
+    );
+
+    assert_eq!(interner.lookup(top_level), "identity$m$3_int");
+    assert_eq!(interner.lookup(method_impl_only), "bar$m$3_int$im$");
+    assert_ne!(top_level, method_impl_only);
+}
+
+#[test]
+fn mangle_method_impl_and_method_args() {
+    // §C.4.1 mangling-no-collision (unit-test variant): a method instance
+    // with both impl_args and method_args produces the canonical
+    // <fn>$m$<L0(impl_args)>$im$<L0(method_args)> shape.
+    let interner = make_interner();
+    let pool = Pool::new();
+    let bar_name = interner.intern("bar");
+
+    let mangled = mangle_mono_name(
+        bar_name,
+        &[],
+        &[GenericArg::Type(Idx::INT)],
+        &[GenericArg::Type(Idx::STR)],
+        &interner,
+        &pool,
+    );
+
+    // impl_args=[int] → "3_int", method_args=[str] → "3_str".
+    assert_eq!(interner.lookup(mangled), "bar$m$3_int$im$3_str");
+}
+
+#[test]
+fn mangle_method_no_impl_args() {
+    // §C.4 supplementary cell: method-level only (no impl-level generics)
+    // — `impl Box<int> { @m<U> ... }` shape. Empty impl_args section
+    // between `$m$` and `$im$` is load-bearing — it preserves bijectivity
+    // when the method-arg payload happens to look like an impl-arg payload.
+    let interner = make_interner();
+    let pool = Pool::new();
+    let m_name = interner.intern("m");
+
+    let mangled = mangle_mono_name(
+        m_name,
+        &[],
+        &[],
+        &[GenericArg::Type(Idx::STR)],
+        &interner,
+        &pool,
+    );
+
+    // Empty impl_args section → "m$m$" then "$im$" then "3_str".
+    assert_eq!(interner.lookup(mangled), "m$m$$im$3_str");
+}
+
+#[test]
+fn mangle_method_swapped_args_distinct() {
+    // §C.4.1 injection-bijectivity pin: swapping impl_args and method_args
+    // produces structurally distinct mangled symbols even when the type
+    // sets are identical. With length-prefix encoding plus the $im$
+    // separator there is no possible collision between the two shapes.
+    let interner = make_interner();
+    let pool = Pool::new();
+    let bar_name = interner.intern("bar");
+
+    let m1 = mangle_mono_name(
+        bar_name,
+        &[],
+        &[GenericArg::Type(Idx::INT)],
+        &[GenericArg::Type(Idx::STR)],
+        &interner,
+        &pool,
+    );
+    let m2 = mangle_mono_name(
+        bar_name,
+        &[],
+        &[GenericArg::Type(Idx::STR)],
+        &[GenericArg::Type(Idx::INT)],
+        &interner,
+        &pool,
+    );
+
+    assert_eq!(interner.lookup(m1), "bar$m$3_int$im$3_str");
+    assert_eq!(interner.lookup(m2), "bar$m$3_str$im$3_int");
+    assert_ne!(m1, m2);
 }

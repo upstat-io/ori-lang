@@ -115,20 +115,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Resolve a generic function call to its monomorphized variant.
     ///
-    /// The ARC IR uses the **original** generic name (e.g., `"identity"`),
-    /// but the LLVM function was declared under the **mangled** name
-    /// (e.g., `"identity$m$int"`). Two paths:
+    /// The ARC IR uses the original generic name (e.g., `identity`) while
+    /// the LLVM function was declared under the mangled name
+    /// (`identity$m$3_int`). Two paths:
     ///
-    /// 1. **Abstract-index fast path** (sub-step 1e): when the ARC carrier
-    ///    supplies `mono_instance_id`, look up the mangled name directly
-    ///    from `ctx.mono_dispatch_by_id`. This is the canonical post-1e
-    ///    path — typeck → canon → ARC publish the instance id, and
-    ///    `ori_llvm` is the sole producer of the LLVM-specific mangling.
-    /// 2. **Argument-type fallback**: legacy path used when the carrier
-    ///    has `None` (deferred-resolution mono instances awaiting
-    ///    sub-step 1b-deferred wiring) or when the abstract id has no
-    ///    entry yet. Matches concrete argument types against
-    ///    `ctx.mono_dispatch[callee]`.
+    /// 1. Abstract-index fast path (sub-step 1e/1f canon-side-table +
+    ///    sub-step 1b-deferred deferred-resolution publication): when the
+    ///    ARC carrier supplies `mono_instance_id`, look up the mangled
+    ///    name directly from `ctx.mono_dispatch_by_id`. This is the
+    ///    canonical post-1f path for paths covered by the typeck
+    ///    publication pipeline.
+    /// 2. Argument-type fallback: kept live for ARC `Invoke` terminators
+    ///    in tail position and `apply`-pattern invocations whose carrier
+    ///    still has `mono_instance_id = None`. When wired through, the
+    ///    fallback becomes dead and can be removed; until then it
+    ///    matches concrete argument types against
+    ///    `ctx.mono_dispatch[callee]` to pick the correct specialization.
     pub(super) fn lookup_mono_dispatch(
         &self,
         callee: Name,
@@ -140,9 +142,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             if let Some(mangled) = self.ctx.mono_dispatch_by_id.get(&id) {
                 return self.ctx.functions.get(mangled);
             }
-            // Fall through to arg-type matching when an id has no entry —
-            // deferred-path edge until sub-step 1b-deferred publishes
-            // dispatch entries for transitive generic-calling-generic chains.
         }
 
         let entries = self.ctx.mono_dispatch.get(&callee)?;

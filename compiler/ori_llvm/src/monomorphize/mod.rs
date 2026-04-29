@@ -5,10 +5,10 @@
 //! carries a mangled name and a fully-concrete [`FunctionSig`] — existing
 //! `declare_function()` / `define_function_body()` work unchanged.
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use ori_ir::canon::MonoInstanceId;
-use ori_ir::{Name, StringInterner};
+use ori_ir::{Name, StringInterner, IMPL_METHOD_SEPARATOR, MONO_SEPARATOR};
 use ori_types::{ConstValue, FunctionSig, GenericArg, Idx, MonoInstance, Pool, Tag};
 
 // MonoFunction
@@ -46,17 +46,35 @@ pub struct MonoFunction {
 /// builds a concrete (non-generic) signature with substituted types, and
 /// computes a mangled name. Returns one `MonoFunction` per instance.
 ///
-/// Instances whose original function cannot be found in `function_sigs` are
+/// Instance shape determines which signature list is consulted:
+/// - **Top-level instances** (`receiver_type = None`) look up
+///   `function_sigs` by `fn_name`.
+/// - **Method instances** (`receiver_type = Some(_)`) look up `impl_sigs`
+///   by `fn_name`. Multiple impls may register the same method name; the
+///   first match supplies metadata (param names, capabilities, defaults)
+///   that does not depend on the receiver type.
+///
+/// Instances whose original function cannot be found in either list are
 /// silently skipped (the generic function may be from an uncompiled module).
 pub fn collect_mono_functions(
     mono_instances: &[MonoInstance],
     function_sigs: &[FunctionSig],
+    impl_sigs: &[(Name, FunctionSig)],
     interner: &StringInterner,
     pool: &Pool,
 ) -> Vec<MonoFunction> {
-    // Build name → sig lookup for O(1) access.
-    let sig_by_name: FxHashMap<Name, &FunctionSig> =
+    // Build name → sig lookups for O(1) access. The impl-side map keeps the
+    // first registered signature per method name; receiver-type discrimination
+    // is enforced upstream by `MonoInstance` dedup (`receiver_type` is part of
+    // the dedup predicate), so any impl-side match supplies the same shared
+    // metadata regardless of which receiver registered first.
+    let fn_sig_by_name: FxHashMap<Name, &FunctionSig> =
         function_sigs.iter().map(|s| (s.name, s)).collect();
+    let mut impl_sig_by_name: FxHashMap<Name, &FunctionSig> =
+        FxHashMap::with_capacity_and_hasher(impl_sigs.len(), FxBuildHasher);
+    for (name, sig) in impl_sigs {
+        impl_sig_by_name.entry(*name).or_insert(sig);
+    }
 
     let mut result: Vec<MonoFunction> = Vec::with_capacity(mono_instances.len());
     let mut name_to_index: FxHashMap<Name, usize> = FxHashMap::default();
@@ -67,18 +85,30 @@ pub fn collect_mono_functions(
     )]
     for (idx, instance) in mono_instances.iter().enumerate() {
         let instance_id = MonoInstanceId(idx as u32);
-        let Some(generic_sig) = sig_by_name.get(&instance.fn_name) else {
+        let lookup = if instance.receiver_type.is_some() {
+            impl_sig_by_name.get(&instance.fn_name)
+        } else {
+            fn_sig_by_name.get(&instance.fn_name)
+        };
+        let Some(generic_sig) = lookup else {
             let name_str = interner.lookup(instance.fn_name);
             tracing::debug!(
                 fn_name = ?instance.fn_name,
                 name = name_str,
+                is_method = instance.receiver_type.is_some(),
                 "mono instance for unknown function — skipping"
             );
             continue;
         };
 
-        let mangled_name =
-            mangle_mono_name(instance.fn_name, &instance.generic_args, interner, pool);
+        let mangled_name = mangle_mono_name(
+            instance.fn_name,
+            &instance.generic_args,
+            &instance.impl_args,
+            &instance.method_args,
+            interner,
+            pool,
+        );
 
         // Dedup specializations sharing a mangled name (same function + same
         // type args from multiple call sites). The first instance produces the
@@ -138,31 +168,103 @@ pub fn collect_mono_functions(
 
 /// Compute the mangled name for a monomorphized function.
 ///
-/// Format: `{fn_name}$m${type1}_{type2}_{typeN}`
+/// Each generic argument is encoded with a length prefix (`<bytes>_<payload>`)
+/// so the encoding is injection-bijective even when user identifiers contain
+/// `_` or other characters that would otherwise collide with an inter-arg
+/// separator. The prefix follows Rust's `_ZN<N><name>E` convention — the
+/// decoder reads the byte length, slices exactly that many bytes, and parses
+/// the next argument unambiguously.
 ///
-/// Example: `identity$m$int`, `make_pair$m$int_bool`, `filter$m$Lint`
+/// # Mangling shapes
+///
+/// The presence of [`IMPL_METHOD_SEPARATOR`] (`$im$`) distinguishes a method
+/// instance from a top-level instance — top-level mangled names never contain
+/// `$im$`. Four shapes are produced:
+///
+/// 1. **Top-level non-method** (no impl/method args, possibly with
+///    generic args): `<fn_name>$m$<L0_PREFIXED_generic_args>`.
+///    Example: `identity$m$3_int` for `identity<int>`,
+///    `make_pair$m$3_int4_bool` for `make_pair<int, bool>`.
+/// 2. **Method, impl-level only** (impl args, no method args):
+///    `<fn_name>$m$<L0_PREFIXED_impl_args>$im$` (trailing `$im$` distinguishes
+///    from top-level). Example: `hello$m$3_int$im$` for
+///    `impl<T> Box<T> { @hello (...) }` instantiated at `T = int`.
+/// 3. **Method with method-level generics**:
+///    `<fn_name>$m$<L0_PREFIXED_impl_args>$im$<L0_PREFIXED_method_args>`.
+///    Example: `bar$m$3_int$im$3_str` for
+///    `impl<T> Foo<T> { @bar<U> (...) }` at `T=int`, `U=str`.
+/// 4. **Method, no impl-level generics** (method-level only,
+///    e.g., `impl Box<int> { @m<U> ... }`):
+///    `<fn_name>$m$$im$<L0_PREFIXED_method_args>` (empty impl-args section).
+///
+/// # Panics
+///
+/// Panics if `fn_name` contains either reserved separator (`$m$` or `$im$`).
+/// Ori identifier syntax excludes `$`, so this is a defensive guard against
+/// an upstream bug rather than a path real input can take.
 pub fn mangle_mono_name(
     fn_name: Name,
     generic_args: &[GenericArg],
+    impl_args: &[GenericArg],
+    method_args: &[GenericArg],
     interner: &StringInterner,
     pool: &Pool,
 ) -> Name {
     let base = interner.lookup(fn_name);
-    let mut mangled = String::with_capacity(base.len() + 4 + generic_args.len() * 6);
-    mangled.push_str(base);
-    mangled.push_str(ori_ir::MONO_SEPARATOR);
+    assert!(
+        !base.contains(MONO_SEPARATOR),
+        "mangle_mono_name: fn_name {base:?} contains reserved separator {MONO_SEPARATOR:?}",
+    );
+    assert!(
+        !base.contains(IMPL_METHOD_SEPARATOR),
+        "mangle_mono_name: fn_name {base:?} contains reserved separator {IMPL_METHOD_SEPARATOR:?}",
+    );
 
-    for (i, arg) in generic_args.iter().enumerate() {
-        if i > 0 {
-            mangled.push('_');
-        }
-        match arg {
-            GenericArg::Type(idx) => encode_type(*idx, pool, interner, &mut mangled),
-            GenericArg::Const(cv) => encode_const_value(cv, &mut mangled),
-        }
+    let is_method = !impl_args.is_empty() || !method_args.is_empty();
+
+    let mut mangled = String::with_capacity(
+        base.len()
+            + MONO_SEPARATOR.len()
+            + IMPL_METHOD_SEPARATOR.len()
+            + (generic_args.len() + impl_args.len() + method_args.len()) * 8,
+    );
+    mangled.push_str(base);
+    mangled.push_str(MONO_SEPARATOR);
+
+    if is_method {
+        encode_args_length_prefixed(impl_args, pool, interner, &mut mangled);
+        mangled.push_str(IMPL_METHOD_SEPARATOR);
+        encode_args_length_prefixed(method_args, pool, interner, &mut mangled);
+    } else {
+        encode_args_length_prefixed(generic_args, pool, interner, &mut mangled);
     }
 
     interner.intern(&mangled)
+}
+
+/// Encode each generic argument with a `<byte_len>_<payload>` length prefix.
+///
+/// The byte length measures the encoded payload (after `encode_type` /
+/// `encode_const_value` runs), not the source spelling. With the prefix in
+/// place no inter-arg separator is needed — successive prefixed payloads
+/// concatenate unambiguously (the decoder reads the length, slices, repeats).
+fn encode_args_length_prefixed(
+    args: &[GenericArg],
+    pool: &Pool,
+    interner: &StringInterner,
+    out: &mut String,
+) {
+    let mut payload = String::new();
+    for arg in args {
+        payload.clear();
+        match arg {
+            GenericArg::Type(idx) => encode_type(*idx, pool, interner, &mut payload),
+            GenericArg::Const(cv) => encode_const_value(cv, &mut payload),
+        }
+        out.push_str(&payload.len().to_string());
+        out.push('_');
+        out.push_str(&payload);
+    }
 }
 
 /// Encode a type as a compact string for name mangling.

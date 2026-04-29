@@ -40,11 +40,20 @@ macro_rules! static_assert_size {
 /// Separator used in monomorphized function names.
 ///
 /// When a generic function is monomorphized, its name is suffixed with this
-/// separator followed by the encoded type arguments (e.g., `foo$m$int_str`).
+/// separator followed by the encoded type arguments (e.g., `foo$m$3_int4_bool`).
 ///
 /// **Sync point**: Used by `ori_llvm` (monomorphize) and `ori_arc` (`arg_ownership`).
 /// Both crates MUST use this constant — never inline `"$m$"`.
 pub const MONO_SEPARATOR: &str = "$m$";
+
+/// Separator that splits impl-level args from method-level args inside a
+/// monomorphized method name (e.g., `bar$m$3_int$im$3_str`). Its presence
+/// distinguishes a method-instance mangling from a top-level mangling — a
+/// top-level mangled name never contains `$im$`.
+///
+/// **Sync point**: Used by `ori_llvm` (monomorphize). Consumers MUST use this
+/// constant — never inline `"$im$"`.
+pub const IMPL_METHOD_SEPARATOR: &str = "$im$";
 
 mod arena;
 pub mod ast;
