@@ -7,9 +7,9 @@
 
 use rustc_hash::FxHashMap;
 
-use ori_ir::Name;
+use ori_ir::{ExprId, Name};
 
-use crate::{Idx, PatternKey, PatternResolution};
+use crate::{Idx, MonoInstanceId, PatternKey, PatternResolution};
 
 use super::{ExprIndex, InferEngine};
 
@@ -55,9 +55,50 @@ impl InferEngine<'_> {
         self.mono_instances.push(instance);
     }
 
+    /// Record a concrete instantiation tied to a call-site `ExprId`.
+    ///
+    /// Pushes the instance into `mono_instances` and emits a parallel
+    /// `(call_expr_id, MonoInstanceId)` entry into `mono_dispatch_pre_dedup`
+    /// for later remap-and-publish in [`crate::TypedModule::mono_dispatch_map`].
+    /// The [`MonoInstanceId`] is the pre-push length of `mono_instances`
+    /// (this body's local index space). The body-pass absorbs both vectors
+    /// together via
+    /// [`crate::check::ModuleChecker::accumulate_mono_session`], which
+    /// offsets the local index into module-wide position before
+    /// [`crate::check::ModuleChecker::finish_with_pool`] remaps once more
+    /// across dedup + sort.
+    ///
+    /// Used by the eager call-site path
+    /// (`infer::expr::calls::monomorphization::maybe_record_mono_instance`).
+    /// The deferred-resolution path keeps using `record_mono_instance`
+    /// until `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
+    /// §C.2 sub-step 1b-deferred extends `DeferredMonoCall` to carry
+    /// `ExprId`.
+    pub fn record_mono_with_dispatch(
+        &mut self,
+        call_expr_id: ExprId,
+        instance: crate::MonoInstance,
+    ) {
+        // Saturating `Vec::len() → u32` matches the workspace pattern at
+        // `pool/substitute/mod.rs:541` and `ModuleChecker::accumulate_mono_session`;
+        // strict workspace clippy denies `cast_possible_truncation` and
+        // `expect`/`unwrap`. Per-body mono counts cannot reach `u32::MAX`
+        // in practice — 4 billion mono instances inside a single body is
+        // structurally unreachable for any compilable module.
+        let local_idx = u32::try_from(self.mono_instances.len()).unwrap_or(u32::MAX);
+        self.mono_instances.push(instance);
+        self.mono_dispatch_pre_dedup
+            .push((call_expr_id, MonoInstanceId(local_idx)));
+    }
+
     /// Take mono instances, leaving an empty vector.
     pub fn take_mono_instances(&mut self) -> Vec<crate::MonoInstance> {
         std::mem::take(&mut self.mono_instances)
+    }
+
+    /// Take mono dispatch pre-dedup entries, leaving an empty vector.
+    pub fn take_mono_dispatch_pre_dedup(&mut self) -> Vec<(ExprId, MonoInstanceId)> {
+        std::mem::take(&mut self.mono_dispatch_pre_dedup)
     }
 
     /// Record a deferred mono call (generic calling generic).

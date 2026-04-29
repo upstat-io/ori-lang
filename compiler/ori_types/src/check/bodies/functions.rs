@@ -79,85 +79,88 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
 
     // Check body with function scope context
     let func_name = func.name;
-    let (expr_types, errors, warnings, pat_resolutions, mono_instances, deferred_mono_calls) =
-        checker.with_function_scope(fn_type, capabilities, |c| {
-            // Get arena reference (lifetime 'a, not tied to c borrow)
-            let arena = c.arena();
+    let (
+        expr_types,
+        errors,
+        warnings,
+        pat_resolutions,
+        mono_instances,
+        mono_dispatch_pre_dedup,
+        deferred_mono_calls,
+    ) = checker.with_function_scope(fn_type, capabilities, |c| {
+        // Get arena reference (lifetime 'a, not tied to c borrow)
+        let arena = c.arena();
 
-            // Create inference engine with prepared environment
-            let mut engine = c.create_engine_with_env(param_env);
+        // Create inference engine with prepared environment
+        let mut engine = c.create_engine_with_env(param_env);
 
-            // Set self type for recursive calls (self() in patterns like recurse)
-            engine.set_self_type(fn_type);
+        // Set self type for recursive calls (self() in patterns like recurse)
+        engine.set_self_type(fn_type);
 
-            // Track current function for deferred mono call recording
-            engine.set_current_function(Some(func_name));
+        // Track current function for deferred mono call recording
+        engine.set_current_function(Some(func_name));
 
-            // Push context for better error messages
-            engine.push_context(ContextKind::FunctionReturn {
-                func_name: Some(func_name),
-            });
+        // Push context for better error messages
+        engine.push_context(ContextKind::FunctionReturn {
+            func_name: Some(func_name),
+        });
 
-            // Check guard expression if present
-            if let (Some(guard_id), Some(span)) = (func.guard, guard_span) {
-                let guard_ty = infer_expr(&mut engine, arena, guard_id);
-                let expected_bool = Expected {
-                    ty: Idx::BOOL,
-                    origin: ExpectedOrigin::Context {
-                        span,
-                        kind: ContextKind::MatchArmGuard { arm_index: 0 }, // Reuse guard context
-                    },
-                };
-                let _ = engine.check_type(guard_ty, &expected_bool, span);
-            }
-
-            // Check body against declared return type (bidirectional)
-            let expected = Expected {
-                ty: sig.return_type,
+        // Check guard expression if present
+        if let (Some(guard_id), Some(span)) = (func.guard, guard_span) {
+            let guard_ty = infer_expr(&mut engine, arena, guard_id);
+            let expected_bool = Expected {
+                ty: Idx::BOOL,
                 origin: ExpectedOrigin::Context {
-                    span: body_span,
-                    kind: ContextKind::FunctionReturn {
-                        func_name: Some(func_name),
-                    },
+                    span,
+                    kind: ContextKind::MatchArmGuard { arm_index: 0 }, // Reuse guard context
                 },
             };
-            let _body_ty = check_expr(&mut engine, arena, func.body, &expected, body_span);
+            let _ = engine.check_type(guard_ty, &expected_bool, span);
+        }
 
-            engine.pop_context();
+        // Check body against declared return type (bidirectional)
+        let expected = Expected {
+            ty: sig.return_type,
+            origin: ExpectedOrigin::Context {
+                span: body_span,
+                kind: ContextKind::FunctionReturn {
+                    func_name: Some(func_name),
+                },
+            },
+        };
+        let _body_ty = check_expr(&mut engine, arena, func.body, &expected, body_span);
 
-            // default unbound vars reachable from empty-literal
-            // expr roots to `Idx::NEVER` before exporting `expr_types` and
-            // before `validate_body_types` runs. Mutates `sig.param_types`,
-            // `sig.return_type`, and refreshes `param_hashes` / `return_hash`
-            // via `substitute_in_pool` + direct-assign to `VarState::Link`.
-            let mut expr_types = engine.take_expr_types();
-            engine.default_unbound_vars_from_empty_literals(
-                arena,
-                &mut expr_types,
-                &mut sig,
-                &exempt,
-            );
+        engine.pop_context();
 
-            // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves in
-            // `expr_types` / sig positions to `Tag::BoundVar` per
-            // `types.md §SC-1`. Drains `pending_generalized_vars` from
-            // inner let-polymorphism AND rewrites the sig's scheme var
-            // ids (populated by signatures pass for top-level polymorphic
-            // functions). MUST run after defaulting (keeps `Idx::NEVER`
-            // substitutions intact) and before `validate_body_types`
-            // (validator's `Generalized` exemption is stripped — the
-            // rewrite is now the only path keeping scheme vars legitimate).
-            engine.normalize_body_generalized_to_bound_var_sig(&mut expr_types, &mut sig);
+        // default unbound vars reachable from empty-literal
+        // expr roots to `Idx::NEVER` before exporting `expr_types` and
+        // before `validate_body_types` runs. Mutates `sig.param_types`,
+        // `sig.return_type`, and refreshes `param_hashes` / `return_hash`
+        // via `substitute_in_pool` + direct-assign to `VarState::Link`.
+        let mut expr_types = engine.take_expr_types();
+        engine.default_unbound_vars_from_empty_literals(arena, &mut expr_types, &mut sig, &exempt);
 
-            (
-                expr_types,
-                engine.take_errors(),
-                engine.take_warnings(),
-                engine.take_pattern_resolutions(),
-                engine.take_mono_instances(),
-                engine.take_deferred_mono_calls(),
-            )
-        });
+        // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves in
+        // `expr_types` / sig positions to `Tag::BoundVar` per
+        // `types.md §SC-1`. Drains `pending_generalized_vars` from
+        // inner let-polymorphism AND rewrites the sig's scheme var
+        // ids (populated by signatures pass for top-level polymorphic
+        // functions). MUST run after defaulting (keeps `Idx::NEVER`
+        // substitutions intact) and before `validate_body_types`
+        // (validator's `Generalized` exemption is stripped — the
+        // rewrite is now the only path keeping scheme vars legitimate).
+        engine.normalize_body_generalized_to_bound_var_sig(&mut expr_types, &mut sig);
+
+        (
+            expr_types,
+            engine.take_errors(),
+            engine.take_warnings(),
+            engine.take_pattern_resolutions(),
+            engine.take_mono_instances(),
+            engine.take_mono_dispatch_pre_dedup(),
+            engine.take_deferred_mono_calls(),
+        )
+    });
 
     // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
     super::finalize_body_and_export(
@@ -170,6 +173,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             warnings,
             pat_resolutions,
             mono_instances,
+            mono_dispatch_pre_dedup,
             deferred_mono_calls,
         },
     );
@@ -264,6 +268,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let warnings = engine.take_warnings();
     let pat_resolutions = engine.take_pattern_resolutions();
     let mono_instances = engine.take_mono_instances();
+    let mono_dispatch_pre_dedup = engine.take_mono_dispatch_pre_dedup();
     let deferred_mono_calls = engine.take_deferred_mono_calls();
 
     // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
@@ -277,6 +282,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
             warnings,
             pat_resolutions,
             mono_instances,
+            mono_dispatch_pre_dedup,
             deferred_mono_calls,
         },
     );

@@ -45,12 +45,13 @@ pub use env::TypeEnv;
 pub(crate) use expr::OP_TRAIT_MAP;
 pub use expr::{check_expr, infer_expr, resolve_parsed_type};
 
-use ori_ir::{Name, StringInterner};
+use ori_ir::{ExprId, Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    check::WellKnownNames, ContextKind, FunctionSig, Idx, PatternKey, PatternResolution, Pool, Tag,
-    TraitRegistry, TypeCheckError, TypeCheckWarning, TypeRegistry, UnifyEngine, UnifyError,
+    check::WellKnownNames, ContextKind, FunctionSig, Idx, MonoInstanceId, PatternKey,
+    PatternResolution, Pool, Tag, TraitRegistry, TypeCheckError, TypeCheckWarning, TypeRegistry,
+    UnifyEngine, UnifyError,
 };
 
 /// Expression ID type (mirrors `ori_ir::ExprId`).
@@ -143,6 +144,25 @@ pub struct InferEngine<'pool> {
     /// with concrete type arguments. Extracted via `take_mono_instances()`.
     mono_instances: Vec<crate::MonoInstance>,
 
+    /// Pre-dedup `(call_expr_id, MonoInstanceId)` pairs accumulated during
+    /// inference. Each [`MonoInstanceId`] is a position into `mono_instances`
+    /// at insertion time (this body's local index space); the body-pass
+    /// absorbs both vectors together via
+    /// [`crate::check::ModuleChecker::accumulate_mono_session`] which offsets
+    /// the local indices into module-wide positions, and
+    /// [`crate::check::ModuleChecker::finish_with_pool`] then remaps them
+    /// once more across dedup + sort before storing in
+    /// [`crate::TypedModule::mono_dispatch_map`].
+    ///
+    /// Populated by `record_mono_with_dispatch()` from the eager call-site
+    /// path (`infer::expr::calls::monomorphization::maybe_record_mono_instance`).
+    /// The deferred-resolution path (`check::exports::resolve_deferred_mono_calls`)
+    /// is `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2
+    /// sub-step 1b-deferred and does NOT populate this map; the dispatch map
+    /// will be silent for transitive generic-calling-generic call sites until
+    /// that sub-step lands.
+    mono_dispatch_pre_dedup: Vec<(ExprId, MonoInstanceId)>,
+
     /// Deferred monomorphization calls (generic calling generic).
     ///
     /// Populated by `record_deferred_mono_call()` when a generic function calls
@@ -226,6 +246,7 @@ impl<'pool> InferEngine<'pool> {
             pattern_resolutions: Vec::new(),
             const_types: None,
             mono_instances: Vec::new(),
+            mono_dispatch_pre_dedup: Vec::new(),
             deferred_mono_calls: Vec::new(),
             current_function: None,
             module_scope_snapshot: None,

@@ -45,8 +45,8 @@ use crate::check::validators::{validate_body_types, ValidatorContext};
 use crate::check::ModuleChecker;
 use crate::output::FunctionSig;
 use crate::{
-    DeferredMonoCall, ExprIndex, Idx, MonoInstance, PatternKey, PatternResolution, TypeCheckError,
-    TypeCheckWarning,
+    DeferredMonoCall, ExprIndex, Idx, MonoInstance, MonoInstanceId, PatternKey, PatternResolution,
+    TypeCheckError, TypeCheckWarning,
 };
 
 /// Outputs drained from the `InferEngine` at end-of-body, plus the defaulted
@@ -57,6 +57,11 @@ pub(super) struct BodyOutputs {
     pub warnings: Vec<TypeCheckWarning>,
     pub pat_resolutions: Vec<(PatternKey, PatternResolution)>,
     pub mono_instances: Vec<MonoInstance>,
+    /// Pre-dedup `(call_expr_id, MonoInstanceId)` entries from this body's
+    /// `InferEngine`. Indices are body-local positions into `mono_instances`;
+    /// `accumulate_mono_session` re-anchors them into module-wide positions
+    /// when the spine absorbs both vectors together.
+    pub mono_dispatch_pre_dedup: Vec<(ExprId, MonoInstanceId)>,
     pub deferred_mono_calls: Vec<DeferredMonoCall>,
 }
 
@@ -81,6 +86,7 @@ pub(super) fn finalize_body_and_export(
         warnings,
         pat_resolutions,
         mono_instances,
+        mono_dispatch_pre_dedup,
         deferred_mono_calls,
     } = outputs;
 
@@ -100,9 +106,13 @@ pub(super) fn finalize_body_and_export(
         checker.push_warning(warning);
     }
 
-    // Accumulate pattern resolutions, mono instances, and deferred calls.
+    // Accumulate pattern resolutions, mono outputs, and deferred calls.
+    // `accumulate_mono_session` extends both `mono_instances` and
+    // `mono_dispatch_pre_dedup` together so dispatch entries are
+    // re-anchored from body-local to module-wide positions in lockstep
+    // (SSOT for the offset arithmetic per `impl-hygiene.md §Algorithmic DRY`).
     checker.pattern_resolutions.extend(pat_resolutions);
-    checker.accumulate_mono_instances(mono_instances);
+    checker.accumulate_mono_session(mono_instances, mono_dispatch_pre_dedup);
     checker.accumulate_deferred_mono_calls(deferred_mono_calls);
 }
 

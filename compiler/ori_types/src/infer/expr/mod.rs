@@ -145,8 +145,10 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         ExprKind::Unary { op, operand } => infer_unary(engine, arena, *op, *operand, span),
 
         // Calls
-        ExprKind::Call { func, args } => infer_call(engine, arena, *func, *args, span),
-        ExprKind::CallNamed { func, args } => infer_call_named(engine, arena, *func, *args, span),
+        ExprKind::Call { func, args } => infer_call(engine, arena, expr_id, *func, *args, span),
+        ExprKind::CallNamed { func, args } => {
+            infer_call_named(engine, arena, expr_id, *func, *args, span)
+        }
         ExprKind::MethodCall {
             receiver,
             method,

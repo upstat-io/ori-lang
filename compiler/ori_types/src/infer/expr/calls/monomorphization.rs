@@ -1,6 +1,6 @@
 //! Monomorphization instance recording for generic function calls.
 
-use ori_ir::Name;
+use ori_ir::{ExprId, Name};
 use rustc_hash::FxHashMap;
 
 use super::super::super::InferEngine;
@@ -14,8 +14,16 @@ use crate::{GenericArg, Idx, MonoInstance, Pool, Tag};
 /// with concrete types. Extracts concrete type args via `generic_param_mapping`,
 /// builds a substitution map from `scheme_var_ids`, and computes the `body_type_map`
 /// for the ARC lowerer.
+///
+/// `call_expr_id` is the AST `ExprId` of the call expression itself; the eager
+/// (concrete) path threads it into `engine.record_mono_with_dispatch` so a
+/// dispatch entry lands in `TypedModule.mono_dispatch_map`. The deferred
+/// (still-unresolved-vars) path does NOT publish a dispatch entry today —
+/// `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2 sub-step
+/// 1b-deferred extends `DeferredMonoCall` to carry `ExprId` and closes the gap.
 pub(super) fn maybe_record_mono_instance(
     engine: &mut InferEngine<'_>,
+    call_expr_id: ExprId,
     func_name: Option<Name>,
     params: &[Idx],
 ) {
@@ -128,7 +136,12 @@ pub(super) fn maybe_record_mono_instance(
         "recorded mono instance"
     );
 
-    engine.record_mono_instance(instance);
+    // Eager path publishes a dispatch entry keyed on the call expression's
+    // ExprId so canon → ARC → ori_llvm/ori_eval can resolve the abstract
+    // `MonoInstanceId` without re-derivation. Deferred path keeps using
+    // `record_mono_instance` until §C.2 sub-step 1b-deferred extends
+    // `DeferredMonoCall` to carry `call_expr_id`.
+    engine.record_mono_with_dispatch(call_expr_id, instance);
 }
 
 /// Build the `var_id` -> `resolved_type` substitution map for monomorphization.

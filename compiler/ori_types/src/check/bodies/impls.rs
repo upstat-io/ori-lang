@@ -246,73 +246,81 @@ fn check_impl_method(
     // naturally skips them per `VarState::Rigid` branch.
     let param_types_ref = &mut param_types;
     let return_type_ref = &mut return_type;
-    let (expr_types, errors, warnings, pat_resolutions, mono_instances, deferred_mono_calls) =
-        checker.with_impl_scope(self_type, |c| {
-            c.with_function_scope(fn_type, FxHashSet::default(), |c| {
-                let arena = c.arena();
-                let mut engine = c.create_engine_with_env(param_env);
+    let (
+        expr_types,
+        errors,
+        warnings,
+        pat_resolutions,
+        mono_instances,
+        mono_dispatch_pre_dedup,
+        deferred_mono_calls,
+    ) = checker.with_impl_scope(self_type, |c| {
+        c.with_function_scope(fn_type, FxHashSet::default(), |c| {
+            let arena = c.arena();
+            let mut engine = c.create_engine_with_env(param_env);
 
-                // Phase B Step 5 (BUG-01-002): rank scope per typeck.md §SG-5
-                // + §CK-2 / §GN-1. Method-level binders live at strictly
-                // higher rank than impl-level bindings; the push/pop pair
-                // here is manually matched (no RAII) — exit MUST happen on
-                // every path, including error recovery, hence the explicit
-                // `engine.exit_rank_scope()` immediately before the result
-                // tuple is built.
-                engine.enter_rank_scope();
+            // Phase B Step 5 (BUG-01-002): rank scope per typeck.md §SG-5
+            // + §CK-2 / §GN-1. Method-level binders live at strictly
+            // higher rank than impl-level bindings; the push/pop pair
+            // here is manually matched (no RAII) — exit MUST happen on
+            // every path, including error recovery, hence the explicit
+            // `engine.exit_rank_scope()` immediately before the result
+            // tuple is built.
+            engine.enter_rank_scope();
 
-                engine.push_context(ContextKind::FunctionReturn {
-                    func_name: Some(method.name),
-                });
+            engine.push_context(ContextKind::FunctionReturn {
+                func_name: Some(method.name),
+            });
 
-                // Check body against declared return type (bidirectional)
-                let expected = Expected {
-                    ty: *return_type_ref,
-                    origin: ExpectedOrigin::Context {
-                        span: body_span,
-                        kind: ContextKind::FunctionReturn {
-                            func_name: Some(method.name),
-                        },
+            // Check body against declared return type (bidirectional)
+            let expected = Expected {
+                ty: *return_type_ref,
+                origin: ExpectedOrigin::Context {
+                    span: body_span,
+                    kind: ContextKind::FunctionReturn {
+                        func_name: Some(method.name),
                     },
-                };
-                let _body_ty = check_expr(&mut engine, arena, method.body, &expected, body_span);
+                },
+            };
+            let _body_ty = check_expr(&mut engine, arena, method.body, &expected, body_span);
 
-                engine.pop_context();
+            engine.pop_context();
 
-                let mut expr_types = engine.take_expr_types();
-                engine.default_unbound_vars_in_scope(
-                    arena,
-                    &mut expr_types,
-                    param_types_ref,
-                    return_type_ref,
-                    &FxHashSet::default(),
-                );
+            let mut expr_types = engine.take_expr_types();
+            engine.default_unbound_vars_in_scope(
+                arena,
+                &mut expr_types,
+                param_types_ref,
+                return_type_ref,
+                &FxHashSet::default(),
+            );
 
-                // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves to
-                // `Tag::BoundVar` per `types.md §SC-1`. Impl methods have no
-                // top-level scheme_var_ids (generic params are RigidVars),
-                // so only pending_generalized_vars from inner let-polymorphism
-                // drives the rewrite here. See `check_function` for full rationale.
-                engine.normalize_body_generalized_to_bound_var(
-                    &mut expr_types,
-                    param_types_ref,
-                    return_type_ref,
-                    &[],
-                );
+            // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves to
+            // `Tag::BoundVar` per `types.md §SC-1`. Impl methods have no
+            // top-level scheme_var_ids (generic params are RigidVars),
+            // so only pending_generalized_vars from inner let-polymorphism
+            // drives the rewrite here. See `check_function` for full rationale.
+            engine.normalize_body_generalized_to_bound_var(
+                &mut expr_types,
+                param_types_ref,
+                return_type_ref,
+                &[],
+            );
 
-                // Pop rank scope (matching push above per §SG-5 one-to-one rule).
-                engine.exit_rank_scope();
+            // Pop rank scope (matching push above per §SG-5 one-to-one rule).
+            engine.exit_rank_scope();
 
-                (
-                    expr_types,
-                    engine.take_errors(),
-                    engine.take_warnings(),
-                    engine.take_pattern_resolutions(),
-                    engine.take_mono_instances(),
-                    engine.take_deferred_mono_calls(),
-                )
-            })
-        });
+            (
+                expr_types,
+                engine.take_errors(),
+                engine.take_warnings(),
+                engine.take_pattern_resolutions(),
+                engine.take_mono_instances(),
+                engine.take_mono_dispatch_pre_dedup(),
+                engine.take_deferred_mono_calls(),
+            )
+        })
+    });
 
     // Build the post-defaulted signature. `param_types` and `return_type` have
     // been refreshed in place by `default_unbound_vars_in_scope` inside the
@@ -338,6 +346,7 @@ fn check_impl_method(
             warnings,
             pat_resolutions,
             mono_instances,
+            mono_dispatch_pre_dedup,
             deferred_mono_calls,
         },
     );
@@ -446,58 +455,66 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     // roots before returning from the closure.
     let param_types_ref = &mut param_types;
     let return_type_ref = &mut return_type;
-    let (expr_types, errors, warnings, pat_resolutions, mono_instances, deferred_mono_calls) =
-        checker.with_function_scope(fn_type, FxHashSet::default(), |c| {
-            let arena = c.arena();
-            let mut engine = c.create_engine_with_env(param_env);
+    let (
+        expr_types,
+        errors,
+        warnings,
+        pat_resolutions,
+        mono_instances,
+        mono_dispatch_pre_dedup,
+        deferred_mono_calls,
+    ) = checker.with_function_scope(fn_type, FxHashSet::default(), |c| {
+        let arena = c.arena();
+        let mut engine = c.create_engine_with_env(param_env);
 
-            engine.push_context(ContextKind::FunctionReturn {
-                func_name: Some(method.name),
-            });
-
-            // Check body against declared return type (bidirectional)
-            let expected = Expected {
-                ty: *return_type_ref,
-                origin: ExpectedOrigin::Context {
-                    span: body_span,
-                    kind: ContextKind::FunctionReturn {
-                        func_name: Some(method.name),
-                    },
-                },
-            };
-            let _body_ty = check_expr(&mut engine, arena, method.body, &expected, body_span);
-
-            engine.pop_context();
-
-            let mut expr_types = engine.take_expr_types();
-            engine.default_unbound_vars_in_scope(
-                arena,
-                &mut expr_types,
-                param_types_ref,
-                return_type_ref,
-                &FxHashSet::default(),
-            );
-
-            // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves to
-            // `Tag::BoundVar` per `types.md §SC-1`. def-impl methods have
-            // no top-level scheme_var_ids; only inner let-polymorphism
-            // generalization contributes via pending_generalized_vars.
-            engine.normalize_body_generalized_to_bound_var(
-                &mut expr_types,
-                param_types_ref,
-                return_type_ref,
-                &[],
-            );
-
-            (
-                expr_types,
-                engine.take_errors(),
-                engine.take_warnings(),
-                engine.take_pattern_resolutions(),
-                engine.take_mono_instances(),
-                engine.take_deferred_mono_calls(),
-            )
+        engine.push_context(ContextKind::FunctionReturn {
+            func_name: Some(method.name),
         });
+
+        // Check body against declared return type (bidirectional)
+        let expected = Expected {
+            ty: *return_type_ref,
+            origin: ExpectedOrigin::Context {
+                span: body_span,
+                kind: ContextKind::FunctionReturn {
+                    func_name: Some(method.name),
+                },
+            },
+        };
+        let _body_ty = check_expr(&mut engine, arena, method.body, &expected, body_span);
+
+        engine.pop_context();
+
+        let mut expr_types = engine.take_expr_types();
+        engine.default_unbound_vars_in_scope(
+            arena,
+            &mut expr_types,
+            param_types_ref,
+            return_type_ref,
+            &FxHashSet::default(),
+        );
+
+        // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves to
+        // `Tag::BoundVar` per `types.md §SC-1`. def-impl methods have
+        // no top-level scheme_var_ids; only inner let-polymorphism
+        // generalization contributes via pending_generalized_vars.
+        engine.normalize_body_generalized_to_bound_var(
+            &mut expr_types,
+            param_types_ref,
+            return_type_ref,
+            &[],
+        );
+
+        (
+            expr_types,
+            engine.take_errors(),
+            engine.take_warnings(),
+            engine.take_pattern_resolutions(),
+            engine.take_mono_instances(),
+            engine.take_mono_dispatch_pre_dedup(),
+            engine.take_deferred_mono_calls(),
+        )
+    });
 
     // Build the post-defaulted signature. `param_types` and `return_type` have
     // been refreshed in place by `default_unbound_vars_in_scope` inside the
@@ -526,6 +543,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
             warnings,
             pat_resolutions,
             mono_instances,
+            mono_dispatch_pre_dedup,
             deferred_mono_calls,
         },
     );

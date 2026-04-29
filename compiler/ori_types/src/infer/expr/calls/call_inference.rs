@@ -9,9 +9,15 @@ use super::monomorphization::maybe_record_mono_instance;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
 /// Infer the type of a function call expression.
+///
+/// `call_expr_id` is the AST `ExprId` of the call expression itself (the
+/// parent of `func`); used by `maybe_record_mono_instance` to publish a
+/// dispatch entry into `TypedModule.mono_dispatch_map` per
+/// `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2.
 pub(crate) fn infer_call(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
+    call_expr_id: ExprId,
     func: ExprId,
     args: ori_ir::ExprRange,
     span: Span,
@@ -75,15 +81,21 @@ pub(crate) fn infer_call(
 
     // Record monomorphization instance for generic function calls.
     // At this point type variables have been unified with concrete types.
-    maybe_record_mono_instance(engine, func_name_id, &params);
+    maybe_record_mono_instance(engine, call_expr_id, func_name_id, &params);
 
     ret
 }
 
 /// Infer the type of a named-argument function call.
+///
+/// `call_expr_id` is the AST `ExprId` of the call expression itself (the
+/// parent of `func`); used by `maybe_record_mono_instance` to publish a
+/// dispatch entry into `TypedModule.mono_dispatch_map` per
+/// `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2.
 pub(crate) fn infer_call_named(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
+    call_expr_id: ExprId,
     func: ExprId,
     args: ori_ir::CallArgRange,
     span: Span,
@@ -157,7 +169,7 @@ pub(crate) fn infer_call_named(
     }
 
     // Record monomorphization instance for generic function calls.
-    maybe_record_mono_instance(engine, func_name_id, &params);
+    maybe_record_mono_instance(engine, call_expr_id, func_name_id, &params);
 
     // Validate where-clause constraints after argument type-checking.
     // At this point, generic type variables have been unified with concrete types.

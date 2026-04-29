@@ -223,6 +223,16 @@ pub struct ModuleChecker<'a> {
     /// Deduped by `(fn_name, generic_args)` before inclusion in `TypedModule`.
     mono_instances: Vec<crate::MonoInstance>,
 
+    /// Pre-dedup `(call_expr_id, MonoInstanceId)` entries accumulated from
+    /// each engine session via `accumulate_mono_session`. The
+    /// [`crate::MonoInstanceId`] values reference positions in
+    /// `mono_instances` AT THE TIME of accumulation (already module-wide
+    /// per-session offset adjustment, but pre-dedup). [`finish_with_pool`]
+    /// builds an `old_idx → new_idx` remap when it dedups + sorts
+    /// `mono_instances`, applies it to these entries, sorts by `ExprId`,
+    /// and stores the result in [`crate::TypedModule::mono_dispatch_map`].
+    mono_dispatch_pre_dedup: Vec<(ori_ir::ExprId, crate::MonoInstanceId)>,
+
     /// Deferred mono calls (generic calling generic).
     ///
     /// Accumulated from `InferEngine` after each function body is checked.
@@ -270,6 +280,7 @@ impl<'a> ModuleChecker<'a> {
             impl_sigs: Vec::new(),
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
+            mono_dispatch_pre_dedup: Vec::new(),
             deferred_mono_calls: Vec::new(),
             imported_type_metadata: Vec::new(),
             imported_collection_surfaces: Vec::new(),
@@ -311,6 +322,7 @@ impl<'a> ModuleChecker<'a> {
             impl_sigs: Vec::new(),
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
+            mono_dispatch_pre_dedup: Vec::new(),
             deferred_mono_calls: Vec::new(),
             imported_type_metadata: Vec::new(),
             imported_collection_surfaces: Vec::new(),
@@ -393,26 +405,85 @@ impl<'a> ModuleChecker<'a> {
         // - Trait-method-from-different-impls: two impls of the same trait
         //   method on different self types — distinguished by `receiver_type`.
         //
-        // Use FxHashSet retain — order-independent dedup that handles
-        // non-adjacent equal elements correctly without requiring `Idx: Ord`
-        // / `GenericArg: Ord` (neither derive `Ord` today). FxHasher is
-        // deterministic (no per-process random seed), satisfying Salsa SL-1.
-        //
         // Identity tuple: (fn_name, generic_args, impl_args, method_args,
         // concrete_param_types, receiver_type) — see `MonoIdentityKey` alias.
-        let mut seen: rustc_hash::FxHashSet<MonoIdentityKey> = rustc_hash::FxHashSet::default();
-        mono_instances.retain(|m| {
-            seen.insert((
-                m.fn_name,
-                m.generic_args.clone(),
-                m.impl_args.clone(),
-                m.method_args.clone(),
-                m.concrete_param_types.clone(),
-                m.receiver_type,
-            ))
-        });
-        // Re-sort by fn_name for deterministic output ordering after retain.
-        mono_instances.sort_by_key(|m| m.fn_name);
+        //
+        // Phase C.2 sub-step 1b: dedup tracks `old_idx → new_idx` so the
+        // pre-dedup `mono_dispatch_map` entries (which carry pre-dedup
+        // `MonoInstanceId`s) can be remapped to point at the same
+        // canonical instance after non-adjacent duplicates collapse.
+        // FxHashMap stays deterministic (FxHasher has no per-process
+        // random seed), satisfying Salsa SL-1.
+        let pre_dedup_len = mono_instances.len();
+        let mut seen: rustc_hash::FxHashMap<MonoIdentityKey, u32> =
+            rustc_hash::FxHashMap::default();
+        let mut deduped: Vec<crate::MonoInstance> = Vec::with_capacity(pre_dedup_len);
+        // `old_to_dedup[old_position]` = position in `deduped` after retain.
+        let mut old_to_dedup: Vec<u32> = Vec::with_capacity(pre_dedup_len);
+        for inst in mono_instances.drain(..) {
+            let key: MonoIdentityKey = (
+                inst.fn_name,
+                inst.generic_args.clone(),
+                inst.impl_args.clone(),
+                inst.method_args.clone(),
+                inst.concrete_param_types.clone(),
+                inst.receiver_type,
+            );
+            if let Some(&existing) = seen.get(&key) {
+                old_to_dedup.push(existing);
+            } else {
+                // Saturating `Vec::len() → u32` matches `pool/substitute/mod.rs:541`
+                // — strict workspace clippy denies bare `as` truncation casts and
+                // `expect`/`unwrap`. 4-billion-instance overflow is structurally
+                // unreachable for any single module.
+                let new_idx = u32::try_from(deduped.len()).unwrap_or(u32::MAX);
+                seen.insert(key, new_idx);
+                deduped.push(inst);
+                old_to_dedup.push(new_idx);
+            }
+        }
+
+        // Sort by fn_name for deterministic output ordering, tracking the
+        // permutation so dispatch entries can be re-anchored. Pairing
+        // each instance with its pre-sort index via `enumerate` and then
+        // sorting the pair vector avoids the placeholder-`Option` dance
+        // that an in-place permutation would require.
+        let n_dedup = deduped.len();
+        // Saturating `usize → u32` casts match `pool/substitute/mod.rs:541`'s
+        // `unwrap_or(u32::MAX)` pattern (strict workspace clippy denies
+        // `cast_possible_truncation`). Per the dedup-loop comment above,
+        // `deduped.len()` is structurally bounded well below `u32::MAX`.
+        let mut indexed: Vec<(u32, crate::MonoInstance)> = deduped
+            .into_iter()
+            .enumerate()
+            .map(|(i, inst)| (u32::try_from(i).unwrap_or(u32::MAX), inst))
+            .collect();
+        indexed.sort_by_key(|(_, inst)| inst.fn_name);
+        let mut dedup_to_sorted: Vec<u32> = vec![0; n_dedup];
+        for (sorted_pos, (dedup_pos, _)) in indexed.iter().enumerate() {
+            dedup_to_sorted[*dedup_pos as usize] = u32::try_from(sorted_pos).unwrap_or(u32::MAX);
+        }
+        let mono_instances: Vec<crate::MonoInstance> =
+            indexed.into_iter().map(|(_, inst)| inst).collect();
+
+        // Apply the composed `pre-dedup → dedup → sorted` remap to the
+        // dispatch entries, then sort by `ExprId` for the
+        // `Vec<(ExprId, MonoInstanceId)>` binary-search shape per
+        // `output/mod.rs:405-410` (mirrors `pattern_resolutions`).
+        let mut mono_dispatch_map: Vec<(ori_ir::ExprId, crate::MonoInstanceId)> = self
+            .mono_dispatch_pre_dedup
+            .into_iter()
+            .map(|(eid, crate::MonoInstanceId(old))| {
+                let dedup_idx = old_to_dedup[old as usize];
+                let final_idx = dedup_to_sorted[dedup_idx as usize];
+                (eid, crate::MonoInstanceId(final_idx))
+            })
+            .collect();
+        // `ExprId` does not derive `Ord` (matches `ori_ir/src/expr_id/expr.rs`
+        // — only `Copy, Clone, Eq, PartialEq, Hash`); sort on the raw u32
+        // index instead. ExprIds are arena-allocated monotonically so this
+        // is the same order an `Ord` impl would produce.
+        mono_dispatch_map.sort_by_key(|(eid, _)| eid.raw());
 
         // Generate portable type descriptors for all public function signatures.
         // These enable cross-module type reconstruction without AST access.
@@ -443,10 +514,16 @@ impl<'a> ModuleChecker<'a> {
             impl_sigs: self.impl_sigs,
             trait_impl_fn_names: self.trait_impl_fn_names,
             mono_instances,
-            // Phase C.2 sub-step 1a: schema landing only — populated in
-            // sub-step 1b when inference call sites record their resolved
-            // `MonoInstanceId` per `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2.
-            mono_dispatch_map: Vec::new(),
+            // Phase C.2 sub-step 1b: populated from
+            // `mono_dispatch_pre_dedup` after remapping pre-dedup
+            // `MonoInstanceId`s through dedup + sort, then sorted by
+            // `ExprId` for binary-search lookup per `output/mod.rs:405-410`.
+            // The deferred-resolution path
+            // (`exports::resolve_deferred_mono_calls`) does NOT publish
+            // entries today — `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
+            // §C.2 sub-step 1b-deferred extends `DeferredMonoCall` to
+            // carry `ExprId` and closes the gap.
+            mono_dispatch_map,
             type_descriptors,
             exported_type_metadata,
             exported_collection_surfaces,

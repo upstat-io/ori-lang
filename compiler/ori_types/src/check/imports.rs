@@ -5,12 +5,12 @@
 //! Supports both hash-first resolution (O(1) per type) and AST fallback for
 //! generic or missing types.
 
-use ori_ir::{ExprArena, Name};
+use ori_ir::{ExprArena, ExprId, Name};
 use rustc_hash::FxHashMap;
 
 use super::signatures;
 use super::ModuleChecker;
-use crate::{FunctionSig, Idx, TypeEnv};
+use crate::{FunctionSig, Idx, MonoInstanceId, TypeEnv};
 
 impl ModuleChecker<'_> {
     // Signature Registration
@@ -42,9 +42,42 @@ impl ModuleChecker<'_> {
         self.trait_impl_fn_names.push((self_type, name));
     }
 
-    /// Accumulate mono instances from an inference engine pass.
-    pub fn accumulate_mono_instances(&mut self, instances: Vec<crate::MonoInstance>) {
+    /// Accumulate one body-pass session's mono outputs: instances and the
+    /// parallel `(call_expr_id, MonoInstanceId)` dispatch entries.
+    ///
+    /// Each engine session indexes its dispatch entries against its own
+    /// local `mono_instances` Vec (positions starting at 0). This method
+    /// re-anchors them into module-wide positions in
+    /// `self.mono_instances` by offsetting each [`MonoInstanceId`] by the
+    /// pre-extend length of `self.mono_instances`. The combined entry
+    /// point makes it impossible to extend instances without re-anchoring
+    /// the dispatch entries — the SSOT for this offset arithmetic per
+    /// `impl-hygiene.md §Algorithmic DRY`.
+    ///
+    /// Both vectors are still pre-dedup at this point;
+    /// [`crate::check::ModuleChecker::finish_with_pool`] applies a second
+    /// remap across dedup + sort before storing in
+    /// [`crate::TypedModule::mono_dispatch_map`].
+    pub fn accumulate_mono_session(
+        &mut self,
+        instances: Vec<crate::MonoInstance>,
+        dispatch_entries: Vec<(ExprId, MonoInstanceId)>,
+    ) {
+        // Saturating `Vec::len() → u32` matches the workspace pattern
+        // at `pool/substitute/mod.rs:541` (`unwrap_or(u32::MAX)`); strict
+        // workspace clippy denies bare `as u32` casts (`cast_possible_truncation`)
+        // and `expect`/`unwrap`. A 4-billion-instance overflow is structurally
+        // unreachable for one module's mono table; if it ever did occur,
+        // dispatch entries beyond `u32::MAX` would alias, which the post-dedup
+        // remap would surface via duplicate `MonoInstanceId` values in the
+        // sorted output map.
+        let offset = u32::try_from(self.mono_instances.len()).unwrap_or(u32::MAX);
         self.mono_instances.extend(instances);
+        self.mono_dispatch_pre_dedup.extend(
+            dispatch_entries
+                .into_iter()
+                .map(|(eid, MonoInstanceId(local))| (eid, MonoInstanceId(local + offset))),
+        );
     }
 
     /// Accumulate deferred mono calls from an inference engine pass.
