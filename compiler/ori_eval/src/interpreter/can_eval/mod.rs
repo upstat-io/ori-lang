@@ -20,7 +20,7 @@ mod function_exp;
 mod operators;
 mod trace;
 
-use ori_ir::canon::{CanExpr, CanId, CanRange, CanonResult};
+use ori_ir::canon::{CanExpr, CanId, CanRange, CanonResult, MonoInstanceId};
 use ori_ir::{Name, Span};
 use ori_patterns::{ControlAction, EvalError, EvalResult, Value};
 use ori_stack::ensure_sufficient_stack;
@@ -63,6 +63,29 @@ impl Interpreter<'_> {
     #[inline]
     pub(super) fn can_span(&self, can_id: CanId) -> Span {
         self.canon_ref().arena.span(can_id)
+    }
+
+    /// Look up the `MonoInstanceId` for a generic call site at `can_id`, if any.
+    ///
+    /// Reads `CanonResult.mono_dispatch_map_can` via binary search on
+    /// `CanId.raw()` (sorted by canon lowering per `ori_ir/src/canon/arena.rs`
+    /// doc comment on `mono_dispatch_map_can`). Returns `None` for non-generic
+    /// call sites and for deferred-resolution calls until `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
+    /// §C.2 sub-step 1b-deferred lands.
+    ///
+    /// Eval consumes the id for dual-execution parity observability with
+    /// `ori_llvm`'s id-keyed dispatch (`canon.md §1` Evaluator-parallel row).
+    /// Eval's dispatch itself remains polymorphic-by-runtime-value: the body
+    /// type-checks once and runs against whatever runtime values arrive, so no
+    /// per-instance dispatch table is needed for correctness — the id is
+    /// surfaced via tracing so cross-backend tests can verify both backends
+    /// observed the same abstract identity at the same `CanId`.
+    #[inline]
+    pub(super) fn mono_instance_id_for(&self, can_id: CanId) -> Option<MonoInstanceId> {
+        let map = &self.canon_ref().mono_dispatch_map_can;
+        map.binary_search_by_key(&can_id.raw(), |&(k, _)| k.raw())
+            .ok()
+            .map(|idx| map[idx].1)
     }
 
     /// Evaluate a list of canonical expressions from a `CanRange`.
@@ -181,6 +204,9 @@ impl Interpreter<'_> {
 
             // Calls
             CanExpr::Call { func, args } => {
+                if let Some(id) = self.mono_instance_id_for(can_id) {
+                    tracing::trace!(?can_id, mono_instance_id = id.0, "eval Call mono dispatch");
+                }
                 let func_val = self.eval_can(func)?;
                 let arg_vals = self.eval_can_expr_list(args)?;
                 let span = self.can_span(can_id);
@@ -192,6 +218,13 @@ impl Interpreter<'_> {
                 method,
                 args,
             } => {
+                if let Some(id) = self.mono_instance_id_for(can_id) {
+                    tracing::trace!(
+                        ?can_id,
+                        mono_instance_id = id.0,
+                        "eval MethodCall mono dispatch"
+                    );
+                }
                 let recv = self.eval_can(receiver)?;
                 let arg_vals = self.eval_can_expr_list(args)?;
                 let span = self.can_span(can_id);
