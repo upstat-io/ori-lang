@@ -96,6 +96,7 @@ fn test_compile_module_with_tests_empty() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
     let empty_sigs = rustc_hash::FxHashMap::default();
     let result = evaluator.compile_module_with_tests(

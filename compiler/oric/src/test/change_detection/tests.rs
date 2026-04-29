@@ -32,6 +32,7 @@ fn make_canon(roots: &[(u32, i64)]) -> CanonResult {
         roots: canon_roots,
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     }
 }
 

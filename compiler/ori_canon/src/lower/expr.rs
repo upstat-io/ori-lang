@@ -223,12 +223,12 @@ impl Lowerer<'_> {
             ExprKind::FunctionExp(exp_id) => self.lower_function_exp(exp_id, span, ty),
 
             // Containers
-            ExprKind::Call { func, args } => self.lower_call(func, args, span, ty),
+            ExprKind::Call { func, args } => self.lower_call(id, func, args, span, ty),
             ExprKind::MethodCall {
                 receiver,
                 method,
                 args,
-            } => self.lower_method_call(receiver, method, args, span, ty),
+            } => self.lower_method_call(id, receiver, method, args, span, ty),
             ExprKind::Block { stmts, result } => self.lower_block(stmts, result, span, ty),
             ExprKind::Let {
                 pattern,

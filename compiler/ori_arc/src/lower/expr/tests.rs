@@ -48,6 +48,7 @@ fn make_canon(kind: ori_ir::canon::CanExpr, ty: Idx) -> (CanArena, CanonResult) 
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
     // Reborrow from canon
     (CanArena::with_capacity(0), canon)
@@ -117,6 +118,7 @@ fn lower_constant_pool_value() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let func = lower_single_expr(&canon, body, Idx::INT);
@@ -158,6 +160,7 @@ fn lower_binary_op() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let func = lower_single_expr(&canon, add, Idx::INT);
@@ -202,6 +205,7 @@ fn lower_unary_op() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let func = lower_single_expr(&canon, neg, Idx::INT);
@@ -242,6 +246,7 @@ fn lower_await_is_transparent() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let interner = StringInterner::new();
@@ -284,6 +289,7 @@ fn lower_function_with_params() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let interner = StringInterner::new();
@@ -343,6 +349,7 @@ fn lower_function_ref_emits_partial_apply() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let interner = StringInterner::new();
@@ -397,6 +404,7 @@ fn lower_with_capability_is_transparent() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let func = lower_single_expr(&canon, with_cap, Idx::INT);
@@ -438,6 +446,7 @@ fn lower_format_with_dispatches_to_runtime() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let pool = Pool::new();
@@ -496,6 +505,7 @@ fn lower_function_exp_panic_emits_unreachable() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let pool = Pool::new();
@@ -558,6 +568,7 @@ fn lower_function_exp_todo_emits_unreachable() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let interner = StringInterner::new();
@@ -613,6 +624,7 @@ fn lower_post_01_concurrency_panics() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let interner = StringInterner::new();
@@ -659,6 +671,7 @@ fn type_subst_replaces_generic_type_with_concrete() {
         problems: vec![],
         constants: ori_ir::canon::ConstantPool::new(),
         decision_trees: ori_ir::canon::DecisionTreePool::default(),
+        mono_dispatch_map_can: vec![],
     };
 
     let interner = StringInterner::new();
@@ -723,6 +736,7 @@ fn type_subst_none_leaves_types_unchanged() {
         problems: vec![],
         constants: ori_ir::canon::ConstantPool::new(),
         decision_trees: ori_ir::canon::DecisionTreePool::default(),
+        mono_dispatch_map_can: vec![],
     };
 
     let interner = StringInterner::new();

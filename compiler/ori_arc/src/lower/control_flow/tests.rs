@@ -71,6 +71,7 @@ fn lower_block_with_let() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();
@@ -131,6 +132,7 @@ fn lower_if_else_produces_four_blocks() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();
@@ -194,6 +196,7 @@ fn lower_loop_produces_header_and_exit() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();
@@ -374,6 +377,7 @@ fn for_range_with_mutable_vars_ssa_well_formed() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();
@@ -443,6 +447,7 @@ fn lower_index_assignment_reports_internal_error_instead_of_panicking() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();
@@ -509,6 +514,7 @@ fn lower_field_assignment_reports_internal_error_instead_of_panicking() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();

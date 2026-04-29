@@ -53,6 +53,7 @@ fn bind_name_pattern() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();

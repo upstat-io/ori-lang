@@ -403,6 +403,29 @@ pub struct MethodRoot {
     pub body: CanId,
 }
 
+/// Typed handle into a typeck-produced `mono_instances` table.
+///
+/// Used as the abstract dispatch key on the canonical-IR side
+/// ([`CanonResult::mono_dispatch_map_can`]) and on the ARC + LLVM + eval
+/// dispatch paths downstream. The mangled LLVM symbol name is computed
+/// locally inside `ori_llvm` via `mangle_mono_name`; typeck and canon
+/// produce only this abstract index, keeping the LLVM-specific name format
+/// owned by the codegen crate per `canon.md §1` (phase ownership) and
+/// `impl-hygiene.md §LEAK:phase-bleeding`.
+///
+/// Lives in `ori_ir` (leaf crate) so consumers in `ori_types`, `ori_canon`,
+/// `ori_arc`, `ori_llvm`, and `ori_eval` can reference the same handle
+/// without cross-crate cycles. `ori_types` re-exports it.
+///
+/// Inner `u32` is the index into the typeck-side `Vec<MonoInstance>`;
+/// equality / hashing match index identity, so two `MonoInstanceId` values
+/// that compare equal point at the same `MonoInstance` in the same module.
+/// Construct directly via `MonoInstanceId(idx)` and read the index via
+/// `id.0` — the tuple-struct shape mirrors how callers use index handles
+/// elsewhere (e.g., `CanId`, `ExprId`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MonoInstanceId(pub u32);
+
 /// Output of the canonicalization pass.
 ///
 /// Contains everything needed by both backends: the canonical expression
@@ -427,6 +450,33 @@ pub struct CanonResult {
     pub method_roots: Vec<MethodRoot>,
     /// Pattern problems detected during exhaustiveness checking.
     pub problems: Vec<PatternProblem>,
+    /// Map from canonical `CanId` of a generic call site to its resolved
+    /// monomorphic instance index.
+    ///
+    /// Populated during canon lowering: when `lower_expr` constructs a
+    /// `CanExpr::Call` or `CanExpr::MethodCall` for an AST `ExprId` whose
+    /// typeck-side `TypedModule.mono_dispatch_map` carries an entry, the
+    /// lowerer translates that entry's `(ExprId, MonoInstanceId)` pair to
+    /// `(CanId, MonoInstanceId)` and appends here.
+    ///
+    /// Sub-step 1d (ARC carriers `ArcInstr::Apply` / `ArcTerminator::Invoke`)
+    /// reads this side-table to transfer the abstract index onto the ARC-level
+    /// call. Sub-steps 1e/1f (LLVM + eval dispatch) then look up
+    /// `TypedModule.mono_instances[id.0]` and call `mangle_mono_name` locally
+    /// inside `ori_llvm` — preserving `canon.md §5` phase purity (canon
+    /// produces canonical IR + side-tables; no LLVM strings).
+    ///
+    /// Stored as `Vec<(CanId, MonoInstanceId)>` (NOT `FxHashMap`) for Salsa
+    /// compatibility per `types.md §SL-3` — `CanonResult` derives
+    /// `Eq + PartialEq` and `FxHashMap` cannot satisfy them. Mirrors the
+    /// shape of `TypedModule.mono_dispatch_map: Vec<(ExprId, MonoInstanceId)>`.
+    /// Sorted by `CanId.raw()` for binary-search lookup; deduplication is
+    /// not required because each `CanId` is allocated exactly once.
+    ///
+    /// Empty for non-generic call sites and for the deferred-resolution
+    /// path until `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
+    /// §C.2 sub-step 1b-deferred lands.
+    pub mono_dispatch_map_can: Vec<(CanId, MonoInstanceId)>,
 }
 
 impl CanonResult {
@@ -440,6 +490,7 @@ impl CanonResult {
             roots: Vec::new(),
             method_roots: Vec::new(),
             problems: Vec::new(),
+            mono_dispatch_map_can: Vec::new(),
         }
     }
 

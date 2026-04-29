@@ -88,26 +88,7 @@ pub enum GenericArg {
     Const(ConstValue),
 }
 
-/// Typed handle into [`TypedModule::mono_instances`].
-///
-/// Used by canonical IR (`CanExpr::Call` / `CanExpr::MethodCall`) and ARC
-/// IR (`ArcInstr::Apply` / `ArcTerminator::Invoke`) to identify which
-/// monomorphic specialization a call site dispatches to. The mangled
-/// LLVM symbol name is computed locally inside `ori_llvm` via
-/// `mangle_mono_name`; typeck produces only this abstract index, keeping
-/// the LLVM-specific name format owned by the codegen crate per
-/// `canon.md §1` (phase ownership) and `impl-hygiene.md`
-/// §LEAK:phase-bleeding (the load-bearing reason for the abstract handoff
-/// shape).
-///
-/// Inner `u32` is the index into [`TypedModule::mono_instances`];
-/// equality / hashing match index identity, so two `MonoInstanceId` values
-/// that compare equal point at the same `MonoInstance` in the same module.
-/// Construct directly via `MonoInstanceId(idx)` and read the index via
-/// `id.0` — the tuple-struct shape mirrors how callers use index handles
-/// elsewhere in the crate (e.g., `ConstParamInfo` indexes).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct MonoInstanceId(pub u32);
+pub use ori_ir::canon::MonoInstanceId;
 
 /// A concrete instantiation of a generic function or method discovered during type checking.
 ///

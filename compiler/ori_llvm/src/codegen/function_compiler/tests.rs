@@ -460,6 +460,7 @@ fn compile_impls_populates_method_functions_map() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let classifier = ArcClassifier::new(&pool);

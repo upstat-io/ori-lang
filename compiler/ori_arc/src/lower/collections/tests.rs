@@ -35,6 +35,7 @@ fn lower_tuple() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();
@@ -82,6 +83,7 @@ fn lower_none() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();

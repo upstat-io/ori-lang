@@ -11,8 +11,14 @@ use super::Lowerer;
 
 impl Lowerer<'_> {
     /// Lower a function call with positional args.
+    ///
+    /// `call_expr_id` is the AST `ExprId` of the call expression itself —
+    /// used to look up the typeck-side `mono_dispatch_map` and translate
+    /// any `(ExprId, MonoInstanceId)` entry to a `(CanId, MonoInstanceId)`
+    /// entry on `CanonResult.mono_dispatch_map_can` (BUG-01-002 §C.2 1c).
     pub(super) fn lower_call(
         &mut self,
+        call_expr_id: ExprId,
         func: ExprId,
         args: ExprRange,
         span: Span,
@@ -20,7 +26,9 @@ impl Lowerer<'_> {
     ) -> CanId {
         let func = self.lower_expr(func);
         let args = self.lower_expr_range(args);
-        self.push(CanExpr::Call { func, args }, span, ty)
+        let can_id = self.push(CanExpr::Call { func, args }, span, ty);
+        self.record_mono_dispatch_if_present(call_expr_id, can_id);
+        can_id
     }
 
     /// Lower a method call with positional args.
@@ -29,8 +37,12 @@ impl Lowerer<'_> {
     /// checker resolved `collect()` to `Set<T>` (via bidirectional inference),
     /// rewrites the method name to `__collect_set` so the evaluator dispatches
     /// to `eval_iter_collect_set` instead of the default list collector.
+    ///
+    /// `call_expr_id` is the AST `ExprId` of the method-call expression —
+    /// used to look up the typeck-side `mono_dispatch_map` (BUG-01-002 §C.2 1c).
     pub(super) fn lower_method_call(
         &mut self,
+        call_expr_id: ExprId,
         receiver: ExprId,
         method: Name,
         args: ExprRange,
@@ -40,7 +52,7 @@ impl Lowerer<'_> {
         let receiver = self.lower_expr(receiver);
         let args = self.lower_expr_range(args);
         let method = self.specialize_collect(method, ty);
-        self.push(
+        let can_id = self.push(
             CanExpr::MethodCall {
                 receiver,
                 method,
@@ -48,7 +60,21 @@ impl Lowerer<'_> {
             },
             span,
             ty,
-        )
+        );
+        self.record_mono_dispatch_if_present(call_expr_id, can_id);
+        can_id
+    }
+
+    /// If the typeck-side `mono_dispatch_map` carries an entry for this AST
+    /// `ExprId`, append the `(CanId, MonoInstanceId)` translation to the
+    /// lowerer's accumulator. The accumulator is sorted in `Lowerer::finish`
+    /// for binary-search lookup downstream (sub-steps 1d/1e/1f).
+    fn record_mono_dispatch_if_present(&mut self, call_expr_id: ExprId, can_id: CanId) {
+        let map = &self.typed.mono_dispatch_map;
+        if let Ok(idx) = map.binary_search_by_key(&call_expr_id.raw(), |(eid, _)| eid.raw()) {
+            let (_, mono_id) = map[idx];
+            self.mono_dispatch_map_can.push((can_id, mono_id));
+        }
     }
 
     /// Rewrite `collect` → `__collect_set` when the resolved type is `Set<T>`.

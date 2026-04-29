@@ -42,6 +42,7 @@ fn lower_call_expr(
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();
@@ -199,6 +200,7 @@ fn lower_method_call_user_defined() {
         roots: vec![],
         method_roots: vec![],
         problems: vec![],
+        mono_dispatch_map_can: vec![],
     };
 
     let mut problems = Vec::new();

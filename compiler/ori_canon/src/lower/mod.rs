@@ -16,6 +16,7 @@ mod sequences;
 use ori_ir::ast::items::Module;
 use ori_ir::canon::{
     CanArena, CanExpr, CanId, CanNode, CanonResult, ConstantPool, DecisionTreePool, MethodRoot,
+    MonoInstanceId,
 };
 use ori_ir::{ExprArena, ExprId, Name, Span, TypeId};
 use ori_types::{TypeCheckResult, TypedModule};
@@ -299,6 +300,13 @@ pub(crate) struct Lowerer<'a> {
     pub(super) decision_trees: DecisionTreePool,
     /// Pattern problems accumulated during exhaustiveness checking.
     pub(crate) problems: Vec<ori_ir::canon::PatternProblem>,
+    /// Pre-sort `(CanId, MonoInstanceId)` pairs accumulated during lowering.
+    /// Each entry corresponds to a generic call site whose AST `ExprId` was
+    /// resolved to a specific `MonoInstanceId` by the type checker (carried
+    /// in `TypedModule.mono_dispatch_map`). The lowerer translates each
+    /// resolved `ExprId` to its newly-allocated `CanId` and pushes here;
+    /// `finish` sorts by `CanId.raw()` for binary-search lookup downstream.
+    pub(crate) mono_dispatch_map_can: Vec<(CanId, MonoInstanceId)>,
 
     // Pre-interned method names for desugaring.
     // Accessed by: lower, desugar
@@ -341,6 +349,7 @@ impl<'a> Lowerer<'a> {
             constants: ConstantPool::new(),
             decision_trees: DecisionTreePool::new(),
             problems: Vec::new(),
+            mono_dispatch_map_can: Vec::new(),
             name_to_str: interner.intern("to_str"),
             name_concat: interner.intern("concat"),
             name_merge: interner.intern("merge"),
@@ -354,6 +363,8 @@ impl<'a> Lowerer<'a> {
 
     /// Finish lowering and produce the final result.
     pub(super) fn finish(self, root: CanId) -> CanonResult {
+        let mut mono_dispatch_map_can = self.mono_dispatch_map_can;
+        mono_dispatch_map_can.sort_by_key(|(cid, _)| cid.raw());
         CanonResult {
             arena: self.arena,
             constants: self.constants,
@@ -362,6 +373,7 @@ impl<'a> Lowerer<'a> {
             roots: Vec::new(),
             method_roots: Vec::new(),
             problems: self.problems,
+            mono_dispatch_map_can,
         }
     }
 
