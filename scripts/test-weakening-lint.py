@@ -9,10 +9,13 @@ shapes that the project's testing discipline forbids.
 
 Five patterns:
 
-  P1: presence of newly added attribute markers on existing test files —
+  P1: NET additions of attribute markers on existing test files —
       +#fail(           — runtime panic accepted as success oracle
       +#skip(           — existing test silently disabled
       +#compile_fail(   — negative-pin attribute added to an existing test
+      Per-hunk pairing: a `+marker(` line paired with a `-marker(` of the
+      same kind in the same hunk is a modification (e.g., reason-text edit),
+      not an addition; only unpaired `+marker(` lines fire findings.
   P2: removed turbofish / generic args — `<$N>`, `<T>`, `<int>` etc. removed
       from method calls or type ascriptions in test bodies.
   P3: removed method-chain depth — characteristic richer-chain method calls
@@ -93,12 +96,17 @@ ORI_TEST_MARKERS = (
     "#compile_fail",
 )
 
-# P1: presence patterns matching added attribute markers on existing tests.
-# Each regex maps to its INVERTED-TDD subcategory.
-P1_PATTERNS = (
-    (re.compile(r"^\+\s*#fail\s*\("), "fabricated-assertion-output", "+#fail(", "high"),
-    (re.compile(r"^\+\s*#skip\s*\("), "blocker-deferred-via-skip", "+#skip(", "high"),
-    (re.compile(r"^\+\s*#compile_fail\s*\("), "disabled-negative-pin", "+#compile_fail(", "critical"),
+# P1: marker patterns identifying test-weakening attributes. Anchored to the
+# start of the diff-line CONTENT (after stripping the leading +/- and any
+# whitespace), so the same regex matches both `+#skip(...)` and `-#skip(...)`
+# lines. Per-hunk pairing in detect_p1 distinguishes a genuine addition
+# (unpaired `+marker(`) from a modification of an existing marker
+# (`+marker(` paired with `-marker(` in the same hunk — e.g., editing the
+# reason text inside an existing `#skip(...)` annotation).
+P1_MARKER_PATTERNS = (
+    (re.compile(r"#fail\s*\("), "fabricated-assertion-output", "+#fail(", "high"),
+    (re.compile(r"#skip\s*\("), "blocker-deferred-via-skip", "+#skip(", "high"),
+    (re.compile(r"#compile_fail\s*\("), "disabled-negative-pin", "+#compile_fail(", "critical"),
 )
 
 # P2: turbofish / generic-arg removal patterns (matched on `-` lines).
@@ -195,7 +203,12 @@ def is_prod_path(path):
 def parse_diff(diff_text):
     """Walk the unified diff once. Yield per-file records with the file's
     new/deleted/modified status, added/removed line counts, and lists of
-    `(hunk_line_no, raw_line)` for added and removed lines.
+    `(line_no, hunk_id, raw_line)` for added and removed lines.
+
+    `hunk_id` increments per `@@` header within a file (1-based, reset per
+    file). detect_p1 uses it for per-hunk add/remove pairing so a
+    `+#skip(...)` line paired with a `-#skip(...)` in the same hunk is
+    correctly recognized as a modification, not an addition.
 
     Skips files with new/deleted status — only modifications produce records.
     """
@@ -204,6 +217,7 @@ def parse_diff(diff_text):
     current_status = None  # "M" (default), "A" (new), "D" (deleted)
     current_hunk_old = 0
     current_hunk_new = 0
+    current_hunk_id = 0
 
     for raw in diff_text.splitlines():
         m_file = FILE_RE.match(raw)
@@ -213,11 +227,12 @@ def parse_diff(diff_text):
                 pass  # already in records
             current_file = m_file.group("b")
             current_status = "M"
+            current_hunk_id = 0
             records[current_file] = {
                 "path": current_file,
                 "status": "M",
-                "added": [],     # list of (line_no, raw_text)
-                "removed": [],   # list of (line_no_in_old, raw_text)
+                "added": [],     # list of (line_no, hunk_id, raw_text)
+                "removed": [],   # list of (line_no_in_old, hunk_id, raw_text)
                 "added_count": 0,
                 "removed_count": 0,
             }
@@ -239,6 +254,7 @@ def parse_diff(diff_text):
         if m_hunk:
             current_hunk_old = int(m_hunk.group(1))
             current_hunk_new = int(m_hunk.group(2))
+            current_hunk_id += 1
             continue
 
         # Skip diff metadata lines we don't care about.
@@ -250,11 +266,11 @@ def parse_diff(diff_text):
             continue
 
         if raw.startswith("+"):
-            records[current_file]["added"].append((current_hunk_new, raw))
+            records[current_file]["added"].append((current_hunk_new, current_hunk_id, raw))
             records[current_file]["added_count"] += 1
             current_hunk_new += 1
         elif raw.startswith("-"):
-            records[current_file]["removed"].append((current_hunk_old, raw))
+            records[current_file]["removed"].append((current_hunk_old, current_hunk_id, raw))
             records[current_file]["removed_count"] += 1
             current_hunk_old += 1
         else:
@@ -266,12 +282,36 @@ def parse_diff(diff_text):
 
 
 def detect_p1(record):
-    """P1: presence-pattern violations on added lines of an existing test
-    file. Returns list of finding dicts."""
+    """P1: marker additions on existing test files, with per-hunk pairing.
+
+    A `+#skip(...)` line paired with a `-#skip(...)` line in the same hunk
+    is a modification of an existing skip (e.g., editing the reason text),
+    not an addition of a new skip — suppress the finding. Each `-marker(`
+    occurrence in a hunk consumes one pairing slot for that marker; only
+    `+marker(` lines that exhaust all available pairings fire findings.
+    Pairing is per-(hunk_id, marker_idx); different markers in the same
+    hunk do not pair (e.g., a removed `#skip` does not absorb an added
+    `#fail`). Same-marker, different-hunk does not pair either.
+
+    Returns list of finding dicts.
+    """
     findings = []
-    for line_no, raw in record["added"]:
-        for pattern_re, subcat, marker, severity in P1_PATTERNS:
-            if pattern_re.match(raw):
+    pairings = defaultdict(int)  # (hunk_id, marker_idx) -> available pairings
+
+    for _, hunk_id, raw in record["removed"]:
+        content = raw[1:].lstrip() if raw and raw[0] == "-" else raw
+        for i, (marker_re, _, _, _) in enumerate(P1_MARKER_PATTERNS):
+            if marker_re.match(content):
+                pairings[(hunk_id, i)] += 1
+                break  # Only one marker per line.
+
+    for line_no, hunk_id, raw in record["added"]:
+        content = raw[1:].lstrip() if raw and raw[0] == "+" else raw
+        for i, (marker_re, subcat, marker, severity) in enumerate(P1_MARKER_PATTERNS):
+            if marker_re.match(content):
+                if pairings[(hunk_id, i)] > 0:
+                    pairings[(hunk_id, i)] -= 1  # Modification: pairs with a `-marker(` in same hunk.
+                    break
                 findings.append({
                     "tag": f"INVERTED-TDD:{subcat}",
                     "pattern": "P1",
@@ -296,14 +336,14 @@ def detect_p2(record):
     minus_hits = 0
     plus_hits = 0
     sample_minus = None
-    for _, raw in record["removed"]:
+    for _, _, raw in record["removed"]:
         for pat in P2_PATTERNS:
             if pat.search(raw):
                 minus_hits += 1
                 if sample_minus is None:
                     sample_minus = raw[:200]
                 break
-    for _, raw in record["added"]:
+    for _, _, raw in record["added"]:
         for pat in P2_PATTERNS:
             if pat.search(raw):
                 plus_hits += 1
@@ -329,13 +369,13 @@ def detect_p3(record):
     minus_tokens = defaultdict(int)
     plus_tokens = defaultdict(int)
     sample = None
-    for _, raw in record["removed"]:
+    for _, _, raw in record["removed"]:
         for tok in P3_TOKENS:
             if tok in raw:
                 minus_tokens[tok] += 1
                 if sample is None:
                     sample = raw[:200]
-    for _, raw in record["added"]:
+    for _, _, raw in record["added"]:
         for tok in P3_TOKENS:
             if tok in raw:
                 plus_tokens[tok] += 1
@@ -362,11 +402,11 @@ def detect_p4(record):
     added `-> NARROW` in the file."""
     removed_rich = []
     added_narrow = []
-    for line_no, raw in record["removed"]:
+    for line_no, _, raw in record["removed"]:
         m = RETURN_TYPE_RE.search(raw)
         if m and RICH_TYPE_RE.search(m.group(1)):
             removed_rich.append((line_no, raw[:200], m.group(1).strip()))
-    for line_no, raw in record["added"]:
+    for line_no, _, raw in record["added"]:
         m = RETURN_TYPE_RE.search(raw)
         if m and m.group(1).strip() in NARROW_TYPES:
             added_narrow.append((line_no, raw[:200], m.group(1).strip()))
