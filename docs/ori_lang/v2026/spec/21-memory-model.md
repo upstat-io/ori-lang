@@ -9,6 +9,8 @@ section: "Language"
 
 Ori uses Automatic Reference Counting (ARC) without cycle detection. This is made possible by language design choices that structurally prevent reference cycles.
 
+NOTE  The compile-time analysis layer that makes reference-count operations rare in emitted code is documented in Annex E §AIMS — ARC Intelligent Memory System. AIMS spans a product lattice over Access, Consumption, Cardinality, Uniqueness, Locality, Shape, and Effect dimensions, with interprocedural contracts and a layered verification stack.
+
 ## 21.1 Why pure ARC works
 
 Most languages using ARC require either cycle detection (Python, PHP) or manual weak reference annotations (Swift, Objective-C). Ori requires neither because its execution model produces directed acyclic graphs (DAGs) by construction.
