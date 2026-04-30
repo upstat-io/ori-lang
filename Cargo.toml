@@ -97,7 +97,14 @@ ori_stack = { path = "compiler/ori_stack" }
 [workspace.lints.rust]
 unsafe_code = "deny"
 dead_code = "deny"
-unused = "deny"
+unused = { level = "deny", priority = -1 }
+# C-A1 (missing /// on pub item).
+# Staged promotion: `allow` (pre-cleanup baseline) → `warn` (post-cleanup,
+# surfaces new violations) → `deny` (gating). `clippy-all.sh` denies all
+# warnings, so `warn` here would block builds against ~886 pre-existing
+# missing-docs sites. Run the doc-comment cleanup pass before flipping
+# to `warn`.
+missing_docs = "allow"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -120,6 +127,13 @@ must_use_candidate = "allow"
 too_many_lines = "deny"
 cognitive_complexity = "deny"
 similar_names = "allow"
+# C-A5 (// SAFETY: on unsafe blocks).
+# clippy::restriction tier — staged promotion `allow` (current) → `warn`
+# (post-cleanup) → `deny` (gating). `clippy-all.sh` denies warnings, so
+# `warn` here would block builds against pre-existing un-annotated unsafe
+# blocks. Run the SAFETY-annotation cleanup pass on ori_llvm, ori_rt,
+# oric before flipping to `warn`.
+undocumented_unsafe_blocks = "allow"
 
 # Optimized release profile for final/published builds.
 # Use: cargo build --profile release-lto
