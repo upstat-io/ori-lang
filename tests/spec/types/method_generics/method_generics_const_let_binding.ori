@@ -1,0 +1,30 @@
+// Spec: 08-declarations.md § Method-level Generics + 12-constants.md
+// BUG-02-023 §03 Edge case — const expression via $-let binding
+//
+// Verifies that a $-prefixed const var bound earlier in the function flows into
+// a `[T, max K]` ascription as a const expression. Phase E0.2 must resolve
+// `ParsedType::ConstExpr` shapes that match `bind_method_const`'s acceptance set
+// (literals AND $-let-bound names).
+//
+// Pre-fix failure: even before runtime, typeck may fail to resolve `K` in the
+// type position (E0.2 stub returns a fresh type var with "const eval not yet
+// implemented" comment). After E0.2 lands, `K` resolves to `ConstValue::Int(5)`
+// at type-resolution time and drives `N=5` inference at the call site.
+
+use std.testing { assert_eq }
+
+type Vec<T> = { items: [T] }
+
+impl<T> Vec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
+}
+
+#skip("BUG-02-023: $-let binding driving const-arg inference — awaits Phase E0.2 ParsedType::ConstExpr resolution")
+@test_const_let_binding tests _ () -> void = {
+    let $K = 5;
+    let v = Vec { items: [11, 22, 33, 44, 55, 66, 77] };
+    let five: [int, max K] = v.first_n();
+    assert_eq(actual: five.len(), expected: 5);
+    assert_eq(actual: five[0], expected: 11);
+    assert_eq(actual: five[4], expected: 55)
+}

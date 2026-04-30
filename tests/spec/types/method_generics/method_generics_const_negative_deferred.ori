@@ -1,0 +1,38 @@
+// Spec: 08-declarations.md § Method-level Generics
+// BUG-02-023 §03 Negative pin — unresolvable deferred-mono const-arg
+//
+// (Round 3 TPR-04-R3 opencode F2 high) Verifies that a body referencing a const
+// param `$M` that is NOT in the enclosing function's `const_params` produces a
+// COMPILE error (E2049 — "Cannot infer const parameter `$M`"), NOT a runtime
+// panic. This proves the deferred-mono symbolic-resolution path (Phase E0.4
+// `GenericArg::ConstVar(Name)` + `DeferredConstBinding::CallerConstParam(Name)`)
+// correctly distinguishes "outer caller's const-param" (resolvable) from
+// "unbound name" (compile error).
+//
+// Pre-fix failure mode: typeck currently does not enforce const-param scoping in
+// deferred mono, so `$M` quietly typechecks; the test fails because the expected
+// error code E2049 is not emitted (E2049 is allocated by Phase E0.4). After E0.4
+// lands, E2049 fires at module-export time per the post-resolution validator.
+
+use std.testing { assert_eq }
+
+type Vec<T> = { items: [T] }
+
+impl<T> Vec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
+
+    // BAD: body references `$M` which is NOT in this method's const_params.
+    // Should be rejected with E2049 at module-export time.
+    @bad_const_flow<$N: int> (self) -> int = {
+        let bounded: [T, max M] = self.first_n();
+        bounded.len()
+    }
+}
+
+#skip("BUG-02-023: unresolvable deferred-mono const-arg negative pin — awaits Phase E0.4 post-resolution validator (E2049)")
+#compile_fail(code: "E2049", message: "Cannot infer const parameter")
+@test_unresolved_const_var tests _ () -> void = {
+    let v = Vec { items: [1, 2, 3, 4, 5] };
+    let n = v.bad_const_flow();
+    assert_eq(actual: n, expected: 0)
+}

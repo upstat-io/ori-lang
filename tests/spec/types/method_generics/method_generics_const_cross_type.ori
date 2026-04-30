@@ -1,0 +1,38 @@
+// Spec: 08-declarations.md § Method-level Generics + 06-types.md § Compound Types
+// BUG-02-023 §03 Cross-type coverage — the const-param's COVARIANCE dimension
+//
+// Pre-fix failure mode: identical to method_generics_const_int.ori — runtime panic
+// `undefined variable: N`. Post-fix: each element type drives the same lookup path
+// through canon's mono_const_args_can side-table; verifies ARC zero-impact for both
+// inline-stored (int) and heap-allocated (str, Box) element types.
+
+use std.testing { assert_eq }
+
+type Vec<T> = { items: [T] }
+type Box<T> = { inner: T }
+
+impl<T> Vec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
+}
+
+#skip("BUG-02-023: cross-type str element awaits const value flow through canon side-table")
+@test_const_str_element tests _ () -> void = {
+    let v = Vec { items: ["a", "b", "c", "d"] };
+    let two: [str, max 2] = v.first_n();
+    assert_eq(actual: two.len(), expected: 2);
+    assert_eq(actual: two[0], expected: "a")
+}
+
+#skip("BUG-02-023: cross-type Option<int> sum-type element awaits const value flow")
+@test_const_option_element tests _ () -> void = {
+    let v = Vec { items: [Some(1), None, Some(3)] };
+    let two: [Option<int>, max 2] = v.first_n();
+    assert_eq(actual: two.len(), expected: 2)
+}
+
+#skip("BUG-02-023: cross-type Box<int> generic-applied element awaits const value flow")
+@test_const_box_element tests _ () -> void = {
+    let v = Vec { items: [Box { inner: 1 }, Box { inner: 2 }, Box { inner: 3 }] };
+    let two: [Box<int>, max 2] = v.first_n();
+    assert_eq(actual: two.len(), expected: 2)
+}

@@ -1,0 +1,26 @@
+// Spec: 08-declarations.md § Method-level Generics
+// BUG-02-023 §03 Cross-feature — two const-generic call sites with distinct N
+//
+// Verifies that each call site's MonoInstanceId is keyed separately in canon's
+// mono_const_args_can side-table; the SAME method called twice with different
+// ascription-driven N must produce two distinct mono instances and propagate
+// independent const args. This is the per-call-site independence cell from §03.
+
+use std.testing { assert_eq }
+
+type Vec<T> = { items: [T] }
+
+impl<T> Vec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
+}
+
+#skip("BUG-02-023: two call sites of the same const-generic method with distinct N — verifies per-call-site MonoInstanceId independence")
+@test_const_two_call_sites tests _ () -> void = {
+    let v = Vec { items: [10, 20, 30, 40, 50, 60, 70, 80] };
+    let three: [int, max 3] = v.first_n();
+    let five: [int, max 5] = v.first_n();
+    assert_eq(actual: three.len(), expected: 3);
+    assert_eq(actual: five.len(), expected: 5);
+    assert_eq(actual: three[0], expected: 10);
+    assert_eq(actual: five[4], expected: 50)
+}
