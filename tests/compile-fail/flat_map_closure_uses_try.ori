@@ -6,7 +6,7 @@
 // so the new flat_map check must fire E2001 at the closure span. This guards
 // against any future short-circuit that lets `?`-using closures bypass the
 // new shape check.
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 @maybe_parse (s: str) -> Result<int, str> = Ok(0);
 

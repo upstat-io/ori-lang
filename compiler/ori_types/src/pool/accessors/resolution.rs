@@ -31,7 +31,7 @@ impl Pool {
     /// Consumers (`ori_arc::lower`) call `newtype_underlying(name)` at call
     /// sites to detect newtype constructor invocations and emit transparent
     /// `Let { Var(arg) }` instead of unresolvable `PartialApply`. See
-    /// `repr.md §RP-24` for the layout-transparent invariant this preserves.
+    /// for the layout-transparent invariant this preserves.
     pub fn register_newtype_ctor(&mut self, name: ori_ir::Name, underlying: Idx) {
         self.newtype_ctors.insert(name, underlying);
     }
@@ -215,7 +215,7 @@ impl Pool {
     /// need to map a `var_id` back to a pool handle — e.g., for
     /// `resolve_fully` on a scheme var's equivalence-class root —
     /// MUST use this method rather than open-coding a `FIRST_DYNAMIC..len`
-    /// scan (`impl-hygiene.md §Algorithmic DRY`).
+    /// scan.
     ///
     /// Cost: `O(pool_len)` linear scan. This is acceptable because the
     /// method is called `O(scheme_var_count)` times per body validation,

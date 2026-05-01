@@ -1,8 +1,7 @@
 //! Scope-management helpers on [`InferEngine`].
 //!
 //! Covers loop-break-type stack, capability sets (`uses` / `with...in`),
-//! and the `with_provided_capability` scoped-frame helper (the inference-
-//! engine variant of `typeck.md §SG-3`).
+//! and the `with_provided_capability` scoped-frame helper.
 
 use rustc_hash::FxHashSet;
 

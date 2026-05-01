@@ -7,8 +7,7 @@
 //! the analysis infers an incorrect contract that happens to produce
 //! working code by accident.
 //!
-//! Layer 3 of the AIMS verification stack (see `.claude/rules/arc.md`
-//! §Verification Surface). Checks access, consumption, `may_share`, and
+//! Layer 3 of the AIMS verification stack. Checks access, consumption, `may_share`, and
 //! effect dimensions — directionally tolerant (conservative inference OK,
 //! unsafe optimistic inference is a blocking error).
 

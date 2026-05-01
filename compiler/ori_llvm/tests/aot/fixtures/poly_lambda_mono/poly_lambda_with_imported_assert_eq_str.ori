@@ -1,4 +1,4 @@
-// AOT integration test for plans/empty-container-typeck-phase-contract §08.2 —
+// AOT integration test for —
 // polymorphic-lambda host module with imported `assert_eq<str>` call.
 //
 // Pairs with the int variant to pin dual-execution parity across type widths

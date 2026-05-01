@@ -303,7 +303,7 @@ impl Pool {
     ///
     /// Promoted to `pub(crate)` for
     /// [`crate::check::validators::validate_body_types`] — the producer-side
-    /// PC-2 enforcer (see `typeck.md §PC-2`) reuses this walker rather than
+    /// PC-2 enforcer (PC-2) reuses this walker rather than
     /// cloning a parallel tag-dispatch ladder (`impl-hygiene.md §Algorithmic
     /// DRY`). Treats `Named` / `Alias` / `Projection` as leaves (no child
     /// recursion); this is sound for the validator because `typeck.md §PC-2`

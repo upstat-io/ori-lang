@@ -4314,7 +4314,7 @@ fn populate_call_result_states_invoke_with_contract_inserts_dst() {
 /// codex critical correction). CN-3: Shared + `ReusableCtor` → `NonReusable`.
 /// Without canonicalization, the side table would store an infeasible
 /// (Shared, `ReusableCtor`) state, breaking AIMS Invariant 5 cross-dimensional
-/// feasibility (`aims-rules.md` §2 CN-3).
+/// feasibility (CN-3).
 #[test]
 fn populate_call_result_states_canonicalizes_cn3() {
     let callee_name = Name::from_raw(100);
@@ -4351,7 +4351,7 @@ fn populate_call_result_states_canonicalizes_cn3() {
 
 /// Canonicalization CN-6: `HeapEscaping` + Unique → `MaybeShared`.
 /// Without canonicalization, an infeasible (Unique, `HeapEscaping`) state
-/// would be written, violating `aims-rules.md` §2 CN-6.
+/// would be written, violating §2 CN-6.
 #[test]
 fn populate_call_result_states_canonicalizes_cn6() {
     let callee_name = Name::from_raw(100);

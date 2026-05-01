@@ -13,7 +13,7 @@
 //!   specifiers against the expression's inferred type (`E2034` / `E2035`).
 //!
 //! Relocated here to keep `infer/expr/mod.rs` a routing-only dispatch per
-//! `impl-hygiene.md §Side-Logic Rule`.
+//!.
 
 use ori_ir::{ExprArena, Name, Span, TemplatePartRange};
 

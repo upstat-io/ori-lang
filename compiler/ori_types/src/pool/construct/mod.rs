@@ -273,7 +273,7 @@ impl Pool {
 
     /// Create a `Tag::BoundVar` leaf referencing a scheme-declared `var_id`.
     ///
-    /// Per `types.md §SC-1`, scheme bodies SHALL store bound variables as
+    /// Per, scheme bodies SHALL store bound variables as
     /// `Tag::BoundVar` with `data == var_id` matching one of the enclosing
     /// scheme's declared var ids. Unlike [`fresh_var`] / [`rigid_var`], this
     /// constructor does NOT allocate a new `var_states` slot — the supplied

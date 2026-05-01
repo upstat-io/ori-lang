@@ -1,6 +1,6 @@
 //! Polymorphic-Lambda + Imported-Generic AOT Tests
 //!
-//! TDD matrix for `plans/empty-container-typeck-phase-contract §08.2`,
+//! TDD matrix for,
 //! absorbing BUG-04-042. Every test in this file is expected to FAIL before
 //! §08.3 lands and PASS after. The failure mode is compile-time:
 //! `ori_llvm::codegen::type_info::store::get_impl()` emits "unresolved type
@@ -14,7 +14,7 @@
 //! scope-by-lambda-return. Poly-lambda returns whose `Tag::Var(Unbound)`
 //! never sees a concrete-type constraint generalize to
 //! `Tag::Var(Generalized)`, which `validate_body_types` exempts per
-//! `types.md §SC-1` shipped divergence (load-bearing for let-polymorphism).
+//! shipped divergence (load-bearing for let-polymorphism).
 //! The surviving `Tag::Var` reaches `TypeInfoStore::get_impl()` where
 //! `pool.resolve_fully()` cannot chase non-`Link` `VarStates`.
 //!

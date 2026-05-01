@@ -321,7 +321,7 @@ impl AimsState {
         }
 
         // Rule 3 (CN-3): Shared values cannot be reused via constructor reset.
-        // Per `aims-rules.md` §2 CN-3: applies to ALL reusable shapes —
+        // Per §2 CN-3: applies to ALL reusable shapes —
         // `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`, `CollectionBuffer`,
         // and `ContextHole`. A Shared value has RC > 1; resetting any reusable
         // allocation type would corrupt other references regardless of which

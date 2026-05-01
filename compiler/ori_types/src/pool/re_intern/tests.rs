@@ -13,7 +13,7 @@ use crate::{FunctionSig, Idx, Pool, Tag, VarState};
 // compiled-out — their existence as cell-authored TDD scaffolding is preserved
 // under source control, ready to activate in the same commit that lands the
 // §08.3 implementation. See
-// plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md
+//
 // §08.2 cells (e1–e5) + §08.3.
 
 // === Primitive Types ===
@@ -376,7 +376,7 @@ fn scheme_type_re_interned() {
 // ============================================================================
 //
 // Pins the cross-module pool-merge var_id collision diagnosed in §08.1.R of
-// plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md.
+//
 //
 // - Negative pins (no `_with_var_remap` suffix): assert the collision is
 //   present on the legacy `re_intern_type` / `re_intern_sig` path — regression
@@ -387,7 +387,7 @@ fn scheme_type_re_interned() {
 //   `pool/re_intern/mod.rs`). §08.3 un-ignores them by providing the bodies.
 //
 // Plan-annotation cleanup on these tests is scheduled for §08.N per
-// CLAUDE.md §Compiler Coding Guidelines.
+//.
 
 // --- (e1) Leaf var remap across pools — Tag::Var / BoundVar / RigidVar ------
 
@@ -864,7 +864,7 @@ fn remap_aware_re_intern_rebuilds_link_with_recursively_reinterned_target() {
 
 // --- (e5) Scheme with var-bearing binders AND var-free body -----------------
 //
-// Per types.md §TF-3 PROPAGATE_MASK, scheme flags propagate from the BODY
+// Per, scheme flags propagate from the BODY
 // only — a scheme's raw binder list in `extra` is NOT a propagation source.
 // So `Scheme([7], body: Tag::Int)` carries flags with `HAS_VAR | HAS_BOUND_VAR
 // | HAS_RIGID_VAR` all clear even though binder `var_id=7` is pool-local and
@@ -886,7 +886,7 @@ fn scheme_with_var_bearing_binders_and_var_free_body_has_no_propagated_var_flags
     let flags = source.flags(scheme);
     assert!(
         !flags.intersects(TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR | TypeFlags::HAS_RIGID_VAR),
-        "per types.md §TF-3, binder var-ids do not propagate as parent var-bearing flags — \
+        ", binder var-ids do not propagate as parent var-bearing flags — \
          a fast-path guard keyed only on these flags would MISS this scheme"
     );
 }
@@ -894,7 +894,7 @@ fn scheme_with_var_bearing_binders_and_var_free_body_has_no_propagated_var_flags
 /// Regression guard — backward-compat `re_intern_type` on `Tag::Scheme` with a
 /// var-free body still remaps binders per §08.3.
 ///
-/// This is the edge case `PROPAGATE_MASK` (`types.md §TF-3`) does NOT flag on
+/// This is the edge case `PROPAGATE_MASK` (TF-3) does NOT flag on
 /// the scheme parent: the body has no var-bit, so a fast-path guard keyed only
 /// on `HAS_VAR | HAS_BOUND_VAR | HAS_RIGID_VAR` would MISS this scheme. The
 /// legacy entry point must still route through the remap-aware path AND the
@@ -927,7 +927,7 @@ fn re_intern_type_scheme_with_var_free_body_via_legacy_api_remaps_binder() {
 /// (per §08.1.5 step 7) MUST fire even when the scheme's parent flags have no
 /// var-bit set, so binders are walked by step 5 regardless of body flags. The
 /// resulting scheme's binder list is `[remap[7]]` and — because scheme hashing
-/// is extra-backed per types.md §TI-3 — its hash in `target` differs from the
+/// is extra-backed — its hash in `target` differs from the
 /// source's hash even though the body re-intern is a no-op.
 #[test]
 fn remap_aware_re_intern_scheme_with_var_free_body_remaps_binder_and_changes_hash() {
@@ -950,6 +950,6 @@ fn remap_aware_re_intern_scheme_with_var_free_body_remaps_binder_and_changes_has
     assert_ne!(
         target.hash(result),
         source_hash,
-        "extra-backed scheme hash (types.md §TI-3) must differ when binder list is remapped"
+        "extra-backed scheme hash must differ when binder list is remapped"
     );
 }

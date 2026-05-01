@@ -2,7 +2,7 @@
 // The closure here returns `Range<int>` (i.e., `0..10`) instead of
 // `Iterator<int>`. The diagnostic SHOULD suggest `.iter()` (Range is in the
 // suggestion-friendly set per Plan TPR finding A12).
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 #[compile_fail(code: "E2001", message: "Iterator")]
 @bad_flat_map_range tests _ () -> void = {

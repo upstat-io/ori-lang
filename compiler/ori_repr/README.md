@@ -4,7 +4,7 @@
 
 ## Role in the pipeline
 
-Sub-layer 7a inside `ori_llvm` codegen (`canon.md §1`). Runs after phase 7 ARC realization, before phase 8 LLVM IR emission. Consumes realized `ArcFunction` + the type pool, produces a `ReprPlan` that is the single source of truth for:
+Sub-layer 7a inside `ori_llvm` codegen. Runs after phase 7 ARC realization, before phase 8 LLVM IR emission. Consumes realized `ArcFunction` + the type pool, produces a `ReprPlan` that is the single source of truth for:
 
 - Struct layout (field offsets, padding, alignment)
 - Enum discriminant encoding

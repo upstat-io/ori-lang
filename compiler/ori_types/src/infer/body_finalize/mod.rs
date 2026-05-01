@@ -5,11 +5,11 @@
 //!
 //! 1. `default_unbound_vars_*` — defaulting of genuinely unconstrained
 //!    `Tag::Var` leaves reachable from empty collection-literal expression
-//!    roots to `Idx::NEVER` per `typeck.md §PC-2` "End-of-body defaulting
+//!    roots to `Idx::NEVER` per "End-of-body defaulting
 //!    pre-pass".
 //! 2. `normalize_body_generalized_to_bound_var*` — post-generalization
 //!    rewrite of `Tag::Var(Generalized)` leaves in `expr_types` + sig
-//!    positions to `Tag::BoundVar` per `types.md §SC-1`.
+//!    positions to `Tag::BoundVar` per.
 //!
 //! Both are wrapper/core pairs — the wrapper mutates a full [`FunctionSig`]
 //! and refreshes Merkle hashes; the core operates on loose `param_types` /
@@ -30,7 +30,7 @@ impl InferEngine<'_> {
     /// `exempt` is a pre-built set of legitimate polymorphic var ids
     /// constructed by the caller via
     /// `check::validators::build_exempt_var_ids`; passing it in avoids an
-    /// `infer → check` upward import per `compiler.md §Architecture`.
+    /// `infer → check` upward import per.
     ///
     /// Callers that only have loose `param_types` / `return_type` (e.g.,
     /// `check_impl_method` which constructs its `FunctionSig` at the end via
@@ -150,7 +150,7 @@ impl InferEngine<'_> {
 
     /// Normalize `Tag::Var` leaves matching generalized/scheme var ids to
     /// `Tag::BoundVar` across `expr_types`, `param_types`, and `return_type`
-    /// per `types.md §SC-1`.
+    /// per.
     ///
     /// Scheme bodies in the pool are already rewritten to `Tag::BoundVar`
     /// leaves by [`crate::UnifyEngine::generalize`] via
@@ -160,7 +160,7 @@ impl InferEngine<'_> {
     /// `var_state` was mutated to `Generalized` in place. Without this
     /// normalization pass, those `expr_types` / sig-position idxs remain
     /// `Tag::Var(Generalized)` post-typeck, causing `validate_body_types`
-    /// (`typeck.md §PC-2` enforcement) to either (a) spuriously flag them as
+    /// (PC-2) to either (a) spuriously flag them as
     /// `E2005` if the exemption arm is stripped, or (b) silently permit them
     /// to leak to downstream phases under the exemption arm — both paths are
     /// partial-migration leaks relative to the `§SC-1` target.
@@ -236,7 +236,7 @@ fn is_empty_collection_literal(arena: &ExprArena, kind: &ExprKind) -> bool {
 /// `VarState::Unbound` var id (not in `exempt`) to `var_subst` with target
 /// [`Idx::NEVER`]. Mirrors the traversal in
 /// `check::validators::collect_first_unbound_var` — no visited-set needed
-/// because `typeck.md §UN-5` occurs-check prevents cyclic types from
+/// because occurs-check prevents cyclic types from
 /// reaching this code path.
 fn collect_unbound_reachable_vars(
     pool: &Pool,

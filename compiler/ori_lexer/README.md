@@ -4,7 +4,7 @@
 
 ## Role in the pipeline
 
-Phase 1 of the compiler pipeline (`canon.md §1`). Layers keyword recognition, literal cooking, identifier interning (via `Name`), and string interpolation on top of `ori_lexer_core`'s raw scan. The output is a `TokenList` the parser consumes directly without any transformation pass in between.
+Phase 1 of the compiler pipeline. Layers keyword recognition, literal cooking, identifier interning (via `Name`), and string interpolation on top of `ori_lexer_core`'s raw scan. The output is a `TokenList` the parser consumes directly without any transformation pass in between.
 
 Lexing is performance-sensitive: cooked-throughput target is ~208-240 MiB/s.
 

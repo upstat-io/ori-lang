@@ -1,9 +1,9 @@
 // Positive pin P3 — flat_map closure returning DoubleEndedIterator<int>
 // SHALL still typecheck cleanly. `Tag::is_iterator()` subsumes both
-// `Iterator` and `DoubleEndedIterator` per types.md TK-1; this test guards
+// `Iterator` and `DoubleEndedIterator` TK-1; this test guards
 // against the new flat_map check accidentally narrowing the success path
 // to plain Iterator and rejecting DEI returns.
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 use std.testing { assert_eq };
 

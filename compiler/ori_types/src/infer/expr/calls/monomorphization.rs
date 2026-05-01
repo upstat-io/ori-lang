@@ -21,9 +21,7 @@ use crate::{GenericArg, Idx, MonoInstance, Pool, Tag};
 /// the eager path calls `engine.record_mono_with_dispatch` directly; the
 /// deferred path stores the id on `DeferredMonoCall.call_expr_id`, and
 /// `check::exports::resolve_deferred_mono_calls` publishes the entry once
-/// the deferred call resolves to a concrete `MonoInstance` (per
-/// `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2 sub-step
-/// 1b-deferred). Both paths therefore land in the same pre-dedup buffer and
+/// the deferred call resolves to a concrete `MonoInstance`. Both paths therefore land in the same pre-dedup buffer and
 /// flow through the same dedup-remap pipeline downstream.
 pub(super) fn maybe_record_mono_instance(
     engine: &mut InferEngine<'_>,

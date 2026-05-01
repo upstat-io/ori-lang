@@ -167,7 +167,7 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
 ///
 /// - **TF-6** (direct Apply/Invoke WITH contract): writes `contract.return_info`
 ///   dimensions (uniqueness, locality, shape) into the side tables, after
-///   canonicalization. Spec: `aims-rules.md` §3 TF-6 / TF-6a.
+///   canonicalization. §3 TF-6 / TF-6a.
 /// - **TF-5** (direct Apply WITHOUT contract): writes
 ///   `ReturnContract::CONSERVATIVE` (uniqueness=MaybeShared, locality=Unknown,
 ///   shape=NonReusable). NOT lattice BOTTOM — TF-5 says CONSERVATIVE, which

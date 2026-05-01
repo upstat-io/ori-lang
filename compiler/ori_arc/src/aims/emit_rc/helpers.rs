@@ -69,7 +69,7 @@ pub(crate) struct BlockCtx<'a> {
     /// See (initial take-project suppression),
     /// (the first per-block fix), and (the
     /// per-class partitioning + bypass-safe entry refinement) in
-    /// `plans/repr-opt/section-07-enum-repr.md`.
+    ///.
     pub(crate) take_move_facts: &'a super::take_project::TakeMoveFacts,
 }
 

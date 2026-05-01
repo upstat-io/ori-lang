@@ -271,7 +271,7 @@ fn generalize_identity_function() {
 
     // §08.3b — Body is structurally a function `BoundVar -> BoundVar`, NOT
     // the original `fn_ty` Idx. Generalization now rewrites scheme bodies
-    // to `Tag::BoundVar` leaves per `types.md §SC-1` (cell A pins the full
+    // to `Tag::BoundVar` leaves per (cell A pins the full
     // shape; this test stays as a scheme-construction smoke check).
     let body = engine.pool().scheme_body(scheme);
     assert_eq!(engine.pool().tag(body), Tag::Function);
@@ -306,10 +306,10 @@ fn generalize_does_not_generalize_outer_vars() {
 
 // §08.3b — Scheme-body canonicalization: Generalized -> BoundVar migration.
 //
-// Target: types.md §SC-1 — scheme bodies SHALL contain `Tag::BoundVar` leaves
+// Target: — scheme bodies SHALL contain `Tag::BoundVar` leaves
 // with `data = var_id`, not `Tag::Var(VarState::Generalized)`. These cells pin
 // the post-migration shape and are RED until `rewrite_body_generalized_to_bound_var`
-// lands in `generalize()`. See plans/empty-container-typeck-phase-contract/
+// lands in `generalize()`.
 // section-08-codegen-poly-lambda.md §08.3b.
 
 /// Cell A — poly-lambda single-call at concrete type.
@@ -318,7 +318,7 @@ fn generalize_does_not_generalize_outer_vars() {
 /// the resulting scheme's body carries `Tag::BoundVar` at every position that
 /// referenced the generalized var — not `Tag::Var`. Additionally, the
 /// `BoundVar`'s `data` field equals the scheme's declared `var_id`
-/// (types.md §SC-1: "data = `var_id` matching one of the scheme's declared var ids").
+///
 #[test]
 fn generalize_identity_lambda_body_contains_bound_var_leaves() {
     let mut pool = Pool::new();
@@ -341,12 +341,12 @@ fn generalize_identity_lambda_body_contains_bound_var_leaves() {
     assert_eq!(
         engine.pool().tag(params[0]),
         Tag::BoundVar,
-        "types.md §SC-1: scheme body param must be Tag::BoundVar (not Tag::Var)"
+        ": scheme body param must be Tag::BoundVar (not Tag::Var)"
     );
     assert_eq!(
         engine.pool().tag(ret),
         Tag::BoundVar,
-        "types.md §SC-1: scheme body return must be Tag::BoundVar (not Tag::Var)"
+        ": scheme body return must be Tag::BoundVar (not Tag::Var)"
     );
 
     // BoundVar.data == var_id for scheme-declared binders.
@@ -923,7 +923,7 @@ fn generalize_collects_free_var_under_every_compound_tag() {
         );
         count += 1;
     }
-    // Self-verifying matrix completeness (tests.md §Matrix Testing Rule):
+    // Self-verifying matrix completeness:
     // proves the loop visited every cell — a silent skip would be worse than
     // no matrix at all.
     assert_eq!(count, 13, "matrix must visit every cell");
@@ -995,12 +995,12 @@ fn generalize_collects_free_var_under_enum_variant_payload() {
 /// Cell — behavior delta: `Tag::Scheme` body containing a free outer-rank var.
 ///
 /// Schemes whose body references a Var from an enclosing rank must propagate
-/// that free var to outer generalization. `types.md §SC-1` explicitly allows
+/// that free var to outer generalization. explicitly allows
 /// free `Tag::Var` leaves in scheme bodies; delegation must recurse into the
 /// scheme body to collect them.
 ///
 /// `Tag::BoundVar` leaves inside the body do NOT trigger collection because
-/// they set `HAS_BOUND_VAR`, not `HAS_VAR` (`types.md §TF-1`); the top-level
+/// they set `HAS_BOUND_VAR`, not `HAS_VAR` (TF-1); the top-level
 /// `HAS_VAR` fast-path returns early on a body containing only bound vars.
 #[test]
 fn generalize_collects_free_var_under_scheme_body() {

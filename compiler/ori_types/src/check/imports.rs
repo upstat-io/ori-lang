@@ -52,7 +52,7 @@ impl ModuleChecker<'_> {
     /// pre-extend length of `self.mono_instances`. The combined entry
     /// point makes it impossible to extend instances without re-anchoring
     /// the dispatch entries — the SSOT for this offset arithmetic per
-    /// `impl-hygiene.md §Algorithmic DRY`.
+    ///.
     ///
     /// Both vectors are still pre-dedup at this point;
     /// [`crate::check::ModuleChecker::finish_with_pool`] applies a second

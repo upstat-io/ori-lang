@@ -58,7 +58,7 @@ fn context_category_checks() {
     .is_function_call());
 }
 
-// Regression: see bug-tracker/plans/BUG-02-013/
+// Regression:
 // HigherOrderClosureReturn distinguishes a closure return position inside a
 // higher-order iterator adapter (e.g., flat_map) from a generic LambdaReturn,
 // because the closure return carries a structural Iterator<U> requirement

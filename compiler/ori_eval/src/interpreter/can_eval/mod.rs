@@ -70,11 +70,11 @@ impl Interpreter<'_> {
     /// Reads `CanonResult.mono_dispatch_map_can` via binary search on
     /// `CanId.raw()` (sorted by canon lowering per `ori_ir/src/canon/arena.rs`
     /// doc comment on `mono_dispatch_map_can`). Returns `None` for non-generic
-    /// call sites and for deferred-resolution calls until `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
+    /// call sites and for deferred-resolution calls until
     /// §C.2 sub-step 1b-deferred lands.
     ///
     /// Eval consumes the id for dual-execution parity observability with
-    /// `ori_llvm`'s id-keyed dispatch (`canon.md §1` Evaluator-parallel row).
+    /// `ori_llvm`'s id-keyed dispatch ( Evaluator-parallel row).
     /// Eval's dispatch itself remains polymorphic-by-runtime-value: the body
     /// type-checks once and runs against whatever runtime values arrive, so no
     /// per-instance dispatch table is needed for correctness — the id is

@@ -236,7 +236,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         );
         mono_functions.extend(imported_mono_functions);
 
-        // PC-2 contract check (types.md §PC-2) — diagnostic localization for
+        // PC-2 contract check (PC-2) — diagnostic localization for
         // JIT pre-mono IR. Non-load-bearing: the primary seam in
         // process_arc_function owns record_codegen_error(); this site only
         // attributes diagnostics to the caller-pre-populated arc_cache.
@@ -254,7 +254,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                     contract_violation = true,
                     error = ?err,
                     site = "jit_pre_mono",
-                    "Tag::Var in JIT pre-mono ARC IR (codegen-rules.md §TR-2)"
+                    "Tag::Var in JIT pre-mono ARC IR"
                 );
             }
             for lambda in lambdas {

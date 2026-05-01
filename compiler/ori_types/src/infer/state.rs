@@ -71,7 +71,7 @@ impl InferEngine<'_> {
     /// Used by the eager call-site path
     /// (`infer::expr::calls::monomorphization::maybe_record_mono_instance`).
     /// The deferred-resolution path keeps using `record_mono_instance`
-    /// until `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
+    /// until
     /// §C.2 sub-step 1b-deferred extends `DeferredMonoCall` to carry
     /// `ExprId`.
     pub fn record_mono_with_dispatch(

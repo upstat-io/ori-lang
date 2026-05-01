@@ -57,7 +57,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
     ///
     /// In JIT mode, struct types are decomposed into per-field GEP + load +
     /// `insert_value` sequences to work around `FastISel` aggregate spill bugs
-    /// (stack corruption for structs >16 bytes). See llvm.md §8.
+    /// (stack corruption for structs >16 bytes).
     ///
     /// In AOT mode, direct aggregate loads are used — the full LLVM backend
     /// handles them correctly, and this reduces instruction count (2 vs 10

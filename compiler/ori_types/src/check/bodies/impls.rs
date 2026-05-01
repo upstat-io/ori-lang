@@ -1,4 +1,4 @@
-//! Impl and def-impl method body type checking (Passes 4 and 5 per `typeck.md` CK-1).
+//! Impl and def-impl method body type checking.
 //!
 //! Owns `check_impl_bodies` (Pass 4), `check_def_impl_bodies` (Pass 5), their
 //! block/method helpers, and the shared `build_method_sig` constructor. See
@@ -145,7 +145,7 @@ fn check_impl_block(
 /// Phase B Step 5 (BUG-01-002): `pool.rigid_var(name)` allocates a fresh
 /// `var_id` per call, so the resulting `Idx` is distinct from any other
 /// `Tag::RigidVar` or `Tag::Named` with the same name. This is the
-/// binder-identity guarantee per types.md §TK-6 + §B.2 line 139 — method-level
+/// binder-identity guarantee + §B.2 line 139 — method-level
 /// `T@method` and impl-level `T@impl` resolve to distinct pool entries even
 /// when names collide.
 ///
@@ -339,7 +339,7 @@ fn check_impl_method(
                 }
             }
 
-            // Phase B Step 5 (BUG-01-002): rank scope per typeck.md §SG-5
+            // Phase B Step 5 (BUG-01-002): rank scope
             // + §CK-2 / §GN-1. Method-level binders live at strictly
             // higher rank than impl-level bindings; the push/pop pair
             // here is manually matched (no RAII) — exit MUST happen on
@@ -376,7 +376,7 @@ fn check_impl_method(
             );
 
             // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves to
-            // `Tag::BoundVar` per `types.md §SC-1`. Impl methods have no
+            // `Tag::BoundVar` per. Impl methods have no
             // top-level scheme_var_ids (generic params are RigidVars),
             // so only pending_generalized_vars from inner let-polymorphism
             // drives the rewrite here. See `check_function` for full rationale.
@@ -606,7 +606,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
         );
 
         // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves to
-        // `Tag::BoundVar` per `types.md §SC-1`. def-impl methods have
+        // `Tag::BoundVar` per. def-impl methods have
         // no top-level scheme_var_ids; only inner let-polymorphism
         // generalization contributes via pending_generalized_vars.
         engine.normalize_body_generalized_to_bound_var(

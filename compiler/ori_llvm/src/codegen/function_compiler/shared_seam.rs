@@ -34,10 +34,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ///
     /// Returns `Err(VerifyError::UnresolvedTypeVar(_))` when the PC-2
     /// cross-phase contract check (`typeck.md §PC-2`,
-    /// `impl-hygiene.md §Cross-Phase Invariant Contracts`,
+    ///,
     /// `codegen-rules.md §TR-2`) detects `Tag::Var` or `Tag::Projection` in
     /// the ARC IR — this is ALWAYS-ON contract enforcement per
-    /// `CLAUDE.md §The One Rule`, not gated by `self.verify_arc` which
+    ///, not gated by `self.verify_arc` which
     /// controls additional downstream verification (VR-1 LLVM IR verification).
     pub(super) fn process_arc_function(
         &mut self,
@@ -54,10 +54,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         if let Err(err) =
             ori_arc::assert_no_unresolved_type_vars(self.pool, arc_func, self.interner, &exempt)
         {
-            return Err(self.report_primary_seam_violation(
-                err,
-                "Tag::Var in ARC IR violates PC-2 contract (impl-hygiene.md §Cross-Phase Invariant Contracts, codegen-rules.md §TR-2)",
-            ));
+            return Err(self
+                .report_primary_seam_violation(err, "Tag::Var in ARC IR violates PC-2 contract"));
         }
 
         // Apply AIMS param ownership from pre-computed contracts.
@@ -136,7 +134,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// consumes the interprocedural contract for `func.name` (when present) and
     /// writes the per-param ownership in-place. Callers: `process_arc_function`
     /// (top-level) + `declare_and_process_lambda` (lambdas); both forms share
-    /// identical translation logic (§impl-hygiene.md §Algorithmic DRY).
+    /// identical translation logic.
     pub(super) fn apply_aims_param_ownership(&self, func: &mut ori_arc::ArcFunction) {
         if let Some(contract) = self.aims_contracts.get(&func.name) {
             for (param, pc) in func.params.iter_mut().zip(&contract.params) {
@@ -186,8 +184,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // (`compile_lambda_arc`) and the two-pass prepare path
         // (`prepare_lambda`) are covered. `resolve_all_lambda_bound_vars`
         // must have substituted every `Tag::BoundVar` before this point;
-        // survivors mean monomorphization did not finish (types.md §SC-1,
-        // typeck.md §GN-2). Always-on (no `debug_assert!` fail-open);
+        // survivors mean monomorphization did not finish. Always-on (no `debug_assert!` fail-open);
         // routes through `report_primary_seam_violation` so AOT callers see
         // the BoundVar failure through the same `codegen_errors` counter
         // they rely on for PC-2 failures.

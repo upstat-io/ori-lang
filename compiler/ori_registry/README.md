@@ -6,7 +6,7 @@
 
 Defines every builtin type's methods, operator dispatch, memory characteristics (`heap`/`value`/`sendable`), and derivation eligibility as **pure data** — no logic, no side effects. Every compiler phase that needs to know "does this type implement `Eq`?" or "what does `str.split()` look like?" queries the registry; no phase maintains a parallel lookup table.
 
-This is the canonical home of builtin type behavior per `impl-hygiene.md §SSOT` — the test "where is this type's behavior defined?" always answers with a single file path in this crate.
+This is the canonical home of builtin type behavior per — the test "where is this type's behavior defined?" always answers with a single file path in this crate.
 
 ## Architecture
 
@@ -47,4 +47,4 @@ cargo test -p ori_registry
 
 ## References
 
-- `CLAUDE.md §Key Patterns` — Method Dispatch
+- — Method Dispatch

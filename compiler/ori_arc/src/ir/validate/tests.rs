@@ -18,12 +18,12 @@
 //!       unconditional error).
 //!
 //! Guards against INVERTED-TDD weakening of the validator per CLAUDE.md
-//! §NEVER Reason Out of TPR Findings and `impl-hygiene.md §INVERTED-TDD`.
+//! §NEVER Reason Out of TPR Findings and.
 //!
 //! # Test Fixture Strategy (§04.4)
 //!
 //! Every test consumes helpers from `crate::test_helpers` per
-//! `impl-hygiene.md §Algorithmic DRY`. No inline `ArcFunction { ... }`
+//!. No inline `ArcFunction { ... }`
 //! construction. Helper exceptions (if any) are documented inline with a
 //! citation back to this strategy note.
 
@@ -478,7 +478,7 @@ fn test_primary_seam_empty_exempt_set_invariant_pin() {
 /// function body carries a raw `Tag::Var` leaf.
 ///
 /// This guards against INVERTED-TDD weakening of the validator
-/// (`impl-hygiene.md §INVERTED-TDD`): any future change that gates the
+/// (INVERTED-TDD): any future change that gates the
 /// assertion off, widens the exemption set, or otherwise neuters the check
 /// on the exact inputs it is designed to catch MUST cause this test to fail.
 ///
@@ -511,7 +511,7 @@ fn test_pc2_assertion_fires_on_synthetic_leak() {
         panic!(
             "PC-2 assertion MUST fire on raw Tag::Var in function body — \
              gating this check off on any axis is INVERTED-TDD \
-             (impl-hygiene.md §INVERTED-TDD); see CLAUDE.md §NEVER Reason \
+             (INVERTED-TDD); see CLAUDE.md §NEVER Reason \
              Out of TPR Findings"
         );
     };

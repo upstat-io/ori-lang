@@ -2,8 +2,7 @@
 //!
 //! Extracted from `run_borrow_inference` so the inline PC-2 invariant-check
 //! loops do not push the host function past the 100-line and the host file
-//! past the 500-line structural limits (`compiler.md §Style`,
-//! `impl-hygiene.md §File Organization`).
+//! past the 500-line structural limits.
 //!
 //! The hook walks a pre-mono or mono `arc_fn` plus every lambda extracted with
 //! it, invoking `ori_arc::assert_no_unresolved_type_vars` at each. Violations
@@ -45,7 +44,7 @@ pub(super) fn run_pc2_hook_aot(
             contract_violation = true,
             error = ?err,
             site = site_fn,
-            "Tag::Var in AOT ARC IR (codegen-rules.md §TR-2)"
+            "Tag::Var in AOT ARC IR"
         );
     }
     for lambda in lambdas {

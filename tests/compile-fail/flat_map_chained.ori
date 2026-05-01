@@ -2,7 +2,7 @@
 // `.flat_map(c1).flat_map(c2)` where c1 is correct (returns Iterator) but c2
 // returns the wrong shape (`int`). The new diagnostic must fire at c2's
 // closure span — chained higher-order calls do not mask inner errors.
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 #[compile_fail(code: "E2001", message: "Iterator")]
 @bad_flat_map_chained tests _ () -> void = {

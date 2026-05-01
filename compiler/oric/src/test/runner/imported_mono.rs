@@ -141,7 +141,7 @@ fn build_concrete_sig(
 ///    the authoritative upper bound; `ensure_var_capacity` is a no-op
 ///    when the pool is already sized.
 /// 3. Extend `var_subst` with union-find root `var_id`s via the shared
-///    SSOT helper (see `impl-hygiene.md §Algorithmic DRY`). Mirrors the
+///    SSOT helper. Mirrors the
 ///    eager-path site in `ori_types::check::exports::resolve_deferred_mono_calls`
 ///    and the deferred-path site in
 ///    `ori_types::infer::expr::calls::monomorphization::maybe_record_mono_instance`.

@@ -359,7 +359,7 @@ fn test_generic_str_compound() {
 }
 
 #[test]
-#[ignore = "blocked-by: plans/roadmap/section-21A-llvm.md nounwind-analysis item — does not distinguish may-unwind monomorphized callees. Pre-existing; unrelated to §04.2.B."]
+#[ignore = "blocked-by: nounwind-analysis item — does not distinguish may-unwind monomorphized callees. Pre-existing; unrelated to §04.2.B."]
 fn test_mono_may_unwind_callee_uses_invoke() {
     // A generic function that calls panic should still use `invoke`.
     let ir = crate::util::compile_and_capture_ir(include_str!(
@@ -437,7 +437,7 @@ fn test_generic_chain_result_wrapped() {
             already-freed allocation at …'. Reproduces at 2-hop (generic_calling_generic \
             with [int] element), so this is NOT a §04.2.B regression — root-extension fix \
             landed cleanly; the [T] through-generic RC path was already broken. \
-            Tracked: plans/bug-tracker/section-04-codegen-llvm.md BUG-04-090."]
+            Tracked: BUG-04-090."]
 fn test_generic_chain_list_element() {
     // 3-hop with [T] — RC-managed element type.
     assert_aot_success(

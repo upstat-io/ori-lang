@@ -26,7 +26,7 @@ use super::walk;
 /// bisect which post-walk pass (`emit_dead_invoke_dsts`,
 /// `emit_edge_cleanup`, `emit_project_escape_incs`, `coalesce_block_rc`)
 /// modifies a specific block's RC ops without inline `tracing::debug!`
-/// insertions. See `.claude/rules/arc.md` § Debugging.
+/// insertions. § Debugging.
 fn trace_phase_snapshot(
     phase: &'static str,
     func: &ArcFunction,

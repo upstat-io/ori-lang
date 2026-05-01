@@ -386,7 +386,7 @@ pub struct TypedModule {
     /// resolved [`MonoInstanceId`] onto the canonical-IR node, from where
     /// it propagates through ARC IR (`ArcInstr::Apply` / `ArcTerminator::Invoke`)
     /// to LLVM dispatch + `ori_eval` dispatch — the same-index handoff shape
-    /// preserves dual-execution parity per `canon.md §4.3`.
+    /// preserves dual-execution parity per.
     ///
     /// Key is the AST `ExprId` of the call expression itself (NOT the
     /// receiver, NOT a sub-argument). Value is an index into

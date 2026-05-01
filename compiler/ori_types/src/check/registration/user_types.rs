@@ -165,7 +165,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
             checker
                 .pool_mut()
                 .register_newtype_ctor(decl.name, underlying_ty);
-            // Newtypes are layout-transparent per `repr.md §RP-24` — same
+            // Newtypes are layout-transparent per — same
             // `abi_size`, `abi_alignment`, `layout`, `niche` as the inner
             // type. Linking the `Tag::Named` Idx to its underlying Idx via
             // `set_resolution` lets `ori_llvm::codegen::type_info::store`

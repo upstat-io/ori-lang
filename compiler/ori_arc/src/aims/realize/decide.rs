@@ -261,7 +261,7 @@ fn decide_last_use(site: &DecisionSite) -> InstructionDecisions {
 /// Determine reuse candidacy at a death point.
 ///
 /// Uniqueness is the SOLE source of truth for reuse eligibility per
-/// `aims-rules.md` §DP-6 + §RL-11/§RL-12. The removed RL-13 pattern
+/// §DP-6 + §RL-11/§RL-12. The removed RL-13 pattern
 /// (`MaybeShared + Once + ReusableCtor → StaticReuse`) derived past
 /// uniqueness from future consumption, which is unsound (the single use
 /// may be a store that creates an alias via `RcInc`, leaving RC > 1 at
@@ -379,7 +379,7 @@ pub fn decide_annotations(
 ///
 /// Derives [`CowMode`] from uniqueness + instruction-site context. Uniqueness
 /// is the SOLE PAST-guarantee source for `StaticUnique` promotion per
-/// `aims-rules.md` §DP-9. The removed DP-10 pattern (deriving past uniqueness
+/// §DP-9. The removed DP-10 pattern (deriving past uniqueness
 /// from `Owned + Linear + Once` or `Once + CollectionBuffer`/`ReusableCtor`)
 /// was unsound — backward-analysis facts (consumption, cardinality) are
 /// FUTURE guarantees and cannot prove PAST uniqueness (RC == 1 right now).

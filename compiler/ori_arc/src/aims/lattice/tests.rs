@@ -720,7 +720,7 @@ mod canonicalization {
 
     #[test]
     fn shared_collection_buffer_collapses_to_nonreusable() {
-        // Per `aims-rules.md` §2 CN-3: Shared values cannot be reused via
+        // Per §2 CN-3: Shared values cannot be reused via
         // ANY reusable shape. The pre-fix implementation only handled
         // `ReusableCtor(_)` and silently left `CollectionBuffer` alone —
         // a CN-3 violation that allowed Shared collections to claim
@@ -1675,7 +1675,7 @@ mod pairwise_interactions {
                 };
                 s.canonicalize();
                 // CN-3: Shared + ANY reusable shape → NonReusable. Per
-                // `aims-rules.md` §2 CN-3, applies to ALL reusable shapes —
+                // §2 CN-3, applies to ALL reusable shapes —
                 // `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`,
                 // `CollectionBuffer`, AND `ContextHole`. A Shared value has
                 // RC > 1; resetting any reusable allocation type would
@@ -1710,7 +1710,7 @@ mod pairwise_interactions {
             s.shape,
             ShapeClass::NonReusable,
             "CN-3: Shared values cannot be reused — CollectionBuffer must \
-             demote to NonReusable per aims-rules.md §2 CN-3 (applies to \
+             demote to NonReusable (applies to \
              ALL reusable shapes, not just ReusableCtor)"
         );
     }

@@ -1,10 +1,10 @@
 // Regression — Plan TPR Round 1 finding R1-A.
 // The closure body references an undefined name `missing_name`, producing a
 // `Tag::Error`-poisoned `[int]`. The OUTER tag is `Tag::List` with HAS_ERROR
-// propagated upward (per types.md §TF-3 PROPAGATE_MASK). The flat_map check's
+// propagated upward (TF-3). The flat_map check's
 // STEP 3c-PRE absorb (`flags(resolved_inner).has_errors()`) must suppress the
 // E2001 cascade so only the upstream E2003 surfaces — ER-4 follow-on rule.
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 #[compile_fail(code: "E2003")]
 @flat_map_compound_error tests _ () -> void = {

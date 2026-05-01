@@ -13,7 +13,7 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 /// `call_expr_id` is the AST `ExprId` of the call expression itself (the
 /// parent of `func`); used by `maybe_record_mono_instance` to publish a
 /// dispatch entry into `TypedModule.mono_dispatch_map` per
-/// `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2.
+/// §C.2.
 pub(crate) fn infer_call(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -91,7 +91,7 @@ pub(crate) fn infer_call(
 /// `call_expr_id` is the AST `ExprId` of the call expression itself (the
 /// parent of `func`); used by `maybe_record_mono_instance` to publish a
 /// dispatch entry into `TypedModule.mono_dispatch_map` per
-/// `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2.
+/// §C.2.
 pub(crate) fn infer_call_named(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,

@@ -651,7 +651,7 @@ fn contract_locality_returns_none_when_unset() {
 
 // Effective-state helper tests — JOIN semantics (Plan TPR Round 0 F1)
 //
-// Per `aims-rules.md` §1.4, Uniqueness join is `max` (Unique < MaybeShared
+// Per §1.4, Uniqueness join is `max` (Unique < MaybeShared
 // < Shared). `effective_uniqueness_at_block_*` uses presence-aware match:
 // - None (no side-table entry) → return lattice value directly
 // - Some(contract) → contract.join(lattice) — JOIN preserves widening
@@ -700,8 +700,7 @@ fn effective_uniqueness_join_contract_unique_lattice_unique() {
 
 #[test]
 fn effective_uniqueness_join_contract_unique_lattice_maybe_shared() {
-    // Contract Unique × lattice MaybeShared → MaybeShared (lattice widening
-    // preserved per `aims-rules.md` §1.4 max-join). This is the critical
+    // Contract Unique × lattice MaybeShared → MaybeShared. This is the critical
     // JOIN-vs-override pin: an OVERRIDE pattern would return Unique here,
     // suppressing the backward demand widening that pushed lattice to
     // MaybeShared. Plan TPR Round 0 F1 caught this as a critical AIMS
@@ -817,7 +816,7 @@ fn effective_locality_join_contract_function_local_lattice_heap_escaping_lattice
     // Contract narrowed to FunctionLocal from a prior call's return_info.
     map.set_var_locality(var(0), Locality::FunctionLocal);
     // JOIN must preserve lattice widening: max(FunctionLocal, HeapEscaping)
-    // = HeapEscaping per `aims-rules.md` §1.5 ordering BlockLocal <
+    // = HeapEscaping per §1.5 ordering BlockLocal <
     // FunctionLocal < HeapEscaping < Unknown.
     assert_eq!(
         map.effective_locality_at_block_entry(block(0), var(0)),

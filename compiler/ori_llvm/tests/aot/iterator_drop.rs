@@ -30,7 +30,7 @@
 //!   cleanup must continue to work (no double-free, no leak) under
 //!   the new IterDrop=Owned ownership contract.
 //!
-//! Spec: `plans/repr-opt/section-07-enum-repr.md` §07.R
+//! §07.R
 
 use crate::util::assert_aot_success;
 

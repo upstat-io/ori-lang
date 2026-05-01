@@ -76,7 +76,7 @@ mod llvm_tests {
     /// so that `build_optimization_config()` produces a `SanitizerMode` with the
     /// correct flags. Previously, `..Default::default()` left `sanitizer_env: None`,
     /// silently dropping sanitizer instrumentation.
-    /// See: plans/llvm-verification-tooling/section-08-sanitizers.md §08.R iter 13
+    /// See:.R iter 13
     #[test]
     fn test_build_optimization_config_reads_sanitizer_env() {
         use crate::commands::build::{build_optimization_config, BuildOptions, OptLevel};

@@ -87,7 +87,7 @@ fn register_impl(
     // 4b. Inherit unoverridden default methods (direct + transitive from super-traits).
     //
     // `ImplBuildContext` bundles the three co-varying impl-instance fields
-    // (`type_params`, `self_type`, `trait_type_args`) per impl-hygiene.md
+    // (`type_params`, `self_type`, `trait_type_args`)
     // §PARAM_SPRAWL :domain-fragment. `trait_type_args` is required so
     // direct-default inheritance can build the trait→impl binder substitution
     // map (e.g. `F → X` for `impl<X> Reducer<X>` over `trait Reducer<F>`) —
@@ -169,7 +169,7 @@ fn register_impl(
 /// `Self` type, and the resolved trait type arguments. Pre-BUG-01-002 sub-gap
 /// (b), `inherit_default_methods` and `build_impl_method` took the first two
 /// as flat params; landing the trait→impl substitution required threading a
-/// third co-varying field. Per `impl-hygiene.md §PARAM_SPRAWL :domain-fragment`
+/// third co-varying field. Per
 /// (≥3 fields co-varying at every site), bundle into a domain newtype rather
 /// than grow the flat signature past clippy's `too_many_arguments` threshold.
 ///

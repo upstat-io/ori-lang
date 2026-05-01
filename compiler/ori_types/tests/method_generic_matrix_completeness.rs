@@ -123,7 +123,7 @@ const MODULE_BOUNDARIES: &[ModuleBoundary] =
 /// the matching `.ori` fixture or as `#[ignore]` in the matching Rust test.
 ///
 /// Each `false` return MUST point at a concrete blocker (BUG-XX-NNN) per
-/// CLAUDE.md §ALL Deferrals Must Have Implementation Anchors.
+///.
 fn prereq_available(
     call: CallShape,
     pattern: ConstPattern,

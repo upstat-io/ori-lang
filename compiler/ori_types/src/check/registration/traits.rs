@@ -232,7 +232,7 @@ pub(super) fn compute_object_safety_violations(
 
         // Rule 3: Generic methods — methods with their own type parameters
         // require monomorphization, which is incompatible with vtable dispatch.
-        // Spec: Clause 8.8 (trait objects); types.md §BI-6 (object safety).
+        // Spec: Clause 8.8 (trait objects); (object safety).
         if !generics.is_empty() {
             violations.push(ObjectSafetyViolation::GenericMethod { method: name, span });
         }
@@ -270,9 +270,7 @@ fn build_trait_method_sig(
     // context `Self` stays symbolic, so we pass `Idx::ERROR` as the self_type.
     // The Phase B Step 5b `_overlay` is consumed by `build_impl_method` for
     // call-site instantiable scheme wrapping; trait-side scheme wrapping is
-    // not yet wired (see `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
-    // §B.2 — trait registration today builds plain `Tag::Function`; trait-method
-    // schemes activate when trait-bound generic dispatch lands).
+    // not yet wired.
     let (scheme_var_ids, _overlay, generic_param_metadata, where_clause_metadata) =
         build_method_generic_metadata(
             checker,

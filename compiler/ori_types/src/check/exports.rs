@@ -219,8 +219,8 @@ fn try_resolve_deferred_call(
     // scheme var. Without this extension, a 3-hop generic chain
     // where the middle layer takes the deferred path leaks
     // Tag::Var leaves into the realized ARC IR and fires the §04.2
-    // PC-2 seam assertion (typeck.md §UN-7 rank-weighted union).
-    // SSOT per impl-hygiene.md §Algorithmic DRY — shared with the
+    // PC-2 seam assertion.
+    // SSOT — shared with the
     // eager-path site at infer::expr::calls::monomorphization and
     // the JIT imported-mono site at oric::test::runner::imported_mono.
     crate::pool::substitute::extend_var_subst_with_roots(
@@ -268,7 +268,7 @@ fn try_resolve_deferred_call(
     // see for eager-path calls. The new instance lands at the current
     // `mono_instances.len()` slot; this entry flows through the same
     // dedup-remap pipeline as eager entries (see `check/mod.rs` export
-    // pipeline). Closes the gap noted in `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
+    // pipeline). Closes the gap noted in
     // §C.2 sub-step 1b-deferred.
     #[expect(
         clippy::cast_possible_truncation,

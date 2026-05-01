@@ -2,7 +2,7 @@
 // The closure here returns `(int, int)` instead of `Iterator<U>`. The
 // diagnostic SHOULD use the generic-fallback message — Tuple is NOT in the
 // suggestion-friendly set (per Plan TPR finding A13).
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 #[compile_fail(code: "E2001", message: "Iterator")]
 @bad_flat_map_tuple tests _ () -> void = {

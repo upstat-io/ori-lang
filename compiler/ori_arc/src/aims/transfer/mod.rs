@@ -491,7 +491,7 @@ pub fn capture_state_update(current: &AimsState, closure_state: &AimsState) -> A
     // Closure-aware locality: captured vars inherit the closure's locality.
     // No artificial FunctionLocal floor — a block-local closure capturing a
     // block-local variable preserves BlockLocal (both scoped to the same block).
-    // Per aims-rules.md TF-13.
+    // Per TF-13.
     if state.locality < closure_state.locality {
         state.locality = closure_state.locality;
     }

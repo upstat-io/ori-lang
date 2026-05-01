@@ -426,10 +426,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// a wrong stride into memory operations. The `pool.iterator_elem` callee
     /// has its own `debug_assert!` that strips in release; this assert is the
     /// load-bearing guard that catches a violation BEFORE `iterator_elem`
-    /// reads garbage from the data field. See `bug-tracker/plans/BUG-04-076/`
-    /// and `impl-hygiene.md` §Panic & Assertion.
+    /// reads garbage from the data field.
+    /// and §Panic & Assertion.
     ///
-    /// `pool.resolve_fully` is called first per `codegen-rules.md §TR-2`
+    /// `pool.resolve_fully` is called first per
     /// ("All type indices SHALL be fully resolved via `pool.resolve_fully(idx)`
     /// before LLVM type construction") to chase any binding-chain aliases
     /// before the iterator-tag check.
@@ -473,7 +473,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // The mapped iterator's element type is the closure's RETURN type —
         // an iterator handle (`Iterator<U>` or `DoubleEndedIterator<U>`).
-        // resolve_fully chases binding-chain aliases per codegen-rules.md §TR-2;
+        // resolve_fully chases binding-chain aliases;
         // Tag::Function guard mirrors `emit_iter_map:360` defensive pattern
         // for unresolved-type cases that shouldn't reach codegen but are
         // returned as None rather than asserted (consistency with sibling

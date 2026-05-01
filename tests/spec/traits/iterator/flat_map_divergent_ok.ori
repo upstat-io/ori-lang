@@ -1,5 +1,5 @@
 // Positive pin P4 — load-bearing A2 case from Plan TPR Round 0.
-// Closure body always panics and returns `Tag::Never`. Per typeck.md §UN-3
+// Closure body always panics and returns `Tag::Never`. Per
 // (`Never` absorbs unification with any type), divergent closures are
 // legitimate flat_map input — the new shape check MUST silently accept
 // `Tag::Never` and bind the result iterator's element type to Never.
@@ -11,7 +11,7 @@
 // Function-level return annotations are formatter-stable; `let _ : T = ...`
 // inside a body is not.
 // `#[skip(...)]` prevents runtime execution; type-check happens regardless.
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 @flat_map_divergent_ok_helper () -> [int] = {
     [1, 2, 3].iter()

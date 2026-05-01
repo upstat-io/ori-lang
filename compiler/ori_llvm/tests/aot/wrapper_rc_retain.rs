@@ -105,7 +105,7 @@ fn test_list_last_list_payload_rc_retain() {
 //
 // 1. Exit code 1 — `ori_run_main` / LLVM-generated `main()` caught the
 //    panic cleanly via `invoke`/`landingpad` (Itanium) or SEH (MSVC).
-//    This is the designed flow; see `runtime.md` §Unwinding ABI and
+//    This is the designed flow; §Unwinding ABI and
 //    `ori_run_main` doc comment: "1: panic".
 // 2. SIGABRT (exit code 134 / signal -134) — panic bubbled past the
 //    main wrapper and hit `abort()` (e.g., uncaught unwind on an

@@ -58,7 +58,7 @@ impl UnifyEngine<'_> {
         }
 
         // §08.3b — Canonicalize scheme body to `Tag::BoundVar` leaves per
-        // `types.md §SC-1`. The body returned by upstream inference contains
+        //. The body returned by upstream inference contains
         // `Tag::Var` leaves whose var_states were just mutated to
         // `VarState::Generalized` above; rewrite them to `Tag::BoundVar` with
         // `data = var_id` so the scheme body matches the target representation
@@ -82,14 +82,14 @@ impl UnifyEngine<'_> {
     /// Inner traversal for collecting free variables.
     ///
     /// Delegates compound-tag child traversal to the canonical
-    /// `Pool::visit_children` walker (`types.md §TF-3`, `pool/descriptor.rs`)
+    /// `Pool::visit_children` walker (TF-3)
     /// rather than open-coding a parallel tag-dispatch ladder
-    /// (`impl-hygiene.md §Algorithmic DRY`). Mirrors the shape of
+    /// . Mirrors the shape of
     /// `check::validators::collect_first_unbound_var` — the in-repo
     /// reference for this delegation pattern.
     fn collect_free_vars_inner(&self, ty: Idx, min_rank: Rank, vars: &mut Vec<u32>) {
         // Fast path: no variables. `Tag::BoundVar` sets `HAS_BOUND_VAR`, not
-        // `HAS_VAR` (`types.md §TF-1`), so scheme bodies whose only inner
+        // `HAS_VAR` (TF-1), so scheme bodies whose only inner
         // variables are bound short-circuit here.
         if !self.pool.flags(ty).contains(TypeFlags::HAS_VAR) {
             return;
@@ -128,17 +128,17 @@ impl UnifyEngine<'_> {
 }
 
 /// Rewrite `Tag::Var(Generalized)` leaves in a scheme body to `Tag::BoundVar`
-/// leaves bearing the same `var_id` (per `types.md §SC-1`).
+/// leaves bearing the same `var_id`.
 ///
 /// Builds a substitution map `{var_id → BoundVar(var_id)}` for each
 /// scheme-declared `var_id`, then delegates to the canonical
 /// [`substitute_in_pool`] machinery to walk the body and rewrite matching
 /// `Tag::Var` leaves. The new `Tag::BoundVar` leaf carries `data == var_id`,
-/// satisfying `types.md §SC-1`'s "data = `var_id` matching one of the scheme's
+/// satisfying's "data = `var_id` matching one of the scheme's
 /// declared var ids" rule.
 ///
 /// Reusing `substitute_in_pool` keeps the structural recursion in one place
-/// (`impl-hygiene.md §Algorithmic DRY`) — no parallel walker needed.
+///  — no parallel walker needed.
 ///
 /// Called once per `generalize()` invocation, between `var_states` mutation
 /// and scheme construction. The substitution applies because

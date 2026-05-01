@@ -1,8 +1,7 @@
 //! Phase-dump + post-codegen finalization helpers.
 //!
 //! Extracted from `run_codegen_pipeline` to restore the host-function 100-line
-//! and host-file 500-line structural limits (`compiler.md §Style`,
-//! `impl-hygiene.md §File Organization`).
+//! and host-file 500-line structural limits.
 //!
 //! - `dump_arc_phases`: the `ORI_DUMP_AFTER_ARC` + `ORI_EMIT_ARC_DOT` phase-dump
 //!   invocations. Both are `dbg_do!`-gated — no-op when the env vars are unset.

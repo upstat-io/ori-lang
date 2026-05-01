@@ -1,7 +1,7 @@
 //! Tests for [`crate::check::validators::validate_body_types`].
 //!
 //! Twelve-cell matrix (T1–T12) per §02.4 of
-//! `plans/empty-container-typeck-phase-contract/section-02-validator-module.md`:
+//!:
 //!
 //! - **Negative cells** (T1–T3): an unbound `Tag::Var` in `expr_types` or in
 //!   `FunctionSig.param_types` MUST emit exactly one `E2005` against the
@@ -10,7 +10,7 @@
 //!   resolved primitives, `VarState::Link` resolution, `Tag::BoundVar`
 //!   scheme bodies, and the `VarState::Generalized` exemption.
 //! - **Cascade** (T8): `Tag::Error` short-circuits the walk via `HAS_ERROR`
-//!   per `typeck.md §ER-4` / `types.md §TK-3`.
+//!   per /.
 //! - **Determinism** (T9): signature diagnostics precede body diagnostics,
 //!   body diagnostics emit in ascending `ExprIndex` order regardless of
 //!   `FxHashMap` insertion order.
@@ -20,7 +20,7 @@
 //! - **Nested compound** (T11): two-level descent via `Pool::visit_children`
 //!   through dedicated compound tags (`Tag::Option` wrapping `Tag::List`).
 //! - **Dedup** (T12): multiple unbound vars under one `ExprIndex` collapse
-//!   to a single diagnostic per `impl-hygiene.md §Deduplication by (Code,
+//!   to a single diagnostic per ` by (Code,
 //!   Span)`.
 
 use rustc_hash::FxHashMap;
@@ -155,7 +155,7 @@ fn empty_sig() -> FunctionSig {
 
 // Negative cells — unbound Tag::Var must emit E2005
 
-/// Spec: `typeck.md §PC-2` — an unbound `Tag::Var` surviving the bodies
+/// — an unbound `Tag::Var` surviving the bodies
 /// pass in `expr_types` is a phase-contract violation; the validator emits
 /// exactly one `E2005` at the expression's span.
 ///
@@ -175,7 +175,7 @@ fn body_expr_types_with_unbound_var_emits_one_e2005() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-/// Spec: `types.md §TK-9` — `Tag::Applied` is the dedicated tag for
+/// — `Tag::Applied` is the dedicated tag for
 /// user-registered generic types (distinct from `Tag::Option`/`Tag::Result`
 /// and their dedicated siblings). Using an `Applied(Name, [Var])` exercises
 /// the validator's `Pool::visit_children` descent through a user-generic
@@ -197,7 +197,7 @@ fn applied_generic_with_unbound_var_argument_emits_one_e2005() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-/// Spec: `typeck.md §CK-4` — signatures entering the Bodies group may
+/// — signatures entering the Bodies group may
 /// carry fresh `Tag::Var`s for elided annotations; those vars MUST resolve
 /// before Bodies exit, and the validator emits at `sig_span` (the function
 /// declaration span) when one survives.
@@ -221,7 +221,7 @@ fn signature_with_unbound_param_type_emits_at_sig_span() {
 
 // Positive cells — fast-path gates and well-formed scheme bodies
 
-/// Spec: `types.md §TF-5` — `!HAS_VAR` short-circuit fires before any walk
+/// — `!HAS_VAR` short-circuit fires before any walk
 /// on a fully-resolved primitive. `int` never violates PC-2.
 ///
 /// Plan §02.4 T4 (Positive / Resolved Int).
@@ -234,7 +234,7 @@ fn body_expr_types_with_resolved_int_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-/// Spec: `types.md §TF-2` — flags are cached at intern time, but
+/// — flags are cached at intern time, but
 /// `VarState::Link` may mutate later. The validator calls
 /// `Pool::resolve_fully` BEFORE the `HAS_VAR` gate at every walk step, so
 /// a var linked to `int` after interning resolves through and trips no
@@ -245,8 +245,7 @@ fn body_expr_types_with_resolved_int_emits_no_diagnostic() {
 fn body_expr_types_with_linked_var_resolves_and_emits_nothing() {
     let mut pool = Pool::new();
     let var = pool.fresh_var();
-    // For `Tag::Var`, `data` IS the `var_id` (see `types.md §TY-3` plus the
-    // tag-data decoding rule in `types.md` Appendix B).
+    // For `Tag::Var`, `data` IS the `var_id`.
     let var_id = pool.data(var);
     *pool.var_state_mut(var_id) = VarState::Link { target: Idx::INT };
 
@@ -255,11 +254,11 @@ fn body_expr_types_with_linked_var_resolves_and_emits_nothing() {
     assert!(errors.is_empty());
 }
 
-/// Spec: `types.md §TF-1` — `Tag::BoundVar` sets `HAS_BOUND_VAR`, NOT
+/// — `Tag::BoundVar` sets `HAS_BOUND_VAR`, NOT
 /// `HAS_VAR`. A scheme body referencing a `BoundVar` therefore trips no
 /// `HAS_VAR` flag on the outer scheme; the top-level fast-path gate skips
 /// silently. This is the legitimate shape of a generalized polymorphic
-/// binding after `typeck.md §GN-1` generalization.
+/// binding after generalization.
 ///
 /// Plan §02.4 T6 (Positive / Scheme `BoundVar`).
 #[test]
@@ -279,7 +278,7 @@ fn scheme_body_with_bound_var_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-/// Spec: `typeck.md §PC-2`, `types.md §SC-1`. Post-`expr_types` port, a
+///,. Post-`expr_types` port, a
 /// `Tag::Var(VarState::Generalized)` surviving in `expr_types` is a
 /// partial-migration LEAK: the scheme body was rewritten to `Tag::BoundVar`
 /// by `rewrite_generalized_to_bound_var`, but the expression position
@@ -298,7 +297,7 @@ fn scheme_body_with_bound_var_emits_no_diagnostic() {
 ///
 /// Replaces the former `generalized_var_in_expr_types_emits_no_diagnostic`
 /// (pre-§08.3b.1 exemption-is-correct assertion). See
-/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md`
+///
 /// §08.3b.1 Cell L.
 #[test]
 fn generalized_var_in_expr_types_emits_e2005_as_leak_alarm() {
@@ -329,7 +328,7 @@ fn generalized_var_in_expr_types_emits_e2005_as_leak_alarm() {
 
 // Cascade / Determinism / Semantic pin
 
-/// Spec: `typeck.md §ER-4`, `types.md §TK-3` — `Tag::Error` poisons a type
+///, — `Tag::Error` poisons a type
 /// and MUST suppress cascading diagnostics. A tuple carrying BOTH a
 /// `Tag::Var` and `Idx::ERROR` propagates both `HAS_VAR` and `HAS_ERROR`;
 /// the validator's `HAS_ERROR` short-circuit fires at the top-level gate
@@ -340,7 +339,7 @@ fn generalized_var_in_expr_types_emits_e2005_as_leak_alarm() {
 fn tuple_with_error_and_unbound_var_suppresses_diagnostic() {
     let mut pool = Pool::new();
     let var = pool.fresh_var();
-    // (Var, Error) — `types.md §TF-3` propagates both HAS_VAR and HAS_ERROR.
+    // (Var, Error) — propagates both HAS_VAR and HAS_ERROR.
     let tuple = pool.tuple(&[var, Idx::ERROR]);
     assert!(pool.flags(tuple).contains(TypeFlags::HAS_VAR));
     assert!(pool.flags(tuple).contains(TypeFlags::HAS_ERROR));
@@ -353,7 +352,7 @@ fn tuple_with_error_and_unbound_var_suppresses_diagnostic() {
     );
 }
 
-/// Spec: `impl-hygiene.md §Pass determinism` — diagnostics must emit in a
+/// — diagnostics must emit in a
 /// reproducible order regardless of `FxHashMap` iteration. The validator's
 /// contract is: signature positions first (in declaration order), then
 /// body expressions in ascending `ExprIndex` order.
@@ -446,7 +445,7 @@ fn scheme_wrapping_unbound_var_body_emits_one_e2005() {
 
 // Nested compound / Dedup
 
-/// Spec: `types.md §TF-3` propagation — compound tags must transitively
+/// propagation — compound tags must transitively
 /// propagate `HAS_VAR` through nested layers. Uses `Tag::Option` wrapping
 /// `Tag::List` wrapping a `Tag::Var` to exercise two levels of dedicated
 /// (non-Applied) compound tags, confirming the validator's recursive
@@ -466,7 +465,7 @@ fn option_list_var_two_level_nesting_emits_one_e2005() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-/// Spec: `impl-hygiene.md §Deduplication by (Code, Span)` — multiple
+/// — multiple
 /// unbound type variables at a single `ExprIndex` MUST collapse to one
 /// `E2005`. The validator sets an `emitted` flag inside its
 /// `visit_children` closure to short-circuit further emissions at the
@@ -474,7 +473,7 @@ fn option_list_var_two_level_nesting_emits_one_e2005() {
 ///
 /// Uses `Map<Var, Var>` where both key and value types are independently
 /// unbound; without dedup, this would emit two diagnostics. The map
-/// `Tag::Map` has two children (`types.md §TK-1` — two-child tag range);
+/// `Tag::Map` has two children;
 /// the first child's unbound var trips the emission, and the `emitted`
 /// flag suppresses the second.
 ///
@@ -645,7 +644,7 @@ fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
 // Poly-lambda return-type position semantic pins (T17-T19).
 //
 // These three tests pin the typeck-boundary invariant for polymorphic
-// lambda return-type positions per `typeck.md §PC-2` and `types.md §SC-1`:
+// lambda return-type positions per and:
 // a poly-lambda return may carry `Tag::BoundVar` (the `§SC-1` target shape)
 // OR `Tag::Var(VarState::Generalized)` (the currently shipped-pool
 // divergence explicitly documented in `validators/mod.rs::collect_first_unbound_var`),
@@ -659,9 +658,9 @@ fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
 // exercises `HAS_VAR` propagation through `Tag::Function` as well as
 // `Tag::Scheme`, distinct from T10's direct `Scheme([0], Var)` shape.
 
-/// Spec: `typeck.md §PC-2`, `types.md §SC-1`, `types.md §TF-1` — the
+///,, — the
 /// `§SC-1` target shape for a polymorphic lambda return is `Tag::BoundVar`.
-/// `BoundVar` sets `HAS_BOUND_VAR`, NOT `HAS_VAR` (`types.md §TF-1`), so
+/// `BoundVar` sets `HAS_BOUND_VAR`, NOT `HAS_VAR` (TF-1), so
 /// the outer scheme short-circuits at the validator's top-level
 /// `!HAS_VAR` gate and emits no diagnostic. This is the legitimate
 /// spec-target form of a generalized polymorphic lambda.
@@ -671,7 +670,7 @@ fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
 /// shipped `Var(Generalized)` divergence.
 ///
 /// Not the enforcement point — see
-/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
+/// §08.1.R.
 #[test]
 fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
     let mut pool = Pool::new();
@@ -690,7 +689,7 @@ fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-/// Spec: `typeck.md §PC-2`, `types.md §SC-1`. Post-`expr_types` port, a
+///,. Post-`expr_types` port, a
 /// polymorphic-lambda return position carrying a
 /// `Tag::Var(VarState::Generalized)` inside its `Tag::Scheme` wrapper is a
 /// partial-migration LEAK — the target shape is
@@ -711,7 +710,7 @@ fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
 ///
 /// Replaces the former `polylambda_return_type_with_generalized_var_emits_no_diagnostic`
 /// (pre-§08.3b.1 exemption-is-correct assertion). See
-/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md`
+///
 /// §08.3b.1 Cell L.
 #[test]
 fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
@@ -753,14 +752,14 @@ fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-/// Spec: `typeck.md §PC-2` — a polymorphic-lambda return-type position
+/// — a polymorphic-lambda return-type position
 /// carrying a surviving `Tag::Var(VarState::Unbound)` is a genuine PC-2
 /// violation and MUST fire `E2005`. This is the negative pin for the
 /// §08.1.5 audit: if any future refactor either (a) extends the
 /// `VarState::Generalized` exemption to cover `Unbound` at this position,
 /// or (b) silently drops the PC-2 walk inside `Tag::Function` /
 /// `Tag::Scheme`, this test fails — catching the over-exemption and
-/// preventing the INVERTED-TDD regression CLAUDE.md §INVERTED-TDD bans
+/// preventing the INVERTED-TDD regression
 /// (the canonical example is exactly a PC-2 validator with a gate added
 /// to silence failing generic-body tests).
 ///
@@ -771,7 +770,7 @@ fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
 /// the typed IR's poly-lambda representation.
 ///
 /// Not the enforcement point — see
-/// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md` §08.1.R.
+/// §08.1.R.
 #[test]
 fn polylambda_return_type_with_unbound_var_emits_one_e2005() {
     let mut pool = Pool::new();
@@ -798,7 +797,7 @@ fn polylambda_return_type_with_unbound_var_emits_one_e2005() {
 // + §05.1.4 semantic and negative pins). Tests are synthetic unit tests
 // that drive `validate_body_types` directly, mirroring the T1–T12 harness.
 
-/// Spec: `tests.md §Cross-Phase Verification #3` fault-tolerance — two
+/// fault-tolerance — two
 /// unbound `Tag::Var`s at DISTINCT `ExprIndex` positions MUST emit two
 /// independent `E2005` diagnostics (no cross-ExprIndex dedup). Distinct
 /// from T12 (`map_with_two_unbound_vars_emits_one_e2005_not_two`) which
@@ -843,7 +842,7 @@ fn validate_body_types_emits_one_e2005_per_unbound_var() {
 /// element `Tag::Var` inside a `Tag::List` reaches `expr_types` and is
 /// rejected at the typeck boundary with `E2005`
 /// (`TypeErrorKind::AmbiguousType`). Once the validator emits E2005, the
-/// driver's codegen gate (`typeck.md §PC-4`) suppresses emission — the
+/// driver's codegen gate () suppresses emission — the
 /// "not a codegen error" half of the pin is the diagnostic kind itself:
 /// an `AmbiguousType` is a typeck-origin diagnostic, not a codegen-origin
 /// one.
@@ -895,7 +894,7 @@ fn error_typed_expr_with_sibling_wellformed_expr_emits_no_diagnostic() {
         errors.is_empty(),
         "monotone recovery: Error-typed sibling does not cascade into a \
          false-positive E2005 on the well-formed int slot, and the \
-         Error-typed slot itself emits nothing (poison per types.md §TK-3)"
+         Error-typed slot itself emits nothing"
     );
 }
 
@@ -981,7 +980,7 @@ fn scheme_body_with_captured_outer_var_emits_one_e2005() {
     assert!(
         pool.flags(scheme).contains(TypeFlags::HAS_VAR),
         "scheme body with captured Unbound var must carry HAS_VAR via \
-         PROPAGATE_MASK (types.md §TF-3)"
+         PROPAGATE_MASK (TF-3)"
     );
 
     let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);

@@ -76,10 +76,10 @@ fn check_function_with_unannotated_param_emits_ambiguous_type() {
 /// Regression: an unresolved `Tag::Var` in a test body must produce `E2005`
 /// (`AmbiguousType`) at typeck via `check_test` (Pass 3 per CK-1). Without
 /// `validate_body_types` wired into `check_test`, surviving vars leak through
-/// typed IR to downstream phases (`typeck.md §PC-2`).
+/// typed IR to downstream phases (PC-2).
 ///
 /// A block-wrapped lambda `{ x -> x }` is not a direct lambda binding and is
-/// NOT generalizable per `typeck.md §GN-3` (Value Restriction). The parameter
+/// NOT generalizable per (Value Restriction). The parameter
 /// `x`'s type remains an unbound `Tag::Var`. No empty literals exist, so the
 /// end-of-body defaulting pass does not fire — only `validate_body_types`
 /// catches the surviving var in `expr_types`.
@@ -138,7 +138,7 @@ fn check_impl_method_with_unannotated_param_emits_ambiguous_type() {
 /// sig-position test above.
 ///
 /// A block-wrapped lambda `{ x -> x }` is ungeneralizable per
-/// `typeck.md §GN-3` (Value Restriction); its parameter stays `Tag::Var`.
+/// (Value Restriction); its parameter stays `Tag::Var`.
 /// The enclosing impl method is `(self) -> void`, so no sig vars exist —
 /// the only path to a surviving var is through body `expr_types`, which
 /// `validate_body_types` must walk.
@@ -191,7 +191,7 @@ fn check_def_impl_method_with_unannotated_param_emits_ambiguous_type() {
 /// sig-position test above.
 ///
 /// A block-wrapped lambda `{ x -> x }` is ungeneralizable per
-/// `typeck.md §GN-3` (Value Restriction); its parameter stays `Tag::Var`.
+/// (Value Restriction); its parameter stays `Tag::Var`.
 /// The enclosing def-impl method is `() -> void`, so no sig vars exist — the
 /// only path to a surviving var is through body `expr_types`, which
 /// `validate_body_types` must walk via `run_validator`.
@@ -211,8 +211,7 @@ fn check_def_impl_method_with_ungeneralizable_body_lambda_emits_ambiguous_type()
     );
 }
 
-/// Negative control (pairs with the two positive tests above per
-/// `tests.md §Negative Testing Protocol` positive + negative pairing rule):
+/// Negative control:
 /// a well-typed def-impl method body must NOT produce `E2005` (or any typeck
 /// error) after `run_validator` wires in. Pins the false-positive boundary —
 /// if the validator is too aggressive and fires on fully-resolved body types
@@ -245,7 +244,7 @@ fn check_def_impl_method_with_well_typed_body_produces_no_errors() {
 /// defaulting pre-pass means the empty-list element `Tag::Var`
 /// is resolved via unification with `push(value: 10)` (`T := int`) BEFORE
 /// defaulting even runs — the program now type-checks cleanly and is safe
-/// to hand to codegen (`typeck.md §PC-2`).
+/// to hand to codegen (PC-2).
 ///
 /// The test pins end-to-end typeck behavior: the full input flows
 /// through every pass without diagnostics. Its companion AOT test
@@ -276,11 +275,11 @@ fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
 // after generalization, every `Tag::Var(VarState::Generalized)` leaf in
 // `InferOutput.expr_types` and every top-level polymorphic function's
 // `FunctionSig.param_types` / `return_type` MUST have been rewritten to
-// `Tag::BoundVar(var_id)` per `types.md §SC-1`. These cells currently
+// `Tag::BoundVar(var_id)` per. These cells currently
 // FAIL (RED) — the end-of-body-group normalization pass that re-points
 // those storage locations at the already-rewritten scheme-body Idxs
 // does not yet exist. See
-// `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md`
+//
 // §08.3b.1 TDD matrix (cells H / I / K).
 
 /// Cell H — `expr_types` port (positive pin for §SC-1 target shape).
@@ -321,7 +320,7 @@ fn expr_types_port_lambda_body_is_bound_var() {
 
     assert!(
         generalized_positions.is_empty(),
-        "types.md §SC-1: no `expr_types` entry may carry a Tag::Var(Generalized) \
+        ": no `expr_types` entry may carry a Tag::Var(Generalized) \
          leaf post-typeck — the §08.3b.1 normalization pass must substitute every \
          scheme-var leaf with Tag::BoundVar matching the enclosing scheme's \
          declared var ids. Offending positions: {generalized_positions:?}"
@@ -363,12 +362,12 @@ fn function_sig_port_top_level_polymorphic_function() {
         "cell I: @id<T>(x: T) has exactly one parameter"
     );
 
-    // param_types[0] must be Tag::BoundVar post-typeck per types.md §SC-1.
+    // param_types[0] must be Tag::BoundVar post-typeck.
     let param_ty = pool.resolve_fully(sig.param_types[0]);
     assert_eq!(
         pool.tag(param_ty),
         Tag::BoundVar,
-        "types.md §SC-1: FunctionSig.param_types[0] for a top-level polymorphic \
+        ": FunctionSig.param_types[0] for a top-level polymorphic \
          function must be Tag::BoundVar post-typeck, got {:?} (data={})",
         pool.tag(param_ty),
         pool.data(param_ty)
@@ -379,7 +378,7 @@ fn function_sig_port_top_level_polymorphic_function() {
     assert_eq!(
         pool.tag(ret_ty),
         Tag::BoundVar,
-        "types.md §SC-1: FunctionSig.return_type for a top-level polymorphic \
+        ": FunctionSig.return_type for a top-level polymorphic \
          function must be Tag::BoundVar post-typeck, got {:?} (data={})",
         pool.tag(ret_ty),
         pool.data(ret_ty)
@@ -421,8 +420,7 @@ fn function_sig_port_top_level_polymorphic_function() {
 ///   re-points every `Tag::Var(Generalized)` leaf at a `Tag::BoundVar`,
 ///   then the validator's `Generalized` exemption arm is stripped. The
 ///   validator walks the same positions and short-circuits at the
-///   `Tag::BoundVar` arm (`types.md §TF-1`: `BoundVar` sets `HAS_BOUND_VAR`,
-///   not `HAS_VAR`).
+///   `Tag::BoundVar` arm (TF-1).
 ///
 /// This cell pins the invariant that BOTH mechanisms keep this
 /// well-formed polymorphic let-binding program diagnostic-free. If the
@@ -458,7 +456,7 @@ fn validator_strip_polylambda_typechecks_no_e2005() {
 ///
 /// Delegates compound-tag traversal to `Pool::visit_children` — the same
 /// canonical walker used by `validate_body_types`
-/// (`impl-hygiene.md §Algorithmic DRY`).
+///
 fn scan_for_generalized_var_leaves(pool: &Pool, ty: Idx, report: &mut dyn FnMut(Idx)) {
     let resolved = pool.resolve_fully(ty);
     match pool.tag(resolved) {

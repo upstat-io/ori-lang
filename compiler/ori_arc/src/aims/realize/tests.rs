@@ -89,7 +89,7 @@ fn cow_shared_is_static_shared() {
 
 /// Regression: the former `is_cow_aware_unique` path promoted
 /// `MaybeShared + Owned + Linear + Once` params to `StaticUnique`. Removed
-/// as unsound per `aims-rules.md` §DP-10 removal — backward
+/// as unsound per §DP-10 removal — backward
 /// analysis facts cannot prove PAST uniqueness.
 #[test]
 fn decide_cow_maybe_shared_param_owned_linear_once_returns_dynamic() {
@@ -127,7 +127,7 @@ fn decide_cow_maybe_shared_nonparam_owned_linear_once_returns_dynamic() {
 }
 
 /// Regression: the former cross-dimensional `CollectionBuffer + Once → StaticUnique`
-/// path was removed as unsound per `aims-rules.md` §DP-10 removal.
+/// path was removed as unsound per §DP-10 removal.
 #[test]
 fn decide_cow_maybe_shared_collection_buffer_once_returns_dynamic() {
     let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
@@ -167,8 +167,7 @@ fn decide_cow_maybe_shared_context_hole_once_returns_dynamic() {
 
 /// Integration preservation: when the upstream
 /// `is_borrow_disjoint_from_siblings()` helper has set `ctx.is_borrow_disjoint =
-/// true` (which now requires source `Uniqueness::Unique` per `aims-rules.md`
-/// §RL-31), `decide_cow()` correctly promotes `MaybeShared` receivers to
+/// true` (RL-31), `decide_cow()` correctly promotes `MaybeShared` receivers to
 /// `StaticUnique`. This is the spec-approved disjoint-borrow path.
 #[test]
 fn decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique() {
@@ -625,7 +624,7 @@ fn decide_last_use_maybe_shared_struct_returns_dynamic_reuse() {
 // Regression: MaybeShared + Once + ReusableCtor → DynamicReuse
 //
 // The former cross-dimensional `StaticReuse` promotion was removed as
-// unsound per `aims-rules.md` §RL-13 removal rationale.
+// unsound per §RL-13 removal rationale.
 
 #[test]
 fn decide_reuse_maybe_shared_reusable_ctor_struct_once_returns_dynamic_reuse() {

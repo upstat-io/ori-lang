@@ -476,7 +476,7 @@ fn check_range_float_iteration(
 /// fresh-var return because `U` is determined by the closure body, not
 /// the signature.
 ///
-/// **Step ordering** — load-bearing per `bug-tracker/plans/BUG-02-013/`
+/// **Step ordering** — load-bearing per
 /// Plan TPR Round 0 finding A1: param-elem unification runs FIRST, then
 /// we re-resolve the closure return, then we check the shape. The reverse
 /// order would silently accept identity closures `x -> x` because the
@@ -518,12 +518,12 @@ fn unify_flat_map_constraints(
     // STEP 3c-PRE — Compound-poison absorb (Plan TPR Round 1 finding R1-A).
     // The OUTER tag check below catches `Tag::Error` directly, but compound
     // returns like `[Error]`, `Option<Error>`, `Function<.., Error>` carry
-    // `HAS_ERROR` propagated upward per `types.md §TF-3 PROPAGATE_MASK`
+    // `HAS_ERROR` propagated upward per
     // while keeping their outer tag intact. Without this absorb, the
     // diagnostic arm would fire E2001 on top of the upstream E2003 — a
-    // `typeck.md §ER-4` cascade. The `return` is a SILENT defer: the
+    // cascade. The `return` is a SILENT defer: the
     // upstream `Tag::Error`-producing site already pushed E2003 (or
-    // similar), and `typeck.md §UN-4` absorb semantics mean a downstream
+    // similar), and absorb semantics mean a downstream
     // unify of `elem_var` with `Idx::ERROR` would NOT bind `elem_var`
     // (Error absorbs without writing to the var). Leaving `elem_var`
     // unbound here is intentional: the result-iterator's element-type
@@ -542,7 +542,7 @@ fn unify_flat_map_constraints(
         let _ = engine.unify().unify(elem_var, inner_elem);
     } else if inner_tag == Tag::Never {
         // Divergent closure body (panic/unreachable/loop). Per
-        // `typeck.md §UN-3`, `Never` absorbs unification with any type.
+        //, `Never` absorbs unification with any type.
         // Bind elem_var to `Never` so the result iterator's element
         // resolves cleanly to `Never` (uninhabited iterator —
         // semantically consistent: a closure that never returns a value
@@ -594,7 +594,7 @@ fn unify_flat_map_constraints(
 
         // Absorb the result-iterator's element variable so it doesn't
         // surface as a downstream E2005 from `validate_body_types`. Per
-        // `typeck.md §UN-4`, unifying with `Tag::Error` absorbs silently —
+        //, unifying with `Tag::Error` absorbs silently —
         // the user sees one precise error at the closure body, not a
         // cascade of confused E2005s pointing at the call site.
         let _ = engine.unify().unify(elem_var, Idx::ERROR);
@@ -603,8 +603,7 @@ fn unify_flat_map_constraints(
 
 /// Tag-specialized fix suggestion for the `flat_map` closure-return diagnostic.
 ///
-/// Queries `ori_registry` (the SSOT for builtin type behavior per
-/// `impl-hygiene.md §SSOT`) to determine whether the actual closure-return
+/// Queries `ori_registry` to determine whether the actual closure-return
 /// tag has a callable `.iter()` method that yields `Iterator<U>`. When yes,
 /// the suggestion points users straight at that fix. When no (or when the
 /// tag has no registry mapping — type variables, named types, projections,

@@ -3,7 +3,7 @@
 //!
 //! The helper now requires source `Uniqueness::Unique` exclusively — the former
 //! former cross-dimensional `Owned + Linear + Once` fallback (via
-//! `is_cow_aware_unique`) was removed as unsound per `aims-rules.md` §DP-10
+//! `is_cow_aware_unique`) was removed as unsound per §DP-10
 //! removal rationale.
 //!
 //! Full state-map construction for the helper requires building an

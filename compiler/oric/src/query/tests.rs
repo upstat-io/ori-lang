@@ -1011,7 +1011,7 @@ fn test_typed_result_coalesce() {
     let db = CompilerDb::new();
 
     // Err type annotated explicitly so no unresolved `Tag::Var` survives body
-    // inference (typeck.md §PC-2 via `validate_body_types`). The test's
+    // inference (PC-2). The test's
     // subject is `??` coalescing on a Result; the choice of Err type is
     // incidental — `str` stands in for any inhabited type.
     let source = "@main () -> int = { let r: Result<int, str> = Ok(42); r ?? 0 }";

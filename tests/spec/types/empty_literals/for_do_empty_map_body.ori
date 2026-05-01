@@ -1,7 +1,7 @@
 // BUG-04-084 exact failing-case repro.
 // Regression: empty map literal `{}` in for-do body position leaked unbound
 // Tag::Var through PC-2 enforcement, firing E2005 at `validate_body_types`.
-// See plans/bug-tracker/fix-BUG-04-084.md.
+
 
 @main () -> int = {
     let items = [1, 2, 3];

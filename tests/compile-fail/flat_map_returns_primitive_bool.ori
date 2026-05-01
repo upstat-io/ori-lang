@@ -1,6 +1,6 @@
 // Regression: flat_map closure must return Iterator<U>, not a primitive.
 // The closure here returns `bool` instead of `Iterator<U>`.
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 #[compile_fail(code: "E2001", message: "Iterator")]
 @bad_flat_map_bool tests _ () -> void = {

@@ -1,7 +1,7 @@
 use super::suggest_iterator_fix;
 use crate::Tag;
 
-// Regression: see bug-tracker/plans/BUG-02-013/
+// Regression:
 // `suggest_iterator_fix` is the tag-specialized hint helper used by the
 // flat_map closure-return diagnostic. Types whose values can be turned into
 // an iterator with a method call (`.iter()`) get a concrete suggestion;

@@ -6,7 +6,7 @@
 
 Central diagnostic infrastructure for all compiler phases. Provides:
 
-- **Stable error codes** (ranges per `impl-hygiene.md §Error Handling`):
+- **Stable error codes**:
   - E0xxx — lexer
   - E1xxx — parser
   - E2xxx — type checker

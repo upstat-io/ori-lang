@@ -33,7 +33,7 @@ use crate::{Idx, Pool, Tag, TypeFlags, VarState};
 )]
 pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
     // Fast path: no variables OR bound vars to substitute. §08.3b widened the
-    // gate to include HAS_BOUND_VAR — scheme bodies post-`types.md §SC-1`
+    // gate to include HAS_BOUND_VAR — scheme bodies post-
     // migration contain `Tag::BoundVar` leaves with HAS_BOUND_VAR=true and
     // HAS_VAR=false; the old `!HAS_VAR` gate would skip them entirely.
     if !pool
@@ -109,7 +109,7 @@ fn substitute_var(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> 
 /// Substitute a scheme-bound type variable.
 ///
 /// `Tag::BoundVar.data` is the `var_id` declared by the enclosing scheme
-/// (`types.md §SC-1`). Substitution looks it up directly in `var_subst`;
+/// . Substitution looks it up directly in `var_subst`;
 /// missing entries leave the leaf unchanged — non-substituted bound vars
 /// are legitimate (e.g., when `default_unbound_vars_in_scope` walks an
 /// expression tree carrying a fresh-instantiation handle whose underlying
@@ -501,7 +501,7 @@ impl<S: std::hash::BuildHasher> BodyTypeMapSink for std::collections::HashMap<Id
 /// Two-pass structure mirrors the three shipped call sites (typeck
 /// `maybe_record_mono_instance`, typeck `build_mono_instance`, test-runner
 /// imported-mono construction) — extracted as the SSOT per
-/// `impl-hygiene.md §Algorithmic DRY` after `/impl-hygiene-review`
+/// after `/impl-hygiene-review`
 /// 2026-04-20 Phase 3 F1 (Critical).
 ///
 /// Pass 1 — existing-pool scan:
@@ -518,11 +518,11 @@ impl<S: std::hash::BuildHasher> BodyTypeMapSink for std::collections::HashMap<Id
 ///   the sink. The end-of-body normalization pass
 ///   ([`crate::infer::InferEngine::normalize_body_generalized_to_bound_var`])
 ///   rewrites `Tag::Var(Generalized)` leaves to `Tag::BoundVar` per
-///   `types.md §SC-1` AFTER mono instances are recorded; without the
+///   AFTER mono instances are recorded; without the
 ///   pre-intern, post-normalization `sig`/`expr_types` referencing
 ///   `Tag::BoundVar` would not be substituted at ARC lowering, leading to
 ///   `Tag::BoundVar` reaching codegen's `TypeInfoStore` as a defensive ICE
-///   signal per `canon.md §7.1` AIMS Invariant 2.
+///   signal per AIMS Invariant 2.
 ///
 /// Callers are responsible for any per-site post-processing (sort+dedup
 /// for `Vec` sinks to reach a Salsa-deterministic shape; Applied-type
@@ -561,7 +561,7 @@ pub fn build_mono_body_type_map<Sink: BodyTypeMapSink>(
 /// every scheme var whose equivalence-class root differs from the scheme
 /// var's own `var_id`.
 ///
-/// Rank-weighted union-find (`typeck.md §UN-7`) can make a fresh instantiation
+/// Rank-weighted union-find can make a fresh instantiation
 /// var the root of a scheme var's equivalence class. In that case,
 /// `substitute_var` (see lines 90-105) finds the scheme var's `var_id` via
 /// direct map lookup, but walking a body type that carries the ROOT's
@@ -577,7 +577,7 @@ pub fn build_mono_body_type_map<Sink: BodyTypeMapSink>(
 /// already keys.
 ///
 /// **Invoked by every monomorphization path** to maintain the SSOT invariant
-/// per `impl-hygiene.md §Algorithmic DRY` and `§SSOT`:
+/// per and `§SSOT`:
 /// - Eager typeck: `infer::expr::calls::monomorphization::maybe_record_mono_instance`
 /// - Deferred typeck: `check::exports::resolve_deferred_mono_calls`
 /// - JIT imported-mono: `oric::test::runner::imported_mono`

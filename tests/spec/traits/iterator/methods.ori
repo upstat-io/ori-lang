@@ -508,7 +508,7 @@ use std.testing { assert, assert_eq }
 // Pre-fix, codegen passed sizeof(iterator-handle)=8 as inner_elem_size, but the
 // runtime expects sizeof(inner element). Masked for int (8 B both sides) but
 // silently miscompiled for bool/byte/char/tuples/aggregates.
-// See codegen-rules.md §IT-2 and bug-tracker/plans/BUG-04-076/.
+
 // Closure annotations follow §06.2B typed-lambda discipline.
 
 // flatten: bool (1 B) inner — primary failing case

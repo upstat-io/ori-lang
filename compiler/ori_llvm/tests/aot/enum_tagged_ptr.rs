@@ -35,7 +35,7 @@
 //! under directory sweep (BUG-04-043). AOT compilation works correctly
 //! for the same source.
 //!
-//! Spec: `plans/repr-opt/section-07-enum-repr.md` §07.3 / §07.3.A.
+//! §07.3 / §07.3.A.
 
 use crate::util::assert_aot_success;
 

@@ -193,7 +193,7 @@ fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
     //      violations from super-traits to children via the transitive DAG.
     // Phase 2 MUST run before `register_impls` so impl-resolution sees the
     // correct violation set on parent traits when constructing trait-object
-    // types (Spec: Clause 8.8; types.md §BI-6).
+    // types (Spec: Clause 8.8).
     register_traits(checker, module);
     register_object_safety_violations(checker, module);
     register_impls(checker, module);

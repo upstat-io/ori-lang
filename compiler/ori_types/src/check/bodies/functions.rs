@@ -1,4 +1,4 @@
-//! Function and test body type checking (Passes 2 and 3 per `typeck.md` CK-1).
+//! Function and test body type checking.
 //!
 //! Owns `check_function_bodies` (Pass 2) and `check_test_bodies` (Pass 3) and
 //! their private body-checking helpers. See `bodies/mod.rs` for the architecture
@@ -36,7 +36,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
 
     // Build the exempt var-id set once, before entering the inference
     // closure. The engine method receives `&FxHashSet<u32>` — avoids an
-    // `infer → check::validators` upward import per `compiler.md §Architecture`.
+    // `infer → check::validators` upward import per.
     let exempt = build_exempt_var_ids(checker.pool(), &sig.scheme_var_ids);
 
     // Create child environment from frozen base
@@ -142,7 +142,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
 
         // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves in
         // `expr_types` / sig positions to `Tag::BoundVar` per
-        // `types.md §SC-1`. Drains `pending_generalized_vars` from
+        //. Drains `pending_generalized_vars` from
         // inner let-polymorphism AND rewrites the sig's scheme var
         // ids (populated by signatures pass for top-level polymorphic
         // functions). MUST run after defaulting (keeps `Idx::NEVER`
@@ -259,7 +259,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let mut expr_types = engine.take_expr_types();
     engine.default_unbound_vars_from_empty_literals(arena, &mut expr_types, &mut sig, &exempt);
 
-    // §08.3b.1 — normalize scheme vars to `Tag::BoundVar` per `types.md §SC-1`.
+    // §08.3b.1 — normalize scheme vars to `Tag::BoundVar` per.
     // See `check_function` for the full rationale.
     engine.normalize_body_generalized_to_bound_var_sig(&mut expr_types, &mut sig);
 

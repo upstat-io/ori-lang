@@ -5,7 +5,7 @@
 // would bind the var to receiver_elem (int), and the wrong-shape diagnostic
 // would never fire — user sees E2005 (ambiguous type) downstream instead of
 // E2001 at the closure span.
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 #[compile_fail(code: "E2001", message: "Iterator")]
 @bad_flat_map_identity tests _ () -> void = {

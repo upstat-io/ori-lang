@@ -124,4 +124,4 @@ cargo run -- test rosetta/001_100_doors/_test/001_100_doors.test.ori
 
 ## Plan
 
-See `plans/rosetta-stress-test/` for the full execution plan. Programs are implemented 15 at a time, with each batch informing task selection for the next.
+See for the full execution plan. Programs are implemented 15 at a time, with each batch informing task selection for the next.

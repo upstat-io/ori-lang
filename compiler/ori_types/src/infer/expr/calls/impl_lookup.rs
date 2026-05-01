@@ -168,7 +168,7 @@ enum FallbackResult {
 /// `entry.self_type` against the receiver, and return the resolved candidate.
 ///
 /// Inherent impls (`trait_idx == None`) win over trait impls per
-/// `typeck.md §EX-4` (builtin → inherent → trait). Within each tier, ties
+/// (builtin → inherent → trait). Within each tier, ties
 /// across distinct trait impls return `Ambiguous` so the caller can emit
 /// `E2023`. BUG-01-002 §05 Phase B residual.
 fn lookup_method_by_base_match(
@@ -256,7 +256,7 @@ fn lookup_method_by_base_match(
 ///    each `entry.self_type` against the receiver, and returns the resolved
 ///    candidate with its impl-level substitution map. This is what makes
 ///    `b: Box<int>` dispatch to `impl<U> Box<U> { @m<T> ... }` work despite
-///    `Applied(Box, [Named(U)]) ≠ Applied(Box, [Int])` per `types.md §TI-2`.
+///    `Applied(Box, [Named(U)]) ≠ Applied(Box, [Int])` per.
 pub(super) fn lookup_impl_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
@@ -370,7 +370,7 @@ pub(super) fn resolve_impl_signature(
     // `Tag::Scheme` (set by `build_impl_method` when the method has
     // method-level type generics), instantiate it now so each call site gets
     // fresh unification vars in place of the scheme's bound vars. This is the
-    // `GN-2` (`typeck.md §GN-2`) instantiation pattern, mirrored from the
+    // `GN-2` instantiation pattern, mirrored from the
     // top-level identifier path at `infer/expr/identifiers.rs:16-17`.
     // Method-level binders that previously failed to unify against function-
     // type arguments (`UN-6` rigid mismatch) now unify cleanly because they

@@ -13,7 +13,7 @@
 //!
 //! # Cross-Reference
 //!
-//! - Trait features: `plans/roadmap/section-03-traits.md`
+//! - Trait features:
 //! - Module checker design: `ori_types/src/check/mod.rs`
 
 mod builtin_types;

@@ -1,7 +1,7 @@
 // Item 17 — Fault tolerance: multi-error compile-fail.
 // Two distinct functions each with an unannotated param consumed via
 // `.len()`. The type checker MUST report E2005 for both holes, not just
-// the first (fault tolerance per tests.md §Cross-Phase Verification #3).
+// the first.
 // Spec-file #compile_fail pins the code but cannot prove BOTH fired —
 // the Rust-side companion test `validate_body_types_emits_one_e2005_per_unbound_var`
 // in compiler/ori_types/src/check/validators/tests.rs already asserts

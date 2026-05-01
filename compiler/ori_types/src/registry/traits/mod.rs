@@ -327,7 +327,7 @@ impl TraitRegistry {
     ///
     /// Used by the second-phase `register_object_safety_violations` pass to
     /// propagate `GenericMethod` violations from super-traits to children
-    /// (Spec: Clause 8.8; types.md §BI-6).
+    /// (Spec: Clause 8.8).
     pub fn extend_object_safety_violations(
         &mut self,
         name: Name,
@@ -399,7 +399,7 @@ impl TraitRegistry {
     /// Used by the base-name dispatch fallback in `infer/expr/calls/impl_lookup.rs`
     /// when exact-`Idx` `lookup_method_checked` misses on a generic impl whose
     /// `entry.self_type = Applied(Name, [Named(U)])` no longer matches a
-    /// concrete receiver `Applied(Name, [int])` per `types.md §TI-2`. The
+    /// concrete receiver `Applied(Name, [int])` per. The
     /// engine iterates, filters by base name + method name, then unifies the
     /// receiver against `entry.self_type` to produce the impl-level
     /// substitution map. BUG-01-002 §05 Phase B residual.

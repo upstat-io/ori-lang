@@ -1,12 +1,12 @@
 //! Validation utilities for ARC IR correctness.
 //!
 //! Provides post-lowering checks that enforce the cross-phase invariant
-//! contract `impl-hygiene.md §Cross-Phase Invariant Contracts`:
+//! contract:
 //!
 //! > Type Checker → Codegen | All type variables resolved |
 //! > No `Idx` with `Tag::Var` in typed IR
 //!
-//! And `codegen-rules.md §TR-2`:
+//! And:
 //!
 //! > All type indices SHALL be fully resolved via `pool.resolve_fully(idx)`
 //! > before LLVM type construction. Unresolved type variables (`Tag::Var`)
@@ -22,7 +22,7 @@
 //! `VarState::Generalized` and `VarState::Rigid` per the documented pool
 //! divergence: the current pool stores generalized vars as
 //! `Tag::Var(VarState::Generalized)` rather than `Tag::BoundVar`
-//! (`types.md §SC-1` target-only note). This consumer-side validator mirrors
+//! . This consumer-side validator mirrors
 //! the exemption via an `exempt_var_ids` parameter so generic function bodies
 //! do not fire spuriously until the pool converts generalized vars to
 //! `Tag::BoundVar` (tracked as a target-conformance item in §02).
@@ -68,8 +68,8 @@ pub struct UnresolvedTypeVar {
 ///   `Vec<(ArcVarId, Idx)>`)
 ///
 /// `var_types`-only scope would let a `Tag::Var` in a parameter or return
-/// position bypass the check entirely, defeating `typeck.md §PC-2` /
-/// `canon.md §4.2` enforcement on those axes.
+/// position bypass the check entirely, defeating /
+/// enforcement on those axes.
 ///
 /// # Parameters
 ///
@@ -165,8 +165,7 @@ impl UnresolvedTypeVar {
         format!(
             "Tag::{:?} reached codegen: function `{}`, ArcVarId({}) has \
              unresolved type index {:?}. This is a typeck PC-2 contract \
-             violation (impl-hygiene.md §Cross-Phase Invariant Contracts, \
-             codegen-rules.md §TR-2).",
+             violation.",
             self.tag,
             interner.lookup(self.function),
             self.var_id.index(),
@@ -183,7 +182,7 @@ impl UnresolvedTypeVar {
 ///
 /// Distinct from [`UnresolvedTypeVar`]: PC-2 forbids `Tag::Var` / `Tag::Projection`
 /// at codegen (the monomorphization-resolution invariant for `Tag::BoundVar`
-/// is a sibling, not a restatement). `types.md §SC-1` + `typeck.md §GN-2` —
+/// is a sibling, not a restatement). + —
 /// scheme-body `BoundVar` leaves SHALL be substituted with fresh `Var`s at
 /// instantiation; any surviving `BoundVar` at codegen means monomorphization
 /// did not finish.
@@ -238,7 +237,7 @@ impl UnresolvedBoundVar {
         format!(
             "Tag::BoundVar reached codegen: lambda `{}`, ArcVarId({}) param has \
              unresolved bound-var at type index {:?}. Monomorphization-resolution \
-             did not finish (types.md §SC-1, typeck.md §GN-2).",
+             did not finish.",
             interner.lookup(self.function),
             self.var_id.index(),
             self.idx,

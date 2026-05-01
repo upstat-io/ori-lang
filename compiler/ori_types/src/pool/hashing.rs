@@ -1,11 +1,11 @@
-//! Merkle hash computation for pool interning (`types.md §TI-3`).
+//! Merkle hash computation for pool interning.
 //!
 //! Content-addressed hashing used by `Pool::intern` + `Pool::intern_complex`
 //! for structural deduplication. Hashes child types by their Merkle hashes
 //! (from `self.hashes[]`), not by raw `Idx` values, so the hash is stable
 //! across independent Pool instances.
 //!
-//! # Tag categories (`types.md §TI-3`)
+//! # Tag categories
 //!
 //! - `is_merkle_leaf()` — hash `(tag, data)` only
 //! - `has_child_in_data()` — hash `(tag, hashes[data])` (one child lookup)
@@ -55,7 +55,7 @@ impl Pool {
     ///
     /// Child Idx positions are looked up in `self.hashes[]` (Merkle recursion).
     /// Structural data (names, counts, lifetime IDs) is hashed directly.
-    /// Dispatch by category per `types.md §TI-3`.
+    /// Dispatch by category per.
     fn merkle_hash_extra(&self, tag: Tag, extra: &[u32], h: &mut impl Hasher) {
         match tag {
             Tag::Map | Tag::Result | Tag::Borrowed => {

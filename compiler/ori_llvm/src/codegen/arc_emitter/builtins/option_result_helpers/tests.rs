@@ -12,7 +12,7 @@
 //! end-to-end requires a niche layout the rest of the codegen pipeline does
 //! not yet produce. Behavioral verification rides on the
 //! `<!-- blocked-by:NICHE_CODEGEN_READY gate -->` items already tracked in
-//! `plans/repr-opt/section-07-enum-repr.md` §07.2 — when the gate flips,
+//! §07.2 — when the gate flips,
 //! the niche spec tests under `tests/spec/types/enum/niche/` will exercise
 //! these helpers end-to-end.
 //!

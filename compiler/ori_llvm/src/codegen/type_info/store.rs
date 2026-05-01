@@ -346,7 +346,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
                 // Cross-phase invariant contract (Type Checker → Codegen):
                 // All type variables must be resolved before codegen. An
                 // unresolved Tag::Var here indicates a type inference bug.
-                // Spec: impl-hygiene.md § Cross-Phase Invariant Contracts.
+                //.
                 //
                 // NOTE: A targeted entry-point validation (walking function
                 // signatures at codegen entry) is the correct enforcement
@@ -381,7 +381,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
             // (ARC lowering's type substitution, or scheme-var normalization
             // in `InferEngine::normalize_body_generalized_to_bound_var_sig`)
             // missed a leaf. Returning `TypeInfo::Error` surfaces the bug
-            // rather than masking it per `canon.md §7.1` AIMS Invariant 2.
+            // rather than masking it per AIMS Invariant 2.
             Tag::BoundVar => {
                 tracing::warn!(
                     ?idx,

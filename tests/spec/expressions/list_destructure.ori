@@ -1,10 +1,10 @@
-// Spec: 10-patterns.md § List Destructuring; canon.md §3 Maranget; arc.md
+// Spec: 10-patterns.md § List Destructuring;;
 // Regression: BUG-04-086 — LLVM list-pattern destructuring used field
 // projection on the fat-pointer struct {len, cap, data} instead of __index
 // protocol calls. Same root cause appears in let-binding lowering
 // (lower/patterns/mod.rs::CanBindingPattern::List) and in match decision-tree
 // lowering (decision_tree/emit.rs::PathInstruction::ListElement). Plan dir:
-// bug-tracker/plans/BUG-04-086/
+//
 
 use std.testing { assert, assert_eq, assert_ne }
 

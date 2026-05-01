@@ -178,7 +178,7 @@ pub struct InferEngine<'pool> {
     /// Populated by `record_mono_with_dispatch()` from the eager call-site
     /// path (`infer::expr::calls::monomorphization::maybe_record_mono_instance`).
     /// The deferred-resolution path (`check::exports::resolve_deferred_mono_calls`)
-    /// is `bug-tracker/plans/BUG-01-002/section-05-implementation.md` §C.2
+    /// is §C.2
     /// sub-step 1b-deferred and does NOT populate this map; the dispatch map
     /// will be silent for transitive generic-calling-generic call sites until
     /// that sub-step lands.
@@ -219,7 +219,7 @@ pub struct InferEngine<'pool> {
     /// inference. Tracked so the end-of-body normalization pass
     /// ([`InferEngine::normalize_body_generalized_to_bound_var`]) can rewrite
     /// matching `Tag::Var` leaves in `expr_types` / `FunctionSig` positions
-    /// to `Tag::BoundVar` per `types.md §SC-1`.
+    /// to `Tag::BoundVar` per.
     ///
     /// Drained per-body: between bodies, the set must be empty. Accumulates
     /// via [`InferEngine::record_generalized_vars`] from the `generalize()`
@@ -295,7 +295,7 @@ impl<'pool> InferEngine<'pool> {
     /// current inference frame, excluding module-level references (prelude
     /// free functions, imports, same-module function signatures).
     ///
-    /// Used by `should_generalize` (Value Restriction per `typeck.md §GN-3`)
+    /// Used by `should_generalize`
     /// to ensure a lambda body that references a prelude free function
     /// (e.g., `len(collection: xs)`) is NOT mis-classified as capturing.
     /// The classifier receives only names the user lexically bound inside
@@ -581,7 +581,7 @@ impl<'pool> InferEngine<'pool> {
     /// `pending_generalized_vars` so the end-of-body normalization pass
     /// ([`InferEngine::normalize_body_generalized_to_bound_var`]) can rewrite
     /// matching `Tag::Var` leaves in `expr_types` / `FunctionSig` positions
-    /// to `Tag::BoundVar` per `types.md §SC-1`.
+    /// to `Tag::BoundVar` per.
     pub fn generalize(&mut self, ty: Idx) -> Idx {
         let scheme = self.unify.generalize(ty);
         // If generalize returned a scheme, extract its bound var ids and

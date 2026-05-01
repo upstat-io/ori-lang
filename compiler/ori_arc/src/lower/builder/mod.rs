@@ -20,8 +20,7 @@ use crate::ir::{
 
 /// Routing metadata for `Invoke`-family terminators: CFG successors plus the
 /// abstract dispatch index. Bundled so `terminate_invoke` stays under the
-/// `clippy::too_many_arguments` threshold (per `compiler.md §API`
-/// ">3 params → config struct"). All fields are `Copy`, so the struct itself
+/// `clippy::too_many_arguments` threshold. All fields are `Copy`, so the struct itself
 /// is `Copy` — passing by value is zero-cost and satisfies clippy.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct InvokeTargets {

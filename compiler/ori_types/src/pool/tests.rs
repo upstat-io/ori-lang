@@ -1243,11 +1243,11 @@ fn merkle_structural_neq_implies_hash_neq() {
     }
 }
 
-// Scheme flag propagation (types.md §TF-3)
+// Scheme flag propagation (TF-3)
 
-/// Spec: types.md §TF-3 — `PROPAGATE_MASK` must OR from scheme body into parent.
+/// — `PROPAGATE_MASK` must OR from scheme body into parent.
 /// A scheme wrapping an unbound Var must have `HAS_VAR` set on the outer Idx,
-/// otherwise the `HAS_VAR` fast-path gate (types.md §TF-5) silently skips the
+/// otherwise the `HAS_VAR` fast-path gate (TF-5) silently skips the
 /// scheme and misses PC-2 violations inside it.
 #[test]
 fn scheme_wrapping_unbound_var_body_propagates_has_var() {
@@ -1259,7 +1259,7 @@ fn scheme_wrapping_unbound_var_body_propagates_has_var() {
     let scheme_idx = pool.scheme(&[0], var_idx);
     assert!(
         pool.flags(scheme_idx).contains(TypeFlags::HAS_VAR),
-        "Tag::Scheme must propagate HAS_VAR from body per types.md §TF-3"
+        "Tag::Scheme must propagate HAS_VAR from body"
     );
     assert!(pool.flags(scheme_idx).contains(TypeFlags::IS_SCHEME));
 }

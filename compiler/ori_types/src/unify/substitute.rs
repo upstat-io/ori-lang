@@ -68,7 +68,7 @@ impl UnifyEngine<'_> {
         // Fast path: no variables OR bound vars to substitute. §08.3b widened
         // the gate to include HAS_BOUND_VAR — instantiation now walks scheme
         // bodies whose leaves are `Tag::BoundVar` (HAS_BOUND_VAR=true,
-        // HAS_VAR=false) per `types.md §SC-1`.
+        // HAS_VAR=false) per.
         if !self
             .pool
             .flags(ty)
@@ -118,7 +118,7 @@ impl UnifyEngine<'_> {
     }
 
     /// `Tag::BoundVar` substitution. `data` holds the scheme's declared
-    /// `var_id` per `types.md §SC-1`; the substitution map provides the
+    /// `var_id` per; the substitution map provides the
     /// per-call-site fresh var.
     fn substitute_bound_var(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
         let var_id = self.pool.data(ty);

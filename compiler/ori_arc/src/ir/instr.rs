@@ -44,7 +44,7 @@ pub enum ArcInstr {
         /// consumed by `ori_llvm` (and `ori_eval` for parity) to look up
         /// `TypedModule.mono_instances[id.0]` and call `mangle_mono_name`
         /// locally — keeping the LLVM-specific name format owned by
-        /// codegen per `canon.md §1` phase ownership.
+        /// codegen per phase ownership.
         mono_instance_id: Option<MonoInstanceId>,
     },
 

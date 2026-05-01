@@ -55,8 +55,7 @@ pub(crate) fn infer_block(
                 let binding_name = pattern_first_name(pat);
                 let errors_before = engine.error_count();
 
-                // Enter a rank-only scope for let-polymorphism (typeck.md §SG-5
-                // / §GN-1). The surrounding block already pushed its env scope
+                // Enter a rank-only scope for let-polymorphism. The surrounding block already pushed its env scope
                 // at line 38 and the let binding MUST stay visible to
                 // subsequent statements — pushing another env.child() here
                 // would hide later bindings from earlier `let`s. Rank-only is
@@ -140,7 +139,7 @@ pub(crate) fn infer_let(
     _mutable: ori_ir::Mutability,
     span: Span,
 ) -> Idx {
-    // Enter a rank-only scope for let-polymorphism (typeck.md §SG-5 / §GN-1).
+    // Enter a rank-only scope for let-polymorphism.
     // Matches the two sibling let-generalization sites (`infer_block` block-stmt
     // let and `infer_try_stmt` try-block let): we elevate the unification rank
     // so variables introduced while inferring `init` can be generalized, but

@@ -1914,7 +1914,7 @@ fn test_process_arc_function_records_codegen_error_on_violation() {
         matches!(result, Err(VerifyError::UnresolvedTypeVar(_))),
         "process_arc_function MUST short-circuit with UnresolvedTypeVar on \
          Tag::Var leaks — gating this check off is INVERTED-TDD \
-         (impl-hygiene.md §INVERTED-TDD); got: {result:?}"
+         (INVERTED-TDD); got: {result:?}"
     );
     assert!(
         fc.builder.has_codegen_errors(),

@@ -1,4 +1,4 @@
-//! Producer-side enforcement of typeck.md §PC-2.
+//! Producer-side enforcement of.
 //!
 //! This module contains [`validate_body_types`] — the canonical validator
 //! that walks a function body's `expr_types` and `FunctionSig` after
@@ -8,7 +8,7 @@
 //!
 //! # Why this exists
 //!
-//! `typeck.md §PC-2` (mirrored in `types.md §PC-2`) mandates that no
+//! (PC-2) mandates that no
 //! [`Tag::Var`] survive in any type-bearing position of the typed IR.
 //! Without producer-side enforcement, violations would leak through to
 //! eval / ARC / canon / codegen — where downstream `debug_assert!`s
@@ -18,22 +18,22 @@
 //! # Design notes
 //!
 //! - Scope spans **both** body [`expr_types`](ExprIndex) and the body's
-//!   [`FunctionSig`] (`param_types` + `return_type`) per `typeck.md §CK-4`:
+//!   [`FunctionSig`] (`param_types` + `return_type`) per:
 //!   unannotated params / returns ship out of the signatures pass as fresh
 //!   [`Tag::Var`]s and MUST resolve before Bodies-group exit.
 //! - Walks compound types via the canonical `Pool::visit_children` helper
 //!   (`compiler/ori_types/src/pool/descriptor.rs:303`) rather than cloning a
-//!   parallel tag-dispatch ladder (`impl-hygiene.md §Algorithmic DRY`).
+//!   parallel tag-dispatch ladder.
 //! - Calls [`Pool::resolve_fully`] at the top of every recursive step to
 //!   close the stale-flag window: flags are cached at intern time
-//!   (`types.md §TF-2`), but [`VarState::Link`] may resolve later (`CHK:UN-7`
+//!   (TF-2), but [`VarState::Link`] may resolve later (`CHK:UN-7`
 //!   union-find). The `HAS_VAR` fast-path gate is only sound after link
 //!   resolution at each step.
 //! - Emits one diagnostic per ([`ExprIndex`], diagnostic-code) site
-//!   (`impl-hygiene.md §Deduplication by (Code, Span)`); multiple unbound
+//!   ; multiple unbound
 //!   vars under one [`ExprIndex`] collapse to a single `E2005`.
 //! - The `Tag::Scheme` path relies on `§02.0`'s `PROPAGATE_MASK` fix to
-//!   `Pool::compute_flags` — see `types.md §TF-3`.
+//!   `Pool::compute_flags` —.
 //!
 //! # Dependencies
 //!
@@ -41,7 +41,7 @@
 //! - The `HAS_VAR` propagation fix for `Tag::Scheme` (`compute_flags` in
 //!   `compiler/ori_types/src/pool/mod.rs`) must be in place; otherwise
 //!   schemes wrapping unbound-var bodies would be skipped by the top-level
-//!   gate (`types.md §TF-5`).
+//!   gate (TF-5).
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -196,7 +196,7 @@ pub fn validate_body_types(
 
     // 2. Body expressions in ascending ExprIndex order.
     //    FxHashMap iteration is non-deterministic; sort once
-    //    (impl-hygiene.md §Pass determinism).
+    //
     let mut entries: Vec<(ExprIndex, Idx)> = expr_types.iter().map(|(&k, &v)| (k, v)).collect();
     entries.sort_unstable_by_key(|(idx, _)| *idx);
 
@@ -270,8 +270,7 @@ fn narrow_to_lambda_param_span(
 
     // Walk param types in declaration order; return the span of the first
     // one carrying `HAS_VAR`. Resolve-then-check closes the staleness
-    // window (`types.md §TF-2` — flags are cached at intern time but
-    // `VarState::Link` may mutate later).
+    // window (TF-2).
     let param_count = pool.function_param_count(fn_ty);
     for i in 0..param_count {
         let p = pool.resolve_fully(pool.function_param(fn_ty, i));
@@ -289,7 +288,7 @@ fn narrow_to_lambda_param_span(
 ///
 /// Uses [`Pool::var_idx_for_id`] (the canonical `var_id` → Idx helper)
 /// to avoid duplicating the linear-scan pattern from monomorphization
-/// (`impl-hygiene.md §Algorithmic DRY`).
+///
 pub fn build_exempt_var_ids(pool: &Pool, scheme_var_ids: &[u32]) -> FxHashSet<u32> {
     let mut exempt = FxHashSet::default();
     exempt.extend(scheme_var_ids.iter().copied());
@@ -333,13 +332,12 @@ fn collect_first_unbound_var(
     // Gate order: resolve_fully → HAS_ERROR → HAS_VAR.
     //
     // (1) `resolve_fully` first, so flags are read on the resolved Idx.
-    //     Flags are cached at intern time (`types.md §TF-2`) but
-    //     `VarState::Link` may mutate later (`types.md §SC-3`
-    //     substitution, `typeck.md §UN-7` union-find). Resolving before
+    //     Flags are cached at intern time (TF-2) but
+    //     `VarState::Link` may mutate later. Resolving before
     //     flag reads keeps the HAS_VAR / HAS_ERROR checks staleness-safe.
     //
     // (2) HAS_ERROR gate BEFORE the HAS_VAR fast-path. Cascade
-    //     suppression (`types.md §TK-3`, `typeck.md §ER-4`) must precede
+    //     suppression must precede
     //     the walk gate so that any position already poisoned by a type
     //     error never emits follow-on E2005 diagnostics — even if some
     //     future refactor changes how HAS_VAR is cleared on error-typed
@@ -348,19 +346,19 @@ fn collect_first_unbound_var(
     //     matching the documented contract makes cascade suppression
     //     robust against future flag-propagation changes.
     //
-    // (3) HAS_VAR gate last (`types.md §TF-5`). This is the fast-path
+    // (3) HAS_VAR gate last (TF-5). This is the fast-path
     //     that keeps the walk O(1) for types with no unresolved
     //     variables (`§TF-3` propagation + `§02.0` scheme fix ensures
     //     the flag is set iff an unbound Var is reachable).
     let ty = pool.resolve_fully(ty);
     let flags = pool.flags(ty);
     if flags.contains(TypeFlags::HAS_ERROR) {
-        // Cascade suppression (types.md §TK-3, typeck.md §ER-4).
+        // Cascade suppression.
         return false;
     }
     if !flags.contains(TypeFlags::HAS_VAR) {
         // !HAS_VAR ⇒ no unbound var reachable
-        // (types.md §TF-3 propagation + §02.0 scheme fix).
+        // (TF-3).
         return false;
     }
 
@@ -368,7 +366,7 @@ fn collect_first_unbound_var(
         Tag::Var => check_var_tag(pool, ty, span, site, exempt, errors),
 
         // Scheme-quantified — legitimate; HAS_VAR should not be set on
-        // BoundVar (types.md §TF-1). If it is, that's a separate pool
+        // BoundVar (TF-1). If it is, that's a separate pool
         // bug. Silently skip.
         Tag::BoundVar => false,
 
@@ -398,9 +396,9 @@ fn collect_first_unbound_var(
 ///
 /// # Why this is a helper
 ///
-/// `types.md §SC-1` migration (§08.3b.1) adds the `Generalized → E2005` leak-alarm
+/// migration (§08.3b.1) adds the `Generalized → E2005` leak-alarm
 /// path mirroring the `Unbound` path. Extracting this arm keeps the parent's
-/// nesting depth ≤ 4 and its length < 100 (F1/F2/F16 in `plans/empty-container-typeck-phase-contract/section-08-codegen-poly-lambda.md §08.H`).
+/// nesting depth ≤ 4 and its length < 100.
 fn check_var_tag(
     pool: &Pool,
     ty: Idx,
@@ -415,7 +413,7 @@ fn check_var_tag(
         //
         // Generalized: post-§08.3b.1 leak alarm — after the end-of-body
         // normalization pass in `check::bodies` rewrites every generalized
-        // leaf to `Tag::BoundVar` per `types.md §SC-1`, a surviving
+        // leaf to `Tag::BoundVar` per, a surviving
         // `Generalized` here means the pass missed a position. Treat
         // identically to Unbound (same exempt-scheme-var semantics, same
         // `E2005` emission).

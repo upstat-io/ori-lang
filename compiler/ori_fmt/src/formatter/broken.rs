@@ -58,7 +58,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 method,
                 args,
             } => {
-                // All-or-nothing chain breaking per fmt.md "Idempotency" +
+                // All-or-nothing chain breaking "Idempotency" +
                 // MethodChainRule::ALL_METHODS_BREAK: when this call breaks,
                 // any chained receiver must also break.
                 self.format_receiver_broken(*receiver);

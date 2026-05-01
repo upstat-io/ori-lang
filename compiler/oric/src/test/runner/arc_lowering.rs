@@ -300,7 +300,7 @@ pub(crate) fn lower_and_infer_borrows(
     // tests expect live function definitions recurses in codegen trying to
     // resolve the missing callees — reproducible on
     // `tests/run-pass/rosetta/001_100_doors/` via the §EX-17 index-assignment
-    // gap (E4003). See `plans/bug-tracker/section-04-codegen-llvm.md` entry
+    // gap (E4003). entry
     // for the underlying feature gap.
     if !arc_problems.is_empty() {
         use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};

@@ -14,7 +14,7 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag, TypeC
 /// fires, `None` otherwise (the caller falls through to default infer+check).
 ///
 /// Extracted from `check_expr` in `infer/expr/mod.rs` to keep that module
-/// routing-only per `impl-hygiene.md §Side-Logic Rule` — the
+/// routing-only per — the
 /// `MethodCall + expected Set` gate is collection-specific policy that
 /// belongs alongside the other `Collect`-trait helpers in this module.
 pub(crate) fn check_collect_method_call(

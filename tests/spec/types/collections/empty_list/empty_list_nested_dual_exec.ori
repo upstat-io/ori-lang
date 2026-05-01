@@ -4,7 +4,7 @@
 // constraint availability with explicit annotation, propagated through a
 // nested container). Interpreter and AOT must agree on the outer `.len()`
 // after two pushes — any divergence is a nested-RC or fat-pointer-stride
-// bug per `aims-rules.md` §8 `RL-2` (propagation through elem_dec_fn).
+// bug per §8 `RL-2` (propagation through elem_dec_fn).
 
 @main () -> int = {
     let xs: [[int]] = [];

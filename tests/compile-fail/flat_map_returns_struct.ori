@@ -1,6 +1,6 @@
 // Regression: flat_map closure must return Iterator<U>, not a struct.
 // The closure here returns a struct value instead of `Iterator<U>`.
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 type Pair = { a: int, b: int }
 

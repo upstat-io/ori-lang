@@ -456,7 +456,7 @@ fn extract_var_direct_match() {
 // === extend_var_subst_with_roots ===
 //
 // Regression pins for the §04.2.B root-cause fix: rank-weighted union-find
-// (`typeck.md §UN-7`) can make a fresh instantiation var the root of a
+//  can make a fresh instantiation var the root of a
 // scheme var's equivalence class. `substitute_var` finds the scheme var's
 // direct entry in `var_subst` but a pool-walk that lands on the ROOT's
 // `Tag::Var(root_var_id)` leaf falls through unchanged — the helper extends

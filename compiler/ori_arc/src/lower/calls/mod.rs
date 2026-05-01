@@ -134,7 +134,7 @@ impl ArcLowerer<'_> {
     /// Try to emit a newtype constructor as a transparent wrap. Returns `None`
     /// if `name` is not a registered newtype constructor.
     ///
-    /// Newtypes are layout-transparent per `repr.md §RP-24` — `N(value)`
+    /// Newtypes are layout-transparent per — `N(value)`
     /// produces the same runtime bytes as `value`. The wrap is purely
     /// type-level (the type stamp changes from the inner type to the newtype),
     /// so the IR emits `Let { Var(arg) }` with no additional storage or
@@ -316,7 +316,7 @@ impl ArcLowerer<'_> {
             if let Some(var) = self.try_lower_tag_check(receiver, method, span) {
                 return var;
             }
-            // Newtype `unwrap` is layout-transparent (repr.md §RP-24) — emit
+            // Newtype `unwrap` is layout-transparent — emit
             // identity wrap. Without this, `id.unwrap()` lowers as `Apply`
             // with method name `unwrap`, which the codegen treats as a
             // monomorphization lookup miss (`unresolved function 'unwrap' in
@@ -420,7 +420,7 @@ impl ArcLowerer<'_> {
     /// Returns `Some(var)` iff the receiver type is a registered newtype
     /// (per `Pool::is_newtype_ctor`) AND the method is `unwrap`. The wrap
     /// emits `Let { Var(receiver_var) }` because newtypes are layout-identical
-    /// to their inner type (`repr.md §RP-24`). Without this dispatch, the
+    /// to their inner type. Without this dispatch, the
     /// method call path emits `Apply { func: Name("unwrap") }` which the
     /// codegen cannot resolve (no compiled `unwrap` function exists for
     /// newtype receivers — newtype accessors are type-level erasure, not
@@ -437,8 +437,7 @@ impl ArcLowerer<'_> {
             return None;
         }
         // Check the receiver's UNRESOLVED type — newtype `Tag::Named` entries
-        // now register a pool resolution to their underlying type (so codegen
-        // can compute layout per `repr.md §RP-24`), which means
+        // now register a pool resolution to their underlying type, which means
         // `pool.resolve_fully` would transparently unwrap the newtype to its
         // underlying primitive/struct/etc. and `pool.tag(resolved) ==
         // Tag::Named` would never match. Read the surface type and chase

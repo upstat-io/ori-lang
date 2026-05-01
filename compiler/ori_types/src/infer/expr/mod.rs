@@ -327,7 +327,7 @@ pub fn check_expr(
     // Type-directed collect dispatch: `iter.collect()` with expected `Set<T>`
     // resolves to `Set<T>` instead of the default `[T]` (Collect trait
     // bidirectional inference). Policy lives in `collections.rs` so this
-    // function stays routing-only per `impl-hygiene.md §Side-Logic Rule`.
+    // function stays routing-only per.
     if let Some(ty) = check_collect_method_call(
         engine,
         arena,

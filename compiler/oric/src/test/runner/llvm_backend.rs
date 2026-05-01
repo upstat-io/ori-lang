@@ -339,8 +339,7 @@ impl TestRunner {
         // etc.) without aborting the entire test runner.
         let compile_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             // `lower_and_infer_borrows` returns `None` when ARC lowering emits
-            // errors (e.g., E4003 for unsupported assignment targets per
-            // `typeck.md §EX-17`). Proceeding to `compile_module_with_tests`
+            // errors. Proceeding to `compile_module_with_tests`
             // with empty arc_cache recurses in codegen when tests reference
             // missing callees, leading to stack overflow. Treat `None` as a
             // compile failure — the `Err(_)` arm of `compile_result` below

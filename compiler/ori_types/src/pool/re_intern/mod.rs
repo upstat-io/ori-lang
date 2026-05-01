@@ -1,4 +1,4 @@
-//! Cross-pool type re-interning with var-id remap (append-only per `types.md §TY-6`).
+//! Cross-pool type re-interning with var-id remap.
 //!
 //! Re-interns types from a source `Pool` into a target `Pool`. The target
 //! receives fresh entries via `target.intern(..)` / `target.scheme(..)` — the
@@ -42,11 +42,7 @@
 //! - The source type has `HAS_VAR | HAS_BOUND_VAR | HAS_RIGID_VAR` flags set
 //!   (pool-local `var_ids` are included in the leaf hash per `pool/mod.rs`
 //!   leaf-hash; a fast-path hit would dedup distinct pool-local identities).
-//! - The source tag is `Tag::Scheme` (the scheme hash is extra-backed per
-//!   `types.md §TI-3` and includes binder ids, but `PROPAGATE_MASK` per
-//!   `§TF-3` does not propagate `HAS_VAR` from a scheme's binder list to the
-//!   parent scheme's flags — a flag-only guard would miss schemes with
-//!   var-bearing binders and a var-free body, e.g. `Scheme([7], Tag::Int)`).
+//! - The source tag is `Tag::Scheme` (TF-3).
 
 use rustc_hash::FxHashMap;
 

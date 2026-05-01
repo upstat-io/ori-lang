@@ -410,8 +410,8 @@ pub struct MethodRoot {
 /// dispatch paths downstream. The mangled LLVM symbol name is computed
 /// locally inside `ori_llvm` via `mangle_mono_name`; typeck and canon
 /// produce only this abstract index, keeping the LLVM-specific name format
-/// owned by the codegen crate per `canon.md §1` (phase ownership) and
-/// `impl-hygiene.md §LEAK:phase-bleeding`.
+/// owned by the codegen crate per (phase ownership) and
+///.
 ///
 /// Lives in `ori_ir` (leaf crate) so consumers in `ori_types`, `ori_canon`,
 /// `ori_arc`, `ori_llvm`, and `ori_eval` can reference the same handle
@@ -468,14 +468,14 @@ pub struct CanonResult {
     /// produces canonical IR + side-tables; no LLVM strings).
     ///
     /// Stored as `Vec<(CanId, MonoInstanceId)>` (NOT `FxHashMap`) for Salsa
-    /// compatibility per `types.md §SL-3` — `CanonResult` derives
+    /// compatibility per — `CanonResult` derives
     /// `Eq + PartialEq` and `FxHashMap` cannot satisfy them. Mirrors the
     /// shape of `TypedModule.mono_dispatch_map: Vec<(ExprId, MonoInstanceId)>`.
     /// Sorted by `CanId.raw()` for binary-search lookup; deduplication is
     /// not required because each `CanId` is allocated exactly once.
     ///
     /// Empty for non-generic call sites and for the deferred-resolution
-    /// path until `bug-tracker/plans/BUG-01-002/section-05-implementation.md`
+    /// path until
     /// §C.2 sub-step 1b-deferred lands.
     pub mono_dispatch_map_can: Vec<(CanId, MonoInstanceId)>,
 }

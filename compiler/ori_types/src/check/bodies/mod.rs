@@ -1,6 +1,6 @@
 //! Function body type checking passes.
 //!
-//! This module implements Passes 2-5 of module type checking (`typeck.md` CK-1):
+//! This module implements Passes 2-5 of module type checking:
 //! - Pass 2: Function bodies (`functions::check_function_bodies`)
 //! - Pass 3: Test bodies (`functions::check_test_bodies`)
 //! - Pass 4: Impl method bodies (`impls::check_impl_bodies`)
@@ -110,7 +110,7 @@ pub(super) fn finalize_body_and_export(
     // `accumulate_mono_session` extends both `mono_instances` and
     // `mono_dispatch_pre_dedup` together so dispatch entries are
     // re-anchored from body-local to module-wide positions in lockstep
-    // (SSOT for the offset arithmetic per `impl-hygiene.md §Algorithmic DRY`).
+    //
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_session(mono_instances, mono_dispatch_pre_dedup);
     checker.accumulate_deferred_mono_calls(deferred_mono_calls);
@@ -131,7 +131,7 @@ pub(super) fn finalize_body_and_export(
 /// Consumers: `check_function` / `check_test` in `functions.rs` (§03.1 /
 /// §03.2) and `check_impl_method` / `check_def_impl_method` in `impls.rs`
 /// (§03.3 / §03.4). Lives in `mod.rs` so both submodules can call it per
-/// `impl-hygiene.md §Algorithmic DRY` — the four body passes share the
+/// — the four body passes share the
 /// identical validation skeleton.
 pub(super) fn run_validator(
     checker: &mut ModuleChecker<'_>,
@@ -145,7 +145,7 @@ pub(super) fn run_validator(
         let arena = checker.arena();
         let pool = checker.pool();
         let mut errs: Vec<TypeCheckError> = Vec::new();
-        // Bundle source-attribution closures per `compiler.md §API` (>3
+        // Bundle source-attribution closures per (>3
         // params → config struct). All three closures need the same
         // `arena` borrow; `ValidatorContext` bundles them into a single
         // argument of `validate_body_types`.

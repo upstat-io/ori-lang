@@ -292,7 +292,7 @@ pub(crate) fn resolve_type_with_method_generics(
 #[expect(
     clippy::too_many_lines,
     reason = "exhaustive ParsedType match — splitting hides the dispatch shape; \
-              see types.md §TK-1 for the canonical tag enumeration"
+              for the canonical tag enumeration"
 )]
 fn resolve_type_with_overlay_inner(
     checker: &mut ModuleChecker<'_>,
@@ -516,8 +516,7 @@ pub(super) fn convert_visibility(ir_vis: ori_ir::Visibility) -> crate::Visibilit
 /// downstream `check_method_where_clauses` helper applies the same
 /// substitution to `wc.ty` before resolving so the bound check sees the
 /// post-instantiation concrete type. Without this overlay, `wc.ty` was a
-/// fresh `Tag::Named(param)` lookup that union-find never updated (the
-/// `INVERTED-TDD:goal-drift` shape per `impl-hygiene.md` §Finding Categories).
+/// fresh `Tag::Named(param)` lookup that union-find never updated (INVERTED-TDD:goal-drift).
 pub(crate) fn build_where_constraint(
     checker: &mut ModuleChecker<'_>,
     wc: &WhereClause,
@@ -558,7 +557,7 @@ pub(crate) fn build_where_constraint(
 ///   references in the registered signature resolve to the SAME `Tag::Var` Idx whose `var_id` is
 ///   recorded in `scheme_var_ids`. The signature is then wrappable in `Tag::Scheme(scheme_var_ids,
 ///   fn_type)` and `engine.instantiate(...)` at call-site replaces those vars with fresh ones —
-///   the `GN-2` pattern (`typeck.md §GN-2`) extended to method-level binders.
+///   the `GN-2` pattern extended to method-level binders.
 /// - `generic_param_metadata` — full owned `GenericParamMeta` per param (type AND const), declaration order
 /// - `where_clause_metadata` — type-bound `WhereConstraint` entries (const bounds skipped)
 ///

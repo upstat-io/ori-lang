@@ -62,4 +62,4 @@ AIMS snapshot tests live in `compiler/oric/tests/aims-snapshots/` — run via `c
 
 ## References
 
-- `CLAUDE.md §AIMS` — sub-system mission + through-line
+- — sub-system mission + through-line

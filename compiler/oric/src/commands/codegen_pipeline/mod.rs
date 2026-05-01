@@ -95,7 +95,7 @@ pub(super) fn run_borrow_inference(
         FxHashMap::default();
     let mut arc_problems = Vec::new();
 
-    // PC-2 diagnostic localization (types.md §PC-2); primary seam owns
+    // PC-2 diagnostic localization (PC-2); primary seam owns
     // record_codegen_error(). Empty exempt set: pre-mono skips generics via
     // sig.is_generic(); mono instances are fully substituted (empty scheme_var_ids).
     let exempt: FxHashSet<u32> = FxHashSet::default();

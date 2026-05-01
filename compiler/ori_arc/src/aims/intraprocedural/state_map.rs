@@ -216,7 +216,7 @@ pub struct AimsStateMap {
     /// BOTTOM=Unique → `ori_buffer_drop_unique` → BUG-04-086 panic.
     /// Plan TPR Round 1 F1 (codex+opencode AGREEMENT, 2026-04-26).
     ///
-    /// Spec: aims-rules.md §3 TF-6 / TF-6a; CLAUDE.md §AIMS Invariant 5
+    /// / TF-6a;
     /// (side-table extension feeds the lattice via JOIN, never overrides it).
     var_uniqueness: FxHashMap<ArcVarId, Uniqueness>,
 
@@ -717,11 +717,11 @@ impl AimsStateMap {
     /// Semantics: presence-aware lookup with lattice JOIN. When the side
     /// table is unset, returns the lattice value directly (no contract
     /// narrowing). When set, JOINs the contract value with the lattice
-    /// value (`max` per `aims-rules.md` §1.4: Unique < `MaybeShared` < Shared).
+    /// value.
     ///
     /// JOIN preserves lattice widening: a contract claiming Unique that
     /// conflicts with backward demand's `MaybeShared` converges to `MaybeShared`,
-    /// not Unique. This is the unified-model semantics per CLAUDE.md §AIMS
+    /// not Unique. This is the unified-model semantics
     /// Invariant 5 — the side table FEEDS INTO the lattice via JOIN, never
     /// overrides it. The override alternative (returning the side-table
     /// value when present, ignoring the lattice) suppresses backward demand
@@ -761,7 +761,7 @@ impl AimsStateMap {
 
     /// Effective locality combining contract-narrowed forward state with
     /// the lattice's block-entry value. JOIN semantics (`max` per
-    /// `aims-rules.md` §1.5: `BlockLocal` < `FunctionLocal` < `HeapEscaping` <
+    /// §1.5: `BlockLocal` < `FunctionLocal` < `HeapEscaping` <
     /// Unknown — shipped 4-value chain; the spec's 5-value `ArgEscaping`
     /// is target-only per the aims-rules.md preamble).
     #[must_use]
