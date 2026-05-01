@@ -380,7 +380,7 @@ impl IrBuilder<'_, '_> {
 
     /// Build checked shift left: panics if count < 0 or count >= 64.
     ///
-    /// Spec: Clause 9 — shift by negative count or by >= bit width panics.
+    /// Spec: Clause 14.3 — shift by negative count or by >= bit width panics.
     /// LLVM's `shl` produces poison for count >= bit width, which is UB.
     pub fn checked_shl(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         self.emit_checked_shift(lhs, rhs, name, true)

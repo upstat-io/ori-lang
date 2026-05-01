@@ -32,7 +32,7 @@ pub(super) fn resolve_computed_return(
         Tag::Iterator | Tag::DoubleEndedIterator => {
             computed_iterator_return(engine, receiver_ty, method_name)
         }
-        // Spec: Clause 14.3 — Traceable trait: trace_entries() -> [TraceEntry]
+        // Spec: Clause 9.9 — Traceable trait: trace_entries() -> [TraceEntry]
         Tag::Result | Tag::Error => match method_name {
             "trace_entries" => computed_trace_entries(engine),
             _ => engine.fresh_var(),
