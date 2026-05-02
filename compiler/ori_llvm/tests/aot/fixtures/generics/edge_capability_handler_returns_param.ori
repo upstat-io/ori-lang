@@ -1,0 +1,11 @@
+// BUG-04-090 §03 edge: function declaring `uses Suspend` capability
+// returning its param. Per gemini's Plan TPR consensus: capability
+// handlers lower to standard Return terminators; the param-return-
+// alias rule applies uniformly. Suspend is the simplest capability to
+// declare without requiring full handler scaffolding.
+@with_suspend <T> (x: T) -> T uses Suspend = x;
+
+@main () -> int = {
+    let xs = with_suspend(x: [55, 66, 77]);
+    if xs.len() == 3 && xs[1] == 66 then 0 else 1
+}

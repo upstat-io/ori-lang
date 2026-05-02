@@ -1,0 +1,14 @@
+// BUG-04-090 §03 edge: param flowing through Project — the return
+// value is `b.value` (a projection), NOT `b` itself. Per §02
+// alias-tracking, Project returns are classified non-fresh/maybe-shared;
+// `b` is NOT marked transfers_through_return; the existing scope-exit
+// RcDec on `b` is correct and must NOT be suppressed.
+type Box<T> = { value: T };
+
+@unwrap <T> (b: Box<T>) -> T = b.value;
+
+@main () -> int = {
+    let boxed = Box { value: [9, 8, 7] };
+    let xs = unwrap(b: boxed);
+    if xs.len() == 3 && xs[0] == 9 then 0 else 1
+}

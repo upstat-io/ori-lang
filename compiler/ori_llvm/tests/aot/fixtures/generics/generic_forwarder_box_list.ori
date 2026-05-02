@@ -1,0 +1,14 @@
+// BUG-04-090 §03 cross-type: Box<[int]> — single-field newtype struct
+// wrapping a heap value. Per the Ori convention, `Box` is a user-defined
+// struct (`type Box<T> = { value: T }`), not a built-in pointer; the
+// param-return-alias rule fires on the outer Box, propagating
+// RC-management to the wrapped [int].
+type Box<T> = { value: T };
+
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let b: Box<[int]> = Box { value: [7, 8, 9] };
+    let b2 = id(x: b);
+    if b2.value.len() == 3 && b2.value[2] == 9 then 0 else 1
+}

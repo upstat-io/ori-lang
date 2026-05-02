@@ -1,0 +1,17 @@
+// BUG-04-090 §03 edge: param both returned AND used in a non-return
+// statement. The Plan TPR consensus: transfers_through_return remains
+// `true` (param flows to Return), but the non-return use site has its
+// own dec; the fix gates only the SCOPE-EXIT dec, not all decs for the
+// param. Concrete-type form to avoid generic-method type inference
+// (`x.len()` on `T` requires `T: Len` bound which prevents this from
+// being a clean §03 cell — concrete `[int]` is sufficient since the
+// rule does not key on generics per cell D).
+@stash (x: [int]) -> [int] = {
+    let _n = x.len();
+    x
+};
+
+@main () -> int = {
+    let xs = stash(x: [42, 43, 44]);
+    if xs.len() == 3 && xs[0] == 42 then 0 else 1
+}

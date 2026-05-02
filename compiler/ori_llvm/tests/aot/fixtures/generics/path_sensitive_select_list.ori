@@ -1,0 +1,19 @@
+// BUG-04-090 §03 path-sensitivity: select<T>(cond, x, y) over [int].
+// CRITICAL Plan TPR Round-0 refinement (codex + gemini): a naive
+// global-suppression implementation (suppress all decs for params with
+// transfers_through_return=true) would LEAK y on `return x` paths
+// because the not-taken-branch param still needs scope-exit cleanup.
+//
+// This fixture exercises BOTH branches at runtime — cond=true returns x
+// (y must be dec'd); cond=false returns y (x must be dec'd). Under the
+// current bug, the spurious double-dec hits an already-freed allocation;
+// under the correct path-sensitive fix, RC is balanced on both paths.
+@select <T> (cond: bool, x: T, y: T) -> T = if cond then x else y;
+
+@main () -> int = {
+    let true_branch = select(cond: true, x: [1, 2, 3], y: [10, 20, 30]);
+    let false_branch = select(cond: false, x: [4, 5, 6], y: [40, 50, 60]);
+    if true_branch.len() == 3 && true_branch[0] == 1
+        && false_branch.len() == 3 && false_branch[0] == 40
+    then 0 else 1
+}

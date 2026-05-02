@@ -1,0 +1,14 @@
+// BUG-04-090 §03 cross-type: Option<[int]> — sum-type wrapping heap.
+// The outer Option's payload carries the heap [int]; param-return-alias
+// rule fires on the Option, which propagates RC-management to the
+// payload's heap buffer.
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let opt: Option<[int]> = Some([1, 2, 3]);
+    let o2 = id(x: opt);
+    match o2 {
+        Some(xs) -> if xs.len() == 3 then 0 else 1,
+        None -> 2,
+    }
+}

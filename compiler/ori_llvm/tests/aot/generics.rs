@@ -446,6 +446,357 @@ fn test_generic_chain_list_element() {
     );
 }
 
+// ─── BUG-04-090: generic forwarder over [T] hop-count axis ───
+// Each forwarder hop currently emits a spurious scope-exit RcDec on the param
+// because AIMS interprocedural analysis lacks `transfers_through_return`. The
+// fix completes the Lean 4 `ownParamsUsingArgs` pattern — eliminate BOTH the
+// caller-side inc and the callee-side dec on owned-arg → owned-callee-param
+// transfer through Return. Tests live without `#[ignore]` so they fail today
+// (matching the existing ignored 3-hop case) and pass after the fix activates.
+
+/// Single-hop generic identity forwarder applied to `[int]`. The minimal
+/// repro for BUG-04-090: even one hop produces a use-after-free because the
+/// callee's spurious scope-exit dec frees the freshly-allocated list before
+/// the caller's scope exits.
+#[test]
+fn test_generic_forwarder_hop1_returns_list_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_hop1_list_int.ori"),
+        "generic_forwarder_hop1_list_int",
+    );
+}
+
+/// Two-hop generic forwarder chain over `[int]`. Each hop adds one spurious
+/// dec; verifies the bug surfaces at the hop count below the existing 3-hop
+/// fixture so the fix's scope is bounded by the hop-count axis, not the
+/// 3-hop SCC depth specifically.
+#[test]
+fn test_generic_forwarder_hop2_returns_list_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_hop2_list_int.ori"),
+        "generic_forwarder_hop2_list_int",
+    );
+}
+
+/// Four-hop generic forwarder chain over `[int]`. Stresses fixpoint
+/// convergence at depth ≥ 4 — guards against off-by-one in the SCC
+/// convergence bound (interprocedural/mod.rs:233 IC-7 formula updated by
+/// the fix from `× 6` dimension-count to `× 15` height-weighted).
+#[test]
+fn test_generic_forwarder_hop4_returns_list_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_hop4_list_int.ori"),
+        "generic_forwarder_hop4_list_int",
+    );
+}
+
+// ─── BUG-04-090: cross-type axis ───
+// 1-hop generic forwarder applied to every relevant heap-typed shape.
+// Heap types fail today (use-after-free); scalar must NOT regress.
+
+/// Generic forwarder over `[str]` — heap list of heap elements; verifies
+/// element-level decs still fire correctly (`elem_dec_fn` for inner str).
+#[test]
+fn test_generic_forwarder_list_str_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_list_str.ori"),
+        "generic_forwarder_list_str",
+    );
+}
+
+/// Generic forwarder over `str` — fat-pointer-shaped heap value;
+/// param-return-alias rule fires on str just as it does on `[T]`.
+#[test]
+fn test_generic_forwarder_str_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_str.ori"),
+        "generic_forwarder_str",
+    );
+}
+
+/// Generic forwarder over `{int: str}` — heap map mixing scalar keys
+/// and heap values. Same fat-pointer shape; verifies the rule does not
+/// key on collection kind.
+#[test]
+fn test_generic_forwarder_map_int_str_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_map_int_str.ori"),
+        "generic_forwarder_map_int_str",
+    );
+}
+
+/// Generic forwarder over `Set<int>` — heap set, fat-pointer-backed.
+/// Set construction goes through `.iter().collect()` per the standard
+/// Ori pattern; the param-return-alias rule fires on the outer Set.
+#[test]
+fn test_generic_forwarder_set_int_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_set_int.ori"),
+        "generic_forwarder_set_int",
+    );
+}
+
+/// Generic forwarder over a struct containing a heap field. The struct
+/// itself flows through Return as Owned; the [int] field's heap buffer
+/// must still be properly RC-managed via the struct's drop function.
+#[test]
+fn test_generic_forwarder_struct_with_list_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_struct_with_list.ori"),
+        "generic_forwarder_struct_with_list",
+    );
+}
+
+/// Generic forwarder over a closure capturing `[int]`. The closure's
+/// `env_ptr` (heap-allocated) carries the `[int]` capture; tests
+/// closure-aware RC interaction (codegen-rules.md §RE-1).
+#[test]
+fn test_generic_forwarder_closure_capturing_list_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_closure_capturing_list.ori"),
+        "generic_forwarder_closure_capturing_list",
+    );
+}
+
+/// Generic forwarder over `int` — scalar regression clamp. Scalars have
+/// NO RC ops per codegen-rules.md §RE-2; this test must continue to
+/// pass both pre-fix and post-fix. The fix introduces no scalar-path
+/// changes.
+#[test]
+fn test_generic_forwarder_int_scalar_must_not_regress() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_int_scalar_no_regression.ori"),
+        "generic_forwarder_int_scalar_no_regression",
+    );
+}
+
+/// Generic forwarder over `Option<[int]>` — sum-type wrapping a heap
+/// payload. The outer Option's discriminant + payload flow through
+/// Return; payload's heap buffer must be properly RC-managed.
+#[test]
+fn test_generic_forwarder_option_list_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_option_list.ori"),
+        "generic_forwarder_option_list",
+    );
+}
+
+/// Generic forwarder over `Result<[int], str>` — two-constructor
+/// sum-type with heap payloads on BOTH arms (Plan TPR TPR-04-002).
+/// Verifies the rule fires correctly when either arm carries a heap
+/// allocation.
+#[test]
+fn test_generic_forwarder_result_list_str_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_result_list_str.ori"),
+        "generic_forwarder_result_list_str",
+    );
+}
+
+/// Generic forwarder over `[[int]]` — nested heap collection. Outer
+/// list owns inner lists; element-drop must recursively dec inner heap
+/// buffers when the outer is freed at the caller's scope-exit.
+#[test]
+fn test_generic_forwarder_nested_list_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_nested_list.ori"),
+        "generic_forwarder_nested_list",
+    );
+}
+
+/// Generic forwarder over `Box<[int]>` — single-field newtype-style
+/// struct wrapping a heap value. Per Ori convention, `Box` is a
+/// user-defined struct, not a built-in pointer; verifies the rule
+/// fires uniformly on user-defined heap-carrying structs.
+#[test]
+fn test_generic_forwarder_box_list_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_forwarder_box_list.ori"),
+        "generic_forwarder_box_list",
+    );
+}
+
+// ─── BUG-04-090: forwarder shape axis ───
+// The param-return-alias rule must apply uniformly across forwarder
+// shapes. Generics are merely the most common pattern; non-generic
+// forwarders and inherent methods must also be covered.
+
+/// Non-generic forwarder applied to `[int]`. The fix's gate is
+/// STRUCTURAL (param flows to Return), not generics-specific. Verifies
+/// the rule does not key on the presence of a type parameter.
+#[test]
+fn test_non_generic_forwarder_list_returns_intact() {
+    assert_aot_success(
+        include_str!("fixtures/generics/non_generic_forwarder_list.ori"),
+        "non_generic_forwarder_list",
+    );
+}
+
+/// Inherent method `@inner (self) -> Self = self` on a struct holding
+/// a heap field. Verifies the `self` param triggers the same
+/// param-return-alias rule as a free-function param.
+#[test]
+fn test_inherent_method_forwarder_self_returns_self() {
+    assert_aot_success(
+        include_str!("fixtures/generics/inherent_method_forwarder_self_returns_self.ori"),
+        "inherent_method_forwarder_self_returns_self",
+    );
+}
+
+// ─── BUG-04-090: path-sensitivity (CRITICAL — Plan TPR Round-0) ───
+// The fix's suppression gate MUST be path-sensitive. A naive global-
+// suppression implementation (suppress all decs unconditionally for
+// params with transfers_through_return=true) would LEAK the not-returned
+// param on multi-return conditional flow. These cells pin the
+// path-sensitivity requirement that codex + gemini independently
+// flagged in Plan TPR Round-0.
+
+/// `select<T>(cond, x, y) -> T = if cond then x else y` over `[int]`.
+/// Both x and y are candidates for return; only ONE is returned per
+/// path. The not-returned param must be dec'd at scope-exit. Naive
+/// global-suppression leaks; correct path-sensitive fix balances RC.
+#[test]
+fn test_path_sensitive_select_list_balances_rc_on_both_paths() {
+    assert_aot_success(
+        include_str!("fixtures/generics/path_sensitive_select_list.ori"),
+        "path_sensitive_select_list",
+    );
+}
+
+/// `dispatch<T>(tag, x, y) -> T = match tag { 0 -> x, _ -> y }` —
+/// match-desugar code path. Verifies the fix's terminator-based path
+/// check correctly handles match arms (Branch + Jump-arg + merge-block
+/// edges per §02 alias-tracking Rules 3+4).
+#[test]
+fn test_path_sensitive_match_dispatch_list_balances_rc() {
+    assert_aot_success(
+        include_str!("fixtures/generics/path_sensitive_match_dispatch_list.ori"),
+        "path_sensitive_match_dispatch_list",
+    );
+}
+
+/// Three-way conditional: `triple<T>(c, x, y, z) -> T`. Stresses
+/// fixpoint convergence with three `consumed_params`; each path returns
+/// exactly one — the other two need decs. Naive global-suppression
+/// leaks two heap allocations per call.
+#[test]
+fn test_path_sensitive_triple_list_balances_rc_on_all_three_paths() {
+    assert_aot_success(
+        include_str!("fixtures/generics/path_sensitive_triple_list.ori"),
+        "path_sensitive_triple_list",
+    );
+}
+
+/// Negative pin for path-sensitivity: stress-test exercising
+/// `select<T>` across multiple call sites with mixed path selection.
+/// Surfaces leak-detection failures under naive global-suppression.
+/// Phase 5 verification step runs this with `ORI_CHECK_LEAKS=1`; this
+/// AOT-success test pins the runtime crash today.
+#[test]
+fn test_path_sensitive_select_negative_pin_completes_without_uaf() {
+    assert_aot_success(
+        include_str!("fixtures/generics/path_sensitive_select_negative_pin.ori"),
+        "path_sensitive_select_negative_pin",
+    );
+}
+
+// ─── BUG-04-090: edge cases (Plan TPR refinements) ───
+// Surface forms surfaced by Plan TPR rounds 0-4. Each pins a specific
+// architectural decision the fix must thread between.
+
+/// Param both returned AND used in a non-return statement. Plan TPR
+/// consensus: `transfers_through_return` remains `true`, but the fix
+/// gates only the SCOPE-EXIT dec, not all decs. Verifies the fix
+/// doesn't suppress decs at non-return use sites.
+#[test]
+fn test_edge_param_returned_and_used_balances_rc() {
+    assert_aot_success(
+        include_str!("fixtures/generics/edge_param_returned_and_used.ori"),
+        "edge_param_returned_and_used",
+    );
+}
+
+/// Param flowing through Project — return value is `b.value`, NOT `b`.
+/// `b` is NOT marked `transfers_through_return`; the existing scope-exit
+/// dec on `b` is correct and must not be suppressed.
+#[test]
+fn test_edge_project_return_not_param_keeps_outer_dec() {
+    assert_aot_success(
+        include_str!("fixtures/generics/edge_project_return_not_param.ori"),
+        "edge_project_return_not_param",
+    );
+}
+
+/// TRMC tail-recursive forwarder. TRMC uses internal jumps, not Return
+/// terminators, bypassing the param-return-alias rule. Must be
+/// unaffected by the fix.
+#[test]
+fn test_edge_trmc_tail_recursive_unaffected_by_fix() {
+    assert_aot_success(
+        include_str!("fixtures/generics/edge_trmc_tail_recursive.ori"),
+        "edge_trmc_tail_recursive",
+    );
+}
+
+/// `for...yield` return (Plan TPR TPR-04-002 + TPR-04-007). yield-style
+/// return uses Invoke + Resume terminators; verify the gate does NOT
+/// suppress decs on Resume blocks (`is_unwind_block` should stay true).
+#[test]
+fn test_edge_for_yield_return_preserves_unwind_decs() {
+    assert_aot_success(
+        include_str!("fixtures/generics/edge_for_yield_return.ori"),
+        "edge_for_yield_return",
+    );
+}
+
+/// `try{}` return (Plan TPR TPR-04-002). try-block returns may use
+/// Invoke terminators with unwind paths; verify the gate doesn't
+/// suppress decs on the unwind side.
+#[test]
+fn test_edge_try_block_return_preserves_unwind_decs() {
+    assert_aot_success(
+        include_str!("fixtures/generics/edge_try_block_return.ori"),
+        "edge_try_block_return",
+    );
+}
+
+/// Branch-merge of different params (Plan TPR TPR-04-007 + Round-3
+/// codex F6). For heap T: lowering produces Branch+Jump+merge (NOT
+/// Select). Both x and y alias the merge-block's param via Jump-arg →
+/// block-param edges; both must be marked `transfers_through_return=true`
+/// (verifies multi-valued `alias_to_param` + Jump-arg → block-param
+/// transitivity).
+#[test]
+fn test_edge_branch_merge_two_params_routes_via_jump_arg() {
+    assert_aot_success(
+        include_str!("fixtures/generics/edge_branch_merge_two_params.ori"),
+        "edge_branch_merge_two_params",
+    );
+}
+
+/// Param consumed by callee AND returned (Plan TPR TPR-04-003 —
+/// load-bearing correctness fix). x is consumed by `iter()` (Apply to
+/// Owned parameter) AND returned. Verifies `transfers_through_return`
+/// is gated on `return_flow_params`, NOT full `consumed_params`.
+#[test]
+fn test_edge_consumed_and_returned_uses_return_flow_only() {
+    assert_aot_success(
+        include_str!("fixtures/generics/edge_consumed_and_returned.ori"),
+        "edge_consumed_and_returned",
+    );
+}
+
+/// Function declaring `uses Suspend` capability returning its param.
+/// Plan TPR consensus: capability handlers lower to standard Return
+/// terminators; the param-return-alias rule applies uniformly.
+#[test]
+fn test_edge_capability_handler_returns_param_uniformly() {
+    assert_aot_success(
+        include_str!("fixtures/generics/edge_capability_handler_returns_param.ori"),
+        "edge_capability_handler_returns_param",
+    );
+}
+
 #[test]
 fn test_generic_chain_tuple_element() {
     // 3-hop with (T, T).

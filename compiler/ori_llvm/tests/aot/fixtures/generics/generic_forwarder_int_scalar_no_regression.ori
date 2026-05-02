@@ -1,0 +1,12 @@
+// BUG-04-090 §03 cross-type: int (scalar — must NOT regress).
+// Scalar types have no RC ops per codegen-rules.md §RE-2. The fix must
+// not introduce RC operations on scalars or any other regression on the
+// non-heap path. Positive control: this fixture exists pre-fix as
+// `generic_chain_three_levels.ori` for scalar; here the 1-hop variant
+// pins the boundary.
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let n = id(x: 12345);
+    if n == 12345 then 0 else 1
+}

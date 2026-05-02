@@ -1,0 +1,9 @@
+// BUG-04-090 §03 cross-type: [str] — heap list of heap elements.
+// Element drop fn matters; tests interaction with elem_dec_fn per
+// arc.md §RC Header Layout V5 — element-level decs must still fire.
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let xs = id(x: ["alpha", "beta", "gamma"]);
+    if xs.len() == 3 && xs[0] == "alpha" && xs[2] == "gamma" then 0 else 1
+}

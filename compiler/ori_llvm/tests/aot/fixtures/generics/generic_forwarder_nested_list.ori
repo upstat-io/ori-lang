@@ -1,0 +1,12 @@
+// BUG-04-090 §03 cross-type: [[int]] — nested heap collection.
+// Outer list owns inner lists; each inner [int] carries its own heap
+// buffer. The param-return-alias rule fires on the outer; element-drop
+// must still recursively dec inner [int] heap buffers when the outer
+// is finally freed at the caller's scope-exit (which is now correctly
+// the only dec site post-fix).
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let xss = id(x: [[1, 2], [3, 4], [5, 6]]);
+    if xss.len() == 3 && xss[0].len() == 2 && xss[2][1] == 6 then 0 else 1
+}

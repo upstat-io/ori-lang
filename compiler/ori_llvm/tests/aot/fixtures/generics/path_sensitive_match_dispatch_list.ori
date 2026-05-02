@@ -1,0 +1,17 @@
+// BUG-04-090 §03 path-sensitivity: dispatch<T>(tag, x, y) via match.
+// Same path-sensitivity requirement as select<T>, but routes through
+// the match-desugar code path. Verifies the fix's terminator-based
+// path check correctly handles match arms (which lower to Branch +
+// Jump-arg + merge-block edges per §02 alias-tracking Rules 3+4).
+@dispatch <T> (tag: int, x: T, y: T) -> T = match tag {
+    0 -> x,
+    _ -> y,
+};
+
+@main () -> int = {
+    let zero_path = dispatch(tag: 0, x: [100, 200], y: [300, 400]);
+    let one_path = dispatch(tag: 1, x: [500, 600], y: [700, 800]);
+    if zero_path.len() == 2 && zero_path[0] == 100
+        && one_path.len() == 2 && one_path[1] == 800
+    then 0 else 1
+}

@@ -1,0 +1,13 @@
+// BUG-04-090 §03 path-sensitivity: triple<T>(c, x, y, z) — three-way.
+// Stresses fixpoint convergence with THREE consumed_params + per-path
+// liveness. Each path returns exactly one of {x, y, z}; the other two
+// must be dec'd on that path. Naive global-suppression would leak two
+// per call.
+@triple <T> (c: int, x: T, y: T, z: T) -> T = if c == 0 then x else if c == 1 then y else z;
+
+@main () -> int = {
+    let path_x = triple(c: 0, x: [1, 1], y: [2, 2], z: [3, 3]);
+    let path_y = triple(c: 1, x: [10, 10], y: [20, 20], z: [30, 30]);
+    let path_z = triple(c: 2, x: [100, 100], y: [200, 200], z: [300, 300]);
+    if path_x[0] == 1 && path_y[0] == 20 && path_z[0] == 300 then 0 else 1
+}

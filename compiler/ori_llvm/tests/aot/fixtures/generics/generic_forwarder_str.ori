@@ -1,0 +1,9 @@
+// BUG-04-090 §03 cross-type: str — heap-typed string fat pointer.
+// `str` shares the {len, cap, data} fat-pointer shape with [T] per
+// codegen-rules.md §TR-4; same param-return-alias rule fires.
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let s = id(x: "hello world");
+    if s == "hello world" then 0 else 1
+}
