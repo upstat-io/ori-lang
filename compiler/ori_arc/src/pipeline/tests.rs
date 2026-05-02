@@ -76,6 +76,7 @@ fn absent_param() -> ParamContract {
         may_share: false,
         locality_bound: Locality::BlockLocal,
         uniqueness: Uniqueness::MaybeShared,
+        transfers_through_return: false,
     }
 }
 

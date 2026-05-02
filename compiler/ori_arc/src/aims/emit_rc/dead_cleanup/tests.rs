@@ -72,6 +72,7 @@ struct DeadCleanupFixture {
     iter_element_defs: FxHashSet<ArcVarId>,
     inline_enum_projected_defs: FxHashSet<ArcVarId>,
     child_effective_last_use: FxHashMap<ArcVarId, LastUse>,
+    return_transfer_params: FxHashSet<ArcVarId>,
 }
 
 impl DeadCleanupFixture {
@@ -90,6 +91,7 @@ impl DeadCleanupFixture {
             pool: &self.pool,
             child_effective_last_use: &self.child_effective_last_use,
             take_move_facts: &self.take_move_facts,
+            return_transfer_params: &self.return_transfer_params,
         }
     }
 }
@@ -132,6 +134,7 @@ fn swapped_phi_params_emit_two_rc_decs() {
         iter_element_defs: FxHashSet::default(),
         inline_enum_projected_defs: FxHashSet::default(),
         child_effective_last_use: FxHashMap::default(),
+        return_transfer_params: FxHashSet::default(),
     };
 
     let ctx = fixture.ctx(1);
@@ -179,6 +182,7 @@ fn let_alias_siblings_emit_one_rc_dec() {
         iter_element_defs: FxHashSet::default(),
         inline_enum_projected_defs: FxHashSet::default(),
         child_effective_last_use: FxHashMap::default(),
+        return_transfer_params: FxHashSet::default(),
     };
 
     let ctx = fixture.ctx(1);

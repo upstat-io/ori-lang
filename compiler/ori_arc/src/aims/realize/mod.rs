@@ -124,9 +124,14 @@ pub fn realize_rc_reuse(
     // Sub-step B: unified RC emission + inline event collection.
     // Replaces emit_rc_ops() with a forward walk routing all decisions
     // through decide(), collecting death/alloc events inline.
+    //
+    // `contracts` is threaded through so emit_rc_unified can compute
+    // `return_transfer_params` from the function's MemoryContract for
+    // BUG-04-090's `should_suppress_return_transfer_dec` (BlockCtx
+    // field populated per §05 Step 6).
     let (rc_ops_inserted, death_events, alloc_events, phase1_metrics) = {
         let _span = tracing::debug_span!("realize_rc_unified").entered();
-        emit_unified::emit_rc_unified(func, state_map, pool, interner)
+        emit_unified::emit_rc_unified(func, state_map, pool, interner, contracts)
     };
 
     // Sub-step C: emit reuse from collected events (replaces emit_reuse scan).

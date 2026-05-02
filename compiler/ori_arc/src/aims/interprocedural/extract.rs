@@ -53,7 +53,15 @@ pub(crate) fn extract_contract(
     // tracks cardinality demand), so parameters that reach a consuming
     // builtin (e.g., `iter`) stay at Borrowed. This post-hoc upgrade
     // catches those cases.
-    let consumed_params = detect_consumed_params(func, sigs, &param_vars);
+    //
+    // `return_flow_params` is a SUBSET of `consumed_params` containing ONLY
+    // params traced to a `Return { value }` terminator. Distinct from the
+    // broader `consumed_params` set (which mixes Apply/Invoke-arg
+    // consumption with Return-flow alias). Used to populate
+    // `transfers_through_return` on `ParamContract` per BUG-04-090's fix:
+    // params that flow through Return must NOT receive scope-exit RcDec
+    // because ownership transfers through the return value.
+    let (consumed_params, return_flow_params) = detect_consumed_params(func, sigs, &param_vars);
 
     let params: Vec<ParamContract> = func
         .params
@@ -89,6 +97,12 @@ pub(crate) fn extract_contract(
                 // Tightened to Unique by post-fixpoint demand propagation
                 // (Section 09.1) when all callers satisfy the condition.
                 uniqueness: Uniqueness::MaybeShared,
+                // BUG-04-090: param flows directly to a `Return { value }`
+                // terminator. Gates scope-exit dec suppression in the
+                // realize walk. Computed from the STRUCTURAL Return-flow
+                // alias fact (NOT from `preserves_freshness` which is
+                // currently spec-inverted per `aims-rules.md §1.9`).
+                transfers_through_return: return_flow_params.contains(&i),
             }
         })
         .collect();
@@ -232,115 +246,179 @@ fn compute_context_behavior(
 ///
 /// Walks all blocks, tracks Let alias chains from param vars, and checks
 /// Apply/Invoke call sites against callee contracts in `sigs`.
+///
+/// `alias_to_param` is multi-valued: a single variable may alias multiple
+/// parameters via merge-block phi nodes. Branch+Jump merges both x and y
+/// into the merge-block's param r, so r aliases BOTH parameter indices.
+/// Select aliases work the same way (`true_val` and `false_val` both reach
+/// dst at runtime); the Select arm below tracks both as alias sources.
 fn detect_consumed_params(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, MemoryContract>,
     param_vars: &FxHashMap<ArcVarId, usize>,
-) -> FxHashSet<usize> {
-    // Build alias map: trace which variables alias function parameters.
-    // Covers Let{Var} aliases and block-parameter passing via Jump/Branch.
-    let mut alias_to_param: FxHashMap<ArcVarId, usize> = param_vars.clone();
+) -> (FxHashSet<usize>, FxHashSet<usize>) {
+    let alias_to_param = build_alias_to_param_map(func, param_vars);
+    let mut consumed = find_consumed_via_callees(func, sigs, &alias_to_param);
+    let return_flow = find_return_flow_params(func, &alias_to_param);
+    // Returned params are still Owned (Lean ownParamsUsingArgs); fold the
+    // return-flow set into `consumed` so the caller transfers ownership.
+    consumed.extend(&return_flow);
+    (consumed, return_flow)
+}
+
+/// Build the multi-valued alias map: variable → set of parameter indices
+/// it aliases. Covers Let{Var} aliases, Select conditional aliases, and
+/// Jump-arg → block-parameter passing. Iterates to fixed point.
+fn build_alias_to_param_map(
+    func: &ArcFunction,
+    param_vars: &FxHashMap<ArcVarId, usize>,
+) -> FxHashMap<ArcVarId, FxHashSet<usize>> {
+    let mut alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>> = param_vars
+        .iter()
+        .map(|(&v, &idx)| {
+            let mut set = FxHashSet::default();
+            set.insert(idx);
+            (v, set)
+        })
+        .collect();
     let mut changed = true;
     while changed {
         changed = false;
         for block in &func.blocks {
-            // Let { dst, Var(src) } — direct alias
             for instr in &block.body {
-                if let ArcInstr::Let {
-                    dst,
-                    value: crate::ir::ArcValue::Var(src),
-                    ..
-                } = instr
-                {
-                    if let Some(&param_idx) = alias_to_param.get(src) {
-                        if !alias_to_param.contains_key(dst) {
-                            alias_to_param.insert(*dst, param_idx);
-                            changed = true;
-                        }
-                    }
-                }
+                changed |= absorb_instr_aliases(instr, &mut alias_to_param);
             }
-            // Jump { target, args } — args[i] flows to target.params[i]
             if let ArcTerminator::Jump { target, args } = &block.terminator {
                 let target_params = &func.blocks[target.index()].params;
                 for (arg, &(param_var, _)) in args.iter().zip(target_params.iter()) {
-                    if let Some(&param_idx) = alias_to_param.get(arg) {
-                        if let std::collections::hash_map::Entry::Vacant(e) =
-                            alias_to_param.entry(param_var)
-                        {
-                            e.insert(param_idx);
-                            changed = true;
-                        }
-                    }
+                    changed |= absorb_alias(*arg, param_var, &mut alias_to_param);
                 }
             }
         }
     }
+    alias_to_param
+}
 
+/// Absorb alias edges from a single instruction. Returns true if any
+/// destination set grew.
+fn absorb_instr_aliases(
+    instr: &ArcInstr,
+    alias_to_param: &mut FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> bool {
+    match instr {
+        // Let { dst, Var(src) } — direct alias
+        ArcInstr::Let {
+            dst,
+            value: crate::ir::ArcValue::Var(src),
+            ..
+        } => absorb_alias(*src, *dst, alias_to_param),
+        // Select { dst, true_val, false_val } — conditional alias.
+        // Either branch may flow to dst at runtime; track BOTH.
+        ArcInstr::Select {
+            dst,
+            true_val,
+            false_val,
+            ..
+        } => {
+            let a = absorb_alias(*true_val, *dst, alias_to_param);
+            let b = absorb_alias(*false_val, *dst, alias_to_param);
+            a || b
+        }
+        _ => false,
+    }
+}
+
+/// Extend `dst`'s alias set with `src`'s. Returns true if `dst`'s set grew.
+fn absorb_alias(
+    src: ArcVarId,
+    dst: ArcVarId,
+    alias_to_param: &mut FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> bool {
+    let Some(src_set) = alias_to_param.get(&src).cloned() else {
+        return false;
+    };
+    let dst_set = alias_to_param.entry(dst).or_default();
+    let before = dst_set.len();
+    dst_set.extend(src_set);
+    dst_set.len() != before
+}
+
+/// Scan Apply / Invoke call sites for arguments that alias a parameter
+/// and flow to a callee with an Owned parameter contract. Returns the
+/// set of parameter indices consumed via callees.
+fn find_consumed_via_callees(
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> FxHashSet<usize> {
     let mut consumed = FxHashSet::default();
-
-    // Scan Apply instructions for args that alias a parameter and flow to
-    // a callee with an Owned param contract.
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Apply {
                 func: callee, args, ..
             } = instr
             {
-                let callee_contract = sigs.get(callee);
-                for (pos, &arg) in args.iter().enumerate() {
-                    if let Some(&param_idx) = alias_to_param.get(&arg) {
-                        let callee_owned = callee_contract.is_some_and(|c| {
-                            c.params
-                                .get(pos)
-                                .is_some_and(|p| p.access == AccessClass::Owned)
-                        });
-                        if callee_owned {
-                            consumed.insert(param_idx);
-                        }
-                    }
-                }
+                absorb_owned_callee_args(*callee, args, sigs, alias_to_param, &mut consumed);
             }
         }
-
-        // Also check Invoke terminators.
         if let ArcTerminator::Invoke {
             func: callee, args, ..
         } = &block.terminator
         {
-            let callee_contract = sigs.get(callee);
-            for (pos, &arg) in args.iter().enumerate() {
-                if let Some(&param_idx) = alias_to_param.get(&arg) {
-                    let callee_owned = callee_contract.is_some_and(|c| {
-                        c.params
-                            .get(pos)
-                            .is_some_and(|p| p.access == AccessClass::Owned)
-                    });
-                    if callee_owned {
-                        consumed.insert(param_idx);
-                    }
+            absorb_owned_callee_args(*callee, args, sigs, alias_to_param, &mut consumed);
+        }
+    }
+    consumed
+}
+
+/// For each arg position where the callee parameter is Owned and the arg
+/// aliases function parameters, record those parameter indices in `consumed`.
+fn absorb_owned_callee_args(
+    callee: Name,
+    args: &[ArcVarId],
+    sigs: &FxHashMap<Name, MemoryContract>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    consumed: &mut FxHashSet<usize>,
+) {
+    let callee_contract = sigs.get(&callee);
+    for (pos, &arg) in args.iter().enumerate() {
+        let Some(param_indices) = alias_to_param.get(&arg) else {
+            continue;
+        };
+        let callee_owned = callee_contract.is_some_and(|c| {
+            c.params
+                .get(pos)
+                .is_some_and(|p| p.access == AccessClass::Owned)
+        });
+        if callee_owned {
+            for &idx in param_indices {
+                consumed.insert(idx);
+            }
+        }
+    }
+}
+
+/// Identify parameters that flow to a Return terminator (directly or
+/// through Let / Jump-arg / Select alias chains). These params must be
+/// Owned (Lean 4 `Borrow.lean` `ownParamsUsingArgs`) AND get
+/// `transfers_through_return = true` for the BUG-04-090 fix — the gate
+/// reads this STRUCTURAL fact (Return-trace only), kept distinct from
+/// the Apply/Invoke consumption set.
+fn find_return_flow_params(
+    func: &ArcFunction,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> FxHashSet<usize> {
+    let mut return_flow: FxHashSet<usize> = FxHashSet::default();
+    for block in &func.blocks {
+        if let ArcTerminator::Return { value } = &block.terminator {
+            if let Some(param_indices) = alias_to_param.get(value) {
+                for &idx in param_indices {
+                    return_flow.insert(idx);
                 }
             }
         }
     }
-
-    // Also check Return terminators: a parameter that flows to a Return
-    // (directly, through Let{Var} aliases, or through block-param passing)
-    // must be Owned. Marking the param Owned ensures the caller transfers
-    // ownership at the call site, and the callee passes it through to the
-    // return value without extra RC ops.
-    //
-    // Ref: Lean 4 `src/Lean/Compiler/IR/Borrow.lean` — returned params
-    // are always Owned.
-    for block in &func.blocks {
-        if let ArcTerminator::Return { value } = &block.terminator {
-            if let Some(&param_idx) = alias_to_param.get(value) {
-                consumed.insert(param_idx);
-            }
-        }
-    }
-
-    consumed
+    return_flow
 }
 
 // Return info extraction

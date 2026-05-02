@@ -209,11 +209,27 @@ pub struct ParamContract {
     ///
     /// Default: `MaybeShared` (no caller guarantee).
     pub uniqueness: Uniqueness,
+    /// Whether this parameter flows directly to a `Return { value }`
+    /// terminator (BUG-04-090 fix).
+    ///
+    /// When `true`, ownership of the parameter transfers through the return
+    /// to the caller — the callee MUST NOT emit a scope-exit `RcDec` on the
+    /// parameter, because the caller will dec the bound result variable
+    /// when ITS scope exits. Computed from the structural Return-flow alias
+    /// fact in `detect_consumed_params` (NOT from `preserves_freshness`,
+    /// which is currently spec-inverted per `aims-rules.md §1.9`).
+    ///
+    /// Completes the Lean 4 `ownParamsUsingArgs` pattern: inc/dec
+    /// elimination on owned-arg → owned-callee-param transfer applies to
+    /// BOTH the caller's inc AND the callee's dec.
+    ///
+    /// Default: `false` (conservative — emit dec).
+    pub transfers_through_return: bool,
 }
 
 impl ParamContract {
     /// Conservative: owned, unrestricted, many uses, may escape/share, unknown locality,
-    /// no caller uniqueness guarantee.
+    /// no caller uniqueness guarantee, no return-flow transfer.
     pub const CONSERVATIVE: Self = Self {
         access: AccessClass::Owned,
         consumption: Consumption::Unrestricted,
@@ -222,9 +238,14 @@ impl ParamContract {
         may_share: true,
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
+        // Conservative default: emit scope-exit dec. The fixpoint
+        // promotes to `true` only when extract_contract proves the
+        // param flows to Return.
+        transfers_through_return: false,
     };
 
-    /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique.
+    /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
+    /// no return-flow transfer.
     ///
     /// Used as starting point for fixed-point iteration. All dimensions
     /// are at their bottom (most optimistic) values.
@@ -236,6 +257,9 @@ impl ParamContract {
         may_share: false,
         locality_bound: Locality::BlockLocal,
         uniqueness: Uniqueness::Unique,
+        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
+        // any path's structural Return-flow alias fact fires.
+        transfers_through_return: false,
     };
 
     /// Componentwise join toward conservative.
@@ -249,6 +273,10 @@ impl ParamContract {
             may_share: self.may_share || other.may_share,
             locality_bound: self.locality_bound.join(other.locality_bound),
             uniqueness: self.uniqueness.join(other.uniqueness),
+            // OR (conservative direction): once true on any path, stays true.
+            // Matches IC-3 componentwise-max semantics for boolean dimensions.
+            transfers_through_return: self.transfers_through_return
+                || other.transfers_through_return,
         }
     }
 }

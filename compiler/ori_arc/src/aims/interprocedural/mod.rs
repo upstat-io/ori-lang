@@ -221,28 +221,51 @@ fn analyze_scc_fixpoint(
     }
 
     // Convergence bound: each iteration promotes at least one lattice
-    // dimension. Total dimensions per function = params × 6 + return × 4 + effects × 4.
-    // (EffectSummary has 6 bool fields, but `may_deallocate` and
-    // `has_unbounded_stack` don't change during fixpoint — they are set
-    // post-emission and in extract_contract() respectively.)
-    // In practice, convergence is much faster.
+    // step (single-height increment); the total height-sum is the upper
+    // bound. Height-weighted formula per `aims-rules.md §IC-7`:
+    //   per-param height: access(1) + consumption(3) + cardinality(2)
+    //                   + locality(4) + uniqueness(2) + may_escape(1)
+    //                   + may_share(1) + transfers_through_return(1) = 15
+    //   return height:    uniqueness(2) + freshness(1) + locality(4)
+    //                   + shape(1) = 8
+    //   effect height:    5 fixpoint-participating bools (may_allocate +
+    //                   may_deallocate + may_share + may_throw +
+    //                   has_unbounded_stack); alloc_only_on_slow_path is
+    //                   post-realization (excluded). aims-rules.md §IC-7
+    //                   lists 6 because spec includes
+    //                   may_read_inaccessible (target-only, not yet in
+    //                   shipped struct); shipped reality is 5.
+    //   context height:  4 boolean fields (PL-7/PL-11)
+    //
+    // Note: aims-rules.md §IC-7 lists per-param height 13 (omitting
+    // may_escape — slated for removal per "Vocabulary changes (not yet
+    // shipped)" preamble) plus the new transfers_through_return = 14.
+    // Shipped ParamContract still has may_escape (contract/mod.rs), so
+    // the RUNTIME bound matches shipped reality at 15. When may_escape is
+    // removed in a separate plan, this constant drops back to 14.
+    //
+    // BUG-04-090: replaced dimension-count form (`× 6` per param) with
+    // height-weighted form per Plan TPR Round-1 codex F1. The dimension
+    // count was the wrong abstraction — height-weighted matches the
+    // worst-case fixpoint convergence proof in aims-rules.md §IC-7.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "param count per function bounded by u32::MAX in practice"
     )]
-    let total_dimensions: u32 = scc_funcs
+    let total_height: u32 = scc_funcs
         .iter()
         .map(|f| {
-            let param_dims = f.params.len() as u32 * 6;
-            let return_dims = 4u32;
-            let effect_dims = 4u32;
-            param_dims + return_dims + effect_dims
+            let param_height = f.params.len() as u32 * 15;
+            let return_height = 8u32;
+            let effect_height = 5u32;
+            let context_height = 4u32;
+            param_height + return_height + effect_height + context_height
         })
         .sum();
     debug_assert!(
-        iterations <= total_dimensions.saturating_add(1),
+        iterations <= total_height.saturating_add(1),
         "AIMS fixed-point exceeded convergence bound: \
-         {iterations} iterations for {total_dimensions} dimensions"
+         {iterations} iterations for {total_height} height units"
     );
 
     tracing::debug!(

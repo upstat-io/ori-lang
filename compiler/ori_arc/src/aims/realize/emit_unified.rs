@@ -3,9 +3,11 @@
 //! Extracted from `realize/mod.rs` to stay under the 500-line file limit.
 //! Called by [`super::realize_rc_reuse()`] as Phase 1 sub-step B.
 
+use ori_ir::Name;
 use ori_types::Pool;
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::aims::contract::MemoryContract;
 use crate::aims::emit_rc::DeferredDec;
 use crate::aims::emit_reuse::{AllocEvent, DeathEvent};
 use crate::aims::intraprocedural::state_map::AimsStateMap;
@@ -78,6 +80,7 @@ pub(super) fn emit_rc_unified(
     state_map: &AimsStateMap,
     pool: &Pool,
     interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
 ) -> (
     usize,
     Vec<DeathEvent>,
@@ -100,6 +103,23 @@ pub(super) fn emit_rc_unified(
     let iter_element_defs = collect_iter_element_defs(func, interner);
     let inline_enum_projected_defs = collect_inline_enum_projected_defs(func, pool);
     let func_project_sources = compute_function_project_sources(func);
+
+    // BUG-04-090 §05 Step 6: pre-compute the set of parameter ArcVarIds
+    // whose `ParamContract.transfers_through_return` is true. Threaded
+    // into BlockCtx for consumption by `should_suppress_return_transfer_dec`
+    // in the realize walk. Empty set when no contract is available
+    // (FFI / external) — equivalent to the pre-fix behavior.
+    let return_transfer_params: FxHashSet<ArcVarId> = contracts
+        .get(&func.name)
+        .map(|c| {
+            func.params
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| c.params.get(*i).is_some_and(|p| p.transfers_through_return))
+                .map(|(_, param)| param.var)
+                .collect()
+        })
+        .unwrap_or_default();
     // Per-class take-project facts via union-find +
     // CFG reachability. Precomputed once per function. Each
     // take-project source seeds its own connected-component class
@@ -133,6 +153,7 @@ pub(super) fn emit_rc_unified(
             &inline_enum_projected_defs,
             &func_project_sources,
             &take_move_facts,
+            &return_transfer_params,
             iter_fn_name,
             &predecessors,
             &mut block_deferred,
@@ -200,6 +221,7 @@ fn emit_block_rc(
     inline_enum_projected_defs: &FxHashSet<ArcVarId>,
     func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
     take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
+    return_transfer_params: &FxHashSet<ArcVarId>,
     iter_fn_name: ori_ir::Name,
     predecessors: &[Vec<usize>],
     block_deferred: &mut FxHashMap<usize, Vec<DeferredDec>>,
@@ -233,6 +255,7 @@ fn emit_block_rc(
         pool,
         child_effective_last_use: &child_elu,
         take_move_facts,
+        return_transfer_params,
     };
 
     let (deferred_parents, merge_edge_decs) = emit_dead_at_entry_decs(&ctx, &mut new_body);

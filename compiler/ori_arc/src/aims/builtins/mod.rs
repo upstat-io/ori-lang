@@ -301,6 +301,7 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     may_share: false,
     locality_bound: Locality::Unknown,
     uniqueness: Uniqueness::MaybeShared,
+    transfers_through_return: false,
 };
 
 /// Owned parameter consumed exactly once (linear).
@@ -312,6 +313,7 @@ const PARAM_OWNED_LINEAR: ParamContract = ParamContract {
     may_share: false,
     locality_bound: Locality::Unknown,
     uniqueness: Uniqueness::MaybeShared,
+    transfers_through_return: false,
 };
 
 /// Return contract for methods producing unique results (COW operations).

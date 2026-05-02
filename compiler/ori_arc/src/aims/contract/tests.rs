@@ -96,6 +96,7 @@ fn param_join_is_commutative() {
         may_share: false,
         locality_bound: Locality::FunctionLocal,
         uniqueness: Uniqueness::Unique,
+        transfers_through_return: false,
     };
     let b = ParamContract {
         access: AccessClass::Borrowed,
@@ -105,6 +106,7 @@ fn param_join_is_commutative() {
         may_share: true,
         locality_bound: Locality::HeapEscaping,
         uniqueness: Uniqueness::MaybeShared,
+        transfers_through_return: false,
     };
     assert_eq!(a.join(&b), b.join(&a));
 }
@@ -280,6 +282,7 @@ fn to_annotated_sig_dead_param_is_borrowed() {
             may_share: false,
             locality_bound: Locality::Unknown,
             uniqueness: Uniqueness::MaybeShared,
+            transfers_through_return: false,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary::default(),

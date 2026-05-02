@@ -71,6 +71,19 @@ pub(crate) struct BlockCtx<'a> {
     /// per-class partitioning + bypass-safe entry refinement) in
     ///.
     pub(crate) take_move_facts: &'a super::take_project::TakeMoveFacts,
+    /// Set of parameter `ArcVarId`s whose `ParamContract.transfers_through_return`
+    /// is `true` — params that flow directly to a `Return { value }` terminator.
+    ///
+    /// Consumed by `should_suppress_return_transfer_dec` (added in §05 Step 7
+    /// of BUG-04-090): scope-exit `RcDec` is suppressed for these params on
+    /// the path where they ARE the returned value (path-sensitive via
+    /// `block_returns_var`). Empty when the function has no `MemoryContract`
+    /// (FFI / external / pre-fixpoint).
+    ///
+    // Field is populated but unread until Step 7 wires the suppression
+    // helper. The `#[allow(dead_code)]` is temporary — removed in Step 7.
+    #[allow(dead_code, reason = "wired in §05 Step 7 of BUG-04-090")]
+    pub(crate) return_transfer_params: &'a FxHashSet<ArcVarId>,
 }
 
 /// Where a variable is last used within a block.
