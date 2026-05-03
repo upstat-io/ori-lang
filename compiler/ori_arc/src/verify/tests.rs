@@ -489,6 +489,7 @@ fn absent_param() -> ParamContract {
         locality_bound: Locality::BlockLocal,
         uniqueness: AimsUniqueness::MaybeShared,
         transfers_through_return: false,
+        return_alias: None,
     }
 }
 
@@ -502,6 +503,7 @@ fn used_param() -> ParamContract {
         locality_bound: Locality::FunctionLocal,
         uniqueness: AimsUniqueness::MaybeShared,
         transfers_through_return: false,
+        return_alias: None,
     }
 }
 

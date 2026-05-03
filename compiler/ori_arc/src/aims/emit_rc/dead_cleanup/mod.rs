@@ -47,6 +47,14 @@ pub(crate) fn emit_dead_at_entry_decs(
     // Precompute predecessor count for merge-block filtering.
     let predecessors = crate::graph::compute_predecessors(ctx.func);
     let pred_count = predecessors.get(ctx.blk.index()).map_or(0, Vec::len);
+
+    // BUG-04-090 §05 Step 8: pre-compute whether this block is an unwind
+    // block. Unwind paths always emit cleanup decs per `arc.md §RL-4`; the
+    // suppression helper short-circuits when `is_unwind_block = true`.
+    let is_unwind_block = matches!(
+        ctx.func.blocks[ctx.blk.index()].terminator,
+        crate::ir::ArcTerminator::Resume
+    );
     let is_block_param = |v: ArcVarId| -> bool {
         ctx.func.blocks[ctx.blk.index()]
             .params
@@ -139,7 +147,16 @@ pub(crate) fn emit_dead_at_entry_decs(
                 if let Some(rep) = ctx.take_move_facts.let_alias_rep(var) {
                     if let_reps_dec_emitted.insert(rep) {
                         if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
-                            new_body.push(ArcInstr::RcDec { var, strategy });
+                            // BUG-04-090 §05 Step 8: suppress dec on params
+                            // that flow to a Return on this path.
+                            if !super::should_suppress_return_transfer_dec(
+                                ctx,
+                                var,
+                                ctx.blk,
+                                is_unwind_block,
+                            ) {
+                                new_body.push(ArcInstr::RcDec { var, strategy });
+                            }
                         }
                     }
                 }
@@ -188,7 +205,12 @@ pub(crate) fn emit_dead_at_entry_decs(
                 continue;
             }
             if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
-                new_body.push(ArcInstr::RcDec { var, strategy });
+                // BUG-04-090 §05 Step 8: suppress dec on params that flow
+                // to a Return on this path (path-sensitive via terminator
+                // check). Sibling paths emit dec normally.
+                if !super::should_suppress_return_transfer_dec(ctx, var, ctx.blk, is_unwind_block) {
+                    new_body.push(ArcInstr::RcDec { var, strategy });
+                }
             }
         }
     }

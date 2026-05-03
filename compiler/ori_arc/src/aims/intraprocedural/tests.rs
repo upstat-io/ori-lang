@@ -1494,6 +1494,7 @@ fn callee_contract_locality_widens_arg() {
                 locality_bound: Locality::HeapEscaping,
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
+                return_alias: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1573,6 +1574,7 @@ fn callee_contract_function_local_preserves_arg() {
                 locality_bound: Locality::FunctionLocal,
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
+                return_alias: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1775,6 +1777,7 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
                 locality_bound: Locality::FunctionLocal,
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
+                return_alias: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1856,6 +1859,7 @@ fn pure_callee_preserves_borrowed_arg_uniqueness() {
                 locality_bound: Locality::FunctionLocal,
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
+                return_alias: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -1932,6 +1936,7 @@ fn sharing_callee_widens_borrowed_arg_uniqueness() {
                 locality_bound: Locality::FunctionLocal,
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
+                return_alias: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2008,6 +2013,7 @@ fn owned_param_ignores_callee_may_share() {
                 locality_bound: Locality::FunctionLocal,
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
+                return_alias: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2240,6 +2246,7 @@ fn effect_summary_apply_unions_callee_effects() {
                 locality_bound: Locality::FunctionLocal,
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
+                return_alias: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2769,6 +2776,7 @@ fn conditional_fip_call_site_all_unique_no_widening() {
             locality_bound: Locality::FunctionLocal,
             uniqueness: Uniqueness::MaybeShared,
             transfers_through_return: false,
+            return_alias: None,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -2854,6 +2862,7 @@ fn conditional_fip_call_site_not_unique_widens() {
             locality_bound: Locality::FunctionLocal,
             uniqueness: Uniqueness::MaybeShared,
             transfers_through_return: false,
+            return_alias: None,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -2882,6 +2891,7 @@ fn conditional_fip_call_site_not_unique_widens() {
             locality_bound: Locality::FunctionLocal,
             uniqueness: Uniqueness::MaybeShared,
             transfers_through_return: false,
+            return_alias: None,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -4081,6 +4091,7 @@ fn contract_with_return(return_info: ReturnContract) -> MemoryContract {
             locality_bound: Locality::FunctionLocal,
             uniqueness: Uniqueness::MaybeShared,
             transfers_through_return: false,
+            return_alias: None,
         }],
         return_info,
         effects: EffectSummary::default(),

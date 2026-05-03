@@ -46,7 +46,7 @@ use super::lattice::Uniqueness;
 
 use crate::ownership::Ownership;
 
-pub(crate) use extract::extract_contract;
+pub(crate) use extract::{build_alias_to_param_map, extract_contract};
 
 /// Compute [`MemoryContract`] for all functions via SCC-based fixed-point.
 ///

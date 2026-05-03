@@ -184,6 +184,67 @@ impl MemoryContract {
     }
 }
 
+/// Shape of how a parameter aliases the callee's return value.
+///
+/// Caller-side carrier for BUG-04-090's `apply_result_aliases` side-table
+/// population. Distinct in role from `transfers_through_return: bool`:
+/// `transfers_through_return` is the callee-side gate (suppress callee's
+/// scope-exit dec when the param flows to Return); `return_alias` is the
+/// caller-side shape carrier (record what the callee's return aliases so
+/// the caller's Apply site can populate the `apply_result_aliases` map).
+///
+/// Invariant: `transfers_through_return == true` IFF `return_alias ==
+/// Some(ReturnAliasShape::Direct)`. The bool is a derived special case of
+/// the enum, kept as a separate field to avoid breaking the existing
+/// callee-side consumers (`helpers.rs::should_suppress_return_transfer_dec`,
+/// `walk.rs:108`, `walk_dec.rs:219`, `dead_cleanup/mod.rs:152/211`,
+/// `forward_walk.rs:193`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReturnAliasShape {
+    /// Callee returns the parameter unchanged (e.g., `@id<T>(x: T) -> T = x`).
+    /// At the caller, `Apply dst = @callee(arg)` makes `dst` the same
+    /// allocation as `arg`.
+    Direct,
+    /// Callee returns a field projection of the parameter
+    /// (e.g., `@unwrap<T>(b: Box<T>) -> T = b.inner`). At the caller,
+    /// `Apply dst = @callee(arg)` makes `dst` the same allocation as
+    /// `arg.field`. Single field index — nested projections not yet
+    /// supported (matches the existing `BorrowSource::Exact { field:
+    /// Option<u32> }` precedent).
+    Project { field: u32 },
+}
+
+impl ReturnAliasShape {
+    /// IC-3 join for `Option<ReturnAliasShape>`.
+    ///
+    /// Lattice chain: `None < Some(Project) < Some(Direct)` (height 2).
+    /// `Direct` is TOP — absorbs `Project` (lattice monotonicity requires
+    /// `join(TOP, x) = TOP`). When one path returns the whole param
+    /// (Direct) and another returns a field projection (Project), the safe
+    /// caller-side contract is Direct: the caller cannot rely on
+    /// field-level alias info when one path skips the projection.
+    /// Incomparable Project paths (different field indices) join to Direct
+    /// per the same rationale.
+    #[must_use]
+    pub fn join(a: Option<Self>, b: Option<Self>) -> Option<Self> {
+        match (a, b) {
+            (None, None) => None,
+            (Some(s), None) | (None, Some(s)) => Some(s),
+            // Same Project field on both paths: preserve the field-level shape.
+            (Some(Self::Project { field: f1 }), Some(Self::Project { field: f2 })) if f1 == f2 => {
+                Some(Self::Project { field: f1 })
+            }
+            // Direct is TOP (absorbs Project); incomparable Project paths
+            // (different field indices) also widen to Direct. Both cases
+            // resolve to `Some(Direct)` per the lattice-monotonicity rule
+            // `join(TOP, x) = TOP`.
+            (Some(Self::Direct), _)
+            | (_, Some(Self::Direct))
+            | (Some(Self::Project { .. }), Some(Self::Project { .. })) => Some(Self::Direct),
+        }
+    }
+}
+
 /// Per-parameter memory contract.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParamContract {
@@ -225,11 +286,26 @@ pub struct ParamContract {
     ///
     /// Default: `false` (conservative — emit dec).
     pub transfers_through_return: bool,
+    /// Shape of how this parameter aliases the callee's return value
+    /// (BUG-04-090 fix — caller-side carrier for `apply_result_aliases`).
+    ///
+    /// Direct case: callee returns the param unchanged (`@id<T>(x: T) -> T
+    /// = x`). Project case: callee returns a field projection
+    /// (`@unwrap<T>(b: Box<T>) -> T = b.inner`).
+    ///
+    /// Consumed by File 12's `apply_result_aliases` population at the
+    /// caller's Apply site. Invariant: `transfers_through_return == true`
+    /// IFF `return_alias == Some(ReturnAliasShape::Direct)`. Both fields
+    /// are derived together in `extract_contract`; downstream callers read
+    /// whichever fits their question.
+    ///
+    /// Default: `None` (conservative — no aliasing claim).
+    pub return_alias: Option<ReturnAliasShape>,
 }
 
 impl ParamContract {
     /// Conservative: owned, unrestricted, many uses, may escape/share, unknown locality,
-    /// no caller uniqueness guarantee, no return-flow transfer.
+    /// no caller uniqueness guarantee, no return-flow transfer, no return alias.
     pub const CONSERVATIVE: Self = Self {
         access: AccessClass::Owned,
         consumption: Consumption::Unrestricted,
@@ -242,10 +318,15 @@ impl ParamContract {
         // promotes to `true` only when extract_contract proves the
         // param flows to Return.
         transfers_through_return: false,
+        // Conservative default: no aliasing claim — caller's Apply dst is
+        // treated as a fresh allocation, not aliased to any consumed arg.
+        // Promoted by extract_contract when the param flows to Return
+        // (Direct) or to a Project that flows to Return (Project).
+        return_alias: None,
     };
 
     /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
-    /// no return-flow transfer.
+    /// no return-flow transfer, no return alias.
     ///
     /// Used as starting point for fixed-point iteration. All dimensions
     /// are at their bottom (most optimistic) values.
@@ -260,6 +341,10 @@ impl ParamContract {
         // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
         // any path's structural Return-flow alias fact fires.
         transfers_through_return: false,
+        // IC-2 starts most-optimistic at the BOTTOM of the chain
+        // `None < Some(Project) < Some(Direct)`. Join promotes upward as
+        // structural Return-aliasing facts fire across paths.
+        return_alias: None,
     };
 
     /// Componentwise join toward conservative.
@@ -277,6 +362,10 @@ impl ParamContract {
             // Matches IC-3 componentwise-max semantics for boolean dimensions.
             transfers_through_return: self.transfers_through_return
                 || other.transfers_through_return,
+            // Lattice chain `None < Some(Project) < Some(Direct)` (height 2).
+            // Direct is TOP — absorbs Project. Incomparable Project paths
+            // join to Direct. Per `ReturnAliasShape::join`.
+            return_alias: ReturnAliasShape::join(self.return_alias, other.return_alias),
         }
     }
 }

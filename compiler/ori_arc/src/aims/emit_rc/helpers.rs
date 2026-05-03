@@ -74,16 +74,19 @@ pub(crate) struct BlockCtx<'a> {
     /// Set of parameter `ArcVarId`s whose `ParamContract.transfers_through_return`
     /// is `true` — params that flow directly to a `Return { value }` terminator.
     ///
-    /// Consumed by `should_suppress_return_transfer_dec` (added in §05 Step 7
-    /// of BUG-04-090): scope-exit `RcDec` is suppressed for these params on
-    /// the path where they ARE the returned value (path-sensitive via
-    /// `block_returns_var`). Empty when the function has no `MemoryContract`
-    /// (FFI / external / pre-fixpoint).
-    ///
-    // Field is populated but unread until Step 7 wires the suppression
-    // helper. The `#[allow(dead_code)]` is temporary — removed in Step 7.
-    #[allow(dead_code, reason = "wired in §05 Step 7 of BUG-04-090")]
+    /// Consumed by `should_suppress_return_transfer_dec`: scope-exit `RcDec`
+    /// is suppressed for these params on the path where they ARE the returned
+    /// value (path-sensitive via `block_returns_var`). Empty when the function
+    /// has no `MemoryContract` (FFI / external / pre-fixpoint).
     pub(crate) return_transfer_params: &'a FxHashSet<ArcVarId>,
+    /// Multi-valued alias map: variable → set of parameter indices it aliases.
+    ///
+    /// Computed once per function by `build_alias_to_param_map` (interprocedural
+    /// extract), shared across realization to avoid `LEAK:algorithmic-duplication`.
+    /// Consumed by `traces_to_var` (the alias-resolution helper invoked from
+    /// `block_returns_var`) to determine whether a returned value aliases a
+    /// specific parameter. Empty map when no contract drives suppression.
+    pub(crate) alias_to_param: &'a FxHashMap<ArcVarId, FxHashSet<usize>>,
 }
 
 /// Where a variable is last used within a block.
@@ -359,4 +362,133 @@ pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction, pool: 
         ArcInstr::Project { .. } => super::borrowed_defs::is_take_project(instr, func, pool),
         _ => false,
     }
+}
+
+// BUG-04-090 §05 Step 7: return-transfer dec suppression.
+//
+// When a parameter `transfers_through_return` (its value flows directly to
+// a `Return { value }` terminator), the generic forwarder pattern over
+// heap-typed values produces spurious scope-exit `RcDec`s. The fix
+// suppresses the dec ONLY on paths whose terminator IS the param-aliased
+// Return — preserving correct dec emission on sibling paths where the
+// param dies normally. AIMS Invariant #1 (contract ↔ realization
+// agreement): when `ParamContract.transfers_through_return = true` signals
+// pass-through, realization MUST NOT consume the value the contract says
+// is forwarded.
+
+use crate::ir::ArcTerminator;
+
+/// Whether the scope-exit `RcDec` for `var` in block `block_idx` should
+/// be suppressed because the param transfers through Return on this path.
+///
+/// Conditions for suppression:
+/// 1. The block is NOT an unwind block (unwind paths always emit cleanup
+///    decs per `arc.md §RL-4`).
+/// 2. `var` IS in `return_transfer_params` (the param's
+///    `ParamContract.transfers_through_return` is `true`).
+/// 3. The current block's forward CFG terminates in a `Return { value: v }`
+///    where `v` traces back to `var` via the alias map (path-sensitive).
+pub(crate) fn should_suppress_return_transfer_dec(
+    ctx: &BlockCtx,
+    var: ArcVarId,
+    block_idx: ArcBlockId,
+    is_unwind_block: bool,
+) -> bool {
+    if is_unwind_block || !ctx.return_transfer_params.contains(&var) {
+        return false;
+    }
+    block_returns_var(ctx, block_idx, var)
+}
+
+/// Whether forward CFG starting at `blk` terminates in a `Return { value: v }`
+/// where `v` traces to parameter `var` via the alias map.
+///
+/// Two-set CFG walker with per-`(block, var)` memoization. Memoization
+/// keyed by `(blk, var)` (not `blk` alone) because path-dependent block-param
+/// queries can produce different answers for the same block depending on
+/// which alias chain the predecessor jump-arg threads through (Plan TPR
+/// Round-2 codex F1 critical). Canonical CFG-analysis pattern from
+/// `Lean/Compiler/IR/Borrow.lean` and `rustc_mir_dataflow`.
+fn block_returns_var(ctx: &BlockCtx, blk: ArcBlockId, var: ArcVarId) -> bool {
+    let mut recursion_stack: FxHashSet<ArcBlockId> = FxHashSet::default();
+    let mut memo: FxHashMap<(ArcBlockId, ArcVarId), bool> = FxHashMap::default();
+    block_returns_var_rec(ctx, blk, var, &mut recursion_stack, &mut memo)
+}
+
+fn block_returns_var_rec(
+    ctx: &BlockCtx,
+    blk: ArcBlockId,
+    var: ArcVarId,
+    recursion_stack: &mut FxHashSet<ArcBlockId>,
+    memo: &mut FxHashMap<(ArcBlockId, ArcVarId), bool>,
+) -> bool {
+    if let Some(&cached) = memo.get(&(blk, var)) {
+        return cached;
+    }
+    // Back-edge: cyclic CFG cannot prove this path returns var. Conservative
+    // false. Does NOT touch memo because the result depends on the caller's
+    // recursion stack — caching could pollute a different traversal that
+    // visits the same block via a different entry path.
+    if recursion_stack.contains(&blk) {
+        return false;
+    }
+    recursion_stack.insert(blk);
+
+    let block = &ctx.func.blocks[blk.index()];
+    let result = match &block.terminator {
+        ArcTerminator::Return { value } => traces_to_var(ctx, *value, var),
+        ArcTerminator::Jump { target, .. } => {
+            block_returns_var_rec(ctx, *target, var, recursion_stack, memo)
+        }
+        ArcTerminator::Branch {
+            then_block,
+            else_block,
+            ..
+        } => {
+            // Both successors must return var-or-alias for suppression to
+            // be sound — a not-taken path that does NOT return var would
+            // leak if its dec were suppressed.
+            block_returns_var_rec(ctx, *then_block, var, recursion_stack, memo)
+                && block_returns_var_rec(ctx, *else_block, var, recursion_stack, memo)
+        }
+        ArcTerminator::Switch { cases, default, .. } => {
+            cases
+                .iter()
+                .all(|(_, t)| block_returns_var_rec(ctx, *t, var, recursion_stack, memo))
+                && block_returns_var_rec(ctx, *default, var, recursion_stack, memo)
+        }
+        ArcTerminator::Invoke { normal, .. } | ArcTerminator::InvokeIndirect { normal, .. } => {
+            // Normal post-call continuation only — the unwind successor is
+            // excluded by the outer `is_unwind_block` guard
+            // in `should_suppress_return_transfer_dec`.
+            block_returns_var_rec(ctx, *normal, var, recursion_stack, memo)
+        }
+        ArcTerminator::Resume | ArcTerminator::Unreachable => false,
+    };
+
+    recursion_stack.remove(&blk);
+    memo.insert((blk, var), result);
+    result
+}
+
+/// Trace `value` through the alias map to determine if it resolves to
+/// `target_param` (or any alias of it).
+///
+/// Backward counterpart to `detect_consumed_params`' forward alias-tracking
+/// (`extract.rs`). The alias map records, for each variable, the SET of
+/// parameter indices it aliases via Let / Jump-arg / Select chains. If
+/// `value`'s set contains `target_param`'s index, the trace succeeds.
+///
+/// Identity check (`value == target_param`) is the fast path — covers
+/// direct returns of unaliased params.
+fn traces_to_var(ctx: &BlockCtx, value: ArcVarId, target_param: ArcVarId) -> bool {
+    if value == target_param {
+        return true;
+    }
+    let Some(target_idx) = ctx.func.params.iter().position(|p| p.var == target_param) else {
+        return false;
+    };
+    ctx.alias_to_param
+        .get(&value)
+        .is_some_and(|set| set.contains(&target_idx))
 }

@@ -182,6 +182,17 @@ fn emit_branch_switch_cond_dec(ctx: &BlockCtx<'_>, block_idx: usize, new_body: &
         return;
     }
     if let Some(strategy) = rc_strategy(ctx.func, cond, ctx.pool) {
+        // BUG-04-090 §05 Step 8: defensive parity gate. Branch/Switch
+        // scrutinees are typically scalars (booleans/enums) which never
+        // hit `transfers_through_return`, but the four-emitter coverage
+        // rule (TPR-04-005) gates every RcDec emitter against the helper.
+        let is_unwind_block = matches!(
+            ctx.func.blocks[ctx.blk.index()].terminator,
+            crate::ir::ArcTerminator::Resume
+        );
+        if super::should_suppress_return_transfer_dec(ctx, cond, ctx.blk, is_unwind_block) {
+            return;
+        }
         new_body.push(ArcInstr::RcDec {
             var: cond,
             strategy,

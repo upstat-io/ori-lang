@@ -12,7 +12,8 @@ use crate::tail_call::has_non_tail_recursive_calls;
 use crate::ArcClassification;
 
 use super::super::contract::{
-    ContextBehavior, ContextRegion, FipContract, MemoryContract, ParamContract, ReturnContract,
+    ContextBehavior, ContextRegion, FipContract, MemoryContract, ParamContract, ReturnAliasShape,
+    ReturnContract,
 };
 use super::super::intraprocedural::compute_requires_unique_params;
 use super::super::intraprocedural::AimsStateMap;
@@ -55,13 +56,22 @@ pub(crate) fn extract_contract(
     // catches those cases.
     //
     // `return_flow_params` is a SUBSET of `consumed_params` containing ONLY
-    // params traced to a `Return { value }` terminator. Distinct from the
-    // broader `consumed_params` set (which mixes Apply/Invoke-arg
-    // consumption with Return-flow alias). Used to populate
+    // params traced to a `Return { value }` terminator (Direct case).
+    // Distinct from the broader `consumed_params` set (which mixes
+    // Apply/Invoke-arg consumption with Return-flow alias). Used to populate
     // `transfers_through_return` on `ParamContract` per BUG-04-090's fix:
     // params that flow through Return must NOT receive scope-exit RcDec
     // because ownership transfers through the return value.
-    let (consumed_params, return_flow_params) = detect_consumed_params(func, sigs, &param_vars);
+    //
+    // `return_alias_shapes` (BUG-04-090 File 12 caller-side carrier) maps each
+    // param index to its ReturnAliasShape (Direct or Project). Direct entries
+    // mirror `return_flow_params`; Project entries are derived separately by
+    // detecting `Return { value }` where `value`'s definition is a
+    // `Project { value: param's var, field }`. The Owned-only invariant
+    // (Plan TPR Round 3 codex F1) is enforced by extending `consumed_params`
+    // to include Project-Return params, which promotes their access to Owned.
+    let (consumed_params, return_flow_params, return_alias_shapes) =
+        detect_param_facts(func, sigs, &param_vars);
 
     let params: Vec<ParamContract> = func
         .params
@@ -76,13 +86,26 @@ pub(crate) fn extract_contract(
             }
             let state = state_map.var_state_at_block_entry(func.entry, param.var);
             // Upgrade access to Owned if the parameter flows to a consuming
-            // callee. This ensures the interprocedural contract correctly
-            // reflects that the function consumes (not just borrows) the
-            // parameter's data.
+            // callee OR flows to Return via a Project. This ensures the
+            // interprocedural contract correctly reflects that the function
+            // consumes (not just borrows) the parameter's data.
             let access = if consumed_params.contains(&i) {
                 AccessClass::Owned
             } else {
                 state.access
+            };
+            // BUG-04-090 File 12: Owned-only return_alias invariant
+            // (Plan TPR Round 3 codex F1). Borrowed-param Project returns
+            // do NOT transfer ownership; the return_alias shape is only
+            // populated when the param's access is Owned. Since
+            // detect_param_facts folds return_alias_shapes into
+            // consumed_params, any param with a return_alias entry is
+            // already promoted to Owned above — the gate here is
+            // belt-and-suspenders defense.
+            let return_alias = if access == AccessClass::Owned {
+                return_alias_shapes.get(&i).copied()
+            } else {
+                None
             };
             ParamContract {
                 access,
@@ -103,6 +126,12 @@ pub(crate) fn extract_contract(
                 // alias fact (NOT from `preserves_freshness` which is
                 // currently spec-inverted per `aims-rules.md §1.9`).
                 transfers_through_return: return_flow_params.contains(&i),
+                // BUG-04-090 File 12: caller-side aliasing shape for the
+                // `apply_result_aliases` side-table population at the
+                // caller's Apply site. Invariant:
+                // `transfers_through_return == true`
+                // IFF `return_alias == Some(Direct)`.
+                return_alias,
             }
         })
         .collect();
@@ -252,26 +281,146 @@ fn compute_context_behavior(
 /// into the merge-block's param r, so r aliases BOTH parameter indices.
 /// Select aliases work the same way (`true_val` and `false_val` both reach
 /// dst at runtime); the Select arm below tracks both as alias sources.
-fn detect_consumed_params(
+/// Detect three facts at once for the param contract construction:
+/// 1. `consumed_params` — params consumed via callees OR returned (Owned promotion).
+/// 2. `return_flow_params` — params traced to a `Return { value }` (Direct
+///    case, sets `transfers_through_return`).
+/// 3. `return_alias_shapes` — per-param `ReturnAliasShape` (Direct or Project)
+///    used to populate `ParamContract::return_alias` for the BUG-04-090
+///    File 12 caller-side `apply_result_aliases` side-table.
+///
+/// Owned-only invariant (Plan TPR Round 3 codex F1): all three sets feed
+/// into `access` promotion. Borrowed-param Project returns must NOT set
+/// `return_alias`; this is enforced by extending `consumed_params` to
+/// include Project-Return params, which routes them through the Owned
+/// access path in `extract_contract`.
+fn detect_param_facts(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, MemoryContract>,
     param_vars: &FxHashMap<ArcVarId, usize>,
-) -> (FxHashSet<usize>, FxHashSet<usize>) {
-    let alias_to_param = build_alias_to_param_map(func, param_vars);
+) -> (
+    FxHashSet<usize>,
+    FxHashSet<usize>,
+    FxHashMap<usize, ReturnAliasShape>,
+) {
+    let alias_to_param = build_alias_to_param_map(func, param_vars, Some(sigs));
     let mut consumed = find_consumed_via_callees(func, sigs, &alias_to_param);
     let return_flow = find_return_flow_params(func, &alias_to_param);
-    // Returned params are still Owned (Lean ownParamsUsingArgs); fold the
-    // return-flow set into `consumed` so the caller transfers ownership.
+    let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param);
+    // Returned params (Direct OR Project) are still Owned — Lean 4
+    // `ownParamsUsingArgs` pattern. Fold both into `consumed` so the
+    // caller's access-promotion logic correctly routes them as Owned.
+    // The Project case requires this fold because `find_return_flow_params`
+    // (which uses `alias_to_param`) does NOT track Project edges — without
+    // this extension, F-prj's `b: Box<T>` param would stay Borrowed.
     consumed.extend(&return_flow);
-    (consumed, return_flow)
+    consumed.extend(return_alias_shapes.keys());
+    (consumed, return_flow, return_alias_shapes)
+}
+
+/// Compute `ReturnAliasShape` for every param that flows to a Return
+/// terminator, either Direct (param IS the returned value via Let / Select /
+/// Jump-arg / Apply-transfers_through_return aliasing) or Project (Return
+/// value is the dst of `Project { value: src, field }` where `src` aliases
+/// a param).
+///
+/// Multi-path join via `ReturnAliasShape::join`: Direct is TOP and absorbs
+/// Project; incomparable Project paths (different field indices) join to
+/// Direct. See `ReturnAliasShape::join` for the lattice chain.
+///
+/// Used by `detect_param_facts` to produce the per-param shape map that
+/// `extract_contract` writes into `ParamContract::return_alias`. The shape
+/// is then consumed by File 12's `apply_result_aliases` population at the
+/// caller's Apply site (per `aims-rules.md §1.9 Return Provenance`).
+fn find_return_alias_shapes(
+    func: &ArcFunction,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> FxHashMap<usize, ReturnAliasShape> {
+    // Collect Return-value vars first (most blocks have no Return); skip
+    // the Project-def scan entirely when there are no Returns.
+    let return_values: FxHashSet<ArcVarId> = func
+        .blocks
+        .iter()
+        .filter_map(|b| match &b.terminator {
+            ArcTerminator::Return { value } => Some(*value),
+            _ => None,
+        })
+        .collect();
+    if return_values.is_empty() {
+        return FxHashMap::default();
+    }
+    // Build a small map only for Project instructions whose dst is returned.
+    // Avoids walking every Project — most projections do not flow to Return.
+    let project_returns: FxHashMap<ArcVarId, (ArcVarId, u32)> = func
+        .blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .filter_map(|instr| match instr {
+            ArcInstr::Project {
+                dst, value, field, ..
+            } if return_values.contains(dst) => Some((*dst, (*value, *field))),
+            _ => None,
+        })
+        .collect();
+
+    let mut shapes: FxHashMap<usize, ReturnAliasShape> = FxHashMap::default();
+    for block in &func.blocks {
+        let ArcTerminator::Return { value } = &block.terminator else {
+            continue;
+        };
+        // Direct: the Return value's alias-chain reaches a param.
+        if let Some(param_indices) = alias_to_param.get(value) {
+            for &idx in param_indices {
+                join_shape_into(&mut shapes, idx, ReturnAliasShape::Direct);
+            }
+        }
+        // Project: Return value is the dst of `Project { value: src, field }`
+        // where `src` (or `src`'s alias chain) reaches a param.
+        if let Some(&(proj_src, field)) = project_returns.get(value) {
+            if let Some(param_indices) = alias_to_param.get(&proj_src) {
+                for &idx in param_indices {
+                    join_shape_into(&mut shapes, idx, ReturnAliasShape::Project { field });
+                }
+            }
+        }
+    }
+    shapes
+}
+
+/// Multi-path join helper: insert `new` for `idx`, joining with any prior
+/// shape per `ReturnAliasShape::join` semantics.
+fn join_shape_into(
+    shapes: &mut FxHashMap<usize, ReturnAliasShape>,
+    idx: usize,
+    new: ReturnAliasShape,
+) {
+    let prev = shapes.get(&idx).copied();
+    if let Some(joined) = ReturnAliasShape::join(prev, Some(new)) {
+        shapes.insert(idx, joined);
+    }
 }
 
 /// Build the multi-valued alias map: variable → set of parameter indices
-/// it aliases. Covers Let{Var} aliases, Select conditional aliases, and
-/// Jump-arg → block-parameter passing. Iterates to fixed point.
-fn build_alias_to_param_map(
+/// it aliases. Covers Let{Var} aliases, Select conditional aliases,
+/// Jump-arg → block-parameter passing, and (when `sigs` is provided)
+/// Apply destinations whose callee transfers a parameter through its return.
+/// Iterates to fixed point.
+///
+/// Public to the crate so the realization phase can reuse the same alias
+/// resolution that interprocedural extraction relies on. Both phases need
+/// to ask "which parameter indices does this variable alias?" — having two
+/// alias-tracing implementations would be `LEAK:algorithmic-duplication`.
+///
+/// `sigs` enables BUG-04-090 transitive `transfers_through_return`
+/// propagation: when callee `g(x)` has `g.x.transfers_through_return = true`,
+/// then `let r = g(arg)` makes `r` alias whatever params `arg` aliases.
+/// This makes multi-hop forwarder chains (`wrap` calls `id`) transitively
+/// mark the caller's params for return-transfer suppression. Pass `None`
+/// from realization-side callers that only need the local alias structure.
+pub(crate) fn build_alias_to_param_map(
     func: &ArcFunction,
     param_vars: &FxHashMap<ArcVarId, usize>,
+    sigs: Option<&FxHashMap<Name, MemoryContract>>,
 ) -> FxHashMap<ArcVarId, FxHashSet<usize>> {
     let mut alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>> = param_vars
         .iter()
@@ -286,12 +435,31 @@ fn build_alias_to_param_map(
         changed = false;
         for block in &func.blocks {
             for instr in &block.body {
-                changed |= absorb_instr_aliases(instr, &mut alias_to_param);
+                changed |= absorb_instr_aliases(instr, &mut alias_to_param, sigs);
             }
             if let ArcTerminator::Jump { target, args } = &block.terminator {
                 let target_params = &func.blocks[target.index()].params;
                 for (arg, &(param_var, _)) in args.iter().zip(target_params.iter()) {
                     changed |= absorb_alias(*arg, param_var, &mut alias_to_param);
+                }
+            }
+            // Invoke is a terminator that defines `dst` on the normal edge.
+            // Same transitive transfers_through_return propagation as Apply.
+            if let ArcTerminator::Invoke {
+                dst,
+                func: callee,
+                args,
+                ..
+            } = &block.terminator
+            {
+                if let Some(sigs_map) = sigs {
+                    changed |= absorb_callee_return_transfer(
+                        *dst,
+                        *callee,
+                        args,
+                        sigs_map,
+                        &mut alias_to_param,
+                    );
                 }
             }
         }
@@ -304,6 +472,7 @@ fn build_alias_to_param_map(
 fn absorb_instr_aliases(
     instr: &ArcInstr,
     alias_to_param: &mut FxHashMap<ArcVarId, FxHashSet<usize>>,
+    sigs: Option<&FxHashMap<Name, MemoryContract>>,
 ) -> bool {
     match instr {
         // Let { dst, Var(src) } — direct alias
@@ -324,8 +493,58 @@ fn absorb_instr_aliases(
             let b = absorb_alias(*false_val, *dst, alias_to_param);
             a || b
         }
+        // BUG-04-090 transitivity: Apply { dst, callee, args } where the
+        // callee's contract marks param i as `transfers_through_return`.
+        // The callee returns args[i], so dst aliases whatever args[i]
+        // aliases. SCC topological order guarantees the callee's contract
+        // is already in `sigs` when we process the caller.
+        ArcInstr::Apply {
+            dst,
+            func: callee,
+            args,
+            ..
+        } => {
+            if let Some(sigs_map) = sigs {
+                absorb_callee_return_transfer(*dst, *callee, args, sigs_map, alias_to_param)
+            } else {
+                false
+            }
+        }
         _ => false,
     }
+}
+
+/// BUG-04-090 transitivity helper: when `callee` has any param marked
+/// `transfers_through_return`, propagate the corresponding arg's alias set
+/// to `dst`. Used by both `absorb_instr_aliases` (for `Apply`) and the
+/// terminator-loop in `build_alias_to_param_map` (for `Invoke`).
+///
+/// Multi-param case: if `callee` has both param 0 AND param 1 marked
+/// `transfers_through_return`, the callee's return value may alias either
+/// arg at runtime — `dst` is the union of both arg alias sets. Per
+/// `aims-rules.md §1.9 Return Provenance` Select-style join.
+fn absorb_callee_return_transfer(
+    dst: ArcVarId,
+    callee: Name,
+    args: &[ArcVarId],
+    sigs: &FxHashMap<Name, MemoryContract>,
+    alias_to_param: &mut FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> bool {
+    let Some(callee_contract) = sigs.get(&callee) else {
+        return false;
+    };
+    let mut grew = false;
+    for (i, &arg) in args.iter().enumerate() {
+        let transfers = callee_contract
+            .params
+            .get(i)
+            .is_some_and(|p| p.transfers_through_return);
+        if !transfers {
+            continue;
+        }
+        grew |= absorb_alias(arg, dst, alias_to_param);
+    }
+    grew
 }
 
 /// Extend `dst`'s alias set with `src`'s. Returns true if `dst`'s set grew.

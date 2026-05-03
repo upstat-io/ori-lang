@@ -120,6 +120,26 @@ pub(super) fn emit_rc_unified(
                 .collect()
         })
         .unwrap_or_default();
+
+    // BUG-04-090 §05 Step 6: alias map carrier — variable → set of param
+    // indices it aliases. Reuses `build_alias_to_param_map` from
+    // interprocedural extraction (single canonical alias-tracing source per
+    // `LEAK:algorithmic-duplication`). Consumed by `traces_to_var` to
+    // resolve whether a Return terminator's value aliases a return-transfer
+    // param. Empty map suffices when `return_transfer_params` is empty —
+    // the suppression helper short-circuits before consulting the map.
+    let alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>> = if return_transfer_params.is_empty()
+    {
+        FxHashMap::default()
+    } else {
+        let param_vars: FxHashMap<ArcVarId, usize> = func
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.var, i))
+            .collect();
+        crate::aims::interprocedural::build_alias_to_param_map(func, &param_vars, Some(contracts))
+    };
     // Per-class take-project facts via union-find +
     // CFG reachability. Precomputed once per function. Each
     // take-project source seeds its own connected-component class
@@ -154,6 +174,7 @@ pub(super) fn emit_rc_unified(
             &func_project_sources,
             &take_move_facts,
             &return_transfer_params,
+            &alias_to_param,
             iter_fn_name,
             &predecessors,
             &mut block_deferred,
@@ -222,6 +243,7 @@ fn emit_block_rc(
     func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
     take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
     return_transfer_params: &FxHashSet<ArcVarId>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
     iter_fn_name: ori_ir::Name,
     predecessors: &[Vec<usize>],
     block_deferred: &mut FxHashMap<usize, Vec<DeferredDec>>,
@@ -256,6 +278,7 @@ fn emit_block_rc(
         child_effective_last_use: &child_elu,
         take_move_facts,
         return_transfer_params,
+        alias_to_param,
     };
 
     let (deferred_parents, merge_edge_decs) = emit_dead_at_entry_decs(&ctx, &mut new_body);

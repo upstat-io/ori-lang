@@ -206,6 +206,24 @@ fn apply_last_use_decision(
     match decision.rc {
         RcDecision::Dec => {
             if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
+                // BUG-04-090 §05: suppress last-use dec when the variable is
+                // a return-transfer param being consumed on a path that
+                // forwards it through Return (multi-hop forwarder chains:
+                // `wrap` calls `id(x: x)` and returns the result; wrap.x
+                // transitively transfers through wrap's Return per the
+                // alias-map propagation in `absorb_callee_return_transfer`).
+                let is_unwind_block = matches!(
+                    ctx.func.blocks[ctx.blk.index()].terminator,
+                    crate::ir::ArcTerminator::Resume
+                );
+                if crate::aims::emit_rc::should_suppress_return_transfer_dec(
+                    ctx,
+                    var,
+                    ctx.blk,
+                    is_unwind_block,
+                ) {
+                    return;
+                }
                 new_body.push(ArcInstr::RcDec { var, strategy });
 
                 // Cross-decision interaction: if decide() identified reuse

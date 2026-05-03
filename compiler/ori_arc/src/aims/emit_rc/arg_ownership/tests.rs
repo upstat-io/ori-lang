@@ -20,6 +20,7 @@ fn make_param_contract(access: AccessClass) -> ParamContract {
         locality_bound: Locality::FunctionLocal,
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
+        return_alias: None,
     }
 }
 

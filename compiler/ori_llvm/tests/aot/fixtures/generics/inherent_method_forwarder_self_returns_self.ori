@@ -5,7 +5,7 @@
 type Wrapper = { items: [int] };
 
 impl Wrapper {
-    @inner (self) -> Wrapper = self
+    @inner (self) -> Wrapper = self;
 }
 
 @main () -> int = {

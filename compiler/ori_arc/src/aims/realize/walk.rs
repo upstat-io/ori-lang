@@ -99,6 +99,20 @@ pub(super) fn walk_body_unified(
             if !is_unwind_block && in_all && !in_proj {
                 continue;
             }
+            // BUG-04-090 §05 Step 7: suppress scope-exit dec on Owned params
+            // that flow directly to a Return terminator on this path.
+            // Path-sensitive: only fires when the current block's forward
+            // CFG terminates in `Return { value: v }` where `v` aliases the
+            // param. Sibling paths that don't return the param still emit
+            // the dec normally.
+            if crate::aims::emit_rc::should_suppress_return_transfer_dec(
+                ctx,
+                *var,
+                ctx.blk,
+                is_unwind_block,
+            ) {
+                continue;
+            }
         }
 
         // Push the instruction itself.

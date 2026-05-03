@@ -123,6 +123,7 @@ fn oracle_accepts_matching_contract() {
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
+        return_alias: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -156,6 +157,7 @@ fn oracle_accepts_conservative_inference() {
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
+        return_alias: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -192,6 +194,7 @@ fn oracle_rejects_unsafe_optimistic_inference() {
         locality_bound: Locality::BlockLocal,
         uniqueness: Uniqueness::Unique,
         transfers_through_return: false,
+        return_alias: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -348,6 +351,7 @@ fn oracle_derives_may_share_from_rc_incs() {
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
+        return_alias: None,
     }]);
 
     let mismatches = verify_coherence(&func, &inferred, 0);
@@ -690,6 +694,7 @@ fn oracle_accepts_conservative_may_share() {
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
+        return_alias: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -751,6 +756,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             locality_bound: Locality::Unknown,
             uniqueness: Uniqueness::MaybeShared,
             transfers_through_return: false,
+            return_alias: None,
         },
         ParamContract {
             access: AccessClass::Owned,
@@ -761,6 +767,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             locality_bound: Locality::Unknown,
             uniqueness: Uniqueness::MaybeShared,
             transfers_through_return: false,
+            return_alias: None,
         },
     ]);
 
@@ -792,6 +799,7 @@ fn oracle_handles_extra_function_params_gracefully() {
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
+        return_alias: None,
     }]);
 
     // Should not panic — zip truncates to the shorter (1 param from contract).
