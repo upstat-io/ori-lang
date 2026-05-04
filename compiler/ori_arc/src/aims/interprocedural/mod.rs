@@ -222,32 +222,41 @@ fn analyze_scc_fixpoint(
 
     // Convergence bound: each iteration promotes at least one lattice
     // step (single-height increment); the total height-sum is the upper
-    // bound. Height-weighted formula per `aims-rules.md §IC-7`:
+    // bound. Height-weighted formula per IC-7:
     //   per-param height: access(1) + consumption(3) + cardinality(2)
     //                   + locality(4) + uniqueness(2) + may_escape(1)
-    //                   + may_share(1) + transfers_through_return(1) = 15
+    //                   + may_share(1) + transfers_through_return(1)
+    //                   + return_alias(2) = 17
     //   return height:    uniqueness(2) + freshness(1) + locality(4)
     //                   + shape(1) = 8
     //   effect height:    5 fixpoint-participating bools (may_allocate +
     //                   may_deallocate + may_share + may_throw +
     //                   has_unbounded_stack); alloc_only_on_slow_path is
-    //                   post-realization (excluded). aims-rules.md §IC-7
-    //                   lists 6 because spec includes
-    //                   may_read_inaccessible (target-only, not yet in
-    //                   shipped struct); shipped reality is 5.
+    //                   post-realization (excluded). The spec lists 6
+    //                   because it includes may_read_inaccessible
+    //                   (target-only, not yet in shipped struct);
+    //                   shipped reality is 5.
     //   context height:  4 boolean fields (PL-7/PL-11)
     //
-    // Note: aims-rules.md §IC-7 lists per-param height 13 (omitting
-    // may_escape — slated for removal per "Vocabulary changes (not yet
-    // shipped)" preamble) plus the new transfers_through_return = 14.
-    // Shipped ParamContract still has may_escape (contract/mod.rs), so
-    // the RUNTIME bound matches shipped reality at 15. When may_escape is
-    // removed in a separate plan, this constant drops back to 14.
+    // BUG-04-090: per-param height bumped 15 → 17 by adding
+    // `return_alias: Option<ReturnAliasShape>` (height 2; chain
+    // `None < Some(Project) < Some(Direct)`).
+    // `transfers_through_return: bool` (height 1) remains as the
+    // callee-side gate; `return_alias` is the caller-side carrier, both
+    // join componentwise in IC-3.
     //
-    // BUG-04-090: replaced dimension-count form (`× 6` per param) with
-    // height-weighted form per Plan TPR Round-1 codex F1. The dimension
-    // count was the wrong abstraction — height-weighted matches the
-    // worst-case fixpoint convergence proof in aims-rules.md §IC-7.
+    // Historical: spec IC-7 lists per-param height 13 (omitting
+    // may_escape — slated for removal per "Vocabulary changes (not yet
+    // shipped)" preamble) plus transfers_through_return (1) +
+    // return_alias (2) = 16. Shipped ParamContract still has may_escape
+    // (contract/mod.rs), so the RUNTIME bound matches shipped reality at
+    // 17. When may_escape is removed in a separate plan, this constant
+    // drops back to 16.
+    //
+    // Earlier change: replaced dimension-count form (`× 6` per param)
+    // with height-weighted form. The dimension count was the wrong
+    // abstraction — height-weighted matches the worst-case fixpoint
+    // convergence proof for IC-7.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "param count per function bounded by u32::MAX in practice"
@@ -255,7 +264,7 @@ fn analyze_scc_fixpoint(
     let total_height: u32 = scc_funcs
         .iter()
         .map(|f| {
-            let param_height = f.params.len() as u32 * 15;
+            let param_height = f.params.len() as u32 * 17;
             let return_height = 8u32;
             let effect_height = 5u32;
             let context_height = 4u32;

@@ -15,6 +15,14 @@ use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 ///   `s` is in the set (transitive through alias chains)
 /// - Every block parameter that receives an incremented variable through
 ///   a `Jump { target, args }` terminator (phi-edge propagation)
+/// - Every Select operand (`true_val` / `false_val`) when the `dst` is
+///   incremented (BUG-04-090 §05 E-mat fix). At runtime, `Select dst` IS
+///   one of `{true_val, false_val}` — the Session H/I compensating Inc on
+///   `dst` bumps the chosen operand's allocation RC, so the AIMS-side
+///   `Unique` classification on those operands no longer reflects physical
+///   reality and unique-drop fast-path emission would free past the bumped
+///   RC. Propagation is conservative: marks BOTH operands incremented
+///   regardless of the runtime cond, because either could be the chosen.
 ///
 /// Used by both COW annotations and drop hints: after RC emission, any
 /// variable in this set shares a heap object whose physical refcount was
@@ -25,6 +33,10 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
 
     let mut incremented = FxHashSet::default();
     let mut alias_edges: Vec<Option<ArcVarId>> = vec![None; func.var_types.len()];
+    // Select operand aliases: dst → (true_val, false_val). Propagation in the
+    // fixed-point loop below mirrors `Let { Var(src) }` but edges TWO ways
+    // because a Select's dst aliases EITHER operand at runtime.
+    let mut select_aliases: Vec<(ArcVarId, ArcVarId, ArcVarId)> = Vec::new();
 
     for block in &func.blocks {
         for instr in &block.body {
@@ -38,6 +50,14 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
                     ..
                 } => {
                     alias_edges[dst.index()] = Some(*src);
+                }
+                ArcInstr::Select {
+                    dst,
+                    true_val,
+                    false_val,
+                    ..
+                } => {
+                    select_aliases.push((*dst, *true_val, *false_val));
                 }
                 _ => {}
             }
@@ -75,6 +95,12 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
     // Propagate: for each alias edge dst → src, if src is incremented,
     // dst is also incremented (shares the same object).
     // Fixed-point loop handles chains like %11 = %8 = %6 (where %6 has RcInc).
+    //
+    // Select propagation (BUG-04-090 §05 E-mat): for each Select instruction
+    // `dst = Select cond ? true_val : false_val`, if `dst` is incremented,
+    // BOTH operands are incremented (at runtime dst aliases one of them, with
+    // the bumped RC). Conservative two-way propagation matches `aims-rules.md
+    // §1.9 Rule 5` for the `project_alias_sources` Select case.
     loop {
         let mut changed = false;
         for (i, alias) in alias_edges.iter().enumerate() {
@@ -88,6 +114,16 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
                     if incremented.insert(dst) {
                         changed = true;
                     }
+                }
+            }
+        }
+        for &(dst, true_val, false_val) in &select_aliases {
+            if incremented.contains(&dst) {
+                if incremented.insert(true_val) {
+                    changed = true;
+                }
+                if incremented.insert(false_val) {
+                    changed = true;
                 }
             }
         }

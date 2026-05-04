@@ -118,6 +118,69 @@ pub(super) fn walk_body_unified(
         // Push the instruction itself.
         new_body.push(instr.clone());
 
+        // BUG-04-090 §05 F-prj: emit compensating RcInc immediately after a
+        // Project whose dst flows to Return AND whose source resolves to an
+        // Owned param with `return_alias = Some(Project { field })` matching
+        // this Project's field. Without this Inc, the param's scope-exit
+        // `RcDec param [AggFields]` walks fields and decrements the projected
+        // allocation BEFORE the Return — caller receives a freed pointer.
+        // The map is precomputed by `build_return_project_inc_targets` in
+        // `emit_unified.rs` so the walk only does an O(1) hashmap lookup
+        // per Project. Empty map (common case: no contract or no Project
+        // return_alias) short-circuits before lookup.
+        if let ArcInstr::Project { dst, .. } = instr {
+            if let Some(&strategy) = ctx.return_project_inc_targets.get(dst) {
+                new_body.push(ArcInstr::RcInc {
+                    var: *dst,
+                    count: 1,
+                    strategy,
+                });
+            }
+        }
+
+        // BUG-04-090 §05 Session H: Select-aware compensating RcInc.
+        //
+        // `Select cond ? %x : %y` aliases dst to one of {x, y} at
+        // runtime (AIMS §1.9 conditional alias). RL-2 emits per-source
+        // last-use decs on x and y; each dec hits its operand's
+        // allocation. When dst aliases the chosen operand, the dec on
+        // chosen frees dst's allocation → UAF on downstream consumer
+        // (Return, Apply Owned, Construct arg).
+        //
+        // Fix: emit RcInc(dst) BETWEEN the Select instruction and the
+        // per-source decs. Compensates the chosen's RC against its
+        // source dec; the unchosen's source dec balances normally.
+        //
+        // Path-sensitivity: emit only when at least one operand will
+        // actually receive a per-source dec at this Select (last-use
+        // here AND not Session-E return-transfer-suppressed). Without
+        // this gate, an Inc would over-increment when both operand
+        // decs are suppressed.
+        if let ArcInstr::Select {
+            dst,
+            true_val,
+            false_val,
+            ..
+        } = instr
+        {
+            if needs_select_compensating_inc(
+                ctx,
+                *dst,
+                *true_val,
+                *false_val,
+                instr_idx,
+                is_unwind_block,
+            ) {
+                if let Some(strategy) = rc_strategy(ctx.func, *dst, ctx.pool) {
+                    new_body.push(ArcInstr::RcInc {
+                        var: *dst,
+                        count: 1,
+                        strategy,
+                    });
+                }
+            }
+        }
+
         // Sub-phase B: RcDec for defined-dead and last-use variables.
         emit_post_instr_decs_unified(
             ctx,
@@ -330,4 +393,76 @@ fn classify_use_semantics(ctx: &BlockCtx<'_>, var: ArcVarId, instr: &ArcInstr) -
     }
 
     UseSemantics::Normal
+}
+
+/// Whether a `Select` instruction needs a compensating `RcInc(dst)` for
+/// path-sensitive RC balance per AIMS §1.9 + RL-2.
+///
+/// Returns `true` when:
+/// - `dst` is RC-managed (non-scalar, not excluded by `AimsStateMap`).
+/// - `dst` has a downstream consumer (future use in block OR live at exit).
+/// - At least one source operand (`true_val` or `false_val`) will receive
+///   a per-source `RcDec` at this Select (last-use here AND not suppressed
+///   by Session E's return-transfer gate).
+///
+/// The compensating `RcInc(dst)` keeps the chosen operand's allocation
+/// alive across its source dec (the chosen operand IS dst at runtime per
+/// AIMS §1.9 conditional alias), so the consumer's eventual dec frees a
+/// single live RC instead of double-decrementing freed memory.
+fn needs_select_compensating_inc(
+    ctx: &BlockCtx<'_>,
+    dst: ArcVarId,
+    true_val: ArcVarId,
+    false_val: ArcVarId,
+    instr_idx: usize,
+    is_unwind_block: bool,
+) -> bool {
+    if ctx.state_map.is_excluded(dst) {
+        return false;
+    }
+    if ctx.func.var_reprs[dst.index()] == ValueRepr::Scalar {
+        return false;
+    }
+    let dst_has_consumer =
+        ctx.use_info.contains_key(&dst) || is_live_at_exit(ctx.state_map, ctx.blk, dst);
+    if !dst_has_consumer {
+        return false;
+    }
+
+    let operand_emits_dec = |v: ArcVarId| -> bool {
+        if !is_rc_managed(ctx, v) {
+            return false;
+        }
+        // Two cases need compensation:
+        //   (a) Synthetic dec via `emit_post_instr_decs_unified` at the
+        //       Select instruction itself (last-use of operand at this
+        //       instr).
+        //   (b) Explicit RcDec on the operand AFTER the Select in the
+        //       same block (lowering-emitted, common for match-dispatch
+        //       and select<T> shapes).
+        // In both cases, the dec on the operand will hit the chosen's
+        // allocation at runtime → compensate via Inc on the Select dst.
+        let block = &ctx.func.blocks[ctx.blk.index()];
+        let has_explicit_dec_after = block.body.iter().enumerate().any(|(i, instr)| {
+            i > instr_idx
+                && matches!(
+                    instr,
+                    ArcInstr::RcDec { var, .. } if *var == v
+                )
+        });
+        let has_synthetic_dec = ctx
+            .use_info
+            .get(&v)
+            .is_some_and(|&(_total, last_use)| last_use == LastUse::Body(instr_idx))
+            && !is_live_at_exit(ctx.state_map, ctx.blk, v)
+            && !crate::aims::emit_rc::should_suppress_return_transfer_dec(
+                ctx,
+                v,
+                ctx.blk,
+                is_unwind_block,
+            );
+        has_explicit_dec_after || has_synthetic_dec
+    };
+
+    operand_emits_dec(true_val) || operand_emits_dec(false_val)
 }

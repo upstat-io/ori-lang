@@ -17,7 +17,27 @@ use crate::ir::{
 };
 
 use super::trampoline::{compute_defined_at_or_before, insert_trampoline};
-use super::{block_id, rc_strategy, DeferredDec, EdgeDec};
+use super::{block_id, rc_strategy, should_suppress_apply_aliased_dec, DeferredDec, EdgeDec};
+
+/// Whether the successor block at `succ_idx` is an unwind block (terminator
+/// = Resume).
+///
+/// For Branch/Switch successors (no explicit unwind/normal distinction in
+/// the terminator shape), this is the available signal. For Invoke
+/// successors, prefer the explicit `normal`/`unwind` field distinction —
+/// `is_unwind_succ_block` is a fallback when the explicit flag is unknown.
+///
+/// Per BUG-04-090 §05 line 891, intermediate blocks reachable via Invoke
+/// unwind-successor cluster may not have Resume terminators themselves; this
+/// shallow check under-detects unwind blocks for the cluster case. For the
+/// bug-pin scope this is sound because hop2/hop4/F-prj/E-mat exercise
+/// non-unwind control flow exclusively. F-try (try-block, the unwind-edge
+/// case) requires the deeper authoritative `ArcFunction::unwind_blocks`
+/// accessor — tracked as a Hypothesis D component #1 follow-up.
+#[inline]
+fn is_unwind_succ_block(func: &ArcFunction, succ_idx: usize) -> bool {
+    matches!(func.blocks[succ_idx].terminator, ArcTerminator::Resume)
+}
 
 /// Whether a variable should be treated as owned for RC purposes.
 ///
@@ -230,6 +250,16 @@ fn collect_branch_edge_decs(
                 )
             {
                 if let Some(strategy) = rc_strategy(func, var, pool) {
+                    // BUG-04-090 §05 Hypothesis D component #3: suppress
+                    // edge dec when `var` was consumed by an Apply/Invoke
+                    // whose dst aliases it. Per component #2, only fires
+                    // when consumed arg is a non-Let-alias root — Let
+                    // aliases never enter `apply_result_aliases`, so this
+                    // gate cannot misfire on transparent-alias decs.
+                    let is_unwind_succ = is_unwind_succ_block(func, succ_id.index());
+                    if should_suppress_apply_aliased_dec(state_map, var, is_unwind_succ) {
+                        continue;
+                    }
                     edge_decs.push((block_idx, succ_id.index(), var, strategy));
                 }
             }
@@ -284,6 +314,11 @@ fn apply_edge_decs(
 #[expect(
     clippy::too_many_lines,
     reason = "3 cleanup categories in one function — extracting would fragment edge logic"
+)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "BUG-04-090 §05 Hypothesis D component #3 added per-category apply_result_aliases gates; \
+              splitting Cat 1/2/3 into helpers would obscure the unwind-vs-normal contract"
 )]
 fn collect_invoke_edge_decs(
     func: &ArcFunction,
@@ -396,6 +431,11 @@ fn collect_invoke_edge_decs(
             }
 
             // Check normal path.
+            // BUG-04-090 §05 Hypothesis D component #3: gate the normal
+            // edge dec via `apply_result_aliases`. The unwind edge above
+            // is unaffected per `aims-rules.md §8 RL-4` (unwind paths
+            // always emit cleanup decs). Per component #2, the gate
+            // cannot match a Let-alias var.
             let normal_state = edge_state
                 .normal
                 .get(&var)
@@ -403,7 +443,9 @@ fn collect_invoke_edge_decs(
                 .unwrap_or(crate::aims::lattice::AimsState::BOTTOM);
             if normal_state.cardinality == Cardinality::Absent {
                 if let Some(strategy) = rc_strategy(func, var, pool) {
-                    edge_decs.push((block_idx, normal.index(), var, strategy));
+                    if !should_suppress_apply_aliased_dec(state_map, var, false) {
+                        edge_decs.push((block_idx, normal.index(), var, strategy));
+                    }
                 }
             }
         }
@@ -431,7 +473,12 @@ fn collect_invoke_edge_decs(
             continue;
         }
         if let Some(strategy) = rc_strategy(func, arg, pool) {
-            edge_decs.push((block_idx, normal.index(), arg, strategy));
+            // BUG-04-090 §05 Hypothesis D component #3: gate normal edge
+            // dec via `apply_result_aliases`. Unwind edge always fires per
+            // `aims-rules.md §8 RL-4`.
+            if !should_suppress_apply_aliased_dec(state_map, arg, false) {
+                edge_decs.push((block_idx, normal.index(), arg, strategy));
+            }
             edge_decs.push((block_idx, unwind.index(), arg, strategy));
         }
     }

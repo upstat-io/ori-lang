@@ -503,6 +503,31 @@ TOTAL_LCFAIL=$((${ORI_LLVM_LCFAIL:-0}))
 printf "${BOLD}%-30s %8d %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED" "$TOTAL_LCFAIL"
 echo ""
 
+# --- Test disposition tail (#[ignore] / #skip discipline) ---
+# Surfaces drift on every test run per .claude/rules/test-disposition.md.
+# Suppressed in JSON mode (machine consumers read state.sh directly).
+# Silently skipped when state.sh or jq is unavailable (downstream syncs
+# without diagnostics/ should still get test totals without errors).
+if [[ $EMIT_JSON -eq 0 ]] \
+   && command -v jq >/dev/null 2>&1 \
+   && [[ -x "$(dirname "$0")/diagnostics/state.sh" ]]; then
+    DISP_JSON=$("$(dirname "$0")/diagnostics/state.sh" refresh --dispositions-only --json --by test-all 2>/dev/null || true)
+    if [[ -n "$DISP_JSON" ]]; then
+        DISP_TOTAL=$(printf '%s' "$DISP_JSON" | jq -r '.total // 0')
+        DISP_UNTRACKED=$(printf '%s' "$DISP_JSON" | jq -r '.untracked // 0')
+        if [[ "$DISP_UNTRACKED" -gt 0 ]]; then
+            echo -e "${RED}${BOLD}Dispositions: $DISP_TOTAL total, $DISP_UNTRACKED UNTRACKED — DRIFT${NC}"
+            echo "  Per .claude/rules/test-disposition.md: every #[ignore]/#skip needs BUG-XX-NNN in reason text."
+            echo "  List the offenders:"
+            echo "    diagnostics/state.sh dispositions --untracked-only"
+            echo ""
+        else
+            echo "Dispositions: $DISP_TOTAL total, 0 untracked"
+            echo ""
+        fi
+    fi
+fi
+
 if [ "$AOT_LEAKS" -gt 0 ]; then
     echo -e "${YELLOW}${BOLD}⚠  $AOT_LEAKS AOT test(s) leaked memory (ORI_CHECK_LEAKS=1 detected RC leaks)${NC}"
     echo ""

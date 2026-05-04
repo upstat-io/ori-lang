@@ -106,6 +106,44 @@ impl AimsEvent {
     }
 }
 
+// Apply-result alias side-table
+
+/// Caller-side allocation-identity record for an Apply/Invoke destination.
+///
+/// When a callee's `MemoryContract` carries `ParamContract::return_alias =
+/// Some(ReturnAliasShape::*)` for one or more params, the destination of an
+/// Apply/Invoke at the caller IS the same heap allocation as the consumed
+/// argument(s) — the callee transferred ownership through return. This
+/// side-table records that identity so the caller's RC emission can avoid
+/// double-decrementing the shared allocation (BUG-04-090).
+///
+/// Distinct from `borrow_sources` (Project-level borrow facts) and from
+/// `project_alias_sources` (transitive Let/Jump alias chains) — see §1.9
+/// Side-Table Domains. The three side-tables are composed at
+/// `compute_project_alias_sources` so a single backward-walk query reaches
+/// the canonical RC owner regardless of which mechanism produced the alias.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ApplyAliasSource {
+    /// Apply dst aliases the consumed arg directly (callee returns the
+    /// param unchanged: `@id<T>(x: T) -> T = x`). At the caller,
+    /// `Apply dst = @callee(arg)` makes `dst` the same allocation as `arg`.
+    Direct(ArcVarId),
+    /// Apply dst aliases a single-field projection of the consumed arg
+    /// (callee returns `arg.field`: `@unwrap<T>(b: Box<T>) -> T = b.inner`).
+    /// Single-field only — matches `ReturnAliasShape::Project { field: u32 }`
+    /// and `BorrowSource::Exact { field: Option<u32> }` precedent. Nested
+    /// projections defer to a future extension.
+    Project { arg: ArcVarId, field: u32 },
+    /// Apply dst aliases ONE OF the candidates at runtime — the exact alias
+    /// is path-conditional. Arises when 2+ params of the callee have
+    /// `return_alias != None` (e.g., `match x { A -> a, B -> b }` in the
+    /// callee). Caller's RC emission suppresses scope-exit decs on EVERY
+    /// candidate (their ownership transferred at the Apply site, regardless
+    /// of which path is taken at runtime); dst's own RC ops are retained as
+    /// the canonical owner of the returned allocation.
+    Conditional { candidates: Vec<ArcVarId> },
+}
+
 // State map
 
 /// Complete analysis result for a function.
@@ -148,6 +186,20 @@ pub struct AimsStateMap {
     /// Sparse: only entries for variables currently in `AccessClass::Borrowed`.
     /// Per-variable (not per-point) — see module doc for precision trade-off.
     borrow_sources: FxHashMap<ArcVarId, BorrowSource>,
+
+    /// Apply-result allocation-identity side table (BUG-04-090; §1.9 third
+    /// side-table). Sparse: only entries for Apply/Invoke destinations whose
+    /// callee `MemoryContract` carries `return_alias != None` for one or
+    /// more Owned params. Empty when no in-scope callee transfers ownership
+    /// through return — zero per-instruction overhead.
+    ///
+    /// Populated PRE-WALK by `apply_aliases::populate_apply_result_aliases`
+    /// using converged callee `MemoryContract`s; read-only during the
+    /// backward worklist (PL-5 no-stale-summary invariant). Composed into
+    /// `project_alias_sources` at construction (Step 1b) so transitivity
+    /// Rules 2/3/4/6 propagate the alias through Let/Jump/CFG-merge/nested-
+    /// Project chains without re-coding the worklist.
+    apply_result_aliases: FxHashMap<ArcVarId, ApplyAliasSource>,
 
     /// Sparse event table: special-interest program points, indexed by block.
     events: FxHashMap<ArcBlockId, Vec<AimsEvent>>,
@@ -287,6 +339,7 @@ impl AimsStateMap {
             block_entry_states: vec![FxHashMap::default(); num_blocks],
             invoke_edge_states: FxHashMap::default(),
             borrow_sources: FxHashMap::default(),
+            apply_result_aliases: FxHashMap::default(),
             events: FxHashMap::default(),
             scalars: vec![false; num_vars],
             immortals: vec![false; num_vars],
@@ -611,6 +664,41 @@ impl AimsStateMap {
         }
     }
 
+    // Apply-result allocation-identity provenance (BUG-04-090)
+
+    /// Look up the Apply-result allocation-identity record for a variable.
+    ///
+    /// Returns `Some(_)` only when `var` is an Apply/Invoke destination AND
+    /// the callee's `MemoryContract` carried `ParamContract::return_alias !=
+    /// None` for one or more Owned params at the time
+    /// `populate_apply_result_aliases` ran. Returns `None` for fresh
+    /// allocations, indirect calls, and Apply/Invoke destinations whose
+    /// callees do not transfer ownership through return.
+    #[must_use]
+    pub fn apply_result_alias(&self, var: ArcVarId) -> Option<&ApplyAliasSource> {
+        self.apply_result_aliases.get(&var)
+    }
+
+    /// Read-only borrow of the entire Apply-result alias map.
+    ///
+    /// Consumed by `compute_project_alias_sources` Step 1b (composition with
+    /// the project alias graph) and by File 13's forward-walk
+    /// `is_ownership_transfer` / `is_owned_call_position` classification.
+    #[must_use]
+    pub fn apply_result_aliases(&self) -> &FxHashMap<ArcVarId, ApplyAliasSource> {
+        &self.apply_result_aliases
+    }
+
+    /// Bulk-install the pre-computed Apply-result alias map.
+    ///
+    /// Called once per function during `analyze_function`'s pre-walk setup,
+    /// BEFORE `compute_project_alias_sources` and BEFORE the worklist loop.
+    /// The map is read-only after this point per PL-5 (no-stale-summary
+    /// invariant).
+    pub fn set_apply_result_aliases(&mut self, aliases: FxHashMap<ArcVarId, ApplyAliasSource>) {
+        self.apply_result_aliases = aliases;
+    }
+
     // Invoke edge states
 
     /// Get the per-edge demand state for a block ending in Invoke.
@@ -763,7 +851,7 @@ impl AimsStateMap {
     /// the lattice's block-entry value. JOIN semantics (`max` per
     /// §1.5: `BlockLocal` < `FunctionLocal` < `HeapEscaping` <
     /// Unknown — shipped 4-value chain; the spec's 5-value `ArgEscaping`
-    /// is target-only per the aims-rules.md preamble).
+    /// is target-only per the spec's vocabulary-changes preamble).
     #[must_use]
     pub fn effective_locality_at_block_entry(&self, block: ArcBlockId, var: ArcVarId) -> Locality {
         let lattice = self.var_state_at_block_entry(block, var).locality;

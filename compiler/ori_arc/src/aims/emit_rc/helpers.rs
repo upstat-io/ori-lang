@@ -8,9 +8,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::Pool;
 
-use crate::aims::intraprocedural::state_map::AimsStateMap;
+use crate::aims::intraprocedural::state_map::{AimsStateMap, ApplyAliasSource};
 use crate::aims::lattice::{AccessClass, Cardinality};
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcValue, ArcVarId, ValueRepr};
+use crate::ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcValue, ArcVarId, RcStrategy, ValueRepr,
+};
 
 /// Shared context for per-block RC emission helpers.
 pub(crate) struct BlockCtx<'a> {
@@ -87,6 +89,23 @@ pub(crate) struct BlockCtx<'a> {
     /// `block_returns_var`) to determine whether a returned value aliases a
     /// specific parameter. Empty map when no contract drives suppression.
     pub(crate) alias_to_param: &'a FxHashMap<ArcVarId, FxHashSet<usize>>,
+    /// BUG-04-090 §05 F-prj: per-Project compensating-Inc targets.
+    ///
+    /// Maps a `Project { dst, value, field }` instruction's `dst` to its
+    /// `RcStrategy` when:
+    /// 1. `value` resolves (via Let-alias chain) to an Owned function param `p`
+    /// 2. `p`'s `ParamContract.return_alias = Some(Project { field: F })` AND `field == F`
+    /// 3. `dst` flows to a `Return` terminator (i.e., `dst ∈ return_values`)
+    ///
+    /// Consumed by `walk_body_unified`: after pushing the matching Project,
+    /// emit `RcInc dst [strategy]` immediately. Compensates for the param's
+    /// scope-exit `RcDec param [AggFields]` which walks the param's fields
+    /// and decrements the projected field's allocation. Without this Inc,
+    /// `Return %dst` delivers a freed pointer (use-after-free).
+    ///
+    /// Empty when no contract is available OR no params carry
+    /// `return_alias = Some(Project { _ })`.
+    pub(crate) return_project_inc_targets: &'a FxHashMap<ArcVarId, RcStrategy>,
 }
 
 /// Where a variable is last used within a block.
@@ -491,4 +510,52 @@ fn traces_to_var(ctx: &BlockCtx, value: ArcVarId, target_param: ArcVarId) -> boo
     ctx.alias_to_param
         .get(&value)
         .is_some_and(|set| set.contains(&target_idx))
+}
+
+// BUG-04-090 §05 Hypothesis D component #3: caller-side allocation-identity
+// gate at edge_cleanup. Phase 1 walk is balanced; the spurious decs that
+// cause hop2/hop4/F-prj/E-mat double-frees are emitted in Phase 2
+// `edge_cleanup` per the bisect-passes.sh diagnosis.
+//
+// The reverse-lookup helper below scans `apply_result_aliases.values()` for
+// a given consumed-arg variable. Per Hypothesis D component #2,
+// apply_result_aliases entries are filtered to non-Let-alias roots at
+// population time (`apply_aliases.rs::install_alias_entry`), so this
+// reverse lookup CANNOT match a Let Var alias — eliminating the session D
+// regression on `arc::test_rc_alias_owned_call_then_root_use`.
+
+/// Whether the scope-exit `RcDec` for `var` should be suppressed because
+/// `var` was consumed by an Apply/Invoke whose dst aliases `var` (caller-side
+/// ownership transfer detected via `apply_result_aliases`).
+///
+/// Conditions for suppression:
+/// 1. The block is NOT an unwind block (unwind paths always emit cleanup
+///    decs per `aims-rules.md §8 RL-4`). Caller passes `is_unwind_succ` from
+///    explicit Invoke unwind-successor distinction OR from inline Resume
+///    detection on the successor block.
+/// 2. `var` appears as a consumed-arg source in some entry of
+///    `state_map.apply_result_aliases`:
+///    - `Direct(arg)` with `arg == var`
+///    - `Project { arg, .. }` with `arg == var`
+///    - `Conditional { candidates }` with `var ∈ candidates`
+///
+/// Reverse lookup is acceptable: `apply_result_aliases` is sparse (entries
+/// only when callees transfer ownership through return AND the consumed arg
+/// is a non-Let-alias root), so the linear scan is bounded by the small
+/// number of in-flight ownership-transfer Apply sites in the function.
+pub(crate) fn should_suppress_apply_aliased_dec(
+    state_map: &AimsStateMap,
+    var: ArcVarId,
+    is_unwind_block: bool,
+) -> bool {
+    if is_unwind_block {
+        return false;
+    }
+    state_map
+        .apply_result_aliases()
+        .values()
+        .any(|source| match source {
+            ApplyAliasSource::Direct(arg) | ApplyAliasSource::Project { arg, .. } => *arg == var,
+            ApplyAliasSource::Conditional { candidates } => candidates.contains(&var),
+        })
 }

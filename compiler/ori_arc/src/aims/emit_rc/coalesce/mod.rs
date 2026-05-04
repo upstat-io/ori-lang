@@ -177,13 +177,53 @@ fn flush_entry(out: &mut Vec<ArcInstr>, var: ArcVarId, entry: &PendingRc) {
 }
 
 /// Flush all pending RC operations (call barrier or block end).
+///
+/// Emits all net-Inc entries before all net-Dec entries. Within each phase,
+/// variables are sorted by index for deterministic output ordering.
+///
+/// **Inc-before-Dec invariant** (BUG-04-090 §05 F-prj + E-mat fix): when the
+/// pending map carries both a net-Inc on var `Y` and a net-Dec on var `X`
+/// where `Dec(X)` walks `X`'s fields and `Y`'s allocation lives in one of
+/// those fields (e.g., `RcDec b [AggFields]` walking `b.value` whose
+/// allocation has just been projected as `Y`), the field-walk would free
+/// `Y`'s allocation BEFORE `Inc(Y)` fires — use-after-free at any subsequent
+/// use of `Y` (Return, Apply, etc.).
+///
+/// Emitting all Incs before all Decs preserves the parent-with-RC-children
+/// invariant. Sound because:
+/// 1. `flush_all` fires only at end-of-block OR call-barriers — no body
+///    instructions between the flushed ops and the block boundary.
+/// 2. For unrelated variables: phase-ordering between Inc(Y) and Dec(X)
+///    is RC-neutral (no uses, just RC bookkeeping).
+/// 3. For aliased variables: Inc-then-Dec preserves the allocation through
+///    the dec; Dec-then-Inc would free first then UAF on the inc.
+///
+/// Within each phase, the var-index sort preserves the existing deterministic
+/// output convention.
 fn flush_all(pending: &mut FxHashMap<ArcVarId, PendingRc>, out: &mut Vec<ArcInstr>) {
-    // Sort by variable index for deterministic output ordering.
-    let mut vars: Vec<_> = pending.keys().copied().collect();
-    vars.sort_unstable();
-    for var in vars {
+    let mut inc_vars: Vec<ArcVarId> = Vec::new();
+    let mut dec_vars: Vec<ArcVarId> = Vec::new();
+    for (&var, entry) in pending.iter() {
+        if entry.incs > entry.decs {
+            inc_vars.push(var);
+        } else if entry.decs > entry.incs {
+            dec_vars.push(var);
+        }
+        // Net-zero entries flush to nothing — partition skips them.
+    }
+    inc_vars.sort_unstable();
+    dec_vars.sort_unstable();
+
+    for var in inc_vars {
         if let Some(entry) = pending.remove(&var) {
             flush_entry(out, var, &entry);
         }
     }
+    for var in dec_vars {
+        if let Some(entry) = pending.remove(&var) {
+            flush_entry(out, var, &entry);
+        }
+    }
+    // Drain any net-zero entries silently (flush_entry is a no-op for them).
+    pending.clear();
 }

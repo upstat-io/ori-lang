@@ -23,7 +23,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
 | `tpr-failure-summary.sh` | Summarize TPR failure patterns across runs | Investigating Gemini/Codex failures, capacity errors |
 | `tpr-liveness.sh` | Classify a TPR reviewer sub-agent as alive/quiet/dead | `/tpr-review` §9 retry decision — BEFORE deciding a silent reviewer is hung |
-| `state.sh` | Read/write the global repo state indicator (test totals, known-failing set, clippy, hygiene) at `.claude/state/known-state.json` | First query on any new session — skips the rediscover-from-scratch loop (`show`, `check`, `known-failing`, `refresh --sha-only`/`--full`/`--hygiene-only`) |
+| `state.sh` | Read/write the global repo state indicator (test totals, known-failing set, clippy, hygiene, **test dispositions**) at `.claude/state/known-state.json` (schema v2) | First query on any new session — skips the rediscover-from-scratch loop (`show`, `check`, `known-failing`, `dispositions`, `refresh --sha-only`/`--full`/`--hygiene-only`/`--dispositions-only`) |
 | `self-test.sh` | Self-test all scripts against fixtures | After modifying any diagnostic script |
 
 ## Usage
@@ -230,17 +230,21 @@ Default grace is 300s (5 min). The 45-min ceiling on the reviewer CLI (`block-ba
 ### state.sh — Global State Indicator
 
 ```bash
-diagnostics/state.sh show                         # Human-readable summary
-diagnostics/state.sh show --json                  # JSON for skill consumption
-diagnostics/state.sh check                        # Exit 0 fresh / 1 dirty / 2 obsolete / 3 missing
-diagnostics/state.sh known-failing                # List expected-failing files
-diagnostics/state.sh known-failing --json         # Same as JSON array
+diagnostics/state.sh show                                  # Human-readable summary
+diagnostics/state.sh show --json                           # JSON for skill consumption
+diagnostics/state.sh check                                 # Exit 0 fresh / 1 dirty / 2 obsolete / 3 missing
+diagnostics/state.sh known-failing                         # List expected-failing files
+diagnostics/state.sh known-failing --json                  # Same as JSON array
+diagnostics/state.sh dispositions                          # List #[ignore]/#skip annotations + tracking_bug
+diagnostics/state.sh dispositions --untracked-only         # Just the drift (no BUG-XX-NNN in reason)
+diagnostics/state.sh dispositions --json                   # JSON array of entry objects
 diagnostics/state.sh refresh --sha-only --by commit-push   # Cheap: update HEAD SHA only
 diagnostics/state.sh refresh --hygiene-only                # Run repo-hygiene.sh + update notes
-diagnostics/state.sh refresh --full --by section-close     # Slow: re-run test-all.sh + clippy-all.sh
+diagnostics/state.sh refresh --dispositions-only           # Sub-second scan for #[ignore]/#skip + BUG-XX-NNN
+diagnostics/state.sh refresh --full --by section-close     # Slow: re-run test-all.sh + clippy-all.sh + dispositions
 ```
 
-Caches the result of `./test-all.sh`, `./clippy-all.sh`, and `diagnostics/repo-hygiene.sh --check` in `.claude/state/known-state.json` (schema v1) so new sessions skip the rediscover-from-scratch loop.
+Caches the result of `./test-all.sh`, `./clippy-all.sh`, `diagnostics/repo-hygiene.sh --check`, and the disposition scan in `.claude/state/known-state.json` (schema v2) so new sessions skip the rediscover-from-scratch loop.
 
 **When to use:**
 - **First query on any fresh session** — skills that need to know "is the tree known-failing?" should consult `state.sh show --json` before running tests.
@@ -256,7 +260,9 @@ Caches the result of `./test-all.sh`, `./clippy-all.sh`, and `diagnostics/repo-h
 
 **Source of truth:** plan-documented "Known Failing Tests" sections remain the SSOT for intent. This cache is an index over that intent. `refresh --full` does NOT auto-populate `known_failing_files` from test output — that list is an editorial decision tied to plan remediation sections.
 
-**Design log:** `.claude/skills/improve-tooling/script-state-design.md` (schema v1 invariants, load-bearing rules, improvement log).
+**Test disposition tracking (schema v2).** `refresh --dispositions-only` scans `compiler/`, `tests/`, `tools/`, and `library/` for `#[ignore]` and `#skip("...")` annotations and extracts a `BUG-[A-Z0-9]+-[0-9]+` token from each annotation's reason text. Entries with no matching token are flagged `tracking_bug: null` (drift). Reason-text contract: every annotation should follow `#skip("BUG-04-077: typeck regression on generic body")` — the BUG ID anywhere in the reason satisfies the regex. The scan stays compiler_repo-local — bug-existence verification against any external bug tracker is downstream enrichment, not a `state.sh` concern. `test-all.sh` invokes this mode automatically and prints `Dispositions: N total, M untracked` (with a DRIFT banner when M>0). Use `dispositions --untracked-only` to list the offenders.
+
+**Design log:** `.claude/skills/improve-tooling/script-state-design.md` (schema v2 invariants, load-bearing rules, improvement log).
 
 ## Environment Variables
 

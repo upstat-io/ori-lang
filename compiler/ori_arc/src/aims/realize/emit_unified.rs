@@ -7,9 +7,10 @@ use ori_ir::Name;
 use ori_types::Pool;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::MemoryContract;
+use crate::aims::contract::{MemoryContract, ReturnAliasShape};
 use crate::aims::emit_rc::DeferredDec;
 use crate::aims::emit_reuse::{AllocEvent, DeathEvent};
+use crate::aims::intraprocedural::apply_aliases::build_let_alias_map;
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
 
@@ -140,6 +141,16 @@ pub(super) fn emit_rc_unified(
             .collect();
         crate::aims::interprocedural::build_alias_to_param_map(func, &param_vars, Some(contracts))
     };
+
+    // BUG-04-090 §05 F-prj: per-Project compensating-Inc targets. See the
+    // doc comment on `BlockCtx::return_project_inc_targets` and the helper
+    // `build_return_project_inc_targets` below for the full rationale.
+    // Empty when no contract is available OR no params carry
+    // `return_alias = Some(Project { _ })`.
+    let return_project_inc_targets: FxHashMap<ArcVarId, RcStrategy> = contracts
+        .get(&func.name)
+        .map(|c| build_return_project_inc_targets(func, c, pool))
+        .unwrap_or_default();
     // Per-class take-project facts via union-find +
     // CFG reachability. Precomputed once per function. Each
     // take-project source seeds its own connected-component class
@@ -175,6 +186,7 @@ pub(super) fn emit_rc_unified(
             &take_move_facts,
             &return_transfer_params,
             &alias_to_param,
+            &return_project_inc_targets,
             iter_fn_name,
             &predecessors,
             &mut block_deferred,
@@ -244,6 +256,7 @@ fn emit_block_rc(
     take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
     return_transfer_params: &FxHashSet<ArcVarId>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    return_project_inc_targets: &FxHashMap<ArcVarId, RcStrategy>,
     iter_fn_name: ori_ir::Name,
     predecessors: &[Vec<usize>],
     block_deferred: &mut FxHashMap<usize, Vec<DeferredDec>>,
@@ -279,6 +292,7 @@ fn emit_block_rc(
         take_move_facts,
         return_transfer_params,
         alias_to_param,
+        return_project_inc_targets,
     };
 
     let (deferred_parents, merge_edge_decs) = emit_dead_at_entry_decs(&ctx, &mut new_body);
@@ -368,4 +382,89 @@ fn count_rc_ops(func: &ArcFunction) -> usize {
         .flat_map(|b| &b.body)
         .filter(|i| matches!(i, ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. }))
         .count()
+}
+
+/// BUG-04-090 §05 F-prj: precompute the per-Project compensating-Inc target map.
+///
+/// Identifies every `Project { dst, value, field }` instruction whose `dst`
+/// flows to a `Return` terminator AND whose `value` resolves (via Let-alias
+/// chain) to a function param `p` whose `ParamContract.return_alias` is
+/// `Some(Project { field: F })` with `F == field`. Fires regardless of `p`'s
+/// own access class — the Inc compensates for the AggFields walk that fires
+/// at whichever scope holds the parent allocation when the call returns,
+/// callee-side (Owned-callee scope-exit drop) or caller-side (Owned-caller
+/// arg drop after the Apply).
+///
+/// Each such `dst` maps to its `RcStrategy`. The realize walk consumes this
+/// map to emit `RcInc dst [strategy]` immediately after the Project. Without
+/// this Inc, the field-walk inside `[AggFields]` decrements the projected
+/// allocation to 0 BEFORE the consumer of `dst` (Return → caller's xs) reads
+/// it — use-after-free.
+///
+/// Returns an empty map when the contract has no Project `return_alias` entries
+/// — bypasses Project-instruction iteration entirely in the common case.
+fn build_return_project_inc_targets(
+    func: &ArcFunction,
+    contract: &MemoryContract,
+    pool: &Pool,
+) -> FxHashMap<ArcVarId, RcStrategy> {
+    use crate::aims::emit_rc::rc_strategy;
+
+    let project_return_params: FxHashMap<ArcVarId, u32> = func
+        .params
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| {
+            let pc = contract.params.get(i)?;
+            match pc.return_alias? {
+                ReturnAliasShape::Project { field } => Some((p.var, field)),
+                ReturnAliasShape::Direct => None,
+            }
+        })
+        .collect();
+    if project_return_params.is_empty() {
+        return FxHashMap::default();
+    }
+
+    let let_alias_map = build_let_alias_map(func);
+    let resolve_root = |var: ArcVarId| -> ArcVarId {
+        let mut current = var;
+        for _ in 0..64 {
+            match let_alias_map.get(&current) {
+                Some(&src) => current = src,
+                None => break,
+            }
+        }
+        current
+    };
+
+    let return_values: FxHashSet<ArcVarId> = func
+        .blocks
+        .iter()
+        .filter_map(|b| match &b.terminator {
+            ArcTerminator::Return { value } => Some(*value),
+            _ => None,
+        })
+        .collect();
+
+    let mut result: FxHashMap<ArcVarId, RcStrategy> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project {
+                dst, value, field, ..
+            } = instr
+            {
+                if !return_values.contains(dst) {
+                    continue;
+                }
+                let root = resolve_root(*value);
+                if project_return_params.get(&root) == Some(field) {
+                    if let Some(strategy) = rc_strategy(func, *dst, pool) {
+                        result.insert(*dst, strategy);
+                    }
+                }
+            }
+        }
+    }
+    result
 }

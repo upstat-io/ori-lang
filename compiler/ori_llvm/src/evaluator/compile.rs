@@ -271,6 +271,30 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             }
         }
 
+        // INVARIANT: every reachable mono lands in arc_cache before the
+        // interprocedural pass below (PL-5: no-stale-summary). Without this,
+        // analyze_program sees an arc_cache missing every mono and produces
+        // CONSERVATIVE contracts for every generic call site.
+        if !mono_functions.is_empty() {
+            crate::codegen::function_compiler::pre_lower_monos_to_arc_cache(
+                &mono_functions,
+                canon,
+                interner,
+                self.pool,
+                arc_cache,
+            );
+            // INVARIANT: Apply / Invoke targets in cached ArcFunctions resolve
+            // to mangled mono names before AIMS contract lookup. Without this,
+            // forwarder bodies (e.g., wrap calling @id) reference generic names
+            // that miss `analyze_program`'s mono-keyed contract map, breaking
+            // transitive transfers_through_return propagation across hops.
+            crate::codegen::function_compiler::rewrite_apply_targets_for_monos(
+                arc_cache,
+                &mono_functions,
+                self.pool,
+            );
+        }
+
         let (uniqueness_summaries, aims_contracts) =
             Self::run_interprocedural_analyses(arc_cache, &classifier, interner);
 

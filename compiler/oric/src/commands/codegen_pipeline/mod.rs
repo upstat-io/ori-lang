@@ -328,6 +328,20 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             &type_result.typed.mono_instances,
         );
 
+        // INVARIANT: Apply / Invoke targets in cached ArcFunctions resolve
+        // to mangled mono names before AIMS contract lookup (PL-5: no-stale-
+        // summary). run_borrow_inference pre-lowers monos with generic call-
+        // site names — without this rewrite, forwarder bodies miss
+        // analyze_program's mono-keyed contract map and transitive
+        // transfers_through_return propagation silently fails.
+        if !mono_functions.is_empty() {
+            ori_llvm::codegen::function_compiler::rewrite_apply_targets_for_monos(
+                &mut arc_cache,
+                &mono_functions,
+                pool,
+            );
+        }
+
         // ARC-IR phase dumps (ORI_DUMP_AFTER_ARC + ORI_EMIT_ARC_DOT gates)
         finalize::dump_arc_phases(
             &arc_cache,

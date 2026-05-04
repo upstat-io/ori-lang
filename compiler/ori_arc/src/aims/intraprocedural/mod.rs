@@ -32,6 +32,7 @@
 )]
 mod tests;
 
+pub(crate) mod apply_aliases;
 pub mod block;
 pub(crate) mod effects;
 pub(crate) mod fip_balance;
@@ -153,9 +154,17 @@ pub fn analyze_function(
     // `var_state_at_block_exit(invoke_block, dst)` consults it.
     let invoke_dst_to_owner = build_invoke_dst_to_owner(func);
 
+    // BUG-04-090: pre-walk Apply-result allocation-identity side-table.
+    // Ordering load-bearing per PL-5 — populate BEFORE
+    // `compute_project_alias_sources` so its Step 1b seed sees the converged
+    // map. See `apply_aliases.rs` and `project_aliases.rs` for full design.
+    let apply_result_aliases = apply_aliases::populate_apply_result_aliases(func, sigs);
+    state_map.set_apply_result_aliases(apply_result_aliases);
+
     // Precompute Project destination + transitive Let alias → Project source
     // map. Static structure — computed once, reused across worklist iterations.
-    let project_alias_sources = project_aliases::compute_project_alias_sources(func);
+    let project_alias_sources =
+        project_aliases::compute_project_alias_sources(func, state_map.apply_result_aliases());
 
     let iteration_limit = AimsState::iteration_limit(func.var_types.len(), func.blocks.len());
     let mut iteration = 0;

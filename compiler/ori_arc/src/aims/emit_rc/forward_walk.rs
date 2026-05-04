@@ -106,7 +106,24 @@ fn emit_terminator_duplicate_use_incs(
         *term_counts.entry(var).or_insert(0) += 1;
     }
 
+    // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+    // unwind-block awareness for the apply-aliased gate.
+    let is_unwind_block = matches!(
+        ctx.func.blocks[ctx.blk.index()].terminator,
+        crate::ir::ArcTerminator::Resume,
+    );
     for (&var, &k) in &term_counts {
+        // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+        // suppress the terminator-duplicate-use Inc on vars whose
+        // ownership is being transferred to an Apply/Invoke result via
+        // `apply_result_aliases`. The Inc's purpose is unwind-cleanup
+        // protection (the unwind block's dec needs a balancing inc); but
+        // for apply-aliased args, the dec is also suppressed at the
+        // unwind block (per the apply-aliased gate at `emit_dead_at_entry_decs`).
+        // Symmetric suppression keeps the inc/dec pair balanced at zero.
+        if super::should_suppress_apply_aliased_dec(ctx.state_map, var, is_unwind_block) {
+            continue;
+        }
         let live = usize::from(is_live_at_exit(ctx.state_map, ctx.blk, var));
         let count = (k + live).saturating_sub(1);
         if count == 0 {
@@ -147,9 +164,21 @@ fn assert_terminator_rc_balance(
             *actual.entry(*var).or_insert(0) += u64::from(*count);
         }
     }
+    // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+    // unwind-block awareness mirrors the suppression-site formula.
+    let is_unwind_block = matches!(
+        ctx.func.blocks[ctx.blk.index()].terminator,
+        crate::ir::ArcTerminator::Resume,
+    );
     for (&var, &k) in term_counts {
         // Vars without an RC strategy emit nothing; skip the assertion.
         if rc_strategy(ctx.func, var, ctx.pool).is_none() {
+            continue;
+        }
+        // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+        // skip vars whose Inc was suppressed by the apply-aliased gate.
+        // Mirrors the suppression formula in `emit_terminator_duplicate_use_incs`.
+        if super::should_suppress_apply_aliased_dec(ctx.state_map, var, is_unwind_block) {
             continue;
         }
         let live = usize::from(is_live_at_exit(ctx.state_map, ctx.blk, var));

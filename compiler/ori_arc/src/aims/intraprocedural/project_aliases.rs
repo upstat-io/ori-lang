@@ -26,7 +26,7 @@ use smallvec::{smallvec, SmallVec};
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
 use super::super::lattice::{AccessClass, AimsState, Cardinality};
-use super::state_map::AimsStateMap;
+use super::state_map::{AimsStateMap, ApplyAliasSource};
 
 /// Per-variable set of possible Project source aggregates.
 ///
@@ -35,8 +35,8 @@ use super::state_map::AimsStateMap;
 pub(crate) type ProjectSources = SmallVec<[ArcVarId; 1]>;
 
 /// Compute a function-wide map from (Project destination + transitive Let
-/// aliases + block param aliases) to the set of possible Project source
-/// variables.
+/// aliases + block param aliases + Apply-result alias roots) to the set of
+/// possible Project / Apply-aliased source variables.
 ///
 /// For `%3 = Project %2.0` followed by `%4 = Let Var(%3)`, maps both
 /// `%3 → [%2]` and `%4 → [%2]`. For `Jump block1, args=[%3]` where block1
@@ -44,13 +44,23 @@ pub(crate) type ProjectSources = SmallVec<[ArcVarId; 1]>;
 /// predecessors jump to the same block with projections from different
 /// aggregates, the param maps to the union of all sources.
 ///
+/// BUG-04-090: also folds in [`ApplyAliasSource`] entries as Step 1b roots so
+/// shipped transitivity Rules 2/3/4/6 (§1.9 `project_alias_sources` preamble —
+/// Rules 5/7 are unshipped, folding through them is dead code) carry the
+/// Apply-result allocation-identity through Let/Jump/CFG-merge/nested-Project
+/// alias chains. When `%4 = Apply ...` and `apply_result_aliases[%4] =
+/// Direct(%3)`, Step 1b seeds `alias_sources[%4] = [%3]`; downstream `%5 = Let
+/// Var(%4)` then transitively maps `%5 → [%3]` via the existing Step 2
+/// worklist without any per-rule code change.
+///
 /// This enables `propagate_project_source_demand` to detect demand on any
-/// alias of a projected value — including block params that receive projected
-/// values from multiple predecessors via Jump arguments.
+/// alias of a projected or Apply-aliased value — including block params that
+/// receive projected values from multiple predecessors via Jump arguments.
 ///
 /// Precomputed once before the worklist loop (the alias structure is static).
 pub(crate) fn compute_project_alias_sources(
     func: &ArcFunction,
+    apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
 ) -> FxHashMap<ArcVarId, ProjectSources> {
     // Step 1: Direct Project destinations → sources.
     //
@@ -72,6 +82,33 @@ pub(crate) fn compute_project_alias_sources(
                 alias_sources.insert(*dst, smallvec![*value]);
             }
         }
+    }
+
+    // Step 1b (BUG-04-090): seed alias graph with Apply-result allocation-identity
+    // entries. Each `apply_result_aliases[apply_dst]` records that `apply_dst`
+    // shares an allocation with one or more consumed args; representing those
+    // arg(s) as the alias source lets Step 2's Let/Jump/CFG-merge transitivity
+    // propagate the alias through downstream chains without re-coding the
+    // worklist. Variants:
+    //   - Direct(arg)        → seed alias_sources[apply_dst] = [arg]
+    //   - Project { arg, .. } → seed alias_sources[apply_dst] = [arg]
+    //                          (variable-level only — field info not tracked
+    //                          here; field-level discrimination happens at
+    //                          File 13 walk.rs realization)
+    //   - Conditional { candidates } → seed alias_sources[apply_dst] = candidates
+    //                          (multi-root union — dst aliases ONE of N at
+    //                          runtime; analysis keeps ALL parents alive)
+    for (apply_dst, alias_source) in apply_result_aliases {
+        let roots: ProjectSources = match alias_source {
+            ApplyAliasSource::Direct(arg) | ApplyAliasSource::Project { arg, .. } => {
+                smallvec![*arg]
+            }
+            ApplyAliasSource::Conditional { candidates } => SmallVec::from_slice(candidates),
+        };
+        // SSA invariant: each var defined exactly once. An Apply-defined dst
+        // cannot also be a Project dst, so this insert never collides with a
+        // Step 1 entry. Defensive merge anyway in case of unforeseen overlap.
+        merge_sources(&mut alias_sources, *apply_dst, &roots);
     }
 
     // Step 2: Extend transitively through Let aliases AND Jump arg → block

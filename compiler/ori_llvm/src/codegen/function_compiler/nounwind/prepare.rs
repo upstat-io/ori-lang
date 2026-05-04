@@ -3,7 +3,7 @@
 use ori_arc::lower_function_can;
 use ori_arc::verify::VerifyError;
 use ori_ir::canon::CanonResult;
-use ori_ir::{Function, Name};
+use ori_ir::{Function, Name, StringInterner};
 use ori_types::{FunctionSig, Idx};
 use rustc_hash::FxHashMap;
 use tracing::debug;
@@ -12,6 +12,213 @@ use super::types::{PreparedFunction, PreparedLambda};
 use crate::codegen::abi::FunctionAbi;
 use crate::codegen::function_compiler::FunctionCompiler;
 use crate::codegen::value_id::FunctionId;
+
+/// Rewrite Apply / Invoke call targets in every cached `ArcFunction` to use
+/// the mangled mono name.
+///
+/// INVARIANT: AIMS interprocedural contract lookup (`sigs.get(callee_name)`)
+/// must resolve to the actual analyzed function. Without this rewrite, monos
+/// reference generic names (`@id`) at call sites, but `analyze_program`
+/// produces contracts keyed on mangled mono names (`@id$m$4_Lint`), so
+/// transitive `transfers_through_return` propagation through forwarder chains
+/// silently fails.
+///
+/// Resolution strategy (mirrors codegen's `lookup_mono_dispatch`):
+/// 1. If `mono_instance_id` is set, use `MonoInstanceId → Name` lookup.
+/// 2. Otherwise, type-match the Apply's arg types against the candidate
+///    monos of `func.callee` — same logic LLVM emission uses as the legacy
+///    fallback. Required because typeck does not yet populate
+///    `mono_dispatch_map_can` for generic-call sites in mono bodies.
+///
+/// Idempotent: rewrites only when a candidate mono matches the call site;
+/// no-op for non-generic calls.
+#[allow(
+    clippy::implicit_hasher,
+    reason = "FxHashMap is the workspace-wide hasher convention; consumers always pass FxHashMap from arc_cache"
+)]
+pub fn rewrite_apply_targets_for_monos(
+    arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+    mono_functions: &[crate::monomorphize::MonoFunction],
+    pool: &ori_types::Pool,
+) {
+    use ori_ir::canon::MonoInstanceId;
+    let mut mono_by_id: FxHashMap<MonoInstanceId, Name> = FxHashMap::default();
+    let mut mono_by_generic: FxHashMap<Name, Vec<(Vec<Idx>, Name)>> = FxHashMap::default();
+    for mono_fn in mono_functions {
+        for &id in &mono_fn.instance_ids {
+            mono_by_id.insert(id, mono_fn.mangled_name);
+        }
+        let resolved_params: Vec<Idx> = mono_fn
+            .sig
+            .param_types
+            .iter()
+            .map(|&t| pool.resolve_fully(t))
+            .collect();
+        mono_by_generic
+            .entry(mono_fn.original_name)
+            .or_default()
+            .push((resolved_params, mono_fn.mangled_name));
+    }
+    for (_name, (arc_func, lambdas)) in arc_cache.iter_mut() {
+        rewrite_func_call_targets(arc_func, &mono_by_id, &mono_by_generic, pool);
+        for lambda in lambdas {
+            rewrite_func_call_targets(lambda, &mono_by_id, &mono_by_generic, pool);
+        }
+    }
+}
+
+fn resolve_mono_target(
+    callee: Name,
+    args: &[ori_arc::ArcVarId],
+    mono_instance_id: Option<ori_ir::canon::MonoInstanceId>,
+    func: &ori_arc::ArcFunction,
+    mono_by_id: &FxHashMap<ori_ir::canon::MonoInstanceId, Name>,
+    mono_by_generic: &FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+    pool: &ori_types::Pool,
+) -> Option<Name> {
+    if let Some(id) = mono_instance_id {
+        if let Some(&mangled) = mono_by_id.get(&id) {
+            return Some(mangled);
+        }
+    }
+    let candidates = mono_by_generic.get(&callee)?;
+    let arg_types: Vec<Idx> = args
+        .iter()
+        .map(|a| pool.resolve_fully(func.var_type(*a)))
+        .collect();
+    candidates
+        .iter()
+        .find(|(params, _)| {
+            params.len() == arg_types.len() && params.iter().zip(&arg_types).all(|(p, a)| p == a)
+        })
+        .map(|(_, mangled)| *mangled)
+}
+
+fn rewrite_func_call_targets(
+    func: &mut ori_arc::ArcFunction,
+    mono_by_id: &FxHashMap<ori_ir::canon::MonoInstanceId, Name>,
+    mono_by_generic: &FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+    pool: &ori_types::Pool,
+) {
+    use ori_arc::ir::{ArcInstr, ArcTerminator};
+    // Snapshot args+mono_id for each Apply/Invoke so the rewrite step does
+    // not borrow `func` mutably while reading var_type.
+    let updates: Vec<(usize, Option<usize>, Name)> = {
+        let mut out = Vec::new();
+        for (b_idx, block) in func.blocks.iter().enumerate() {
+            for (i_idx, instr) in block.body.iter().enumerate() {
+                if let ArcInstr::Apply {
+                    func: callee,
+                    args,
+                    mono_instance_id,
+                    ..
+                } = instr
+                {
+                    if let Some(mangled) = resolve_mono_target(
+                        *callee,
+                        args,
+                        *mono_instance_id,
+                        func,
+                        mono_by_id,
+                        mono_by_generic,
+                        pool,
+                    ) {
+                        if mangled != *callee {
+                            out.push((b_idx, Some(i_idx), mangled));
+                        }
+                    }
+                }
+            }
+            if let ArcTerminator::Invoke {
+                func: callee,
+                args,
+                mono_instance_id,
+                ..
+            } = &block.terminator
+            {
+                if let Some(mangled) = resolve_mono_target(
+                    *callee,
+                    args,
+                    *mono_instance_id,
+                    func,
+                    mono_by_id,
+                    mono_by_generic,
+                    pool,
+                ) {
+                    if mangled != *callee {
+                        out.push((b_idx, None, mangled));
+                    }
+                }
+            }
+        }
+        out
+    };
+    for (b_idx, i_idx, mangled) in updates {
+        match i_idx {
+            Some(i) => {
+                if let ArcInstr::Apply { func: callee, .. } = &mut func.blocks[b_idx].body[i] {
+                    *callee = mangled;
+                }
+            }
+            None => {
+                if let ArcTerminator::Invoke { func: callee, .. } =
+                    &mut func.blocks[b_idx].terminator
+                {
+                    *callee = mangled;
+                }
+            }
+        }
+    }
+}
+
+/// Lower monomorphized functions to ARC IR and populate `arc_cache` before
+/// AIMS interprocedural analysis runs.
+///
+/// INVARIANT: every reachable mono lands in `arc_cache` before
+/// `run_interprocedural_analyses` (PL-5: no-stale-summary). Lowering monos
+/// only inside `prepare_mono_cached` (the prior shape) ran them AFTER AIMS
+/// had already analyzed an `arc_cache` missing every mono, yielding
+/// `CONSERVATIVE` contracts for every generic call site.
+///
+/// Idempotent: skips entries already present in `arc_cache`.
+pub(crate) fn pre_lower_monos_to_arc_cache(
+    mono_functions: &[crate::monomorphize::MonoFunction],
+    canon: &CanonResult,
+    interner: &StringInterner,
+    pool: &ori_types::Pool,
+    arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+) {
+    for mono_fn in mono_functions {
+        if arc_cache.contains_key(&mono_fn.mangled_name) {
+            continue;
+        }
+        let body = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
+        let params: Vec<(Name, Idx)> = mono_fn
+            .sig
+            .param_names
+            .iter()
+            .copied()
+            .zip(mono_fn.sig.param_types.iter().copied())
+            .collect();
+        let mut problems = Vec::new();
+        let result = lower_function_can(
+            mono_fn.mangled_name,
+            &params,
+            mono_fn.sig.return_type,
+            body,
+            canon,
+            interner,
+            pool,
+            &mut problems,
+            mono_fn.sig.is_fbip,
+            Some(&mono_fn.body_type_map),
+        );
+        for problem in &problems {
+            debug!(?problem, "ARC lowering problem (mono pre-pass)");
+        }
+        arc_cache.insert(mono_fn.mangled_name, result);
+    }
+}
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Lower all non-generic functions through the ARC pipeline without
@@ -150,6 +357,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 }
                 result
             };
+
+            // INVARIANT: every successfully-lowered mono lands in arc_cache before
+            // run_interprocedural_analyses (PL-5: no-stale-summary).
+            arc_cache.insert(mono_fn.mangled_name, (arc_func.clone(), lambdas.clone()));
 
             match self.prepare_arc_function(mono_fn.mangled_name, func_id, &abi, arc_func, lambdas)
             {

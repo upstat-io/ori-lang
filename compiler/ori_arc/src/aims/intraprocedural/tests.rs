@@ -3384,7 +3384,8 @@ fn compute_project_alias_sources_direct_project() {
         ..Default::default()
     };
 
-    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    let sources =
+        super::project_aliases::compute_project_alias_sources(&func, &FxHashMap::default());
     assert_single_source(&sources, var(1), var(0), "direct Project dst");
     assert_eq!(sources.len(), 1);
 }
@@ -3417,7 +3418,8 @@ fn compute_project_alias_sources_let_alias() {
         ..Default::default()
     };
 
-    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    let sources =
+        super::project_aliases::compute_project_alias_sources(&func, &FxHashMap::default());
     assert_single_source(&sources, var(1), var(0), "direct Project dst");
     assert_single_source(&sources, var(2), var(0), "Let alias of Project dst");
     assert_eq!(sources.len(), 2);
@@ -3457,7 +3459,8 @@ fn compute_project_alias_sources_transitive_let_chain() {
         ..Default::default()
     };
 
-    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    let sources =
+        super::project_aliases::compute_project_alias_sources(&func, &FxHashMap::default());
     assert_single_source(&sources, var(1), var(0), "v1");
     assert_single_source(&sources, var(2), var(0), "v2");
     assert_single_source(&sources, var(3), var(0), "v3");
@@ -3500,7 +3503,8 @@ fn compute_project_alias_sources_cross_block_let() {
         ..Default::default()
     };
 
-    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    let sources =
+        super::project_aliases::compute_project_alias_sources(&func, &FxHashMap::default());
     assert_single_source(&sources, var(1), var(0), "direct Project dst");
     assert_single_source(
         &sources,
@@ -3641,7 +3645,8 @@ fn compute_project_alias_sources_jump_arg_to_block_param() {
         ..Default::default()
     };
 
-    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    let sources =
+        super::project_aliases::compute_project_alias_sources(&func, &FxHashMap::default());
     assert_single_source(&sources, var(1), var(0), "direct Project dst");
     assert_single_source(&sources, var(2), var(0), "block param via Jump arg");
     assert_eq!(sources.len(), 2);
@@ -3689,7 +3694,8 @@ fn compute_project_alias_sources_transitive_jump_chain() {
         ..Default::default()
     };
 
-    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    let sources =
+        super::project_aliases::compute_project_alias_sources(&func, &FxHashMap::default());
     assert_single_source(&sources, var(1), var(0), "direct Project dst");
     assert_single_source(&sources, var(2), var(0), "first block param in chain");
     assert_single_source(&sources, var(3), var(0), "second block param in chain");
@@ -3735,7 +3741,8 @@ fn compute_project_alias_sources_let_then_jump() {
         ..Default::default()
     };
 
-    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    let sources =
+        super::project_aliases::compute_project_alias_sources(&func, &FxHashMap::default());
     assert_single_source(&sources, var(1), var(0), "direct Project dst");
     assert_single_source(&sources, var(2), var(0), "Let alias");
     assert_single_source(&sources, var(3), var(0), "block param via Let alias");
@@ -3779,7 +3786,8 @@ fn compute_project_alias_sources_loop_header_param() {
         ..Default::default()
     };
 
-    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    let sources =
+        super::project_aliases::compute_project_alias_sources(&func, &FxHashMap::default());
     assert_single_source(&sources, var(1), var(0), "direct Project dst");
     assert_single_source(&sources, var(2), var(0), "loop header param");
     assert_eq!(sources.len(), 2);
@@ -3917,7 +3925,8 @@ fn compute_project_alias_sources_multi_predecessor_merge() {
         ..Default::default()
     };
 
-    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    let sources =
+        super::project_aliases::compute_project_alias_sources(&func, &FxHashMap::default());
     assert_eq!(
         sources.get(&var(2)).map(SmallVec::as_slice),
         Some(&[var(0)][..]),

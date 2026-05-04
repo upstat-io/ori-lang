@@ -204,6 +204,18 @@ pub(crate) fn emit_dead_at_entry_decs(
                 }
                 continue;
             }
+            // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+            // suppress dec on vars whose ownership was transferred to an
+            // Apply/Invoke result via `apply_result_aliases`. Without this
+            // gate, downstream block-entry dead-cleanup emits decs on
+            // already-consumed args (helper at edge_cleanup wires this for
+            // its sites; emit_dead_at_entry_decs is the missing consumer).
+            // Helper filters Let-Var aliases out at population time, so the
+            // correct dec on a Let-alias of the result still fires via the
+            // body walk's last-use path.
+            if super::should_suppress_apply_aliased_dec(ctx.state_map, var, is_unwind_block) {
+                continue;
+            }
             if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
                 // BUG-04-090 §05 Step 8: suppress dec on params that flow
                 // to a Return on this path (path-sensitive via terminator
@@ -236,6 +248,10 @@ pub(crate) fn emit_dead_at_entry_decs(
 fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
     let entry_states = ctx.state_map.block_entry_states(ctx.blk);
     let block = &ctx.func.blocks[ctx.blk.index()];
+    // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+    // unwind-block awareness for the apply-aliased gate. Resume blocks
+    // always emit cleanup decs per `arc.md §RL-4`.
+    let is_unwind_block = matches!(block.terminator, crate::ir::ArcTerminator::Resume,);
     for &(param_var, _param_ty) in &block.params {
         // Skip if already handled by Source 1.
         if entry_states.is_some_and(|es| es.contains_key(&param_var)) {
@@ -274,6 +290,13 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
         // re-dropped. Emitting another drop here would
         // be a redundant double-free on the bypass path.
         if ctx.take_move_facts.is_in_class(param_var) {
+            continue;
+        }
+        // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+        // suppress dec on block params whose ownership was transferred
+        // to an Apply/Invoke result via `apply_result_aliases`. Same
+        // rationale as the Source 1 gate above.
+        if super::should_suppress_apply_aliased_dec(ctx.state_map, param_var, is_unwind_block) {
             continue;
         }
         if let Some(strategy) = rc_strategy(ctx.func, param_var, ctx.pool) {

@@ -52,14 +52,21 @@ Subcommands:
   known-failing         List known-failing test files, one per line.
                         --json outputs as JSON array. Useful for skills that
                         want to diff current test output against the cache.
+  dispositions          List disposition-tagged tests (#[ignore], #skip), one
+                        per line as: <file>:<line>\t<kind>\t<tracking_bug>\t<reason>
+                        --json outputs as a JSON array of entry objects.
+                        --untracked-only filters to entries with tracking_bug=null.
   refresh               Update the cache.
                         --sha-only          Update head_sha + updated_at only
                                             (fast; no test rerun). Use this
                                             from commit-push post-commit.
-                        --full              Run ./test-all.sh + ./clippy-all.sh,
-                                            rewrite all sections. Slow (~3 min).
+                        --full              Run ./test-all.sh + ./clippy-all.sh
+                                            + disposition scan. Slow (~3 min).
                         --hygiene-only      Run diagnostics/repo-hygiene.sh
                                             --check and update hygiene block.
+                        --dispositions-only Scan compiler/tests/tools/library for
+                                            #[ignore]/#skip annotations and update
+                                            the test_dispositions block. Sub-second.
                         --by <name>         Record who/what triggered the
                                             refresh. Defaults to "manual".
                                             Values: commit-push, manual,
@@ -76,11 +83,14 @@ Examples:
   state.sh check && echo "cache fresh" || echo "stale"
   state.sh refresh --sha-only --by commit-push
   state.sh refresh --full --by section-close
+  state.sh refresh --dispositions-only --by test-all
   state.sh known-failing --json | jq '.[]' | wc -l
+  state.sh dispositions --untracked-only       # pull human-readable drift list
+  state.sh dispositions --json | jq '.[] | select(.tracking_bug == null)'
 
 See also:
   .claude/skills/improve-tooling/script-state-design.md — design log
-  .claude/state/known-state.json — the cache file (schema v1)
+  .claude/state/known-state.json — the cache file (schema v2)
 EOF
 }
 
@@ -186,6 +196,21 @@ cmd_show() {
     echo "--- Repo hygiene ---"
     echo "Status:            $(jq -r '.hygiene.status' "$STATE_FILE")"
     echo "Notes:             $(jq -r '.hygiene.notes // "(none)"' "$STATE_FILE")"
+    echo
+
+    echo "--- Test dispositions (#[ignore], #skip) ---"
+    local disp_status disp_total disp_untracked disp_ignore disp_skip
+    disp_status=$(jq -r '.test_dispositions.status // "unknown"' "$STATE_FILE")
+    disp_total=$(jq -r '.test_dispositions.totals.total // 0' "$STATE_FILE")
+    disp_untracked=$(jq -r '.test_dispositions.totals.untracked // 0' "$STATE_FILE")
+    disp_ignore=$(jq -r '.test_dispositions.totals.ignore // 0' "$STATE_FILE")
+    disp_skip=$(jq -r '.test_dispositions.totals.skip // 0' "$STATE_FILE")
+    echo "Status:            $disp_status"
+    echo "Totals:            total=$disp_total  ignore=$disp_ignore  skip=$disp_skip  untracked=$disp_untracked"
+    if [[ "$disp_untracked" != "0" && "$disp_untracked" != "null" ]]; then
+        echo "DRIFT:             $disp_untracked annotation(s) lack BUG-XX-NNN tracking. Run:"
+        echo "                     state.sh dispositions --untracked-only"
+    fi
 }
 
 # ---- Subcommand: check -------------------------------------------------------
@@ -228,6 +253,21 @@ cmd_known_failing() {
     fi
 }
 
+# ---- Subcommand: dispositions ------------------------------------------------
+cmd_dispositions() {
+    require_state_file
+    require_jq
+    local filter='.test_dispositions.entries // []'
+    if [[ "$DISPOSITIONS_UNTRACKED_ONLY" == "1" ]]; then
+        filter="${filter} | map(select(.tracking_bug == null))"
+    fi
+    if [[ "$OUTPUT" == "json" ]]; then
+        jq "$filter" "$STATE_FILE"
+    else
+        jq -r "$filter | .[] | \"\(.file):\(.line)\t\(.kind)\t\(.tracking_bug // \"<UNTRACKED>\")\t\(.reason)\"" "$STATE_FILE"
+    fi
+}
+
 # ---- Skeleton seed -----------------------------------------------------------
 # Write a minimal schema-v1 state file with every content block marked
 # status: "unknown" and the given head_sha / updated_at / updated_by. Every
@@ -242,11 +282,11 @@ seed_skeleton_state() {
     mkdir -p "$STATE_DIR"
     write_state "$(cat <<EOF
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "head_sha": "$sha",
   "updated_at": "$at",
   "updated_by": "$by",
-  "notes": "Seeded by state.sh first-run bootstrap. Run refresh --full to populate test_suite + clippy with real values.",
+  "notes": "Seeded by state.sh first-run bootstrap. Run refresh --full to populate test_suite + clippy + test_dispositions with real values.",
   "test_suite": {
     "status": "unknown",
     "last_run_sha": "",
@@ -268,10 +308,106 @@ seed_skeleton_state() {
     "last_run_sha": "",
     "last_run_at": "",
     "notes": ""
+  },
+  "test_dispositions": {
+    "status": "unknown",
+    "scanned_at_sha": "",
+    "scanned_at": "",
+    "totals": { "ignore": 0, "skip": 0, "total": 0, "untracked": 0 },
+    "entries": []
   }
 }
 EOF
 )"
+}
+
+# ---- Disposition scan --------------------------------------------------------
+# Scans compiler/, tests/, tools/, library/ for #[ignore] and #skip annotations.
+# Emits TSV: <file-relative-to-ROOT_DIR>\t<line>\t<kind>\t<reason>
+# Reason text is the captured string inside the annotation (empty if none).
+# Tracking-bug extraction (BUG-XX-NNN regex) happens in jq during JSON build —
+# this keeps the bash side simple and the contract uniform across consumers.
+scan_dispositions_tsv() {
+    # Rust #[ignore] — matches:
+    #   #[ignore]
+    #   #[ignore = "reason text"]
+    #   #[ignore(note = "...")]   (rare; reason field captured if present)
+    if [[ -d "$ROOT_DIR/compiler" || -d "$ROOT_DIR/tests" || -d "$ROOT_DIR/tools" ]]; then
+        grep -rEn '^[[:space:]]*#\[ignore([[:space:]]*=[[:space:]]*"[^"]*")?[[:space:]]*\]' \
+            "$ROOT_DIR/compiler" "$ROOT_DIR/tests" "$ROOT_DIR/tools" \
+            --include='*.rs' 2>/dev/null \
+        | while IFS= read -r match; do
+            local file line content reason=""
+            file="${match%%:*}"
+            local rest="${match#*:}"
+            line="${rest%%:*}"
+            content="${rest#*:}"
+            if [[ "$content" =~ \#\[ignore[[:space:]]*=[[:space:]]*\"([^\"]*)\" ]]; then
+                reason="${BASH_REMATCH[1]}"
+            fi
+            # Strip ROOT_DIR prefix for stable relative paths
+            local rel="${file#$ROOT_DIR/}"
+            printf '%s\t%s\t%s\t%s\n' "$rel" "$line" '#[ignore]' "$reason"
+        done
+    fi
+
+    # Ori #skip("reason") — Ori test annotation
+    if [[ -d "$ROOT_DIR/tests" || -d "$ROOT_DIR/library" ]]; then
+        grep -rEn '#skip\("[^"]*"\)' \
+            "$ROOT_DIR/tests" "$ROOT_DIR/library" \
+            --include='*.ori' 2>/dev/null \
+        | while IFS= read -r match; do
+            local file line content reason=""
+            file="${match%%:*}"
+            local rest="${match#*:}"
+            line="${rest%%:*}"
+            content="${rest#*:}"
+            if [[ "$content" =~ \#skip\(\"([^\"]*)\"\) ]]; then
+                reason="${BASH_REMATCH[1]}"
+            fi
+            local rel="${file#$ROOT_DIR/}"
+            printf '%s\t%s\t%s\t%s\n' "$rel" "$line" '#skip' "$reason"
+        done
+    fi
+}
+
+# Build JSON test_dispositions block from the TSV. Stdout = JSON object.
+build_dispositions_block() {
+    local sha="$1" at="$2"
+    local tsv
+    tsv=$(scan_dispositions_tsv)
+
+    # jq: split TSV into rows, parse each into entry object, extract BUG-ID
+    # from reason via capture, compute totals, set status.
+    printf '%s' "$tsv" | jq -R -s --arg sha "$sha" --arg at "$at" '
+        def entries:
+            split("\n")
+            | map(select(length > 0))
+            | map(split("\t") | {
+                file: .[0],
+                line: (.[1] | tonumber),
+                kind: .[2],
+                reason: .[3],
+                tracking_bug: (
+                    if (.[3] | test("BUG-[A-Z0-9]+-[0-9]+"))
+                    then (.[3] | capture("(?<id>BUG-[A-Z0-9]+-[0-9]+)") | .id)
+                    else null
+                    end
+                )
+            });
+        entries as $es
+        | ($es | length) as $total
+        | ($es | map(select(.kind == "#[ignore]")) | length) as $ignore
+        | ($es | map(select(.kind == "#skip")) | length) as $skip
+        | ($es | map(select(.tracking_bug == null)) | length) as $untracked
+        | {
+            status: (if $untracked == 0 then "clean" else "drift" end),
+            scanned_at_sha: $sha,
+            scanned_at: $at,
+            totals: { ignore: $ignore, skip: $skip, total: $total, untracked: $untracked },
+            entries: $es
+        }
+    '
 }
 
 # ---- Subcommand: refresh -----------------------------------------------------
@@ -313,6 +449,27 @@ cmd_refresh() {
                 printf '{"status":"refreshed","mode":"sha-only","head_sha":"%s","seeded":%s}\n' "$current_sha" "$seeded_bool"
             else
                 echo "state refreshed (sha-only): head_sha=$current_sha updated_by=$updated_by_val$seed_tag"
+            fi
+            ;;
+        dispositions-only)
+            local disp_block tmp
+            disp_block=$(build_dispositions_block "$current_sha" "$updated_at")
+            tmp=$(jq --arg sha "$current_sha" \
+                    --arg at "$updated_at" \
+                    --arg by "$updated_by_val" \
+                    --argjson disp "$disp_block" \
+                    '.schema_version = 2
+                     | .head_sha = $sha | .updated_at = $at | .updated_by = $by
+                     | .test_dispositions = $disp' \
+                    "$STATE_FILE")
+            write_state "$tmp"
+            local untracked total
+            untracked=$(printf '%s' "$disp_block" | jq -r '.totals.untracked')
+            total=$(printf '%s' "$disp_block" | jq -r '.totals.total')
+            if [[ "$OUTPUT" == "json" ]]; then
+                printf '{"status":"refreshed","mode":"dispositions-only","total":%s,"untracked":%s}\n' "$total" "$untracked"
+            else
+                echo "dispositions block refreshed: total=$total untracked=$untracked"
             fi
             ;;
         hygiene-only)
@@ -370,6 +527,8 @@ cmd_refresh() {
             skipped=$(awk '/^TOTAL/ {print $4}' "$test_log" | tail -1)
             passed=${passed:-0}; failed=${failed:-0}; skipped=${skipped:-0}
 
+            local disp_block
+            disp_block=$(build_dispositions_block "$current_sha" "$updated_at")
             local tmp
             tmp=$(jq --arg sha "$current_sha" \
                     --arg at "$updated_at" \
@@ -379,7 +538,9 @@ cmd_refresh() {
                     --argjson failed "$failed" \
                     --argjson skipped "$skipped" \
                     --arg cstatus "$clippy_status" \
-                    '.head_sha = $sha | .updated_at = $at | .updated_by = $by
+                    --argjson disp "$disp_block" \
+                    '.schema_version = 2
+                     | .head_sha = $sha | .updated_at = $at | .updated_by = $by
                      | .test_suite.status = $tstatus
                      | .test_suite.last_run_sha = $sha
                      | .test_suite.last_run_at = $at
@@ -389,13 +550,17 @@ cmd_refresh() {
                      | .test_suite.totals.skipped = $skipped
                      | .clippy.status = $cstatus
                      | .clippy.last_run_sha = $sha
-                     | .clippy.last_run_at = $at' \
+                     | .clippy.last_run_at = $at
+                     | .test_dispositions = $disp' \
                     "$STATE_FILE")
             write_state "$tmp"
+            local d_total d_untracked
+            d_total=$(printf '%s' "$disp_block" | jq -r '.totals.total')
+            d_untracked=$(printf '%s' "$disp_block" | jq -r '.totals.untracked')
             if [[ "$OUTPUT" == "json" ]]; then
-                printf '{"status":"refreshed","mode":"full","test_status":"%s","clippy_status":"%s","passed":%s,"failed":%s}\n' "$test_status" "$clippy_status" "$passed" "$failed"
+                printf '{"status":"refreshed","mode":"full","test_status":"%s","clippy_status":"%s","passed":%s,"failed":%s,"dispositions_total":%s,"dispositions_untracked":%s}\n' "$test_status" "$clippy_status" "$passed" "$failed" "$d_total" "$d_untracked"
             else
-                echo "full refresh complete: tests=$test_status clippy=$clippy_status totals=$passed/$failed/$skipped"
+                echo "full refresh complete: tests=$test_status clippy=$clippy_status totals=$passed/$failed/$skipped dispositions=$d_total/$d_untracked-untracked"
             fi
             echo "Note: known_failing_files list is NOT auto-populated from test-all.sh — it reflects plan intent." >&2
             echo "      If the failing set changed, update plan Known Failing Tests + edit state file accordingly." >&2
@@ -410,6 +575,7 @@ cmd_refresh() {
 if [[ $# -eq 0 ]]; then usage; exit 3; fi
 
 UPDATED_BY=""
+DISPOSITIONS_UNTRACKED_ONLY=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --help|-h) usage; exit 0 ;;
@@ -418,11 +584,13 @@ while [[ $# -gt 0 ]]; do
         --sha-only) REFRESH_MODE=sha-only; shift ;;
         --full) REFRESH_MODE=full; shift ;;
         --hygiene-only) REFRESH_MODE=hygiene-only; shift ;;
+        --dispositions-only) REFRESH_MODE=dispositions-only; shift ;;
+        --untracked-only) DISPOSITIONS_UNTRACKED_ONLY=1; shift ;;
         --by)
             [[ $# -ge 2 ]] || die "--by requires a value"
             UPDATED_BY="$2"; shift 2 ;;
         --*) die "unknown flag: $1" ;;
-        show|check|refresh|known-failing)
+        show|check|refresh|known-failing|dispositions)
             [[ -z "$SUBCMD" ]] || die "multiple subcommands: $SUBCMD and $1"
             SUBCMD="$1"; shift ;;
         *) die "unknown argument: $1" ;;
@@ -434,6 +602,7 @@ case "$SUBCMD" in
     check) cmd_check ;;
     refresh) cmd_refresh ;;
     known-failing) cmd_known_failing ;;
+    dispositions) cmd_dispositions ;;
     "") usage; exit 3 ;;
     *) die "unknown subcommand: $SUBCMD" ;;
 esac

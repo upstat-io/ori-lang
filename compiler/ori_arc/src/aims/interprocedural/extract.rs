@@ -86,27 +86,23 @@ pub(crate) fn extract_contract(
             }
             let state = state_map.var_state_at_block_entry(func.entry, param.var);
             // Upgrade access to Owned if the parameter flows to a consuming
-            // callee OR flows to Return via a Project. This ensures the
-            // interprocedural contract correctly reflects that the function
-            // consumes (not just borrows) the parameter's data.
+            // callee OR flows to a Direct Return (param IS the returned
+            // value). Project-return params are NOT promoted — body-derived
+            // classification prevails per Spec: §1.4 Uniqueness.
             let access = if consumed_params.contains(&i) {
                 AccessClass::Owned
             } else {
                 state.access
             };
-            // BUG-04-090 File 12: Owned-only return_alias invariant
-            // (Plan TPR Round 3 codex F1). Borrowed-param Project returns
-            // do NOT transfer ownership; the return_alias shape is only
-            // populated when the param's access is Owned. Since
-            // detect_param_facts folds return_alias_shapes into
-            // consumed_params, any param with a return_alias entry is
-            // already promoted to Owned above — the gate here is
-            // belt-and-suspenders defense.
-            let return_alias = if access == AccessClass::Owned {
-                return_alias_shapes.get(&i).copied()
-            } else {
-                None
-            };
+            // return_alias is populated whenever the param structurally flows
+            // to a Direct or Project Return, regardless of access. The shape
+            // is a caller-side signal: when the caller passes the arg Owned,
+            // `apply_aliases::install_alias_entry` records the alias entry so
+            // the realize walk suppresses the caller's scope-exit dec on the
+            // arg. Borrowed-callee + Borrowed-caller-arg pairs leave the
+            // signal unused. Owned-only callee-side compensation is gated
+            // separately in `realize::emit_unified::build_return_project_inc_targets`.
+            let return_alias = return_alias_shapes.get(&i).copied();
             ParamContract {
                 access,
                 consumption: state.consumption,
@@ -307,14 +303,17 @@ fn detect_param_facts(
     let mut consumed = find_consumed_via_callees(func, sigs, &alias_to_param);
     let return_flow = find_return_flow_params(func, &alias_to_param);
     let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param);
-    // Returned params (Direct OR Project) are still Owned — Lean 4
-    // `ownParamsUsingArgs` pattern. Fold both into `consumed` so the
-    // caller's access-promotion logic correctly routes them as Owned.
-    // The Project case requires this fold because `find_return_flow_params`
-    // (which uses `alias_to_param`) does NOT track Project edges — without
-    // this extension, F-prj's `b: Box<T>` param would stay Borrowed.
+    // Direct-return params are promoted to Owned (Lean 4 `ownParamsUsingArgs`
+    // pattern): the param IS the returned value, so the caller takes
+    // ownership of the param's allocation through the return slot.
+    //
+    // Project-return params are NOT promoted — body-derived classification
+    // prevails. A function whose body is only `Project p.f → Return` does
+    // not consume `p`; promoting `p` to Owned would violate Spec: §1.4
+    // Uniqueness. Caller-side dec-suppression (when the caller passes the
+    // arg Owned) is handled by `apply_aliases::install_alias_entry` reading
+    // `ParamContract.return_alias`, independent of the param's own access.
     consumed.extend(&return_flow);
-    consumed.extend(return_alias_shapes.keys());
     (consumed, return_flow, return_alias_shapes)
 }
 

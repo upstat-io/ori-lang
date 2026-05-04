@@ -38,4 +38,6 @@ mod emit;
 mod prepare;
 mod types;
 
+pub(crate) use prepare::pre_lower_monos_to_arc_cache;
+pub use prepare::rewrite_apply_targets_for_monos;
 pub use types::PreparedFunction;

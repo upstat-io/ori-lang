@@ -359,7 +359,7 @@ fn test_generic_str_compound() {
 }
 
 #[test]
-#[ignore = "blocked-by: nounwind-analysis item — does not distinguish may-unwind monomorphized callees. Pre-existing; unrelated to §04.2.B."]
+#[ignore = "BUG-04-105: nounwind-analysis does not distinguish may-unwind monomorphized callees — pre-existing, unrelated to BUG-04-090's generic-forwarder surface; see bug-tracker/section-04-codegen-llvm.md."]
 fn test_mono_may_unwind_callee_uses_invoke() {
     // A generic function that calls panic should still use `invoke`.
     let ir = crate::util::compile_and_capture_ir(include_str!(
@@ -431,13 +431,6 @@ fn test_generic_chain_result_wrapped() {
 }
 
 #[test]
-#[ignore = "blocked-by: BUG-04-090 — AOT codegen generic forwarder applied to [T] causes \
-            ori_rc_dec on already-freed allocation. Minimal repro: `@id<T>(x: T) -> T = x; \
-            let xs = id(x: [1,2,3]); xs.len()` aborts with 'ori_rc_dec called on \
-            already-freed allocation at …'. Reproduces at 2-hop (generic_calling_generic \
-            with [int] element), so this is NOT a §04.2.B regression — root-extension fix \
-            landed cleanly; the [T] through-generic RC path was already broken. \
-            Tracked: BUG-04-090."]
 fn test_generic_chain_list_element() {
     // 3-hop with [T] — RC-managed element type.
     assert_aot_success(
@@ -753,6 +746,7 @@ fn test_edge_for_yield_return_preserves_unwind_decs() {
 /// Invoke terminators with unwind paths; verify the gate doesn't
 /// suppress decs on the unwind side.
 #[test]
+#[ignore = "BUG-04-092: lower_try Tag::int aggregate-shape mismatch in canon blocks reaching BUG-04-090's AIMS RC surface; un-ignore when BUG-04-092 lands"]
 fn test_edge_try_block_return_preserves_unwind_decs() {
     assert_aot_success(
         include_str!("fixtures/generics/edge_try_block_return.ori"),
@@ -790,6 +784,7 @@ fn test_edge_consumed_and_returned_uses_return_flow_only() {
 /// Plan TPR consensus: capability handlers lower to standard Return
 /// terminators; the param-return-alias rule applies uniformly.
 #[test]
+#[ignore = "BUG-02-026: typeck E2014 capability-propagation rejects main calling uses-Suspend callee; can't reach BUG-04-090's AIMS RC surface until BUG-02-026 lands"]
 fn test_edge_capability_handler_returns_param_uniformly() {
     assert_aot_success(
         include_str!("fixtures/generics/edge_capability_handler_returns_param.ori"),
