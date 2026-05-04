@@ -390,7 +390,7 @@ fn count_rc_ops(func: &ArcFunction) -> usize {
 /// flows to a `Return` terminator AND whose `value` resolves (via Let-alias
 /// chain) to a function param `p` whose `ParamContract.return_alias` is
 /// `Some(Project { field: F })` with `F == field`. Fires regardless of `p`'s
-/// own access class — the Inc compensates for the AggFields walk that fires
+/// own access class — the Inc compensates for the `AggFields` walk that fires
 /// at whichever scope holds the parent allocation when the call returns,
 /// callee-side (Owned-callee scope-exit drop) or caller-side (Owned-caller
 /// arg drop after the Apply).

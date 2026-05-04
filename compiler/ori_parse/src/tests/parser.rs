@@ -1732,3 +1732,80 @@ fn test_let_expr_default_mutable_on_pattern() {
         "let x (no $): BindingPattern.mutable should be Mutable"
     );
 }
+
+// Typed-lambda grammar enforcement (BUG-07-017 Fix 3 — §3.2.X negative pins).
+//
+// Spec: grammar.ebnf §typed_lambda
+//   typed_lambda = "(" typed_param { "," typed_param } ")" "->" type "=" expression
+// Every param typed; ret_ty AND `=` required. Mixed/untyped/missing forms
+// are grammar-invalid and must produce structured E1017 / E1018 diagnostics.
+
+#[test]
+fn test_typed_lambda_no_eq_after_implicit_ret_ty_rejected() {
+    let result = parse_source("let $f = (x: int) -> x;");
+    assert!(result.has_errors(), "expected parse errors");
+    let has_e1017 = result
+        .errors
+        .iter()
+        .any(|e| e.code == ori_diagnostic::ErrorCode::E1017);
+    assert!(
+        has_e1017,
+        "expected E1017 (typed_lambda missing `=`); errors: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn test_typed_lambda_no_eq_after_explicit_ret_ty_rejected() {
+    let result = parse_source("let $f = (x: int) -> int x;");
+    assert!(result.has_errors(), "expected parse errors");
+    let has_e1017 = result
+        .errors
+        .iter()
+        .any(|e| e.code == ori_diagnostic::ErrorCode::E1017);
+    assert!(
+        has_e1017,
+        "expected E1017 (typed_lambda missing `=`); errors: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn test_typed_lambda_mixed_typed_untyped_no_ret_ty_rejected() {
+    let result = parse_source("let $f = (a: int, b, c: str) -> a;");
+    assert!(result.has_errors(), "expected parse errors");
+    let has_e1018 = result
+        .errors
+        .iter()
+        .any(|e| e.code == ori_diagnostic::ErrorCode::E1018);
+    assert!(
+        has_e1018,
+        "expected E1018 (untyped param in typed_lambda); errors: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn test_typed_lambda_mixed_typed_untyped_with_ret_ty_rejected() {
+    let result = parse_source("let $f = (a: int, b) -> int = a;");
+    assert!(result.has_errors(), "expected parse errors");
+    let has_e1018 = result
+        .errors
+        .iter()
+        .any(|e| e.code == ori_diagnostic::ErrorCode::E1018);
+    assert!(
+        has_e1018,
+        "expected E1018 (untyped param in typed_lambda); errors: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn test_typed_lambda_valid_form_accepted() {
+    let result = parse_source("let $f = (x: int) -> int = x;");
+    assert!(
+        !result.has_errors(),
+        "valid typed_lambda must parse cleanly; errors: {:?}",
+        result.errors
+    );
+}

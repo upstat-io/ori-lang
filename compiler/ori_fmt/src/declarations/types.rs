@@ -5,7 +5,7 @@
 use ori_ir::ast::items::{StructField, TypeDecl, TypeDeclKind, Variant};
 use ori_ir::{StringLookup, Visibility};
 
-use super::parsed_types::{calculate_type_width, format_parsed_type};
+use super::parsed_types::{calculate_type_width, const_expr_render_width, format_parsed_type};
 use super::ModuleFormatter;
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
@@ -115,13 +115,14 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
     fn calculate_struct_fields_width(&self, fields: &[StructField]) -> usize {
         let mut width = 4; // "{ " + " }"
+        let mut width_of_expr = |e| const_expr_render_width(self.arena, self.interner, e);
         for (i, field) in fields.iter().enumerate() {
             if i > 0 {
                 width += 2; // ", "
             }
             width += self.interner.lookup(field.name).len();
             width += 2; // ": "
-            width += calculate_type_width(&field.ty, self.arena, self.interner);
+            width += calculate_type_width(&field.ty, self.arena, self.interner, &mut width_of_expr);
         }
         width
     }
@@ -175,6 +176,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
     fn calculate_sum_variants_width(&self, variants: &[Variant]) -> usize {
         let mut width = 0;
+        let mut width_of_expr = |e| const_expr_render_width(self.arena, self.interner, e);
         for (i, variant) in variants.iter().enumerate() {
             if i > 0 {
                 width += 3; // " | "
@@ -188,7 +190,12 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                     }
                     width += self.interner.lookup(field.name).len();
                     width += 2; // ": "
-                    width += calculate_type_width(&field.ty, self.arena, self.interner);
+                    width += calculate_type_width(
+                        &field.ty,
+                        self.arena,
+                        self.interner,
+                        &mut width_of_expr,
+                    );
                 }
             }
         }

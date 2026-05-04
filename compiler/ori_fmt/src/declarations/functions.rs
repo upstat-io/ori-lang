@@ -7,7 +7,10 @@ use crate::width::ALWAYS_STACKED;
 use ori_ir::ast::items::{Function, Param, TraitBound, WhereClause};
 use ori_ir::{ExprId, StringLookup, Visibility};
 
-use super::parsed_types::{calculate_type_width, format_const_expr, format_parsed_type};
+use super::function_body;
+use super::parsed_types::{
+    calculate_type_width, const_expr_render_width, format_const_expr, format_parsed_type,
+};
 use super::ModuleFormatter;
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
@@ -87,7 +90,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             let mut expr_formatter =
                 Formatter::with_config(self.arena, self.interner, *self.ctx.config())
                     .with_starting_column(current_column);
-            expr_formatter.format(body);
+            // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
+            function_body::emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             ends_with_brace = body_output.ends_with('}');
             self.ctx.emit(body_output);
@@ -119,7 +123,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             let mut expr_formatter =
                 Formatter::with_config(self.arena, self.interner, *self.ctx.config())
                     .with_starting_column(current_column);
-            expr_formatter.format(body);
+            // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
+            function_body::emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             ends_with_brace = body_output.ends_with('}');
             self.ctx.emit(body_output);
@@ -255,6 +260,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
     fn calculate_params_width(&self, params: &[Param]) -> usize {
         let mut width = 2; // ()
+        let mut width_of_expr = |e| const_expr_render_width(self.arena, self.interner, e);
         for (i, param) in params.iter().enumerate() {
             if i > 0 {
                 width += 2; // ", "
@@ -262,7 +268,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             width += self.interner.lookup(param.name).len();
             if let Some(ref ty) = param.ty {
                 width += 2; // ": "
-                width += calculate_type_width(ty, self.arena, self.interner);
+                width += calculate_type_width(ty, self.arena, self.interner, &mut width_of_expr);
             }
         }
         width
@@ -280,7 +286,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         // Return type: " -> Type"
         if let Some(ref ret_ty) = func.return_ty {
             width += 4; // " -> "
-            width += calculate_type_width(ret_ty, self.arena, self.interner);
+            let mut width_of_expr = |e| const_expr_render_width(self.arena, self.interner, e);
+            width += calculate_type_width(ret_ty, self.arena, self.interner, &mut width_of_expr);
         }
 
         // Capabilities: " uses Cap1, Cap2"

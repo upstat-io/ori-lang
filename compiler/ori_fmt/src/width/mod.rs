@@ -29,6 +29,7 @@ mod collections;
 mod compounds;
 mod control;
 mod helpers;
+pub(crate) mod lambda;
 mod literals;
 mod operators;
 mod patterns;
@@ -63,18 +64,13 @@ use wrappers::{
 /// the inline attempt and go directly to broken/stacked rendering.
 pub const ALWAYS_STACKED: usize = usize::MAX;
 
-/// Placeholder width estimate for type annotations.
-///
-/// Used when the actual type width is not yet computable.
-const TYPE_ANNOTATION_WIDTH_ESTIMATE: usize = 10;
-
 /// Calculator for inline widths of AST nodes.
 ///
 /// Performs bottom-up traversal to compute how wide each expression
 /// would be if rendered on a single line. Results are cached for efficiency.
 pub struct WidthCalculator<'a, I: StringLookup> {
-    arena: &'a ExprArena,
-    interner: &'a I,
+    pub(super) arena: &'a ExprArena,
+    pub(super) interner: &'a I,
     cache: FxHashMap<ExprId, usize>,
 }
 
@@ -225,14 +221,20 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 let pat = self.arena.get_binding_pattern(*pattern);
                 total += binding_pattern_width(pat, self.interner);
                 if ty.is_valid() {
-                    total += TYPE_ANNOTATION_WIDTH_ESTIMATE;
+                    // ": " + recursive type measurement (NOT magic constant);
+                    // mirrors what the inline + broken Let render emits.
+                    total += 2 + lambda::type_width(self, self.arena, *ty);
                 }
                 total += 3 + init_w; // " = " + init
 
                 total
             }
 
-            // Lambda - complex, kept inline
+            // Lambda - complex, kept inline. Delegates to the canonical
+            // SSOT in `width::lambda` so width measurement and render
+            // (`formatter::{inline,broken}`) cannot drift on the parens
+            // decision, the param-type measurement, or the ret_ty
+            // ceremony width.
             ExprKind::Lambda {
                 params,
                 ret_ty,
@@ -242,22 +244,8 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 if body_w == ALWAYS_STACKED {
                     return ALWAYS_STACKED;
                 }
-
                 let params_list = self.arena.get_params(*params);
-                let params_w = self.width_of_params(params_list);
-
-                let mut total = if params_list.len() == 1 && !ret_ty.is_valid() {
-                    params_w // Single param without parens
-                } else {
-                    1 + params_w + 1 // (params)
-                };
-
-                total += 4 + body_w; // " -> " + body
-                if ret_ty.is_valid() {
-                    total += TYPE_ANNOTATION_WIDTH_ESTIMATE;
-                }
-
-                total
+                lambda::lambda_emit_width(self, self.arena, params_list, *ret_ty, body_w)
             }
 
             // Collections - delegated to collections module
@@ -553,24 +541,6 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             total += name_w + 2 + value_w;
 
             if i < exprs.len() - 1 {
-                total += COMMA_SEPARATOR_WIDTH;
-            }
-        }
-        total
-    }
-
-    /// Calculate width of function parameters.
-    fn width_of_params(&self, params: &[ori_ir::Param]) -> usize {
-        if params.is_empty() {
-            return 0;
-        }
-
-        let mut total = 0;
-        for (i, param) in params.iter().enumerate() {
-            let name_w = self.interner.lookup(param.name).len();
-            total += name_w + 2 + 5; // "name: Type" estimate
-
-            if i < params.len() - 1 {
                 total += COMMA_SEPARATOR_WIDTH;
             }
         }

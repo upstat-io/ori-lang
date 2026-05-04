@@ -104,6 +104,8 @@ define_error_codes! {
     E1014, "Reserved built-in function name";
     E1015, "Unsupported keyword";
     E1016, "Expected semicolon";
+    E1017, "Missing `=` in typed lambda";
+    E1018, "Untyped parameter in typed lambda";
 
     // Type Errors (E2xxx)
     E2001, "Type mismatch";

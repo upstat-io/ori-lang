@@ -3,8 +3,8 @@
 //! Handles parenthesized expressions (tuples, lambdas, grouped),
 //! list literals, block expressions, and map literals.
 
-use crate::{committed, require, ParseOutcome, Parser};
-use ori_ir::{Expr, ExprId, ExprKind, ExprRange, ParamRange, ParsedTypeId, TokenKind};
+use crate::{committed, require, ParseError, ParseOutcome, Parser};
+use ori_ir::{Expr, ExprId, ExprKind, ExprRange, ParamRange, ParsedTypeId, Span, TokenKind};
 
 // Lambda return type parsing
 
@@ -82,23 +82,14 @@ impl Parser<'_> {
         }
 
         // Case 2: Typed lambda params
+        //
+        // Spec: grammar.ebnf §typed_lambda — `(` typed_param { `,` typed_param }
+        // `)` `->` type `=` expression. is_typed_lambda_params() only matches
+        // on the first param's `:` shape; mixed forms like `(a: int, b)` reach
+        // this branch and are rejected by the helper per the typed_lambda
+        // production.
         if self.is_typed_lambda_params() {
-            let params = committed!(self.parse_params());
-            committed!(self.cursor.expect(&TokenKind::RParen));
-            committed!(self.cursor.expect(&TokenKind::Arrow));
-
-            let ret_ty = self.try_parse_lambda_return_type();
-
-            let body = require!(self, self.parse_expr(), "lambda body");
-            let end_span = self.arena.get_expr(body).span;
-            return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
-                ExprKind::Lambda {
-                    params,
-                    ret_ty,
-                    body,
-                },
-                span.merge(end_span),
-            )));
+            return self.parse_typed_lambda_body(span);
         }
 
         // Case 3: Untyped - parse as expression(s)
@@ -159,6 +150,73 @@ impl Parser<'_> {
         }
 
         ParseOutcome::consumed_ok(expr)
+    }
+
+    /// Parse the typed-lambda branch of `parse_parenthesized_body`.
+    ///
+    /// Spec: `grammar.ebnf` §`typed_lambda` — `(` `typed_param` { `,` `typed_param` }
+    /// `)` `->` type `=` expression. All params MUST be typed; `ret_ty` AND
+    /// `=` are REQUIRED. Untyped params produce `E1018`; missing return type
+    /// produces `E1005`; missing `=` produces `E1017`.
+    fn parse_typed_lambda_body(&mut self, start_span: Span) -> ParseOutcome<ExprId> {
+        let params = committed!(self.parse_params());
+
+        let params_slice = self.arena.get_params(params);
+        for param in params_slice {
+            if param.ty.is_none() {
+                return ParseOutcome::consumed_err(
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1018,
+                        "untyped parameter in typed lambda",
+                        param.span,
+                    )
+                    .with_help(
+                        "typed lambdas require all params typed: `(a: T, b: U) -> R = body`; for an untyped lambda drop all type annotations: `(a, b) -> body`",
+                    ),
+                    start_span,
+                );
+            }
+        }
+
+        committed!(self.cursor.expect(&TokenKind::RParen));
+        committed!(self.cursor.expect(&TokenKind::Arrow));
+
+        let Some(ret_ty_parsed) = self.parse_type() else {
+            return ParseOutcome::consumed_err(
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1005,
+                    "expected return type after `->` in typed lambda",
+                    self.cursor.current_span(),
+                )
+                .with_help("typed lambda grammar: `(params) -> type = body`"),
+                start_span,
+            );
+        };
+        let ret_ty = self.arena.alloc_parsed_type(ret_ty_parsed);
+
+        if !self.cursor.check(&TokenKind::Eq) {
+            return ParseOutcome::consumed_err(
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1017,
+                    "expected `=` after typed lambda return type",
+                    self.cursor.current_span(),
+                )
+                .with_help("typed lambda grammar: `(params) -> type = body`"),
+                start_span,
+            );
+        }
+        self.cursor.advance();
+
+        let body = require!(self, self.parse_expr(), "lambda body");
+        let end_span = self.arena.get_expr(body).span;
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::Lambda {
+                params,
+                ret_ty,
+                body,
+            },
+            start_span.merge(end_span),
+        )))
     }
 
     /// Parse list literal.

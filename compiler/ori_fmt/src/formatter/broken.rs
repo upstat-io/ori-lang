@@ -298,18 +298,22 @@ impl<I: StringLookup> Formatter<'_, I> {
                 }
             }
 
-            // Let binding
-            // Per spec: mutable is default, $ prefix for immutable
-            // The $ prefix is emitted by emit_binding_pattern(), not here
+            // Let binding — preserve type annotation per Annex D.
+            // Per spec: mutable is default, $ prefix for immutable.
+            // The $ prefix is emitted by emit_binding_pattern(), not here.
             ExprKind::Let {
                 pattern,
-                ty: _,
+                ty,
                 init,
                 mutable: _,
             } => {
                 self.ctx.emit("let ");
                 let pat = self.arena.get_binding_pattern(*pattern);
                 self.emit_binding_pattern(pat);
+                if ty.is_valid() {
+                    self.ctx.emit(": ");
+                    self.emit_type(self.arena.get_parsed_type(*ty));
+                }
                 self.ctx.emit(" =");
                 self.ctx.emit_newline();
                 self.ctx.indent();
@@ -318,26 +322,42 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.dedent();
             }
 
-            // Lambda with body on new line
+            // Lambda with body on new line — render through the lambda
+            // emit-shape SSOT. Param type annotations preserved per
+            // Annex D typed_lambda; ret_ty when present emits
+            // ` -> RetTy =` before the broken body.
             ExprKind::Lambda {
                 params,
-                ret_ty: _,
+                ret_ty,
                 body,
             } => {
                 let params_list = self.arena.get_params(*params);
-                if params_list.len() == 1 {
-                    self.ctx.emit(self.interner.lookup(params_list[0].name));
-                } else {
+                let needs_parens =
+                    crate::width::lambda::needs_parens_for_lambda(params_list, *ret_ty);
+
+                if needs_parens {
                     self.ctx.emit("(");
-                    for (i, param) in params_list.iter().enumerate() {
-                        if i > 0 {
-                            self.ctx.emit(", ");
-                        }
-                        self.ctx.emit(self.interner.lookup(param.name));
+                }
+                for (i, param) in params_list.iter().enumerate() {
+                    if i > 0 {
+                        self.ctx.emit(", ");
                     }
+                    self.ctx.emit(self.interner.lookup(param.name));
+                    if let Some(ref ty) = param.ty {
+                        self.ctx.emit(": ");
+                        self.emit_type(ty);
+                    }
+                }
+                if needs_parens {
                     self.ctx.emit(")");
                 }
+
                 self.ctx.emit(" ->");
+                if ret_ty.is_valid() {
+                    self.ctx.emit(" ");
+                    self.emit_type(self.arena.get_parsed_type(*ret_ty));
+                    self.ctx.emit(" =");
+                }
                 self.ctx.emit_newline();
                 self.ctx.indent();
                 self.ctx.emit_indent();

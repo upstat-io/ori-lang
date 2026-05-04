@@ -7,6 +7,7 @@ use crate::formatter::Formatter;
 use ori_ir::ast::items::DefImplDef;
 use ori_ir::{CommentList, StringLookup, Visibility};
 
+use super::function_body;
 use super::parsed_types::format_parsed_type;
 use super::ModuleFormatter;
 
@@ -47,7 +48,12 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                     Formatter::with_config(self.arena, self.interner, *self.ctx.config())
                         .with_indent_level(current_indent)
                         .with_starting_column(current_column);
-                expr_formatter.format(method.body);
+                // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
+                function_body::emit_function_block_body_stacked(
+                    &mut expr_formatter,
+                    self.arena,
+                    method.body,
+                );
                 let body_output = expr_formatter.ctx.as_str().trim_end();
                 self.ctx.emit(body_output);
                 if !body_output.ends_with('}') {
@@ -104,7 +110,12 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                     Formatter::with_config(self.arena, self.interner, *self.ctx.config())
                         .with_indent_level(current_indent)
                         .with_starting_column(current_column);
-                expr_formatter.format(method.body);
+                // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
+                function_body::emit_function_block_body_stacked(
+                    &mut expr_formatter,
+                    self.arena,
+                    method.body,
+                );
                 let body_output = expr_formatter.ctx.as_str().trim_end();
                 self.ctx.emit(body_output);
                 if !body_output.ends_with('}') {

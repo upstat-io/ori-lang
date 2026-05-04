@@ -7,6 +7,7 @@ use crate::width::ALWAYS_STACKED;
 use ori_ir::ast::items::TestDef;
 use ori_ir::{ExprId, StringLookup};
 
+use super::function_body;
 use super::parsed_types::format_parsed_type;
 use super::ModuleFormatter;
 
@@ -93,7 +94,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             let mut expr_formatter =
                 Formatter::with_config(self.arena, self.interner, *self.ctx.config())
                     .with_starting_column(current_column);
-            expr_formatter.format(body);
+            // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
+            function_body::emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             ends_with_brace = body_output.ends_with('}');
             self.ctx.emit(body_output);
@@ -105,7 +107,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             let mut expr_formatter =
                 Formatter::with_config(self.arena, self.interner, *self.ctx.config())
                     .with_starting_column(current_column);
-            expr_formatter.format(body);
+            // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
+            function_body::emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             ends_with_brace = body_output.ends_with('}');
             self.ctx.emit(body_output);
