@@ -45,7 +45,7 @@ default-members = [
 ]
 # Excluded crates (not part of workspace at all):
 # - ori-lsp: Not yet updated to use new compiler
-exclude = [
+exclude = ["fuzz",
     "tools/ori-lsp",
 ]
 
