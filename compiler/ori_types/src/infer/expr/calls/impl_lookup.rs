@@ -5,9 +5,10 @@ use rustc_hash::FxHashMap;
 use ori_ir::{Name, Span};
 
 use super::super::super::InferEngine;
-use crate::pool::substitute::substitute_named_in_pool;
+use crate::pool::substitute::{substitute_named_in_pool, substitute_self_in_pool};
 use crate::{
-    GenericParamMeta, Idx, MethodLookupResult, Pool, Tag, TypeCheckError, WhereConstraint,
+    BoundChainLookup, GenericParamMeta, Idx, MethodLookupResult, Pool, Tag, TypeCheckError,
+    WhereConstraint,
 };
 
 /// Result of looking up a method in the `TraitRegistry`.
@@ -296,17 +297,99 @@ pub(super) fn lookup_impl_method(
             generic_param_metadata,
             scheme_var_ids,
             impl_subst,
-        } => LookupOutcome::Found {
-            sig,
-            has_self,
-            where_clause_metadata,
-            generic_param_metadata,
-            scheme_var_ids,
-            impl_subst,
-        },
-        FallbackResult::Ambiguous(trait_names) => LookupOutcome::Ambiguous(trait_names),
-        FallbackResult::None => LookupOutcome::NotFound,
+        } => {
+            return LookupOutcome::Found {
+                sig,
+                has_self,
+                where_clause_metadata,
+                generic_param_metadata,
+                scheme_var_ids,
+                impl_subst,
+            }
+        }
+        FallbackResult::Ambiguous(trait_names) => return LookupOutcome::Ambiguous(trait_names),
+        FallbackResult::None => {}
     }
+
+    // §10.1 bound-chain dispatch on `Tag::RigidVar` receivers.
+    //
+    // When the receiver is a generic type parameter (`@f<T: Clone> ...`),
+    // primary `lookup_method_checked` keyed on the rigid var's `Idx` always
+    // misses (RigidVar indices are never registered as impl `self_type`
+    // keys), and the base-name fallback's structural matcher also fails
+    // because no impl's `self_type` shape unifies with a RigidVar. The
+    // method must be resolved via the rigid var's declared trait bounds:
+    // walk the bound list (registered by `bind_method_rigid_bound` at
+    // body-check entry) and look for a trait providing the method.
+    //
+    // The trait method's signature carries `Tag::SelfType` references that
+    // remain in place — `Self` resolves to the receiver's RigidVar at
+    // call-site type resolution per `infer/expr/type_resolution.rs:184`,
+    // which sees the impl-self type bound by `with_impl_scope`.
+    let receiver_tag = engine.pool().tag(receiver_ty);
+    if matches!(receiver_tag, Tag::RigidVar | Tag::Var) {
+        let Some(bounds) = engine.rigid_var_bounds(receiver_ty).map(<[Name]>::to_vec) else {
+            return LookupOutcome::NotFound;
+        };
+        let lookup = {
+            let Some(reg) = engine.trait_registry() else {
+                return LookupOutcome::NotFound;
+            };
+            reg.find_trait_method_via_bound_chain(method, &bounds)
+        };
+        return match lookup {
+            BoundChainLookup::Found {
+                trait_idx: _,
+                method: tm,
+            } => {
+                // Capture method metadata + raw signature before releasing
+                // the trait_registry borrow (which was held inside the
+                // closure that returned `lookup`). Then substitute
+                // `Tag::SelfType` -> `receiver_ty` in the signature so
+                // chained calls like `val.clone().to_str()` see the
+                // receiver's type for the second-call dispatch instead of
+                // a fresh unification var.
+                let raw_sig = tm.signature;
+                let where_clause_metadata = tm.where_clause_metadata.clone();
+                let generic_param_metadata = tm.generic_param_metadata.clone();
+                let scheme_var_ids = tm.scheme_var_ids.clone();
+                // Trait method sigs are registered with `Self` resolved to
+                // `Tag::Named("Self")` per `check/registration/type_resolution.rs:191`,
+                // so `substitute_named_in_pool` with a `{Self -> receiver_ty}`
+                // mapping pins the method's `Self` references to the actual
+                // receiver. The companion `substitute_self_in_pool` walks
+                // `Tag::SelfType` placeholders for paths that may use the
+                // tag-level form.
+                let sig = if let Some(self_name) = engine.intern_name("Self") {
+                    let mut self_subst = FxHashMap::default();
+                    self_subst.insert(self_name, receiver_ty);
+                    let named_substituted =
+                        substitute_named_in_pool(engine.pool_mut(), raw_sig, &self_subst);
+                    substitute_self_in_pool(engine.pool_mut(), named_substituted, receiver_ty)
+                } else {
+                    substitute_self_in_pool(engine.pool_mut(), raw_sig, receiver_ty)
+                };
+                LookupOutcome::Found {
+                    sig,
+                    // Bound-chain dispatch is for `receiver.method(...)` calls,
+                    // which inherently expect instance methods (have `self`).
+                    // Capability methods without `self` (§10.2) need a
+                    // different dispatch path — tracked as task #11.
+                    has_self: true,
+                    where_clause_metadata,
+                    generic_param_metadata,
+                    scheme_var_ids,
+                    impl_subst: FxHashMap::default(),
+                }
+            }
+            BoundChainLookup::Ambiguous { candidates } => {
+                LookupOutcome::Ambiguous(candidates.iter().map(|&(_, n)| n).collect())
+            }
+            BoundChainLookup::NotFound => LookupOutcome::NotFound,
+        };
+    }
+
+    LookupOutcome::NotFound
 }
 
 /// After an impl method lookup, resolve the signature and validate arity.

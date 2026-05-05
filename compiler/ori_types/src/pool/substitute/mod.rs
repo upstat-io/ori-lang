@@ -306,6 +306,145 @@ pub fn substitute_named_in_pool(
     substitute_named_inner(pool, ty, name_subst)
 }
 
+/// Substitute every `Tag::SelfType` occurrence reachable from `ty` with
+/// `target`. Used by §10.1 bound-chain method dispatch to bind the trait
+/// method's `Self` placeholders to the receiver's concrete `Tag::RigidVar`
+/// (or other concrete type) so chained calls like `val.clone().to_str()`
+/// see the receiver's type for the second dispatch instead of falling
+/// back to a fresh unification var.
+pub fn substitute_self_in_pool(pool: &mut Pool, ty: Idx, target: Idx) -> Idx {
+    substitute_self_inner(pool, ty, target)
+}
+
+fn substitute_self_inner(pool: &mut Pool, ty: Idx, target: Idx) -> Idx {
+    match pool.tag(ty) {
+        Tag::SelfType => target,
+
+        Tag::List => {
+            let elem = pool.list_elem(ty);
+            let new_elem = substitute_self_inner(pool, elem, target);
+            if new_elem == elem {
+                ty
+            } else {
+                pool.list(new_elem)
+            }
+        }
+        Tag::Option => {
+            let inner = pool.option_inner(ty);
+            let new_inner = substitute_self_inner(pool, inner, target);
+            if new_inner == inner {
+                ty
+            } else {
+                pool.option(new_inner)
+            }
+        }
+        Tag::Set => {
+            let elem = pool.set_elem(ty);
+            let new_elem = substitute_self_inner(pool, elem, target);
+            if new_elem == elem {
+                ty
+            } else {
+                pool.set(new_elem)
+            }
+        }
+        Tag::Range => {
+            let elem = pool.range_elem(ty);
+            let new_elem = substitute_self_inner(pool, elem, target);
+            if new_elem == elem {
+                ty
+            } else {
+                pool.range(new_elem)
+            }
+        }
+        Tag::Iterator => {
+            let elem = pool.iterator_elem(ty);
+            let new_elem = substitute_self_inner(pool, elem, target);
+            if new_elem == elem {
+                ty
+            } else {
+                pool.iterator(new_elem)
+            }
+        }
+        Tag::DoubleEndedIterator => {
+            let elem = pool.iterator_elem(ty);
+            let new_elem = substitute_self_inner(pool, elem, target);
+            if new_elem == elem {
+                ty
+            } else {
+                pool.double_ended_iterator(new_elem)
+            }
+        }
+        Tag::Map => {
+            let key = pool.map_key(ty);
+            let value = pool.map_value(ty);
+            let new_key = substitute_self_inner(pool, key, target);
+            let new_value = substitute_self_inner(pool, value, target);
+            if new_key == key && new_value == value {
+                ty
+            } else {
+                pool.map(new_key, new_value)
+            }
+        }
+        Tag::Result => {
+            let ok = pool.result_ok(ty);
+            let err = pool.result_err(ty);
+            let new_ok = substitute_self_inner(pool, ok, target);
+            let new_err = substitute_self_inner(pool, err, target);
+            if new_ok == ok && new_err == err {
+                ty
+            } else {
+                pool.result(new_ok, new_err)
+            }
+        }
+        Tag::Function => {
+            let params: Vec<Idx> = pool.function_params(ty).to_vec();
+            let ret = pool.function_return(ty);
+            let new_params: Vec<Idx> = params
+                .iter()
+                .map(|&p| substitute_self_inner(pool, p, target))
+                .collect();
+            let new_ret = substitute_self_inner(pool, ret, target);
+            if new_params == params && new_ret == ret {
+                ty
+            } else {
+                pool.function(&new_params, new_ret)
+            }
+        }
+        Tag::Tuple => {
+            let elems: Vec<Idx> = pool.tuple_elems(ty).to_vec();
+            let new_elems: Vec<Idx> = elems
+                .iter()
+                .map(|&e| substitute_self_inner(pool, e, target))
+                .collect();
+            if new_elems == elems {
+                ty
+            } else {
+                pool.tuple(&new_elems)
+            }
+        }
+        Tag::Applied => {
+            let name = pool.applied_name(ty);
+            let args: Vec<Idx> = pool.applied_args(ty).to_vec();
+            let new_args: Vec<Idx> = args
+                .iter()
+                .map(|&a| substitute_self_inner(pool, a, target))
+                .collect();
+            if new_args == args {
+                ty
+            } else {
+                pool.applied(name, &new_args)
+            }
+        }
+        // Primitives, vars (Var/BoundVar/RigidVar), Struct/Enum literals,
+        // Projection, Infer, Error, Named, Channel, Borrowed, Scheme, Alias,
+        // ModuleNs — carry no `Tag::SelfType` children for §10.1's purpose.
+        // Scheme is intentionally skipped: trait method signatures with Self
+        // returns wrap as `Tag::Function`, not `Tag::Scheme` (method-level
+        // generics are a separate axis from `Self`).
+        _ => ty,
+    }
+}
+
 fn substitute_named_inner(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>) -> Idx {
     match pool.tag(ty) {
         Tag::Named => {

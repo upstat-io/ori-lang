@@ -482,29 +482,39 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
         allocate_method_binders(checker, method);
 
-    // Resolve parameter types (no Self for def impl, but method-level overlay applies)
+    // §09.2: allocate the def-impl's `Self` `RigidVar` BEFORE resolving
+    // params/return so `(self)` param annotations and `Self` return
+    // annotations resolve to this RigidVar instead of the
+    // `engine.fresh_var()` fallback at `infer/expr/type_resolution.rs:184`
+    // (which fires when no `impl_self_type` is set). Without this early
+    // allocation, the `Tag::Var` for the elided self type leaks into
+    // `param_types[0]` and surfaces as `E2005` at PC-2 validation.
+    let self_rigid = checker.pool_mut().rigid_var(ori_ir::Name::EMPTY);
+
+    // Resolve parameter types (Self bound to self_rigid; method-level overlay applies)
     let arena = checker.arena();
     let params: Vec<_> = arena.get_params(method.params).to_vec();
     let mut param_env = child_env;
 
+    let self_kw = checker.well_known().self_kw;
     let mut param_types = Vec::with_capacity(params.len());
     for p in &params {
         let ty = match &p.ty {
-            Some(parsed_ty) => {
-                if method_substitutions.is_empty() {
-                    // Fast path: preserves existing behavior for the common
-                    // no-method-generics case (avoids needless empty-map probe).
-                    resolve_parsed_type_simple(checker, parsed_ty, arena)
-                } else {
-                    resolve_type_with_method_generics(
-                        checker,
-                        parsed_ty,
-                        &method_substitutions,
-                        &method_generic_params,
-                        Idx::ERROR,
-                    )
-                }
-            }
+            Some(parsed_ty) => resolve_type_with_method_generics(
+                checker,
+                parsed_ty,
+                &method_substitutions,
+                &method_generic_params,
+                self_rigid,
+            ),
+            // `(self)` reaches here with `ty: None` (the parser doesn't
+            // synthesize a SelfType annotation for it). Bind `self`'s type
+            // to the def-impl's Self RigidVar instead of a fresh var so
+            // the receiver type at body-internal `self.method()` calls
+            // can dispatch via `§10.1` bound-chain on a stable RigidVar
+            // identity rather than an unbound `Tag::Var` that leaks as
+            // `E2005` at PC-2 validation.
+            None if p.name == self_kw => self_rigid,
             None => checker.pool_mut().fresh_var(),
         };
         param_env.bind(p.name, ty);
@@ -512,17 +522,13 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     }
 
     // Resolve return type. `mut` so defaulting can refresh it.
-    let mut return_type = if method_substitutions.is_empty() {
-        resolve_parsed_type_simple(checker, &method.return_ty, arena)
-    } else {
-        resolve_type_with_method_generics(
-            checker,
-            &method.return_ty,
-            &method_substitutions,
-            &method_generic_params,
-            Idx::ERROR,
-        )
-    };
+    let mut return_type = resolve_type_with_method_generics(
+        checker,
+        &method.return_ty,
+        &method_substitutions,
+        &method_generic_params,
+        self_rigid,
+    );
 
     // §B.2 step 2: bind method-level RigidVars in TypeEnv child for body-level
     // type-annotation lookups (e.g., `let x: T = expr;`).
@@ -543,16 +549,9 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     // Get body span
     let body_span = checker.arena().get_expr(method.body).span;
 
-    // Allocate a fresh `Tag::RigidVar` to stand in for `Self` inside this
-    // def-impl method body. Per typeck.md §UN-6 / §TYPES:TK-6, RigidVar is
-    // parametric — it cannot unify with concrete types — which matches the
-    // semantics of `Self` in a stateless def-impl (works for any type
-    // satisfying the trait). Wrapping body-check in `with_impl_scope`
-    // exposes this to `ParsedType::SelfType` resolution at
-    // `infer/expr/type_resolution.rs:184` so `self`-typed annotations
-    // resolve to the registered RigidVar instead of fabricating a fresh
-    // unification var that survives to PC-2 validation as E2005.
-    let self_rigid = checker.pool_mut().rigid_var(ori_ir::Name::EMPTY);
+    // self_rigid was allocated earlier (before param resolution) so the
+    // `(self)` param's Self annotation resolved to it; with_impl_scope
+    // below makes it visible to body-internal Self references too.
 
     // Check body with function scope wrapped in impl scope so the engine's
     // `impl_self_type()` returns `self_rigid` for the duration. Defaulting

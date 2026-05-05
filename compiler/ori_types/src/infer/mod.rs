@@ -410,6 +410,41 @@ impl<'pool> InferEngine<'pool> {
             .is_some_and(|bounds| bounds.contains(&trait_name))
     }
 
+    /// Get the full list of trait-bound names declared on a generic
+    /// type-parameter variable.
+    ///
+    /// Accepts both `Tag::RigidVar` (impl/def-impl method-level binders
+    /// created via `pool.rigid_var`) and `Tag::Var` (top-level function
+    /// type-param binders created via `pool.fresh_named_var` per
+    /// `check/signatures/mod.rs:159`). Returns `None` for non-variable
+    /// types or for variables with no registered bounds. Used by §10.1
+    /// bound-chain method dispatch.
+    pub fn rigid_var_bounds(&self, ty: Idx) -> Option<&[Name]> {
+        let tag = self.pool().tag(ty);
+        if tag != Tag::RigidVar && tag != Tag::Var {
+            return None;
+        }
+        let var_id = self.pool().data(ty);
+        self.method_rigid_bounds
+            .get(&var_id)
+            .map(Vec::as_slice)
+    }
+
+    /// Register a rigid-var trait bound directly by `var_id`.
+    ///
+    /// Variant of `bind_method_rigid_bound` that takes the var_id directly
+    /// rather than extracting it from a `Tag::RigidVar` `Idx`. Used by
+    /// `check_function` to register bounds from `FunctionSig.scheme_var_ids`
+    /// + `type_param_bounds` (parallel arrays) without needing to look up
+    /// the rigid `Idx` for each var. Top-level function bounds come from
+    /// the signature, not from per-method rebinding like impl methods.
+    pub fn bind_rigid_bound_by_var_id(&mut self, var_id: u32, trait_name: Name) {
+        self.method_rigid_bounds
+            .entry(var_id)
+            .or_default()
+            .push(trait_name);
+    }
+
     /// Set the current function type for `self` references.
     pub fn set_self_type(&mut self, ty: Idx) {
         self.self_type = Some(ty);

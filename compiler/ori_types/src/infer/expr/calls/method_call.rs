@@ -241,13 +241,21 @@ fn resolve_receiver_and_builtin(
         resolved
     };
 
-    // For unresolved type variables, defer resolution
+    // For unresolved type variables, defer resolution UNLESS the var has
+    // registered trait bounds (§10.1 bound-chain dispatch on top-level
+    // function type-params, which use `pool.fresh_named_var` and surface
+    // as `Tag::Var` rather than `Tag::RigidVar`). Bounded vars must
+    // continue through `lookup_impl_method` so the bound chain runs;
+    // otherwise the early-return masks the dispatch.
     let tag = engine.pool().tag(resolved);
     if tag == Tag::Var {
-        return ReceiverDispatch::Return {
-            ret_ty: engine.pool_mut().fresh_var(),
-            receiver_ty: resolved,
-        };
+        let has_bounds = engine.rigid_var_bounds(resolved).is_some();
+        if !has_bounds {
+            return ReceiverDispatch::Return {
+                ret_ty: engine.pool_mut().fresh_var(),
+                receiver_ty: resolved,
+            };
+        }
     }
 
     let method_str = engine.lookup_name(method);

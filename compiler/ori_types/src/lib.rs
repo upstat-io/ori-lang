@@ -52,6 +52,7 @@ pub use pool::{
     VarState, VariantDescriptor, DEFAULT_RANK,
 };
 pub use registry::{
+    BoundChainLookup,
     // Type registry
     FieldDef,
     GenericParamMeta,

@@ -60,9 +60,20 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
     // Bind capability names as fresh type variables so the body can
     // reference them (e.g., `@f () -> int uses Value = Value`).
     // The concrete type is provided by the caller via `with...in`.
+    //
+    // §10.2: capture (cap_var_id, cap_name) for each capability so the
+    // body-check closure can register the capability trait as a bound
+    // on the cap fresh_var. With the bound registered, body-internal
+    // `Cap.method(...)` calls dispatch via the §10.1 bound-chain path:
+    // receiver is the cap fresh_var (`Tag::Var`), my §10.1 wiring sees
+    // its registered bound → cap_name, finds the capability trait in
+    // the registry, and resolves the method via its trait_methods.
+    let mut capability_var_bounds: Vec<(u32, Name)> = Vec::new();
     for &cap_name in &sig.capabilities {
         let cap_ty = checker.pool_mut().fresh_var();
         param_env.bind(cap_name, cap_ty);
+        let var_id = checker.pool().data(cap_ty);
+        capability_var_bounds.push((var_id, cap_name));
     }
 
     // Build function type for recursion support
@@ -99,6 +110,46 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
 
         // Track current function for deferred mono call recording
         engine.set_current_function(Some(func_name));
+
+        // §10.1: register top-level function generic-param trait bounds on
+        // the engine so body-internal method-call dispatch on
+        // `Tag::Var`/`Tag::RigidVar` receivers can walk the bound chain
+        // and resolve trait methods. Two sources to merge:
+        //
+        // 1. Inline bounds: `@f<T: Clone>(val: T)` — bounds in
+        //    `sig.type_param_bounds` (parallel to `sig.scheme_var_ids`).
+        // 2. Where-clauses: `@f<T> (val: T) where T: Eq, T: Hashable` —
+        //    bounds in `sig.where_clauses` keyed by `param: Name` which
+        //    matches an entry in `sig.type_params` (parallel to
+        //    `sig.scheme_var_ids`). Projection-style where-clauses
+        //    (`T.Item: Eq`) are skipped — they constrain associated
+        //    types, not the type-param itself.
+        for (i, &var_id) in sig.scheme_var_ids.iter().enumerate() {
+            if let Some(bounds) = sig.type_param_bounds.get(i) {
+                for &trait_name in bounds {
+                    engine.bind_rigid_bound_by_var_id(var_id, trait_name);
+                }
+            }
+        }
+        for wc in &sig.where_clauses {
+            if wc.projection.is_some() {
+                continue;
+            }
+            if let Some(idx) = sig.type_params.iter().position(|&n| n == wc.param) {
+                if let Some(&var_id) = sig.scheme_var_ids.get(idx) {
+                    for &trait_name in &wc.bounds {
+                        engine.bind_rigid_bound_by_var_id(var_id, trait_name);
+                    }
+                }
+            }
+        }
+
+        // §10.2: register each capability trait as a bound on its cap_ty
+        // fresh_var. Body-internal `Cap.method(...)` then routes through
+        // §10.1 bound-chain dispatch.
+        for &(var_id, cap_name) in &capability_var_bounds {
+            engine.bind_rigid_bound_by_var_id(var_id, cap_name);
+        }
 
         // Push context for better error messages
         engine.push_context(ContextKind::FunctionReturn {

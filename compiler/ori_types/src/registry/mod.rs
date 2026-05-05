@@ -31,7 +31,8 @@ pub use types::{
 
 // Trait registry exports
 pub use traits::{
-    GenericParamMeta, ImplEntry, ImplMethodDef, ImplSpecificity, MethodLookup, MethodLookupResult,
+    BoundChainLookup, GenericParamMeta, ImplEntry, ImplMethodDef, ImplSpecificity, MethodLookup,
+    MethodLookupResult,
     ObjectSafetyViolation, TraitAssocTypeDef, TraitEntry, TraitMethodDef, TraitRegistry,
     WhereConstraint,
 };
