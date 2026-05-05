@@ -1,0 +1,10 @@
+// BUG-04-106 §03:45 — closure captures `[int]` (cross-type matrix).
+// Pins zero leaks for list capture invoked twice via ApplyIndirect in
+// the same block.
+@main () -> int = {
+    let captured: [int] = [10, 20, 30];
+    let lookup = () -> captured;
+    let first = lookup();
+    let second = lookup();
+    if len(collection: first) == 3 && len(collection: second) == 3 then 0 else 1
+}

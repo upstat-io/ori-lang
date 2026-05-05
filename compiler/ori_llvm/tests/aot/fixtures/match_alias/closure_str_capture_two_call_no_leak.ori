@@ -1,0 +1,12 @@
+// BUG-04-106 §03:44 — closure captures `str` (cross-type matrix).
+// The closure_env_alias bug surfaces with Result<int, str>::Err(string);
+// this fixture pins zero leaks for direct str capture invoked twice.
+@main () -> int = {
+    let captured: str = "captured_str_two_call";
+    let lookup = () -> captured;
+    let first = lookup();
+    let second = lookup();
+    let h1 = first.contains(substr: "captured");
+    let h2 = second.contains(substr: "two_call");
+    if h1 && h2 then 0 else 1
+}

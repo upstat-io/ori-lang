@@ -1,38 +1,29 @@
-//! `ChainedElseIfRule`: Kotlin-style if-else-if formatting.
+//! `ChainedElseIfRule`: chained `else if` always breaks (each on own line).
 //!
 //! # Decision
 //!
-//! Kotlin style: first `if` stays with assignment, else clauses indented.
-//!
-//! # Spec Update Required
-//!
-//! This rule differs from current spec. Lines 432-436 will need updating.
+//! When an `if` expression has at least one `else if` clause, the formatter
+//! breaks the chain so each `else if` and the final `else` sit on their own
+//! line, regardless of whether the whole expression would fit within the
+//! width budget.
 //!
 //! # Spec Reference
 //!
-//! Lines 428-444
+//! Spec: Annex D §If-Then-Else line 755 — chained `else if` each on own line.
 
 use ori_ir::{ExprArena, ExprId, ExprKind};
 
-/// Rule for chained if-else-if formatting.
+/// Rule for chained `else if` formatting.
 ///
 /// # Principle
 ///
-/// Kotlin style: first `if` stays with assignment, else clauses on own lines.
+/// First `if` stays with the assignment; every `else if` and the final
+/// `else` go on their own indented line.
 ///
-/// # Example (NEW - Kotlin style)
+/// # Example
 ///
 /// ```ori
 /// let size = if n < 10 then "small"
-///     else if n < 100 then "medium"
-///     else "large"
-/// ```
-///
-/// # Example (OLD spec - to be replaced)
-///
-/// ```ori
-/// let size =
-///     if n < 10 then "small"
 ///     else if n < 100 then "medium"
 ///     else "large"
 /// ```

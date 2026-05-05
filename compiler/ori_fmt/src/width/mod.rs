@@ -191,7 +191,14 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 cond,
                 then_branch,
                 else_branch,
-            } => if_width(self, *cond, *then_branch, *else_branch),
+            } => {
+                // Spec: Annex D §If-Then-Else line 755 — chained `else if` always breaks.
+                if crate::rules::ChainedElseIfRule::has_else_if_chain(self.arena, expr_id) {
+                    ALWAYS_STACKED
+                } else {
+                    if_width(self, *cond, *then_branch, *else_branch)
+                }
+            }
             ExprKind::Match { .. } => ALWAYS_STACKED,
             ExprKind::For {
                 label,

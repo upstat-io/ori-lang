@@ -1,0 +1,13 @@
+// BUG-04-106 §03:39 — closure captures only scalar (int).
+// Scalars are excluded from the AIMS lattice (AIMS:L-9 sentinel); the
+// closure environment carries no RC-tracked value. Pre-fix and post-fix
+// both pass — the spurious-RcInc bug only affects RC-tracked captures.
+// Stays-green pin verifying scalar-only closures don't accidentally
+// regress.
+@main () -> int = {
+    let captured: int = 42;
+    let lookup = () -> captured;
+    let first = lookup();
+    let second = lookup();
+    if first == 42 && second == 42 then 0 else 1
+}

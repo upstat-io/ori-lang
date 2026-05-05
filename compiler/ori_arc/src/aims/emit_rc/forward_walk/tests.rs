@@ -594,3 +594,79 @@ fn jump_with_duplicated_arg_after_body_use_counts_terminator_locally() {
         "terminator-phase inc count must be 1 regardless of body use of v(0)"
     );
 }
+
+// BUG-04-106 §03 — InvokeIndirect closure-receiver filter + project-borrowed off-by-one
+
+/// Pin: edit site 3a (forward_walk::emit_terminator_duplicate_use_incs).
+/// `InvokeIndirect`'s `used_vars()` returns `[closure, ...args]`. The closure
+/// receiver position (pos 0) is always borrowed at the call site, so it MUST
+/// be filtered from the duplicate-use count — counting it produces a spurious
+/// `RcInc` between repeated calls of the same closure (the closure_env_alias
+/// leak symptom).
+///
+/// Synthesis: `InvokeIndirect closure=v(0), args=[v(0), v(0)]`. v(0) appears
+/// THREE times in `used_vars()` (closure + 2 args). Pre-fix: closure receiver
+/// counts → k=3 → dead at exit `(3 + 0) - 1 = 2` incs. Post-fix: pos 0
+/// filtered → k=2 → dead at exit `(2 + 0) - 1 = 1` inc.
+///
+/// Ref: BUG-04-106 §03:77 + §05 edit site 3a.
+#[test]
+fn invoke_indirect_closure_filtered_from_term_counts() {
+    let term = ArcTerminator::InvokeIndirect {
+        dst: v(1),
+        ty: Idx::from_raw(0),
+        closure: v(0),
+        args: vec![v(0), v(0)],
+        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+        normal: ArcBlockId::new(1),
+        unwind: ArcBlockId::new(2),
+    };
+    let fx = TerminatorFixture::new(2, term, &[], Vec::new());
+    let body = fx.run();
+    assert_eq!(
+        count_inc(&body, v(0)),
+        1,
+        "InvokeIndirect with closure=arg[0]=arg[1]=v(0) (3 occurrences in used_vars). \
+         Closure receiver (pos 0) MUST be filtered from term_counts; only the 2 arg \
+         occurrences count. Dead at exit: (2 + 0) - 1 = 1 inc. Pre-fix incorrectly \
+         counts the closure occurrence and emits 2 incs."
+    );
+}
+
+/// Pin: edit site 3b (forward_walk::emit_invoke_project_borrowed_owned_incs
+/// off-by-one fix). `InvokeIndirect`'s `used_vars()` is `[closure, ...args]`,
+/// so an args-relative position N maps to `is_owned_position(pos + 1)`.
+/// Pre-fix code used `pos` directly, causing args[0] to map to
+/// `is_owned_position(0)` which is always false (closure pos is borrowed) —
+/// the first project-borrowed arg silently failed the owned check, missing
+/// its compensating `RcInc` and producing a soundness defect (potential
+/// double-free per opencode round-0 finding).
+///
+/// Synthesis: `InvokeIndirect closure=v(0), args=[v(1)]` with
+/// `arg_ownership=[Owned]`, `v(1)` registered as project-borrowed.
+/// Pre-fix: count_inc(body, v(1)) == 0. Post-fix: count_inc(body, v(1)) >= 1.
+///
+/// Ref: BUG-04-106 §03:78 + §05 edit site 3b.
+#[test]
+fn invoke_indirect_project_borrowed_first_arg_emits_inc() {
+    let term = ArcTerminator::InvokeIndirect {
+        dst: v(2),
+        ty: Idx::from_raw(0),
+        closure: v(0),
+        args: vec![v(1)],
+        arg_ownership: vec![ArgOwnership::Owned],
+        normal: ArcBlockId::new(1),
+        unwind: ArcBlockId::new(2),
+    };
+    let mut fx = TerminatorFixture::new(3, term, &[], Vec::new());
+    fx.project_borrowed_defs.insert(v(1));
+    fx.all_borrowed_defs.insert(v(1));
+    let body = fx.run();
+    assert!(
+        count_inc(&body, v(1)) >= 1,
+        "InvokeIndirect with project-borrowed first arg at args[0] (used_vars pos 1) \
+         and arg_ownership=[Owned] MUST emit a compensating RcInc on v(1). Pre-fix \
+         off-by-one (args-relative pos 0 → is_owned_position(0)=false for the closure \
+         pos) skips the inc — caller and callee both decrement, producing a double-free."
+    );
+}

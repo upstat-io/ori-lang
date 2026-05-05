@@ -4921,3 +4921,170 @@ fn populate_call_result_states_invoke_no_contract_uses_conservative() {
         "Invoke without contract: CONSERVATIVE.locality = Unknown"
     );
 }
+
+// BUG-04-106 §03 — closure_env_alias realization-layer fix matrix
+
+/// Pin: 5th edit site (intraprocedural/mod.rs InvokeEdgeState recording arm).
+///
+/// `InvokeEdgeState` is the per-edge demand state captured for terminators
+/// with both a normal and an unwind successor. Pre-fix, the worklist's
+/// `if let ArcTerminator::Invoke { .. }` arm matched only `Invoke`, so
+/// `InvokeIndirect` terminators left `state_map.invoke_edge_state(block)`
+/// returning `None` — the per-edge cleanup machinery had no entry-state to
+/// consult on the unwind path, and a borrowed closure receiver dying on
+/// the unwind edge could leak.
+///
+/// Post-fix, the arm extends to a `match` that also matches
+/// `InvokeIndirect`, so the same `InvokeEdgeState` is recorded for
+/// indirect-call terminators. Ref: BUG-04-106 §05 edit site 4.
+#[test]
+fn invoke_indirect_records_edge_state_for_normal_and_unwind() {
+    // func(v0: ref):
+    //   v1 = PartialApply(f, [v0])
+    //   block 0 ends with InvokeIndirect closure=v1 normal=b1 unwind=b2
+    //
+    // Pre-fix: state_map.invoke_edge_state(block_id(0)) returns None.
+    // Post-fix: returns Some(InvokeEdgeState { normal, unwind }).
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::PartialApply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: Name::from_raw(100),
+                    args: vec![var(0)],
+                }],
+                terminator: ArcTerminator::InvokeIndirect {
+                    dst: var(2),
+                    ty: ty(0),
+                    closure: var(1),
+                    args: vec![],
+                    arg_ownership: vec![],
+                    normal: block_id(1),
+                    unwind: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    let edge_state = state_map.invoke_edge_state(block_id(0));
+    assert!(
+        edge_state.is_some(),
+        "InvokeIndirect terminator should record InvokeEdgeState for normal/unwind successors. \
+         Pre-fix: intraprocedural/mod.rs's worklist arm only matched Invoke, leaving InvokeIndirect \
+         without per-edge state — see BUG-04-106 §05 edit site 4."
+    );
+}
+
+/// Pin: REJECTED-APPROACH GUARD for closure_env_alias fix.
+///
+/// The closure_env_alias bug is fixed at the realization layer (RcInc
+/// suppression for ApplyIndirect closure receivers); the LATTICE
+/// (TF-11 backward demands + TF-13 capture state update) MUST stay
+/// unchanged so multi-call closures still promote captures to
+/// `Cardinality::Many` per `aims-rules.md §1.3` and §3 TF-13.
+///
+/// Round 1 of the /tp-help loop entertained an alternative fix:
+/// remove the `(closure, Once, Linear)` demand TF-11 emits for
+/// `ApplyIndirect`. That alternative would have made the closure
+/// receiver appear non-demanding, suppressing the spurious RcInc as a
+/// side effect. It was rejected because it corrupts TF-13's
+/// capture-state propagation: with the closure stuck at `Once`, TF-13
+/// takes the `closure cardinality <= Once` branch and the captured var
+/// stays at `Once + Affine`, breaking the interprocedural soundness
+/// chain TF-11 + TF-13 enforce together.
+///
+/// This test pins the post-promotion shape end-to-end: a multi-call
+/// closure capturing an RC-tracked param MUST converge with the
+/// captured var at `Cardinality::Many` AND `Consumption::Unrestricted`.
+/// If any future change collapses TF-11's ApplyIndirect closure demand,
+/// this assertion fails immediately.
+///
+/// Ref: BUG-04-106 §02 fix consensus + §03:87 capture-promotion pin.
+#[test]
+fn apply_indirect_multi_call_promotes_captures_to_many() {
+    // func(v0: ref):
+    //   v1 = PartialApply(f, [v0])     — captures v0 in closure env
+    //   v2 = ApplyIndirect(v1, [])     — first invocation
+    //   v3 = ApplyIndirect(v1, [])     — second invocation
+    //   return v3
+    //
+    // Two ApplyIndirect calls drive the closure cardinality to Many.
+    // TF-13 (closure cardinality > Once branch) then promotes v0 to
+    // Many + Unrestricted.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        params: vec![crate::ir::ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: crate::Ownership::Owned,
+        }],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::PartialApply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: Name::from_raw(100),
+                    args: vec![var(0)],
+                },
+                ArcInstr::ApplyIndirect {
+                    dst: var(2),
+                    ty: ty(0),
+                    closure: var(1),
+                    args: vec![],
+                    arg_ownership: vec![],
+                },
+                ArcInstr::ApplyIndirect {
+                    dst: var(3),
+                    ty: ty(0),
+                    closure: var(1),
+                    args: vec![],
+                    arg_ownership: vec![],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(4);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    let entry_v0 = state_map.var_state_at_block_entry(block_id(0), var(0));
+    assert_eq!(
+        entry_v0.cardinality,
+        Cardinality::Many,
+        "Multi-call closure capture must promote captured var to Many cardinality \
+         (TF-13 closure-cardinality > Once branch). \
+         REJECTED-APPROACH GUARD: deleting TF-11's ApplyIndirect closure-demand row \
+         would collapse this to Once and break TF-13 capture-promotion soundness."
+    );
+    assert_eq!(
+        entry_v0.consumption,
+        Consumption::Unrestricted,
+        "Multi-call closure capture must promote captured var to Unrestricted consumption \
+         per TF-13. REJECTED-APPROACH GUARD per BUG-04-106 §02 + §03:87."
+    );
+}

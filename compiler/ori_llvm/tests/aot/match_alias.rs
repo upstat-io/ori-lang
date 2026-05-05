@@ -136,3 +136,109 @@ fn test_option_intlist_select_branch_return() {
         "option_intlist_select_branch_return",
     );
 }
+
+// BUG-04-106 — closure_env_alias spurious-RcInc fix
+//
+// Regression: closure capturing `Result<int, str>::Err(string)` invoked
+// twice via `lookup()` previously leaked 28 + 40 bytes under
+// `ORI_CHECK_LEAKS=1`. AIMS realize emitted a spurious `RcInc` on the
+// closure receiver between the two `ApplyIndirect` calls, leaving the
+// closure RC at 1 + 1 - 1 = 1 (instead of 0) when the function exited —
+// the LastUse `RcDec` freed only one reference, leaking the underlying
+// allocation. Post-fix: realize-layer borrow-recognition for ApplyIndirect
+// closure receivers (§05 edit sites 1-4) suppresses the spurious Inc;
+// LastUse Dec frees the allocation; zero leaks. `assert_aot_success`
+// already enables `ORI_CHECK_LEAKS=1`, so a regression in any of the
+// realize-layer fixes resurfaces as exit code 2 (leak detected).
+
+#[test]
+fn test_closure_env_alias_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_env_alias.ori"),
+        "closure_env_alias_no_leak",
+    );
+}
+
+// BUG-04-106 §03:37 + §03:44-45 — direct-call closure matrix.
+// Each fixture invokes a closure capturing an RC-tracked value 2-3 times
+// via direct `lookup()` calls (NOT via iterator pipeline). The same-block
+// multi-call ApplyIndirect pattern is exactly what triggers BUG-04-106's
+// spurious RcInc on the closure receiver. `assert_aot_success` enables
+// `ORI_CHECK_LEAKS=1` — pre-fix all three leak (closure env + captured value);
+// post-fix zero leaks.
+
+#[test]
+fn test_closure_three_call_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_three_call_no_leak.ori"),
+        "closure_three_call_no_leak",
+    );
+}
+
+#[test]
+fn test_closure_str_capture_two_call_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_str_capture_two_call_no_leak.ori"),
+        "closure_str_capture_two_call_no_leak",
+    );
+}
+
+#[test]
+fn test_closure_list_capture_two_call_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_list_capture_two_call_no_leak.ori"),
+        "closure_list_capture_two_call_no_leak",
+    );
+}
+
+#[test]
+fn test_closure_single_call_no_regression() {
+    // Stays-green pin: pre-fix already passes (single use); post-fix
+    // MUST continue to pass — fix must not break the simple case.
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_single_call_no_regression.ori"),
+        "closure_single_call_no_regression",
+    );
+}
+
+#[test]
+fn test_closure_zero_capture_two_call_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_zero_capture_two_call_no_leak.ori"),
+        "closure_zero_capture_two_call_no_leak",
+    );
+}
+
+#[test]
+fn test_closure_option_str_capture_two_call_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_option_str_capture_two_call_no_leak.ori"),
+        "closure_option_str_capture_two_call_no_leak",
+    );
+}
+
+#[test]
+fn test_closure_struct_capture_two_call_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_struct_capture_two_call_no_leak.ori"),
+        "closure_struct_capture_two_call_no_leak",
+    );
+}
+
+#[test]
+fn test_closure_nested_closure_capture_two_call_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_nested_closure_capture_two_call_no_leak.ori"),
+        "closure_nested_closure_capture_two_call_no_leak",
+    );
+}
+
+#[test]
+fn test_closure_scalar_only_capture_two_call() {
+    // Stays-green pin: scalar-only capture is not RC-tracked (AIMS:L-9
+    // scalar sentinel). Pre-fix and post-fix both pass.
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_scalar_only_capture_two_call.ori"),
+        "closure_scalar_only_capture_two_call",
+    );
+}

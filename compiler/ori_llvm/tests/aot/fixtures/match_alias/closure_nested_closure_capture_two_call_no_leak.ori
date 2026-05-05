@@ -1,0 +1,14 @@
+// BUG-04-106 §03:49 — closure captures another closure (nested capture).
+// Pins zero leaks for nested closure capture invoked twice via ApplyIndirect.
+// Stress-tests closure-of-closure RC handling — the inner closure environment
+// must be preserved across the outer closure's repeated invocation.
+@main () -> int = {
+    let inner_captured: str = "inner_heap_string";
+    let inner = () -> inner_captured;
+    let outer = () -> inner();
+    let first = outer();
+    let second = outer();
+    let h1 = first.contains(substr: "inner");
+    let h2 = second.contains(substr: "heap");
+    if h1 && h2 then 0 else 1
+}

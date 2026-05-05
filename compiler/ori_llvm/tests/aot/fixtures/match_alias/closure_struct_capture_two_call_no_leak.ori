@@ -1,0 +1,15 @@
+// BUG-04-106 §03:48 — closure captures struct with multiple RC fields.
+// Pins zero leaks for struct capture invoked twice via ApplyIndirect.
+// Stress-tests the AggregateFields RC strategy through the closure
+// environment.
+type Pair = { name: str, value: str }
+
+@main () -> int = {
+    let captured: Pair = Pair { name: "captured_struct_name", value: "captured_struct_value" };
+    let lookup = () -> captured;
+    let first = lookup();
+    let second = lookup();
+    let h1 = first.name.contains(substr: "name");
+    let h2 = second.value.contains(substr: "value");
+    if h1 && h2 then 0 else 1
+}

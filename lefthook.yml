@@ -32,6 +32,21 @@ pre-commit:
       # once dogfood shows true-positive rate is reliable.
       glob: "**/*.{rs,ori}"
       run: python3 scripts/test-weakening-lint.py --warn-only
+    prose-lint:
+      # Source-side internal-vocabulary leak detector — see
+      # `../scripts/prose-lint.py --help` for the full pattern reference.
+      # Catches BUG-IDs (BUG-XX-NNN), methodology vocab (TPR Round, semantic
+      # /negative pin, INVERTED-TDD, TDD matrix, PIN-N + IR-/DERIVE-/MIXED-
+      # prefixes), reviewer-tool names, and internal-doc path references that
+      # must not appear in the public OSS compiler repo.
+      # SSOT lives in the wrapper repo (scripts/prose-lint.py); .lefthook
+      # /prose-lint.sh is the cross-repo invocation shim with graceful-skip
+      # for standalone OSS clones (no wrapper checkout).
+      # Bedding-in mode (--exit-zero inside the shim): warns to stderr without
+      # gating. Promote by dropping --exit-zero once existing PIN-N / BUG-ID
+      # / methodology leaks are cleaned.
+      glob: "**/*.{rs,ori}"
+      run: .lefthook/prose-lint.sh {staged_files}
     version-sync:
       glob: "**/Cargo.toml|**/package.json|**/BaseLayout.astro"
       run: ./scripts/sync-version.sh --check

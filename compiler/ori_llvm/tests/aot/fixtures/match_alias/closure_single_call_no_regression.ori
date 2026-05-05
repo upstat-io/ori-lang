@@ -1,0 +1,17 @@
+// BUG-04-106 §03:36 — single-call no-regression edge case.
+// Closure called exactly ONCE. Pre-fix already passes (single use is the
+// non-bug shape — TF-11 emits one Once demand, no over-promotion). Post-fix
+// MUST continue to pass — the realize-layer fix MUST NOT break the simple
+// single-call case. Stays-green pin.
+@main () -> int = {
+    let captured: Result<int, str> = Err("single_call_heap_string");
+    let lookup = () -> {
+        match captured {
+            Err(e) -> e,
+            Ok(_) -> panic(msg: "should be Err"),
+        }
+    };
+    let only = lookup();
+    let h = only.contains(substr: "single");
+    if h then 0 else 1
+}
