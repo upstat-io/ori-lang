@@ -425,9 +425,7 @@ impl<'pool> InferEngine<'pool> {
             return None;
         }
         let var_id = self.pool().data(ty);
-        self.method_rigid_bounds
-            .get(&var_id)
-            .map(Vec::as_slice)
+        self.method_rigid_bounds.get(&var_id).map(Vec::as_slice)
     }
 
     /// Register a rigid-var trait bound directly by `var_id`.

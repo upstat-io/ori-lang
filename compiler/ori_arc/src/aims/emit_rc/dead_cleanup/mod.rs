@@ -265,6 +265,71 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
     // unwind-block awareness for the apply-aliased gate. Resume blocks
     // always emit cleanup decs per `arc.md §RL-4`.
     let is_unwind_block = matches!(block.terminator, crate::ir::ArcTerminator::Resume,);
+
+    // BUG-04-104 PIN-6 (§2.6.3) cross-param same-emission: when MULTIPLE block
+    // params land here as candidates for canonical dec, they all fire at the
+    // same conceptual boundary (block entry). PIN-6's same_emission check
+    // needs to see all classes whose params will fire here so a child class's
+    // dec is correctly suppressed when its transitive-drop parent class is
+    // ALSO firing at this same boundary. Pre-compute the set BEFORE the per-
+    // param loop runs (mirrors the cross-deferred fix in walk.rs).
+    let pin6_classes_dying_here: rustc_hash::FxHashMap<
+        u32,
+        rustc_hash::FxHashSet<crate::ir::ArcVarId>,
+    > = {
+        let mut m = rustc_hash::FxHashMap::default();
+        for &(param_var, _param_ty) in &block.params {
+            if entry_states.is_some_and(|es| es.contains_key(&param_var)) {
+                continue;
+            }
+            if ctx.state_map.is_excluded(param_var) {
+                continue;
+            }
+            if ctx.use_info.contains_key(&param_var) {
+                continue;
+            }
+            if is_live_at_exit(ctx.state_map, ctx.blk, param_var) {
+                continue;
+            }
+            // Apply ALL same gates as the per-param emission loop. Without
+            // these, classes whose params would actually be FILTERED OUT
+            // (apply-aliased, take-move, iter-element, PIN-4-skipped) are
+            // incorrectly recorded as "will dec here", causing PIN-6 to
+            // suppress legitimate child decs whose parents won't actually
+            // fire → leak.
+            if ctx.iter_element_defs.contains(&param_var) {
+                continue;
+            }
+            if ctx.take_move_facts.is_in_class(param_var) {
+                continue;
+            }
+            if super::should_suppress_apply_aliased_dec(ctx.state_map, param_var, is_unwind_block) {
+                continue;
+            }
+            if let Some(class_id) = ctx.state_map.ssa_alias_class_of(param_var) {
+                if let Some(members) = ctx.state_map.class_members(class_id) {
+                    if members.iter().any(|&mem| {
+                        mem != param_var
+                            && (ctx.use_info.contains_key(&mem)
+                                || crate::aims::emit_rc::is_live_at_exit(
+                                    ctx.state_map,
+                                    ctx.blk,
+                                    mem,
+                                ))
+                    }) {
+                        continue;
+                    }
+                }
+            }
+            if let Some(class_id) = ctx.state_map.ssa_alias_class_of(param_var) {
+                m.entry(class_id)
+                    .or_insert_with(rustc_hash::FxHashSet::default)
+                    .insert(param_var);
+            }
+        }
+        m
+    };
+
     for &(param_var, _param_ty) in &block.params {
         // Skip if already handled by Source 1.
         if entry_states.is_some_and(|es| es.contains_key(&param_var)) {
@@ -325,6 +390,29 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
                 }
             }
         }
+        // BUG-04-104 PIN-6 (§2.6.3): inter-class payload-of suppression at
+        // the dead-block-param emission site, restricted to SAME-EMISSION
+        // only (NOT alive-after). The dead-block-param case fires at block
+        // entry; any "alive_after" parent class member is just "used in the
+        // block somewhere", which doesn't guarantee its transitive drop
+        // covers this child's RC slot at this specific boundary. Restricting
+        // to same-emission means: only suppress when the parent class is
+        // ALSO firing a dead-block-param dec at this exact boundary. This
+        // is the canonical apply_alias_result_strmap shape (multiple block
+        // params, one in each of class A and class B, all dying here, B's
+        // transitive-drop covering A's slot via the same Phase-A emission).
+        // Additional gate: require ≥2 distinct classes firing at this
+        // boundary (the apply_alias_result_strmap shape with simultaneous
+        // parent + child decs). Single-class cases don't have double-
+        // emission risk and would over-suppress legitimate decs (e.g.,
+        // generic forwarder cases where the parent's drop is the ONLY dec).
+        if pin6_classes_dying_here.len() >= 2 {
+            if let Some(class_id) = ctx.state_map.ssa_alias_class_of(param_var) {
+                if pin6_same_emission_covers(ctx, class_id, &pin6_classes_dying_here) {
+                    continue;
+                }
+            }
+        }
         if let Some(strategy) = rc_strategy(ctx.func, param_var, ctx.pool) {
             new_body.push(ArcInstr::RcDec {
                 var: param_var,
@@ -332,6 +420,59 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
             });
         }
     }
+}
+
+/// PIN-6 same-emission-only check for the dead-block-param emission site.
+///
+/// Returns true iff some ancestor class B (transitively reachable from
+/// `class_id` via `class_payload_of`) has transitive-drop strategy AND is
+/// in `classes_dying_here`. Distinct from
+/// [`crate::aims::realize::walk_dec::pin6_any_ancestor_will_cover`]: that
+/// predicate ALSO accepts `alive_after` as a sufficient condition. The
+/// alive_after check is too loose for dead-block-param emission — a parent
+/// class member being "alive somewhere in the block" doesn't guarantee its
+/// transitive drop covers the child's RC slot at this specific block-entry
+/// boundary, leading to over-suppression and leaks (BUG-04-104 regression
+/// fix on fat_ptr_iter / generics tests).
+///
+/// Restricting to same-emission preserves the canonical apply-alias case
+/// (multiple block params dying at the same boundary, parent's drop covering
+/// child's slot via the same Phase-A emission group) while avoiding false
+/// suppression when the alive parent member's drop fires elsewhere.
+fn pin6_same_emission_covers(
+    ctx: &super::helpers::BlockCtx<'_>,
+    class_id: u32,
+    classes_dying_here: &rustc_hash::FxHashMap<u32, rustc_hash::FxHashSet<crate::ir::ArcVarId>>,
+) -> bool {
+    let mut visited: rustc_hash::FxHashSet<u32> = rustc_hash::FxHashSet::default();
+    let mut queue: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
+    if let Some(parents) = ctx.state_map.class_payload_of(class_id) {
+        queue.extend(parents.iter().copied());
+    }
+    while let Some(parent_class) = queue.pop_front() {
+        if !visited.insert(parent_class) {
+            continue;
+        }
+        if classes_dying_here.contains_key(&parent_class) {
+            // Verify parent's strategy is transitive-drop. Resolve via
+            // class_members representative (singleton-class invariant per
+            // §2.6.2 ensures class_members has an entry).
+            if let Some(members) = ctx.state_map.class_members(parent_class) {
+                if let Some(&parent_rep) = members.iter().next() {
+                    if let Some(parent_strategy) = rc_strategy(ctx.func, parent_rep, ctx.pool) {
+                        if matches!(parent_strategy, crate::ir::RcStrategy::InlineEnum) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        // Continue chain walk for nested transitive-drop coverage.
+        if let Some(gps) = ctx.state_map.class_payload_of(parent_class) {
+            queue.extend(gps.iter().copied());
+        }
+    }
+    false
 }
 
 /// Sweep for dead Invoke result variables across all blocks.

@@ -410,22 +410,6 @@ fn build_return_project_inc_targets(
 ) -> FxHashMap<ArcVarId, RcStrategy> {
     use crate::aims::emit_rc::rc_strategy;
 
-    let project_return_params: FxHashMap<ArcVarId, u32> = func
-        .params
-        .iter()
-        .enumerate()
-        .filter_map(|(i, p)| {
-            let pc = contract.params.get(i)?;
-            match pc.return_alias? {
-                ReturnAliasShape::Project { field } => Some((p.var, field)),
-                ReturnAliasShape::Direct => None,
-            }
-        })
-        .collect();
-    if project_return_params.is_empty() {
-        return FxHashMap::default();
-    }
-
     let let_alias_map = build_let_alias_map(func);
     let resolve_root = |var: ArcVarId| -> ArcVarId {
         let mut current = var;
@@ -438,7 +422,24 @@ fn build_return_project_inc_targets(
         current
     };
 
-    let return_values: FxHashSet<ArcVarId> = func
+    // Path 1: contract-driven (existing behavior). Direct callers with
+    // Owned param + apply_aliases recognition → caller suppresses scope-
+    // exit dec; callee F-prj fires the compensating Inc on the Project's
+    // dst to balance the param's `[AggFields]` field-walk dec.
+    let project_return_params: FxHashMap<ArcVarId, u32> = func
+        .params
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| {
+            let pc = contract.params.get(i)?;
+            match pc.return_alias? {
+                ReturnAliasShape::Project { field } => Some((p.var, field)),
+                ReturnAliasShape::Direct => None,
+            }
+        })
+        .collect();
+
+    let return_values_literal: FxHashSet<ArcVarId> = func
         .blocks
         .iter()
         .filter_map(|b| match &b.terminator {
@@ -448,23 +449,112 @@ fn build_return_project_inc_targets(
         .collect();
 
     let mut result: FxHashMap<ArcVarId, RcStrategy> = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Project {
-                dst, value, field, ..
-            } = instr
-            {
-                if !return_values.contains(dst) {
-                    continue;
-                }
-                let root = resolve_root(*value);
-                if project_return_params.get(&root) == Some(field) {
-                    if let Some(strategy) = rc_strategy(func, *dst, pool) {
-                        result.insert(*dst, strategy);
+
+    // Path 1 emission.
+    if !project_return_params.is_empty() {
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Project {
+                    dst, value, field, ..
+                } = instr
+                {
+                    if !return_values_literal.contains(dst) {
+                        continue;
+                    }
+                    let root = resolve_root(*value);
+                    if project_return_params.get(&root) == Some(field) {
+                        if let Some(strategy) = rc_strategy(func, *dst, pool) {
+                            result.insert(*dst, strategy);
+                        }
                     }
                 }
             }
         }
     }
+
+    // BUG-04-104 closure_env_alias Path 2: closure-body F-prj. When the
+    // function has a BORROWED param (closure body's env exposed as a
+    // borrow) AND the body returns a Project of that param via a Let/Jump
+    // chain, the caller's ApplyIndirect treats the result as Owned per
+    // TF-5a's CONSERVATIVE classification (no contract). The borrow needs
+    // a compensating Inc to convert it to Owned at the return point;
+    // without this, caller's dec on the borrow → double-free.
+    //
+    // Restricted to Borrow params to avoid regression on Owned-param
+    // direct-call cases (Path 1 + apply_aliases handles those). Builds
+    // an expanded `return_values` set via inverse Let-alias chain AND
+    // Jump-arg → block-param edges (closure match-arm dispatch).
+    let has_borrow_param = func.params.iter().enumerate().any(|(i, _p)| {
+        contract.params.get(i).map_or(false, |pc| {
+            matches!(pc.access, crate::aims::lattice::AccessClass::Borrowed)
+        })
+    });
+    if has_borrow_param {
+        let mut return_values_chain: FxHashSet<ArcVarId> = return_values_literal.clone();
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for block in &func.blocks {
+                for instr in &block.body {
+                    if let ArcInstr::Let {
+                        dst,
+                        value: crate::ir::ArcValue::Var(src),
+                        ..
+                    } = instr
+                    {
+                        if return_values_chain.contains(dst) && !return_values_chain.contains(src) {
+                            return_values_chain.insert(*src);
+                            changed = true;
+                        }
+                    }
+                }
+                if let ArcTerminator::Jump { target, args } = &block.terminator {
+                    let target_block = &func.blocks[target.index()];
+                    for (arg, (param_var, _ty)) in args.iter().zip(target_block.params.iter()) {
+                        if return_values_chain.contains(param_var)
+                            && !return_values_chain.contains(arg)
+                        {
+                            return_values_chain.insert(*arg);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        let borrow_param_vars: FxHashSet<ArcVarId> = func
+            .params
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| {
+                let pc = contract.params.get(i)?;
+                if matches!(pc.access, crate::aims::lattice::AccessClass::Borrowed) {
+                    Some(p.var)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Project { dst, value, .. } = instr {
+                    if !return_values_chain.contains(dst) {
+                        continue;
+                    }
+                    if result.contains_key(dst) {
+                        continue;
+                    }
+                    let root = resolve_root(*value);
+                    if borrow_param_vars.contains(&root) {
+                        if let Some(strategy) = rc_strategy(func, *dst, pool) {
+                            result.insert(*dst, strategy);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     result
 }
