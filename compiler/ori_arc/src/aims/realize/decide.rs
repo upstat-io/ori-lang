@@ -135,7 +135,7 @@ pub enum UseSemantics {
     /// demand drives TF-13 capture-state-update so multi-call closures
     /// correctly promote captures to `Many`. At the realization layer
     /// the receiver does NOT need a per-use `RcInc`; the closure was
-    /// alloc'd at PartialApply with RC=1 and is freed by the LastUse
+    /// alloc'd at `PartialApply` with RC=1 and is freed by the `LastUse`
     /// Dec at scope exit.
     BorrowingApplyClosure,
 }

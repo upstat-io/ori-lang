@@ -386,10 +386,10 @@ fn invoke_with_triple_duplicated_mixed_ownership_args_emits_two_rc_incs() {
 
 /// Pin: edit site 3a invariant — `used_vars()` for `InvokeIndirect`
 /// returns `[closure, ...args]` (per `ir/terminator.rs:30`). The closure
-/// receiver at position 0 is filtered from term_counts (BUG-04-106 §05
+/// receiver at position 0 is filtered from `term_counts` (BUG-04-106 §05
 /// edit site 3a); the arg occurrence at position 1 still counts normally.
-/// When `closure == args[0] == v(0)`, the var appears twice in used_vars
-/// but only the arg occurrence reaches term_counts → k=1, live=0,
+/// When `closure == args[0] == v(0)`, the var appears twice in `used_vars`
+/// but only the arg occurrence reaches `term_counts` → k=1, live=0,
 /// `(1 + 0) - 1 = 0` incs.
 ///
 /// Pre-BUG-04-106-fix: comment claimed `[...args, closure]` (incorrect)
@@ -610,11 +610,11 @@ fn jump_with_duplicated_arg_after_body_use_counts_terminator_locally() {
 
 // BUG-04-106 §03 — InvokeIndirect closure-receiver filter + project-borrowed off-by-one
 
-/// Pin: edit site 3a (forward_walk::emit_terminator_duplicate_use_incs).
+/// Pin: edit site 3a (`forward_walk::emit_terminator_duplicate_use_incs`).
 /// `InvokeIndirect`'s `used_vars()` returns `[closure, ...args]`. The closure
 /// receiver position (pos 0) is always borrowed at the call site, so it MUST
 /// be filtered from the duplicate-use count — counting it produces a spurious
-/// `RcInc` between repeated calls of the same closure (the closure_env_alias
+/// `RcInc` between repeated calls of the same closure (the `closure_env_alias`
 /// leak symptom).
 ///
 /// Synthesis: `InvokeIndirect closure=v(0), args=[v(0), v(0)]`. v(0) appears
@@ -646,7 +646,7 @@ fn invoke_indirect_closure_filtered_from_term_counts() {
     );
 }
 
-/// Pin: edit site 3b (forward_walk::emit_invoke_project_borrowed_owned_incs
+/// Pin: edit site 3b (`forward_walk::emit_invoke_project_borrowed_owned_incs`
 /// off-by-one fix). `InvokeIndirect`'s `used_vars()` is `[closure, ...args]`,
 /// so an args-relative position N maps to `is_owned_position(pos + 1)`.
 /// Pre-fix code used `pos` directly, causing args[0] to map to
@@ -657,7 +657,7 @@ fn invoke_indirect_closure_filtered_from_term_counts() {
 ///
 /// Synthesis: `InvokeIndirect closure=v(0), args=[v(1)]` with
 /// `arg_ownership=[Owned]`, `v(1)` registered as project-borrowed.
-/// Pre-fix: count_inc(body, v(1)) == 0. Post-fix: count_inc(body, v(1)) >= 1.
+/// Pre-fix: `count_inc(body`, v(1)) == 0. Post-fix: `count_inc(body`, v(1)) >= 1.
 ///
 /// Ref: BUG-04-106 §03:78 + §05 edit site 3b.
 #[test]

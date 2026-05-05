@@ -48,6 +48,7 @@ pub(super) struct BodyWalkResult {
 /// check is made by a single `decide()` call per (var, instruction) site.
 /// This replaces the scattered inline logic in `emit_pre_instr_incs()`,
 /// `emit_post_instr_decs()`, and `collect_death_events()`.
+#[expect(clippy::too_many_lines, reason = "pre-existing")]
 pub(super) fn walk_body_unified(
     ctx: &BlockCtx<'_>,
     old_body: &[ArcInstr],

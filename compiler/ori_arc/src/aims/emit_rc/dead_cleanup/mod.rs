@@ -258,6 +258,10 @@ pub(crate) fn emit_dead_at_entry_decs(
 /// using a name that has no SSA definition reachable from the
 /// predecessor — the LLVM emitter resolves the param ID to the merge
 /// block's phi node, producing a phi-dominance violation.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "pre-existing; refactoring would risk RC emission regressions"
+)]
 fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
     let entry_states = ctx.state_map.block_entry_states(ctx.blk);
     let block = &ctx.func.blocks[ctx.blk.index()];
@@ -429,11 +433,11 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
 /// in `classes_dying_here`. Distinct from
 /// [`crate::aims::realize::walk_dec::pin6_any_ancestor_will_cover`]: that
 /// predicate ALSO accepts `alive_after` as a sufficient condition. The
-/// alive_after check is too loose for dead-block-param emission — a parent
+/// `alive_after` check is too loose for dead-block-param emission — a parent
 /// class member being "alive somewhere in the block" doesn't guarantee its
 /// transitive drop covers the child's RC slot at this specific block-entry
 /// boundary, leading to over-suppression and leaks (BUG-04-104 regression
-/// fix on fat_ptr_iter / generics tests).
+/// fix on `fat_ptr_iter` / generics tests).
 ///
 /// Restricting to same-emission preserves the canonical apply-alias case
 /// (multiple block params dying at the same boundary, parent's drop covering

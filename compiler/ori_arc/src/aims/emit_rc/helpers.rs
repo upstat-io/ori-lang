@@ -117,14 +117,14 @@ pub(crate) enum LastUse {
     Terminator,
 }
 
-impl<'a> BlockCtx<'a> {
+impl BlockCtx<'_> {
     /// Whether `var` has a use after `instr_idx` — either later in this
     /// block's body, in this block's terminator, or in a successor block
     /// (live at this block's exit).
     ///
-    /// BUG-04-104 PIN-4 class-liveness primitive: walk_dec.rs queries this
+    /// BUG-04-104 PIN-4 class-liveness primitive: `walk_dec.rs` queries this
     /// across all members of an SSA-alias class to decide whether to emit
-    /// the class's canonical RcDec. When `last_use == LastUse::Body(idx)`
+    /// the class's canonical `RcDec`. When `last_use == LastUse::Body(idx)`
     /// and `idx <= instr_idx`, the var has no later use in this block —
     /// but it may still be live on a successor edge, so the check MUST
     /// fall through to `is_live_at_exit`. Returning `false` directly when

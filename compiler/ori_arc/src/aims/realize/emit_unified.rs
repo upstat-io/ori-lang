@@ -403,6 +403,7 @@ fn count_rc_ops(func: &ArcFunction) -> usize {
 ///
 /// Returns an empty map when the contract has no Project `return_alias` entries
 /// — bypasses Project-instruction iteration entirely in the common case.
+#[expect(clippy::too_many_lines, reason = "pre-existing")]
 fn build_return_project_inc_targets(
     func: &ArcFunction,
     contract: &MemoryContract,
@@ -485,9 +486,10 @@ fn build_return_project_inc_targets(
     // an expanded `return_values` set via inverse Let-alias chain AND
     // Jump-arg → block-param edges (closure match-arm dispatch).
     let has_borrow_param = func.params.iter().enumerate().any(|(i, _p)| {
-        contract.params.get(i).map_or(false, |pc| {
-            matches!(pc.access, crate::aims::lattice::AccessClass::Borrowed)
-        })
+        contract
+            .params
+            .get(i)
+            .is_some_and(|pc| matches!(pc.access, crate::aims::lattice::AccessClass::Borrowed))
     });
     if has_borrow_param {
         let mut return_values_chain: FxHashSet<ArcVarId> = return_values_literal.clone();

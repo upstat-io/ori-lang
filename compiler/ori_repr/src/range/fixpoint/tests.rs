@@ -145,6 +145,7 @@ fn fixpoint_budget_exceeded() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -187,6 +188,7 @@ fn fixpoint_constant_let() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -276,6 +278,7 @@ fn fixpoint_return_range_join() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -374,6 +377,7 @@ fn fixpoint_block_param_merging() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -472,6 +476,7 @@ fn fixpoint_branch_refines_non_param_variable() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -551,6 +556,7 @@ fn fixpoint_switch_refines_non_param_variable() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -620,6 +626,7 @@ fn fixpoint_field_summary_uses_final_ranges() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -717,6 +724,7 @@ fn fixpoint_switch_multi_case_same_block_joins() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -823,6 +831,7 @@ fn fixpoint_switch_default_gets_complement() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -938,6 +947,7 @@ fn build_multi_pred_switch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
     (func, v_y)
 }
@@ -1058,6 +1068,7 @@ fn build_bounded_loop_func(limit: i64) -> (ori_arc::ir::ArcFunction, ArcVarId) {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     (func, v_i)
@@ -1091,6 +1102,10 @@ fn fixpoint_narrowing_recovers_loop_bound() {
 // ─── Branch refinement overwrite + stale iterations ──
 
 /// Build a multi-predecessor Branch refinement CFG. Returns `(func, v_y)`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "pre-existing; test builder is inherently long"
+)]
 fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
     use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, PrimOp};
     use {ori_arc::ArcBlockId, ori_ir::BinaryOp};
@@ -1193,6 +1208,7 @@ fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
     (func, v_y)
 }
@@ -1416,6 +1432,7 @@ fn fixpoint_return_range_excludes_unreachable_blocks() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -1508,6 +1525,7 @@ fn fixpoint_return_range_includes_all_reachable_returns() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -1591,6 +1609,7 @@ fn fixpoint_invoke_defines_dst_variable() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     let pool = ori_types::Pool::new();
@@ -1807,6 +1826,7 @@ fn build_real_loop_func(
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        var_rc_strategies: Vec::new(),
     };
 
     (func, v_i, v_sum, v_i_copy, v_next)

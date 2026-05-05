@@ -18,7 +18,7 @@
 //!    members are suppressed.
 //!
 //! Critically, the class-aware filter NEVER bypasses the existing
-//! `apply_last_use_decision` logic — it runs the full decide() →
+//! `apply_last_use_decision` logic — it runs the full `decide()` →
 //! return-transfer-suppression → reuse-death-event flow per var, and only
 //! suppresses the actual `RcDec` push when the class indicates redundancy.
 //! Singletons (vars NOT in a multi-member class) flow through unchanged.
@@ -176,6 +176,7 @@ fn emit_defined_dead(
 /// Emit `RcDec` (or defer) for variables at their last use.
 ///
 /// Also collects death events for reuse-candidate variables.
+#[expect(clippy::too_many_arguments, reason = "pre-existing")]
 fn emit_last_use_decs(
     ctx: &BlockCtx<'_>,
     instr: &ArcInstr,
@@ -252,6 +253,7 @@ fn emit_last_use_decs(
 /// aware logic must not undermine), and BEFORE the actual `new_body.push`.
 /// Class membership tracked in `emitted_classes_this_instr` for PIN-5
 /// dedup; class-liveness consulted via `class_dec_should_emit` for PIN-4.
+#[expect(clippy::too_many_arguments, reason = "pre-existing")]
 fn apply_last_use_decision(
     ctx: &BlockCtx<'_>,
     var: ArcVarId,
@@ -298,7 +300,7 @@ fn apply_last_use_decision(
                 );
                 if let Some(class_id) = pin6_class {
                     if pin6_any_ancestor_will_cover(ctx, class_id, instr_idx, classes_dying_here) {
-                        eprintln!("[PIN6 last_use] SUPPRESSED var={:?}", var);
+                        eprintln!("[PIN6 last_use] SUPPRESSED var={var:?}");
                         return;
                     }
                 }
@@ -366,7 +368,7 @@ fn class_dec_should_emit(
 /// than `var` is live after `instr_idx`. The exclusion of `var` itself is
 /// load-bearing — `var` IS dying at this instruction, so its own
 /// `is_live_after` would be checked against `last_use == Body(instr_idx)`
-/// and could fall through to is_live_at_exit which would then return true
+/// and could fall through to `is_live_at_exit` which would then return true
 /// via stale demand state. Class-liveness is forward-looking from the
 /// perspective of OTHER members of the class.
 fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: ArcVarId) -> bool {
@@ -452,12 +454,12 @@ fn build_reuse_context(ctx: &BlockCtx<'_>, var: ArcVarId) -> ReuseContext {
 /// a child class's RC slot at the SAME instruction. The streaming
 /// `emitted_classes_this_instr` cannot serve PIN-6's needs because it tracks
 /// AFTER-emit; PIN-6 needs BEFORE-emit signal — the SET of classes about to
-/// die at instr_idx, populated BEFORE the per-var emission loop's first
+/// die at `instr_idx`, populated BEFORE the per-var emission loop's first
 /// iteration.
 ///
 /// Walks `instr.used_vars()` ∪ {`instr.defined_var()`} per §2.6.3, filters to
 /// classes whose absolute last-use is THIS instruction (no class member alive
-/// after instr_idx per PIN-4 class-liveness), and collects var members per
+/// after `instr_idx` per PIN-4 class-liveness), and collects var members per
 /// class id.
 pub(super) fn collect_classes_dying_here(
     ctx: &BlockCtx<'_>,
@@ -497,11 +499,11 @@ pub(super) fn collect_classes_dying_here(
 /// chains, AND cross-block coverage via `is_live_after` fallthrough to
 /// `is_live_at_exit`). Returns `true` when ANY ancestor class B is:
 /// (a) transitive-drop strategy per [`is_transitive_drop_strategy`], AND
-/// (b) "alive after instr_idx" (some member of B is live after) OR
+/// (b) "alive after `instr_idx`" (some member of B is live after) OR
 ///     "dying at the same instruction" (B is in `classes_dying_here`).
 ///
 /// A `true` return means class B's drop will dec class A's RC slot
-/// transitively — class A's canonical dec at instr_idx is REDUNDANT and must
+/// transitively — class A's canonical dec at `instr_idx` is REDUNDANT and must
 /// be suppressed to avoid double-free.
 ///
 /// Cycle prevention via `visited` set; defensive grandparent walk on

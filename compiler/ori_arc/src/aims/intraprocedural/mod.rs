@@ -112,6 +112,10 @@ fn build_invoke_dst_to_owner(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcBlock
     clippy::implicit_hasher,
     reason = "FxHashMap is the project-wide hasher; no generic needed"
 )]
+#[expect(
+    clippy::too_many_lines,
+    reason = "pre-existing; intraprocedural analysis entry point is inherently long"
+)]
 pub fn analyze_function(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,

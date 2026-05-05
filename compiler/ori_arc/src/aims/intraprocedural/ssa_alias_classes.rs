@@ -14,7 +14,7 @@
 //!   `borrow_sources` side table covers DP-5 disjointness for them.
 //! - Select operands — `Select(cond, true_val, false_val)` operands refer to
 //!   different runtime RC slots; only one is selected at runtime, the
-//!   unselected one needs an independent RcDec. Existing compensating RcInc
+//!   unselected one needs an independent `RcDec`. Existing compensating `RcInc`
 //!   at `walk.rs:141-195` handles Select correctly through per-source dec
 //!   independence (PIN-2).
 //! - `ApplyAliasSource::Project { arg, field }` — the apply returned `arg.field`
@@ -32,7 +32,7 @@
 //!   Round 17 Codex F4 + Gemini F2 in §02 PIN material).
 //! - `class_members: u32 → FxHashSet<ArcVarId>` — reverse index. Enables the
 //!   PIN-4 class-liveness check `class_members(class_id).any(is_live_after)`
-//!   in `walk_dec.rs::emit_last_use_decs`: skip RcDec emission unless no class
+//!   in `walk_dec.rs::emit_last_use_decs`: skip `RcDec` emission unless no class
 //!   member is live after the current instruction; emit at the class's
 //!   absolute last use.
 //! - `class_apply_alias_source_candidates: u32 → FxHashSet<ArcVarId>` — PIN-3
@@ -45,7 +45,7 @@
 //!
 //! Pipeline ordering — PL-5 (no-stale-summary invariant):
 //!
-//! 1. `populate_apply_result_aliases(func, sigs)` — pre-walk (apply_aliases.rs).
+//! 1. `populate_apply_result_aliases(func, sigs)` — pre-walk (`apply_aliases.rs`).
 //! 2. `compute_ssa_alias_classes(func, &apply_result_aliases)` — pre-walk (this file).
 //! 3. `compute_project_alias_sources(func, &apply_result_aliases)` — pre-walk.
 //! 4. `analyze_function` worklist — sees fully composed alias graph; backward
@@ -65,6 +65,10 @@ use super::apply_aliases::build_let_alias_map;
 use super::state_map::ApplyAliasSource;
 
 /// Returned data of `compute_ssa_alias_classes`.
+#[expect(
+    clippy::struct_field_names,
+    reason = "pre-existing; struct field naming is consistent with domain model"
+)]
 pub(crate) struct SsaAliasClassesOutput {
     pub class_table: FxHashMap<ArcVarId, u32>,
     pub class_members: FxHashMap<u32, FxHashSet<ArcVarId>>,
@@ -87,12 +91,25 @@ pub(crate) struct SsaAliasClassesOutput {
 ///
 /// Complexity: O(N · α(N) + I) where N = total SSA vars and I = total
 /// instructions+terminators (PIN-6 population pass walks each once).
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "pre-existing; refactoring would risk RC emission regressions"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "pre-existing; ssa alias class computation is inherently complex"
+)]
+#[expect(
+    clippy::match_same_arms,
+    reason = "pre-existing; explicit arms document the intent"
+)]
 pub(crate) fn compute_ssa_alias_classes(
     func: &ArcFunction,
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
 ) -> SsaAliasClassesOutput {
-    let var_count =
-        u32::try_from(func.var_types.len()).expect("ArcFunction var count exceeds u32::MAX");
+    let Ok(var_count) = u32::try_from(func.var_types.len()) else {
+        unreachable!("ArcFunction var count exceeds u32::MAX");
+    };
     let mut uf = UnionFind::new(var_count);
 
     // Edge type 1: Let Var aliases (single-hop, chained via union-find).
@@ -152,7 +169,7 @@ pub(crate) fn compute_ssa_alias_classes(
     // pre-existing class — keying by source-class is the only way
     // `should_suppress_apply_aliased_dec` can find the source for a Project
     // return.
-    for (_dst, source) in apply_result_aliases {
+    for source in apply_result_aliases.values() {
         let source_args: Vec<ArcVarId> = match source {
             ApplyAliasSource::Direct(arg) => vec![*arg],
             ApplyAliasSource::Project { arg, .. } => vec![*arg],
@@ -214,7 +231,7 @@ pub(crate) fn compute_ssa_alias_classes(
                         // is_none_or-Owned-default for Apply).
                         let owned = arg_ownership
                             .get(i)
-                            .map_or(true, |o| matches!(o, ArgOwnership::Owned));
+                            .is_none_or(|o| matches!(o, ArgOwnership::Owned));
                         if !owned {
                             continue;
                         }
@@ -245,7 +262,7 @@ pub(crate) fn compute_ssa_alias_classes(
                     for (i, arg) in args.iter().enumerate() {
                         let owned = arg_ownership
                             .get(i)
-                            .map_or(true, |o| matches!(o, ArgOwnership::Owned));
+                            .is_none_or(|o| matches!(o, ArgOwnership::Owned));
                         if !owned {
                             continue;
                         }
@@ -361,7 +378,9 @@ impl UnionFind {
     }
 
     fn find(&mut self, var: ArcVarId) -> u32 {
-        let idx = u32::try_from(var.index()).expect("ArcVarId index exceeds u32::MAX");
+        let Ok(idx) = u32::try_from(var.index()) else {
+            unreachable!("ArcVarId index exceeds u32::MAX");
+        };
         let mut x = idx;
         while self.parents[x as usize] != x {
             let parent = self.parents[x as usize];
@@ -372,6 +391,10 @@ impl UnionFind {
         x
     }
 
+    #[expect(
+        clippy::comparison_chain,
+        reason = "pre-existing; if-chain is clearer for this domain logic"
+    )]
     fn union(&mut self, a: ArcVarId, b: ArcVarId) {
         let root_a = self.find(a);
         let root_b = self.find(b);

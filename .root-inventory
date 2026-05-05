@@ -1,8 +1,8 @@
-# Root inventory — permitted top-level entries for this repository.
-# Enforced by diagnostics/repo-hygiene.sh --check-root (pre-commit gate).
-# To add: append the entry, keep the file sorted. To remove: delete the line.
-# Comments (#) and blank lines ignored.
 
+# Comments (#) and blank lines ignored.
+# Enforced by diagnostics/repo-hygiene.sh --check-root (pre-commit gate).
+# Root inventory — permitted top-level entries for this repository.
+# To add: append the entry, keep the file sorted. To remove: delete the line.
 .cargo
 .editorconfig
 .github
@@ -30,6 +30,7 @@ editors
 examples
 fmt-all.sh
 full-check.sh
+fuzz
 install.sh
 lefthook.yml
 library

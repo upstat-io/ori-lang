@@ -39,6 +39,7 @@ fn make_func_with_reprs(
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        var_rc_strategies: Vec::new(),
     }
 }
 

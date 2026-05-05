@@ -4924,7 +4924,7 @@ fn populate_call_result_states_invoke_no_contract_uses_conservative() {
 
 // BUG-04-106 §03 — closure_env_alias realization-layer fix matrix
 
-/// Pin: 5th edit site (intraprocedural/mod.rs InvokeEdgeState recording arm).
+/// Pin: 5th edit site (intraprocedural/mod.rs `InvokeEdgeState` recording arm).
 ///
 /// `InvokeEdgeState` is the per-edge demand state captured for terminators
 /// with both a normal and an unwind successor. Pre-fix, the worklist's
@@ -4996,10 +4996,10 @@ fn invoke_indirect_records_edge_state_for_normal_and_unwind() {
     );
 }
 
-/// Pin: REJECTED-APPROACH GUARD for closure_env_alias fix.
+/// Pin: REJECTED-APPROACH GUARD for `closure_env_alias` fix.
 ///
-/// The closure_env_alias bug is fixed at the realization layer (RcInc
-/// suppression for ApplyIndirect closure receivers); the LATTICE
+/// The `closure_env_alias` bug is fixed at the realization layer (`RcInc`
+/// suppression for `ApplyIndirect` closure receivers); the LATTICE
 /// (TF-11 backward demands + TF-13 capture state update) MUST stay
 /// unchanged so multi-call closures still promote captures to
 /// `Cardinality::Many` per `aims-rules.md §1.3` and §3 TF-13.
@@ -5007,7 +5007,7 @@ fn invoke_indirect_records_edge_state_for_normal_and_unwind() {
 /// Round 1 of the /tp-help loop entertained an alternative fix:
 /// remove the `(closure, Once, Linear)` demand TF-11 emits for
 /// `ApplyIndirect`. That alternative would have made the closure
-/// receiver appear non-demanding, suppressing the spurious RcInc as a
+/// receiver appear non-demanding, suppressing the spurious `RcInc` as a
 /// side effect. It was rejected because it corrupts TF-13's
 /// capture-state propagation: with the closure stuck at `Once`, TF-13
 /// takes the `closure cardinality <= Once` branch and the captured var
@@ -5017,7 +5017,7 @@ fn invoke_indirect_records_edge_state_for_normal_and_unwind() {
 /// This test pins the post-promotion shape end-to-end: a multi-call
 /// closure capturing an RC-tracked param MUST converge with the
 /// captured var at `Cardinality::Many` AND `Consumption::Unrestricted`.
-/// If any future change collapses TF-11's ApplyIndirect closure demand,
+/// If any future change collapses TF-11's `ApplyIndirect` closure demand,
 /// this assertion fails immediately.
 ///
 /// Ref: BUG-04-106 §02 fix consensus + §03:87 capture-promotion pin.

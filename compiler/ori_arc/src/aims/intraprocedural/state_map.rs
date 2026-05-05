@@ -220,7 +220,7 @@ pub struct AimsStateMap {
     /// from the same union-find pass that fills `ssa_alias_classes`.
     ///
     /// Enables PIN-4 class-liveness: `walk_dec.rs::emit_last_use_decs` skips
-    /// RcDec emission unless `class_members(class_id).any(is_live_after)`
+    /// `RcDec` emission unless `class_members(class_id).any(is_live_after)`
     /// is false — "no class member live after this instruction" means the
     /// class has reached its absolute last use.
     class_members: FxHashMap<u32, FxHashSet<ArcVarId>>,

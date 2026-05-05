@@ -200,6 +200,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
 
+        // Save emitter's tracked current_function so helpers that append
+        // blocks (emit_inline_enum_dec, emit_rc_dec_closure) use the drop
+        // function's id, not the caller's.
+        let saved_current_function = self.current_function;
+
         // Declare: void @_ori_partial_N_drop(ptr %data)
         let ptr_ty = self.builder.ptr_type();
         let func_id = self.builder.declare_void_function(&func_name, &[ptr_ty]);
@@ -214,6 +219,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let entry = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry);
         self.builder.set_current_function(func_id);
+        self.current_function = func_id;
 
         let data_ptr = self.builder.get_param(func_id, 0);
 
@@ -285,12 +291,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         }
                     }
                     _ => {
-                        let data_ptrs = self.extract_rc_data_ptrs(field_val, cap_ty);
-                        let drop_fn = self.get_or_generate_drop_fn(cap_ty);
-                        let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
-                        for data_ptr_val in data_ptrs {
-                            self.builder.call(rc_dec_id, &[data_ptr_val, drop_fn], "");
-                        }
+                        self.dec_value_rc(field_val, cap_ty);
                     }
                 }
             }
@@ -316,7 +317,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
 
-        // Restore builder position
+        // Restore builder position and emitter's current_function trackers
+        self.current_function = saved_current_function;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
             self.builder.set_current_function(f);

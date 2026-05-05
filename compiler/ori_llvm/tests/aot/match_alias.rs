@@ -1,7 +1,7 @@
 //! SSA-alias dec-dedup matrix tests (BUG-04-104).
 //!
 //! Tests for §3.1 in-class alias cells and §3.3 semantic-pin cells from
-//! the BUG-04-104 fix plan TDD matrix. Pre-fix: AIMS realize emits RcDec
+//! the BUG-04-104 fix plan TDD matrix. Pre-fix: AIMS realize emits `RcDec`
 //! per SSA name, causing double-free on aliased aggregates with heap
 //! children. Post-fix: SSA-alias equivalence-class union-find collapses
 //! dec emission to one canonical dec per class.

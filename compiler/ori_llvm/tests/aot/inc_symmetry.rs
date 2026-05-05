@@ -5,7 +5,7 @@
 //! skip was DROPPED at PIN-1 — per-name compensating Inc is correct
 //! per RL-1; class-aware Inc skip would cause use-after-free. These
 //! cells are regression guards: they assert that future changes do
-//! not accidentally re-introduce class-aware RcInc skip. They pass
+//! not accidentally re-introduce class-aware `RcInc` skip. They pass
 //! clean BOTH pre-fix AND post-fix; `assert_aot_success` already
 //! enables `ORI_CHECK_LEAKS=1` so any re-introduction of Sub-phase A
 //! that would produce over-Inc / under-Dec imbalance surfaces here as

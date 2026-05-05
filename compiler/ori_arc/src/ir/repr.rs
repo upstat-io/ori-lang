@@ -217,10 +217,10 @@ impl RcStrategy {
 /// (`Closure` walks captured env, `AggregateFields` walks RC fields, `InlineEnum`
 /// switches on tag and dec's variant payloads, `HeapPointer` runs `elem_dec_fn`
 /// over collection elements). Returns `false` for `FatPointer` (str — drop dec's
-/// the data buffer ONLY, the FatPointer IS the leaf payload) and `Iterator` (drop
+/// the data buffer ONLY, the `FatPointer` IS the leaf payload) and `Iterator` (drop
 /// calls `ori_iter_drop` directly without payload-walk).
 ///
-/// Pure function on the enum — no Pool query, no AimsStateMap query. The
+/// Pure function on the enum — no Pool query, no `AimsStateMap` query. The
 /// `RcStrategy` value already carries the answer.
 ///
 /// Used by AIMS PIN-6 (BUG-04-104) for inter-class payload-of suppression: when
