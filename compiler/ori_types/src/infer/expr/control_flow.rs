@@ -3,7 +3,7 @@
 use ori_ir::{BindingPatternId, ExprArena, ExprId, Name, Span};
 
 use super::super::InferEngine;
-use super::{bind_pattern, infer_expr, lookup_struct_field_types};
+use super::{bind_pattern, infer_expr, lookup_struct_field_types, pattern_is_irrefutable};
 use crate::{
     ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, SequenceKind, Tag, TypeCheckError,
     VariantFields,
@@ -635,6 +635,10 @@ pub(crate) fn infer_for(
     // Bind the loop pattern (supports name, tuple, wildcard, struct, list)
     engine.push_context(ContextKind::ForBinding);
     let pat = arena.get_binding_pattern(pattern);
+    if let Err(reason) = pattern_is_irrefutable(engine, pat, elem_ty) {
+        let err = TypeCheckError::refutable_pattern(span, reason);
+        engine.push_error(err);
+    }
     bind_pattern(engine, arena, pat, elem_ty);
     engine.pop_context();
 

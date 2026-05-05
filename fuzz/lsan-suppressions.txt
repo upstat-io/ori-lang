@@ -1,0 +1,23 @@
+# LeakSanitizer suppressions for ori-fuzz.
+#
+# Pattern: `leak:<substring>` — LSan matches the substring against each
+# stack frame's full text (function name + module path + file path).
+# Note that demangled Rust frames render `<Type>::method` with literal
+# angle brackets, so a substring like `ori_ir::interner::StringInterner::method`
+# will NOT match the angle-bracketed frame `<ori_ir::interner::StringInterner>::method`.
+# Match the file path or bare function name instead — both are stable.
+#
+# These exempt intentional `Box::leak` arena allocations that exist to
+# provide `'static`-lifetime references for compile-time use. The pattern
+# is canonical across compiler arena allocators (rustc, swiftc, clang all
+# use LSan suppressions for the same reason).
+#
+# Per the §10 plan: leak detection is preserved for everything OUTSIDE these
+# arena code paths — ori_eval, ori_canon (post-arena), ori_arc, ori_rt, and
+# generated AOT code remain under strict ASan/LSan supervision.
+
+# StringInterner: every interned string is `Box::leak`'d in `try_intern` to
+# upgrade to `&'static str` (compiler_repo/compiler/ori_ir/src/interner/mod.rs:137).
+# `pre_intern_keywords` calls into the same path during `StringInterner::new()`.
+# Match the file path — stable across function-name changes within the file.
+leak:ori_ir/src/interner/mod.rs

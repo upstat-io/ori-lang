@@ -83,21 +83,6 @@ pub(crate) fn build_let_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, Arc
     result
 }
 
-/// Whether `var` is defined by a `Let { value: Var(_) }` alias instruction.
-/// Returns false for fresh-allocation roots (`Construct` / `Apply` result /
-/// `Reuse` / `PartialApply` / `Project` / function parameter).
-///
-/// BUG-04-090 §05 Hypothesis D component #2: caller-side allocation-identity
-/// suppression must skip Let Var aliases. The alias has no independent RC
-/// slot; recording an `ApplyAliasSource` entry keyed on it provides no
-/// information the existing alias machinery does not already track, AND
-/// trips downstream consumers into suppressing decs that balance Let-Var
-/// emitted incs upstream (per `aims-rules.md §IA-5 step 1` Let-Var demand
-/// transfer + cardinality `seq_add`).
-fn is_let_var_alias(let_alias_map: &FxHashMap<ArcVarId, ArcVarId>, var: ArcVarId) -> bool {
-    let_alias_map.contains_key(&var)
-}
-
 /// Walk every Apply/Invoke site in `func`, look up the callee's
 /// `MemoryContract` in `sigs`, and emit an [`ApplyAliasSource`] entry for the
 /// destination when the callee's contract carries `return_alias != None` for
@@ -113,7 +98,6 @@ pub(crate) fn populate_apply_result_aliases(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, MemoryContract>,
 ) -> FxHashMap<ArcVarId, ApplyAliasSource> {
-    let let_alias_map = build_let_alias_map(func);
     let mut result = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {
@@ -125,7 +109,7 @@ pub(crate) fn populate_apply_result_aliases(
             } = instr
             {
                 if let Some(contract) = sigs.get(callee) {
-                    install_alias_entry(&mut result, *dst, args, contract, &let_alias_map);
+                    install_alias_entry(&mut result, *dst, args, contract);
                 }
             }
         }
@@ -137,7 +121,7 @@ pub(crate) fn populate_apply_result_aliases(
         } = &block.terminator
         {
             if let Some(contract) = sigs.get(callee) {
-                install_alias_entry(&mut result, *dst, args, contract, &let_alias_map);
+                install_alias_entry(&mut result, *dst, args, contract);
             }
         }
     }
@@ -159,7 +143,6 @@ fn install_alias_entry(
     dst: ArcVarId,
     args: &[ArcVarId],
     contract: &MemoryContract,
-    let_alias_map: &FxHashMap<ArcVarId, ArcVarId>,
 ) {
     // Record alias entries for any param structurally flowing to a Direct
     // or Project Return, regardless of the param's own access. The realize
@@ -191,13 +174,14 @@ fn install_alias_entry(
                 // occur post type-check; skip defensively.
                 return;
             };
-            // Hypothesis D component #2: skip if the consumed arg is a Let
-            // Var alias. The alias has no RC slot; downstream suppression
-            // gates that match this entry would either no-op (alias has no
-            // dec) or misfire on the canonical RC owner via traversal.
-            if is_let_var_alias(let_alias_map, consumed_arg) {
-                return;
-            }
+            // BUG-04-107 / BUG-04-104 Phase 4 §05 #6: the is_let_var_alias
+            // filter was REMOVED. Let aliases are now in the union-find
+            // directly via build_let_alias_map, so class structure subsumes
+            // the protection this filter previously provided. Removing the
+            // filter unites caller-arg and result classes for identity
+            // functions (e.g., id<T>(x: T) -> T), preventing PIN-6 from
+            // spuriously recording a payload-of edge and then over-
+            // suppressing the child class's dec.
             let entry = match alias_shape {
                 ReturnAliasShape::Direct => ApplyAliasSource::Direct(consumed_arg),
                 ReturnAliasShape::Project { field } => ApplyAliasSource::Project {
@@ -212,14 +196,11 @@ fn install_alias_entry(
             // runtime. Suppress all candidates' scope-exit decs at File 13;
             // dst's RC ops are retained as the canonical owner.
             //
-            // Hypothesis D component #2: per-candidate Let-alias filter.
-            // Drop any candidate whose consumed arg is a Let Var alias
-            // (no independent RC slot). If all candidates filter out, skip
-            // the entry entirely.
+            // BUG-04-107 / BUG-04-104 Phase 4 §05 #6: is_let_var_alias
+            // filter removed — subsumed by class structure.
             let candidates: Vec<ArcVarId> = aliasing_params
                 .iter()
                 .filter_map(|&idx| args.get(idx).copied())
-                .filter(|&arg| !is_let_var_alias(let_alias_map, arg))
                 .collect();
             if !candidates.is_empty() {
                 result.insert(dst, ApplyAliasSource::Conditional { candidates });

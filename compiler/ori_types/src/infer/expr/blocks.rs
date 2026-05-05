@@ -4,7 +4,10 @@ use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 use rustc_hash::FxHashSet;
 
 use super::super::InferEngine;
-use super::{bind_pattern, check_expr, infer_expr, resolve_and_check_parsed_type};
+use super::{
+    bind_pattern, check_expr, infer_expr, pattern_is_irrefutable, resolve_and_check_parsed_type,
+};
+use crate::type_error::TypeCheckError;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx};
 
 /// Collect the set of lexically-bound outer-scope names visible to the
@@ -107,6 +110,10 @@ pub(crate) fn infer_block(
 
                 // Bind pattern to the block's scope.
                 // The binding is visible to subsequent statements and the result.
+                if let Err(reason) = pattern_is_irrefutable(engine, pat, final_ty) {
+                    let err = TypeCheckError::refutable_pattern(stmt.span, reason);
+                    engine.push_error(err);
+                }
                 bind_pattern(engine, arena, pat, final_ty);
             }
         }
@@ -189,6 +196,10 @@ pub(crate) fn infer_let(
     engine.exit_rank_scope();
 
     // Bind the pattern to the (possibly generalized) type in the outer env.
+    if let Err(reason) = pattern_is_irrefutable(engine, pattern, final_ty) {
+        let err = TypeCheckError::refutable_pattern(span, reason);
+        engine.push_error(err);
+    }
     bind_pattern(engine, arena, pattern, final_ty);
 
     // Let expression returns unit

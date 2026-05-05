@@ -37,6 +37,7 @@ mod body_finalize;
 mod context;
 mod env;
 mod expr;
+pub(crate) use expr::{NestedPathStep, RefutableReason};
 mod scope;
 mod state;
 mod type_builders;

@@ -231,6 +231,44 @@ impl TypeCheckError {
             TypeErrorKind::InvalidReprAttribute { reason, .. } => {
                 format!("invalid `#repr` attribute: {reason}")
             }
+            TypeErrorKind::RefutablePattern { reason } => {
+                use crate::infer::RefutableReason;
+                match reason {
+                    RefutableReason::ListLength { required, has_rest } => {
+                        if *required == 0 && !has_rest {
+                            "refutable pattern in let-binding: this empty-list pattern matches only the empty list".to_string()
+                        } else {
+                            let tail = if *has_rest { "at least " } else { "exactly " };
+                            format!(
+                                "refutable pattern in let-binding: this list pattern requires {tail}{required} elements, but [T] has no compile-time length. Use `match` instead."
+                            )
+                        }
+                    }
+                    RefutableReason::NestedRefutable { path, inner } => {
+                        use crate::infer::NestedPathStep;
+                        let path_str = path.iter()
+                            .map(|step| match step {
+                                NestedPathStep::TupleIndex(i) => format!("element {i}"),
+                                NestedPathStep::StructField(_) => "struct field".to_string(),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(".");
+                        format!(
+                            "refutable pattern in let-binding at {path_str}: {}",
+                            // inner message is the leaf
+                            match inner.as_ref() {
+                                RefutableReason::ListLength { required, has_rest } => {
+                                    let tail = if *has_rest { "at least " } else { "exactly " };
+                                    format!("requires {tail}{required} elements")
+                                }
+                                RefutableReason::NestedRefutable { .. } => {
+                                    "refutable sub-pattern".to_string()
+                                }
+                            }
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -249,6 +287,7 @@ impl TypeCheckError {
             TypeErrorKind::Mismatch { .. }
             | TypeErrorKind::PatternMismatch { .. }
             | TypeErrorKind::NonExhaustiveMatch { .. }
+            | TypeErrorKind::RefutablePattern { .. }
             | TypeErrorKind::UnsatisfiedBound { .. } => ErrorCode::E2001,
 
             // E2003: Unknown/undefined names and fields

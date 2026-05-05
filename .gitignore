@@ -14,6 +14,10 @@
 # Cargo lock for libraries (keep for binaries)
 # Cargo.lock  # We keep this since we have a binary
 
+# Fuzzing artifacts (cargo-fuzz: regenerable inputs + crash reproducers)
+/fuzz/corpus/
+/fuzz/artifacts/
+
 # Reference repos (local development only)
 /_repos/
 /REFERENCE/

@@ -44,6 +44,7 @@ mod format;
 mod identifiers;
 mod methods;
 mod operators;
+mod refutability;
 mod registry_bridge;
 pub(crate) use registry_bridge::OP_TRAIT_MAP;
 mod sequences;
@@ -90,6 +91,7 @@ pub(super) use structs::{
 };
 // Public re-exports for the crate's public API
 // (re-exported through infer/mod.rs)
+pub(crate) use refutability::{pattern_is_irrefutable, NestedPathStep, RefutableReason};
 pub(super) use type_resolution::resolve_and_check_parsed_type;
 pub use type_resolution::resolve_parsed_type;
 

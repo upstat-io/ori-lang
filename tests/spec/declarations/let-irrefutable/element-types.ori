@@ -1,0 +1,48 @@
+// Axis 2 — Element type independence.
+// Refutability is structural — multi-element list patterns against dynamic
+// `[T]` reject regardless of element type. Spec 15-patterns.md:276-281 +
+// 332-340.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// [str] — string element type
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_let_str_list_rejects tests _ () -> void = {
+    let items: [str] = ["a", "b", "c"];
+    let [$x, $y] = items
+}
+
+// =============================================================================
+// [Point] — user struct element type
+// =============================================================================
+
+type Point = { x: int, y: int }
+
+#compile_fail(code: "E2001")
+@test_let_struct_list_rejects tests _ () -> void = {
+    let items: [Point] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }];
+    let [$a, $b] = items
+}
+
+// =============================================================================
+// [[int]] — nested list element type
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_let_nested_list_rejects tests _ () -> void = {
+    let items: [[int]] = [[1, 2], [3, 4]];
+    let [$x, $y] = items
+}
+
+// =============================================================================
+// [Option<int>] — Option element type
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_let_option_list_rejects tests _ () -> void = {
+    let items: [Option<int>] = [Some(1), Some(2), None];
+    let [$x, $y] = items
+}

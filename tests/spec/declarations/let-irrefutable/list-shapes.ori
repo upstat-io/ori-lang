@@ -1,0 +1,74 @@
+// Axis 1 — List shape coverage for let-binding irrefutability (CF-3).
+// Per Spec/15-patterns.md:332-340 (List Pattern Exhaustiveness table),
+// the 5 canonical List shapes: [], [$x], [$x, $y], [$x, ..rest], [..rest].
+// Only [..rest] is irrefutable on dynamic [T]; all others produce E2001.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Canonical refutable shapes — each MUST produce E2001
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_let_empty_list_pattern_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [] = items
+}
+
+#compile_fail(code: "E2001")
+@test_let_single_head_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [$x] = items
+}
+
+#compile_fail(code: "E2001")
+@test_let_two_heads_no_rest_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [$x, $y] = items
+}
+
+#compile_fail(code: "E2001")
+@test_let_two_heads_with_rest_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [$x, $y, ..rest] = items
+}
+
+// =============================================================================
+// Canonical irrefutable shape — [..rest] accepted
+// =============================================================================
+
+#skip("BUG-05-004: ARC leak on irrefutable rest-only let-binding")
+@test_let_rest_only_accepts tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [..rest] = items;
+    assert_eq(actual: rest.len(), expected: 3)
+}
+
+// =============================================================================
+// Regression cells — beyond the canonical 5
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_let_three_heads_no_rest_rejects tests _ () -> void = {
+    let items = [1, 2, 3, 4];
+    let [$a, $b, $c] = items
+}
+
+#compile_fail(code: "E2001")
+@test_let_three_heads_with_rest_rejects tests _ () -> void = {
+    let items = [1, 2, 3, 4];
+    let [$a, $b, $c, ..rest] = items
+}
+
+#compile_fail(code: "E2001")
+@test_let_with_wildcard_head_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [$x, _, ..rest] = items
+}
+
+#skip("BUG-05-004: ARC leak on irrefutable rest-only let-binding")
+@test_let_immutable_rest_only_accepts tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [..$rest] = items;
+    assert_eq(actual: rest.len(), expected: 3)
+}

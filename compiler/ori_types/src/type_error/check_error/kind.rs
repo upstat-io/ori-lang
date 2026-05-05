@@ -355,6 +355,14 @@ pub enum TypeErrorKind {
         /// Human-readable reason (e.g., "alignment must be a power of two").
         reason: String,
     },
+
+    /// Refutable `BindingPattern` at let-class binding site (E2001).
+    /// Per Spec Clauses 15.4 / 16: `let <pat> = expr` SHALL require an
+    /// irrefutable pattern. Maps to error code E2001.
+    RefutablePattern {
+        /// Why the pattern is refutable (list length, nested sub-pattern).
+        reason: crate::infer::RefutableReason,
+    },
 }
 
 /// What kind of arity mismatch occurred.

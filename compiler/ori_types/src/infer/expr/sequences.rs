@@ -5,7 +5,7 @@ use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 use super::super::InferEngine;
 use super::{
     check_expr, check_match_pattern, infer_expr, infer_match, lookup_struct_field_types,
-    maybe_generalize, pattern_first_name, resolve_and_check_parsed_type,
+    maybe_generalize, pattern_first_name, pattern_is_irrefutable, resolve_and_check_parsed_type,
 };
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag, TypeCheckError};
 
@@ -284,6 +284,10 @@ pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, st
             engine.exit_rank_scope();
 
             // Bind pattern to type
+            if let Err(reason) = pattern_is_irrefutable(engine, pat, final_ty) {
+                let err = TypeCheckError::refutable_pattern(stmt.span, reason);
+                engine.push_error(err);
+            }
             bind_pattern(engine, arena, pat, final_ty);
         }
 

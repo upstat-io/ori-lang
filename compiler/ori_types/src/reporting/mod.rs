@@ -274,6 +274,9 @@ impl<'a> TypeErrorRenderer<'a> {
                     self.format_name(*type_name)
                 )
             }
+            TypeErrorKind::RefutablePattern { .. } => {
+                "refutable pattern in let-binding".to_string()
+            }
         }
     }
 

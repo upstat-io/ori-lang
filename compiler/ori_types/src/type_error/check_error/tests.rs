@@ -210,6 +210,115 @@ fn rich_message_missing_assoc_type() {
     );
 }
 
+// Refutable-pattern (BUG-02-022 / CF-3) tests
+
+#[test]
+fn create_refutable_pattern_error_list_length() {
+    use crate::infer::RefutableReason;
+
+    let error = TypeCheckError::refutable_pattern(
+        Span::new(0, 30),
+        RefutableReason::ListLength {
+            required: 2,
+            has_rest: true,
+        },
+    );
+
+    assert!(matches!(error.kind, TypeErrorKind::RefutablePattern { .. }));
+    assert_eq!(error.code(), ori_diagnostic::ErrorCode::E2001);
+    assert!(!error.suggestions.is_empty());
+    assert!(error
+        .suggestions
+        .iter()
+        .any(|s| s.message.contains("match")));
+}
+
+#[test]
+fn refutable_pattern_message_list_length_required_two() {
+    use crate::infer::RefutableReason;
+
+    let error = TypeCheckError::refutable_pattern(
+        Span::new(0, 30),
+        RefutableReason::ListLength {
+            required: 2,
+            has_rest: true,
+        },
+    );
+    let msg = error.message();
+    assert!(
+        msg.contains("refutable pattern in let-binding"),
+        "got: {msg}"
+    );
+    assert!(msg.contains("at least"), "got: {msg}");
+    assert!(msg.contains("match"), "got: {msg}");
+}
+
+#[test]
+fn refutable_pattern_message_list_length_zero_no_rest() {
+    use crate::infer::RefutableReason;
+
+    let error = TypeCheckError::refutable_pattern(
+        Span::new(0, 5),
+        RefutableReason::ListLength {
+            required: 0,
+            has_rest: false,
+        },
+    );
+    let msg = error.message();
+    assert!(
+        msg.contains("refutable pattern in let-binding"),
+        "got: {msg}"
+    );
+    assert!(msg.contains("empty-list"), "got: {msg}");
+    assert!(msg.contains("match"), "got: {msg}");
+}
+
+#[test]
+fn refutable_pattern_message_nested_struct_field() {
+    use crate::infer::{NestedPathStep, RefutableReason};
+
+    let error = TypeCheckError::refutable_pattern(
+        Span::new(0, 30),
+        RefutableReason::NestedRefutable {
+            path: vec![NestedPathStep::StructField(Name::from_raw(11))],
+            inner: Box::new(RefutableReason::ListLength {
+                required: 2,
+                has_rest: false,
+            }),
+        },
+    );
+    let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+    // Rich form shows path + inner without the simple-form prefix.
+    assert!(msg.contains("at field"), "got: {msg}");
+    assert!(
+        msg.contains("length") || msg.contains("`length`"),
+        "got: {msg}"
+    );
+    assert!(msg.contains("element"), "got: {msg}");
+}
+
+#[test]
+fn refutable_pattern_message_nested_tuple_index() {
+    use crate::infer::{NestedPathStep, RefutableReason};
+
+    let error = TypeCheckError::refutable_pattern(
+        Span::new(0, 30),
+        RefutableReason::NestedRefutable {
+            path: vec![NestedPathStep::TupleIndex(1)],
+            inner: Box::new(RefutableReason::ListLength {
+                required: 2,
+                has_rest: false,
+            }),
+        },
+    );
+    let msg = error.message();
+    assert!(msg.contains("refutable pattern"), "got: {msg}");
+    assert!(
+        msg.contains("element 1") || msg.contains("at element"),
+        "got: {msg}"
+    );
+}
+
 #[test]
 fn format_with_uses_pool_and_interner() {
     let pool = crate::Pool::new();

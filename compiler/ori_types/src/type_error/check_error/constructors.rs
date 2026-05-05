@@ -8,12 +8,29 @@ use ori_ir::{DerivedTrait, Name, Span};
 
 use super::kind::{ErrorContext, ImportErrorKind, TypeErrorKind};
 use super::TypeCheckError;
+use crate::infer::RefutableReason;
 use crate::Idx;
 
 impl TypeCheckError {
     /// Create an undefined identifier error.
     pub fn undefined_identifier(name: Name, span: Span) -> Self {
         Self::unknown_ident(span, name, vec![])
+    }
+
+    /// Create a refutable-pattern-in-let-binding error (E2001).
+    ///
+    /// Spec Clauses 15.4 and 16: `let <pat> = expr` SHALL require an
+    /// irrefutable pattern. Suggestion points the user at `match`.
+    pub fn refutable_pattern(span: Span, reason: RefutableReason) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::RefutablePattern { reason },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "Use `match` instead — `match` arms accept refutable patterns",
+                0,
+            )],
+        }
     }
 
     /// Create a "self outside impl" error.

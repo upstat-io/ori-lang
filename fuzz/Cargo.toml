@@ -1,4 +1,79 @@
 [package]
 name = "ori-fuzz"
 version = "0.0.0"
+publish = false
 edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+tempfile = "3"               # MISSING from prior plan revision; required at fuzz_targets/ori_differential.rs
+wait-timeout = "0.2"         # subprocess timeout (std::process::Command has no .timeout())
+rustc-hash = "2.1"           # FxHashMap/FxHashSet for canonicalization (explicit version because fuzz is workspace-excluded; cannot inherit `workspace = true`)
+
+# In-process pipeline (eval side of differential oracle):
+ori_lexer = { path = "../compiler/ori_lexer" }
+ori_parse = { path = "../compiler/ori_parse" }
+ori_types = { path = "../compiler/ori_types" }
+ori_canon = { path = "../compiler/ori_canon" }
+ori_eval  = { path = "../compiler/ori_eval" }
+ori_ir    = { path = "../compiler/ori_ir" }
+ori_patterns = { path = "../compiler/ori_patterns" }   # needed for ControlAction matching in oracle.rs
+ori_compiler = { path = "../compiler/ori_compiler" }   # pure facade (no IO, no Salsa, no LLVM)
+ori_registry = { path = "../compiler/ori_registry" }   # SSOT for backend_required, used by generator
+ori_diagnostic = { path = "../compiler/ori_diagnostic" }
+
+# NOTE: ori_llvm is INTENTIONALLY absent.
+# Reason: libFuzzer's SanitizerCoverage instrumentation is incompatible
+# with LLVM's own internal LLVM-side instrumentation when both libraries
+# are linked into the same binary. The differential oracle compiles the
+# AOT binary as a SUBPROCESS via the workspace `ori` binary, discovered
+# through the OnceLock<cargo build> pattern from
+# compiler_repo/compiler/ori_llvm/tests/aot/util/binary.rs. The eval side
+# runs in-process so libFuzzer's coverage feedback drives mutation.
+
+[[bin]]
+name = "ori_parse"
+path = "fuzz_targets/ori_parse.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "ori_typecheck"
+path = "fuzz_targets/ori_typecheck.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "ori_canon"
+path = "fuzz_targets/ori_canon.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "ori_differential"
+path = "fuzz_targets/ori_differential.rs"
+doc = false
+test = false
+
+# Helper binaries (NOT fuzz targets — invoked by corpus tooling):
+[[bin]]
+name = "parse-only-check"
+path = "src/bin/parse-only-check.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "parse-typecheck-check"
+path = "src/bin/parse-typecheck-check.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "seed-writer"
+path = "src/bin/seed-writer.rs"
+doc = false
+test = false
