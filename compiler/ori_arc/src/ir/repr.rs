@@ -210,6 +210,36 @@ impl RcStrategy {
     }
 }
 
+/// Whether an [`RcStrategy`]'s drop walks its payload, transitively decrementing
+/// inner RC slots.
+///
+/// Returns `true` for strategies whose drop function dec's payload allocations
+/// (`Closure` walks captured env, `AggregateFields` walks RC fields, `InlineEnum`
+/// switches on tag and dec's variant payloads, `HeapPointer` runs `elem_dec_fn`
+/// over collection elements). Returns `false` for `FatPointer` (str — drop dec's
+/// the data buffer ONLY, the FatPointer IS the leaf payload) and `Iterator` (drop
+/// calls `ori_iter_drop` directly without payload-walk).
+///
+/// Pure function on the enum — no Pool query, no AimsStateMap query. The
+/// `RcStrategy` value already carries the answer.
+///
+/// Used by AIMS PIN-6 (BUG-04-104) for inter-class payload-of suppression: when
+/// class A's allocation is `[own]`-consumed by an instruction constructing a
+/// parent aggregate of class B, and class B's strategy is transitive-drop,
+/// class B's drop covers class A's RC slot — class A's canonical dec is
+/// suppressed to avoid double-free.
+#[must_use]
+#[inline]
+pub fn is_transitive_drop_strategy(strategy: RcStrategy) -> bool {
+    matches!(
+        strategy,
+        RcStrategy::Closure
+            | RcStrategy::AggregateFields
+            | RcStrategy::InlineEnum
+            | RcStrategy::HeapPointer
+    )
+}
+
 /// Compute value representations for all variables in a function.
 ///
 /// Produces a parallel array indexed by [`ArcVarId::index()`](super::ArcVarId::index),
@@ -228,6 +258,47 @@ pub fn compute_var_reprs(
         .map(|&ty| {
             let class = classifier.arc_class(ty);
             ValueRepr::from_arc_class(class, pool, ty)
+        })
+        .collect()
+}
+
+/// Compute cached RC strategies for all variables in a function.
+///
+/// Produces a parallel array indexed by [`ArcVarId::index()`](super::ArcVarId::index),
+/// matching `func.var_reprs` element-for-element. Each entry is `Some(strategy)`
+/// for non-scalar variables (heap pointers, fat values, aggregates, closures,
+/// inline enums, iterators) and `None` for scalars.
+///
+/// Called once at the start of the ARC pipeline, immediately after
+/// [`compute_var_reprs`] populates `func.var_reprs`. Caches the
+/// [`RcStrategy::from_var`] result so downstream pre-walk passes (the AIMS
+/// PIN-6 `class_payload_of` population in
+/// `intraprocedural::ssa_alias_classes`) can classify a variable's strategy
+/// without holding a `&Pool` reference at analyze-time.
+///
+/// # Preconditions
+///
+/// `func.var_reprs` MUST be populated (length equal to `func.var_types`).
+/// Calling this with empty `var_reprs` returns an empty vector.
+#[must_use]
+pub fn compute_var_rc_strategies(func: &ArcFunction, pool: &Pool) -> Vec<Option<RcStrategy>> {
+    if func.var_reprs.is_empty() {
+        return Vec::new();
+    }
+    debug_assert_eq!(
+        func.var_reprs.len(),
+        func.var_types.len(),
+        "var_reprs and var_types length mismatch"
+    );
+    func.var_reprs
+        .iter()
+        .zip(func.var_types.iter())
+        .map(|(&repr, &ty)| {
+            if repr == ValueRepr::Scalar {
+                None
+            } else {
+                Some(RcStrategy::from_var(repr, pool, ty))
+            }
         })
         .collect()
 }

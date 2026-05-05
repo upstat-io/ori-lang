@@ -25,7 +25,10 @@ mod terminator;
 pub mod validate;
 
 pub use instr::ArcInstr;
-pub use repr::{compute_var_reprs, RcStrategy, ValueRepr};
+pub use repr::{
+    compute_var_rc_strategies, compute_var_reprs, is_transitive_drop_strategy, RcStrategy,
+    ValueRepr,
+};
 
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, Span, UnaryOp};
 use ori_types::Idx;
@@ -403,6 +406,19 @@ pub struct ArcFunction {
     /// not an independent data source.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub var_reprs: Vec<ValueRepr>,
+    /// Cached RC strategy for each variable, indexed by `ArcVarId::index()`.
+    /// `None` for scalar variables (no RC ops). Computed alongside
+    /// [`var_reprs`](Self::var_reprs) at the start of the ARC pipeline so
+    /// downstream pre-walk passes (notably the AIMS PIN-6 `class_payload_of`
+    /// population in `intraprocedural::ssa_alias_classes`) can classify a
+    /// var's strategy without holding a `&Pool` reference.
+    ///
+    /// Empty until populated by the pipeline alongside `var_reprs`.
+    /// Skipped during cache serialization for the same reason as
+    /// `var_reprs` — derived from `var_types` + `var_reprs` + Pool, not an
+    /// independent data source.
+    #[cfg_attr(feature = "cache", serde(skip))]
+    pub var_rc_strategies: Vec<Option<RcStrategy>>,
     /// Source spans for instructions, indexed by `[block_index][instr_index]`.
     /// `None` for synthetic instructions (e.g., inserted RC operations).
     ///

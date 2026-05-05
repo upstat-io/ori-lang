@@ -1,0 +1,8 @@
+type Inner = { s: str }
+type Outer = { inner: Inner }
+
+@main () -> int = {
+    let o = Outer { inner: Inner { s: "deep_borrow" } };
+    let s = o.inner.s;
+    if s == "deep_borrow" then 0 else 1
+}

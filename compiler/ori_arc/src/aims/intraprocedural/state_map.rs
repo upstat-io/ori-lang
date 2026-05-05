@@ -14,7 +14,7 @@
 )]
 mod tests;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcBlockId, ArcFunction, ArcVarId};
 
@@ -201,6 +201,70 @@ pub struct AimsStateMap {
     /// Project chains without re-coding the worklist.
     apply_result_aliases: FxHashMap<ArcVarId, ApplyAliasSource>,
 
+    /// SSA-alias equivalence-class table (BUG-04-104). Sparse: only entries
+    /// for variables participating in a multi-member class (singletons
+    /// excluded per Round 17 Codex F4 + Gemini F2).
+    ///
+    /// Class membership encodes "these SSA names refer to the same RC slot"
+    /// — Let-Var aliases (transitively chained), Jump-arg → block-param
+    /// pairs, and apply-result aliases of `Direct` / `Conditional` shape.
+    /// `Project` apply-result aliases and `Select` operands are EXCLUDED
+    /// per PIN-2 ("different RC slot" architectural rule).
+    ///
+    /// Populated PRE-WALK by
+    /// [`ssa_alias_classes::compute_ssa_alias_classes`](super::ssa_alias_classes::compute_ssa_alias_classes);
+    /// read-only during the backward worklist.
+    ssa_alias_classes: FxHashMap<ArcVarId, u32>,
+
+    /// Reverse index: class id → set of member vars. Sparse; populated
+    /// from the same union-find pass that fills `ssa_alias_classes`.
+    ///
+    /// Enables PIN-4 class-liveness: `walk_dec.rs::emit_last_use_decs` skips
+    /// RcDec emission unless `class_members(class_id).any(is_live_after)`
+    /// is false — "no class member live after this instruction" means the
+    /// class has reached its absolute last use.
+    class_members: FxHashMap<u32, FxHashSet<ArcVarId>>,
+
+    /// PIN-3 directional metadata: class id → set of source-arg vars that
+    /// are apply-alias sources for some apply-result destination. Keyed by
+    /// the SOURCE's class (NOT the destination's class) — for `Direct` and
+    /// `Conditional` shapes the two coincide via union; for `Project`
+    /// shape (no union) source-class is the source arg's pre-existing
+    /// class, and keying by source-class is the only way the downstream
+    /// `should_suppress_apply_aliased_dec` helper can find the apply
+    /// source for a Project return.
+    class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>>,
+
+    /// PIN-6 inter-class payload-of relation (BUG-04-104 §2.6): class A id →
+    /// set of class B ids whose drop transitively covers class A's RC slot
+    /// via a transitive-drop `RcStrategy` (`Closure`, `AggregateFields`,
+    /// `InlineEnum`, `HeapPointer`).
+    ///
+    /// Populated PRE-WALK by [`ssa_alias_classes::compute_ssa_alias_classes`]
+    /// during the same union-find pass that builds `class_table` /
+    /// `class_members` / `class_apply_alias_source_candidates`. An entry
+    /// `(A → {B})` means: at some `Construct`/`Apply`/`Invoke`/`PartialApply`/
+    /// `Set` instruction, a class-A member was `[own]`-consumed to construct
+    /// or fill class B's payload, and class B's `RcStrategy` is in the
+    /// transitive-drop set per [`is_transitive_drop_strategy`].
+    ///
+    /// Consumed by `walk_dec.rs::pin6_any_ancestor_will_cover` (body),
+    /// `edge_cleanup.rs::pin6_any_ancestor_will_cover_edge`, and
+    /// `dead_cleanup::pin6_any_ancestor_will_cover_entry` to suppress class
+    /// A's canonical dec when class B's drop will cover. Self-loop entries
+    /// (A → A from Direct apply-aliases that union into one class) are
+    /// excluded at population time — those reduce to PIN-4 class-liveness
+    /// and need no PIN-6 suppression.
+    ///
+    /// Singleton-class invariant (R19 Codex F1): every class id appearing as
+    /// a parent (set value) MUST have a matching entry in `class_members` —
+    /// the population pass eagerly inserts singleton members so the BFS
+    /// predicate's `class_members(parent_class)` lookup succeeds.
+    ///
+    /// [`ssa_alias_classes::compute_ssa_alias_classes`]: super::ssa_alias_classes::compute_ssa_alias_classes
+    /// [`is_transitive_drop_strategy`]: crate::ir::is_transitive_drop_strategy
+    class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
+
     /// Sparse event table: special-interest program points, indexed by block.
     events: FxHashMap<ArcBlockId, Vec<AimsEvent>>,
 
@@ -340,6 +404,10 @@ impl AimsStateMap {
             invoke_edge_states: FxHashMap::default(),
             borrow_sources: FxHashMap::default(),
             apply_result_aliases: FxHashMap::default(),
+            ssa_alias_classes: FxHashMap::default(),
+            class_members: FxHashMap::default(),
+            class_apply_alias_source_candidates: FxHashMap::default(),
+            class_payload_of: FxHashMap::default(),
             events: FxHashMap::default(),
             scalars: vec![false; num_vars],
             immortals: vec![false; num_vars],
@@ -697,6 +765,78 @@ impl AimsStateMap {
     /// invariant).
     pub fn set_apply_result_aliases(&mut self, aliases: FxHashMap<ArcVarId, ApplyAliasSource>) {
         self.apply_result_aliases = aliases;
+    }
+
+    /// Whether `var` is the destination of an Apply/Invoke whose callee
+    /// `MemoryContract` carried `return_alias != None` for one or more
+    /// Owned params. O(1) lookup against the pre-walk-populated
+    /// `apply_result_aliases` map.
+    ///
+    /// Consumed by §2.3 R17 carve-out per `bug-tracker/plans/BUG-04-104/
+    /// section-05-implementation.md §2.6.4 row 10` for narrowing
+    /// `should_suppress_return_transfer_dec` interactions on apply-alias
+    /// destinations.
+    #[must_use]
+    pub fn is_apply_alias_destination(&self, var: ArcVarId) -> bool {
+        self.apply_result_aliases.contains_key(&var)
+    }
+
+    // SSA-alias equivalence-class accessors (BUG-04-104)
+
+    /// Return the equivalence-class id for `var` if it participates in a
+    /// multi-member class; `None` for singletons.
+    #[must_use]
+    pub fn ssa_alias_class_of(&self, var: ArcVarId) -> Option<u32> {
+        self.ssa_alias_classes.get(&var).copied()
+    }
+
+    /// Return the set of class members for `class_id`, if any.
+    #[must_use]
+    pub fn class_members(&self, class_id: u32) -> Option<&FxHashSet<ArcVarId>> {
+        self.class_members.get(&class_id)
+    }
+
+    /// Return the set of source-candidate vars recorded for `class_id`.
+    /// Used by `should_suppress_apply_aliased_dec` to detect apply-source
+    /// roles for caller-side dec suppression.
+    #[must_use]
+    pub fn class_apply_alias_source_candidates(
+        &self,
+        class_id: u32,
+    ) -> Option<&FxHashSet<ArcVarId>> {
+        self.class_apply_alias_source_candidates.get(&class_id)
+    }
+
+    /// Return the set of parent class ids whose drop transitively covers
+    /// `class_id`'s RC slot via a transitive-drop `RcStrategy`.
+    ///
+    /// PIN-6 inter-class payload-of relation per BUG-04-104 §2.6. An entry
+    /// `class_id → {parent_id, ...}` means: at some `Construct` /
+    /// `Apply` / `Invoke` / `PartialApply` / `Set` instruction, a
+    /// `class_id` member was `[own]`-consumed to construct or fill a
+    /// payload of a class-`parent_id` aggregate, and `parent_id`'s
+    /// `RcStrategy` is in the transitive-drop set per
+    /// [`is_transitive_drop_strategy`].
+    ///
+    /// [`is_transitive_drop_strategy`]: crate::ir::is_transitive_drop_strategy
+    #[must_use]
+    pub fn class_payload_of(&self, class_id: u32) -> Option<&FxHashSet<u32>> {
+        self.class_payload_of.get(&class_id)
+    }
+
+    /// Bulk-install the pre-computed SSA-alias-class output. Read-only after
+    /// this point per PL-5 (no-stale-summary invariant).
+    pub fn set_ssa_alias_output(
+        &mut self,
+        class_table: FxHashMap<ArcVarId, u32>,
+        class_members: FxHashMap<u32, FxHashSet<ArcVarId>>,
+        class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>>,
+        class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
+    ) {
+        self.ssa_alias_classes = class_table;
+        self.class_members = class_members;
+        self.class_apply_alias_source_candidates = class_apply_alias_source_candidates;
+        self.class_payload_of = class_payload_of;
     }
 
     // Invoke edge states

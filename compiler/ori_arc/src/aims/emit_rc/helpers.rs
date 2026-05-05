@@ -117,6 +117,37 @@ pub(crate) enum LastUse {
     Terminator,
 }
 
+impl<'a> BlockCtx<'a> {
+    /// Whether `var` has a use after `instr_idx` — either later in this
+    /// block's body, in this block's terminator, or in a successor block
+    /// (live at this block's exit).
+    ///
+    /// BUG-04-104 PIN-4 class-liveness primitive: walk_dec.rs queries this
+    /// across all members of an SSA-alias class to decide whether to emit
+    /// the class's canonical RcDec. When `last_use == LastUse::Body(idx)`
+    /// and `idx <= instr_idx`, the var has no later use in this block —
+    /// but it may still be live on a successor edge, so the check MUST
+    /// fall through to `is_live_at_exit`. Returning `false` directly when
+    /// the body-last-use has passed would declare the var dead even when
+    /// a successor needs it (premature dec → use-after-free).
+    pub(crate) fn is_live_after(&self, instr_idx: usize, var: ArcVarId) -> bool {
+        if let Some(&(_total, last_use)) = self.use_info.get(&var) {
+            match last_use {
+                LastUse::Body(idx) => {
+                    if idx > instr_idx {
+                        return true;
+                    }
+                    // Fall through to is_live_at_exit — the body-last-use
+                    // has passed but the var may still be live at the
+                    // block's exit (used by a successor).
+                }
+                LastUse::Terminator => return true,
+            }
+        }
+        super::is_live_at_exit(self.state_map, self.blk, var)
+    }
+}
+
 /// Pre-scan a block to determine total use count and last-use position
 /// for each variable.
 pub(crate) fn precompute_block_uses(block: &ArcBlock) -> FxHashMap<ArcVarId, (usize, LastUse)> {

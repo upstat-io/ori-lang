@@ -65,7 +65,8 @@ pub(super) use collections::{
 };
 pub(super) use concurrency::{infer_cache, infer_catch, infer_recurse};
 pub(super) use constructors::{
-    infer_await, infer_err, infer_none, infer_ok, infer_some, infer_try, infer_with_capability,
+    check_err, check_ok, check_some, infer_await, infer_err, infer_none, infer_ok, infer_some,
+    infer_try, infer_with_capability,
 };
 pub(super) use control_flow::{
     check_match_pattern, infer_break, infer_continue, infer_for, infer_if, infer_loop, infer_match,
@@ -338,6 +339,50 @@ pub fn check_expr(
         span,
     ) {
         return ty;
+    }
+
+    // BD-2 try-block: thread the expected type through `infer_try_seq` so
+    // `let r: Result<T, E> = try { ... Ok(x) }` checks `x` against `T`
+    // instead of double-wrapping. Non-Result expectations (NoExpectation,
+    // unresolved Var, mismatched tag) fall through to synthesis inside
+    // `infer_try_seq`; the post-call `check_type` below subsumes the
+    // synthesized result against `expected` and emits E2001 on mismatch.
+    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
+        if let ori_ir::FunctionSeq::Try { stmts, result, .. } = arena.get_function_seq(*seq_id) {
+            let ty = sequences::infer_try_seq(engine, arena, *stmts, *result, span, expected);
+            engine.store_type(expr_id.raw() as usize, ty);
+            let _ = engine.check_type(ty, expected, span);
+            return ty;
+        }
+    }
+
+    // BD-2 sum constructors: when an outer `Result<T, E>` / `Option<T>`
+    // annotation is in scope, propagate the inner-slot type into the
+    // constructor's argument so `let r: Result<int, MyErr> = Ok(42)`
+    // checks `42` against `int` and returns `Result<int, MyErr>` rather
+    // than the synth-default `Result<int, fresh_var>` that would leak
+    // an unresolvable Err type. Non-matching expectations fall through
+    // to the constructor's existing synth path.
+    match &expr.kind {
+        ExprKind::Ok(inner) => {
+            let ty = check_ok(engine, arena, *inner, span, expected);
+            engine.store_type(expr_id.raw() as usize, ty);
+            let _ = engine.check_type(ty, expected, span);
+            return ty;
+        }
+        ExprKind::Err(inner) => {
+            let ty = check_err(engine, arena, *inner, span, expected);
+            engine.store_type(expr_id.raw() as usize, ty);
+            let _ = engine.check_type(ty, expected, span);
+            return ty;
+        }
+        ExprKind::Some(inner) => {
+            let ty = check_some(engine, arena, *inner, span, expected);
+            engine.store_type(expr_id.raw() as usize, ty);
+            let _ = engine.check_type(ty, expected, span);
+            return ty;
+        }
+        _ => {}
     }
 
     // Default: infer the type and check against expected

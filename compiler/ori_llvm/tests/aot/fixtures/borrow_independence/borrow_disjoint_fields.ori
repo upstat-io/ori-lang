@@ -1,0 +1,8 @@
+type Pair = { a: str, b: str }
+
+@main () -> int = {
+    let p = Pair { a: "first", b: "second" };
+    let av = p.a;
+    let bv = p.b;
+    if av == "first" && bv == "second" then 0 else 1
+}

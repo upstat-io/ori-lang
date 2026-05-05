@@ -1,0 +1,12 @@
+type Pair = { owned_s: str, ref_s: str }
+
+@consume (s: str) -> int = s.len();
+
+@main () -> int = {
+    let p = Pair { owned_s: "owned_field_for_consume", ref_s: "ref_field_used_readonly" };
+    let owned = p.owned_s;
+    let read_only_alias = p.ref_s;
+    let consumed_len = consume(s: owned);
+    let read_only_len = read_only_alias.len();
+    if consumed_len == 23 && read_only_len == 23 then 0 else 1
+}

@@ -3909,3 +3909,214 @@ fn test_capturing_lambda_via_match_arm_does_not_generalize() {
     let body = alloc(&mut arena, ExprKind::Match { scrutinee, arms });
     assert_lambda_with_body_does_not_generalize(&mut arena, body);
 }
+
+// Try-Block BD-2 Propagation Tests
+
+/// BD-2 boundary: an outer `Result<T, E>` annotation propagates `Check(T)`
+/// into the try-block result expression. With a bare-int result, the inner
+/// expression typechecks against `int` directly and the returned type is
+/// the outer `Result<int, str>` — no double-wrap to `Result<Result<int, _>, _>`.
+/// Note: when the result is itself a constructor like `Ok(x)`, full propagation
+/// requires §09.3 (constructor-side BD-2). §09.1 alone covers the boundary.
+#[test]
+fn test_try_block_propagates_expected_result_type() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // try { 42 } — bare int result, no Ok wrapper (Ok BD-2 is §09.3)
+    let int_result = alloc(&mut arena, ExprKind::Int(42));
+    let stmts = arena.alloc_stmt_range(0, 0);
+    let try_seq = ori_ir::FunctionSeq::Try {
+        stmts,
+        result: int_result,
+        span: span(),
+    };
+    let seq_id = arena.alloc_function_seq(try_seq);
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let result_int_str = engine.pool_mut().result(Idx::INT, Idx::STR);
+    let expected = Expected::from_annotation(result_int_str, name(1), span());
+
+    let ty = check_expr(&mut engine, &arena, try_expr, &expected, span());
+
+    assert_eq!(ty, result_int_str);
+    let resolved = engine.resolve(ty);
+    assert_eq!(engine.pool().tag(resolved), Tag::Result);
+    assert_eq!(engine.pool().result_ok(resolved), Idx::INT);
+    assert_eq!(engine.pool().result_err(resolved), Idx::STR);
+    assert!(!engine.has_errors());
+}
+
+/// Synth fallback: with no expected type, `try { Ok(42) }` infers
+/// `Result<int, _>` where `_` is a fresh error variable. Regression
+/// guard for the synth path inside `infer_try_seq`.
+#[test]
+fn test_try_block_without_outer_annotation_falls_back_to_synthesis() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let inner = alloc(&mut arena, ExprKind::Int(42));
+    let ok = alloc(&mut arena, ExprKind::Ok(inner));
+    let stmts = arena.alloc_stmt_range(0, 0);
+    let try_seq = ori_ir::FunctionSeq::Try {
+        stmts,
+        result: ok,
+        span: span(),
+    };
+    let seq_id = arena.alloc_function_seq(try_seq);
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let ty = infer_expr(&mut engine, &arena, try_expr);
+
+    let resolved = engine.resolve(ty);
+    assert_eq!(engine.pool().tag(resolved), Tag::Result);
+    assert_eq!(engine.pool().result_ok(resolved), Idx::INT);
+    let err_ty = engine.pool().result_err(resolved);
+    assert_eq!(engine.pool().tag(err_ty), Tag::Var);
+    assert!(!engine.has_errors());
+}
+
+/// BD-3 subsumption: when the outer annotation is not a `Result`,
+/// `infer_try_seq` falls through to synthesis, and the gate's post-call
+/// `check_type` emits an E2001 mismatch (expected str, got Result<int, _>).
+/// The error MUST surface as a clean mismatch, not a double-wrap.
+#[test]
+fn test_try_block_with_wrong_outer_type_reports_mismatch_not_double_wrap() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let inner = alloc(&mut arena, ExprKind::Int(42));
+    let ok = alloc(&mut arena, ExprKind::Ok(inner));
+    let stmts = arena.alloc_stmt_range(0, 0);
+    let try_seq = ori_ir::FunctionSeq::Try {
+        stmts,
+        result: ok,
+        span: span(),
+    };
+    let seq_id = arena.alloc_function_seq(try_seq);
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let expected = Expected::from_annotation(Idx::STR, name(1), span());
+
+    let _ty = check_expr(&mut engine, &arena, try_expr, &expected, span());
+
+    assert!(
+        engine.has_errors(),
+        "expected an E2001 mismatch when the outer annotation is not a Result"
+    );
+}
+
+// Sum-Constructor BD-2 Tests (Ok / Err / Some)
+
+/// `let r: Result<int, str> = Ok(42)` — Ok BD-2 propagates the outer
+/// `Result<int, str>` annotation into the inner `42` (checked against
+/// int) and returns the outer Result type. The Err slot is bound to
+/// `str` instead of leaking a fresh unification var.
+#[test]
+fn test_check_ok_propagates_result_type_into_inner() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let inner = alloc(&mut arena, ExprKind::Int(42));
+    let ok = alloc(&mut arena, ExprKind::Ok(inner));
+
+    let result_int_str = engine.pool_mut().result(Idx::INT, Idx::STR);
+    let expected = Expected::from_annotation(result_int_str, name(1), span());
+
+    let ty = check_expr(&mut engine, &arena, ok, &expected, span());
+
+    let resolved = engine.resolve(ty);
+    assert_eq!(engine.pool().tag(resolved), Tag::Result);
+    assert_eq!(engine.pool().result_ok(resolved), Idx::INT);
+    assert_eq!(engine.pool().result_err(resolved), Idx::STR);
+    assert!(!engine.has_errors());
+}
+
+/// `let r: Result<int, str> = Err("oops")` — Err BD-2 propagates `str`
+/// into the inner expression so it typechecks against the declared Err
+/// slot. Both slots are pinned in the returned Result.
+#[test]
+fn test_check_err_propagates_result_type_into_inner() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let inner = alloc(&mut arena, ExprKind::String(name(2)));
+    let err = alloc(&mut arena, ExprKind::Err(inner));
+
+    let result_int_str = engine.pool_mut().result(Idx::INT, Idx::STR);
+    let expected = Expected::from_annotation(result_int_str, name(1), span());
+
+    let ty = check_expr(&mut engine, &arena, err, &expected, span());
+
+    let resolved = engine.resolve(ty);
+    assert_eq!(engine.pool().tag(resolved), Tag::Result);
+    assert_eq!(engine.pool().result_ok(resolved), Idx::INT);
+    assert_eq!(engine.pool().result_err(resolved), Idx::STR);
+    assert!(!engine.has_errors());
+}
+
+/// `let o: Option<int> = Some(42)` — Some BD-2 propagates `int` into the
+/// inner expression and returns the outer Option type with no fresh
+/// unification var leaking into the Option element slot.
+#[test]
+fn test_check_some_propagates_option_type_into_inner() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let inner = alloc(&mut arena, ExprKind::Int(42));
+    let some = alloc(&mut arena, ExprKind::Some(inner));
+
+    let option_int = engine.pool_mut().option(Idx::INT);
+    let expected = Expected::from_annotation(option_int, name(1), span());
+
+    let ty = check_expr(&mut engine, &arena, some, &expected, span());
+
+    let resolved = engine.resolve(ty);
+    assert_eq!(engine.pool().tag(resolved), Tag::Option);
+    assert_eq!(engine.pool().option_inner(resolved), Idx::INT);
+    assert!(!engine.has_errors());
+}
+
+/// Synth fallback regression guard: `Ok(42)` with no outer annotation
+/// still synthesizes to `Result<int, fresh_var>`. §09.3 BD-2 must not
+/// disturb the existing synth path when the expectation is absent.
+#[test]
+fn test_check_ok_without_expectation_falls_back_to_synthesis() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let inner = alloc(&mut arena, ExprKind::Int(42));
+    let ok = alloc(&mut arena, ExprKind::Ok(inner));
+
+    let ty = infer_expr(&mut engine, &arena, ok);
+
+    let resolved = engine.resolve(ty);
+    assert_eq!(engine.pool().tag(resolved), Tag::Result);
+    assert_eq!(engine.pool().result_ok(resolved), Idx::INT);
+    assert_eq!(
+        engine.pool().tag(engine.pool().result_err(resolved)),
+        Tag::Var
+    );
+    assert!(!engine.has_errors());
+}
+
+/// BD-3 subsumption: `let r: int = Ok(42)` — outer `int` is not a
+/// Result, so check_ok falls through to synth, and the gate's
+/// `check_type` emits a clean E2001 mismatch (expected int, got Result).
+#[test]
+fn test_check_ok_with_wrong_outer_type_reports_mismatch() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let inner = alloc(&mut arena, ExprKind::Int(42));
+    let ok = alloc(&mut arena, ExprKind::Ok(inner));
+
+    let expected = Expected::from_annotation(Idx::INT, name(1), span());
+
+    let _ty = check_expr(&mut engine, &arena, ok, &expected, span());
+
+    assert!(
+        engine.has_errors(),
+        "expected E2001 mismatch when outer type is not a Result"
+    );
+}

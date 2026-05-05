@@ -1,0 +1,13 @@
+@consume_str (s: str) -> int = s.len();
+
+@main () -> int = {
+    let r: Result<int, str> = Err("error_payload_for_owned_consume");
+    let extracted = match r {
+        Err(e) -> {
+            let owned_alias = e;
+            consume_str(s: owned_alias)
+        },
+        Ok(_) -> panic(msg: "should be Err"),
+    };
+    if extracted == 31 then 0 else 1
+}

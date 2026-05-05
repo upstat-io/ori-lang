@@ -1,0 +1,13 @@
+@main () -> int = {
+    let result = catch(expr: panic(msg: "first_iter_value second_iter_value third_iter_value"));
+    let msg = match result {
+        Err(e) -> e,
+        Ok(_) -> panic(msg: "should have panicked"),
+    };
+    let alias = msg;
+    let count = 0;
+    for _ch in alias.chars() do {
+        count = count + 1;
+    };
+    if count > 0 then 0 else 1
+}

@@ -4,8 +4,8 @@ use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::InferEngine;
 use super::{
-    check_match_pattern, infer_expr, infer_match, lookup_struct_field_types, maybe_generalize,
-    pattern_first_name, resolve_and_check_parsed_type,
+    check_expr, check_match_pattern, infer_expr, infer_match, lookup_struct_field_types,
+    maybe_generalize, pattern_first_name, resolve_and_check_parsed_type,
 };
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag, TypeCheckError};
 
@@ -24,9 +24,14 @@ pub(crate) fn infer_function_seq(
     use ori_ir::FunctionSeq;
 
     match func_seq {
-        FunctionSeq::Try { stmts, result, .. } => {
-            infer_try_seq(engine, arena, *stmts, *result, span)
-        }
+        FunctionSeq::Try { stmts, result, .. } => infer_try_seq(
+            engine,
+            arena,
+            *stmts,
+            *result,
+            span,
+            &Expected::no_expectation(Idx::ERROR),
+        ),
 
         FunctionSeq::Match {
             scrutinee,
@@ -51,29 +56,46 @@ pub(crate) fn infer_function_seq(
 ///
 /// Like run, but auto-unwraps Result/Option types in let bindings.
 /// The entire expression returns a Result or Option wrapping the result.
+///
+/// BD-2 propagation (typeck.md §BD-2): when `expected` resolves to a
+/// concrete `Result<T, E>`, the result expression is checked against
+/// `Check(T)` and the propagating let-binding error type is reconciled
+/// against `E`. For non-Result expectations (`NoExpectation`, fresh Var,
+/// or any other tag), the function falls back to bottom-up synthesis
+/// so unification downstream catches mismatches.
 pub(crate) fn infer_try_seq(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     stmts: ori_ir::StmtRange,
     result: ExprId,
     span: Span,
+    expected: &Expected,
 ) -> Idx {
-    // Enter a new scope for the try block
+    let propagation = if expected.has_expectation() {
+        let resolved = engine.resolve(expected.ty);
+        if engine.pool().tag(resolved) == Tag::Result {
+            Some((
+                resolved,
+                engine.pool().result_ok(resolved),
+                engine.pool().result_err(resolved),
+            ))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     engine.enter_scope();
 
-    // Track the error type for Result propagation
     let mut error_ty: Option<Idx> = None;
 
-    // Process each statement in sequence (with unwrapping)
     let stmts_list = arena.get_stmt_range(stmts);
     for stmt in stmts_list {
         if let ori_ir::StmtKind::Let { init, .. } = &stmt.kind {
-            // Infer the value type first
             let value_ty = infer_expr(engine, arena, *init);
             let resolved = engine.resolve(value_ty);
             let tag = engine.pool().tag(resolved);
-
-            // Track error type from Result
             if tag == Tag::Result && error_ty.is_none() {
                 error_ty = Some(engine.pool().result_err(resolved));
             }
@@ -81,31 +103,39 @@ pub(crate) fn infer_try_seq(
         infer_try_stmt(engine, arena, stmt);
     }
 
-    // Infer the result expression
-    let result_ty = infer_expr(engine, arena, result);
-
-    // Exit scope
-    engine.exit_scope();
-
-    // The result type depends on what was in the bindings
-    // If we saw Results, wrap the result in Result<T, E>
-    // If we saw Options, wrap in Option<T>
-    // Otherwise, return as-is (though this shouldn't happen in valid try blocks)
-    if let Some(err_ty) = error_ty {
-        engine.pool_mut().result(result_ty, err_ty)
+    let final_ty = if let Some((outer_result, inner_ok_ty, inner_err_ty)) = propagation {
+        let result_expected = Expected::from_context(inner_ok_ty, span, ContextKind::TryExpression);
+        let _ = check_expr(engine, arena, result, &result_expected, span);
+        if let Some(et) = error_ty {
+            let _ = engine.unify_types(et, inner_err_ty);
+        }
+        outer_result
     } else {
-        // Check if result is already wrapped
+        let result_ty = infer_expr(engine, arena, result);
         let resolved = engine.resolve(result_ty);
         let tag = engine.pool().tag(resolved);
-        if tag == Tag::Result || tag == Tag::Option {
-            result_ty
-        } else {
-            // Default to Result with a fresh error type for proper try semantics
-            let _ = span; // Available for future error reporting
-            let err_var = engine.fresh_var();
-            engine.pool_mut().result(result_ty, err_var)
+        match (tag, error_ty) {
+            // Result already wraps; unify inner Err with the let-binding
+            // propagating error type so we get `Result<T, E>` instead of
+            // the spurious `Result<Result<T, _>, E>` double-wrap. Reverts
+            // the existing wrap-anything bug surfaced by control_flow.ori.
+            (Tag::Result, Some(et)) => {
+                let inner_err = engine.pool().result_err(resolved);
+                let _ = engine.unify_types(inner_err, et);
+                result_ty
+            }
+            (Tag::Result, None) | (Tag::Option, _) => result_ty,
+            (_, Some(et)) => engine.pool_mut().result(result_ty, et),
+            (_, None) => {
+                let _ = span;
+                let err_var = engine.fresh_var();
+                engine.pool_mut().result(result_ty, err_var)
+            }
         }
-    }
+    };
+
+    engine.exit_scope();
+    final_ty
 }
 
 /// Infer type for `for(over: items, [map: transform,] match: Pattern -> expr, default: fallback)`.

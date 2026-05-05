@@ -50,6 +50,7 @@ pub(crate) fn make_func_named(
         entry: ArcBlockId::new(0),
         var_types,
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: span_vecs,
         is_fbip: false,
         num_captures: 0,

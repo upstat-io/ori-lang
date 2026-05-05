@@ -1,6 +1,7 @@
 //! Function call and method call inference.
 
 mod call_inference;
+mod closure_unify;
 mod constraints;
 mod impl_lookup;
 mod method_call;

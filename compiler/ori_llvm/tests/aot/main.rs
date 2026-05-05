@@ -6,6 +6,7 @@
 
 pub mod aims_interactions;
 pub mod arc;
+pub mod borrow_independence;
 pub mod cli;
 pub mod coalesce;
 pub mod codegen;
@@ -30,6 +31,7 @@ pub mod for_yield_option;
 pub mod formattable;
 pub mod generics;
 pub mod higher_order;
+pub mod inc_symmetry;
 pub mod ir_checks;
 pub mod ir_quality_attributes;
 pub mod ir_quality_block_merge;
@@ -42,6 +44,7 @@ pub mod iterators;
 pub mod journey_guard;
 pub mod linking;
 pub mod lto;
+pub mod match_alias;
 pub mod memory_stress;
 pub mod mutations;
 pub mod narrowing;

@@ -1,0 +1,12 @@
+@inner () -> int = panic(msg: "complex_failure with hello and world keywords");
+
+@main () -> int = {
+    let result = catch(expr: inner());
+    let msg = match result {
+        Err(e) -> e,
+        Ok(_) -> "no_error_path",
+    };
+    let h = msg.contains(substr: "hello");
+    let w = msg.contains(substr: "world");
+    if h && w then 0 else 1
+}

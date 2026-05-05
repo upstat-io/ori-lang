@@ -209,6 +209,10 @@ fn collect_branch_edge_decs(
     // propagation at merge points).
     let defined_at_or_before = compute_defined_at_or_before(func, block_idx);
 
+    // BUG-04-104 PIN-5: per-edge class-id tracking for same-edge batching.
+    let mut classes_inserted_per_edge: FxHashMap<(usize, usize), FxHashSet<u32>> =
+        FxHashMap::default();
+
     for (&var, &state) in exit_states {
         if state.is_scalar() {
             continue;
@@ -252,13 +256,30 @@ fn collect_branch_edge_decs(
                 if let Some(strategy) = rc_strategy(func, var, pool) {
                     // BUG-04-090 §05 Hypothesis D component #3: suppress
                     // edge dec when `var` was consumed by an Apply/Invoke
-                    // whose dst aliases it. Per component #2, only fires
-                    // when consumed arg is a non-Let-alias root — Let
-                    // aliases never enter `apply_result_aliases`, so this
-                    // gate cannot misfire on transparent-alias decs.
+                    // whose dst aliases it.
                     let is_unwind_succ = is_unwind_succ_block(func, succ_id.index());
                     if should_suppress_apply_aliased_dec(state_map, var, is_unwind_succ) {
                         continue;
+                    }
+                    // BUG-04-104 PIN-4 + PIN-5: class-aware skip + per-edge
+                    // batching. Skip when any class member is live at the
+                    // successor's entry (PIN-4), or when the same class
+                    // already emitted a dec for this (pred, succ) edge in
+                    // this collection pass (PIN-5).
+                    if let Some(class_id) = state_map.ssa_alias_class_of(var) {
+                        if let Some(members) = state_map.class_members(class_id) {
+                            if members.iter().any(|&m| {
+                                state_map.var_state_at_block_entry(*succ_id, m).cardinality
+                                    != Cardinality::Absent
+                            }) {
+                                continue;
+                            }
+                        }
+                        let edge_key = (block_idx, succ_id.index());
+                        let edge_classes = classes_inserted_per_edge.entry(edge_key).or_default();
+                        if !edge_classes.insert(class_id) {
+                            continue;
+                        }
                     }
                     edge_decs.push((block_idx, succ_id.index(), var, strategy));
                 }
@@ -361,6 +382,11 @@ fn collect_invoke_edge_decs(
     // Cat 3 vars — so Cat 1 can skip to avoid double-dec.
     let mut cat3_unwind_vars: FxHashSet<ArcVarId> = FxHashSet::default();
 
+    // BUG-04-104 PIN-5: per-edge class-id tracking for same-edge batching
+    // across Categories 1 + 2.
+    let mut classes_inserted_per_edge: FxHashMap<(usize, usize), FxHashSet<u32>> =
+        FxHashMap::default();
+
     // Category 3: unwind cleanup for Owned args (callee may not have consumed).
     for (i, &arg) in args.iter().enumerate() {
         let is_owned = is_arg_owned(arg_ownership, i, is_indirect);
@@ -374,6 +400,17 @@ fn collect_invoke_edge_decs(
             continue;
         }
         if let Some(strategy) = rc_strategy(func, arg, pool) {
+            // BUG-04-104 PIN-5: per-edge class batching across Cat 3 and
+            // Cat 1/2. If `arg` is in a class, mark the class as inserted on
+            // the unwind edge so subsequent Cat 1 / Cat 2 emissions skip.
+            if let Some(class_id) = state_map.ssa_alias_class_of(arg) {
+                let edge_classes = classes_inserted_per_edge
+                    .entry((block_idx, unwind.index()))
+                    .or_default();
+                if !edge_classes.insert(class_id) {
+                    continue;
+                }
+            }
             edge_decs.push((block_idx, unwind.index(), arg, strategy));
             cat3_unwind_vars.insert(arg);
         }
@@ -425,7 +462,21 @@ fn collect_invoke_edge_decs(
                     .unwrap_or(crate::aims::lattice::AimsState::BOTTOM);
                 if unwind_state.cardinality == Cardinality::Absent {
                     if let Some(strategy) = rc_strategy(func, var, pool) {
-                        edge_decs.push((block_idx, unwind.index(), var, strategy));
+                        // BUG-04-104 PIN-5: per-edge class batching for the
+                        // unwind edge. If the class already emitted on the
+                        // unwind edge (e.g., via Cat 3), skip.
+                        let mut emit = true;
+                        if let Some(class_id) = state_map.ssa_alias_class_of(var) {
+                            let edge_classes = classes_inserted_per_edge
+                                .entry((block_idx, unwind.index()))
+                                .or_default();
+                            if !edge_classes.insert(class_id) {
+                                emit = false;
+                            }
+                        }
+                        if emit {
+                            edge_decs.push((block_idx, unwind.index(), var, strategy));
+                        }
                     }
                 }
             }
@@ -444,7 +495,29 @@ fn collect_invoke_edge_decs(
             if normal_state.cardinality == Cardinality::Absent {
                 if let Some(strategy) = rc_strategy(func, var, pool) {
                     if !should_suppress_apply_aliased_dec(state_map, var, false) {
-                        edge_decs.push((block_idx, normal.index(), var, strategy));
+                        // BUG-04-104 PIN-4 + PIN-5: class-aware skip + batch.
+                        let mut emit = true;
+                        if let Some(class_id) = state_map.ssa_alias_class_of(var) {
+                            if let Some(members) = state_map.class_members(class_id) {
+                                if members.iter().any(|&m| {
+                                    state_map.var_state_at_block_entry(normal, m).cardinality
+                                        != Cardinality::Absent
+                                }) {
+                                    emit = false;
+                                }
+                            }
+                            if emit {
+                                let edge_classes = classes_inserted_per_edge
+                                    .entry((block_idx, normal.index()))
+                                    .or_default();
+                                if !edge_classes.insert(class_id) {
+                                    emit = false;
+                                }
+                            }
+                        }
+                        if emit {
+                            edge_decs.push((block_idx, normal.index(), var, strategy));
+                        }
                     }
                 }
             }

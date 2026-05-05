@@ -216,10 +216,23 @@ pub(crate) fn emit_dead_at_entry_decs(
             if super::should_suppress_apply_aliased_dec(ctx.state_map, var, is_unwind_block) {
                 continue;
             }
+            // BUG-04-104 PIN-4: skip when any class member is used in this
+            // block's body OR live at this block's exit (= live in some
+            // successor). The per-var var is itself dead-at-entry by
+            // definition; this check looks for OTHER class members that
+            // would emit decs elsewhere.
+            if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
+                if let Some(members) = ctx.state_map.class_members(class_id) {
+                    if members.iter().any(|&m| {
+                        m != var
+                            && (ctx.use_info.contains_key(&m)
+                                || crate::aims::emit_rc::is_live_at_exit(ctx.state_map, ctx.blk, m))
+                    }) {
+                        continue;
+                    }
+                }
+            }
             if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
-                // BUG-04-090 §05 Step 8: suppress dec on params that flow
-                // to a Return on this path (path-sensitive via terminator
-                // check). Sibling paths emit dec normally.
                 if !super::should_suppress_return_transfer_dec(ctx, var, ctx.blk, is_unwind_block) {
                     new_body.push(ArcInstr::RcDec { var, strategy });
                 }
@@ -298,6 +311,19 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
         // rationale as the Source 1 gate above.
         if super::should_suppress_apply_aliased_dec(ctx.state_map, param_var, is_unwind_block) {
             continue;
+        }
+        // BUG-04-104 PIN-4: skip when any other class member is used in
+        // this block's body OR live at exit.
+        if let Some(class_id) = ctx.state_map.ssa_alias_class_of(param_var) {
+            if let Some(members) = ctx.state_map.class_members(class_id) {
+                if members.iter().any(|&m| {
+                    m != param_var
+                        && (ctx.use_info.contains_key(&m)
+                            || crate::aims::emit_rc::is_live_at_exit(ctx.state_map, ctx.blk, m))
+                }) {
+                    continue;
+                }
+            }
         }
         if let Some(strategy) = rc_strategy(ctx.func, param_var, ctx.pool) {
             new_body.push(ArcInstr::RcDec {

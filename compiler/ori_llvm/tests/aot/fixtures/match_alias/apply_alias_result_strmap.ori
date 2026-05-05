@@ -1,0 +1,16 @@
+@build_map () -> {str: int} = {
+    let m = {"alpha": 1, "beta": 2, "gamma": 3};
+    m
+}
+
+@wrap_ok (m: {str: int}) -> Result<{str: int}, str> = Ok(m);
+
+@main () -> int = {
+    let m = build_map();
+    let result = wrap_ok(m: m);
+    let extracted = match result {
+        Ok(inner) -> inner,
+        Err(_) -> panic(msg: "should be Ok"),
+    };
+    if extracted.len() == 3 then 0 else 1
+}

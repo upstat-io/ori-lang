@@ -1,0 +1,8 @@
+type Container = { items: [int] }
+
+@main () -> int = {
+    let c = Container { items: [10, 20, 30] };
+    let xs = c.items;
+    let sum = xs.fold(initial: 0, op: (acc, x) -> acc + x);
+    if sum == 60 then 0 else 1
+}

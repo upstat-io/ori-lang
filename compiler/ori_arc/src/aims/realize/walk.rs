@@ -193,10 +193,28 @@ pub(super) fn walk_body_unified(
         );
 
         // Emit deferred parent decs whose children's last use is this instruction.
+        // PIN-6 (BUG-04-104 §2.6.3) gating: even when a deferred dec's effective
+        // last-use lands here, suppress the dec when an inter-class transitive-
+        // drop ancestor will cover the var's RC slot. The deferred path is a
+        // distinct emission site from `walk_dec.rs` (which gates defined-dead
+        // and inline last-use); without PIN-6 here, the 2 PIN-6 cells'
+        // canonical dec leaks past the suppression.
+        let pin6_classes_dying_here =
+            super::walk_dec::collect_classes_dying_here(ctx, instr, instr_idx);
         deferred.retain(|&(var, strategy, effective_last)| {
             if effective_last == LastUse::Body(instr_idx)
                 && !is_live_at_exit(ctx.state_map, ctx.blk, var)
             {
+                if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
+                    if super::walk_dec::pin6_any_ancestor_will_cover(
+                        ctx,
+                        class_id,
+                        instr_idx,
+                        &pin6_classes_dying_here,
+                    ) {
+                        return false;
+                    }
+                }
                 new_body.push(ArcInstr::RcDec { var, strategy });
                 false
             } else {

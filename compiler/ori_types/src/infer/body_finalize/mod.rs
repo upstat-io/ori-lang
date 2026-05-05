@@ -218,16 +218,34 @@ impl InferEngine<'_> {
     }
 }
 
-/// Returns `true` iff `kind` is an empty collection literal — one of the
-/// four allocation sites in `infer/expr/collections.rs` that introduce
-/// unconstrained element / key / value vars. Variant names match the
-/// AST surface at `ori_ir/src/ast/expr.rs:448-451`.
+/// Returns `true` iff `kind` is an expression root whose stored type may
+/// carry unconstrained `Tag::Var`s that survive body inference and would
+/// otherwise be reported as `E2005` by `validate_body_types`.
+///
+/// Original (empty-collection-literal) cases — variants from
+/// `infer/expr/collections.rs` that introduce element / key / value vars:
+///   - `[]`, `[...]` empty list / list-with-spread
+///   - `{}`, `{...}` empty map / map-with-spread
+///
+/// §11.1 extension — polymorphic-constructor roots whose complementary
+/// type-slot stays unconstrained when no BD-2 propagation pins it:
+///   - `None` — the entire `Option<_>` element type is polymorphic.
+///   - `Ok(_)` / `Err(_)` — when the outer annotation is absent, the
+///     complementary slot remains a fresh `Tag::Var` after `§09.3`'s
+///     `check_ok/check_err` synth fallback. Defaulting to `Never` is the
+///     correct semantics: `let r = Ok(42)` becomes `Result<int, Never>`,
+///     and the constraint that `r.unwrap_err()` is uninhabited is sound.
+///
+/// `Some(_)` is INTENTIONALLY EXCLUDED — `§09.3 check_some` BD-2 pins
+/// the inner type from any outer `Option<T>` annotation, and unannotated
+/// `Some(x)` synthesizes the inner type from `x` so no fresh var leaks.
 fn is_empty_collection_literal(arena: &ExprArena, kind: &ExprKind) -> bool {
     match kind {
         ExprKind::List(range) => arena.get_expr_list(*range).is_empty(),
         ExprKind::ListWithSpread(range) => arena.get_list_elements(*range).is_empty(),
         ExprKind::Map(range) => arena.get_map_entries(*range).is_empty(),
         ExprKind::MapWithSpread(range) => arena.get_map_elements(*range).is_empty(),
+        ExprKind::None | ExprKind::Ok(_) | ExprKind::Err(_) => true,
         _ => false,
     }
 }

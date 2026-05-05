@@ -38,6 +38,7 @@ pub(crate) mod effects;
 pub(crate) mod fip_balance;
 pub(crate) mod post_convergence;
 pub(crate) mod project_aliases;
+pub(crate) mod ssa_alias_classes;
 pub mod state_map;
 
 pub(crate) use fip_balance::compute_requires_unique_params;
@@ -160,6 +161,23 @@ pub fn analyze_function(
     // map. See `apply_aliases.rs` and `project_aliases.rs` for full design.
     let apply_result_aliases = apply_aliases::populate_apply_result_aliases(func, sigs);
     state_map.set_apply_result_aliases(apply_result_aliases);
+
+    // BUG-04-104: pre-walk SSA-alias equivalence-class table. Ordering
+    // load-bearing per PL-5 — populate AFTER apply_result_aliases (this pass
+    // unions the apply-alias edges into the classes) and BEFORE the worklist
+    // (read-only thereafter). The same pre-walk also populates the PIN-6
+    // `class_payload_of` inter-class payload-of relation per §2.6.2.
+    // RcStrategy queries during the PIN-6 population pass consult the
+    // `func.var_rc_strategies` cache populated at Step 3 alongside
+    // `func.var_reprs` (no pool dep at analyze-time).
+    let ssa_alias_output =
+        ssa_alias_classes::compute_ssa_alias_classes(func, state_map.apply_result_aliases());
+    state_map.set_ssa_alias_output(
+        ssa_alias_output.class_table,
+        ssa_alias_output.class_members,
+        ssa_alias_output.class_apply_alias_source_candidates,
+        ssa_alias_output.class_payload_of,
+    );
 
     // Precompute Project destination + transitive Let alias → Project source
     // map. Static structure — computed once, reused across worklist iterations.

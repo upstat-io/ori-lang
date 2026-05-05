@@ -53,6 +53,7 @@ fn make_two_block_func(pool: &mut Pool) -> ArcFunction {
         entry: ArcBlockId::new(0),
         var_types: vec![list_str; 4],
         var_reprs: vec![ValueRepr::RcPointer; 4],
+        var_rc_strategies: Vec::new(),
         spans,
         ..Default::default()
     }

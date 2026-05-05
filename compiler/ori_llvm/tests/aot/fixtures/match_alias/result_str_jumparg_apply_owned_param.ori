@@ -1,0 +1,13 @@
+@consume (s: str) -> int = s.len();
+
+@main () -> int = {
+    let result: Result<int, str> = loop {
+        break Err("jumparg_apply_owned_path");
+    };
+    let owned = match result {
+        Err(e) -> e,
+        Ok(_) -> panic(msg: "should be Err"),
+    };
+    let n = consume(s: owned);
+    if n == 24 then 0 else 1
+}

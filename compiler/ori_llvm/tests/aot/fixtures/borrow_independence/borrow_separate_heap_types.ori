@@ -1,0 +1,14 @@
+type Mixed = { s: str, xs: [int] }
+
+@main () -> int = {
+    let m = Mixed { s: "string_field_value", xs: [10, 20, 30] };
+    let pick_str = true;
+    let result = if pick_str then {
+        let s_field = m.s;
+        s_field.len()
+    } else {
+        let xs_field = m.xs;
+        xs_field.len()
+    };
+    if result == 18 then 0 else 1
+}

@@ -30,6 +30,7 @@ impl Default for ArcFunction {
             entry: ArcBlockId::new(0),
             var_types: Vec::new(),
             var_reprs: Vec::new(),
+            var_rc_strategies: Vec::new(),
             spans: vec![Vec::new()],
             is_fbip: false,
             num_captures: 0,

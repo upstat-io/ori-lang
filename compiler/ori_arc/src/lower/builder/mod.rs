@@ -427,6 +427,7 @@ impl ArcIrBuilder {
             entry,
             var_types: self.var_types,
             var_reprs: Vec::new(),
+            var_rc_strategies: Vec::new(),
             spans,
             is_fbip,
             num_captures: 0,

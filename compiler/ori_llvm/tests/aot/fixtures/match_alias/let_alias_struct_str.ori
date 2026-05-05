@@ -1,0 +1,7 @@
+type Holder = { name: str }
+
+@main () -> int = {
+    let h = Holder { name: "alpha" };
+    let s = h.name;
+    if s == "alpha" then 0 else 1
+}
