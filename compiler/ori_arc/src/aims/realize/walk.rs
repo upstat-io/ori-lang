@@ -16,7 +16,7 @@ use rustc_hash::FxHashMap;
 use crate::aims::emit_rc::{is_live_at_exit, rc_strategy, BlockCtx, LastUse};
 use crate::aims::emit_reuse::{ctor_to_shape, is_reusable_ctor, AllocEvent, DeathEvent};
 use crate::aims::lattice::SizeClass;
-use crate::ir::{ArcInstr, ArcVarId, RcStrategy, ValueRepr};
+use crate::ir::{ArcInstr, ArcValue, ArcVarId, RcStrategy, ValueRepr};
 
 use super::decide::{decide, DecisionContext, DecisionSite, RcDecision, UseSemantics};
 use super::walk_dec::{emit_post_instr_decs_unified, is_rc_managed};
@@ -335,7 +335,7 @@ fn emit_pre_instr_incs_unified(
         *count += 1;
 
         let has_future_use = compute_has_future_use(ctx, var, *count, instr_idx);
-        let semantics = classify_use_semantics(ctx, var, instr);
+        let semantics = classify_use_semantics(ctx, var, pos, instr);
         let decision = decide(&DecisionContext {
             site: DecisionSite::Use {
                 has_future_use,
@@ -390,14 +390,28 @@ fn compute_has_future_use(
 
 /// Classify use semantics for a variable at an instruction site.
 ///
-/// Determines whether the use is a normal RC use or a `Project` source
-/// (borrowing vs transfer).
+/// Determines whether the use is a normal RC use, a `Project` source
+/// (borrowing vs transfer), or an `ApplyIndirect` closure receiver
+/// (borrowing).
 ///
 /// Let aliases (`%dst = %src`) use Normal semantics — the standard
 /// `has_future_use` check provides correct `RcInc` placement.
 /// `is_ownership_transfer()` handles the Dec side (suppressing last-use
 /// Dec for the source at the alias instruction).
-fn classify_use_semantics(ctx: &BlockCtx<'_>, var: ArcVarId, instr: &ArcInstr) -> UseSemantics {
+///
+/// `pos` is the variable's position in `instr.used_vars()` (0-indexed).
+/// Position-aware matching is required for `ApplyIndirect`: closure-as-arg
+/// patterns like `ApplyIndirect %5(%3, %3)` (where %3 is both receiver and
+/// first arg) must classify the receiver at pos 0 as `BorrowingApplyClosure`
+/// while the arg at pos 1 stays `Normal` so it gets standard owned-arg RC.
+/// Var-equality matching `*closure == var` would mis-suppress the arg-side
+/// inc.
+fn classify_use_semantics(
+    ctx: &BlockCtx<'_>,
+    var: ArcVarId,
+    pos: usize,
+    instr: &ArcInstr,
+) -> UseSemantics {
     // Project source classification (Lean 4 `proj i x` semantics):
     // - Scalar result → borrowing (no Inc for source)
     // - Non-scalar result → transfer (no Inc, suppress source Dec)
@@ -408,6 +422,50 @@ fn classify_use_semantics(ctx: &BlockCtx<'_>, var: ArcVarId, instr: &ArcInstr) -
             }
             return UseSemantics::TransferProject;
         }
+    }
+
+    // ApplyIndirect closure receiver: borrow at the call site (Lean 4
+    // `pap.app x`, Koka CheckFBIP, Swift SIL `apply` thick function
+    // semantics). Match by POSITION, not var-equality — the closure may
+    // also appear as an arg, in which case the arg occurrence stays
+    // Normal so it gets the standard owned-arg Inc/Dec handling.
+    // Ref: BUG-04-106 §05 edit site 2.
+    if matches!(instr, ArcInstr::ApplyIndirect { .. }) && pos == 0 {
+        return UseSemantics::BorrowingApplyClosure;
+    }
+
+    // Let { Var(src) } SSA alias for a closure handle: the alias and
+    // source share the same RC slot (per `aims-rules.md §3 TF-11`
+    // transparent-alias semantics — IA-5 step (1) transfers state via
+    // seq_add without RC change). Pre-fix the realize layer treated
+    // these as Normal with has_future_use, emitting a per-alias Inc
+    // even though the alias is just SSA renaming of the same allocation.
+    // For closure types specifically (RcStrategy::Closure), the alias
+    // chain leads to ApplyIndirect call sites which borrow the closure
+    // (BorrowingApplyClosure semantics above); no per-alias Inc is
+    // needed — the closure was alloc'd at PartialApply with RC=1 and
+    // is freed by the LastUse Dec at scope exit.
+    //
+    // The match is gated to RcStrategy::Closure to avoid changing
+    // semantics for non-closure aliases (str / list / struct), where
+    // the existing Normal-with-future-use behavior is correct
+    // (per the existing comment about Let alias Inc placement).
+    //
+    // Ref: BUG-04-106 §05 edit site 6 (added during Phase 4 after the
+    // initial 5 edit sites failed to suppress the spurious Inc, which
+    // the AOT closure_env_alias matrix tests caught — the Inc is emitted
+    // at the Let alias site, not at the ApplyIndirect site).
+    if matches!(
+        instr,
+        ArcInstr::Let {
+            value: ArcValue::Var(_),
+            ..
+        }
+    ) && matches!(
+        rc_strategy(ctx.func, var, ctx.pool),
+        Some(RcStrategy::Closure)
+    ) {
+        return UseSemantics::BorrowingApplyClosure;
     }
 
     UseSemantics::Normal

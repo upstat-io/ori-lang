@@ -382,12 +382,20 @@ fn invoke_with_triple_duplicated_mixed_ownership_args_emits_two_rc_incs() {
     assert_eq!(count_inc(&body, v(0)), 2);
 }
 
-// InvokeIndirect — closure-tail duplicate (codex matrix gap)
+// InvokeIndirect — closure receiver filtered, args count normally
 
+/// Pin: edit site 3a invariant — `used_vars()` for `InvokeIndirect`
+/// returns `[closure, ...args]` (per `ir/terminator.rs:30`). The closure
+/// receiver at position 0 is filtered from term_counts (BUG-04-106 §05
+/// edit site 3a); the arg occurrence at position 1 still counts normally.
+/// When `closure == args[0] == v(0)`, the var appears twice in used_vars
+/// but only the arg occurrence reaches term_counts → k=1, live=0,
+/// `(1 + 0) - 1 = 0` incs.
+///
+/// Pre-BUG-04-106-fix: comment claimed `[...args, closure]` (incorrect)
+/// and counted closure → k=2 → 1 inc. Renamed + inverted per §03:100-101.
 #[test]
-fn invoke_indirect_with_closure_equal_to_arg_counts_closure_as_duplicate() {
-    // `used_vars()` for InvokeIndirect returns [...args, closure]. When
-    // closure == args[0], the var appears twice → k=2, live=0 → 1 inc.
+fn invoke_indirect_closure_receiver_filtered_args_count_normally() {
     let term = ArcTerminator::InvokeIndirect {
         dst: v(1),
         ty: Idx::from_raw(0),
@@ -399,7 +407,12 @@ fn invoke_indirect_with_closure_equal_to_arg_counts_closure_as_duplicate() {
     };
     let fx = TerminatorFixture::new(2, term, &[], Vec::new());
     let body = fx.run();
-    assert_eq!(count_inc(&body, v(0)), 1);
+    assert_eq!(
+        count_inc(&body, v(0)),
+        0,
+        "InvokeIndirect closure receiver (used_vars pos 0) filtered from term_counts; \
+         arg at pos 1 alone gives k=1, live=0, (1+0)-1 = 0 incs."
+    );
 }
 
 // Branch — single-use, verifies no regression for cond liveness path

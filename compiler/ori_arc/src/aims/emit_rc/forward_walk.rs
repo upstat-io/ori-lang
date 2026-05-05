@@ -39,14 +39,22 @@ fn emit_invoke_project_borrowed_owned_incs(
     terminator: &ArcTerminator,
     new_body: &mut Vec<ArcInstr>,
 ) {
-    let (ArcTerminator::Invoke { args, .. } | ArcTerminator::InvokeIndirect { args, .. }) =
-        terminator
-    else {
-        return;
+    // For Invoke, used_vars() == args, so args-relative pos N maps directly
+    // to is_owned_position(pos). For InvokeIndirect, used_vars() ==
+    // [closure, ...args], so args-relative pos N maps to
+    // is_owned_position(pos + 1) — the +1 skips the closure receiver
+    // position (which is always borrowed). Pre-fix used pos directly for
+    // both, causing the FIRST arg of every InvokeIndirect to silently fail
+    // the is_owned check, missing its compensating Inc — soundness bug
+    // (potential double-free). Ref: BUG-04-106 §05 edit site 3b.
+    let (args, used_vars_offset) = match terminator {
+        ArcTerminator::Invoke { args, .. } => (args, 0),
+        ArcTerminator::InvokeIndirect { args, .. } => (args, 1),
+        _ => return,
     };
 
     for (pos, &var) in args.iter().enumerate() {
-        let is_owned = terminator.is_owned_position(pos);
+        let is_owned = terminator.is_owned_position(pos + used_vars_offset);
         if !is_owned
             || !ctx.project_borrowed_defs.contains(&var)
             || ctx.func.var_reprs[var.index()] == ValueRepr::Scalar
@@ -91,8 +99,24 @@ fn emit_terminator_duplicate_use_incs(
     #[cfg(debug_assertions)]
     let term_phase_start = new_body.len();
 
+    // For InvokeIndirect, used_vars() returns [closure, ...args]. The
+    // closure receiver position (pos 0) is borrowed by the call site —
+    // it MUST be filtered from term_counts so it does not contribute to
+    // the duplicate-use Inc count. If the same var also appears as an
+    // arg (positions >= 1), the arg occurrences still count normally.
+    // Pre-fix counted the closure occurrence, producing a spurious Inc
+    // between repeated calls of the same closure (the closure_env_alias
+    // leak surface). Ref: BUG-04-106 §05 edit site 3a.
+    let closure_receiver_var = match terminator {
+        ArcTerminator::InvokeIndirect { closure, .. } => Some(*closure),
+        _ => None,
+    };
+
     let mut term_counts: FxHashMap<ArcVarId, usize> = FxHashMap::default();
-    for var in terminator.used_vars() {
+    for (pos, var) in terminator.used_vars().into_iter().enumerate() {
+        if pos == 0 && closure_receiver_var == Some(var) {
+            continue;
+        }
         if !is_owned_at_entry(
             ctx.state_map,
             ctx.blk,

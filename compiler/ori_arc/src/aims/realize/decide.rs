@@ -105,14 +105,18 @@ pub enum DecisionSite {
 /// RC identity classification for a variable use.
 ///
 /// Classifies `Project` source uses as borrowing (scalar result) or
-/// transfer (non-scalar result). All other uses — including `Let { Var }`
-/// aliases — use Normal semantics with standard `has_future_use` checks.
+/// transfer (non-scalar result), and `ApplyIndirect`/`InvokeIndirect`
+/// closure receiver uses as borrowing. All other uses — including
+/// `Let { Var }` aliases — use Normal semantics with standard
+/// `has_future_use` checks.
 ///
 /// Let aliases are handled on the Dec side by `is_ownership_transfer()`,
 /// which suppresses the source's last-use `RcDec` at the alias instruction.
 ///
 /// Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — `proj i x` borrows `x`;
-/// if the result is an object, Inc it.
+/// if the result is an object, Inc it. For closure receivers, see Lean 4
+/// `pap.app x`, Koka `CheckFBIP`, and Swift SIL `apply` thick function
+/// semantics — the closure handle is borrowed by the call site.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UseSemantics {
     /// Normal use — emit `RcInc` if `has_future_use`.
@@ -124,6 +128,16 @@ pub enum UseSemantics {
     /// No pre-use `RcInc`. Source last-use `RcDec` is suppressed — the
     /// projected value takes ownership of the RC reference.
     TransferProject,
+    /// `ApplyIndirect` / `InvokeIndirect` closure receiver position. The
+    /// closure handle is borrowed by the call site (Lean 4 `pap.app x`,
+    /// Koka `CheckFBIP`, Swift SIL `apply` thick function). The lattice
+    /// still demands `(closure, Cardinality::Once)` per TF-11 — that
+    /// demand drives TF-13 capture-state-update so multi-call closures
+    /// correctly promote captures to `Many`. At the realization layer
+    /// the receiver does NOT need a per-use `RcInc`; the closure was
+    /// alloc'd at PartialApply with RC=1 and is freed by the LastUse
+    /// Dec at scope exit.
+    BorrowingApplyClosure,
 }
 
 /// State-derived context for reuse candidacy at a death point.
@@ -185,7 +199,13 @@ pub fn decide(ctx: &DecisionContext) -> InstructionDecisions {
                     }
                 }
                 // Project sources: RC handled by projected value.
-                UseSemantics::BorrowingProject | UseSemantics::TransferProject => RcDecision::None,
+                // ApplyIndirect/InvokeIndirect closure receiver: borrowed
+                // at the call site, so the use does not need a pre-instr
+                // RcInc. The closure's LastUse Dec frees the env at scope
+                // exit. Ref: BUG-04-106 §05 edit site 1.
+                UseSemantics::BorrowingProject
+                | UseSemantics::TransferProject
+                | UseSemantics::BorrowingApplyClosure => RcDecision::None,
             },
             reuse: ReuseDecision::None,
         },

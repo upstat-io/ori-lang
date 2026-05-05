@@ -209,25 +209,35 @@ pub fn analyze_function(
             let exit_state = block::compute_block_exit_state(func, block_id, &state_map);
             state_map.update_block_exit(block_id, exit_state);
 
-            // Record per-edge demand for Invoke terminators: normal
-            // and unwind successors carry different variable sets.
+            // Record per-edge demand for Invoke and InvokeIndirect
+            // terminators: normal and unwind successors carry different
+            // variable sets, and the per-edge cleanup machinery consults
+            // this to determine RcDec emission on the unwind path.
+            // Pre-BUG-04-106-fix this only matched Invoke, leaving
+            // InvokeIndirect terminators without recorded edge state —
+            // a borrowed closure receiver dying on the unwind edge had
+            // no entry-state to consult. Ref: BUG-04-106 §05 edit site 4.
             let block = &func.blocks[block_idx];
-            if let ArcTerminator::Invoke { normal, unwind, .. } = &block.terminator {
-                let normal_entry = state_map
-                    .block_entry_states(*normal)
-                    .cloned()
-                    .unwrap_or_default();
-                let unwind_entry = state_map
-                    .block_entry_states(*unwind)
-                    .cloned()
-                    .unwrap_or_default();
-                state_map.set_invoke_edge_state(
-                    block_id,
-                    InvokeEdgeState {
-                        normal: normal_entry,
-                        unwind: unwind_entry,
-                    },
-                );
+            match &block.terminator {
+                ArcTerminator::Invoke { normal, unwind, .. }
+                | ArcTerminator::InvokeIndirect { normal, unwind, .. } => {
+                    let normal_entry = state_map
+                        .block_entry_states(*normal)
+                        .cloned()
+                        .unwrap_or_default();
+                    let unwind_entry = state_map
+                        .block_entry_states(*unwind)
+                        .cloned()
+                        .unwrap_or_default();
+                    state_map.set_invoke_edge_state(
+                        block_id,
+                        InvokeEdgeState {
+                            normal: normal_entry,
+                            unwind: unwind_entry,
+                        },
+                    );
+                }
+                _ => {}
             }
 
             // Compute the block's entry state by walking instructions backward.
