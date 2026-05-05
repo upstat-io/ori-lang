@@ -23,6 +23,10 @@ pub fn check_function_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
 }
 
 /// Type check a single function body.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Per-function body-check pipeline — line count tracks the number of sequential phases (sig clone, exempt-set build, child-env, param/const/capability binding, fn_type build, span capture, with_function_scope closure containing engine setup + §10.1 bound registration + §10.2 capability bounds + guard check + body check + defaulting + normalization, finalize_body_and_export, sig writeback). Each phase is necessary and ordered; extracting into helpers would multiply borrows of `checker`/`sig`/`engine` across function boundaries without structural win per impl-hygiene.md §Algorithmic DRY."
+)]
 fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
     // Look up the pre-collected signature. Cloned into a mutable local so the
     // end-of-body defaulting pass can refresh `param_types`,

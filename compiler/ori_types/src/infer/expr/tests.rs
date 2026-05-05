@@ -4101,7 +4101,7 @@ fn test_check_ok_without_expectation_falls_back_to_synthesis() {
 }
 
 /// BD-3 subsumption: `let r: int = Ok(42)` — outer `int` is not a
-/// Result, so check_ok falls through to synth, and the gate's
+/// Result, so `check_ok` falls through to synth, and the gate's
 /// `check_type` emits a clean E2001 mismatch (expected int, got Result).
 #[test]
 fn test_check_ok_with_wrong_outer_type_reports_mismatch() {

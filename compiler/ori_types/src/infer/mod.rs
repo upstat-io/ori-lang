@@ -430,10 +430,10 @@ impl<'pool> InferEngine<'pool> {
 
     /// Register a rigid-var trait bound directly by `var_id`.
     ///
-    /// Variant of `bind_method_rigid_bound` that takes the var_id directly
+    /// Variant of `bind_method_rigid_bound` that takes the `var_id` directly
     /// rather than extracting it from a `Tag::RigidVar` `Idx`. Used by
     /// `check_function` to register bounds from `FunctionSig.scheme_var_ids`
-    /// + `type_param_bounds` (parallel arrays) without needing to look up
+    /// and `type_param_bounds` (parallel arrays) without needing to look up
     /// the rigid `Idx` for each var. Top-level function bounds come from
     /// the signature, not from per-method rebinding like impl methods.
     pub fn bind_rigid_bound_by_var_id(&mut self, var_id: u32, trait_name: Name) {

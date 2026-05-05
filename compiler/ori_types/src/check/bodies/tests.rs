@@ -233,6 +233,113 @@ fn check_def_impl_method_with_well_typed_body_produces_no_errors() {
     );
 }
 
+/// Pins the §09.2 fix: `def impl Trait { @m (self) -> int = { 99 } }`
+/// compiles clean because `check_def_impl_method` wraps body-checking with
+/// `with_impl_scope(self_rigid, ...)` (`impls.rs:572`) so `Self` resolves to
+/// a registered `Tag::RigidVar` allocated before param-type resolution
+/// (`impls.rs:492`), NOT a fabricated fresh `Tag::Var`. Without §09.2, the
+/// `(self)` parameter's `None if p.name == self_kw` arm would fall through
+/// to a fresh var that is never constrained, surfacing as `E2005` at
+/// validator time.
+#[test]
+fn test_def_impl_method_body_binds_self_to_registered_rigid_var() {
+    let (result, _interner) = parse_and_check(
+        "trait Identity { @m (self) -> int; }\npub def impl Identity { @m (self) -> int = { 99 } }",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for def-impl with (self) param body, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Pins method-call dispatch on `self` inside a def-impl body. The body
+/// `self.inner()` requires `Self` to resolve to the def-impl's registered
+/// `Tag::RigidVar` so trait-method lookup walks the bound-chain (§10.1) and
+/// finds `inner` on the same `Identity` trait. Verifies §09.2 is more than a
+/// type-binding fix — it makes `self`-receiver dispatch reachable.
+#[test]
+fn test_def_impl_method_body_dispatches_self_method_calls() {
+    let (result, _interner) = parse_and_check(
+        "trait Identity { @inner (self) -> int; @outer (self) -> int; }\npub def impl Identity { @inner (self) -> int = { 1 } @outer (self) -> int = { self.inner() } }",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for def-impl self-method dispatch, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Negative control: a def-impl method WITHOUT a `self` parameter must
+/// remain well-typed under §09.2 — the `with_impl_scope` wrap is still
+/// applied (the registered `Tag::RigidVar` is available), but the body
+/// never references `Self`, so nothing triggers `impl_self_type()`. Pins
+/// the false-positive boundary: §09.2 must not regress no-self def-impl
+/// methods (e.g., trait-level associated-style functions).
+#[test]
+fn test_def_impl_without_self_param_does_not_bind_self() {
+    let (result, _interner) = parse_and_check(
+        "trait Constant { @m () -> int; }\npub def impl Constant { @m () -> int = { 42 } }",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for def-impl without self param, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Pins the §09.4 fix: an untyped lambda passed to `[int].map(...)` infers
+/// its parameter from the receiver's element type via
+/// `unify_closure_param_with_iterator_elem` (`closure_unify.rs:127-149`)
+/// dispatched from `unify_higher_order_constraints` in `method_call.rs`.
+/// Without §09.4, the unannotated `x` would stay as a fresh `Tag::Var`,
+/// surfacing as `E2005` after `+ 1` constrains it only as some addable
+/// type. With §09.4, the receiver `[int]` propagates `int` to `x` before
+/// the body checks, so the body is well-typed and no error fires.
+#[test]
+fn test_lambda_param_inferred_from_list_map_receiver() {
+    let (result, _interner) =
+        parse_and_check("@process (xs: [int]) -> [int] = { xs.map(x -> x + 1) }");
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for [int].map(x -> x + 1), got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Companion to `test_lambda_param_inferred_from_list_map_receiver` — pins
+/// the same propagation through `.filter`, which dispatches via the same
+/// `unify_higher_order_constraints` path but with a `(T) -> bool`
+/// closure shape rather than `(T) -> U`. Different dispatch arm, same
+/// receiver-element propagation invariant.
+#[test]
+fn test_lambda_param_inferred_from_list_filter_receiver() {
+    let (result, _interner) =
+        parse_and_check("@process (xs: [int]) -> [int] = { xs.filter(x -> x > 0) }");
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for [int].filter(x -> x > 0), got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Multi-arity dispatch cell: `[int].fold(initial, (acc, x) -> ...)` — the
+/// fold dispatch arm in `unify_higher_order_constraints` (`closure_unify.rs`
+/// §`unify_fold_constraints`) propagates BOTH the `initial` value's type
+/// AND the receiver's element type to the lambda's two params. Pins the
+/// 2-param case alongside the 1-param `.map`/`.filter` cases above.
+#[test]
+fn test_lambda_params_inferred_from_list_fold_receiver() {
+    let (result, _interner) = parse_and_check(
+        "@process (xs: [int]) -> int = { xs.fold(initial: 0, (acc, x) -> acc + x) }",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for [int].fold(0, (acc, x) -> acc + x), got: {:?}",
+        result.typed.errors
+    );
+}
+
 /// End-to-end regression pin for the repro program (`let ages = [];
 /// ages = ages.push(value: 10); ages.len() == 1`).
 ///

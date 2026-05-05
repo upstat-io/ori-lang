@@ -316,6 +316,10 @@ pub fn substitute_self_in_pool(pool: &mut Pool, ty: Idx, target: Idx) -> Idx {
     substitute_self_inner(pool, ty, target)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Tag-dispatch table — line count tracks variant count (16 tag arms), not algorithmic complexity. Per impl-hygiene.md §Algorithmic DRY, splitting into per-tag helpers would be cosmetic since each arm differs only in accessor/constructor method names."
+)]
 fn substitute_self_inner(pool: &mut Pool, ty: Idx, target: Idx) -> Idx {
     match pool.tag(ty) {
         Tag::SelfType => target,
@@ -397,7 +401,7 @@ fn substitute_self_inner(pool: &mut Pool, ty: Idx, target: Idx) -> Idx {
             }
         }
         Tag::Function => {
-            let params: Vec<Idx> = pool.function_params(ty).to_vec();
+            let params: Vec<Idx> = pool.function_params(ty);
             let ret = pool.function_return(ty);
             let new_params: Vec<Idx> = params
                 .iter()
@@ -411,7 +415,7 @@ fn substitute_self_inner(pool: &mut Pool, ty: Idx, target: Idx) -> Idx {
             }
         }
         Tag::Tuple => {
-            let elems: Vec<Idx> = pool.tuple_elems(ty).to_vec();
+            let elems: Vec<Idx> = pool.tuple_elems(ty);
             let new_elems: Vec<Idx> = elems
                 .iter()
                 .map(|&e| substitute_self_inner(pool, e, target))
@@ -424,7 +428,7 @@ fn substitute_self_inner(pool: &mut Pool, ty: Idx, target: Idx) -> Idx {
         }
         Tag::Applied => {
             let name = pool.applied_name(ty);
-            let args: Vec<Idx> = pool.applied_args(ty).to_vec();
+            let args: Vec<Idx> = pool.applied_args(ty);
             let new_args: Vec<Idx> = args
                 .iter()
                 .map(|&a| substitute_self_inner(pool, a, target))
