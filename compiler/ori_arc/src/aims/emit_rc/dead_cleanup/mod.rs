@@ -19,6 +19,13 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
 use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx, LastUse};
 use super::{block_id, rc_strategy};
 
+mod emission_site;
+#[expect(
+    unused_imports,
+    reason = "BUG-04-111 §05 Step 1 ground-laying — consumed by var_emits_dec_in_block + canonical_rep_for in subsequent §05 step landings"
+)]
+pub(crate) use emission_site::EmissionSite;
+
 /// Phase A: `RcDec` for variables live at entry, unused in block, dead at exit.
 ///
 /// Two sources of dead-at-entry variables:
