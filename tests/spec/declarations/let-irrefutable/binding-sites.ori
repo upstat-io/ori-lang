@@ -29,26 +29,33 @@ use std.testing { assert_eq }
 // Try-block let — deferred (see BUG-02-024)
 // =============================================================================
 //
-// Try-block bare let triggers the same downstream-inference panic. Wiring
-// is correct; block-let and expr-let tests exercise the same predicate +
-// factory + diagnostic surface. Full try-let coverage moves with
-// BUG-02-024.
-
-// =============================================================================
-// For-loop binding — deferred (see BUG-02-024)
-// =============================================================================
-//
-// For-loop refutable-let path triggers typeck panic on body inference
-// downstream of bind_pattern recovery. Source wiring at the for-loop
-// binding site is correct; the panic is in downstream expression
-// inference. See BUG-02-024.
-
-// =============================================================================
-// Match-arm-body let — deferred (see BUG-02-024)
-// =============================================================================
-//
-// Match-arm-body let dispatches through infer_block (already covered by
-// the block-let test above). The same downstream-inference panic as the
-// for-loop case fires here. The block-let test exercises the same
-// infer_block code path; full coverage of this site's body shape moves
+// Try-block bare let with a refutable pattern triggers a typeck panic at
+// infer/expr/mod.rs:124 (INVALID ExprId reaching infer_expr_inner) when
+// the try block has no `?` operations and no tail expression. The wiring
+// at sequences.rs (infer_try_stmt) is correct; the panic is in try-block
+// result-expr handling for the bare-let-no-question form. For-loop and
+// match-arm-body sites (bisected isolated) work cleanly with minimal
+// bodies. Block-let, expr-let, for-loop, match-arm-body all exercise
+// the predicate + factory + diagnostic surface; try-let coverage moves
 // with BUG-02-024.
+
+// =============================================================================
+// For-loop binding
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_for_loop_refutable_list_rejects tests _ () -> void = {
+    for [$x, $y] in [[1, 2]] do { }
+}
+
+// =============================================================================
+// Match-arm-body let
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_match_arm_body_let_refutable_list_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let _ = match items {
+        [x, ..rest] -> { let [$a, $b] = rest }
+    }
+}
