@@ -289,18 +289,8 @@ fn apply_last_use_decision(
                 // canonical dec is suppressed to avoid double-free. The pre-
                 // collected `classes_dying_here` is the same-emission signal.
                 let pin6_class = ctx.state_map.ssa_alias_class_of(var);
-                eprintln!(
-                    "[PIN6 last_use] fn={:?} blk={} var={:?} class_id={:?} payload_of={:?} classes_dying_here={:?}",
-                    ctx.func.name,
-                    ctx.blk.index(),
-                    var,
-                    pin6_class,
-                    pin6_class.and_then(|c| ctx.state_map.class_payload_of(c)),
-                    classes_dying_here.keys().collect::<Vec<_>>(),
-                );
                 if let Some(class_id) = pin6_class {
                     if pin6_any_ancestor_will_cover(ctx, class_id, instr_idx, classes_dying_here) {
-                        eprintln!("[PIN6 last_use] SUPPRESSED var={var:?}");
                         return;
                     }
                 }

@@ -461,6 +461,14 @@ fn pin6_same_emission_covers(
             // Verify parent's strategy is transitive-drop. Resolve via
             // class_members representative (singleton-class invariant per
             // §2.6.2 ensures class_members has an entry).
+            //
+            // Strategy gate: dead-block-param scope intentionally narrower than
+            // body-level pin6_any_ancestor_will_cover (which uses the full
+            // is_transitive_drop_strategy predicate). HeapPointer / Closure /
+            // AggregateFields coverage at the dead-block-param boundary is the
+            // forward-looking strategy expansion deferred to the §1.2 row 9
+            // helper-split anchor; broadening here without the matching matrix
+            // coverage would ship unverified behavior.
             if let Some(members) = ctx.state_map.class_members(parent_class) {
                 if let Some(&parent_rep) = members.iter().next() {
                     if let Some(parent_strategy) = rc_strategy(ctx.func, parent_rep, ctx.pool) {
