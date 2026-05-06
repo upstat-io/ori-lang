@@ -902,3 +902,99 @@ fn test_generic_method_on_generic_type() {
     // impl<T> Box<T> { @map<U> ... } — generic method on a generic type.
     // Two-level rigid-var scoping through deferred-mono resolution.
 }
+
+// ─── BUG-04-111: (B-1) Return-as-transfer extensions ───
+// Borrowed param + use(s) + Return. Verifies the new pre-compute set
+// for borrow-flow scope-exit RcDec covers (B-1) shape across types
+// and use patterns beyond the str-flavored snapshot (use_twice).
+
+/// Regression: borrowed [int] param + 2 borrow uses + return. Extends the
+/// str-flavored use_twice snapshot to [int] element type — verifies the
+/// borrow-flow scope-exit RcDec elision is fixed for collection elements.
+#[test]
+fn test_borrow_list_int_use_twice_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_use_twice_then_return.ori"),
+        "borrow_list_int_use_twice_then_return",
+    );
+}
+
+/// Regression: borrowed [int] param + 3 borrow uses + return. N-use
+/// boundary catches off-by-one in the pre-compute set for borrow-flow
+/// values (use_count > 2).
+#[test]
+fn test_borrow_list_int_use_thrice_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_use_thrice_then_return.ori"),
+        "borrow_list_int_use_thrice_then_return",
+    );
+}
+
+/// Composition pin: borrowed [int] param + use + Return through a
+/// `?`-Resume terminator path. Verifies the existing
+/// should_suppress_return_transfer_dec gating still fires after the
+/// new pre-compute set lands. NOT a true (B-1) case.
+#[test]
+fn test_borrow_list_int_resume_terminator_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_resume_terminator_then_return.ori"),
+        "borrow_list_int_resume_terminator_then_return",
+    );
+}
+
+/// Regression: borrowed [int] param + use in `if` arm + Return.
+/// Branched control-flow within one branch — both arms independently
+/// exercise Return-as-transfer.
+#[test]
+fn test_borrow_list_int_if_arm_use_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_if_arm_use_then_return.ori"),
+        "borrow_list_int_if_arm_use_then_return",
+    );
+}
+
+/// Regression: borrowed [int] param + use in `match` arm + Return.
+/// Pattern-dispatch through Maranget decision tree — verifies the
+/// pre-compute set covers Return-as-transfer across decision-tree paths.
+#[test]
+fn test_borrow_list_int_match_arm_use_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_match_arm_use_then_return.ori"),
+        "borrow_list_int_match_arm_use_then_return",
+    );
+}
+
+// ─── BUG-04-111: (B-3) Borrow-only access ───
+// Value used as borrow inside function-call boundaries; verifies the
+// pre-compute set distinguishes borrow Applies (no dec at site) from
+// Return-as-transfer (dec required at function exit).
+
+/// Regression: borrowed [int] param + 1 borrow Apply + Return.
+/// Single borrow access through a function-call boundary.
+#[test]
+fn test_borrow_list_int_one_borrow_apply_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_one_borrow_apply_then_return.ori"),
+        "borrow_list_int_one_borrow_apply_then_return",
+    );
+}
+
+/// Regression: borrowed [int] param + 2 borrow Applies + Return.
+/// Multi-call borrow uses; catches off-by-one in borrow-Apply enumeration.
+#[test]
+fn test_borrow_list_int_two_borrow_applies_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_two_borrow_applies_then_return.ori"),
+        "borrow_list_int_two_borrow_applies_then_return",
+    );
+}
+
+/// Regression: borrowed [int] param + 1 borrow Apply + 1 owned Apply
+/// (passthrough) + Return. Mixed access modes within one function body.
+#[test]
+fn test_borrow_list_int_mixed_apply_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_mixed_apply_then_return.ori"),
+        "borrow_list_int_mixed_apply_then_return",
+    );
+}

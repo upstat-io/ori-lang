@@ -1,0 +1,16 @@
+// (B-1) Return-as-transfer N-use pin: 3 borrow uses + return.
+// Catches off-by-one in the pre-compute set for borrow-flow values
+// — boundary beyond use_twice (use_count > 2).
+
+@use_thrice (xs: [int]) -> [int] = {
+    print(msg: `len: {xs.len()}`);
+    print(msg: `first: {xs[0]}`);
+    print(msg: `last: {xs[xs.len() - 1]}`);
+    xs
+};
+
+@main () -> int = {
+    let original = [100, 200, 300, 400];
+    let returned = use_thrice(xs: original);
+    if returned.len() == 4 && returned[0] == 100 && returned[3] == 400 then 0 else 1
+}

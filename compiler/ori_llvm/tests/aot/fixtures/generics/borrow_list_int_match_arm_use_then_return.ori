@@ -1,0 +1,27 @@
+// (B-1) Pattern-dispatch extension: borrowed [int] param + use in
+// `match` arm + Return. Verifies the pre-compute set covers Return-as-
+// transfer through decision-tree dispatch (Maranget per canon.md §3),
+// not just direct return.
+
+@borrow_match_use (xs: [int], opt: Option<int>) -> [int] = {
+    match opt {
+        Some(_n) -> {
+            print(msg: `some-arm: {xs.len()}`);
+            xs
+        },
+        None -> {
+            print(msg: `none-arm: {xs[0]}`);
+            xs
+        }
+    }
+};
+
+@main () -> int = {
+    let xs_some = [9, 18, 27];
+    let returned_some = borrow_match_use(xs: xs_some, opt: Some(5));
+    let xs_none = [36, 45];
+    let returned_none = borrow_match_use(xs: xs_none, opt: None);
+    let some_ok = returned_some.len() == 3 && returned_some[0] == 9;
+    let none_ok = returned_none.len() == 2 && returned_none[0] == 36;
+    if some_ok && none_ok then 0 else 1
+}

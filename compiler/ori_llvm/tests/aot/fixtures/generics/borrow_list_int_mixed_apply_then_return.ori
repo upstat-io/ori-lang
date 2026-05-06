@@ -1,0 +1,19 @@
+// (B-3.3) Mixed access modes: borrowed [int] param + 1 borrow Apply +
+// 1 owned Apply (passthrough) + Return. Verifies the pre-compute set
+// handles the case where the SAME param is both borrowed inside one
+// call and transferred-and-returned through another call within the
+// same function body.
+
+@borrow_check (xs: [int]) -> int = xs.len() as int;
+@owned_passthrough (xs: [int]) -> [int] = xs;
+
+@mixed_apply_then_return (xs: [int]) -> [int] = {
+    let _check = borrow_check(xs:);
+    owned_passthrough(xs:)
+};
+
+@main () -> int = {
+    let original = [13, 26, 39];
+    let returned = mixed_apply_then_return(xs: original);
+    if returned.len() == 3 && returned[0] == 13 && returned[2] == 39 then 0 else 1
+}

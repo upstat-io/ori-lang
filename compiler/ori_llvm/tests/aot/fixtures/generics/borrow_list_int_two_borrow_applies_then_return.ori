@@ -1,0 +1,19 @@
+// (B-3.2) Borrow-only access: borrowed [int] param + 2 borrow Applies +
+// Return. Multiple borrow uses through function-call boundaries; verifies
+// the pre-compute set covers N-Apply borrow shapes (catches off-by-one
+// in borrow-Apply enumeration).
+
+@borrow_use_a (xs: [int]) -> int = xs.len() as int;
+@borrow_use_b (xs: [int]) -> int = xs[0];
+
+@two_borrow_applies_then_return (xs: [int]) -> [int] = {
+    let _a = borrow_use_a(xs:);
+    let _b = borrow_use_b(xs:);
+    xs
+};
+
+@main () -> int = {
+    let original = [12, 24, 36];
+    let returned = two_borrow_applies_then_return(xs: original);
+    if returned.len() == 3 && returned[0] == 12 && returned[2] == 36 then 0 else 1
+}

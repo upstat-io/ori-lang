@@ -1,0 +1,17 @@
+// (B-3.1) Borrow-only access: borrowed [int] param + 1 borrow Apply +
+// Return. Verifies the value used as borrow inside the function call
+// does NOT produce dec coverage at the borrow site; Return-as-transfer
+// at function exit retains correct dec coverage.
+
+@borrow_only_use (xs: [int]) -> int = xs.len() as int;
+
+@one_borrow_apply_then_return (xs: [int]) -> [int] = {
+    let _len = borrow_only_use(xs:);
+    xs
+};
+
+@main () -> int = {
+    let original = [3, 6, 9];
+    let returned = one_borrow_apply_then_return(xs: original);
+    if returned.len() == 3 && returned[0] == 3 && returned[2] == 9 then 0 else 1
+}
