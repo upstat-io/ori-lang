@@ -31,8 +31,15 @@ use std.testing { assert_eq }
     assert_eq(actual: result, expected: 3)
 }
 
-// Note: a third regression cell (`[a, b, ..rest] if a > b -> a` guard form)
-// was omitted — Ori parser currently emits "expected ->, found ," on
-// list-pattern + guard combinations. Match-regression coverage of the
-// fundamental "match patterns still accept refutable list shapes after
-// CF-3" property is preserved by the two cells above.
+// =============================================================================
+// Match arm with guard on refutable list pattern — still works
+// =============================================================================
+
+@test_match_with_guards_still_works tests _ () -> void = {
+    let xs = [3, 1, 7];
+    let result = match xs {
+        [a, ..rest] if a > 2 -> a,
+        _ -> 0,
+    };
+    assert_eq(actual: result, expected: 3)
+}

@@ -69,10 +69,16 @@ pub(crate) fn pattern_is_irrefutable(
         }
 
         BindingPattern::Tuple(pats) => {
+            // §3.2 no-double-diagnostic contract: distinguish unresolved/poison
+            // outer (recurse with Idx::ERROR sentinels so type-INDEPENDENT inner
+            // refutability fires) from concrete non-tuple outer (return Ok(())
+            // so bind_pattern's E2001 type-mismatch fires alone, no doubling).
             let resolved = engine.resolve(ty);
-            let elem_tys: Vec<Idx> = match engine.pool().tag(resolved) {
+            let tag = engine.pool().tag(resolved);
+            let elem_tys: Vec<Idx> = match tag {
                 Tag::Tuple => engine.pool().tuple_elems(resolved),
-                _ => vec![Idx::ERROR; pats.len()],
+                Tag::Var | Tag::Error => vec![Idx::ERROR; pats.len()],
+                _ => return Ok(()),
             };
             let walk_n = elem_tys.len().min(pats.len());
             for (i, sub_pat) in pats.iter().take(walk_n).enumerate() {
@@ -84,8 +90,10 @@ pub(crate) fn pattern_is_irrefutable(
         }
 
         BindingPattern::Struct { fields } => {
+            // §3.2 no-double-diagnostic contract: same distinction as Tuple branch.
             let resolved = engine.resolve(ty);
-            let field_types = match engine.pool().tag(resolved) {
+            let tag = engine.pool().tag(resolved);
+            let field_types = match tag {
                 Tag::Named => {
                     let type_name = engine.pool().named_name(resolved);
                     lookup_struct_field_types(engine, type_name, None)
@@ -95,7 +103,8 @@ pub(crate) fn pattern_is_irrefutable(
                     let type_args = engine.pool().applied_args(resolved);
                     lookup_struct_field_types(engine, type_name, Some(&type_args))
                 }
-                _ => None,
+                Tag::Var | Tag::Error => None,
+                _ => return Ok(()),
             };
 
             for FieldBinding {
