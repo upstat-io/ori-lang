@@ -1377,7 +1377,7 @@ fn test_labeled_continue() {
 }
 
 #[test]
-fn test_unlabeled_break_still_works() {
+fn test_unlabeled_break_in_loop_parses_with_value() {
     let result = parse_source("@f () -> int = loop { break 42 }");
     assert!(!result.has_errors(), "unlabeled break should still parse");
 
@@ -1407,7 +1407,7 @@ fn test_unlabeled_break_still_works() {
 }
 
 #[test]
-fn test_unlabeled_continue_still_works() {
+fn test_unlabeled_continue_in_for_parses_without_value() {
     let result = parse_source("@f () -> void = for x in [1] do continue;");
     assert!(
         !result.has_errors(),
