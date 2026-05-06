@@ -72,6 +72,13 @@ Subcommands:
                         --dispositions-only Scan compiler/tests/tools/library for
                                             #[ignore]/#skip annotations and update
                                             the test_dispositions block. Sub-second.
+                        --from-summary=PATH Ingest a pre-existing test-all.sh JSON
+                                            summary into state. Skips the test
+                                            run; just parses + writes test_suite +
+                                            test_dispositions. Used by test-all.sh's
+                                            tail (producer-writes-cache pattern) so
+                                            direct ./test-all.sh runs keep state
+                                            current without going through --full.
                         --by <name>         Record who/what triggered the
                                             refresh. Defaults to "manual".
                                             Values: commit-push, manual,
@@ -601,20 +608,38 @@ cmd_refresh() {
             fi
             ;;
         full)
-            echo "Running ./test-all.sh + ./clippy-all.sh (this takes ~3 minutes)..." >&2
+            # Composite-harness timeouts. CLAUDE.md §MANDATORY TEST TIMEOUTS pins
+            # individual test commands at 150s; that rule was authored for leaf
+            # invocations (cargo t, cargo st), NOT for ./test-all.sh + ./clippy-all.sh
+            # which orchestrate dozens of leaf commands. Documented runtime is
+            # ~3 minutes; cap at 600s/300s gives headroom for slow CI hosts
+            # without masking genuine hangs.
+            local test_timeout=600
+            local clippy_timeout=300
+            echo "Running ./test-all.sh + ./clippy-all.sh (typically ~3 minutes; cap=${test_timeout}s+${clippy_timeout}s)..." >&2
             local test_log clippy_log test_status clippy_status summary_json
             test_log="$ROOT_DIR/build/state-refresh-test.log"
             clippy_log="$ROOT_DIR/build/state-refresh-clippy.log"
             summary_json="$ROOT_DIR/build/state-refresh-summary.json"
             mkdir -p "$ROOT_DIR/build"
 
-            if timeout 150 "$ROOT_DIR/test-all.sh" --json-summary="$summary_json" > "$test_log" 2>&1; then
+            local test_exit=0
+            timeout "$test_timeout" "$ROOT_DIR/test-all.sh" --json-summary="$summary_json" > "$test_log" 2>&1 || test_exit=$?
+            if [[ "$test_exit" -eq 0 ]]; then
                 test_status="clean"
+            elif [[ "$test_exit" -eq 124 ]]; then
+                test_status="timeout"
+                echo "WARN: ./test-all.sh exceeded ${test_timeout}s cap; test_suite block will be marked timeout" >&2
             else
                 test_status="known-failing"
             fi
-            if timeout 150 "$ROOT_DIR/clippy-all.sh" > "$clippy_log" 2>&1; then
+            local clippy_exit=0
+            timeout "$clippy_timeout" "$ROOT_DIR/clippy-all.sh" > "$clippy_log" 2>&1 || clippy_exit=$?
+            if [[ "$clippy_exit" -eq 0 ]]; then
                 clippy_status="clean"
+            elif [[ "$clippy_exit" -eq 124 ]]; then
+                clippy_status="timeout"
+                echo "WARN: ./clippy-all.sh exceeded ${clippy_timeout}s cap; clippy block will be marked timeout" >&2
             else
                 clippy_status="warnings"
             fi
@@ -626,16 +651,29 @@ cmd_refresh() {
             failures_status="unavailable"
 
             if [[ -f "$summary_json" ]]; then
-                passed=$(jq -r '.totals.passed // 0' "$summary_json")
-                failed=$(jq -r '.totals.failed // 0' "$summary_json")
-                skipped=$(jq -r '.totals.skipped // 0' "$summary_json")
-                failures_json=$(jq -r '.failures // []' "$summary_json")
-                per_suite_json=$(jq -r '.per_suite // {}' "$summary_json")
-                if jq -e '.failures' "$summary_json" >/dev/null 2>&1; then
-                    failures_status="complete"
+                # Validate the summary file parses cleanly before consuming it.
+                # If test-all.sh got SIGKILL'd mid-write (timeout) or wrote
+                # malformed JSON, downstream jq passes silently produce empty
+                # values, leaving test_suite.last_run_sha unchanged so callers
+                # cannot distinguish "not yet refreshed" from "refresh failed".
+                if ! jq empty "$summary_json" >/dev/null 2>&1; then
+                    test_status="parse-error"
+                    echo "WARN: $summary_json failed to parse (likely truncated by timeout or malformed by test-all.sh); test_suite block will be marked parse-error" >&2
                 else
-                    failures_status="partial"
+                    passed=$(jq -r '.totals.passed // 0' "$summary_json")
+                    failed=$(jq -r '.totals.failed // 0' "$summary_json")
+                    skipped=$(jq -r '.totals.skipped // 0' "$summary_json")
+                    failures_json=$(jq -r '.failures // []' "$summary_json")
+                    per_suite_json=$(jq -r '.per_suite // {}' "$summary_json")
+                    if jq -e '.failures' "$summary_json" >/dev/null 2>&1; then
+                        failures_status="complete"
+                    else
+                        failures_status="partial"
+                    fi
                 fi
+            else
+                test_status="missing-summary"
+                echo "WARN: $summary_json absent after test-all.sh run; test_suite block will be marked missing-summary" >&2
             fi
 
             # Attribution: cross-reference failures with dispositions (tier 1).
@@ -659,6 +697,33 @@ cmd_refresh() {
             ' 2>/dev/null || printf '%s' "$failures_json")
 
             disp_block=$(build_dispositions_block "$current_sha" "$updated_at")
+            # Failure-mode statuses MUST NOT bump test_suite.last_run_sha.
+            # Status callers (status-report Step 0.5, /commit-push Step 8) verify
+            # `test_suite.last_run_sha == HEAD_SHA` to confirm a successful refresh;
+            # bumping the SHA on parse-error/missing-summary/timeout would mask the
+            # failure as success. Status field still updates so observers see WHY.
+            local test_suite_update
+            case "$test_status" in
+                clean|known-failing)
+                    test_suite_update='.test_suite.status = $tstatus
+                                     | .test_suite.last_run_sha = $sha
+                                     | .test_suite.last_run_at = $at
+                                     | .test_suite.last_run_kind = "test-all.sh"
+                                     | .test_suite.totals.passed = $passed
+                                     | .test_suite.totals.failed = $failed
+                                     | .test_suite.totals.skipped = $skipped
+                                     | .test_suite.failures = $afailures
+                                     | .test_suite.failures_status = $fstatus
+                                     | .test_suite.per_suite = $per_suite'
+                    ;;
+                *)
+                    # parse-error | missing-summary | timeout — record status +
+                    # attempt timestamp; preserve prior last_run_sha + counts.
+                    test_suite_update='.test_suite.status = $tstatus
+                                     | .test_suite.last_attempt_at = $at
+                                     | .test_suite.last_attempt_outcome = $tstatus'
+                    ;;
+            esac
             local tmp
             tmp=$(jq --arg sha "$current_sha" \
                     --arg at "$updated_at" \
@@ -672,22 +737,13 @@ cmd_refresh() {
                     --argjson afailures "$attributed_failures_json" \
                     --argjson per_suite "$per_suite_json" \
                     --arg fstatus "$failures_status" \
-                    '.schema_version = 3
-                     | .head_sha = $sha | .updated_at = $at | .updated_by = $by
-                     | .test_suite.status = $tstatus
-                     | .test_suite.last_run_sha = $sha
-                     | .test_suite.last_run_at = $at
-                     | .test_suite.last_run_kind = "test-all.sh"
-                     | .test_suite.totals.passed = $passed
-                     | .test_suite.totals.failed = $failed
-                     | .test_suite.totals.skipped = $skipped
-                     | .test_suite.failures = $afailures
-                     | .test_suite.failures_status = $fstatus
-                     | .test_suite.per_suite = $per_suite
-                     | .clippy.status = $cstatus
-                     | .clippy.last_run_sha = $sha
-                     | .clippy.last_run_at = $at
-                     | .test_dispositions = $disp' \
+                    ".schema_version = 3
+                     | .head_sha = \$sha | .updated_at = \$at | .updated_by = \$by
+                     | $test_suite_update
+                     | .clippy.status = \$cstatus
+                     | .clippy.last_run_sha = \$sha
+                     | .clippy.last_run_at = \$at
+                     | .test_dispositions = \$disp" \
                     "$STATE_FILE")
             write_state "$tmp"
             local d_total d_untracked
@@ -703,8 +759,119 @@ cmd_refresh() {
                 echo "full refresh complete: tests=$test_status clippy=$clippy_status totals=$passed/$failed/$skipped failures=$total_failures_count/$attributed_count-attributed dispositions=$d_total/$d_untracked-untracked"
             fi
             ;;
+        from-summary)
+            # Ingest mode: caller (typically test-all.sh's tail) already ran the
+            # tests and produced a summary JSON. Parse it, write test_suite +
+            # dispositions, leave clippy block alone (no clippy data here).
+            #
+            # Producer-writes-cache pattern: the entity with first-hand data
+            # populates state, instead of state.sh re-orchestrating the run.
+            # See script-state-design.md §6 2026-05-06 ingest-mode entry.
+            [[ -n "$FROM_SUMMARY_PATH" ]] || die "--from-summary requires a path"
+            local summary_json="$FROM_SUMMARY_PATH"
+            local test_status passed failed skipped failures_json per_suite_json failures_status
+            passed=0; failed=0; skipped=0
+            failures_json='[]'
+            per_suite_json='{}'
+            failures_status="unavailable"
+
+            if [[ ! -f "$summary_json" ]]; then
+                test_status="missing-summary"
+                echo "WARN: $summary_json absent; test_suite block will be marked missing-summary" >&2
+            elif ! jq empty "$summary_json" >/dev/null 2>&1; then
+                test_status="parse-error"
+                echo "WARN: $summary_json failed to parse; test_suite block will be marked parse-error" >&2
+            else
+                passed=$(jq -r '.totals.passed // 0' "$summary_json")
+                failed=$(jq -r '.totals.failed // 0' "$summary_json")
+                skipped=$(jq -r '.totals.skipped // 0' "$summary_json")
+                failures_json=$(jq -r '.failures // []' "$summary_json")
+                per_suite_json=$(jq -r '.per_suite // {}' "$summary_json")
+                if jq -e '.failures' "$summary_json" >/dev/null 2>&1; then
+                    failures_status="complete"
+                else
+                    failures_status="partial"
+                fi
+                if [[ "$failed" -gt 0 ]]; then
+                    test_status="known-failing"
+                else
+                    test_status="clean"
+                fi
+            fi
+
+            # Disposition scan + attribution (same flow as --full).
+            local disp_block
+            disp_block=$(build_dispositions_block "$current_sha" "$updated_at")
+            local attributed_failures_json
+            attributed_failures_json=$(printf '%s' "$failures_json" | jq --argjson disp "$disp_block" '
+                def disposition_match($test_id):
+                    ($disp.entries // []) as $entries
+                    | ([$entries[] | select(.file != null and ($test_id | contains(.file))) | .tracking_bug] | first // null);
+                map(
+                    if .attributed_bug == null then
+                        (.attributed_bug = disposition_match(.test_id))
+                        | if .attributed_bug != null then
+                            .attribution_source = "disposition"
+                            | .attribution_confidence = "high"
+                          else . end
+                    else . end
+                )
+            ' 2>/dev/null || printf '%s' "$failures_json")
+
+            # Branched writeback: success bumps last_run_sha; failure modes
+            # preserve prior SHA so callers gating on SHA equality see the
+            # failure correctly. Mirrors the --full writeback contract.
+            local test_suite_update
+            case "$test_status" in
+                clean|known-failing)
+                    test_suite_update='.test_suite.status = $tstatus
+                                     | .test_suite.last_run_sha = $sha
+                                     | .test_suite.last_run_at = $at
+                                     | .test_suite.last_run_kind = "test-all.sh"
+                                     | .test_suite.totals.passed = $passed
+                                     | .test_suite.totals.failed = $failed
+                                     | .test_suite.totals.skipped = $skipped
+                                     | .test_suite.failures = $afailures
+                                     | .test_suite.failures_status = $fstatus
+                                     | .test_suite.per_suite = $per_suite'
+                    ;;
+                *)
+                    test_suite_update='.test_suite.status = $tstatus
+                                     | .test_suite.last_attempt_at = $at
+                                     | .test_suite.last_attempt_outcome = $tstatus'
+                    ;;
+            esac
+            local tmp
+            tmp=$(jq --arg sha "$current_sha" \
+                    --arg at "$updated_at" \
+                    --arg by "$updated_by_val" \
+                    --arg tstatus "$test_status" \
+                    --argjson passed "$passed" \
+                    --argjson failed "$failed" \
+                    --argjson skipped "$skipped" \
+                    --argjson disp "$disp_block" \
+                    --argjson afailures "$attributed_failures_json" \
+                    --argjson per_suite "$per_suite_json" \
+                    --arg fstatus "$failures_status" \
+                    ".schema_version = 3
+                     | .head_sha = \$sha | .updated_at = \$at | .updated_by = \$by
+                     | $test_suite_update
+                     | .test_dispositions = \$disp" \
+                    "$STATE_FILE")
+            write_state "$tmp"
+            local d_total d_untracked attributed_count total_failures_count
+            d_total=$(printf '%s' "$disp_block" | jq -r '.totals.total')
+            d_untracked=$(printf '%s' "$disp_block" | jq -r '.totals.untracked')
+            attributed_count=$(printf '%s' "$attributed_failures_json" | jq -r '[.[] | select(.attributed_bug != null)] | length' 2>/dev/null || echo 0)
+            total_failures_count=$(printf '%s' "$attributed_failures_json" | jq -r 'length' 2>/dev/null || echo 0)
+            if [[ "$OUTPUT" == "json" ]]; then
+                printf '{"status":"refreshed","mode":"from-summary","test_status":"%s","passed":%s,"failed":%s,"failures_status":"%s","failures_total":%s,"failures_attributed":%s,"dispositions_total":%s,"dispositions_untracked":%s}\n' "$test_status" "$passed" "$failed" "$failures_status" "$total_failures_count" "$attributed_count" "$d_total" "$d_untracked"
+            else
+                echo "from-summary ingest complete: tests=$test_status totals=$passed/$failed/$skipped failures=$total_failures_count/$attributed_count-attributed dispositions=$d_total/$d_untracked-untracked"
+            fi
+            ;;
         *)
-            die "unknown refresh mode: $REFRESH_MODE. Use --sha-only, --hygiene-only, or --full."
+            die "unknown refresh mode: $REFRESH_MODE. Use --sha-only, --hygiene-only, --full, --dispositions-only, or --from-summary."
             ;;
     esac
 }
@@ -724,6 +891,15 @@ while [[ $# -gt 0 ]]; do
         --full) REFRESH_MODE=full; shift ;;
         --hygiene-only) REFRESH_MODE=hygiene-only; shift ;;
         --dispositions-only) REFRESH_MODE=dispositions-only; shift ;;
+        --from-summary=*)
+            REFRESH_MODE=from-summary
+            FROM_SUMMARY_PATH="${1#--from-summary=}"
+            shift ;;
+        --from-summary)
+            [[ $# -ge 2 ]] || die "--from-summary requires a path argument"
+            REFRESH_MODE=from-summary
+            FROM_SUMMARY_PATH="$2"
+            shift 2 ;;
         --untracked-only) DISPOSITIONS_UNTRACKED_ONLY=1; shift ;;
         --stale) CHECK_STALE=1; shift ;;
         --by)

@@ -513,30 +513,9 @@ TOTAL_LCFAIL=$((${ORI_LLVM_LCFAIL:-0}))
 printf "${BOLD}%-30s %8d %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED" "$TOTAL_LCFAIL"
 echo ""
 
-# --- Test disposition tail (#[ignore] / #skip discipline) ---
-# Surfaces drift on every test run per .claude/rules/test-disposition.md.
-# Suppressed in JSON mode (machine consumers read state.sh directly).
-# Silently skipped when state.sh or jq is unavailable (downstream syncs
-# without diagnostics/ should still get test totals without errors).
-if [[ $EMIT_JSON -eq 0 ]] \
-   && command -v jq >/dev/null 2>&1 \
-   && [[ -x "$(dirname "$0")/diagnostics/state.sh" ]]; then
-    DISP_JSON=$("$(dirname "$0")/diagnostics/state.sh" refresh --dispositions-only --json --by test-all 2>/dev/null || true)
-    if [[ -n "$DISP_JSON" ]]; then
-        DISP_TOTAL=$(printf '%s' "$DISP_JSON" | jq -r '.total // 0')
-        DISP_UNTRACKED=$(printf '%s' "$DISP_JSON" | jq -r '.untracked // 0')
-        if [[ "$DISP_UNTRACKED" -gt 0 ]]; then
-            echo -e "${RED}${BOLD}Dispositions: $DISP_TOTAL total, $DISP_UNTRACKED UNTRACKED — DRIFT${NC}"
-            echo "  Per .claude/rules/test-disposition.md: every #[ignore]/#skip needs BUG-XX-NNN in reason text."
-            echo "  List the offenders:"
-            echo "    diagnostics/state.sh dispositions --untracked-only"
-            echo ""
-        else
-            echo "Dispositions: $DISP_TOTAL total, 0 untracked"
-            echo ""
-        fi
-    fi
-fi
+# State self-update is invoked AFTER emit_json (defined ~line 611), so it runs
+# below the JSON emit blocks at the file's tail. This block is intentionally
+# empty here; see the matching block after the emit_json invocations.
 
 if [ "$AOT_LEAKS" -gt 0 ]; then
     echo -e "${YELLOW}${BOLD}⚠  $AOT_LEAKS AOT test(s) leaked memory (ORI_CHECK_LEAKS=1 detected RC leaks)${NC}"
@@ -567,7 +546,10 @@ parse_rust_failures() {
         if [[ "$line" =~ ^test[[:space:]](.*)[[:space:]]\.\.\.[[:space:]]FAILED$ ]]; then
             local test_name="${BASH_REMATCH[1]}"
             local escaped_test_name
-            escaped_test_name=$(printf '%s' "$test_name" | sed 's/"/\\"/g')
+            # JSON escape order: backslashes FIRST, then quotes. Otherwise an
+            # input byte sequence like `\"` (backslash + quote) becomes `\\"`
+            # which JSON parses as escaped-backslash + end-of-string.
+            escaped_test_name=$(printf '%s' "$test_name" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
             local kind="$failure_kind"
             # Try to classify more precisely from surrounding output
             if grep -q "panicked at" "$output_file" 2>/dev/null; then kind="panic"; fi
@@ -592,11 +574,14 @@ parse_ori_failures() {
         if [[ "$line" =~ FAIL ]]; then
             local test_name
             test_name=$(echo "$line" | sed 's/.*\[FAIL\] //' | sed 's/FAILED //' | tr -d '\n\r')
-            local escaped_test_name
-            escaped_test_name=$(printf '%s' "$test_name" | sed 's/"/\\"/g')
-            local error_msg
-            error_msg=$(echo "$line" | sed 's/"/\\"/g' | tr -d '\n\r')
-            entries+="    { \"test_id\": \"$escaped_test_name\", \"test_id_kind\": \"ori_spec\", \"suite\": \"$suite_id\", \"failure_kind\": \"assertion_failure\", \"error_message\": \"$error_msg\" }"$'\n'
+            local escaped_test_name escaped_error_msg
+            # JSON escape order: backslashes FIRST, then quotes (see parse_rust_failures
+            # for the rationale — pre-escaped sequences in test messages like `\"x\"`
+            # would otherwise terminate the JSON string mid-value, producing the
+            # "Invalid numeric literal at line N, col M" parse error downstream).
+            escaped_test_name=$(printf '%s' "$test_name" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+            escaped_error_msg=$(echo "$line" | tr -d '\n\r' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+            entries+="    { \"test_id\": \"$escaped_test_name\", \"test_id_kind\": \"ori_spec\", \"suite\": \"$suite_id\", \"failure_kind\": \"assertion_failure\", \"error_message\": \"$escaped_error_msg\" }"$'\n'
         fi
     done < "$output_file"
     echo "$entries" | grep -v '^$' | sed '$!s/$/,/' | (echo '['; cat; echo '  ]') 2>/dev/null || echo '[]'
@@ -701,7 +686,40 @@ if [[ $EMIT_JSON -eq 1 ]]; then
     emit_json "$JSON_PATH"
 fi
 
-if [[ $EMIT_JSON_SUMMARY -eq 1 ]]; then
+# State self-update (test_suite + dispositions). Producer-writes-cache:
+# test-all.sh just ran every suite; it owns the data, so it writes its own
+# slice of state.json instead of relying on `state.sh refresh --full` to
+# re-orchestrate the run. Always produces a summary to a default path when
+# --json-summary wasn't specified, then ingests via state.sh refresh
+# --from-summary. Suppressed in --json mode (machine consumers read state
+# directly). Skipped when state.sh / jq is unavailable.
+if [[ $EMIT_JSON -eq 0 ]] \
+   && command -v jq >/dev/null 2>&1 \
+   && [[ -x "$(dirname "$0")/diagnostics/state.sh" ]]; then
+    if [[ -z "$JSON_SUMMARY_PATH" ]]; then
+        JSON_SUMMARY_PATH="$(dirname "$0")/build/test-all-summary.json"
+        EMIT_JSON_SUMMARY=1
+    fi
+    mkdir -p "$(dirname "$JSON_SUMMARY_PATH")"
+    emit_json "$JSON_SUMMARY_PATH"
+    INGEST_JSON=$("$(dirname "$0")/diagnostics/state.sh" refresh --from-summary="$JSON_SUMMARY_PATH" --json --by test-all 2>/dev/null || true)
+    if [[ -n "$INGEST_JSON" ]]; then
+        DISP_TOTAL=$(printf '%s' "$INGEST_JSON" | jq -r '.dispositions_total // 0')
+        DISP_UNTRACKED=$(printf '%s' "$INGEST_JSON" | jq -r '.dispositions_untracked // 0')
+        if [[ "$DISP_UNTRACKED" -gt 0 ]]; then
+            echo -e "${RED}${BOLD}Dispositions: $DISP_TOTAL total, $DISP_UNTRACKED UNTRACKED — DRIFT${NC}"
+            echo "  Per .claude/rules/test-disposition.md: every #[ignore]/#skip needs BUG-XX-NNN in reason text."
+            echo "  List the offenders:"
+            echo "    diagnostics/state.sh dispositions --untracked-only"
+            echo ""
+        else
+            echo "Dispositions: $DISP_TOTAL total, 0 untracked"
+            echo ""
+        fi
+    fi
+elif [[ $EMIT_JSON_SUMMARY -eq 1 ]]; then
+    # --json-summary was requested but ingest path is unavailable (no jq /
+    # no state.sh). Honor the request anyway.
     emit_json "$JSON_SUMMARY_PATH"
 fi
 
