@@ -3,13 +3,13 @@
 // Design: tooling/formatter/design/02-constructs/declarations.md
 // Note: Free-floating tests use `tests _` syntax
 
-#skip("not implemented")
+#skip("BUG-07-038: not implemented (cluster: 102 untracked dispositions)")
 @test_future tests _ () -> void = print(msg: "future");
 
 #compile_fail("type mismatch")
 @test_type_error tests _ () -> void = 42;
 
-// TODO: LLVM backend doesn't properly handle #fail with panic
-#skip("LLVM backend: panic handling in #fail tests not working")
+// TODO(llvm): LLVM backend panic handling in #fail tests
+#skip("BUG-07-038: LLVM backend — panic handling in #fail tests not working")
 #fail("assertion failed")
 @test_panic tests _ () -> void = panic(msg: "assertion failed");
