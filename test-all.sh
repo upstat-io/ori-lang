@@ -24,6 +24,8 @@ VERBOSE=0
 PARALLEL=1
 EMIT_JSON=0
 JSON_PATH=""
+EMIT_JSON_SUMMARY=0
+JSON_SUMMARY_PATH=""
 for arg in "$@"; do
     case $arg in
         -v|--verbose)
@@ -39,6 +41,14 @@ for arg in "$@"; do
         --json=*)
             EMIT_JSON=1
             JSON_PATH="${arg#--json=}"
+            ;;
+        --json-summary)
+            EMIT_JSON_SUMMARY=1
+            JSON_SUMMARY_PATH="/tmp/test-summary-$$.json"
+            ;;
+        --json-summary=*)
+            EMIT_JSON_SUMMARY=1
+            JSON_SUMMARY_PATH="${arg#--json-summary=}"
             ;;
     esac
 done
@@ -544,6 +554,54 @@ if [[ $EMIT_JSON -eq 0 ]] && [[ $RUST_LLVM_EXIT -ne 0 || $AOT_EXIT -ne 0 || $ORI
 fi
 
 # --- Emit JSON if requested ---
+# Parse individual Rust test failures from a cargo test output log.
+# Emits JSON array of failure objects on stdout.
+parse_rust_failures() {
+    local output_file="$1"
+    local suite_id="$2"
+    local failure_kind="$3"  # default failure kind
+    [ ! -f "$output_file" ] && { echo '[]'; return; }
+    local entries=""
+    while IFS= read -r line; do
+        # Match: "test <name> ... FAILED"
+        if [[ "$line" =~ ^test[[:space:]](.*)[[:space:]]\.\.\.[[:space:]]FAILED$ ]]; then
+            local test_name="${BASH_REMATCH[1]}"
+            local escaped_test_name
+            escaped_test_name=$(printf '%s' "$test_name" | sed 's/"/\\"/g')
+            local kind="$failure_kind"
+            # Try to classify more precisely from surrounding output
+            if grep -q "panicked at" "$output_file" 2>/dev/null; then kind="panic"; fi
+            local escaped_kind
+            escaped_kind=$(printf '%s' "$kind")
+            entries+="    { \"test_id\": \"$escaped_test_name\", \"test_id_kind\": \"rust\", \"suite\": \"$suite_id\", \"failure_kind\": \"$escaped_kind\", \"error_message\": \"test $escaped_test_name ... FAILED\" }"$'\n'
+        fi
+    done < "$output_file"
+    # Emit as JSON array
+    echo "$entries" | grep -v '^$' | sed '$!s/$/,/' | (echo '['; cat; echo '  ]') 2>/dev/null || echo '[]'
+}
+
+# Parse Ori test failures from an ori test runner output log.
+# Emits JSON array of failure objects on stdout.
+parse_ori_failures() {
+    local output_file="$1"
+    local suite_id="$2"
+    [ ! -f "$output_file" ] && { echo '[]'; return; }
+    local entries=""
+    while IFS= read -r line; do
+        # Match: lines containing "FAIL" (Ori test runner output)
+        if [[ "$line" =~ FAIL ]]; then
+            local test_name
+            test_name=$(echo "$line" | sed 's/.*\[FAIL\] //' | sed 's/FAILED //' | tr -d '\n\r')
+            local escaped_test_name
+            escaped_test_name=$(printf '%s' "$test_name" | sed 's/"/\\"/g')
+            local error_msg
+            error_msg=$(echo "$line" | sed 's/"/\\"/g' | tr -d '\n\r')
+            entries+="    { \"test_id\": \"$escaped_test_name\", \"test_id_kind\": \"ori_spec\", \"suite\": \"$suite_id\", \"failure_kind\": \"assertion_failure\", \"error_message\": \"$error_msg\" }"$'\n'
+        fi
+    done < "$output_file"
+    echo "$entries" | grep -v '^$' | sed '$!s/$/,/' | (echo '['; cat; echo '  ]') 2>/dev/null || echo '[]'
+}
+
 emit_json() {
     local path="$1"
     local overall="passed"
@@ -551,58 +609,84 @@ emit_json() {
         overall="failed"
     fi
 
-    # Helper: emit a numeric suite as a JSON object
-    # Args: name passed failed skipped [lcfail]
-    json_suite() {
-        local lcfail="${5:-null}"
-        printf '    { "name": "%s", "passed": %d, "failed": %d, "skipped": %d, "lcfail": %s }' \
-            "$1" "$2" "$3" "$4" "$lcfail"
+    # Parse individual failures from each suite log
+    local rust_failures ori_interp_failures ori_llvm_failures rt_failures rust_llvm_failures aot_failures
+    rust_failures=$(parse_rust_failures "$RUST_OUTPUT" "rust_workspace" "panic")
+    rt_failures=$(parse_rust_failures "$RUST_RT_OUTPUT" "rust_rt" "panic")
+    rust_llvm_failures=$(parse_rust_failures "$RUST_LLVM_OUTPUT" "rust_llvm" "panic")
+    aot_failures=$(parse_rust_failures "$AOT_OUTPUT" "aot" "panic")
+    ori_interp_failures=$(parse_ori_failures "$ORI_INTERP_OUTPUT" "ori_interp")
+    ori_llvm_failures=$(parse_ori_failures "$ORI_LLVM_OUTPUT" "ori_llvm")
+
+    # Combine all failures
+    # Build combined failures array by stripping outer brackets and concatenating
+    local all_failures=""
+    for failures in "$rust_failures" "$rt_failures" "$rust_llvm_failures" "$aot_failures" "$ori_interp_failures" "$ori_llvm_failures"; do
+        local inner
+        inner=$(echo "$failures" | sed '1d;$d' | grep -v '^$' || true)
+        if [ -n "$inner" ]; then
+            if [ -n "$all_failures" ]; then
+                all_failures+=",$inner"$'\n'
+            else
+                all_failures="$inner"$'\n'
+            fi
+        fi
+    done
+    all_failures=${all_failures%,$'\n'}
+
+    # Helper: emit a suite entry for per_suite (includes stable id + display_name)
+    json_suite_full() {
+        local id="$1" display="$2" passed="$3" failed="$4" skipped="$5"
+        local lcfail="${6:-0}" status="${7:-passed}"
+        if [ "$failed" -gt 0 ]; then status="failed"; fi
+        printf '    "%s": { "display_name": "%s", "passed": %d, "failed": %d, "skipped": %d, "lcfail": %d, "status": "%s", "failed_attributed": 0, "failed_unattributed": %d }' \
+            "$id" "$display" "${passed:-0}" "${failed:-0}" "${skipped:-0}" "${lcfail:-0}" "$status" "${failed:-0}"
     }
 
-    # Helper: emit WASM status-only suite
-    json_wasm_suite() {
-        printf '    { "name": "External playground WASM", "status": "%s", "passed": null, "failed": null, "skipped": null, "lcfail": null }' \
-            "$1"
-    }
+    local wasm_failed=0 wasm_passed=0
+    if [ "$WASM_STATUS" = "passed" ]; then wasm_passed=1; else wasm_failed=1; fi
 
-    # Helper: emit crashed suite
-    json_crashed_suite() {
-        printf '    { "name": "%s", "status": "crashed", "passed": null, "failed": null, "skipped": null, "lcfail": null }' \
-            "$1"
-    }
+    local llvm_passed=0 llvm_failed=0 llvm_skipped=0 llvm_lcfail=0 llvm_status="passed"
+    if [ "${LLVM_BUILD_OK:-1}" -eq 0 ]; then llvm_status="build_failed"
+    elif [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then llvm_status="crashed"
+    else
+        llvm_passed=${ORI_LLVM_PASSED:-0}; llvm_failed=${ORI_LLVM_FAILED:-0}
+        llvm_skipped=${ORI_LLVM_SKIPPED:-0}; llvm_lcfail=${ORI_LLVM_LCFAIL:-0}
+        [ "$llvm_failed" -gt 0 ] && llvm_status="failed"
+    fi
 
     {
         echo "{"
         echo "  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
         echo "  \"overall\": \"$overall\","
-        echo "  \"suites\": ["
-        json_suite "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED"
-        echo ","
-        json_suite "Runtime library (ori_rt)" "$RUST_RT_PASSED" "$RUST_RT_FAILED" "$RUST_RT_IGNORED"
-        echo ","
-        json_suite "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED"
-        echo ","
-        json_suite "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED"
-        echo ","
-        json_wasm_suite "$WASM_STATUS"
-        echo ","
-        json_suite "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED"
-        echo ","
-        if [ "${LLVM_BUILD_OK:-1}" -eq 0 ]; then
-            json_crashed_suite "Ori spec (LLVM backend)"
-        elif [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
-            json_crashed_suite "Ori spec (LLVM backend)"
-        else
-            json_suite "Ori spec (LLVM backend)" "$ORI_LLVM_PASSED" "$ORI_LLVM_FAILED" "$ORI_LLVM_SKIPPED" "$ORI_LLVM_LCFAIL"
+        echo "  \"failures\": ["
+        if [ -n "$all_failures" ]; then
+            echo "$all_failures"
         fi
-        echo ""
         echo "  ],"
+        echo "  \"per_suite\": {"
+        json_suite_full "rust_workspace" "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED" 0 "passed"
+        echo ","
+        json_suite_full "rust_rt" "Runtime library (ori_rt)" "$RUST_RT_PASSED" "$RUST_RT_FAILED" "$RUST_RT_IGNORED" 0 "passed"
+        echo ","
+        json_suite_full "rust_llvm" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED" 0 "passed"
+        echo ","
+        json_suite_full "aot" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" 0 "passed"
+        echo ","
+        printf '    "wasm_playground": { "display_name": "External playground WASM", "passed": %d, "failed": %d, "skipped": 0, "lcfail": 0, "status": "%s", "failed_attributed": 0, "failed_unattributed": %d }' "$wasm_passed" "$wasm_failed" "$WASM_STATUS" "$wasm_failed"
+        echo ","
+        json_suite_full "ori_interp" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" 0 "passed"
+        echo ","
+        printf '    "ori_llvm": { "display_name": "Ori spec (LLVM backend)", "passed": %d, "failed": %d, "skipped": %d, "lcfail": %d, "status": "%s", "failed_attributed": 0, "failed_unattributed": %d }' "$llvm_passed" "$llvm_failed" "$llvm_skipped" "$llvm_lcfail" "$llvm_status" "$llvm_failed"
+        echo ""
+        echo "  },"
         echo "  \"totals\": { \"passed\": $TOTAL_PASSED, \"failed\": $TOTAL_FAILED, \"skipped\": $TOTAL_SKIPPED, \"lcfail\": $TOTAL_LCFAIL, \"aot_leaks\": $AOT_LEAKS }"
         echo "}"
     } > "$path"
 
     echo "Test results written to $path"
 }
+
 
 # Final status
 # ORI_LLVM_EXIT is excluded from the primary failure check when it crashed
@@ -615,6 +699,10 @@ ANY_FAILED=$((ANY_CORE_FAILED + ORI_LLVM_EXIT))
 
 if [[ $EMIT_JSON -eq 1 ]]; then
     emit_json "$JSON_PATH"
+fi
+
+if [[ $EMIT_JSON_SUMMARY -eq 1 ]]; then
+    emit_json "$JSON_SUMMARY_PATH"
 fi
 
 if [ "$ANY_FAILED" -eq 0 ]; then

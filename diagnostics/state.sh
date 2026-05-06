@@ -49,6 +49,11 @@ Subcommands:
                           exit 1 = stale (SHA matches HEAD but tree dirty)
                           exit 2 = obsolete (SHA != HEAD — commit happened)
                           exit 3 = missing (state file absent)
+  check --stale         Extended freshness check. Warns when test_suite is
+                        unpopulated, lags HEAD by >=10 commits, last refresh
+                        was >=24 hours ago, or compiler source files changed
+                        since last refresh.
+                          exit 0 = fresh  |  exit 4 = stale (test_suite needs refresh)
   known-failing         List known-failing test files, one per line.
                         --json outputs as JSON array. Useful for skills that
                         want to diff current test output against the cache.
@@ -177,6 +182,28 @@ cmd_show() {
     echo "Totals:            passed=$passed  failed=$failed  skipped=$skipped"
     echo "Last run SHA:      $(jq -r '.test_suite.last_run_sha' "$STATE_FILE")"
     echo "Last run at:       $(jq -r '.test_suite.last_run_at' "$STATE_FILE")"
+
+    # v3 fields
+    local schema_ver failures_status
+    schema_ver=$(jq -r '.schema_version // 2' "$STATE_FILE")
+    if [[ "$schema_ver" -ge 3 ]]; then
+        failures_status=$(jq -r '.test_suite.failures_status // "unavailable"' "$STATE_FILE")
+        local failure_count attributed_count
+        failure_count=$(jq -r '.test_suite.failures | length' "$STATE_FILE")
+        attributed_count=$(jq -r '[.test_suite.failures[]? | select(.attributed_bug != null)] | length' "$STATE_FILE")
+        echo "Failures status:   $failures_status  ($failure_count total, $attributed_count attributed)"
+        local per_suite_count
+        per_suite_count=$(jq -r '.test_suite.per_suite | keys | length' "$STATE_FILE" 2>/dev/null || echo 0)
+        if [[ "$per_suite_count" -gt 0 ]]; then
+            echo
+            printf "  %-30s %6s %6s %6s\n" "Suite" "Pass" "Fail" "Skip"
+            printf "  %-30s %6s %6s %6s\n" "------------------------------" "------" "------" "------"
+            jq -r '.test_suite.per_suite | to_entries[] | "  \(.value.display_name // .key)\t\(.value.passed // 0)\t\(.value.failed // 0)\t\(.value.skipped // 0)"' "$STATE_FILE" 2>/dev/null \
+                | while IFS=$'\t' read -r name p f s; do
+                    printf "  %-30s %6s %6s %6s\n" "$name" "$p" "$f" "$s"
+                done
+        fi
+    fi
     local kf_count
     kf_count=$(jq -r '.test_suite.known_failing_count // (.test_suite.known_failing_files | length)' "$STATE_FILE")
     echo "Known-failing:     $kf_count files"
@@ -227,6 +254,75 @@ cmd_check() {
     local dirty="no"
     is_tree_dirty && dirty="yes"
 
+    # --stale mode: extended freshness check for test-suite staleness
+    if [[ "$CHECK_STALE" == "1" ]]; then
+        local stale_reasons=()
+        local exit_code=0
+
+        # Check 1: test_suite never populated
+        local ts_status
+        ts_status=$(jq -r '.test_suite.status // "unknown"' "$STATE_FILE")
+        if [[ "$ts_status" == "unknown" ]]; then
+            stale_reasons+=("test_suite never populated (status: unknown)")
+            exit_code=4
+        fi
+
+        # Check 2: SHA mismatch
+        if [[ "$head_sha" != "$current_sha" ]]; then
+            local commits_behind
+            commits_behind=$(git -C "$ROOT_DIR" rev-list --count "$head_sha..$current_sha" 2>/dev/null || echo "?")
+            if [[ "$commits_behind" -ge 10 ]] || [[ "$commits_behind" == "?" ]]; then
+                stale_reasons+=("HEAD $commits_behind commits ahead of cache SHA $head_sha")
+                exit_code=4
+            fi
+        fi
+
+        # Check 3: hours since last refresh
+        local last_run_at now_epoch last_epoch hours_since
+        last_run_at=$(jq -r '.test_suite.last_run_at // ""' "$STATE_FILE")
+        if [[ -n "$last_run_at" && "$last_run_at" != "null" ]]; then
+            now_epoch=$(date -u +%s)
+            last_epoch=$(date -u -d "$last_run_at" +%s 2>/dev/null || echo 0)
+            hours_since=$(( (now_epoch - last_epoch) / 3600 ))
+            if [[ "$hours_since" -ge 24 ]]; then
+                stale_reasons+=("last refresh was $hours_since hours ago (>= 24)")
+                exit_code=4
+            fi
+        fi
+
+        # Check 4: source files modified since last refresh
+        local last_run_sha
+        last_run_sha=$(jq -r '.test_suite.last_run_sha // ""' "$STATE_FILE")
+        if [[ -n "$last_run_sha" && "$last_run_sha" != "null" && "$last_run_sha" != "" ]]; then
+            local changed_files
+            changed_files=$(git -C "$ROOT_DIR" diff --name-only "$last_run_sha..HEAD" -- \
+                compiler/ library/ tests/ diagnostics/state.sh 2>/dev/null || true)
+            if [[ -n "$changed_files" ]]; then
+                local changed_count
+                changed_count=$(echo "$changed_files" | grep -c .)
+                stale_reasons+=("$changed_count compiler/library/test file(s) modified since last refresh at $last_run_sha")
+                exit_code=4
+            fi
+        fi
+
+        if [[ "$OUTPUT" == "json" ]]; then
+            local reasons_json
+            reasons_json=$(printf '%s\n' "${stale_reasons[@]}" | jq -R -s 'split("\n") | map(select(length > 0))')
+            printf '{"status":"%s","reasons":%s}\n' "$([[ $exit_code -eq 0 ]] && echo "fresh" || echo "stale")" "$reasons_json"
+        else
+            if [[ $exit_code -eq 0 ]]; then
+                echo "STALE CHECK: FRESH — test_suite is up to date"
+            else
+                echo "STALE CHECK: STALE — ${#stale_reasons[@]} reason(s):"
+                for reason in "${stale_reasons[@]}"; do
+                    echo "  - $reason"
+                done
+                echo "  Run: diagnostics/state.sh refresh --full --by section-close"
+            fi
+        fi
+        exit $exit_code
+    fi
+
     if [[ "$head_sha" != "$current_sha" ]]; then
         [[ "$OUTPUT" == "json" ]] && printf '{"status":"obsolete","cache_sha":"%s","head_sha":"%s"}\n' "$head_sha" "$current_sha"
         [[ "$OUTPUT" == "human" ]] && echo "OBSOLETE: cache SHA ($head_sha) != HEAD SHA ($current_sha). Run: state.sh refresh --sha-only"
@@ -269,7 +365,7 @@ cmd_dispositions() {
 }
 
 # ---- Skeleton seed -----------------------------------------------------------
-# Write a minimal schema-v1 state file with every content block marked
+# Write a minimal schema-v3 state file with every content block marked
 # status: "unknown" and the given head_sha / updated_at / updated_by. Every
 # refresh mode layers its real values on top — the sha-only path leaves
 # test_suite / clippy / hygiene at "unknown" (honest: the cache really
@@ -282,7 +378,7 @@ seed_skeleton_state() {
     mkdir -p "$STATE_DIR"
     write_state "$(cat <<EOF
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "head_sha": "$sha",
   "updated_at": "$at",
   "updated_by": "$by",
@@ -296,7 +392,10 @@ seed_skeleton_state() {
     "known_failing_files": [],
     "known_failing_count": 0,
     "failure_class": "",
-    "remediation": []
+    "remediation": [],
+    "failures": [],
+    "failures_status": "unavailable",
+    "per_suite": {}
   },
   "clippy": {
     "status": "unknown",
@@ -503,12 +602,13 @@ cmd_refresh() {
             ;;
         full)
             echo "Running ./test-all.sh + ./clippy-all.sh (this takes ~3 minutes)..." >&2
-            local test_log clippy_log test_status clippy_status
+            local test_log clippy_log test_status clippy_status summary_json
             test_log="$ROOT_DIR/build/state-refresh-test.log"
             clippy_log="$ROOT_DIR/build/state-refresh-clippy.log"
+            summary_json="$ROOT_DIR/build/state-refresh-summary.json"
             mkdir -p "$ROOT_DIR/build"
 
-            if timeout 150 "$ROOT_DIR/test-all.sh" > "$test_log" 2>&1; then
+            if timeout 150 "$ROOT_DIR/test-all.sh" --json-summary="$summary_json" > "$test_log" 2>&1; then
                 test_status="clean"
             else
                 test_status="known-failing"
@@ -519,15 +619,45 @@ cmd_refresh() {
                 clippy_status="warnings"
             fi
 
-            # Parse test-all.sh SUMMARY totals from the log.
-            # Format lives in test-all.sh; look for the TOTAL row.
-            local passed failed skipped
-            passed=$(awk '/^TOTAL/ {print $2}' "$test_log" | tail -1)
-            failed=$(awk '/^TOTAL/ {print $3}' "$test_log" | tail -1)
-            skipped=$(awk '/^TOTAL/ {print $4}' "$test_log" | tail -1)
-            passed=${passed:-0}; failed=${failed:-0}; skipped=${skipped:-0}
+            local passed failed skipped failures_json per_suite_json failures_status
+            passed=0; failed=0; skipped=0
+            failures_json='[]'
+            per_suite_json='{}'
+            failures_status="unavailable"
 
+            if [[ -f "$summary_json" ]]; then
+                passed=$(jq -r '.totals.passed // 0' "$summary_json")
+                failed=$(jq -r '.totals.failed // 0' "$summary_json")
+                skipped=$(jq -r '.totals.skipped // 0' "$summary_json")
+                failures_json=$(jq -r '.failures // []' "$summary_json")
+                per_suite_json=$(jq -r '.per_suite // {}' "$summary_json")
+                if jq -e '.failures' "$summary_json" >/dev/null 2>&1; then
+                    failures_status="complete"
+                else
+                    failures_status="partial"
+                fi
+            fi
+
+            # Attribution: cross-reference failures with dispositions (tier 1).
+            # For each failure, check if the test path matches a disposition entry.
             local disp_block
+            disp_block=$(build_dispositions_block "$current_sha" "$updated_at")
+            local attributed_failures_json
+            attributed_failures_json=$(printf '%s' "$failures_json" | jq --argjson disp "$disp_block" '
+                def disposition_match($test_id):
+                    ($disp.entries // []) as $entries
+                    | ([$entries[] | select(.file != null and ($test_id | contains(.file))) | .tracking_bug] | first // null);
+                map(
+                    if .attributed_bug == null then
+                        (.attributed_bug = disposition_match(.test_id))
+                        | if .attributed_bug != null then
+                            .attribution_source = "disposition"
+                            | .attribution_confidence = "high"
+                          else . end
+                    else . end
+                )
+            ' 2>/dev/null || printf '%s' "$failures_json")
+
             disp_block=$(build_dispositions_block "$current_sha" "$updated_at")
             local tmp
             tmp=$(jq --arg sha "$current_sha" \
@@ -539,7 +669,10 @@ cmd_refresh() {
                     --argjson skipped "$skipped" \
                     --arg cstatus "$clippy_status" \
                     --argjson disp "$disp_block" \
-                    '.schema_version = 2
+                    --argjson afailures "$attributed_failures_json" \
+                    --argjson per_suite "$per_suite_json" \
+                    --arg fstatus "$failures_status" \
+                    '.schema_version = 3
                      | .head_sha = $sha | .updated_at = $at | .updated_by = $by
                      | .test_suite.status = $tstatus
                      | .test_suite.last_run_sha = $sha
@@ -548,6 +681,9 @@ cmd_refresh() {
                      | .test_suite.totals.passed = $passed
                      | .test_suite.totals.failed = $failed
                      | .test_suite.totals.skipped = $skipped
+                     | .test_suite.failures = $afailures
+                     | .test_suite.failures_status = $fstatus
+                     | .test_suite.per_suite = $per_suite
                      | .clippy.status = $cstatus
                      | .clippy.last_run_sha = $sha
                      | .clippy.last_run_at = $at
@@ -557,13 +693,15 @@ cmd_refresh() {
             local d_total d_untracked
             d_total=$(printf '%s' "$disp_block" | jq -r '.totals.total')
             d_untracked=$(printf '%s' "$disp_block" | jq -r '.totals.untracked')
+            local attributed_count
+            attributed_count=$(printf '%s' "$attributed_failures_json" | jq -r '[.[] | select(.attributed_bug != null)] | length' 2>/dev/null || echo 0)
+            local total_failures_count
+            total_failures_count=$(printf '%s' "$attributed_failures_json" | jq -r 'length' 2>/dev/null || echo 0)
             if [[ "$OUTPUT" == "json" ]]; then
-                printf '{"status":"refreshed","mode":"full","test_status":"%s","clippy_status":"%s","passed":%s,"failed":%s,"dispositions_total":%s,"dispositions_untracked":%s}\n' "$test_status" "$clippy_status" "$passed" "$failed" "$d_total" "$d_untracked"
+                printf '{"status":"refreshed","mode":"full","test_status":"%s","clippy_status":"%s","passed":%s,"failed":%s,"failures_status":"%s","failures_total":%s,"failures_attributed":%s,"dispositions_total":%s,"dispositions_untracked":%s}\n' "$test_status" "$clippy_status" "$passed" "$failed" "$failures_status" "$total_failures_count" "$attributed_count" "$d_total" "$d_untracked"
             else
-                echo "full refresh complete: tests=$test_status clippy=$clippy_status totals=$passed/$failed/$skipped dispositions=$d_total/$d_untracked-untracked"
+                echo "full refresh complete: tests=$test_status clippy=$clippy_status totals=$passed/$failed/$skipped failures=$total_failures_count/$attributed_count-attributed dispositions=$d_total/$d_untracked-untracked"
             fi
-            echo "Note: known_failing_files list is NOT auto-populated from test-all.sh — it reflects plan intent." >&2
-            echo "      If the failing set changed, update plan Known Failing Tests + edit state file accordingly." >&2
             ;;
         *)
             die "unknown refresh mode: $REFRESH_MODE. Use --sha-only, --hygiene-only, or --full."
@@ -576,6 +714,7 @@ if [[ $# -eq 0 ]]; then usage; exit 3; fi
 
 UPDATED_BY=""
 DISPOSITIONS_UNTRACKED_ONLY=0
+CHECK_STALE=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --help|-h) usage; exit 0 ;;
@@ -586,6 +725,7 @@ while [[ $# -gt 0 ]]; do
         --hygiene-only) REFRESH_MODE=hygiene-only; shift ;;
         --dispositions-only) REFRESH_MODE=dispositions-only; shift ;;
         --untracked-only) DISPOSITIONS_UNTRACKED_ONLY=1; shift ;;
+        --stale) CHECK_STALE=1; shift ;;
         --by)
             [[ $# -ge 2 ]] || die "--by requires a value"
             UPDATED_BY="$2"; shift 2 ;;
