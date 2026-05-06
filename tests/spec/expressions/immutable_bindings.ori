@@ -82,7 +82,7 @@ type Point = { x: int, y: int }
 @test_list_immutable_via_match tests _ () -> void = {
     let items = [1, 2, 3];
     let result = match items {
-        [$first, $second, ..rest] -> first + second,
+        [first, second, ..rest] -> first + second,
         _ -> panic(msg: "expected non-empty list"),
     };
     assert_eq(actual: result, expected: 3)
