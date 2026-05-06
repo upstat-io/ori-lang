@@ -131,13 +131,17 @@ pub(crate) fn populate_apply_result_aliases(
 /// Single-call-site dispatch: classify the callee's contract into Direct /
 /// Project / Conditional / no-entry and install the corresponding map entry.
 ///
-/// Per BUG-04-090 §05 Hypothesis D component #2 (gemini F1 + opencode F2):
-/// SKIP entries when the consumed arg is a Let Var alias. The alias has no
-/// independent RC slot at the IR level — recording an `ApplyAliasSource`
-/// keyed on it would mislead downstream consumers into suppressing
-/// non-existent decs (no-op suppression) OR worse, suppressing decs on the
-/// canonical RC owner (regressing `arc::test_rc_alias_owned_call_then_root_use`
-/// per §05 session D postmortem).
+/// Per BUG-04-104 §05: Let Var aliases of a consumed arg are admitted into the
+/// `ApplyAliasSource` map and deduplicated at realize-walk emission time via
+/// the SSA alias class table (`class_payload_of` + `class_members`). The
+/// downstream `should_suppress_apply_aliased_dec` consumer fires dec
+/// suppression based on the CALLER'S local Access of the arg (Owned →
+/// suppress; Borrowed → no-op), and class membership prevents double-suppression
+/// across alias siblings. The earlier BUG-04-090 §05 Hypothesis D #2 SKIP-rule
+/// was superseded by BUG-04-104's class-aware emission path; the regression
+/// `arc::test_rc_alias_owned_call_then_root_use` is now guarded by the
+/// class-membership check at the realize walk rather than by skipping at install
+/// time.
 fn install_alias_entry(
     result: &mut FxHashMap<ArcVarId, ApplyAliasSource>,
     dst: ArcVarId,
