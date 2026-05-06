@@ -1,0 +1,24 @@
+// (Canonical-rep semantics) Determinism pin: borrowed [int] param
+// + multiple aliases + return; verifies repeatable RC behavior across
+// invocations (Salsa determinism — same input -> same output). Positive
+// pin: post-fix the canonical-rep selection must be deterministic.
+
+@deterministic_borrow (xs: [int]) -> [int] = {
+    let a1 = xs;
+    let a2 = a1;
+    let _info = a2.len();
+    a2
+};
+
+@main () -> int = {
+    let xs1 = [1, 2, 3];
+    let r1 = deterministic_borrow(xs: xs1);
+    let xs2 = [1, 2, 3];
+    let r2 = deterministic_borrow(xs: xs2);
+    let xs3 = [1, 2, 3];
+    let r3 = deterministic_borrow(xs: xs3);
+    let r1_ok = r1.len() == 3 && r1[0] == 1 && r1[2] == 3;
+    let r2_ok = r2.len() == 3 && r2[0] == 1 && r2[2] == 3;
+    let r3_ok = r3.len() == 3 && r3[0] == 1 && r3[2] == 3;
+    if r1_ok && r2_ok && r3_ok then 0 else 1
+}

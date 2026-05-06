@@ -1,0 +1,23 @@
+// ((A)-shape new pin per codex Round 4 F4 + §05:226) Nested PIN-6
+// chain B->A->C: ancestor class B's transitive-drop covers class A's
+// slot, in turn covered by ancestor class C. Verifies the post-fix
+// expanded input set doesn't break PIN-6 BFS at
+// pin6_same_emission_covers' ancestor-walk loop. Positive pin.
+
+type Inner = { items: [int] };
+type Middle = { inner: Inner };
+type Outer = { middle: Middle };
+
+@nested_then_return (xs: [int]) -> [int] = {
+    let inner = Inner { items: xs };
+    let middle = Middle { inner: inner };
+    let outer = Outer { middle: middle };
+    let _depth = outer.middle.inner.items.len();
+    outer.middle.inner.items
+};
+
+@main () -> int = {
+    let original = [501, 502, 503];
+    let returned = nested_then_return(xs: original);
+    if returned.len() == 3 && returned[0] == 501 && returned[2] == 503 then 0 else 1
+}

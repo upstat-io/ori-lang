@@ -1,0 +1,19 @@
+// (Canonical-rep semantics) Bypass-safe interaction pin per §05:148 +
+// opencode Round 1 F5: when a class has bypass-safe-entry members
+// (take-project pattern at dead_cleanup/mod.rs:99-164) AND non-bypass-
+// safe members, canonical_rep selection MUST return the actual
+// bypass-safe Let-alias rep — preventing double-free where bypass-safe
+// inline emits one member's dec while canonical-rep emits a different
+// member's dec.
+
+@bypass_safe_then_return (xs: [int]) -> [int] = {
+    let take_alias = xs;
+    let _len = take_alias.len();
+    take_alias
+};
+
+@main () -> int = {
+    let original = [101, 202, 303];
+    let returned = bypass_safe_then_return(xs: original);
+    if returned.len() == 3 && returned[0] == 101 && returned[2] == 303 then 0 else 1
+}

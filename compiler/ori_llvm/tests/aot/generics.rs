@@ -998,3 +998,120 @@ fn test_borrow_list_int_mixed_apply_then_return_no_leak() {
         "borrow_list_int_mixed_apply_then_return",
     );
 }
+
+// ─── BUG-04-111: Cross-pattern cells ───
+// Distinct control-flow shapes that exercise Return-as-transfer across
+// genuinely uncovered patterns: Project consumer, depth-3 alias chain,
+// loop-body Let-alias, multi-block CFG, for...yield iteration.
+
+/// Regression: borrowed [int] param + Project consumer (index access)
+/// + Return. Verifies Project access (xs[0]) does NOT consume the borrow.
+#[test]
+fn test_borrow_list_int_project_consumer_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_project_consumer_then_return.ori"),
+        "borrow_list_int_project_consumer_then_return",
+    );
+}
+
+/// Regression: borrowed [int] param + depth-3 SSA-alias chain + Return.
+/// Per §03 line 300 — alias-chain depth ≥ 3 generalizes the bug shape.
+#[test]
+fn test_borrow_list_int_multi_let_alias_chain_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_multi_let_alias_chain_then_return.ori"),
+        "borrow_list_int_multi_let_alias_chain_then_return",
+    );
+}
+
+/// Regression: borrowed [int] param + Let-alias inside `for` loop body +
+/// Return. Verifies cross-iteration borrow tracking.
+#[test]
+fn test_borrow_list_int_loop_body_let_alias_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_loop_body_let_alias_then_return.ori"),
+        "borrow_list_int_loop_body_let_alias_then_return",
+    );
+}
+
+/// Regression: borrowed [int] param + 3-way nested branching + Return
+/// from each leaf block. Multi-block CFG with 3+ exit paths.
+#[test]
+fn test_borrow_list_int_multi_block_cfg_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_multi_block_cfg_then_return.ori"),
+        "borrow_list_int_multi_block_cfg_then_return",
+    );
+}
+
+/// Regression: borrowed [int] param + for...yield iteration + Return
+/// original param. Iterator-driven control flow over the borrow.
+#[test]
+fn test_borrow_list_int_for_yield_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_for_yield_then_return.ori"),
+        "borrow_list_int_for_yield_then_return",
+    );
+}
+
+// ─── BUG-04-111: Canonical-rep semantics pins ───
+// Positive pins exercising post-fix canonical-rep selection logic.
+// May not be RED at HEAD (they verify NEW semantics introduced by the
+// fix); pre-fix passing is acceptable for these.
+
+/// Positive pin per §05:184 (gemini Round 2 F1): canonical_rep_for picks
+/// LATEST-emitting member when multiple SSA alias class members exist.
+#[test]
+fn test_borrow_list_int_latest_emission_site_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_latest_emission_site_then_return.ori"),
+        "borrow_list_int_latest_emission_site_then_return",
+    );
+}
+
+/// Positive pin: canonical-rep selection deterministic across repeated
+/// invocations (Salsa determinism contract).
+#[test]
+fn test_borrow_list_int_determinism_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_determinism_then_return.ori"),
+        "borrow_list_int_determinism_then_return",
+    );
+}
+
+/// Positive pin per §05:148 (opencode Round 1 F5): bypass-safe interaction —
+/// canonical_rep returns the actual bypass-safe Let-alias rep when a class
+/// has bypass-safe-entry members.
+#[test]
+fn test_borrow_list_int_bypass_safe_interaction_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_bypass_safe_interaction_then_return.ori"),
+        "borrow_list_int_bypass_safe_interaction_then_return",
+    );
+}
+
+// ─── BUG-04-111: (A)-shape new pins ───
+// Positive pins exercising post-fix PIN-6 chain semantics.
+
+/// Positive pin per gemini SP-1: 3-alias merge at CFG join — verifies
+/// post-fix expanded input set doesn't break PIN-6 chain resolution
+/// when the SSA alias class has 3 distinct members merging.
+#[test]
+fn test_borrow_list_int_three_alias_merge_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_three_alias_merge_then_return.ori"),
+        "borrow_list_int_three_alias_merge_then_return",
+    );
+}
+
+/// Positive pin per codex Round 4 F4 + §05:226: nested PIN-6 chain
+/// B→A→C — ancestor class B's transitive-drop covers class A's slot,
+/// in turn covered by ancestor class C. Verifies pin6_same_emission_covers
+/// ancestor-walk loop survives the expanded input.
+#[test]
+fn test_borrow_list_int_nested_pin6_chain_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_nested_pin6_chain_then_return.ori"),
+        "borrow_list_int_nested_pin6_chain_then_return",
+    );
+}

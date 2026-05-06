@@ -1,0 +1,16 @@
+// (Cross-pattern) Project consumer: borrowed [int] param + index-projection
+// access (xs[0]) + Return. Verifies the pre-compute set distinguishes
+// Project consumers (read-only access, no dec needed) from Return-as-
+// transfer (dec required at function exit).
+
+@borrow_project_then_return (xs: [int]) -> [int] = {
+    let _first = xs[0];
+    let _last = xs[xs.len() - 1];
+    xs
+};
+
+@main () -> int = {
+    let original = [50, 100, 150];
+    let returned = borrow_project_then_return(xs: original);
+    if returned.len() == 3 && returned[0] == 50 && returned[2] == 150 then 0 else 1
+}
