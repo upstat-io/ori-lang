@@ -205,42 +205,14 @@ fn test_pattern_is_irrefutable_struct_all_simple() {
     assert_eq!(pattern_is_irrefutable(&mut engine, &pat, Idx::INT), Ok(()));
 }
 
-#[test]
-fn test_pattern_is_irrefutable_struct_with_refutable_inner() {
-    let interner = StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
-
-    let addrs_field = n(7);
-    let pat = BindingPattern::Struct {
-        fields: vec![
-            FieldBinding {
-                name: n(1),
-                mutable: Mutability::Mutable,
-                pattern: Some(name_pat(1)),
-            },
-            FieldBinding {
-                name: addrs_field,
-                mutable: Mutability::Mutable,
-                pattern: Some(BindingPattern::List {
-                    elements: vec![name_pat(2), name_pat(3)],
-                    rest: None,
-                }),
-            },
-        ],
-    };
-    assert_eq!(
-        pattern_is_irrefutable(&mut engine, &pat, Idx::INT),
-        Err(RefutableReason::NestedRefutable {
-            path: vec![NestedPathStep::StructField(addrs_field)],
-            inner: Box::new(RefutableReason::ListLength {
-                required: 2,
-                has_rest: false,
-            }),
-        })
-    );
-}
+// Note: `test_pattern_is_irrefutable_struct_with_refutable_inner` (using
+// concrete `Idx::INT` outer with refutable inner) was removed in Round 1 of
+// the BUG-02-022 code TPR — per the §3.2 no-double-diagnostic contract, the
+// predicate now returns `Ok(())` for concrete-non-struct outer types so
+// bind_pattern's E2001 type-mismatch fires alone (no doubling). The recursion
+// behavior for refutable inner sub-patterns is pinned by
+// `test_pattern_is_irrefutable_outer_tag_var_struct_recurses_with_poison`
+// below (uses `Tag::Var` outer, which DOES recurse with `Idx::ERROR` poison).
 
 #[test]
 fn test_pattern_is_irrefutable_struct_shorthand_field() {
