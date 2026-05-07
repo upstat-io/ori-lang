@@ -364,25 +364,28 @@ fn class_dec_should_emit(
 /// canonical-rep query identifies the LATEST-emitting member per gemini
 /// Round 2 F1; non-canonical members suppress.
 ///
-/// Falls back to the syntactic `is_live_after` check when the SSOT predicate
-/// returns no canonical for this class (preserves pre-fix behavior for
-/// emission paths not yet modeled by `var_emits_dec_in_block`).
+/// When `canonical_rep_for` returns `None` (no class member is in
+/// `pin4_class_emits_dec_set` for this block), no class member will emit a
+/// dec here, so PIN-4 suppression has no canonical to defer to — return
+/// false. Per AIMS §3 TF-11 transparent-alias semantics, a class member
+/// being "syntactically alive after" via SSA Let-alias chain does NOT
+/// constitute an RC-obligation that should suppress the canonical emitter's
+/// dec — Let aliases are RC-inert per the AIMS lattice. The previous
+/// syntactic-`is_live_after` fallback was over-firing on this case, leaving
+/// the dec unbalanced. See `bug-tracker/plans/BUG-04-111/section-05-implementation.md`
+/// HISTORY block for empirical fix delta + remaining-failure classification.
 fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: ArcVarId) -> bool {
     let pin4_emits =
         crate::aims::emit_rc::dead_cleanup::emission_site::pin4_class_emits_dec_set(ctx, false);
+    let _ = instr_idx;
     if let Some(canonical) =
         crate::aims::emit_rc::dead_cleanup::emission_site::canonical_rep_for(class_id, &pin4_emits)
     {
         return canonical != var;
     }
-    // Fall through to syntactic liveness for emission paths the SSOT
-    // doesn't yet model (DefinedDead, MergeEdgeRouted, terminator-walk).
-    let Some(members) = ctx.state_map.class_members(class_id) else {
-        return false;
-    };
-    members
-        .iter()
-        .any(|&m| m != var && ctx.is_live_after(instr_idx, m))
+    // No class member in pin4_class_emits_dec_set → no PIN-4 suppression
+    // (BUG-04-111 §05 Step 4.5 fix — see doc comment above).
+    false
 }
 
 /// Record a death event for the reuse planner.
