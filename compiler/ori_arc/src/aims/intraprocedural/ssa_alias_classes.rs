@@ -57,11 +57,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
-use crate::aims::lattice::AccessClass;
-use crate::ir::{
-    is_transitive_drop_strategy, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership,
-    RcStrategy, ValueRepr,
-};
+use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
 use ori_ir::Name;
 
 use super::apply_aliases::build_let_alias_map;
@@ -94,14 +90,6 @@ pub(crate) struct SsaAliasClassesOutput {
 ///
 /// Complexity: O(N · α(N) + I) where N = total SSA vars and I = total
 /// instructions+terminators (PIN-6 population pass walks each once).
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "pre-existing; refactoring would risk RC emission regressions"
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "pre-existing; ssa alias class computation is inherently complex"
-)]
 #[expect(
     clippy::match_same_arms,
     reason = "pre-existing; explicit arms document the intent"
@@ -188,170 +176,14 @@ pub(crate) fn compute_ssa_alias_classes(
         }
     }
 
-    // PIN-6 inter-class payload-of population (BUG-04-104 §2.6.2). Walks every
-    // block's instructions + terminator. For each Construct/Apply/Invoke/
-    // PartialApply/Set whose dst's RcStrategy is transitive-drop, records
-    // class(arg) → class(dst) for each [own]-consumed arg. ApplyIndirect /
-    // InvokeIndirect are EXCLUDED (no static contract for closure dispatch).
-    // Set's `value` is ALWAYS treated as [own]-consumed per R22 conservative
-    // heuristic (aims-rules.md §3 TF-15 IA-5 step (1) backward promotion).
-    //
-    // `dst_strategy_of` returns `None` for scalar dsts (no RC, no transitive
-    // drop). Self-loop entries (arg-class == dst-class from `Direct`
-    // apply-aliases unioning into one class) are excluded — they reduce to
-    // PIN-4 class-liveness and need no PIN-6 suppression.
-    let mut class_payload_of: FxHashMap<u32, FxHashSet<u32>> = FxHashMap::default();
-
-    for block in &func.blocks {
-        for instr in &block.body {
-            match instr {
-                ArcInstr::Construct { dst, args, .. }
-                | ArcInstr::PartialApply { dst, args, .. } => {
-                    let Some(strat) = dst_strategy_of(func, *dst) else {
-                        continue;
-                    };
-                    if !is_transitive_drop_strategy(strat) {
-                        continue;
-                    }
-                    for arg in args {
-                        record_payload_edge(func, &mut uf, *arg, *dst, &mut class_payload_of);
-                    }
-                }
-                ArcInstr::Apply {
-                    dst,
-                    func: callee,
-                    args,
-                    arg_ownership,
-                    ..
-                } => {
-                    let Some(strat) = dst_strategy_of(func, *dst) else {
-                        continue;
-                    };
-                    if !is_transitive_drop_strategy(strat) {
-                        continue;
-                    }
-                    for (i, arg) in args.iter().enumerate() {
-                        // BUG-04-111 §05 Step 4.5b — use callee contract (SSOT)
-                        // for param ownership when available. Apply's local
-                        // `arg_ownership` is populated at lowering with default
-                        // [Owned; n] and only corrected during realize step 5
-                        // (per `realize/mod.rs:89` doc); ssa_alias_classes runs
-                        // in step 4 (analyze_function) — BEFORE that, so
-                        // trusting `arg_ownership` here yields false-positive
-                        // payload edges for borrow-arg protocol builtins
-                        // (e.g. `__index`). The callee's `MemoryContract`
-                        // computed in step 1 (analyze_program) IS authoritative.
-                        // Per AIMS Invariant #5 (Unified Model): consult the
-                        // contract SSOT, not the stale denormalization.
-                        let owned = match sigs.get(callee) {
-                            Some(contract) => contract.params.get(i).map_or_else(
-                                || {
-                                    arg_ownership
-                                        .get(i)
-                                        .is_none_or(|o| matches!(o, ArgOwnership::Owned))
-                                },
-                                |p| matches!(p.access, AccessClass::Owned),
-                            ),
-                            None => arg_ownership
-                                .get(i)
-                                .is_none_or(|o| matches!(o, ArgOwnership::Owned)),
-                        };
-                        if !owned {
-                            continue;
-                        }
-                        record_payload_edge(func, &mut uf, *arg, *dst, &mut class_payload_of);
-                    }
-                }
-                ArcInstr::Set { base, value, .. } => {
-                    let Some(strat) = dst_strategy_of(func, *base) else {
-                        continue;
-                    };
-                    if !is_transitive_drop_strategy(strat) {
-                        continue;
-                    }
-                    record_payload_edge(func, &mut uf, *value, *base, &mut class_payload_of);
-                }
-                _ => {}
-            }
-        }
-        if let ArcTerminator::Invoke {
-            dst,
-            func: callee,
-            args,
-            arg_ownership,
-            ..
-        } = &block.terminator
-        {
-            if let Some(strat) = dst_strategy_of(func, *dst) {
-                if is_transitive_drop_strategy(strat) {
-                    for (i, arg) in args.iter().enumerate() {
-                        // BUG-04-111 §05 Step 4.5b — same SSOT-via-contract
-                        // lookup as the Apply handler above. See that comment
-                        // for full rationale.
-                        let owned = match sigs.get(callee) {
-                            Some(contract) => contract.params.get(i).map_or_else(
-                                || {
-                                    arg_ownership
-                                        .get(i)
-                                        .is_none_or(|o| matches!(o, ArgOwnership::Owned))
-                                },
-                                |p| matches!(p.access, AccessClass::Owned),
-                            ),
-                            None => arg_ownership
-                                .get(i)
-                                .is_none_or(|o| matches!(o, ArgOwnership::Owned)),
-                        };
-                        if !owned {
-                            continue;
-                        }
-                        record_payload_edge(func, &mut uf, *arg, *dst, &mut class_payload_of);
-                    }
-                }
-            }
-        }
-    }
-
-    // Singleton-parent invariant per R19 Codex F1: ensure `class_members` has
-    // an entry for every class id that appears as a parent (set value) in
-    // `class_payload_of`. Multi-member parents are populated by the union-find
-    // loop above; singleton parents need a defensive insert here so the
-    // PIN-6 BFS predicate's `class_members(parent_class)` lookup succeeds.
-    let parent_classes: FxHashSet<u32> = class_payload_of.values().flatten().copied().collect();
-    for parent_class in parent_classes {
-        class_members.entry(parent_class).or_insert_with(|| {
-            // Singleton classes: union-find root for a non-unioned var equals
-            // the var's index, so `ArcVarId::new(parent_class)` IS the
-            // singleton's representative member.
-            let mut s = FxHashSet::default();
-            s.insert(ArcVarId::new(parent_class));
-            s
-        });
-    }
-
-    // Singleton-child invariant: ensure `class_table` + `class_members` carry
-    // entries for every class id that appears as a CHILD (key) in
-    // `class_payload_of`. Multi-member children are populated by the
-    // union-find loop above; singleton children (e.g., the canonical
-    // `apply_alias_result_strmap` `m` and `closure_env_alias` `captured`
-    // cases — used once via Apply/PartialApply with no Let-Var/Jump aliases)
-    // need a defensive insert so `walk_dec.rs::ssa_alias_class_of(var)`
-    // returns `Some(class_id)` and the PIN-6 BFS predicate fires. Without
-    // this, singleton sources whose payload-of parents have transitive-drop
-    // strategy emit a redundant canonical dec → double-free (the parent's
-    // transitive drop already dec's the child's RC slot).
-    //
-    // Symmetric with the parent population above per the same Round 19
-    // Codex F1 reasoning extended to the source side of the relation.
-    let child_classes: FxHashSet<u32> = class_payload_of.keys().copied().collect();
-    for child_class in child_classes {
-        let rep = ArcVarId::new(child_class);
-        class_table.entry(rep).or_insert(child_class);
-        class_members.entry(child_class).or_insert_with(|| {
-            let mut s = FxHashSet::default();
-            s.insert(rep);
-            s
-        });
-    }
+    // BUG-04-118 §05.6 — `class_payload_of` is now populated post-convergence
+    // by `populate_class_payload_of_with_liveness` using path-sensitive
+    // liveness from the converged AimsStateMap. The initial empty map here
+    // is overwritten via `set_class_payload_of` at step 4.5 in
+    // `analyze_function`. Singleton class materialization is ALSO moved
+    // there (via `AimsStateMap::ensure_singleton_class`).
+    let class_payload_of: FxHashMap<u32, FxHashSet<u32>> = FxHashMap::default();
+    let _ = sigs;
 
     SsaAliasClassesOutput {
         class_table,
@@ -363,39 +195,6 @@ pub(crate) fn compute_ssa_alias_classes(
 
 /// Return `Some(RcStrategy)` for non-scalar `dst`, `None` for scalar or when
 /// `var_rc_strategies` has not been populated yet (test fixtures that
-/// construct an `ArcFunction` without running `compute_var_reprs`).
-///
-/// Looks up the cached strategy on `func.var_rc_strategies` — pre-walk does
-/// not hold a `&Pool` reference, so the strategy classification must be
-/// pre-computed alongside `var_reprs` at the AIMS pipeline's Step 3.
-fn dst_strategy_of(func: &ArcFunction, dst: ArcVarId) -> Option<RcStrategy> {
-    *func.var_rc_strategies.get(dst.index())?
-}
-
-/// Record `class(arg) → class(dst)` in `class_payload_of`, skipping scalar
-/// args (no RC slot to share) and self-loop edges (arg-class == dst-class
-/// from `Direct` apply-aliases unioning into one class).
-fn record_payload_edge(
-    func: &ArcFunction,
-    uf: &mut UnionFind,
-    arg: ArcVarId,
-    dst: ArcVarId,
-    class_payload_of: &mut FxHashMap<u32, FxHashSet<u32>>,
-) {
-    if matches!(func.var_reprs.get(arg.index()), Some(&ValueRepr::Scalar)) {
-        return;
-    }
-    let arg_class = uf.find(arg);
-    let dst_class = uf.find(dst);
-    if arg_class == dst_class {
-        return;
-    }
-    class_payload_of
-        .entry(arg_class)
-        .or_default()
-        .insert(dst_class);
-}
-
 /// Rank-based union-find with path compression and class-size tracking.
 ///
 /// Operations are amortized O(α(N)) per union/find; `class_size(root)` is O(1).

@@ -839,6 +839,48 @@ impl AimsStateMap {
         self.class_payload_of = class_payload_of;
     }
 
+    /// Install the post-convergence `class_payload_of` edge map.
+    ///
+    /// Bypasses the bulk `set_ssa_alias_output` which runs at step 4
+    /// pre-worklist. The post-convergence pass computes a path-sensitive
+    /// edge set using converged `AimsStateMap` liveness, then installs it
+    /// here (BUG-04-118 Option D §05.0a).
+    pub(crate) fn set_class_payload_of(&mut self, payload_map: FxHashMap<u32, FxHashSet<u32>>) {
+        self.class_payload_of = payload_map;
+    }
+
+    /// Materialize a singleton `class_members` entry for `class_id` if absent.
+    ///
+    /// Singleton id == `ArcVarId::raw()` per the existing scheme; recovers
+    /// the var via `ArcVarId::new(class_id)` and inserts both the
+    /// class-members and ssa-alias-classes entries idempotently.
+    /// BUG-04-118 §05.4a — required by the post-convergence pass after
+    /// recording new edges so PIN-6's `class_members(parent)` lookup succeeds
+    /// for singleton parents/children.
+    pub(crate) fn ensure_singleton_class(&mut self, class_id: u32) {
+        if self.class_members.contains_key(&class_id) {
+            return;
+        }
+        let var = ArcVarId::new(class_id);
+        let mut singleton: FxHashSet<ArcVarId> = FxHashSet::default();
+        singleton.insert(var);
+        self.class_members.insert(class_id, singleton);
+        self.ssa_alias_classes.entry(var).or_insert(class_id);
+    }
+
+    /// Resolve a var's class id, falling back to its raw u32 (singleton id).
+    ///
+    /// `ssa_alias_class_of(var)` returns `Some(class_id)` for vars in a
+    /// multi-member class and `None` for singletons. Singleton class id
+    /// equals `var.raw()` per the existing materialization scheme; this
+    /// helper consolidates the lookup so callers don't repeat the fallback.
+    /// BUG-04-118 §05.3 `ClassIdResolver` — used by the post-convergence
+    /// edge recorder to resolve arg/dst class ids without re-running the
+    /// local `UnionFind` from `compute_ssa_alias_classes`.
+    pub(crate) fn class_id_of(&self, var: ArcVarId) -> u32 {
+        self.ssa_alias_class_of(var).unwrap_or_else(|| var.raw())
+    }
+
     // Invoke edge states
 
     /// Get the per-edge demand state for a block ending in Invoke.

@@ -16,7 +16,10 @@
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
+use crate::ir::{
+    is_transitive_drop_strategy, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId,
+    ArgOwnership, CtorKind, RcStrategy, ValueRepr,
+};
 
 use super::super::contract::{ContextRegion, MemoryContract, ReturnContract};
 use super::super::lattice::{
@@ -541,4 +544,327 @@ pub(crate) fn populate_context_events(
             "recorded TRMC context events (open + close)"
         );
     }
+}
+
+// =====================================================================
+// BUG-04-118 Option D — post-convergence class_payload_of population.
+//
+// Replaces the unsound population at step 4 (compute_ssa_alias_classes)
+// which used syntactic ordering proxies that could not model
+// path-sensitive lifetimes. Path-sensitive liveness from the converged
+// AimsStateMap is the architecturally correct primitive per AIMS
+// Invariant #5 (unified model).
+// =====================================================================
+
+/// Whether class A's lifetime extends past class B's destruction along some
+/// CFG path, using the converged `AimsStateMap`'s path-sensitive liveness.
+///
+/// Two-tier check (Round 3 codex-F1 + gemini-F1 — intra-block gap close,
+/// Round 4 gemini-F1 + Round 5 codex-F2 — terminator + defined-dead refinements):
+/// 1. Block-exit tier: `is_live_at_exit` JOIN'd block-exit semantics.
+/// 2. Intra-block tier: `precompute_block_uses` last-use comparison; only
+///    fires when ALL B-members are dead-at-exit; defined-dead B detected
+///    via `def_site_block`.
+fn class_lifetime_extends_past_path_sensitive(
+    class_a_id: u32,
+    class_b_id: u32,
+    def_site_block: usize,
+    state_map: &AimsStateMap,
+    func: &ArcFunction,
+) -> bool {
+    let Some(a_members) = state_map.class_members(class_a_id) else {
+        return false;
+    };
+    let Some(b_members) = state_map.class_members(class_b_id) else {
+        return false;
+    };
+
+    for blk_idx in 0..func.blocks.len() {
+        let Ok(blk_u32) = u32::try_from(blk_idx) else {
+            continue;
+        };
+        let blk = ArcBlockId::new(blk_u32);
+
+        let any_a_live_exit = a_members
+            .iter()
+            .any(|m| crate::aims::emit_rc::is_live_at_exit(state_map, blk, *m));
+        let all_b_dead_exit = b_members
+            .iter()
+            .all(|m| !crate::aims::emit_rc::is_live_at_exit(state_map, blk, *m));
+
+        if any_a_live_exit && all_b_dead_exit {
+            return true;
+        }
+
+        if !all_b_dead_exit {
+            continue;
+        }
+
+        let use_info = crate::aims::emit_rc::precompute_block_uses(&func.blocks[blk_idx]);
+        let any_b_used_in_block = b_members.iter().any(|m| use_info.contains_key(m));
+        let any_b_defined_dead_in_block = def_site_block == blk_idx;
+        if !any_b_used_in_block && !any_b_defined_dead_in_block {
+            continue;
+        }
+
+        let max_a_in_body: Option<usize> = a_members
+            .iter()
+            .filter_map(|m| use_info.get(m))
+            .filter_map(|(_count, lu)| match lu {
+                crate::aims::emit_rc::LastUse::Body(i) => Some(*i),
+                crate::aims::emit_rc::LastUse::Terminator => None,
+            })
+            .max();
+        let max_b_in_body: Option<usize> = b_members
+            .iter()
+            .filter_map(|m| use_info.get(m))
+            .filter_map(|(_count, lu)| match lu {
+                crate::aims::emit_rc::LastUse::Body(i) => Some(*i),
+                crate::aims::emit_rc::LastUse::Terminator => None,
+            })
+            .max();
+        let a_at_term = a_members
+            .iter()
+            .filter_map(|m| use_info.get(m))
+            .any(|(_, lu)| matches!(lu, crate::aims::emit_rc::LastUse::Terminator));
+        let b_at_term = b_members
+            .iter()
+            .filter_map(|m| use_info.get(m))
+            .any(|(_, lu)| matches!(lu, crate::aims::emit_rc::LastUse::Terminator));
+
+        if let (Some(a_idx), Some(b_idx)) = (max_a_in_body, max_b_in_body) {
+            if a_idx > b_idx && !b_at_term {
+                return true;
+            }
+        }
+        if a_at_term && !b_at_term && max_b_in_body.is_some() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Centralized `class_payload_of` edge recording with Option D path-sensitive
+/// lifetime check (BUG-04-118 §05.3).
+fn record_payload_edge_lifetime(
+    arg: ArcVarId,
+    dst: ArcVarId,
+    def_site_block: usize,
+    func: &ArcFunction,
+    state_map: &mut AimsStateMap,
+    class_payload_of: &mut FxHashMap<u32, FxHashSet<u32>>,
+) {
+    if matches!(func.var_reprs.get(arg.index()), Some(&ValueRepr::Scalar)) {
+        tracing::trace!(
+            func = ?func.name,
+            arg_var = arg.raw(),
+            dst_var = dst.raw(),
+            "BUG-04-118 record_payload_edge: skip — arg is scalar"
+        );
+        return;
+    }
+    let arg_class = state_map.class_id_of(arg);
+    let dst_class = state_map.class_id_of(dst);
+    if arg_class == dst_class {
+        tracing::trace!(
+            func = ?func.name,
+            arg_var = arg.raw(),
+            dst_var = dst.raw(),
+            class = arg_class,
+            "BUG-04-118 record_payload_edge: skip — self-loop"
+        );
+        return;
+    }
+    state_map.ensure_singleton_class(arg_class);
+    state_map.ensure_singleton_class(dst_class);
+    let outlives = class_lifetime_extends_past_path_sensitive(
+        arg_class,
+        dst_class,
+        def_site_block,
+        state_map,
+        func,
+    );
+    tracing::debug!(
+        func = ?func.name,
+        arg_var = arg.raw(),
+        dst_var = dst.raw(),
+        arg_class,
+        dst_class,
+        a_outlives_b = outlives,
+        action = if outlives { "SKIP" } else { "RECORD" },
+        "BUG-04-118 record_payload_edge: predicate decision"
+    );
+    if outlives {
+        return;
+    }
+    class_payload_of
+        .entry(arg_class)
+        .or_default()
+        .insert(dst_class);
+}
+
+/// Return `Some(RcStrategy)` for non-scalar `dst`, `None` for scalar.
+fn dst_strategy_of(func: &ArcFunction, dst: ArcVarId) -> Option<RcStrategy> {
+    *func.var_rc_strategies.get(dst.index())?
+}
+
+/// Post-convergence `class_payload_of` population (BUG-04-118 §05.4).
+///
+/// Walks the 5 edge-recording sites (Construct/PartialApply/Apply/Set/Invoke)
+/// AFTER `analyze_function`'s worklist returns the converged `AimsStateMap`.
+/// For each candidate edge, applies the path-sensitive lifetime check from
+/// `class_lifetime_extends_past_path_sensitive`; edges where A outlives B are
+/// skipped. After collecting edges, materializes singleton class entries
+/// (§05.4a) so PIN-6's `class_members(parent)` lookup succeeds for
+/// singleton parents/children, then installs via `set_class_payload_of`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "five edge-recording sites with structurally similar logic must be enumerated explicitly to preserve preconditions"
+)]
+pub(crate) fn populate_class_payload_of_with_liveness(
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    state_map: &mut AimsStateMap,
+) {
+    let mut class_payload_of: FxHashMap<u32, FxHashSet<u32>> = FxHashMap::default();
+
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Construct { dst, args, .. }
+                | ArcInstr::PartialApply { dst, args, .. } => {
+                    let Some(strat) = dst_strategy_of(func, *dst) else {
+                        continue;
+                    };
+                    if !is_transitive_drop_strategy(strat) {
+                        continue;
+                    }
+                    for arg in args {
+                        record_payload_edge_lifetime(
+                            *arg,
+                            *dst,
+                            block_idx,
+                            func,
+                            state_map,
+                            &mut class_payload_of,
+                        );
+                    }
+                }
+                ArcInstr::Apply {
+                    dst,
+                    func: callee,
+                    args,
+                    arg_ownership,
+                    ..
+                } => {
+                    let Some(strat) = dst_strategy_of(func, *dst) else {
+                        continue;
+                    };
+                    if !is_transitive_drop_strategy(strat) {
+                        continue;
+                    }
+                    for (i, arg) in args.iter().enumerate() {
+                        let owned = match sigs.get(callee) {
+                            Some(contract) => contract.params.get(i).map_or_else(
+                                || {
+                                    arg_ownership
+                                        .get(i)
+                                        .is_none_or(|o| matches!(o, ArgOwnership::Owned))
+                                },
+                                |p| matches!(p.access, AccessClass::Owned),
+                            ),
+                            None => arg_ownership
+                                .get(i)
+                                .is_none_or(|o| matches!(o, ArgOwnership::Owned)),
+                        };
+                        if !owned {
+                            continue;
+                        }
+                        record_payload_edge_lifetime(
+                            *arg,
+                            *dst,
+                            block_idx,
+                            func,
+                            state_map,
+                            &mut class_payload_of,
+                        );
+                    }
+                }
+                ArcInstr::Set { base, value, .. } => {
+                    let Some(strat) = dst_strategy_of(func, *base) else {
+                        continue;
+                    };
+                    if !is_transitive_drop_strategy(strat) {
+                        continue;
+                    }
+                    record_payload_edge_lifetime(
+                        *value,
+                        *base,
+                        block_idx,
+                        func,
+                        state_map,
+                        &mut class_payload_of,
+                    );
+                }
+                _ => {}
+            }
+        }
+        if let ArcTerminator::Invoke {
+            dst,
+            func: callee,
+            args,
+            arg_ownership,
+            ..
+        } = &block.terminator
+        {
+            if let Some(strat) = dst_strategy_of(func, *dst) {
+                if is_transitive_drop_strategy(strat) {
+                    for (i, arg) in args.iter().enumerate() {
+                        let owned = match sigs.get(callee) {
+                            Some(contract) => contract.params.get(i).map_or_else(
+                                || {
+                                    arg_ownership
+                                        .get(i)
+                                        .is_none_or(|o| matches!(o, ArgOwnership::Owned))
+                                },
+                                |p| matches!(p.access, AccessClass::Owned),
+                            ),
+                            None => arg_ownership
+                                .get(i)
+                                .is_none_or(|o| matches!(o, ArgOwnership::Owned)),
+                        };
+                        if !owned {
+                            continue;
+                        }
+                        record_payload_edge_lifetime(
+                            *arg,
+                            *dst,
+                            block_idx,
+                            func,
+                            state_map,
+                            &mut class_payload_of,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let class_ids_to_materialize: Vec<u32> = class_payload_of
+        .iter()
+        .flat_map(|(&child_class, parent_classes)| {
+            std::iter::once(child_class).chain(parent_classes.iter().copied())
+        })
+        .collect();
+    for class_id in class_ids_to_materialize {
+        state_map.ensure_singleton_class(class_id);
+    }
+
+    tracing::debug!(
+        func = ?func.name,
+        edges = class_payload_of.len(),
+        "BUG-04-118 §05.4 populate_class_payload_of_with_liveness installed path-sensitive edge map"
+    );
+
+    state_map.set_class_payload_of(class_payload_of);
 }

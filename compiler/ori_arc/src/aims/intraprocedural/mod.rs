@@ -306,6 +306,11 @@ pub fn analyze_function(
     // run BEFORE `populate_sparse_events` so the side tables are populated
     // when sparse_events queries `effective_locality_at_block_exit` for
     // `LocalAllocCandidate` emission. Plan TPR Round 0 F4. BUG-04-065.
+    //
+    // BUG-04-118 §05.5 — `populate_class_payload_of_with_liveness` runs
+    // FIRST so subsequent post-convergence passes see the path-sensitive
+    // edge map (none read it today, but ordering is defensive).
+    post_convergence::populate_class_payload_of_with_liveness(func, sigs, &mut state_map);
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);
     post_convergence::populate_sparse_events(&mut state_map, func);

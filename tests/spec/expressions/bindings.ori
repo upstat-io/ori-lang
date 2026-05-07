@@ -204,41 +204,57 @@ type Rectangle = { top_left: Point, bottom_right: Point }
 
 @test_list_destructure_basic tests @list_destructure_basic () -> void = {
     let items = [1, 2, 3];
-    let [a, b, c] = items;
-    assert_eq(actual: a, expected: 1);
-    assert_eq(actual: b, expected: 2);
-    assert_eq(actual: c, expected: 3)
+    match items {
+        [a, b, c] -> {
+            assert_eq(actual: a, expected: 1);
+            assert_eq(actual: b, expected: 2);
+            assert_eq(actual: c, expected: 3)
+        },
+        _ -> panic(msg: "expected 3 elements"),
+    }
 }
 
 @list_destructure_basic () -> int = {
     let items = [1, 2, 3];
-    let [a, b, c] = items;
-    a + b + c
+    match items {
+        [a, b, c] -> a + b + c,
+        _ -> panic(msg: "expected 3 elements"),
+    }
 }
 
 @test_list_destructure_head tests @list_destructure_head () -> void = {
     let items = [10, 20, 30];
-    let [head, ..] = items;
-    assert_eq(actual: head, expected: 10)
+    match items {
+        [head, ..] -> assert_eq(actual: head, expected: 10),
+        _ -> panic(msg: "expected non-empty list"),
+    }
 }
 
 @list_destructure_head () -> int = {
     let items = [10, 20, 30];
-    let [head, ..] = items;
-    head
+    match items {
+        [head, ..] -> head,
+        _ -> panic(msg: "expected non-empty list"),
+    }
 }
 
 @test_list_destructure_with_rest tests @list_destructure_with_rest () -> void = {
     let items = [1, 2, 3, 4, 5];
-    let [first, ..rest] = items;
-    assert_eq(actual: first, expected: 1);
-    assert_eq(actual: len(collection: rest), expected: 4)
+    match items {
+        [first, ..rest] -> {
+            assert_eq(actual: first, expected: 1);
+            assert_eq(actual: len(collection: rest), expected: 4)
+        },
+        _ -> panic(msg: "expected non-empty list"),
+    }
 }
 
 @list_destructure_with_rest () -> int = {
     let items = [1, 2, 3, 4, 5];
-    let [first, ..rest] = items;
-    first + len(collection: rest)
+    match items {
+        [first, ..rest] -> first + len(collection: rest),
+        _ -> panic(msg: "expected non-empty list"),
+    }
 }
 
 // =============================================================================
