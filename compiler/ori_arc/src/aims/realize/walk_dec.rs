@@ -354,14 +354,29 @@ fn class_dec_should_emit(
     true
 }
 
-/// PIN-4 class-liveness primitive: returns true if any class member OTHER
-/// than `var` is live after `instr_idx`. The exclusion of `var` itself is
-/// load-bearing — `var` IS dying at this instruction, so its own
-/// `is_live_after` would be checked against `last_use == Body(instr_idx)`
-/// and could fall through to `is_live_at_exit` which would then return true
-/// via stale demand state. Class-liveness is forward-looking from the
-/// perspective of OTHER members of the class.
+/// PIN-4 class-liveness primitive: returns true if a DIFFERENT class member
+/// is the canonical-rep emitter for this class per the SSOT
+/// `pin4_class_emits_dec_set` (BUG-04-111 §05 Step 4.5).
+///
+/// Pre-fix logic checked syntactic `is_live_after` — but a borrowed live use
+/// emits no dec, so the suppression fired even when no class member would
+/// actually emit, leaving the dec unbalanced (BUG-04-111 leak shape). The
+/// canonical-rep query identifies the LATEST-emitting member per gemini
+/// Round 2 F1; non-canonical members suppress.
+///
+/// Falls back to the syntactic `is_live_after` check when the SSOT predicate
+/// returns no canonical for this class (preserves pre-fix behavior for
+/// emission paths not yet modeled by `var_emits_dec_in_block`).
 fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: ArcVarId) -> bool {
+    let pin4_emits =
+        crate::aims::emit_rc::dead_cleanup::emission_site::pin4_class_emits_dec_set(ctx, false);
+    if let Some(canonical) =
+        crate::aims::emit_rc::dead_cleanup::emission_site::canonical_rep_for(class_id, &pin4_emits)
+    {
+        return canonical != var;
+    }
+    // Fall through to syntactic liveness for emission paths the SSOT
+    // doesn't yet model (DefinedDead, MergeEdgeRouted, terminator-walk).
     let Some(members) = ctx.state_map.class_members(class_id) else {
         return false;
     };

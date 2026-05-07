@@ -62,7 +62,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::aims::lattice::Cardinality;
 use crate::ir::ArcVarId;
 
-use super::super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx};
+use super::super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx, LastUse};
 use super::super::{
     rc_strategy, should_suppress_apply_aliased_dec, should_suppress_return_transfer_dec,
 };
@@ -109,9 +109,75 @@ pub(crate) fn var_emits_dec_in_block(
     if let Some(site) = check_phase_a_block_param(ctx, var, is_unwind_block) {
         return Some(site);
     }
-    // Body-position variants (BodyWalkLastUse, DefinedDead, DeferredParent)
-    // and MergeEdgeRouted land in subsequent §05 step commits.
+    // Then BodyWalkLastUse / DeferredParent (body-walk last-use emissions).
+    if let Some(site) = check_body_walk_last_use(ctx, var) {
+        return Some(site);
+    }
+    // DefinedDead and MergeEdgeRouted variants land in subsequent §05 step commits.
     None
+}
+
+/// BodyWalkLastUse + DeferredParent case: mirrors `walk_dec.rs::emit_last_use_decs`
+/// (lines 180-246), with the same gate ordering. PIN-4 + PIN-5 class-aware
+/// suppression are EXCLUDED — they consume this helper. Per §05 Step 4.5,
+/// the body-walk PIN-4 (`class_alive_after`) is replaced with a query against
+/// `pin4_class_emits_dec_set` (which itself depends on this helper modeling
+/// body-walk emissions).
+///
+/// `decide()` machinery (consuming-primop, ownership-transfer, owned-call-position
+/// detection) is NOT replicated here. The simpler approximation is: var emits
+/// a dec via body-walk iff its `LastUse` is `Body(instr_idx)`, var is at a
+/// non-owned position in that instruction, and the standard rc-managed +
+/// liveness gates pass. Classes whose body-walk emission depends on
+/// consuming-primop / ownership-transfer detection may have false-positive
+/// emissions in pin4_emits, leading to over-suppression. Those edge cases
+/// land in subsequent §05 step refinements.
+fn check_body_walk_last_use(ctx: &BlockCtx<'_>, var: ArcVarId) -> Option<EmissionSite> {
+    // is_rc_managed semantics — same as is_owned_at_entry per walk_dec.rs:402-411.
+    if !is_owned_at_entry(
+        ctx.state_map,
+        ctx.blk,
+        var,
+        ctx.defined_in_block,
+        ctx.borrowed_defs,
+        ctx.all_borrowed_defs,
+    ) {
+        return None;
+    }
+    if ctx.iter_element_defs.contains(&var) {
+        return None;
+    }
+
+    let &(_total, last_use) = ctx.use_info.get(&var)?;
+    let instr_idx = match last_use {
+        LastUse::Body(idx) => idx,
+        LastUse::Terminator => return None,
+    };
+
+    if is_live_at_exit(ctx.state_map, ctx.blk, var) {
+        return None;
+    }
+
+    // Validate: var must be at a non-owned position in the instr at instr_idx.
+    let block = &ctx.func.blocks[ctx.blk.index()];
+    let instr = block.body.get(instr_idx)?;
+    let var_position = instr.used_vars().iter().position(|&v| v == var)?;
+    if instr.is_owned_position(var_position) {
+        return None;
+    }
+
+    // has_live_borrowed_children → DeferredParent variant (mirrors walk_dec.rs:414-423).
+    if let Some(&child_last) = ctx.child_effective_last_use.get(&var) {
+        let has_live_children = match child_last {
+            LastUse::Body(c) => c > instr_idx,
+            LastUse::Terminator => true,
+        };
+        if has_live_children {
+            return Some(EmissionSite::DeferredParent { instr_idx });
+        }
+    }
+
+    Some(EmissionSite::BodyWalkLastUse { instr_idx })
 }
 
 /// PhaseAEntry case: mirrors `emit_dead_at_entry_decs` Source 1 path
@@ -248,26 +314,7 @@ pub(crate) fn pin4_class_emits_dec_set(
     is_unwind_block: bool,
 ) -> Pin4EmitsByClass {
     let mut result: Pin4EmitsByClass = FxHashMap::default();
-
-    // PhaseAEntry candidates: vars in entry_states.
-    if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
-        for &var in entry_states.keys() {
-            if let Some(site) = var_emits_dec_in_block(ctx, var, is_unwind_block) {
-                if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
-                    result
-                        .entry(class_id)
-                        .or_insert_with(FxHashSet::default)
-                        .insert((var, site));
-                }
-            }
-        }
-    }
-
-    // PhaseABlockParam candidates: block params (var_emits_dec_in_block
-    // internally checks "is in entry_states" and skips if so to avoid
-    // double-counting with PhaseAEntry).
-    let block = &ctx.func.blocks[ctx.blk.index()];
-    for &(var, _) in &block.params {
+    let mut record = |var: ArcVarId| {
         if let Some(site) = var_emits_dec_in_block(ctx, var, is_unwind_block) {
             if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
                 result
@@ -276,6 +323,30 @@ pub(crate) fn pin4_class_emits_dec_set(
                     .insert((var, site));
             }
         }
+    };
+
+    // PhaseAEntry candidates: vars in entry_states.
+    if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
+        for &var in entry_states.keys() {
+            record(var);
+        }
+    }
+
+    // PhaseABlockParam candidates: block params (var_emits_dec_in_block
+    // internally checks "is in entry_states" and skips if so to avoid
+    // double-counting with PhaseAEntry).
+    let block = &ctx.func.blocks[ctx.blk.index()];
+    for &(var, _) in &block.params {
+        record(var);
+    }
+
+    // BodyWalkLastUse / DeferredParent candidates: any var with use_info
+    // (covers all body-walk-emission-eligible vars). Includes vars defined
+    // in this block (Construct/Apply results) AND vars from entry_states
+    // that have body uses (var_emits_dec_in_block internally selects the
+    // first matching variant).
+    for &var in ctx.use_info.keys() {
+        record(var);
     }
 
     result

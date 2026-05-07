@@ -25,7 +25,7 @@ pub mod arg_ownership;
 pub(crate) mod borrowed_defs;
 mod coalesce;
 pub mod cow;
-mod dead_cleanup;
+pub(crate) mod dead_cleanup;
 pub mod drop_hints;
 mod edge_cleanup;
 mod forward_walk;

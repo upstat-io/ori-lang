@@ -19,7 +19,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
 use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx, LastUse};
 use super::{block_id, rc_strategy};
 
-mod emission_site;
+pub(crate) mod emission_site;
 use emission_site::{canonical_rep_for, pin4_class_emits_dec_set, Pin4EmitsByClass};
 
 /// Phase A: `RcDec` for variables live at entry, unused in block, dead at exit.
