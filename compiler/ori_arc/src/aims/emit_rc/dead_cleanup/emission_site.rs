@@ -64,7 +64,8 @@ use crate::ir::ArcVarId;
 
 use super::super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx, LastUse};
 use super::super::{
-    rc_strategy, should_suppress_apply_aliased_dec, should_suppress_return_transfer_dec,
+    is_consuming_primop, is_ownership_transfer, rc_strategy, should_suppress_apply_aliased_dec,
+    should_suppress_return_transfer_dec,
 };
 
 /// Canonical map from SSA alias class id → set of (var, `EmissionSite`) pairs
@@ -163,6 +164,22 @@ fn check_body_walk_last_use(ctx: &BlockCtx<'_>, var: ArcVarId) -> Option<Emissio
     let instr = block.body.get(instr_idx)?;
     let var_position = instr.used_vars().iter().position(|&v| v == var)?;
     if instr.is_owned_position(var_position) {
+        return None;
+    }
+
+    // BUG-04-111 §05 Step 4.5b: align prediction with actual emission gate.
+    // `emit_post_instr_decs_unified` (`walk_dec.rs:91-93`) returns early on
+    // `is_consuming_primop` or `is_ownership_transfer` instructions, skipping
+    // BOTH `emit_last_use_decs` (BodyWalkLastUse) AND deferral (DeferredParent
+    // — `apply_last_use_decision`'s `Defer` branch is reached only via
+    // `emit_last_use_decs`). Without this gate, `pin4_class_emits_dec_set`
+    // records false-positive entries for vars whose last use is a transparent
+    // Let alias / Construct arg / take-Project source — the var is predicted
+    // as canonical-rep, suppressing the OTHER class member that actually
+    // emits. Per AIMS §3 RL-2 + AIMS Invariant #5 (Unified Model): the
+    // SSOT predicate consults the same gates the emitter consults; no
+    // parallel paths.
+    if is_consuming_primop(instr, ctx.func) || is_ownership_transfer(instr, ctx.func, ctx.pool) {
         return None;
     }
 

@@ -908,9 +908,9 @@ fn test_generic_method_on_generic_type() {
 // for borrow-flow scope-exit RcDec covers (B-1) shape across types
 // and use patterns beyond the str-flavored snapshot (use_twice).
 
-/// Regression: borrowed [int] param + 2 borrow uses + return. Extends the
-/// str-flavored use_twice snapshot to [int] element type — verifies the
-/// borrow-flow scope-exit RcDec elision is fixed for collection elements.
+/// Regression: borrowed `[int]` param + 2 borrow uses + return. Extends the
+/// str-flavored `use_twice` snapshot to `[int]` element type — verifies the
+/// borrow-flow scope-exit `RcDec` elision is fixed for collection elements.
 #[test]
 fn test_borrow_list_int_use_twice_then_return_no_leak() {
     assert_aot_success(
@@ -919,9 +919,9 @@ fn test_borrow_list_int_use_twice_then_return_no_leak() {
     );
 }
 
-/// Regression: borrowed [int] param + 3 borrow uses + return. N-use
+/// Regression: borrowed `[int]` param + 3 borrow uses + return. N-use
 /// boundary catches off-by-one in the pre-compute set for borrow-flow
-/// values (use_count > 2).
+/// values (`use_count` > 2).
 #[test]
 fn test_borrow_list_int_use_thrice_then_return_no_leak() {
     assert_aot_success(
@@ -930,9 +930,9 @@ fn test_borrow_list_int_use_thrice_then_return_no_leak() {
     );
 }
 
-/// Composition pin: borrowed [int] param + use + Return through a
+/// Composition pin: borrowed `[int]` param + use + Return through a
 /// `?`-Resume terminator path. Verifies the existing
-/// should_suppress_return_transfer_dec gating still fires after the
+/// `should_suppress_return_transfer_dec` gating still fires after the
 /// new pre-compute set lands. NOT a true (B-1) case.
 #[test]
 fn test_borrow_list_int_resume_terminator_then_return_no_leak() {
@@ -942,7 +942,7 @@ fn test_borrow_list_int_resume_terminator_then_return_no_leak() {
     );
 }
 
-/// Regression: borrowed [int] param + use in `if` arm + Return.
+/// Regression: borrowed `[int]` param + use in `if` arm + Return.
 /// Branched control-flow within one branch — both arms independently
 /// exercise Return-as-transfer.
 #[test]
@@ -953,7 +953,7 @@ fn test_borrow_list_int_if_arm_use_then_return_no_leak() {
     );
 }
 
-/// Regression: borrowed [int] param + use in `match` arm + Return.
+/// Regression: borrowed `[int]` param + use in `match` arm + Return.
 /// Pattern-dispatch through Maranget decision tree — verifies the
 /// pre-compute set covers Return-as-transfer across decision-tree paths.
 #[test]
@@ -969,7 +969,7 @@ fn test_borrow_list_int_match_arm_use_then_return_no_leak() {
 // pre-compute set distinguishes borrow Applies (no dec at site) from
 // Return-as-transfer (dec required at function exit).
 
-/// Regression: borrowed [int] param + 1 borrow Apply + Return.
+/// Regression: borrowed `[int]` param + 1 borrow Apply + Return.
 /// Single borrow access through a function-call boundary.
 #[test]
 fn test_borrow_list_int_one_borrow_apply_then_return_no_leak() {
@@ -979,7 +979,7 @@ fn test_borrow_list_int_one_borrow_apply_then_return_no_leak() {
     );
 }
 
-/// Regression: borrowed [int] param + 2 borrow Applies + Return.
+/// Regression: borrowed `[int]` param + 2 borrow Applies + Return.
 /// Multi-call borrow uses; catches off-by-one in borrow-Apply enumeration.
 #[test]
 fn test_borrow_list_int_two_borrow_applies_then_return_no_leak() {
@@ -989,7 +989,7 @@ fn test_borrow_list_int_two_borrow_applies_then_return_no_leak() {
     );
 }
 
-/// Regression: borrowed [int] param + 1 borrow Apply + 1 owned Apply
+/// Regression: borrowed `[int]` param + 1 borrow Apply + 1 owned Apply
 /// (passthrough) + Return. Mixed access modes within one function body.
 #[test]
 fn test_borrow_list_int_mixed_apply_then_return_no_leak() {
@@ -1004,8 +1004,8 @@ fn test_borrow_list_int_mixed_apply_then_return_no_leak() {
 // genuinely uncovered patterns: Project consumer, depth-3 alias chain,
 // loop-body Let-alias, multi-block CFG, for...yield iteration.
 
-/// Regression: borrowed [int] param + Project consumer (index access)
-/// + Return. Verifies Project access (xs[0]) does NOT consume the borrow.
+/// Regression: borrowed `[int]` param + Project consumer (index access)
+/// + Return. Verifies Project access (`xs[0]`) does NOT consume the borrow.
 #[test]
 fn test_borrow_list_int_project_consumer_then_return_no_leak() {
     assert_aot_success(
@@ -1014,7 +1014,7 @@ fn test_borrow_list_int_project_consumer_then_return_no_leak() {
     );
 }
 
-/// Regression: borrowed [int] param + depth-3 SSA-alias chain + Return.
+/// Regression: borrowed `[int]` param + depth-3 SSA-alias chain + Return.
 /// Per §03 line 300 — alias-chain depth ≥ 3 generalizes the bug shape.
 #[test]
 fn test_borrow_list_int_multi_let_alias_chain_then_return_no_leak() {
@@ -1024,7 +1024,7 @@ fn test_borrow_list_int_multi_let_alias_chain_then_return_no_leak() {
     );
 }
 
-/// Regression: borrowed [int] param + Let-alias inside `for` loop body +
+/// Regression: borrowed `[int]` param + Let-alias inside `for` loop body +
 /// Return. Verifies cross-iteration borrow tracking.
 #[test]
 fn test_borrow_list_int_loop_body_let_alias_then_return_no_leak() {
@@ -1034,7 +1034,7 @@ fn test_borrow_list_int_loop_body_let_alias_then_return_no_leak() {
     );
 }
 
-/// Regression: borrowed [int] param + 3-way nested branching + Return
+/// Regression: borrowed `[int]` param + 3-way nested branching + Return
 /// from each leaf block. Multi-block CFG with 3+ exit paths.
 #[test]
 fn test_borrow_list_int_multi_block_cfg_then_return_no_leak() {
@@ -1044,7 +1044,7 @@ fn test_borrow_list_int_multi_block_cfg_then_return_no_leak() {
     );
 }
 
-/// Regression: borrowed [int] param + for...yield iteration + Return
+/// Regression: borrowed `[int]` param + for...yield iteration + Return
 /// original param. Iterator-driven control flow over the borrow.
 #[test]
 fn test_borrow_list_int_for_yield_then_return_no_leak() {
@@ -1059,7 +1059,7 @@ fn test_borrow_list_int_for_yield_then_return_no_leak() {
 // May not be RED at HEAD (they verify NEW semantics introduced by the
 // fix); pre-fix passing is acceptable for these.
 
-/// Positive pin per §05:184 (gemini Round 2 F1): canonical_rep_for picks
+/// Positive pin per §05:184 (gemini Round 2 F1): `canonical_rep_for` picks
 /// LATEST-emitting member when multiple SSA alias class members exist.
 #[test]
 fn test_borrow_list_int_latest_emission_site_then_return_no_leak() {
@@ -1080,7 +1080,7 @@ fn test_borrow_list_int_determinism_then_return_no_leak() {
 }
 
 /// Positive pin per §05:148 (opencode Round 1 F5): bypass-safe interaction —
-/// canonical_rep returns the actual bypass-safe Let-alias rep when a class
+/// `canonical_rep` returns the actual bypass-safe Let-alias rep when a class
 /// has bypass-safe-entry members.
 #[test]
 fn test_borrow_list_int_bypass_safe_interaction_then_return_no_leak() {
@@ -1106,7 +1106,7 @@ fn test_borrow_list_int_three_alias_merge_then_return_no_leak() {
 
 /// Positive pin per codex Round 4 F4 + §05:226: nested PIN-6 chain
 /// B→A→C — ancestor class B's transitive-drop covers class A's slot,
-/// in turn covered by ancestor class C. Verifies pin6_same_emission_covers
+/// in turn covered by ancestor class C. Verifies `pin6_same_emission_covers`
 /// ancestor-walk loop survives the expanded input.
 #[test]
 fn test_borrow_list_int_nested_pin6_chain_then_return_no_leak() {

@@ -56,10 +56,13 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::aims::contract::MemoryContract;
+use crate::aims::lattice::AccessClass;
 use crate::ir::{
     is_transitive_drop_strategy, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership,
     RcStrategy, ValueRepr,
 };
+use ori_ir::Name;
 
 use super::apply_aliases::build_let_alias_map;
 use super::state_map::ApplyAliasSource;
@@ -106,6 +109,7 @@ pub(crate) struct SsaAliasClassesOutput {
 pub(crate) fn compute_ssa_alias_classes(
     func: &ArcFunction,
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
+    sigs: &FxHashMap<Name, MemoryContract>,
 ) -> SsaAliasClassesOutput {
     let Ok(var_count) = u32::try_from(func.var_types.len()) else {
         unreachable!("ArcFunction var count exceeds u32::MAX");
@@ -215,6 +219,7 @@ pub(crate) fn compute_ssa_alias_classes(
                 }
                 ArcInstr::Apply {
                     dst,
+                    func: callee,
                     args,
                     arg_ownership,
                     ..
@@ -226,12 +231,31 @@ pub(crate) fn compute_ssa_alias_classes(
                         continue;
                     }
                     for (i, arg) in args.iter().enumerate() {
-                        // Pre-walk default for Apply: arg_ownership empty OR
-                        // arg_ownership[i] == Owned (matches `is_owned_position`'s
-                        // is_none_or-Owned-default for Apply).
-                        let owned = arg_ownership
-                            .get(i)
-                            .is_none_or(|o| matches!(o, ArgOwnership::Owned));
+                        // BUG-04-111 §05 Step 4.5b — use callee contract (SSOT)
+                        // for param ownership when available. Apply's local
+                        // `arg_ownership` is populated at lowering with default
+                        // [Owned; n] and only corrected during realize step 5
+                        // (per `realize/mod.rs:89` doc); ssa_alias_classes runs
+                        // in step 4 (analyze_function) — BEFORE that, so
+                        // trusting `arg_ownership` here yields false-positive
+                        // payload edges for borrow-arg protocol builtins
+                        // (e.g. `__index`). The callee's `MemoryContract`
+                        // computed in step 1 (analyze_program) IS authoritative.
+                        // Per AIMS Invariant #5 (Unified Model): consult the
+                        // contract SSOT, not the stale denormalization.
+                        let owned = match sigs.get(callee) {
+                            Some(contract) => contract.params.get(i).map_or_else(
+                                || {
+                                    arg_ownership
+                                        .get(i)
+                                        .is_none_or(|o| matches!(o, ArgOwnership::Owned))
+                                },
+                                |p| matches!(p.access, AccessClass::Owned),
+                            ),
+                            None => arg_ownership
+                                .get(i)
+                                .is_none_or(|o| matches!(o, ArgOwnership::Owned)),
+                        };
                         if !owned {
                             continue;
                         }
@@ -252,6 +276,7 @@ pub(crate) fn compute_ssa_alias_classes(
         }
         if let ArcTerminator::Invoke {
             dst,
+            func: callee,
             args,
             arg_ownership,
             ..
@@ -260,9 +285,22 @@ pub(crate) fn compute_ssa_alias_classes(
             if let Some(strat) = dst_strategy_of(func, *dst) {
                 if is_transitive_drop_strategy(strat) {
                     for (i, arg) in args.iter().enumerate() {
-                        let owned = arg_ownership
-                            .get(i)
-                            .is_none_or(|o| matches!(o, ArgOwnership::Owned));
+                        // BUG-04-111 §05 Step 4.5b — same SSOT-via-contract
+                        // lookup as the Apply handler above. See that comment
+                        // for full rationale.
+                        let owned = match sigs.get(callee) {
+                            Some(contract) => contract.params.get(i).map_or_else(
+                                || {
+                                    arg_ownership
+                                        .get(i)
+                                        .is_none_or(|o| matches!(o, ArgOwnership::Owned))
+                                },
+                                |p| matches!(p.access, AccessClass::Owned),
+                            ),
+                            None => arg_ownership
+                                .get(i)
+                                .is_none_or(|o| matches!(o, ArgOwnership::Owned)),
+                        };
                         if !owned {
                             continue;
                         }

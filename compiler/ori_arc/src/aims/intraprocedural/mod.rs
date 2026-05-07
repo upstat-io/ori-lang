@@ -175,7 +175,7 @@ pub fn analyze_function(
     // `func.var_rc_strategies` cache populated at Step 3 alongside
     // `func.var_reprs` (no pool dep at analyze-time).
     let ssa_alias_output =
-        ssa_alias_classes::compute_ssa_alias_classes(func, state_map.apply_result_aliases());
+        ssa_alias_classes::compute_ssa_alias_classes(func, state_map.apply_result_aliases(), sigs);
     state_map.set_ssa_alias_output(
         ssa_alias_output.class_table,
         ssa_alias_output.class_members,
