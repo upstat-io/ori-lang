@@ -20,11 +20,7 @@ use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx, LastUse};
 use super::{block_id, rc_strategy};
 
 mod emission_site;
-#[expect(
-    unused_imports,
-    reason = "BUG-04-111 §05 Step 1 ground-laying — consumed by var_emits_dec_in_block + canonical_rep_for in subsequent §05 step landings"
-)]
-pub(crate) use emission_site::EmissionSite;
+use emission_site::{canonical_rep_for, pin4_class_emits_dec_set, Pin4EmitsByClass};
 
 /// Phase A: `RcDec` for variables live at entry, unused in block, dead at exit.
 ///
@@ -83,6 +79,11 @@ pub(crate) fn emit_dead_at_entry_decs(
     // DIFFERENT Let-alias reps and thus separate RcDecs — this is
     // the fix.
     let mut let_reps_dec_emitted: FxHashSet<ArcVarId> = FxHashSet::default();
+
+    // BUG-04-111 §05 Step 2: pre-compute the per-class emission map for this
+    // block. Consumed by the PIN-4 canonical-rep query at Source 1 (below)
+    // and at Source 2 (`emit_dead_block_param_decs` — passed in).
+    let pin4_emits: Pin4EmitsByClass = pin4_class_emits_dec_set(ctx, is_unwind_block);
 
     // Source 1: variables in entry_states.
     if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
@@ -223,18 +224,17 @@ pub(crate) fn emit_dead_at_entry_decs(
             if super::should_suppress_apply_aliased_dec(ctx.state_map, var, is_unwind_block) {
                 continue;
             }
-            // BUG-04-104 PIN-4: skip when any class member is used in this
-            // block's body OR live at this block's exit (= live in some
-            // successor). The per-var var is itself dead-at-entry by
-            // definition; this check looks for OTHER class members that
-            // would emit decs elsewhere.
+            // BUG-04-111 §05 Step 3 (replaces BUG-04-104 PIN-4): canonical-rep
+            // selection per gemini Round 2 F1's latest-emission-site rule.
+            // Suppress this var's dec if a different class member is the
+            // canonical-rep emitter (per `pin4_class_emits_dec_set` SSOT).
+            // Pre-fix logic checked "any other class member is USED in body
+            // OR live at exit" — but a use is a borrow that emits no dec, so
+            // the suppression fired even when no class member would actually
+            // emit, leaving the dec unbalanced (BUG-04-111 leak shape).
             if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
-                if let Some(members) = ctx.state_map.class_members(class_id) {
-                    if members.iter().any(|&m| {
-                        m != var
-                            && (ctx.use_info.contains_key(&m)
-                                || crate::aims::emit_rc::is_live_at_exit(ctx.state_map, ctx.blk, m))
-                    }) {
+                if let Some(canonical) = canonical_rep_for(class_id, &pin4_emits) {
+                    if canonical != var {
                         continue;
                     }
                 }
@@ -248,7 +248,7 @@ pub(crate) fn emit_dead_at_entry_decs(
     }
 
     // Source 2: block parameters absent from entry_states.
-    emit_dead_block_param_decs(ctx, new_body);
+    emit_dead_block_param_decs(ctx, new_body, &pin4_emits);
 
     (deferred_parents, merge_edge_decs)
 }
@@ -269,7 +269,11 @@ pub(crate) fn emit_dead_at_entry_decs(
     clippy::cognitive_complexity,
     reason = "pre-existing; refactoring would risk RC emission regressions"
 )]
-fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
+fn emit_dead_block_param_decs(
+    ctx: &BlockCtx<'_>,
+    new_body: &mut Vec<ArcInstr>,
+    pin4_emits: &Pin4EmitsByClass,
+) {
     let entry_states = ctx.state_map.block_entry_states(ctx.blk);
     let block = &ctx.func.blocks[ctx.blk.index()];
     // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
@@ -388,15 +392,13 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
         if super::should_suppress_apply_aliased_dec(ctx.state_map, param_var, is_unwind_block) {
             continue;
         }
-        // BUG-04-104 PIN-4: skip when any other class member is used in
-        // this block's body OR live at exit.
+        // BUG-04-111 §05 Step 4 (replaces BUG-04-104 PIN-4): canonical-rep
+        // selection consuming the SSOT `pin4_class_emits_dec_set`. Same
+        // rationale as Source 1's refactor — see §05 Step 3 comment in
+        // `emit_dead_at_entry_decs`.
         if let Some(class_id) = ctx.state_map.ssa_alias_class_of(param_var) {
-            if let Some(members) = ctx.state_map.class_members(class_id) {
-                if members.iter().any(|&m| {
-                    m != param_var
-                        && (ctx.use_info.contains_key(&m)
-                            || crate::aims::emit_rc::is_live_at_exit(ctx.state_map, ctx.blk, m))
-                }) {
+            if let Some(canonical) = canonical_rep_for(class_id, pin4_emits) {
+                if canonical != param_var {
                     continue;
                 }
             }

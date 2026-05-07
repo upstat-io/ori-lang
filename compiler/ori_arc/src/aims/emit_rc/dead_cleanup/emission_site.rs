@@ -22,7 +22,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     dead_code,
-    reason = "BUG-04-111 §05 Step 1 ground-laying — variants consumed by `var_emits_dec_in_block` + canonical_rep_for in §05 Step 1+3 (incremental landing)"
+    reason = "BUG-04-111 §05 Step 1 incremental landing — BodyWalkLastUse/DefinedDead/DeferredParent/MergeEdgeRouted variants land in subsequent §05 step commits when var_emits_dec_in_block grows their gate logic"
 )]
 pub(crate) enum EmissionSite {
     /// Source 1 in `dead_cleanup/mod.rs:80-241` — dead-at-entry block-prepended
@@ -57,6 +57,8 @@ pub(crate) enum EmissionSite {
     MergeEdgeRouted,
 }
 
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use crate::aims::lattice::Cardinality;
 use crate::ir::ArcVarId;
 
@@ -64,6 +66,14 @@ use super::super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx};
 use super::super::{
     rc_strategy, should_suppress_apply_aliased_dec, should_suppress_return_transfer_dec,
 };
+
+/// Canonical map from SSA alias class id → set of (var, EmissionSite) pairs
+/// representing every class member that would emit a dec in this block,
+/// computed via the SSOT `var_emits_dec_in_block` predicate. Per §05 Step 2,
+/// this pre-compute REPLACES the inline gate sequence at PIN-4 sites; the
+/// canonical-rep selection (§05 Step 3) picks ONE member per class to actually
+/// emit, suppressing the others.
+pub(crate) type Pin4EmitsByClass = FxHashMap<u32, FxHashSet<(ArcVarId, EmissionSite)>>;
 
 /// Pure SSOT predicate per §05 Step 1: returns `Some(EmissionSite)` when
 /// `var` would emit a `RcDec` somewhere in `ctx.blk`'s realized output;
@@ -83,13 +93,9 @@ use super::super::{
 /// vars; the inline emission code at `dead_cleanup/mod.rs:99-164` handles
 /// them separately.
 ///
-/// Currently implements ONLY the `PhaseAEntry` variant. `PhaseABlockParam`,
+/// Currently implements `PhaseAEntry` and `PhaseABlockParam` variants.
 /// `BodyWalkLastUse`, `DefinedDead`, `DeferredParent`, `MergeEdgeRouted`
 /// land in subsequent §05 step commits.
-#[expect(
-    dead_code,
-    reason = "BUG-04-111 §05 Step 1 ground-laying — consumed by pin4_class_emits_dec_set + canonical_rep_for in §05 Step 2+3 (incremental landing)"
-)]
 pub(crate) fn var_emits_dec_in_block(
     ctx: &BlockCtx<'_>,
     var: ArcVarId,
@@ -221,4 +227,88 @@ fn check_phase_a_block_param(
         return None;
     }
     rc_strategy(ctx.func, var, ctx.pool).map(|_| EmissionSite::PhaseABlockParam)
+}
+
+/// §05 Step 2: build the per-class emission map for this block.
+///
+/// Iterates over all PhaseAEntry candidates (vars in `entry_states`) and
+/// PhaseABlockParam candidates (block params not in `entry_states`),
+/// querying the SSOT `var_emits_dec_in_block` predicate for each. Members
+/// that would emit are grouped by SSA alias class id.
+///
+/// Body-walk variants (BodyWalkLastUse, DefinedDead, DeferredParent) and
+/// MergeEdgeRouted are not yet covered by `var_emits_dec_in_block` per §05
+/// Step 1's incremental landing — class members emitting via those paths
+/// will be MISSED in this pre-compute. For BUG-04-111's (B-1)/(B-3) RED
+/// tests, the relevant emissions are PhaseAEntry/PhaseABlockParam so the
+/// pre-compute is sufficient to drive the canonical-rep selection that
+/// turns the leak tests GREEN.
+pub(crate) fn pin4_class_emits_dec_set(
+    ctx: &BlockCtx<'_>,
+    is_unwind_block: bool,
+) -> Pin4EmitsByClass {
+    let mut result: Pin4EmitsByClass = FxHashMap::default();
+
+    // PhaseAEntry candidates: vars in entry_states.
+    if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
+        for &var in entry_states.keys() {
+            if let Some(site) = var_emits_dec_in_block(ctx, var, is_unwind_block) {
+                if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
+                    result
+                        .entry(class_id)
+                        .or_insert_with(FxHashSet::default)
+                        .insert((var, site));
+                }
+            }
+        }
+    }
+
+    // PhaseABlockParam candidates: block params (var_emits_dec_in_block
+    // internally checks "is in entry_states" and skips if so to avoid
+    // double-counting with PhaseAEntry).
+    let block = &ctx.func.blocks[ctx.blk.index()];
+    for &(var, _) in &block.params {
+        if let Some(site) = var_emits_dec_in_block(ctx, var, is_unwind_block) {
+            if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
+                result
+                    .entry(class_id)
+                    .or_insert_with(FxHashSet::default)
+                    .insert((var, site));
+            }
+        }
+    }
+
+    result
+}
+
+/// §05 Step 3: select the canonical rep for `class_id` from its emitting
+/// members per gemini Round 2 F1's LATEST-emission-site rule.
+///
+/// PhaseAEntry/PhaseABlockParam fire at block entry (EARLIEST). BodyWalk
+/// variants fire at instr_idx (later). MergeEdgeRouted fires post-exit
+/// (LATEST). Picking the latest preserves correct RC semantics — earlier
+/// class member uses are read-only borrows; the actual decrement fires at
+/// the latest emission point.
+pub(crate) fn canonical_rep_for(class_id: u32, pin4_emits: &Pin4EmitsByClass) -> Option<ArcVarId> {
+    let members = pin4_emits.get(&class_id)?;
+    members
+        .iter()
+        .max_by_key(|&&(var, site)| (emission_site_order(site), var.raw()))
+        .map(|&(var, _)| var)
+}
+
+/// Total order over EmissionSite for canonical-rep selection.
+/// Higher = LATER in program order = preferred for canonical-rep.
+fn emission_site_order(site: EmissionSite) -> usize {
+    match site {
+        // Block-entry positions tie at 0; canonical_rep_for breaks ties via var id.
+        EmissionSite::PhaseAEntry => 0,
+        EmissionSite::PhaseABlockParam => 0,
+        // Body positions ordered by instr_idx (offset by 1 to keep above entry).
+        EmissionSite::BodyWalkLastUse { instr_idx } => 1 + instr_idx,
+        EmissionSite::DefinedDead { instr_idx } => 1 + instr_idx,
+        EmissionSite::DeferredParent { instr_idx } => 1 + instr_idx,
+        // Merge-edge fires at block boundaries — strictly latest.
+        EmissionSite::MergeEdgeRouted => usize::MAX,
+    }
 }
