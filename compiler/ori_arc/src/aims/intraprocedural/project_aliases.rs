@@ -103,6 +103,20 @@ pub(crate) fn compute_project_alias_sources(
             ApplyAliasSource::Direct(arg) | ApplyAliasSource::Project { arg, .. } => {
                 smallvec![*arg]
             }
+            ApplyAliasSource::Wrapped(_) => {
+                // BUG-04-118 §05 Round 4 Option B: Wrapped is NOT seeded into
+                // project_alias_sources. Containment (`wrap_ok(m) = Ok(m)`)
+                // is NOT a projection-derived alias chain — `extracted = inner
+                // = Project result.payload[0]` accesses dst's payload via
+                // structural projection, but `extracted`'s class must NOT
+                // inherit `m`'s alias chain (which would over-suppress
+                // extracted's canonical dec, the Round 2 failure mode).
+                // Wrapped's only effect is per-var dec-suppression on arg
+                // via `should_suppress_apply_aliased_dec`; downstream
+                // projections of dst follow Step 1 (Project-from-dst → dst)
+                // and Step 2 (Let alias) without a Step 1b containment seed.
+                continue;
+            }
             ApplyAliasSource::Conditional { candidates } => SmallVec::from_slice(candidates),
         };
         // SSA invariant: each var defined exactly once. An Apply-defined dst

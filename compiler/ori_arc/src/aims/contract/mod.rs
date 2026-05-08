@@ -246,6 +246,15 @@ impl ReturnAliasShape {
 }
 
 /// Per-parameter memory contract.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Each bool encodes a distinct AIMS facet not derivable from \
+        the others: `may_escape` (legacy escape flag retained until \
+        Locality SSOT migration), `may_share` (per-param sharing flag), \
+        `transfers_through_return` (Return-flow alias from BUG-04-090), \
+        `return_payload_contains_param` (transitive-drop containment \
+        from BUG-04-118). Bundling would obscure the analysis surface."
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParamContract {
     /// Whether the parameter is owned or borrowed.
@@ -301,6 +310,26 @@ pub struct ParamContract {
     ///
     /// Default: `None` (conservative — no aliasing claim).
     pub return_alias: Option<ReturnAliasShape>,
+    /// Whether the parameter is structurally contained in the function's
+    /// returned value as a transitive-drop variant payload (BUG-04-118 fix).
+    ///
+    /// Distinct from `return_alias`: `return_alias` covers cases where the
+    /// callee returns the param directly (`Direct`) or a field projection
+    /// of the param (`Project`). This field covers cases where the callee
+    /// constructs a transitive-drop variant containing an alias of the
+    /// param and returns that — e.g., `@wrap_ok (m: T) -> Result<T, E> =
+    /// Ok(m)`. Here `m` is contained in the returned `Result.payload[0]`
+    /// but neither `Direct` nor `Project` matches.
+    ///
+    /// Consumed by `populate_class_payload_of_with_liveness` in
+    /// `intraprocedural/post_convergence.rs`: the Apply/Invoke
+    /// edge-recording gate uses `owned || return_payload_contains_param`
+    /// so `class_payload_of` edges are recorded for caller-side
+    /// transitive-drop containment relationships even when the callee's
+    /// param contract has `access: Borrowed`.
+    ///
+    /// Default: `false` (conservative — no containment claim).
+    pub return_payload_contains_param: bool,
 }
 
 impl ParamContract {
@@ -323,6 +352,10 @@ impl ParamContract {
         // Promoted by extract_contract when the param flows to Return
         // (Direct) or to a Project that flows to Return (Project).
         return_alias: None,
+        // Conservative default: no containment claim. Promoted by
+        // extract_contract when the param flows into a transitive-drop
+        // variant payload that is returned (BUG-04-118 fix).
+        return_payload_contains_param: false,
     };
 
     /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
@@ -345,6 +378,9 @@ impl ParamContract {
         // `None < Some(Project) < Some(Direct)`. Join promotes upward as
         // structural Return-aliasing facts fire across paths.
         return_alias: None,
+        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
+        // any path's structural payload-containment fact fires.
+        return_payload_contains_param: false,
     };
 
     /// Componentwise join toward conservative.
@@ -366,6 +402,10 @@ impl ParamContract {
             // Direct is TOP — absorbs Project. Incomparable Project paths
             // join to Direct. Per `ReturnAliasShape::join`.
             return_alias: ReturnAliasShape::join(self.return_alias, other.return_alias),
+            // OR (conservative direction): once true on any path, stays true.
+            // Matches IC-3 componentwise-max semantics for boolean dimensions.
+            return_payload_contains_param: self.return_payload_contains_param
+                || other.return_payload_contains_param,
         }
     }
 }

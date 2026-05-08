@@ -129,6 +129,16 @@ pub(crate) fn compute_ssa_alias_classes(
         match source {
             ApplyAliasSource::Direct(arg) => uf.union(dst, *arg),
             ApplyAliasSource::Project { .. } => { /* no union — PIN-2 */ }
+            ApplyAliasSource::Wrapped(_) => {
+                // BUG-04-118 §05 Round 4 Option B: PIN-2 ANALOGOUS — no union.
+                // Wrapped means dst CONTAINS arg as a transitive-drop variant
+                // payload (e.g., `wrap_ok(m: T) -> Result<T, E> = Ok(m)`).
+                // Result and the wrapped allocation are SEPARATE RC slots
+                // (different identity), so unioning their classes would
+                // collapse two distinct slots into one and over-suppress
+                // downstream Project apply-aliased decs (the Round 2 install
+                // failure mode).
+            }
             ApplyAliasSource::Conditional { candidates } => {
                 for &cand in candidates {
                     uf.union(dst, cand);
@@ -165,6 +175,11 @@ pub(crate) fn compute_ssa_alias_classes(
         let source_args: Vec<ArcVarId> = match source {
             ApplyAliasSource::Direct(arg) => vec![*arg],
             ApplyAliasSource::Project { arg, .. } => vec![*arg],
+            // BUG-04-118 §05 Round 4 Option B: Wrapped contributes its arg
+            // as a source candidate so class-keyed lookups (mirror of the
+            // per-var `should_suppress_apply_aliased_dec` path) can find
+            // arg too. Mirrors Direct/Project's single-arg pattern.
+            ApplyAliasSource::Wrapped(arg) => vec![*arg],
             ApplyAliasSource::Conditional { candidates } => candidates.clone(),
         };
         for arg in source_args {

@@ -586,7 +586,15 @@ pub(crate) fn should_suppress_apply_aliased_dec(
         .apply_result_aliases()
         .values()
         .any(|source| match source {
-            ApplyAliasSource::Direct(arg) | ApplyAliasSource::Project { arg, .. } => *arg == var,
+            // BUG-04-118 §05 Round 4 Option B: Wrapped behaves like Direct/
+            // Project for dec-suppression purposes (suppress arg's caller-
+            // side canonical dec because arg's ownership transferred into
+            // dst's payload via the wrapping construct). The class-union
+            // semantic differs (Wrapped does NOT union per
+            // `ssa_alias_classes.rs`); only the suppression triggers fires.
+            ApplyAliasSource::Direct(arg)
+            | ApplyAliasSource::Project { arg, .. }
+            | ApplyAliasSource::Wrapped(arg) => *arg == var,
             ApplyAliasSource::Conditional { candidates } => candidates.contains(&var),
         })
 }

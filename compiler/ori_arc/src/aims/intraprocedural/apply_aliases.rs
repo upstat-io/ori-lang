@@ -155,11 +155,34 @@ fn install_alias_entry(
     // suppress; Borrowed → no-op). The callee's contract Access governs
     // the callee's own RC accounting (its scope-exit AggFields walk fires
     // only when access is Owned), not the caller's.
+    //
+    // BUG-04-118 §05 Round 4 Option B (Wrapped variant): handles two
+    // distinct alias shapes via the same install path:
+    // - Identity (return_alias = Some): callee returns the param itself
+    //   (Direct) or a single-field projection (Project). `uf.union` fires
+    //   in ssa_alias_classes for Direct (caller-arg and result are the
+    //   SAME RC slot). BUG-04-090 shape.
+    // - Containment (return_alias = None ∧ return_payload_contains_param =
+    //   true): callee constructs a transitive-drop variant containing an
+    //   alias of the param (`wrap_ok(m) = Ok(m)`). PIN-2 analogous: NO
+    //   `uf.union` in ssa_alias_classes (Result and wrapped allocation are
+    //   SEPARATE RC slots), and NO seeding of `project_alias_sources`
+    //   Step 1b (containment is NOT a projection-derived alias chain).
+    //   Suppresses ONLY the redundant caller-side canonical dec on arg via
+    //   `should_suppress_apply_aliased_dec`; downstream apply-aliased
+    //   projections of the result (e.g., `extracted = inner` from a match
+    //   arm) stay in their own classes and keep their canonical decs.
+    //
+    // Multi-param Wrapped (e.g. `pair(a, b) = (a, b)` returning a tuple)
+    // is NOT currently producible by `find_payload_containment_params`
+    // (which only marks EnumVariant Construct + PartialApply per
+    // `extract.rs`). When future shapes surface, extend Wrapped to
+    // `Wrapped { args: Vec<ArcVarId> }`. YAGNI for now.
     let aliasing_params: Vec<usize> = contract
         .params
         .iter()
         .enumerate()
-        .filter(|(_, p)| p.return_alias.is_some())
+        .filter(|(_, p)| p.return_alias.is_some() || p.return_payload_contains_param)
         .map(|(i, _)| i)
         .collect();
 
@@ -169,10 +192,6 @@ fn install_alias_entry(
         }
         1 => {
             let param_idx = aliasing_params[0];
-            // Filter guarantees Some; let-else avoids expect().
-            let Some(alias_shape) = contract.params[param_idx].return_alias else {
-                return;
-            };
             let Some(consumed_arg) = args.get(param_idx).copied() else {
                 // Arg-count mismatch with contract param-count — should not
                 // occur post type-check; skip defensively.
@@ -186,12 +205,22 @@ fn install_alias_entry(
             // functions (e.g., id<T>(x: T) -> T), preventing PIN-6 from
             // spuriously recording a payload-of edge and then over-
             // suppressing the child class's dec.
-            let entry = match alias_shape {
-                ReturnAliasShape::Direct => ApplyAliasSource::Direct(consumed_arg),
-                ReturnAliasShape::Project { field } => ApplyAliasSource::Project {
+            let alias_shape_opt = contract.params[param_idx].return_alias;
+            let contains = contract.params[param_idx].return_payload_contains_param;
+            let entry = match alias_shape_opt {
+                Some(ReturnAliasShape::Direct) => ApplyAliasSource::Direct(consumed_arg),
+                Some(ReturnAliasShape::Project { field }) => ApplyAliasSource::Project {
                     arg: consumed_arg,
                     field,
                 },
+                None if contains => ApplyAliasSource::Wrapped(consumed_arg),
+                None => {
+                    // Filter guarantees at least one of the two flags is true;
+                    // None-and-not-contains contradicts the filter.
+                    unreachable!(
+                        "BUG: aliasing_params filter ensures return_alias.is_some() OR return_payload_contains_param; reached neither branch on param_idx={param_idx}"
+                    )
+                }
             };
             result.insert(dst, entry);
         }

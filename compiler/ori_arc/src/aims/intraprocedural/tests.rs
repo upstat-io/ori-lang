@@ -1495,6 +1495,7 @@ fn callee_contract_locality_widens_arg() {
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
                 return_alias: None,
+                return_payload_contains_param: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1575,6 +1576,7 @@ fn callee_contract_function_local_preserves_arg() {
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
                 return_alias: None,
+                return_payload_contains_param: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1778,6 +1780,7 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
                 return_alias: None,
+                return_payload_contains_param: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1860,6 +1863,7 @@ fn pure_callee_preserves_borrowed_arg_uniqueness() {
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
                 return_alias: None,
+                return_payload_contains_param: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -1937,6 +1941,7 @@ fn sharing_callee_widens_borrowed_arg_uniqueness() {
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
                 return_alias: None,
+                return_payload_contains_param: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2014,6 +2019,7 @@ fn owned_param_ignores_callee_may_share() {
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
                 return_alias: None,
+                return_payload_contains_param: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2247,6 +2253,7 @@ fn effect_summary_apply_unions_callee_effects() {
                 uniqueness: Uniqueness::MaybeShared,
                 transfers_through_return: false,
                 return_alias: None,
+                return_payload_contains_param: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2777,6 +2784,7 @@ fn conditional_fip_call_site_all_unique_no_widening() {
             uniqueness: Uniqueness::MaybeShared,
             transfers_through_return: false,
             return_alias: None,
+            return_payload_contains_param: false,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -2838,6 +2846,37 @@ fn conditional_fip_call_site_all_unique_no_widening() {
     );
 }
 
+/// Builds a `MemoryContract` with the param + effects shape shared by the
+/// conditional/sharing test pair below; `fip` is the only differing field.
+fn fip_test_contract(fip: FipContract) -> MemoryContract {
+    MemoryContract {
+        params: vec![ParamContract {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Affine,
+            cardinality: Cardinality::Once,
+            may_escape: false,
+            may_share: false,
+            locality_bound: Locality::FunctionLocal,
+            uniqueness: Uniqueness::MaybeShared,
+            transfers_through_return: false,
+            return_alias: None,
+            return_payload_contains_param: false,
+        }],
+        return_info: ReturnContract::CONSERVATIVE,
+        effects: EffectSummary {
+            may_allocate: true,
+            alloc_only_on_slow_path: false,
+            may_deallocate: false,
+            may_share: true,
+            may_throw: false,
+            has_unbounded_stack: false,
+        },
+        context_behavior: ContextBehavior::default(),
+        fip,
+        is_fbip: false,
+    }
+}
+
 #[test]
 fn conditional_fip_call_site_not_unique_widens() {
     // caller(x: T) -> T {
@@ -2852,60 +2891,10 @@ fn conditional_fip_call_site_not_unique_widens() {
     let conditional_name = Name::from_raw(100);
     let sharing_name = Name::from_raw(101);
 
-    let conditional_contract = MemoryContract {
-        params: vec![ParamContract {
-            access: AccessClass::Borrowed,
-            consumption: Consumption::Affine,
-            cardinality: Cardinality::Once,
-            may_escape: false,
-            may_share: false,
-            locality_bound: Locality::FunctionLocal,
-            uniqueness: Uniqueness::MaybeShared,
-            transfers_through_return: false,
-            return_alias: None,
-        }],
-        return_info: ReturnContract::CONSERVATIVE,
-        effects: EffectSummary {
-            may_allocate: true,
-            alloc_only_on_slow_path: false,
-            may_deallocate: false,
-            may_share: true,
-            may_throw: false,
-            has_unbounded_stack: false,
-        },
-        context_behavior: ContextBehavior::default(),
-        fip: FipContract::Conditional {
-            requires_unique_params: vec![true],
-        },
-        is_fbip: false,
-    };
-
-    // sharing_callee: may_share=true, no FIP (Never)
-    let sharing_contract = MemoryContract {
-        params: vec![ParamContract {
-            access: AccessClass::Borrowed,
-            consumption: Consumption::Affine,
-            cardinality: Cardinality::Once,
-            may_escape: false,
-            may_share: false,
-            locality_bound: Locality::FunctionLocal,
-            uniqueness: Uniqueness::MaybeShared,
-            transfers_through_return: false,
-            return_alias: None,
-        }],
-        return_info: ReturnContract::CONSERVATIVE,
-        effects: EffectSummary {
-            may_allocate: true,
-            alloc_only_on_slow_path: false,
-            may_deallocate: false,
-            may_share: true,
-            may_throw: false,
-            has_unbounded_stack: false,
-        },
-        context_behavior: ContextBehavior::default(),
-        fip: FipContract::Never,
-        is_fbip: false,
-    };
+    let conditional_contract = fip_test_contract(FipContract::Conditional {
+        requires_unique_params: vec![true],
+    });
+    let sharing_contract = fip_test_contract(FipContract::Never);
 
     let mut sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
     sigs.insert(conditional_name, conditional_contract);
@@ -4101,6 +4090,7 @@ fn contract_with_return(return_info: ReturnContract) -> MemoryContract {
             uniqueness: Uniqueness::MaybeShared,
             transfers_through_return: false,
             return_alias: None,
+            return_payload_contains_param: false,
         }],
         return_info,
         effects: EffectSummary::default(),

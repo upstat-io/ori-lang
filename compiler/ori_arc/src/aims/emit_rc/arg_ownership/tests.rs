@@ -21,6 +21,7 @@ fn make_param_contract(access: AccessClass) -> ParamContract {
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
         return_alias: None,
+        return_payload_contains_param: false,
     }
 }
 

@@ -565,6 +565,25 @@ pub(crate) fn populate_context_events(
 /// 2. Intra-block tier: `precompute_block_uses` last-use comparison; only
 ///    fires when ALL B-members are dead-at-exit; defined-dead B detected
 ///    via `def_site_block`.
+///
+/// Witness-set widening (BUG-04-118 §05 Round 3 Option A — 3-of-3 reviewer
+/// consensus): A's witness set is extended with Project-derived aliases of
+/// B-members. Project apply-aliases live in a DIFFERENT class than their
+/// source (PIN-2 at `ssa_alias_classes.rs:131` — "different RC slot"), so
+/// `class_members(class_a)` cannot see them. The `project_alias_sources`
+/// side-table on `AimsStateMap` records each alias-chain destination's root
+/// sources; when any destination's sources include a B-member, the
+/// destination's liveness extends A's effective lifetime.
+///
+/// Example (`apply_alias_result_strmap.ori`): `wrap_ok(m: m)` returns Result
+/// wrapping `m`. In `@main`: `inner = Project result.payload[0]; extracted
+/// = Let Var(inner)`. `project_alias_sources` records `inner → [result]` and
+/// `extracted → [inner, result]`. Class B = `{result}`; class A = `{m}`.
+/// Raw `a_members` is `{m}`, which is Dead post-Apply. But `extracted`
+/// outlives `result`'s destructuring; treating `extracted`'s liveness as
+/// part of A's witness set correctly identifies "A outlives B" and skips
+/// the `class_payload_of` edge so PIN-6 does not over-suppress A's
+/// canonical dec.
 fn class_lifetime_extends_past_path_sensitive(
     class_a_id: u32,
     class_b_id: u32,
@@ -579,13 +598,29 @@ fn class_lifetime_extends_past_path_sensitive(
         return false;
     };
 
+    // BUG-04-118 §05 Round 3 Option A: build A's extended witness set by
+    // walking project_alias_sources for any alias whose root sources include
+    // a B-member. Witnesses are USED for "is A still alive?" checks (any_a
+    // _live_exit, max_a_in_body, a_at_term) but NOT for B-related checks
+    // (all_b_dead_exit stays based on real b_members per the lifetime check
+    // semantic — B's destruction is what we're testing A's survival past).
+    let extended_a_witnesses: FxHashSet<ArcVarId> = {
+        let mut witnesses = a_members.iter().copied().collect::<FxHashSet<_>>();
+        for (&alias_var, sources) in state_map.project_alias_sources() {
+            if sources.iter().any(|src| b_members.contains(src)) {
+                witnesses.insert(alias_var);
+            }
+        }
+        witnesses
+    };
+
     for blk_idx in 0..func.blocks.len() {
         let Ok(blk_u32) = u32::try_from(blk_idx) else {
             continue;
         };
         let blk = ArcBlockId::new(blk_u32);
 
-        let any_a_live_exit = a_members
+        let any_a_live_exit = extended_a_witnesses
             .iter()
             .any(|m| crate::aims::emit_rc::is_live_at_exit(state_map, blk, *m));
         let all_b_dead_exit = b_members
@@ -607,7 +642,7 @@ fn class_lifetime_extends_past_path_sensitive(
             continue;
         }
 
-        let max_a_in_body: Option<usize> = a_members
+        let max_a_in_body: Option<usize> = extended_a_witnesses
             .iter()
             .filter_map(|m| use_info.get(m))
             .filter_map(|(_count, lu)| match lu {
@@ -623,7 +658,7 @@ fn class_lifetime_extends_past_path_sensitive(
                 crate::aims::emit_rc::LastUse::Terminator => None,
             })
             .max();
-        let a_at_term = a_members
+        let a_at_term = extended_a_witnesses
             .iter()
             .filter_map(|m| use_info.get(m))
             .any(|(_, lu)| matches!(lu, crate::aims::emit_rc::LastUse::Terminator));
@@ -764,20 +799,28 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         continue;
                     }
                     for (i, arg) in args.iter().enumerate() {
-                        let owned = match sigs.get(callee) {
+                        // BUG-04-118 path-c: edge eligibility = Owned-access
+                        // OR contract claims param flows into the returned
+                        // transitive-drop variant payload (e.g.,
+                        // `wrap_ok(m) = Ok(m)` — Borrowed access but
+                        // structurally contained in Result.payload).
+                        let edge_eligible = match sigs.get(callee) {
                             Some(contract) => contract.params.get(i).map_or_else(
                                 || {
                                     arg_ownership
                                         .get(i)
                                         .is_none_or(|o| matches!(o, ArgOwnership::Owned))
                                 },
-                                |p| matches!(p.access, AccessClass::Owned),
+                                |p| {
+                                    matches!(p.access, AccessClass::Owned)
+                                        || p.return_payload_contains_param
+                                },
                             ),
                             None => arg_ownership
                                 .get(i)
                                 .is_none_or(|o| matches!(o, ArgOwnership::Owned)),
                         };
-                        if !owned {
+                        if !edge_eligible {
                             continue;
                         }
                         record_payload_edge_lifetime(
@@ -820,20 +863,24 @@ pub(crate) fn populate_class_payload_of_with_liveness(
             if let Some(strat) = dst_strategy_of(func, *dst) {
                 if is_transitive_drop_strategy(strat) {
                     for (i, arg) in args.iter().enumerate() {
-                        let owned = match sigs.get(callee) {
+                        // BUG-04-118 path-c: see Apply branch above.
+                        let edge_eligible = match sigs.get(callee) {
                             Some(contract) => contract.params.get(i).map_or_else(
                                 || {
                                     arg_ownership
                                         .get(i)
                                         .is_none_or(|o| matches!(o, ArgOwnership::Owned))
                                 },
-                                |p| matches!(p.access, AccessClass::Owned),
+                                |p| {
+                                    matches!(p.access, AccessClass::Owned)
+                                        || p.return_payload_contains_param
+                                },
                             ),
                             None => arg_ownership
                                 .get(i)
                                 .is_none_or(|o| matches!(o, ArgOwnership::Owned)),
                         };
-                        if !owned {
+                        if !edge_eligible {
                             continue;
                         }
                         record_payload_edge_lifetime(

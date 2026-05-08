@@ -124,6 +124,7 @@ fn oracle_accepts_matching_contract() {
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
         return_alias: None,
+        return_payload_contains_param: false,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -158,6 +159,7 @@ fn oracle_accepts_conservative_inference() {
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
         return_alias: None,
+        return_payload_contains_param: false,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -195,6 +197,7 @@ fn oracle_rejects_unsafe_optimistic_inference() {
         uniqueness: Uniqueness::Unique,
         transfers_through_return: false,
         return_alias: None,
+        return_payload_contains_param: false,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -352,6 +355,7 @@ fn oracle_derives_may_share_from_rc_incs() {
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
         return_alias: None,
+        return_payload_contains_param: false,
     }]);
 
     let mismatches = verify_coherence(&func, &inferred, 0);
@@ -695,6 +699,7 @@ fn oracle_accepts_conservative_may_share() {
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
         return_alias: None,
+        return_payload_contains_param: false,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -757,6 +762,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             uniqueness: Uniqueness::MaybeShared,
             transfers_through_return: false,
             return_alias: None,
+            return_payload_contains_param: false,
         },
         ParamContract {
             access: AccessClass::Owned,
@@ -768,6 +774,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             uniqueness: Uniqueness::MaybeShared,
             transfers_through_return: false,
             return_alias: None,
+            return_payload_contains_param: false,
         },
     ]);
 
@@ -800,6 +807,7 @@ fn oracle_handles_extra_function_params_gracefully() {
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
         return_alias: None,
+        return_payload_contains_param: false,
     }]);
 
     // Should not panic — zip truncates to the shorter (1 param from contract).

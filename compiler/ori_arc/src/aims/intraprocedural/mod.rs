@@ -188,6 +188,16 @@ pub fn analyze_function(
     let project_alias_sources =
         project_aliases::compute_project_alias_sources(func, state_map.apply_result_aliases());
 
+    // BUG-04-118 §05 Round 3 Option A: persist the project_alias_sources side-
+    // table on AimsStateMap so the post-convergence pass
+    // `populate_class_payload_of_with_liveness` can widen its A-live witness
+    // set with Project-derived aliases. The local map remains for
+    // `propagate_project_source_demand` during the worklist loop; the clone
+    // is the persistent copy consumed AFTER convergence (PL-5: read-only
+    // after install). AIMS Invariant #5(c) — extends the unified model via
+    // typed pre-pass input on AimsStateMap.
+    state_map.set_project_alias_sources(project_alias_sources.clone());
+
     let iteration_limit = AimsState::iteration_limit(func.var_types.len(), func.blocks.len());
     let mut iteration = 0;
 

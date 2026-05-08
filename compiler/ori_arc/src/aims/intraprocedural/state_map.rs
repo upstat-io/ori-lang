@@ -20,6 +20,7 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcVarId};
 
 use super::super::contract::EffectSummary;
 use super::super::lattice::{AimsState, BorrowSource, Locality, ShapeClass, Uniqueness};
+use super::project_aliases::ProjectSources;
 
 // Per-invoke edge state
 
@@ -134,6 +135,22 @@ pub enum ApplyAliasSource {
     /// and `BorrowSource::Exact { field: Option<u32> }` precedent. Nested
     /// projections defer to a future extension.
     Project { arg: ArcVarId, field: u32 },
+    /// Apply dst structurally CONTAINS the consumed arg as a transitive-drop
+    /// variant payload (callee constructs a wrapping variant: `@wrap_ok(m: T)
+    /// -> Result<T, E> = Ok(m)`). Distinct from `Direct`/`Project`: the
+    /// dst is a SEPARATE allocation (the constructed wrapper), and arg lives
+    /// inside dst's payload via the structural drop walk. PIN-2 ANALOGOUS:
+    /// `Wrapped` does NOT trigger `uf.union` in `compute_ssa_alias_classes`
+    /// (the wrapper and the wrapped allocation are DIFFERENT RC slots), and
+    /// does NOT seed `project_alias_sources` Step 1b in
+    /// `compute_project_alias_sources` (containment is NOT a projection-
+    /// derived alias chain). The sole consumer is `should_suppress_apply
+    /// _aliased_dec` (BUG-04-118 §05 Round 4): suppresses the redundant
+    /// caller-side canonical dec on `arg` because `arg`'s ownership was
+    /// transferred into dst's payload via the wrapping construct. Without
+    /// this suppression, both arg's caller-side dec AND dst's structural
+    /// drop walk dec the same allocation → double-free.
+    Wrapped(ArcVarId),
     /// Apply dst aliases ONE OF the candidates at runtime — the exact alias
     /// is path-conditional. Arises when 2+ params of the callee have
     /// `return_alias != None` (e.g., `match x { A -> a, B -> b }` in the
@@ -200,6 +217,26 @@ pub struct AimsStateMap {
     /// Rules 2/3/4/6 propagate the alias through Let/Jump/CFG-merge/nested-
     /// Project chains without re-coding the worklist.
     apply_result_aliases: FxHashMap<ArcVarId, ApplyAliasSource>,
+
+    /// Project-derived alias graph (BUG-04-118 §05 Round 3 Option A; AIMS §1.9
+    /// Side-Table Domains). Sparse: only entries for Project destinations and
+    /// their transitive Let / Jump-arg / CFG-merge / Apply-aliased sources per
+    /// `compute_project_alias_sources`. Empty for functions with no Project
+    /// instructions.
+    ///
+    /// Populated PRE-WALK by [`compute_project_alias_sources`](super::project_aliases::compute_project_alias_sources)
+    /// — a clone of the local worklist input is also installed here so the
+    /// post-convergence pass `populate_class_payload_of_with_liveness` can
+    /// query it after the lattice converges. Read-only thereafter (PL-5
+    /// no-stale-summary invariant).
+    ///
+    /// Consumed by `class_lifetime_extends_past_path_sensitive` to widen the
+    /// A-live witness set with Project-derived aliases of B-members. Project
+    /// apply-aliases live in a DIFFERENT class than their source (PIN-2 at
+    /// `ssa_alias_classes.rs:131`), so `class_members(class_a)` cannot see
+    /// them; this side-table bridges the gap WITHOUT unifying classes
+    /// (preserves "different RC slot" architectural rule).
+    project_alias_sources: FxHashMap<ArcVarId, ProjectSources>,
 
     /// SSA-alias equivalence-class table (BUG-04-104). Sparse: only entries
     /// for variables participating in a multi-member class (singletons
@@ -404,6 +441,7 @@ impl AimsStateMap {
             invoke_edge_states: FxHashMap::default(),
             borrow_sources: FxHashMap::default(),
             apply_result_aliases: FxHashMap::default(),
+            project_alias_sources: FxHashMap::default(),
             ssa_alias_classes: FxHashMap::default(),
             class_members: FxHashMap::default(),
             class_apply_alias_source_candidates: FxHashMap::default(),
@@ -765,6 +803,35 @@ impl AimsStateMap {
     /// invariant).
     pub fn set_apply_result_aliases(&mut self, aliases: FxHashMap<ArcVarId, ApplyAliasSource>) {
         self.apply_result_aliases = aliases;
+    }
+
+    // Project-derived alias graph (BUG-04-118 §05 Round 3 Option A)
+
+    /// Read-only borrow of the entire Project-derived alias source map.
+    ///
+    /// Consumed by `class_lifetime_extends_past_path_sensitive` (in the
+    /// post-convergence pass) to widen the A-live witness set with Project-
+    /// derived aliases of B-members; the predicate iterates this map's
+    /// entries and treats any var whose `ProjectSources` intersect any
+    /// B-member as an extended A-witness.
+    #[must_use]
+    pub(crate) fn project_alias_sources(&self) -> &FxHashMap<ArcVarId, ProjectSources> {
+        &self.project_alias_sources
+    }
+
+    /// Bulk-install the pre-computed Project-derived alias source map.
+    ///
+    /// Called once per function during `analyze_function`'s pre-walk setup,
+    /// AFTER `compute_project_alias_sources` runs. The local map is also
+    /// kept by `analyze_function` for `propagate_project_source_demand`
+    /// during the worklist; this setter persists a clone on the state map
+    /// so the post-convergence pass can consume it after lattice
+    /// convergence. Read-only after this point per PL-5.
+    pub(crate) fn set_project_alias_sources(
+        &mut self,
+        sources: FxHashMap<ArcVarId, ProjectSources>,
+    ) {
+        self.project_alias_sources = sources;
     }
 
     /// Whether `var` is the destination of an Apply/Invoke whose callee

@@ -70,7 +70,7 @@ pub(crate) fn extract_contract(
     // `Project { value: param's var, field }`. The Owned-only invariant
     // (Plan TPR Round 3 codex F1) is enforced by extending `consumed_params`
     // to include Project-Return params, which promotes their access to Owned.
-    let (consumed_params, return_flow_params, return_alias_shapes) =
+    let (consumed_params, return_flow_params, return_alias_shapes, payload_containment_params) =
         detect_param_facts(func, sigs, &param_vars);
 
     let params: Vec<ParamContract> = func
@@ -128,6 +128,15 @@ pub(crate) fn extract_contract(
                 // `transfers_through_return == true`
                 // IFF `return_alias == Some(Direct)`.
                 return_alias,
+                // BUG-04-118: structural payload-containment fact —
+                // populated by `find_payload_containment_params` for the
+                // case where the param flows into a returned transitive-
+                // drop variant payload (e.g., `wrap_ok(m) = Ok(m)`).
+                // Distinct from `return_alias` (Direct/Project), which
+                // covers the case where the result IS an alias of the
+                // param. Consumed by `populate_class_payload_of_with_liveness`
+                // gate at `intraprocedural/post_convergence.rs`.
+                return_payload_contains_param: payload_containment_params.contains(&i),
             }
         })
         .collect();
@@ -298,11 +307,13 @@ fn detect_param_facts(
     FxHashSet<usize>,
     FxHashSet<usize>,
     FxHashMap<usize, ReturnAliasShape>,
+    FxHashSet<usize>,
 ) {
     let alias_to_param = build_alias_to_param_map(func, param_vars, Some(sigs));
     let mut consumed = find_consumed_via_callees(func, sigs, &alias_to_param);
     let return_flow = find_return_flow_params(func, &alias_to_param);
     let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param);
+    let payload_containment = find_payload_containment_params(func, &alias_to_param);
     // Direct-return params are promoted to Owned (Lean 4 `ownParamsUsingArgs`
     // pattern): the param IS the returned value, so the caller takes
     // ownership of the param's allocation through the return slot.
@@ -313,8 +324,19 @@ fn detect_param_facts(
     // Uniqueness. Caller-side dec-suppression (when the caller passes the
     // arg Owned) is handled by `apply_aliases::install_alias_entry` reading
     // `ParamContract.return_alias`, independent of the param's own access.
+    //
+    // Payload-containment params are NOT promoted to Owned: the param is
+    // contained IN a returned construct, not aliased TO the result. The
+    // caller's edge-recording gate (post_convergence.rs) reads
+    // `return_payload_contains_param` to record the class_payload_of edge
+    // even for Borrowed-access params.
     consumed.extend(&return_flow);
-    (consumed, return_flow, return_alias_shapes)
+    (
+        consumed,
+        return_flow,
+        return_alias_shapes,
+        payload_containment,
+    )
 }
 
 /// Compute `ReturnAliasShape` for every param that flows to a Return
@@ -637,6 +659,125 @@ fn find_return_flow_params(
         }
     }
     return_flow
+}
+
+/// Detect parameters that flow into a transitive-drop variant payload that
+/// is returned (BUG-04-118 path-c population).
+///
+/// Walks each `Return { value }` terminator, traces `value` to its defining
+/// instruction, and when that instruction is `Construct { ctor, args, .. }`
+/// or `PartialApply { args, .. }` whose result is a transitive-drop variant,
+/// records every parameter whose alias appears in `args`.
+///
+/// Distinct from `find_return_flow_params` (Direct return — `Return { v }`
+/// where `v` aliases a param) and from `find_return_alias_shapes` (which
+/// records `Direct` / `Project` aliasing where the result IS an alias of
+/// the param). This function captures the case where the result CONTAINS
+/// the param as a constructed variant payload — e.g.,
+/// `@wrap_ok (m: T) -> Result<T, E> = Ok(m)`. Here `m` is contained in
+/// `Ok(m)`'s payload, but the result is NOT an alias of `m`; it's a fresh
+/// allocation whose RC slot encloses `m`'s.
+///
+/// Used by `extract_contract` to populate
+/// `ParamContract::return_payload_contains_param`, which the
+/// `populate_class_payload_of_with_liveness` gate at
+/// `intraprocedural/post_convergence.rs` consumes to decide whether to
+/// record a `class_payload_of` edge for the param even when its access is
+/// `Borrowed`.
+fn find_payload_containment_params(
+    func: &ArcFunction,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> FxHashSet<usize> {
+    let return_values: FxHashSet<ArcVarId> = func
+        .blocks
+        .iter()
+        .filter_map(|b| match &b.terminator {
+            ArcTerminator::Return { value } => Some(*value),
+            _ => None,
+        })
+        .collect();
+    if return_values.is_empty() {
+        return FxHashSet::default();
+    }
+    let def_map = build_definition_map(func);
+    let mut containment: FxHashSet<usize> = FxHashSet::default();
+    for &ret_var in &return_values {
+        // Trace through Let { Var } aliases to find the defining
+        // Construct/PartialApply (if any).
+        let mut current = ret_var;
+        let mut visited: FxHashSet<ArcVarId> = FxHashSet::default();
+        loop {
+            if !visited.insert(current) {
+                break; // cycle guard
+            }
+            let Some(instr) = def_map.get(&current) else {
+                break;
+            };
+            match instr {
+                ArcInstr::Let {
+                    value: crate::ir::ArcValue::Var(v),
+                    ..
+                } => {
+                    current = *v;
+                }
+                ArcInstr::Construct {
+                    dst, ctor, args, ..
+                } => {
+                    // Phase ordering: var_rc_strategies is not populated
+                    // during interprocedural contract extraction (it's
+                    // computed later in the per-function pipeline).
+                    // We use CtorKind as a structural proxy: EnumVariant
+                    // is the ctor that yields transitive-drop variant
+                    // payloads. The consumer
+                    // `populate_class_payload_of_with_liveness` re-checks
+                    // is_transitive_drop_strategy on the call dst at the
+                    // caller's site, so being permissive here only
+                    // populates the contract field; the gate guards real
+                    // edge recording.
+                    let is_variant = matches!(ctor, crate::ir::CtorKind::EnumVariant { .. });
+                    tracing::debug!(
+                        func = ?func.name,
+                        ret_var = ret_var.raw(),
+                        dst = dst.raw(),
+                        is_variant_ctor = is_variant,
+                        "BUG-04-118 path-c: payload-containment Construct candidate"
+                    );
+                    if !is_variant {
+                        break;
+                    }
+                    for arg in args {
+                        if let Some(param_indices) = alias_to_param.get(arg) {
+                            for &idx in param_indices {
+                                containment.insert(idx);
+                                tracing::debug!(
+                                    func = ?func.name,
+                                    arg = arg.raw(),
+                                    param_idx = idx,
+                                    "BUG-04-118 path-c: param flows into returned transitive-drop payload"
+                                );
+                            }
+                        }
+                    }
+                    break;
+                }
+                ArcInstr::PartialApply { args, .. } => {
+                    // PartialApply produces a closure environment, which
+                    // is a transitive-drop container per CtorKind::Closure
+                    // semantics in the realize-side strategy assignment.
+                    for arg in args {
+                        if let Some(param_indices) = alias_to_param.get(arg) {
+                            for &idx in param_indices {
+                                containment.insert(idx);
+                            }
+                        }
+                    }
+                    break;
+                }
+                _ => break,
+            }
+        }
+    }
+    containment
 }
 
 // Return info extraction
