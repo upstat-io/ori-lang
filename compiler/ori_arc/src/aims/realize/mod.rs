@@ -21,6 +21,7 @@
 //! - Perceus (Reinking et al., PLDI 2021): unified RC + reuse
 //! - FP² (Marshall et al., ESOP 2022): FIP-guided reuse decisions
 
+mod cleanup_redundant;
 pub mod decide;
 mod emit_unified;
 pub mod metrics;
@@ -29,6 +30,8 @@ mod project_escape;
 mod tests;
 mod walk;
 mod walk_dec;
+
+pub(crate) use cleanup_redundant::cleanup_redundant_project_alias_decs;
 
 use ori_ir::Name;
 use ori_types::Pool;

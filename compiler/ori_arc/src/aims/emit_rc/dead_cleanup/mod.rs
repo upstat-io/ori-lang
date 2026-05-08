@@ -466,10 +466,10 @@ fn pin6_same_emission_covers(
     }
     // BUG-04-118 §05 — Project-alias seed (companion to walk_dec.rs).
     // Narrowed trigger matches body walker: class_payload_of empty AND
-    // var is the dead-block-param being decremented. Strategy gate at
-    // line 484 (InlineEnum-only) preserved. PIN-2 preserved (no class
-    // merge). See walk_dec.rs::pin6_any_ancestor_will_cover for the full
-    // soundness rationale.
+    // var is the dead-block-param being decremented. Strategy gate
+    // (InlineEnum-only) preserved. PIN-2 preserved (no class merge). See
+    // walk_dec.rs::pin6_any_ancestor_will_cover for the full soundness
+    // rationale.
     if existing_parents.is_none() {
         let is_singleton = match ctx.state_map.class_members(class_id) {
             Some(members) => members.len() == 1,
