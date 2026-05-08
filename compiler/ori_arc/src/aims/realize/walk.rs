@@ -210,6 +210,7 @@ pub(super) fn walk_body_unified(
                     if super::walk_dec::pin6_any_ancestor_will_cover(
                         ctx,
                         class_id,
+                        var,
                         instr_idx,
                         &pin6_classes_dying_here,
                     ) {

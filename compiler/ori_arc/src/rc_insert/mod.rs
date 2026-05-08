@@ -16,7 +16,7 @@
 //! - Swift: `lib/SILOptimizer/ARC/`
 
 mod annotate;
-mod closure_resolve;
+pub(crate) mod closure_resolve;
 
 pub use self::annotate::annotate_arg_ownership;
 

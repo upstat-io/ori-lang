@@ -321,6 +321,12 @@ pub fn analyze_function(
     // FIRST so subsequent post-convergence passes see the path-sensitive
     // edge map (none read it today, but ordering is defensive).
     post_convergence::populate_class_payload_of_with_liveness(func, sigs, &mut state_map);
+    // BUG-04-118 §05 Round 2 /tp-help: typed same-class dec obligation table
+    // for path-sensitive same-slot dec dedup across Let{Var} / Jump arg /
+    // Conditional alias chains. Mirrors class_payload_of's path-sensitive
+    // analysis but operates on intra-class member liveness rather than
+    // parent/child class containment. Consumed by walk_dec.rs::class_alive_after.
+    post_convergence::populate_class_dec_obligations(&mut state_map, func);
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);
     post_convergence::populate_sparse_events(&mut state_map, func);

@@ -421,7 +421,7 @@ fn emit_dead_block_param_decs(
         // generic forwarder cases where the parent's drop is the ONLY dec).
         if pin6_classes_dying_here.len() >= 2 {
             if let Some(class_id) = ctx.state_map.ssa_alias_class_of(param_var) {
-                if pin6_same_emission_covers(ctx, class_id, &pin6_classes_dying_here) {
+                if pin6_same_emission_covers(ctx, class_id, param_var, &pin6_classes_dying_here) {
                     continue;
                 }
             }
@@ -455,12 +455,38 @@ fn emit_dead_block_param_decs(
 fn pin6_same_emission_covers(
     ctx: &super::helpers::BlockCtx<'_>,
     class_id: u32,
+    var: crate::ir::ArcVarId,
     classes_dying_here: &rustc_hash::FxHashMap<u32, rustc_hash::FxHashSet<crate::ir::ArcVarId>>,
 ) -> bool {
     let mut visited: rustc_hash::FxHashSet<u32> = rustc_hash::FxHashSet::default();
     let mut queue: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
-    if let Some(parents) = ctx.state_map.class_payload_of(class_id) {
+    let existing_parents = ctx.state_map.class_payload_of(class_id);
+    if let Some(parents) = existing_parents {
         queue.extend(parents.iter().copied());
+    }
+    // BUG-04-118 §05 — Project-alias seed (companion to walk_dec.rs).
+    // Narrowed trigger matches body walker: class_payload_of empty AND
+    // var is the dead-block-param being decremented. Strategy gate at
+    // line 484 (InlineEnum-only) preserved. PIN-2 preserved (no class
+    // merge). See walk_dec.rs::pin6_any_ancestor_will_cover for the full
+    // soundness rationale.
+    if existing_parents.is_none() {
+        let is_singleton = match ctx.state_map.class_members(class_id) {
+            Some(members) => members.len() == 1,
+            None => class_id == var.raw(),
+        };
+        if is_singleton {
+            if let Some(sources) = ctx.state_map.project_alias_sources().get(&var) {
+                for &source_var in sources {
+                    if let Some(source_class) = ctx.state_map.ssa_alias_class_of(source_var) {
+                        queue.push_back(source_class);
+                        if let Some(source_parents) = ctx.state_map.class_payload_of(source_class) {
+                            queue.extend(source_parents.iter().copied());
+                        }
+                    }
+                }
+            }
+        }
     }
     while let Some(parent_class) = queue.pop_front() {
         if !visited.insert(parent_class) {

@@ -161,6 +161,37 @@ pub enum ApplyAliasSource {
     Conditional { candidates: Vec<ArcVarId> },
 }
 
+/// BUG-04-118 §05 Round 2 /tp-help — same-class dec obligation entry.
+///
+/// Per `(block, class_id)`, records ordered intra-block dec obligation
+/// points for class members + the set of class members live at block exit.
+/// Consumed by `walk_dec.rs::class_alive_after` for path-sensitive
+/// same-slot dec dedup across `Let{Var}` / `Jump` arg / `Conditional`
+/// alias chains.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ClassObligationEntry {
+    /// Ordered `(var, instr_idx)` tuples for class members whose last-use
+    /// happens in this block. Sorted by `instr_idx` ascending. The
+    /// `instr_idx == block.body.len()` value indicates last-use is in
+    /// the terminator. Empty when no class member dies within this block.
+    pub(crate) intra_block_obligations: Vec<(ArcVarId, usize)>,
+
+    /// Set of class members live at block exit (continuing into successor
+    /// blocks). Non-empty when class has cross-block lifetime; the
+    /// successor block's obligation entry will fire the canonical class
+    /// dec.
+    ///
+    /// Currently populated but NOT consulted by `class_alive_after` — the
+    /// existing `pin4_class_emits_dec_set` + canonical-rep selection
+    /// already coordinates cross-block decs. Retained for future
+    /// refinement (e.g., scheduling when intra-class spans many blocks).
+    #[allow(
+        dead_code,
+        reason = "populated for future cross-block obligation refinement; not yet consulted by class_alive_after"
+    )]
+    pub(crate) block_exit_members: FxHashSet<ArcVarId>,
+}
+
 // State map
 
 /// Complete analysis result for a function.
@@ -301,6 +332,21 @@ pub struct AimsStateMap {
     /// [`ssa_alias_classes::compute_ssa_alias_classes`]: super::ssa_alias_classes::compute_ssa_alias_classes
     /// [`is_transitive_drop_strategy`]: crate::ir::is_transitive_drop_strategy
     class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
+
+    /// BUG-04-118 §05 Round 2 /tp-help — same-class dec obligation table.
+    ///
+    /// Per `(block, class_id)`, the ordered intra-block dec obligation
+    /// points + block-exit members. Consumed by
+    /// `walk_dec.rs::class_alive_after` for path-sensitive same-slot dec
+    /// dedup. Populated POST-CONVERGENCE by
+    /// [`populate_class_dec_obligations`](super::post_convergence::populate_class_dec_obligations);
+    /// read-only thereafter (PL-5 no-stale-summary invariant). AIMS
+    /// Invariant #5(c) — typed pre-pass input on `AimsStateMap`.
+    ///
+    /// Sparse: only entries for `(block, class_id)` pairs where ≥1 class
+    /// member has a last-use in the block OR ≥1 class member is live at
+    /// block exit.
+    class_dec_obligations: FxHashMap<(ArcBlockId, u32), ClassObligationEntry>,
 
     /// Sparse event table: special-interest program points, indexed by block.
     events: FxHashMap<ArcBlockId, Vec<AimsEvent>>,
@@ -446,6 +492,7 @@ impl AimsStateMap {
             class_members: FxHashMap::default(),
             class_apply_alias_source_candidates: FxHashMap::default(),
             class_payload_of: FxHashMap::default(),
+            class_dec_obligations: FxHashMap::default(),
             events: FxHashMap::default(),
             scalars: vec![false; num_vars],
             immortals: vec![false; num_vars],
@@ -914,6 +961,28 @@ impl AimsStateMap {
     /// here (BUG-04-118 Option D §05.0a).
     pub(crate) fn set_class_payload_of(&mut self, payload_map: FxHashMap<u32, FxHashSet<u32>>) {
         self.class_payload_of = payload_map;
+    }
+
+    /// Return the `class_dec_obligations` table (BUG-04-118 §05 Round 2).
+    ///
+    /// Empty by default; populated by the post-convergence pass
+    /// `populate_class_dec_obligations` when multi-member SSA alias classes
+    /// require path-sensitive same-slot dec dedup. Consumed by
+    /// `walk_dec.rs::class_alive_after`.
+    pub(crate) fn class_dec_obligations(
+        &self,
+    ) -> &FxHashMap<(ArcBlockId, u32), ClassObligationEntry> {
+        &self.class_dec_obligations
+    }
+
+    /// Install the `class_dec_obligations` table after post-convergence
+    /// computation. BUG-04-118 §05 Round 2 /tp-help — typed pre-pass input
+    /// on `AimsStateMap` per AIMS Invariant #5(c). Read-only thereafter.
+    pub(crate) fn set_class_dec_obligations(
+        &mut self,
+        obligations: FxHashMap<(ArcBlockId, u32), ClassObligationEntry>,
+    ) {
+        self.class_dec_obligations = obligations;
     }
 
     /// Materialize a singleton `class_members` entry for `class_id` if absent.

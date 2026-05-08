@@ -155,6 +155,41 @@ pub(crate) fn compute_project_alias_sources(
                 }
             }
 
+            // BUG-04-118 §05 Round 5 Rule 6 (per aims-rules.md §1.9 nested
+            // Project transitivity): `%dst = Project %src.field`, where %src
+            // has sources S → `%dst → [%src] ∪ S`. Step 1 only seeded
+            // `%dst → [%src]` (the direct value); the transitive ∪ S
+            // extension happens here in the fixed-point loop so multi-hop
+            // Project chains (e.g., `let inner = Project result.payload[0];
+            // let extracted = Let Var(inner); let next = Project extracted.X`)
+            // correctly carry the original aggregate's source through.
+            //
+            // Without this rule, `class_lifetime_extends_past_path_sensitive`
+            // cannot see that `next`'s liveness extends `result`'s lifetime,
+            // and the m→result edge fires PIN-6 over-suppression on the
+            // canonical apply-aliased dec for nested-projection shapes.
+            for instr in &block.body {
+                if let ArcInstr::Project {
+                    dst, value: src, ..
+                } = instr
+                {
+                    if let Some(src_sources) = alias_sources.get(src).cloned() {
+                        changed |= merge_sources(&mut alias_sources, *dst, &src_sources);
+                    }
+                }
+            }
+
+            // BUG-04-118 §05 Round 5 Rule 5 (Select alias propagation per
+            // aims-rules.md §1.9): DEFERRED. Initial implementation
+            // empirically regressed `generics::test_path_sensitive_select_*`
+            // tests (12 failures vs 11 baseline). Select propagation
+            // over-extends the alias chain in path-sensitive shapes where
+            // the operands are mutually-exclusive aliases of different
+            // aggregates; the predicate then over-triggers SKIP on edges
+            // that should record. Needs narrower trigger condition (e.g.,
+            // restrict to Selects whose operands trace to the same parent
+            // aggregate). Tracked in §05 HISTORY for follow-up.
+
             // Jump arg → target block param edges (phi-like renaming).
             if let ArcTerminator::Jump { target, args } = &block.terminator {
                 let target_idx = target.index();

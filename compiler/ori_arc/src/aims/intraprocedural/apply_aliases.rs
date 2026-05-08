@@ -88,9 +88,14 @@ pub(crate) fn build_let_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, Arc
 /// destination when the callee's contract carries `return_alias != None` for
 /// one or more params.
 ///
-/// Indirect calls (`ApplyIndirect`/`InvokeIndirect`) have no contract and
-/// produce no entry — fresh-allocation semantics per the conservative TF-5a /
-/// TF-6c default.
+/// Indirect calls (`ApplyIndirect`/`InvokeIndirect`) are bridged via
+/// `closure_resolve::resolve_to_partial_apply_idx_eq`: when the closure
+/// resolves to a known `PartialApply { func, capture_args }`, the captured
+/// args are prepended to the user-args (`[capture_args..., user_args...]`)
+/// and that combined list is matched against the resolved target's contract
+/// in `sigs`. Unresolvable closures (opaque parameter, conflicting merges,
+/// cycles) yield no entry — fresh-allocation semantics per TF-5a / TF-6c.
+/// (BUG-04-118 §05 closure bridge — Round 5 codex Cure A.)
 ///
 /// Empty when no in-scope callee transfers ownership through return — the
 /// returned map allocates nothing in the common case.
@@ -99,30 +104,79 @@ pub(crate) fn populate_apply_result_aliases(
     sigs: &FxHashMap<Name, MemoryContract>,
 ) -> FxHashMap<ArcVarId, ApplyAliasSource> {
     let mut result = FxHashMap::default();
+
+    // Build the closure def-map ONCE per function. Used by ApplyIndirect /
+    // InvokeIndirect resolution to trace closure vars through `Let Var` /
+    // `Jump` block-param chains back to a `PartialApply` origin.
+    let closure_def_map = crate::rc_insert::closure_resolve::build_closure_def_map(&func.blocks);
+
     for block in &func.blocks {
         for instr in &block.body {
-            if let ArcInstr::Apply {
+            match instr {
+                ArcInstr::Apply {
+                    dst,
+                    func: callee,
+                    args,
+                    ..
+                } => {
+                    if let Some(contract) = sigs.get(callee) {
+                        install_alias_entry(&mut result, *dst, args, contract);
+                    }
+                }
+                ArcInstr::ApplyIndirect {
+                    dst, closure, args, ..
+                } => {
+                    if let Some((target, capture_args)) =
+                        crate::rc_insert::closure_resolve::resolve_to_partial_apply_idx_eq(
+                            *closure,
+                            &closure_def_map,
+                            &func.var_types,
+                        )
+                    {
+                        if let Some(contract) = sigs.get(&target) {
+                            // Combined arg list mirrors the PartialApply'd
+                            // function's signature: capture-params first,
+                            // then user-params. Same ordering used by
+                            // `rc_insert::annotate::resolve_indirect_arg_ownership`
+                            // when reusing the direct-call ownership path.
+                            let mut combined = capture_args;
+                            combined.extend_from_slice(args);
+                            install_indirect_alias_entry(&mut result, *dst, &combined, contract);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        match &block.terminator {
+            ArcTerminator::Invoke {
                 dst,
                 func: callee,
                 args,
                 ..
-            } = instr
-            {
+            } => {
                 if let Some(contract) = sigs.get(callee) {
                     install_alias_entry(&mut result, *dst, args, contract);
                 }
             }
-        }
-        if let ArcTerminator::Invoke {
-            dst,
-            func: callee,
-            args,
-            ..
-        } = &block.terminator
-        {
-            if let Some(contract) = sigs.get(callee) {
-                install_alias_entry(&mut result, *dst, args, contract);
+            ArcTerminator::InvokeIndirect {
+                dst, closure, args, ..
+            } => {
+                if let Some((target, capture_args)) =
+                    crate::rc_insert::closure_resolve::resolve_to_partial_apply_idx_eq(
+                        *closure,
+                        &closure_def_map,
+                        &func.var_types,
+                    )
+                {
+                    if let Some(contract) = sigs.get(&target) {
+                        let mut combined = capture_args;
+                        combined.extend_from_slice(args);
+                        install_indirect_alias_entry(&mut result, *dst, &combined, contract);
+                    }
+                }
             }
+            _ => {}
         }
     }
     result
@@ -185,7 +239,54 @@ fn install_alias_entry(
         .filter(|(_, p)| p.return_alias.is_some() || p.return_payload_contains_param)
         .map(|(i, _)| i)
         .collect();
+    install_alias_entry_inner(result, dst, args, contract, &aliasing_params, false);
+}
 
+/// BUG-04-118 §05 closure-bridge install path for `ApplyIndirect` /
+/// `InvokeIndirect`. Maps every aliasing param shape to `Wrapped(arg)`
+/// regardless of `return_alias` discriminant.
+///
+/// **Why Wrapped, not Direct:** for direct calls, `Direct(arg)` triggers
+/// `uf.union(dst, arg)` in `compute_ssa_alias_classes` so the caller's
+/// arg and call result share an RC slot — correct for single-call
+/// semantics like `let r = id(x)`. For indirect closure calls,
+/// the closure can be invoked N times (`first = lookup()`, `second =
+/// lookup()`); union'ing every result with the captured arg into one
+/// class produces N scope-exit decs against a single underlying inc,
+/// causing double-free on the captured allocation. The `Wrapped` variant
+/// preserves the per-call result class while suppressing only the
+/// caller's redundant canonical dec on the captured arg via
+/// `should_suppress_apply_aliased_dec` — same shape used by the
+/// `wrap_ok(m: m) = Ok(m)` containment case (BUG-04-118 §05 Round 4).
+fn install_indirect_alias_entry(
+    result: &mut FxHashMap<ArcVarId, ApplyAliasSource>,
+    dst: ArcVarId,
+    args: &[ArcVarId],
+    contract: &MemoryContract,
+) {
+    let aliasing_params: Vec<usize> = contract
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.return_alias.is_some() || p.return_payload_contains_param)
+        .map(|(i, _)| i)
+        .collect();
+    install_alias_entry_inner(result, dst, args, contract, &aliasing_params, true);
+}
+
+/// Shared install body. `force_wrapped = true` collapses every
+/// single-param shape (`Direct` / `Project` / `containment`) to
+/// `ApplyAliasSource::Wrapped(consumed_arg)` for the indirect-call
+/// path; `false` preserves the discriminant per the original direct-
+/// call install logic.
+fn install_alias_entry_inner(
+    result: &mut FxHashMap<ArcVarId, ApplyAliasSource>,
+    dst: ArcVarId,
+    args: &[ArcVarId],
+    contract: &MemoryContract,
+    aliasing_params: &[usize],
+    force_wrapped: bool,
+) {
     match aliasing_params.len() {
         0 => {
             // No entry — callee return is fresh w.r.t. caller-side aliasing.
@@ -207,19 +308,28 @@ fn install_alias_entry(
             // suppressing the child class's dec.
             let alias_shape_opt = contract.params[param_idx].return_alias;
             let contains = contract.params[param_idx].return_payload_contains_param;
-            let entry = match alias_shape_opt {
-                Some(ReturnAliasShape::Direct) => ApplyAliasSource::Direct(consumed_arg),
-                Some(ReturnAliasShape::Project { field }) => ApplyAliasSource::Project {
-                    arg: consumed_arg,
-                    field,
-                },
-                None if contains => ApplyAliasSource::Wrapped(consumed_arg),
-                None => {
-                    // Filter guarantees at least one of the two flags is true;
-                    // None-and-not-contains contradicts the filter.
-                    unreachable!(
-                        "BUG: aliasing_params filter ensures return_alias.is_some() OR return_payload_contains_param; reached neither branch on param_idx={param_idx}"
-                    )
+            let entry = if force_wrapped {
+                // BUG-04-118 §05 closure-bridge: collapse every single-param
+                // shape to `Wrapped(consumed_arg)`. See
+                // `install_indirect_alias_entry` for the rationale (closure
+                // can be called N times; union'ing every result with the
+                // captured arg double-frees the underlying allocation).
+                ApplyAliasSource::Wrapped(consumed_arg)
+            } else {
+                match alias_shape_opt {
+                    Some(ReturnAliasShape::Direct) => ApplyAliasSource::Direct(consumed_arg),
+                    Some(ReturnAliasShape::Project { field }) => ApplyAliasSource::Project {
+                        arg: consumed_arg,
+                        field,
+                    },
+                    None if contains => ApplyAliasSource::Wrapped(consumed_arg),
+                    None => {
+                        // Filter guarantees at least one of the two flags is true;
+                        // None-and-not-contains contradicts the filter.
+                        unreachable!(
+                            "BUG: aliasing_params filter ensures return_alias.is_some() OR return_payload_contains_param; reached neither branch on param_idx={param_idx}"
+                        )
+                    }
                 }
             };
             result.insert(dst, entry);

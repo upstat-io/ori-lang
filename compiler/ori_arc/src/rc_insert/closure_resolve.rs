@@ -21,7 +21,7 @@ use crate::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 /// variable back to its originating `PartialApply`. Stores only the
 /// minimal data (not `&ArcInstr` references) to avoid borrow conflicts
 /// with the mutable annotation loop.
-pub(super) enum ResolvedDef {
+pub(crate) enum ResolvedDef {
     /// The variable was defined by a `PartialApply` instruction.
     PartialApply {
         func: ori_ir::Name,
@@ -42,7 +42,7 @@ pub(super) enum ResolvedDef {
 ///    and `Other` definitions.
 /// 2. Walk all `Jump` terminators to record block-param → predecessor
 ///    variable mappings.
-pub(super) fn build_closure_def_map(blocks: &[ArcBlock]) -> FxHashMap<ArcVarId, ResolvedDef> {
+pub(crate) fn build_closure_def_map(blocks: &[ArcBlock]) -> FxHashMap<ArcVarId, ResolvedDef> {
     let mut map = FxHashMap::default();
 
     // Pass 1: body instructions.
@@ -116,7 +116,7 @@ pub(super) fn build_closure_def_map(blocks: &[ArcBlock]) -> FxHashMap<ArcVarId, 
 /// block-param merging to compare capture types (not var identity) —
 /// two different vars with the same type produce the same ownership
 /// after `apply_consuming_overrides`.
-pub(super) fn resolve_to_partial_apply(
+pub(crate) fn resolve_to_partial_apply(
     var: ArcVarId,
     def_map: &FxHashMap<ArcVarId, ResolvedDef>,
     var_types: &[ori_types::Idx],
@@ -225,4 +225,89 @@ fn captures_same_override_semantics(
                 .map(|&idx| pool.tag(pool.resolve_fully(idx)));
             tag_a == tag_b
         })
+}
+
+/// Trace a closure variable through SSA defs to find a `PartialApply`,
+/// using `Idx` equality (instead of resolved `Tag` equality) when comparing
+/// captures across `BlockParam` predecessors at diamond CFG merges.
+///
+/// Same termination, cycle-detection, and conflict-fallback semantics as
+/// [`resolve_to_partial_apply`]; the only difference is at `BlockParam` merge
+/// points where two predecessors hold capture vars with the same canonical
+/// tag but different `Idx` (e.g. `List<int>` vs `List<str>`). This variant
+/// returns `None` (conservative fallback) on `Idx` mismatch; the pool-aware
+/// variant accepts via tag equivalence.
+///
+/// Used by `aims/intraprocedural/apply_aliases.rs::populate_apply_result_aliases`
+/// (BUG-04-118 §05 closure `ApplyIndirect` bridge) where pool is not available
+/// at AIMS analysis time per the `var_rc_strategies` cache architecture.
+pub(crate) fn resolve_to_partial_apply_idx_eq(
+    var: ArcVarId,
+    def_map: &FxHashMap<ArcVarId, ResolvedDef>,
+    var_types: &[ori_types::Idx],
+) -> Option<(ori_ir::Name, Vec<ArcVarId>)> {
+    let mut visited = FxHashSet::default();
+    resolve_inner_idx_eq(var, def_map, var_types, &mut visited)
+}
+
+fn resolve_inner_idx_eq(
+    var: ArcVarId,
+    def_map: &FxHashMap<ArcVarId, ResolvedDef>,
+    var_types: &[ori_types::Idx],
+    visited: &mut FxHashSet<ArcVarId>,
+) -> Option<(ori_ir::Name, Vec<ArcVarId>)> {
+    if !visited.insert(var) {
+        return None; // Cycle.
+    }
+
+    match def_map.get(&var) {
+        Some(ResolvedDef::PartialApply { func, capture_args }) => {
+            Some((*func, capture_args.clone()))
+        }
+        Some(ResolvedDef::Alias(src)) => resolve_inner_idx_eq(*src, def_map, var_types, visited),
+        Some(ResolvedDef::BlockParam { predecessors }) => {
+            let mut resolved_target: Option<(ori_ir::Name, Vec<ArcVarId>)> = None;
+            let mut has_non_cycled = false;
+
+            for &pred_var in predecessors {
+                if visited.contains(&pred_var) {
+                    continue;
+                }
+                has_non_cycled = true;
+                let mut pred_visited = visited.clone();
+                let pred_result =
+                    resolve_inner_idx_eq(pred_var, def_map, var_types, &mut pred_visited);
+                match (&resolved_target, pred_result) {
+                    (None, Some(result)) => {
+                        resolved_target = Some(result);
+                    }
+                    (Some((existing_func, existing_captures)), Some((new_func, new_captures))) => {
+                        if *existing_func != new_func
+                            || existing_captures.len() != new_captures.len()
+                            || !captures_same_idx(existing_captures, &new_captures, var_types)
+                        {
+                            return None;
+                        }
+                    }
+                    (_, None) => {
+                        return None;
+                    }
+                }
+            }
+
+            if has_non_cycled {
+                resolved_target
+            } else {
+                None
+            }
+        }
+        Some(ResolvedDef::Other) | None => None,
+    }
+}
+
+fn captures_same_idx(a: &[ArcVarId], b: &[ArcVarId], var_types: &[ori_types::Idx]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b.iter())
+            .all(|(va, vb)| var_types.get(va.index()) == var_types.get(vb.index()))
 }

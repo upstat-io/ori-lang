@@ -155,7 +155,25 @@ fn emit_defined_dead(
         // the per-class checks below redundant (parent's drop covers
         // regardless of whether the dst is also an apply-alias source).
         if let Some(class_id) = ctx.state_map.ssa_alias_class_of(dst) {
-            if pin6_any_ancestor_will_cover(ctx, class_id, instr_idx, classes_dying_here) {
+            if pin6_any_ancestor_will_cover(ctx, class_id, dst, instr_idx, classes_dying_here) {
+                return;
+            }
+        } else if ctx
+            .state_map
+            .project_alias_sources()
+            .get(&dst)
+            .is_some_and(|s| !s.is_empty())
+        {
+            // BUG-04-118 §05 — Project-alias-singleton fallback. Pure
+            // Project destinations are PIN-2 singletons: ssa_alias_class_of
+            // returns None for them. The existing pin6 entry skips. But
+            // their project_alias_sources may surface a transitive-drop
+            // ancestor in another class that covers their RC slot at
+            // scope exit (the canonical nested-Project-chain double-free
+            // shape). Use dst.raw() as the singleton class id; pin6's
+            // own internal singleton-guard fires, the project-alias seed
+            // walks the source chain, and the BFS finds covering parents.
+            if pin6_any_ancestor_will_cover(ctx, dst.raw(), dst, instr_idx, classes_dying_here) {
                 return;
             }
         }
@@ -290,7 +308,30 @@ fn apply_last_use_decision(
                 // collected `classes_dying_here` is the same-emission signal.
                 let pin6_class = ctx.state_map.ssa_alias_class_of(var);
                 if let Some(class_id) = pin6_class {
-                    if pin6_any_ancestor_will_cover(ctx, class_id, instr_idx, classes_dying_here) {
+                    if pin6_any_ancestor_will_cover(
+                        ctx,
+                        class_id,
+                        var,
+                        instr_idx,
+                        classes_dying_here,
+                    ) {
+                        return;
+                    }
+                } else if ctx
+                    .state_map
+                    .project_alias_sources()
+                    .get(&var)
+                    .is_some_and(|s| !s.is_empty())
+                {
+                    // BUG-04-118 §05 — Project-alias-singleton fallback (see
+                    // walk_dec.rs:155+ for full rationale).
+                    if pin6_any_ancestor_will_cover(
+                        ctx,
+                        var.raw(),
+                        var,
+                        instr_idx,
+                        classes_dying_here,
+                    ) {
                         return;
                     }
                 }
@@ -375,17 +416,142 @@ fn class_dec_should_emit(
 /// the dec unbalanced. See `bug-tracker/plans/BUG-04-111/section-05-implementation.md`
 /// HISTORY block for empirical fix delta + remaining-failure classification.
 fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: ArcVarId) -> bool {
+    // First: existing BUG-04-111 §05 Step 4.5 PIN-4 canonical-rep logic.
+    // Preserves the generics::* WIN delta — when pin4_class_emits_dec_set
+    // identifies a canonical emitter for this class, defer to it: suppress
+    // when var != canonical, fire when var == canonical.
     let pin4_emits =
         crate::aims::emit_rc::dead_cleanup::emission_site::pin4_class_emits_dec_set(ctx, false);
-    let _ = instr_idx;
     if let Some(canonical) =
         crate::aims::emit_rc::dead_cleanup::emission_site::canonical_rep_for(class_id, &pin4_emits)
     {
         return canonical != var;
     }
-    // No class member in pin4_class_emits_dec_set → no PIN-4 suppression
-    // (BUG-04-111 §05 Step 4.5 fix — see doc comment above).
+
+    // BUG-04-118 §05 Round 2 /tp-help (Option A refined): when pin4
+    // returns no canonical, consult the typed class_dec_obligations
+    // side-table for same-class dedup. This is the case BUG-04-111 §05
+    // Step 4.5's fix returns false on (preserving its narrow correctness)
+    // but where multi-member SSA alias classes from Let{Var} / Jump arg /
+    // Conditional chains DO have RC obligations that need scheduling.
+    //
+    // Returns true (suppress) when this class has an intra-block
+    // obligation point LATER than instr_idx — the later member's dec
+    // fires the canonical class dec; this var's earlier emission is
+    // redundant and would corrupt the shared RC slot.
+    //
+    // NOT consulting block_exit_members — too aggressive; the existing
+    // emit machinery coordinates cross-block decs via pin4_class_emits_
+    // dec_set + canonical-rep selection.
+    //
+    // Filter: skip classes formed via Direct apply-result-alias union
+    // (apply_result_aliases entry exists for some class member with
+    // `ApplyAliasSource::Direct`) OR classes containing a function
+    // parameter member. Both are transparent-alias-only classes per
+    // AIMS §3 TF-11 — Let{Var} aliases of an owned param/apply-result
+    // are RC-inert; the realize walk emits no actual RC-dec at their
+    // syntactic last-use positions. The existing pin4-based emit
+    // machinery handles their dec scheduling correctly via canonical-
+    // rep selection over actual emission sites; obligation-table
+    // consultation over-suppresses by treating syntactic last-uses
+    // (borrow positions) as if they were real RC-dec obligations.
+    //
+    // Param-member case (BUG-04-118 §05 Round 2 refinement):
+    // `borrow_list_int_project_consumer_then_return_no_leak` callee
+    // forms class {%0(param), %1, %6, %8, %14} via pure Let{Var}
+    // chains of param %0. None of these vars are Apply destinations,
+    // so the Direct-apply-alias check returns false; without the
+    // param-member check, intra-block obligations [(%1, instr_3),
+    // (%8, terminator)] (both borrow-position last-uses) would
+    // suppress the legitimate canonical dec emission, leaking 2 RCs
+    // back to the caller via Return %14.
+    //
+    // Direct-apply-alias case (BUG-04-118 §05 Round 2 original):
+    // `apply_result_aliases[%6] = Direct(%5)` triggers `uf.union(%5, %6)`
+    // forming class {%3, %5, %6, ...}. Same RC-inert semantics —
+    // existing return-transfer + pin4 handle dec scheduling.
+    //
+    // The closure-bridge case (Let{Var} chains of PartialApply result)
+    // has no apply_result_aliases entry on the closure value itself
+    // — only on the indirect-call DESTINATIONS via the `Wrapped`
+    // install — and those destinations live in DIFFERENT classes
+    // (Wrapped does not union). The closure-value class also has no
+    // param member (closures are body-defined values). So the
+    // closure-value class still passes both filters.
+    if class_uses_direct_apply_alias_union(ctx, class_id)
+        || class_contains_param_member(ctx, class_id)
+    {
+        return false;
+    }
+
+    let obligations = ctx.state_map.class_dec_obligations();
+    if let Some(entry) = obligations.get(&(ctx.blk, class_id)) {
+        let later_obligation_exists = entry
+            .intra_block_obligations
+            .iter()
+            .any(|&(other_var, other_idx)| other_var != var && other_idx > instr_idx);
+        if later_obligation_exists {
+            return true;
+        }
+    }
+
+    // No pin4 canonical AND no later obligation → no PIN-4 suppression
+    // (BUG-04-111 §05 Step 4.5 fallback — Let aliases RC-inert per AIMS
+    // lattice when no class member actually emits).
     false
+}
+
+/// BUG-04-118 §05 Round 2 obligation-table filter: detect classes formed
+/// via `Direct` apply-result-alias union (caller-arg unioned with call
+/// result). Returns true when ANY class member has an
+/// `apply_result_aliases` entry with `ApplyAliasSource::Direct(_)` shape.
+///
+/// These classes are scheduled correctly by the existing pin4-based
+/// emit machinery; obligation-table consultation on them over-suppresses
+/// decs and causes leaks (regressed
+/// `borrow_list_int_project_consumer_then_return_no_leak`).
+fn class_uses_direct_apply_alias_union(ctx: &BlockCtx<'_>, class_id: u32) -> bool {
+    use crate::aims::intraprocedural::state_map::ApplyAliasSource;
+    let Some(members) = ctx.state_map.class_members(class_id) else {
+        return false;
+    };
+    let aliases = ctx.state_map.apply_result_aliases();
+    members
+        .iter()
+        .any(|m| matches!(aliases.get(m), Some(ApplyAliasSource::Direct(_))))
+}
+
+/// BUG-04-118 §05 Round 2 obligation-table filter: detect classes
+/// containing a function parameter member. Such classes are formed by
+/// Let{Var} aliases of the param, transitive-alias chains, or both —
+/// per AIMS §3 TF-11 these are transparent-alias semantics, RC-inert.
+///
+/// Function-parameter classes have specific dec scheduling: the param's
+/// initial RC arrives from the caller (transferred via Owned ABI), and
+/// is re-transferred via Return when the function returns the same slot.
+/// The realize walk emits no body-walk decs for these param-aliased
+/// vars — `should_suppress_return_transfer_dec` and `is_owned_at_entry`
+/// gate body-walk emissions correctly.
+///
+/// The obligation-table records syntactic last-uses of Let{Var} aliases
+/// (e.g., `%1` at `Apply __index(%1 [borrow], ...)`) as if they were
+/// real RC-dec obligations. Borrow-position last-uses do NOT emit
+/// decs (per `emit_last_use_decs`'s `is_owned_position` skip), so
+/// these obligations are phantom — consulting the table over-suppresses
+/// the canonical pin4-based emission elsewhere in the chain.
+///
+/// Regressed `borrow_list_int_project_consumer_then_return_no_leak` at
+/// the callee `@borrow_project_then_return(xs: [int]) -> [int]` — class
+/// {%0, %1, %6, %8, %14} contains param %0; obligations [(%1, `idx_3`),
+/// (%8, terminator)] are both borrow-position phantoms. The pin4-based
+/// emission machinery (BUG-04-111 §05 Step 4.5 SSOT) correctly handles
+/// these classes without obligation-table input.
+fn class_contains_param_member(ctx: &BlockCtx<'_>, class_id: u32) -> bool {
+    let Some(members) = ctx.state_map.class_members(class_id) else {
+        return false;
+    };
+    let param_vars: FxHashSet<ArcVarId> = ctx.func.params.iter().map(|p| p.var).collect();
+    members.iter().any(|m| param_vars.contains(m))
 }
 
 /// Record a death event for the reuse planner.
@@ -521,13 +687,64 @@ pub(super) fn collect_classes_dying_here(
 pub(super) fn pin6_any_ancestor_will_cover(
     ctx: &BlockCtx<'_>,
     class_id: u32,
+    var: ArcVarId,
     instr_idx: usize,
     classes_dying_here: &FxHashMap<u32, FxHashSet<ArcVarId>>,
 ) -> bool {
     let mut visited: FxHashSet<u32> = FxHashSet::default();
     let mut queue: VecDeque<u32> = VecDeque::new();
-    if let Some(parents) = ctx.state_map.class_payload_of(class_id) {
+    let existing_parents = ctx.state_map.class_payload_of(class_id);
+    if let Some(parents) = existing_parents {
         queue.extend(parents.iter().copied());
+    }
+    // BUG-04-118 §05 — Project-alias seed (codex Q2 architectural cure for
+    // nested Project chain RED shapes). Narrowed trigger: only fire when
+    // class_payload_of(class_id) is empty — Direct apply-alias union shapes
+    // populate class_payload_of and are handled by the existing pin4 +
+    // obligation-table machinery; additional seeds there over-suppress.
+    // Project destinations like `%value = Project %inner.field` are the
+    // intended target: they have NO class_payload_of edges (PIN-2: Project
+    // doesn't union classes), but DO have project_alias_sources entries
+    // pointing at the original Construct chain via Rule 6 nested-Project
+    // transitivity (`project_aliases.rs` Step 2). Walking those sources
+    // surfaces the transitive-drop ancestor that covers `var`'s RC slot.
+    //
+    // Soundness: a Project chain physically aliases the source's storage
+    // — when the source's Construct chain has a transitive-drop ancestor
+    // that covers its slot (alive_after OR same-emission), the same
+    // coverage applies to the projected destination because the bytes are
+    // physically shared. PIN-2 stays preserved (no class merge); we only
+    // seed the BFS with additional candidate ancestors at query time.
+    //
+    // Use `var` directly (not class_members iteration): `class_value` may
+    // not have a class_members entry at all because ensure_singleton_class
+    // is called only for classes appearing in class_payload_of edges
+    // (population-side at record_payload_edge in post_convergence.rs).
+    // Pure-Project-destination singletons never appear there. Looking up
+    // project_alias_sources by `var` directly bypasses that gap.
+    if existing_parents.is_none() {
+        // Singleton guard — exclude Direct apply-alias union shapes (multi-
+        // member classes) where existing pin4 + obligation-table machinery
+        // owns the dec; firing the project-alias seed there over-suppresses.
+        // Two singleton signals: class_members entry with exactly one member
+        // (post-convergence-materialized), OR class_id == var.raw() (pure
+        // Project destination never put through ensure_singleton_class).
+        let is_singleton = match ctx.state_map.class_members(class_id) {
+            Some(members) => members.len() == 1,
+            None => class_id == var.raw(),
+        };
+        if is_singleton {
+            if let Some(sources) = ctx.state_map.project_alias_sources().get(&var) {
+                for &source_var in sources {
+                    if let Some(source_class) = ctx.state_map.ssa_alias_class_of(source_var) {
+                        queue.push_back(source_class);
+                        if let Some(source_parents) = ctx.state_map.class_payload_of(source_class) {
+                            queue.extend(source_parents.iter().copied());
+                        }
+                    }
+                }
+            }
+        }
     }
     while let Some(parent_class) = queue.pop_front() {
         if !visited.insert(parent_class) {

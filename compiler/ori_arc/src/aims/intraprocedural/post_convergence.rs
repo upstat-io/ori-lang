@@ -915,3 +915,105 @@ pub(crate) fn populate_class_payload_of_with_liveness(
 
     state_map.set_class_payload_of(class_payload_of);
 }
+
+/// BUG-04-118 §05 Round 2 /tp-help — populate the same-class dec obligation
+/// table.
+///
+/// Per multi-member SSA alias class C, per block B: identifies which class
+/// members have last-use within B (intra-block obligations) and which class
+/// members are live at B's exit (continuing into successor blocks). The
+/// resulting `(B, C) → ClassObligationEntry` map is consumed by
+/// `walk_dec.rs::class_alive_after` for path-sensitive same-slot dec dedup
+/// across `Let{Var}` / `Jump` arg / `Conditional` alias chains.
+///
+/// Same-class semantics: members of one class share an RC slot via
+/// `compute_ssa_alias_classes`'s `union_let_aliases` + `Jump` arg → block
+/// param unioning. Emission must schedule one terminal dec per class at
+/// the LAST obligation point. Singleton classes (one member) need no
+/// dedup and are skipped.
+///
+/// Pipeline placement: post-convergence (Step 4.5) alongside
+/// `populate_class_payload_of_with_liveness`. Both consume the converged
+/// `AimsStateMap` lattice + path-sensitive liveness primitive
+/// `is_live_at_exit`. Read-only thereafter (PL-5).
+pub(crate) fn populate_class_dec_obligations(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    use super::state_map::ClassObligationEntry;
+
+    // Build inverse: class_id → set of member vars (only multi-member
+    // classes need dedup).
+    let mut class_to_members: FxHashMap<u32, FxHashSet<ArcVarId>> = FxHashMap::default();
+    for var_idx in 0..func.var_types.len() {
+        let Ok(var_u32) = u32::try_from(var_idx) else {
+            continue;
+        };
+        let var = ArcVarId::new(var_u32);
+        if let Some(class_id) = state_map.ssa_alias_class_of(var) {
+            class_to_members.entry(class_id).or_default().insert(var);
+        }
+    }
+
+    let mut obligations: FxHashMap<(ArcBlockId, u32), ClassObligationEntry> = FxHashMap::default();
+
+    for (class_id, members) in &class_to_members {
+        if members.len() < 2 {
+            continue; // singleton class — no same-class dedup needed.
+        }
+        for blk_idx in 0..func.blocks.len() {
+            let Ok(blk_u32) = u32::try_from(blk_idx) else {
+                continue;
+            };
+            let blk = ArcBlockId::new(blk_u32);
+            let block = &func.blocks[blk_idx];
+
+            let mut intra_block_obligations: Vec<(ArcVarId, usize)> = Vec::new();
+            let mut block_exit_members: FxHashSet<ArcVarId> = FxHashSet::default();
+
+            for &member in members {
+                // Member live at block exit → obligation rolls forward to
+                // successor block; no intra-block dec for this member here.
+                if crate::aims::emit_rc::is_live_at_exit(state_map, blk, member) {
+                    block_exit_members.insert(member);
+                    continue;
+                }
+
+                // Member dies in this block: find last-use instr_idx.
+                // Terminator usage takes priority (instr_idx = body.len());
+                // otherwise scan body in reverse for first use.
+                let last_use = if block.terminator.used_vars().contains(&member) {
+                    Some(block.body.len())
+                } else {
+                    block
+                        .body
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find_map(|(idx, instr)| instr.used_vars().contains(&member).then_some(idx))
+                };
+
+                if let Some(idx) = last_use {
+                    intra_block_obligations.push((member, idx));
+                }
+            }
+
+            intra_block_obligations.sort_by_key(|&(_, idx)| idx);
+
+            if !intra_block_obligations.is_empty() || !block_exit_members.is_empty() {
+                obligations.insert(
+                    (blk, *class_id),
+                    ClassObligationEntry {
+                        intra_block_obligations,
+                        block_exit_members,
+                    },
+                );
+            }
+        }
+    }
+
+    tracing::debug!(
+        target: "ori_arc::aims::intraprocedural::post_convergence",
+        "BUG-04-118 §05 Round 2 populate_class_dec_obligations installed table with {} entries",
+        obligations.len()
+    );
+
+    state_map.set_class_dec_obligations(obligations);
+}
