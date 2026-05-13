@@ -1,15 +1,18 @@
 //! Burden trait + `BurdenRef` bridge unifying builtin + user burden specs.
 //!
-//! Per `plans/aims-burden-tracking/decisions/05-burdenspec-storage-model.md`:
-//! the `Burden` trait is the consumer-facing surface Phase 5 emission queries
+//! The `Burden` trait is the consumer-facing surface Phase 5 emission queries
 //! regardless of whether the underlying burden comes from a pure-const
 //! `BuiltinBurdenSpec` or a heap-backed `UserBurdenSpec`.
 //!
-//! Per Round-3 codex-F1 cure: trait methods return `Box<dyn Iterator>` over
-//! view types so each variant can construct views on-demand from its native
-//! storage (static slice vs `Vec`) — no intermediate `Vec<View>`
-//! materialization. View types use `Cow<'a, [u32]>` to unify
-//! `&'static [u32]` (builtin) and `&'a [u32]` (user) field paths.
+//! Trait methods (`owned_fields` / `borrowed_fields` / `variant_burdens`)
+//! return `Box<dyn Iterator>` over view types so each variant constructs the
+//! top-level traversal on-demand from its native storage (static slice vs
+//! `Vec`) without allocating a `Vec<View>` for the outer collection. Nested
+//! per-variant structure (`VariantBurdenView`) does materialize inner
+//! `Vec<TransferRuleView>` and `Vec<OwnedFieldView>` because the variant
+//! shape requires the nested rows be addressable. View types use
+//! `Cow<'a, [u32]>` to unify `&'static [u32]` (builtin) and `&'a [u32]`
+//! (user) field paths.
 
 use std::borrow::Cow;
 
@@ -18,7 +21,7 @@ use ori_registry::burden::{
     VariantBurden, VariantId,
 };
 use ori_types::burden::{
-    BorrowedFieldOwned, OwnedFieldOwned, TransferRuleOwned, UserBurdenSpec, VariantBurdenOwned,
+    UserBorrowedField, UserBurdenSpec, UserOwnedField, UserTransferRule, UserVariantBurden,
 };
 use ori_types::Idx;
 
@@ -89,7 +92,7 @@ pub enum BurdenRef<'a> {
     User(&'a UserBurdenSpec),
 }
 
-// === View construction helpers ===
+// View construction helpers — builtin path.
 
 fn view_from_builtin_owned<'a>(field: &OwnedField) -> OwnedFieldView<'a> {
     OwnedFieldView {
@@ -130,21 +133,21 @@ fn view_from_builtin_variant<'a>(v: &VariantBurden) -> VariantBurdenView<'a> {
     }
 }
 
-fn view_from_user_owned(field: &OwnedFieldOwned) -> OwnedFieldView<'_> {
+fn view_from_user_owned(field: &UserOwnedField) -> OwnedFieldView<'_> {
     OwnedFieldView {
         field_path: Cow::Borrowed(&field.field_path),
         field_type: TypeRef::User(field.field_type),
     }
 }
 
-fn view_from_user_borrowed(field: &BorrowedFieldOwned) -> BorrowedFieldView<'_> {
+fn view_from_user_borrowed(field: &UserBorrowedField) -> BorrowedFieldView<'_> {
     BorrowedFieldView {
         field_path: Cow::Borrowed(&field.field_path),
         field_type: TypeRef::User(field.field_type),
     }
 }
 
-fn view_from_user_transfer(rule: &TransferRuleOwned) -> TransferRuleView<'_> {
+fn view_from_user_transfer(rule: &UserTransferRule) -> TransferRuleView<'_> {
     TransferRuleView {
         source_field_path: Cow::Borrowed(&rule.source_field_path),
         binding_index: rule.binding_index,
@@ -153,7 +156,7 @@ fn view_from_user_transfer(rule: &TransferRuleOwned) -> TransferRuleView<'_> {
     }
 }
 
-fn view_from_user_variant(v: &VariantBurdenOwned) -> VariantBurdenView<'_> {
+fn view_from_user_variant(v: &UserVariantBurden) -> VariantBurdenView<'_> {
     VariantBurdenView {
         variant_id: v.variant_id,
         transfers_on_match: v

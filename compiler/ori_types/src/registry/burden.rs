@@ -1,18 +1,14 @@
 //! Heap-backed burden specifications for user-defined types.
 //!
-//! Per `plans/aims-burden-tracking/decisions/05-burdenspec-storage-model.md`:
-//! mirrors `ori_registry::burden::BuiltinBurdenSpec` but uses `Vec<...>` and
+//! Mirrors `ori_registry::burden::BuiltinBurdenSpec` but uses `Vec<...>` and
 //! `Idx` (instead of `&'static [...]` and the registry-local `TypeId`).
 //!
 //! `TransferKind`, `FnSym`, and `VariantId` are re-exported from
 //! `ori_registry::burden` — shared between builtin and user paths.
 
-// Burden data structures consumed by §01.3 (TypeEntry.burden field) and §01.4
-// (lookup_burden helper). Types defined here so §01.1 can land independently of
-// the consumer-side wiring per plan ordering. §01.3 will remove the allow.
 #![allow(
     dead_code,
-    reason = "consumed by §01.3 TypeEntry.burden field; staging types ahead of consumer per plan ordering"
+    reason = "staging types ahead of consumer wiring; allow removed when TypeEntry.burden lands"
 )]
 
 use ori_registry::burden::{FnSym, TransferKind, VariantId};
@@ -20,19 +16,19 @@ use ori_registry::burden::{FnSym, TransferKind, VariantId};
 use crate::Idx;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct OwnedFieldOwned {
+pub struct UserOwnedField {
     pub field_path: Vec<u32>,
     pub field_type: Idx,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct BorrowedFieldOwned {
+pub struct UserBorrowedField {
     pub field_path: Vec<u32>,
     pub field_type: Idx,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct TransferRuleOwned {
+pub struct UserTransferRule {
     pub source_field_path: Vec<u32>,
     pub binding_index: u16,
     pub field_type: Idx,
@@ -40,18 +36,18 @@ pub struct TransferRuleOwned {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct VariantBurdenOwned {
+pub struct UserVariantBurden {
     pub variant_id: VariantId,
-    pub transfers_on_match: Vec<TransferRuleOwned>,
-    pub retained_owned: Vec<OwnedFieldOwned>,
+    pub transfers_on_match: Vec<UserTransferRule>,
+    pub retained_owned: Vec<UserOwnedField>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct UserBurdenSpec {
     pub self_heap_alloc: bool,
-    pub owned_fields: Vec<OwnedFieldOwned>,
-    pub borrowed_fields: Vec<BorrowedFieldOwned>,
-    pub variant_burdens: Vec<VariantBurdenOwned>,
+    pub owned_fields: Vec<UserOwnedField>,
+    pub borrowed_fields: Vec<UserBorrowedField>,
+    pub variant_burdens: Vec<UserVariantBurden>,
     pub element_burden: Option<Idx>,
     pub compiled_drop: Option<FnSym>,
     pub user_drop: Option<FnSym>,
@@ -79,12 +75,12 @@ mod tests {
         let one = NonZeroU32::MIN;
         let spec = UserBurdenSpec {
             self_heap_alloc: true,
-            owned_fields: vec![OwnedFieldOwned {
+            owned_fields: vec![UserOwnedField {
                 field_path: vec![0],
                 field_type: Idx::STR,
             }],
             element_burden: Some(Idx::INT),
-            compiled_drop: Some(FnSym(one)),
+            compiled_drop: Some(FnSym::new(one)),
             ..UserBurdenSpec::default()
         };
         assert!(spec.self_heap_alloc);

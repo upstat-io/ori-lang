@@ -1,7 +1,6 @@
 //! Pure-const burden specifications for builtin types.
 //!
-//! Per `plans/aims-burden-tracking/decisions/05-burdenspec-storage-model.md`:
-//! builtin types use `BuiltinBurdenSpec` (pure-const, `&'static` slices) while
+//! Builtin types use `BuiltinBurdenSpec` (pure-const, `&'static` slices) while
 //! user-defined types use `UserBurdenSpec` (heap-backed, in `ori_types`).
 //! Both implement the `Burden` trait (defined in `ori_arc::lower::burden`).
 //!
@@ -15,31 +14,72 @@
 //! `TypeId`, `VariantId`, and `FnSym` are defined LOCALLY here as `u32`
 //! newtypes (NOT imported from `ori_ir`) to honor the zero-dependency
 //! invariant of this crate. Boundary translation between this local `TypeId`
-//! and `ori_ir::TypeId` happens at the `BurdenRef` lookup boundary
-//! (`ori_arc::lower::burden_lookup` per §01.4).
+//! and `ori_ir::TypeId` happens at the `ori_arc::lower` burden-lookup
+//! boundary.
+//
+// Spec: Annex E §AIMS — burden specs are typed pre-pass input feeding the
+// lattice-driven analysis.
+
+pub mod table;
 
 // Local Copy/Eq/Hash newtypes — defined here to honor the zero-dependency
 // purity contract of this crate.
 //
 // `TypeId` and `FnSym` wrap `NonZeroU32` so `Option<TypeId>` /
 // `Option<FnSym>` enjoy niche optimization (4 bytes vs 8). This is
-// load-bearing for the `BuiltinBurdenSpec` ≤64-byte size invariant per
-// decision/05. ID 0 is reserved; consumers shift indices by +1 at the
-// boundary translation in `ori_arc::lower::burden_lookup`.
+// load-bearing for the `BuiltinBurdenSpec` ≤64-byte size invariant.
+// ID 0 is reserved; consumers shift indices by +1 at the boundary
+// translation in `ori_arc::lower::burden_lookup`.
 
 use core::num::NonZeroU32;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(transparent)]
-pub struct TypeId(pub NonZeroU32);
+pub struct TypeId(NonZeroU32);
+
+impl TypeId {
+    #[must_use]
+    pub const fn new(n: NonZeroU32) -> Self {
+        Self(n)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> NonZeroU32 {
+        self.0
+    }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(transparent)]
-pub struct VariantId(pub NonZeroU32);
+pub struct VariantId(NonZeroU32);
+
+impl VariantId {
+    #[must_use]
+    pub const fn new(n: NonZeroU32) -> Self {
+        Self(n)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> NonZeroU32 {
+        self.0
+    }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(transparent)]
-pub struct FnSym(pub NonZeroU32);
+pub struct FnSym(NonZeroU32);
+
+impl FnSym {
+    #[must_use]
+    pub const fn new(n: NonZeroU32) -> Self {
+        Self(n)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> NonZeroU32 {
+        self.0
+    }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum TransferKind {
@@ -74,7 +114,7 @@ pub struct VariantBurden {
     pub retained_owned: &'static [OwnedField],
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct BuiltinBurdenSpec {
     pub self_heap_alloc: bool,
     pub owned_fields: &'static [OwnedField],
@@ -97,7 +137,10 @@ impl BuiltinBurdenSpec {
     };
 }
 
-// Compile-time size assertion per decision/05.
+// Compile-time size assertion — `BuiltinBurdenSpec` must fit in a single
+// cache line so it can ride alongside `BUILTIN_TYPES` entries cheaply; the
+// niche-optimized `Option<TypeId>` layout in `NonZeroU32` is load-bearing
+// for this bound.
 const _: () = {
     assert!(core::mem::size_of::<BuiltinBurdenSpec>() <= 64);
 };
