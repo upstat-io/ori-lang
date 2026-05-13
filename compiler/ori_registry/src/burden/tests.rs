@@ -1,0 +1,79 @@
+//! Pure-const compliance tests for the burden module.
+
+use super::*;
+
+#[test]
+fn test_builtin_burden_spec_size_bounded() {
+    // Compile-time assertion in mod.rs guarantees <=64; this re-asserts at
+    // runtime for visibility in test output.
+    assert!(core::mem::size_of::<BuiltinBurdenSpec>() <= 64);
+}
+
+#[test]
+fn test_owned_field_struct_is_copy() {
+    fn assert_copy<T: Copy>() {}
+    assert_copy::<OwnedField>();
+    assert_copy::<BorrowedField>();
+    assert_copy::<TransferRule>();
+    assert_copy::<VariantBurden>();
+    assert_copy::<TransferKind>();
+    assert_copy::<TypeId>();
+    assert_copy::<VariantId>();
+    assert_copy::<FnSym>();
+}
+
+#[test]
+fn test_transfer_kind_variants() {
+    // Discriminate two known variants.
+    let kinds = [TransferKind::Move, TransferKind::BorrowOnly];
+    assert_eq!(kinds.len(), 2);
+    assert_ne!(kinds[0], kinds[1]);
+}
+
+#[test]
+fn test_empty_builtin_burden_spec_is_constructible_const() {
+    const EMPTY: BuiltinBurdenSpec = BuiltinBurdenSpec::EMPTY;
+    const { assert!(!EMPTY.self_heap_alloc) };
+    const { assert!(EMPTY.owned_fields.is_empty()) };
+    const { assert!(EMPTY.borrowed_fields.is_empty()) };
+    const { assert!(EMPTY.variant_burdens.is_empty()) };
+    const { assert!(EMPTY.element_burden.is_none()) };
+    const { assert!(EMPTY.compiled_drop.is_none()) };
+    const { assert!(EMPTY.user_drop.is_none()) };
+}
+
+#[test]
+fn test_const_construction_with_data() {
+    use core::num::NonZeroU32;
+
+    // Verify non-empty const data is constructible from &'static slices.
+    const FORTY_TWO: NonZeroU32 = match NonZeroU32::new(42) {
+        Some(n) => n,
+        None => unreachable!(),
+    };
+    const SEVEN: NonZeroU32 = match NonZeroU32::new(7) {
+        Some(n) => n,
+        None => unreachable!(),
+    };
+    const NINETY_NINE: NonZeroU32 = match NonZeroU32::new(99) {
+        Some(n) => n,
+        None => unreachable!(),
+    };
+    const OWNED: &[OwnedField] = &[OwnedField {
+        field_path: &[0, 1],
+        field_type: TypeId(FORTY_TWO),
+    }];
+    const SPEC: BuiltinBurdenSpec = BuiltinBurdenSpec {
+        self_heap_alloc: true,
+        owned_fields: OWNED,
+        element_burden: Some(TypeId(SEVEN)),
+        compiled_drop: Some(FnSym(NINETY_NINE)),
+        ..BuiltinBurdenSpec::EMPTY
+    };
+    const { assert!(SPEC.self_heap_alloc) };
+    assert_eq!(SPEC.owned_fields.len(), 1);
+    assert_eq!(SPEC.owned_fields[0].field_path, &[0, 1]);
+    assert_eq!(SPEC.owned_fields[0].field_type, TypeId(FORTY_TWO));
+    assert_eq!(SPEC.element_burden, Some(TypeId(SEVEN)));
+    assert_eq!(SPEC.compiled_drop, Some(FnSym(NINETY_NINE)));
+}

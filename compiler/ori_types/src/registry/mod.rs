@@ -20,9 +20,14 @@
 //! - Secondary indices for O(1) variant and field lookup
 //! - All types derive `Clone, Eq, PartialEq, Hash, Debug` for Salsa compatibility
 
+pub mod burden;
 mod methods;
 mod traits;
 mod types;
+
+// Burden types live in the `burden` submodule and are accessed via the
+// module path (e.g., `crate::registry::burden::UserBurdenSpec`). Direct
+// re-export at this level deferred to §01.3 once a consumer references them.
 
 // Type registry exports
 pub use types::{

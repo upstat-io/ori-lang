@@ -20,6 +20,7 @@
 //!   mutable variable tracking for SSA merge.
 
 mod builder;
+pub mod burden;
 mod calls;
 pub(crate) mod collections;
 mod constructs;
@@ -27,6 +28,11 @@ mod control_flow;
 mod expr;
 mod patterns;
 pub(crate) mod scope;
+
+pub use burden::{
+    BorrowedFieldView, Burden, BurdenRef, OwnedFieldView, TransferRuleView, TypeRef,
+    VariantBurdenView,
+};
 
 use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};

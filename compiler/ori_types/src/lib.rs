@@ -51,6 +51,7 @@ pub use pool::{
     substitute_in_pool, walk_collection_types, BodyTypeMapSink, EnumVariant, Pool, TypeDescriptor,
     VarState, VariantDescriptor, DEFAULT_RANK,
 };
+pub use registry::burden;
 pub use registry::{
     BoundChainLookup,
     // Type registry

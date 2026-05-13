@@ -57,6 +57,7 @@
 //! 4. Add tests verifying the new field's behavior
 //! 5. Update the plan section that documents the struct
 
+pub mod burden;
 pub mod defs;
 mod method;
 mod operator;
@@ -65,6 +66,10 @@ mod query;
 mod tags;
 mod type_def;
 
+pub use burden::{
+    BorrowedField, BuiltinBurdenSpec, FnSym, OwnedField, TransferKind, TransferRule,
+    TypeId as BurdenTypeId, VariantBurden, VariantId,
+};
 pub use defs::BUILTIN_TYPES;
 pub use method::{
     MethodDef, ParamDef, ONE_SELF_BORROW, ONE_SELF_COPY, ONE_SELF_OWNED, TWO_SELF_COPY,

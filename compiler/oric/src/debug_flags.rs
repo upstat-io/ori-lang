@@ -123,6 +123,13 @@ flags! {
     /// Usage: `ORI_NO_REPR_OPT=1 ori build file.ori`
     ORI_NO_REPR_OPT
 
+    /// Disable the post-realize redundant project-alias dec cleanup pass.
+    ///
+    /// Consumed in `ori_arc::aims::realize::cleanup_redundant` per BUG-04-118 §05.
+    /// Defined here for documentation and `check-debug-flags.sh` consistency.
+    /// Usage: `ORI_DISABLE_REDUNDANT_CLEANUP=1 ori build file.ori`
+    ORI_DISABLE_REDUNDANT_CLEANUP
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.
