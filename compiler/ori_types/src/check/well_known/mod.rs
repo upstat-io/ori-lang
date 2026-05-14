@@ -55,6 +55,7 @@ pub(crate) struct WellKnownNames {
     pub size_upper: Name, // "Size"
     pub ordering: Name,
     pub ordering_upper: Name, // "Ordering"
+    pub error: Name,          // "Error" — user-facing builtin Error type (Idx::ERROR slot)
 
     // Well-known generic type names
     pub option: Name,
@@ -184,6 +185,7 @@ impl WellKnownNames {
             size_upper: interner.intern("Size"),
             ordering: interner.intern("ordering"),
             ordering_upper: interner.intern("Ordering"),
+            error: interner.intern("Error"),
             option: interner.intern("Option"),
             result: interner.intern("Result"),
             set: interner.intern("Set"),
@@ -246,6 +248,14 @@ impl WellKnownNames {
             Some(Idx::SIZE)
         } else if name == self.ordering || name == self.ordering_upper {
             Some(Idx::ORDERING)
+        } else if name == self.error {
+            // §09.5: surface annotation `Error` resolves to Idx::ERROR
+            // (Tag::Error slot 8 per types.md §TY-5). infer_field's Tag::Error
+            // arm handles `.message → str` as the spec-mandated accessor.
+            // Closes the gap where `let e: Error = ...` previously fell through
+            // to `fresh_named_var("Error")` at type_resolution.rs:175,
+            // leaving `e` as an unresolved Tag::Var.
+            Some(Idx::ERROR)
         } else {
             None
         }

@@ -131,6 +131,7 @@ pub fn resolve_parsed_type(
                     "Duration" | "duration" => return Idx::DURATION,
                     "Size" | "size" => return Idx::SIZE,
                     "ordering" | "Ordering" => return Idx::ORDERING,
+                    "Error" => return Idx::ERROR,
                     _ => {}
                 }
             }
