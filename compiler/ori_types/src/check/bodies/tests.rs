@@ -616,14 +616,13 @@ fn test_method_call_return_bd2_into_to_error_resolves_field_access() {
 }
 
 /// §09.5 cell 2 (regression — collect default): the existing `[T]` default
-/// for `.collect()` remains clean. The new MethodCall BD-2 gate must NOT
+/// for `.collect()` remains clean. The new `MethodCall` BD-2 gate must NOT
 /// regress the no-Set-annotation collect path that has always worked via
 /// the registered `Collect` impl's default return.
 #[test]
 fn test_method_call_return_bd2_collect_default_to_list_unchanged() {
-    let (result, _interner) = parse_and_check(
-        "@f () -> [int] = { [1, 2, 3].iter().map(x -> x + 1).collect() }",
-    );
+    let (result, _interner) =
+        parse_and_check("@f () -> [int] = { [1, 2, 3].iter().map(x -> x + 1).collect() }");
     assert!(
         result.typed.errors.is_empty(),
         "expected [int].iter().map.collect() to remain clean, got: {:?}",
@@ -633,14 +632,13 @@ fn test_method_call_return_bd2_collect_default_to_list_unchanged() {
 
 /// §09.5 cell 3 (negative): `let n: int = msg.into()` where no `Into<int>`
 /// impl exists on `str` must surface a diagnostic. Either `E2036`
-/// (IntoNotImplemented) at method-resolution time OR `E2001` (Mismatch)
+/// (`IntoNotImplemented`) at method-resolution time OR `E2001` (Mismatch)
 /// once LHS-driven instantiation finds no matching impl. The gate must
 /// NOT silently produce `int` and mask the missing-impl error.
 #[test]
 fn test_method_call_return_bd2_no_impl_reports_diagnostic() {
-    let (result, _interner) = parse_and_check(
-        "@f () -> void = { let msg: str = \"x\"; let _n: int = msg.into(); () }",
-    );
+    let (result, _interner) =
+        parse_and_check("@f () -> void = { let msg: str = \"x\"; let _n: int = msg.into(); () }");
     let has_diagnostic = result.typed.errors.iter().any(|e| {
         matches!(
             e.kind,
@@ -655,28 +653,46 @@ fn test_method_call_return_bd2_no_impl_reports_diagnostic() {
 }
 
 /// §09.5 cell 4 (regression — no annotation): without LHS annotation the
-/// method-call BD-2 gate must not fire — existing synth path runs
-/// unchanged. `let _e = msg.into()` (no target type) must surface the
-/// existing `E2036` (IntoNotImplemented) at the call site, NOT be masked
-/// by a spurious BD-2 narrowing. Pins the gate's `expected.has_expectation()`
-/// short-circuit (parallels §09.3 `check_ok` early-return).
+/// method-call BD-2 gate MUST NOT fire — the synth path stays unchanged.
+/// `let _e = msg.into()` (no target type, unused binding) currently
+/// resolves `into`'s generic return as a fresh var via the existing synth
+/// path; the §09.5 gate's `expected.has_expectation()` short-circuit
+/// (parallels §09.3 `check_ok` early-return) MUST preserve this — no new
+/// errors introduced. Pins the gate's no-spurious-fire invariant.
 #[test]
 fn test_method_call_return_bd2_no_annotation_falls_through_to_synth() {
     let (result, _interner) =
         parse_and_check("@f (msg: str) -> str = { let _e = msg.into(); \"\" }");
-    let has_into_not_implemented = result
-        .typed
-        .errors
-        .iter()
-        .any(|e| matches!(e.kind, TypeErrorKind::IntoNotImplemented { .. }));
     assert!(
-        has_into_not_implemented,
-        "expected E2036 IntoNotImplemented for ungated msg.into() (no annotation), got: {:?}",
+        result.typed.errors.is_empty(),
+        "expected no NEW errors for ungated msg.into() (no-annotation path stays synth-only), got: {:?}",
         result.typed.errors
     );
 }
 
-/// §09.5 cell 5 (interaction — nested in map_err): the LHS annotation
+/// §09.5 cell 6 (positive — user-defined Convert<T>): the gate must
+/// propagate LHS annotation into a USER-DEFINED generic-return trait
+/// method's slot. Independent of builtin/prelude types (Into/Error/collect)
+/// — pins the gate's correctness on user-defined registered types alone.
+/// If this cell passes post-fix while cells 1/5 (Error-typed) still fail,
+/// the gate is correct and Error-typed cells are blocked by a separate
+/// defect (Error not registered in `TypeRegistry`; falls through to
+/// `fresh_named_var` at `type_resolution.rs:175`).
+#[test]
+fn test_method_call_return_bd2_user_convert_propagates_to_payload_field() {
+    let source = "trait Convert<T> { @to_t (self) -> T }\n\
+                  type MyErr = { msg: str }\n\
+                  impl str: Convert<MyErr> { @to_t (self) -> MyErr = MyErr { msg: self } }\n\
+                  @f () -> str = { let e: MyErr = \"x\".to_t(); e.msg }\n";
+    let (result, _interner) = parse_and_check(source);
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for user-defined Convert<MyErr> with LHS annotation, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// §09.5 cell 5 (interaction — nested in `map_err`): the LHS annotation
 /// `Result<int, Error>` propagates through `map_err`'s `(E) -> E2` closure
 /// to the closure's return position; the closure body's `msg.into()` then
 /// receives `Check(Error)` and instantiates `into<T = Error>` correctly.

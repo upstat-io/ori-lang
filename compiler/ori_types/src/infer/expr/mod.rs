@@ -156,12 +156,12 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
             receiver,
             method,
             args,
-        } => infer_method_call(engine, arena, *receiver, *method, *args, span),
+        } => infer_method_call(engine, arena, *receiver, *method, *args, span, None),
         ExprKind::MethodCallNamed {
             receiver,
             method,
             args,
-        } => infer_method_call_named(engine, arena, *receiver, *method, *args, span),
+        } => infer_method_call_named(engine, arena, *receiver, *method, *args, span, None),
 
         // Field/Index Access
         ExprKind::Field { receiver, field } => infer_field(engine, arena, *receiver, *field, span),
@@ -380,6 +380,52 @@ pub fn check_expr(
         }
         ExprKind::Some(inner) => {
             let ty = check_some(engine, arena, *inner, span, expected);
+            engine.store_type(expr_id.raw() as usize, ty);
+            let _ = engine.check_type(ty, expected, span);
+            return ty;
+        }
+        _ => {}
+    }
+
+    // BD-2 method-call return: propagate outer `Check(T)` into the method's
+    // generic-return slot via `Some(expected)` — closes the LHS-propagation
+    // gap for methods like `Error::into` / `Iterator::collect` whose return
+    // is a generic `T` instantiated as a fresh var by `resolve_impl_signature`.
+    // Runs AFTER `check_collect_method_call` so the Set-specific gate keeps
+    // priority for `iter.collect()` with expected `Set<T>`.
+    match &expr.kind {
+        ExprKind::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            let ty = infer_method_call(
+                engine,
+                arena,
+                *receiver,
+                *method,
+                *args,
+                span,
+                Some(expected),
+            );
+            engine.store_type(expr_id.raw() as usize, ty);
+            let _ = engine.check_type(ty, expected, span);
+            return ty;
+        }
+        ExprKind::MethodCallNamed {
+            receiver,
+            method,
+            args,
+        } => {
+            let ty = infer_method_call_named(
+                engine,
+                arena,
+                *receiver,
+                *method,
+                *args,
+                span,
+                Some(expected),
+            );
             engine.store_type(expr_id.raw() as usize, ty);
             let _ = engine.check_type(ty, expected, span);
             return ty;

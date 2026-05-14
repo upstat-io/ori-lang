@@ -27,6 +27,7 @@ pub(crate) fn infer_method_call(
     method: Name,
     args: ori_ir::ExprRange,
     span: Span,
+    expected: Option<&Expected>,
 ) -> Idx {
     let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
         ReceiverDispatch::Return {
@@ -51,6 +52,12 @@ pub(crate) fn infer_method_call(
                 &arg_spans,
                 span,
             );
+            // §09.5 BD-2: propagate outer expected into builtin ret_ty so a
+            // generic-return builtin (e.g. collect's default [T]) unifies
+            // with the LHS annotation at the call site.
+            if let Some(exp) = expected {
+                let _ = engine.check_type(ret_ty, exp, span);
+            }
             return ret_ty;
         }
         ReceiverDispatch::Continue { resolved } => resolved,
@@ -59,6 +66,13 @@ pub(crate) fn infer_method_call(
     let arg_ids = arena.get_expr_list(args);
     let outcome = lookup_impl_method(engine, resolved, method);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, arg_ids.len(), span) {
+        // §09.5 BD-2: propagate outer expected into sig.ret BEFORE arg-checking
+        // so the generic return slot is constrained by the LHS annotation.
+        // Closes the `let e: Error = msg.into()` gap where the generic T in
+        // `into<T>(self) -> T` previously stayed an unresolved fresh var.
+        if let Some(exp) = expected {
+            let _ = engine.check_type(sig.ret, exp, span);
+        }
         let ret_ty = check_positional_args(engine, arena, arg_ids, &sig, span);
         check_method_where_clauses(
             engine,
@@ -95,6 +109,7 @@ pub(crate) fn infer_method_call_named(
     method: Name,
     args: ori_ir::CallArgRange,
     span: Span,
+    expected: Option<&Expected>,
 ) -> Idx {
     let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
         ReceiverDispatch::Return {
@@ -122,6 +137,11 @@ pub(crate) fn infer_method_call_named(
                 &arg_spans,
                 span,
             );
+            // §09.5 BD-2: propagate outer expected into builtin ret_ty
+            // (mirrors infer_method_call positional path).
+            if let Some(exp) = expected {
+                let _ = engine.check_type(ret_ty, exp, span);
+            }
             return ret_ty;
         }
         ReceiverDispatch::Continue { resolved } => resolved,
@@ -130,6 +150,10 @@ pub(crate) fn infer_method_call_named(
     let call_args = arena.get_call_args(args);
     let outcome = lookup_impl_method(engine, resolved, method);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, call_args.len(), span) {
+        // §09.5 BD-2: propagate outer expected into sig.ret BEFORE arg-checking.
+        if let Some(exp) = expected {
+            let _ = engine.check_type(sig.ret, exp, span);
+        }
         for (i, (arg, &param_ty)) in call_args.iter().zip(sig.params.iter()).enumerate() {
             let expected = Expected {
                 ty: param_ty,

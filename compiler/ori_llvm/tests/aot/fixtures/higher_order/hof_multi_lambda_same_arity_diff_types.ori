@@ -3,8 +3,8 @@
 // for each lambda.
 
 @main () -> int = {
-    let $double = (x: int) -> x * 2;
-    let $greet = (s: str) -> s + "!";
+    let $double = (x: int) -> int = x * 2;
+    let $greet = (s: str) -> str = s + "!";
     let $a = double(5);
     let $b = greet("hi");
     if a == 10 && b == "hi!" then 0 else 1

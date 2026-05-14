@@ -1,4 +1,4 @@
 @main () -> int = {
-    let result = ["aaaaaaaaaaaaaaaaaaaaaaaaa"].iter().map((s: str) -> s + "x").collect();
+    let result = ["aaaaaaaaaaaaaaaaaaaaaaaaa"].iter().map((s: str) -> str = s + "x").collect();
     if result.length() == 1 then 0 else 1
 }

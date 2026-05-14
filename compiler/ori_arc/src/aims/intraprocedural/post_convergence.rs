@@ -546,7 +546,6 @@ pub(crate) fn populate_context_events(
     }
 }
 
-// =====================================================================
 // BUG-04-118 Option D — post-convergence class_payload_of population.
 //
 // Replaces the unsound population at step 4 (compute_ssa_alias_classes)
@@ -554,7 +553,6 @@ pub(crate) fn populate_context_events(
 // path-sensitive lifetimes. Path-sensitive liveness from the converged
 // AimsStateMap is the architecturally correct primitive per AIMS
 // Invariant #5 (unified model).
-// =====================================================================
 
 /// Whether class A's lifetime extends past class B's destruction along some
 /// CFG path, using the converged `AimsStateMap`'s path-sensitive liveness.

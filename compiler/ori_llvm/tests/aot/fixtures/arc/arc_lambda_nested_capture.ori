@@ -1,7 +1,7 @@
 @main () -> int = {
     let a = 100;
-    let outer = (b: int) -> {
-        let inner = (c: int) -> a + b + c;
+    let outer = (b: int) -> int = {
+        let inner = (c: int) -> int = a + b + c;
         inner(3)
     };
     if outer(20) == 123 then 0 else 1

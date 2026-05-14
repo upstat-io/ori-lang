@@ -3,7 +3,7 @@
 }
 
 @main () -> int = {
-    let r1 = process(value: 5, on_success: (x: int) -> x * 10);
-    let r2 = process(value: -1, on_success: (x: int) -> x * 10);
+    let r1 = process(value: 5, on_success: (x: int) -> int = x * 10);
+    let r2 = process(value: -1, on_success: (x: int) -> int = x * 10);
     if r1 == 50 && r2 == -1 then 0 else 1
 }

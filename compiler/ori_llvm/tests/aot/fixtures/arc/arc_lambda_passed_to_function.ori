@@ -2,6 +2,6 @@
 
 @main () -> int = {
     let base = 40;
-    let adder = (n: int) -> base + n;
+    let adder = (n: int) -> int = base + n;
     if apply(adder, 2) == 42 then 0 else 1
 }

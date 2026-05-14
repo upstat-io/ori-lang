@@ -1,16 +1,16 @@
 @double_it (x: int) -> int = {
-    let $f = (n: int) -> n * 2;
+    let $f = (n: int) -> int = n * 2;
     f(x)
 }
 
 @triple_it (x: int) -> int = {
-    let $f = (n: int) -> n * 3;
+    let $f = (n: int) -> int = n * 3;
     f(x)
 }
 
 @add_ten (x: int) -> int = {
     let $offset = 10;
-    let $f = (n: int) -> n + offset;
+    let $f = (n: int) -> int = n + offset;
     f(x)
 }
 

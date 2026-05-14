@@ -1,8 +1,8 @@
 @main () -> int = {
     let a = 1;
-    let f = (b: int) -> {
-        let g = (c: int) -> {
-            let h = (d: int) -> a + b + c + d;
+    let f = (b: int) -> int = {
+        let g = (c: int) -> int = {
+            let h = (d: int) -> int = a + b + c + d;
             h(4)
         };
         g(3)

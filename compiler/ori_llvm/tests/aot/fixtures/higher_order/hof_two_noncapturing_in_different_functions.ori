@@ -1,10 +1,10 @@
 @apply_double (x: int) -> int = {
-    let $f = (n: int) -> n * 2;
+    let $f = (n: int) -> int = n * 2;
     f(x)
 }
 
 @apply_square (x: int) -> int = {
-    let $f = (n: int) -> n * n;
+    let $f = (n: int) -> int = n * n;
     f(x)
 }
 

@@ -4,7 +4,7 @@ type Config = { base: int }
     let cfg = Config { base: 100 };
     let flag = true;
     let label = "test";
-    let f = (x: int) -> {
+    let f = (x: int) -> int = {
         let adjusted = if flag then cfg.base + x else x;
         adjusted
     };
