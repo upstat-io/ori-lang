@@ -166,7 +166,7 @@ pub fn analyze_function(
     let apply_result_aliases = apply_aliases::populate_apply_result_aliases(func, sigs);
     state_map.set_apply_result_aliases(apply_result_aliases);
 
-    // BUG-04-104: pre-walk SSA-alias equivalence-class table. Ordering
+    // pre-walk SSA-alias equivalence-class table. Ordering
     // load-bearing per PL-5 — populate AFTER apply_result_aliases (this pass
     // unions the apply-alias edges into the classes) and BEFORE the worklist
     // (read-only thereafter). The same pre-walk also populates the PIN-6
@@ -227,10 +227,10 @@ pub fn analyze_function(
             // terminators: normal and unwind successors carry different
             // variable sets, and the per-edge cleanup machinery consults
             // this to determine RcDec emission on the unwind path.
-            // Pre-BUG-04-106-fix this only matched Invoke, leaving
+            // Earlier this only matched Invoke, leaving
             // InvokeIndirect terminators without recorded edge state —
             // a borrowed closure receiver dying on the unwind edge had
-            // no entry-state to consult. Ref: BUG-04-106 §05 edit site 4.
+            // no entry-state to consult. Ref: site 4.
             let block = &func.blocks[block_idx];
             match &block.terminator {
                 ArcTerminator::Invoke { normal, unwind, .. }
@@ -315,7 +315,7 @@ pub fn analyze_function(
     // Position-load-bearing ordering — `populate_call_result_states` MUST
     // run BEFORE `populate_sparse_events` so the side tables are populated
     // when sparse_events queries `effective_locality_at_block_exit` for
-    // `LocalAllocCandidate` emission. Plan TPR Round 0 F4. BUG-04-065.
+    // `LocalAllocCandidate` emission. Plan TPR Round 0 F4..
     //
     // BUG-04-118 §05.5 — `populate_class_payload_of_with_liveness` runs
     // FIRST so subsequent post-convergence passes see the path-sensitive

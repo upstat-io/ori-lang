@@ -66,11 +66,11 @@ fn register_impl(
 
     // 4. Process explicitly defined methods.
     //
-    // BUG-01-002 sub-gap (b): explicit user-written impl methods reference
-    // impl-level binders directly (e.g. `op: (T, X) -> T` where `X` is the
-    // impl's own type-param) — no trait→impl substitution is needed. Pass an
-    // empty `trait_substitutions` overlay. The substitution path matters only
-    // for inherited defaults at step 4b below (see `inherit_default_methods`).
+    // Explicit user-written impl methods reference impl-level binders directly
+    // (e.g. `op: (T, X) -> T` where `X` is the impl's own type-param) — no
+    // trait→impl substitution is needed. Pass an empty `trait_substitutions`
+    // overlay. The substitution path matters only for inherited defaults at
+    // step 4b below (see `inherit_default_methods`).
     let empty_trait_subst: FxHashMap<Name, Idx> = FxHashMap::default();
     let mut methods = FxHashMap::default();
     for impl_method in &impl_def.methods {
@@ -92,8 +92,7 @@ fn register_impl(
     // direct-default inheritance can build the trait→impl binder substitution
     // map (e.g. `F → X` for `impl<X> Reducer<X>` over `trait Reducer<F>`) —
     // without it, the inherited default's `op: (T, F) -> T` body would carry
-    // a dangling `Tag::Named("F")` that fails to unify at call sites
-    // (BUG-01-002 sub-gap (b)).
+    // a dangling `Tag::Named("F")` that fails to unify at call sites.
     let impl_ctx = ImplBuildContext {
         type_params: &type_params,
         self_type,
@@ -118,7 +117,7 @@ fn register_impl(
     // 6. Process where clauses (const bounds filtered out — not yet evaluated)
     // Empty scheme_overlay: impl-level where-clauses don't reference method-level
     // binders. Method-level where-clauses go through `build_method_generic_metadata`
-    // with a populated overlay (BUG-01-002 §05 Phase B residual).
+    // with a populated overlay.
     let empty_overlay: FxHashMap<Name, Idx> = FxHashMap::default();
     let where_clause: Vec<WhereConstraint> = impl_def
         .where_clauses
@@ -166,12 +165,10 @@ fn register_impl(
 ///
 /// Bundles the three impl-instance descriptors that travel together for any
 /// per-impl operation: the impl-level type-generic param names, the resolved
-/// `Self` type, and the resolved trait type arguments. Pre-BUG-01-002 sub-gap
-/// (b), `inherit_default_methods` and `build_impl_method` took the first two
-/// as flat params; landing the trait→impl substitution required threading a
-/// third co-varying field. Per
-/// (≥3 fields co-varying at every site), bundle into a domain newtype rather
-/// than grow the flat signature past clippy's `too_many_arguments` threshold.
+/// `Self` type, and the resolved trait type arguments. The three fields
+/// co-vary at every site (`inherit_default_methods` and `build_impl_method`
+/// both need all three); bundling into a domain newtype keeps the flat
+/// signature under clippy's `too_many_arguments` threshold.
 ///
 /// # Note
 ///
@@ -210,14 +207,14 @@ fn inherit_default_methods(
 
     // Step 1: Direct defaults from the AST trait definition.
     //
-    // BUG-01-002 sub-gap (b) — Inherited default-method binder remapping:
-    // `From<&TraitDefaultMethod> for ImplMethod` at
-    // `compiler/ori_ir/src/ast/items/traits.rs:335` shares the parsed param/return
-    // types verbatim, so the trait's view of `(T, F) -> T` survives unchanged
-    // into the impl-side `ImplMethodDef`. Without a trait→impl substitution,
-    // resolving `F` finds neither a method-level overlay entry NOR an impl-level
-    // type_param, so it falls through to a dangling `Tag::Named("F")` that fails
-    // to unify at call sites (display-equal `int ≠ int` error per the §05 trace).
+    // Inherited default-method binder remapping: `From<&TraitDefaultMethod>
+    // for ImplMethod` at `compiler/ori_ir/src/ast/items/traits.rs:335` shares
+    // the parsed param/return types verbatim, so the trait's view of
+    // `(T, F) -> T` survives unchanged into the impl-side `ImplMethodDef`.
+    // Without a trait→impl substitution, resolving `F` finds neither a
+    // method-level overlay entry NOR an impl-level type_param, so it falls
+    // through to a dangling `Tag::Named("F")` that fails to unify at call
+    // sites (display-equal `int ≠ int` error).
     //
     // Build `trait_subst: trait_param_name → impl_trait_arg_Idx` from the trait
     // declaration's generics zipped with the impl's resolved trait_type_args
@@ -401,8 +398,8 @@ fn has_coherence_violation(
 
 /// Build an `ImplMethodDef` from an impl method.
 ///
-/// Phase B Step 5b (BUG-01-002): when the method declares method-level type
-/// generics (e.g. `@map<U> (self, f: T -> U) -> Box<U>` in `impl<T> Box<T>`),
+/// When the method declares method-level type generics
+/// (e.g. `@map<U> (self, f: T -> U) -> Box<U>` in `impl<T> Box<T>`),
 /// the registered `signature` is wrapped in a `Tag::Scheme(scheme_var_ids,
 /// fn_type)`. The scheme's body carries fresh `Tag::Var` Idx values (one per
 /// method-level type-generic) whose `var_id`s match `scheme_var_ids`. At
@@ -440,8 +437,8 @@ fn build_impl_method(
             self_type,
         );
 
-    // BUG-01-002 sub-gap (b): merge `trait_substitutions` into the resolver
-    // overlay used for param/return type resolution. The trait→impl
+    // Merge `trait_substitutions` into the resolver overlay used for
+    // param/return type resolution. The trait→impl
     // substitution carries impl-level `Idx` values for the trait's declared
     // type-params (e.g. `F → pool.named("X")` for `impl<X> Reducer<X>` over
     // `trait Reducer<F>`); the method-level `scheme_overlay` carries fresh

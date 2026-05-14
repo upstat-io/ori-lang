@@ -308,7 +308,7 @@ fn scalar_variables_excluded() {
 // Analysis converges (doesn't loop infinitely)
 
 #[test]
-fn analysis_converges_for_simple_loop() {
+fn analyze_function_terminates_on_back_edge_loop() {
     // Block 0: jump block1
     // Block 1: branch v0 -> block1, block2 (loop back-edge)
     // Block 2: unreachable
@@ -4053,7 +4053,7 @@ fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
     );
 }
 
-// TF-6 contract-narrowed call-result side tables (BUG-04-065)
+// TF-6 contract-narrowed call-result side tables ( )
 //
 // `populate_call_result_states` pass populates per-variable forward-state
 // side tables on `AimsStateMap` from each Apply/Invoke instruction's
@@ -4912,7 +4912,7 @@ fn populate_call_result_states_invoke_no_contract_uses_conservative() {
     );
 }
 
-// BUG-04-106 §03 — closure_env_alias realization-layer fix matrix
+// closure_env_alias realization-layer fix matrix
 
 /// Pin: 5th edit site (intraprocedural/mod.rs `InvokeEdgeState` recording arm).
 ///
@@ -4926,7 +4926,7 @@ fn populate_call_result_states_invoke_no_contract_uses_conservative() {
 ///
 /// Post-fix, the arm extends to a `match` that also matches
 /// `InvokeIndirect`, so the same `InvokeEdgeState` is recorded for
-/// indirect-call terminators. Ref: BUG-04-106 §05 edit site 4.
+/// indirect-call terminators. Ref: site 4.
 #[test]
 fn invoke_indirect_records_edge_state_for_normal_and_unwind() {
     // func(v0: ref):
@@ -4981,8 +4981,7 @@ fn invoke_indirect_records_edge_state_for_normal_and_unwind() {
     assert!(
         edge_state.is_some(),
         "InvokeIndirect terminator should record InvokeEdgeState for normal/unwind successors. \
-         Pre-fix: intraprocedural/mod.rs's worklist arm only matched Invoke, leaving InvokeIndirect \
-         without per-edge state — see BUG-04-106 §05 edit site 4."
+         Earlier the worklist arm only matched Invoke, leaving InvokeIndirect without per-edge state."
     );
 }
 
@@ -5010,7 +5009,7 @@ fn invoke_indirect_records_edge_state_for_normal_and_unwind() {
 /// If any future change collapses TF-11's `ApplyIndirect` closure demand,
 /// this assertion fails immediately.
 ///
-/// Ref: BUG-04-106 §02 fix consensus + §03:87 capture-promotion pin.
+/// Ref: consensus + §03:87 capture-promotion pin.
 #[test]
 fn apply_indirect_multi_call_promotes_captures_to_many() {
     // func(v0: ref):
@@ -5075,7 +5074,7 @@ fn apply_indirect_multi_call_promotes_captures_to_many() {
         entry_v0.consumption,
         Consumption::Unrestricted,
         "Multi-call closure capture must promote captured var to Unrestricted consumption \
-         per TF-13. REJECTED-APPROACH GUARD per BUG-04-106 §02 + §03:87."
+         per TF-13. REJECTED-APPROACH GUARD per the multi-call closure-capture promotion contract."
     );
 }
 

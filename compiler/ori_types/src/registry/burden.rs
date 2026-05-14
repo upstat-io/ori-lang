@@ -54,7 +54,7 @@ mod tests {
     use core::num::NonZeroU32;
 
     #[test]
-    fn test_user_burden_spec_constructible_default() {
+    fn user_burden_spec_default_yields_empty_spec() {
         let spec = UserBurdenSpec::default();
         assert!(!spec.self_heap_alloc);
         assert!(spec.owned_fields.is_empty());

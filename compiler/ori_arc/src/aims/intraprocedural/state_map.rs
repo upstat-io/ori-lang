@@ -269,7 +269,7 @@ pub struct AimsStateMap {
     /// (preserves "different RC slot" architectural rule).
     project_alias_sources: FxHashMap<ArcVarId, ProjectSources>,
 
-    /// SSA-alias equivalence-class table (BUG-04-104). Sparse: only entries
+    /// SSA-alias equivalence-class table ( ). Sparse: only entries
     /// for variables participating in a multi-member class (singletons
     /// excluded per Round 17 Codex F4 + Gemini F2).
     ///
@@ -303,7 +303,7 @@ pub struct AimsStateMap {
     /// source for a Project return.
     class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>>,
 
-    /// PIN-6 inter-class payload-of relation (BUG-04-104 §2.6): class A id →
+    /// PIN-6 inter-class payload-of relation (): class A id →
     /// set of class B ids whose drop transitively covers class A's RC slot
     /// via a transitive-drop `RcStrategy` (`Closure`, `AggregateFields`,
     /// `InlineEnum`, `HeapPointer`).
@@ -886,7 +886,7 @@ impl AimsStateMap {
     /// Owned params. O(1) lookup against the pre-walk-populated
     /// `apply_result_aliases` map.
     ///
-    /// Consumed by §2.3 R17 carve-out per `bug-tracker/plans/BUG-04-104/
+    /// Consumed by §2.3 R17 carve-out per `bug-tracker/plans/ /
     /// section-05-implementation.md §2.6.4 row 10` for narrowing
     /// `should_suppress_return_transfer_dec` interactions on apply-alias
     /// destinations.
@@ -895,7 +895,7 @@ impl AimsStateMap {
         self.apply_result_aliases.contains_key(&var)
     }
 
-    // SSA-alias equivalence-class accessors (BUG-04-104)
+    // SSA-alias equivalence-class accessors ( )
 
     /// Return the equivalence-class id for `var` if it participates in a
     /// multi-member class; `None` for singletons.
@@ -924,7 +924,7 @@ impl AimsStateMap {
     /// Return the set of parent class ids whose drop transitively covers
     /// `class_id`'s RC slot via a transitive-drop `RcStrategy`.
     ///
-    /// PIN-6 inter-class payload-of relation per BUG-04-104 §2.6. An entry
+    /// PIN-6 inter-class payload-of relation per entry
     /// `class_id → {parent_id, ...}` means: at some `Construct` /
     /// `Apply` / `Invoke` / `PartialApply` / `Set` instruction, a
     /// `class_id` member was `[own]`-consumed to construct or fill a
@@ -1062,7 +1062,7 @@ impl AimsStateMap {
         }
     }
 
-    // Per-variable contract-narrowed call-result side tables (BUG-04-065)
+    // Per-variable contract-narrowed call-result side tables ( )
 
     /// Record the contract-narrowed uniqueness for a call-result variable.
     ///

@@ -238,12 +238,11 @@ pub(super) fn check_method_where_clauses(
     }
 
     // Phase 1 (mutable): resolve each WhereConstraint's `ty`, skip unresolved.
-    // BUG-01-002 §05 Phase B residual: `wc.ty` is the fresh-Var Idx
-    // allocated by `build_method_generic_metadata`'s `scheme_overlay` at
-    // registration. Call-site `instantiate_with_subst` mapped that scheme
-    // Idx to a fresh Var via `subst`; walk wc.ty so resolution sees the
-    // post-instantiation chain that arg unification has bound to a
-    // concrete type.
+    // `wc.ty` is the fresh-Var Idx allocated by
+    // `build_method_generic_metadata`'s `scheme_overlay` at registration.
+    // Call-site `instantiate_with_subst` mapped that scheme Idx to a fresh
+    // Var via `subst`; walk wc.ty so resolution sees the post-instantiation
+    // chain that arg unification has bound to a concrete type.
     let mut prepared: Vec<PreparedMethodCheck> = Vec::new();
     for wc in where_clause_metadata {
         let instantiated_ty = if subst.is_empty() {

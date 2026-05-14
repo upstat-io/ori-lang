@@ -404,16 +404,33 @@ impl TypeRegistry {
         // Probe the reverse-index. On hit, verify structural equality
         // before treating the existing slot as canonical.
         if let Some(&existing_idx) = self.burden_by_signature.get(&sig) {
-            if let Some(existing_spec) = self.burden(existing_idx) {
-                if existing_spec == &spec {
-                    // True structural match — share the existing slot.
-                    return existing_idx;
+            let is_structural_match = self
+                .burden(existing_idx)
+                .is_some_and(|existing_spec| existing_spec == &spec);
+            if is_structural_match {
+                // Structural match — share the existing signature slot at
+                // existing_idx AND also write spec at caller's typeid so that
+                // burden(typeid) returns Some(spec) for the typeid the caller
+                // observed. Without this dual-write, callers passing typeid
+                // != existing_idx (structurally-equivalent specs from genuinely
+                // different typeids) silently lose burden lookups, producing
+                // AIMS-realization-time miscompilation (AIMS Invariant 3 — no
+                // stale summaries).
+                if let Some(entry) = self.types_by_idx.get_mut(&typeid) {
+                    entry.burden = Some(spec.clone());
                 }
-                // Signature collision with a structurally different spec.
-                // Fall through to fresh insertion at `typeid`; DO NOT
-                // touch the reverse-index entry (the prior owner keeps
-                // the signature slot).
+                for entry in self.types_by_name.values_mut() {
+                    if entry.idx == typeid {
+                        entry.burden = Some(spec);
+                        break;
+                    }
+                }
+                return existing_idx;
             }
+            // Signature collision with a structurally different spec.
+            // Fall through to fresh insertion at `typeid`; DO NOT
+            // touch the reverse-index entry (the prior owner keeps
+            // the signature slot).
         }
 
         // Insert the spec into both directions, but only claim the

@@ -185,14 +185,14 @@ pub(crate) fn populate_apply_result_aliases(
 /// Single-call-site dispatch: classify the callee's contract into Direct /
 /// Project / Conditional / no-entry and install the corresponding map entry.
 ///
-/// Per BUG-04-104 §05: Let Var aliases of a consumed arg are admitted into the
+/// Let Var aliases of a consumed arg are admitted into the
 /// `ApplyAliasSource` map and deduplicated at realize-walk emission time via
 /// the SSA alias class table (`class_payload_of` + `class_members`). The
 /// downstream `should_suppress_apply_aliased_dec` consumer fires dec
 /// suppression based on the CALLER'S local Access of the arg (Owned →
 /// suppress; Borrowed → no-op), and class membership prevents double-suppression
 /// across alias siblings. The earlier BUG-04-090 §05 Hypothesis D #2 SKIP-rule
-/// was superseded by BUG-04-104's class-aware emission path; the regression
+/// was superseded by the class-aware emission path; the regression
 /// `arc::test_rc_alias_owned_call_then_root_use` is now guarded by the
 /// class-membership check at the realize walk rather than by skipping at install
 /// time.
@@ -298,7 +298,7 @@ fn install_alias_entry_inner(
                 // occur post type-check; skip defensively.
                 return;
             };
-            // BUG-04-107 / BUG-04-104 Phase 4 §05 #6: the is_let_var_alias
+            // Phase 4 §05 #6: the is_let_var_alias
             // filter was REMOVED. Let aliases are now in the union-find
             // directly via build_let_alias_map, so class structure subsumes
             // the protection this filter previously provided. Removing the
@@ -339,7 +339,7 @@ fn install_alias_entry_inner(
             // runtime. Suppress all candidates' scope-exit decs at File 13;
             // dst's RC ops are retained as the canonical owner.
             //
-            // BUG-04-107 / BUG-04-104 Phase 4 §05 #6: is_let_var_alias
+            // Phase 4 §05 #6: is_let_var_alias
             // filter removed — subsumed by class structure.
             let candidates: Vec<ArcVarId> = aliasing_params
                 .iter()

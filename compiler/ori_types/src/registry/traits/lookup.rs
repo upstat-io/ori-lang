@@ -53,7 +53,7 @@ impl TraitRegistry {
     /// concrete receiver `Applied(Name, [int])` per. The
     /// engine iterates, filters by base name + method name, then unifies the
     /// receiver against `entry.self_type` to produce the impl-level
-    /// substitution map. BUG-01-002 §05 Phase B residual.
+    /// substitution map.
     #[inline]
     pub fn impls_iter(&self) -> impl Iterator<Item = (usize, &ImplEntry)> {
         self.impls.iter().enumerate()
@@ -146,10 +146,23 @@ impl TraitRegistry {
         // Collect defaults from all direct super-traits and their ancestors.
         // Only look at direct super-traits' collected_methods — each super-trait
         // provides its resolved set (closest override wins within its branch).
-        let direct_supers = self
-            .get_trait_by_idx(trait_idx)
-            .map(|e| e.super_traits.clone())
-            .unwrap_or_default();
+        //
+        // Registration discipline: trait_idx MUST already be registered before
+        // conflict-default analysis runs (Registration group pass 0c precedes
+        // any consumer per CK-1). Missing entry = missing-registration bug,
+        // NOT "no super-traits" — silently swallowing as empty Vec hid the
+        // bug class. debug_assert in debug builds; production fallback returns
+        // empty conflict set (consumer sees zero conflicts vs panicking).
+        let direct_supers = if let Some(entry) = self.get_trait_by_idx(trait_idx) {
+            entry.super_traits.clone()
+        } else {
+            debug_assert!(
+                false,
+                "find_conflicting_defaults called with unregistered trait_idx={trait_idx:?} — \
+                 Registration group pass 0c must precede this query (CK-1)"
+            );
+            return Vec::new();
+        };
 
         for &super_idx in &direct_supers {
             for (name, _owner, method) in self.collected_methods(super_idx) {

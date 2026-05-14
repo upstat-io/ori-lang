@@ -258,13 +258,12 @@ pub(crate) fn resolve_type_with_self(
 
 /// Resolve a parsed type with Self substitution AND a method-level binder overlay.
 ///
-/// Phase B Step 5 (BUG-01-002): when a `Named { name }` matches a key in
-/// `method_substitutions`, return the substituted `Idx` (a fresh `RigidVar`
-/// allocated by the caller via `pool.rigid_var(name)`). This is the
-/// binder-identity wiring per §B.2 line 139 — method-level `T` and impl-level
-/// `T` resolve to distinct pool entries even when names collide, because
-/// `pool.rigid_var(name)` allocates a fresh `var_id` per call and interning
-/// keys on `(Tag::RigidVar, var_id)`.
+/// When a `Named { name }` matches a key in `method_substitutions`, return
+/// the substituted `Idx` (a fresh `RigidVar` allocated by the caller via
+/// `pool.rigid_var(name)`). Binder-identity wiring per §B.2 line 139 —
+/// method-level `T` and impl-level `T` resolve to distinct pool entries
+/// even when names collide, because `pool.rigid_var(name)` allocates a
+/// fresh `var_id` per call and interning keys on `(Tag::RigidVar, var_id)`.
 ///
 /// `type_params` carries the COMBINED outer scope (impl-level + method-level
 /// names) so that names not in the substitution map still resolve to the
@@ -312,8 +311,8 @@ fn resolve_type_with_overlay_inner(
             if let Some(&idx) = method_substitutions.get(name) {
                 return idx;
             }
-            // Phase B Step 5b extension (BUG-01-002): recurse into type_args
-            // through the overlay so types like `Box<T>` with a method-level
+            // Recurse into type_args through the overlay so types like
+            // `Box<T>` with a method-level
             // `T` resolve as `Applied("Box", [overlay(T)])` instead of leaking
             // back through `resolve_parsed_type_simple` which is overlay-blind.
             // Without this, the body's expected return type for
@@ -509,7 +508,7 @@ pub(super) fn convert_visibility(ir_vis: ori_ir::Visibility) -> crate::Visibilit
 /// (pass `Idx::ERROR` in trait-method context where `Self` remains symbolic).
 ///
 /// `scheme_overlay` maps method-level binder names to the fresh `Tag::Var`
-/// Idx allocated for them at registration (BUG-01-002 §05 Phase B residual).
+/// Idx allocated for them at registration.
 /// When `param` is a method-level binder, `wc.ty` is the same Idx that flows
 /// through the registered method signature's `Tag::Scheme` body. Call-site
 /// `instantiate_with_subst` substitutes that Idx with a fresh Var Idx; the

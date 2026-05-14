@@ -279,7 +279,7 @@ fn substitute_struct(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) 
 /// Recursively substitute `Tag::Named(name)` leaves in `ty` with the entries
 /// in `name_subst`.
 ///
-/// Used for impl-level binder substitution (BUG-01-002 §05 Phase B residual).
+/// Used for impl-level binder substitution.
 /// A registered method signature on `impl<U> Box<U> { @m<T> ... }` carries
 /// `Tag::Named(U)` references for the impl-level binder `U`. After the
 /// inference engine structurally matches a concrete receiver `Box<int>`

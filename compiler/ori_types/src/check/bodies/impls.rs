@@ -142,12 +142,11 @@ fn check_impl_block(
 
 /// Allocate fresh `RigidVar`s for a method's type-level generics.
 ///
-/// Phase B Step 5 (BUG-01-002): `pool.rigid_var(name)` allocates a fresh
-/// `var_id` per call, so the resulting `Idx` is distinct from any other
-/// `Tag::RigidVar` or `Tag::Named` with the same name. This is the
-/// binder-identity guarantee + §B.2 line 139 — method-level
-/// `T@method` and impl-level `T@impl` resolve to distinct pool entries even
-/// when names collide.
+/// `pool.rigid_var(name)` allocates a fresh `var_id` per call, so the
+/// resulting `Idx` is distinct from any other `Tag::RigidVar` or
+/// `Tag::Named` with the same name. Binder-identity guarantee:
+/// method-level `T@method` and impl-level `T@impl` resolve to distinct
+/// pool entries even when names collide.
 ///
 /// Returns `(method_substitutions, method_generic_param_names)`. Callers use
 /// the substitution map as the overlay for `resolve_type_with_method_generics`
@@ -340,10 +339,9 @@ fn check_impl_method(
                 }
             }
 
-            // Phase B Step 5 (BUG-01-002): rank scope
-            // + §CK-2 / §GN-1. Method-level binders live at strictly
-            // higher rank than impl-level bindings; the push/pop pair
-            // here is manually matched (no RAII) — exit MUST happen on
+            // Rank scope per §CK-2 / §GN-1. Method-level binders live at
+            // strictly higher rank than impl-level bindings; the push/pop
+            // pair here is manually matched (no RAII) — exit MUST happen on
             // every path, including error recovery, hence the explicit
             // `engine.exit_rank_scope()` immediately before the result
             // tuple is built.

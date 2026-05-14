@@ -205,7 +205,7 @@ fn compute_block_fip_balance(
                 exit_state.consumption,
                 Consumption::Dead | Consumption::Unrestricted
             );
-            // BUG-04-065: read shape via the per-variable side table
+            // read shape via the per-variable side table
             // (`var_shape`) instead of `exit_state.shape`. For forward-
             // defined Apply/Invoke results, the lattice gives BOTTOM=
             // NonReusable; the contract-derived shape lives in
@@ -219,11 +219,11 @@ fn compute_block_fip_balance(
         }
     }
 
-    // Plan TPR Round 4 gemini F1 (high GAP, exposed by BUG-04-065): the
+    // Plan TPR Round 4 gemini F1 (high GAP, exposed by ): the
     // body loop above does not visit `block.terminator`. Invoke is the
-    // only terminator that defines a `dst` variable; before BUG-04-065
+    // only terminator that defines a `dst` variable; before the prior change
     // an Invoke result's shape was always BOTTOM=NonReusable so missing
-    // it here was harmless. After BUG-04-065 `populate_call_result_states`
+    // it here was harmless. After `populate_call_result_states`
     // can write `ReusableCtor(_)` to `var_shapes` for an Invoke result
     // when the callee's `return_info.shape` narrows it; missing this
     // terminator visit causes consumed reusable Invoke results to be
@@ -292,7 +292,7 @@ pub(crate) fn populate_fip_gate_events(
             // is sufficient — uniqueness can only widen from entry to the
             // instruction point).
             //
-            // BUG-04-065: read uniqueness via `effective_uniqueness_at_block_entry`
+            // read uniqueness via `effective_uniqueness_at_block_entry`
             // so prior-Apply-result args read contract-narrowed MaybeShared
             // (instead of lattice BOTTOM=Unique) and FIP gates correctly
             // decline to fire on may-be-shared call results.
@@ -315,12 +315,12 @@ pub(crate) fn populate_fip_gate_events(
             }
         }
 
-        // Plan TPR Round 4 gemini F2 (high GAP, exposed by BUG-04-065):
+        // Plan TPR Round 4 gemini F2 (high GAP, exposed by ):
         // the body loop above only matches `ArcInstr::Apply`. Invoke
         // terminators with `FipContract::Conditional` and Unique args
         // also need FipGate events recorded; the body-only walk skips
         // them. Symmetric to populate_sparse_events' Invoke-terminator
-        // walk added in BUG-04-065 Round 0 + populate_call_result_states'
+        // walk added in the prior change Round 0 + populate_call_result_states'
         // body+terminator coverage.
         if let ArcTerminator::Invoke {
             func: callee_name,

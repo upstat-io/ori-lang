@@ -34,7 +34,7 @@ pub(super) enum LookupOutcome {
         /// Empty for non-generic impls (exact-Idx primary lookup); populated
         /// only by the base-name fallback path. `resolve_impl_signature`
         /// applies this via `substitute_named_in_pool` BEFORE method-level
-        /// `Tag::Scheme` instantiation. BUG-01-002 §05 Phase B residual.
+        /// `Tag::Scheme` instantiation.
         impl_subst: FxHashMap<Name, Idx>,
     },
     Ambiguous(Vec<ori_ir::Name>),
@@ -90,9 +90,9 @@ fn pool_base_name(pool: &Pool, ty: Idx) -> Option<Name> {
 /// references whose name is in this set are treated as binders; other
 /// `Tag::Named` references are nominal type lookups requiring exact-Idx match.
 ///
-/// BUG-01-002 §05 Phase B residual: the engine half of the dispatch fix per
-/// `typeck.md §EN-2` (engine owns inference state) and `types.md §RG-2`
-/// (registry stays a frozen-after-registration data store).
+/// Engine half of the dispatch path per `typeck.md §EN-2` (engine owns
+/// inference state) and `types.md §RG-2` (registry stays a
+/// frozen-after-registration data store).
 fn match_self_type(
     pool: &Pool,
     pattern: Idx,
@@ -169,9 +169,8 @@ enum FallbackResult {
 /// `entry.self_type` against the receiver, and return the resolved candidate.
 ///
 /// Inherent impls (`trait_idx == None`) win over trait impls per
-/// (builtin → inherent → trait). Within each tier, ties
-/// across distinct trait impls return `Ambiguous` so the caller can emit
-/// `E2023`. BUG-01-002 §05 Phase B residual.
+/// (builtin → inherent → trait). Within each tier, ties across distinct
+/// trait impls return `Ambiguous` so the caller can emit `E2023`.
 fn lookup_method_by_base_match(
     engine: &InferEngine<'_>,
     receiver_ty: Idx,
@@ -248,7 +247,7 @@ fn lookup_method_by_base_match(
 /// Scopes the immutable `trait_registry` borrow to extract data, so the
 /// caller can use `engine` mutably afterwards.
 ///
-/// Two-phase lookup per BUG-01-002 §05 Phase B residual:
+/// Two-phase lookup:
 /// 1. Exact-`Idx` primary lookup via `lookup_method_checked` — fast path,
 ///    matches concrete impls (`impl Box<int>`) and impls registered against
 ///    the receiver's exact pool index.
@@ -435,8 +434,8 @@ pub(super) fn resolve_impl_signature(
         LookupOutcome::NotFound => return None,
     };
 
-    // Phase B residual (BUG-01-002): apply impl-level binder substitution
-    // BEFORE method-level Scheme instantiation. The composition order is
+    // Apply impl-level binder substitution BEFORE method-level Scheme
+    // instantiation. The composition order is
     // load-bearing — receiver-bind → impl-Name-substitute → method-level
     // Scheme instantiate — so a registered signature on `impl<U> Box<U>
     // { @m<T> ... }` with `Tag::Named(U)` impl-level refs and a
@@ -449,21 +448,20 @@ pub(super) fn resolve_impl_signature(
         substitute_named_in_pool(engine.pool_mut(), resolved_sig, &impl_subst)
     };
 
-    // Phase B Step 5b (BUG-01-002): if the registered signature is a
-    // `Tag::Scheme` (set by `build_impl_method` when the method has
-    // method-level type generics), instantiate it now so each call site gets
-    // fresh unification vars in place of the scheme's bound vars. This is the
-    // `GN-2` instantiation pattern, mirrored from the
-    // top-level identifier path at `infer/expr/identifiers.rs:16-17`.
-    // Method-level binders that previously failed to unify against function-
-    // type arguments (`UN-6` rigid mismatch) now unify cleanly because they
-    // have been replaced by fresh, narrowable `Tag::Var`s.
+    // If the registered signature is a `Tag::Scheme` (set by
+    // `build_impl_method` when the method has method-level type generics),
+    // instantiate it now so each call site gets fresh unification vars in
+    // place of the scheme's bound vars. This is the `GN-2` instantiation
+    // pattern, mirrored from the top-level identifier path at
+    // `infer/expr/identifiers.rs:16-17`. Method-level binders that would
+    // otherwise fail to unify against function-type arguments (`UN-6` rigid
+    // mismatch) unify cleanly because they have been replaced by fresh,
+    // narrowable `Tag::Var`s.
     //
-    // Phase B residual (BUG-01-002): use `instantiate_with_subst` to capture
-    // the `scheme_var_id → fresh_var_idx` map; downstream
-    // `check_method_inline_bounds` consumes the map to look up each
-    // method-level binder's post-instantiation Var Idx and enforce its
-    // inline `<T: Bound>` constraints.
+    // `instantiate_with_subst` captures the `scheme_var_id → fresh_var_idx`
+    // map; downstream `check_method_inline_bounds` consumes the map to look
+    // up each method-level binder's post-instantiation Var Idx and enforce
+    // its inline `<T: Bound>` constraints.
     let (instantiated_sig, instantiation_subst) =
         if engine.pool().tag(impl_substituted_sig) == Tag::Scheme {
             engine.instantiate_with_subst(impl_substituted_sig)

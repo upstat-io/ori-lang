@@ -1,4 +1,4 @@
-//! SSA-alias equivalence-class computation (BUG-04-104).
+//! SSA-alias equivalence-class computation ( ).
 //!
 //! Pre-walk pass that computes the `ssa_alias_classes` side-table on
 //! [`AimsStateMap`] via union-find over Let-Var alias edges, Jump-arg →
@@ -72,7 +72,7 @@ pub(crate) struct SsaAliasClassesOutput {
     pub class_table: FxHashMap<ArcVarId, u32>,
     pub class_members: FxHashMap<u32, FxHashSet<ArcVarId>>,
     pub class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>>,
-    /// PIN-6 inter-class payload-of (BUG-04-104 §2.6): class A id → set of
+    /// PIN-6 inter-class payload-of (): class A id → set of
     /// class B ids whose drop transitively covers class A's RC slot.
     pub class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
 }
@@ -80,7 +80,7 @@ pub(crate) struct SsaAliasClassesOutput {
 /// Compute SSA-alias equivalence classes via union-find over Let-Var aliases,
 /// Jump-arg → block-param pairs, and apply-result aliases of `Direct` and
 /// `Conditional` shape, AND the PIN-6 inter-class payload-of relation
-/// (BUG-04-104 §2.6).
+/// ().
 ///
 /// Returns the four-field `SsaAliasClassesOutput` consumed by
 /// `walk_dec.rs::emit_last_use_decs` (class-liveness check + same-instruction

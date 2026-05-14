@@ -534,7 +534,7 @@ fn var_shape_non_reusable_not_stored() {
     assert_eq!(map.var_shape(var(0)), ShapeClass::NonReusable);
 }
 
-// TF-6 contract-narrowed call-result side tables (BUG-04-065)
+// TF-6 contract-narrowed call-result side tables ( )
 //
 // These tests exercise the `var_uniqueness` and `var_locality` side tables
 // that mirror `var_shapes`, populated by the post-convergence pass
