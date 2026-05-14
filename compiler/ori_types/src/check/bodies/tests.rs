@@ -582,3 +582,115 @@ fn scan_for_generalized_var_leaves(pool: &Pool, ty: Idx, report: &mut dyn FnMut(
         }
     }
 }
+
+// ============================================================================
+// §09.5 method-call return BD-2 — 5-cell TDD matrix
+// ============================================================================
+//
+// Pins the BD-2 gate that propagates an outer `Check(T)` annotation into a
+// method-call's generic-return slot at typeck time. Without §09.5 the LHS
+// annotation does NOT flow through `infer_method_call`'s synth-then-check
+// shape, leaving the call's return as an unresolved `Tag::Var` that surfaces
+// downstream as `E2005` on subsequent field/method access.
+//
+// Tests written BEFORE the fix per CLAUDE.md §TDD step 4 — they MUST fail on
+// the current tree (cell 1/3/4 surface E2005 / E2036; cells 2/5 may pass
+// already as regression baselines). The §05.5 implementation collapses all
+// failures.
+
+/// §09.5 cell 1 (positive): `let e: Error = msg.into()` compiles clean and
+/// `e.message` resolves to `str`. The LHS annotation `Error` must propagate
+/// through `into()`'s generic return slot via BD-2 so `e` is bound to
+/// `Error` (not a fresh `Tag::Var`). Pins the `str_to_error.ori` failure
+/// shape verbatim.
+#[test]
+fn test_method_call_return_bd2_into_to_error_resolves_field_access() {
+    let (result, _interner) = parse_and_check(
+        "@f () -> str = { let msg: str = \"x\"; let e: Error = msg.into(); e.message }",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for let e: Error = msg.into() + e.message, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// §09.5 cell 2 (regression — collect default): the existing `[T]` default
+/// for `.collect()` remains clean. The new MethodCall BD-2 gate must NOT
+/// regress the no-Set-annotation collect path that has always worked via
+/// the registered `Collect` impl's default return.
+#[test]
+fn test_method_call_return_bd2_collect_default_to_list_unchanged() {
+    let (result, _interner) = parse_and_check(
+        "@f () -> [int] = { [1, 2, 3].iter().map(x -> x + 1).collect() }",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected [int].iter().map.collect() to remain clean, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// §09.5 cell 3 (negative): `let n: int = msg.into()` where no `Into<int>`
+/// impl exists on `str` must surface a diagnostic. Either `E2036`
+/// (IntoNotImplemented) at method-resolution time OR `E2001` (Mismatch)
+/// once LHS-driven instantiation finds no matching impl. The gate must
+/// NOT silently produce `int` and mask the missing-impl error.
+#[test]
+fn test_method_call_return_bd2_no_impl_reports_diagnostic() {
+    let (result, _interner) = parse_and_check(
+        "@f () -> void = { let msg: str = \"x\"; let _n: int = msg.into(); () }",
+    );
+    let has_diagnostic = result.typed.errors.iter().any(|e| {
+        matches!(
+            e.kind,
+            TypeErrorKind::IntoNotImplemented { .. } | TypeErrorKind::Mismatch { .. }
+        )
+    });
+    assert!(
+        has_diagnostic,
+        "expected E2036 or E2001 for let _n: int = msg.into() with no Into<int> impl, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// §09.5 cell 4 (regression — no annotation): without LHS annotation the
+/// method-call BD-2 gate must not fire — existing synth path runs
+/// unchanged. `let _e = msg.into()` (no target type) must surface the
+/// existing `E2036` (IntoNotImplemented) at the call site, NOT be masked
+/// by a spurious BD-2 narrowing. Pins the gate's `expected.has_expectation()`
+/// short-circuit (parallels §09.3 `check_ok` early-return).
+#[test]
+fn test_method_call_return_bd2_no_annotation_falls_through_to_synth() {
+    let (result, _interner) =
+        parse_and_check("@f (msg: str) -> str = { let _e = msg.into(); \"\" }");
+    let has_into_not_implemented = result
+        .typed
+        .errors
+        .iter()
+        .any(|e| matches!(e.kind, TypeErrorKind::IntoNotImplemented { .. }));
+    assert!(
+        has_into_not_implemented,
+        "expected E2036 IntoNotImplemented for ungated msg.into() (no annotation), got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// §09.5 cell 5 (interaction — nested in map_err): the LHS annotation
+/// `Result<int, Error>` propagates through `map_err`'s `(E) -> E2` closure
+/// to the closure's return position; the closure body's `msg.into()` then
+/// receives `Check(Error)` and instantiates `into<T = Error>` correctly.
+/// Pins recursive-propagation: BD-2 composes across generic-return
+/// method-calls AND closure-return propagation (§09.4 wired
+/// closure-param-from-receiver; this pins the closure-return direction).
+#[test]
+fn test_method_call_return_bd2_nested_into_in_map_err_closure() {
+    let (result, _interner) = parse_and_check(
+        "@f (ok_int: Result<int, str>) -> Result<int, Error> = { ok_int.map_err(msg -> msg.into()) }",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for map_err(msg -> msg.into()) into Result<int, Error>, got: {:?}",
+        result.typed.errors
+    );
+}
