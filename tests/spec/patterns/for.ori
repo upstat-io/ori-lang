@@ -232,7 +232,7 @@
 //
 // @for_if_yield_all () -> [int] = for x in [1, 2, 3] if x > 0 yield x
 //
-// #skip("for loop range/condition evaluation off-by-one")
+// #skip("BUG-07-038: for loop range/condition evaluation off-by-one")
 // @test_for_multiple_conditions tests @for_multiple_conditions () -> void = {
 //     let result = for_multiple_conditions(),
 //     assert_eq(actual: result, expected: [6, 8]),
@@ -263,7 +263,7 @@
 // // @nested_for_yield () -> [(int, int)] = for x in [1, 2, 3] for y in [1, 2, 3] yield (x, y)
 // @nested_for_yield () -> [(int, int)] = (for x in [1, 2, 3] yield (for y in [1, 2, 3] yield (x, y))).flatten()
 //
-// #skip("nested for comprehension syntax not supported - needs explicit nesting")
+// #skip("BUG-07-038: nested for comprehension syntax not supported — needs explicit nesting")
 // @test_nested_for_yield tests @nested_for_yield () -> void = {
 //     let result = nested_for_yield(),
 //     assert_eq(actual: result.len(), expected: 9),
@@ -272,7 +272,7 @@
 // // @nested_for_filtered () -> [(int, int)] = for x in 1..5 for y in 1..5 if x < y yield (x, y)
 // @nested_for_filtered () -> [(int, int)] = (for x in 1..5 yield (for y in 1..5 if x < y yield (x, y))).flatten()
 //
-// #skip("nested for comprehension syntax not supported - needs explicit nesting")
+// #skip("BUG-07-038: nested for comprehension syntax not supported — needs explicit nesting")
 // @test_nested_for_filtered tests @nested_for_filtered () -> void = {
 //     let result = nested_for_filtered(),
 //     // Only pairs where x < y
@@ -297,7 +297,7 @@
 //     sum,
 // }
 //
-// #skip("continue in for do loop not working correctly")
+// #skip("BUG-07-038: continue in for do loop not working correctly")
 // @test_for_continue tests @for_continue () -> void = {
 //     let result = for_continue(),
 //     assert_eq(actual: result, expected: 9),
@@ -402,7 +402,7 @@
 // // for Collecting into Maps
 // // =============================================================================
 //
-// #skip("for yield into map type inference issue")
+// #skip("BUG-07-038: for yield into map type inference issue")
 // @test_for_yield_map tests @for_yield_map () -> void = {
 //     let result = for_yield_map(),
 //     // Map indexing returns Option<V>
@@ -416,7 +416,7 @@
 // // for with Option Iteration
 // // =============================================================================
 //
-// #skip("Option type not iterable")
+// #skip("BUG-07-038: Option type not iterable")
 // @test_for_option tests @for_option () -> void = {
 //     let result = for_option(),
 //     assert_eq(actual: result, expected: 42),
@@ -429,7 +429,7 @@
 //     result,
 // }
 //
-// #skip("Option type not iterable")
+// #skip("BUG-07-038: Option type not iterable")
 // @test_for_none tests @for_none () -> void = {
 //     let result = for_none(),
 //     assert_eq(actual: result, expected: 0),

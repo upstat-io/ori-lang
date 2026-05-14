@@ -115,7 +115,7 @@ fn test_trampoline_fold_str() {
 // by-value ABI for types > 16 bytes.
 
 #[test]
-#[ignore = "codegen gap: for_each with closure hits unresolved type variable (pre-existing)"]
+#[ignore = "BUG-07-038: codegen gap — for_each with closure hits unresolved type variable"]
 fn test_trampoline_for_each_str() {
     assert_aot_success(
         include_str!("fixtures/elem_dec_scope/trampoline_for_each_str.ori"),

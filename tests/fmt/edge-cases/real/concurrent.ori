@@ -65,7 +65,7 @@ type BatchResult = { completed: int, failed: int, total: int }
 // }
 @cached_process (item: WorkItem) -> int = 0;
 
-#skip("stub: concurrency not yet implemented")
+#skip("BUG-07-038: stub — concurrency not yet implemented")
 @test_process_batch tests @process_batch () -> void = {
     let items = [];
     let result = process_batch(items: items);
@@ -73,7 +73,7 @@ type BatchResult = { completed: int, failed: int, total: int }
     assert(cond: true)
 }
 
-#skip("stub: concurrency not yet implemented")
+#skip("BUG-07-038: stub — concurrency not yet implemented")
 @test_process_with_timeout tests @process_with_timeout () -> void = {
     let item = WorkItem { id: 1, payload: "test", priority: 1 };
     let result = process_with_timeout(item: item);
@@ -81,7 +81,7 @@ type BatchResult = { completed: int, failed: int, total: int }
     assert(cond: true)
 }
 
-#skip("stub: concurrency not yet implemented")
+#skip("BUG-07-038: stub — concurrency not yet implemented")
 @test_parallel_with_limit tests @parallel_with_limit () -> void = {
     let items = [];
     let result = parallel_with_limit(items: items);
@@ -89,7 +89,7 @@ type BatchResult = { completed: int, failed: int, total: int }
     assert(cond: true)
 }
 
-#skip("stub: concurrency not yet implemented")
+#skip("BUG-07-038: stub — concurrency not yet implemented")
 @test_cached_process tests @cached_process () -> void = {
     let item = WorkItem { id: 1, payload: "test", priority: 1 };
     let result = cached_process(item: item);
@@ -97,7 +97,7 @@ type BatchResult = { completed: int, failed: int, total: int }
     assert(cond: true)
 }
 
-#skip("LLVM backend: struct parameters not supported")
+#skip("BUG-07-038: LLVM backend — struct parameters not supported")
 @test_process_item tests @process_item () -> void = {
     let item = WorkItem { id: 1, payload: "test", priority: 5 };
     let result = process_item(item: item);
@@ -105,7 +105,7 @@ type BatchResult = { completed: int, failed: int, total: int }
     assert(cond: is_ok(r: result))
 }
 
-#skip("LLVM backend: struct parameters not supported")
+#skip("BUG-07-038: LLVM backend — struct parameters not supported")
 @test_invalid_priority tests @process_item () -> void = {
     let item = WorkItem { id: 1, payload: "test", priority: 0 };
     let result = process_item(item: item);
@@ -113,7 +113,7 @@ type BatchResult = { completed: int, failed: int, total: int }
     assert(cond: is_err(r: result))
 }
 
-#skip("LLVM backend: struct parameters not supported")
+#skip("BUG-07-038: LLVM backend — struct parameters not supported")
 @test_orchestrate tests @orchestrate () -> void = {
     let items = [
         WorkItem { id: 1, payload: "a", priority: 1 },

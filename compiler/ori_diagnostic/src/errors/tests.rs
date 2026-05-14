@@ -116,7 +116,7 @@ fn test_undocumented_count_does_not_grow() {
 /// - E6001–E6099 (27 runtime codes: eval/runtime errors)
 /// - W1001–W1002 (2 parser warnings)
 #[test]
-#[ignore = "manual inventory — run with --ignored to see all undocumented codes"]
+#[ignore = "BUG-07-038: on-demand manual inventory — run with --ignored to see all undocumented codes"]
 fn test_undocumented_codes_inventory() {
     let undocumented: Vec<_> = ErrorCode::ALL
         .iter()

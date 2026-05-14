@@ -102,17 +102,17 @@
 // @sum_ints (nums: ...int) -> int =
 //     nums.fold(initial: 0, op: (acc, n) -> acc + n)
 //
-// #skip("variadic function calling not implemented in evaluator")
+// #skip("BUG-07-038: variadic function calling not implemented in evaluator")
 // @test_variadic_empty tests @sum_ints () -> void = {
 //     assert_eq(actual: sum_ints(), expected: 0),
 // }
 //
-// #skip("variadic function calling not implemented in evaluator")
+// #skip("BUG-07-038: variadic function calling not implemented in evaluator")
 // @test_variadic_single tests @sum_ints () -> void = {
 //     assert_eq(actual: sum_ints(10), expected: 10),
 // }
 //
-// #skip("variadic function calling not implemented in evaluator")
+// #skip("BUG-07-038: variadic function calling not implemented in evaluator")
 // @test_variadic_multiple tests @sum_ints () -> void = {
 //     assert_eq(actual: sum_ints(1, 2, 3, 4, 5), expected: 15),
 // }

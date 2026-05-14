@@ -48,7 +48,7 @@ type ApiError = Network(msg: str) | Timeout | NotFound;
 @create_user (name: str) -> Result<int, ApiError> uses Http, Logger = Ok(1);
 
 // TODO: LLVM backend doesn't support struct field access
-#skip("LLVM backend: struct field access not supported")
+#skip("BUG-07-038: LLVM backend — struct field access not supported")
 @test_build_request tests @build_request () -> void = {
     let req = build_request(method: Get, url: "/test", body: "");
     assert_eq(actual: req.url, expected: "/test")

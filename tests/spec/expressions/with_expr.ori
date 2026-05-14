@@ -31,7 +31,7 @@ impl Counter for MockCounter {
 
 // SKIP: Capability provision to called functions not yet implemented.
 // The `with Counter = mock` binding doesn't propagate to use_counter().
-#skip("capability provision to called functions not implemented")
+#skip("BUG-07-038: capability provision to called functions not implemented")
 @test_basic_with tests @basic_with () -> void = {
     let mock = MockCounter { value: 10 };
     let result = with Counter = mock in use_counter();
@@ -62,7 +62,7 @@ impl Counter for MockCounter {
 // See proposals/approved/stateful-mock-testing-proposal.md for the approved mechanism.
 // Once handler(state: expr) { ... } is implemented, rewrite using:
 //   with Counter = handler(state: 0) { increment: (s) -> (s+1, s+1), get: (s) -> (s, s) }
-#skip("requires stateful handlers - see stateful-mock-testing-proposal")
+#skip("BUG-07-038: requires stateful handlers — see stateful-mock-testing-proposal")
 @test_with_expression_body tests @with_expression_body () -> void = {
     let mock = MockCounter { value: 0 };
     let result = with Counter = mock in {
@@ -102,7 +102,7 @@ impl Logger for MockLogger {
 }
 
 // SKIP: Same issue as test_basic_with - capability provision to called functions not implemented.
-#skip("capability provision to called functions not implemented")
+#skip("BUG-07-038: capability provision to called functions not implemented")
 @test_multiple_capabilities tests @multiple_capabilities () -> void = {
     let counter = MockCounter { value: 10 };
     let logger = MockLogger { messages: [] };

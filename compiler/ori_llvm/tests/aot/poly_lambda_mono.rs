@@ -43,7 +43,7 @@ use crate::util::assert_aot_success;
 /// wrapper returns 0 on success; `assert_eq` panics on mismatch, producing
 /// a non-zero exit status. Compilation failure → `assert_aot_success` fails.
 #[test]
-#[ignore = "BUG-04-AOT-MONO"]
+#[ignore = "BUG-04-119: AOT ori build lacks imported generic monomorphization"]
 fn test_poly_lambda_with_imported_assert_eq_int() {
     assert_aot_success(
         include_str!("fixtures/poly_lambda_mono/poly_lambda_with_imported_assert_eq_int.ori"),
@@ -56,7 +56,7 @@ fn test_poly_lambda_with_imported_assert_eq_int() {
 /// §08.3 fix that regresses RC management on the assertion-failure message
 /// concat/`debug()` path surfaces here rather than in the int cell.
 #[test]
-#[ignore = "BUG-04-AOT-MONO"]
+#[ignore = "BUG-04-119: AOT ori build lacks imported generic monomorphization"]
 fn test_poly_lambda_with_imported_assert_eq_str() {
     assert_aot_success(
         include_str!("fixtures/poly_lambda_mono/poly_lambda_with_imported_assert_eq_str.ori"),

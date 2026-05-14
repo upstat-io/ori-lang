@@ -356,7 +356,7 @@ type Container = { items: [int] }
 // SKIP: Index assignment (list[i] = x) not currently supported. Pending design proposal
 // for copy-on-write index assignment (see errata on index-trait-proposal.md).
 
-#skip("index assignment not supported - pending design proposal")
+#skip("BUG-07-016: index assignment not supported — pending design proposal")
 @test_list_assign tests @list_assign () -> void = {
     let list = [1, 2, 3];
     list[1] = 99;

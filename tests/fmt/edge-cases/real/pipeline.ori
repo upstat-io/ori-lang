@@ -73,7 +73,7 @@ type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
 @aggregate_by_category (records: [ProcessedRecord]) -> {str: int} = {}
 
 // TODO: LLVM backend doesn't support struct field access
-#skip("LLVM backend: struct field access not supported")
+#skip("BUG-07-038: LLVM backend — struct field access not supported")
 @test_validate tests @validate_record () -> void = {
     let valid = DataRecord { id: 1, value: 100, category: "A", valid: true };
     let invalid = DataRecord { id: 0, value: 100, category: "A", valid: true };
@@ -82,7 +82,7 @@ type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
     assert_eq(actual: validate_record(record: invalid), expected: false)
 }
 
-#skip("LLVM backend: struct field access not supported")
+#skip("BUG-07-038: LLVM backend — struct field access not supported")
 @test_transform tests @transform_record () -> void = {
     let input = DataRecord { id: 1, value: 50, category: "B", valid: true };
     let output = transform_record(record: input);

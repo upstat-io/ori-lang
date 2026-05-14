@@ -50,7 +50,7 @@ type TaskList = { tasks: [Task], owner: str }
 // }
 
 // TODO: LLVM backend doesn't support struct field access
-#skip("LLVM backend: struct field access not supported")
+#skip("BUG-07-038: LLVM backend — struct field access not supported")
 @test_create_task tests @create_task () -> void = {
     let task = create_task(id: 1, name: "Test", priority: 3);
     assert_eq(actual: task.id, expected: 1);
@@ -58,7 +58,7 @@ type TaskList = { tasks: [Task], owner: str }
     assert_eq(actual: task.name, expected: "Test")
 }
 
-#skip("LLVM backend: struct field access not supported")
+#skip("BUG-07-038: LLVM backend — struct field access not supported")
 @test_complete tests @complete_task () -> void = {
     let task = create_task(id: 1, name: "Test", priority: 3);
     let completed = complete_task(task: task);
@@ -66,7 +66,7 @@ type TaskList = { tasks: [Task], owner: str }
     assert_eq(actual: completed.id, expected: 1)
 }
 
-#skip("LLVM backend: struct field access not supported")
+#skip("BUG-07-038: LLVM backend — struct field access not supported")
 @test_priority tests @is_high_priority () -> void = {
     let low = create_task(id: 1, name: "Low", priority: 2);
     let high = create_task(id: 2, name: "High", priority: 8);

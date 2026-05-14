@@ -1034,7 +1034,7 @@ fn collect_all_canonical_states() -> Vec<AimsState> {
 /// proptest `join_associative` provides fast regression coverage (5000 cases).
 /// Run this manually when modifying canonicalization rules.
 #[test]
-#[ignore = "exhaustive O(n^3): confirms 0 associativity divergences — run manually after lattice changes"]
+#[ignore = "BUG-07-038: on-demand exhaustive O(n^3) — confirms 0 associativity divergences; run manually after lattice changes"]
 fn associativity_divergence_with_canonical_triples_detects_decision_impact() {
     use crate::aims::transfer::is_owned_and_unique;
 

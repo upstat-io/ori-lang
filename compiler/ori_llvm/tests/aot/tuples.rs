@@ -150,7 +150,7 @@ fn test_tuple_return_triple() {
 // ─── Nested tuples ───
 
 #[test]
-#[ignore = "Parser gap: chained tuple field access t.0.0 lexed as float (Section 05 § 5.7 open item)"]
+#[ignore = "BUG-07-038: Parser gap — chained tuple field access t.0.0 lexed as float (Section 05 § 5.7 open item)"]
 fn test_tuple_nested_pair_of_pairs() {
     assert_aot_success(
         include_str!("fixtures/tuples/tuple_nested_pair_of_pairs.ori"),
@@ -167,7 +167,7 @@ fn test_tuple_nested_destructure() {
 }
 
 #[test]
-#[ignore = "Parser gap: chained tuple field access t.1.0 lexed as float (Section 05 § 5.7 open item)"]
+#[ignore = "BUG-07-038: Parser gap — chained tuple field access t.1.0 lexed as float (Section 05 § 5.7 open item)"]
 fn test_tuple_nested_mixed() {
     assert_aot_success(
         include_str!("fixtures/tuples/tuple_nested_mixed.ori"),

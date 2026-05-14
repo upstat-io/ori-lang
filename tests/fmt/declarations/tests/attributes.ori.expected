@@ -1,9 +1,9 @@
-#skip("not implemented")
+#skip("BUG-07-038: not implemented (cluster: 102 untracked dispositions)")
 @test_future tests _ () -> void = print(msg: "future");
 
 #compile_fail("type mismatch")
 @test_type_error tests _ () -> void = 42;
 
-#skip("LLVM backend: panic handling in #fail tests not working")
+#skip("BUG-07-038: LLVM backend — panic handling in #fail tests not working")
 #fail("assertion failed")
 @test_panic tests _ () -> void = panic(msg: "assertion failed");

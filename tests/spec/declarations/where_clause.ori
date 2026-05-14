@@ -104,7 +104,7 @@
 // // @positive_array<$N: int> () -> [int] where N > 0 = for i in 0..N yield i
 // @positive_array () -> [int] = for i in 0..5 yield i
 //
-// #skip("const generic where bounds not implemented")
+// #skip("BUG-07-038: const generic where bounds not implemented")
 // @test_const_where tests @positive_array () -> void = {
 //     let arr: [int] = positive_array(),
 //     assert_eq(actual: len(collection: arr), expected: 5),

@@ -134,7 +134,7 @@ type DerivedOption = DSome(value: int) | DNone;
 // #skip Attribute
 // =============================================================================
 
-#skip("Pending implementation of feature X")
+#skip("BUG-07-055: placeholder attribute demonstration in attributes.ori")
 @test_skipped_test tests @_dummy () -> void = {
     // This test is skipped
     assert(cond: false)

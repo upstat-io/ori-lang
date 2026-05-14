@@ -1422,7 +1422,7 @@ fn collection_element_width(plan: &ReprPlan, idx: Idx) -> Option<IntWidth> {
 }
 
 #[test]
-#[ignore = "collection element narrowing disabled"]
+#[ignore = "BUG-07-038: collection element narrowing disabled"]
 fn phase_c_list_bounded_elements_narrow_to_i8() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1443,7 +1443,7 @@ fn phase_c_list_bounded_elements_narrow_to_i8() {
 }
 
 #[test]
-#[ignore = "collection element narrowing disabled"]
+#[ignore = "BUG-07-038: collection element narrowing disabled"]
 fn phase_c_list_bounded_elements_narrow_to_i16() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1540,7 +1540,7 @@ fn phase_c_repr_c_collection_not_narrowed() {
 }
 
 #[test]
-#[ignore = "collection element narrowing disabled"]
+#[ignore = "BUG-07-038: collection element narrowing disabled"]
 fn phase_c_semantic_pin_only_passes_with_narrowing() {
     // Semantic pin: this test ONLY passes if collection element narrowing is
     // active. Without it, the element width would remain I64.
@@ -1596,7 +1596,7 @@ fn phase_c_negative_pin_wide_range_stays_canonical() {
 }
 
 #[test]
-#[ignore = "collection element narrowing disabled"]
+#[ignore = "BUG-07-038: collection element narrowing disabled"]
 fn phase_c_multiple_construction_sites_join_ranges() {
     // Two construction sites with different ranges → joined range.
     let mut pool = Pool::default();
@@ -1641,7 +1641,7 @@ fn phase_c_multiple_sites_one_wide_prevents_narrowing() {
 }
 
 #[test]
-#[ignore = "collection element narrowing disabled"]
+#[ignore = "BUG-07-038: collection element narrowing disabled"]
 fn phase_c_i32_boundary_narrows_correctly() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1695,7 +1695,7 @@ fn phase_c_set_int_not_narrowed() {
 /// When both `[int]` and `Set<int>` have element ranges, only the list
 /// is narrowed. The set stays canonical.
 #[test]
-#[ignore = "collection element narrowing disabled"]
+#[ignore = "BUG-07-038: collection element narrowing disabled"]
 fn phase_c_list_narrowed_but_set_stays_canonical() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1727,7 +1727,7 @@ fn phase_c_list_narrowed_but_set_stays_canonical() {
 /// proves the element width actually changes to i8 (not just `!is_public_type()`).
 /// Regression:
 #[test]
-#[ignore = "collection element narrowing disabled"]
+#[ignore = "BUG-07-038: collection element narrowing disabled"]
 fn phase_c_imported_surface_allows_narrowing() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);

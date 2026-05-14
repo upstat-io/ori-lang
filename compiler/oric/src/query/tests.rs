@@ -724,7 +724,7 @@ fn test_evaluated_block_expression() {
 }
 
 #[test]
-#[ignore = "recurse pattern self() not yet supported (needs Section 07)"]
+#[ignore = "BUG-07-038: recurse pattern self() not yet supported (needs roadmap §07)"]
 fn test_evaluated_recurse_pattern() {
     use crate::eval::EvalOutput;
 

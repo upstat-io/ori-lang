@@ -294,13 +294,13 @@
 // //
 // // STATUS: Evaluator [BROKEN] - str to bool fallible conversion not implemented
 // // "true" as? bool returns None instead of Some(true)
-// #skip("str to bool fallible conversion not implemented")
+// #skip("BUG-07-038: str to bool fallible conversion not implemented")
 // @test_str_to_bool_true tests @str_to_bool_true () -> void = {
 //     let result = "true" as? bool,
 //     assert_eq(actual: result, expected: Some(true)),
 // }
 //
-// #skip("str to bool fallible conversion not implemented")
+// #skip("BUG-07-038: str to bool fallible conversion not implemented")
 // @test_str_to_bool_false tests @str_to_bool_false () -> void = {
 //     let result = "false" as? bool,
 //     assert_eq(actual: result, expected: Some(false)),
@@ -352,7 +352,7 @@
 // // =============================================================================
 // //
 // // STATUS: Evaluator [BROKEN] - int(str) conversion function not implemented
-// #skip("int(str) conversion function not implemented")
+// #skip("BUG-07-038: int(str) conversion function not implemented")
 // @test_int_function tests @int_function () -> void = {
 //     let s = "42",
 //     let result = int(s),
@@ -439,7 +439,7 @@
 // // =============================================================================
 // // Edge Cases
 // // =============================================================================
-// #skip("float.truncate() method not implemented")
+// #skip("BUG-07-038: float.truncate() method not implemented")
 // @test_roundtrip_int_float tests @roundtrip_int_float () -> void = {
 //     let i = 42,
 //     let f = i as float,

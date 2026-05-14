@@ -199,12 +199,12 @@
 // // The caller doesn't know what argument name to use. Use named params with match instead.
 // @first<T> ([x, ..]: [T]) -> T = x
 //
-// #skip("pattern parameters without names not implemented - use named params with match")
+// #skip("BUG-07-038: pattern parameters without names not implemented — use named params with match")
 // @test_first_int tests @first () -> void = {
 //     assert_eq(actual: first(list: [10, 20, 30]), expected: 10),
 // }
 //
-// #skip("pattern parameters without names not implemented - use named params with match")
+// #skip("BUG-07-038: pattern parameters without names not implemented — use named params with match")
 // @test_first_str tests @first () -> void = {
 //     assert_eq(actual: first(list: ["a", "b", "c"]), expected: "a"),
 // }
@@ -276,7 +276,7 @@
 // pub @len<T> ([]: [T]) -> int = 0
 // @len ([_, ..tail]: [T]) -> int = 1 + len(list: tail)
 //
-// #skip("pattern parameters without names not implemented")
+// #skip("BUG-07-038: pattern parameters without names not implemented")
 // @test_generic_len tests @len () -> void = {
 //     let ints: [int] = [1, 2, 3],
 //     let strs: [str] = ["a", "b"],

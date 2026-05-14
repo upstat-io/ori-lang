@@ -402,7 +402,7 @@ type Point = { x: int, y: int }
 // break x inside a for loop only breaks from the for, not the enclosing loop.
 // This test requires labeled breaks (break:name) which are not yet implemented.
 
-#skip("requires labeled breaks (loop:name, break:name) - see line 361")
+#skip("BUG-07-038: requires labeled breaks (loop:name, break:name) — see line 361")
 @test_find_first tests @find_first () -> void = {
     let items = [1, 3, 5, 8, 10];
     let first_even = loop {

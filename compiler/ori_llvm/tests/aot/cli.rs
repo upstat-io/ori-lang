@@ -756,7 +756,7 @@ fn test_build_missing_dependency() {
 /// Note: This test requires incremental compilation to be wired up.
 /// Currently marked as ignored until the feature is fully integrated.
 #[test]
-#[ignore = "Incremental compilation not yet wired up in ori build (see 21B.6)"]
+#[ignore = "BUG-07-038: Incremental compilation not yet wired up in ori build (see roadmap §21B.6)"]
 fn test_build_incremental_unchanged() {
     use std::time::Instant;
 

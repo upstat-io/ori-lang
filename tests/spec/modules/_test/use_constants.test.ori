@@ -12,7 +12,7 @@ use std.testing { assert_eq }
 // the import below and remove the #skip attributes.
 // use "../use_imports" { $default_timeout }
 
-#skip("constant import resolution not yet implemented")
+#skip("BUG-07-038: constant import resolution not yet implemented")
 @test_const_import tests @dummy () -> void = {
     // When working: assert_eq(actual: default_timeout, expected: 30)
     assert_eq(actual: 30, expected: 30)

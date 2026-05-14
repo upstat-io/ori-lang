@@ -21,6 +21,7 @@
 
 mod builder;
 pub mod burden;
+pub mod burden_lookup;
 mod calls;
 pub(crate) mod collections;
 mod constructs;
@@ -33,6 +34,7 @@ pub use burden::{
     BorrowedFieldView, Burden, BurdenRef, OwnedFieldView, TransferRuleView, TypeRef,
     VariantBurdenView,
 };
+pub use burden_lookup::lookup_burden;
 
 use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};

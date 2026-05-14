@@ -31,11 +31,11 @@
 // =============================================================================
 
 // Integer literal in type argument position
-#skip("const generics: Array type not yet implemented")
+#skip("BUG-07-038: const generics — Array type not yet implemented")
 @int_type_arg () -> Array<int, 10> = [];
 
 // Const param reference in type argument position
-#skip("const generics: Array type not yet implemented")
+#skip("BUG-07-038: const generics — Array type not yet implemented")
 @const_type_arg<$N: int> () -> Array<int, $N> = [];
 
 // =============================================================================
@@ -43,11 +43,11 @@
 // =============================================================================
 
 // Fixed list with integer literal capacity (existing syntax)
-#skip("const generics: fixed-capacity lists not yet implemented (Section 18.2)")
+#skip("BUG-07-038: const generics — fixed-capacity lists not yet implemented (roadmap §18.2)")
 @fixed_list_literal () -> [int, max 10] = [];
 
 // Fixed list with const param capacity (new syntax)
-#skip("const generics: fixed-capacity lists not yet implemented (Section 18.2)")
+#skip("BUG-07-038: const generics — fixed-capacity lists not yet implemented (roadmap §18.2)")
 @fixed_list_const<$N: int> () -> [int, max $N] = [];
 
 // =============================================================================
@@ -55,9 +55,9 @@
 // =============================================================================
 
 // Const bound in where clause
-#skip("const generics: const bounds not yet implemented (Section 18.5)")
+#skip("BUG-07-038: const generics — const bounds not yet implemented (roadmap §18.5)")
 @const_bound<$N: int> () -> int where N > 0 = N;
 
 // Mixed type and const bounds
-#skip("const generics: const bounds not yet implemented (Section 18.5)")
+#skip("BUG-07-038: const generics — const bounds not yet implemented (roadmap §18.5)")
 @mixed_bounds<T, $N: int> (x: T) -> T where T: Clone, N > 0 = x;
