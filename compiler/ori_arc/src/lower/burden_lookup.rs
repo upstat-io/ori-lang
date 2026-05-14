@@ -7,17 +7,17 @@
 //! hides it so Phase 5 emission consumes burden specs uniformly via the
 //! `Burden` trait on `BurdenRef`.
 
-use ori_registry::burden::table::BurdenRegistry;
+use ori_registry::burden::table::{BurdenRegistry, TYPE_PARAM_E};
 use ori_types::TypeRegistry;
 
 use super::burden::{BurdenRef, TypeRef};
 
-/// Reserved sentinel raw value for `TYPE_PARAM_E` in
-/// `ori_registry::burden::table` (`u32::MAX - 1`). User pool indices MUST stay
-/// strictly below this to avoid collision when boundary-translating into the
-/// `BurdenTypeId` namespace. Mirrored here as a literal because the
-/// constant in `ori_registry::burden::table` is private.
-const TYPE_PARAM_E_RAW: u32 = u32::MAX - 1;
+/// Reserved sentinel raw value for `TYPE_PARAM_E` (`u32::MAX - 1`). User pool
+/// indices MUST stay strictly below this to avoid collision when
+/// boundary-translating into the `BurdenTypeId` namespace. Extracted from the
+/// shared SSOT constant in `ori_registry::burden::table` rather than mirrored
+/// as a literal.
+const TYPE_PARAM_E_RAW: u32 = TYPE_PARAM_E.get().get();
 
 /// Returns the burden spec for `ty`, dispatching across the builtin
 /// (`BURDEN_TABLE`) and user (`TypeRegistry`) partitions.

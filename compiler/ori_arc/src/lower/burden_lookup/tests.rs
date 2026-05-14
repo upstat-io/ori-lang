@@ -206,8 +206,8 @@ fn lookup_user_idx_partition_does_not_query_builtin_table() {
     assert!(matches!(builtin_result, Some(BurdenRef::Builtin(_))));
 }
 
-// §01.5 structural tests — FFI exclusion contract.
-// Spec: Annex E §FFI (proposal:643-645).
+// FFI exclusion contract — structural tests.
+// Spec: Annex E §FFI.
 
 #[test]
 fn unannotated_ffi_empty_burden_yields_zero_owned_fields_and_no_user_drop() {
@@ -215,8 +215,9 @@ fn unannotated_ffi_empty_burden_yields_zero_owned_fields_and_no_user_drop() {
     // the empty BuiltinBurdenSpec — semantically `CPtr` / `JsValue` /
     // `JsPromise<T>` / `extern "c"` types without `#free`. The empty spec
     // reports zero owned fields, zero borrowed fields, zero variant
-    // burdens, no user drop. Proves the §00 clause 8 contract surface:
-    // empty `BurdenSpec` ≠ memory burden ≠ RL-31 noalias eligible.
+    // burdens, no user drop. Spec: Annex E §AIMS RL-31 Sufficient-Noalias
+    // Rule clause 8 — empty `BurdenSpec` ≠ memory burden ≠ noalias
+    // eligible.
     let burden_ref = BurdenRef::Builtin(&ori_registry::burden::EMPTY_BURDEN_SPEC);
     assert!(
         burden_ref.owned_fields().next().is_none(),
@@ -252,13 +253,13 @@ fn unannotated_ffi_empty_burden_yields_zero_owned_fields_and_no_user_drop() {
 fn annotated_ffi_extern_type_user_drop_carries_free_symbol() {
     // Test 2 (STRUCTURAL): an extern type declared with `#free(symbol)`
     // gets an explicit UserBurdenSpec with user_drop = Some(FnSym) and
-    // empty field/variant lists. Spec: Annex E §FFI (proposal:643-645)
-    // — Owned-positioned extern values drop via the named free function.
+    // empty field/variant lists. Spec: Annex E §FFI — Owned-positioned
+    // extern values drop via the named free function.
     //
-    // The §01.5 plan literal `extern "c" from "libsqlite" #free(sqlite3_close)
-    // { type DbHandle }` is the canonical syntax target; extern-type AST
-    // declarations remain target-only per the §01.5 module-doc Status
-    // section. This test pins the burden shape directly via
+    // The canonical syntax target is the literal form
+    // `extern "c" from "libsqlite" #free(sqlite3_close) { type DbHandle }`;
+    // extern-type AST declarations remain target-only per the module-doc
+    // Status section. This test pins the burden shape directly via
     // `compute_extern_type_burden` — the building block downstream.
     use core::num::NonZeroU32;
     use ori_registry::burden::FnSym;

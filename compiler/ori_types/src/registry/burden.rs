@@ -6,11 +6,6 @@
 //! `TransferKind`, `FnSym`, and `VariantId` are re-exported from
 //! `ori_registry::burden` — shared between builtin and user paths.
 
-#![allow(
-    dead_code,
-    reason = "staging types ahead of consumer wiring; allow removed when TypeEntry.burden lands"
-)]
-
 use ori_registry::burden::{FnSym, TransferKind, VariantId};
 
 use crate::Idx;

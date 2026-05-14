@@ -334,12 +334,11 @@ fn struct_field_lookup() {
     assert!(registry.struct_field(idx, test_name("z")).is_none());
 }
 
-// ---------------------------------------------------------------------------
-// Burden integration tests (plan §01.3 success_criteria + decisions/06 §Validation)
+// Burden integration tests.
 //
 // Exercise the full registration path: compute_*_burden helpers → register_*
-// → TypeRegistry::burden(idx). Matrix per tests.md §Matrix Testing Rule covers
-// (struct × field-class), (enum × variant-shape), (newtype × inheritance-branch).
+// → TypeRegistry::burden(idx). Matrix covers (struct × field-class),
+// (enum × variant-shape), (newtype × inheritance-branch).
 
 use crate::check::registration::burden_compute::{
     compute_enum_burden, compute_newtype_burden, compute_struct_burden,
@@ -634,8 +633,8 @@ fn burden_newtype_around_registered_user_struct_inherits_burden() {
 // Phase-boundary regression: ori_types is Phase 2/3 (parse/typeck) — ori_arc
 // is Phase 5+ (lowering). burden computation MUST classify fields via
 // `Triviality` + `Tag` (both ori_types-native), NOT `ArcClass` (ori_arc).
-// Per plan §01.3 line 207, structural regression on Cargo.toml guards
-// against future drift that cargo c cannot catch on silent omissions.
+// Structural regression on Cargo.toml guards against future drift that
+// cargo c cannot catch on silent omissions.
 const ORI_TYPES_CARGO_TOML: &str = include_str!("../../../Cargo.toml");
 
 #[test]

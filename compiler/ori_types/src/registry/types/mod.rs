@@ -316,7 +316,7 @@ impl TypeRegistry {
             visibility,
             merkle_hash,
             repr: None, // aliases don't have repr attributes
-            burden, // typically None; aliases inherit burden from target via §01.4 lookup helper
+            burden,     // typically None; aliases inherit burden from target via lookup_burden
         };
 
         self.insert_entry(entry);

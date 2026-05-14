@@ -1,22 +1,22 @@
 //! User-type burden computation (typeck phase 0b).
 //!
 //! Computes `UserBurdenSpec` for struct / enum / newtype declarations at
-//! registration time via the Tag-first ternary partition per
-//! `plans/aims-burden-tracking/decisions/06-burden-field-placement.md §Phase
-//! Boundary Cure`. Consumed by `register_type_decl` in `user_types.rs`.
+//! registration time via the Tag-first ternary partition per the Phase
+//! Boundary Cure (`Tag::Borrowed` → `borrowed_fields`; heap-owning tags +
+//! `Triviality::NonTrivial` compounds → `owned_fields`; scalars omitted).
+//! Consumed by `register_type_decl` in `user_types.rs`.
 //!
 //! Partition rules:
 //! - Scalar (`Int/Float/Bool/Char/Byte/Unit/Duration/Size/Ordering/Never`):
 //!   OMIT from both `owned_fields` and `borrowed_fields`.
-//! - `Tag::Borrowed` (target-only per `types.md §TL-9`): `borrowed_fields`.
+//! - `Tag::Borrowed` (target-only): `borrowed_fields`.
 //! - Heap-owning tags (`Str/List/Map/Set/Channel/Iterator/Function`) +
 //!   `Triviality::NonTrivial` compounds: `owned_fields`.
-//! - `Triviality::Unknown`: conservative `owned_fields` (PC-2 violation per
-//!   `typeck.md §PC-2` if reached at typeck exit).
+//! - `Triviality::Unknown`: conservative `owned_fields` (PC-2 violation if
+//!   reached at typeck exit).
 //!
 //! Phase-purity: this module reads `ori_types::Tag` + `ori_types::triviality`
-//! only — `ori_arc::ArcClass` is downstream (Phase 4) and SHALL NOT leak here
-//! per `compiler.md §Phase-Specific Purity`.
+//! only — `ori_arc::ArcClass` is downstream (Phase 4) and SHALL NOT leak here.
 
 use core::num::NonZeroU32;
 
@@ -30,9 +30,8 @@ use crate::{FieldDef, Idx, Pool, Tag, TypeKind, TypeRegistry, VariantDef, Varian
 
 /// Per-field burden classification under the Tag-first ternary partition.
 ///
-/// The `Borrowed` arm of the ternary partition (per decisions/06 §Phase
-/// Boundary Cure) is reserved for `Tag::Borrowed` which is target-only per
-/// `types.md §TL-9` — added back when borrow-tag construction ships.
+/// The `Borrowed` arm of the ternary partition is reserved for `Tag::Borrowed`
+/// which is target-only — added back when borrow-tag construction ships.
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum FieldClass {
     /// Scalar — omit from both partitions.
@@ -60,7 +59,7 @@ fn classify_field_for_burden(field_ty: Idx, pool: &Pool) -> FieldClass {
     let resolved = pool.resolve_fully(field_ty);
     let tag = pool.tag(resolved);
     match tag {
-        // Scalar tier — omit per decisions/06 §Phase Boundary Cure.
+        // Scalar tier — omit from both owned_fields and borrowed_fields.
         Tag::Int
         | Tag::Float
         | Tag::Bool
@@ -105,8 +104,8 @@ pub(crate) fn compute_struct_burden(
             }),
         }
     }
-    // borrowed_fields stays empty until Tag::Borrowed construction ships per
-    // types.md §TL-9 — borrowed tier reserved by decisions/06 §Phase Boundary Cure.
+    // borrowed_fields stays empty until Tag::Borrowed construction ships —
+    // borrowed tier reserved for that target-only tag.
     let borrowed: Vec<UserBorrowedField> = Vec::new();
     if owned.is_empty() && borrowed.is_empty() {
         return None;
@@ -195,8 +194,8 @@ pub(crate) fn compute_newtype_burden(
 ) -> Option<UserBurdenSpec> {
     let resolved = pool.resolve_fully(underlying);
     // If underlying resolves to a previously-registered user type, inherit
-    // its burden directly. Cycle composition deferred to §02 per
-    // decisions/06 line 122.
+    // its burden directly. Cycle composition deferred to the composition
+    // layer (monomorphized-instance burden composition).
     if let Some(entry) = type_registry.get_by_idx(resolved) {
         match entry.kind {
             TypeKind::Struct(_)

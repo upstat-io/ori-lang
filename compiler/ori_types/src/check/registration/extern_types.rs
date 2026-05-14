@@ -1,8 +1,7 @@
-//! Extern type burden registration (§01.5(c)).
+//! Extern type burden registration.
 //!
 //! Walks every `ExternBlock` in the module and registers per-extern-type
-//! burden specs into the `TypeRegistry`. Two cases per
-//! `decisions/05-burdenspec-storage-model.md` + `decisions/06-burden-field-placement.md`:
+//! burden specs into the `TypeRegistry`. Two cases:
 //!
 //! - `#free(fn)` present → `UserBurdenSpec` with `user_drop = Some(FnSym)`,
 //!   field/variant lists empty. Stored on the extern type's
@@ -10,8 +9,7 @@
 //! - `#free` absent → no burden registered. The unified
 //!   `ori_arc::lower::burden_lookup` helper falls back to
 //!   `BurdenRef::Builtin(&ori_registry::burden::EMPTY_BURDEN_SPEC)` —
-//!   semantically identical to builtin opaque types (`CPtr` / `JsValue`)
-//!   per proposal:643-645.
+//!   semantically identical to builtin opaque types (`CPtr` / `JsValue`).
 //!
 //! Spec: Annex E §FFI — empty `BuiltinBurdenSpec` IS the soundness
 //! boundary for caller-managed FFI lifetimes; passing such a type as
@@ -22,12 +20,12 @@
 //! The current extern-block grammar (`extern_block = ... "{" { extern_item } "}"`)
 //! permits only function-item declarations (`@name (...) -> T`); extern
 //! type-declarations (`type Handle` inside an extern block) are
-//! target-only per the §01.5 plan literal
+//! target-only per the future grammar extension carrying literals like
 //! `extern "c" from "libsqlite" #free(sqlite3_close) { type DbHandle }`.
 //! Until that AST surface ships, this helper iterates extern blocks but
 //! produces no `TypeRegistry.burden` entries — the `free_fn` field on
 //! `ExternBlock` is parsed and carried through the AST, ready for the
-//! type-declaration consumer that the §01.5 grammar extension will add.
+//! type-declaration consumer the grammar extension will add.
 
 use core::num::NonZeroU32;
 
@@ -39,9 +37,9 @@ use crate::ModuleChecker;
 
 /// Register burden specs for every type declared in every extern block.
 ///
-/// Spec: Annex E §FFI (proposal:643-645). Pass 0b.5 — runs after
-/// `register_user_types` and before signature collection. See
-/// `decisions/06-burden-field-placement.md §Phase Boundary Cure`.
+/// Spec: Annex E §FFI. Pass 0b.5 — runs after `register_user_types` and
+/// before signature collection, after struct/sum/newtype burden has been
+/// computed but before any caller-site references can fire.
 pub fn register_extern_burdens(checker: &mut ModuleChecker<'_>, module: &Module) {
     for extern_block in &module.extern_blocks {
         register_extern_block_burden(checker, extern_block);
@@ -71,21 +69,19 @@ fn register_extern_block_burden(_checker: &mut ModuleChecker<'_>, _block: &Exter
 
 /// Compute the `UserBurdenSpec` for an extern-declared opaque type.
 ///
-/// Spec: `decisions/05-burdenspec-storage-model.md §UserBurdenSpec` —
-/// when `#free(fn)` is present, the spec carries `user_drop = Some(fn)`
-/// and all field/variant lists empty (opaque types have no Ori-visible
-/// fields). When absent, returns `None` — downstream lookup falls back
-/// to `EMPTY_BURDEN_SPEC` per `decisions/06-burden-field-placement.md`.
+/// Spec: Annex E §FFI — when `#free(fn)` is present, the spec carries
+/// `user_drop = Some(fn)` and all field/variant lists empty (opaque types
+/// have no Ori-visible fields). When absent, returns `None` — downstream
+/// lookup falls back to `EMPTY_BURDEN_SPEC`.
 ///
 /// Exposed for future extern-type-declaration registration.
 //
-// Staging helper for future extern-type AST consumer (§01.5 grammar
-// extension). In non-test builds this function has no caller until the
-// type-declaration grammar lands.
+// Staging helper for future extern-type AST consumer. In non-test builds
+// this function has no caller until the type-declaration grammar lands.
 #[must_use]
 #[allow(
     dead_code,
-    reason = "Staging helper for future extern-type AST consumer (§01.5 grammar extension)."
+    reason = "Staging helper for future extern-type AST consumer."
 )]
 pub fn compute_extern_type_burden(free_fn: Option<ori_ir::Name>) -> Option<UserBurdenSpec> {
     let free_fn = free_fn?;

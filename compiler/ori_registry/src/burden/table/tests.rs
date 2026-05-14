@@ -257,11 +257,11 @@ enum TableClassification {
 
 #[test]
 fn typetag_classification_is_exhaustive_and_consistent() {
-    // Pins the §01.2 vs composition-layer partition for every `TypeTag`
-    // variant. Adding a new `TypeTag` forces an arm here (compiler-enforced
-    // exhaustiveness) — the author must explicitly choose InTable or
-    // DeferredToComposition, and the assertion below cross-checks that
-    // choice against the actual `BURDEN_TABLE` state.
+    // Pins the BURDEN_TABLE vs composition-layer partition for every
+    // `TypeTag` variant. Adding a new `TypeTag` forces an arm here
+    // (compiler-enforced exhaustiveness) — the author must explicitly
+    // choose InTable or DeferredToComposition, and the assertion below
+    // cross-checks that choice against the actual `BURDEN_TABLE` state.
     for tag in TypeTag::all() {
         let classification = match tag {
             TypeTag::Int

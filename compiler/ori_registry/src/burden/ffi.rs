@@ -3,21 +3,19 @@
 //! Spec: Annex E §FFI (proposal:643-645, Q12). The contract is bidirectional:
 //!
 //! - Unannotated FFI / opaque types (`CPtr`, `JsValue`, `JsPromise<T>`, and
-//!   `extern "c" from "lib" { ... }` types WITHOUT `#free` annotation per
-//!   `ori-syntax.md §Deep FFI`) get an EMPTY `BuiltinBurdenSpec`
-//!   (`EMPTY_BURDEN_SPEC` below): no fields, no variants, `self_heap_alloc
-//!   = false`, `compiled_drop = None`, `user_drop = None`. Sound ONLY for
-//!   caller-managed lifetime — Ori does NOT decrement; the FFI consumer
-//!   owns cleanup.
+//!   `extern "c" from "lib" { ... }` types WITHOUT `#free` annotation) get
+//!   an EMPTY `BuiltinBurdenSpec` (`EMPTY_BURDEN_SPEC` below): no fields, no
+//!   variants, `self_heap_alloc = false`, `compiled_drop = None`,
+//!   `user_drop = None`. Sound ONLY for caller-managed lifetime — Ori does
+//!   NOT decrement; the FFI consumer owns cleanup.
 //!
 //! - Annotated FFI types (`extern "c" from "lib" #free(fn) { ... }`) get an
 //!   explicit `UserBurdenSpec` (heap-backed, in `ori_types`) with
 //!   `user_drop: Some(FnSym)` pointing at the user-supplied free function.
 //!
-//! `decisions/00-rl31-burden-aware-design.md` §Sufficient-Noalias Rule
-//! clause 8 explicitly excludes empty-`BuiltinBurdenSpec` FFI parameters
-//! from the RL-31 noalias proof — empty `BurdenSpec` ≠ empty reachable
-//! memory.
+//! Spec: Annex E §AIMS RL-31 Sufficient-Noalias Rule clause 8 explicitly
+//! excludes empty-`BuiltinBurdenSpec` FFI parameters from the RL-31 noalias
+//! proof — empty `BurdenSpec` ≠ empty reachable memory.
 //
 // Spec: Annex E §FFI — empty `BuiltinBurdenSpec` IS the soundness boundary;
 // `EMPTY_BURDEN_SPEC` is the canonical fallback consumed by the unified
