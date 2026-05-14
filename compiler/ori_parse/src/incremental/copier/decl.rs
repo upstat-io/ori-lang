@@ -226,6 +226,7 @@ impl AstCopier<'_> {
         ExternBlock {
             convention: block.convention,
             library: block.library,
+            free_fn: block.free_fn,
             items: block
                 .items
                 .iter()

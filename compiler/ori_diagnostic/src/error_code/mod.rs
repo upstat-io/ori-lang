@@ -149,6 +149,7 @@ define_error_codes! {
     E2039, "Cannot assign to immutable binding";
     E2040, "Feature not yet supported";
     E2041, "Invalid #repr attribute";
+    E2042, "Extern type passed as owned without #free annotation";
 
     // Pattern Errors (E3xxx)
     E3001, "Unknown pattern";

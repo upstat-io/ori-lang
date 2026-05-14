@@ -20,7 +20,10 @@
 // Spec: Annex E §AIMS — burden specs are typed pre-pass input feeding the
 // lattice-driven analysis.
 
+pub mod ffi;
 pub mod table;
+
+pub use ffi::EMPTY_BURDEN_SPEC;
 
 // Local Copy/Eq/Hash newtypes — defined here to honor the zero-dependency
 // purity contract of this crate.

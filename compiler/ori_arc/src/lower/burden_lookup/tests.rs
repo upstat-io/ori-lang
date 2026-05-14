@@ -205,3 +205,111 @@ fn lookup_user_idx_partition_does_not_query_builtin_table() {
     let builtin_result = lookup_burden(TypeRef::Builtin(TYPE_ID_INT), &registry);
     assert!(matches!(builtin_result, Some(BurdenRef::Builtin(_))));
 }
+
+// §01.5 structural tests — FFI exclusion contract.
+// Spec: Annex E §FFI (proposal:643-645).
+
+#[test]
+fn unannotated_ffi_empty_burden_yields_zero_owned_fields_and_no_user_drop() {
+    // Test 1 (STRUCTURAL): unannotated opaque FFI types are represented by
+    // the empty BuiltinBurdenSpec — semantically `CPtr` / `JsValue` /
+    // `JsPromise<T>` / `extern "c"` types without `#free`. The empty spec
+    // reports zero owned fields, zero borrowed fields, zero variant
+    // burdens, no user drop. Proves the §00 clause 8 contract surface:
+    // empty `BurdenSpec` ≠ memory burden ≠ RL-31 noalias eligible.
+    let burden_ref = BurdenRef::Builtin(&ori_registry::burden::EMPTY_BURDEN_SPEC);
+    assert!(
+        burden_ref.owned_fields().next().is_none(),
+        "empty BuiltinBurdenSpec must have zero owned fields",
+    );
+    assert!(
+        burden_ref.borrowed_fields().next().is_none(),
+        "empty BuiltinBurdenSpec must have zero borrowed fields",
+    );
+    assert!(
+        burden_ref.variant_burdens().next().is_none(),
+        "empty BuiltinBurdenSpec must have zero variant burdens",
+    );
+    assert!(
+        burden_ref.user_drop().is_none(),
+        "empty BuiltinBurdenSpec must have no user drop",
+    );
+    assert!(
+        burden_ref.compiled_drop().is_none(),
+        "empty BuiltinBurdenSpec must have no compiled drop",
+    );
+    assert!(
+        !burden_ref.self_heap_alloc(),
+        "empty BuiltinBurdenSpec must not declare self heap allocation",
+    );
+    assert!(
+        burden_ref.element_burden().is_none(),
+        "empty BuiltinBurdenSpec must have no element burden",
+    );
+}
+
+#[test]
+fn annotated_ffi_extern_type_user_drop_carries_free_symbol() {
+    // Test 2 (STRUCTURAL): an extern type declared with `#free(symbol)`
+    // gets an explicit UserBurdenSpec with user_drop = Some(FnSym) and
+    // empty field/variant lists. Spec: Annex E §FFI (proposal:643-645)
+    // — Owned-positioned extern values drop via the named free function.
+    //
+    // The §01.5 plan literal `extern "c" from "libsqlite" #free(sqlite3_close)
+    // { type DbHandle }` is the canonical syntax target; extern-type AST
+    // declarations remain target-only per the §01.5 module-doc Status
+    // section. This test pins the burden shape directly via
+    // `compute_extern_type_burden` — the building block downstream.
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+
+    let symbol_raw = 17u32;
+    let Some(nz) = NonZeroU32::new(symbol_raw) else {
+        panic!("symbol raw must be nonzero (literal 17)");
+    };
+    let expected_fn_sym = FnSym::new(nz);
+
+    let user_spec = UserBurdenSpec {
+        self_heap_alloc: false,
+        owned_fields: vec![],
+        borrowed_fields: vec![],
+        variant_burdens: vec![],
+        element_burden: None,
+        compiled_drop: None,
+        user_drop: Some(expected_fn_sym),
+    };
+
+    let mut registry = TypeRegistry::new();
+    let extern_type_idx = Idx::from_raw(16384);
+    registered_struct_with_burden(&mut registry, "DbHandle", extern_type_idx, Some(user_spec));
+
+    let burden_ref = lookup_required(
+        TypeRef::User(extern_type_idx),
+        &registry,
+        "DbHandle extern type",
+    );
+    match burden_ref {
+        BurdenRef::User(spec) => {
+            assert_eq!(
+                spec.user_drop,
+                Some(expected_fn_sym),
+                "annotated extern type must carry user_drop = Some(FnSym)",
+            );
+            assert!(
+                spec.owned_fields.is_empty(),
+                "annotated extern type opaque payload has no owned fields",
+            );
+            assert!(
+                spec.borrowed_fields.is_empty(),
+                "annotated extern type opaque payload has no borrowed fields",
+            );
+            assert!(
+                spec.variant_burdens.is_empty(),
+                "annotated extern type opaque payload has no variant burdens",
+            );
+        }
+        BurdenRef::Builtin(_) => {
+            panic!("annotated extern type must dispatch through User partition");
+        }
+    }
+}

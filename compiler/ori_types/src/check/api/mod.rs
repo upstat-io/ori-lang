@@ -31,8 +31,8 @@ use super::bodies::{
     check_def_impl_bodies, check_function_bodies, check_impl_bodies, check_test_bodies,
 };
 use super::registration::{
-    register_builtin_types, register_consts, register_derived_impls, register_impls,
-    register_object_safety_violations, register_traits, register_user_types,
+    register_builtin_types, register_consts, register_derived_impls, register_extern_burdens,
+    register_impls, register_object_safety_violations, register_traits, register_user_types,
 };
 use super::signatures::collect_signatures;
 use super::ModuleChecker;
@@ -184,6 +184,12 @@ fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
 
     // Pass 0b: Register user-defined types
     register_user_types(checker, module);
+
+    // Pass 0b.5: Register burden specs for extern-declared types.
+    // Spec: Annex E §FFI — `#free(fn)` annotation populates user_drop;
+    // absence falls back to EMPTY_BURDEN_SPEC at lookup time
+    // (proposal:643-645).
+    register_extern_burdens(checker, module);
 
     // Pass 0c: Register traits and implementations.
     // The trait/impl side runs in two phases:
