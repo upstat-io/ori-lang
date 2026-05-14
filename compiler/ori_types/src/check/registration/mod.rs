@@ -17,6 +17,7 @@
 //! - Module checker design: `ori_types/src/check/mod.rs`
 
 mod builtin_types;
+pub(crate) mod burden_compute;
 mod consts;
 mod derived;
 mod impls;

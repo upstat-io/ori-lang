@@ -84,6 +84,7 @@ fn register_ordering_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        None, // burden: builtin types carry no UserBurdenSpec (composition owned by §02)
     );
 }
 
@@ -150,6 +151,7 @@ fn register_trace_entry_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        None, // burden: builtin types carry no UserBurdenSpec (composition owned by §02)
     );
 }
 
@@ -207,6 +209,7 @@ fn register_alignment_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        None, // burden: builtin types carry no UserBurdenSpec (composition owned by §02)
     );
 }
 
@@ -264,6 +267,7 @@ fn register_sign_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        None, // burden: builtin types carry no UserBurdenSpec (composition owned by §02)
     );
 }
 
@@ -311,6 +315,7 @@ fn register_format_type_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        None, // burden: builtin types carry no UserBurdenSpec (composition owned by §02)
     );
 }
 
@@ -402,5 +407,6 @@ fn register_format_spec_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        None, // burden: builtin types carry no UserBurdenSpec (composition owned by §02)
     );
 }

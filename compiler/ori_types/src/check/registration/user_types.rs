@@ -4,6 +4,7 @@
 //! into both the Pool (for type interning) and `TypeRegistry` (for field access
 //! and type checking).
 
+use super::burden_compute::{compute_enum_burden, compute_newtype_burden, compute_struct_burden};
 use super::type_resolution::{collect_generic_params, convert_visibility, resolve_field_type};
 use crate::{
     EnumVariant, FieldDef, Idx, ModuleChecker, TypeCheckError, VariantDef, VariantFields,
@@ -67,6 +68,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
             checker.pool_mut().set_resolution(idx, struct_idx);
 
             let hash = checker.pool().hash(idx);
+            let burden = compute_struct_burden(&field_defs, checker.pool());
             checker.type_registry_mut().register_struct(
                 decl.name,
                 idx,
@@ -76,6 +78,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 visibility,
                 hash,
                 None, // repr set after validation below
+                burden,
             );
         }
 
@@ -132,6 +135,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
             checker.pool_mut().set_resolution(idx, enum_idx);
 
             let hash = checker.pool().hash(idx);
+            let burden = compute_enum_burden(&variant_defs, checker.pool());
             checker.type_registry_mut().register_enum(
                 decl.name,
                 idx,
@@ -141,12 +145,15 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 visibility,
                 hash,
                 None, // repr set after validation below
+                burden,
             );
         }
 
         ori_ir::TypeDeclKind::Newtype(underlying) => {
             let underlying_ty = resolve_field_type(checker, underlying);
             let hash = checker.pool().hash(idx);
+            let burden =
+                compute_newtype_burden(underlying_ty, checker.pool(), checker.type_registry());
             checker.type_registry_mut().register_newtype(
                 decl.name,
                 idx,
@@ -156,6 +163,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 visibility,
                 hash,
                 None, // repr set after validation below
+                burden,
             );
             // Register the newtype constructor in the pool so `ori_arc::lower`
             // can dispatch `N(value)` constructor calls and `n.unwrap()` /

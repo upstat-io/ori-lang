@@ -59,6 +59,7 @@ fn make_type_entry(name: Name, idx: Idx, kind: TypeKind) -> TypeEntry {
         visibility: Visibility::Public,
         merkle_hash: 0,
         repr: None,
+        burden: None,
     }
 }
 
@@ -131,6 +132,7 @@ fn generic_types_are_skipped() {
         visibility: Visibility::Public,
         merkle_hash: 0,
         repr: None,
+        burden: None,
     };
 
     // Should not panic — generic types are skipped

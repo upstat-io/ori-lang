@@ -266,6 +266,7 @@ fn type_def_export() {
         visibility: Visibility::Public,
         merkle_hash: 0,
         repr: None,
+        burden: None,
     });
 
     assert_eq!(module.type_count(), 1);

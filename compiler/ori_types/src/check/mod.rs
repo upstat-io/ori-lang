@@ -87,7 +87,7 @@ mod bodies;
 mod exports;
 mod imports;
 mod object_safety;
-mod registration;
+pub(crate) mod registration;
 mod scope;
 mod signatures;
 pub(crate) mod validators;

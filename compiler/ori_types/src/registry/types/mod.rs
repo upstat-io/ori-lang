@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use ori_ir::{Name, Span};
 use rustc_hash::FxHashMap;
 
+use crate::registry::burden::UserBurdenSpec;
 use crate::{Idx, ValueCategory};
 
 /// Registry for user-defined types.
@@ -72,6 +73,14 @@ pub struct TypeEntry {
     /// Populated from `TypeDecl.repr` during type registration.
     /// Consumed by `ori_repr` during representation planning.
     pub repr: Option<ori_ir::ReprAttrKind>,
+
+    /// Per-type burden specification for AIMS drop-walk + reuse analysis.
+    ///
+    /// `None` for types whose burden is empty (all-scalar fields, all-scalar
+    /// primitives newtyped) AND for aliases (burden inherits from the aliased
+    /// target via the lookup helper). Populated during user-type registration;
+    /// consumed at Phase 5 emission via the `Burden` trait.
+    pub burden: Option<UserBurdenSpec>,
 }
 
 /// The kind of a user-defined type.
@@ -190,6 +199,7 @@ impl TypeRegistry {
         visibility: Visibility,
         merkle_hash: u64,
         repr: Option<ori_ir::ReprAttrKind>,
+        burden: Option<UserBurdenSpec>,
     ) {
         let entry = TypeEntry {
             name,
@@ -203,6 +213,7 @@ impl TypeRegistry {
             visibility,
             merkle_hash,
             repr,
+            burden,
         };
 
         self.insert_entry(entry);
@@ -225,6 +236,7 @@ impl TypeRegistry {
         visibility: Visibility,
         merkle_hash: u64,
         repr: Option<ori_ir::ReprAttrKind>,
+        burden: Option<UserBurdenSpec>,
     ) {
         // Index variants for O(1) lookup
         for (variant_idx, variant) in variants.iter().enumerate() {
@@ -241,6 +253,7 @@ impl TypeRegistry {
             visibility,
             merkle_hash,
             repr,
+            burden,
         };
 
         self.insert_entry(entry);
@@ -261,6 +274,7 @@ impl TypeRegistry {
         visibility: Visibility,
         merkle_hash: u64,
         repr: Option<ori_ir::ReprAttrKind>,
+        burden: Option<UserBurdenSpec>,
     ) {
         let entry = TypeEntry {
             name,
@@ -271,6 +285,7 @@ impl TypeRegistry {
             visibility,
             merkle_hash,
             repr,
+            burden,
         };
 
         self.insert_entry(entry);
@@ -290,6 +305,7 @@ impl TypeRegistry {
         span: Span,
         visibility: Visibility,
         merkle_hash: u64,
+        burden: Option<UserBurdenSpec>,
     ) {
         let entry = TypeEntry {
             name,
@@ -300,6 +316,7 @@ impl TypeRegistry {
             visibility,
             merkle_hash,
             repr: None, // aliases don't have repr attributes
+            burden, // typically None; aliases inherit burden from target via §01.4 lookup helper
         };
 
         self.insert_entry(entry);
@@ -325,6 +342,19 @@ impl TypeRegistry {
     #[inline]
     pub fn get_by_idx(&self, idx: Idx) -> Option<&TypeEntry> {
         self.types_by_idx.get(&idx)
+    }
+
+    /// Look up the per-type burden spec for AIMS drop-walk and reuse analysis.
+    ///
+    /// Returns `None` when the type has no burden (all-scalar fields, empty
+    /// newtype payload) or has not been registered. Lifetime is tied to the
+    /// `TypeRegistry` borrow.
+    #[inline]
+    #[must_use]
+    pub fn burden(&self, idx: Idx) -> Option<&UserBurdenSpec> {
+        self.types_by_idx
+            .get(&idx)
+            .and_then(|entry| entry.burden.as_ref())
     }
 
     /// Check if a type with the given name exists.

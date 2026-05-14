@@ -43,6 +43,7 @@ fn register_and_lookup_struct() {
         Visibility::Public,
         0,
         None,
+        None, // burden
     );
 
     // Lookup by name
@@ -92,6 +93,7 @@ fn register_and_lookup_enum() {
         Visibility::Public,
         0,
         None,
+        None, // burden
     );
 
     // Lookup by name
@@ -134,6 +136,7 @@ fn register_newtype() {
         Visibility::Public,
         0,
         None,
+        None, // burden
     );
 
     let entry = registry.get_by_name(name).expect("should find");
@@ -163,6 +166,7 @@ fn register_alias() {
         test_span(),
         Visibility::Public,
         0,
+        None, // burden
     );
 
     let entry = registry.get_by_name(name).expect("should find");
@@ -216,6 +220,7 @@ fn iteration_is_sorted() {
         Visibility::Public,
         0,
         None,
+        None, // burden
     );
     registry.register_struct(
         name_a,
@@ -226,6 +231,7 @@ fn iteration_is_sorted() {
         Visibility::Public,
         0,
         None,
+        None, // burden
     );
     registry.register_struct(
         name_m,
@@ -236,6 +242,7 @@ fn iteration_is_sorted() {
         Visibility::Public,
         0,
         None,
+        None, // burden
     );
 
     // Iteration should be in sorted order (by Name's Ord impl)
@@ -267,6 +274,7 @@ fn generic_type_params() {
         Visibility::Public,
         0,
         None,
+        None, // burden
     );
 
     let entry = registry.get_by_name(name).expect("should find");
@@ -305,6 +313,7 @@ fn struct_field_lookup() {
         Visibility::Public,
         0,
         None,
+        None, // burden
     );
 
     // Find field x
@@ -323,4 +332,328 @@ fn struct_field_lookup() {
 
     // Unknown field
     assert!(registry.struct_field(idx, test_name("z")).is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Burden integration tests (plan §01.3 success_criteria + decisions/06 §Validation)
+//
+// Exercise the full registration path: compute_*_burden helpers → register_*
+// → TypeRegistry::burden(idx). Matrix per tests.md §Matrix Testing Rule covers
+// (struct × field-class), (enum × variant-shape), (newtype × inheritance-branch).
+
+use crate::check::registration::burden_compute::{
+    compute_enum_burden, compute_newtype_burden, compute_struct_burden,
+};
+use crate::Pool;
+
+fn heap_str_field(name: &str) -> FieldDef {
+    FieldDef {
+        name: test_name(name),
+        ty: Idx::STR,
+        span: test_span(),
+        visibility: Visibility::Public,
+    }
+}
+
+fn scalar_int_field(name: &str) -> FieldDef {
+    FieldDef {
+        name: test_name(name),
+        ty: Idx::INT,
+        span: test_span(),
+        visibility: Visibility::Public,
+    }
+}
+
+fn scalar_bool_field(name: &str) -> FieldDef {
+    FieldDef {
+        name: test_name(name),
+        ty: Idx::BOOL,
+        span: test_span(),
+        visibility: Visibility::Public,
+    }
+}
+
+#[test]
+fn burden_struct_heap_str_plus_scalar_int_has_one_owned_zero_borrowed() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let name = test_name("Person");
+    let idx = Idx::from_raw(200);
+    let fields = vec![heap_str_field("name"), scalar_int_field("age")];
+    let burden = compute_struct_burden(&fields, &pool);
+    registry.register_struct(
+        name,
+        idx,
+        vec![],
+        fields,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        burden,
+    );
+    let spec = registry
+        .burden(idx)
+        .expect("heap field should yield burden");
+    assert_eq!(spec.owned_fields.len(), 1, "str field is owned-heap");
+    assert_eq!(
+        spec.borrowed_fields.len(),
+        0,
+        "Tag::Borrowed not yet constructible"
+    );
+    assert_eq!(spec.owned_fields[0].field_type, Idx::STR);
+    assert_eq!(spec.owned_fields[0].field_path, vec![0]);
+    assert!(spec.self_heap_alloc);
+}
+
+#[test]
+fn burden_struct_all_scalar_returns_none() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let name = test_name("Point3D");
+    let idx = Idx::from_raw(201);
+    let fields = vec![
+        scalar_int_field("x"),
+        scalar_int_field("y"),
+        scalar_bool_field("z_flag"),
+    ];
+    let burden = compute_struct_burden(&fields, &pool);
+    registry.register_struct(
+        name,
+        idx,
+        vec![],
+        fields,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        burden,
+    );
+    assert!(
+        registry.burden(idx).is_none(),
+        "all-scalar struct must have no burden"
+    );
+}
+
+#[test]
+fn burden_struct_two_heap_fields_accumulates_owned() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let name = test_name("Pair");
+    let idx = Idx::from_raw(202);
+    let fields = vec![heap_str_field("first"), heap_str_field("second")];
+    let burden = compute_struct_burden(&fields, &pool);
+    registry.register_struct(
+        name,
+        idx,
+        vec![],
+        fields,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        burden,
+    );
+    let spec = registry.burden(idx).expect("two heap fields yield burden");
+    assert_eq!(spec.owned_fields.len(), 2, "both str fields are owned-heap");
+    assert_eq!(spec.owned_fields[0].field_path, vec![0]);
+    assert_eq!(spec.owned_fields[1].field_path, vec![1]);
+}
+
+#[test]
+fn burden_enum_two_heap_payload_variants_yields_two_variant_burdens() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let name = test_name("Message");
+    let idx = Idx::from_raw(203);
+    let v1 = VariantDef {
+        name: test_name("Text"),
+        fields: VariantFields::Tuple(vec![Idx::STR]),
+        span: test_span(),
+    };
+    let v2 = VariantDef {
+        name: test_name("Code"),
+        fields: VariantFields::Tuple(vec![Idx::STR]),
+        span: test_span(),
+    };
+    let variants = vec![v1, v2];
+    let burden = compute_enum_burden(&variants, &pool);
+    registry.register_enum(
+        name,
+        idx,
+        vec![],
+        variants,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        burden,
+    );
+    let spec = registry.burden(idx).expect("heap variants yield burden");
+    assert_eq!(spec.variant_burdens.len(), 2);
+    for vb in &spec.variant_burdens {
+        assert!(!vb.retained_owned.is_empty(), "heap payload retains owned");
+    }
+}
+
+#[test]
+fn burden_enum_all_unit_returns_none() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let name = test_name("Color");
+    let idx = Idx::from_raw(204);
+    let variants = vec![
+        VariantDef {
+            name: test_name("Red"),
+            fields: VariantFields::Unit,
+            span: test_span(),
+        },
+        VariantDef {
+            name: test_name("Green"),
+            fields: VariantFields::Unit,
+            span: test_span(),
+        },
+        VariantDef {
+            name: test_name("Blue"),
+            fields: VariantFields::Unit,
+            span: test_span(),
+        },
+    ];
+    let burden = compute_enum_burden(&variants, &pool);
+    registry.register_enum(
+        name,
+        idx,
+        vec![],
+        variants,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        burden,
+    );
+    assert!(
+        registry.burden(idx).is_none(),
+        "all-unit enum must have no burden"
+    );
+}
+
+#[test]
+fn burden_enum_mixed_unit_and_payload_partitions_per_variant() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let name = test_name("OptionStr");
+    let idx = Idx::from_raw(205);
+    let variants = vec![
+        VariantDef {
+            name: test_name("None"),
+            fields: VariantFields::Unit,
+            span: test_span(),
+        },
+        VariantDef {
+            name: test_name("Some"),
+            fields: VariantFields::Tuple(vec![Idx::STR]),
+            span: test_span(),
+        },
+    ];
+    let burden = compute_enum_burden(&variants, &pool);
+    registry.register_enum(
+        name,
+        idx,
+        vec![],
+        variants,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        burden,
+    );
+    let spec = registry.burden(idx).expect("payload variant yields burden");
+    assert_eq!(spec.variant_burdens.len(), 2);
+    assert!(
+        spec.variant_burdens[0].retained_owned.is_empty(),
+        "Unit variant has no retained"
+    );
+    assert_eq!(
+        spec.variant_burdens[1].retained_owned.len(),
+        1,
+        "Some(str) retains one"
+    );
+}
+
+#[test]
+fn burden_newtype_around_int_returns_none() {
+    let pool = Pool::new();
+    let registry = TypeRegistry::new();
+    let burden = compute_newtype_burden(Idx::INT, &pool, &registry);
+    assert!(burden.is_none(), "newtype around scalar int has no burden");
+}
+
+#[test]
+fn burden_newtype_around_str_inherits_owned() {
+    let pool = Pool::new();
+    let registry = TypeRegistry::new();
+    let burden = compute_newtype_burden(Idx::STR, &pool, &registry);
+    let spec = burden.expect("newtype around str inherits owned");
+    assert_eq!(spec.owned_fields.len(), 1);
+    assert_eq!(spec.owned_fields[0].field_type, Idx::STR);
+    assert_eq!(spec.owned_fields[0].field_path, vec![0]);
+}
+
+#[test]
+fn burden_newtype_around_registered_user_struct_inherits_burden() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+
+    // First register a user struct with one heap field.
+    let struct_name = test_name("Inner");
+    let struct_idx = Idx::from_raw(210);
+    let fields = vec![heap_str_field("payload")];
+    let struct_burden = compute_struct_burden(&fields, &pool);
+    registry.register_struct(
+        struct_name,
+        struct_idx,
+        vec![],
+        fields,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        struct_burden,
+    );
+
+    // Now compute burden for a newtype wrapping the user struct.
+    let newtype_burden = compute_newtype_burden(struct_idx, &pool, &registry);
+    let spec = newtype_burden.expect("newtype around heap-bearing user type inherits");
+    assert_eq!(
+        spec.owned_fields.len(),
+        1,
+        "inherits Inner's one owned field"
+    );
+}
+
+// Phase-boundary regression: ori_types is Phase 2/3 (parse/typeck) — ori_arc
+// is Phase 5+ (lowering). burden computation MUST classify fields via
+// `Triviality` + `Tag` (both ori_types-native), NOT `ArcClass` (ori_arc).
+// Per plan §01.3 line 207, structural regression on Cargo.toml guards
+// against future drift that cargo c cannot catch on silent omissions.
+const ORI_TYPES_CARGO_TOML: &str = include_str!("../../../Cargo.toml");
+
+#[test]
+fn ori_types_cargo_does_not_depend_on_ori_arc() {
+    let mut in_deps_section = false;
+    for raw in ORI_TYPES_CARGO_TOML.lines() {
+        let line = raw.trim();
+        if line.starts_with('[') {
+            in_deps_section = line == "[dependencies]";
+            continue;
+        }
+        if in_deps_section {
+            let normalized = line.trim_start_matches('#').trim();
+            assert!(
+                !normalized.starts_with("ori_arc"),
+                "ori_types must not declare ori_arc as a runtime dependency (phase-boundary; \
+                 burden uses Triviality + Tag, not ArcClass)"
+            );
+        }
+    }
 }
