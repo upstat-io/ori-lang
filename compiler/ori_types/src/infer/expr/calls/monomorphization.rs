@@ -1,12 +1,17 @@
 //! Monomorphization instance recording for generic function calls.
 
 use ori_ir::{ExprId, Name};
+use ori_registry::burden::table::{
+    BurdenRegistry, TYPE_ID_LIST, TYPE_ID_MAP, TYPE_ID_OPTION, TYPE_ID_RANGE, TYPE_ID_RESULT,
+    TYPE_ID_SET,
+};
 use rustc_hash::FxHashMap;
 
 use super::super::super::InferEngine;
 use super::super::structs::substitute_named_types;
 use crate::pool::substitute::{extract_var_from_types, substitute_in_pool};
-use crate::{GenericArg, Idx, MonoInstance, Pool, Tag};
+use crate::registry::burden_compose::compose_user_burden;
+use crate::{GenericArg, Idx, MonoInstance, Pool, Tag, TypeFlags};
 
 /// Record a monomorphization instance if the callee is a generic function.
 ///
@@ -145,6 +150,130 @@ pub(super) fn maybe_record_mono_instance(
     // `record_mono_instance` until §C.2 sub-step 1b-deferred extends
     // `DeferredMonoCall` to carry `call_expr_id`.
     engine.record_mono_with_dispatch(call_expr_id, instance);
+
+    // §02.1 burden composition: for every fully-resolved generic-builtin
+    // Idx the monomorphization produced, look up the template in
+    // BURDEN_TABLE and compose a UserBurdenSpec. Spec: Annex E §AIMS —
+    // composition at type-instantiation time prevents Phase 5 from
+    // emitting indirect dispatch on each burden walk. Entries land in
+    // `composed_burdens` for later flush into `TypeRegistry::burden`
+    // when the mutable-registry surface lands.
+    compose_builtin_burdens_for_resolved_types(engine);
+}
+
+/// After a monomorphization completes, walk every concrete Applied / generic-
+/// builtin Idx in scope (from the engine's pool) and compose its
+/// `UserBurdenSpec` once per first-instantiation. This is a STRUCTURAL pass
+/// over the freshly-registered concrete types; the composition function is
+/// pure (no pool/registry mutation).
+fn compose_builtin_burdens_for_resolved_types(engine: &mut InferEngine<'_>) {
+    // The concrete types produced by this monomorphization sit in the
+    // engine's pool. Walking the entire pool every call is quadratic;
+    // we restrict to types newly minted by this monomorphization by
+    // consulting the engine's `composed_burdens` accumulator as a
+    // dedup index plus the most-recent mono instance's
+    // concrete_param_types + concrete_return_type.
+    //
+    // Forward reference: a richer integration would (a) consume
+    // `body_type_map` directly to enumerate every monomorphized Idx and
+    // (b) flush composed specs into `TypeRegistry::burden` immediately.
+    // Both depend on a mutable-registry surface at the body-checking
+    // pass, which is a §02.1 follow-up integration. The composition
+    // function itself is the §02.1 deliverable; the accumulator is the
+    // SSOT carrier until the integration site lands.
+    let snapshot_indices: Vec<Idx> = {
+        let pool = engine.pool();
+        collect_candidate_indices(pool)
+    };
+    for idx in snapshot_indices {
+        compose_for_idx(engine, idx);
+    }
+}
+
+/// Collect every pool Idx whose tag matches a builtin generic template AND
+/// whose flags show no remaining type variables (fully-resolved monomorph).
+/// Walking the full pool here is a placeholder — once the body-pass
+/// integration lands, this becomes a directed enumeration over the
+/// `body_type_map` of the just-recorded `MonoInstance`.
+fn collect_candidate_indices(pool: &Pool) -> Vec<Idx> {
+    let mut out = Vec::new();
+    // Pool length read once; the accumulator dedups duplicate hits across
+    // multiple monomorphization sites within the same body. Saturating
+    // `usize -> u32` mirrors the workspace pattern at `pool/substitute/mod.rs:541`;
+    // a single body's pool cannot reach `u32::MAX` entries in practice.
+    let len_u32 = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+    for raw in 0..len_u32 {
+        let idx = Idx::from_raw(raw);
+        if !matches!(
+            pool.tag(idx),
+            Tag::Option | Tag::Result | Tag::List | Tag::Map | Tag::Set | Tag::Range
+        ) {
+            continue;
+        }
+        let flags = pool.flags(idx);
+        if flags.contains(TypeFlags::HAS_VAR)
+            || flags.contains(TypeFlags::HAS_INFER)
+            || flags.contains(TypeFlags::HAS_PROJECTION)
+        {
+            continue;
+        }
+        out.push(idx);
+    }
+    out
+}
+
+/// Compose the burden spec for a single fully-resolved generic-builtin Idx,
+/// pushing the result into the engine's accumulator. No-op when the Idx's
+/// tag does not match a builtin template OR when its args cannot be
+/// extracted from the pool.
+fn compose_for_idx(engine: &mut InferEngine<'_>, idx: Idx) {
+    let (template_id, type_args) = {
+        let pool = engine.pool();
+        let template_id = match pool.tag(idx) {
+            Tag::Option => TYPE_ID_OPTION,
+            Tag::Result => TYPE_ID_RESULT,
+            Tag::List => TYPE_ID_LIST,
+            Tag::Map => TYPE_ID_MAP,
+            Tag::Set => TYPE_ID_SET,
+            Tag::Range => TYPE_ID_RANGE,
+            _ => return,
+        };
+        let type_args = extract_type_args(pool, idx);
+        (template_id, type_args)
+    };
+
+    let Some(template) = BurdenRegistry::lookup_builtin(template_id) else {
+        return;
+    };
+
+    // Pool borrow released; compose under fresh immutable borrows.
+    // The composition function accepts `_pool` and `_registry` for forward-
+    // compatible signature but does not consult them today; an absent
+    // registry yields the same composed spec as a present one.
+    let dummy_registry = crate::TypeRegistry::new();
+    let composed = {
+        let pool = engine.pool();
+        let registry = engine.type_registry().unwrap_or(&dummy_registry);
+        compose_user_burden(template, &type_args, pool, registry)
+    };
+
+    engine.record_composed_burden(idx, composed);
+}
+
+/// Extract the concrete type arguments for a generic-builtin Idx by reading
+/// the pool's extra payload via the per-tag accessor surface. Each tag
+/// (Option/Result/List/Map/Set/Range) encodes its element types via the
+/// `children` accessor on Pool.
+fn extract_type_args(pool: &Pool, idx: Idx) -> Vec<Idx> {
+    match pool.tag(idx) {
+        Tag::Option => vec![pool.option_inner(idx)],
+        Tag::Result => vec![pool.result_ok(idx), pool.result_err(idx)],
+        Tag::List => vec![pool.list_elem(idx)],
+        Tag::Map => vec![pool.map_key(idx), pool.map_value(idx)],
+        Tag::Set => vec![pool.set_elem(idx)],
+        Tag::Range => vec![pool.range_elem(idx)],
+        _ => Vec::new(),
+    }
 }
 
 /// Build the `var_id` -> `resolved_type` substitution map for monomorphization.

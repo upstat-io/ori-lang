@@ -128,6 +128,104 @@ fn module_checker_finish_with_pool() {
     assert_eq!(pool.tag(list_int), crate::Tag::List);
 }
 
+#[test]
+fn flush_composed_burdens_registers_spec_against_type_registry() {
+    // Verification test for the §02.2 flush wiring: confirms that
+    // composed burdens drained from a body-pass engine reach
+    // `TypeRegistry::burden(idx)` via
+    // `ModuleChecker::flush_composed_burdens`. Models the path
+    // `bodies::finalize_body_and_export` exercises for every body:
+    // (1) register a monomorphized type slot in the registry, (2) flush
+    // a composed spec for that slot, (3) verify `TypeRegistry::burden`
+    // returns the registered spec.
+    //
+    // F2 close-out pin (Plan TPR Round 1): the §02.1 claim of
+    // "monomorphization wired" requires composed specs to reach the
+    // registry through code, not API stub. This test fails if the flush
+    // is reverted (composed burden accumulator drained but never
+    // registered).
+    use crate::registry::burden::{UserBurdenSpec, UserTransferRule, UserVariantBurden};
+    use core::num::NonZeroU32;
+    use ori_ir::Span;
+    use ori_registry::burden::{TransferKind, VariantId};
+
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    // Reserve a pool slot for the monomorphized type. `Idx::from_raw(950)`
+    // is unused by the prelude (well above primitive-reserved range per
+    // `TYPES:TY-5`).
+    let mono_idx = Idx::from_raw(950);
+    let type_name = Name::from_raw(0x20001);
+    checker.type_registry_mut().register_struct(
+        type_name,
+        mono_idx,
+        vec![],
+        vec![],
+        Span::DUMMY,
+        crate::registry::Visibility::Public,
+        0,
+        None,
+        None,
+    );
+    assert!(
+        checker.type_registry().burden(mono_idx).is_none(),
+        "Pre-flush: registry has no burden registered against the slot"
+    );
+
+    // Construct a one-variant spec — the shape `compose_user_burden`
+    // produces for a monomorphized `Option<int>` Some arm — and feed it
+    // through the flush surface that `finalize_body_and_export` calls.
+    let variant_id = match NonZeroU32::new(1) {
+        Some(nz) => VariantId::new(nz),
+        None => panic!("unreachable: 1 is non-zero"),
+    };
+    let spec = UserBurdenSpec {
+        self_heap_alloc: false,
+        owned_fields: vec![],
+        borrowed_fields: vec![],
+        variant_burdens: vec![UserVariantBurden {
+            variant_id,
+            transfers_on_match: vec![UserTransferRule {
+                source_field_path: vec![0],
+                binding_index: 0,
+                field_type: Idx::INT,
+                transfer_kind: TransferKind::Move,
+            }],
+            retained_owned: vec![],
+        }],
+        element_burden: None,
+        compiled_drop: None,
+        user_drop: None,
+    };
+
+    checker.flush_composed_burdens(vec![(mono_idx, spec.clone())]);
+
+    // Post-flush: the registry exposes the composed spec via the canonical
+    // codegen-facing lookup surface.
+    match checker.type_registry().burden(mono_idx) {
+        Some(registered) => assert_eq!(
+            registered, &spec,
+            "Flushed spec is what TypeRegistry::burden returns at the monomorphized slot"
+        ),
+        None => {
+            panic!("flush_composed_burdens did not reach TypeRegistry — the §02.1 wiring is broken")
+        }
+    }
+
+    // Echo: re-flushing the same spec collapses through the dedup gate
+    // and leaves the burden_entry_count stable. Pins the dedup path is
+    // still load-bearing post-flush.
+    let pre_count = checker.type_registry().burden_entry_count();
+    checker.flush_composed_burdens(vec![(mono_idx, spec)]);
+    assert_eq!(
+        checker.type_registry().burden_entry_count(),
+        pre_count,
+        "Echo flush collapses to the same slot via signature dedup"
+    );
+}
+
 // --- Transitive metadata forwarding tests ---
 
 #[test]

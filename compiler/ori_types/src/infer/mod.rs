@@ -192,6 +192,22 @@ pub struct InferEngine<'pool> {
     /// `take_deferred_mono_calls()` and resolved in `finish_with_pool()`.
     deferred_mono_calls: Vec<crate::DeferredMonoCall>,
 
+    /// Composed `UserBurdenSpec` entries discovered during monomorphization.
+    ///
+    /// Populated by
+    /// `infer::expr::calls::monomorphization::maybe_record_mono_instance`
+    /// when a generic builtin (Option<T>, Result<T, E>, [T], {K: V}, Set<T>)
+    /// reaches its first-instantiation form with fully-resolved type args.
+    /// Each entry is `(monomorphized_idx, composed_spec)`; consumed downstream
+    /// by the body-pass extractor (`take_composed_burdens`) and flushed into
+    /// `TypeRegistry::burden` once the mutable-registry surface lands.
+    ///
+    /// Spec: Annex E §AIMS — burden specs are typed pre-pass input feeding
+    /// the lattice-driven analysis. Composition at type-instantiation time
+    /// (this accumulator) prevents Phase 5 from emitting indirect dispatch on
+    /// each burden walk (proposal §Generic Burden Composition rationale).
+    composed_burdens: Vec<(Idx, crate::registry::burden::UserBurdenSpec)>,
+
     /// Name of the function currently being type-checked.
     ///
     /// Used by `maybe_record_mono_instance()` to identify the caller when
@@ -272,6 +288,7 @@ impl<'pool> InferEngine<'pool> {
             mono_instances: Vec::new(),
             mono_dispatch_pre_dedup: Vec::new(),
             deferred_mono_calls: Vec::new(),
+            composed_burdens: Vec::new(),
             current_function: None,
             module_scope_snapshot: None,
             pending_generalized_vars: Vec::new(),

@@ -52,6 +52,7 @@ pub use pool::{
     VarState, VariantDescriptor, DEFAULT_RANK,
 };
 pub use registry::burden;
+pub use registry::burden_compose;
 pub use registry::{
     BoundChainLookup,
     // Type registry

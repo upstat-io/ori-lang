@@ -768,3 +768,202 @@ fn double_ended_iterator_compute_drop_info_returns_none() {
         "DoubleEndedIterator<int> must not produce a per-type drop function — ori_iter_drop is emitted inline"
     );
 }
+
+// §02.3.A structural-equivalence pin
+//
+// For every concrete type currently exercised by the surrounding tests,
+// the BurdenSpec-lifted wrapper at `compute_drop_info` MUST produce the
+// same `DropInfo` shape (kind discriminant + nested structure) as the
+// pre-migration `compute_drop_kind` would have produced. The pre-migration
+// expected shapes are hard-coded here as a snapshot vs reading from a
+// separate fixture file: keeping the snapshot inline makes drift
+// immediately visible in code review, and the cell count (one per
+// existing test cell) is bounded by the matrix that drop/tests.rs already
+// pins.
+//
+// Fails if the wrapper rewrite drops a `Variant` arm, collapses a
+// `Fields` to `Trivial`, reorders fields within a struct/tuple/variant,
+// or swaps key/value channels on a Map.
+
+#[test]
+fn drop_info_via_burden_matches_legacy() {
+    let mut pool = Pool::new();
+
+    // Intern every fixture type first, then construct the classifier
+    // (the classifier holds an immutable `&Pool` borrow for its lifetime).
+    let list_int = pool.list(Idx::INT);
+    let list_str = pool.list(Idx::STR);
+    let map_int_str = pool.map(Idx::INT, Idx::STR);
+    let struct_one_rc = pool.struct_type(
+        Name::from_raw(1000),
+        &[
+            (Name::from_raw(1001), Idx::INT),
+            (Name::from_raw(1002), Idx::STR),
+        ],
+    );
+    let tup = pool.tuple(&[Idx::INT, Idx::STR]);
+    let enum_mixed = pool.enum_type(
+        Name::from_raw(2000),
+        &[
+            EnumVariant {
+                name: Name::from_raw(2001),
+                field_types: vec![Idx::INT],
+            },
+            EnumVariant {
+                name: Name::from_raw(2002),
+                field_types: vec![Idx::STR],
+            },
+        ],
+    );
+    let opt_str = pool.option(Idx::STR);
+    let res_str_int = pool.result(Idx::STR, Idx::INT);
+
+    let c = cls(&pool);
+
+    // Triviality cells — `compute_drop_info` returns `None` (scalar) OR
+    // `Some(DropInfo { kind: Trivial })` (heap with no RC children).
+    assert!(compute_drop_info(Idx::INT, &c, &pool).is_none());
+    assert!(compute_drop_info(Idx::FLOAT, &c, &pool).is_none());
+    assert!(compute_drop_info(Idx::BOOL, &c, &pool).is_none());
+    assert_eq!(
+        compute_drop_info(Idx::STR, &c, &pool).unwrap().kind,
+        DropKind::Trivial,
+    );
+
+    // List<int> — element scalar → Trivial.
+    assert_eq!(
+        compute_drop_info(list_int, &c, &pool).unwrap().kind,
+        DropKind::Trivial,
+    );
+
+    // List<str> — Collection { element_type: str }.
+    assert_eq!(
+        compute_drop_info(list_str, &c, &pool).unwrap().kind,
+        DropKind::Collection {
+            element_type: Idx::STR,
+        },
+    );
+
+    // Map<int, str> — Map { dec_keys: false, dec_values: true }.
+    assert_eq!(
+        compute_drop_info(map_int_str, &c, &pool).unwrap().kind,
+        DropKind::Map {
+            key_type: Idx::INT,
+            value_type: Idx::STR,
+            dec_keys: false,
+            dec_values: true,
+        },
+    );
+
+    // Struct with one RC field — Fields(vec![(1, Idx::STR)]).
+    assert_eq!(
+        compute_drop_info(struct_one_rc, &c, &pool).unwrap().kind,
+        DropKind::Fields(vec![(1, Idx::STR)]),
+    );
+
+    // Tuple with mixed scalar + RC — Fields(vec![(1, Idx::STR)]).
+    assert_eq!(
+        compute_drop_info(tup, &c, &pool).unwrap().kind,
+        DropKind::Fields(vec![(1, Idx::STR)]),
+    );
+
+    // Enum with mixed variant RC fields — Enum([[], [(0, STR)]]).
+    assert_eq!(
+        compute_drop_info(enum_mixed, &c, &pool).unwrap().kind,
+        DropKind::Enum(vec![vec![], vec![(0, Idx::STR)]]),
+    );
+
+    // Option<str> — Enum([[], [(0, STR)]]).
+    assert_eq!(
+        compute_drop_info(opt_str, &c, &pool).unwrap().kind,
+        DropKind::Enum(vec![vec![], vec![(0, Idx::STR)]]),
+    );
+
+    // Result<str, int> — Enum([[(0, STR)], []]).
+    assert_eq!(
+        compute_drop_info(res_str_int, &c, &pool).unwrap().kind,
+        DropKind::Enum(vec![vec![(0, Idx::STR)], vec![]]),
+    );
+
+    // Closure environment with mixed captures — ClosureEnv(vec![(1, STR)]).
+    let env_kind = compute_closure_env_drop(&[Idx::INT, Idx::STR], &c);
+    assert_eq!(env_kind, DropKind::ClosureEnv(vec![(1, Idx::STR)]));
+
+    // Closure environment with no RC captures — Trivial.
+    let env_trivial = compute_closure_env_drop(&[Idx::INT, Idx::FLOAT], &c);
+    assert_eq!(env_trivial, DropKind::Trivial);
+}
+
+// §02.3.A positive pin — `Option<str>` regression
+//
+// The same observation as `option_str_is_enum_drop` above, but written
+// against the BurdenSpec-lifted wrapper specifically. Co-existing with
+// the original test makes accidental rewrites to the wrapper visible —
+// dropping the positive pin would also delete this test name from the
+// suite roster, surfacing the regression at audit time.
+
+#[test]
+fn drop_info_via_burden_for_option_str() {
+    let mut pool = Pool::new();
+    let opt = pool.option(Idx::STR);
+    let c = cls(&pool);
+
+    let Some(info) = compute_drop_info(opt, &c, &pool) else {
+        panic!("Option<str> has non-trivial drop");
+    };
+    assert_eq!(info.ty, opt);
+    assert_eq!(
+        info.kind,
+        DropKind::Enum(vec![
+            vec![],              // None
+            vec![(0, Idx::STR)], // Some(str)
+        ])
+    );
+}
+
+// §02.3.A negative pin — newly-monomorphized generic
+//
+// Engineered fixture: intern a fresh `Result<List<str>, str>` AFTER the
+// pool already contains an unrelated `Result` cell, then call the
+// wrapper for the freshly-interned type. The wrapper MUST observe the
+// freshly-monomorphized shape (Enum with both RC variants) — NOT a
+// stale entry from the earlier interning, NOT a default-empty shape.
+//
+// Guards against introduce-then-cache regressions where the wrapper
+// might short-circuit on a global cache keyed by something other than
+// the exact `Idx`.
+
+#[test]
+fn drop_info_via_burden_for_newly_monomorphized_generic() {
+    let mut pool = Pool::new();
+
+    // Intern both Result cells BEFORE constructing the classifier.
+    // Pre-existing Result cell (scalar both sides → Trivial).
+    let res_scalar = pool.result(Idx::INT, Idx::INT);
+    // NEW Result cell with structurally distinct payloads. Idx must
+    // differ from the prior one because the inner types differ.
+    let list_str = pool.list(Idx::STR);
+    let res_fresh = pool.result(list_str, Idx::STR);
+    assert_ne!(
+        res_fresh, res_scalar,
+        "the fresh monomorphization must intern as a distinct Idx",
+    );
+
+    let c = cls(&pool);
+
+    // Pre-existing scalar Result remains Trivial.
+    assert!(compute_drop_info(res_scalar, &c, &pool).is_none());
+
+    // Wrapper must observe the freshly-composed shape for the new cell.
+    let Some(info) = compute_drop_info(res_fresh, &c, &pool) else {
+        panic!("Result<List<str>, str> has non-trivial drop");
+    };
+    assert_eq!(info.ty, res_fresh);
+    assert_eq!(
+        info.kind,
+        DropKind::Enum(vec![
+            vec![(0, list_str)], // Ok(List<str>) — needs Dec
+            vec![(0, Idx::STR)], // Err(str) — needs Dec
+        ])
+    );
+}

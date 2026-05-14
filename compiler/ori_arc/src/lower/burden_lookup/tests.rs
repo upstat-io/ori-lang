@@ -3,9 +3,12 @@
 //! parity across the two partition variants.
 
 use ori_ir::{Name, Span};
-use ori_registry::burden::table::{TYPE_ID_BOOL, TYPE_ID_INT, TYPE_ID_STR};
+use ori_registry::burden::table::{
+    BurdenRegistry, TYPE_ID_BOOL, TYPE_ID_CHANNEL, TYPE_ID_INT, TYPE_ID_STR, TYPE_PARAM_T,
+};
 use ori_types::burden::{UserBurdenSpec, UserOwnedField};
-use ori_types::{FieldDef, Idx, TypeRegistry, Visibility};
+use ori_types::burden_compose::compose_user_burden;
+use ori_types::{FieldDef, Idx, Pool, TypeRegistry, Visibility};
 
 use super::lookup_burden;
 use crate::lower::burden::{Burden, BurdenRef, TypeRef};
@@ -246,6 +249,229 @@ fn unannotated_ffi_empty_burden_yields_zero_owned_fields_and_no_user_drop() {
     assert!(
         burden_ref.element_burden().is_none(),
         "empty BuiltinBurdenSpec must have no element burden",
+    );
+}
+
+// ─── §02.4.B Channel<T> drop-glue reachability via §02.3 wrapper ────────
+//
+// These tests exercise the END-TO-END drop-glue pathway for `Channel<T>`:
+// the §01 BURDEN_TABLE template is composed via `compose_user_burden` at
+// monomorphization, registered against a monomorphized `Idx` via
+// `TypeRegistry::register_user_burden`, and looked up via the §02.3
+// wrapper surface (`lookup_burden`). The walk MUST reveal a path to T's
+// burden when T has one (e.g., `Channel<str>` → str's heap allocation);
+// no path when T is empty-burden (e.g., `Channel<int>`).
+//
+// The wrapper-walk completeness pin proves the `element_burden` slot is
+// load-bearing for drop-glue: stripping it collapses the reachability
+// path, breaking drop emission for buffered T elements.
+
+fn channel_template() -> &'static ori_registry::burden::BuiltinBurdenSpec {
+    match BurdenRegistry::lookup_builtin(TYPE_ID_CHANNEL) {
+        Some(spec) => spec,
+        None => {
+            panic!("Channel<T> template missing from BURDEN_TABLE — §02.4.B template regression")
+        }
+    }
+}
+
+fn register_user_struct_slot(registry: &mut TypeRegistry, name: &str, idx: Idx) {
+    let fields = vec![FieldDef {
+        name: test_name("payload"),
+        ty: Idx::INT,
+        span: Span::DUMMY,
+        visibility: Visibility::Public,
+    }];
+    registry.register_struct(
+        test_name(name),
+        idx,
+        vec![],
+        fields,
+        Span::DUMMY,
+        Visibility::Public,
+        0,
+        None,
+        None,
+    );
+}
+
+#[test]
+fn channel_builtin_template_lookup_returns_static_burden_ref() {
+    // Positive: TypeRef::Builtin(TYPE_ID_CHANNEL) routes through
+    // `BurdenRegistry::lookup_builtin`, returning a `&'static
+    // BuiltinBurdenSpec` matching the §02.4.B template. The template's
+    // `element_burden` is the TYPE_PARAM_T placeholder — composition
+    // substitutes it to a concrete user `Idx` before drop-glue lookup.
+    let registry = TypeRegistry::new();
+    let result = lookup_burden(TypeRef::Builtin(TYPE_ID_CHANNEL), &registry);
+    match result {
+        Some(BurdenRef::Builtin(spec)) => {
+            assert!(
+                spec.self_heap_alloc,
+                "Channel<T> template advertises heap allocation"
+            );
+            assert_eq!(
+                spec.element_burden,
+                Some(TYPE_PARAM_T),
+                "Channel<T> template exposes the type-param placeholder"
+            );
+        }
+        Some(BurdenRef::User(_)) => panic!("Channel TYPE_ID must route through Builtin partition"),
+        None => panic!("Channel TYPE_ID has a BURDEN_TABLE entry; lookup must hit"),
+    }
+}
+
+#[test]
+fn channel_str_composed_spec_walked_via_wrapper_reveals_str_burden_path() {
+    // Positive (drop-glue reachability — gemini blind-spot #2 cure):
+    // composing `Channel<str>` via the §02.1 mechanism, registering it,
+    // and walking the resulting `UserBurdenSpec` via the §02.3 wrapper
+    // (`lookup_burden`) reveals a path from the Channel handle to T's
+    // burden via `element_burden = Some(Idx::STR)`. When drop-glue
+    // emission walks the spec, it sees Idx::STR and emits the appropriate
+    // RcDec on each buffered str element.
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let channel_str_idx = Idx::from_raw(9001);
+    register_user_struct_slot(&mut registry, "ChannelStr", channel_str_idx);
+
+    let composed = compose_user_burden(channel_template(), &[Idx::STR], &pool, &registry);
+    registry.register_user_burden(channel_str_idx, composed);
+
+    let Some(burden) = lookup_burden(TypeRef::User(channel_str_idx), &registry) else {
+        panic!("Channel<str> spec MUST be looked up via TypeRef::User after registration");
+    };
+
+    // The wrapper walk surfaces self_heap_alloc + element_burden.
+    assert!(
+        burden.self_heap_alloc(),
+        "Channel<str> handle is heap-allocated"
+    );
+    let Some(element) = burden.element_burden() else {
+        panic!("Channel<str>: element_burden carries Idx::STR after composition");
+    };
+    match element {
+        TypeRef::User(idx) => assert_eq!(
+            idx,
+            Idx::STR,
+            "Channel<str>'s element_burden points at Idx::STR"
+        ),
+        TypeRef::Builtin(_) => panic!(
+            "composed Channel<str>'s element_burden routes through User partition (composition stamps the concrete pool Idx into UserBurdenSpec)"
+        ),
+    }
+}
+
+#[test]
+fn channel_int_composed_spec_walked_via_wrapper_reveals_int_burden_path() {
+    // Positive: Channel<int> composes with `element_burden = Some(Idx::INT)`.
+    // The element points at `int` (empty primitive burden) — drop-glue
+    // walks the path but emits no RcDec since int has no heap allocation.
+    // The path itself MUST be present; absence would defeat reachability.
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let channel_int_idx = Idx::from_raw(9002);
+    register_user_struct_slot(&mut registry, "ChannelInt", channel_int_idx);
+
+    let composed = compose_user_burden(channel_template(), &[Idx::INT], &pool, &registry);
+    registry.register_user_burden(channel_int_idx, composed);
+
+    let Some(burden) = lookup_burden(TypeRef::User(channel_int_idx), &registry) else {
+        panic!("Channel<int> spec MUST be looked up via TypeRef::User after registration");
+    };
+
+    let Some(element) = burden.element_burden() else {
+        panic!("Channel<int>: element_burden present even when T has empty burden");
+    };
+    match element {
+        TypeRef::User(idx) => assert_eq!(
+            idx,
+            Idx::INT,
+            "Channel<int>'s element_burden points at Idx::INT"
+        ),
+        TypeRef::Builtin(_) => panic!(
+            "composed Channel<int>'s element_burden routes through User partition (composition stamps Idx::INT into UserBurdenSpec)"
+        ),
+    }
+}
+
+#[test]
+fn negative_pin_channel_without_element_burden_loses_drop_glue_reachability() {
+    // Negative pin (wrapper-walk completeness): a regression that
+    // accidentally drops the `element_burden` slot from the Channel<T>
+    // composition produces a `UserBurdenSpec` whose walk returns NO T
+    // burden node — drop-glue cannot reach buffered T elements when the
+    // refcount reaches zero. This test models the regression by
+    // constructing the broken spec directly and asserting the wrapper
+    // walk returns None for `element_burden`.
+    let mut registry = TypeRegistry::new();
+    let broken_idx = Idx::from_raw(9003);
+    register_user_struct_slot(&mut registry, "BrokenChannel", broken_idx);
+
+    // Broken spec: self_heap_alloc preserved but element_burden missing.
+    let broken_spec = UserBurdenSpec {
+        self_heap_alloc: true,
+        owned_fields: vec![],
+        borrowed_fields: vec![],
+        variant_burdens: vec![],
+        element_burden: None,
+        compiled_drop: None,
+        user_drop: None,
+    };
+    registry.register_user_burden(broken_idx, broken_spec);
+
+    let Some(burden) = lookup_burden(TypeRef::User(broken_idx), &registry) else {
+        panic!("regression spec MUST still be looked up via TypeRef::User");
+    };
+
+    assert!(
+        burden.element_burden().is_none(),
+        "without element_burden the wrapper walk has no path to T's burden — drop-glue regression"
+    );
+    // The handle's own heap allocation is still tracked; only T's
+    // reachability is lost.
+    assert!(burden.self_heap_alloc());
+}
+
+#[test]
+fn semantic_pin_channel_str_distinguishable_from_channel_int_via_wrapper() {
+    // Semantic pin: the wrapper walk produces structurally DISTINCT
+    // observations for Channel<str> and Channel<int>. Catches a
+    // regression where Channel composition would accidentally collapse
+    // T into an opaque sentinel that hides type identity from drop-glue
+    // emission.
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let chan_str_idx = Idx::from_raw(9010);
+    let chan_int_idx = Idx::from_raw(9011);
+    register_user_struct_slot(&mut registry, "ChanStr", chan_str_idx);
+    register_user_struct_slot(&mut registry, "ChanInt", chan_int_idx);
+
+    let str_spec = compose_user_burden(channel_template(), &[Idx::STR], &pool, &registry);
+    let int_spec = compose_user_burden(channel_template(), &[Idx::INT], &pool, &registry);
+    registry.register_user_burden(chan_str_idx, str_spec);
+    registry.register_user_burden(chan_int_idx, int_spec);
+
+    let Some(str_burden) = lookup_burden(TypeRef::User(chan_str_idx), &registry) else {
+        panic!("Channel<str> spec missing");
+    };
+    let Some(int_burden) = lookup_burden(TypeRef::User(chan_int_idx), &registry) else {
+        panic!("Channel<int> spec missing");
+    };
+
+    let str_elem = match str_burden.element_burden() {
+        Some(TypeRef::User(idx)) => idx,
+        Some(TypeRef::Builtin(_)) => panic!("Channel<str> element routes through User"),
+        None => panic!("Channel<str> element_burden must be Some"),
+    };
+    let int_elem = match int_burden.element_burden() {
+        Some(TypeRef::User(idx)) => idx,
+        Some(TypeRef::Builtin(_)) => panic!("Channel<int> element routes through User"),
+        None => panic!("Channel<int> element_burden must be Some"),
+    };
+    assert_ne!(
+        str_elem, int_elem,
+        "wrapper walk of Channel<str> and Channel<int> yields distinct element TypeIds"
     );
 }
 

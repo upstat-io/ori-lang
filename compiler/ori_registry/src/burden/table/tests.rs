@@ -157,11 +157,11 @@ fn lookup_returns_none_for_high_unmapped_id() {
 
 #[test]
 fn burden_table_has_expected_entry_count() {
-    // 10 primitives + Range + Str + List + Map + Set + Option + Result = 17.
-    // Remaining builtins (Error, Tuple, Channel, Function, Iterator,
+    // 10 primitives + Range + Str + List + Map + Set + Option + Result + Channel = 18.
+    // Remaining builtins (Error, Tuple, Function, Iterator,
     // DoubleEndedIterator) are composition-layer territory and intentionally
     // absent from BURDEN_TABLE.
-    assert_eq!(BURDEN_TABLE.len(), 17);
+    assert_eq!(BURDEN_TABLE.len(), 18);
 }
 
 #[test]
@@ -181,7 +181,6 @@ fn out_of_scope_builtins_return_none() {
     for id in [
         TYPE_ID_ERROR,
         TYPE_ID_TUPLE,
-        TYPE_ID_CHANNEL,
         TYPE_ID_FUNCTION,
         TYPE_ID_ITERATOR,
         TYPE_ID_DOUBLE_ENDED_ITERATOR,
@@ -280,10 +279,10 @@ fn typetag_classification_is_exhaustive_and_consistent() {
             | TypeTag::Set
             | TypeTag::Range
             | TypeTag::Option
-            | TypeTag::Result => TableClassification::InTable,
+            | TypeTag::Result
+            | TypeTag::Channel => TableClassification::InTable,
             TypeTag::Error
             | TypeTag::Tuple
-            | TypeTag::Channel
             | TypeTag::Function
             | TypeTag::Iterator
             | TypeTag::DoubleEndedIterator => TableClassification::DeferredToComposition,

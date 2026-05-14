@@ -102,6 +102,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         mono_instances,
         mono_dispatch_pre_dedup,
         deferred_mono_calls,
+        composed_burdens,
     ) = checker.with_function_scope(fn_type, capabilities, |c| {
         // Get arena reference (lifetime 'a, not tied to c borrow)
         let arena = c.arena();
@@ -214,6 +215,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             engine.take_mono_instances(),
             engine.take_mono_dispatch_pre_dedup(),
             engine.take_deferred_mono_calls(),
+            engine.take_composed_burdens(),
         )
     });
 
@@ -230,6 +232,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             mono_instances,
             mono_dispatch_pre_dedup,
             deferred_mono_calls,
+            composed_burdens,
         },
     );
 
@@ -325,6 +328,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let mono_instances = engine.take_mono_instances();
     let mono_dispatch_pre_dedup = engine.take_mono_dispatch_pre_dedup();
     let deferred_mono_calls = engine.take_deferred_mono_calls();
+    let composed_burdens = engine.take_composed_burdens();
 
     // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
     super::finalize_body_and_export(
@@ -339,6 +343,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
             mono_instances,
             mono_dispatch_pre_dedup,
             deferred_mono_calls,
+            composed_burdens,
         },
     );
 

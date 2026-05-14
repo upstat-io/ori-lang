@@ -111,6 +111,32 @@ impl InferEngine<'_> {
         std::mem::take(&mut self.deferred_mono_calls)
     }
 
+    /// Record a composed `UserBurdenSpec` for a monomorphized generic-builtin
+    /// `Idx`. Called once per first-instantiation by
+    /// `infer::expr::calls::monomorphization::maybe_record_mono_instance`
+    /// after substituting type args into the relevant `BURDEN_TABLE`
+    /// template via `registry::burden_compose::compose_user_burden`.
+    pub fn record_composed_burden(
+        &mut self,
+        idx: crate::Idx,
+        spec: crate::registry::burden::UserBurdenSpec,
+    ) {
+        self.composed_burdens.push((idx, spec));
+    }
+
+    /// Take composed-burden entries, leaving an empty vector. Body-pass
+    /// extractor consumed by the module checker; entries flush into
+    /// `TypeRegistry::burden` via
+    /// `crate::check::ModuleChecker::flush_composed_burdens` from
+    /// `bodies::finalize_body_and_export`. Downstream codegen reads the
+    /// registered spec via `TypeRegistry::burden(idx)` without
+    /// re-deriving.
+    pub fn take_composed_burdens(
+        &mut self,
+    ) -> Vec<(crate::Idx, crate::registry::burden::UserBurdenSpec)> {
+        std::mem::take(&mut self.composed_burdens)
+    }
+
     /// Set the current function being type-checked.
     pub fn set_current_function(&mut self, name: Option<Name>) {
         self.current_function = name;

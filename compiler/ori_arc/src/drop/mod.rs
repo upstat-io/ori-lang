@@ -36,6 +36,8 @@ use ori_types::{Idx, Pool, Tag};
 use crate::ir::{ArcFunction, ArcInstr};
 use crate::ArcClassification;
 
+mod burden_bridge;
+
 // Drop descriptor types
 
 /// Describes the cleanup needed when a reference-counted value's
@@ -127,6 +129,18 @@ pub struct DropInfo {
 /// - Which child fields need `RcDec`
 /// - Whether to iterate elements (for collections)
 /// - Whether to switch on enum tag
+///
+/// Transitional thin-wrapper preserved during the burden-tracking
+/// migration. Synthesises a [`burden_bridge::SynthesizedBurden`] from the
+/// pool walk + classifier and forwards through
+/// [`burden_bridge::burden_to_drop_info`]. Consumers should migrate to
+/// direct `BurdenRegistry::lookup_burden` calls at their own pace.
+/// Full deprecation lands at §06 (Phase 7 mechanical lowering) for the
+/// `ori_arc::lower::burden_lower` emission boundary and §09 (post-
+/// convergence partial retirement) for the
+/// `ori_llvm::codegen::arc_emitter::element_fn_gen` cross-crate caller —
+/// the only cross-crate production consumer (verified zero `ori_eval`
+/// callers in §02.3.B audit).
 pub fn compute_drop_info(
     ty: Idx,
     classifier: &dyn ArcClassification,
@@ -151,9 +165,25 @@ pub fn compute_drop_info(
         return None;
     }
 
-    let kind = compute_drop_kind(ty, pool, classifier);
-
-    Some(DropInfo { ty, kind })
+    // BurdenSpec lift: synthesise a `UserBurdenSpec` (plus a
+    // discriminator for shape-disambiguation that `UserBurdenSpec`
+    // itself does not carry) and lift it to `DropInfo`. When the type
+    // is genuinely trivial after walking (all-scalar fields, all-scalar
+    // variants), `synthesize_burden_from_pool` returns `None`; codegen
+    // matches the legacy `compute_drop_kind` → `DropKind::Trivial`
+    // semantics by emitting `DropInfo { ty, kind: Trivial }`.
+    match burden_bridge::synthesize_burden_from_pool(ty, classifier, pool) {
+        Some(synthesized) => {
+            burden_bridge::burden_to_drop_info(ty, &synthesized).or(Some(DropInfo {
+                ty,
+                kind: DropKind::Trivial,
+            }))
+        }
+        None => Some(DropInfo {
+            ty,
+            kind: DropKind::Trivial,
+        }),
+    }
 }
 
 /// Compute a drop descriptor for a closure environment.
@@ -163,30 +193,30 @@ pub fn compute_drop_info(
 /// index in the env struct.
 ///
 /// Returns [`DropKind::Trivial`] if no captures need RC.
+///
+/// Transitional thin-wrapper preserved during the burden-tracking
+/// migration. Synthesises a [`burden_bridge::SynthesizedBurden`] for the
+/// closure environment and forwards through
+/// [`burden_bridge::burden_to_drop_info`]. Closure environments are
+/// constructed by `PartialApply` ARC-IR lowering and never interned in
+/// the type pool, so the closure-specific synthesizer takes the capture
+/// slice directly.
 pub fn compute_closure_env_drop(
     capture_types: &[Idx],
     classifier: &dyn ArcClassification,
 ) -> DropKind {
-    let rc_captures: Vec<(u32, Idx)> = capture_types
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &ty)| {
-            if classifier.needs_rc(ty) {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "field indices are bounded by struct layout, never exceed u32"
-                )]
-                Some((i as u32, ty))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if rc_captures.is_empty() {
-        DropKind::Trivial
-    } else {
-        DropKind::ClosureEnv(rc_captures)
+    match burden_bridge::synthesize_closure_env_burden(capture_types, classifier) {
+        Some(synthesized) => burden_bridge::burden_to_drop_info(
+            // The pool index is irrelevant for closure env drops — codegen
+            // names the drop function by the lambda's synthesized identity
+            // (`_ori_drop$__lambda_N_env`), not by `DropInfo.ty`. Use a
+            // sentinel `Idx::ERROR` for the shell so a stray consumer that
+            // forgets the closure-env special case surfaces loudly.
+            Idx::ERROR,
+            &synthesized,
+        )
+        .map_or(DropKind::Trivial, |info| info.kind),
+        None => DropKind::Trivial,
     }
 }
 
@@ -227,193 +257,14 @@ pub fn collect_drop_infos(
 
 // Internal helpers
 
-/// Compute the drop kind for a non-scalar type.
-fn compute_drop_kind(ty: Idx, pool: &Pool, classifier: &dyn ArcClassification) -> DropKind {
-    let (resolved_ty, resolved_tag) = resolve_type(ty, pool);
-
-    match resolved_tag {
-        // Collections
-
-        // List: iterate elements if RC'd, otherwise just free buffer.
-        Tag::List => {
-            let elem = pool.list_elem(resolved_ty);
-            if classifier.needs_rc(elem) {
-                DropKind::Collection { element_type: elem }
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // Set: same structure as list.
-        Tag::Set => {
-            let elem = pool.set_elem(resolved_ty);
-            if classifier.needs_rc(elem) {
-                DropKind::Collection { element_type: elem }
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // Map: check keys and values independently.
-        Tag::Map => {
-            let key = pool.map_key(resolved_ty);
-            let value = pool.map_value(resolved_ty);
-            let dk = classifier.needs_rc(key);
-            let dv = classifier.needs_rc(value);
-
-            if dk || dv {
-                DropKind::Map {
-                    key_type: key,
-                    value_type: value,
-                    dec_keys: dk,
-                    dec_values: dv,
-                }
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // Fixed-layout compound types
-
-        // Struct: Dec each RC'd field.
-        Tag::Struct => compute_fields_drop(
-            pool.struct_fields(resolved_ty)
-                .into_iter()
-                .map(|(_, ty)| ty),
-            classifier,
-        ),
-
-        // Tuple: same as struct but indexed positionally.
-        Tag::Tuple => compute_fields_drop(pool.tuple_elems(resolved_ty).into_iter(), classifier),
-
-        // Enum: per-variant field drops.
-        Tag::Enum => {
-            let variants = pool.enum_variants(resolved_ty);
-            compute_enum_drop(
-                variants.into_iter().map(|(_, field_types)| field_types),
-                classifier,
-            )
-        }
-
-        // Tagged unions stored as special Pool types
-
-        // option[T] → 2-variant enum: None (no fields), Some(T).
-        Tag::Option => {
-            let inner = pool.option_inner(resolved_ty);
-            if classifier.needs_rc(inner) {
-                DropKind::Enum(vec![
-                    vec![],           // None — no RC'd fields
-                    vec![(0, inner)], // Some — dec the inner value
-                ])
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // result[T, E] → 2-variant enum: Ok(T), Err(E).
-        Tag::Result => {
-            let ok_ty = pool.result_ok(resolved_ty);
-            let err_ty = pool.result_err(resolved_ty);
-            let ok_rc = classifier.needs_rc(ok_ty);
-            let err_rc = classifier.needs_rc(err_ty);
-
-            if ok_rc || err_rc {
-                DropKind::Enum(vec![
-                    if ok_rc { vec![(0, ok_ty)] } else { vec![] },
-                    if err_rc { vec![(0, err_ty)] } else { vec![] },
-                ])
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // range[T] — ranges of RC types need bounds dropped.
-        Tag::Range => {
-            let elem = pool.range_elem(resolved_ty);
-            if classifier.needs_rc(elem) {
-                // range has start and end fields of the same type.
-                DropKind::Fields(vec![(0, elem), (1, elem)])
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // Trivial fallback
-        //
-        // Named/Applied/Alias: resolve_type should have resolved
-        //   these; unresolved named types get trivial drop.
-        // Type variables, schemes, etc.: should be monomorphized
-        //   before reaching codegen. Treat as trivial (just free).
-        _ => DropKind::Trivial,
-    }
-}
-
-/// Compute drop kind for a fixed-layout type with named/positional fields.
-///
-/// Returns `DropKind::Fields` if any field needs RC, `DropKind::Trivial`
-/// if all fields are scalar.
-fn compute_fields_drop(
-    field_types: impl Iterator<Item = Idx>,
-    classifier: &dyn ArcClassification,
-) -> DropKind {
-    let rc_fields: Vec<(u32, Idx)> = field_types
-        .enumerate()
-        .filter_map(|(i, field_ty)| {
-            if classifier.needs_rc(field_ty) {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "field indices are bounded by struct layout, never exceed u32"
-                )]
-                Some((i as u32, field_ty))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if rc_fields.is_empty() {
-        DropKind::Trivial
-    } else {
-        DropKind::Fields(rc_fields)
-    }
-}
-
-/// Compute drop kind for an enum type with multiple variants.
-///
-/// Returns `DropKind::Enum` if any variant has RC'd fields,
-/// `DropKind::Trivial` if no variant has RC'd fields.
-fn compute_enum_drop(
-    variants: impl Iterator<Item = Vec<Idx>>,
-    classifier: &dyn ArcClassification,
-) -> DropKind {
-    let variant_drops: Vec<Vec<(u32, Idx)>> = variants
-        .map(|field_types| {
-            field_types
-                .into_iter()
-                .enumerate()
-                .filter_map(|(i, field_ty)| {
-                    if classifier.needs_rc(field_ty) {
-                        #[expect(
-                            clippy::cast_possible_truncation,
-                            reason = "field indices are bounded by struct layout, never exceed u32"
-                        )]
-                        Some((i as u32, field_ty))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        })
-        .collect();
-
-    if variant_drops.iter().all(Vec::is_empty) {
-        DropKind::Trivial
-    } else {
-        DropKind::Enum(variant_drops)
-    }
-}
-
 /// Resolve a type through Named/Alias indirection to its concrete tag.
+///
+/// Used by the iterator early-exit guard in [`compute_drop_info`]. The
+/// full pool walk lives in
+/// [`burden_bridge::synthesize_burden_from_pool`]; this helper is
+/// retained because the iterator guard fires BEFORE the bridge synthesises
+/// any burden (iterator drops are emitted inline by the ARC emitter, not
+/// per-type drop functions).
 fn resolve_type(ty: Idx, pool: &Pool) -> (Idx, Tag) {
     let tag = pool.tag(ty);
     match tag {

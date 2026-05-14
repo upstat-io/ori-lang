@@ -85,6 +85,31 @@ impl ModuleChecker<'_> {
         self.deferred_mono_calls.extend(calls);
     }
 
+    /// Flush composed `UserBurdenSpec` entries from one body-pass session
+    /// into the `TypeRegistry`.
+    ///
+    /// Each `(idx, spec)` entry was produced by a monomorphization site
+    /// in the body via `InferEngine::record_composed_burden`. Calls
+    /// `TypeRegistry::register_user_burden` per entry, which dedups
+    /// against the signature reverse-index and writes the canonical spec
+    /// onto the `TypeEntry` at `idx`. Late-stage codegen reads the
+    /// registered spec via `TypeRegistry::burden(idx)` without
+    /// re-deriving.
+    ///
+    /// Called from `bodies::finalize_body_and_export` after each body's
+    /// inference closure completes — gives every body's composed entries
+    /// equal access to the registry's dedup state. Called by every body
+    /// kind (functions, tests, impl methods, def-impl methods) through
+    /// the shared spine.
+    pub fn flush_composed_burdens(
+        &mut self,
+        entries: Vec<(crate::Idx, crate::registry::burden::UserBurdenSpec)>,
+    ) {
+        for (idx, spec) in entries {
+            let _ = self.type_registry_mut().register_user_burden(idx, spec);
+        }
+    }
+
     /// Get all registered signatures.
     pub fn signatures(&self) -> &FxHashMap<Name, FunctionSig> {
         &self.signatures

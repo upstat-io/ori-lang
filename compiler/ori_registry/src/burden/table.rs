@@ -248,6 +248,29 @@ pub const BURDEN_TABLE: &[(TypeId, BuiltinBurdenSpec)] = &[
             ..BuiltinBurdenSpec::EMPTY
         },
     ),
+    // Channel<T> — Arc-managed shared communication primitive carrying a
+    // buffer of T elements. `self_heap_alloc = true` covers the channel
+    // handle's Arc-managed allocation; `element_burden = Some(TYPE_PARAM_T)`
+    // exposes T's burden transitively so drop-glue can release buffered T
+    // elements when the channel refcount reaches zero. The composition layer
+    // substitutes `TYPE_PARAM_T` at first-instantiation of `Channel<int>` /
+    // `Channel<str>` / `Channel<{K: V}>` via `compose_user_burden`; the
+    // resulting `UserBurdenSpec` shares the LIST/MAP/SET shape (heap handle
+    // + parameterized element type), differing only at the registry layer.
+    //
+    // Channel-runtime gap: `compiler_repo/compiler/ori_patterns/src/channel.rs`
+    // is a stub today; emission of `BurdenInc(arg)` at `channel.send(arg)`
+    // is forward-referenced to §03 trivial-emission rules. This template
+    // produces the BurdenSpec data §03 will consume; no Phase 5 emission
+    // is wired in §02.
+    (
+        TYPE_ID_CHANNEL,
+        BuiltinBurdenSpec {
+            self_heap_alloc: true,
+            element_burden: Some(TYPE_PARAM_T),
+            ..BuiltinBurdenSpec::EMPTY
+        },
+    ),
 ];
 
 // Registry surface.

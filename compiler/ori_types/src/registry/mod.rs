@@ -21,6 +21,8 @@
 //! - All types derive `Clone, Eq, PartialEq, Hash, Debug` for Salsa compatibility
 
 pub mod burden;
+pub mod burden_compose;
+pub mod burden_dedup;
 mod methods;
 mod traits;
 mod types;

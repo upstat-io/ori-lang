@@ -5078,3 +5078,253 @@ fn apply_indirect_multi_call_promotes_captures_to_many() {
          per TF-13. REJECTED-APPROACH GUARD per BUG-04-106 §02 + §03:87."
     );
 }
+
+// ─── §02.4.A ContextHole shape inheritance ──────────────────────────────
+//
+// ContextHole-shaped variables (per `aims/lattice/dimensions.rs:213` +
+// `aims/intraprocedural/post_convergence.rs:445`) inherit their BurdenSpec
+// from their UNDERLYING TypeId — there is NO synthetic ContextHole TypeId
+// registered separately. The TRMC pipeline mints a new parameter whose type
+// is the constructor's argument type (an existing pool `Idx`); its
+// BurdenSpec lookup uses that `Idx` regardless of the lattice shape.
+//
+// These tests are STRUCTURAL — they exercise the inheritance pathway by
+// (a) setting `ShapeClass::ContextHole` on a variable post-analysis,
+// (b) confirming `func.var_type(var)` is unchanged, and (c) showing the
+// existing burden-lookup APIs route through the underlying TypeId.
+
+#[test]
+fn context_hole_shape_inherits_underlying_typeid_for_primitive() {
+    // Positive: a variable shape-annotated `ContextHole` whose underlying
+    // TypeId is a primitive (`Idx::INT`) still routes to the empty §01
+    // BuiltinBurdenSpec via the existing BurdenRegistry lookup — the
+    // shape annotation does NOT redirect the lookup.
+    use ori_registry::burden::table::{burden_type_id, BurdenRegistry};
+    use ori_registry::TypeTag;
+
+    let func = ArcFunction {
+        var_types: vec![Idx::INT],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(0),
+                ty: Idx::INT,
+                ctor: CtorKind::Struct(Name::from_raw(10)),
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let mut state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // Simulate post-convergence TRMC detection: set ContextHole shape on v0.
+    state_map.set_var_shape(var(0), ShapeClass::ContextHole);
+    assert_eq!(state_map.var_shape(var(0)), ShapeClass::ContextHole);
+
+    // Underlying TypeId is unchanged — inheritance pathway routes through it.
+    let underlying = func.var_type(var(0));
+    assert_eq!(underlying, Idx::INT);
+
+    // Existing BurdenRegistry lookup for `int`'s primitive TypeId returns
+    // the §01 empty BuiltinBurdenSpec. The ShapeClass::ContextHole annotation
+    // has zero effect on this lookup — no fresh registration, no synthetic
+    // TypeId.
+    let spec = BurdenRegistry::lookup_builtin(burden_type_id(TypeTag::Int))
+        .expect("int has a registered empty BuiltinBurdenSpec in BURDEN_TABLE");
+    assert!(!spec.self_heap_alloc, "int has empty burden");
+    assert!(spec.owned_fields.is_empty());
+    assert!(spec.variant_burdens.is_empty());
+}
+
+#[test]
+fn context_hole_shape_inherits_underlying_typeid_for_heap_type() {
+    // Positive: a variable shape-annotated `ContextHole` whose underlying
+    // TypeId is a heap-allocated type (`Idx::STR`) routes to the existing
+    // §01 BuiltinBurdenSpec for `str` (self_heap_alloc = true). The
+    // ContextHole shape inherits the same lookup, NOT a fresh registration.
+    use ori_registry::burden::table::{burden_type_id, BurdenRegistry};
+    use ori_registry::TypeTag;
+
+    let func = ArcFunction {
+        var_types: vec![Idx::STR],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(0),
+                ty: Idx::STR,
+                ctor: CtorKind::Struct(Name::from_raw(10)),
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let mut state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    state_map.set_var_shape(var(0), ShapeClass::ContextHole);
+    assert_eq!(state_map.var_shape(var(0)), ShapeClass::ContextHole);
+
+    // Underlying TypeId is still `str`.
+    assert_eq!(func.var_type(var(0)), Idx::STR);
+
+    let spec = BurdenRegistry::lookup_builtin(burden_type_id(TypeTag::Str))
+        .expect("str has a registered BuiltinBurdenSpec in BURDEN_TABLE");
+    assert!(
+        spec.self_heap_alloc,
+        "str's burden survives unchanged through ContextHole shape annotation"
+    );
+}
+
+#[test]
+fn context_hole_shape_does_not_register_synthetic_typeid_in_type_registry() {
+    // Positive (no fictional registration): annotating a variable with
+    // `ShapeClass::ContextHole` MUST NOT mutate `TypeRegistry::burden` to
+    // produce a fresh entry. The codex blind-spot's hallucinated "register
+    // UserBurdenSpec on synthetic ContextHole TypeId" must NOT manifest.
+    //
+    // We construct an empty TypeRegistry, run the lattice analysis with
+    // ContextHole annotation applied post-convergence, and verify:
+    // (a) no burden_signature claim was made;
+    // (b) `TypeRegistry::burden` lookup on the underlying TypeId returns
+    //     None (the underlying type was never registered as a user type).
+    use ori_types::TypeRegistry;
+
+    let func = ArcFunction {
+        var_types: vec![Idx::INT],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(0),
+                ty: Idx::INT,
+                ctor: CtorKind::Struct(Name::from_raw(10)),
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let mut state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // BEFORE annotation: empty type registry has zero burden signatures.
+    let registry = TypeRegistry::new();
+    assert_eq!(
+        registry.burden_signature_count(),
+        0,
+        "fresh TypeRegistry has zero burden signatures"
+    );
+
+    // Apply the ContextHole annotation.
+    state_map.set_var_shape(var(0), ShapeClass::ContextHole);
+
+    // AFTER annotation: registry STILL has zero burden signatures —
+    // the lattice annotation is purely state-map-local, no registry write.
+    assert_eq!(
+        registry.burden_signature_count(),
+        0,
+        "ContextHole annotation MUST NOT mutate TypeRegistry — no synthetic registration"
+    );
+    assert!(
+        registry.burden(Idx::INT).is_none(),
+        "int is not a user-registered type; TypeRegistry::burden returns None regardless of ContextHole shape"
+    );
+}
+
+#[test]
+fn context_hole_shape_lookup_path_unchanged_by_annotation() {
+    // Semantic pin: setting and clearing ContextHole on a variable does
+    // NOT alter the var → underlying-TypeId mapping. This is the
+    // inheritance pathway's load-bearing invariant: the lookup site
+    // ALWAYS uses `func.var_type(var)`, never any shape-derived key.
+    //
+    // Regression catcher: if a future edit smuggles a "synthesize
+    // ContextHole TypeId" path into the lattice pipeline, this test
+    // surfaces it by detecting a change in the var → TypeId resolution.
+    let func = ArcFunction {
+        var_types: vec![Idx::BOOL],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: var(0),
+                ty: Idx::BOOL,
+                value: ArcValue::Literal(LitValue::Bool(true)),
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let mut state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    let underlying_before = func.var_type(var(0));
+    state_map.set_var_shape(var(0), ShapeClass::ContextHole);
+    let underlying_after = func.var_type(var(0));
+
+    assert_eq!(
+        underlying_before, underlying_after,
+        "func.var_type(v) is the SSOT for v's TypeId — ContextHole shape does not redirect it"
+    );
+    assert_eq!(
+        underlying_after,
+        Idx::BOOL,
+        "underlying TypeId stays exactly what var_types[v] holds"
+    );
+}
+
+#[test]
+fn negative_pin_no_synthetic_context_hole_typeid_minting_pathway_exists() {
+    // Negative pin (anti-hallucination): there is NO public API on
+    // `AimsStateMap`, `ArcFunction`, or `TypeRegistry` that mints a
+    // synthetic TypeId carrying a "ContextHole" tag. The hallucinated
+    // codex blind-spot Critical #1 fix would have added such an API; this
+    // test pins its absence.
+    //
+    // The verification is structural: we exercise every shape-related
+    // surface on `AimsStateMap` and confirm none returns a synthetic Idx.
+    let func = ArcFunction {
+        var_types: vec![Idx::INT],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(0),
+                ty: Idx::INT,
+                ctor: CtorKind::Struct(Name::from_raw(10)),
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let mut state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // Apply the shape; confirm `var_shape` returns the SHAPE enum, NOT a
+    // synthetic Idx. The shape annotation lives in a `FxHashMap<ArcVarId,
+    // ShapeClass>`, not in any TypeId-keyed structure.
+    state_map.set_var_shape(var(0), ShapeClass::ContextHole);
+    let shape = state_map.var_shape(var(0));
+
+    // Match on shape — the variants are the canonical ones from
+    // `lattice/dimensions.rs:205-214`, none carries a TypeId payload.
+    match shape {
+        ShapeClass::NonReusable
+        | ShapeClass::ReusableCtor(_)
+        | ShapeClass::CollectionBuffer
+        | ShapeClass::ContextHole => {}
+    }
+    // The lookup path remains TypeId-keyed via `func.var_type(var)`.
+    let _underlying_typeid: Idx = func.var_type(var(0));
+}

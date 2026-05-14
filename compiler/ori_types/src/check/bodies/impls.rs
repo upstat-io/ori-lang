@@ -316,6 +316,7 @@ fn check_impl_method(
         mono_instances,
         mono_dispatch_pre_dedup,
         deferred_mono_calls,
+        composed_burdens,
     ) = checker.with_impl_scope(self_type, |c| {
         c.with_function_scope(fn_type, FxHashSet::default(), |c| {
             let arena = c.arena();
@@ -398,6 +399,7 @@ fn check_impl_method(
                 engine.take_mono_instances(),
                 engine.take_mono_dispatch_pre_dedup(),
                 engine.take_deferred_mono_calls(),
+                engine.take_composed_burdens(),
             )
         })
     });
@@ -429,6 +431,7 @@ fn check_impl_method(
             mono_instances,
             mono_dispatch_pre_dedup,
             deferred_mono_calls,
+            composed_burdens,
         },
     );
 
@@ -569,6 +572,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
         mono_instances,
         mono_dispatch_pre_dedup,
         deferred_mono_calls,
+        composed_burdens,
     ) = checker.with_impl_scope(self_rigid, |c| {
         c.with_function_scope(fn_type, FxHashSet::default(), |c| {
             let arena = c.arena();
@@ -636,6 +640,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
                 engine.take_mono_instances(),
                 engine.take_mono_dispatch_pre_dedup(),
                 engine.take_deferred_mono_calls(),
+                engine.take_composed_burdens(),
             )
         })
     });
@@ -670,6 +675,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
             mono_instances,
             mono_dispatch_pre_dedup,
             deferred_mono_calls,
+            composed_burdens,
         },
     );
 }

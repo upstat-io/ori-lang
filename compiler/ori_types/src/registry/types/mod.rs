@@ -17,6 +17,7 @@ use ori_ir::{Name, Span};
 use rustc_hash::FxHashMap;
 
 use crate::registry::burden::UserBurdenSpec;
+use crate::registry::burden_dedup::BurdenSignature;
 use crate::{Idx, ValueCategory};
 
 /// Registry for user-defined types.
@@ -34,6 +35,16 @@ pub struct TypeRegistry {
     /// Variant name -> (containing type Idx, variant index).
     /// Enables O(1) lookup of enum variant constructors.
     variants_by_name: FxHashMap<Name, (Idx, usize)>,
+
+    /// Reverse-index from [`BurdenSignature`] to the canonical `Idx`
+    /// carrying that signature's `UserBurdenSpec`. Populated by
+    /// [`Self::register_user_burden`]; consulted on every monomorphized
+    /// burden registration to short-circuit storage of structurally
+    /// equivalent specs. Collisions (matching signature, distinct spec)
+    /// fall through to a fresh entry (collision tolerance is canonical in
+    /// both debug and release builds; structural equality check on collision
+    /// is the correctness floor).
+    burden_by_signature: FxHashMap<BurdenSignature, Idx>,
 }
 
 /// A registered type definition.
@@ -181,6 +192,7 @@ impl TypeRegistry {
             types_by_name: BTreeMap::new(),
             types_by_idx: FxHashMap::default(),
             variants_by_name: FxHashMap::default(),
+            burden_by_signature: FxHashMap::default(),
         }
     }
 
@@ -355,6 +367,114 @@ impl TypeRegistry {
         self.types_by_idx
             .get(&idx)
             .and_then(|entry| entry.burden.as_ref())
+    }
+
+    /// Register a monomorphized / user `UserBurdenSpec` against `typeid`,
+    /// deduplicating against the structural-signature reverse-index.
+    ///
+    /// Computes `BurdenSignature::compute(&spec)`. When an existing entry
+    /// shares that signature AND is structurally equal to `spec`, returns
+    /// the existing canonical `Idx` and DOES NOT mutate either index.
+    /// Otherwise (no prior entry, OR a signature collision with a
+    /// structurally different spec), stores `spec` against `typeid` and
+    /// records `typeid` as that signature's canonical owner.
+    ///
+    /// Returns the canonical `Idx` for the registered spec. Callers map
+    /// their original `typeid` to the returned `Idx` to participate in
+    /// dedup (when distinct, `typeid` is the new canonical; when equal to
+    /// an existing canonical, the registry shared the prior allocation).
+    ///
+    /// Soundness gate: identical to debug + release builds. A signature
+    /// collision (same hash, different spec) MUST yield a fresh entry,
+    /// not a `debug_assert!` panic — collisions are valid (rare) hash
+    /// events, not invariant failures. The pre-existing slot keeps its
+    /// occupant; the incoming spec lands at `typeid` without updating the
+    /// reverse-index (the prior signature owner remains the canonical
+    /// owner for the colliding key).
+    ///
+    /// `typeid` MUST already be present in the registry as a
+    /// [`TypeKind::Struct`] / `TypeKind::Enum` / `TypeKind::Newtype` /
+    /// `TypeKind::Alias` entry. The burden field on that entry is
+    /// overwritten with the canonical spec. When the registry has no
+    /// entry for `typeid`, the call is a no-op returning `typeid`
+    /// unchanged.
+    pub fn register_user_burden(&mut self, typeid: Idx, spec: UserBurdenSpec) -> Idx {
+        let sig = BurdenSignature::compute_singlelevel(&spec);
+
+        // Probe the reverse-index. On hit, verify structural equality
+        // before treating the existing slot as canonical.
+        if let Some(&existing_idx) = self.burden_by_signature.get(&sig) {
+            if let Some(existing_spec) = self.burden(existing_idx) {
+                if existing_spec == &spec {
+                    // True structural match — share the existing slot.
+                    return existing_idx;
+                }
+                // Signature collision with a structurally different spec.
+                // Fall through to fresh insertion at `typeid`; DO NOT
+                // touch the reverse-index entry (the prior owner keeps
+                // the signature slot).
+            }
+        }
+
+        // Insert the spec into both directions, but only claim the
+        // signature slot when it is currently vacant (collisions leave
+        // the prior owner intact per the Debug/Release Parity gate).
+        let signature_claimed = match self.burden_by_signature.entry(sig) {
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(typeid);
+                true
+            }
+            std::collections::hash_map::Entry::Occupied(_) => false,
+        };
+
+        // Update the burden on the TypeEntry. When the entry is missing
+        // (programmer error: registering a burden for an unregistered
+        // type), the call is a no-op except for the signature slot
+        // bookkeeping above; back out the bookkeeping to keep the maps
+        // consistent.
+        if let Some(entry) = self.types_by_idx.get_mut(&typeid) {
+            entry.burden = Some(spec.clone());
+        } else {
+            if signature_claimed {
+                self.burden_by_signature.remove(&sig);
+            }
+            return typeid;
+        }
+        // Also update the by-name entry (TypeEntry stored in both maps).
+        for entry in self.types_by_name.values_mut() {
+            if entry.idx == typeid {
+                entry.burden = Some(spec);
+                break;
+            }
+        }
+
+        typeid
+    }
+
+    /// Number of distinct burden signatures currently registered.
+    ///
+    /// Equals the count of unique signatures that have claimed the
+    /// reverse-index — i.e., the count of `register_user_burden` calls
+    /// that produced a fresh canonical entry. Useful for matrix tests
+    /// pinning sub-linear collapse in stdlib monomorphization stress
+    /// scenarios.
+    #[inline]
+    #[must_use]
+    pub fn burden_signature_count(&self) -> usize {
+        self.burden_by_signature.len()
+    }
+
+    /// Number of `TypeEntry` slots whose `burden` field is populated.
+    ///
+    /// Distinct from [`Self::burden_signature_count`] when collisions
+    /// have produced fresh entries that share signatures with prior
+    /// slots. Matrix tests pin the relationship between the two counts.
+    #[must_use]
+    pub fn burden_entry_count(&self) -> usize {
+        self.types_by_idx
+            .values()
+            .filter(|entry| entry.burden.is_some())
+            .count()
     }
 
     /// Check if a type with the given name exists.
