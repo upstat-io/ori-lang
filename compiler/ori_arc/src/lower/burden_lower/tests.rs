@@ -428,6 +428,143 @@ fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value_per_03_4()
 }
 
 #[test]
+fn settag_emits_burden_dec_variant_before_settag_per_03_4_cycle_50b() {
+    // §03.4 cycle 50b positive pin per `aims-rules.md §3 TF-15a` + `§8 RL-10`:
+    // SetTag with heap-burden base MUST emit BurdenDecVariant(var=base) BEFORE
+    // the SetTag instruction. BurdenDecVariant is the whole-var sibling to
+    // cycle-47 BurdenDecField — SetTag invalidates ALL payload fields of the
+    // OLD variant (RL-10), so codegen at cycle 50c walks the entire variant
+    // before the tag store clobbers the discriminant. AIMS Invariant 5
+    // case (b) — extends ArcInstr enum on the same dimension as
+    // BurdenDecPartial / BurdenDec; no parallel emission, no shadow tracker.
+    // SetTag's TF-15a backward demand is `(base, Once)` only — no value
+    // operand — so unlike cycle-47 Set, no symmetric BurdenInc(value).
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR],
+        blocks: vec![entry_block(
+            vec![ArcInstr::SetTag {
+                base: ArcVarId::new(0),
+                tag: 1,
+            }],
+            ArcTerminator::Unreachable,
+        )],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let body = &func.blocks[0].body;
+
+    // Pin 1: BurdenDecVariant(var=var(0)) appears in body.
+    let dec_variant_pos = body
+        .iter()
+        .position(|i| matches!(i, ArcInstr::BurdenDecVariant { var } if *var == ArcVarId::new(0)));
+    assert!(
+        dec_variant_pos.is_some(),
+        "expected BurdenDecVariant(var=var(0)) per §03.4 cycle 50b; body={body:?}",
+    );
+
+    // Pin 2: SetTag appears in body.
+    let settag_pos = body
+        .iter()
+        .position(|i| matches!(i, ArcInstr::SetTag { .. }))
+        .unwrap_or_else(|| panic!("SetTag MUST appear in body"));
+
+    // Pin 3: Ordering — BurdenDecVariant BEFORE SetTag. Codegen at cycle 50c
+    // reads the current discriminant via GEP+load BEFORE the store clobbers
+    // it; this ordering is the load-bearing invariant per `aims-rules.md
+    // §8 RL-10` (tag change invalidates ALL payload fields).
+    let dec_variant = dec_variant_pos.unwrap_or_else(|| unreachable!("checked is_some above"));
+    assert!(
+        dec_variant < settag_pos,
+        "BurdenDecVariant MUST precede SetTag; body={body:?}",
+    );
+
+    // Pin 4: round-trip through SSOT walk helpers per `impl-hygiene.md §SSOT`.
+    // Use `BurdenDecVariant` reflectively via the canonical helpers so the
+    // four arms (defined_var/used_vars/uses_var/substitute_var) are
+    // mechanically exercised and any future enum-variant grouping drift is
+    // surfaced at this pin rather than at downstream pipeline consumption.
+    let bdv = ArcInstr::BurdenDecVariant {
+        var: ArcVarId::new(0),
+    };
+    assert!(
+        bdv.defined_var().is_none(),
+        "BurdenDecVariant defines no dst"
+    );
+    assert_eq!(
+        bdv.used_vars().to_vec(),
+        vec![ArcVarId::new(0)],
+        "BurdenDecVariant used_vars = [var]",
+    );
+    assert!(
+        bdv.uses_var(ArcVarId::new(0)),
+        "BurdenDecVariant uses_var(var) holds",
+    );
+    assert!(
+        !bdv.uses_var(ArcVarId::new(99)),
+        "BurdenDecVariant uses_var(other) does not hold",
+    );
+    let mut bdv_sub = bdv.clone();
+    bdv_sub.substitute_var(ArcVarId::new(0), ArcVarId::new(7));
+    assert!(
+        matches!(bdv_sub, ArcInstr::BurdenDecVariant { var } if var == ArcVarId::new(7)),
+        "BurdenDecVariant substitute_var rewrites var",
+    );
+}
+
+#[test]
+fn settag_emits_no_burden_dec_variant_when_base_not_in_owned_vars_per_03_4_cycle_50b_negative() {
+    // §03.4 cycle 50b negative pin (clamps positive pin from below per
+    // `tests.md §Matrix Clamping`): SetTag on a base var whose burden is
+    // EMPTY (scalar / no owned fields — fails `burden_carries_rc` filter at
+    // `compute_owned_vars_needing_rc`) MUST NOT emit BurdenDecVariant.
+    // Mirrors cycle-47 BurdenDecField's gate via
+    // `owned_vars_needing_rc.contains(base)` — same gate, same filter.
+    // Per `aims-rules.md §VF-1 RcOnScalar` (no RC ops on scalars):
+    // BurdenDecVariant on a scalar would be a structural violation. Idx::INT
+    // is the canonical scalar negative-pin type per cycle-47's
+    // `set_scalar_value_emits_no_burden_inc_via_tf_15_carve_out_filter`.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::INT,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::INT],
+        blocks: vec![entry_block(
+            vec![ArcInstr::SetTag {
+                base: ArcVarId::new(0),
+                tag: 1,
+            }],
+            ArcTerminator::Unreachable,
+        )],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let body = &func.blocks[0].body;
+
+    // Pin (negative, VF-1 RcOnScalar mirror): zero BurdenDecVariant emitted.
+    let dec_variant_count = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDecVariant { .. }))
+        .count();
+    assert_eq!(
+        dec_variant_count, 0,
+        "expected zero BurdenDecVariant when base type is scalar (Idx::INT); body={body:?}",
+    );
+}
+
+#[test]
 fn burden_dec_emitted_after_non_transfer_last_use() {
     // §03.2 sc 2: BurdenDec(v) emits immediately following last-use UNLESS
     // last-use is ownership-transferring per RL-2. Cycle 11 ships filtered

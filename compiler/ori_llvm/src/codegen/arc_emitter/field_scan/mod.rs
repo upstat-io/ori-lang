@@ -137,6 +137,7 @@ pub(super) fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option
                 | ArcInstr::BurdenInc { var }
                 | ArcInstr::BurdenDec { var }
                 | ArcInstr::BurdenDecPartial { var, .. }
+                | ArcInstr::BurdenDecVariant { var }
                 | ArcInstr::IsShared { var, .. }
                 | ArcInstr::Reset { var, .. } => mark_all(&aliases, &mut usage, *var),
 
@@ -317,6 +318,7 @@ pub(super) fn compute_pointer_only_params(
                 | ArcInstr::BurdenInc { var }
                 | ArcInstr::BurdenDec { var }
                 | ArcInstr::BurdenDecPartial { var, .. }
+                | ArcInstr::BurdenDecVariant { var }
                 | ArcInstr::IsShared { var, .. }
                 | ArcInstr::Reset { var, .. } => {
                     mark_needs_load(*var, &var_to_param, &mut needs_load);

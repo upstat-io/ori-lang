@@ -7,10 +7,9 @@
 //! handle the structural unification of the closure's params/return
 //! against the iterator's element / result types.
 //!
-//! Extracted from `method_call.rs` per `impl-hygiene.md §File Organization`
-//! (500-line file limit) so §09.4's lambda-param propagation extension to
-//! `unify_closure_param_with_iterator_elem` can land without growing
-//! `method_call.rs` past the limit.
+//! Extracted from `method_call.rs` to keep modules under the 500-line cap so
+//! lambda-param propagation extensions to `unify_closure_param_with_iterator_elem`
+//! can land without growing `method_call.rs` past the limit.
 
 use ori_ir::{Name, Span};
 
@@ -117,9 +116,9 @@ pub(super) fn unify_higher_order_constraints(
 /// For adapters like `.map(r -> r.score)`, ensures that `r` is constrained to
 /// the receiver's element type rather than remaining as an unresolved type variable.
 ///
-/// §09.4 extension — applies to `Tag::List`, `Tag::Set`, `Tag::Str` receivers
-/// in addition to the original `Tag::Iterator` / `Tag::DoubleEndedIterator`
-/// gate. Closes the lambda-parameter inference gap that previously left
+/// Applies to `Tag::List`, `Tag::Set`, `Tag::Str` receivers in addition to
+/// the original `Tag::Iterator` / `Tag::DoubleEndedIterator` gate. Closes the
+/// lambda-parameter inference gap that previously left
 /// `list.map(x -> x + 1)` with an unresolved `Tag::Var` for `x`. `Tag::Map`
 /// is intentionally excluded for now — its iteration shape is `(K, V)` tuples
 /// and the unification needs tuple-element resolution; left as a follow-up

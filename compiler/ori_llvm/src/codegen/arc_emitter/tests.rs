@@ -835,14 +835,15 @@ fn set_emits_struct_gep_and_store() {
     drop(em);
 } // set_emits_struct_gep_and_store
 
-// ─── §03.4 cycle 49 BurdenDecField codegen wire matrix ───
+// ─── BurdenDecField codegen wire matrix ───
 
-/// §03.4 cycle 49 positive pin per plan body line 1943: heap-typed field
-/// (str) MUST emit GEP+load+RcDec for the prior field value BEFORE Set's
+/// Positive pin: `BurdenDecField` on a heap-typed (str) field MUST emit
+/// GEP + load + `RcDec` on the prior field value BEFORE the upstream `Set`
 /// store clobbers the slot. The `emit_drop_rc_dec` SSOT dispatcher
-/// (`drop_gen.rs:326`) handles the heap-pointer extraction + drop-fn lookup.
+/// handles the heap-pointer extraction + drop-fn lookup; the
+/// `emit_drop_field_loop` shared SSOT-helper handles the GEP+load shape.
 #[test]
-fn burden_dec_field_str_field_emits_gep_load_rc_dec_per_03_4_cycle_49() {
+fn burden_dec_field_str_field_emits_gep_load_rc_dec() {
     use ori_arc::ir::{ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId, ValueRepr};
     use ori_arc::Ownership;
 
@@ -850,7 +851,7 @@ fn burden_dec_field_str_field_emits_gep_load_rc_dec_per_03_4_cycle_49() {
     use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
 
     let mut pool = Pool::new();
-    // Struct with one str field — heap-burdened; cycle 49 MUST emit RcDec.
+    // Struct with one str field — heap-burdened; MUST emit RcDec.
     let struct_ty = pool.struct_type(
         ori_ir::Name::from_raw(300),
         &[(ori_ir::Name::from_raw(301), Idx::STR)],
@@ -945,31 +946,31 @@ fn burden_dec_field_str_field_emits_gep_load_rc_dec_per_03_4_cycle_49() {
         ir.contains("burden_dec_field.0.ptr"),
         "BurdenDecField MUST emit struct_gep for field position; ir:\n{ir}",
     );
-    // Pin 2: BurdenDecField emitted load to capture prior value.
+    // Pin 2: BurdenDecField emitted load to capture the field value.
     assert!(
-        ir.contains("burden_dec_field.0.prior"),
+        ir.contains("burden_dec_field.0 "),
         "BurdenDecField MUST emit load to capture prior field value; ir:\n{ir}",
     );
     // Pin 3: emit_drop_rc_dec routed to ori_rc_dec for the heap-typed field.
-    // The prior str value extracts data ptr + RcDec call lands in IR.
+    // The loaded str value extracts data ptr + RcDec call lands in IR.
     assert!(
         ir.contains("ori_rc_dec"),
         "BurdenDecField on str-typed field MUST route through emit_drop_rc_dec → ori_rc_dec; ir:\n{ir}",
     );
 
     drop(em);
-} // burden_dec_field_str_field_emits_gep_load_rc_dec_per_03_4_cycle_49
+} // burden_dec_field_str_field_emits_gep_load_rc_dec
 
-/// §03.4 cycle 49 negative pin per `codegen-rules.md §RE-2` scalar exemption:
-/// scalar-typed field (int) MUST NOT emit `ori_rc_dec` — the `emit_drop_rc_dec`
-/// SSOT dispatcher returns early via `extract_rc_data_ptrs` empty-set
-/// short-circuit (`drop_gen.rs:337-339`). The GEP+load still emit (mechanical
-/// IR positioning), but no `RcDec` call lands. Clamps the RE-2 invariant — a
-/// regression that inlined a scalar check inline would still pass this gate
-/// only if the inlined check matched the canonical `extract_rc_data_ptrs`
+/// Negative case per AIMS rule RE-2 scalar exemption: `BurdenDecField`
+/// on a scalar-typed (int) field MUST NOT emit `ori_rc_dec` — the
+/// `emit_drop_rc_dec` SSOT dispatcher returns early via the canonical
+/// scalar short-circuit. The GEP+load still emit (mechanical IR
+/// positioning via `emit_drop_field_loop`), but no `RcDec` call lands.
+/// Clamps the RE-2 invariant against a regression that inlined a scalar
+/// check would only pass if the inlined check matched the canonical SSOT
 /// semantics; routing through the SSOT keeps both paths in lockstep.
 #[test]
-fn burden_dec_field_scalar_field_emits_no_rc_dec_per_03_4_cycle_49_re2_negative() {
+fn burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit() {
     use ori_arc::ir::{ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId, ValueRepr};
     use ori_arc::Ownership;
 
@@ -977,7 +978,7 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_per_03_4_cycle_49_re2_negative(
     use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
 
     let mut pool = Pool::new();
-    // Struct with one scalar (int) field — NO heap burden; cycle 49 MUST
+    // Struct with one scalar (int) field — NO heap burden; MUST
     // skip RcDec emission per RE-2 scalar exemption.
     let struct_ty = pool.struct_type(
         ori_ir::Name::from_raw(310),
@@ -1075,11 +1076,11 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_per_03_4_cycle_49_re2_negative(
         "BurdenDecField on scalar field MUST still emit struct_gep; ir:\n{ir}",
     );
     assert!(
-        ir.contains("burden_dec_field.0.prior"),
+        ir.contains("burden_dec_field.0 "),
         "BurdenDecField on scalar field MUST still emit load; ir:\n{ir}",
     );
 
-    // Negative pin: NO ori_rc_dec call lands for the scalar field
+    // Negative assertion: NO ori_rc_dec call lands for the scalar field
     // (RE-2 scalar exemption via emit_drop_rc_dec → extract_rc_data_ptrs
     // empty-return short-circuit at drop_gen.rs:337-339).
     // The function may still contain other ori_rc_dec calls from drop
@@ -1096,7 +1097,7 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_per_03_4_cycle_49_re2_negative(
     );
 
     drop(em);
-} // burden_dec_field_scalar_field_emits_no_rc_dec_per_03_4_cycle_49_re2_negative
+} // burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit
 
 #[test]
 fn set_tag_emits_gep_and_store() {

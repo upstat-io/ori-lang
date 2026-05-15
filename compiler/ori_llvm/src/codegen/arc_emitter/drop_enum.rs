@@ -20,7 +20,35 @@ use crate::codegen::value_id::{FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit drop body for an enum type (switch on tag, per-variant cleanup).
+    ///
+    /// Delegates per-variant cleanup to [`Self::emit_variant_burden_walk`],
+    /// then frees the heap allocation and returns. The walk leaves the builder
+    /// positioned at the convergence block; finalization (free + ret) happens
+    /// here.
     pub(super) fn emit_drop_enum(
+        &mut self,
+        func_id: FunctionId,
+        data_ptr: ValueId,
+        ty: Idx,
+        variants: &[Vec<(u32, Idx)>],
+    ) {
+        self.emit_variant_burden_walk(func_id, data_ptr, ty, variants);
+        self.emit_drop_rc_free(data_ptr, ty);
+        self.builder.ret_void();
+    }
+
+    /// Per-variant burden walk SSOT (3-encoding dispatch: tagged-pointer,
+    /// niche-encoded, explicit-tag).
+    ///
+    /// Shared by [`Self::emit_drop_enum`] (RC=0 free path) and the
+    /// `BurdenDecVariant` codegen arm at `instr_dispatch.rs` (`SetTag`
+    /// pre-drop path). Per AIMS rule TF-15a + RL-10, `SetTag` invalidates
+    /// ALL payload fields of the OLD variant — same per-variant walk shape
+    /// the drop path uses.
+    ///
+    /// Exit invariant: builder positioned at the convergence (`drop_done`)
+    /// block; NO free, NO ret. Callers own finalization.
+    pub(super) fn emit_variant_burden_walk(
         &mut self,
         func_id: FunctionId,
         data_ptr: ValueId,
@@ -33,7 +61,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // typically lives inline in a parent struct), but the drop path
         // must still be correct when it does fire.
         if self.get_tagged_ptr_encoding(ty).is_some() {
-            self.emit_drop_enum_tagged_ptr(func_id, data_ptr, ty, variants);
+            self.emit_drop_enum_tagged_ptr(func_id, data_ptr, variants);
             return;
         }
 
@@ -55,7 +83,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .struct_gep(enum_llvm_ty, data_ptr, 0, "tag.ptr");
         let tag_val = self.builder.load(tag_ty, tag_ptr, "tag");
 
-        // Convergence block: rc_free + ret
+        // Convergence block: caller positions here on exit.
         let drop_done = self.builder.append_block(func_id, "drop.done");
 
         // Build switch cases (only for variants with RC'd fields)
@@ -123,10 +151,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.br(drop_done);
         }
 
-        // drop.done: free + ret
+        // drop.done: position only; caller owns free + ret.
         self.builder.position_at_end(drop_done);
-        self.emit_drop_rc_free(data_ptr, ty);
-        self.builder.ret_void();
     }
 
     /// Emit RC dec for fields within a general enum variant.
@@ -273,10 +299,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         self.builder.br(drop_done);
 
-        // done: free + ret
+        // done: position only; caller owns free + ret.
         self.builder.position_at_end(drop_done);
-        self.emit_drop_rc_free(data_ptr, ty);
-        self.builder.ret_void();
     }
 
     /// §07.3.A: Emit drop body for a tagged-pointer encoded enum.
@@ -294,7 +318,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         func_id: FunctionId,
         data_ptr: ValueId,
-        ty: Idx,
         variants: &[Vec<(u32, Idx)>],
     ) {
         // Tagged-pointer enums are stored as a single i64 slot.
@@ -340,10 +363,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
 
-        // done: free the heap allocation that held the encoded value, ret.
+        // done: position only; caller owns free + ret.
         self.builder.position_at_end(drop_done);
-        self.emit_drop_rc_free(data_ptr, ty);
-        self.builder.ret_void();
     }
 }
 

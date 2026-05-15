@@ -139,28 +139,58 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit drop body for struct/tuple/closure-env with specific RC'd fields.
     fn emit_drop_fields(&mut self, data_ptr: ValueId, ty: Idx, fields: &[(u32, Idx)]) {
+        self.emit_drop_field_loop(data_ptr, ty, fields, None, "f");
+        self.emit_drop_rc_free(data_ptr, ty);
+        self.builder.ret_void();
+    }
+
+    /// SSOT for "iterate struct/tuple-shaped RC'd fields, optionally skipping
+    /// indices, and emit `GEP+load+emit_drop_rc_dec` per included field."
+    ///
+    /// Exit invariant: NO `emit_drop_rc_free`, NO `ret_void` — callers own
+    /// finalization. Used by:
+    ///   - [`Self::emit_drop_fields`] (drop-fn body; caller adds free+ret).
+    ///   - `BurdenDecField` arm at `instr_dispatch.rs` (single-field
+    ///     cleanup before `Set` mutation; mid-block, no finalization).
+    ///   - `BurdenDecPartial` arm at `instr_dispatch.rs` (partial-move
+    ///     cleanup with `skip` containing moved-out indices; mid-block,
+    ///     no finalization).
+    ///
+    /// `remap_struct_field` is consulted per-field so memory-order matches
+    /// `ReprPlan`'s reordering (closure envs are exempt — their tag is
+    /// neither Struct nor Tuple, so `remap_struct_field` returns the
+    /// declaration index unchanged).
+    pub(super) fn emit_drop_field_loop(
+        &mut self,
+        data_ptr: ValueId,
+        ty: Idx,
+        fields: &[(u32, Idx)],
+        skip: Option<&[u32]>,
+        name_prefix: &str,
+    ) {
         let struct_llvm_ty = self.resolve_type(ty);
 
         for &(field_index, field_type) in fields {
-            // Remap declaration-order field index to memory-order.
-            // Closure envs are not subject to reordering (remap_struct_field
-            // checks Tag::Struct/Tuple, closure envs have a different tag).
+            if let Some(skipped) = skip {
+                if skipped.contains(&field_index) {
+                    continue;
+                }
+            }
             let mem_index = self.remap_struct_field(ty, field_index);
             let field_llvm_ty = self.resolve_type(field_type);
             let field_ptr = self.builder.struct_gep(
                 struct_llvm_ty,
                 data_ptr,
                 mem_index,
-                &format!("f{field_index}.ptr"),
+                &format!("{name_prefix}.{field_index}.ptr"),
             );
-            let field_val = self
-                .builder
-                .load(field_llvm_ty, field_ptr, &format!("f{field_index}"));
+            let field_val = self.builder.load(
+                field_llvm_ty,
+                field_ptr,
+                &format!("{name_prefix}.{field_index}"),
+            );
             self.emit_drop_rc_dec(field_val, field_type);
         }
-
-        self.emit_drop_rc_free(data_ptr, ty);
-        self.builder.ret_void();
     }
 
     /// Emit drop body for a collection type ([T], set[T]).

@@ -28,6 +28,10 @@ use crate::ownership::{AnnotatedSig, DerivedOwnership, Ownership};
 /// * `func` — the ARC IR function to analyze.
 /// * `sigs` — annotated signatures from borrow inference (for callee param ownership).
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive ArcInstr match — one arm per variant family; SSOT for derived ownership transfer per `borrow/derived.rs` design"
+)]
 pub fn infer_derived_ownership(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, AnnotatedSig>,
@@ -136,8 +140,7 @@ pub fn infer_derived_ownership(
                     }
                 }
 
-                // CollectionReuse recycles a buffer — result is a fresh
-                // allocation (RC = 1, same as Construct).
+                // CollectionReuse recycles a buffer — result is fresh (RC = 1, same as Construct).
                 ArcInstr::CollectionReuse { dst, .. } => {
                     let dst_idx = dst.index();
                     if dst_idx < num_vars {
@@ -145,10 +148,9 @@ pub fn infer_derived_ownership(
                     }
                 }
 
-                // RC/reuse ops don't define new variables (or their dst
-                // is a token which is always Owned). BurdenInc/BurdenDec
-                // (§03.1) are trivial Phase 5 markers — no dst, no
-                // ownership effect on derived ownership state.
+                // RC/reuse ops define no new vars (or define a token always
+                // Owned). Burden* (§03.1+§03.4) are Phase 5 markers — no
+                // dst, no ownership effect on derived ownership state.
                 ArcInstr::RcInc { .. }
                 | ArcInstr::RcDec { .. }
                 | ArcInstr::BurdenInc { .. }

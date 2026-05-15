@@ -709,6 +709,21 @@ fn emit_instr_burdens(new_body: &mut Vec<ArcInstr>, instr: ArcInstr, ctx: &Burde
             new_body.push(ArcInstr::BurdenInc { var: *value });
         }
     }
+    if let ArcInstr::SetTag { base, .. } = &instr {
+        // §03.4 cycle 50b — SetTag old-variant drop emission per
+        // `aims-rules.md §3 TF-15a` + `§8 RL-10`. Whole-var pattern (NOT
+        // field-positional): the tag change invalidates ALL payload
+        // fields of the OLD variant. Emit BurdenDecVariant BEFORE the
+        // SetTag so codegen at cycle 50c can GEP+load the current
+        // discriminant + dispatch per-variant burden walk BEFORE the
+        // store clobbers the tag. SetTag has no value operand (TF-15a
+        // backward demand is `(base, Once)` only), so no symmetric
+        // BurdenInc(value) — parallel to cycle 47 BurdenDecField's
+        // role for Set, scoped to the whole variant per RL-10.
+        if ctx.owned_vars_needing_rc.contains(base) {
+            new_body.push(ArcInstr::BurdenDecVariant { var: *base });
+        }
+    }
     let transfer_vars = instr_transfer_vars(&instr);
     new_body.push(instr);
     if let Some(last_use_vars) = ctx.last_uses_at.get(&(ctx.block_idx, ctx.instr_idx)) {

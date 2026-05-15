@@ -162,16 +162,16 @@ pub enum ArcInstr {
     )]
     BurdenDecField { base: ArcVarId, field: u32 },
 
-    /// §03.4 cycle 50b — SetTag old-variant drop emission. Whole-var
+    /// §03.4 cycle 50b — `SetTag` old-variant drop emission. Whole-var
     /// pattern (NOT field-positional) per `aims-rules.md §3 TF-15a` +
-    /// `§8 RL-10` — SetTag invalidates ALL payload fields of `base`'s
+    /// `§8 RL-10` — `SetTag` invalidates ALL payload fields of `base`'s
     /// current variant before the tag change clobbers the discriminant.
     /// Emitted BEFORE the `SetTag` instruction so codegen at cycle 50c
     /// can GEP the tag field + load the current discriminant + dispatch
     /// per-variant burden walk BEFORE the store overwrites the tag.
-    /// Mirrors the `BurdenInc / BurdenDec / BurdenDecPartial` cluster
+    /// Mirrors the `BurdenInc` / `BurdenDec` / `BurdenDecPartial` cluster
     /// (whole-var burden walks); does NOT mirror `BurdenDecField`
-    /// (field-positional). AIMS Invariant 5 case (b) — extends ArcInstr
+    /// (field-positional). AIMS Invariant 5 case (b) — extends `ArcInstr`
     /// enum on the same dimension as `BurdenDecPartial` / `BurdenDec`;
     /// no parallel emission, no shadow tracker. Production callers
     /// limited to test paths until cycle 50c wires `ori_llvm` codegen

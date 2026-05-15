@@ -147,6 +147,7 @@ pub fn transfer(instr: &ArcInstr, ctx: &TransferContext<'_>) -> ValueRange {
         | ArcInstr::BurdenDec { .. }
         | ArcInstr::BurdenDecPartial { .. }
         | ArcInstr::BurdenDecField { .. }
+        | ArcInstr::BurdenDecVariant { .. }
         | ArcInstr::Set { .. }
         | ArcInstr::SetTag { .. }
         | ArcInstr::Reset { .. }

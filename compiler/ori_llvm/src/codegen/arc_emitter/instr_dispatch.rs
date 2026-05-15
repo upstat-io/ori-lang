@@ -431,75 +431,119 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_rc_dec(*var, *strategy, func);
             }
 
-            // BurdenInc/BurdenDec (§03.1) — trivial Phase 5 burden markers.
-            // §06 of aims-burden-tracking wires up real LLVM lowering; until
-            // then these are no-op emissions (no IR generated). The variants
-            // exist in ARC IR for the §03.2 walker + §03.5 verifier, but
-            // codegen sees through them as zero-cost annotations.
-            ArcInstr::BurdenInc { var: _ }
-            | ArcInstr::BurdenDec { var: _ }
-            | ArcInstr::BurdenDecPartial { var: _, .. } => {
-                // No LLVM IR emitted — burden lowering deferred to §06.
-                // §03.4 cycle 44a: BurdenDecPartial scaffold-only passthrough
-                // (skip_fields ignored at codegen time until cycle 44c wires
-                // field-aware drop-glue per `aims-rules.md §8 RL-2`).
+            // BurdenInc / BurdenDec — no-op codegen markers. Phase 5
+            // trivial-burden lowering uses these for IR-level dataflow +
+            // emission ordering; the LLVM backend treats them as zero-cost
+            // annotations.
+            ArcInstr::BurdenInc { var: _ } | ArcInstr::BurdenDec { var: _ } => {
+                // No LLVM IR emitted.
             }
 
-            ArcInstr::BurdenDecVariant { var: _ } => {
-                // §03.4 cycle 50b: BurdenDecVariant IR scaffold-only
-                // passthrough. Real codegen deferred to cycle 50c —
-                // mirrors cycle-44a IR scaffold → cycle-44c codegen
-                // wiring split. At cycle 50c, codegen will GEP the tag
-                // field of `var` + load the current discriminant +
-                // dispatch per-variant burden walk via emit_drop_rc_dec
-                // (drop_gen.rs:326), analogous to cycle-49 BurdenDecField
-                // dynamic field-position load pattern at lines 472-484.
-                // Until 50c, no-op. Per `aims-rules.md §3 TF-15a` +
-                // `§8 RL-10`: SetTag invalidates ALL payload fields of
-                // the OLD variant; codegen must walk before SetTag's
-                // store overwrites the discriminant.
+            ArcInstr::BurdenDecPartial { var, skip_fields } => {
+                // Per AIMS rule RL-2: partial-move BurdenDec on an owned
+                // struct emits RC cleanup for ONLY the fields NOT in
+                // `skip_fields` (the moved-out indices). Reuses the
+                // canonical `ori_arc::compute_drop_info` SSOT (already
+                // cross-crate-consumed at `element_fn_gen.rs:34` for
+                // drop-fn generation) for the Idx → DropKind::Fields
+                // derivation. Delegates the per-field GEP+load+RcDec loop
+                // to [`Self::emit_drop_field_loop`] — the shared
+                // SSOT-helper that also serves `emit_drop_fields`
+                // (drop-fn body path) and BurdenDecField (single-field
+                // mid-block cleanup).
+                let base_ty = func.var_type(*var);
+                let base_val = self.var(*var);
+                // RE-2 defense-in-depth: compute_drop_info returns None
+                // for scalars. Upstream burden_lower's
+                // owned_vars_needing_rc guard already suppresses
+                // BurdenDecPartial on scalar bases; this is the
+                // cross-crate backstop.
+                let Some(drop_info) =
+                    ori_arc::compute_drop_info(base_ty, self.classifier, self.pool)
+                else {
+                    return;
+                };
+                let ori_arc::DropKind::Fields(fields) = drop_info.kind else {
+                    debug_assert!(
+                        false,
+                        "BurdenDecPartial on non-struct drop shape: {:?}",
+                        drop_info.kind
+                    );
+                    return;
+                };
+                self.emit_drop_field_loop(
+                    base_val,
+                    base_ty,
+                    &fields,
+                    Some(skip_fields),
+                    "burden_dec_partial",
+                );
+            }
+
+            ArcInstr::BurdenDecVariant { var } => {
+                // Per AIMS rule TF-15a + RL-10: SetTag invalidates ALL
+                // payload fields of the OLD variant. Walk the per-variant
+                // RC-bearing fields BEFORE the upstream SetTag store
+                // overwrites the discriminant. Delegates to the canonical
+                // 3-encoding dispatcher [`Self::emit_variant_burden_walk`]
+                // (shared with the drop-fn codegen path); helper exits
+                // positioned at its convergence block with NO free / NO ret,
+                // which is exactly what SetTag pre-drop needs.
+                //
+                // Variant-list derivation goes through `ori_arc::compute_drop_info`
+                // — the canonical Idx → DropKind mapping consumed by drop-fn
+                // generation at drop_gen.rs:84-95. Reusing the SSOT avoids
+                // parallel-derivation drift.
+                let base_ty = func.var_type(*var);
+                let base_val = self.var(*var);
+                // RE-2 defense-in-depth: compute_drop_info returns None for
+                // scalars. The upstream burden_lower's `owned_vars_needing_rc`
+                // guard already suppresses BurdenDecVariant emission on
+                // scalar bases; this is the cross-crate backstop.
+                let Some(drop_info) =
+                    ori_arc::compute_drop_info(base_ty, self.classifier, self.pool)
+                else {
+                    return;
+                };
+                let ori_arc::DropKind::Enum(variants) = drop_info.kind else {
+                    debug_assert!(
+                        false,
+                        "BurdenDecVariant on non-enum drop shape: {:?}",
+                        drop_info.kind
+                    );
+                    return;
+                };
+                self.emit_variant_burden_walk(self.current_function, base_val, base_ty, &variants);
             }
 
             ArcInstr::BurdenDecField { base, field } => {
-                // §03.4 cycle 49 — BurdenDecField codegen wire per plan body
-                // line 1943 ("BurdenDec(base.field.old_value) BEFORE Set
-                // mutation"). Ordering invariant from cycle 47 emit_burden_ops:
-                // BurdenDecField fires BEFORE Set's GEP+store clobbers the
-                // field slot. Codegen: GEP to the field position + load the
-                // prior value + emit_drop_rc_dec against the loaded handle.
-                // emit_drop_rc_dec (drop_gen.rs:326) is the SSOT dispatcher —
-                // it handles RE-2 scalar exemption (extract_rc_data_ptrs
-                // empty-return short-circuit at drop_gen.rs:337-339) AND
-                // closure-aware RcDec (Tag::Function early-return at
-                // drop_gen.rs:331-334) via the canonical lookup, avoiding
-                // `LEAK:scattered-knowledge` per `impl-hygiene.md §SSOT`.
-                // Mirrors `emit_drop_fields` shape (drop_gen.rs:141-164) —
-                // struct_gep + load + emit_drop_rc_dec — same precedent the
-                // drop function bodies use for the per-type drop sequence.
+                // Emit RC cleanup for the field's prior value BEFORE the
+                // upstream Set's GEP+store clobbers the slot. Codegen: GEP
+                // to the field position + load the prior value + dispatch
+                // through emit_drop_rc_dec — the canonical SSOT that
+                // handles RE-2 scalar exemption (extract_rc_data_ptrs
+                // empty-return short-circuit) AND closure-aware RcDec
+                // (Tag::Function early-return) via the same lookup the
+                // per-type drop functions use, avoiding any parallel
+                // dispatch surface. Shape mirrors emit_drop_fields:
+                // struct_gep + load + emit_drop_rc_dec.
                 let repr = func.var_repr(*base).unwrap_or(ValueRepr::Scalar);
                 if repr == ValueRepr::RcPointer {
                     let base_val = self.var(*base);
                     let base_ty = func.var_type(*base);
-                    let llvm_ty = self.resolve_type(base_ty);
                     let field_pos = *field as usize;
                     let struct_fields = self.pool.struct_fields(base_ty);
                     if let Some(&(_, field_type)) = struct_fields.get(field_pos) {
-                        let mem_field = self.remap_struct_field(base_ty, *field);
-                        let field_ptr = self.builder.struct_gep(
-                            llvm_ty,
+                        // Delegate to the canonical struct-field-drop SSOT
+                        // at drop_gen.rs. Single-field slice for the
+                        // length-1 BurdenDecField shape; no skip filter.
+                        self.emit_drop_field_loop(
                             base_val,
-                            mem_field,
-                            &format!("burden_dec_field.{field}.ptr"),
+                            base_ty,
+                            &[(*field, field_type)],
+                            None,
+                            "burden_dec_field",
                         );
-                        let field_llvm_ty = self.resolve_type(field_type);
-                        let field_val = self.builder.load(
-                            field_llvm_ty,
-                            field_ptr,
-                            &format!("burden_dec_field.{field}.prior"),
-                        );
-                        // emit_drop_rc_dec handles RE-2 scalar exemption +
-                        // closure-aware dispatch via canonical paths.
-                        self.emit_drop_rc_dec(field_val, field_type);
                     } else {
                         tracing::trace!(
                             base = base.raw(),
