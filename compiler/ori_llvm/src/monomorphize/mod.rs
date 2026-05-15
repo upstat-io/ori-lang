@@ -36,6 +36,14 @@ pub struct MonoFunction {
     /// `declare_mono_functions` to populate `CodegenContext.mono_dispatch_by_id`
     /// for the abstract-index dispatch path.
     pub instance_ids: Vec<MonoInstanceId>,
+    /// True when this instance was resolved via the `import_sigs` lookup chain
+    /// (i.e., the generic function is defined in another module).
+    ///
+    /// Codegen consumers MAY observe this flag for diagnostics; the body-import
+    /// path does NOT branch on it — both local and imported mono functions flow
+    /// through identical `declare_mono_functions` + `prepare_mono_cached`
+    /// plumbing.
+    pub is_imported: bool,
 }
 
 // Collection
@@ -48,18 +56,23 @@ pub struct MonoFunction {
 ///
 /// Instance shape determines which signature list is consulted:
 /// - **Top-level instances** (`receiver_type = None`) look up
-///   `function_sigs` by `fn_name`.
+///   `function_sigs` by `fn_name`; on miss, consult `import_sigs` for
+///   cross-module imported generic top-level functions.
 /// - **Method instances** (`receiver_type = Some(_)`) look up `impl_sigs`
 ///   by `fn_name`. Multiple impls may register the same method name; the
 ///   first match supplies metadata (param names, capabilities, defaults)
-///   that does not depend on the receiver type.
+///   that does not depend on the receiver type. Imported methods are NOT
+///   resolved via `import_sigs` — the inherent-method-on-imported-type
+///   surface is owned by a separate work scope and gains its own
+///   `impl_sigs` extension.
 ///
-/// Instances whose original function cannot be found in either list are
+/// Instances whose original function cannot be found in any list are
 /// silently skipped (the generic function may be from an uncompiled module).
 pub fn collect_mono_functions(
     mono_instances: &[MonoInstance],
     function_sigs: &[FunctionSig],
     impl_sigs: &[(Name, FunctionSig)],
+    import_sigs: &[(Name, FunctionSig)],
     interner: &StringInterner,
     pool: &Pool,
 ) -> Vec<MonoFunction> {
@@ -75,6 +88,14 @@ pub fn collect_mono_functions(
     for (name, sig) in impl_sigs {
         impl_sig_by_name.entry(*name).or_insert(sig);
     }
+    // Imported-function sig map — consulted after `function_sigs` misses on
+    // the top-level path. First registration wins on duplicate names; in
+    // practice each imported function appears at most once per module.
+    let mut import_sig_by_name: FxHashMap<Name, &FunctionSig> =
+        FxHashMap::with_capacity_and_hasher(import_sigs.len(), FxBuildHasher);
+    for (name, sig) in import_sigs {
+        import_sig_by_name.entry(*name).or_insert(sig);
+    }
 
     let mut result: Vec<MonoFunction> = Vec::with_capacity(mono_instances.len());
     let mut name_to_index: FxHashMap<Name, usize> = FxHashMap::default();
@@ -85,10 +106,15 @@ pub fn collect_mono_functions(
     )]
     for (idx, instance) in mono_instances.iter().enumerate() {
         let instance_id = MonoInstanceId(idx as u32);
-        let lookup = if instance.receiver_type.is_some() {
-            impl_sig_by_name.get(&instance.fn_name)
+        // Top-level (receiver_type.is_none()): function_sigs → import_sigs.
+        // Method (receiver_type.is_some()): impl_sigs only; imported methods
+        // are out of scope for this lookup chain.
+        let (lookup, is_imported) = if instance.receiver_type.is_some() {
+            (impl_sig_by_name.get(&instance.fn_name), false)
+        } else if let Some(sig) = fn_sig_by_name.get(&instance.fn_name) {
+            (Some(sig), false)
         } else {
-            fn_sig_by_name.get(&instance.fn_name)
+            (import_sig_by_name.get(&instance.fn_name), true)
         };
         let Some(generic_sig) = lookup else {
             let name_str = interner.lookup(instance.fn_name);
@@ -158,6 +184,7 @@ pub fn collect_mono_functions(
             sig: concrete_sig,
             body_type_map: instance.body_type_map.iter().copied().collect(),
             instance_ids: vec![instance_id],
+            is_imported,
         });
     }
 

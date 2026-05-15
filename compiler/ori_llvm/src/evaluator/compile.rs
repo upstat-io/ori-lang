@@ -231,6 +231,8 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             mono_instances,
             function_sigs,
             impl_sigs,
+            // JIT: single-module scope; cross-module imports are an AOT concern.
+            &[],
             interner,
             self.pool,
         );

@@ -47,6 +47,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// The closure struct `{fn_ptr, env_ptr}` is stored to an alloca and
     /// passed as the `env` argument to the runtime. The trampoline unpacks it.
+    ///
+    /// PC-2 upstream guarantor: `elem_ty` and `result_ty` originate from
+    /// `TypeInfo::Iterator { element }` extracted at iterator-emission sites
+    /// (e.g. `arc_emitter/builtins/iterator.rs::emit_iter_map`) based on the
+    /// receiver's parent `ArcFunction` type indices — they are NOT
+    /// independent `ArcInstr` operands. Coverage is provided by the
+    /// `assert_no_unresolved_type_vars` walker on the parent function's
+    /// `var_types` / `params` / `return_type` / block-params (the §04.1
+    /// 4-axis walker). No additional `assert_no_unresolved_idx` guard is
+    /// needed here — see §04.S in the typeck-inference-completeness plan.
     pub(crate) fn build_trampoline(
         &mut self,
         closure_val: ValueId,

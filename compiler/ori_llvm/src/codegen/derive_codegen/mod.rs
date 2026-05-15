@@ -115,6 +115,24 @@ fn compile_struct_derives<'a>(
         "compiling struct derived methods"
     );
 
+    // PC-2 guard: derive_codegen synthesizes LLVM IR without going through
+    // the ArcFunction pipeline, so the §04.2 primary seam does not cover
+    // `type_idx`. Always-on plus debug-assert for double-belt.
+    debug_assert!(
+        ori_arc::assert_no_unresolved_idx(fc.pool(), type_idx, type_name).is_ok(),
+        "derive_codegen received unresolved type_idx for struct {type_name_str}"
+    );
+    if let Err(err) = ori_arc::assert_no_unresolved_idx(fc.pool(), type_idx, type_name) {
+        tracing::error!(
+            contract_violation = true,
+            name = %type_name_str,
+            error = ?err,
+            "PC-2 violation in compile_struct_derives — skipping all derives for this type"
+        );
+        fc.builder_mut().record_codegen_error();
+        return;
+    }
+
     for derive_name in derives {
         let trait_name_str = fc.lookup_name(*derive_name);
         let Some(trait_kind) = DerivedTrait::from_name(trait_name_str) else {
@@ -187,6 +205,22 @@ fn compile_enum_derives<'a>(
         variants = variants.len(),
         "compiling enum derived methods"
     );
+
+    // PC-2 guard: see compile_struct_derives above for rationale.
+    debug_assert!(
+        ori_arc::assert_no_unresolved_idx(fc.pool(), type_idx, type_name).is_ok(),
+        "derive_codegen received unresolved type_idx for enum {type_name_str}"
+    );
+    if let Err(err) = ori_arc::assert_no_unresolved_idx(fc.pool(), type_idx, type_name) {
+        tracing::error!(
+            contract_violation = true,
+            name = %type_name_str,
+            error = ?err,
+            "PC-2 violation in compile_enum_derives — skipping all derives for this type"
+        );
+        fc.builder_mut().record_codegen_error();
+        return;
+    }
 
     for derive_name in derives {
         let trait_name_str = fc.lookup_name(*derive_name);

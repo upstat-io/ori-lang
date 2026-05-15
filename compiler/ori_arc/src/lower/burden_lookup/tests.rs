@@ -10,8 +10,10 @@ use ori_types::burden::{UserBurdenSpec, UserOwnedField};
 use ori_types::burden_compose::compose_user_burden;
 use ori_types::{FieldDef, Idx, Pool, TypeRegistry, Visibility};
 
-use super::lookup_burden;
+use super::{idx_to_type_ref, lookup_burden};
 use crate::lower::burden::{Burden, BurdenRef, TypeRef};
+use ori_registry::burden::table::burden_type_id;
+use ori_registry::TypeTag;
 
 fn test_name(s: &str) -> Name {
     Name::from_raw(
@@ -539,4 +541,73 @@ fn annotated_ffi_extern_type_user_drop_carries_free_symbol() {
             panic!("annotated extern type must dispatch through User partition");
         }
     }
+}
+
+// `idx_to_type_ref` classifier tests — pin the `Idx → TypeTag → burden_type_id`
+// translation chain. Idx and TypeTag have DIFFERENT orderings (e.g., Idx::STR=3
+// vs TypeTag::Str discriminant=10) — naive raw-value punning would silently
+// dispatch the wrong burden entry.
+
+#[test]
+fn idx_to_type_ref_int_dispatches_builtin() {
+    let registry = TypeRegistry::new();
+    let ty = idx_to_type_ref(Idx::INT, &registry);
+    assert_eq!(
+        ty,
+        TypeRef::Builtin(burden_type_id(TypeTag::Int)),
+        "Idx::INT (raw 0) maps to TypeTag::Int (discriminant 0)",
+    );
+}
+
+#[test]
+fn idx_to_type_ref_str_dispatches_builtin_off_ordering() {
+    // Idx::STR is at raw 3; TypeTag::Str is at discriminant 10. Naive raw
+    // pass-through would mis-dispatch (pick TypeTag::Char's burden); explicit
+    // match must translate correctly.
+    let registry = TypeRegistry::new();
+    let ty = idx_to_type_ref(Idx::STR, &registry);
+    assert_eq!(
+        ty,
+        TypeRef::Builtin(burden_type_id(TypeTag::Str)),
+        "Idx::STR (raw 3) MUST map to TypeTag::Str (discriminant 10), not Char",
+    );
+}
+
+#[test]
+fn idx_to_type_ref_never_dispatches_builtin() {
+    let registry = TypeRegistry::new();
+    let ty = idx_to_type_ref(Idx::NEVER, &registry);
+    assert_eq!(
+        ty,
+        TypeRef::Builtin(burden_type_id(TypeTag::Never)),
+        "Idx::NEVER (raw 7) maps to TypeTag::Never (discriminant 6)",
+    );
+}
+
+#[test]
+fn idx_to_type_ref_dynamic_dispatches_user() {
+    // Negative pin: any Idx >= FIRST_DYNAMIC (64) MUST go through User
+    // partition, not Builtin.
+    let registry = TypeRegistry::new();
+    let dynamic_idx = Idx::from_raw(1024);
+    let ty = idx_to_type_ref(dynamic_idx, &registry);
+    assert_eq!(
+        ty,
+        TypeRef::User(dynamic_idx),
+        "dynamic Idx (>= FIRST_DYNAMIC) MUST route through User partition",
+    );
+}
+
+#[test]
+fn idx_to_type_ref_error_dispatches_user() {
+    // Idx::ERROR (raw 8) is poison per types.md §TK-3; no burden entry in
+    // BURDEN_TABLE. Must route to User (where TypeRegistry::burden returns
+    // None for the unregistered ERROR slot).
+    let registry = TypeRegistry::new();
+    let ty = idx_to_type_ref(Idx::ERROR, &registry);
+    assert_eq!(
+        ty,
+        TypeRef::User(Idx::ERROR),
+        "Idx::ERROR (raw 8, poison) MUST route through User (no BURDEN_TABLE entry)",
+    );
 }

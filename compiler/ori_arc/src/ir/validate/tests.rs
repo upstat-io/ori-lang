@@ -5,6 +5,11 @@
 //! - Cells 10–12 cover the three additional type-bearing positions on
 //!   `ArcFunction` the TPR-04-R0-002 fix added to the validator's walk
 //!   (`params[*].ty`, `return_type`, `blocks[*].params[*].1`).
+//! - Cells (m), (n), (o), (p), (q) live in the `body_walker` submodule
+//!   (§04.S.3); they cover the instruction-operand axis
+//!   (`blocks[*].body[*].ty` for `Construct` / `Apply` / `Project`), the
+//!   thin-helper path (`assert_no_unresolved_idx`), and the
+//!   terminator-operand axis (`blocks[*].terminator.ty` for `Invoke`).
 //! - Two behavioral tests sit outside the core matrix:
 //!     * `test_lambda_with_tag_var_in_capture_environment_fails` (Blind Spot #5
 //!       — closure-captured types), and
@@ -38,6 +43,8 @@ use crate::ir::{ArcBlock, ArcTerminator, ArcVarId};
 use crate::test_helpers::{
     allocate_pool_var_with_id, b, make_func, make_func_named, minimal_block, owned_param, v,
 };
+
+mod body_walker;
 
 // Copy / type-shape regression guard
 

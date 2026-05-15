@@ -149,7 +149,7 @@ fn collect_produces_concrete_sig() {
         Vec::new(),
     );
 
-    let mono_fns = collect_mono_functions(&[instance], &[generic_sig], &[], &interner, &pool);
+    let mono_fns = collect_mono_functions(&[instance], &[generic_sig], &[], &[], &interner, &pool);
 
     assert_eq!(mono_fns.len(), 1);
     let mf = &mono_fns[0];
@@ -162,6 +162,10 @@ fn collect_produces_concrete_sig() {
     assert!(!mf.sig.is_generic());
     assert_eq!(mf.sig.param_types, vec![Idx::INT]);
     assert_eq!(mf.sig.return_type, Idx::INT);
+    assert!(
+        !mf.is_imported,
+        "function_sigs hit should yield is_imported=false"
+    );
 }
 
 #[test]
@@ -182,6 +186,7 @@ fn collect_skips_unknown_function() {
         &[instance],
         &[], // no top-level sigs
         &[], // no impl sigs either
+        &[], // no import sigs either
         &interner,
         &pool,
     );
@@ -189,6 +194,80 @@ fn collect_skips_unknown_function() {
     assert!(
         mono_fns.is_empty(),
         "should skip instances for unknown functions"
+    );
+}
+
+#[test]
+fn collect_resolves_top_level_via_import_sigs() {
+    // §02.1 positive: a top-level (receiver_type=None) instance whose
+    // fn_name is missing from function_sigs falls through to import_sigs
+    // and yields a MonoFunction with is_imported=true.
+    let interner = make_interner();
+    let pool = Pool::new();
+    let generic_sig = make_generic_sig(&interner);
+    let imported_name = generic_sig.name;
+
+    let instance = MonoInstance::new_top_level(
+        imported_name,
+        vec![GenericArg::Type(Idx::INT)],
+        vec![Idx::INT],
+        Idx::INT,
+        Vec::new(),
+    );
+
+    let mono_fns = collect_mono_functions(
+        &[instance],
+        &[],                             // function_sigs empty — forces fall-through
+        &[],                             // impl_sigs empty
+        &[(imported_name, generic_sig)], // import_sigs supplies the sig
+        &interner,
+        &pool,
+    );
+
+    assert_eq!(mono_fns.len(), 1);
+    let mf = &mono_fns[0];
+    assert_eq!(interner.lookup(mf.mangled_name), "identity$m$3_int");
+    assert!(
+        mf.is_imported,
+        "import_sigs hit should yield is_imported=true"
+    );
+    assert!(!mf.sig.is_generic());
+    assert_eq!(mf.sig.param_types, vec![Idx::INT]);
+}
+
+#[test]
+fn collect_does_not_consult_import_sigs_for_methods() {
+    // §02.1 negative pin (per Decision 02): a method instance
+    // (receiver_type=Some) MUST NOT fall through to import_sigs even when
+    // the name matches — methods are owned by §03's inherent-method scope.
+    let interner = make_interner();
+    let pool = Pool::new();
+    let generic_sig = make_generic_sig(&interner);
+    let method_name = generic_sig.name;
+
+    // Method instance: receiver_type = Some(Idx::INT).
+    let instance = MonoInstance::new_method(
+        method_name,
+        vec![GenericArg::Type(Idx::INT)], // impl_args
+        vec![],                           // method_args
+        Idx::INT,                         // receiver_type
+        vec![Idx::INT],                   // concrete_param_types
+        Idx::INT,                         // concrete_return_type
+        Vec::new(),                       // body_type_map
+    );
+
+    let mono_fns = collect_mono_functions(
+        &[instance],
+        &[],                           // function_sigs empty
+        &[],                           // impl_sigs empty — would normally drive the miss
+        &[(method_name, generic_sig)], // import_sigs HAS the name but methods must NOT consult it
+        &interner,
+        &pool,
+    );
+
+    assert!(
+        mono_fns.is_empty(),
+        "method instances must not fall through to import_sigs (Decision 02 scope boundary)"
     );
 }
 

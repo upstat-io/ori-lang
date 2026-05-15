@@ -78,6 +78,7 @@ pub(super) fn build_imported_mono_functions(
                 sig: concrete_sig,
                 body_type_map,
                 instance_ids: vec![instance_id],
+                is_imported: true,
             },
             *module_idx,
             // Source body name for canon.root_for() lookup in imported canon.

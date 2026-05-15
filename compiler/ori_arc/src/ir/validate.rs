@@ -33,7 +33,7 @@ use std::hash::BuildHasher;
 use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool, Tag};
 
-use crate::ir::{ArcFunction, ArcVarId};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 
 /// A single unresolved type variable encountered in an `ArcFunction`.
 ///
@@ -58,18 +58,25 @@ pub struct UnresolvedTypeVar {
 
 /// Check that no `Tag::Var` (outside `exempt_var_ids`) or `Tag::Projection`
 /// appears in any type-bearing position of `func`. PC-2 enforcement covers
-/// every `Idx` field on `ArcFunction` and `ArcParam`:
+/// every `Idx` field on `ArcFunction`, `ArcParam`, `ArcInstr`, and
+/// `ArcTerminator`:
 ///
-/// - `func.var_types[*]`          — SSA-variable types (primary storage)
-/// - `func.params[*].ty`          — entry-block parameter types
-/// - `func.return_type`           — declared return-type `Idx`
-/// - `func.blocks[*].params[*].1` — CFG-block parameter types (tuple
-///   `.1` = `Idx`; `ArcBlock.params` is
-///   `Vec<(ArcVarId, Idx)>`)
+/// - `func.var_types[*]`              — SSA-variable types (primary storage)
+/// - `func.params[*].ty`              — entry-block parameter types
+/// - `func.return_type`               — declared return-type `Idx`
+/// - `func.blocks[*].params[*].1`     — CFG-block parameter types (tuple
+///   `.1` = `Idx`; `ArcBlock.params` is `Vec<(ArcVarId, Idx)>`)
+/// - `func.blocks[*].body[*].ty`      — instruction operand types for
+///   `Let | Apply | ApplyIndirect | PartialApply | Project | Construct |
+///   Reuse | CollectionReuse | Select`
+/// - `func.blocks[*].terminator.ty`   — terminator operand types for
+///   `Invoke { ty }` and `InvokeIndirect { ty }`
 ///
-/// `var_types`-only scope would let a `Tag::Var` in a parameter or return
-/// position bypass the check entirely, defeating /
-/// enforcement on those axes.
+/// Walkers over instructions and terminators use exhaustive matches with
+/// no `_ => ()` arm: a future `Idx`-bearing variant addition is a
+/// compile-time error here, forcing the PC-2 contract to be re-evaluated.
+/// `var_types`-only scope would let a `Tag::Var` in a parameter, return,
+/// instruction, or terminator position bypass the check entirely.
 ///
 /// # Parameters
 ///
@@ -154,6 +161,45 @@ pub fn assert_no_unresolved_type_vars<S: BuildHasher>(
             check_idx(ty, var)?;
         }
     }
+    // 5. Instruction operands carrying `Idx` payloads. Exhaustive match —
+    //    new `Idx`-bearing variants are compile-time errors here, forcing
+    //    the §04.1 PC-2 contract to be re-evaluated when the IR grows.
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Let { dst, ty, .. }
+                | ArcInstr::Apply { dst, ty, .. }
+                | ArcInstr::ApplyIndirect { dst, ty, .. }
+                | ArcInstr::PartialApply { dst, ty, .. }
+                | ArcInstr::Project { dst, ty, .. }
+                | ArcInstr::Construct { dst, ty, .. }
+                | ArcInstr::Reuse { dst, ty, .. }
+                | ArcInstr::CollectionReuse { dst, ty, .. }
+                | ArcInstr::Select { dst, ty, .. } => check_idx(*ty, *dst)?,
+                ArcInstr::RcInc { .. }
+                | ArcInstr::RcDec { .. }
+                | ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
+                | ArcInstr::IsShared { .. }
+                | ArcInstr::Set { .. }
+                | ArcInstr::SetTag { .. }
+                | ArcInstr::Reset { .. } => {}
+            }
+        }
+        // 6. Terminator operands carrying `Idx` payloads. Exhaustive match
+        //    — `Invoke` and `InvokeIndirect` are the only `Idx`-bearing
+        //    terminator variants today.
+        match &block.terminator {
+            ArcTerminator::Invoke { dst, ty, .. }
+            | ArcTerminator::InvokeIndirect { dst, ty, .. } => check_idx(*ty, *dst)?,
+            ArcTerminator::Return { .. }
+            | ArcTerminator::Jump { .. }
+            | ArcTerminator::Branch { .. }
+            | ArcTerminator::Switch { .. }
+            | ArcTerminator::Resume
+            | ArcTerminator::Unreachable => {}
+        }
+    }
 
     let _ = interner; // reserved for future Name rendering in Display impl
     Ok(())
@@ -172,6 +218,51 @@ impl UnresolvedTypeVar {
             self.idx,
         )
     }
+}
+
+/// Thin PC-2 guard for non-`ArcFunction` call sites that hold only a raw
+/// type [`Idx`] and an owning function/site [`Name`].
+///
+/// Used at codegen surfaces that bypass the `ArcFunction` realization path —
+/// derive synthesis, panic trampolines, iterator trampolines — where the
+/// caller has a single `type_idx` to validate rather than a full
+/// `ArcFunction` worth of positions.
+///
+/// # Behavior
+///
+/// `Ok(())` when `idx` resolves to a non-`Tag::Var`, non-`Tag::Projection`
+/// tag. `Err(UnresolvedTypeVar)` otherwise. The reported `var_id` is
+/// [`ArcVarId::INVALID`] because there is no owning SSA variable; the
+/// `function` field carries the caller-supplied site name for diagnostic
+/// attribution. There is no exempt-var-ids parameter — call sites of this
+/// helper operate on monomorphized concrete types where the exempt set is
+/// always empty (matches the producer-side
+/// `build_exempt_var_ids({}) = HashSet::new()` invariant for non-generic
+/// scopes per `ori_types::check::validators`).
+pub fn assert_no_unresolved_idx(
+    pool: &Pool,
+    idx: Idx,
+    function: Name,
+) -> Result<(), UnresolvedTypeVar> {
+    let resolved = pool.resolve_fully(idx);
+    let tag = pool.tag(resolved);
+    if matches!(tag, Tag::Var) {
+        return Err(UnresolvedTypeVar {
+            function,
+            var_id: ArcVarId::INVALID,
+            idx: resolved,
+            tag,
+        });
+    }
+    if matches!(tag, Tag::Projection) {
+        return Err(UnresolvedTypeVar {
+            function,
+            var_id: ArcVarId::INVALID,
+            idx: resolved,
+            tag,
+        });
+    }
+    Ok(())
 }
 
 /// A single unresolved `Tag::BoundVar` encountered in lambda parameters

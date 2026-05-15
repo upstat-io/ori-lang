@@ -88,8 +88,8 @@ pub use graph::call_graph::CallGraph;
 pub use graph::scc::{compute_sccs, topological_order, Scc};
 pub use graph::{DominatorTree, PostDominatorTree};
 pub use ir::validate::{
-    assert_no_unresolved_bound_vars_in_params, assert_no_unresolved_type_vars, UnresolvedBoundVar,
-    UnresolvedTypeVar,
+    assert_no_unresolved_bound_vars_in_params, assert_no_unresolved_idx,
+    assert_no_unresolved_type_vars, UnresolvedBoundVar, UnresolvedTypeVar,
 };
 pub use ir::{
     compute_var_reprs, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,

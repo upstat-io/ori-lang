@@ -33,12 +33,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// the two-pass prepare path ([`Self::prepare_arc_function`]).
     ///
     /// Returns `Err(VerifyError::UnresolvedTypeVar(_))` when the PC-2
-    /// cross-phase contract check (`typeck.md §PC-2`,
-    ///,
-    /// `codegen-rules.md §TR-2`) detects `Tag::Var` or `Tag::Projection` in
-    /// the ARC IR — this is ALWAYS-ON contract enforcement per
-    ///, not gated by `self.verify_arc` which
-    /// controls additional downstream verification (VR-1 LLVM IR verification).
+    /// cross-phase contract check detects `Tag::Var` or `Tag::Projection`
+    /// in the ARC IR. This is ALWAYS-ON contract enforcement, not gated by
+    /// `self.verify_arc` which controls additional downstream verification
+    /// (per-function LLVM IR verification under `ORI_VERIFY_ARC=1`).
     pub(super) fn process_arc_function(
         &mut self,
         name: Name,

@@ -44,6 +44,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         // Get the PanicInfo type from the @panic function's first parameter.
         // This is the compiler-resolved type with correct field ordering.
+        //
+        // PC-2 upstream guarantor: `panic_info_idx` is the user `@panic`
+        // FunctionSig.param_types[0], fully covered by `validate_body_types`
+        // in `ori_types::check::validators` before reaching codegen. No
+        // additional `assert_no_unresolved_idx` guard is needed here — see
+        // §04.S in the typeck-inference-completeness plan.
         let panic_info_idx = abi.params.first().map(|p| p.ty);
 
         // Get field index remapping from the ReprPlan.

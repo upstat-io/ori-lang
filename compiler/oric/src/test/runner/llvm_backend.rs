@@ -351,6 +351,9 @@ impl TestRunner {
                 interner,
                 &merged_pool,
                 &type_result.typed.impl_sigs,
+                // Test runner JIT: imported mono bodies are handled via
+                // `imported_mono_fns` below, not via the import_sigs lookup chain.
+                &[],
                 &imported_for_codegen,
                 &type_result.typed.mono_instances,
                 &type_result.typed.types,
