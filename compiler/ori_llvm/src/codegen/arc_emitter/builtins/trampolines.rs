@@ -54,9 +54,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// receiver's parent `ArcFunction` type indices — they are NOT
     /// independent `ArcInstr` operands. Coverage is provided by the
     /// `assert_no_unresolved_type_vars` walker on the parent function's
-    /// `var_types` / `params` / `return_type` / block-params (the §04.1
-    /// 4-axis walker). No additional `assert_no_unresolved_idx` guard is
-    /// needed here — see §04.S in the typeck-inference-completeness plan.
+    /// `var_types` / `params` / `return_type` / block-params. No additional
+    /// `assert_no_unresolved_idx` guard is needed here.
     pub(crate) fn build_trampoline(
         &mut self,
         closure_val: ValueId,

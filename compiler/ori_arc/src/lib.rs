@@ -17,8 +17,8 @@
 //!
 //! # Design
 //!
-//! Inspired by Lean 4's three-way classification (`isScalar`/`isPossibleRef`/
-//! `isDefiniteRef` on `IRType`) and LCNF basic-block IR. Classification is
+//! Three-way classification (`isScalar` / `isPossibleRef` / `isDefiniteRef`
+//! on `IRType`) over an LCNF basic-block IR. Classification is
 //! **monomorphized** — it operates on concrete types after type parameter
 //! substitution.
 //!
@@ -114,8 +114,8 @@ pub use ir::collect_all_arc_functions;
 /// Determines whether values of this type need reference counting.
 /// This classification is the foundation for all ARC optimization passes.
 ///
-/// Inspired by Lean 4's three-way classification methods
-/// (`isScalar`, `isPossibleRef`, `isDefiniteRef` on `IRType`).
+/// Three-way classification (`isScalar`, `isPossibleRef`, `isDefiniteRef`)
+/// over the IR type representation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ArcClass {
     /// No reference counting needed. The value is purely stack/register.

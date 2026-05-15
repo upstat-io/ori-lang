@@ -21,11 +21,10 @@
 //! The producer-side validator (`ori_types::check::validators`) exempts
 //! `VarState::Generalized` and `VarState::Rigid` per the documented pool
 //! divergence: the current pool stores generalized vars as
-//! `Tag::Var(VarState::Generalized)` rather than `Tag::BoundVar`
-//! . This consumer-side validator mirrors
-//! the exemption via an `exempt_var_ids` parameter so generic function bodies
-//! do not fire spuriously until the pool converts generalized vars to
-//! `Tag::BoundVar` (tracked as a target-conformance item in §02).
+//! `Tag::Var(VarState::Generalized)` rather than `Tag::BoundVar`. This
+//! consumer-side validator mirrors the exemption via an `exempt_var_ids`
+//! parameter so generic function bodies do not fire spuriously until the
+//! pool converts generalized vars to `Tag::BoundVar`.
 
 use std::collections::HashSet;
 use std::hash::BuildHasher;
@@ -163,7 +162,7 @@ pub fn assert_no_unresolved_type_vars<S: BuildHasher>(
     }
     // 5. Instruction operands carrying `Idx` payloads. Exhaustive match —
     //    new `Idx`-bearing variants are compile-time errors here, forcing
-    //    the §04.1 PC-2 contract to be re-evaluated when the IR grows.
+    //    the PC-2 contract to be re-evaluated when the IR grows.
     for block in &func.blocks {
         for instr in &block.body {
             match instr {
@@ -223,10 +222,15 @@ impl UnresolvedTypeVar {
 /// Thin PC-2 guard for non-`ArcFunction` call sites that hold only a raw
 /// type [`Idx`] and an owning function/site [`Name`].
 ///
-/// Used at codegen surfaces that bypass the `ArcFunction` realization path —
-/// derive synthesis, panic trampolines, iterator trampolines — where the
-/// caller has a single `type_idx` to validate rather than a full
-/// `ArcFunction` worth of positions.
+/// Used at codegen surfaces that bypass the `ArcFunction` realization path
+/// and therefore cannot rely on [`assert_no_unresolved_type_vars`] —
+/// derive synthesis is the canonical bypass call site. Panic and iterator
+/// trampolines have their own upstream coverage (`panic_info_idx` is
+/// validated by `validate_body_types` over the user `@panic`'s
+/// `FunctionSig`; iterator element types are extracted from the parent
+/// `ArcFunction`'s already-walked positions) and do NOT invoke this
+/// helper. The caller supplies a single `type_idx` to validate rather
+/// than a full `ArcFunction` worth of positions.
 ///
 /// # Behavior
 ///

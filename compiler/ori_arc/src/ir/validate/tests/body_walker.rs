@@ -1,10 +1,10 @@
 //! Unit tests for the body / terminator axes of `assert_no_unresolved_type_vars`.
 //!
-//! Extends the §04.4 12-cell matrix in the parent module with coverage of the
+//! Extends the core 12-cell matrix in the parent module with coverage of the
 //! walker extension to instruction operands (`blocks[*].body[*]`) and
 //! terminator operands (`blocks[*].terminator`).
 //!
-//! Cells covered (per the §04.S.3 success criterion):
+//! Cells covered (body-walker matrix axis):
 //! - Cell (m): `Tag::Var` in `ArcInstr::Construct.ty` — canonical
 //!   type-nominating instruction.
 //! - Cell (n): `Tag::Var` in `ArcInstr::Apply.ty` — representative direct-call
@@ -21,12 +21,12 @@
 //! - Cell (q): `Tag::Var` in `ArcTerminator::Invoke.ty` — terminator-operand
 //!   coverage paralleling cell (m)'s instruction-operand shape.
 //!
-//! # Test Fixture Strategy (§04.4)
+//! # Test Fixture Strategy
 //!
 //! Every test consumes helpers from `crate::test_helpers`. Block bodies and
 //! terminators are constructed inline at the test site because the
 //! instruction-operand and terminator-operand axes are local to the body of
-//! the test (§04.4 Test Fixture Strategy option (b)) — the helper covers the
+//! the test (Test Fixture Strategy option (b)) — the helper covers the
 //! `ArcFunction` skeleton; per-instruction customization stays in the test.
 
 use std::collections::HashSet;
@@ -38,7 +38,7 @@ use super::super::{assert_no_unresolved_idx, assert_no_unresolved_type_vars};
 use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership, CtorKind};
 use crate::test_helpers::{b, make_func, v};
 
-/// Matrix cell (m) (§04.S.3): `ArcInstr::Construct.ty` carries `Tag::Var`;
+/// Matrix cell (m) (body-walker): `ArcInstr::Construct.ty` carries `Tag::Var`;
 /// `var_types[*]` + `params[*]` + `return_type` + `blocks[*].params[*].1`
 /// fully resolved; empty exempt → `Err` with `var_id: ArcVarId(0)` (the
 /// `dst` of the offending instruction per `validate.rs:178` exhaustive
@@ -82,7 +82,7 @@ fn test_tag_var_in_construct_ty_fails() {
     );
 }
 
-/// Matrix cell (n) (§04.S.3): `ArcInstr::Apply.ty` carries `Tag::Var`; all
+/// Matrix cell (n) (body-walker): `ArcInstr::Apply.ty` carries `Tag::Var`; all
 /// other type positions clean; empty exempt → `Err` with `var_id` matching
 /// the Apply's `dst`. Pins a representative direct-call variant from the
 /// exhaustive `Idx`-bearing instruction set; `Apply` is the most common
@@ -118,7 +118,7 @@ fn test_tag_var_in_apply_ty_fails() {
     assert_eq!(err.var_id, dst, "reported var_id matches Apply.dst");
 }
 
-/// Matrix cell (o) (§04.S.3): `ArcInstr::Project.ty` carries `Tag::Var`;
+/// Matrix cell (o) (body-walker): `ArcInstr::Project.ty` carries `Tag::Var`;
 /// all other type positions clean; empty exempt → `Err` with `var_id`
 /// matching the Project's `dst`. Pins a representative projection variant
 /// from the exhaustive instruction set; `Project` shape (borrow with a
@@ -160,7 +160,7 @@ fn test_tag_var_in_project_ty_fails() {
     assert_eq!(err.var_id, dst, "reported var_id matches Project.dst");
 }
 
-/// Matrix cell (p) (§04.S.3): direct call of `assert_no_unresolved_idx` on
+/// Matrix cell (p) (body-walker thin-helper path): direct call of `assert_no_unresolved_idx` on
 /// a synthetic `Tag::Var` `Idx` → `Err` with `var_id: ArcVarId::INVALID`
 /// (the helper's sentinel — no owning SSA var) and `function` carrying the
 /// caller-supplied site name. Pins the thin-helper path used by codegen
@@ -206,10 +206,10 @@ fn test_assert_no_unresolved_idx_returns_ok_on_resolved_primitive() {
     );
 }
 
-/// Matrix cell (q) (§04.S.3 bonus): `ArcTerminator::Invoke.ty` carries
+/// Matrix cell (q) (body-walker terminator axis, bonus): `ArcTerminator::Invoke.ty` carries
 /// `Tag::Var`; all other type positions clean; empty exempt → `Err` with
 /// `var_id` matching the terminator's `dst`. Pins the terminator-operand
-/// axis of the §04.S.2 walker extension. `Invoke` and `InvokeIndirect` are
+/// axis of the walker extension. `Invoke` and `InvokeIndirect` are
 /// the only `Idx`-bearing terminator variants today (per the exhaustive
 /// arm at `validate.rs:193-194`). The walker still enforces forward-safety
 /// on these carriers even when construction is post-2026 panic/effect

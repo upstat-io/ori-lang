@@ -23,7 +23,7 @@ mod string_helpers;
 mod tests;
 
 use ori_ir::{DerivedMethodShape, DerivedTrait, Module, Name, StructBody, SumBody, TypeDeclKind};
-use ori_types::{FieldDef, Idx, TypeEntry, TypeKind, VariantDef};
+use ori_types::{FieldDef, Idx, Tag, TypeEntry, TypeKind, VariantDef};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
 
@@ -116,10 +116,16 @@ fn compile_struct_derives<'a>(
     );
 
     // PC-2 guard: derive_codegen synthesizes LLVM IR without going through
-    // the ArcFunction pipeline, so the §04.2 primary seam does not cover
-    // `type_idx`. Always-on plus debug-assert for double-belt.
+    // the ArcFunction pipeline, so the primary seam does not cover
+    // `type_idx`. Always-on plus debug-assert for double-belt. The
+    // debug_assert covers `Tag::Var`, `Tag::Projection`, AND `Tag::Infer`
+    // (broader than the always-on guard, which targets the production
+    // PC-2 surface via `assert_no_unresolved_idx`).
     debug_assert!(
-        ori_arc::assert_no_unresolved_idx(fc.pool(), type_idx, type_name).is_ok(),
+        !matches!(
+            fc.pool().tag(fc.pool().resolve_fully(type_idx)),
+            Tag::Var | Tag::Projection | Tag::Infer
+        ),
         "derive_codegen received unresolved type_idx for struct {type_name_str}"
     );
     if let Err(err) = ori_arc::assert_no_unresolved_idx(fc.pool(), type_idx, type_name) {
@@ -206,9 +212,14 @@ fn compile_enum_derives<'a>(
         "compiling enum derived methods"
     );
 
-    // PC-2 guard: see compile_struct_derives above for rationale.
+    // PC-2 guard: see compile_struct_derives above for rationale. The
+    // debug_assert covers `Tag::Var`, `Tag::Projection`, AND `Tag::Infer`
+    // (broader than the always-on guard).
     debug_assert!(
-        ori_arc::assert_no_unresolved_idx(fc.pool(), type_idx, type_name).is_ok(),
+        !matches!(
+            fc.pool().tag(fc.pool().resolve_fully(type_idx)),
+            Tag::Var | Tag::Projection | Tag::Infer
+        ),
         "derive_codegen received unresolved type_idx for enum {type_name_str}"
     );
     if let Err(err) = ori_arc::assert_no_unresolved_idx(fc.pool(), type_idx, type_name) {

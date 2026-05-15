@@ -10,7 +10,7 @@ use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ArgOwnership,
     CtorKind,
 };
-use crate::ownership::Ownership;
+use crate::ownership::{DerivedOwnership, Ownership};
 
 fn empty_func() -> ArcFunction {
     ArcFunction::default()
@@ -35,7 +35,7 @@ fn func_with_n_vars(n: u32) -> ArcFunction {
 fn empty_function_collects_no_burdens() {
     let registry = TypeRegistry::new();
     let mut func = empty_func();
-    let ctx: BurdenLowerCtx<'_> = emit_burden_ops(&mut func, &registry);
+    let ctx: BurdenLowerCtx<'_> = emit_burden_ops(&mut func, &registry, &[]);
     assert!(
         ctx.collected_burdens().is_empty(),
         "empty fn yields zero burden lookups",
@@ -66,7 +66,7 @@ fn construct_emits_one_transfer_point_per_owned_arg() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry);
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
     let tp_vars: Vec<ArcVarId> = ctx.transfer_points().iter().map(|(v, _)| *v).collect();
     assert_eq!(
         tp_vars,
@@ -102,7 +102,7 @@ fn apply_with_one_owned_arg_emits_one_transfer_point() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry);
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
     let tp_vars: Vec<ArcVarId> = ctx.transfer_points().iter().map(|(v, _)| *v).collect();
     assert_eq!(
         tp_vars,
@@ -137,7 +137,7 @@ fn set_emits_one_transfer_point_for_owned_value() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry);
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
     let tp_vars: Vec<ArcVarId> = ctx.transfer_points().iter().map(|(v, _)| *v).collect();
     assert_eq!(
         tp_vars,
@@ -177,7 +177,7 @@ fn borrowed_params_skipped_owned_params_collected() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry);
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
     let collected_vars: Vec<ArcVarId> = ctx.collected_burdens().iter().map(|(v, _)| *v).collect();
     assert_eq!(
         collected_vars,
@@ -215,7 +215,7 @@ fn construct_emits_burden_inc_immediately_before_consuming_construct() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     // Post-emission body MUST be [BurdenInc(0), Construct].
     assert_eq!(
         func.blocks[0].body.len(),
@@ -259,7 +259,7 @@ fn apply_emits_burden_inc_immediately_before_consuming_apply() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     assert_eq!(func.blocks[0].body.len(), 2, "expected BurdenInc + Apply");
     match &func.blocks[0].body[0] {
         ArcInstr::BurdenInc { var } => assert_eq!(*var, ArcVarId::new(0)),
@@ -315,7 +315,7 @@ fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     // Expected: BurdenInc(var(1)) before Set (TF-15 value carve-out), Set,
     // and possibly BurdenDec(var(0)) after (var(0) is `base` — non-transfer
     // last-use per RL-2; only Set `value` is in the ownership-transferring
@@ -377,7 +377,7 @@ fn burden_dec_emitted_after_non_transfer_last_use() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     // Expected post-emission: [IsShared, BurdenDec(0)] — IsShared is NOT
     // owned-position so no BurdenInc; var(0) last use is here, non-
     // transfer, so BurdenDec emits after.
@@ -422,7 +422,7 @@ fn partial_apply_emits_burden_inc_for_captured_var() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     // Pin: BurdenInc(captured) emitted before PartialApply.
     let body = &func.blocks[0].body;
     let inc_pos = body
@@ -469,7 +469,7 @@ fn collection_reuse_emits_burden_inc_for_owned_arg() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     // Pin: BurdenInc(arg=var(1)) emitted before CollectionReuse; old_var
     // (var(0)) is NOT owned position, so no BurdenInc(var(0)) emitted.
     let body = &func.blocks[0].body;
@@ -526,7 +526,7 @@ fn apply_indirect_emits_burden_inc_for_owned_arg_not_closure() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     // Pin (positive): BurdenInc(arg=var(1)) emitted BEFORE ApplyIndirect.
     let body = &func.blocks[0].body;
     let inc_pos_arg = body
@@ -584,7 +584,7 @@ fn apply_mixed_owned_borrowed_args_emits_burden_inc_per_position() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     let body = &func.blocks[0].body;
     // Pin (positive): BurdenInc(args[0]=var(0)) emitted BEFORE Apply.
     let inc_pos_owned = body
@@ -644,7 +644,7 @@ fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     // Pin (negative, clamping below): zero BurdenInc emitted. Closure (var(0))
     // is always borrowed (pos 0 in is_owned_position). Arg (var(1)) is at
     // pos 1, but arg_ownership.get(0) returns None → is_some_and returns
@@ -705,7 +705,7 @@ fn multi_block_last_use_pinned_per_block_pending_cross_block() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry);
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
     // Pin: TWO last_use_points entries for var(0) — one per block. Per-block
     // walk identifies last use in EACH block separately (intra-block scope).
     let var0_entries: Vec<_> = ctx
@@ -754,7 +754,7 @@ fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     let body = &func.blocks[0].body;
     // Pin: BurdenInc for each arg, in declaration order, all before Construct.
     let expected = [ArcVarId::new(0), ArcVarId::new(1), ArcVarId::new(2)];
@@ -820,7 +820,7 @@ fn scalar_int_var_emits_no_burden_dec_at_last_use() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     let body = &func.blocks[0].body;
     let any_burden_dec = body.iter().any(|i| matches!(i, ArcInstr::BurdenDec { .. }));
     assert!(
@@ -872,7 +872,7 @@ fn heap_burden_borrowed_param_skipped_at_ownership_filter() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry);
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
     // Pin: var(1) STR/Borrowed MUST be absent from collected_burdens.
     let var1_collected = ctx
         .collected_burdens()
@@ -939,7 +939,7 @@ fn apply_three_args_with_non_adjacent_owned_positions_emits_burden_inc_per_owned
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     let body = &func.blocks[0].body;
     let inc_vars: Vec<ArcVarId> = body
         .iter()
@@ -1001,7 +1001,7 @@ fn partial_apply_mixed_str_int_emits_burden_inc_only_for_heap_burden() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     let body = &func.blocks[0].body;
     // Pin (positive): BurdenInc(args[0]=var(0)=STR) emitted before PartialApply.
     let inc_str_pos = body
@@ -1061,7 +1061,7 @@ fn apply_indirect_scalar_owned_arg_emits_no_burden_inc() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     // Pin (negative, VF-1 mirror): zero BurdenInc emitted. var(1)=Idx::INT
     // is at owned position (arg_ownership[0]=Owned), but burden_carries_rc
     // filter excludes EMPTY-spec scalars from owned_vars_needing_rc.
@@ -1114,7 +1114,7 @@ fn set_scalar_value_emits_no_burden_inc_via_tf_15_carve_out_filter() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     let body = &func.blocks[0].body;
     // Pin (negative, VF-1 mirror on Set carve-out): zero BurdenInc emitted.
     let any_burden_inc = body.iter().any(|i| matches!(i, ArcInstr::BurdenInc { .. }));
@@ -1158,7 +1158,7 @@ fn construct_multi_arg_mixed_types_emits_burden_inc_for_heap_burden_args_only() 
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     let body = &func.blocks[0].body;
     // Pin: BurdenInc(var(0)) and BurdenInc(var(2)) emitted; BurdenInc(var(1)) NOT.
     let inc_vars: Vec<ArcVarId> = body
@@ -1215,7 +1215,7 @@ fn apply_all_borrowed_args_emits_zero_burden_inc() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     let body = &func.blocks[0].body;
     let any_burden_inc = body.iter().any(|i| matches!(i, ArcInstr::BurdenInc { .. }));
     assert!(
@@ -1254,7 +1254,7 @@ fn partial_apply_empty_args_emits_zero_burden_inc() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     let body = &func.blocks[0].body;
     let any_burden_inc = body.iter().any(|i| matches!(i, ArcInstr::BurdenInc { .. }));
     assert!(
@@ -1292,7 +1292,7 @@ fn construct_empty_args_emits_zero_burden_inc() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
     let body = &func.blocks[0].body;
     let any_burden_inc = body.iter().any(|i| matches!(i, ArcInstr::BurdenInc { .. }));
     assert!(
@@ -1332,7 +1332,7 @@ fn last_use_detected_at_single_block_use_position() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry);
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
     assert_eq!(
         ctx.last_use_points(),
         &[(ArcVarId::new(0), 0, 0)],
@@ -1346,7 +1346,7 @@ fn iteration_produces_one_entry_per_var_type() {
     // todo!() — collected_burdens length must match var_types length.
     let registry = TypeRegistry::new();
     let mut func = func_with_n_vars(3);
-    let ctx = emit_burden_ops(&mut func, &registry);
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
     assert_eq!(
         ctx.collected_burdens().len(),
         3,
@@ -1357,5 +1357,442 @@ fn iteration_produces_one_entry_per_var_type() {
         vars,
         vec![ArcVarId::new(0), ArcVarId::new(1), ArcVarId::new(2)],
         "iteration order MUST match var_types declaration order",
+    );
+}
+
+#[test]
+fn return_str_owned_value_used_in_prior_instr_suppresses_burden_dec_per_rl2() {
+    // §03.3 first rule positive pin: Return transfers ownership per
+    // `aims-rules.md §8 RL-2` — Return's `value` is a terminator-transfer
+    // point. When `value` is also used at an earlier instruction (here as
+    // IsShared's `var` operand at non-owned position), the terminator-position
+    // last-use registration takes precedence over the prior-instruction-position
+    // entry (terminator scans first in backward walk; first-seen-wins). At
+    // emission time the terminator-position entry hits terminator_transfer_vars
+    // and is filtered out — no BurdenDec emits anywhere for `value`. Without
+    // the §03.3 terminator-walking last-use scan + Return-transfer-var filter,
+    // the prior-instruction last-use would emit BurdenDec(0) after IsShared,
+    // double-releasing the value Return transfers to the caller.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::BOOL],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![ArcInstr::IsShared {
+                dst: ArcVarId::new(1),
+                var: ArcVarId::new(0),
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let body = &func.blocks[0].body;
+    // Pin 1: NO BurdenInc on var(0) — IsShared is not owned-position; Return
+    // is a transfer (not a BurdenInc site per §03.3 first rule).
+    let inc_present = body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(0)));
+    assert!(
+        !inc_present,
+        "Return.value MUST NOT receive BurdenInc; body={body:?}",
+    );
+    // Pin 2: NO BurdenDec on var(0) — Return transfers ownership per RL-2;
+    // prior-instruction last-use suppressed by terminator-position priority.
+    let dec_present = body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)));
+    assert!(
+        !dec_present,
+        "Return.value MUST NOT receive BurdenDec at prior-instruction last-use \
+         (RL-2 transfer-point exception; double-release if emitted); body={body:?}",
+    );
+    // Pin 3: Body shape is [IsShared] only — the only instruction emitted.
+    assert_eq!(
+        body.len(),
+        1,
+        "expected [IsShared] only (no BurdenInc/Dec around Return-transferred value), got {body:?}",
+    );
+    assert!(matches!(&body[0], ArcInstr::IsShared { .. }));
+}
+
+#[test]
+fn moved_out_fields_is_empty_by_default_per_cycle_40_skeleton() {
+    // §03.4 first checkbox (cycle 40 Mikado-leaf) negative pin: the
+    // `moved_out_fields` data structure introduced in cycle 40 carries
+    // NO population logic — population gates on the proposal's two-stage
+    // rule (`let f = v.field` AND `f` consumed at transfer point per
+    // §Non-Drop Partial-Move line 267) which lands in a sibling cycle.
+    // This pin clamps the skeleton from below: a reversion that
+    // erroneously populates moved_out_fields on every Project (a
+    // tempting but unsound shortcut) would silently miscompile by
+    // causing leaks at v's last-use when v's field's burden is
+    // incorrectly excluded from BurdenDec emission. Per impl-hygiene.md
+    // §INVERTED-TDD pseudo-tested-method ban — assert the SPECIFIC
+    // expected state (empty map) rather than mere data-structure-existence.
+    let registry = TypeRegistry::new();
+    let mut func = func_with_n_vars(2);
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
+    assert!(
+        ctx.moved_out_fields().is_empty(),
+        "moved_out_fields MUST remain empty by default in cycle-40 skeleton (population deferred to sibling cycle gated on transfer-point consumption per proposal §Non-Drop Partial-Move two-stage rule); got {:?}",
+        ctx.moved_out_fields(),
+    );
+}
+
+#[test]
+fn jump_arg_to_borrowed_target_block_param_emits_burden_dec_at_terminator_per_rl2_negative() {
+    // §03.3 rule 3 negative pin (cycle 39): clamps cycle-37's
+    // `if matches!(ownership, DerivedOwnership::Owned)` guard at
+    // `burden_lower.rs:273` from below. When target block param's
+    // `DerivedOwnership` is `BorrowedFrom(...)` (NOT Owned), Jump.args[i]
+    // MUST NOT enter terminator_transfer_vars — the prior-instruction /
+    // terminator-position last-use of arg DOES receive BurdenDec because
+    // Jump-to-Borrowed-param is a borrow (not an ownership transfer) per
+    // `aims-rules.md §8 RL-2` ownership-transferring exception list.
+    // Production borrow inference at `borrow/derived.rs:60` currently marks
+    // all block params Owned, so this case is structurally unreachable in
+    // shipped code — BUT the guard itself is load-bearing (a reversion that
+    // always treats Jump.args as transfer would silently miscompile when
+    // block-param borrow inference distinguishes Borrowed). Test constructs
+    // explicit `&[DerivedOwnership::BorrowedFrom(...)]` to exercise the
+    // negative path per `tests.md §Matrix Clamping` completeness rule.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::STR],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![ArcVarId::new(0)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(ArcVarId::new(1), Idx::STR)],
+                body: Vec::new(),
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    // Block 1's param var(1) is BorrowedFrom var(0) — clamps cycle-37's
+    // DerivedOwnership::Owned guard; transfer set MUST exclude var(0).
+    let derived = vec![
+        DerivedOwnership::Owned,
+        DerivedOwnership::BorrowedFrom(ArcVarId::new(0)),
+    ];
+    let _ctx = emit_burden_ops(&mut func, &registry, &derived);
+    let body_0 = &func.blocks[0].body;
+    // Pin: BurdenDec(0) IS emitted at terminator-position — Jump-to-
+    // Borrowed-block-param is NOT a transfer per RL-2, so var(0)'s
+    // terminator-position last-use must receive a non-suppressed BurdenDec.
+    let dec_present = body_0
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)));
+    assert!(
+        dec_present,
+        "Jump.args[0] (var(0)) to Borrowed-target-block-param MUST receive BurdenDec at terminator-position (NOT a transfer per RL-2; cycle-37 guard load-bearing); block 0 body={body_0:?}",
+    );
+}
+
+#[test]
+fn invoke_scalar_int_arg_at_owned_position_emits_no_burden_ops_per_vf1_rconscalar() {
+    // §03.3 rule 5 negative pin (cycle 39, VF-1 RcOnScalar mirror per
+    // `aims-rules.md §9`): scalar-typed Invoke arg at owned position MUST
+    // NOT receive BurdenInc/BurdenDec even though terminator_transfer_per_block
+    // marks it as transfer. The `owned_vars_needing_rc` filter at
+    // `burden_lower.rs:225-234` rejects scalars (Idx::INT carries
+    // `BuiltinBurdenSpec::EMPTY` per `BURDEN_TABLE` at
+    // `ori_registry/src/burden/table.rs:184-193`); `burden_carries_rc`
+    // returns false → var excluded from owned_vars_needing_rc → no
+    // emission. Clamps cycle-38's Invoke transfer logic from below.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::INT,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::INT, Idx::STR],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Invoke {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(1),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let body_0 = &func.blocks[0].body;
+    assert!(
+        body_0.is_empty(),
+        "scalar Int Invoke.args[0] MUST trigger zero burden ops (VF-1 RcOnScalar mirror clamps cycle-38 Invoke transfer); body={body_0:?}",
+    );
+}
+
+#[test]
+fn invoke_indirect_owned_args_at_pos_one_emits_no_burden_dec_closure_pos_zero_borrowed() {
+    // §03.3 rule 5 InvokeIndirect positive pin (cycle 39): canonical
+    // `ArcTerminator::is_owned_position(pos)` at `terminator.rs:117-126`
+    // encodes closure-pos-0-always-Borrowed semantics. used_vars =
+    // [closure, ...args]; closure at pos 0 → is_owned_position(0) == false;
+    // args at pos 1+ checked against arg_ownership[pos-1]. Test: closure
+    // var(0) + args [var(1)] with arg_ownership=[Owned] → var(1)
+    // transferred (NO BurdenDec); var(0) NOT transferred (closure is
+    // borrowed receiver, separate from transfer concern per RL-2).
+    // Validates distinct SSOT helper path vs Invoke variant per cycle 38.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![
+            ArcParam {
+                var: ArcVarId::new(0),
+                ty: Idx::STR,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: ArcVarId::new(1),
+                ty: Idx::STR,
+                ownership: Ownership::Owned,
+            },
+        ],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::InvokeIndirect {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    closure: ArcVarId::new(0),
+                    args: vec![ArcVarId::new(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(1),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let body_0 = &func.blocks[0].body;
+    // Pin: NO BurdenDec on var(1) — args at pos 1 is Owned, transferred per
+    // is_owned_position(1) returning true.
+    let dec_arg_present = body_0
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(1)));
+    assert!(
+        !dec_arg_present,
+        "InvokeIndirect.args[0] at owned position 1 MUST NOT receive BurdenDec at terminator (RL-2 transfer; double-release if emitted); body={body_0:?}",
+    );
+}
+
+#[test]
+fn invoke_arg_at_owned_position_emits_no_burden_dec_at_terminator_per_rl2() {
+    // §03.3 rule 5 (Tail-call) positive pin (cycle 38): `ArcTerminator::Invoke`
+    // args at owned positions transfer ownership per `aims-rules.md §8 RL-2`.
+    // Cycle-38 extends `terminator_transfer_per_block` with `Invoke +
+    // InvokeIndirect` match-arms using canonical SSOT helper
+    // `ArcTerminator::is_owned_position(pos)`. With empty `arg_ownership`,
+    // is_owned_position defaults to all-Owned (per `terminator.rs:100-129`),
+    // so var(0) is added to transfer set; BurdenDec at terminator-position
+    // last-use of var(0) is suppressed per RL-2 to prevent double-release.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::STR],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Invoke {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(1),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let body_0 = &func.blocks[0].body;
+    let dec_present = body_0
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)));
+    assert!(
+        !dec_present,
+        "Invoke.args[0] at owned position MUST NOT receive BurdenDec at terminator (RL-2 transfer; double-release if emitted); body={body_0:?}",
+    );
+    assert!(
+        body_0.is_empty(),
+        "block 0 body MUST remain empty (no instruction-level emission + no terminator-position BurdenDec for Invoke-Owned-arg transfer); got {body_0:?}",
+    );
+}
+
+#[test]
+fn jump_arg_to_owned_target_block_param_emits_no_burden_dec_at_terminator_per_rl2() {
+    // §03.3 rule 3 positive pin (cycle 37): Jump.args at positions whose
+    // target-block params have `DerivedOwnership::Owned` transfer ownership
+    // to the target block param per `aims-rules.md §8 RL-2`. Cycle-37
+    // terminator-transfer pre-computation marks Jump.args[i] as transfer
+    // when target_block.params[i].0 looked up in derived_ownership returns
+    // Owned (default per `borrow/derived.rs:60` if slice empty or out-of-
+    // bounds). Without this fix, var(0)'s last-use at the Jump terminator
+    // would emit BurdenDec(var(0)) — double-release since Jump transfers
+    // ownership.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::STR],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![ArcVarId::new(0)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(ArcVarId::new(1), Idx::STR)],
+                body: Vec::new(),
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let derived = vec![DerivedOwnership::Owned, DerivedOwnership::Owned];
+    let _ctx = emit_burden_ops(&mut func, &registry, &derived);
+    let body_0 = &func.blocks[0].body;
+    // Pin 1: NO BurdenDec on var(0) — Jump to Owned-target-block-param
+    // transfers ownership; emitting BurdenDec would double-release per RL-2.
+    let dec_present = body_0
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)));
+    assert!(
+        !dec_present,
+        "Jump.args[0] (var(0)) to Owned-target-block-param MUST NOT receive BurdenDec at terminator (transfer per RL-2; double-release if emitted); block 0 body={body_0:?}",
+    );
+    // Pin 2: Block 0 body remains empty — no instruction-level emission
+    // (body was empty) and no terminator-position BurdenDec (transfer
+    // suppression).
+    assert!(
+        body_0.is_empty(),
+        "block 0 body MUST remain empty (no instruction-level emission + no terminator-position BurdenDec for Jump-to-Owned transfer); got {body_0:?}",
+    );
+}
+
+#[test]
+fn return_scalar_int_value_emits_zero_burden_ops_per_vf1_rconscalar() {
+    // §03.3 first rule negative pin (VF-1 RcOnScalar mirror per
+    // `aims-rules.md §9`): scalar-typed Return value MUST NOT receive
+    // BurdenInc or BurdenDec, regardless of terminator-position registration.
+    // `lookup_burden(Idx::INT)` returns `Some(BurdenRef)` carrying
+    // `BuiltinBurdenSpec::EMPTY` (per `BURDEN_TABLE` at
+    // `ori_registry/src/burden/table.rs:184-193`); `burden_carries_rc` filter
+    // rejects EMPTY specs so var(0) is excluded from owned_vars_needing_rc.
+    // Without this filter the terminator-position emission would attempt to
+    // process the scalar var (which it now filters out via the same
+    // owned_vars_needing_rc gate inherited via last_uses_at population at
+    // burden_lower.rs:211-217).
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::INT,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::INT],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: Vec::new(),
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let body = &func.blocks[0].body;
+    assert!(
+        body.is_empty(),
+        "scalar Int Return.value MUST trigger zero burden ops (VF-1 RcOnScalar mirror); body={body:?}",
     );
 }
