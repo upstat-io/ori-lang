@@ -2,7 +2,7 @@
 //! (`TypeRegistry`-borrowed), miss paths (`None`), and `Burden` trait
 //! parity across the two partition variants.
 
-use ori_ir::{Name, Span};
+use ori_ir::Span;
 use ori_registry::burden::table::{
     BurdenRegistry, TYPE_ID_BOOL, TYPE_ID_CHANNEL, TYPE_ID_INT, TYPE_ID_STR, TYPE_PARAM_T,
 };
@@ -12,47 +12,15 @@ use ori_types::{FieldDef, Idx, Pool, TypeRegistry, Visibility};
 
 use super::{idx_to_type_ref, lookup_burden};
 use crate::lower::burden::{Burden, BurdenRef, TypeRef};
+use crate::lower::test_utils::{registered_struct_with_burden, test_name};
 use ori_registry::burden::table::burden_type_id;
 use ori_registry::TypeTag;
-
-fn test_name(s: &str) -> Name {
-    Name::from_raw(
-        s.as_bytes()
-            .iter()
-            .fold(0u32, |acc, &b| acc.wrapping_add(u32::from(b))),
-    )
-}
 
 fn lookup_required<'a>(ty: TypeRef, registry: &'a TypeRegistry, label: &'a str) -> BurdenRef<'a> {
     match lookup_burden(ty, registry) {
         Some(burden) => burden,
         None => panic!("expected burden lookup hit for {label}"),
     }
-}
-
-fn registered_struct_with_burden(
-    registry: &mut TypeRegistry,
-    name: &str,
-    idx: Idx,
-    burden: Option<UserBurdenSpec>,
-) {
-    let fields = vec![FieldDef {
-        name: test_name("payload"),
-        ty: Idx::INT,
-        span: Span::DUMMY,
-        visibility: Visibility::Public,
-    }];
-    registry.register_struct(
-        test_name(name),
-        idx,
-        vec![],
-        fields,
-        Span::DUMMY,
-        Visibility::Public,
-        0,
-        None,
-        burden,
-    );
 }
 
 #[test]

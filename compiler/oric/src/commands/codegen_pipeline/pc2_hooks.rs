@@ -23,8 +23,7 @@ use rustc_hash::FxHashSet;
 /// `site_fn` tags diagnostics on the `arc_fn` itself (e.g. `"aot_pre_mono"`);
 /// `site_lambda` tags diagnostics on each lambda (e.g. `"aot_pre_mono_lambda"`).
 /// `exempt` is the scheme-var exemption set; the empty set is invariant for
-/// AOT secondary sites per §04.3 design (entries are non-generic or already
-/// monomorphized).
+/// AOT secondary sites (entries are non-generic or already monomorphized).
 ///
 /// Emits `tracing::error!` on each violation but does not propagate — the
 /// primary seam in `ori_llvm::codegen::function_compiler::define_phase` is

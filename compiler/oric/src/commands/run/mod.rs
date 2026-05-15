@@ -260,7 +260,8 @@ fn compile_and_cache(
     };
     use ori_llvm::inkwell::context::Context;
 
-    use super::compile_common::{check_source, compile_to_llvm};
+    use super::build::build_imported_mono_state;
+    use super::compile_common::{check_source, compile_to_llvm_with_imported_monos};
     use oric::{CompilerDb, SourceFile};
 
     // Parse and type-check (shared with build_file)
@@ -276,14 +277,26 @@ fn compile_and_cache(
     let target = ori_llvm::aot::TargetConfig::native()
         .unwrap_or_else(|e| crate::problem::codegen::report_codegen_error(e));
 
+    // Build cross-module imported-generic mono state. Mirrors the single-file
+    // build path; required when host source has stdlib or relative imports.
+    let imported_state = build_imported_mono_state(
+        &db,
+        std::path::Path::new(path),
+        &parse_result,
+        &type_result,
+        &pool,
+    );
+
     // Generate LLVM IR (shared with build_file)
     let context = Context::create();
-    let llvm_module = compile_to_llvm(
+    let llvm_module = compile_to_llvm_with_imported_monos(
         &context,
         &db,
         &parse_result,
         &type_result,
-        &pool,
+        &imported_state.merged_pool,
+        &imported_state.imported_mono_fns,
+        &imported_state.re_interned_canons,
         &canon_result,
         path,
         Some(target.triple()),

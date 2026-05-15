@@ -10,6 +10,7 @@ use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ArgOwnership,
     CtorKind,
 };
+use crate::lower::test_utils::{entry_block, project_first, set_first};
 use crate::ownership::{DerivedOwnership, Ownership};
 
 fn empty_func() -> ArcFunction {
@@ -346,6 +347,83 @@ fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
     assert!(
         !dec_value_present,
         "Set value (var 1) MUST NOT receive BurdenDec at last-use (RL-2 transfer-point exception); body={body:?}",
+    );
+}
+
+#[test]
+fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value_per_03_4() {
+    // §03.4 cycle 47 positive pin per plan body line 1943 + navigator-verdict
+    // (proceed verdict, cycle 47): Set with heap-burden base MUST emit
+    // BurdenDecField(base, field) BEFORE BurdenInc(value) BEFORE the Set
+    // instruction. BurdenDecField releases the prior field value's burden;
+    // symmetric with BurdenInc(value) which transfers ownership of the new
+    // value INTO the field position. Both precede Set so codegen at cycle 48
+    // can GEP+load the prior value BEFORE the store clobbers it. Per
+    // `aims-rules.md §3 TF-15` + `§8 RL-2` ownership-transfer rules, plus
+    // AIMS Invariant 5 unified-model preservation (cycle 47 extends
+    // ArcInstr enum on the same dimension as cycle-46 BurdenDecPartial).
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![
+            ArcParam {
+                var: ArcVarId::new(0),
+                ty: Idx::STR,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: ArcVarId::new(1),
+                ty: Idx::STR,
+                ownership: Ownership::Owned,
+            },
+        ],
+        var_types: vec![Idx::STR, Idx::STR],
+        blocks: vec![entry_block(
+            vec![set_first(ArcVarId::new(0), ArcVarId::new(1))],
+            ArcTerminator::Unreachable,
+        )],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let body = &func.blocks[0].body;
+
+    // Pin 1: BurdenDecField(base=var(0), field=0) appears in body.
+    let dec_field_pos = body.iter().position(
+        |i| matches!(i, ArcInstr::BurdenDecField { base, field } if *base == ArcVarId::new(0) && *field == 0),
+    );
+    assert!(
+        dec_field_pos.is_some(),
+        "expected BurdenDecField(base=var(0), field=0) per §03.4 cycle 47; body={body:?}",
+    );
+
+    // Pin 2: BurdenInc(value=var(1)) appears in body (cycle 12+24 carve-out).
+    let inc_value_pos = body
+        .iter()
+        .position(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(1)));
+    assert!(
+        inc_value_pos.is_some(),
+        "expected BurdenInc(value=var(1)) per TF-15 carve-out; body={body:?}",
+    );
+
+    // Pin 3: Set appears in body.
+    let set_pos = body
+        .iter()
+        .position(|i| matches!(i, ArcInstr::Set { .. }))
+        .unwrap_or_else(|| panic!("Set MUST appear in body"));
+
+    // Pin 4: Ordering — BurdenDecField BEFORE BurdenInc(value) BEFORE Set.
+    // Codegen at cycle 48 reads the prior field value via GEP+load BEFORE
+    // the store clobbers it; this ordering is the load-bearing invariant.
+    let dec_field = dec_field_pos.unwrap_or_else(|| unreachable!("checked is_some above"));
+    let inc_value = inc_value_pos.unwrap_or_else(|| unreachable!("checked is_some above"));
+    assert!(
+        dec_field < inc_value,
+        "BurdenDecField MUST precede BurdenInc(value); body={body:?}",
+    );
+    assert!(
+        inc_value < set_pos,
+        "BurdenInc(value) MUST precede Set; body={body:?}",
     );
 }
 
@@ -1427,25 +1505,197 @@ fn return_str_owned_value_used_in_prior_instr_suppresses_burden_dec_per_rl2() {
 }
 
 #[test]
-fn moved_out_fields_is_empty_by_default_per_cycle_40_skeleton() {
-    // §03.4 first checkbox (cycle 40 Mikado-leaf) negative pin: the
-    // `moved_out_fields` data structure introduced in cycle 40 carries
-    // NO population logic — population gates on the proposal's two-stage
-    // rule (`let f = v.field` AND `f` consumed at transfer point per
-    // §Non-Drop Partial-Move line 267) which lands in a sibling cycle.
-    // This pin clamps the skeleton from below: a reversion that
-    // erroneously populates moved_out_fields on every Project (a
-    // tempting but unsound shortcut) would silently miscompile by
-    // causing leaks at v's last-use when v's field's burden is
-    // incorrectly excluded from BurdenDec emission. Per impl-hygiene.md
-    // §INVERTED-TDD pseudo-tested-method ban — assert the SPECIFIC
-    // expected state (empty map) rather than mere data-structure-existence.
+fn moved_out_fields_is_empty_when_no_project_per_cycle_42_no_project_negative() {
+    // §03.4 negative pin: a function with NO Project instructions MUST yield
+    // an empty `moved_out_fields` map after cycle 42's Pass 1/Pass 2 population.
+    // Pass 1 finds zero Project tuples → project_origins empty → Pass 2's
+    // transfer-var lookups all miss → map stays empty. Clamps the population
+    // logic from below: a reversion that erroneously populates on every
+    // transferred var (regardless of project_origins membership) would fire
+    // here. Per impl-hygiene.md §INVERTED-TDD pseudo-tested-method ban —
+    // assert the SPECIFIC expected state (empty map) rather than mere data-
+    // structure-existence. Preserves cycle-40 skeleton intent post-population.
     let registry = TypeRegistry::new();
     let mut func = func_with_n_vars(2);
     let ctx = emit_burden_ops(&mut func, &registry, &[]);
     assert!(
         ctx.moved_out_fields().is_empty(),
-        "moved_out_fields MUST remain empty by default in cycle-40 skeleton (population deferred to sibling cycle gated on transfer-point consumption per proposal §Non-Drop Partial-Move two-stage rule); got {:?}",
+        "moved_out_fields MUST remain empty when function has zero Project instructions (Pass 1 yields empty project_origins); got {:?}",
+        ctx.moved_out_fields(),
+    );
+}
+
+#[test]
+fn project_then_construct_arg_sets_moved_out_fields_bit_per_03_4_two_stage_positive() {
+    // §03.4 cycle 42 positive pin (two-stage rule): `%1 = Project %0.0` followed
+    // by `Construct(args=[%1])` MUST set bit `0` on `%0` in `moved_out_fields`.
+    // Pass 1 collects (%1 → (%0, 0)); Pass 2 sees Construct's owned-position arg
+    // %1, looks up project_origins[%1] = (%0, 0), inserts 0 into
+    // moved_out_fields[%0]. Per `aims-rules.md §3 TF-3` Construct args at
+    // owned positions (per `instr.rs:352-354 is_owned_position` returns true
+    // for `pos < args.len()`). Construct is the canonical transfer-point
+    // consumer that fires the two-stage rule.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR, // %0: owned aggregate (use str for non-scalar burden)
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![entry_block(
+            vec![
+                project_first(ArcVarId::new(1), Idx::STR, ArcVarId::new(0)),
+                ArcInstr::Construct {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    ctor: CtorKind::Tuple,
+                    args: vec![ArcVarId::new(1)],
+                },
+            ],
+            ArcTerminator::Unreachable,
+        )],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let fields = ctx
+        .moved_out_fields()
+        .get(&ArcVarId::new(0))
+        .unwrap_or_else(|| {
+            panic!(
+                "moved_out_fields MUST contain entry for %0 after Project → Construct consumption"
+            )
+        });
+    assert!(
+        fields.contains(&0u32),
+        "moved_out_fields[%0] MUST contain field 0 (two-stage rule: Project → transfer-point consumer); got {fields:?}",
+    );
+}
+
+#[test]
+fn project_then_set_value_sets_moved_out_fields_bit_per_03_4_tf15_carve_out_positive() {
+    // §03.4 cycle 42 positive pin (Set-value TF-15 carve-out): `%1 = Project %0.0`
+    // followed by `Set { base: %2, field: 0, value: %1 }` MUST set bit `0` on `%0`
+    // in `moved_out_fields`. Pass 1 collects (%1 → (%0, 0)); Pass 2's
+    // `instr_transfer_vars` honors the Set-value carve-out per
+    // `aims-rules.md §3 TF-15` + IA-5 step (1) — `value` is Owned via alias
+    // transfer despite `is_owned_position`'s `_ => false`. Clamps the
+    // Set-value carve-out symmetry with the existing transfer_points /
+    // emit_instr_burdens carve-outs at `burden_lower.rs:231-236,463-466,490-491`.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![
+            ArcParam {
+                var: ArcVarId::new(0),
+                ty: Idx::STR,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: ArcVarId::new(2),
+                ty: Idx::STR,
+                ownership: Ownership::Owned,
+            },
+        ],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![entry_block(
+            vec![
+                project_first(ArcVarId::new(1), Idx::STR, ArcVarId::new(0)),
+                set_first(ArcVarId::new(2), ArcVarId::new(1)),
+            ],
+            ArcTerminator::Unreachable,
+        )],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let fields = ctx
+        .moved_out_fields()
+        .get(&ArcVarId::new(0))
+        .unwrap_or_else(|| {
+            panic!("moved_out_fields MUST contain entry for %0 after Project → Set.value carve-out per TF-15")
+        });
+    assert!(
+        fields.contains(&0u32),
+        "moved_out_fields[%0] MUST contain field 0 (TF-15 Set-value carve-out fires the two-stage rule despite is_owned_position _ => false); got {fields:?}",
+    );
+}
+
+#[test]
+fn project_alone_leaves_moved_out_fields_unset_per_03_4_two_stage_negative() {
+    // §03.4 cycle 42 negative pin (two-stage rule clamp from below): `%1 = Project %0.0`
+    // with NO downstream transfer-point consumer MUST leave `moved_out_fields[%0]`
+    // unset. Per `aims-rules.md §3 TF-4`, Project produces Borrowed; per
+    // `instr.rs:391 _ => false`, Project is NOT an owned position itself.
+    // The two-stage rule fires only when a Project dst is THEN consumed at
+    // a transfer point. This pin clamps the cycle-40 unsound-aggressive
+    // failure mode (`populate on every Project`) — a reversion of Pass 1/Pass 2
+    // to single-pass-on-every-Project would set the bit here and FAIL.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::STR],
+        blocks: vec![entry_block(
+            vec![project_first(ArcVarId::new(1), Idx::STR, ArcVarId::new(0))],
+            ArcTerminator::Unreachable,
+        )],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
+    assert!(
+        ctx.moved_out_fields().is_empty(),
+        "moved_out_fields MUST remain empty when Project has no transfer-point consumer (TF-4 Borrowed; two-stage rule's stage-2 not fired); got {:?}",
+        ctx.moved_out_fields(),
+    );
+}
+
+#[test]
+fn project_consumed_at_is_shared_leaves_moved_out_fields_unset_per_03_4_borrowed_position_negative()
+{
+    // §03.4 cycle 42 negative pin (borrowed-position clamp): `%1 = Project %0.0`
+    // followed by `IsShared(%1)` MUST leave `moved_out_fields[%0]` unset. Per
+    // `instr.rs:391 _ => false`, IsShared falls through `is_owned_position`'s
+    // catch-all → NOT an owned position → `instr_transfer_vars` does NOT
+    // include %1. The two-stage rule's stage-2 is NOT triggered by IsShared.
+    // Clamps the Pass 2 logic from below: a reversion that erroneously
+    // treats every `used_vars` member as a transfer (ignoring
+    // `is_owned_position`) would set the bit here and FAIL. Per
+    // `aims-rules.md §3 TF-10`, IsShared produces SCALAR (boolean) — no
+    // ownership transfer happens.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::STR, Idx::BOOL],
+        blocks: vec![entry_block(
+            vec![
+                project_first(ArcVarId::new(1), Idx::STR, ArcVarId::new(0)),
+                ArcInstr::IsShared {
+                    dst: ArcVarId::new(2),
+                    var: ArcVarId::new(1),
+                },
+            ],
+            ArcTerminator::Unreachable,
+        )],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let ctx = emit_burden_ops(&mut func, &registry, &[]);
+    assert!(
+        ctx.moved_out_fields().is_empty(),
+        "moved_out_fields MUST remain empty when Project dst is consumed at borrowed position (IsShared; TF-10 SCALAR result; is_owned_position _ => false); got {:?}",
         ctx.moved_out_fields(),
     );
 }
@@ -1794,5 +2044,94 @@ fn return_scalar_int_value_emits_zero_burden_ops_per_vf1_rconscalar() {
     assert!(
         body.is_empty(),
         "scalar Int Return.value MUST trigger zero burden ops (VF-1 RcOnScalar mirror); body={body:?}",
+    );
+}
+
+#[test]
+fn partial_move_at_last_use_emits_burden_dec_partial_per_03_4_cycle_46() {
+    // §03.4 cycle 46 positive pin — partial-move emission. Construct a 2-field
+    // user-defined struct `{ data: str, name: str }` with UserBurdenSpec naming
+    // BOTH fields as owned. Function body projects ONLY field 0 (data) and
+    // transfers it via Construct (records moved_out_fields[parent] = {0}); a
+    // later Project of field 1 (name) is the parent's terminal last-use site
+    // (Project is `_ => false` for is_owned_position so the terminal Project
+    // is NOT a transfer point). At parent's last-use:
+    //   - transfer_vars empty (Project is not transfer)
+    //   - full_move_vars excludes parent ({0} does not cover {0, 1})
+    //   - partial_move_vars contains parent with skip_fields = [0]
+    //   - → BurdenDecPartial { var: parent, skip_fields: vec![0] } emitted
+    //
+    // Negative pin clamping the cycle-43 full-move case lives in the existing
+    // cycle 43 test (full-move asserts zero BurdenDec / zero BurdenDecPartial);
+    // cycle 46 inherits that suppression branch unchanged. Per `aims-rules.md
+    // §8 RL-2` partial-transfer semantics (partial-move = partial-transfer;
+    // non-moved fields still need drop; skip_fields names transferred subset).
+    //
+    // AIMS Invariant 5 case (b) preserved: BurdenDecPartial extends ArcInstr
+    // on the SAME var dimension; no parallel emission, no shadow tracker.
+    use crate::lower::test_utils::registered_struct_with_two_owned_str_fields;
+
+    let mut registry = TypeRegistry::new();
+    let struct_idx = Idx::from_raw(64); // first dynamic slot per TY-5
+    registered_struct_with_two_owned_str_fields(&mut registry, "Pair", struct_idx);
+
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: struct_idx,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![struct_idx, Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![entry_block(
+            vec![
+                project_first(ArcVarId::new(1), Idx::STR, ArcVarId::new(0)),
+                ArcInstr::Construct {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    ctor: CtorKind::Tuple,
+                    args: vec![ArcVarId::new(1)],
+                },
+                ArcInstr::Project {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcVarId::new(0),
+                    field: 1,
+                },
+            ],
+            ArcTerminator::Unreachable,
+        )],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+    let body = &func.blocks[0].body;
+
+    let partial_decs: Vec<&ArcInstr> = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDecPartial { var, .. } if *var == ArcVarId::new(0)))
+        .collect();
+    assert_eq!(
+        partial_decs.len(),
+        1,
+        "MUST emit exactly one BurdenDecPartial for parent var(0) at its last-use (Project field 1); got {partial_decs:?}; body={body:?}",
+    );
+    let ArcInstr::BurdenDecPartial { skip_fields, .. } = partial_decs[0] else {
+        panic!("filter guaranteed BurdenDecPartial");
+    };
+    assert_eq!(
+        skip_fields,
+        &vec![0u32],
+        "BurdenDecPartial.skip_fields MUST contain the moved-out top-level field index 0 (field 'data' projected at instr 0 and transferred to Construct at instr 1); got {skip_fields:?}",
+    );
+
+    let parent_full_decs: Vec<&ArcInstr> = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)))
+        .collect();
+    assert!(
+        parent_full_decs.is_empty(),
+        "MUST NOT emit BurdenDec for parent var(0) when partial-move applies (partial-drop replaces, not augments); got {parent_full_decs:?}; body={body:?}",
     );
 }

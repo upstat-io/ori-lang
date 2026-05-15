@@ -21,6 +21,9 @@ fn module_info(path: &str, metadata: Vec<ExportedTypeMetadata>) -> CompiledModul
         public_functions: Vec::new(),
         exported_type_metadata: metadata,
         exported_collection_surfaces: Vec::new(),
+        type_result: ori_types::TypeCheckResult::ok(ori_types::TypedModule::default()),
+        canon_result: ori_ir::canon::SharedCanonResult::new(ori_ir::canon::CanonResult::empty()),
+        pool: std::sync::Arc::new(ori_types::Pool::new()),
     }
 }
 
@@ -36,6 +39,9 @@ fn module_info_with_surfaces(
         public_functions: Vec::new(),
         exported_type_metadata: metadata,
         exported_collection_surfaces: surfaces,
+        type_result: ori_types::TypeCheckResult::ok(ori_types::TypedModule::default()),
+        canon_result: ori_ir::canon::SharedCanonResult::new(ori_ir::canon::CanonResult::empty()),
+        pool: std::sync::Arc::new(ori_types::Pool::new()),
     }
 }
 

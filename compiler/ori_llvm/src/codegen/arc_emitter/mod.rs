@@ -641,4 +641,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 }
 
 #[cfg(test)]
+mod test_utils;
+
+#[cfg(test)]
 mod tests;

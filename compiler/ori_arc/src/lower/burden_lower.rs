@@ -152,11 +152,48 @@ pub(crate) fn emit_burden_ops<'a>(
     let terminator_transfer_per_block =
         compute_terminator_transfer_per_block(func, derived_ownership);
 
+    // §03.4 cycle 42 — populate `moved_out_fields` per proposal §Non-Drop
+    // Partial-Move two-stage rule. Pass 1 collects `(project_dst → (src, field))`;
+    // Pass 2 walks instructions + terminators and sets the bit when a transferred
+    // var matches a project_dst. Project alone leaves the bit unset (TF-4
+    // Borrowed); `Set.value` carve-out applies via `instr_transfer_vars` (TF-15).
+    populate_moved_out_fields(&mut ctx, func, &terminator_transfer_per_block);
+
+    // §03.4 cycle 43 — derive the full-move var set: vars whose
+    // `moved_out_fields[var]` covers every top-level field index of their
+    // `Burden::owned_fields()`. BurdenDec emission is suppressed for these
+    // per `aims-rules.md §8 RL-2` (full-move == complete ownership transfer at
+    // field-projection grain → BurdenDec correctly suppressed). Partial-move
+    // (some-but-not-all fields covered) still emits a CONSERVATIVE FULL
+    // BurdenDec (over-emit; cycle 44 introduces partial-drop IR variant).
+    let full_move_vars = compute_full_move_vars(
+        func,
+        &ctx.moved_out_fields,
+        type_registry,
+        &owned_vars_needing_rc,
+    );
+
+    // §03.4 cycle 46 — derive the partial-move var map: vars with non-empty
+    // `moved_out_fields[var]` that are NOT in `full_move_vars`. Each entry's
+    // `skip_fields: Vec<u32>` lists top-level field indices to skip during
+    // drop-glue iteration at codegen (cycle 44c). `BurdenDecPartial` emission
+    // gates on this map per `aims-rules.md §8 RL-2` partial-transfer semantics
+    // (the non-moved fields still need their drop; skip_fields names the
+    // transferred subset). AIMS Invariant 5 case (b) — extends ArcInstr enum
+    // on the SAME var dimension; no parallel emission, no shadow tracker.
+    let partial_move_vars = compute_partial_move_vars(
+        &ctx.moved_out_fields,
+        &full_move_vars,
+        &owned_vars_needing_rc,
+    );
+
     emit_burden_ops_for_blocks(
         func,
         &owned_vars_needing_rc,
         &last_uses_at,
         &terminator_transfer_per_block,
+        &full_move_vars,
+        &partial_move_vars,
     );
     ctx
 }
@@ -396,6 +433,181 @@ fn terminator_transfer_vars(
     transfers
 }
 
+/// §03.4 cycle 42 — populate `ctx.moved_out_fields` per proposal §Non-Drop
+/// Partial-Move two-stage rule. Two-pass linear scan; per §03.4 framing,
+/// BOUNDED structural bookkeeping (no fixpoint, no lattice consultation).
+///
+/// **Pass 1**: walk every block's body; record every `ArcInstr::Project { dst,
+/// value, field, .. }` as a `dst → (value, field)` entry in a local map.
+///
+/// **Pass 2**: walk every block's body + terminator; for each transferred var
+/// (per `instr_transfer_vars` which honors `is_owned_position` + the Set-value
+/// carve-out per `aims-rules.md §3 TF-15` + IA-5 step (1), and per the
+/// precomputed `terminator_transfer_per_block` set), if the transferred var
+/// matches a `project_dst`, insert `(project_src, field)` into
+/// `moved_out_fields[project_src]`.
+///
+/// Project ALONE does NOT set the bit (per `aims-rules.md §3 TF-4` — Project
+/// produces `Borrowed`; `is_owned_position`'s `_ => false` excludes it). Project
+/// consumed at a borrowed position (e.g., `IsShared`) also leaves the bit
+/// unset — `IsShared` falls through `_ => false` in `is_owned_position` and
+/// has no Set-value-style carve-out.
+///
+/// CFG-join semantics (per-predecessor lookup) deferred per §03.4 framing line 1641.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
+    )
+)]
+fn populate_moved_out_fields(
+    ctx: &mut BurdenLowerCtx<'_>,
+    func: &ArcFunction,
+    terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
+) {
+    // Pass 1: collect (project_dst → (project_src, field)) tuples.
+    let mut project_origins: FxHashMap<ArcVarId, (ArcVarId, u32)> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project {
+                dst, value, field, ..
+            } = instr
+            {
+                project_origins.insert(*dst, (*value, *field));
+            }
+        }
+    }
+
+    // Pass 2: walk instructions + terminators; check transfer-vars against
+    // project_origins. instr_transfer_vars honors is_owned_position +
+    // Set-value carve-out; terminator_transfer_per_block carries
+    // Return/Jump-to-Owned-param/Invoke-Owned/InvokeIndirect-Owned per
+    // `aims-rules.md §8 RL-2`.
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for instr in &block.body {
+            let transfer_vars = instr_transfer_vars(instr);
+            for var in &transfer_vars {
+                if let Some(&(src, field)) = project_origins.get(var) {
+                    ctx.moved_out_fields.entry(src).or_default().insert(field);
+                }
+            }
+        }
+        if let Some(term_transfers) = terminator_transfer_per_block.get(block_idx) {
+            for var in term_transfers {
+                if let Some(&(src, field)) = project_origins.get(var) {
+                    ctx.moved_out_fields.entry(src).or_default().insert(field);
+                }
+            }
+        }
+    }
+}
+
+/// §03.4 cycle 43 — derive the full-move var set. For each `var` in
+/// `owned_vars_needing_rc`, the full-move criterion holds when every
+/// `Burden::owned_fields()` entry's `field_path[0]` (top-level field index)
+/// is contained in `moved_out_fields[var]`. Vacuously true for vars with
+/// empty `owned_fields()` (treated as not-full-move because the var would
+/// not be in `owned_vars_needing_rc` per `burden_carries_rc` filter — the
+/// vacuous case is unreachable in practice).
+///
+/// Returns a set of vars whose `BurdenDec` emission is SUPPRESSED at last-use
+/// sites + terminator-positions per `aims-rules.md §8 RL-2` ("`BurdenDec`
+/// SHALL be emitted at last use of owned value... UNLESS last use is
+/// ownership-transferring"; full-move == complete field-projection
+/// transfer).
+///
+/// Partial-move (some-but-not-all fields covered by `moved_out_fields`) is
+/// NOT in the full-move set — those vars still emit a conservative FULL
+/// `BurdenDec` at last-use (cycle 43 baseline). Field-aware partial-drop
+/// emission lands in cycle 44 via IR variant evolution.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
+    )
+)]
+fn compute_full_move_vars(
+    func: &ArcFunction,
+    moved_out_fields: &FxHashMap<ArcVarId, FxHashSet<u32>>,
+    type_registry: &TypeRegistry,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let mut full_move_vars: FxHashSet<ArcVarId> = FxHashSet::default();
+    for &var in owned_vars_needing_rc {
+        let Some(moved_fields) = moved_out_fields.get(&var) else {
+            continue;
+        };
+        let var_type = func.var_types[var.index()];
+        let ty: TypeRef = idx_to_type_ref(var_type, type_registry);
+        let Some(burden) = lookup_burden(ty, type_registry) else {
+            continue;
+        };
+        // Empty owned_fields → vacuous all() returns true; guard against
+        // false-positive by requiring at least one owned field. Vars in
+        // owned_vars_needing_rc pass burden_carries_rc which excludes EMPTY
+        // burdens, so this guard is defensive (catches future edge cases).
+        let mut has_owned_field = false;
+        let all_top_level_moved = burden.owned_fields().all(|of| {
+            has_owned_field = true;
+            of.field_path
+                .first()
+                .is_some_and(|f| moved_fields.contains(f))
+        });
+        if has_owned_field && all_top_level_moved {
+            full_move_vars.insert(var);
+        }
+    }
+    full_move_vars
+}
+
+/// §03.4 cycle 46 — derive the partial-move var map. For each `var` in
+/// `owned_vars_needing_rc` whose `moved_out_fields[var]` is non-empty AND
+/// `var` is NOT in `full_move_vars`, collect a sorted `Vec<u32>` of the
+/// moved-out top-level field indices. This is the `skip_fields` payload
+/// for the `BurdenDecPartial { var, skip_fields }` IR variant.
+///
+/// Sorted-Vec encoding satisfies determinism (`impl-hygiene.md §Pass
+/// Composition — Pass determinism`); `moved_out_fields[var]` is a
+/// `FxHashSet<u32>` whose iteration order is non-deterministic. Sorting at
+/// emission time yields byte-identical IR across runs.
+///
+/// Returns a map from `ArcVarId` to its sorted `skip_fields`. Vars in
+/// `full_move_vars` are excluded (suppression branch handles them); vars
+/// with empty `moved_out_fields` are excluded (no skip required → emit full
+/// `BurdenDec`). The result feeds the three-way branch in
+/// `emit_instr_burdens` and `emit_terminator_burden_decs` at last-use sites.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
+    )
+)]
+fn compute_partial_move_vars(
+    moved_out_fields: &FxHashMap<ArcVarId, FxHashSet<u32>>,
+    full_move_vars: &FxHashSet<ArcVarId>,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> FxHashMap<ArcVarId, Vec<u32>> {
+    let mut partial: FxHashMap<ArcVarId, Vec<u32>> = FxHashMap::default();
+    for (&var, fields) in moved_out_fields {
+        if fields.is_empty() {
+            continue;
+        }
+        if !owned_vars_needing_rc.contains(&var) {
+            continue;
+        }
+        if full_move_vars.contains(&var) {
+            continue;
+        }
+        let mut sorted: Vec<u32> = fields.iter().copied().collect();
+        sorted.sort_unstable();
+        partial.insert(var, sorted);
+    }
+    partial
+}
+
 /// Drive the unified single-forward-pass per-block emission. For each instruction:
 /// - `BurdenInc` emitted BEFORE for every owned-position arg per
 ///   `ArcInstr::is_owned_position(pos)` SSOT helper (§03.2 sc 1).
@@ -404,6 +616,8 @@ fn terminator_transfer_vars(
 ///   ownership transferred per `aims-rules.md §8 RL-2`).
 ///
 /// `Set`/`SetTag` carve-outs per `aims-rules.md §3 TF-15` apply at both halves.
+/// §03.4 cycle 43: `full_move_vars` suppresses `BurdenDec` emission for vars
+/// whose entire owned-field set is covered by `moved_out_fields`.
 #[cfg_attr(
     not(test),
     allow(
@@ -416,20 +630,23 @@ fn emit_burden_ops_for_blocks(
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
     last_uses_at: &FxHashMap<(usize, usize), Vec<ArcVarId>>,
     terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
+    full_move_vars: &FxHashSet<ArcVarId>,
+    partial_move_vars: &FxHashMap<ArcVarId, Vec<u32>>,
 ) {
     for (block_idx, block) in func.blocks.iter_mut().enumerate() {
         let original = std::mem::take(&mut block.body);
         let terminator_idx = original.len();
         let mut new_body: Vec<ArcInstr> = Vec::with_capacity(original.len() * 2);
         for (instr_idx, instr) in original.into_iter().enumerate() {
-            emit_instr_burdens(
-                &mut new_body,
-                instr,
+            let ctx = BurdenEmitCtx {
                 block_idx,
                 instr_idx,
                 owned_vars_needing_rc,
                 last_uses_at,
-            );
+                full_move_vars,
+                partial_move_vars,
+            };
+            emit_instr_burdens(&mut new_body, instr, &ctx);
         }
         emit_terminator_burden_decs(
             &mut new_body,
@@ -437,9 +654,26 @@ fn emit_burden_ops_for_blocks(
             terminator_idx,
             last_uses_at,
             &terminator_transfer_per_block[block_idx],
+            full_move_vars,
+            partial_move_vars,
         );
         block.body = new_body;
     }
+}
+
+/// Read-only context bundle for per-instruction burden emission. Carries the
+/// position (`block_idx`/`instr_idx`) plus four loop-invariant analysis maps
+/// (`owned_vars_needing_rc`, `last_uses_at`, `full_move_vars`,
+/// `partial_move_vars`) consumed by `emit_instr_burdens` per `aims-rules.md
+/// §8 RL-2`. Domain newtype per `impl-hygiene.md §PARAM_SPRAWL Cure hierarchy
+/// item 3`.
+struct BurdenEmitCtx<'a> {
+    block_idx: usize,
+    instr_idx: usize,
+    owned_vars_needing_rc: &'a FxHashSet<ArcVarId>,
+    last_uses_at: &'a FxHashMap<(usize, usize), Vec<ArcVarId>>,
+    full_move_vars: &'a FxHashSet<ArcVarId>,
+    partial_move_vars: &'a FxHashMap<ArcVarId, Vec<u32>>,
 }
 
 /// Emit `BurdenInc` ops before `instr`, push `instr` itself, then emit
@@ -447,29 +681,57 @@ fn emit_burden_ops_for_blocks(
 /// owned position by this instruction. `Set` carve-outs (`value` is Owned
 /// via IA-5 alias-transfer despite `is_owned_position`'s `_ => false`) are
 /// applied symmetrically per `aims-rules.md §3 TF-15`.
-fn emit_instr_burdens(
-    new_body: &mut Vec<ArcInstr>,
-    instr: ArcInstr,
-    block_idx: usize,
-    instr_idx: usize,
-    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
-    last_uses_at: &FxHashMap<(usize, usize), Vec<ArcVarId>>,
-) {
+fn emit_instr_burdens(new_body: &mut Vec<ArcInstr>, instr: ArcInstr, ctx: &BurdenEmitCtx<'_>) {
     for (pos, &arg) in instr.used_vars().iter().enumerate() {
-        if instr.is_owned_position(pos) && owned_vars_needing_rc.contains(&arg) {
+        if instr.is_owned_position(pos) && ctx.owned_vars_needing_rc.contains(&arg) {
             new_body.push(ArcInstr::BurdenInc { var: arg });
         }
     }
-    if let ArcInstr::Set { value, .. } = &instr {
-        if owned_vars_needing_rc.contains(value) {
+    if let ArcInstr::Set { base, field, value } = &instr {
+        // §03.4 cycle 47 — Set old-value drop emission per plan body line 1943
+        // ("`BurdenDec(base.field.old_value)` BEFORE Set mutation"). Emit when
+        // base carries any burden (owned_vars_needing_rc.contains(base)) — the
+        // codegen layer at cycle 48 walks `Burden::owned_fields()` to filter
+        // which field positions actually need a drop. Mirrors symmetric
+        // BurdenInc(value) at the same site (cycle 12+24 below): BurdenInc
+        // transfers ownership INTO the field, BurdenDecField releases prior
+        // value OUT. Ordering invariant: BurdenDecField BEFORE BurdenInc(value)
+        // BEFORE Set — old release precedes new acquire precedes mutation, so
+        // codegen can read prior value via GEP+load BEFORE the store clobbers
+        // it.
+        if ctx.owned_vars_needing_rc.contains(base) {
+            new_body.push(ArcInstr::BurdenDecField {
+                base: *base,
+                field: *field,
+            });
+        }
+        if ctx.owned_vars_needing_rc.contains(value) {
             new_body.push(ArcInstr::BurdenInc { var: *value });
         }
     }
     let transfer_vars = instr_transfer_vars(&instr);
     new_body.push(instr);
-    if let Some(last_use_vars) = last_uses_at.get(&(block_idx, instr_idx)) {
+    if let Some(last_use_vars) = ctx.last_uses_at.get(&(ctx.block_idx, ctx.instr_idx)) {
         for &var in last_use_vars {
-            if !transfer_vars.contains(&var) {
+            // §03.4 cycle 46 three-way branch per `aims-rules.md §8 RL-2`:
+            // (a) suppress entirely when var is ownership-transferred at this
+            //     instr OR var's entire owned-field set was moved (full-move
+            //     case from cycle 43);
+            // (b) emit `BurdenDecPartial { var, skip_fields }` when some-but-
+            //     not-all owned fields were moved via field-projection
+            //     transfers (partial-move case from cycle 46; codegen at
+            //     cycle 44c walks owned_fields minus skip_fields);
+            // (c) emit standard `BurdenDec { var }` for the no-projection
+            //     baseline (cycle 42 conservative case retained).
+            if transfer_vars.contains(&var) || ctx.full_move_vars.contains(&var) {
+                continue;
+            }
+            if let Some(skip_fields) = ctx.partial_move_vars.get(&var) {
+                new_body.push(ArcInstr::BurdenDecPartial {
+                    var,
+                    skip_fields: skip_fields.clone(),
+                });
+            } else {
                 new_body.push(ArcInstr::BurdenDec { var });
             }
         }
@@ -505,12 +767,26 @@ fn emit_terminator_burden_decs(
     terminator_idx: usize,
     last_uses_at: &FxHashMap<(usize, usize), Vec<ArcVarId>>,
     terminator_transfer_vars: &FxHashSet<ArcVarId>,
+    full_move_vars: &FxHashSet<ArcVarId>,
+    partial_move_vars: &FxHashMap<ArcVarId, Vec<u32>>,
 ) {
     let Some(last_use_vars) = last_uses_at.get(&(block_idx, terminator_idx)) else {
         return;
     };
     for &var in last_use_vars {
-        if !terminator_transfer_vars.contains(&var) {
+        // §03.4 cycle 46 three-way branch — symmetric with `emit_instr_burdens`
+        // per `aims-rules.md §8 RL-2` terminator + instruction equivalence:
+        // (a) suppress on transfer OR full-move; (b) BurdenDecPartial for
+        // partial-move; (c) standard BurdenDec for no-projection baseline.
+        if terminator_transfer_vars.contains(&var) || full_move_vars.contains(&var) {
+            continue;
+        }
+        if let Some(skip_fields) = partial_move_vars.get(&var) {
+            new_body.push(ArcInstr::BurdenDecPartial {
+                var,
+                skip_fields: skip_fields.clone(),
+            });
+        } else {
             new_body.push(ArcInstr::BurdenDec { var });
         }
     }

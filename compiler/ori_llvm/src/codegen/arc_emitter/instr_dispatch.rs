@@ -436,8 +436,90 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // then these are no-op emissions (no IR generated). The variants
             // exist in ARC IR for the §03.2 walker + §03.5 verifier, but
             // codegen sees through them as zero-cost annotations.
-            ArcInstr::BurdenInc { var: _ } | ArcInstr::BurdenDec { var: _ } => {
+            ArcInstr::BurdenInc { var: _ }
+            | ArcInstr::BurdenDec { var: _ }
+            | ArcInstr::BurdenDecPartial { var: _, .. } => {
                 // No LLVM IR emitted — burden lowering deferred to §06.
+                // §03.4 cycle 44a: BurdenDecPartial scaffold-only passthrough
+                // (skip_fields ignored at codegen time until cycle 44c wires
+                // field-aware drop-glue per `aims-rules.md §8 RL-2`).
+            }
+
+            ArcInstr::BurdenDecVariant { var: _ } => {
+                // §03.4 cycle 50b: BurdenDecVariant IR scaffold-only
+                // passthrough. Real codegen deferred to cycle 50c —
+                // mirrors cycle-44a IR scaffold → cycle-44c codegen
+                // wiring split. At cycle 50c, codegen will GEP the tag
+                // field of `var` + load the current discriminant +
+                // dispatch per-variant burden walk via emit_drop_rc_dec
+                // (drop_gen.rs:326), analogous to cycle-49 BurdenDecField
+                // dynamic field-position load pattern at lines 472-484.
+                // Until 50c, no-op. Per `aims-rules.md §3 TF-15a` +
+                // `§8 RL-10`: SetTag invalidates ALL payload fields of
+                // the OLD variant; codegen must walk before SetTag's
+                // store overwrites the discriminant.
+            }
+
+            ArcInstr::BurdenDecField { base, field } => {
+                // §03.4 cycle 49 — BurdenDecField codegen wire per plan body
+                // line 1943 ("BurdenDec(base.field.old_value) BEFORE Set
+                // mutation"). Ordering invariant from cycle 47 emit_burden_ops:
+                // BurdenDecField fires BEFORE Set's GEP+store clobbers the
+                // field slot. Codegen: GEP to the field position + load the
+                // prior value + emit_drop_rc_dec against the loaded handle.
+                // emit_drop_rc_dec (drop_gen.rs:326) is the SSOT dispatcher —
+                // it handles RE-2 scalar exemption (extract_rc_data_ptrs
+                // empty-return short-circuit at drop_gen.rs:337-339) AND
+                // closure-aware RcDec (Tag::Function early-return at
+                // drop_gen.rs:331-334) via the canonical lookup, avoiding
+                // `LEAK:scattered-knowledge` per `impl-hygiene.md §SSOT`.
+                // Mirrors `emit_drop_fields` shape (drop_gen.rs:141-164) —
+                // struct_gep + load + emit_drop_rc_dec — same precedent the
+                // drop function bodies use for the per-type drop sequence.
+                let repr = func.var_repr(*base).unwrap_or(ValueRepr::Scalar);
+                if repr == ValueRepr::RcPointer {
+                    let base_val = self.var(*base);
+                    let base_ty = func.var_type(*base);
+                    let llvm_ty = self.resolve_type(base_ty);
+                    let field_pos = *field as usize;
+                    let struct_fields = self.pool.struct_fields(base_ty);
+                    if let Some(&(_, field_type)) = struct_fields.get(field_pos) {
+                        let mem_field = self.remap_struct_field(base_ty, *field);
+                        let field_ptr = self.builder.struct_gep(
+                            llvm_ty,
+                            base_val,
+                            mem_field,
+                            &format!("burden_dec_field.{field}.ptr"),
+                        );
+                        let field_llvm_ty = self.resolve_type(field_type);
+                        let field_val = self.builder.load(
+                            field_llvm_ty,
+                            field_ptr,
+                            &format!("burden_dec_field.{field}.prior"),
+                        );
+                        // emit_drop_rc_dec handles RE-2 scalar exemption +
+                        // closure-aware dispatch via canonical paths.
+                        self.emit_drop_rc_dec(field_val, field_type);
+                    } else {
+                        tracing::trace!(
+                            base = base.raw(),
+                            field,
+                            "BurdenDecField: field index out of struct_fields range — \
+                             likely tuple or non-struct base; skipping"
+                        );
+                    }
+                } else {
+                    // Non-pointer base: scalar-repr value has no heap field
+                    // layout to GEP into; no drop required (RE-2 + scalar
+                    // base is unreachable per Set's symmetric guard at
+                    // line 559-568).
+                    tracing::trace!(
+                        base = base.raw(),
+                        field,
+                        ?repr,
+                        "BurdenDecField on non-pointer base — skipping (unreachable)"
+                    );
+                }
             }
 
             ArcInstr::IsShared { dst, var } => {

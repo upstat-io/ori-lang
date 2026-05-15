@@ -16,6 +16,15 @@ mod multi_emission;
 #[cfg(feature = "llvm")]
 mod single;
 
+// Re-export cross-module imported-generic resolution helper so the
+// single-file build path (`single.rs` → `compile_to_llvm`) can construct
+// the same `ImportedMonoState` shape that the multi-file path constructs.
+// `build_imported_mono_state` works uniformly for stdlib imports (e.g.,
+// `use std.testing { assert_eq }` in a single-file program) and relative
+// imports — both flow through `resolve_imports`.
+#[cfg(feature = "llvm")]
+pub(crate) use multi::build_imported_mono_state;
+
 #[cfg(test)]
 mod tests;
 

@@ -99,6 +99,9 @@ pub fn transfer_def(
         | ArcInstr::RcDec { .. }
         | ArcInstr::BurdenInc { .. }
         | ArcInstr::BurdenDec { .. }
+        | ArcInstr::BurdenDecPartial { .. }
+        | ArcInstr::BurdenDecField { .. }
+        | ArcInstr::BurdenDecVariant { .. }
         | ArcInstr::Set { .. }
         | ArcInstr::SetTag { .. } => None,
     }
@@ -288,7 +291,10 @@ pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 
         | ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
         | ArcInstr::BurdenInc { .. }
-        | ArcInstr::BurdenDec { .. } => SmallVec::new(),
+        | ArcInstr::BurdenDec { .. }
+        | ArcInstr::BurdenDecPartial { .. }
+        | ArcInstr::BurdenDecField { .. }
+        | ArcInstr::BurdenDecVariant { .. } => SmallVec::new(),
 
         // Project: one read of the source.
         ArcInstr::Project { value, .. } => {

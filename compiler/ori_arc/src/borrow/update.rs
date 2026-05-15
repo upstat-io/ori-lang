@@ -258,6 +258,9 @@ pub(super) fn update_ownership_inner(
                 | ArcInstr::RcDec { .. }
                 | ArcInstr::BurdenInc { .. }
                 | ArcInstr::BurdenDec { .. }
+                | ArcInstr::BurdenDecPartial { .. }
+                | ArcInstr::BurdenDecField { .. }
+                | ArcInstr::BurdenDecVariant { .. }
                 | ArcInstr::IsShared { .. }
                 | ArcInstr::Set { .. }
                 | ArcInstr::SetTag { .. }

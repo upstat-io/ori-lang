@@ -110,32 +110,35 @@ pub fn check_source(
     ))
 }
 
-/// Compile source to LLVM IR.
+/// Compile source to LLVM IR with imported-mono state for cross-module
+/// generic dispatch.
 ///
-/// Takes checked parse and type results and generates LLVM IR via:
-/// 1. `TypeInfoStore` + `TypeLayoutResolver` for LLVM type computation
-/// 2. `IrBuilder` for instruction emission
-/// 3. `FunctionCompiler` for two-pass declare-then-define compilation
+/// Used by single-file builds whose source contains imports that resolve
+/// to imported generic instantiations (e.g., `assert_eq<int>` from
+/// `std.testing`). The caller is responsible for building the
+/// `ImportedMonoState` ahead of this call — typically via
+/// `crate::commands::build::build_imported_mono_state`. The
+/// `imported_state.merged_pool` MUST outlive the returned LLVM module;
+/// `'ctx` ties the LLVM context, the merged pool, and the returned module
+/// together so the borrow checker enforces this.
 ///
-/// The Pool is required for proper compound type resolution during codegen
-/// (e.g., determining which return types need the sret calling convention).
-///
-/// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
-///
-/// Returns `Err` if LLVM IR verification fails or the codegen audit detects
-/// RC lifecycle violations. The IR dump runs before verification, so the
-/// annotated LLVM IR is visible on stderr even when the module is invalid.
+/// Without this entry point, single-file programs with stdlib imports
+/// (e.g., `use std.testing { assert_eq }`) yield `unresolved function in
+/// apply/invoke — missing mono instance?` at LLVM verification because
+/// `collect_mono_functions` silently skips imported generic instances.
 #[cfg(feature = "llvm")]
 #[expect(
     clippy::too_many_arguments,
-    reason = "pipeline boundary — target_triple needed for EH model selection"
+    reason = "pipeline boundary mirrors compile_to_llvm + adds imported-mono state"
 )]
-pub fn compile_to_llvm<'ctx>(
+pub fn compile_to_llvm_with_imported_monos<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
-    pool: &'ctx Pool,
+    merged_pool: &'ctx Pool,
+    imported_mono_fns: &[super::ImportedMonoFn],
+    re_interned_canons: &[CanonResult],
     canon: &CanonResult,
     source_path: &str,
     target_triple: Option<&str>,
@@ -151,12 +154,14 @@ pub fn compile_to_llvm<'ctx>(
         db,
         parse_result,
         type_result,
-        pool,
+        merged_pool,
         canon,
         source_path,
         module_name,
         "", // No symbol prefix for single-file compilation
         &[],
+        imported_mono_fns,
+        re_interned_canons,
         target_triple,
         narrowing_policy,
         &[], // Single-file: no imported type metadata
@@ -176,6 +181,11 @@ pub fn compile_to_llvm<'ctx>(
 ///
 /// The Pool is required for proper compound type resolution during codegen.
 /// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
+///
+/// `imported_mono_fns` carries promoted `ImportedMonoFn` triples for
+/// cross-module imported-generic body specialization (Decision 01 Option B
+/// body-import linkage). Pass `&[]` when the host module has no imported
+/// generic instantiations to lower locally.
 #[cfg(feature = "llvm")]
 #[allow(
     clippy::too_many_arguments,
@@ -193,6 +203,8 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     imported_functions: &[ImportedFunctionInfo],
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
     imported_collection_surfaces: &[u64],
+    imported_mono_fns: &[super::ImportedMonoFn],
+    re_interned_canons: &[CanonResult],
     arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
     module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
     target_triple: Option<&str>,
@@ -233,6 +245,8 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         module_name,
         module_name, // Multi-file: symbol prefix matches module name
         &import_sigs,
+        imported_mono_fns,
+        re_interned_canons,
         target_triple,
         narrowing_policy,
         imported_type_metadata,

@@ -116,6 +116,77 @@ pub enum ArcInstr {
     /// release — see `BurdenInc` above for shape contract.
     BurdenDec { var: ArcVarId },
 
+    /// §03.4 cycle 44a scaffold — field-aware partial-drop sibling to
+    /// `BurdenDec`. Carries `skip_fields: Vec<u32>` naming the top-level
+    /// field indices of `var`'s `Burden::owned_fields()` whose drop should
+    /// be skipped (because field-projection transfers moved them out per
+    /// `aims-rules.md §8 RL-2` two-stage rule). Cycle 46 wires
+    /// `burden_lower` emission to construct this variant when
+    /// `moved_out_fields[var]` is non-empty but not full-move. Cycle 44c
+    /// wires `ori_llvm` codegen to skip `skip_fields` when walking the
+    /// `owned_fields` drop-glue. Production callers limited to test paths
+    /// until codegen wiring lands. `Vec<u32>` chosen over
+    /// `SmallVec<[u32; 4]>` because smallvec workspace dep lacks `serde`
+    /// feature; cache-feature derives require Serializable payloads.
+    /// Cycle 44c may swap to `SmallVec` after workspace feature flag flip.
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "emission shipped cycle 46 via burden_lower; production callers gated on §03.N pipeline-wiring migration AND cycle 44c ori_llvm codegen-wiring (drop-glue skip_fields iteration)"
+        )
+    )]
+    BurdenDecPartial {
+        var: ArcVarId,
+        skip_fields: Vec<u32>,
+    },
+
+    /// §03.4 cycle 47 — Set old-value drop emission per plan body line 1943
+    /// ("`BurdenDec(base.field.old_value)` BEFORE Set mutation"). Symmetric
+    /// with `BurdenInc { value }` for Set (cycle 12+24, `burden_lower.rs:685`);
+    /// the `BurdenInc` transfers ownership of the new value INTO the field
+    /// position, the `BurdenDecField` releases ownership of the prior value
+    /// OUT of that position before the in-place store. Carries `base` SSA
+    /// var + `field: u32` top-level index; codegen iterates
+    /// `Burden::owned_fields()` entries whose `field_path` has `field` as
+    /// its top-level prefix and emits per-subtree `RcDec` against the
+    /// loaded prior values. Production callers limited to test paths until
+    /// cycle 48 wires `ori_llvm` codegen (mirrors cycle-44a IR scaffold →
+    /// cycle-44c codegen wiring split for `BurdenDecPartial`).
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "emission shipped cycle 47 via burden_lower; production callers gated on cycle 48 ori_llvm codegen-wiring (drop-glue for field-position prior-value RcDec)"
+        )
+    )]
+    BurdenDecField { base: ArcVarId, field: u32 },
+
+    /// §03.4 cycle 50b — SetTag old-variant drop emission. Whole-var
+    /// pattern (NOT field-positional) per `aims-rules.md §3 TF-15a` +
+    /// `§8 RL-10` — SetTag invalidates ALL payload fields of `base`'s
+    /// current variant before the tag change clobbers the discriminant.
+    /// Emitted BEFORE the `SetTag` instruction so codegen at cycle 50c
+    /// can GEP the tag field + load the current discriminant + dispatch
+    /// per-variant burden walk BEFORE the store overwrites the tag.
+    /// Mirrors the `BurdenInc / BurdenDec / BurdenDecPartial` cluster
+    /// (whole-var burden walks); does NOT mirror `BurdenDecField`
+    /// (field-positional). AIMS Invariant 5 case (b) — extends ArcInstr
+    /// enum on the same dimension as `BurdenDecPartial` / `BurdenDec`;
+    /// no parallel emission, no shadow tracker. Production callers
+    /// limited to test paths until cycle 50c wires `ori_llvm` codegen
+    /// (dynamic GEP+load discriminant + per-variant `emit_drop_rc_dec`
+    /// dispatch, analogous to cycle-49 `BurdenDecField` field-load
+    /// pattern at `instr_dispatch.rs:472-484`).
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "emission shipped cycle 50b via burden_lower; production callers gated on cycle 50c ori_llvm codegen-wiring (dynamic discriminant load + per-variant burden walk dispatch)"
+        )
+    )]
+    BurdenDecVariant { var: ArcVarId },
+
     // Reuse operations (inserted by reuse emission pass)
     /// Test whether a value's reference count is 1 (uniquely owned).
     /// Result is a `bool` bound to `dst`.
@@ -213,6 +284,9 @@ impl ArcInstr {
             | ArcInstr::RcDec { .. }
             | ArcInstr::BurdenInc { .. }
             | ArcInstr::BurdenDec { .. }
+            | ArcInstr::BurdenDecPartial { .. }
+            | ArcInstr::BurdenDecField { .. }
+            | ArcInstr::BurdenDecVariant { .. }
             | ArcInstr::Set { .. }
             | ArcInstr::SetTag { .. } => None,
         }
@@ -262,12 +336,16 @@ impl ArcInstr {
             | ArcInstr::RcDec { var, .. }
             | ArcInstr::BurdenInc { var }
             | ArcInstr::BurdenDec { var }
+            | ArcInstr::BurdenDecPartial { var, .. }
+            | ArcInstr::BurdenDecVariant { var }
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => smallvec![*var],
 
-            ArcInstr::Set { base, value, .. } => smallvec![*base, *value],
+            ArcInstr::BurdenDecField { base, .. } | ArcInstr::SetTag { base, .. } => {
+                smallvec![*base]
+            }
 
-            ArcInstr::SetTag { base, .. } => smallvec![*base],
+            ArcInstr::Set { base, value, .. } => smallvec![*base, *value],
 
             ArcInstr::Reuse { token, args, .. } => {
                 let mut vars = SmallVec::with_capacity(1 + args.len());
@@ -317,12 +395,16 @@ impl ArcInstr {
             | ArcInstr::RcDec { var, .. }
             | ArcInstr::BurdenInc { var }
             | ArcInstr::BurdenDec { var }
+            | ArcInstr::BurdenDecPartial { var, .. }
+            | ArcInstr::BurdenDecVariant { var }
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => *var == target,
 
-            ArcInstr::Set { base, value, .. } => *base == target || *value == target,
+            ArcInstr::BurdenDecField { base, .. } | ArcInstr::SetTag { base, .. } => {
+                *base == target
+            }
 
-            ArcInstr::SetTag { base, .. } => *base == target,
+            ArcInstr::Set { base, value, .. } => *base == target || *value == target,
 
             ArcInstr::Reuse { token, args, .. } => *token == target || args.contains(&target),
 
@@ -430,13 +512,17 @@ impl ArcInstr {
             | ArcInstr::RcDec { var, .. }
             | ArcInstr::BurdenInc { var }
             | ArcInstr::BurdenDec { var }
+            | ArcInstr::BurdenDecPartial { var, .. }
+            | ArcInstr::BurdenDecVariant { var }
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => sub(var, old, new),
+            ArcInstr::BurdenDecField { base, .. } | ArcInstr::SetTag { base, .. } => {
+                sub(base, old, new);
+            }
             ArcInstr::Set { base, value, .. } => {
                 sub(base, old, new);
                 sub(value, old, new);
             }
-            ArcInstr::SetTag { base, .. } => sub(base, old, new),
             ArcInstr::Reuse { token, args, .. } => {
                 sub(token, old, new);
                 sub_args(args, old, new);

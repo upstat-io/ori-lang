@@ -1,0 +1,9 @@
+// Helper module: exports generic top-level functions consumed by host modules
+// in the imported_generics matrix tests. Pinned at top-level scope per
+// Decision 02 — imported generic METHODS are owned by §03 (not this file).
+
+pub @identity<T> (x: T) -> T = x;
+
+pub @first<T> (items: [T]) -> T = items[0];
+
+pub @pair<T> (first: T, second: T) -> [T] = [first, second];

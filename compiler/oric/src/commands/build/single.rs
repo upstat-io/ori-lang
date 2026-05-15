@@ -23,7 +23,8 @@ pub(super) fn build_file_single(
     use oric::{CompilerDb, SourceFile};
     use tempfile::TempDir;
 
-    use crate::commands::compile_common::{check_source, compile_to_llvm};
+    use crate::commands::build::build_imported_mono_state;
+    use crate::commands::compile_common::{check_source, compile_to_llvm_with_imported_monos};
     use crate::problem::codegen::{report_codegen_error, CodegenProblem};
 
     // Step 1: Parse and type-check the source file
@@ -48,16 +49,29 @@ pub(super) fn build_file_single(
         eprintln!("  Optimization: {:?}", options.opt_level);
     }
 
-    // Step 3: Generate LLVM IR
+    // Step 3: Build cross-module imported-generic mono state. Handles stdlib
+    // imports (`use std.testing { assert_eq }`) uniformly with relative-path
+    // imports — both flow through `resolve_imports`. Without this, imported
+    // generic instances (e.g. `assert_eq<int>`) fail LLVM verification with
+    // "unresolved function in apply/invoke — missing mono instance?". Local
+    // ownership keeps the merged pool alive across the codegen call so the
+    // returned LLVM module's type references (which point into the merged
+    // pool) remain valid.
+    let imported_state =
+        build_imported_mono_state(&db, Path::new(path), &parse_result, &type_result, &pool);
+
+    // Step 4: Generate LLVM IR
     // This is the Salsa/ArtifactCache boundary: Salsa queries (tokens -> parsed ->
     // typed) are done; codegen uses ArtifactCache for incremental caching.
     let context = Context::create();
-    let llvm_module = compile_to_llvm(
+    let llvm_module = compile_to_llvm_with_imported_monos(
         &context,
         &db,
         &parse_result,
         &type_result,
-        &pool,
+        &imported_state.merged_pool,
+        &imported_state.imported_mono_fns,
+        &imported_state.re_interned_canons,
         &canon_result,
         path,
         Some(target.triple()),

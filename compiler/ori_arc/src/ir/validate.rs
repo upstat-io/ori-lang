@@ -179,6 +179,9 @@ pub fn assert_no_unresolved_type_vars<S: BuildHasher>(
                 | ArcInstr::RcDec { .. }
                 | ArcInstr::BurdenInc { .. }
                 | ArcInstr::BurdenDec { .. }
+                | ArcInstr::BurdenDecPartial { .. }
+                | ArcInstr::BurdenDecField { .. }
+                | ArcInstr::BurdenDecVariant { .. }
                 | ArcInstr::IsShared { .. }
                 | ArcInstr::Set { .. }
                 | ArcInstr::SetTag { .. }

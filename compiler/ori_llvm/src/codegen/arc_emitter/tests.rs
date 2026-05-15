@@ -835,6 +835,269 @@ fn set_emits_struct_gep_and_store() {
     drop(em);
 } // set_emits_struct_gep_and_store
 
+// ─── §03.4 cycle 49 BurdenDecField codegen wire matrix ───
+
+/// §03.4 cycle 49 positive pin per plan body line 1943: heap-typed field
+/// (str) MUST emit GEP+load+RcDec for the prior field value BEFORE Set's
+/// store clobbers the slot. The `emit_drop_rc_dec` SSOT dispatcher
+/// (`drop_gen.rs:326`) handles the heap-pointer extraction + drop-fn lookup.
+#[test]
+fn burden_dec_field_str_field_emits_gep_load_rc_dec_per_03_4_cycle_49() {
+    use ori_arc::ir::{ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId, ValueRepr};
+    use ori_arc::Ownership;
+
+    use super::test_utils::{burden_dec_field_first, entry_block, set_first};
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    // Struct with one str field — heap-burdened; cycle 49 MUST emit RcDec.
+    let struct_ty = pool.struct_type(
+        ori_ir::Name::from_raw(300),
+        &[(ori_ir::Name::from_raw(301), Idx::STR)],
+    );
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_burden_dec_field_str"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let ptr_ty = builder.ptr_type();
+    let host = builder.declare_function("test_bdf_str", &[ptr_ty, ptr_ty], ptr_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let cl = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    let arc_func = ArcFunction {
+        name: interner.intern("test_bdf_str"),
+        params: vec![
+            ArcParam {
+                var: ArcVarId::new(0),
+                ty: struct_ty,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: ArcVarId::new(1),
+                ty: Idx::STR,
+                ownership: Ownership::Owned,
+            },
+        ],
+        return_type: struct_ty,
+        blocks: vec![entry_block(
+            vec![
+                burden_dec_field_first(ArcVarId::new(0)),
+                set_first(ArcVarId::new(0), ArcVarId::new(1)),
+            ],
+            ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        )],
+        entry: ArcBlockId::new(0),
+        var_types: vec![struct_ty, Idx::STR],
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::RcPointer],
+        spans: vec![vec![None, None]],
+        ..Default::default()
+    };
+
+    let abi = FunctionAbi {
+        params: vec![
+            ParamAbi {
+                name: interner.intern("base"),
+                ty: struct_ty,
+                passing: ParamPassing::Direct,
+                readonly: false,
+            },
+            ParamAbi {
+                name: interner.intern("val"),
+                ty: Idx::STR,
+                passing: ParamPassing::Direct,
+                readonly: false,
+            },
+        ],
+        return_abi: ReturnAbi {
+            ty: struct_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Pin 1: BurdenDecField emitted struct_gep for the field position.
+    assert!(
+        ir.contains("burden_dec_field.0.ptr"),
+        "BurdenDecField MUST emit struct_gep for field position; ir:\n{ir}",
+    );
+    // Pin 2: BurdenDecField emitted load to capture prior value.
+    assert!(
+        ir.contains("burden_dec_field.0.prior"),
+        "BurdenDecField MUST emit load to capture prior field value; ir:\n{ir}",
+    );
+    // Pin 3: emit_drop_rc_dec routed to ori_rc_dec for the heap-typed field.
+    // The prior str value extracts data ptr + RcDec call lands in IR.
+    assert!(
+        ir.contains("ori_rc_dec"),
+        "BurdenDecField on str-typed field MUST route through emit_drop_rc_dec → ori_rc_dec; ir:\n{ir}",
+    );
+
+    drop(em);
+} // burden_dec_field_str_field_emits_gep_load_rc_dec_per_03_4_cycle_49
+
+/// §03.4 cycle 49 negative pin per `codegen-rules.md §RE-2` scalar exemption:
+/// scalar-typed field (int) MUST NOT emit `ori_rc_dec` — the `emit_drop_rc_dec`
+/// SSOT dispatcher returns early via `extract_rc_data_ptrs` empty-set
+/// short-circuit (`drop_gen.rs:337-339`). The GEP+load still emit (mechanical
+/// IR positioning), but no `RcDec` call lands. Clamps the RE-2 invariant — a
+/// regression that inlined a scalar check inline would still pass this gate
+/// only if the inlined check matched the canonical `extract_rc_data_ptrs`
+/// semantics; routing through the SSOT keeps both paths in lockstep.
+#[test]
+fn burden_dec_field_scalar_field_emits_no_rc_dec_per_03_4_cycle_49_re2_negative() {
+    use ori_arc::ir::{ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId, ValueRepr};
+    use ori_arc::Ownership;
+
+    use super::test_utils::{burden_dec_field_first, entry_block, set_first};
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    // Struct with one scalar (int) field — NO heap burden; cycle 49 MUST
+    // skip RcDec emission per RE-2 scalar exemption.
+    let struct_ty = pool.struct_type(
+        ori_ir::Name::from_raw(310),
+        &[(ori_ir::Name::from_raw(311), Idx::INT)],
+    );
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_burden_dec_field_scalar"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let ptr_ty = builder.ptr_type();
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("test_bdf_scalar", &[ptr_ty, i64_ty], ptr_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let cl = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    let arc_func = ArcFunction {
+        name: interner.intern("test_bdf_scalar"),
+        params: vec![
+            ArcParam {
+                var: ArcVarId::new(0),
+                ty: struct_ty,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: ArcVarId::new(1),
+                ty: Idx::INT,
+                ownership: Ownership::Owned,
+            },
+        ],
+        return_type: struct_ty,
+        blocks: vec![entry_block(
+            vec![
+                burden_dec_field_first(ArcVarId::new(0)),
+                set_first(ArcVarId::new(0), ArcVarId::new(1)),
+            ],
+            ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        )],
+        entry: ArcBlockId::new(0),
+        var_types: vec![struct_ty, Idx::INT],
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
+        spans: vec![vec![None, None]],
+        ..Default::default()
+    };
+
+    let abi = FunctionAbi {
+        params: vec![
+            ParamAbi {
+                name: interner.intern("base"),
+                ty: struct_ty,
+                passing: ParamPassing::Direct,
+                readonly: false,
+            },
+            ParamAbi {
+                name: interner.intern("val"),
+                ty: Idx::INT,
+                passing: ParamPassing::Direct,
+                readonly: false,
+            },
+        ],
+        return_abi: ReturnAbi {
+            ty: struct_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Pin: GEP + load STILL emit (mechanical IR positioning).
+    assert!(
+        ir.contains("burden_dec_field.0.ptr"),
+        "BurdenDecField on scalar field MUST still emit struct_gep; ir:\n{ir}",
+    );
+    assert!(
+        ir.contains("burden_dec_field.0.prior"),
+        "BurdenDecField on scalar field MUST still emit load; ir:\n{ir}",
+    );
+
+    // Negative pin: NO ori_rc_dec call lands for the scalar field
+    // (RE-2 scalar exemption via emit_drop_rc_dec → extract_rc_data_ptrs
+    // empty-return short-circuit at drop_gen.rs:337-339).
+    // The function may still contain other ori_rc_dec calls from drop
+    // function emission for the struct itself (its return path); we
+    // specifically check there's no rc_dec attributable to the
+    // burden_dec_field load — the loaded i64 is not a pointer so
+    // extract_rc_data_ptrs returns empty, no RcDec emitted at this site.
+    // A regression that re-implemented scalar checks inline incorrectly
+    // would emit an ori_rc_dec call referencing the burden_dec_field
+    // loaded value.
+    assert!(
+        !ir.contains("ori_rc_dec(ptr %burden_dec_field"),
+        "BurdenDecField on scalar field MUST NOT emit ori_rc_dec on loaded value (RE-2); ir:\n{ir}",
+    );
+
+    drop(em);
+} // burden_dec_field_scalar_field_emits_no_rc_dec_per_03_4_cycle_49_re2_negative
+
 #[test]
 fn set_tag_emits_gep_and_store() {
     use ori_arc::ir::{

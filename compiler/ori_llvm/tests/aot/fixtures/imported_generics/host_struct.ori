@@ -1,0 +1,21 @@
+// Host module — struct matrix cell.
+// Calls `identity<Point>` and `pair<Point>` from `./generics`. The mono
+// dispatch threads a user-defined struct type through the imported generic
+// body. Struct payload (`{ x: int, y: int }`) is 16 bytes, sitting at the
+// direct/indirect ABI boundary per `CG:AB-1`.
+
+use "./generics" { identity, pair }
+use std.testing { assert_eq }
+
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let $p = Point { x: 3, y: 7 };
+    let $q = identity(x: p);
+    assert_eq(actual: q.x, expected: 3);
+    assert_eq(actual: q.y, expected: 7);
+    let $pair_xs = pair(first: p, second: Point { x: 11, y: 13 });
+    assert_eq(actual: pair_xs[0].x, expected: 3);
+    assert_eq(actual: pair_xs[1].y, expected: 13);
+    0
+}

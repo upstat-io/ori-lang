@@ -893,6 +893,9 @@ fn var_uniqueness(
             | ArcInstr::RcDec { .. }
             | ArcInstr::BurdenInc { .. }
             | ArcInstr::BurdenDec { .. }
+            | ArcInstr::BurdenDecPartial { .. }
+            | ArcInstr::BurdenDecField { .. }
+            | ArcInstr::BurdenDecVariant { .. }
             | ArcInstr::Set { .. }
             | ArcInstr::SetTag { .. }
             | ArcInstr::Reset { .. } => (Uniqueness::MaybeShared, false),

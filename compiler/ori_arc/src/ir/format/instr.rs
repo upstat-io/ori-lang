@@ -149,6 +149,24 @@ pub fn fmt_instr(
             write!(out, "burden_dec {}", fmt_var(func, *var)).unwrap();
         }
 
+        ArcInstr::BurdenDecPartial { var, skip_fields } => {
+            write!(
+                out,
+                "burden_dec_partial {} skip={:?}",
+                fmt_var(func, *var),
+                skip_fields
+            )
+            .unwrap();
+        }
+
+        ArcInstr::BurdenDecField { base, field } => {
+            write!(out, "burden_dec_field {}.{}", fmt_var(func, *base), field).unwrap();
+        }
+
+        ArcInstr::BurdenDecVariant { var } => {
+            write!(out, "burden_dec_variant({})", fmt_var(func, *var)).unwrap();
+        }
+
         // Reuse operations
         ArcInstr::IsShared { dst, var } => {
             write!(

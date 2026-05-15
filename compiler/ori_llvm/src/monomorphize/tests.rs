@@ -271,7 +271,6 @@ fn collect_does_not_consult_import_sigs_for_methods() {
     );
 }
 
-// --------------------------------------------------------------------
 // §C.2 supplementary mangling edge cases (BUG-01-002 §C.4):
 // these unit-tests verify the four mangling shapes — top-level,
 // method-impl-only, method-with-method-args, and method-no-impl-args —

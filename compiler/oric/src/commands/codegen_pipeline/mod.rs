@@ -15,6 +15,8 @@
 #[cfg(feature = "llvm")]
 mod finalize;
 #[cfg(feature = "llvm")]
+pub(crate) mod imported_mono;
+#[cfg(feature = "llvm")]
 mod pc2_hooks;
 
 #[cfg(feature = "llvm")]
@@ -80,6 +82,8 @@ pub(super) fn run_borrow_inference(
     function_sigs: &[FunctionSig],
     impl_sigs: &[(Name, FunctionSig)],
     import_sigs: &[(Name, FunctionSig)],
+    imported_mono_fns: &[crate::commands::ImportedMonoFn],
+    re_interned_canons: &[CanonResult],
     canon: &CanonResult,
     interner: &StringInterner,
     pool: &Pool,
@@ -167,6 +171,44 @@ pub(super) fn run_borrow_inference(
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 
+    // Lower imported monomorphized generic functions (Decision 01 Option B
+    // body-import linkage). Mirrors the test-runner specialization loop at
+    // `oric/src/test/runner/arc_lowering.rs:108-117`. Each `ImportedMonoFn`
+    // carries the source body name + module index; the source body lives in
+    // the SOURCE module's `CanonResult` after re-interning into merged_pool.
+    // `re_interned_canons[source_module_idx]` provides the source canon in
+    // merged-pool coordinates; `arc_lowering::lower_to_arc` looks up the
+    // generic body via `canon.root_for(source_body_name)`.
+    //
+    // For single-file AOT (no imported_mono_fns) the loop is a no-op. When
+    // `source_module_idx` is out-of-bounds (re_interned_canons empty in
+    // legacy callers), we fall back to the host canon — preserves the
+    // pre-§02.4 behavior of `lower_to_arc(...source_body_name..., canon...)`
+    // for tests that have not yet been wired through the merged-pool path.
+    for (mono_fn, source_module_idx, source_body_name) in imported_mono_fns {
+        let source_canon = re_interned_canons.get(*source_module_idx).unwrap_or(canon);
+        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
+            mono_fn.mangled_name,
+            &mono_fn.sig,
+            *source_body_name,
+            source_canon,
+            interner,
+            pool,
+            &mut arc_problems,
+            Some(&mono_fn.body_type_map),
+        );
+        pc2_hooks::run_pc2_hook_aot(
+            pool,
+            &arc_fn,
+            &lambdas,
+            interner,
+            &exempt,
+            "aot_imported_mono",
+            "aot_imported_mono_lambda",
+        );
+        arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
+    }
+
     if !arc_problems.is_empty() {
         use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};
         let mut acc = CodegenDiagnostics::new();
@@ -229,10 +271,17 @@ pub(super) fn run_borrow_inference(
         "Salsa borrow inference complete"
     );
 
+    // Merge imported monos into mono_functions so codegen's
+    // declare_mono_functions / prepare_mono_cached sees them alongside local
+    // monos (Decision 01 Option B body-import path: both flow through the
+    // same emission path).
+    let mut all_mono_functions = mono_functions;
+    all_mono_functions.extend(imported_mono_fns.iter().map(|(mf, _, _)| mf.clone()));
+
     BorrowInferenceResult {
         sigs: annotated_sigs,
         arc_cache,
-        mono_functions,
+        mono_functions: all_mono_functions,
     }
 }
 
@@ -273,6 +322,8 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     module_name: &str,
     symbol_prefix: &str,
     import_sigs: &[(Name, FunctionSig)],
+    imported_mono_fns: &[crate::commands::ImportedMonoFn],
+    re_interned_canons: &[CanonResult],
     target_triple: Option<&str>,
     narrowing_policy: ori_repr::NarrowingPolicy,
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
@@ -324,6 +375,8 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             &function_sigs,
             &type_result.typed.impl_sigs,
             import_sigs,
+            imported_mono_fns,
+            re_interned_canons,
             canon,
             interner,
             pool,
