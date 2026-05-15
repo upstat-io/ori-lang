@@ -146,9 +146,13 @@ pub fn infer_derived_ownership(
                 }
 
                 // RC/reuse ops don't define new variables (or their dst
-                // is a token which is always Owned).
+                // is a token which is always Owned). BurdenInc/BurdenDec
+                // (§03.1) are trivial Phase 5 markers — no dst, no
+                // ownership effect on derived ownership state.
                 ArcInstr::RcInc { .. }
                 | ArcInstr::RcDec { .. }
+                | ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
                 | ArcInstr::IsShared { .. }
                 | ArcInstr::Set { .. }
                 | ArcInstr::SetTag { .. }

@@ -524,7 +524,9 @@ fn instr_use_count(instr: &ArcInstr, var: ArcVarId) -> usize {
         ArcInstr::IsShared { var: v, .. }
         | ArcInstr::Reset { var: v, .. }
         | ArcInstr::RcInc { var: v, .. }
-        | ArcInstr::RcDec { var: v, .. } => usize::from(*v == var),
+        | ArcInstr::RcDec { var: v, .. }
+        | ArcInstr::BurdenInc { var: v }
+        | ArcInstr::BurdenDec { var: v } => usize::from(*v == var),
         ArcInstr::Set { base, value, .. } => usize::from(*base == var) + usize::from(*value == var),
         ArcInstr::SetTag { base, .. } => usize::from(*base == var),
         ArcInstr::Reuse { token, args, .. } => {

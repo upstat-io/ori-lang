@@ -91,8 +91,14 @@ pub fn transfer_def(
         ArcInstr::Reuse { ctor, .. } => Some(transfer_reuse(ctor)),
 
         // Side-effect-only — no defined variable.
+        // BurdenInc/BurdenDec are trivial burden-tracking annotations
+        // emitted by Phase 5 ARC lowering (§03.1); they carry only a var
+        // and define nothing, so they fall through this side-effect-only
+        // arm exactly like RcInc/RcDec.
         ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
+        | ArcInstr::BurdenInc { .. }
+        | ArcInstr::BurdenDec { .. }
         | ArcInstr::Set { .. }
         | ArcInstr::SetTag { .. } => None,
     }
@@ -275,9 +281,14 @@ pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 
         // access/consumption/cardinality/locality based on the closure's
         // own demand state. Returning demand here would double-count.
         // RC operations: AIMS outputs. During migration, no demand.
-        ArcInstr::PartialApply { .. } | ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. } => {
-            SmallVec::new()
-        }
+        // BurdenInc/BurdenDec (§03.1): trivial Phase 5 markers — emitted
+        // outputs of burden lowering, not user-code uses; the AIMS lattice
+        // does not consume them at §04A. No backward demand contributed.
+        ArcInstr::PartialApply { .. }
+        | ArcInstr::RcInc { .. }
+        | ArcInstr::RcDec { .. }
+        | ArcInstr::BurdenInc { .. }
+        | ArcInstr::BurdenDec { .. } => SmallVec::new(),
 
         // Project: one read of the source.
         ArcInstr::Project { value, .. } => {

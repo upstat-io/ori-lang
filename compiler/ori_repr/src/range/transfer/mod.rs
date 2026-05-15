@@ -143,6 +143,8 @@ pub fn transfer(instr: &ArcInstr, ctx: &TransferContext<'_>) -> ValueRange {
         | ArcInstr::Construct { .. }
         | ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
+        | ArcInstr::BurdenInc { .. }
+        | ArcInstr::BurdenDec { .. }
         | ArcInstr::Set { .. }
         | ArcInstr::SetTag { .. }
         | ArcInstr::Reset { .. }

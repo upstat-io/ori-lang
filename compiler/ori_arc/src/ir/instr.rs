@@ -102,6 +102,20 @@ pub enum ArcInstr {
     /// the emitter the cleanup approach (no Pool queries).
     RcDec { var: ArcVarId, strategy: RcStrategy },
 
+    /// Burden-increment marker. Trivial side-effect-only annotation emitted
+    /// by Phase 5 ARC lowering at every owned-arg transfer point. Carries
+    /// only the SSA variable that is the subject of the burden transfer —
+    /// no class info, no transitive markers (per the §03.1 trivial-shape
+    /// contract). Parallel to `RcInc` but tracks the burden lattice rather
+    /// than the refcount; lattice consumption lands at §04A + §05.
+    BurdenInc { var: ArcVarId },
+
+    /// Burden-decrement marker. Trivial side-effect-only annotation emitted
+    /// by Phase 5 ARC lowering at every last-use along every reachable CFG
+    /// path. Carries only the SSA variable that is the subject of the burden
+    /// release — see `BurdenInc` above for shape contract.
+    BurdenDec { var: ArcVarId },
+
     // Reuse operations (inserted by reuse emission pass)
     /// Test whether a value's reference count is 1 (uniquely owned).
     /// Result is a `bool` bound to `dst`.
@@ -197,6 +211,8 @@ impl ArcInstr {
 
             ArcInstr::RcInc { .. }
             | ArcInstr::RcDec { .. }
+            | ArcInstr::BurdenInc { .. }
+            | ArcInstr::BurdenDec { .. }
             | ArcInstr::Set { .. }
             | ArcInstr::SetTag { .. } => None,
         }
@@ -244,6 +260,8 @@ impl ArcInstr {
 
             ArcInstr::RcInc { var, .. }
             | ArcInstr::RcDec { var, .. }
+            | ArcInstr::BurdenInc { var }
+            | ArcInstr::BurdenDec { var }
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => smallvec![*var],
 
@@ -297,6 +315,8 @@ impl ArcInstr {
 
             ArcInstr::RcInc { var, .. }
             | ArcInstr::RcDec { var, .. }
+            | ArcInstr::BurdenInc { var }
+            | ArcInstr::BurdenDec { var }
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => *var == target,
 
@@ -408,6 +428,8 @@ impl ArcInstr {
             ArcInstr::Project { value, .. } => sub(value, old, new),
             ArcInstr::RcInc { var, .. }
             | ArcInstr::RcDec { var, .. }
+            | ArcInstr::BurdenInc { var }
+            | ArcInstr::BurdenDec { var }
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => sub(var, old, new),
             ArcInstr::Set { base, value, .. } => {

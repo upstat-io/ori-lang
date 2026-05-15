@@ -141,6 +141,14 @@ pub fn fmt_instr(
             .unwrap();
         }
 
+        ArcInstr::BurdenInc { var } => {
+            write!(out, "burden_inc {}", fmt_var(func, *var)).unwrap();
+        }
+
+        ArcInstr::BurdenDec { var } => {
+            write!(out, "burden_dec {}", fmt_var(func, *var)).unwrap();
+        }
+
         // Reuse operations
         ArcInstr::IsShared { dst, var } => {
             write!(

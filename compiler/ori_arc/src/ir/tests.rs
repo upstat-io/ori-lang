@@ -586,6 +586,137 @@ fn defined_var_rc_dec_is_none() {
     assert_eq!(instr.defined_var(), None);
 }
 
+// BurdenInc / BurdenDec (§03.1) — trivial Phase 5 burden markers.
+
+#[test]
+fn defined_var_burden_inc_is_none() {
+    let instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(0),
+    };
+    assert_eq!(instr.defined_var(), None);
+}
+
+#[test]
+fn defined_var_burden_dec_is_none() {
+    let instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(0),
+    };
+    assert_eq!(instr.defined_var(), None);
+}
+
+#[test]
+fn used_vars_burden_inc() {
+    let instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(7),
+    };
+    assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(7)]);
+}
+
+#[test]
+fn used_vars_burden_dec() {
+    let instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(11),
+    };
+    assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(11)]);
+}
+
+#[test]
+fn uses_var_burden_inc() {
+    let instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(3),
+    };
+    assert!(instr.uses_var(ArcVarId::new(3)));
+    assert!(!instr.uses_var(ArcVarId::new(2)));
+    assert!(!instr.uses_var(ArcVarId::new(4)));
+}
+
+#[test]
+fn uses_var_burden_dec() {
+    let instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(5),
+    };
+    assert!(instr.uses_var(ArcVarId::new(5)));
+    assert!(!instr.uses_var(ArcVarId::new(0)));
+}
+
+/// BurdenInc/BurdenDec are RC-class operations on `var`, NOT transfer
+/// points. Per §03.1: the var is the SUBJECT of the burden op, not an
+/// ownership transfer slot, so `is_owned_position` returns false for
+/// every queried position (mirrors `RcInc` / `RcDec` semantics).
+#[test]
+fn is_owned_position_burden_inc_is_false() {
+    let instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(0),
+    };
+    assert!(!instr.is_owned_position(0));
+    assert!(!instr.is_owned_position(1));
+    assert!(!instr.is_owned_position(100));
+}
+
+#[test]
+fn is_owned_position_burden_dec_is_false() {
+    let instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(0),
+    };
+    assert!(!instr.is_owned_position(0));
+    assert!(!instr.is_owned_position(1));
+    assert!(!instr.is_owned_position(100));
+}
+
+#[test]
+fn substitute_var_burden_inc() {
+    let mut instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(5),
+    };
+    instr.substitute_var(ArcVarId::new(5), ArcVarId::new(42));
+    if let ArcInstr::BurdenInc { var } = &instr {
+        assert_eq!(*var, ArcVarId::new(42));
+    } else {
+        panic!("expected BurdenInc");
+    }
+}
+
+#[test]
+fn substitute_var_burden_dec() {
+    let mut instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(7),
+    };
+    instr.substitute_var(ArcVarId::new(7), ArcVarId::new(99));
+    if let ArcInstr::BurdenDec { var } = &instr {
+        assert_eq!(*var, ArcVarId::new(99));
+    } else {
+        panic!("expected BurdenDec");
+    }
+}
+
+/// Negative pin: substituting a non-matching old var leaves the
+/// BurdenInc/BurdenDec var field unchanged.
+#[test]
+fn substitute_var_burden_inc_no_match_unchanged() {
+    let mut instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(5),
+    };
+    instr.substitute_var(ArcVarId::new(6), ArcVarId::new(42));
+    if let ArcInstr::BurdenInc { var } = &instr {
+        assert_eq!(*var, ArcVarId::new(5));
+    } else {
+        panic!("expected BurdenInc");
+    }
+}
+
+#[test]
+fn substitute_var_burden_dec_no_match_unchanged() {
+    let mut instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(7),
+    };
+    instr.substitute_var(ArcVarId::new(6), ArcVarId::new(42));
+    if let ArcInstr::BurdenDec { var } = &instr {
+        assert_eq!(*var, ArcVarId::new(7));
+    } else {
+        panic!("expected BurdenDec");
+    }
+}
+
 #[test]
 fn defined_var_set_is_none() {
     let instr = ArcInstr::Set {

@@ -431,6 +431,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_rc_dec(*var, *strategy, func);
             }
 
+            // BurdenInc/BurdenDec (§03.1) — trivial Phase 5 burden markers.
+            // §06 of aims-burden-tracking wires up real LLVM lowering; until
+            // then these are no-op emissions (no IR generated). The variants
+            // exist in ARC IR for the §03.2 walker + §03.5 verifier, but
+            // codegen sees through them as zero-cost annotations.
+            ArcInstr::BurdenInc { var: _ } | ArcInstr::BurdenDec { var: _ } => {
+                // No LLVM IR emitted — burden lowering deferred to §06.
+            }
+
             ArcInstr::IsShared { dst, var } => {
                 // Inline refcount check: data_ptr - 8 = strong_count (i64).
                 // Shared when strong_count > 1 (more than one owner).

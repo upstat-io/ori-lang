@@ -249,10 +249,15 @@ pub(super) fn update_ownership_inner(
 
                 // Select reads vars without consuming — no ownership propagation.
                 // RC/reset/reuse instructions are handled by the ARC pass itself.
+                // BurdenInc/BurdenDec (§03.1) are trivial Phase 5 markers —
+                // their var is the subject of a burden op, not an ownership
+                // transfer point, so they contribute no borrow-promotion signal.
                 ArcInstr::Let { .. }
                 | ArcInstr::Select { .. }
                 | ArcInstr::RcInc { .. }
                 | ArcInstr::RcDec { .. }
+                | ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
                 | ArcInstr::IsShared { .. }
                 | ArcInstr::Set { .. }
                 | ArcInstr::SetTag { .. }

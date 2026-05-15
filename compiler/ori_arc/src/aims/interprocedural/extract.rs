@@ -883,11 +883,16 @@ fn var_uniqueness(
             },
 
             // Indirect call, projection, select, RC/mutation ops → conservative.
+            // BurdenInc/BurdenDec are side-effect-only annotations (no dst);
+            // they cannot appear in def_map but the exhaustive match must
+            // cover them — group with the other side-effect-only ops.
             ArcInstr::ApplyIndirect { .. }
             | ArcInstr::Project { .. }
             | ArcInstr::Select { .. }
             | ArcInstr::RcInc { .. }
             | ArcInstr::RcDec { .. }
+            | ArcInstr::BurdenInc { .. }
+            | ArcInstr::BurdenDec { .. }
             | ArcInstr::Set { .. }
             | ArcInstr::SetTag { .. }
             | ArcInstr::Reset { .. } => (Uniqueness::MaybeShared, false),
