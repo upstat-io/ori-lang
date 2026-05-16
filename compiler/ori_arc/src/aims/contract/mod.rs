@@ -1,9 +1,9 @@
 //! Memory contracts for interprocedural analysis.
 //!
 //! [`MemoryContract`] describes a function's memory behavior: how it uses
-//! parameters, what it returns, and what effects it has. Produced by
-//! interprocedural analysis (Section 03), consumed by intraprocedural
-//! analysis (Section 02) at call sites and by emission (Section 04).
+//! parameters, what it returns, and what effects it has. Produced by the
+//! interprocedural fixpoint, consumed by intraprocedural analysis at call
+//! sites and by AIMS realization emission.
 //!
 //! # Current State
 //!
@@ -15,7 +15,7 @@
 //! - `FipContract` is inferred from converged effect state and token
 //!   balance (`extract_contract()` in `interprocedural/extract.rs`)
 //! - `ContextBehavior` is computed from `ContextRegion` metadata during
-//!   contract extraction (Section 13.1); `default()` for non-TRMC functions
+//!   contract extraction; `default()` for non-TRMC functions
 //! - `is_fbip` is `!effects.may_allocate` (inferred metadata)
 
 mod context;
@@ -29,15 +29,18 @@ use crate::ir::ArcParam;
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 use crate::uniqueness::UniquenessSummary;
 
+use std::collections::HashMap;
+use std::hash::BuildHasher;
+
 use ori_ir::Name;
 use ori_types::Idx;
 
 /// Memory contract for a function.
 ///
 /// Describes parameter ownership, return value uniqueness, effect summary,
-/// constructor-context behavior, and FIP certification. Produced by
-/// interprocedural analysis (Section 03), consumed by intraprocedural
-/// analysis (Section 02) at call sites and by emission (Section 04).
+/// constructor-context behavior, and FIP certification. Produced by the
+/// interprocedural fixpoint, consumed by intraprocedural analysis at call
+/// sites and by AIMS realization emission.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoryContract {
     /// Per-parameter contracts, in parameter order.
@@ -56,7 +59,6 @@ pub struct MemoryContract {
     /// This does NOT replace `#fbip` as the user-facing enforcement annotation,
     /// and does NOT change `is_auto_fbip()` behavior. It makes FBIP status
     /// visible to interprocedural analysis without running the post-pipeline check.
-    /// (Section 09.2 Effect Activation.)
     pub is_fbip: bool,
 }
 
@@ -270,7 +272,7 @@ pub struct ParamContract {
     /// Locality lower bound: the callee guarantees this parameter stays at
     /// least this local (v1: always `Unknown`).
     pub locality_bound: Locality,
-    /// Caller-guaranteed uniqueness at entry (Section 09.1).
+    /// Caller-guaranteed uniqueness at entry.
     ///
     /// When ALL call sites pass this parameter with `Owned + Linear + Once`,
     /// the interprocedural analysis tightens this to `Unique` — the callee
@@ -466,7 +468,7 @@ impl ReturnContract {
 /// - `may_allocate == false && may_deallocate == false` → fully in-place (FIP)
 ///
 /// `may_deallocate` is a post-emission fact: computed from
-/// `FipEvidence.missed_reuses > 0` after realization (Section 12.1).
+/// `FipEvidence.missed_reuses > 0` after realization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -554,8 +556,8 @@ impl EffectSummary {
 /// Ordering: `Certified < Bounded(n) < Conditional < Never`
 /// (Certified is most optimistic).
 ///
-/// Section 09.2 Effect Activation: FIP classification is now inferred
-/// from the converged effect state, not from a separate certification pass.
+/// FIP classification is inferred from the converged effect state, not
+/// from a separate certification pass.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FipContract {
     /// Function cannot be certified FIP.
@@ -631,5 +633,54 @@ fn aims_to_legacy_uniqueness(u: Uniqueness) -> crate::uniqueness::Uniqueness {
         Uniqueness::Unique => crate::uniqueness::Uniqueness::Unique,
         Uniqueness::MaybeShared => crate::uniqueness::Uniqueness::MaybeShared,
         Uniqueness::Shared => crate::uniqueness::Uniqueness::Shared,
+    }
+}
+
+/// Extension trait asserting the AIMS Invariant IC-1 required-lookup contract
+/// on the interprocedural contract map (`HashMap<Name, MemoryContract, S>` for
+/// any `S: BuildHasher`).
+///
+/// IC-1 mandates that every `MemoryContract` queried by intraprocedural / RC /
+/// realization passes MUST exist — the SCC fixpoint (PL-1a) orders callees
+/// before callers, so by the time any caller queries a callee's contract, the
+/// callee has been fully analyzed and inserted into the map. A missing entry
+/// is an internal pipeline-ordering invariant violation, never a recoverable
+/// runtime condition.
+///
+/// Call sites that previously fell back silently to `MemoryContract::default()`
+/// produce unsound results: the optimistic default (all-`Borrowed` /
+/// `Dead` / `Absent` params, no effects) inflates safety claims through every
+/// downstream `refine()` call (TF-6) and `EffectSummary` join (IC-5),
+/// producing miscompilation rather than a clean panic.
+pub trait ContractMapExt {
+    /// Look up the contract for `name`, panicking with an attributed
+    /// IC-1-violation message when absent. `site` identifies the lookup site
+    /// (callee module + function) so the panic message points at the pipeline
+    /// edge that broke the invariant.
+    fn get_required(&self, name: &Name, site: &'static str) -> &MemoryContract;
+
+    /// Mutable variant of [`get_required`](Self::get_required).
+    fn get_mut_required(&mut self, name: &Name, site: &'static str) -> &mut MemoryContract;
+}
+
+impl<S: BuildHasher> ContractMapExt for HashMap<Name, MemoryContract, S> {
+    #[inline]
+    fn get_required(&self, name: &Name, site: &'static str) -> &MemoryContract {
+        self.get(name).unwrap_or_else(|| {
+            unreachable!(
+                "AIMS Invariant IC-1 violation at {site}: contract for {name:?} not in map. \
+                 SCC ordering (PL-1a) should guarantee callee analyzed before caller."
+            )
+        })
+    }
+
+    #[inline]
+    fn get_mut_required(&mut self, name: &Name, site: &'static str) -> &mut MemoryContract {
+        self.get_mut(name).unwrap_or_else(|| {
+            unreachable!(
+                "AIMS Invariant IC-1 violation at {site}: contract for {name:?} not in map. \
+                 SCC ordering (PL-1a) should guarantee callee analyzed before caller."
+            )
+        })
     }
 }

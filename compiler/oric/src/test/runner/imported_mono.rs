@@ -1,10 +1,9 @@
 //! Thin wrapper around the production `build_imported_mono_functions` for the
 //! LLVM JIT test backend.
 //!
-//! The carrier `ImportedMonoFn` and the production builder were promoted to
-//! `crate::commands::codegen_pipeline::imported_mono` per Decision 01 Option B
-//! AOT promotion (§02.3). The JIT test runner now consumes the shared
-//! production entry point so JIT and AOT paths use a single mechanism.
+//! Forwards to the shared body-imported AOT path at
+//! `crate::commands::codegen_pipeline::imported_mono`, so JIT and AOT use a
+//! single monomorphization mechanism rather than parallel implementations.
 
 use rustc_hash::FxHashMap;
 

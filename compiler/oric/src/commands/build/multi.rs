@@ -219,30 +219,21 @@ pub(super) struct CompiledModuleInfo {
     /// narrowing. See
     pub(super) exported_collection_surfaces: Vec<u64>,
     /// Type-check result retained for cross-module imported-generic mono
-    /// dispatch (Decision 01 Option B body-import linkage). The host
+    /// dispatch via body-import linkage. The host
     /// module's `build_imported_mono_functions` consumes generic sigs +
     /// public-name metadata from each imported module's `TypeCheckResult`.
-    #[allow(
-        dead_code,
-        reason = "consumer arrives at §02.4 merged-pool re-interning"
-    )]
+    #[allow(dead_code, reason = "consumer arrives at merged-pool re-interning")]
     pub(super) type_result: ori_types::TypeCheckResult,
     /// Canonical IR retained alongside `type_result`. `arc_lowering` uses
     /// this to specialize imported generic bodies via
     /// `lower_to_arc(mono_fn.mangled_name, &mono_fn.sig, source_body_name,
     /// source_canon, ...)`.
-    #[allow(
-        dead_code,
-        reason = "consumer arrives at §02.4 merged-pool re-interning"
-    )]
+    #[allow(dead_code, reason = "consumer arrives at merged-pool re-interning")]
     pub(super) canon_result: ori_ir::canon::SharedCanonResult,
     /// Per-module pool retained alongside `type_result`. The host module's
     /// re-interner uses this when remapping imported generic sigs and canon
     /// IR into the host's merged pool.
-    #[allow(
-        dead_code,
-        reason = "consumer arrives at §02.4 merged-pool re-interning"
-    )]
+    #[allow(dead_code, reason = "consumer arrives at merged-pool re-interning")]
     pub(super) pool: std::sync::Arc<ori_types::Pool>,
 }
 
@@ -378,7 +369,7 @@ fn compile_single_module(
         collect_imported_collection_surfaces(source_path, ctx.graph, compiled_modules);
 
     // Build imported_mono_fns + merged pool for cross-module imported-generic
-    // body specialization (Decision 01 Option B). The merged pool is the host
+    // body specialization via body-import linkage. The merged pool is the host
     // pool with imported types re-interned alongside; imported generic sigs +
     // imported canons are remapped to merged-pool coordinates so
     // `arc_lowering::lower_to_arc` can specialize the imported body locally
@@ -423,7 +414,7 @@ fn compile_single_module(
     // No post-check merge needed here.
     //
     // Retain type_result + canon_result + pool for the host module's
-    // imported-generic mono dispatch (Decision 01 Option B). Each
+    // imported-generic mono dispatch via body-import linkage. Each
     // importer consumes these via `build_imported_mono_functions` +
     // `arc_lowering`'s `lower_to_arc` of the imported generic body. Pool
     // is `Arc<Pool>` so the clone is cheap.
@@ -646,7 +637,7 @@ pub(crate) struct ImportedMonoState {
 }
 
 /// Build the merged-pool re-interning state for cross-module imported
-/// generic body specialization (Decision 01 Option B).
+/// generic body specialization via body-import linkage.
 ///
 /// Mirrors the JIT-side dance at
 /// `compiler/oric/src/test/runner/llvm_backend.rs:135-292`:
@@ -847,9 +838,9 @@ pub(crate) fn build_imported_mono_state(
     }
 
     // Build ImportedMonoFn triples from host MonoInstances filtered against
-    // imported_generic_sigs. Delegates to the SSOT entry point promoted in
-    // §02.3 — same builder consumed by the JIT test runner (single
-    // mechanism per Decision 01 Option B).
+    // imported_generic_sigs. Delegates to the SSOT entry point — same
+    // builder consumed by the JIT test runner via body-import linkage
+    // (single monomorphization mechanism for JIT + AOT).
     let imported_mono_fns = crate::commands::build_imported_mono_functions_for_test_runner(
         type_result,
         &imported_generic_sigs,

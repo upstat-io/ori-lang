@@ -176,16 +176,16 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
 /// - Imported functions are declared as external symbols
 ///
 /// The `arc_cache` and `module_hash` parameters are reserved for future ARC IR
-/// disk caching integration with the Salsa path (Section 12.14 watch-mode).
+/// disk caching integration with the Salsa watch-mode path.
 /// Currently unused — they are accepted but discarded.
 ///
 /// The Pool is required for proper compound type resolution during codegen.
 /// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
 ///
 /// `imported_mono_fns` carries promoted `ImportedMonoFn` triples for
-/// cross-module imported-generic body specialization (Decision 01 Option B
-/// body-import linkage). Pass `&[]` when the host module has no imported
-/// generic instantiations to lower locally.
+/// cross-module imported-generic body specialization via body-import
+/// linkage. Pass `&[]` when the host module has no imported generic
+/// instantiations to lower locally.
 #[cfg(feature = "llvm")]
 #[allow(
     clippy::too_many_arguments,
@@ -210,8 +210,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     target_triple: Option<&str>,
     narrowing_policy: ori_repr::NarrowingPolicy,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
-    // arc_cache and module_hash reserved for future ARC IR disk caching
-    // integration with the Salsa path (Section 12.14 watch-mode).
+    // arc_cache and module_hash reserved for future ARC IR disk caching.
     let _ = (arc_cache, module_hash);
 
     let interner = db.interner();

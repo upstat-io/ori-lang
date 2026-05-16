@@ -65,7 +65,7 @@ pub mod verify;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
-pub use aims::contract::MemoryContract;
+pub use aims::contract::{ContractMapExt, MemoryContract};
 pub use pipeline::{
     compute_aims_contracts, run_arc_pipeline, run_arc_pipeline_all, run_arc_pipeline_with_observer,
     run_uniqueness_analysis, CheckpointObserver,

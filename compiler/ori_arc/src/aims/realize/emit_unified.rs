@@ -105,9 +105,9 @@ pub(super) fn emit_rc_unified(
     let inline_enum_projected_defs = collect_inline_enum_projected_defs(func, pool);
     let func_project_sources = compute_function_project_sources(func);
 
-    // BUG-04-090 §05 Step 6: pre-compute the set of parameter ArcVarIds
-    // whose `ParamContract.transfers_through_return` is true. Threaded
-    // into BlockCtx for consumption by `should_suppress_return_transfer_dec`
+    // BUG-04-090: pre-compute the set of parameter ArcVarIds whose
+    // `ParamContract.transfers_through_return` is true. Threaded into
+    // BlockCtx for consumption by `should_suppress_return_transfer_dec`
     // in the realize walk. Empty set when no contract is available
     // (FFI / external) — equivalent to the pre-fix behavior.
     let return_transfer_params: FxHashSet<ArcVarId> = contracts
@@ -122,9 +122,9 @@ pub(super) fn emit_rc_unified(
         })
         .unwrap_or_default();
 
-    // BUG-04-090 §05 Step 6: alias map carrier — variable → set of param
-    // indices it aliases. Reuses `build_alias_to_param_map` from
-    // interprocedural extraction (single canonical alias-tracing source per
+    // BUG-04-090: alias map carrier — variable → set of param indices it
+    // aliases. Reuses `build_alias_to_param_map` from interprocedural
+    // extraction (single canonical alias-tracing source per
     // `LEAK:algorithmic-duplication`). Consumed by `traces_to_var` to
     // resolve whether a Return terminator's value aliases a return-transfer
     // param. Empty map suffices when `return_transfer_params` is empty —
@@ -142,7 +142,7 @@ pub(super) fn emit_rc_unified(
         crate::aims::interprocedural::build_alias_to_param_map(func, &param_vars, Some(contracts))
     };
 
-    // BUG-04-090 §05 F-prj: per-Project compensating-Inc targets. See the
+    // BUG-04-090 F-prj: per-Project compensating-Inc targets. See the
     // doc comment on `BlockCtx::return_project_inc_targets` and the helper
     // `build_return_project_inc_targets` below for the full rationale.
     // Empty when no contract is available OR no params carry
@@ -384,7 +384,7 @@ fn count_rc_ops(func: &ArcFunction) -> usize {
         .count()
 }
 
-/// BUG-04-090 §05 F-prj: precompute the per-Project compensating-Inc target map.
+/// BUG-04-090 F-prj: precompute the per-Project compensating-Inc target map.
 ///
 /// Identifies every `Project { dst, value, field }` instruction whose `dst`
 /// flows to a `Return` terminator AND whose `value` resolves (via Let-alias

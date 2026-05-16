@@ -42,9 +42,9 @@ fn make_generic_sig(interner: &StringInterner) -> FunctionSig {
 
 #[test]
 fn carrier_is_reachable_via_crate_commands_export() {
-    // Per TPR-02-R5-005: ImportedMonoFn is `pub(crate)` in the new production
-    // module; it must be reachable from the test runner side via
-    // `crate::commands::ImportedMonoFn`. This test pins the re-export.
+    // ImportedMonoFn is `pub(crate)` in the production module; it must be
+    // reachable from the test runner side via `crate::commands::ImportedMonoFn`.
+    // This test pins the re-export.
     let interner = StringInterner::new();
     let imp_name = interner.intern("imported");
     let src_name = interner.intern("imported");

@@ -223,10 +223,10 @@ pub(crate) fn run_aims_pipeline(
     func.cow_annotations = result.cow_annotations;
     func.drop_hints = result.drop_hints;
 
-    // BUG-04-118 §05 R3 — Post-realize cleanup of redundant project-alias
-    // decs (per /tp-help R1 codex consensus). Removes (N - K) decs where
-    // K = explicit RcInc and N = explicit RcDec on a project-only class
-    // whose source's drop chain already provides one type-driven dec.
+    // BUG-04-118: Post-realize cleanup of redundant project-alias decs.
+    // Removes (N - K) decs where K = explicit RcInc and N = explicit
+    // RcDec on a project-only class whose source's drop chain already
+    // provides one type-driven dec.
     {
         let _span = tracing::info_span!("cleanup_redundant_project_alias_decs").entered();
         crate::aims::realize::cleanup_redundant_project_alias_decs(

@@ -8,14 +8,14 @@
 //!
 //! ## Pre-fix failure mode
 //!
-//! Before §02.4 merged-pool re-interning + the §02.3 carrier promotion,
+//! Before merged-pool re-interning + the imported-mono carrier promotion,
 //! `ori build` failed with `E5001 unresolved function '<name>' in
 //! apply/invoke — missing mono instance` at LLVM verification because
 //! `collect_mono_functions` silently skipped imported generic instances
 //! (their `fn_name` was not in the host module's `function_sigs` /
 //! `impl_sigs` tables; `import_sigs` was not yet threaded through).
 //!
-//! Pre-§02.4, the additional failure mode for the polymorphic-lambda
+//! Before merged-pool re-interning, the additional failure mode for the polymorphic-lambda
 //! tests (`test_poly_lambda_with_imported_assert_eq_*`) layered on top:
 //! `ori_llvm::codegen::type_info::store::get_impl()` emitted "unresolved
 //! type variable at codegen" when the poly-lambda return-position
@@ -33,17 +33,17 @@
 //! `CanonResult` slots; `arc_lowering` specializes each imported mono locally
 //! against the SOURCE module's `CanonResult` via `lower_to_arc(mangled_name,
 //! sig, source_body_name, source_canon, ...)`. The body-import path
-//! (Decision 01 Option B) emits the body in the host module through
-//! `declare_mono_functions` — no `declare_imported_mono` ghost exists.
+//! emits the body in the host module through `declare_mono_functions` —
+//! no `declare_imported_mono` ghost exists.
 //!
-//! ## Semantic pin
+//! ## Asserted invariant
 //!
-//! Each test pins both Ok behavior (correct result via assertions) AND
-//! a semantic pin: reverting §02.1's `import_sig_by_name` lookup branch
+//! Each test asserts both Ok behavior (correct result via assertions) AND
+//! a regression guard: reverting the `import_sig_by_name` lookup branch in `collect_mono_functions`
 //! re-surfaces `E5001 unresolved function`, failing `assert_aot_success`
 //! with exit code `-1`. The matrix is the regression guard.
 //!
-//! ## Negative pin
+//! ## Clean-failure mode
 //!
 //! `test_unimported_generic_still_fails_cleanly` confirms the failure
 //! mode for a generic not present in `import_sigs` is a CLEAN diagnostic
@@ -61,17 +61,14 @@ use crate::util::{
     assert_aot_success, assert_multifile_aot_success, compile_multifile_and_run_capture,
 };
 
-// ============================================================================
 // Polymorphic-lambda matrix — single-file host with stdlib `assert_eq`
 // (existing cases). Imported generic = `assert_eq<T>` from `std.testing`.
-// ============================================================================
 
 /// Polymorphic identity lambda defined in the host module, imported
-/// `assert_eq<int>` called with the lambda's monomorphized result.
-///
-/// This is the exact shape of BUG-04-042. The `@main` wrapper returns 0 on
-/// success; `assert_eq` panics on mismatch, producing a non-zero exit
-/// status. Compilation failure → `assert_aot_success` fails.
+/// `assert_eq<int>` called with the lambda's monomorphized result. The
+/// `@main` wrapper returns 0 on success; `assert_eq` panics on mismatch,
+/// producing a non-zero exit status. Compilation failure →
+/// `assert_aot_success` fails.
 #[test]
 fn test_poly_lambda_with_imported_assert_eq_int() {
     assert_aot_success(
@@ -106,7 +103,7 @@ const IMPORTED_GENERICS_HELPER: &str = include_str!("fixtures/imported_generics/
 /// Pins:
 /// - Ok behavior: `first(identity([10, 20, 30])) == 10` (passes when mono
 ///   dispatch succeeds through the `import_sig_by_name` lookup).
-/// - Semantic pin: reverting §02.1 re-surfaces `E5001 unresolved function`
+/// - Semantic pin: reverting the `import_sig_by_name` lookup branch re-surfaces `E5001 unresolved function`
 ///   for `identity` AND `first` — `assert_multifile_aot_success` panics
 ///   with the captured stderr.
 ///
@@ -134,8 +131,8 @@ fn test_imported_generic_fn_list_int() {
 /// - Ok behavior: struct-field projection through the mono'd `identity`
 ///   returns the original field values; `pair` returns a 2-element list
 ///   with both points intact.
-/// - Semantic pin: reverting §02.1 produces `E5001` for both `identity`
-///   AND `pair`; reverting §02.4 merged-pool re-interning produces
+/// - Semantic pin: reverting the `import_sig_by_name` lookup branch produces `E5001` for both `identity`
+///   AND `pair`; reverting the merged-pool re-interning produces
 ///   `Tag::Var` codegen errors because `Point`'s `Idx` is not re-interned
 ///   into the merged pool.
 ///
@@ -167,11 +164,11 @@ fn test_imported_generic_fn_struct() {
 /// `use` statement) MUST fail at type-check with a clean unresolved
 /// identifier diagnostic — NOT a silent miscompilation, NOT a crash.
 ///
-/// This is the negative pin that proves §02.1's `import_sig_by_name`
+/// This is the clean-failure regression guard that proves the `import_sig_by_name`
 /// lookup is the boundary: when the boundary is not crossed (no import),
 /// the failure mode is diagnostic. When it IS crossed (import present),
 /// the mono instance is registered and codegen succeeds. The asymmetry
-/// is the spec; this test pins one side, the positive matrix tests pin
+/// is the spec; this test asserts one side, the matrix tests assert
 /// the other.
 ///
 /// Asserts:

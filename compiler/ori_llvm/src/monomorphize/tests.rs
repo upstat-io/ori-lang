@@ -199,9 +199,9 @@ fn collect_skips_unknown_function() {
 
 #[test]
 fn collect_resolves_top_level_via_import_sigs() {
-    // §02.1 positive: a top-level (receiver_type=None) instance whose
-    // fn_name is missing from function_sigs falls through to import_sigs
-    // and yields a MonoFunction with is_imported=true.
+    // Positive: a top-level (receiver_type=None) instance whose fn_name is
+    // missing from function_sigs falls through to import_sigs and yields a
+    // MonoFunction with is_imported=true.
     let interner = make_interner();
     let pool = Pool::new();
     let generic_sig = make_generic_sig(&interner);
@@ -237,9 +237,10 @@ fn collect_resolves_top_level_via_import_sigs() {
 
 #[test]
 fn collect_does_not_consult_import_sigs_for_methods() {
-    // §02.1 negative pin (per Decision 02): a method instance
-    // (receiver_type=Some) MUST NOT fall through to import_sigs even when
-    // the name matches — methods are owned by §03's inherent-method scope.
+    // INVARIANT: a method instance (receiver_type=Some) MUST NOT fall
+    // through to import_sigs even when the name matches — methods are
+    // dispatched via the impl_sigs / inherent-method path, never the
+    // top-level imported-fn path.
     let interner = make_interner();
     let pool = Pool::new();
     let generic_sig = make_generic_sig(&interner);
@@ -267,18 +268,18 @@ fn collect_does_not_consult_import_sigs_for_methods() {
 
     assert!(
         mono_fns.is_empty(),
-        "method instances must not fall through to import_sigs (Decision 02 scope boundary)"
+        "method instances must not fall through to import_sigs — methods are dispatched via the impl_sigs / inherent-method path"
     );
 }
 
-// §C.2 supplementary mangling edge cases (BUG-01-002 §C.4):
-// these unit-tests verify the four mangling shapes — top-level,
-// method-impl-only, method-with-method-args, and method-no-impl-args —
-// at the API surface, independent of upstream typeck wiring.
+// Supplementary mangling edge cases: these unit-tests verify the four
+// mangling shapes — top-level, method-impl-only, method-with-method-args,
+// and method-no-impl-args — at the API surface, independent of upstream
+// typeck wiring.
 
 #[test]
 fn mangle_method_distinct_from_top_level() {
-    // §C.4 supplementary cell: top-level vs method distinction.
+    // Top-level vs method distinction.
     // A top-level instance with one type arg and a method instance whose
     // impl_args carry the same type arg MUST produce different symbols —
     // the trailing $im$ separator on the method form is the discriminator.
@@ -311,8 +312,8 @@ fn mangle_method_distinct_from_top_level() {
 
 #[test]
 fn mangle_method_impl_and_method_args() {
-    // §C.4.1 mangling-no-collision (unit-test variant): a method instance
-    // with both impl_args and method_args produces the canonical
+    // Mangling-no-collision: a method instance with both impl_args and
+    // method_args produces the canonical
     // <fn>$m$<L0(impl_args)>$im$<L0(method_args)> shape.
     let interner = make_interner();
     let pool = Pool::new();

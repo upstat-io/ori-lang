@@ -4,7 +4,7 @@
 //! `oric/src/test/runner/imported_mono.rs`. The production AOT pipeline
 //! (`compile_to_llvm_with_imports` → `run_codegen_pipeline` →
 //! `run_borrow_inference`) and the JIT test runner share the same carrier
-//! shape per Decision 01 Option B body-import dispatch.
+//! shape via the body-imported AOT dispatch path.
 //!
 //! For each `MonoInstance` in the host module's type-check output that
 //! references an imported generic, construct the concrete `MonoFunction` —
@@ -37,11 +37,7 @@ pub(crate) type ImportedMonoFn = (ori_llvm::monomorphize::MonoFunction, usize, o
 pub(crate) fn build_imported_mono_functions(
     type_result: &TypeCheckResult,
     imported_generic_sigs: &FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
-    // `_per_module_caches` was previously scanned to re-derive the merged
-    // pool's `next_var_id` watermark (LEAK:scattered-knowledge — now
-    // replaced by `Pool::next_var_id`). The caller still threads the
-    // caches through so the signature stays stable for upstream
-    // orchestration code that may add new uses later.
+    // Why: caches retained for signature stability; var-id watermark sourced from `Pool::next_var_id`.
     _per_module_caches: &[FxHashMap<Idx, Idx>],
     merged_pool: &mut Pool,
     interner: &crate::ir::StringInterner,
@@ -173,12 +169,9 @@ fn build_body_type_map(
         }
     }
 
-    // Query the pool's own var_id watermark instead of re-deriving it via a
-    // cache scan (LEAK:scattered-knowledge — `Pool::next_var_id` is the SSOT).
-    // `ensure_var_capacity` is idempotent when already sized, so this is
-    // cheap; the re-intern path (`pool/re_intern/mod.rs`) already extends
-    // capacity as var_ids land, and this call guards against any future
-    // re-intern path that forgets to extend.
+    // Why: `Pool::next_var_id` is the SSOT for the var_id watermark; re-deriving
+    // via cache scan would scatter the lookup. `ensure_var_capacity` is idempotent
+    // and guards against future re-intern paths that omit capacity extension.
     let watermark = merged_pool.next_var_id();
     merged_pool.ensure_var_capacity(watermark);
 

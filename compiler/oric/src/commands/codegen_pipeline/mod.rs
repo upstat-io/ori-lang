@@ -171,8 +171,8 @@ pub(super) fn run_borrow_inference(
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 
-    // Lower imported monomorphized generic functions (Decision 01 Option B
-    // body-import linkage). Mirrors the test-runner specialization loop at
+    // Lower imported monomorphized generic functions via body-import
+    // linkage. Mirrors the test-runner specialization loop at
     // `oric/src/test/runner/arc_lowering.rs:108-117`. Each `ImportedMonoFn`
     // carries the source body name + module index; the source body lives in
     // the SOURCE module's `CanonResult` after re-interning into merged_pool.
@@ -182,8 +182,8 @@ pub(super) fn run_borrow_inference(
     //
     // For single-file AOT (no imported_mono_fns) the loop is a no-op. When
     // `source_module_idx` is out-of-bounds (re_interned_canons empty in
-    // legacy callers), we fall back to the host canon — preserves the
-    // pre-§02.4 behavior of `lower_to_arc(...source_body_name..., canon...)`
+    // legacy callers), the host canon is the fallback — preserving the
+    // pre-merged-pool-re-interning behavior of `lower_to_arc(...source_body_name..., canon...)`
     // for tests that have not yet been wired through the merged-pool path.
     for (mono_fn, source_module_idx, source_body_name) in imported_mono_fns {
         let source_canon = re_interned_canons.get(*source_module_idx).unwrap_or(canon);
@@ -273,8 +273,8 @@ pub(super) fn run_borrow_inference(
 
     // Merge imported monos into mono_functions so codegen's
     // declare_mono_functions / prepare_mono_cached sees them alongside local
-    // monos (Decision 01 Option B body-import path: both flow through the
-    // same emission path).
+    // monos via the body-import path: both flow through the same emission
+    // path.
     let mut all_mono_functions = mono_functions;
     all_mono_functions.extend(imported_mono_fns.iter().map(|(mf, _, _)| mf.clone()));
 
