@@ -7,8 +7,8 @@ use ori_types::{Idx, TypeRegistry};
 
 use super::{emit_burden_ops, BurdenLowerCtx};
 use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ArgOwnership,
-    CtorKind,
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
+    ArgOwnership, CtorKind, LitValue,
 };
 use crate::lower::test_utils::{entry_block, project_first, set_first};
 use crate::ownership::{DerivedOwnership, Ownership};
@@ -2271,4 +2271,693 @@ fn partial_move_at_last_use_emits_burden_dec_partial_per_03_4_cycle_46() {
         parent_full_decs.is_empty(),
         "MUST NOT emit BurdenDec for parent var(0) when partial-move applies (partial-drop replaces, not augments); got {parent_full_decs:?}; body={body:?}",
     );
+}
+
+/// Match-destructuring positive pin for the §03.4 partial-move emission path.
+///
+/// Exercises `populate_moved_out_fields` walker on `Project` instructions
+/// living in a NON-block-0 arm body, plus `compute_partial_move_vars` deriving
+/// the correct `skip_fields` set for a scrutinee var whose field-projections
+/// straddle a `Switch` terminator. Companion to the direct-field-projection
+/// pin above: that pin exercises Project + Construct co-located in block 0;
+/// this pin exercises the same chain split across a Switch dispatch.
+///
+/// IR shape (mimics what `ori_canon::patterns` lowers for a struct destructure
+/// arm body that lives in a separate block from the dispatch entry):
+///
+/// - block 0 (entry, fn param var(0) = `Pair { data: str, name: str }`):
+///   * `let var(1) = Literal(Int 0)`  (synthetic scalar discriminant)
+///   * `Switch { scrutinee: var(1), cases: [(0, block1)], default: block1 }`
+/// - block 1 (arm body):
+///   * `let var(2) = Project { value: var(0), field: 0 }` (a: str)
+///   * `Construct { dst: var(3), Tuple, args: [var(2)] }`  (transfers field 0)
+///   * `let var(4) = Project { value: var(0), field: 1 }` (b: str — LAST USE
+///     of var(0); Project is `_ => false` for `is_owned_position` so it is NOT
+///     a transfer point)
+///   * `Unreachable`
+///
+/// Expected outcome — identical SHAPE to the direct-projection pin, but
+/// derived through multi-block walking:
+///   - `populate_moved_out_fields` Pass 1 walks blocks 0 + 1; records
+///     `var(2) → (var(0), 0)` and `var(4) → (var(0), 1)` from block 1's
+///     two Project instructions
+///   - Pass 2 walks blocks 0 + 1; finds `var(2)` consumed by Construct in
+///     block 1 (TF-3 Construct positions are owned per
+///     `ArcInstr::is_owned_position`) → `moved_out_fields[var(0)].insert(0)`
+///   - `compute_full_move_vars`: `{0}` does not cover `{0, 1}` →
+///     var(0) NOT in full-move set
+///   - `compute_partial_move_vars`: var(0) → `skip_fields = vec![0]`
+///   - At var(0)'s last-use (Project var(0).1 inside block 1, the terminal
+///     site for the parent), emit `BurdenDecPartial { var: var(0),
+///     skip_fields: vec![0] }`; suppress conservative `BurdenDec`
+///
+/// Spec: Annex E §AIMS RL-2 partial-transfer semantics. AIMS Invariant 5
+/// case (b): extends `ArcInstr` on the SAME var dimension as the direct-
+/// projection pin; no parallel emission path for the Switch case.
+#[test]
+fn match_destructuring_partial_move_at_last_use_emits_burden_dec_partial() {
+    use crate::lower::test_utils::registered_struct_with_two_owned_str_fields;
+
+    let mut registry = TypeRegistry::new();
+    let struct_idx = Idx::from_raw(64); // first dynamic slot per TY-5
+    registered_struct_with_two_owned_str_fields(&mut registry, "Pair", struct_idx);
+
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: struct_idx,
+            ownership: Ownership::Owned,
+        }],
+        // var(0)=Pair, var(1)=int discriminant, var(2)=str (a),
+        // var(3)=str (tuple result), var(4)=str (b)
+        var_types: vec![struct_idx, Idx::INT, Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![
+            // Block 0: entry — synthetic discriminant + Switch into arm body.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Switch {
+                    scrutinee: ArcVarId::new(1),
+                    cases: vec![(0, ArcBlockId::new(1))],
+                    default: ArcBlockId::new(1),
+                },
+            },
+            // Block 1: arm body — Project field 0, transfer via Construct,
+            // then Project field 1 (last use of var(0)).
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![
+                    project_first(ArcVarId::new(2), Idx::STR, ArcVarId::new(0)),
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(3),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Tuple,
+                        args: vec![ArcVarId::new(2)],
+                    },
+                    ArcInstr::Project {
+                        dst: ArcVarId::new(4),
+                        ty: Idx::STR,
+                        value: ArcVarId::new(0),
+                        field: 1,
+                    },
+                ],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+
+    // BurdenDecPartial emission MUST land inside block 1 (the arm body that
+    // contains var(0)'s last use); inspect that block's body specifically so
+    // the multi-block dispatch shape is part of the asserted contract.
+    let arm_body = &func.blocks[1].body;
+    let partial_decs: Vec<&ArcInstr> = arm_body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDecPartial { var, .. } if *var == ArcVarId::new(0)))
+        .collect();
+    assert_eq!(
+        partial_decs.len(),
+        1,
+        "MUST emit exactly one BurdenDecPartial for parent var(0) at its last-use Project inside the arm block (block 1); got {partial_decs:?}; arm_body={arm_body:?}",
+    );
+    let ArcInstr::BurdenDecPartial { skip_fields, .. } = partial_decs[0] else {
+        panic!("filter guaranteed BurdenDecPartial");
+    };
+    assert_eq!(
+        skip_fields,
+        &vec![0u32],
+        "BurdenDecPartial.skip_fields MUST contain the moved-out top-level field index 0 (field 'data' projected + transferred via Construct in the arm block, even though the Project lives outside block 0); got {skip_fields:?}",
+    );
+
+    // Cross-block soundness: NO conservative full BurdenDec for var(0) in
+    // either block — partial-drop replaces, not augments. Cycle-46 invariant
+    // preserved across the Switch-dispatched shape.
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let parent_full_decs: Vec<&ArcInstr> = block
+            .body
+            .iter()
+            .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)))
+            .collect();
+        assert!(
+            parent_full_decs.is_empty(),
+            "MUST NOT emit BurdenDec for parent var(0) in block {block_idx} when partial-move applies; got {parent_full_decs:?}; body={:?}",
+            block.body,
+        );
+    }
+
+    // Entry block (block 0) MUST contain no BurdenDecPartial for var(0) — the
+    // last use lives in the arm body, not at the Switch terminator. Pins the
+    // walker against an over-eager emission at the dispatch site.
+    let entry_partial: Vec<&ArcInstr> = func.blocks[0]
+        .body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDecPartial { var, .. } if *var == ArcVarId::new(0)))
+        .collect();
+    assert!(
+        entry_partial.is_empty(),
+        "MUST NOT emit BurdenDecPartial for var(0) in entry block 0 — var(0)'s last use lives in the arm block (block 1), not at the Switch terminator; got {entry_partial:?}",
+    );
+}
+
+/// CFG-diamond positive pin for the §03.4 INTERSECT-merge path.
+///
+/// Exercises forward dataflow `entry(B) = INTERSECT over P: exit(P)` at a
+/// merge block whose two predecessors symmetrically move the SAME top-level
+/// field. Companion to the match-destructuring pin: that pin's two-block
+/// dispatch is structurally a single-predecessor merge (the arm body has
+/// only the entry block as predecessor); this pin pins true multi-
+/// predecessor INTERSECT at a diamond join.
+///
+/// IR shape (4 blocks):
+///
+/// - block 0 (entry, fn param var(0) = `Pair { data: str, name: str }`):
+///   * `let var(1) = Literal(Int 0)` (synthetic scrutinee)
+///   * `Switch { scrutinee: var(1), cases: [(0, block1)], default: block2 }`
+/// - block 1 (case 0):
+///   * `let var(2) = Project { value: var(0), field: 0 }`
+///   * `Construct { dst: var(3), Tuple, args: [var(2)] }`  (transfers field 0)
+///   * `Jump block 3`
+/// - block 2 (case 1):
+///   * `let var(4) = Project { value: var(0), field: 0 }`  (SYMMETRIC)
+///   * `Construct { dst: var(5), Tuple, args: [var(4)] }`  (transfers field 0)
+///   * `Jump block 3`
+/// - block 3 (merge):
+///   * `let var(6) = Project { value: var(0), field: 1 }`  (last use of var(0))
+///   * `Unreachable`
+///
+/// Expected outcome:
+///   - `block_local[1] = block_local[2] = {var(0): {0}}` (symmetric moves)
+///   - Pass 3 INTERSECT at block 3 entry:
+///     `entry(3) = INTERSECT(exit(1), exit(2)) = INTERSECT({var(0):{0}}, {var(0):{0}}) = {var(0):{0}}`
+///   - Union over exits = `{var(0):{0}}`
+///   - `compute_partial_move_vars`: var(0) → `skip_fields = vec![0]`
+///   - At var(0)'s last-use (`Project var(0).1` in block 3), emit
+///     `BurdenDecPartial { var: var(0), skip_fields: vec![0] }`; no
+///     conservative `BurdenDec` for var(0) anywhere.
+///
+/// Spec: Annex E §AIMS RL-2 partial-transfer semantics; INTERSECT is the
+/// architecturally-correct merge — sound for both pre-rejection and post-
+/// E2043-typeck-rejection states (post-rejection: predecessor sets are
+/// guaranteed equal so INTERSECT degenerates to pick-any, but implementing
+/// real INTERSECT defends against future typeck-rejection regressions).
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "diamond IR fixture requires four basic-block literals; splitting hides matrix-clamped pin shape"
+)]
+fn match_branches_with_symmetric_partial_move_intersect_emits_burden_dec_partial() {
+    use crate::lower::test_utils::registered_struct_with_two_owned_str_fields;
+
+    let mut registry = TypeRegistry::new();
+    let struct_idx = Idx::from_raw(64); // first dynamic slot per TY-5
+    registered_struct_with_two_owned_str_fields(&mut registry, "Pair", struct_idx);
+
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: struct_idx,
+            ownership: Ownership::Owned,
+        }],
+        // var(0)=Pair, var(1)=int scrutinee, var(2)/var(4)=projected field 0,
+        // var(3)/var(5)=tuple ctor result, var(6)=projected field 1
+        var_types: vec![
+            struct_idx,
+            Idx::INT,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+        ],
+        blocks: vec![
+            // Block 0: synthetic scrutinee + Switch dispatch.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Switch {
+                    scrutinee: ArcVarId::new(1),
+                    cases: vec![(0, ArcBlockId::new(1))],
+                    default: ArcBlockId::new(2),
+                },
+            },
+            // Block 1: case 0 — project field 0, transfer via Construct, jump merge.
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![
+                    project_first(ArcVarId::new(2), Idx::STR, ArcVarId::new(0)),
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(3),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Tuple,
+                        args: vec![ArcVarId::new(2)],
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(3),
+                    args: Vec::new(),
+                },
+            },
+            // Block 2: case 1 — symmetric move of field 0, jump merge.
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: vec![
+                    project_first(ArcVarId::new(4), Idx::STR, ArcVarId::new(0)),
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(5),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Tuple,
+                        args: vec![ArcVarId::new(4)],
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(3),
+                    args: Vec::new(),
+                },
+            },
+            // Block 3: merge — project field 1 (terminal last use of var(0)).
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: Vec::new(),
+                body: vec![ArcInstr::Project {
+                    dst: ArcVarId::new(6),
+                    ty: Idx::STR,
+                    value: ArcVarId::new(0),
+                    field: 1,
+                }],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+
+    // BurdenDecPartial fires at var(0)'s last use, which lives in block 3
+    // (the merge block). Pin the count + skip_fields against the INTERSECT
+    // result.
+    let merge_body = &func.blocks[3].body;
+    let partial_decs: Vec<&ArcInstr> = merge_body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDecPartial { var, .. } if *var == ArcVarId::new(0)))
+        .collect();
+    assert_eq!(
+        partial_decs.len(),
+        1,
+        "MUST emit exactly one BurdenDecPartial for var(0) at its last-use Project in the merge block (block 3) — INTERSECT of symmetric exits MUST yield {{var(0): {{0}}}}; got {partial_decs:?}; merge_body={merge_body:?}",
+    );
+    let ArcInstr::BurdenDecPartial { skip_fields, .. } = partial_decs[0] else {
+        panic!("filter guaranteed BurdenDecPartial");
+    };
+    assert_eq!(
+        skip_fields,
+        &vec![0u32],
+        "BurdenDecPartial.skip_fields MUST contain the moved-out top-level field index 0 (field 'data' projected and transferred symmetrically on BOTH diamond arms); got {skip_fields:?}",
+    );
+
+    // No conservative full BurdenDec for var(0) in any block — partial-drop
+    // replaces, not augments. Diamond-shape invariant preserved.
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let parent_full_decs: Vec<&ArcInstr> = block
+            .body
+            .iter()
+            .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)))
+            .collect();
+        assert!(
+            parent_full_decs.is_empty(),
+            "MUST NOT emit BurdenDec for var(0) in block {block_idx} when partial-move applies through the diamond; got {parent_full_decs:?}; body={:?}",
+            block.body,
+        );
+    }
+}
+
+/// Loop-entry positive pin for the §03.4 INTERSECT-merge fixpoint path.
+///
+/// Exercises bounded fixpoint iteration over a CFG with a back edge. Pre-
+/// loop block unconditionally moves a field; loop header has two
+/// predecessors (entry block + self-loop). Post-loop block sees the move
+/// via the loop header. Pins optimistic-⊤ initialization + fixpoint
+/// convergence — without ⊤ seeding, the back edge's empty initial exit
+/// would falsely intersect away the entry-block contribution at the loop
+/// header, yielding a strictly-weaker (incorrect) state at loop exit.
+///
+/// IR shape (3 blocks with self-loop on header):
+///
+/// - block 0 (entry, pre-loop):
+///   * `let var(2) = Project { value: var(0), field: 0 }`
+///   * `Construct { dst: var(3), Tuple, args: [var(2)] }`  (transfers field 0)
+///   * `let var(4) = Literal(Bool false)` (loop continuation flag)
+///   * `Jump block 1`
+/// - block 1 (loop header):
+///   * `Branch { cond: var(4), then: block 1 (back), else: block 2 (exit) }`
+/// - block 2 (post-loop):
+///   * `let var(5) = Project { value: var(0), field: 1 }`  (last use of var(0))
+///   * `Unreachable`
+///
+/// Expected outcome (optimistic-⊤ seeding + worklist fixpoint):
+///   - `block_local[0] = {var(0): {0}}`; `block_local[1..2]` empty.
+///   - Initial `exit(0)=empty`, `exit(1)=exit(2)=⊤={var(0):{0}}`.
+///   - First worklist pass: `exit(0)={var(0):{0}}`;
+///     `entry(1) = INTERSECT(exit(0), exit(1)) =
+///     INTERSECT({var(0):{0}}, ⊤) = {var(0):{0}}`;
+///     `exit(1)` unchanged from ⊤.
+///     `entry(2) = exit(1) = {var(0):{0}}`; `exit(2) = {var(0):{0}}`.
+///   - Second worklist pass: fixpoint.
+///   - Union over exits = `{var(0): {0}}`.
+///   - `BurdenDecPartial { var: var(0), skip_fields: vec![0] }` emitted at
+///     `Project var(0).1` in block 2.
+///
+/// Spec: Annex E §AIMS RL-2 partial-transfer + IC-7 convergence bound.
+/// Optimistic-⊤ initialization per Kildall (1973); Aho/Lam/Sethi/Ullman
+/// chapter 9.3 — standard MUST-analysis fixpoint shape.
+#[test]
+fn loop_back_edge_partial_move_intersect_with_entry_emits_burden_dec_partial() {
+    use crate::lower::test_utils::registered_struct_with_two_owned_str_fields;
+
+    let mut registry = TypeRegistry::new();
+    let struct_idx = Idx::from_raw(64);
+    registered_struct_with_two_owned_str_fields(&mut registry, "Pair", struct_idx);
+
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: struct_idx,
+            ownership: Ownership::Owned,
+        }],
+        // var(0)=Pair, var(2)=projected field 0, var(3)=tuple ctor result,
+        // var(4)=bool loop cond, var(5)=projected field 1
+        var_types: vec![
+            struct_idx,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+            Idx::BOOL,
+            Idx::STR,
+        ],
+        blocks: vec![
+            // Block 0: pre-loop — move field 0, prepare loop cond, jump header.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    project_first(ArcVarId::new(2), Idx::STR, ArcVarId::new(0)),
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(3),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Tuple,
+                        args: vec![ArcVarId::new(2)],
+                    },
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(4),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(LitValue::Bool(false)),
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: Vec::new(),
+                },
+            },
+            // Block 1: loop header — back-edge to self OR exit to block 2.
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Branch {
+                    cond: ArcVarId::new(4),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            // Block 2: post-loop — project field 1 (terminal last use of var(0)).
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: vec![ArcInstr::Project {
+                    dst: ArcVarId::new(5),
+                    ty: Idx::STR,
+                    value: ArcVarId::new(0),
+                    field: 1,
+                }],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+
+    // BurdenDecPartial fires at var(0)'s last use in block 2. Fixpoint
+    // soundness: the move from block 0 propagates through the loop header
+    // (block 1) to the exit block (block 2).
+    let exit_body = &func.blocks[2].body;
+    let partial_decs: Vec<&ArcInstr> = exit_body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDecPartial { var, .. } if *var == ArcVarId::new(0)))
+        .collect();
+    assert_eq!(
+        partial_decs.len(),
+        1,
+        "MUST emit exactly one BurdenDecPartial for var(0) at its last-use Project in the post-loop block (block 2) — optimistic-⊤ fixpoint MUST propagate {{var(0): {{0}}}} through the loop header; got {partial_decs:?}; exit_body={exit_body:?}",
+    );
+    let ArcInstr::BurdenDecPartial { skip_fields, .. } = partial_decs[0] else {
+        panic!("filter guaranteed BurdenDecPartial");
+    };
+    assert_eq!(
+        skip_fields,
+        &vec![0u32],
+        "BurdenDecPartial.skip_fields MUST contain field 0 (moved in pre-loop block 0; propagated through the loop header's back-edge fixpoint); got {skip_fields:?}",
+    );
+
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let parent_full_decs: Vec<&ArcInstr> = block
+            .body
+            .iter()
+            .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)))
+            .collect();
+        assert!(
+            parent_full_decs.is_empty(),
+            "MUST NOT emit BurdenDec for var(0) in block {block_idx} when partial-move propagates through the loop; got {parent_full_decs:?}; body={:?}",
+            block.body,
+        );
+    }
+}
+
+/// Nested-join positive pin for the §03.4 INTERSECT-merge composition path.
+///
+/// Exercises INTERSECT at a 3-predecessor join whose predecessors include
+/// a 2-predecessor inner merge. Pins compositionality: INTERSECT must
+/// distribute correctly through nested CFG joins — the inner merge's
+/// INTERSECT-of-symmetric-moves must yield the right value at the outer
+/// merge's INTERSECT input.
+///
+/// IR shape (6 blocks, nested diamond):
+///
+/// - block 0 (outer scrutinee): Switch → block 1 (case 0), block 4 (default)
+/// - block 1 (outer case 0, inner scrutinee): Switch → block 2 (case 0), block 3 (default)
+/// - block 2 (inner case 0): Project var(0).0 → Construct → Jump block 5
+/// - block 3 (inner case 1): Project var(0).0 → Construct → Jump block 5  (symmetric)
+/// - block 4 (outer case 1):  Project var(0).0 → Construct → Jump block 5  (symmetric)
+/// - block 5 (outer merge): Project var(0).1 → Unreachable (last use of var(0))
+///
+/// Expected outcome:
+///   - `block_local[2] = block_local[3] = block_local[4] = {var(0): {0}}`.
+///   - Pass 3: exit(2) = exit(3) = exit(4) = {var(0):{0}}.
+///   - entry(5) = INTERSECT(exit(2), exit(3), exit(4)) = {var(0):{0}}.
+///   - Union = `{var(0): {0}}`; `BurdenDecPartial` fires at block 5.
+///
+/// Spec: Annex E §AIMS RL-2 — INTERSECT semantics compose correctly across
+/// nested CFG joins because INTERSECT is associative (lattice meet law).
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "nested-diamond IR fixture requires six basic-block literals; splitting hides matrix-clamped pin shape"
+)]
+fn nested_match_with_inner_diamond_partial_move_emits_burden_dec_partial() {
+    use crate::lower::test_utils::registered_struct_with_two_owned_str_fields;
+
+    let mut registry = TypeRegistry::new();
+    let struct_idx = Idx::from_raw(64);
+    registered_struct_with_two_owned_str_fields(&mut registry, "Pair", struct_idx);
+
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: struct_idx,
+            ownership: Ownership::Owned,
+        }],
+        // var(0)=Pair scrutinee, var(1)=outer-Switch scrutinee, var(2)=inner-
+        // Switch scrutinee, var(3..=5)=inner-arm field 0 projections + ctor
+        // results, var(6)=inner-case-1 ctor result, var(7)=outer-case-1
+        // projected field 0, var(8)=outer-case-1 ctor result, var(9)=projected
+        // field 1 at merge.
+        var_types: vec![
+            struct_idx,
+            Idx::INT, // var(1)
+            Idx::INT, // var(2)
+            Idx::STR, // var(3) inner-case-0 field 0
+            Idx::STR, // var(4) inner-case-0 ctor result
+            Idx::STR, // var(5) inner-case-1 field 0
+            Idx::STR, // var(6) inner-case-1 ctor result
+            Idx::STR, // var(7) outer-case-1 field 0
+            Idx::STR, // var(8) outer-case-1 ctor result
+            Idx::STR, // var(9) merge field 1
+        ],
+        blocks: vec![
+            // Block 0: outer scrutinee + Switch to block 1 (case 0) or block 4.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Switch {
+                    scrutinee: ArcVarId::new(1),
+                    cases: vec![(0, ArcBlockId::new(1))],
+                    default: ArcBlockId::new(4),
+                },
+            },
+            // Block 1: outer case 0 — inner scrutinee + Switch to block 2 or block 3.
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Switch {
+                    scrutinee: ArcVarId::new(2),
+                    cases: vec![(0, ArcBlockId::new(2))],
+                    default: ArcBlockId::new(3),
+                },
+            },
+            // Block 2: inner case 0 — project field 0, transfer, jump merge.
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: vec![
+                    project_first(ArcVarId::new(3), Idx::STR, ArcVarId::new(0)),
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(4),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Tuple,
+                        args: vec![ArcVarId::new(3)],
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(5),
+                    args: Vec::new(),
+                },
+            },
+            // Block 3: inner case 1 — symmetric move of field 0.
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: Vec::new(),
+                body: vec![
+                    project_first(ArcVarId::new(5), Idx::STR, ArcVarId::new(0)),
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(6),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Tuple,
+                        args: vec![ArcVarId::new(5)],
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(5),
+                    args: Vec::new(),
+                },
+            },
+            // Block 4: outer case 1 — symmetric move of field 0 (parallel to
+            // the inner diamond's joined output).
+            ArcBlock {
+                id: ArcBlockId::new(4),
+                params: Vec::new(),
+                body: vec![
+                    project_first(ArcVarId::new(7), Idx::STR, ArcVarId::new(0)),
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(8),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Tuple,
+                        args: vec![ArcVarId::new(7)],
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(5),
+                    args: Vec::new(),
+                },
+            },
+            // Block 5: outer merge — project field 1 (terminal last use).
+            ArcBlock {
+                id: ArcBlockId::new(5),
+                params: Vec::new(),
+                body: vec![ArcInstr::Project {
+                    dst: ArcVarId::new(9),
+                    ty: Idx::STR,
+                    value: ArcVarId::new(0),
+                    field: 1,
+                }],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+
+    let _ctx = emit_burden_ops(&mut func, &registry, &[]);
+
+    let merge_body = &func.blocks[5].body;
+    let partial_decs: Vec<&ArcInstr> = merge_body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDecPartial { var, .. } if *var == ArcVarId::new(0)))
+        .collect();
+    assert_eq!(
+        partial_decs.len(),
+        1,
+        "MUST emit exactly one BurdenDecPartial for var(0) at its last-use Project in the outer-merge block (block 5) — INTERSECT composes correctly across the inner diamond + outer fork; got {partial_decs:?}; merge_body={merge_body:?}",
+    );
+    let ArcInstr::BurdenDecPartial { skip_fields, .. } = partial_decs[0] else {
+        panic!("filter guaranteed BurdenDecPartial");
+    };
+    assert_eq!(
+        skip_fields,
+        &vec![0u32],
+        "BurdenDecPartial.skip_fields MUST contain field 0 (moved symmetrically on all 3 paths reaching the outer merge); got {skip_fields:?}",
+    );
+
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let parent_full_decs: Vec<&ArcInstr> = block
+            .body
+            .iter()
+            .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)))
+            .collect();
+        assert!(
+            parent_full_decs.is_empty(),
+            "MUST NOT emit BurdenDec for var(0) in block {block_idx} when nested INTERSECT yields partial-move; got {parent_full_decs:?}; body={:?}",
+            block.body,
+        );
+    }
 }

@@ -86,11 +86,11 @@ pub(super) fn maybe_record_mono_instance(
     // substitute_in_pool can handle root vars from inner instantiations.
     // Threads the declared scheme_var_ids (the cloned Vec from the
     // sig-lookup block above) explicitly, rather than recovering the
-    // list from var_subst's keys — the helper's contract is "extend
-    // for THESE declared scheme vars" (SSOT per impl-hygiene.md
-    // §Algorithmic DRY; shared with the deferred-resolve site in
+    // list from var_subst's keys. The helper's contract is "extend for
+    // THESE declared scheme vars" — canonical scheme-var scoping shared
+    // with the deferred-resolve site in
     // check::exports::resolve_deferred_mono_calls and the JIT imported-mono
-    // site in oric::test::runner::imported_mono).
+    // site in oric::test::runner::imported_mono.
     crate::pool::substitute::extend_var_subst_with_roots(
         engine.pool(),
         &scheme_var_ids,

@@ -1,0 +1,24 @@
+// Unconditional partial move — the field projection runs on every CFG
+// path, with no asymmetric branch — is statically computable. Typeck
+// MUST accept.
+//
+// `Pair` is destructured into two locals before any conditional; every
+// CFG path sees `moved_out_fields[p] = {data, name}`. Phase 5 ARC
+// lowering's per-CFG-path invariant holds trivially.
+
+use std.testing { assert_eq };
+
+type Pair = { data: str, name: str };
+
+@good (p: Pair) -> (str, str) = {
+    let $a = p.data;
+    let $b = p.name;
+    (a, b)
+};
+
+@test_unconditional_partial_move_returns_both_fields tests @good () -> void = {
+    let p = Pair { data: "DATA", name: "NAME" };
+    let pair = good(p: p);
+    assert_eq(actual: pair.0, expected: "DATA");
+    assert_eq(actual: pair.1, expected: "NAME")
+};

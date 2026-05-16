@@ -151,6 +151,10 @@ define_error_codes! {
     E2041, "Invalid #repr attribute";
     E2042, "Extern type passed as owned without #free annotation";
     E2043, "Conditional partial move not statically computable";
+    E2044, "Pre-condition contract type must be bool";
+    E2045, "Post-condition contract must be a lambda";
+    E2046, "Post-condition contract cannot apply to void-returning function";
+    E2047, "Pre-condition contract references unknown identifier";
 
     // Pattern Errors (E3xxx)
     E3001, "Unknown pattern";

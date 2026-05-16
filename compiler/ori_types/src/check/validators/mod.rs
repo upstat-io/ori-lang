@@ -455,5 +455,9 @@ fn emit_ambiguous_if_not_exempt(
     true
 }
 
+pub mod partial_move;
+
+pub use partial_move::validate_partial_move;
+
 #[cfg(test)]
 mod tests;

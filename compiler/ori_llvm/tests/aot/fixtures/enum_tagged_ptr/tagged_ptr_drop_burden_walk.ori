@@ -1,0 +1,23 @@
+// Tagged-pointer enum codegen pin: an enum eligible for `EnumTag::TaggedPtr`
+// (<=8 variants, every non-unit variant carries a single single-word pointer
+// payload per `can_use_tagged_pointer`) drops via the tagged-pointer
+// dispatch path emitted by the arc emitter. `Iterator<int>` payload lowers
+// to `MachineRepr::UnmanagedPtr` per `is_taggable_pointer` (single-word
+// pointer), so the enum qualifies under all three constraints.
+//
+// Nesting the enum as the element type of a list forces generation of an
+// `_ori_elem_dec$<idx>` runtime cleanup function (called by
+// `ori_buffer_drop_unique` at buffer teardown). Inside that function the
+// arc emitter routes through the tagged-pointer encoding (load encoded
+// i64 → decode tag → switch → decode pointer → per-variant cleanup),
+// which is the same dispatch logic the `BurdenDecVariant` instr-dispatch
+// arm exercises via the canonical SSOT helper `emit_variant_burden_walk`.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let $iter1 = [1, 2, 3].iter();
+    let $iter2 = [4, 5, 6].iter();
+    let _xs: [MaybeIter] = [Holds(it: iter1), Holds(it: iter2)];
+    0
+}

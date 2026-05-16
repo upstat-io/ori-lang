@@ -1,0 +1,23 @@
+// Conditional partial move of a non-Drop owned aggregate's field must
+// be rejected at type-check time with E2043.
+//
+// The canonical partial-move shape is `let f = v.field`. On the THEN
+// branch we bind `p.data` to a local; on the ELSE branch we do not.
+// The asymmetric move set across CFG branches violates the
+// partial-move invariant — `moved_out_fields[p]` would be `{data}` on
+// the THEN path and `{}` on the ELSE path, which Phase 5 cannot
+// resolve without fixpoint dataflow.
+//
+// Typeck rejects with E2043 BEFORE Phase 5 ARC lowering would have to
+// resolve the join — keeping Phase 5 trivial.
+
+#compile_fail(code: "E2043", message: "conditional partial move")
+
+type Pair = { data: str, name: str };
+
+@bad (cond: bool, p: Pair) -> str = if cond then {
+    let $a = p.data;
+    a
+} else {
+    ""
+};

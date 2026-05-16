@@ -356,6 +356,46 @@ pub enum TypeErrorKind {
         reason: String,
     },
 
+    /// Conditional partial move of a non-Drop owned aggregate (E2043).
+    ///
+    /// A field of a non-Drop owned aggregate was projected on one CFG branch
+    /// but not on a sibling branch (or differently). Phase 5 ARC lowering
+    /// requires `moved_out_fields[v]` to be statically computable per-CFG-path;
+    /// conditional partial moves violate that invariant and MUST be rejected
+    /// at type-check time.
+    ConditionalPartialMove {
+        /// The aggregate variable name (e.g., `p` in `p.data`).
+        aggregate: Name,
+        /// The field that is projected asymmetrically (e.g., `data`).
+        field: Name,
+    },
+
+    /// Pre-condition contract type must be bool (E2044).
+    ///
+    /// Spec: 10-patterns.md § Function-Level Contracts — `pre(cond)` requires
+    /// `cond` to type-check as `bool`. A non-bool expression is rejected here.
+    PreContractNotBool {
+        /// Inferred type of the contract expression.
+        actual: Idx,
+    },
+
+    /// Post-condition contract cannot apply to a void-returning function (E2046).
+    ///
+    /// Spec: 10-patterns.md § Function-Level Contracts — `post(r -> ...)` binds
+    /// the return value to `r`; void-returning functions have no value to bind.
+    PostContractVoidReturn,
+
+    /// Pre-condition contract references an unknown identifier (E2047).
+    ///
+    /// Spec: 10-patterns.md § Function-Level Contracts — `pre(cond)` may only
+    /// reference function parameters and module-level bindings. Free names
+    /// (locals not yet introduced, typos) are rejected with this code in lieu
+    /// of the generic E2003 to surface contract-scope as the cause.
+    PreContractUnknownIdent {
+        /// The unknown identifier as written.
+        name: Name,
+    },
+
     /// Refutable `BindingPattern` at let-class binding site (E2001).
     /// Per Spec Clauses 15.4 / 16: `let <pat> = expr` SHALL require an
     /// irrefutable pattern. Maps to error code E2001.

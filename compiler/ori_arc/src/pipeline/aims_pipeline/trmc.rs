@@ -118,7 +118,13 @@ pub(crate) fn verify_trmc_soundness(
     }
 
     let _span = tracing::info_span!("verify_trmc_soundness").entered();
-    let errors = crate::aims::normalize::verify::verify_trmc_soundness(func, &state_map);
+    let mut errors = crate::aims::normalize::verify::verify_trmc_soundness(func, &state_map);
+    // §PL-10 structural verify + §VF-7 tier (a) — burden-balance is the same
+    // tier of structural well-formedness as Uniqueness; failure rolls back
+    // the TRMC rewrite through the same path as a Uniqueness failure.
+    errors.extend(crate::aims::normalize::verify::verify_trmc_burden_balance(
+        func, &state_map,
+    ));
     if errors.is_empty() {
         tracing::debug!(func = func.name.raw(), "TRMC soundness verified");
         return (state_map, true);

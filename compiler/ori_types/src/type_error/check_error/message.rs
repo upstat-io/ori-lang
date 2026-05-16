@@ -231,6 +231,25 @@ impl TypeCheckError {
             TypeErrorKind::InvalidReprAttribute { reason, .. } => {
                 format!("invalid `#repr` attribute: {reason}")
             }
+            TypeErrorKind::ConditionalPartialMove { .. } => {
+                "conditional partial move not statically computable; \
+                 make the field projection unconditional, or mirror it symmetrically on every branch"
+                    .to_string()
+            }
+            TypeErrorKind::PreContractNotBool { actual } => {
+                format!(
+                    "pre() condition must have type bool, found {}",
+                    actual.display_name()
+                )
+            }
+            TypeErrorKind::PostContractVoidReturn => {
+                "post() cannot apply to a function returning void".to_string()
+            }
+            TypeErrorKind::PreContractUnknownIdent { .. } => {
+                "pre() references unknown identifier — only function parameters \
+                 and module-level bindings are visible"
+                    .to_string()
+            }
             TypeErrorKind::RefutablePattern { reason } => {
                 use crate::infer::RefutableReason;
                 match reason {
@@ -384,6 +403,18 @@ impl TypeCheckError {
 
             // E2041: Invalid #repr attribute
             TypeErrorKind::InvalidReprAttribute { .. } => ErrorCode::E2041,
+
+            // E2043: Conditional partial move not statically computable
+            TypeErrorKind::ConditionalPartialMove { .. } => ErrorCode::E2043,
+
+            // E2044: Pre-condition contract type must be bool
+            TypeErrorKind::PreContractNotBool { .. } => ErrorCode::E2044,
+
+            // E2046: Post-condition contract cannot apply to void-returning function
+            TypeErrorKind::PostContractVoidReturn => ErrorCode::E2046,
+
+            // E2047: Pre-condition contract references unknown identifier
+            TypeErrorKind::PreContractUnknownIdent { .. } => ErrorCode::E2047,
         }
     }
 }

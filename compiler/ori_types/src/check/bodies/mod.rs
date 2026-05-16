@@ -41,7 +41,7 @@ pub use impls::{check_def_impl_bodies, check_impl_bodies};
 use ori_ir::{ExprId, ExprKind};
 use rustc_hash::FxHashMap;
 
-use crate::check::validators::{validate_body_types, ValidatorContext};
+use crate::check::validators::{validate_body_types, validate_partial_move, ValidatorContext};
 use crate::check::ModuleChecker;
 use crate::output::FunctionSig;
 use crate::registry::burden::UserBurdenSpec;
@@ -88,6 +88,7 @@ pub(super) fn finalize_body_and_export(
     checker: &mut ModuleChecker<'_>,
     sig: &FunctionSig,
     sig_span: ori_ir::Span,
+    body_root: ExprId,
     outputs: BodyOutputs,
 ) {
     let BodyOutputs {
@@ -103,6 +104,13 @@ pub(super) fn finalize_body_and_export(
 
     // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
     run_validator(checker, &expr_types, sig, sig_span);
+
+    // Validate conditional-partial-move rejection — emits E2043 for
+    // asymmetric field projections of non-Drop owned aggregates across
+    // branches of `if`/`match`. Producer-side guard so Phase 5 ARC lowering
+    // (`ori_arc::lower::burden_lower`) never sees patterns that would
+    // require fixpoint dataflow over `moved_out_fields[v]`.
+    run_partial_move_validator(checker, &expr_types, sig, body_root);
 
     // Store expression types.
     for (expr_index, ty) in expr_types {
@@ -210,6 +218,39 @@ pub(super) fn run_validator(
             &ctx,
             &mut errs,
         );
+        errs
+    };
+    for err in validation_errors {
+        checker.push_error(err);
+    }
+}
+
+/// Shared conditional-partial-move enforcement for every body-checking
+/// pass.
+///
+/// Walks `body_root`'s AST top-down and emits `E2043`
+/// (`EBURDEN_CONDITIONAL_PARTIAL_MOVE`) for any non-Drop owned aggregate
+/// whose field is projected asymmetrically across the arms of an `if` or
+/// `match`. Producer-side guard whose ordering invariant is "typeck
+/// rejects BEFORE Phase 5 emits". Without producer enforcement, Phase 5
+/// ARC lowering would see patterns that violate its
+/// "`moved_out_fields[v]` statically computable per-CFG-path" invariant
+/// and would have to either fall back to fixpoint dataflow (out of
+/// trivial-emission scope) or silently miscompile.
+///
+/// Errors append to `checker.push_error` alongside normal inference and
+/// PC-2 validation errors.
+pub(super) fn run_partial_move_validator(
+    checker: &mut ModuleChecker<'_>,
+    expr_types: &FxHashMap<ExprIndex, Idx>,
+    sig: &FunctionSig,
+    body_root: ExprId,
+) {
+    let validation_errors: Vec<TypeCheckError> = {
+        let arena = checker.arena();
+        let pool = checker.pool();
+        let mut errs: Vec<TypeCheckError> = Vec::new();
+        validate_partial_move(pool, arena, expr_types, sig, body_root, &mut errs);
         errs
     };
     for err in validation_errors {

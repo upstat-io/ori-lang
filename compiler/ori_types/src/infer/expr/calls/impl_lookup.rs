@@ -372,8 +372,8 @@ pub(super) fn lookup_impl_method(
                     sig,
                     // Bound-chain dispatch is for `receiver.method(...)` calls,
                     // which inherently expect instance methods (have `self`).
-                    // Capability methods without `self` (§10.2) need a
-                    // different dispatch path — tracked as task #11.
+                    // TODO(typeck): capability methods without self need
+                    // has_self: false dispatch path.
                     has_self: true,
                     where_clause_metadata,
                     generic_param_metadata,

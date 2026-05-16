@@ -274,8 +274,27 @@ impl<'a> TypeErrorRenderer<'a> {
                     self.format_name(*type_name)
                 )
             }
+            TypeErrorKind::ConditionalPartialMove { aggregate, field } => {
+                format!(
+                    "conditional partial move of `{}.{}`",
+                    self.format_name(*aggregate),
+                    self.format_name(*field)
+                )
+            }
             TypeErrorKind::RefutablePattern { .. } => {
                 "refutable pattern in let-binding".to_string()
+            }
+            TypeErrorKind::PreContractNotBool { actual } => {
+                format!(
+                    "pre() must be `bool`, found `{}`",
+                    self.format_type(*actual)
+                )
+            }
+            TypeErrorKind::PostContractVoidReturn => {
+                "post() cannot apply to a `void`-returning function".to_string()
+            }
+            TypeErrorKind::PreContractUnknownIdent { name } => {
+                format!("unknown identifier `{}` in pre()", self.format_name(*name))
             }
         }
     }

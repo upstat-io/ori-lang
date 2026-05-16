@@ -32,8 +32,8 @@ use ori_ir::Name;
 
 use crate::aims::contract::ContextRegion;
 use crate::aims::intraprocedural::AimsStateMap;
-use crate::aims::lattice::Uniqueness;
-use crate::graph::DominatorTree;
+use crate::aims::lattice::{ShapeClass, Uniqueness};
+use crate::graph::{compute_predecessors, DominatorTree};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, LitValue};
 
 /// Errors found during post-rewrite TRMC verification.
@@ -92,6 +92,22 @@ pub enum TrmcVerificationError {
         function: Name,
         block: ArcBlockId,
         var: ArcVarId,
+    },
+
+    /// `BurdenInc(v)` and `BurdenDec(v)` counts diverge along a CFG
+    /// path through the TRMC context region, for a `ShapeClass::ContextHole`
+    /// variable. Structural verification per PL-10 (well-formedness) +
+    /// VF-7 tier (a). On failure, the AIMS pipeline rolls back the TRMC
+    /// rewrite per PL-10.
+    ///
+    /// `region` is the loop header that anchors the TRMC context region
+    /// (where `ContextHole`-shaped block params are defined). `path` is
+    /// the sequence of block ids that surfaces the divergent CFG edge.
+    BurdenImbalance {
+        function: Name,
+        var: ArcVarId,
+        region: ArcBlockId,
+        path: Vec<ArcBlockId>,
     },
 }
 
@@ -167,6 +183,22 @@ impl std::fmt::Display for TrmcVerificationError {
                      by the loop header in function {:?}",
                     var.raw(),
                     block.raw(),
+                    function.raw()
+                )
+            }
+            Self::BurdenImbalance {
+                function,
+                var,
+                region,
+                path,
+            } => {
+                write!(
+                    f,
+                    "TRMC verify: BurdenInc/BurdenDec imbalance on context-hole var v{} \
+                     in region anchored at block {} along path {:?} of function {:?}",
+                    var.raw(),
+                    region.raw(),
+                    path.iter().map(|b| b.raw()).collect::<Vec<_>>(),
                     function.raw()
                 )
             }
@@ -551,6 +583,144 @@ pub(crate) fn verify_trmc_soundness(
                     var,
                     block: block.id,
                 });
+            }
+        }
+    }
+
+    errors
+}
+
+/// Verify per-CFG-path `BurdenInc` / `BurdenDec` balance for context-hole
+/// variables in a TRMC-rewritten function.
+///
+/// Implements PL-10 structural verification (well-formedness) plus VF-7
+/// tier (a) release-visible structural check for burden-tracking emission.
+/// Per-context-hole-var net-count CFG dataflow: every block carries a
+/// fixed `BurdenInc(v) - BurdenDec*(v)` delta, and the entry net at every
+/// block MUST agree across all predecessors. Disagreement at a CFG merge
+/// point proves a divergent burden count along at least one reachable
+/// path — AIMS Invariant 1 violation (contract/realization disagreement).
+///
+/// Returns an empty vec when burden is balanced along every reachable path.
+/// On failure, the pipeline rolls back the TRMC rewrite per PL-10.
+pub(crate) fn verify_trmc_burden_balance(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+) -> Vec<TrmcVerificationError> {
+    let mut errors = Vec::new();
+
+    let Some(ctx) = find_context_vars(func) else {
+        // No TRMC rewrite structure — nothing to verify.
+        return errors;
+    };
+
+    // ContextHole-shaped vars are the verification targets. The shape is
+    // a per-var property set at definition by `populate_var_shapes`; iterate
+    // every SSA var and filter by `ShapeClass::ContextHole`.
+    let num_vars = u32::try_from(func.var_types.len()).unwrap_or(u32::MAX);
+    let mut context_hole_vars: Vec<ArcVarId> = Vec::new();
+    for raw in 0u32..num_vars {
+        let v = ArcVarId::new(raw);
+        if matches!(state_map.var_shape(v), ShapeClass::ContextHole) {
+            context_hole_vars.push(v);
+        }
+    }
+
+    if context_hole_vars.is_empty() {
+        return errors;
+    }
+
+    let preds = compute_predecessors(func);
+
+    for &var in &context_hole_vars {
+        // Per-block burden delta = BurdenInc(var) - BurdenDec*(var).
+        // BurdenDecPartial and BurdenDecVariant target whole-var burden
+        // tracking (mirror BurdenDec). BurdenDecField targets a field of
+        // the base — not the whole-var balance — so it is excluded.
+        let mut delta: Vec<i64> = vec![0; func.blocks.len()];
+        for (idx, block) in func.blocks.iter().enumerate() {
+            for instr in &block.body {
+                match instr {
+                    ArcInstr::BurdenInc { var: v } if *v == var => delta[idx] += 1,
+                    ArcInstr::BurdenDec { var: v } if *v == var => delta[idx] -= 1,
+                    ArcInstr::BurdenDecPartial { var: v, .. } if *v == var => delta[idx] -= 1,
+                    ArcInstr::BurdenDecVariant { var: v } if *v == var => delta[idx] -= 1,
+                    _ => {}
+                }
+            }
+        }
+
+        // Forward dataflow on net burden count. entry_net[b] = sum of
+        // deltas along any reachable path from func.entry to b. Every
+        // predecessor's exit net MUST equal the chosen entry net; mismatch
+        // at a merge point is the imbalance signal.
+        let n = func.blocks.len();
+        let mut entry_net: Vec<Option<i64>> = vec![None; n];
+        let entry_idx = func.entry.index();
+        if entry_idx < n {
+            entry_net[entry_idx] = Some(0);
+        }
+
+        // Reverse postorder over the CFG is what the analysis is built on
+        // (`graph::compute_postorder` + reverse); for this structural
+        // check, a simple worklist over predecessor lists is sufficient
+        // because we only need fixpoint, not optimization.
+        let mut changed = true;
+        let mut iterations: usize = 0;
+        let iter_cap = n.saturating_mul(4).max(16);
+        while changed && iterations < iter_cap {
+            changed = false;
+            iterations += 1;
+            for b in 0..n {
+                if b == entry_idx {
+                    continue;
+                }
+                let pred_list = &preds[b];
+                if pred_list.is_empty() {
+                    // Unreachable block — leave entry_net[b] = None.
+                    continue;
+                }
+                // Compute pred exit nets; first defined entry seeds, then
+                // every subsequent pred MUST match.
+                let mut chosen: Option<i64> = None;
+                for &p in pred_list {
+                    let p_entry = entry_net[p];
+                    if let Some(pe) = p_entry {
+                        let p_exit = pe + delta[p];
+                        match chosen {
+                            None => chosen = Some(p_exit),
+                            Some(c) if c == p_exit => {}
+                            Some(_) => {
+                                // Imbalance at merge point b: predecessor p
+                                // exit net diverges from the chosen seed. The
+                                // path of interest ends at b coming from p.
+                                let path = vec![func.blocks[p].id, func.blocks[b].id];
+                                errors.push(TrmcVerificationError::BurdenImbalance {
+                                    function: func.name,
+                                    var,
+                                    region: ctx.loop_header,
+                                    path,
+                                });
+                                // Stop probing this var; one imbalance
+                                // per var is enough to trigger rollback.
+                                chosen = None;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if let Some(c) = chosen {
+                    if entry_net[b] != Some(c) {
+                        entry_net[b] = Some(c);
+                        changed = true;
+                    }
+                } else if errors
+                    .iter()
+                    .any(|e| matches!(e, TrmcVerificationError::BurdenImbalance { var: v, .. } if *v == var))
+                {
+                    // Imbalance recorded for this var — stop iterating it.
+                    break;
+                }
             }
         }
     }

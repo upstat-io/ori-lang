@@ -1,0 +1,14 @@
+// Spec: 10-patterns.md § Function-Level Contracts
+//
+// post() may not be declared on a function returning `void` — there is no
+// result for the post-lambda to bind. Rejected with E2046.
+
+@bad_void (x: int) -> void
+    post(r -> true)
+= ();
+
+#[compile_fail("E2046")]
+@test_post_void_return tests _ () -> void = {
+    bad_void(x: 5);
+    ()
+}

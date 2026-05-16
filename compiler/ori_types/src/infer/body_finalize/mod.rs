@@ -23,6 +23,9 @@ use crate::{FunctionSig, Idx, Pool, Tag, TypeFlags, VarState};
 
 use super::{ExprIndex, InferEngine};
 
+#[cfg(test)]
+mod tests;
+
 impl InferEngine<'_> {
     /// Convenience wrapper: apply [`default_unbound_vars_in_scope`] to a whole
     /// [`FunctionSig`] and refresh its Merkle hashes on success.
@@ -46,6 +49,10 @@ impl InferEngine<'_> {
         sig: &mut FunctionSig,
         exempt: &FxHashSet<u32>,
     ) {
+        debug_assert!(
+            self.body_inference_complete,
+            "body_inference_complete invariant violated — defaulting called before body inference finished"
+        );
         let changed = self.default_unbound_vars_in_scope(
             arena,
             expr_types,
@@ -81,7 +88,15 @@ impl InferEngine<'_> {
         return_type: &mut Idx,
         exempt: &FxHashSet<u32>,
     ) -> bool {
-        // 1. Collect unbound var ids reachable from empty-literal expr roots.
+        debug_assert!(
+            self.body_inference_complete,
+            "body_inference_complete invariant violated — defaulting called before body inference finished"
+        );
+        // 1. Collect unbound var ids reachable from defaulting-root expr roots.
+        //    `EmptyLiteralRoot` walks the full stored type; `IntroducerSlot`
+        //    restricts the walk to the slot whose fresh var was introduced
+        //    at the constructor (Ok/Err's complementary slot), preserving
+        //    legitimate E2005 on unrelated payload generics.
         let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
         for (&expr_idx, &ty) in expr_types.iter() {
             let Ok(expr_id_raw) = u32::try_from(expr_idx) else {
@@ -89,10 +104,23 @@ impl InferEngine<'_> {
             };
             let expr_id = ExprId::new(expr_id_raw);
             let expr = arena.get_expr(expr_id);
-            if !is_empty_collection_literal(arena, &expr.kind) {
-                continue;
+            match is_defaulting_root(arena, &expr.kind) {
+                DefaultingClassification::NotARoot => {}
+                DefaultingClassification::EmptyLiteralRoot => {
+                    collect_unbound_reachable_vars(self.pool(), ty, exempt, &mut var_subst);
+                }
+                DefaultingClassification::IntroducerSlot(slot) => {
+                    let resolved = self.pool().resolve_fully(ty);
+                    if self.pool().tag(resolved) != Tag::Result {
+                        continue;
+                    }
+                    let slot_ty = match slot {
+                        ResultSlot::Ok => self.pool().result_ok(resolved),
+                        ResultSlot::Err => self.pool().result_err(resolved),
+                    };
+                    collect_unbound_reachable_vars(self.pool(), slot_ty, exempt, &mut var_subst);
+                }
             }
-            collect_unbound_reachable_vars(self.pool(), ty, exempt, &mut var_subst);
         }
         if var_subst.is_empty() {
             return false;
@@ -175,15 +203,15 @@ impl InferEngine<'_> {
     ///
     /// For each var id in the union, constructs a substitution entry
     /// `{var_id → Pool::bound_var(var_id)}` and applies it via
-    /// [`substitute_in_pool`] (`impl-hygiene.md §Algorithmic DRY` — reuses
-    /// the canonical recursion skeleton used by `rewrite_generalized_to_bound_var`).
+    /// [`substitute_in_pool`] — reuses the canonical recursion skeleton used
+    /// by `rewrite_generalized_to_bound_var`.
     ///
     /// Runs per-body: `pending_generalized_vars` is drained on entry and is
     /// empty on exit. Callers invoke this immediately after the end-of-body
     /// defaulting pass ([`InferEngine::default_unbound_vars_from_empty_literals`])
-    /// and before `validate_body_types` — ordering keeps defaulting's
+    /// and before `validate_body_types`. Ordering keeps defaulting's
     /// `Idx::NEVER` substitutions intact while ensuring the validator sees
-    /// the `§SC-1` target shape.
+    /// the `SC-1` (scheme bound-var layout) target shape.
     pub fn normalize_body_generalized_to_bound_var(
         &mut self,
         expr_types: &mut FxHashMap<ExprIndex, Idx>,
@@ -218,35 +246,97 @@ impl InferEngine<'_> {
     }
 }
 
-/// Returns `true` iff `kind` is an expression root whose stored type may
-/// carry unconstrained `Tag::Var`s that survive body inference and would
-/// otherwise be reported as `E2005` by `validate_body_types`.
+/// Which slot of a `Result<T, E>` carries the constructor-introduced fresh
+/// `Tag::Var` for [`DefaultingClassification::IntroducerSlot`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResultSlot {
+    /// `Err(_)` introduces a fresh var in the `Ok` slot.
+    Ok,
+    /// `Ok(_)` introduces a fresh var in the `Err` slot.
+    Err,
+}
+
+/// Defaulting-root classification per expression-root kind.
 ///
-/// Original (empty-collection-literal) cases — variants from
-/// `infer/expr/collections.rs` that introduce element / key / value vars:
-///   - `[]`, `[...]` empty list / list-with-spread
-///   - `{}`, `{...}` empty map / map-with-spread
+/// `NotARoot` — `kind` is not a defaulting root; skip.
 ///
-/// §11.1 extension — polymorphic-constructor roots whose complementary
-/// type-slot stays unconstrained when no BD-2 propagation pins it:
-///   - `None` — the entire `Option<_>` element type is polymorphic.
-///   - `Ok(_)` / `Err(_)` — when the outer annotation is absent, the
-///     complementary slot remains a fresh `Tag::Var` after `§09.3`'s
-///     `check_ok/check_err` synth fallback. Defaulting to `Never` is the
-///     correct semantics: `let r = Ok(42)` becomes `Result<int, Never>`,
-///     and the constraint that `r.unwrap_err()` is uninhabited is sound.
+/// `EmptyLiteralRoot` — empty collection literal (`[]`, `{}`,
+/// `[...]`, `{...}`). The entire stored type is walked; every reachable
+/// unbound var is defaulted to `Idx::NEVER`. This is the original
+/// pre-§11.1 behavior.
 ///
-/// `Some(_)` is INTENTIONALLY EXCLUDED — `§09.3 check_some` BD-2 pins
-/// the inner type from any outer `Option<T>` annotation, and unannotated
-/// `Some(x)` synthesizes the inner type from `x` so no fresh var leaks.
-fn is_empty_collection_literal(arena: &ExprArena, kind: &ExprKind) -> bool {
+/// `IntroducerSlot(slot)` — polymorphic constructor (`Ok(_)`, `Err(_)`)
+/// that introduces a fresh `Tag::Var` only in `slot` of the resulting
+/// `Result<T, E>`. ONLY that slot is walked; the other slot carries
+/// `inner_ty` (whatever `infer_expr(inner)` produced) and belongs to the
+/// inner expression's own defaulting-root classification. Walking the full
+/// `Result` would default unrelated payload generics and silently mask
+/// legitimate `E2005`s on those payload vars — the introducer-only walk
+/// is the structural invariant cure for that hazard.
+///
+/// `None` returns `EmptyLiteralRoot` because `infer_none` allocates a
+/// fresh var as the sole inner of `Option<_>`; walking the whole
+/// `Option<Var>` is equivalent to walking the single child slot, and the
+/// existing collector handles it without a dedicated `IntroducerSlot`
+/// variant.
+///
+/// `Some(_)` is EXCLUDED — `infer_some` calls `infer_expr(inner)` (no
+/// fresh var introduced at the `Some` level); any reachable var belongs
+/// to the inner expression's own classification. Adding `Some` here
+/// would default payload vars that `check_some`'s bidirectional gate
+/// is responsible for pinning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DefaultingClassification {
+    NotARoot,
+    EmptyLiteralRoot,
+    IntroducerSlot(ResultSlot),
+}
+
+/// Classify `kind` for end-of-body defaulting. See
+/// [`DefaultingClassification`] for the per-variant semantics.
+fn is_defaulting_root(arena: &ExprArena, kind: &ExprKind) -> DefaultingClassification {
     match kind {
-        ExprKind::List(range) => arena.get_expr_list(*range).is_empty(),
-        ExprKind::ListWithSpread(range) => arena.get_list_elements(*range).is_empty(),
-        ExprKind::Map(range) => arena.get_map_entries(*range).is_empty(),
-        ExprKind::MapWithSpread(range) => arena.get_map_elements(*range).is_empty(),
-        ExprKind::None | ExprKind::Ok(_) | ExprKind::Err(_) => true,
-        _ => false,
+        ExprKind::List(range) => {
+            if arena.get_expr_list(*range).is_empty() {
+                DefaultingClassification::EmptyLiteralRoot
+            } else {
+                DefaultingClassification::NotARoot
+            }
+        }
+        ExprKind::ListWithSpread(range) => {
+            if arena.get_list_elements(*range).is_empty() {
+                DefaultingClassification::EmptyLiteralRoot
+            } else {
+                DefaultingClassification::NotARoot
+            }
+        }
+        ExprKind::Map(range) => {
+            if arena.get_map_entries(*range).is_empty() {
+                DefaultingClassification::EmptyLiteralRoot
+            } else {
+                DefaultingClassification::NotARoot
+            }
+        }
+        ExprKind::MapWithSpread(range) => {
+            if arena.get_map_elements(*range).is_empty() {
+                DefaultingClassification::EmptyLiteralRoot
+            } else {
+                DefaultingClassification::NotARoot
+            }
+        }
+        // `infer_none` allocates `Option<fresh_var>`; the existing full-tree
+        // walk over the single-child `Option<Var>` collects the introduced
+        // var without needing an `IntroducerSlot` arm.
+        ExprKind::None => DefaultingClassification::EmptyLiteralRoot,
+        // `infer_ok` allocates `Result<inner_ty, fresh_var>` — the err slot
+        // is the introducer; payload vars in `inner_ty` belong to the inner
+        // expression's classification.
+        ExprKind::Ok(_) => DefaultingClassification::IntroducerSlot(ResultSlot::Err),
+        // `infer_err` allocates `Result<fresh_var, inner_ty>` — the ok slot
+        // is the introducer; payload vars in `inner_ty` belong to the inner
+        // expression's classification.
+        ExprKind::Err(_) => DefaultingClassification::IntroducerSlot(ResultSlot::Ok),
+        _ => DefaultingClassification::NotARoot,
     }
 }
 

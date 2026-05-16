@@ -375,6 +375,30 @@ impl TypeCheckError {
             TypeErrorKind::InvalidReprAttribute { reason, .. } => {
                 format!("invalid `#repr` attribute: {reason}")
             }
+            TypeErrorKind::ConditionalPartialMove { aggregate, field } => {
+                format!(
+                    "conditional partial move of `{}.{}` not statically computable; \
+                     make the projection unconditional, or mirror it symmetrically on every branch",
+                    format_name(*aggregate),
+                    format_name(*field)
+                )
+            }
+            TypeErrorKind::PreContractNotBool { actual } => {
+                format!(
+                    "pre() condition must have type `bool`, found `{}`",
+                    format_type(*actual)
+                )
+            }
+            TypeErrorKind::PostContractVoidReturn => {
+                "post() cannot apply to a function returning `void`".to_string()
+            }
+            TypeErrorKind::PreContractUnknownIdent { name } => {
+                format!(
+                    "pre() references unknown identifier `{}` — only function parameters \
+                     and module-level bindings are visible",
+                    format_name(*name)
+                )
+            }
             TypeErrorKind::RefutablePattern { reason } => {
                 use crate::infer::{NestedPathStep, RefutableReason};
                 match reason {

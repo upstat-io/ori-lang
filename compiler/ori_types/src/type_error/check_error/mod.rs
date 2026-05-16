@@ -254,6 +254,32 @@ impl TypeCheckError {
         }
     }
 
+    /// Create a conditional partial-move error (E2043).
+    ///
+    /// Emitted by `validate_partial_move` when a non-Drop owned aggregate's
+    /// field is projected on one branch of an `if`/`match` but not on a
+    /// sibling branch (or differently across arms). The Phase 5 ARC lowering
+    /// invariant (`moved_out_fields[v]` statically computable per-CFG-path)
+    /// forbids these patterns; rejecting at typeck keeps Phase 5 emission
+    /// trivial.
+    pub fn conditional_partial_move(span: Span, aggregate: Name, field: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::ConditionalPartialMove { aggregate, field },
+            context: ErrorContext::default(),
+            suggestions: vec![
+                Suggestion::text(
+                    "move the field projection out of the conditional so it runs unconditionally",
+                    0,
+                ),
+                Suggestion::text(
+                    "OR mirror the same projection on every branch so the move set is symmetric",
+                    1,
+                ),
+            ],
+        }
+    }
+
     /// Set the error context.
     #[must_use]
     pub fn with_context(mut self, context: ErrorContext) -> Self {

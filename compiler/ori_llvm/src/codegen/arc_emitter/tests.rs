@@ -1099,6 +1099,410 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit() {
     drop(em);
 } // burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit
 
+// ─── BurdenDecVariant codegen wire matrix ───
+
+/// Test-only classifier that classifies a specific enum `Idx` as
+/// `DefiniteRef` so `compute_drop_info` walks per-variant fields rather
+/// than short-circuiting on the `TestClassifier` `raw >= 100` rule
+/// (which would reject any fresh `pool.enum_type` `Idx` at raw 12+).
+/// Field `Idx` classification mirrors `TestClassifier` so `Idx::STR`
+/// remains `DefiniteRef` and scalar field types remain `Scalar`.
+struct EnumDefiniteRef {
+    enum_idx: Idx,
+}
+
+impl ArcClassification for EnumDefiniteRef {
+    fn arc_class(&self, idx: Idx) -> ArcClass {
+        if idx == self.enum_idx || idx == Idx::STR || idx.raw() >= 100 {
+            ArcClass::DefiniteRef
+        } else {
+            ArcClass::Scalar
+        }
+    }
+}
+
+/// Positive pin: `BurdenDecVariant` on an explicit-tag enum (3 variants
+/// mixed unit/scalar/heap) MUST emit a tag switch + per-variant
+/// drop blocks + `RcDec` on heap-typed payload fields. Delegates to
+/// `emit_variant_burden_walk` — the SSOT helper at `drop_enum.rs`
+/// shared with the drop-fn codegen path. Per `canonical_enum` at
+/// `compiler/ori_repr/src/canonical/type_repr.rs`, 3-variant enums
+/// without tagged-pointer eligibility yield `EnumTag::Explicit { width: I8 }`
+/// via `min_tag_width(3) = I8`.
+#[test]
+fn burden_dec_variant_explicit_tag_enum_emits_switch_and_rc_dec() {
+    use ori_arc::ir::{
+        ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ValueRepr,
+    };
+    use ori_arc::Ownership;
+
+    use super::test_utils::entry_block;
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    // 3-variant enum mixed unit/scalar/heap → EnumTag::Explicit { width: I8 }.
+    let enum_ty = pool.enum_type(
+        ori_ir::Name::from_raw(400),
+        &[
+            ori_types::EnumVariant {
+                name: ori_ir::Name::from_raw(401),
+                field_types: vec![Idx::INT],
+            },
+            ori_types::EnumVariant {
+                name: ori_ir::Name::from_raw(402),
+                field_types: vec![Idx::STR],
+            },
+            ori_types::EnumVariant {
+                name: ori_ir::Name::from_raw(403),
+                field_types: vec![Idx::STR, Idx::INT],
+            },
+        ],
+    );
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_burden_dec_variant_explicit"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let ptr_ty = builder.ptr_type();
+    let host = builder.declare_function("test_bdv_explicit", &[ptr_ty], ptr_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let cl = EnumDefiniteRef { enum_idx: enum_ty };
+    let codegen_ctx = super::CodegenContext::default();
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    let arc_func = ArcFunction {
+        name: interner.intern("test_bdv_explicit"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: enum_ty,
+            ownership: Ownership::Owned,
+        }],
+        return_type: enum_ty,
+        blocks: vec![entry_block(
+            vec![ArcInstr::BurdenDecVariant {
+                var: ArcVarId::new(0),
+            }],
+            ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        )],
+        entry: ArcBlockId::new(0),
+        var_types: vec![enum_ty],
+        var_reprs: vec![ValueRepr::RcPointer],
+        spans: vec![vec![None]],
+        ..Default::default()
+    };
+
+    let abi = FunctionAbi {
+        params: vec![ParamAbi {
+            name: interner.intern("base"),
+            ty: enum_ty,
+            passing: ParamPassing::Direct,
+            readonly: false,
+        }],
+        return_abi: ReturnAbi {
+            ty: enum_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Pin: explicit-tag dispatch emits a switch instruction on the tag.
+    assert!(
+        ir.contains("switch"),
+        "BurdenDecVariant on explicit-tag enum MUST emit tag switch; ir:\n{ir}",
+    );
+    // Pin: convergence block from emit_variant_burden_walk SSOT helper.
+    assert!(
+        ir.contains("drop.done"),
+        "BurdenDecVariant MUST emit drop.done convergence block from emit_variant_burden_walk SSOT; ir:\n{ir}",
+    );
+    // Pin: heap-typed (str) payload fields trigger ori_rc_dec via
+    // emit_drop_rc_dec dispatcher on the per-variant walk.
+    assert!(
+        ir.contains("ori_rc_dec"),
+        "BurdenDecVariant on enum with str payload MUST emit ori_rc_dec on per-variant walk; ir:\n{ir}",
+    );
+
+    drop(em);
+} // burden_dec_variant_explicit_tag_enum_emits_switch_and_rc_dec
+
+/// Positive pin: `BurdenDecVariant` on an `Option<str>` MUST route
+/// through the Option/Result-specific dispatch in `emit_variant_burden_walk`
+/// (`drop_enum.rs` `Tag::Option | Tag::Result` arm) — payload accessed
+/// as a typed field at struct index 1, not via byte-offset GEP into a
+/// `[M x i64]` payload array (the general-enum arm). With
+/// `NICHE_CODEGEN_READY = false` in `canonical/type_repr.rs`, the niche
+/// optimization path is gated off; `canonical_option` falls back to
+/// `default_option_repr_public` yielding `EnumTag::Explicit { width: I64 }`.
+/// This pin clamps the Option/Result payload-as-typed-field arm, distinct
+/// from Pin 1's general-enum byte-offset arm.
+#[test]
+fn burden_dec_variant_option_str_emits_typed_payload_rc_dec() {
+    use ori_arc::ir::{
+        ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ValueRepr,
+    };
+    use ori_arc::Ownership;
+
+    use super::test_utils::entry_block;
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    // Option<str> canonical form via Pool::option. The Option<RcPointer>
+    // shape lands in EnumTag::Niche via canonical_enum_for_type fallback
+    // when repr_plan is absent.
+    let option_str_ty = pool.option(Idx::STR);
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_burden_dec_variant_niche"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let ptr_ty = builder.ptr_type();
+    let host = builder.declare_function("test_bdv_niche", &[ptr_ty], ptr_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let cl = EnumDefiniteRef {
+        enum_idx: option_str_ty,
+    };
+    let codegen_ctx = super::CodegenContext::default();
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    let arc_func = ArcFunction {
+        name: interner.intern("test_bdv_niche"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: option_str_ty,
+            ownership: Ownership::Owned,
+        }],
+        return_type: option_str_ty,
+        blocks: vec![entry_block(
+            vec![ArcInstr::BurdenDecVariant {
+                var: ArcVarId::new(0),
+            }],
+            ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        )],
+        entry: ArcBlockId::new(0),
+        var_types: vec![option_str_ty],
+        var_reprs: vec![ValueRepr::RcPointer],
+        spans: vec![vec![None]],
+        ..Default::default()
+    };
+
+    let abi = FunctionAbi {
+        params: vec![ParamAbi {
+            name: interner.intern("base"),
+            ty: option_str_ty,
+            passing: ParamPassing::Direct,
+            readonly: false,
+        }],
+        return_abi: ReturnAbi {
+            ty: option_str_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Pin: tag switch dispatches on the discriminant — Option/Result
+    // explicit-tag path emits switch, not niche-encoded conditional.
+    assert!(
+        ir.contains("switch"),
+        "BurdenDecVariant on Option<str> MUST emit tag switch (explicit-tag path); ir:\n{ir}",
+    );
+    // Pin: convergence block from emit_variant_burden_walk SSOT helper.
+    assert!(
+        ir.contains("drop.done"),
+        "BurdenDecVariant on Option<str> MUST emit drop.done convergence block; ir:\n{ir}",
+    );
+    // Pin: Option/Result arm of emit_variant_burden_walk emits typed
+    // payload access (payload.ptr / payload) rather than the general-enum
+    // [M x i64] byte-offset GEPs (f0.ptr / f0 etc.). The struct_idx = 1
+    // + field_index GEP into a typed field at drop_enum.rs Tag::Option
+    // arm yields the canonical "payload" naming.
+    assert!(
+        ir.contains("payload.ptr"),
+        "BurdenDecVariant on Option<str> MUST emit payload.ptr GEP via Tag::Option arm; ir:\n{ir}",
+    );
+    assert!(
+        ir.contains("payload"),
+        "BurdenDecVariant on Option<str> MUST emit payload load via Tag::Option arm; ir:\n{ir}",
+    );
+    // Pin: heap-typed (str) payload triggers ori_rc_dec on the variant
+    // walk via emit_drop_rc_dec.
+    assert!(
+        ir.contains("ori_rc_dec"),
+        "BurdenDecVariant on Option<str> MUST emit ori_rc_dec on Some(str) payload; ir:\n{ir}",
+    );
+
+    drop(em);
+} // burden_dec_variant_option_str_emits_typed_payload_rc_dec
+
+/// Negative case per AIMS rule RE-2 scalar exemption: `BurdenDecVariant`
+/// on a scalar-classified enum (`Idx::ORDERING`, raw=11, all variants
+/// unit) MUST NOT emit any per-variant codegen — `compute_drop_info`
+/// returns None for scalars, triggering the short-circuit at
+/// `instr_dispatch.rs` (`BurdenDecVariant` arm `Some(drop_info) else return`).
+/// Clamps AIMS Invariant 5 `RcOnScalar`: no switch, no `ori_rc_dec`, no
+/// per-variant blocks emit for scalar enum bases. `TestClassifier`
+/// correctly classifies `Idx::ORDERING` as `Scalar` because raw < 100
+/// AND not `Idx::STR`.
+#[test]
+fn burden_dec_variant_scalar_enum_emits_no_codegen_via_re_2_short_circuit() {
+    use ori_arc::ir::{
+        ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ValueRepr,
+    };
+    use ori_arc::Ownership;
+
+    use super::test_utils::entry_block;
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let pool = Pool::new();
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_burden_dec_variant_scalar"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("test_bdv_scalar", &[i64_ty], i64_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let cl = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    let arc_func = ArcFunction {
+        name: interner.intern("test_bdv_scalar"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::ORDERING,
+            ownership: Ownership::Owned,
+        }],
+        return_type: Idx::ORDERING,
+        blocks: vec![entry_block(
+            vec![ArcInstr::BurdenDecVariant {
+                var: ArcVarId::new(0),
+            }],
+            ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        )],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::ORDERING],
+        var_reprs: vec![ValueRepr::Scalar],
+        spans: vec![vec![None]],
+        ..Default::default()
+    };
+
+    let abi = FunctionAbi {
+        params: vec![ParamAbi {
+            name: interner.intern("base"),
+            ty: Idx::ORDERING,
+            passing: ParamPassing::Direct,
+            readonly: false,
+        }],
+        return_abi: ReturnAbi {
+            ty: Idx::ORDERING,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Pin: function shell still emits (entry block + return).
+    assert!(
+        ir.contains("define"),
+        "Function shell MUST still emit even when BurdenDecVariant short-circuits; ir:\n{ir}",
+    );
+    assert!(
+        ir.contains("entry:"),
+        "Entry block MUST still emit; ir:\n{ir}",
+    );
+
+    // Negative case: scalar short-circuit at compute_drop_info None
+    // means no per-variant codegen lands inside the test function. The
+    // module contains an `ori_rc_dec` runtime declaration emitted by
+    // `declare_runtime`; assertions target `call` instructions (which
+    // only emit at use sites) rather than bare substring matches.
+    // Convergence block name `drop.done` and per-variant block prefix
+    // `variant.` only appear in emitted bodies, not declarations.
+    assert!(
+        !ir.contains("switch"),
+        "BurdenDecVariant on scalar enum MUST NOT emit tag switch (RE-2); ir:\n{ir}",
+    );
+    assert!(
+        !ir.contains("call void @ori_rc_dec"),
+        "BurdenDecVariant on scalar enum MUST NOT emit ori_rc_dec call (RE-2); ir:\n{ir}",
+    );
+    assert!(
+        !ir.contains("drop.done"),
+        "BurdenDecVariant on scalar enum MUST NOT emit drop.done convergence block (RE-2); ir:\n{ir}",
+    );
+    assert!(
+        !ir.contains("variant."),
+        "BurdenDecVariant on scalar enum MUST NOT emit per-variant block prefix (RE-2); ir:\n{ir}",
+    );
+
+    drop(em);
+} // burden_dec_variant_scalar_enum_emits_no_codegen_via_re_2_short_circuit
+
 #[test]
 fn set_tag_emits_gep_and_store() {
     use ori_arc::ir::{

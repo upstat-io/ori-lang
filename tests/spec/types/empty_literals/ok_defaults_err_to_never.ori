@@ -1,0 +1,14 @@
+// §11.1: `let r = Ok(42)` (no outer annotation) defaults the err slot to
+// Never, producing `Result<int, Never>`. The Ok payload remains `int`.
+
+use std.testing { assert }
+
+@test_ok_defaults_err_to_never tests @ok_defaults_err_to_never () -> void = {
+    let r = Ok(42);
+    assert(cond: is_ok(result: r))
+}
+
+@ok_defaults_err_to_never () -> bool = {
+    let r = Ok(42);
+    is_ok(result: r)
+}

@@ -2472,3 +2472,242 @@ fn d_three_field_ctor_hole_at_last_field() {
         "3-field rewrite passes verification: {errors:?}"
     );
 }
+
+// `BurdenInc` / `BurdenDec` balance verification (PL-10 + VF-7 tier a)
+
+/// Clean TRMC rewrite with no `BurdenInc` / `BurdenDec` ops on a
+/// `ContextHole` var returns empty error vec (vacuous balance).
+#[test]
+fn verify_burden_balance_passes_when_no_burden_ops_present() {
+    use crate::aims::intraprocedural::AimsStateMap;
+    use crate::aims::lattice::ShapeClass;
+
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    // Mark the loop header's ctx_hole_obj (last block param) as ContextHole.
+    let prologue_idx = func.entry.index();
+    let loop_header_id = match &func.blocks[prologue_idx].terminator {
+        ArcTerminator::Jump { target, .. } => *target,
+        other => panic!("expected Jump, got {other:?}"),
+    };
+    let loop_header_params = &func.blocks[loop_header_id.index()].params;
+    let ctx_hole_obj = loop_header_params[loop_header_params.len() - 1].0;
+
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_var_shape(ctx_hole_obj, ShapeClass::ContextHole);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        errors.is_empty(),
+        "no burden ops -> vacuously balanced, got: {errors:?}"
+    );
+}
+
+/// Function lacking the TRMC rewrite shape returns empty error vec —
+/// `find_context_vars` returns None so verification is a no-op.
+#[test]
+fn verify_burden_balance_skips_non_rewritten_function() {
+    use crate::aims::intraprocedural::AimsStateMap;
+
+    let func = make_recursive_construct_func();
+    let state_map = AimsStateMap::new(&func);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        errors.is_empty(),
+        "no TRMC shape -> verifier no-op, got: {errors:?}"
+    );
+}
+
+/// Clean TRMC rewrite with balanced `BurdenInc` / `BurdenDec` on a single
+/// block for a `ContextHole` var returns empty error vec.
+#[test]
+fn verify_burden_balance_passes_with_balanced_pair_in_one_block() {
+    use crate::aims::intraprocedural::AimsStateMap;
+    use crate::aims::lattice::ShapeClass;
+
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    let prologue_idx = func.entry.index();
+    let loop_header_id = match &func.blocks[prologue_idx].terminator {
+        ArcTerminator::Jump { target, .. } => *target,
+        other => panic!("expected Jump, got {other:?}"),
+    };
+    let loop_header_params = &func.blocks[loop_header_id.index()].params;
+    let ctx_hole_obj = loop_header_params[loop_header_params.len() - 1].0;
+
+    // Inject paired BurdenInc + BurdenDec on the loop header.
+    let loop_header_idx = loop_header_id.index();
+    func.blocks[loop_header_idx]
+        .body
+        .insert(0, ArcInstr::BurdenInc { var: ctx_hole_obj });
+    let len = func.blocks[loop_header_idx].body.len();
+    func.blocks[loop_header_idx]
+        .body
+        .insert(len, ArcInstr::BurdenDec { var: ctx_hole_obj });
+
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_var_shape(ctx_hole_obj, ShapeClass::ContextHole);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        errors.is_empty(),
+        "balanced burden pair -> no error, got: {errors:?}"
+    );
+}
+
+/// Manually-injected imbalance: `BurdenInc` on one CFG predecessor and
+/// no matching `BurdenDec` on the sibling predecessor produces a
+/// `BurdenImbalance` error at the merge point.
+#[test]
+fn verify_burden_balance_detects_predecessor_disagreement() {
+    use super::verify::TrmcVerificationError;
+    use crate::aims::intraprocedural::AimsStateMap;
+    use crate::aims::lattice::ShapeClass;
+
+    // Manually construct a TRMC-rewrite-shaped CFG:
+    //   prologue(b0) -> loop_header(b1) with ctx_hole_obj block param
+    //   loop_header(b1) -> Branch(then=b2, else=b3) — cond on a scalar var
+    //   b2 has BurdenInc(ctx_hole_obj) ; b3 has none
+    //   b2/b3 both jump to b4(merge) -> Return
+    let self_name = Name::from_raw(42);
+    // Vars: v0 = param; v1 = bool cond; v2/v3/v4 unused payload slots.
+    // Loop header params: [(v0, ty(0)), (v_bool, Idx::BOOL),
+    //                      (v_res, ty(0)), (v_hole, ty(0))].
+    // n + 3 layout per find_context_vars: 1 fresh param + 3 context.
+    let v_param = var(0);
+    let v_has = var(1);
+    let v_res = var(2);
+    let v_hole = var(3);
+    let v_cond = var(4);
+    let func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: v_param,
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), Idx::BOOL, ty(0), ty(0), Idx::BOOL],
+        entry: block_id(0),
+        blocks: vec![
+            // b0 prologue: Jump to b1 with seed args.
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v_cond,
+                    ty: Idx::BOOL,
+                    value: ArcValue::Literal(LitValue::Bool(true)),
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![v_param, v_cond, v_param, v_param],
+                },
+            },
+            // b1 loop header: 4 block params (1 fresh + 3 context).
+            ArcBlock {
+                id: block_id(1),
+                params: vec![
+                    (v_param, ty(0)),
+                    (v_has, Idx::BOOL),
+                    (v_res, ty(0)),
+                    (v_hole, ty(0)),
+                ],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v_has,
+                    then_block: block_id(2),
+                    else_block: block_id(3),
+                },
+            },
+            // b2 then-branch: BurdenInc(ctx_hole_obj) — burden net = +1.
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![ArcInstr::BurdenInc { var: v_hole }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(4),
+                    args: vec![],
+                },
+            },
+            // b3 else-branch: no burden op — burden net = 0.
+            ArcBlock {
+                id: block_id(3),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(4),
+                    args: vec![],
+                },
+            },
+            // b4 merge: Return.
+            ArcBlock {
+                id: block_id(4),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v_res },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_var_shape(v_hole, ShapeClass::ContextHole);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        !errors.is_empty(),
+        "predecessor burden disagreement should fire BurdenImbalance"
+    );
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            TrmcVerificationError::BurdenImbalance { var: v, region, .. }
+                if *v == v_hole && *region == block_id(1)
+        )),
+        "expected BurdenImbalance on v_hole anchored at loop header b1, got: {errors:?}"
+    );
+}
+
+/// Function with only non-`ContextHole`-shaped vars returns empty error
+/// vec — burden ops on `NonReusable` / `ReusableCtor` / `CollectionBuffer`
+/// vars are out of scope for this verifier.
+#[test]
+fn verify_burden_balance_ignores_non_context_hole_vars() {
+    use crate::aims::intraprocedural::AimsStateMap;
+
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    // Inject a BurdenInc/BurdenDec pair on a non-ContextHole var
+    // (loop-header fresh param 0); without marking it ContextHole,
+    // the verifier MUST NOT flag it.
+    let prologue_idx = func.entry.index();
+    let loop_header_id = match &func.blocks[prologue_idx].terminator {
+        ArcTerminator::Jump { target, .. } => *target,
+        other => panic!("expected Jump, got {other:?}"),
+    };
+    let fresh_param = func.blocks[loop_header_id.index()].params[0].0;
+
+    let loop_header_idx = loop_header_id.index();
+    func.blocks[loop_header_idx]
+        .body
+        .insert(0, ArcInstr::BurdenInc { var: fresh_param });
+    // Note: deliberately NO matching BurdenDec — verifies the
+    // verifier ignores non-ContextHole vars regardless of balance.
+
+    // State map left with default shapes (NonReusable for every var).
+    let state_map = AimsStateMap::new(&func);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        errors.is_empty(),
+        "non-ContextHole var should be ignored, got: {errors:?}"
+    );
+}

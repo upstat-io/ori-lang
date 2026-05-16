@@ -140,15 +140,15 @@ pub struct InferEngine<'pool> {
     const_types: Option<&'pool FxHashMap<Name, Idx>>,
 
     /// Method-level const-generic parameter types for `$name` reference
-    /// resolution inside an impl/def-impl method body. Phase B-Residual-2 (a):
-    /// populated at body-check entry so that bodies can use `$N` in type-arg
+    /// resolution inside an impl/def-impl method body. Populated at body-check
+    /// entry so that bodies can use `$N` in type-arg
     /// positions (e.g., `to_fixed<$N>()`). Owned (not borrowed) because the
     /// scope is per-method, not module-level. Consulted by `const_type` AFTER
     /// the module-level lookup misses.
     method_const_types: FxHashMap<Name, Idx>,
 
     /// Method-level `RigidVar` trait-bound assumptions for body-internal trait
-    /// dispatch. Phase B-Residual-2 (c): populated at impl/def-impl body-check
+    /// dispatch. Populated at impl/def-impl body-check
     /// entry from inline `<T: Bound>` and trailing `where T: Bound` forms so
     /// that body-internal trait queries on a method-level `RigidVar` (e.g.,
     /// `prefix.to_str()` in `@to_string<T: Printable> (prefix: T) -> str`)
@@ -179,8 +179,8 @@ pub struct InferEngine<'pool> {
     /// Populated by `record_mono_with_dispatch()` from the eager call-site
     /// path (`infer::expr::calls::monomorphization::maybe_record_mono_instance`).
     /// The deferred-resolution path (`check::exports::resolve_deferred_mono_calls`)
-    /// is §C.2
-    /// sub-step 1b-deferred and does NOT populate this map; the dispatch map
+    /// is the sub-step 1b-deferred resolution and does NOT populate this map;
+    /// the dispatch map
     /// will be silent for transitive generic-calling-generic call sites until
     /// that sub-step lands.
     mono_dispatch_pre_dedup: Vec<(ExprId, MonoInstanceId)>,
@@ -191,6 +191,14 @@ pub struct InferEngine<'pool> {
     /// another generic with type variables still unresolved. Extracted via
     /// `take_deferred_mono_calls()` and resolved in `finish_with_pool()`.
     deferred_mono_calls: Vec<crate::DeferredMonoCall>,
+
+    /// Set to `true` at the end of body inference, immediately before the
+    /// end-of-body defaulting pre-pass runs. `default_unbound_vars_in_scope`
+    /// and `default_unbound_vars_from_empty_literals` debug-assert this flag
+    /// so a pass-order inversion (defaulting called before body inference
+    /// finished) panics in debug builds instead of silently defaulting vars
+    /// that bidirectional propagation should have pinned.
+    body_inference_complete: bool,
 
     /// Composed `UserBurdenSpec` entries discovered during monomorphization.
     ///
@@ -292,6 +300,7 @@ impl<'pool> InferEngine<'pool> {
             current_function: None,
             module_scope_snapshot: None,
             pending_generalized_vars: Vec::new(),
+            body_inference_complete: false,
         }
     }
 
@@ -366,6 +375,16 @@ impl<'pool> InferEngine<'pool> {
         self.const_types = Some(consts);
     }
 
+    /// Mark body inference complete. Called at the end of body inference in
+    /// each of the four body-check call paths (`check_function`, `check_test`,
+    /// `check_impl_method`, `check_def_impl_method`) immediately before the
+    /// end-of-body defaulting pre-pass runs. Defaulting helpers
+    /// (`default_unbound_vars_from_empty_literals`, `default_unbound_vars_in_scope`)
+    /// debug-assert this flag so a pass-order inversion panics in debug builds.
+    pub fn mark_body_inference_complete(&mut self) {
+        self.body_inference_complete = true;
+    }
+
     /// Look up a constant's type by name.
     ///
     /// Checks module-level constants first, then method-level const generics
@@ -435,7 +454,7 @@ impl<'pool> InferEngine<'pool> {
     /// created via `pool.rigid_var`) and `Tag::Var` (top-level function
     /// type-param binders created via `pool.fresh_named_var` per
     /// `check/signatures/mod.rs:159`). Returns `None` for non-variable
-    /// types or for variables with no registered bounds. Used by §10.1
+    /// types or for variables with no registered bounds. Consumed by
     /// bound-chain method dispatch.
     pub fn rigid_var_bounds(&self, ty: Idx) -> Option<&[Name]> {
         let tag = self.pool().tag(ty);
@@ -628,11 +647,11 @@ impl<'pool> InferEngine<'pool> {
     /// Returns a type scheme if any variables were generalized,
     /// or the original type if it's monomorphic.
     ///
-    /// §08.3b.1 — Records every newly-generalized var id in
+    /// Records every newly-generalized var id in
     /// `pending_generalized_vars` so the end-of-body normalization pass
     /// ([`InferEngine::normalize_body_generalized_to_bound_var`]) can rewrite
     /// matching `Tag::Var` leaves in `expr_types` / `FunctionSig` positions
-    /// to `Tag::BoundVar` per.
+    /// to `Tag::BoundVar` (SC-1 scheme bound-var layout).
     pub fn generalize(&mut self, ty: Idx) -> Idx {
         let scheme = self.unify.generalize(ty);
         // If generalize returned a scheme, extract its bound var ids and

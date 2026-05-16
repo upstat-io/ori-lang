@@ -365,6 +365,10 @@ fn check_impl_method(
 
             engine.pop_context();
 
+            // Mark body inference complete before the defaulting pre-pass runs;
+            // defaulting helpers debug-assert this flag (see `check_function`).
+            engine.mark_body_inference_complete();
+
             let mut expr_types = engine.take_expr_types();
             engine.default_unbound_vars_in_scope(
                 arena,
@@ -421,6 +425,7 @@ fn check_impl_method(
         checker,
         &sig,
         method.span,
+        method.body,
         super::BodyOutputs {
             expr_types,
             errors,
@@ -610,6 +615,10 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
 
             engine.pop_context();
 
+            // Mark body inference complete before the defaulting pre-pass runs;
+            // defaulting helpers debug-assert this flag (see `check_function`).
+            engine.mark_body_inference_complete();
+
             let mut expr_types = engine.take_expr_types();
             engine.default_unbound_vars_in_scope(
                 arena,
@@ -665,6 +674,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
         checker,
         &sig,
         method.span,
+        method.body,
         super::BodyOutputs {
             expr_types,
             errors,

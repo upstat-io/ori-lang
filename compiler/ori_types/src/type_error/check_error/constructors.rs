@@ -388,6 +388,56 @@ impl TypeCheckError {
         }
     }
 
+    /// Create a "pre-contract not bool" error (E2044).
+    ///
+    /// Spec: 10-patterns.md § Function-Level Contracts. Emitted when the
+    /// expression inside `pre(...)` infers to a type other than `bool`.
+    pub fn pre_contract_not_bool(span: Span, actual: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::PreContractNotBool { actual },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "pre() conditions must evaluate to bool — use a comparison or boolean expression",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "post-contract on void-returning function" error (E2046).
+    ///
+    /// Spec: 10-patterns.md § Function-Level Contracts. Emitted when `post()`
+    /// is declared on a function whose return type is `void` — there is no
+    /// result value for the post-lambda to bind.
+    pub fn post_contract_void_return(span: Span) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::PostContractVoidReturn,
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "remove the post() contract, or change the function to return a non-void value",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "pre-contract unknown identifier" error (E2047).
+    ///
+    /// Spec: 10-patterns.md § Function-Level Contracts. Emitted when the
+    /// contract expression references a name that is neither a function
+    /// parameter nor a module-level binding.
+    pub fn pre_contract_unknown_ident(span: Span, name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::PreContractUnknownIdent { name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "pre() may reference only function parameters and module-level bindings",
+                0,
+            )],
+        }
+    }
+
     /// Create a "trait not derivable" error (E2033).
     ///
     /// Emitted when `#[derive(Trait)]` is applied with a trait that cannot be
