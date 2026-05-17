@@ -4,9 +4,6 @@
 //! at every transfer point + `BurdenDec` at every last-use along every
 //! reachable CFG path. Pure per-instruction emission driven by SSA def-use;
 //! no global flow analysis, no fixpoint, no lattice consultation.
-//!
-//! Subsequent cycles author the actual transfer-point detection, last-use
-//! detection, and `BurdenInc` / `BurdenDec` emission.
 
 use crate::graph::{compute_postorder, compute_predecessors};
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
@@ -18,16 +15,11 @@ use super::burden::{Burden, BurdenRef, TypeRef};
 use super::burden_lookup::{idx_to_type_ref, lookup_burden};
 
 /// True iff `burden` carries any RC-tracked dimension. Used by the filter at
-/// `emit_burden_ops` to exclude scalars whose `lookup_burden` returns
-/// `Some(BurdenRef)` wrapping `BuiltinBurdenSpec::EMPTY` (per `BURDEN_TABLE`
-/// at `ori_registry/src/burden/table.rs:184-193`). Defends `VF-1 RcOnScalar`
-/// per `aims-rules.md §9`.
+/// `emit_burden_ops` to exclude scalars whose `lookup_burden` returns the empty
+/// builtin burden. Defends VF-1 `RcOnScalar` invariant.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn burden_carries_rc(burden: &BurdenRef<'_>) -> bool {
     burden.self_heap_alloc()
@@ -36,22 +28,18 @@ fn burden_carries_rc(burden: &BurdenRef<'_>) -> bool {
         || burden.owned_fields().next().is_some()
 }
 
-/// Per-cycle context accumulated by the emission walker.
+/// Per-instruction context accumulated by the emission walker.
 ///
-/// Two storage axes (kept separate per cycle 5 navigator note — per-var and
-/// per-instruction transfer-point lookups have distinct semantics):
+/// Two storage axes (per-var and per-instruction transfer-point lookups
+/// have distinct semantics):
 /// - `collected` — per-`ArcVarId` `(var, BurdenSpec lookup)` from `var_types`
-///   walk (cycle 2-4 axis). Filtered by `ArcParam.ownership` for params.
+///   walk. Filtered by `ArcParam.ownership` for params.
 /// - `transfer_points` — per-instruction `(consumed var, BurdenSpec lookup)`
 ///   for transfer points where ownership transfers (`Construct` with owned
-///   arg per cycle 5; `Apply` / `Set` / etc. in subsequent cycles per §03.2
-///   `success_criterion` enumeration).
+///   arg; `Apply` / `Set` / etc.).
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 #[derive(Debug, Default)]
 pub(crate) struct BurdenLowerCtx<'a> {
@@ -94,10 +82,7 @@ pub(crate) struct BurdenLowerCtx<'a> {
 
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 impl<'a> BurdenLowerCtx<'a> {
     /// Construct a fresh `BurdenLowerCtx` sized for `func`'s block count.
@@ -187,23 +172,17 @@ impl<'a> BurdenLowerCtx<'a> {
 /// `pipeline/aims_pipeline/`.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 pub(crate) fn emit_burden_ops<'a>(
     func: &mut ArcFunction,
     type_registry: &'a TypeRegistry,
-    // Mikado-leaf prerequisite for §03.3 rule 3 (Jump-to-Owned-param): block-
-    // param ownership lookup per `aims-rules.md §invariant 5 case (c)` requires
-    // DerivedOwnership side-table threaded as typed pre-pass input. Slice
-    // indexed by `ArcVarId::raw()` matches `infer_derived_ownership()` return
-    // shape per `compiler_repo/compiler/ori_arc/src/borrow/derived.rs:31-36`.
-    // Empty `&[]` semantically safe — out-of-bounds defaults to `Owned` per
-    // `borrow/derived.rs:60`. AIMS Invariant 5 (unified model) preserved per
-    // `canon.md §7.1` — DerivedOwnership is existing analysis output, not a
-    // parallel ownership tracker.
+    // Block-param ownership lookup for Jump-to-Owned-param transfer detection.
+    // DerivedOwnership side-table threaded as typed pre-pass input — slice
+    // indexed by ArcVarId::raw() matches infer_derived_ownership() return shape.
+    // Empty &[] semantically safe — out-of-bounds defaults to Owned. AIMS
+    // Invariant 5 (unified model) preserved — DerivedOwnership is existing
+    // analysis output, not a parallel ownership tracker.
     derived_ownership: &[DerivedOwnership],
 ) -> BurdenLowerCtx<'a> {
     let mut ctx = BurdenLowerCtx::new(func);
@@ -219,6 +198,8 @@ pub(crate) fn emit_burden_ops<'a>(
     let last_uses_at = group_last_uses_filtered(&ctx, &owned_vars_needing_rc);
     let terminator_transfer_per_block =
         compute_terminator_transfer_per_block(func, derived_ownership);
+    let terminator_inc_per_block =
+        compute_terminator_inc_per_block(func, &owned_vars_needing_rc, derived_ownership);
 
     // §03.4 cycle 42 — populate `moved_out_fields` per proposal §Non-Drop
     // Partial-Move two-stage rule. Pass 1 collects `(project_dst → (src, field))`;
@@ -260,6 +241,7 @@ pub(crate) fn emit_burden_ops<'a>(
         &owned_vars_needing_rc,
         &last_uses_at,
         &terminator_transfer_per_block,
+        &terminator_inc_per_block,
         &full_move_vars,
         &partial_move_vars,
     );
@@ -275,10 +257,7 @@ pub(crate) fn emit_burden_ops<'a>(
 /// skipped per §03.2 checkbox 1 ("For each owned `ArcVarId` v").
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn collect_owned_burdens<'a>(
     ctx: &mut BurdenLowerCtx<'a>,
@@ -313,10 +292,7 @@ fn collect_owned_burdens<'a>(
 /// `compute_terminator_transfer_per_block`.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn detect_transfer_points<'a>(
     ctx: &mut BurdenLowerCtx<'a>,
@@ -351,10 +327,7 @@ fn detect_transfer_points<'a>(
 /// ordering rules can distinguish them.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn detect_last_uses(ctx: &mut BurdenLowerCtx<'_>, func: &ArcFunction) {
     for (block_idx, block) in func.blocks.iter().enumerate() {
@@ -382,10 +355,7 @@ fn detect_last_uses(ctx: &mut BurdenLowerCtx<'_>, func: &ArcFunction) {
 /// specs via `burden_carries_rc` vs naively admitting any `Some(_)`.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn compute_owned_vars_needing_rc(ctx: &BurdenLowerCtx<'_>) -> FxHashSet<ArcVarId> {
     ctx.collected
@@ -404,10 +374,7 @@ fn compute_owned_vars_needing_rc(ctx: &BurdenLowerCtx<'_>) -> FxHashSet<ArcVarId
 /// `BurdenDec` ops at last-use sites.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn group_last_uses_filtered(
     ctx: &BurdenLowerCtx<'_>,
@@ -444,10 +411,7 @@ fn group_last_uses_filtered(
 /// under that semantic — verified at cycle 36 batch-flip.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn compute_terminator_transfer_per_block(
     func: &ArcFunction,
@@ -499,6 +463,98 @@ fn terminator_transfer_vars(
         _ => {}
     }
     transfers
+}
+
+/// Terminator-position `BurdenInc` pre-computation. Per RL-1 (RC inc emitted at
+/// every ownership-transfer point on owned non-scalar SSA values), each
+/// terminator-position Owned-arg gets a `BurdenInc` emitted before the
+/// terminator. Mirrors `emit_instr_burdens` instruction-level behavior which
+/// emits `BurdenInc` unconditionally at every `is_owned_position(pos)` position;
+/// conservative Phase 5 emission — RC traffic is overcounted but balanced; the
+/// lattice rewrite pass eliminates redundant Incs.
+///
+/// Ordered `Vec<Vec<ArcVarId>>` (NOT `FxHashSet` like the transfer-set), so
+/// multi-position-same-var terminators emit one `BurdenInc` per occurrence
+/// (e.g., Jump block1, args=[%0, %0] to 2 Owned params emits 2× `BurdenInc`).
+///
+/// Computed against the IMMUTABLE `func.blocks` borrow so subsequent mutable
+/// iteration in `emit_burden_ops_for_blocks` can consume per-block Inc lists
+/// without aliasing conflict. AIMS Invariant 5 preserved — `DerivedOwnership` is
+/// existing analysis output, not a parallel ownership tracker.
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "dead until pipeline wiring lands")
+)]
+fn compute_terminator_inc_per_block(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+    derived_ownership: &[DerivedOwnership],
+) -> Vec<Vec<ArcVarId>> {
+    func.blocks
+        .iter()
+        .map(|block| {
+            terminator_inc_vars(
+                block,
+                &func.blocks,
+                owned_vars_needing_rc,
+                derived_ownership,
+            )
+        })
+        .collect()
+}
+
+/// Build the ordered `BurdenInc` list for a single block's terminator. Extracted
+/// from `compute_terminator_inc_per_block` to mirror `terminator_transfer_vars`
+/// extraction and keep cognitive complexity per function under workspace
+/// limits.
+///
+/// Jump-to-Owned-param: per-position Owned check against `target_block.params[i]`'s
+/// `DerivedOwnership`. Empty `derived_ownership` or out-of-bounds defaults to
+/// Owned, preserving `terminator_transfer_vars` semantics.
+///
+/// Invoke / `InvokeIndirect`: per-position check against canonical SSOT helper
+/// `ArcTerminator::is_owned_position(pos)`, which encodes empty `arg_ownership`
+/// defaults + `InvokeIndirect` closure-pos-0 Borrowed semantics in one place.
+///
+/// `owned_vars_needing_rc` filter rejects EMPTY-spec scalars per VF-1 `RcOnScalar`.
+fn terminator_inc_vars(
+    block: &ArcBlock,
+    all_blocks: &[ArcBlock],
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+    derived_ownership: &[DerivedOwnership],
+) -> Vec<ArcVarId> {
+    let mut incs: Vec<ArcVarId> = Vec::new();
+    match &block.terminator {
+        ArcTerminator::Jump { target, args } => {
+            let Some(target_block) = all_blocks.get(target.index()) else {
+                return incs;
+            };
+            for (i, &arg) in args.iter().enumerate() {
+                if !owned_vars_needing_rc.contains(&arg) {
+                    continue;
+                }
+                let Some(&(block_param_var, _)) = target_block.params.get(i) else {
+                    continue;
+                };
+                let ownership = derived_ownership
+                    .get(block_param_var.index())
+                    .copied()
+                    .unwrap_or(DerivedOwnership::Owned);
+                if matches!(ownership, DerivedOwnership::Owned) {
+                    incs.push(arg);
+                }
+            }
+        }
+        ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. } => {
+            for (pos, &var) in block.terminator.used_vars().iter().enumerate() {
+                if owned_vars_needing_rc.contains(&var) && block.terminator.is_owned_position(pos) {
+                    incs.push(var);
+                }
+            }
+        }
+        _ => {}
+    }
+    incs
 }
 
 /// §03.4 populate `ctx.moved_out_fields_{block_local,block_entry,block_exit}`
@@ -553,10 +609,7 @@ fn terminator_transfer_vars(
 /// partial-transfer semantics.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn populate_moved_out_fields(
     ctx: &mut BurdenLowerCtx<'_>,
@@ -808,10 +861,7 @@ fn union_entry_with_local(
 /// emission lands in cycle 44 via IR variant evolution.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn compute_full_move_vars(
     func: &ArcFunction,
@@ -865,10 +915,7 @@ fn compute_full_move_vars(
 /// `emit_instr_burdens` and `emit_terminator_burden_decs` at last-use sites.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn compute_partial_move_vars(
     moved_out_fields: &FxHashMap<ArcVarId, FxHashSet<u32>>,
@@ -905,16 +952,14 @@ fn compute_partial_move_vars(
 /// whose entire owned-field set is covered by `moved_out_fields`.
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "wired into AIMS pipeline by §03.N pipeline-wiring migration; until then only test-callers exist"
-    )
+    allow(dead_code, reason = "dead until pipeline wiring lands")
 )]
 fn emit_burden_ops_for_blocks(
     func: &mut ArcFunction,
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
     last_uses_at: &FxHashMap<(usize, usize), Vec<ArcVarId>>,
     terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
+    terminator_inc_per_block: &[Vec<ArcVarId>],
     full_move_vars: &FxHashSet<ArcVarId>,
     partial_move_vars: &FxHashMap<ArcVarId, Vec<u32>>,
 ) {
@@ -933,6 +978,7 @@ fn emit_burden_ops_for_blocks(
             };
             emit_instr_burdens(&mut new_body, instr, &ctx);
         }
+        emit_terminator_burden_incs(&mut new_body, &terminator_inc_per_block[block_idx]);
         emit_terminator_burden_decs(
             &mut new_body,
             block_idx,
@@ -943,6 +989,24 @@ fn emit_burden_ops_for_blocks(
             partial_move_vars,
         );
         block.body = new_body;
+    }
+}
+
+/// §03.3 rule 3 + rule 5 emission-side: emit `BurdenInc` for each owned
+/// terminator-position arg pre-computed by `compute_terminator_inc_per_block`.
+/// Mirrors `emit_instr_burdens`'s instruction-level `BurdenInc` loop (line ~966)
+/// — conservative Phase 5 emission at every transfer point per `aims-rules.md
+/// §8 RL-1`; lattice rewrite in §05 eliminates redundant Incs.
+///
+/// Lands BEFORE `emit_terminator_burden_decs` so the emitted IR sequence at
+/// terminator position is `[terminator BurdenIncs] [terminator BurdenDecs]`
+/// before the terminator itself (which lives in `block.terminator`, not
+/// `block.body`). Decs suppress transfer vars per the existing transfer-set
+/// gate; the symmetric Inc emission balances duplication arising from
+/// multi-position-same-var terminators.
+fn emit_terminator_burden_incs(new_body: &mut Vec<ArcInstr>, incs: &[ArcVarId]) {
+    for &var in incs {
+        new_body.push(ArcInstr::BurdenInc { var });
     }
 }
 

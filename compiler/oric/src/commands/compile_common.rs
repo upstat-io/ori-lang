@@ -21,8 +21,8 @@
 //!   `FunctionValue`, `BasicBlock`) are lifetime-bound to an LLVM `Context`
 //!   and do not satisfy Salsa's `Clone + Eq + Hash` requirements.
 //!
-//! - **ARC borrow inference** is now fully Salsa-tracked via per-SCC queries
-//!   (Section 12). See [`run_borrow_inference`] for the Salsa integration point.
+//! - **ARC borrow inference** is fully Salsa-tracked via per-SCC queries.
+//!   See [`run_borrow_inference`] for the Salsa integration point.
 
 #[cfg(feature = "llvm")]
 use std::path::Path;

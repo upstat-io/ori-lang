@@ -103,7 +103,7 @@ const IMPORTED_GENERICS_HELPER: &str = include_str!("fixtures/imported_generics/
 /// Pins:
 /// - Ok behavior: `first(identity([10, 20, 30])) == 10` (passes when mono
 ///   dispatch succeeds through the `import_sig_by_name` lookup).
-/// - Semantic pin: reverting the `import_sig_by_name` lookup branch re-surfaces `E5001 unresolved function`
+/// - Regression guard: reverting the `import_sig_by_name` lookup branch re-surfaces `E5001 unresolved function`
 ///   for `identity` AND `first` — `assert_multifile_aot_success` panics
 ///   with the captured stderr.
 ///
@@ -131,7 +131,7 @@ fn test_imported_generic_fn_list_int() {
 /// - Ok behavior: struct-field projection through the mono'd `identity`
 ///   returns the original field values; `pair` returns a 2-element list
 ///   with both points intact.
-/// - Semantic pin: reverting the `import_sig_by_name` lookup branch produces `E5001` for both `identity`
+/// - Regression guard: reverting the `import_sig_by_name` lookup branch produces `E5001` for both `identity`
 ///   AND `pair`; reverting the merged-pool re-interning produces
 ///   `Tag::Var` codegen errors because `Point`'s `Idx` is not re-interned
 ///   into the merged pool.
@@ -155,10 +155,8 @@ fn test_imported_generic_fn_struct() {
     );
 }
 
-// ============================================================================
-// Negative pin — generic referenced without import produces a CLEAN
+// Clean-failure mode — generic referenced without import produces a CLEAN
 // diagnostic, not a silent miscompilation or crash.
-// ============================================================================
 
 /// A generic that is NOT in `import_sigs` (because the host omits the
 /// `use` statement) MUST fail at type-check with a clean unresolved

@@ -34,7 +34,11 @@ use ori_types::{Idx, Pool, Tag};
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 
-/// A single unresolved type variable encountered in an `ArcFunction`.
+/// A single unresolved type variable encountered in an `ArcFunction` at any
+/// of the six type-bearing positions the walker covers: `var_types`,
+/// `params.ty`, `return_type`, block-param tuples, instruction-operand types
+/// on `Idx`-bearing `ArcInstr` variants, and terminator-operand types on
+/// `ArcTerminator::Invoke`/`InvokeIndirect`.
 ///
 /// Constructed by [`assert_no_unresolved_type_vars`] on invariant violation.
 /// Wrapped by `ori_arc::verify::VerifyError::UnresolvedTypeVar(_)` for

@@ -1901,6 +1901,17 @@ fn jump_arg_to_borrowed_target_block_param_emits_burden_dec_at_terminator_per_rl
         dec_present,
         "Jump.args[0] (var(0)) to Borrowed-target-block-param MUST receive BurdenDec at terminator-position (NOT a transfer per RL-2; cycle-37 guard load-bearing); block 0 body={body_0:?}",
     );
+    // §03.3 rule 3 emission-side negative pin per `tests.md §Matrix Clamping`:
+    // BurdenInc MUST NOT fire when target-block-param is Borrowed (clamps the
+    // emission-side ownership guard from below — a reversion that always
+    // emitted BurdenInc at Jump.args would silently over-emit).
+    let inc_present = body_0
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(0)));
+    assert!(
+        !inc_present,
+        "Jump.args[0] (var(0)) to Borrowed-target-block-param MUST NOT receive BurdenInc at terminator (rule 3 emission-side guard); block 0 body={body_0:?}",
+    );
 }
 
 #[test]
@@ -2020,6 +2031,27 @@ fn invoke_indirect_owned_args_at_pos_one_emits_no_burden_dec_closure_pos_zero_bo
         !dec_arg_present,
         "InvokeIndirect.args[0] at owned position 1 MUST NOT receive BurdenDec at terminator (RL-2 transfer; double-release if emitted); body={body_0:?}",
     );
+    // §03.3 rule 5 emission-side positive pin: BurdenInc(var(1)) fires at
+    // owned position 1 per `aims-rules.md §8 RL-1`. Conservative Phase 5
+    // emission mirroring instruction-level pattern.
+    let inc_arg_present = body_0
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(1)));
+    assert!(
+        inc_arg_present,
+        "InvokeIndirect.args[0] at owned position 1 MUST receive BurdenInc at terminator (rule 5 emission-side per RL-1); body={body_0:?}",
+    );
+    // §03.3 rule 5 emission-side negative pin per `tests.md §Matrix Clamping`:
+    // closure at position 0 is ALWAYS Borrowed per is_owned_position(0)
+    // returning false. Clamps the SSOT helper's closure-Borrowed semantic;
+    // a reversion that emitted BurdenInc on the closure would over-emit.
+    let inc_closure_present = body_0
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(0)));
+    assert!(
+        !inc_closure_present,
+        "InvokeIndirect.closure (var(0)) at position 0 MUST NOT receive BurdenInc (closure always Borrowed per is_owned_position(0)); body={body_0:?}",
+    );
 }
 
 #[test]
@@ -2076,9 +2108,23 @@ fn invoke_arg_at_owned_position_emits_no_burden_dec_at_terminator_per_rl2() {
         !dec_present,
         "Invoke.args[0] at owned position MUST NOT receive BurdenDec at terminator (RL-2 transfer; double-release if emitted); body={body_0:?}",
     );
-    assert!(
-        body_0.is_empty(),
-        "block 0 body MUST remain empty (no instruction-level emission + no terminator-position BurdenDec for Invoke-Owned-arg transfer); got {body_0:?}",
+    // §03.3 rule 5 emission-side: Invoke.args at owned positions receive
+    // BurdenInc per `aims-rules.md §8 RL-1` — conservative Phase 5 emission
+    // mirroring `emit_instr_burdens` instruction-level pattern; §05 lattice
+    // rewrite eliminates redundant Incs.
+    let incs: Vec<&ArcInstr> = body_0
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(0)))
+        .collect();
+    assert_eq!(
+        incs.len(),
+        1,
+        "Invoke.args[0] at owned position MUST receive exactly one BurdenInc at terminator (rule 5 emission-side per RL-1); got body={body_0:?}",
+    );
+    assert_eq!(
+        body_0.len(),
+        1,
+        "block 0 body MUST contain ONLY the terminator-position BurdenInc — no body instructions, no BurdenDec (transfer suppression); got {body_0:?}",
     );
 }
 
@@ -2134,12 +2180,26 @@ fn jump_arg_to_owned_target_block_param_emits_no_burden_dec_at_terminator_per_rl
         !dec_present,
         "Jump.args[0] (var(0)) to Owned-target-block-param MUST NOT receive BurdenDec at terminator (transfer per RL-2; double-release if emitted); block 0 body={body_0:?}",
     );
-    // Pin 2: Block 0 body remains empty — no instruction-level emission
-    // (body was empty) and no terminator-position BurdenDec (transfer
-    // suppression).
-    assert!(
-        body_0.is_empty(),
-        "block 0 body MUST remain empty (no instruction-level emission + no terminator-position BurdenDec for Jump-to-Owned transfer); got {body_0:?}",
+    // Pin 2: Block 0 body contains EXACTLY ONE BurdenInc(var(0)) —
+    // §03.3 rule 3 emission-side per `aims-rules.md §8 RL-1` (RC inc emitted
+    // at every ownership-transfer point on owned non-scalar SSA values).
+    // Conservative Phase 5 emission per `§03 goal:` ban on lattice
+    // consultation (RC traffic overcounted but balanced); §05 lattice
+    // rewrite eliminates redundant Incs. Mirrors instruction-level pattern
+    // at `emit_instr_burdens` line ~966.
+    let incs: Vec<&ArcInstr> = body_0
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(0)))
+        .collect();
+    assert_eq!(
+        incs.len(),
+        1,
+        "Jump.args[0] (var(0)) to Owned-target-block-param MUST receive exactly one BurdenInc at terminator (rule 3 emission-side per RL-1); got body={body_0:?}",
+    );
+    assert_eq!(
+        body_0.len(),
+        1,
+        "block 0 body MUST contain ONLY the terminator-position BurdenInc — no body instructions, no BurdenDec (transfer suppression); got {body_0:?}",
     );
 }
 

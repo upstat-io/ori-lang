@@ -430,8 +430,19 @@ fn lifting_multi_field_construct_valid() {
         ..Default::default()
     };
 
-    // No panic — all 3 field args are valid.
+    // Positive pin: lift_constructor_args is verification-only — it MUST
+    // return without panic on every valid Construct (all 3 field args
+    // reference defined vars in var_types). Capture pre-call block-body
+    // length + var_types length and assert structural invariance after
+    // the call: function takes &func (immutable), so structural
+    // identity is by construction, but the explicit assertion makes
+    // the test self-documenting and lint-clean per `tests.md §Test
+    // Hygiene` no-orphan-tests rule.
+    let pre_body_len = func.blocks[0].body.len();
+    let pre_var_count = func.var_types.len();
     super::lift::lift_constructor_args(&func);
+    assert_eq!(func.blocks[0].body.len(), pre_body_len);
+    assert_eq!(func.var_types.len(), pre_var_count);
 }
 
 /// Function with no Construct instructions: lifting is trivially a no-op.
@@ -453,7 +464,13 @@ fn lifting_no_constructs_is_noop() {
         ..Default::default()
     };
 
+    // Positive pin: zero Construct instructions → lift walk visits no
+    // Construct site → no debug_assert! fires → function returns without
+    // panic. Explicit invariance assertion makes the trivially-true
+    // outcome verifiable per `tests.md §Test Hygiene` no-orphan-tests.
+    let pre_body_len = func.blocks[0].body.len();
     super::lift::lift_constructor_args(&func);
+    assert_eq!(func.blocks[0].body.len(), pre_body_len);
 }
 
 /// Debug assertion catches Construct arg referencing an undefined variable.
@@ -2709,5 +2726,60 @@ fn verify_burden_balance_ignores_non_context_hole_vars() {
     assert!(
         errors.is_empty(),
         "non-ContextHole var should be ignored, got: {errors:?}"
+    );
+}
+
+/// Negative pin for terminal net-zero check: a straight-line CFG (no merge
+/// point) with a `BurdenInc` on a `ContextHole` var and NO matching
+/// `BurdenDec` MUST fire `BurdenImbalance` at the Return terminator. The
+/// predecessor-disagreement pass alone misses this case because the path
+/// from entry to Return contains no merge point at which to detect
+/// divergent net counts — every reachable path has the same imbalanced
+/// net, which agrees with itself. The terminal check catches that class
+/// per VF-1 per-edge balance (terminal net == 0).
+#[test]
+fn verify_burden_balance_detects_straight_line_unbalanced() {
+    use super::verify::TrmcVerificationError;
+    use crate::aims::intraprocedural::AimsStateMap;
+    use crate::aims::lattice::ShapeClass;
+
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    let prologue_idx = func.entry.index();
+    let loop_header_id = match &func.blocks[prologue_idx].terminator {
+        ArcTerminator::Jump { target, .. } => *target,
+        other => panic!("expected Jump, got {other:?}"),
+    };
+    let loop_header_params = &func.blocks[loop_header_id.index()].params;
+    let ctx_hole_obj = loop_header_params[loop_header_params.len() - 1].0;
+
+    // Inject ONLY a BurdenInc on the loop header (no matching BurdenDec
+    // anywhere on the path to Return). The loop header has both predecessor
+    // (prologue's Jump) and self (back-edge from base-case clone), but the
+    // imbalance is uniform across both — predecessor-disagreement does NOT
+    // fire. Terminal net-zero on the Return block in the base-case clone
+    // is what must fire.
+    let loop_header_idx = loop_header_id.index();
+    func.blocks[loop_header_idx]
+        .body
+        .insert(0, ArcInstr::BurdenInc { var: ctx_hole_obj });
+
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_var_shape(ctx_hole_obj, ShapeClass::ContextHole);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        !errors.is_empty(),
+        "expected BurdenImbalance on terminal net-zero check, got empty"
+    );
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            TrmcVerificationError::BurdenImbalance { var, .. } if *var == ctx_hole_obj
+        )),
+        "expected BurdenImbalance for ctx_hole_obj v{}, got: {errors:?}",
+        ctx_hole_obj.raw()
     );
 }

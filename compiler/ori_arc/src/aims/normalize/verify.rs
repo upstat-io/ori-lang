@@ -610,22 +610,10 @@ pub(crate) fn verify_trmc_burden_balance(
     let mut errors = Vec::new();
 
     let Some(ctx) = find_context_vars(func) else {
-        // No TRMC rewrite structure — nothing to verify.
         return errors;
     };
 
-    // ContextHole-shaped vars are the verification targets. The shape is
-    // a per-var property set at definition by `populate_var_shapes`; iterate
-    // every SSA var and filter by `ShapeClass::ContextHole`.
-    let num_vars = u32::try_from(func.var_types.len()).unwrap_or(u32::MAX);
-    let mut context_hole_vars: Vec<ArcVarId> = Vec::new();
-    for raw in 0u32..num_vars {
-        let v = ArcVarId::new(raw);
-        if matches!(state_map.var_shape(v), ShapeClass::ContextHole) {
-            context_hole_vars.push(v);
-        }
-    }
-
+    let context_hole_vars = collect_context_hole_vars(func, state_map);
     if context_hole_vars.is_empty() {
         return errors;
     }
@@ -633,97 +621,186 @@ pub(crate) fn verify_trmc_burden_balance(
     let preds = compute_predecessors(func);
 
     for &var in &context_hole_vars {
-        // Per-block burden delta = BurdenInc(var) - BurdenDec*(var).
-        // BurdenDecPartial and BurdenDecVariant target whole-var burden
-        // tracking (mirror BurdenDec). BurdenDecField targets a field of
-        // the base — not the whole-var balance — so it is excluded.
-        let mut delta: Vec<i64> = vec![0; func.blocks.len()];
-        for (idx, block) in func.blocks.iter().enumerate() {
-            for instr in &block.body {
-                match instr {
-                    ArcInstr::BurdenInc { var: v } if *v == var => delta[idx] += 1,
-                    ArcInstr::BurdenDec { var: v } if *v == var => delta[idx] -= 1,
-                    ArcInstr::BurdenDecPartial { var: v, .. } if *v == var => delta[idx] -= 1,
-                    ArcInstr::BurdenDecVariant { var: v } if *v == var => delta[idx] -= 1,
-                    _ => {}
-                }
-            }
-        }
-
-        // Forward dataflow on net burden count. entry_net[b] = sum of
-        // deltas along any reachable path from func.entry to b. Every
-        // predecessor's exit net MUST equal the chosen entry net; mismatch
-        // at a merge point is the imbalance signal.
-        let n = func.blocks.len();
-        let mut entry_net: Vec<Option<i64>> = vec![None; n];
-        let entry_idx = func.entry.index();
-        if entry_idx < n {
-            entry_net[entry_idx] = Some(0);
-        }
-
-        // Reverse postorder over the CFG is what the analysis is built on
-        // (`graph::compute_postorder` + reverse); for this structural
-        // check, a simple worklist over predecessor lists is sufficient
-        // because we only need fixpoint, not optimization.
-        let mut changed = true;
-        let mut iterations: usize = 0;
-        let iter_cap = n.saturating_mul(4).max(16);
-        while changed && iterations < iter_cap {
-            changed = false;
-            iterations += 1;
-            for b in 0..n {
-                if b == entry_idx {
-                    continue;
-                }
-                let pred_list = &preds[b];
-                if pred_list.is_empty() {
-                    // Unreachable block — leave entry_net[b] = None.
-                    continue;
-                }
-                // Compute pred exit nets; first defined entry seeds, then
-                // every subsequent pred MUST match.
-                let mut chosen: Option<i64> = None;
-                for &p in pred_list {
-                    let p_entry = entry_net[p];
-                    if let Some(pe) = p_entry {
-                        let p_exit = pe + delta[p];
-                        match chosen {
-                            None => chosen = Some(p_exit),
-                            Some(c) if c == p_exit => {}
-                            Some(_) => {
-                                // Imbalance at merge point b: predecessor p
-                                // exit net diverges from the chosen seed. The
-                                // path of interest ends at b coming from p.
-                                let path = vec![func.blocks[p].id, func.blocks[b].id];
-                                errors.push(TrmcVerificationError::BurdenImbalance {
-                                    function: func.name,
-                                    var,
-                                    region: ctx.loop_header,
-                                    path,
-                                });
-                                // Stop probing this var; one imbalance
-                                // per var is enough to trigger rollback.
-                                chosen = None;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if let Some(c) = chosen {
-                    if entry_net[b] != Some(c) {
-                        entry_net[b] = Some(c);
-                        changed = true;
-                    }
-                } else if errors
-                    .iter()
-                    .any(|e| matches!(e, TrmcVerificationError::BurdenImbalance { var: v, .. } if *v == var))
-                {
-                    // Imbalance recorded for this var — stop iterating it.
-                    break;
-                }
-            }
+        let delta = compute_var_block_deltas(func, var);
+        if let Some(entry_net) =
+            compute_burden_entry_nets(func, &preds, var, ctx.loop_header, &delta, &mut errors)
+        {
+            check_burden_terminal_zero(func, var, ctx.loop_header, &delta, &entry_net, &mut errors);
         }
     }
 
     errors
+}
+
+/// Inventory the SSA vars whose `ShapeClass` is `ContextHole` — the only
+/// burden-balance verification targets per PL-10. Shape is set at definition
+/// by `populate_var_shapes`; the scan is `O(num_vars)` and runs once.
+fn collect_context_hole_vars(func: &ArcFunction, state_map: &AimsStateMap) -> Vec<ArcVarId> {
+    let num_vars = u32::try_from(func.var_types.len()).unwrap_or(u32::MAX);
+    let mut out: Vec<ArcVarId> = Vec::new();
+    for raw in 0u32..num_vars {
+        let v = ArcVarId::new(raw);
+        if matches!(state_map.var_shape(v), ShapeClass::ContextHole) {
+            out.push(v);
+        }
+    }
+    out
+}
+
+/// Per-block burden delta for `var`: `BurdenInc(var) - BurdenDec*(var)`.
+/// `BurdenDecPartial` and `BurdenDecVariant` mirror whole-var burden
+/// tracking (like `BurdenDec`). `BurdenDecField` targets a field of the
+/// base — not the whole-var balance — so it is excluded.
+fn compute_var_block_deltas(func: &ArcFunction, var: ArcVarId) -> Vec<i64> {
+    let mut delta: Vec<i64> = vec![0; func.blocks.len()];
+    for (idx, block) in func.blocks.iter().enumerate() {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::BurdenInc { var: v } if *v == var => delta[idx] += 1,
+                ArcInstr::BurdenDec { var: v } if *v == var => delta[idx] -= 1,
+                ArcInstr::BurdenDecPartial { var: v, .. } if *v == var => delta[idx] -= 1,
+                ArcInstr::BurdenDecVariant { var: v } if *v == var => delta[idx] -= 1,
+                _ => {}
+            }
+        }
+    }
+    delta
+}
+
+/// Forward dataflow on net burden count for `var`. `entry_net[b]` is the
+/// sum of deltas along any reachable path from `func.entry` to `b`; every
+/// predecessor's exit net MUST equal the chosen entry net. Mismatch at a
+/// merge point is the imbalance signal — pushed onto `errors` and the
+/// helper returns `None` (one imbalance per var is enough to trigger
+/// rollback; caller skips the terminal check).
+///
+/// A simple worklist over predecessor lists is sufficient because we only
+/// need fixpoint, not optimization (proper reverse postorder lives in
+/// `graph::compute_postorder`).
+fn compute_burden_entry_nets(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    var: ArcVarId,
+    region: ArcBlockId,
+    delta: &[i64],
+    errors: &mut Vec<TrmcVerificationError>,
+) -> Option<Vec<Option<i64>>> {
+    let n = func.blocks.len();
+    let mut entry_net: Vec<Option<i64>> = vec![None; n];
+    let entry_idx = func.entry.index();
+    if entry_idx < n {
+        entry_net[entry_idx] = Some(0);
+    }
+
+    let iter_cap = n.saturating_mul(4).max(16);
+    let mut changed = true;
+    let mut iterations: usize = 0;
+    let mut imbalance_recorded = false;
+
+    while changed && iterations < iter_cap {
+        changed = false;
+        iterations += 1;
+        for b in 0..n {
+            if b == entry_idx || preds[b].is_empty() {
+                continue;
+            }
+            match merge_pred_exits(preds, b, delta, &entry_net) {
+                MergeResult::Agreed(c) => {
+                    if entry_net[b] != Some(c) {
+                        entry_net[b] = Some(c);
+                        changed = true;
+                    }
+                }
+                MergeResult::Disagreed { pred } => {
+                    errors.push(TrmcVerificationError::BurdenImbalance {
+                        function: func.name,
+                        var,
+                        region,
+                        path: vec![func.blocks[pred].id, func.blocks[b].id],
+                    });
+                    imbalance_recorded = true;
+                    break;
+                }
+                MergeResult::Unreachable => {}
+            }
+        }
+        if imbalance_recorded {
+            break;
+        }
+    }
+
+    if imbalance_recorded {
+        None
+    } else {
+        Some(entry_net)
+    }
+}
+
+enum MergeResult {
+    Agreed(i64),
+    Disagreed { pred: usize },
+    Unreachable,
+}
+
+/// At merge point `b`, fold predecessor exit nets: first defined entry
+/// seeds, then every subsequent pred MUST match. Returns the agreed value,
+/// the divergent pred, or `Unreachable` when no predecessor has a defined
+/// entry net yet.
+fn merge_pred_exits(
+    preds: &[Vec<usize>],
+    b: usize,
+    delta: &[i64],
+    entry_net: &[Option<i64>],
+) -> MergeResult {
+    let mut chosen: Option<i64> = None;
+    for &p in &preds[b] {
+        let Some(pe) = entry_net[p] else {
+            continue;
+        };
+        let p_exit = pe + delta[p];
+        match chosen {
+            None => chosen = Some(p_exit),
+            Some(c) if c == p_exit => {}
+            Some(_) => return MergeResult::Disagreed { pred: p },
+        }
+    }
+    match chosen {
+        Some(c) => MergeResult::Agreed(c),
+        None => MergeResult::Unreachable,
+    }
+}
+
+/// Every path-terminal block (`Return` / `Resume` / `Unreachable`) MUST
+/// have `exit_net == 0` per VF-1 per-edge balance. Straight-line CFGs
+/// have no merge point, so `compute_burden_entry_nets` never fires on a
+/// uniform non-zero net; this terminal check catches that class.
+fn check_burden_terminal_zero(
+    func: &ArcFunction,
+    var: ArcVarId,
+    region: ArcBlockId,
+    delta: &[i64],
+    entry_net: &[Option<i64>],
+    errors: &mut Vec<TrmcVerificationError>,
+) {
+    for (b, block) in func.blocks.iter().enumerate() {
+        let Some(eb) = entry_net[b] else {
+            continue;
+        };
+        let is_terminal = matches!(
+            block.terminator,
+            ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable
+        );
+        if !is_terminal {
+            continue;
+        }
+        if eb + delta[b] != 0 {
+            errors.push(TrmcVerificationError::BurdenImbalance {
+                function: func.name,
+                var,
+                region,
+                path: vec![func.blocks[b].id],
+            });
+            break;
+        }
+    }
 }
