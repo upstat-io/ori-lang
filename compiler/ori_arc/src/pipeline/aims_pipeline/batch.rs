@@ -5,7 +5,7 @@
 //! ownership application (`apply_aims_ownership`).
 
 use ori_ir::Name;
-use ori_types::Pool;
+use ori_types::{Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
 
 use super::AimsPipelineConfig;
@@ -14,7 +14,7 @@ use crate::aims::lattice::AccessClass;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
-use crate::ownership::Ownership;
+use crate::ownership::{AnnotatedSig, Ownership};
 use crate::ArcClassification;
 
 /// Run the AIMS pipeline on all functions (batch entry point).
@@ -24,12 +24,18 @@ use crate::ArcClassification;
 /// 1. Compute interprocedural contracts via `aims::analyze_program()`
 /// 2. Apply ownership to function parameters
 /// 3. Run per-function pipeline for each function
+#[expect(
+    clippy::too_many_arguments,
+    reason = "batch entry point bundles all context"
+)]
 pub(crate) fn run_aims_pipeline_all(
     functions: &mut [ArcFunction],
     classifier: &dyn ArcClassification,
+    sigs: &FxHashMap<Name, AnnotatedSig>,
     interner: &ori_ir::StringInterner,
     pool: &Pool,
     builtins: &BuiltinOwnershipSets,
+    type_registry: &TypeRegistry,
     verify_arc: bool,
 ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
     // Step 1: interprocedural analysis -> MemoryContract per function.
@@ -53,6 +59,8 @@ pub(crate) fn run_aims_pipeline_all(
         builtins,
         verify_arc,
         observer: None,
+        sigs,
+        type_registry,
     };
 
     let mut all_problems = Vec::new();

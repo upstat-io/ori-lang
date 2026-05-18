@@ -62,6 +62,16 @@ pub struct DecisionContext {
     pub site: DecisionSite,
     /// Whether the variable is RC-managed (owned, non-scalar, non-excluded).
     pub is_rc_managed: bool,
+    /// §04A.3 ITEM-3 — coexistence handshake. `true` when the target var's
+    /// SSA-alias class is fully burden-covered per
+    /// `AimsStateMap::is_class_covered(class_id_of(var))`. Forces
+    /// [`RcDecision::None`] (the burden walk owns this var's inc/dec).
+    ///
+    /// Callers compute via
+    /// `state_map.is_class_covered(state_map.class_id_of(var))`; default
+    /// `false` for pre-§04A pipelines (empty `class_covered` set ⇒ field
+    /// always reads `false`, preserving baseline behavior).
+    pub class_covered: bool,
 }
 
 /// Classification of the instruction site for RC decisions.
@@ -178,6 +188,16 @@ pub struct ReuseContext {
 /// is a reuse candidate.
 pub fn decide(ctx: &DecisionContext) -> InstructionDecisions {
     if !ctx.is_rc_managed {
+        return InstructionDecisions {
+            rc: RcDecision::None,
+            reuse: ReuseDecision::None,
+        };
+    }
+
+    // §04A.3 ITEM-3 — coexistence handshake: when the target var's class is
+    // fully burden-covered, the burden walk owns the inc/dec; predicate
+    // stack defers.
+    if ctx.class_covered {
         return InstructionDecisions {
             rc: RcDecision::None,
             reuse: ReuseDecision::None,

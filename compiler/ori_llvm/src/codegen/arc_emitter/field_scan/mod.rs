@@ -278,7 +278,12 @@ pub(super) fn compute_pointer_only_params(
                     ..
                 } => mark_needs_load_slice(args, &var_to_param, &mut needs_load),
 
-                ArcInstr::Let { .. } => {}
+                // Let{Var} aliases and Let{Literal} don't need the param value.
+                // BurdenInc / BurdenDec are no-op codegen markers per RE-1 scalar
+                // exemption — they emit NO LLVM IR. Marking them as needs_load
+                // forces a spurious aggregate load that ir_quality_codegen tests
+                // catch as an IR-quality regression.
+                ArcInstr::Let { .. } | ArcInstr::BurdenInc { .. } | ArcInstr::BurdenDec { .. } => {}
 
                 ArcInstr::PartialApply { args, .. }
                 | ArcInstr::Construct { args, .. }
@@ -315,8 +320,6 @@ pub(super) fn compute_pointer_only_params(
                 }
                 ArcInstr::RcInc { var, .. }
                 | ArcInstr::RcDec { var, .. }
-                | ArcInstr::BurdenInc { var }
-                | ArcInstr::BurdenDec { var }
                 | ArcInstr::BurdenDecPartial { var, .. }
                 | ArcInstr::BurdenDecVariant { var }
                 | ArcInstr::IsShared { var, .. }
@@ -340,7 +343,7 @@ pub(super) fn compute_pointer_only_params(
                 }
             }
             // InvokeIndirect: closure + args all need load (conservative —
-            // we don't know the callee's forwarding behavior).
+            // callee's forwarding behavior unknown).
             ArcTerminator::InvokeIndirect { closure, args, .. } => {
                 mark_needs_load(*closure, &var_to_param, &mut needs_load);
                 mark_needs_load_slice(args, &var_to_param, &mut needs_load);

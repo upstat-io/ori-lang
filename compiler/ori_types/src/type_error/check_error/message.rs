@@ -236,6 +236,20 @@ impl TypeCheckError {
                  make the field projection unconditional, or mirror it symmetrically on every branch"
                     .to_string()
             }
+            TypeErrorKind::DropPartialMove { .. } => {
+                "partial move on type implementing `Drop` is forbidden; \
+                 the compiler-walked field drop after the user `@drop` body \
+                 would see absent fields. Use full move, field borrow, or \
+                 match-destructuring instead."
+                    .to_string()
+            }
+            TypeErrorKind::ValueDropConflict { .. } => {
+                "type carries both `Value` and `Drop`; `Value` declares inline \
+                 storage with bitwise copy and no ARC, so the refcount-zero \
+                 cleanup path `@drop` hooks into never fires — the two markers \
+                 are mutually exclusive."
+                    .to_string()
+            }
             TypeErrorKind::PreContractNotBool { actual } => {
                 format!(
                     "pre() condition must have type bool, found {}",
@@ -415,6 +429,11 @@ impl TypeCheckError {
 
             // E2047: Pre-condition contract references unknown identifier
             TypeErrorKind::PreContractUnknownIdent { .. } => ErrorCode::E2047,
+
+            // E2048: Partial move on type implementing Drop
+            TypeErrorKind::DropPartialMove { .. } => ErrorCode::E2048,
+            // E2049: Value + Drop mutual exclusion
+            TypeErrorKind::ValueDropConflict { .. } => ErrorCode::E2049,
         }
     }
 }

@@ -64,9 +64,51 @@ pub(crate) fn emit_postprocess(
     }
     super::trace_pipeline_checkpoint(func, "verify_final", config.interner, config.observer);
 
+    // VF-1 basic burden-balance check (§04A.4) — function-exit net = 0 for
+    // every variable in `func.burden_emitted`. Errors join the same
+    // `Vec<VerifyError>` channel used by Layer 1 structural verification
+    // per `arc.md §Verification Surface` Layer 1.
+    run_burden_balance(func, config.verify_arc)?;
+    super::trace_pipeline_checkpoint(
+        func,
+        "verify_burden_balance",
+        config.interner,
+        config.observer,
+    );
+
     let problems = check_fbip(func, config);
     super::trace_pipeline_checkpoint(func, "fbip_enforcement", config.interner, config.observer);
     Ok(problems)
+}
+
+/// Run the VF-1 burden-balance check. Mirrors the `verify`/`debug_assertions`
+/// gating used by `crate::pipeline::run_verify` per `arc.md §Verification
+/// Surface` Layer 1: under explicit verification mode the errors halt
+/// compilation; under debug-assertions-only mode the errors are logged as
+/// warnings but do not abort.
+fn run_burden_balance(
+    func: &ArcFunction,
+    verify: bool,
+) -> Result<(), Vec<crate::verify::VerifyError>> {
+    let enabled = verify || cfg!(debug_assertions);
+    if !enabled {
+        return Ok(());
+    }
+    let errors = crate::aims::verify::burden_balance::verify_burden_balance(func);
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let verify_errors: Vec<crate::verify::VerifyError> = errors
+        .into_iter()
+        .map(crate::verify::VerifyError::BurdenImbalance)
+        .collect();
+    if verify {
+        return Err(verify_errors);
+    }
+    for e in &verify_errors {
+        tracing::warn!(phase = "verify_burden_balance", "ARC IR verification: {e}");
+    }
+    Ok(())
 }
 
 /// Check FBIP enforcement and auto-FBIP detection (step 12).

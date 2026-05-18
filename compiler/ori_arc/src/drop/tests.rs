@@ -246,7 +246,13 @@ fn struct_with_one_rc_field() {
     let c = cls(&pool);
 
     let info = compute_drop_info(s, &c, &pool).unwrap();
-    assert_eq!(info.kind, DropKind::Fields(vec![(1, Idx::STR)]));
+    assert_eq!(
+        info.kind,
+        DropKind::Fields {
+            fields: vec![(1, Idx::STR)],
+            user_drop: None
+        }
+    );
 }
 
 #[test]
@@ -266,7 +272,10 @@ fn struct_with_multiple_rc_fields() {
     let info = compute_drop_info(s, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Fields(vec![(0, Idx::STR), (2, list_int)])
+        DropKind::Fields {
+            fields: vec![(0, Idx::STR), (2, list_int)],
+            user_drop: None
+        }
     );
 }
 
@@ -279,7 +288,13 @@ fn tuple_with_rc_element() {
     let c = cls(&pool);
 
     let info = compute_drop_info(tup, &c, &pool).unwrap();
-    assert_eq!(info.kind, DropKind::Fields(vec![(1, Idx::STR)]));
+    assert_eq!(
+        info.kind,
+        DropKind::Fields {
+            fields: vec![(1, Idx::STR)],
+            user_drop: None
+        }
+    );
 }
 
 #[test]
@@ -292,7 +307,10 @@ fn tuple_all_rc_elements() {
     let info = compute_drop_info(tup, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Fields(vec![(0, Idx::STR), (1, list_int)])
+        DropKind::Fields {
+            fields: vec![(0, Idx::STR), (1, list_int)],
+            user_drop: None
+        }
     );
 }
 
@@ -319,10 +337,13 @@ fn enum_with_rc_variant_fields() {
     let info = compute_drop_info(e, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![],              // variant 0: int field — scalar
-            vec![(0, Idx::STR)], // variant 1: str field — needs Dec
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![],              // variant 0: int field — scalar
+                vec![(0, Idx::STR)], // variant 1: str field — needs Dec
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -352,11 +373,14 @@ fn enum_with_mixed_variant_fields() {
     let info = compute_drop_info(e, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![],              // variant 0: unit
-            vec![(0, Idx::STR)], // variant 1: str field at 0
-            vec![(0, list_str)], // variant 2: list field at 0
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![],              // variant 0: unit
+                vec![(0, Idx::STR)], // variant 1: str field at 0
+                vec![(0, list_str)], // variant 2: list field at 0
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -393,10 +417,13 @@ fn option_str_is_enum_drop() {
     let info = compute_drop_info(opt, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![],              // None
-            vec![(0, Idx::STR)], // Some(str)
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![],              // None
+                vec![(0, Idx::STR)], // Some(str)
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -411,10 +438,13 @@ fn result_str_int_drops_ok_only() {
     let info = compute_drop_info(res, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![(0, Idx::STR)], // Ok(str) — needs Dec
-            vec![],              // Err(int) — scalar
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![(0, Idx::STR)], // Ok(str) — needs Dec
+                vec![],              // Err(int) — scalar
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -427,10 +457,13 @@ fn result_int_str_drops_err_only() {
     let info = compute_drop_info(res, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![],              // Ok(int) — scalar
-            vec![(0, Idx::STR)], // Err(str) — needs Dec
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![],              // Ok(int) — scalar
+                vec![(0, Idx::STR)], // Err(str) — needs Dec
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -443,10 +476,13 @@ fn result_str_str_drops_both() {
     let info = compute_drop_info(res, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![(0, Idx::STR)], // Ok(str)
-            vec![(0, Idx::STR)], // Err(str)
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![(0, Idx::STR)], // Ok(str)
+                vec![(0, Idx::STR)], // Err(str)
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -492,7 +528,13 @@ fn named_type_resolves_to_struct_drop() {
     let c = cls(&pool);
 
     let info = compute_drop_info(named_idx, &c, &pool).unwrap();
-    assert_eq!(info.kind, DropKind::Fields(vec![(0, Idx::STR)]));
+    assert_eq!(
+        info.kind,
+        DropKind::Fields {
+            fields: vec![(0, Idx::STR)],
+            user_drop: None
+        }
+    );
 }
 
 // Closure env drop
@@ -578,6 +620,7 @@ fn collect_deduplicates_types() {
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -632,6 +675,7 @@ fn collect_multiple_types() {
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -683,6 +727,7 @@ fn collect_skips_scalar_rc_dec() {
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -706,7 +751,13 @@ fn struct_with_nested_option_str_field() {
 
     let info = compute_drop_info(s, &c, &pool).unwrap();
     // Field 1 is option[str] which is DefiniteRef → needs Dec.
-    assert_eq!(info.kind, DropKind::Fields(vec![(1, opt_str)]));
+    assert_eq!(
+        info.kind,
+        DropKind::Fields {
+            fields: vec![(1, opt_str)],
+            user_drop: None
+        }
+    );
 }
 
 #[test]
@@ -858,31 +909,46 @@ fn drop_info_via_burden_matches_legacy() {
     // Struct with one RC field — Fields(vec![(1, Idx::STR)]).
     assert_eq!(
         compute_drop_info(struct_one_rc, &c, &pool).unwrap().kind,
-        DropKind::Fields(vec![(1, Idx::STR)]),
+        DropKind::Fields {
+            fields: vec![(1, Idx::STR)],
+            user_drop: None
+        },
     );
 
     // Tuple with mixed scalar + RC — Fields(vec![(1, Idx::STR)]).
     assert_eq!(
         compute_drop_info(tup, &c, &pool).unwrap().kind,
-        DropKind::Fields(vec![(1, Idx::STR)]),
+        DropKind::Fields {
+            fields: vec![(1, Idx::STR)],
+            user_drop: None
+        },
     );
 
     // Enum with mixed variant RC fields — Enum([[], [(0, STR)]]).
     assert_eq!(
         compute_drop_info(enum_mixed, &c, &pool).unwrap().kind,
-        DropKind::Enum(vec![vec![], vec![(0, Idx::STR)]]),
+        DropKind::Enum {
+            variants: vec![vec![], vec![(0, Idx::STR)]],
+            user_drop: None
+        },
     );
 
     // Option<str> — Enum([[], [(0, STR)]]).
     assert_eq!(
         compute_drop_info(opt_str, &c, &pool).unwrap().kind,
-        DropKind::Enum(vec![vec![], vec![(0, Idx::STR)]]),
+        DropKind::Enum {
+            variants: vec![vec![], vec![(0, Idx::STR)]],
+            user_drop: None
+        },
     );
 
     // Result<str, int> — Enum([[(0, STR)], []]).
     assert_eq!(
         compute_drop_info(res_str_int, &c, &pool).unwrap().kind,
-        DropKind::Enum(vec![vec![(0, Idx::STR)], vec![]]),
+        DropKind::Enum {
+            variants: vec![vec![(0, Idx::STR)], vec![]],
+            user_drop: None
+        },
     );
 
     // Closure environment with mixed captures — ClosureEnv(vec![(1, STR)]).
@@ -914,10 +980,13 @@ fn drop_info_via_burden_for_option_str() {
     assert_eq!(info.ty, opt);
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![],              // None
-            vec![(0, Idx::STR)], // Some(str)
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![],              // None
+                vec![(0, Idx::STR)], // Some(str)
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -961,9 +1030,12 @@ fn drop_info_via_burden_for_newly_monomorphized_generic() {
     assert_eq!(info.ty, res_fresh);
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![(0, list_str)], // Ok(List<str>) — needs Dec
-            vec![(0, Idx::STR)], // Err(str) — needs Dec
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![(0, list_str)], // Ok(List<str>) — needs Dec
+                vec![(0, Idx::STR)], // Err(str) — needs Dec
+            ],
+            user_drop: None
+        }
     );
 }

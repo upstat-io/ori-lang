@@ -78,6 +78,7 @@ fn standalone_reader(name: Name) -> ArcFunction {
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
         var_rc_strategies: Vec::new(),
     }
 }
@@ -116,6 +117,7 @@ fn caller_function(name: Name, callee: Name) -> ArcFunction {
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
         var_rc_strategies: Vec::new(),
     }
 }
@@ -152,6 +154,7 @@ fn storer_function(name: Name) -> ArcFunction {
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
         var_rc_strategies: Vec::new(),
     }
 }
@@ -200,6 +203,7 @@ fn modified_reader(name: Name) -> ArcFunction {
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
         var_rc_strategies: Vec::new(),
     }
 }

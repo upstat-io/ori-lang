@@ -31,3 +31,6 @@ pub mod normalize;
 pub mod realize;
 pub mod transfer;
 pub mod verify;
+
+#[cfg(test)]
+mod burden_lattice_smoke;

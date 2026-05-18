@@ -377,6 +377,8 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
     let contracts = rustc_hash::FxHashMap::default();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
+    let sigs = rustc_hash::FxHashMap::default();
+    let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
         classifier: &classifier,
@@ -386,6 +388,8 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
         builtins: &builtins,
         verify_arc: false,
         observer: Some(&observer),
+        sigs: &sigs,
+        type_registry: &type_registry,
     };
 
     let _result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
@@ -439,6 +443,8 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
     let contracts = rustc_hash::FxHashMap::default();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
+    let sigs = rustc_hash::FxHashMap::default();
+    let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
         classifier: &classifier,
@@ -448,6 +454,8 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
         builtins: &builtins,
         verify_arc: false,
         observer: None,
+        sigs: &sigs,
+        type_registry: &type_registry,
     };
 
     // Pipeline runs successfully with no observer — zero overhead path.
@@ -491,6 +499,8 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
     let contracts = rustc_hash::FxHashMap::default();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
+    let sigs = rustc_hash::FxHashMap::default();
+    let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
         classifier: &classifier,
@@ -500,6 +510,8 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
         builtins: &builtins,
         verify_arc: false,
         observer: Some(&observer),
+        sigs: &sigs,
+        type_registry: &type_registry,
     };
 
     let _result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);

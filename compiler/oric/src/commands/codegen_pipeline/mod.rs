@@ -399,12 +399,21 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         }
 
         // ARC-IR phase dumps (ORI_DUMP_AFTER_ARC + ORI_EMIT_ARC_DOT gates)
+        //
+        // PREREQUISITE PLACEHOLDER (§04A.0 ITEM-0a): TypeRegistry is not yet
+        // surfaced from the type-checker output here. Pass an empty default
+        // so the AimsPipelineConfig wiring compiles; the burden walker that
+        // would consume the registry is not yet active in this dump path.
+        // §04A.0 ITEM-1 surfacing of the live registry from
+        // ModuleChecker::finish_with_pool is the follow-up.
+        let placeholder_type_registry = ori_types::TypeRegistry::default();
         finalize::dump_arc_phases(
             &arc_cache,
             &annotated_sigs,
             &classifier,
             pool,
             interner,
+            &placeholder_type_registry,
             source_path,
         );
 

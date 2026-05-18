@@ -155,6 +155,8 @@ define_error_codes! {
     E2045, "Post-condition contract must be a lambda";
     E2046, "Post-condition contract cannot apply to void-returning function";
     E2047, "Pre-condition contract references unknown identifier";
+    E2048, "`EDROP_PARTIAL_MOVE`: partial move on type implementing Drop";
+    E2049, "`EVALUE_DROP_CONFLICT`: type marked Value cannot implement Drop";
 
     // Pattern Errors (E3xxx)
     E3001, "Unknown pattern";

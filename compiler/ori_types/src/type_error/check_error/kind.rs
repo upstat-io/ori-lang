@@ -403,6 +403,39 @@ pub enum TypeErrorKind {
         /// Why the pattern is refutable (list length, nested sub-pattern).
         reason: crate::infer::RefutableReason,
     },
+
+    /// Partial move on a type implementing `Drop` (E2048).
+    ///
+    /// Per `drop-trait-proposal.md §Execution Timing`, the compiler walks
+    /// owned fields in reverse declaration order AFTER invoking the user
+    /// `@drop` body. Partial-moving a field of a `Drop` type would leave
+    /// `@drop` observing absent fields — banned regardless of CFG path
+    /// (axis disjoint from E2043's conditional-partial-move rule).
+    DropPartialMove {
+        /// The aggregate variable name (e.g., `r` in `r.name`).
+        aggregate: Name,
+        /// The field that was partially moved (e.g., `name`).
+        field: Name,
+        /// The aggregate's Drop-implementing type name (for diagnostic).
+        type_name: Name,
+    },
+
+    /// `Value` and `Drop` on the same type (E2049).
+    ///
+    /// Per Annex E §AIMS + `ori-syntax.md §Prelude`: `Value` declares
+    /// inline storage with bitwise copy semantics and no ARC. The
+    /// refcount-zero cleanup path that `@drop` hooks into never fires
+    /// for `Value` types, so pairing them is contradictory. Fires at
+    /// either the type-declaration registration surface (Surface 1 —
+    /// `Value` marker observed AND a `Drop` impl already registered) or
+    /// the `impl T: Drop` registration surface (Surface 2 — `Drop` impl
+    /// observed AND the type's trait set carries `Value`). The span
+    /// always points at the second registration; the type's name
+    /// disambiguates the two surfaces for diagnostic output.
+    ValueDropConflict {
+        /// The type name carrying both markers (e.g., `Point`).
+        type_name: Name,
+    },
 }
 
 /// What kind of arity mismatch occurred.

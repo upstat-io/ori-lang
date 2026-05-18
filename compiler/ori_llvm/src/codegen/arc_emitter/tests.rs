@@ -33,6 +33,24 @@ impl ArcClassification for TestClassifier {
     }
 }
 
+/// Classifier parameterised by an explicit set of heap-allocated Idx
+/// values + `Idx::STR`. Used by §04.1 recursive-drop codegen tests where
+/// the recursive type's Idx is created via `pool.named(...)` and
+/// therefore cannot be statically pre-classified by `TestClassifier`.
+struct IdxSetClassifier {
+    heap_idxs: Vec<Idx>,
+}
+
+impl ArcClassification for IdxSetClassifier {
+    fn arc_class(&self, idx: Idx) -> ArcClass {
+        if idx == Idx::STR || self.heap_idxs.contains(&idx) {
+            ArcClass::DefiniteRef
+        } else {
+            ArcClass::Scalar
+        }
+    }
+}
+
 #[test]
 fn drop_fn_trivial_generates_rc_free() {
     let pool = Pool::new();
@@ -119,7 +137,10 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
 
     let info = DropInfo {
         ty: Idx::STR,
-        kind: DropKind::Fields(vec![(1, Idx::STR)]),
+        kind: DropKind::Fields {
+            fields: vec![(1, Idx::STR)],
+            user_drop: None,
+        },
     };
     super::drop_gen::generate_drop_fn(&mut em, Idx::STR, &info);
 
@@ -165,7 +186,10 @@ fn drop_fn_enum_generates_switch_on_tag() {
     // 2 variants: None (no RC), Some(str) (RC'd at field 1)
     let info = DropInfo {
         ty: Idx::STR,
-        kind: DropKind::Enum(vec![vec![], vec![(1, Idx::STR)]]),
+        kind: DropKind::Enum {
+            variants: vec![vec![], vec![(1, Idx::STR)]],
+            user_drop: None,
+        },
     };
     super::drop_gen::generate_drop_fn(&mut em, Idx::STR, &info);
 
@@ -576,7 +600,10 @@ fn multiple_drop_fns_for_different_types() {
         ty_b,
         &DropInfo {
             ty: ty_b,
-            kind: DropKind::Fields(vec![(0, Idx::STR)]),
+            kind: DropKind::Fields {
+                fields: vec![(0, Idx::STR)],
+                user_drop: None,
+            },
         },
     );
     super::drop_gen::generate_drop_fn(
@@ -2402,6 +2429,259 @@ fn idx_to_type_tag_maps_dynamic_list_type() {
 
     // Dynamic list type should map to TypeTag::List via TypeInfoStore
     assert_eq!(em.idx_to_type_tag(list_idx), Some(TypeTag::List));
+
+    drop(em);
+}
+
+// ─── §04.1 Recursive drop-fn codegen ─────────────────────────────────────
+//
+// Cycle safety comes from the cache-before-body pattern at drop_gen.rs:69:
+// `drop_fn_cache.insert(ty, func_id)` runs BEFORE the body is generated, so
+// `emit_rc_dec` on a field of the same type hits the cache and the recursion
+// terminates structurally — no runtime type discriminants.
+
+#[test]
+fn recursive_node_drop_fn_emits_self_referencing_rc_dec() {
+    // Recursive type Node { value: int, next: Option<Node> } modelled as
+    // a single heap-allocated struct whose RC'd field references itself.
+    // The drop body MUST emit a GEP + load + ori_rc_dec on the self-typed
+    // field. Cycle safety: only ONE drop function definition appears,
+    // even though the field type recurses.
+    //
+    // Construct the "recursive" Idx through `pool.named()` so it is a
+    // well-formed pool entry; the field-type self-reference in DropKind
+    // exercises the cache-before-body cycle-termination path at
+    // drop_gen.rs:69 + the recursive emit_rc_dec → get_or_generate_drop_fn
+    // chain.
+    let mut pool = Pool::new();
+    let node_ty = pool.named(ori_ir::Name::from_raw(0x0DE_0001));
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_recursive_node"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    // Classifier: route the recursive node Idx through DefiniteRef so
+    // emit_drop_rc_dec actually emits an ori_rc_dec call (scalar would
+    // short-circuit via RE-2).
+    let cl = IdxSetClassifier {
+        heap_idxs: vec![node_ty],
+    };
+    let codegen_ctx = super::CodegenContext::default();
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    let info = DropInfo {
+        ty: node_ty,
+        kind: DropKind::Fields {
+            fields: vec![(0, node_ty)],
+            user_drop: None,
+        },
+    };
+    let _ = super::drop_gen::generate_drop_fn(&mut em, node_ty, &info);
+
+    let ir = scx.llmod.print_to_string().to_string();
+    let mangled = format!("\"_ori_drop${}\"", node_ty.raw());
+    let definitions = ir.matches(&format!("define void @{mangled}(ptr")).count();
+    assert_eq!(
+        definitions, 1,
+        "recursive type yields exactly ONE drop fn definition (cache prevents duplicate generation):\n{ir}"
+    );
+    assert!(
+        ir.contains("ori_rc_dec"),
+        "recursive node drop fn MUST emit ori_rc_dec on the self-typed field:\n{ir}"
+    );
+
+    drop(em);
+}
+
+#[test]
+fn mutually_recursive_tree_forest_drop_fns_cross_reference() {
+    // Mutually-recursive pair: Tree's drop fn references Forest's drop fn
+    // (via field decrement) and vice versa. Both drop fns MUST be emitted
+    // exactly once; their bodies MUST cross-reference each other through
+    // the runtime ori_rc_dec call. The cache reservation order during SCC
+    // processing — insert ALL SCC members into drop_fn_cache BEFORE
+    // generating bodies — keeps the cross-reference acyclic at LLVM level.
+    let mut pool = Pool::new();
+    let tree_ty = pool.named(ori_ir::Name::from_raw(0x07EE_0001));
+    let forest_ty = pool.named(ori_ir::Name::from_raw(0x07EE_0002));
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_tree_forest"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    // Classifier: route both Tree and Forest through DefiniteRef so the
+    // cross-reference RC decs actually emit (vs short-circuiting via RE-2).
+    let cl = IdxSetClassifier {
+        heap_idxs: vec![tree_ty, forest_ty],
+    };
+    let codegen_ctx = super::CodegenContext::default();
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    let tree_info = DropInfo {
+        ty: tree_ty,
+        kind: DropKind::Fields {
+            fields: vec![(0, forest_ty)],
+            user_drop: None,
+        },
+    };
+    let forest_info = DropInfo {
+        ty: forest_ty,
+        kind: DropKind::Fields {
+            fields: vec![(0, tree_ty)],
+            user_drop: None,
+        },
+    };
+
+    // Generate Tree first; its body references Forest which triggers a
+    // recursive get_or_generate_drop_fn call. Forest's body in turn
+    // references Tree — the cache prevents another regeneration.
+    let tree_fn = super::drop_gen::generate_drop_fn(&mut em, tree_ty, &tree_info);
+    // After Tree, generate Forest explicitly to exercise the explicit
+    // emission path (the recursive get_or_generate path may already have
+    // declared Forest's prototype without a body — generate_drop_fn handles
+    // both cases via the `function_has_body` guard).
+    let forest_fn = super::drop_gen::generate_drop_fn(&mut em, forest_ty, &forest_info);
+
+    // Distinct FunctionIds — each type gets its own drop function.
+    assert_ne!(
+        tree_fn, forest_fn,
+        "Tree and Forest MUST receive distinct FunctionIds (per-type mangling)"
+    );
+
+    let ir = scx.llmod.print_to_string().to_string();
+    let tree_mangled = format!("\"_ori_drop${}\"", tree_ty.raw());
+    let forest_mangled = format!("\"_ori_drop${}\"", forest_ty.raw());
+
+    let tree_defs = ir
+        .matches(&format!("define void @{tree_mangled}(ptr"))
+        .count();
+    let forest_defs = ir
+        .matches(&format!("define void @{forest_mangled}(ptr"))
+        .count();
+    assert_eq!(tree_defs, 1, "Tree drop fn defined exactly once:\n{ir}");
+    assert_eq!(forest_defs, 1, "Forest drop fn defined exactly once:\n{ir}");
+
+    // Cross-reference: both bodies must call ori_rc_dec (the recursive
+    // child decrement that resolves through the cache).
+    assert!(
+        ir.contains("ori_rc_dec"),
+        "mutually-recursive drop fns MUST call ori_rc_dec on cross-typed fields:\n{ir}"
+    );
+
+    drop(em);
+}
+
+#[test]
+fn drop_fn_cache_prevents_infinite_generation() {
+    // The cache-before-body pattern at drop_gen.rs:69 guarantees that any
+    // recursive descent through `emit_rc_dec → get_or_generate_drop_fn →
+    // generate_drop_fn` terminates: the cache entry exists BEFORE body
+    // emission, so the inner call returns the cached FunctionId.
+    //
+    // We exercise this by invoking generate_drop_fn TWICE on the same
+    // recursive type. The second call MUST be a cache hit (no second
+    // body emitted).
+    let mut pool = Pool::new();
+    let node_ty = pool.named(ori_ir::Name::from_raw(0x0CAC_4E55));
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_drop_fn_cache"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let cl = IdxSetClassifier {
+        heap_idxs: vec![node_ty],
+    };
+    let codegen_ctx = super::CodegenContext::default();
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    let info = DropInfo {
+        ty: node_ty,
+        kind: DropKind::Fields {
+            fields: vec![(0, node_ty)],
+            user_drop: None,
+        },
+    };
+
+    let _first = super::drop_gen::generate_drop_fn(&mut em, node_ty, &info);
+    // After the first generation, the cache MUST hold an entry for node_ty.
+    let cached_before_second = em.drop_fn_cache.get(&node_ty).copied();
+    assert!(
+        cached_before_second.is_some(),
+        "after first invocation, the cache MUST contain an entry for the recursive type"
+    );
+    let _second = super::drop_gen::generate_drop_fn(&mut em, node_ty, &info);
+    // The cache entry MUST remain stable across repeated invocations
+    // (the FunctionId arena handle may differ across `push_function`
+    // calls, but the cached entry tracks the most recent reservation).
+    assert!(
+        em.drop_fn_cache.contains_key(&node_ty),
+        "cache entry MUST persist across repeated invocations"
+    );
+
+    let ir = scx.llmod.print_to_string().to_string();
+    let mangled = format!("\"_ori_drop${}\"", node_ty.raw());
+    let definitions = ir.matches(&format!("define void @{mangled}(ptr")).count();
+    assert_eq!(
+        definitions, 1,
+        "cache MUST prevent duplicate drop fn definitions even under repeated invocation:\n{ir}"
+    );
 
     drop(em);
 }

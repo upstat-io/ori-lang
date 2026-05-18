@@ -89,7 +89,7 @@ pub(crate) struct BlockCtx<'a> {
     /// `block_returns_var`) to determine whether a returned value aliases a
     /// specific parameter. Empty map when no contract drives suppression.
     pub(crate) alias_to_param: &'a FxHashMap<ArcVarId, FxHashSet<usize>>,
-    /// BUG-04-090 §05 F-prj: per-Project compensating-Inc targets.
+    /// BUG-04-090 per-Project compensating-Inc targets.
     ///
     /// Maps a `Project { dst, value, field }` instruction's `dst` to its
     /// `RcStrategy` when:
@@ -122,9 +122,9 @@ impl BlockCtx<'_> {
     /// block's body, in this block's terminator, or in a successor block
     /// (live at this block's exit).
     ///
-    /// BUG-04-104 PIN-4 class-liveness primitive: `walk_dec.rs` queries this
-    /// across all members of an SSA-alias class to decide whether to emit
-    /// the class's canonical `RcDec`. When `last_use == LastUse::Body(idx)`
+    /// PIN-4 class-liveness primitive: `walk_dec.rs` queries this across
+    /// all members of an SSA-alias class to decide whether to emit the
+    /// class's canonical `RcDec`. When `last_use == LastUse::Body(idx)`
     /// and `idx <= instr_idx`, the var has no later use in this block —
     /// but it may still be live on a successor edge, so the check MUST
     /// fall through to `is_live_at_exit`. Returning `false` directly when
@@ -150,10 +150,37 @@ impl BlockCtx<'_> {
 
 /// Pre-scan a block to determine total use count and last-use position
 /// for each variable.
+///
+/// `Burden*` instructions (`BurdenInc` / `BurdenDec` / `BurdenDecPartial` /
+/// `BurdenDecVariant` / `BurdenDecField`) are SKIPPED — they are TF-N/A
+/// metadata annotations, not real uses of the operand. Counting them as
+/// uses would shift `LastUse` to the burden op's position (typically
+/// end-of-block), suppressing the predicate-stack `RcDec` emission that
+/// would otherwise fire at the actual last code-level use — producing a
+/// leak (the burden ops are no-op codegen markers per RE-1 scalar
+/// exemption, so they cannot substitute for the suppressed `RcDec`).
+///
+/// Symmetric to the burden-skip in `walk_body_unified`'s main loop —
+/// `precompute_block_uses` and the walk MUST agree on which instructions
+/// count as uses, else `uses_so_far` outruns `total_uses` and the walk's
+/// `compute_has_future_use` `debug_assert!` fires.
 pub(crate) fn precompute_block_uses(block: &ArcBlock) -> FxHashMap<ArcVarId, (usize, LastUse)> {
     let mut info: FxHashMap<ArcVarId, (usize, LastUse)> = FxHashMap::default();
 
     for (instr_idx, instr) in block.body.iter().enumerate() {
+        // Skip burden annotations: TF-N/A metadata, not real uses.
+        // Counting them corrupts last-use calculation and suppresses
+        // predicate-stack RcDec emission, producing leaks.
+        if matches!(
+            instr,
+            ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
+                | ArcInstr::BurdenDecPartial { .. }
+                | ArcInstr::BurdenDecVariant { .. }
+                | ArcInstr::BurdenDecField { .. }
+        ) {
+            continue;
+        }
         for var in instr.used_vars() {
             let entry = info.entry(var).or_insert((0, LastUse::Body(instr_idx)));
             entry.0 += 1;
@@ -414,7 +441,7 @@ pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction, pool: 
     }
 }
 
-// BUG-04-090 §05 Step 7: return-transfer dec suppression.
+// BUG-04-090 return-transfer dec suppression.
 //
 // When a parameter `transfers_through_return` (its value flows directly to
 // a `Return { value }` terminator), the generic forwarder pattern over
@@ -433,7 +460,7 @@ use crate::ir::ArcTerminator;
 ///
 /// Conditions for suppression:
 /// 1. The block is NOT an unwind block (unwind paths always emit cleanup
-///    decs per `arc.md §RL-4`).
+///    decs per RL-4).
 /// 2. `var` IS in `return_transfer_params` (the param's
 ///    `ParamContract.transfers_through_return` is `true`).
 /// 3. The current block's forward CFG terminates in a `Return { value: v }`
@@ -456,9 +483,9 @@ pub(crate) fn should_suppress_return_transfer_dec(
 /// Two-set CFG walker with per-`(block, var)` memoization. Memoization
 /// keyed by `(blk, var)` (not `blk` alone) because path-dependent block-param
 /// queries can produce different answers for the same block depending on
-/// which alias chain the predecessor jump-arg threads through (Plan TPR
-/// Round-2 codex F1 critical). Canonical CFG-analysis pattern from
-/// `Lean/Compiler/IR/Borrow.lean` and `rustc_mir_dataflow`.
+/// which alias chain the predecessor jump-arg threads through. Canonical
+/// CFG-analysis pattern from `Lean/Compiler/IR/Borrow.lean` and
+/// `rustc_mir_dataflow`.
 fn block_returns_var(ctx: &BlockCtx, blk: ArcBlockId, var: ArcVarId) -> bool {
     let mut recursion_stack: FxHashSet<ArcBlockId> = FxHashSet::default();
     let mut memo: FxHashMap<(ArcBlockId, ArcVarId), bool> = FxHashMap::default();
@@ -543,17 +570,17 @@ fn traces_to_var(ctx: &BlockCtx, value: ArcVarId, target_param: ArcVarId) -> boo
         .is_some_and(|set| set.contains(&target_idx))
 }
 
-// BUG-04-090 §05 Hypothesis D component #3: caller-side allocation-identity
-// gate at edge_cleanup. Phase 1 walk is balanced; the spurious decs that
-// cause hop2/hop4/F-prj/E-mat double-frees are emitted in Phase 2
-// `edge_cleanup` per the bisect-passes.sh diagnosis.
+// BUG-04-090 caller-side allocation-identity gate at edge_cleanup. Phase 1
+// walk is balanced; the spurious decs that cause hop2/hop4/F-prj/E-mat
+// double-frees are emitted in Phase 2 `edge_cleanup` per the
+// bisect-passes.sh diagnosis.
 //
 // The reverse-lookup helper below scans `apply_result_aliases.values()` for
-// a given consumed-arg variable. Per Hypothesis D component #2,
-// apply_result_aliases entries are filtered to non-Let-alias roots at
-// population time (`apply_aliases.rs::install_alias_entry`), so this
-// reverse lookup CANNOT match a Let Var alias — eliminating the session D
-// regression on `arc::test_rc_alias_owned_call_then_root_use`.
+// a given consumed-arg variable. apply_result_aliases entries are filtered
+// to non-Let-alias roots at population time
+// (`apply_aliases.rs::install_alias_entry`), so this reverse lookup CANNOT
+// match a Let Var alias — preventing regression on
+// `arc::test_rc_alias_owned_call_then_root_use`.
 
 /// Whether the scope-exit `RcDec` for `var` should be suppressed because
 /// `var` was consumed by an Apply/Invoke whose dst aliases `var` (caller-side
@@ -561,9 +588,9 @@ fn traces_to_var(ctx: &BlockCtx, value: ArcVarId, target_param: ArcVarId) -> boo
 ///
 /// Conditions for suppression:
 /// 1. The block is NOT an unwind block (unwind paths always emit cleanup
-///    decs per `aims-rules.md §8 RL-4`). Caller passes `is_unwind_succ` from
-///    explicit Invoke unwind-successor distinction OR from inline Resume
-///    detection on the successor block.
+///    decs per RL-4). Caller passes `is_unwind_succ` from explicit Invoke
+///    unwind-successor distinction OR from inline Resume detection on the
+///    successor block.
 /// 2. `var` appears as a consumed-arg source in some entry of
 ///    `state_map.apply_result_aliases`:
 ///    - `Direct(arg)` with `arg == var`
@@ -586,12 +613,12 @@ pub(crate) fn should_suppress_apply_aliased_dec(
         .apply_result_aliases()
         .values()
         .any(|source| match source {
-            // BUG-04-118 §05 Round 4 Option B: Wrapped behaves like Direct/
-            // Project for dec-suppression purposes (suppress arg's caller-
-            // side canonical dec because arg's ownership transferred into
-            // dst's payload via the wrapping construct). The class-union
-            // semantic differs (Wrapped does NOT union per
-            // `ssa_alias_classes.rs`); only the suppression triggers fires.
+            // Wrapped behaves like Direct/Project for dec-suppression
+            // purposes (suppress arg's caller-side canonical dec because
+            // arg's ownership transferred into dst's payload via the
+            // wrapping construct). The class-union semantic differs
+            // (Wrapped does NOT union per `ssa_alias_classes.rs`); only
+            // the suppression triggers fires.
             ApplyAliasSource::Direct(arg)
             | ApplyAliasSource::Project { arg, .. }
             | ApplyAliasSource::Wrapped(arg) => *arg == var,

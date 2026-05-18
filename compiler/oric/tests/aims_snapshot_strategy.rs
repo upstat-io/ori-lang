@@ -141,6 +141,7 @@ impl TestStrategy for AimsSnapshotStrategy {
                 // Run AIMS pipeline with observer and real contracts.
                 let uniqueness = FxHashMap::default();
                 let sigs = FxHashMap::default();
+                let type_registry = ori_types::TypeRegistry::default();
                 let pipeline_result = ori_arc::run_arc_pipeline_with_observer(
                     func,
                     &classifier,
@@ -149,6 +150,7 @@ impl TestStrategy for AimsSnapshotStrategy {
                     interner,
                     &uniqueness,
                     &aims_contracts,
+                    &type_registry,
                     true, // verify_arc — snapshot tests verify pipeline output
                     &*observer,
                 );

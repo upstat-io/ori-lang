@@ -8,7 +8,7 @@
 //! contracts → per-variable state map → RC/reuse emission).
 
 use ori_ir::Name;
-use ori_types::Pool;
+use ori_types::{Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
 
 use crate::aims::contract::MemoryContract;
@@ -25,9 +25,13 @@ use crate::ArcClassification;
 /// produces a per-variable state map, then RC/reuse emission reads the
 /// state map to place operations.
 ///
-/// The `uniqueness_summaries` and `sigs` parameters are unused — they
-/// exist for API compatibility during the transition period. The AIMS
-/// pipeline derives all ownership information from `aims_contracts`.
+/// The `uniqueness_summaries` parameter is unused — it exists for API
+/// compatibility during the transition period. The AIMS pipeline derives
+/// all ownership information from `aims_contracts`.
+///
+/// `sigs` and `type_registry` are bundled into `AimsPipelineConfig` for
+/// downstream consumption by `infer_derived_ownership` (§04A.0 ITEM-2)
+/// and `emit_burden_ops` (§04A.0 ITEM-1) when those wirings land.
 #[expect(
     clippy::too_many_arguments,
     reason = "pipeline entry point bundles all context"
@@ -41,9 +45,10 @@ pub fn run_arc_pipeline(
     interner: &ori_ir::StringInterner,
     uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
     aims_contracts: &FxHashMap<Name, MemoryContract>,
+    type_registry: &TypeRegistry,
     verify_arc: bool,
 ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
-    let _ = (sigs, uniqueness_summaries);
+    let _ = uniqueness_summaries;
     let builtins = BuiltinOwnershipSets::new(interner);
     let config = aims_pipeline::AimsPipelineConfig {
         classifier,
@@ -53,6 +58,8 @@ pub fn run_arc_pipeline(
         builtins: &builtins,
         verify_arc,
         observer: None,
+        sigs,
+        type_registry,
     };
     Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
 }
@@ -71,15 +78,16 @@ pub fn run_arc_pipeline(
 pub fn run_arc_pipeline_with_observer<'a>(
     func: &mut ArcFunction,
     classifier: &'a dyn ArcClassification,
-    sigs: &FxHashMap<Name, AnnotatedSig>,
+    sigs: &'a FxHashMap<Name, AnnotatedSig>,
     pool: &'a Pool,
     interner: &'a ori_ir::StringInterner,
     uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
     aims_contracts: &'a FxHashMap<Name, MemoryContract>,
+    type_registry: &'a TypeRegistry,
     verify_arc: bool,
     observer: &'a aims_pipeline::CheckpointObserver<'a>,
 ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
-    let _ = (sigs, uniqueness_summaries);
+    let _ = uniqueness_summaries;
     let builtins = BuiltinOwnershipSets::new(interner);
     let config = aims_pipeline::AimsPipelineConfig {
         classifier,
@@ -89,6 +97,8 @@ pub fn run_arc_pipeline_with_observer<'a>(
         builtins: &builtins,
         verify_arc,
         observer: Some(observer),
+        sigs,
+        type_registry,
     };
     Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
 }
@@ -100,8 +110,12 @@ pub fn run_arc_pipeline_with_observer<'a>(
 /// 2. Apply ownership annotations to function parameters
 /// 3. Run the per-function AIMS pipeline for each function
 ///
-/// The `sigs` parameter is unused — it exists for API compatibility during
-/// the transition period.
+/// `sigs` and `type_registry` are bundled into `AimsPipelineConfig` for
+/// downstream consumption (see `run_arc_pipeline` docs).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "pipeline entry point bundles all context"
+)]
 #[expect(clippy::implicit_hasher, reason = "callee functions require FxHashMap")]
 pub fn run_arc_pipeline_all(
     functions: &mut [ArcFunction],
@@ -110,11 +124,18 @@ pub fn run_arc_pipeline_all(
     interner: &ori_ir::StringInterner,
     pool: &Pool,
     builtins: &BuiltinOwnershipSets,
+    type_registry: &TypeRegistry,
     verify_arc: bool,
 ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
-    let _ = sigs;
     aims_pipeline::run_aims_pipeline_all(
-        functions, classifier, interner, pool, builtins, verify_arc,
+        functions,
+        classifier,
+        sigs,
+        interner,
+        pool,
+        builtins,
+        type_registry,
+        verify_arc,
     )
 }
 

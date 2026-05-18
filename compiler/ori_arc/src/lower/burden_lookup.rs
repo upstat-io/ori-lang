@@ -38,6 +38,13 @@ pub fn lookup_burden(ty: TypeRef, type_registry: &TypeRegistry) -> Option<Burden
             BurdenRegistry::lookup_builtin(type_id).map(BurdenRef::Builtin)
         }
         TypeRef::User(idx) => {
+            // `Idx::NONE` (u32::MAX) is the "no type information" sentinel
+            // used by test fixtures and untyped placeholder slots. It carries
+            // no burden by construction; treat as "no burden" rather than
+            // tripping the TYPE_PARAM debug_assert.
+            if idx.is_none() {
+                return None;
+            }
             debug_assert!(
                 idx.raw() < TYPE_PARAM_E_RAW,
                 "user type pool would collide with TYPE_PARAM sentinel space \

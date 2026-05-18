@@ -457,6 +457,26 @@ pub(super) fn call_drop_fn(f: extern "C" fn(*mut u8), data_ptr: *mut u8) {
     }
 }
 
+/// Nested-panic-during-drop-cleanup abort entry point (§04.3).
+///
+/// Invoked by codegen-emitted landing pads when a SECOND panic surfaces
+/// during the field-walk cleanup phase of a Drop-implementing type's
+/// drop function. Per `drop-trait-proposal.md §Drop and panic`, a single
+/// panic in `@drop` is recoverable (the landing pad still runs the field
+/// walk + free), but a nested panic during that cleanup aborts the
+/// process — matching Rust's nested-panic-during-drop semantics.
+///
+/// The codegen-emitted cleanup landing pad invokes this entry from its
+/// OWN unwind path; the function does NOT return.
+#[no_mangle]
+pub extern "C" fn ori_drop_double_panic_abort() -> ! {
+    eprintln!(
+        "ori: nested panic during drop cleanup — terminating \
+         (drop-trait-proposal.md §Drop and panic: double-panic abort)"
+    );
+    std::process::exit(SIGABRT_EXIT_CODE);
+}
+
 /// Get the number of live RC allocations (for testing and debugging).
 ///
 /// Returns the number of `ori_rc_alloc` calls minus `ori_rc_free` calls.

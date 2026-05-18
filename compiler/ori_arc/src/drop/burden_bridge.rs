@@ -120,10 +120,17 @@ fn burden_to_drop_kind(synthesized: &SynthesizedBurden) -> Option<DropKind> {
         }),
         SynthesizedShape::Fields => {
             let fields = owned_fields_to_pairs(&synthesized.spec.owned_fields);
-            if fields.is_empty() {
+            // Always Some when user_drop is set — the user @drop body
+            // needs an entry point invoked at refcount-zero even when
+            // there are no RC'd fields to walk. Without this, a Drop
+            // type with all-scalar fields would silently bypass @drop.
+            if fields.is_empty() && synthesized.spec.user_drop.is_none() {
                 None
             } else {
-                Some(DropKind::Fields(fields))
+                Some(DropKind::Fields {
+                    fields,
+                    user_drop: synthesized.spec.user_drop,
+                })
             }
         }
         SynthesizedShape::ClosureEnv => {
@@ -131,6 +138,9 @@ fn burden_to_drop_kind(synthesized: &SynthesizedBurden) -> Option<DropKind> {
             if fields.is_empty() {
                 Some(DropKind::Trivial)
             } else {
+                // Closures cannot carry user @drop — only nominal types
+                // can implement Drop (per `drop-trait-proposal.md
+                // §Definition`). user_drop stays None on ClosureEnv.
                 Some(DropKind::ClosureEnv(fields))
             }
         }
@@ -141,10 +151,16 @@ fn burden_to_drop_kind(synthesized: &SynthesizedBurden) -> Option<DropKind> {
                 .iter()
                 .map(|v| owned_fields_to_pairs(&v.retained_owned))
                 .collect();
-            if variants.iter().all(Vec::is_empty) {
+            // Same Drop-aware emit rule as Fields: emit Enum even when
+            // every variant is empty when user_drop is set so codegen
+            // materializes the AUGMENT body.
+            if variants.iter().all(Vec::is_empty) && synthesized.spec.user_drop.is_none() {
                 None
             } else {
-                Some(DropKind::Enum(variants))
+                Some(DropKind::Enum {
+                    variants,
+                    user_drop: synthesized.spec.user_drop,
+                })
             }
         }
     }

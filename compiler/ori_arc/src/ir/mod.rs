@@ -469,6 +469,20 @@ pub struct ArcFunction {
     /// rewrite pass (§09.2). Skipped during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub tail_calls: Vec<crate::tail_call::TailCallSite>,
+    /// Variables for which `emit_burden_ops` (`lower/burden_lower.rs`) has
+    /// emitted at least one `BurdenInc` / `BurdenDec` / `BurdenDecPartial` /
+    /// `BurdenDecField` / `BurdenDecVariant` instruction.
+    ///
+    /// Indexed by `ArcVarId::index()`. `true` = burden walker owns this var's
+    /// RC traffic; the predicate-stack realization should defer to the burden
+    /// walk for vars in this set when their containing SSA-alias class is
+    /// fully covered (`AimsStateMap::class_covered`).
+    ///
+    /// Default: empty. Populated by `emit_burden_ops`. Read by the AIMS
+    /// post-convergence `class_covered` computation and by `decide()` at
+    /// realization. Skipped during cache serialization — derived data.
+    #[cfg_attr(feature = "cache", serde(skip))]
+    pub burden_emitted: Vec<bool>,
 }
 
 /// Flatten an ARC function cache into a single Vec (parents + lambdas).

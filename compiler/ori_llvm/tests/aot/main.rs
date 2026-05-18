@@ -4,10 +4,12 @@
 //! - Rust: `tests/run-make/` integration tests
 //! - Zig: `test/link/` and `test/standalone/` tests
 
+pub mod aims_burden_alias;
 pub mod aims_interactions;
 pub mod arc;
 pub mod borrow_independence;
 pub mod cli;
+pub mod closure_drop;
 pub mod coalesce;
 pub mod codegen;
 pub mod collections_ext;
@@ -16,6 +18,7 @@ pub mod cow_map_set;
 pub mod cross;
 pub mod depth;
 pub mod derives;
+pub mod drop_augment;
 pub mod elem_dec_scope;
 pub mod empty_container;
 pub mod empty_container_empty_list;
@@ -54,6 +57,7 @@ pub mod patterns;
 pub mod poly_lambda_mono;
 pub mod rc_matrix;
 pub mod recursion;
+pub mod recursive_drop;
 pub mod repr;
 pub mod scoping;
 pub mod sets;

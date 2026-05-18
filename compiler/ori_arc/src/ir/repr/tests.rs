@@ -247,6 +247,7 @@ fn compute_var_reprs_matches_types() {
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -283,6 +284,7 @@ fn compute_var_reprs_empty_function() {
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -456,6 +458,7 @@ fn compute_var_reprs_trivial_compounds_are_scalar() {
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
     };
 
     let classifier = ArcClassifier::new(&pool);

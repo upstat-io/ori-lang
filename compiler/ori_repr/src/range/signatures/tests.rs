@@ -54,6 +54,7 @@ fn build_simple_func(
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
         var_rc_strategies: Vec::new(),
     }
 }
@@ -265,6 +266,7 @@ fn build_branching_caller(
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
         var_rc_strategies: Vec::new(),
     }
 }
@@ -562,6 +564,7 @@ fn self_recursive_converges_or_widens() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -839,6 +842,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -928,6 +932,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -1096,6 +1101,7 @@ fn scc_budget_exhaustion_clears_stale_results() {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -1572,6 +1578,7 @@ fn build_func_with_unreachable_return(name: u32, callee_id: u32) -> ArcFunction 
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
         var_rc_strategies: Vec::new(),
     }
 }
@@ -1759,6 +1766,7 @@ fn build_self_recursive_func(name: u32) -> ArcFunction {
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
         var_rc_strategies: Vec::new(),
     }
 }
@@ -1889,6 +1897,7 @@ fn build_invoke_caller(name: u32, callee_id: u32, num_vars: usize) -> ArcFunctio
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
         var_rc_strategies: Vec::new(),
     }
 }
@@ -1970,6 +1979,7 @@ fn build_invoke_apply_caller(helper_id: u32, callee_id: u32, name: u32) -> ArcFu
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
         var_rc_strategies: Vec::new(),
     }
 }

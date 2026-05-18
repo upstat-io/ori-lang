@@ -21,6 +21,7 @@
 //! - Perceus (Reinking et al., PLDI 2021): unified RC + reuse
 //! - FP² (Marshall et al., ESOP 2022): FIP-guided reuse decisions
 
+mod burden_elim;
 mod cleanup_redundant;
 pub mod decide;
 mod emit_unified;
@@ -31,6 +32,7 @@ mod tests;
 mod walk;
 mod walk_dec;
 
+pub(crate) use burden_elim::eliminate_burden_ops;
 pub(crate) use cleanup_redundant::cleanup_redundant_project_alias_decs;
 
 use ori_ir::Name;
@@ -106,16 +108,17 @@ pub fn realize_rc_reuse(
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
-    builtins: &BuiltinOwnershipSets,
+    _builtins: &BuiltinOwnershipSets,
     pool: &Pool,
 ) -> RealizationResult {
-    // Sub-step A: emit arg_ownership (previously standalone step 4).
-    {
-        let _span = tracing::debug_span!("realize_arg_ownership").entered();
-        crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
-            func, contracts, interner, builtins, pool,
-        );
-    }
+    // §04A.5 ITEM-1: emit_arg_ownership was lifted to a Step 4b-prelude in
+    // `pipeline/aims_pipeline/mod.rs::run_aims_pipeline` BETWEEN Step 4
+    // (`analyze_function`) and Step 4b (`emit_burden_ops`) so burden_lower
+    // observes converged arg_ownership at emission time (AIMS Invariant 3 —
+    // no stale summaries). The former Sub-step A invocation here is removed
+    // — the prelude has already populated arg_ownership before this function
+    // runs. The `_` bindings on contracts/interner/builtins/pool keep the
+    // public signature stable; downstream Sub-steps A2 / B / C consume them.
 
     // Sub-step A2: insert RcInc for borrowed-param COW receivers.
     // Borrowed function params at COW call receiver positions need an RcInc

@@ -27,6 +27,9 @@
 //! invariant: when the lookup site exists, it consumes the registered spec
 //! and asserts presence per the §03 schema.
 
+pub mod closure;
+pub mod scc;
+
 use ori_registry::burden::table::{TYPE_PARAM_E, TYPE_PARAM_T};
 use ori_registry::burden::{
     BuiltinBurdenSpec, OwnedField as BuiltinOwnedField, TransferRule as BuiltinTransferRule,

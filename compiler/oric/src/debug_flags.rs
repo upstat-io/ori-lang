@@ -130,6 +130,15 @@ flags! {
     /// Usage: `ORI_DISABLE_REDUNDANT_CLEANUP=1 ori build file.ori`
     ORI_DISABLE_REDUNDANT_CLEANUP
 
+    /// Disable the §04A burden-op emission pass (Step 4b of the AIMS pipeline).
+    ///
+    /// Consumed in `ori_arc::pipeline::aims_pipeline::run_aims_pipeline` per the
+    /// §04A.1 ITEM-4 empty-harness predicate-parity check. When set, `emit_burden_ops`
+    /// is skipped entirely and the predicate-stack realization path runs as in the
+    /// pre-§04A baseline.
+    /// Usage: `ORI_DISABLE_BURDEN_OPS=1 ori build file.ori`
+    ORI_DISABLE_BURDEN_OPS
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.

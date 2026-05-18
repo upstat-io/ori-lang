@@ -441,3 +441,118 @@ fn negative_pin_channel_empty_element_burden_breaks_signature_distinctness() {
         "without element_burden the specs collapse — proves the slot is the load-bearing distinguisher"
     );
 }
+
+// ─── Value Trait Composition ────────────────────────────────────────────
+
+/// Mixed Value/Heap composition — `Result<ValueType, HeapType>` (e.g.,
+/// `Result<int, str>`) produces `variant_burdens` with asymmetric arms: Ok
+/// carries the Value-role `Idx`, Err carries the Heap-role `Idx`. Codegen
+/// recurses on each via `TypeRegistry::burden(idx)` — for `int` (Value)
+/// it sees an empty `BurdenSpec` (no drop emitted); for `str` (Heap) it
+/// sees a full spec (drop emitted).
+///
+/// Builds on the existing `variant_burden` machinery: assert that the
+/// asymmetry survives composition unchanged, since Value-marker semantics
+/// are realized via per-`Idx` burden lookup at codegen, NOT inline
+/// expansion at composition.
+#[test]
+fn result_value_heap_composition_inherits_distinct_variant_burdens() {
+    let pool = Pool::new();
+    let registry = TypeRegistry::new();
+    let template = result_template();
+    // `int` plays the Value role (empty burden table entry per
+    // BURDEN_TABLE: `(TYPE_ID_INT, BuiltinBurdenSpec::EMPTY)`); `str`
+    // plays the Heap role (`self_heap_alloc = true`).
+    let type_args = [Idx::INT, Idx::STR];
+
+    let composed = compose_user_burden(template, &type_args, &pool, &registry);
+
+    // Asymmetry pin: Ok arm carries Idx::INT, Err arm carries Idx::STR.
+    let ok = find_variant(&composed, RESULT_VARIANT_OK);
+    assert_eq!(
+        ok.transfers_on_match.len(),
+        1,
+        "Ok arm carries one binding (T)"
+    );
+    assert_eq!(
+        ok.transfers_on_match[0].field_type,
+        Idx::INT,
+        "Ok arm's field_type is the Value-role Idx (int)"
+    );
+    let err = find_variant(&composed, RESULT_VARIANT_ERR);
+    assert_eq!(
+        err.transfers_on_match.len(),
+        1,
+        "Err arm carries one binding (E)"
+    );
+    assert_eq!(
+        err.transfers_on_match[0].field_type,
+        Idx::STR,
+        "Err arm's field_type is the Heap-role Idx (str)"
+    );
+
+    // Variant count + transfer_kind pin: composition path is symmetric
+    // across the Value/Heap boundary at the per-variant level. The
+    // role-asymmetric burden emission lives in codegen, NOT here.
+    assert_eq!(composed.variant_burdens.len(), 2, "Ok + Err");
+    assert_eq!(
+        ok.transfers_on_match[0].transfer_kind,
+        TransferKind::Move,
+        "Value-role binding still uses Move transfer (kind erasure)"
+    );
+    assert_eq!(
+        err.transfers_on_match[0].transfer_kind,
+        TransferKind::Move,
+        "Heap-role binding uses Move transfer"
+    );
+}
+
+/// `Option<ValueType>` with niche encoding (per `repr.md §7 NI-3`) composes
+/// identically to the tagged-variant form at the BURDEN level. Niche
+/// encoding operates on PHYSICAL layout; burden composition operates on
+/// LOGICAL variants — the two are orthogonal.
+///
+/// Pin: `Option<int>` produces two `variant_burdens` (None + Some) with
+/// Some arm carrying `Idx::INT` regardless of how the type is physically
+/// laid out downstream. Phase 5 emission switches on the LOGICAL tag at
+/// the Ori source level.
+#[test]
+fn option_value_type_niche_encoded_inherits_empty_burden() {
+    let pool = Pool::new();
+    let registry = TypeRegistry::new();
+    let template = option_template();
+    // `int` is Value-role (niche-encoded `Option<int>` per `repr.md §7
+    // NI-3` is physically `int + sentinel`, but burden composition sees
+    // logical None / Some(int) arms unchanged).
+    let type_args = [Idx::INT];
+
+    let composed = compose_user_burden(template, &type_args, &pool, &registry);
+
+    // None arm has no payload; Some arm carries Value-role Idx.
+    let none = find_variant(&composed, OPTION_VARIANT_NONE);
+    assert!(
+        none.transfers_on_match.is_empty(),
+        "None arm carries no binding (logical variant unchanged by niche encoding)"
+    );
+
+    let some = find_variant(&composed, OPTION_VARIANT_SOME);
+    assert_eq!(
+        some.transfers_on_match.len(),
+        1,
+        "Some arm carries one binding (T) — logical, not physical"
+    );
+    assert_eq!(
+        some.transfers_on_match[0].field_type,
+        Idx::INT,
+        "Some arm's field_type is Value-role Idx (int) — niche encoding is orthogonal to burden composition"
+    );
+
+    // Variant count pin: two logical variants regardless of niche
+    // encoding. Codegen lowers None to the niche sentinel; burden
+    // composition does not see the lowering.
+    assert_eq!(
+        composed.variant_burdens.len(),
+        2,
+        "None + Some logical arms"
+    );
+}

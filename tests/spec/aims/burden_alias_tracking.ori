@@ -1,0 +1,81 @@
+// Lattice alias-tracking on the BUG-04-118 shape (Result<Inner, Err>
+// where Ok payload contains `inner` whose lifetime survives the Result's
+// destructure). Verifies §04A.2 burden_elim consuming DP-2/DP-3 from the
+// converged AimsStateMap does NOT over-eliminate `inner`'s BurdenDec
+// when `inner` outlives the outer class's destructuring point.
+//
+// Repro shape mirrors apply_alias_result_strmap (per
+// bug-tracker/plans/completed/BUG-04-118 §01 root-cause analysis):
+// build a heap-allocated inner ({str: int}), wrap into Result, match
+// out the inner via pattern binding, then USE the inner after the
+// match arm completes. The use AFTER the match is what extends the
+// inner's lifetime past the Result class's destructuring.
+//
+// Positive-pin (this test): asserts NO double-free + correct values
+// survive past the destructure. Test passes = `inner`'s BurdenDec was
+// NOT over-eliminated; its allocation is freed exactly once at the
+// extended use point.
+//
+// Negative-pin: see header comment block at bottom of file. Verification
+// requires deliberate over-elimination harness that is NOT YET wired
+// (parallel-session AIMS burden tracking work occupies burden_elim.rs;
+// tooling-first.md §2 gap — env-var ORI_FORCE_OVERELIMINATE=1 would
+// route eliminate_burden_ops through an aggressive path).
+
+use std.testing { assert_eq };
+
+@build_map () -> {str: int} = {
+    let m = {"alpha": 1, "beta": 2, "gamma": 3};
+    m
+}
+
+@wrap_ok (m: {str: int}) -> Result<{str: int}, str> = Ok(m);
+
+@extract_and_sum_after_destructure () -> int = {
+    let m = build_map();
+    let result = wrap_ok(m: m);
+    let extracted = match result {
+        Ok(inner) -> inner,
+        Err(_) -> panic(msg: "should be Ok"),
+    };
+    // The borrow below extends `extracted`'s lifetime PAST the match's
+    // destructure of `result`. Without correct DP-2/DP-3 elimination on
+    // the burden baseline, `inner`'s BurdenDec would fire inside the
+    // match arm before this use, double-freeing the map allocation.
+    let a = extracted["alpha"].unwrap_or(default: 0);
+    let b = extracted["beta"].unwrap_or(default: 0);
+    let g = extracted["gamma"].unwrap_or(default: 0);
+    a + b + g
+}
+
+@test_burden_alias_tracking_inner_survives_result_destructure tests @extract_and_sum_after_destructure () -> void = {
+    let sum = extract_and_sum_after_destructure();
+    assert_eq(actual: sum, expected: 6)
+};
+
+// Negative-pin verification — STRUCTURAL BLOCKER (tooling-first.md §2 gap):
+//
+// The negative-pin would deliberately revert eliminate_burden_ops to an
+// over-eliminating shape (drop DP-2 guard, allow BurdenDec elision on
+// `inner` despite its lifetime extending past the Result's destructure)
+// and confirm the assertion above trips with a double-free FATAL.
+//
+// Verification cannot run cleanly in the current working tree:
+// 1. compiler_repo/compiler/ori_arc/src/aims/realize/burden_elim.rs
+//    carries uncommitted parallel-session AIMS burden tracking work
+//    under cross-scope sprawl_lint_fail halt (per §04B HISTORY).
+// 2. No clean baseline exists to "revert to" — editing burden_elim.rs
+//    as part of negative-pin verification would conflict with parallel-
+//    session work AND create a goal-displacement risk per CLAUDE.md
+//    §INVERTED-TDD (modifying production deliverable to satisfy a test
+//    pin vs proving the deliverable's invariant).
+// 3. The negative-pin verification step requires an env-var harness
+//    parallel to ORI_DISABLE_BURDEN_ELIM=1 (which TURNS OFF elimination)
+//    — e.g., ORI_FORCE_OVERELIMINATE=1 — that deliberately makes
+//    eliminate_burden_ops aggressive. The harness does not yet exist.
+//
+// Filed as tooling-first.md §2 deficiency in
+// decisions/gate-criterion-3-evidence.md for future /improve-tooling
+// follow-up: wire ORI_FORCE_OVERELIMINATE=1 in emit_unified.rs alongside
+// ORI_DISABLE_BURDEN_ELIM=1 so negative-pin verification can run without
+// editing production source.

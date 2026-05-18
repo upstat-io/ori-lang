@@ -15,7 +15,7 @@ impl Lowerer<'_> {
     /// `call_expr_id` is the AST `ExprId` of the call expression itself —
     /// used to look up the typeck-side `mono_dispatch_map` and translate
     /// any `(ExprId, MonoInstanceId)` entry to a `(CanId, MonoInstanceId)`
-    /// entry on `CanonResult.mono_dispatch_map_can` (BUG-01-002 §C.2 1c).
+    /// entry on `CanonResult.mono_dispatch_map_can`.
     pub(super) fn lower_call(
         &mut self,
         call_expr_id: ExprId,
@@ -39,7 +39,7 @@ impl Lowerer<'_> {
     /// to `eval_iter_collect_set` instead of the default list collector.
     ///
     /// `call_expr_id` is the AST `ExprId` of the method-call expression —
-    /// used to look up the typeck-side `mono_dispatch_map` (BUG-01-002 §C.2 1c).
+    /// used to look up the typeck-side `mono_dispatch_map`.
     pub(super) fn lower_method_call(
         &mut self,
         call_expr_id: ExprId,

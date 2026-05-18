@@ -14,7 +14,7 @@ use std::fmt::Write;
 
 use ori_arc::{AnnotatedSig, ArcClassification, ArcFunction};
 use ori_ir::{Name, StringInterner};
-use ori_types::Pool;
+use ori_types::{Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
 
 /// Dump ARC IR to stderr for all functions in the arc cache.
@@ -33,6 +33,7 @@ pub fn dump_arc_ir(
     classifier: &dyn ArcClassification,
     pool: &Pool,
     interner: &StringInterner,
+    type_registry: &TypeRegistry,
     path: &str,
 ) {
     let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
@@ -63,6 +64,7 @@ pub fn dump_arc_ir(
             interner,
             pool,
             &builtins,
+            type_registry,
             std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|v| v != "0"),
         );
         // Log verification ICEs but don't abort the dump -- it's a diagnostic tool.

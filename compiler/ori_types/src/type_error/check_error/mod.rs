@@ -280,6 +280,76 @@ impl TypeCheckError {
         }
     }
 
+    /// Create a partial-move-on-Drop-type error (E2048).
+    ///
+    /// Emitted by `validate_drop_partial_move` when `let $f = v.field` projects
+    /// a field of a type implementing `Drop`. Per
+    /// `drop-trait-proposal.md §Execution Timing`, the compiler walks owned
+    /// fields in reverse declaration order AFTER invoking the user `@drop`
+    /// body; a partial move would leave `@drop` observing absent fields.
+    ///
+    /// The axis is disjoint from E2043 (`conditional_partial_move`): every
+    /// `Drop` partial move is forbidden regardless of CFG path.
+    pub fn drop_partial_move(span: Span, aggregate: Name, field: Name, type_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::DropPartialMove {
+                aggregate,
+                field,
+                type_name,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![
+                Suggestion::text(
+                    "consume the value as a whole via `let owned = v` then access fields on `owned`",
+                    0,
+                ),
+                Suggestion::text(
+                    "OR access the field as a read-only operand (e.g., `v.field.length()`) instead of binding it",
+                    1,
+                ),
+                Suggestion::text(
+                    "OR match-destructure the value: `match v { T { f1, f2, .. } -> ... }`",
+                    2,
+                ),
+            ],
+        }
+    }
+
+    /// Create a `Value` + `Drop` mutual-exclusion error (E2049).
+    ///
+    /// Emitted at TWO non-derived registration surfaces (`register_user_types`
+    /// for type declarations carrying the `Value` marker AND a registered
+    /// `impl T: Drop`; `register_impl` for `impl T: Drop` blocks when T's
+    /// trait set already carries `Value`). The span always points at the
+    /// second registration so users see the rejected declaration.
+    ///
+    /// Per Annex E §AIMS + `ori-syntax.md §Prelude`: `Value` declares
+    /// inline storage with bitwise copy and no ARC. The refcount-zero
+    /// cleanup path that `@drop` hooks into never fires for `Value`
+    /// types; the two markers are mutually exclusive.
+    pub fn value_drop_conflict(span: Span, type_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::ValueDropConflict { type_name },
+            context: ErrorContext::default(),
+            suggestions: vec![
+                Suggestion::text(
+                    "remove the `Value` marker from the type declaration if `Drop` is required",
+                    0,
+                ),
+                Suggestion::text(
+                    "OR remove the `impl T: Drop` block if `Value` semantics are intended (inline, bitwise copy, no cleanup)",
+                    1,
+                ),
+                Suggestion::text(
+                    "OR split into two types — one carrying `Value` for inline data, another carrying `Drop` for the resource",
+                    2,
+                ),
+            ],
+        }
+    }
+
     /// Set the error context.
     #[must_use]
     pub fn with_context(mut self, context: ErrorContext) -> Self {

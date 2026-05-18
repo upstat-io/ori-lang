@@ -29,12 +29,14 @@ mod postprocess;
 mod trmc;
 
 use ori_ir::Name;
+use ori_types::TypeRegistry;
 use rustc_hash::FxHashMap;
 
 use crate::aims::contract::MemoryContract;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
+use crate::ownership::AnnotatedSig;
 use crate::pipeline::rc_count;
 use crate::ArcClassification;
 
@@ -108,6 +110,33 @@ pub(crate) struct AimsPipelineConfig<'a> {
     /// When `Some`, called after each pipeline step with the current
     /// function state and phase name. When `None`, zero overhead.
     pub observer: Option<&'a CheckpointObserver<'a>>,
+    /// Annotated function signatures (borrow inference output).
+    ///
+    /// Consumed by per-variable derived-ownership inference
+    /// (`borrow::infer_derived_ownership`) when wired in by §04A.0 ITEM-2.
+    /// `run_arc_pipeline` and `run_aims_pipeline_all` plumb this through
+    /// from their `sigs` parameters (previously dropped at line 46).
+    #[allow(
+        dead_code,
+        reason = "wired-but-unconsumed until §04A.0 ITEM-2 calls infer_derived_ownership"
+    )]
+    pub sigs: &'a FxHashMap<Name, AnnotatedSig>,
+    /// Type registry used by the burden-emission walker
+    /// (`lower::burden_lower::emit_burden_ops`) when wired in by §04A.0
+    /// ITEM-1. Carried per AIMS Invariant 5 ("unified model — new
+    /// capabilities extend a lattice dimension OR a contract field OR
+    /// feed the lattice-driven analysis as a typed pre-pass input").
+    ///
+    /// Today's call sites pass either the live module `TypeRegistry`
+    /// (`oric` codegen path, once the registry is surfaced through
+    /// Salsa) or an empty placeholder (`TypeRegistry::default()`) when
+    /// the burden walker is not yet active. ITEM-1 promotes the
+    /// placeholder paths to real registries.
+    #[allow(
+        dead_code,
+        reason = "wired-but-unconsumed until §04A.0 ITEM-1 calls emit_burden_ops"
+    )]
+    pub type_registry: &'a TypeRegistry,
 }
 
 /// Result of `run_aims_pipeline` for a single function.
@@ -146,6 +175,9 @@ pub(crate) fn run_aims_pipeline(
         config.observer,
     );
 
+    // Step 3b: compute DerivedOwnership for the burden walker (consumed at Step 4b).
+    let derived_ownership = crate::borrow::infer_derived_ownership(func, config.sigs);
+
     // Intraprocedural analysis → converged state map.
     let state_map = {
         let _span = tracing::info_span!("analyze_function").entered();
@@ -168,6 +200,47 @@ pub(crate) fn run_aims_pipeline(
         config.interner,
         config.observer,
     );
+
+    // §04A.5 ITEM-1: Step 4b-prelude — populate arg_ownership AFTER
+    // analyze_function (so post-convergence's payload-edge analysis sees the
+    // historical empty-arg_ownership behavior, preserving class_payload_of
+    // computation) but BEFORE emit_burden_ops (so burden_lower observes
+    // converged arg_ownership at emission time — closes VF-1 imbalance per
+    // `aims-rules.md §3 TF-3 / §8 RL-2`). emit_arg_ownership is idempotent;
+    // `realize_rc_reuse` Sub-step A removed because arg_ownership is already
+    // populated here.
+    {
+        let _span = tracing::debug_span!("emit_arg_ownership_prelude").entered();
+        crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
+            func,
+            config.contracts,
+            config.interner,
+            config.builtins,
+            config.pool,
+        );
+    }
+    trace_pipeline_checkpoint(
+        func,
+        "emit_arg_ownership_prelude",
+        config.interner,
+        config.observer,
+    );
+
+    // Step 4b: emit BurdenInc/BurdenDec ops based on converged state map.
+    //
+    // ORI_DISABLE_BURDEN_OPS=1 skips emission entirely so the predicate-stack
+    // realization path runs unchanged. Used for ITEM-4 empty-harness predicate
+    // parity check.
+    if std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() != Ok("1") {
+        let _span = tracing::info_span!("emit_burden_ops").entered();
+        let _burden_ctx = crate::lower::burden_lower::emit_burden_ops(
+            func,
+            config.type_registry,
+            &derived_ownership,
+            config.contracts,
+        );
+    }
+    trace_pipeline_checkpoint(func, "emit_burden_ops", config.interner, config.observer);
 
     // Phase 1: RC + reuse + arg_ownership (pre-merge).
     let mut result = {
@@ -201,17 +274,36 @@ pub(crate) fn run_aims_pipeline(
     // Verify, AIMS-verify, tail calls, merge.
     postprocess::verify_and_merge(func, config)?;
 
-    // Phase 2: COW + drop hints (post-merge).
+    apply_phase_2_annotations(func, &state_map, config, &mut result);
+
+    // Final verification + FBIP.
+    let problems = postprocess::emit_postprocess(func, config)?;
+
+    Ok(AimsPipelineResult {
+        problems,
+        missed_reuses,
+        was_trmc_rewritten: trmc_rewrite_survived,
+    })
+}
+
+/// Phase 2: COW + drop hints (post-merge) followed by BUG-04-118 post-realize
+/// cleanup of redundant project-alias decs.
+fn apply_phase_2_annotations(
+    func: &mut ArcFunction,
+    state_map: &crate::aims::intraprocedural::AimsStateMap,
+    config: &AimsPipelineConfig<'_>,
+    result: &mut crate::aims::realize::RealizationResult,
+) {
     {
         let _span = tracing::info_span!("realize_annotations").entered();
         crate::aims::realize::realize_annotations(
             func,
-            &state_map,
+            state_map,
             config.interner,
             config.pool,
             config.contracts,
             config.builtins,
-            &mut result,
+            result,
         );
     }
     trace_pipeline_checkpoint(
@@ -220,18 +312,14 @@ pub(crate) fn run_aims_pipeline(
         config.interner,
         config.observer,
     );
-    func.cow_annotations = result.cow_annotations;
-    func.drop_hints = result.drop_hints;
+    func.cow_annotations = std::mem::take(&mut result.cow_annotations);
+    func.drop_hints = std::mem::take(&mut result.drop_hints);
 
-    // BUG-04-118: Post-realize cleanup of redundant project-alias decs.
-    // Removes (N - K) decs where K = explicit RcInc and N = explicit
-    // RcDec on a project-only class whose source's drop chain already
-    // provides one type-driven dec.
     {
         let _span = tracing::info_span!("cleanup_redundant_project_alias_decs").entered();
         crate::aims::realize::cleanup_redundant_project_alias_decs(
             func,
-            &state_map,
+            state_map,
             config.pool,
             config.interner,
         );
@@ -242,15 +330,6 @@ pub(crate) fn run_aims_pipeline(
         config.interner,
         config.observer,
     );
-
-    // Final verification + FBIP.
-    let problems = postprocess::emit_postprocess(func, config)?;
-
-    Ok(AimsPipelineResult {
-        problems,
-        missed_reuses,
-        was_trmc_rewritten: trmc_rewrite_survived,
-    })
 }
 
 /// Step 5a: FIP enforcement pre-check (Section 12.3).

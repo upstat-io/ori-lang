@@ -14,7 +14,7 @@ mod type_impls;
 use std::collections::BTreeMap;
 
 use ori_ir::{Name, Span};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::registry::burden::UserBurdenSpec;
 use crate::registry::burden_dedup::BurdenSignature;
@@ -45,6 +45,16 @@ pub struct TypeRegistry {
     /// both debug and release builds; structural equality check on collision
     /// is the correctness floor).
     burden_by_signature: FxHashMap<BurdenSignature, Idx>,
+
+    /// Types carrying the `Value` marker (per Annex E §AIMS +
+    /// `ori-syntax.md §Prelude`). Populated at Surface 1
+    /// (`register_user_types`) when a type declaration carries `Value` in
+    /// its trait set; queried at Surface 2 (`register_impl`) to enforce
+    /// E2049's mutual exclusion against `impl T: Drop`. Set instead of
+    /// `bool` field on `TypeEntry` to avoid widening every `TypeEntry`
+    /// constructor — Value-carrying types are a minority of registered
+    /// types in practice.
+    value_marker_types: FxHashSet<Idx>,
 }
 
 /// A registered type definition.
@@ -193,6 +203,7 @@ impl TypeRegistry {
             types_by_idx: FxHashMap::default(),
             variants_by_name: FxHashMap::default(),
             burden_by_signature: FxHashMap::default(),
+            value_marker_types: FxHashSet::default(),
         }
     }
 
@@ -367,6 +378,26 @@ impl TypeRegistry {
         self.types_by_idx
             .get(&idx)
             .and_then(|entry| entry.burden.as_ref())
+    }
+
+    /// Record `idx` as carrying the `Value` marker.
+    ///
+    /// Populated at Surface 1 (`register_user_types`) when the
+    /// declaration's trait set contains `Value`. Idempotent — repeat
+    /// inserts collapse via the underlying set.
+    pub fn record_value_marker(&mut self, idx: Idx) {
+        self.value_marker_types.insert(idx);
+    }
+
+    /// Query whether `idx` carries the `Value` marker.
+    ///
+    /// Consumed at Surface 2 (`register_impl`) when a `Drop` impl is
+    /// being registered: if `idx` is in the set, the impl conflicts with
+    /// the type's `Value` declaration and E2049 fires.
+    #[inline]
+    #[must_use]
+    pub fn carries_value_marker(&self, idx: Idx) -> bool {
+        self.value_marker_types.contains(&idx)
     }
 
     /// Register a monomorphized / user `UserBurdenSpec` against `typeid`,

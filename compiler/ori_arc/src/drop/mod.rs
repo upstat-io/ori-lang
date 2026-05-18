@@ -58,20 +58,49 @@ pub enum DropKind {
 
     /// Fixed-layout type (struct, tuple): Dec specific RC'd fields.
     ///
-    /// Each entry is `(field_index, field_type)` for fields that need
-    /// RC. The codegen layer uses `field_index` for `struct_gep` and
+    /// `fields`: `(field_index, field_type)` for fields that need RC.
+    /// The codegen layer uses `field_index` for `struct_gep` and
     /// `field_type` to look up the field's own drop function.
-    Fields(Vec<(u32, Idx)>),
+    ///
+    /// `user_drop`: `Some(fn_sym)` when the type implements the `Drop`
+    /// trait — codegen materializes the AUGMENT body shape (user
+    /// `@drop` FIRST, then field walk in reverse declaration order)
+    /// per `drop-trait-proposal.md §Execution Timing`. `None` for
+    /// types without an explicit Drop impl; codegen emits the plain
+    /// field walk.
+    Fields {
+        fields: Vec<(u32, Idx)>,
+        // FnSym does not implement serde; the `cache` feature
+        // serializes drop info via `#[cfg_attr]` on `DropKind`, and
+        // user_drop is a build-time-derived sync token rather than a
+        // cache-relevant fact. Skip on serialize / default-to-None on
+        // deserialize matches the cache semantics (cache hits will
+        // re-derive `user_drop` from the current TypeRegistry's burden
+        // table at consumption time).
+        #[cfg_attr(feature = "cache", serde(skip))]
+        user_drop: Option<ori_registry::burden::FnSym>,
+    },
 
     /// Enum type: switch on tag, then Dec variant-specific RC'd fields.
     ///
-    /// Outer `Vec` indexed by variant ordinal. Inner `Vec` contains
-    /// `(field_index, field_type)` for fields in that variant needing
-    /// RC. An empty inner `Vec` means the variant has no RC'd fields.
+    /// `variants[i]` contains `(field_index, field_type)` entries for
+    /// variant `i`'s RC'd fields. An empty inner vector means the
+    /// variant has no RC'd fields.
     ///
     /// Also used for `option[T]` (2 variants: None, Some) and
     /// `result[T, E]` (2 variants: Ok, Err).
-    Enum(Vec<Vec<(u32, Idx)>>),
+    ///
+    /// `user_drop`: `Some(fn_sym)` when the enum-shaped type
+    /// implements the `Drop` trait — codegen invokes `@drop` BEFORE
+    /// the discriminant-switch + per-variant field walk. Without this,
+    /// `impl T: Drop` on an enum-shaped type would silently bypass the
+    /// user `@drop` body during refcount-zero cleanup.
+    Enum {
+        variants: Vec<Vec<(u32, Idx)>>,
+        // See `Fields.user_drop` for the cache-skip rationale.
+        #[cfg_attr(feature = "cache", serde(skip))]
+        user_drop: Option<ori_registry::burden::FnSym>,
+    },
 
     /// Variable-length collection (`[T]`, `set[T]`): iterate elements,
     /// Dec each.

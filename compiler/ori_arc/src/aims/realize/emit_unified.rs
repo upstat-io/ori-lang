@@ -105,52 +105,11 @@ pub(super) fn emit_rc_unified(
     let inline_enum_projected_defs = collect_inline_enum_projected_defs(func, pool);
     let func_project_sources = compute_function_project_sources(func);
 
-    // BUG-04-090: pre-compute the set of parameter ArcVarIds whose
-    // `ParamContract.transfers_through_return` is true. Threaded into
-    // BlockCtx for consumption by `should_suppress_return_transfer_dec`
-    // in the realize walk. Empty set when no contract is available
-    // (FFI / external) — equivalent to the pre-fix behavior.
-    let return_transfer_params: FxHashSet<ArcVarId> = contracts
-        .get(&func.name)
-        .map(|c| {
-            func.params
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| c.params.get(*i).is_some_and(|p| p.transfers_through_return))
-                .map(|(_, param)| param.var)
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // BUG-04-090: alias map carrier — variable → set of param indices it
-    // aliases. Reuses `build_alias_to_param_map` from interprocedural
-    // extraction (single canonical alias-tracing source per
-    // `LEAK:algorithmic-duplication`). Consumed by `traces_to_var` to
-    // resolve whether a Return terminator's value aliases a return-transfer
-    // param. Empty map suffices when `return_transfer_params` is empty —
-    // the suppression helper short-circuits before consulting the map.
-    let alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>> = if return_transfer_params.is_empty()
-    {
-        FxHashMap::default()
-    } else {
-        let param_vars: FxHashMap<ArcVarId, usize> = func
-            .params
-            .iter()
-            .enumerate()
-            .map(|(i, p)| (p.var, i))
-            .collect();
-        crate::aims::interprocedural::build_alias_to_param_map(func, &param_vars, Some(contracts))
-    };
-
-    // BUG-04-090 F-prj: per-Project compensating-Inc targets. See the
-    // doc comment on `BlockCtx::return_project_inc_targets` and the helper
-    // `build_return_project_inc_targets` below for the full rationale.
-    // Empty when no contract is available OR no params carry
-    // `return_alias = Some(Project { _ })`.
-    let return_project_inc_targets: FxHashMap<ArcVarId, RcStrategy> = contracts
-        .get(&func.name)
-        .map(|c| build_return_project_inc_targets(func, c, pool))
-        .unwrap_or_default();
+    let ReturnTransferSetup {
+        return_transfer_params,
+        alias_to_param,
+        return_project_inc_targets,
+    } = build_return_transfer_setup(func, pool, contracts);
     // Per-class take-project facts via union-find +
     // CFG reachability. Precomputed once per function. Each
     // take-project source seeds its own connected-component class
@@ -225,6 +184,20 @@ pub(super) fn emit_rc_unified(
         &all_borrowed_defs,
     );
     trace_phase_snapshot("after_phase_2_1_escape_incs", func, interner);
+
+    // Phase 2.5: DP-2/DP-3 burden-op elimination.
+    // Consumes post-emission IR with full burden ops present; removes
+    // redundant `BurdenInc` / `BurdenDec*` sites whose lattice state
+    // satisfies `is_rc_inc_elidable` / `is_rc_dec_unnecessary`. Runs
+    // BEFORE Phase 3 coalesce so coalesce operates on the post-elimination
+    // IR with redundant ops already removed.
+    // Why: ORI_DISABLE_BURDEN_ELIM=1 isolation harness lets Phase 5
+    // emission be evaluated alone (emission on, elimination off) for
+    // diagnostic bisection.
+    if std::env::var("ORI_DISABLE_BURDEN_ELIM").as_deref() != Ok("1") {
+        super::eliminate_burden_ops(func, state_map);
+    }
+    trace_phase_snapshot("after_phase_2_5_burden_elim", func, interner);
 
     // Phase 3: RC coalescing peephole — merge adjacent RC ops per block.
     for block in &mut func.blocks {
@@ -395,6 +368,59 @@ fn count_rc_ops(func: &ArcFunction) -> usize {
 /// callee-side (Owned-callee scope-exit drop) or caller-side (Owned-caller
 /// arg drop after the Apply).
 ///
+/// Per-function setup bundle for return-transfer / alias / Project-Inc state.
+/// Built once in `emit_rc_unified` and threaded into the per-block walk.
+struct ReturnTransferSetup {
+    return_transfer_params: FxHashSet<ArcVarId>,
+    alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>>,
+    return_project_inc_targets: FxHashMap<ArcVarId, RcStrategy>,
+}
+
+/// Pre-compute the BUG-04-090 return-transfer surface from the function's
+/// `MemoryContract`. Empty when no contract is available — equivalent to the
+/// pre-fix behavior.
+fn build_return_transfer_setup(
+    func: &ArcFunction,
+    pool: &Pool,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> ReturnTransferSetup {
+    let return_transfer_params: FxHashSet<ArcVarId> = contracts
+        .get(&func.name)
+        .map(|c| {
+            func.params
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| c.params.get(*i).is_some_and(|p| p.transfers_through_return))
+                .map(|(_, param)| param.var)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>> = if return_transfer_params.is_empty()
+    {
+        FxHashMap::default()
+    } else {
+        let param_vars: FxHashMap<ArcVarId, usize> = func
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.var, i))
+            .collect();
+        crate::aims::interprocedural::build_alias_to_param_map(func, &param_vars, Some(contracts))
+    };
+
+    let return_project_inc_targets: FxHashMap<ArcVarId, RcStrategy> = contracts
+        .get(&func.name)
+        .map(|c| build_return_project_inc_targets(func, c, pool))
+        .unwrap_or_default();
+
+    ReturnTransferSetup {
+        return_transfer_params,
+        alias_to_param,
+        return_project_inc_targets,
+    }
+}
+
 /// Each such `dst` maps to its `RcStrategy`. The realize walk consumes this
 /// map to emit `RcInc dst [strategy]` immediately after the Project. Without
 /// this Inc, the field-walk inside `[AggFields]` decrements the projected

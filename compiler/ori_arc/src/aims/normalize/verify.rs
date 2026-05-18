@@ -621,7 +621,7 @@ pub(crate) fn verify_trmc_burden_balance(
     let preds = compute_predecessors(func);
 
     for &var in &context_hole_vars {
-        let delta = compute_var_block_deltas(func, var);
+        let delta = crate::aims::verify::burden_delta::compute_var_block_deltas(func, var);
         if let Some(entry_net) =
             compute_burden_entry_nets(func, &preds, var, ctx.loop_header, &delta, &mut errors)
         {
@@ -647,25 +647,9 @@ fn collect_context_hole_vars(func: &ArcFunction, state_map: &AimsStateMap) -> Ve
     out
 }
 
-/// Per-block burden delta for `var`: `BurdenInc(var) - BurdenDec*(var)`.
-/// `BurdenDecPartial` and `BurdenDecVariant` mirror whole-var burden
-/// tracking (like `BurdenDec`). `BurdenDecField` targets a field of the
-/// base — not the whole-var balance — so it is excluded.
-fn compute_var_block_deltas(func: &ArcFunction, var: ArcVarId) -> Vec<i64> {
-    let mut delta: Vec<i64> = vec![0; func.blocks.len()];
-    for (idx, block) in func.blocks.iter().enumerate() {
-        for instr in &block.body {
-            match instr {
-                ArcInstr::BurdenInc { var: v } if *v == var => delta[idx] += 1,
-                ArcInstr::BurdenDec { var: v } if *v == var => delta[idx] -= 1,
-                ArcInstr::BurdenDecPartial { var: v, .. } if *v == var => delta[idx] -= 1,
-                ArcInstr::BurdenDecVariant { var: v } if *v == var => delta[idx] -= 1,
-                _ => {}
-            }
-        }
-    }
-    delta
-}
+// `compute_var_block_deltas` is shared with `verify_burden_balance` in
+// `aims/verify/burden_balance.rs`; canonical home at
+// `aims/verify/burden_delta.rs` per `impl-hygiene.md §LEAK:algorithmic-duplication`.
 
 /// Forward dataflow on net burden count for `var`. `entry_net[b]` is the
 /// sum of deltas along any reachable path from `func.entry` to `b`; every

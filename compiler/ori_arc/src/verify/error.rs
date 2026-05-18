@@ -72,6 +72,26 @@ pub enum VerifyError {
     /// `types.md §SC-1` + `typeck.md §GN-2`). Wraps
     /// [`crate::ir::validate::UnresolvedBoundVar`].
     UnresolvedBoundVar(crate::ir::validate::UnresolvedBoundVar),
+
+    /// Function-exit burden-balance violation: the algebraic sum
+    /// `Σ BurdenInc(v) - Σ BurdenDec*(v)` along some reachable path from
+    /// `func.entry` to a terminal block (`Return`/`Resume`/`Unreachable`)
+    /// is non-zero for a variable in `func.burden_emitted`. AIMS Invariant 1
+    /// violation (contract/realization disagreement) — VF-1 basic check.
+    BurdenImbalance(BurdenBalanceError),
+}
+
+/// Per-violation payload for [`VerifyError::BurdenImbalance`].
+///
+/// `expected_net` is always `0` for the function-exit check (every
+/// burden-emitted var MUST net to zero on every reachable exit per VF-1).
+/// `observed_net` is the algebraic delta observed at `exit_block`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BurdenBalanceError {
+    pub var: ArcVarId,
+    pub expected_net: i64,
+    pub observed_net: i64,
+    pub exit_block: ArcBlockId,
 }
 
 impl From<crate::ir::validate::UnresolvedTypeVar> for VerifyError {
@@ -169,6 +189,21 @@ impl std::fmt::Display for VerifyError {
                     violation.function,
                     violation.var_id.raw(),
                     violation.idx,
+                )
+            }
+            VerifyError::BurdenImbalance(BurdenBalanceError {
+                var,
+                expected_net,
+                observed_net,
+                exit_block,
+            }) => {
+                write!(
+                    f,
+                    "burden imbalance (VF-1): v{} net={} expected={} at exit block {}",
+                    var.raw(),
+                    observed_net,
+                    expected_net,
+                    exit_block.raw(),
                 )
             }
         }

@@ -281,6 +281,24 @@ impl<'a> TypeErrorRenderer<'a> {
                     self.format_name(*field)
                 )
             }
+            TypeErrorKind::DropPartialMove {
+                aggregate,
+                field,
+                type_name,
+            } => {
+                format!(
+                    "partial move of `{}.{}` on Drop type `{}`",
+                    self.format_name(*aggregate),
+                    self.format_name(*field),
+                    self.format_name(*type_name)
+                )
+            }
+            TypeErrorKind::ValueDropConflict { type_name } => {
+                format!(
+                    "`Value` and `Drop` on `{}` are mutually exclusive",
+                    self.format_name(*type_name)
+                )
+            }
             TypeErrorKind::RefutablePattern { .. } => {
                 "refutable pattern in let-binding".to_string()
             }

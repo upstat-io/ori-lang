@@ -359,6 +359,7 @@ fn decide_non_rc_managed_returns_none() {
             semantics: UseSemantics::Normal,
         },
         is_rc_managed: false,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::None);
@@ -375,6 +376,7 @@ fn decide_use_with_future_use_returns_inc() {
             semantics: UseSemantics::Normal,
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Inc);
@@ -389,6 +391,7 @@ fn decide_use_without_future_use_returns_none() {
             semantics: UseSemantics::Normal,
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::None);
@@ -405,6 +408,7 @@ fn decide_use_borrowing_project_skips_inc() {
             semantics: UseSemantics::BorrowingProject,
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::None, "scalar Project borrows source");
@@ -419,6 +423,7 @@ fn decide_use_transfer_project_skips_inc() {
             semantics: UseSemantics::TransferProject,
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(
@@ -443,6 +448,7 @@ fn decide_last_use_project_source_no_children_emits_dec() {
             reuse: reuse_unique_struct(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(
@@ -459,6 +465,7 @@ fn decide_defined_dead_returns_dec() {
     let ctx = DecisionContext {
         site: DecisionSite::DefinedDead,
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -479,6 +486,7 @@ fn decide_last_use_consuming_primop_returns_none() {
             reuse: reuse_unique_struct(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::None);
@@ -497,6 +505,7 @@ fn decide_last_use_ownership_transfer_returns_none() {
             reuse: reuse_unique_struct(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::None);
@@ -515,6 +524,7 @@ fn decide_last_use_owned_call_position_returns_none() {
             reuse: reuse_unique_struct(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::None);
@@ -533,6 +543,7 @@ fn decide_last_use_deferred_children_returns_defer() {
             reuse: reuse_unique_struct(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Defer);
@@ -553,6 +564,7 @@ fn decide_last_use_unique_struct_returns_dec_static_reuse() {
             reuse: reuse_unique_struct(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -571,6 +583,7 @@ fn decide_last_use_non_reusable_shape_returns_dec_no_reuse() {
             reuse: reuse_non_reusable(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -593,6 +606,7 @@ fn decide_last_use_shared_returns_dec_no_reuse() {
             },
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -615,6 +629,7 @@ fn decide_last_use_maybe_shared_struct_returns_dynamic_reuse() {
             },
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -641,6 +656,7 @@ fn decide_reuse_maybe_shared_reusable_ctor_struct_once_returns_dynamic_reuse() {
             },
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -665,6 +681,7 @@ fn decide_reuse_maybe_shared_context_hole_once_returns_dynamic_reuse() {
             },
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -696,6 +713,7 @@ fn decide_reuse_rejects_cross_dimensional_maybe_shared_once_static_reuse() {
                 },
             },
             is_rc_managed: true,
+            class_covered: false,
         };
         let d = decide(&ctx);
         // Must NOT be StaticReuse — that was the unsound DP-10/RL-13 output.
@@ -763,6 +781,7 @@ fn decide_reuse_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic_reu
             },
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -785,6 +804,7 @@ fn decide_cross_dimensional_maybe_shared_once_non_reusable_no_reuse() {
             },
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -807,6 +827,7 @@ fn decide_cross_dimensional_maybe_shared_once_collection_is_dynamic_reuse() {
             },
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -833,6 +854,7 @@ fn decide_unique_enum_variant_returns_static_reuse() {
             },
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::Dec);
@@ -853,6 +875,7 @@ fn decide_consuming_primop_suppresses_even_with_deferred_children() {
             reuse: reuse_unique_struct(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::None);
@@ -1615,6 +1638,7 @@ fn decide_alias_then_borrowing_project_no_inc() {
             semantics: UseSemantics::BorrowingProject,
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(
@@ -1637,6 +1661,7 @@ fn decide_source_last_use_after_borrowing_project_emits_dec() {
             reuse: reuse_non_reusable(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(
@@ -1658,6 +1683,7 @@ fn decide_transfer_project_borrow_semantics() {
             semantics: UseSemantics::TransferProject,
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     assert_eq!(
         decide(&use_ctx).rc,
@@ -1675,6 +1701,7 @@ fn decide_transfer_project_borrow_semantics() {
             reuse: reuse_non_reusable(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     assert_eq!(
         decide(&defer_ctx).rc,
@@ -1692,6 +1719,7 @@ fn decide_transfer_project_borrow_semantics() {
             reuse: reuse_non_reusable(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     assert_eq!(
         decide(&dec_ctx).rc,
@@ -1713,6 +1741,7 @@ fn decide_alias_owned_call_with_future_root_use() {
             semantics: UseSemantics::Normal,
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(
@@ -1735,6 +1764,7 @@ fn decide_alias_at_owned_call_position_no_dec() {
             reuse: reuse_non_reusable(),
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(
@@ -1756,6 +1786,7 @@ fn decide_alias_borrowed_call_no_future_use_no_inc() {
             semantics: UseSemantics::Normal,
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let d = decide(&ctx);
     assert_eq!(
@@ -1778,6 +1809,7 @@ fn decide_borrowing_project_independent_per_branch() {
             semantics: UseSemantics::BorrowingProject,
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     let branch_b = DecisionContext {
         site: DecisionSite::Use {
@@ -1785,6 +1817,7 @@ fn decide_borrowing_project_independent_per_branch() {
             semantics: UseSemantics::BorrowingProject,
         },
         is_rc_managed: true,
+        class_covered: false,
     };
     assert_eq!(decide(&branch_a).rc, RcDecision::None);
     assert_eq!(decide(&branch_b).rc, RcDecision::None);

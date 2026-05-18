@@ -1,4 +1,4 @@
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, TypeRegistry};
 
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArgOwnership, CtorKind};
 use crate::ownership::Ownership;
@@ -24,6 +24,7 @@ fn run_full_pipeline(
     );
     let uniqueness_summaries = FxHashMap::default();
     let aims_contracts = FxHashMap::default();
+    let type_registry = TypeRegistry::default();
     #[expect(
         clippy::expect_used,
         reason = "test helper — panicking on verification ICE is correct"
@@ -36,6 +37,7 @@ fn run_full_pipeline(
         &interner,
         &uniqueness_summaries,
         &aims_contracts,
+        &type_registry,
         false,
     )
     .expect("ARC pipeline should not produce verification errors in tests");

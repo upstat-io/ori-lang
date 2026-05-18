@@ -1,7 +1,7 @@
 use super::*;
 use crate::{Idx, ModuleChecker, ObjectSafetyViolation};
 use ori_ir::{
-    DerivedTrait, ExprArena, Module, Name, ParsedType, ReprAttrKind, Span, StringInterner,
+    DerivedTrait, ExprArena, ExprId, Module, Name, ParsedType, ReprAttrKind, Span, StringInterner,
 };
 
 #[test]
@@ -1168,5 +1168,313 @@ fn repr_c_plus_aligned_still_valid() {
     assert!(
         errors.is_empty(),
         "c + aligned should be valid, got errors: {errors:?}"
+    );
+}
+
+// ── E2049: Value + Drop mutual exclusion ───────────────────────────────
+
+/// Helper: build a minimal `impl Point: Drop { @drop (self) -> void = ... }`
+/// `ImplDef` over a struct named `Point`. The body `ExprId` is `INVALID`
+/// (Phase 4 body-check skipped); only the `trait_path`/`self_path` are
+/// load-bearing for the conflict-detection wire-up.
+fn make_drop_impl_for(
+    arena: &mut ExprArena,
+    interner: &StringInterner,
+    type_name: Name,
+) -> ori_ir::ImplDef {
+    let drop_name = interner.intern("Drop");
+    let drop_method = interner.intern("drop");
+    let self_name = interner.intern("self");
+    let params = arena.alloc_params(vec![make_param(self_name, None)]);
+    // Idx::UNIT corresponds to TypeId::from_raw(6) per §TY-5.
+    let unit_primitive = ParsedType::Primitive(ori_ir::TypeId::from_raw(6));
+    ori_ir::ImplDef {
+        generics: ori_ir::GenericParamRange::EMPTY,
+        trait_path: Some(vec![drop_name]),
+        trait_type_args: ori_ir::ParsedTypeRange::EMPTY,
+        self_path: vec![type_name],
+        self_ty: ParsedType::Named {
+            name: type_name,
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
+        },
+        where_clauses: vec![],
+        methods: vec![ori_ir::ImplMethod {
+            name: drop_method,
+            generics: ori_ir::GenericParamRange::EMPTY,
+            params,
+            return_ty: unit_primitive,
+            capabilities: vec![],
+            where_clauses: vec![],
+            body: ExprId::INVALID,
+            span: Span::DUMMY,
+        }],
+        assoc_types: vec![],
+        span: Span::DUMMY,
+        target_attr: None,
+        cfg_attr: None,
+    }
+}
+
+/// Helper: build a minimal `trait Drop { @drop (self) -> void }` `TraitDef`.
+/// Sufficient for `register_traits` + `register_impl` to wire Drop's
+/// trait `Idx`; method signature shape is not consumed by the conflict
+/// checks.
+fn make_drop_trait(arena: &mut ExprArena, interner: &StringInterner) -> ori_ir::TraitDef {
+    let drop_method = interner.intern("drop");
+    let self_name = interner.intern("self");
+    let params = arena.alloc_params(vec![make_param(self_name, None)]);
+    let unit_primitive = ParsedType::Primitive(ori_ir::TypeId::from_raw(6));
+    ori_ir::TraitDef {
+        name: interner.intern("Drop"),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits: vec![],
+        items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+            name: drop_method,
+            generics: ori_ir::GenericParamRange::EMPTY,
+            params,
+            return_ty: unit_primitive,
+            where_clauses: vec![],
+            span: Span::DUMMY,
+        })],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    }
+}
+
+/// Helper: build a `type T = { x: int }` struct decl carrying the named
+/// derives (e.g., `["Value", "Eq"]`).
+fn make_struct_decl_with_derives(
+    interner: &StringInterner,
+    type_name: &str,
+    derive_names: &[&str],
+) -> ori_ir::TypeDecl {
+    let derives: Vec<Name> = derive_names.iter().map(|n| interner.intern(n)).collect();
+    ori_ir::TypeDecl {
+        name: interner.intern(type_name),
+        kind: ori_ir::TypeDeclKind::Struct(vec![ori_ir::StructField {
+            name: interner.intern("x"),
+            ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(0)), // int
+            span: Span::DUMMY,
+        }]),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives,
+        repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
+    }
+}
+
+/// Surface 1 — `register_user_types` detects an existing `impl T: Drop`
+/// and emits E2049 with span at the type declaration.
+///
+/// Order: Drop impl registered FIRST, then `type T: Value, ...` declared.
+/// Second registration (the type-decl) is the one rejected.
+#[test]
+fn value_type_decl_with_drop_impl_emits_e2049_at_user_types_surface() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let point_name = interner.intern("Point");
+    // Drop trait must exist for impl registration to wire correctly.
+    let drop_trait = make_drop_trait(&mut arena, &interner);
+    // Drop impl over Point — Point must be in the pool already, which
+    // `register_impls` handles via `pool_mut().named(...)`.
+    let drop_impl = make_drop_impl_for(&mut arena, &interner, point_name);
+    // Type decl with `derives = ["Value"]` (Surface 1 trigger).
+    let point_decl = make_struct_decl_with_derives(&interner, "Point", &["Value"]);
+
+    // Order: Drop impl FIRST (parent already has type registered as Named
+    // via pool); then `type Point: Value, ...` lands second AND collides.
+    let module = Module {
+        traits: vec![drop_trait],
+        impls: vec![drop_impl],
+        types: vec![point_decl],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+    register_traits(&mut checker, &module);
+    register_impls(&mut checker, &module);
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    let e2049_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2049)
+        .count();
+    assert_eq!(
+        e2049_count, 1,
+        "expected exactly one E2049 at Surface 1, got errors: {errors:?}"
+    );
+}
+
+/// Surface 2 — `register_impl` detects an existing `Value` marker on the
+/// type and emits E2049 with span at the impl declaration.
+///
+/// Order: `type Point: Value, ...` declared FIRST, then `impl Point: Drop`
+/// registered SECOND. The impl registration is the one rejected.
+#[test]
+fn drop_impl_for_value_type_emits_e2049_at_register_impl_surface() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let point_name = interner.intern("Point");
+    let drop_trait = make_drop_trait(&mut arena, &interner);
+    let drop_impl = make_drop_impl_for(&mut arena, &interner, point_name);
+    let point_decl = make_struct_decl_with_derives(&interner, "Point", &["Value"]);
+
+    // Order: type decl FIRST (Surface 1 records the marker), then impl
+    // SECOND (Surface 2 reads it + emits).
+    let module = Module {
+        types: vec![point_decl],
+        traits: vec![drop_trait],
+        impls: vec![drop_impl],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+    register_traits(&mut checker, &module);
+    register_impls(&mut checker, &module);
+
+    let errors = checker.errors();
+    let e2049_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2049)
+        .count();
+    assert_eq!(
+        e2049_count, 1,
+        "expected exactly one E2049 at Surface 2, got errors: {errors:?}"
+    );
+}
+
+/// Positive — clean Value type (no Drop impl) registers without error
+/// AND populates an empty `UserBurdenSpec`.
+#[test]
+fn value_type_without_drop_impl_registers_empty_user_burden_spec() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    let point_decl = make_struct_decl_with_derives(&interner, "Point", &["Value"]);
+    let module = Module {
+        types: vec![point_decl],
+        ..Module::default()
+    };
+
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    let e2049_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2049)
+        .count();
+    assert_eq!(
+        e2049_count, 0,
+        "Value-only type must NOT emit E2049, got errors: {errors:?}"
+    );
+
+    // Verify the marker was recorded.
+    let point_name = interner.intern("Point");
+    let point_idx = checker.type_registry().get_by_name(point_name).unwrap().idx;
+    assert!(
+        checker.type_registry().carries_value_marker(point_idx),
+        "Value-marker registration must record the type in the value_marker_types set"
+    );
+
+    // Verify an empty UserBurdenSpec was registered (Value types have no
+    // heap, no owned fields, no variant payloads).
+    let burden = checker.type_registry().burden(point_idx);
+    assert!(
+        burden.is_some(),
+        "Value type must register an empty UserBurdenSpec (vs leaving burden=None)"
+    );
+    let burden = burden.unwrap();
+    assert!(
+        !burden.self_heap_alloc,
+        "Value spec self_heap_alloc must be false"
+    );
+    assert!(
+        burden.owned_fields.is_empty(),
+        "Value spec owned_fields must be empty"
+    );
+    assert!(
+        burden.borrowed_fields.is_empty(),
+        "Value spec borrowed_fields must be empty"
+    );
+    assert!(
+        burden.variant_burdens.is_empty(),
+        "Value spec variant_burdens must be empty"
+    );
+    assert!(
+        burden.element_burden.is_none(),
+        "Value spec element_burden must be None"
+    );
+    assert!(
+        burden.compiled_drop.is_none(),
+        "Value spec compiled_drop must be None"
+    );
+    assert!(
+        burden.user_drop.is_none(),
+        "Value spec user_drop must be None"
+    );
+}
+
+/// Negative — `impl T: Drop` on a NON-Value type registers `user_drop`
+/// AND emits no E2049 (the conflict requires BOTH markers).
+#[test]
+fn drop_impl_for_non_value_type_registers_user_drop_no_e2049() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let point_name = interner.intern("Point");
+    let drop_trait = make_drop_trait(&mut arena, &interner);
+    let drop_impl = make_drop_impl_for(&mut arena, &interner, point_name);
+    // Type decl WITHOUT Value in derives.
+    let point_decl = make_struct_decl_with_derives(&interner, "Point", &[]);
+
+    let module = Module {
+        types: vec![point_decl],
+        traits: vec![drop_trait],
+        impls: vec![drop_impl],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+    register_traits(&mut checker, &module);
+    register_impls(&mut checker, &module);
+
+    let errors = checker.errors();
+    let e2049_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2049)
+        .count();
+    assert_eq!(
+        e2049_count, 0,
+        "Drop without Value must NOT emit E2049, got errors: {errors:?}"
+    );
+
+    // Verify Point does not carry the Value marker.
+    let point_idx = checker.type_registry().get_by_name(point_name).unwrap().idx;
+    assert!(
+        !checker.type_registry().carries_value_marker(point_idx),
+        "Non-Value type must NOT carry Value marker"
+    );
+
+    // Verify the Drop impl was registered (user_drop populated).
+    let burden = checker.type_registry().burden(point_idx);
+    assert!(
+        burden.is_some(),
+        "Drop type's burden must be populated by populate_drop_burden_if_applicable"
+    );
+    let burden = burden.unwrap();
+    assert!(
+        burden.user_drop.is_some(),
+        "Drop type's user_drop must be set by populate_drop_burden_if_applicable"
     );
 }

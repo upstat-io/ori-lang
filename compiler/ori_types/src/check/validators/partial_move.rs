@@ -10,7 +10,7 @@
 //! This validator rejects such patterns at type-check time so Phase 5
 //! never sees them. The scope is non-Drop owned aggregates (Struct,
 //! Tuple, Enum, user-defined Named types). Drop types are governed by
-//! `EDROP_PARTIAL_MOVE` (reserved at `E2044`).
+//! `EDROP_PARTIAL_MOVE` (E2048) and `EVALUE_DROP_CONFLICT` (E2049).
 //!
 //! # Algorithm
 //!
@@ -28,6 +28,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::output::FunctionSig;
 use crate::tag::Tag;
+use crate::TraitRegistry;
 use crate::{ExprIndex, Idx, Pool, TypeCheckError};
 
 /// Validate that every body expression is free of conditional partial
@@ -599,6 +600,195 @@ impl ExprIdRawIndex for ExprId {
     #[inline]
     fn raw_index(&self) -> ExprIndex {
         self.raw() as ExprIndex
+    }
+}
+
+// -- E2048 EDROP_PARTIAL_MOVE validator (§04.3 of aims-burden-tracking) ---
+
+/// Validate that no `let $f = v.field` binding occurs where `v`'s type
+/// implements `Drop`.
+///
+/// Per `drop-trait-proposal.md §Execution Timing`, the compiler walks
+/// owned fields in reverse declaration order AFTER invoking the user
+/// `@drop` body. A partial move would leave `@drop` observing absent
+/// fields. The rule applies on every CFG path — axis disjoint from
+/// `validate_partial_move`'s `E2043` (which only rejects conditional
+/// partial moves on non-Drop aggregates).
+///
+/// The walk shape mirrors `validate_partial_move`'s direct-projection
+/// detector but classifies receivers by Drop-impl status via
+/// `TraitRegistry::find_impl(drop_trait_idx, receiver_type)`. The Drop
+/// trait is resolved by name (`drop_trait_name`), which must be the
+/// pre-interned `Drop` name from `WellKnownNames` (or any caller-supplied
+/// equivalent — testing convenience).
+///
+/// Closure-capture sites are bindings too; their initializers route
+/// through the same `ExprKind::Let` / `StmtKind::Let` paths as ordinary
+/// `let` bindings, so the validator emits E2048 uniformly for both.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Validator entrypoint mirrors `validate_partial_move`'s shape; \
+              the additional trait_registry + drop_trait_name args carry \
+              Drop-trait detection state. Bundling into a config struct \
+              adds indirection without clarifying call sites."
+)]
+pub fn validate_drop_partial_move(
+    pool: &Pool,
+    arena: &ExprArena,
+    expr_types: &FxHashMap<ExprIndex, Idx>,
+    trait_registry: &TraitRegistry,
+    drop_trait_name: Name,
+    _sig: &FunctionSig,
+    body_root: ExprId,
+    errors: &mut Vec<TypeCheckError>,
+) {
+    if body_root == ExprId::INVALID {
+        return;
+    }
+    // Resolve Drop's trait `Idx`. Missing trait = nothing to check;
+    // typeck silently no-ops (the prelude has not yet wired `Drop`
+    // into the registry, so this is the expected pre-deployment shape).
+    let Some(drop_trait) = trait_registry.get_trait_by_name(drop_trait_name) else {
+        return;
+    };
+    let drop_trait_idx = drop_trait.idx;
+    let mut ctx = DropWalkCtx {
+        pool,
+        arena,
+        expr_types,
+        trait_registry,
+        drop_trait_idx,
+        errors,
+    };
+    walk_drop(&mut ctx, body_root);
+}
+
+/// Per-validator walk state for E2048.
+struct DropWalkCtx<'a> {
+    pool: &'a Pool,
+    arena: &'a ExprArena,
+    expr_types: &'a FxHashMap<ExprIndex, Idx>,
+    trait_registry: &'a TraitRegistry,
+    drop_trait_idx: Idx,
+    errors: &'a mut Vec<TypeCheckError>,
+}
+
+/// Walk every expression looking for `let $f = v.field` bindings whose
+/// receiver type implements `Drop`. Recurses into compound forms via
+/// [`collect_child_ids`] (shared with the E2043 validator).
+fn walk_drop(ctx: &mut DropWalkCtx<'_>, expr_id: ExprId) {
+    if expr_id == ExprId::INVALID {
+        return;
+    }
+    let kind = *ctx.arena.expr_kind(expr_id);
+    // First check this node for direct `let` shapes; then recurse.
+    check_drop_let_at(ctx, expr_id, kind);
+    let children = collect_child_ids(ctx.arena, expr_id);
+    for c in children {
+        walk_drop(ctx, c);
+    }
+}
+
+/// If `expr_id` is an `ExprKind::Let { init: Field { receiver, .. } }` OR a
+/// `Block` containing `StmtKind::Let { init: Field { receiver, .. } }`,
+/// and `receiver`'s type implements `Drop`, emit `E2048`.
+fn check_drop_let_at(ctx: &mut DropWalkCtx<'_>, _expr_id: ExprId, kind: ExprKind) {
+    match kind {
+        ExprKind::Let { init, .. } => {
+            if let Some((agg, field, span)) = drop_direct_projection(ctx, init) {
+                let recv = drop_init_receiver(ctx, init);
+                if let Some(type_name) = drop_aggregate_type_name(ctx, recv) {
+                    ctx.errors.push(TypeCheckError::drop_partial_move(
+                        span, agg, field, type_name,
+                    ));
+                }
+            }
+        }
+        ExprKind::Block { stmts, .. } => {
+            for stmt in ctx.arena.get_stmt_range(stmts) {
+                if let ori_ir::StmtKind::Let { init, .. } = stmt.kind {
+                    if let Some((agg, field, span)) = drop_direct_projection(ctx, init) {
+                        let recv = drop_init_receiver(ctx, init);
+                        if let Some(type_name) = drop_aggregate_type_name(ctx, recv) {
+                            ctx.errors.push(TypeCheckError::drop_partial_move(
+                                span, agg, field, type_name,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Same shape as `direct_projection` but typed against `DropWalkCtx`.
+fn drop_direct_projection(ctx: &DropWalkCtx<'_>, init: ExprId) -> Option<(Name, Name, Span)> {
+    if init == ExprId::INVALID {
+        return None;
+    }
+    let expr = ctx.arena.get_expr(init);
+    if let ExprKind::Field { receiver, field } = expr.kind {
+        if let ExprKind::Ident(agg) = ctx.arena.expr_kind(receiver) {
+            return Some((*agg, field, expr.span));
+        }
+    }
+    None
+}
+
+/// Same shape as `init_receiver` but typed against `DropWalkCtx`.
+fn drop_init_receiver(ctx: &DropWalkCtx<'_>, init: ExprId) -> ExprId {
+    if init == ExprId::INVALID {
+        return ExprId::INVALID;
+    }
+    if let ExprKind::Field { receiver, .. } = ctx.arena.expr_kind(init) {
+        *receiver
+    } else {
+        ExprId::INVALID
+    }
+}
+
+/// When `receiver`'s inferred type implements `Drop`, return the Drop
+/// type's source name for the diagnostic. Returns `None` for any of:
+/// missing type, error type, primitive scalar, collection (str / [T] /
+/// {K: V} / Set<T>), borrowed projection, or a Struct/Enum/Newtype with
+/// no Drop impl in the registry.
+fn drop_aggregate_type_name(ctx: &DropWalkCtx<'_>, expr: ExprId) -> Option<Name> {
+    let &ty = ctx.expr_types.get(&expr.raw_index())?;
+    let resolved = ctx.pool.resolve_fully(ty);
+    if resolved == Idx::ERROR {
+        return None;
+    }
+    // Quick reject: only nominal aggregates can carry an `impl T: Drop`
+    // (primitives + collections are not user-implementable per
+    // `drop-trait-proposal.md §Auto-derive`).
+    let tag = ctx.pool.tag(resolved);
+    match tag {
+        Tag::Struct | Tag::Tuple | Tag::Enum | Tag::Named | Tag::Applied => {}
+        _ => return None,
+    }
+    // Find an `impl T: Drop` for the receiver type.
+    let (_impl_idx, _entry) = ctx.trait_registry.find_impl(ctx.drop_trait_idx, resolved)?;
+    // Extract a display name for the diagnostic.
+    drop_type_display_name(ctx.pool, resolved, tag)
+}
+
+/// Resolve a display name for the Drop type's diagnostic, by tag.
+///
+/// `Tag::Tuple` has no name; we synthesise a placeholder so the error
+/// message remains intelligible. `Tag::Named` / `Tag::Applied` use their
+/// stored name. `Tag::Struct` / `Tag::Enum` consult the pool's nominal
+/// accessors.
+fn drop_type_display_name(pool: &Pool, idx: Idx, tag: Tag) -> Option<Name> {
+    match tag {
+        Tag::Struct => Some(pool.struct_name(idx)),
+        Tag::Enum => Some(pool.enum_name(idx)),
+        Tag::Named => Some(pool.named_name(idx)),
+        Tag::Applied => Some(pool.applied_name(idx)),
+        // Tuples have no syntactic name. Every other tag is rejected
+        // upstream of this helper by `drop_aggregate_type_name`'s tag
+        // check, so the wildcard arm only fires for `Tag::Tuple`.
+        _ => None,
     }
 }
 

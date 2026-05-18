@@ -6,6 +6,7 @@
 
 use super::burden_compute::{compute_enum_burden, compute_newtype_burden, compute_struct_burden};
 use super::type_resolution::{collect_generic_params, convert_visibility, resolve_field_type};
+use crate::registry::burden::UserBurdenSpec;
 use crate::{
     EnumVariant, FieldDef, Idx, ModuleChecker, TypeCheckError, VariantDef, VariantFields,
     Visibility,
@@ -198,6 +199,76 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
         // Had attrs but all were rejected — clear any that were set during registration.
         checker.type_registry_mut().set_repr(idx, None);
     }
+
+    // Value-marker wiring (Annex E §AIMS + `ori-syntax.md §Prelude`).
+    //
+    // When this declaration carries the `Value` marker (currently surfaced via
+    // `decl.derives` — the parser routes both pre-proposal `#derive(Value)`
+    // and post-proposal `type T: Value, ... = {...}` into the same field),
+    // it asserts inline storage, bitwise copy, and no ARC. Two consequences:
+    //
+    //   1. The `UserBurdenSpec` is empty — Value types carry no heap, so the
+    //      drop walk has nothing to release. Register the empty spec eagerly
+    //      so Phase 5 burden lookups consume the asserted shape.
+    //   2. Value + Drop are mutually exclusive. If an `impl T: Drop` was
+    //      already registered when this declaration lands, emit E2049 with
+    //      the span pointing at this (second) declaration.
+    populate_value_burden_if_applicable(checker, decl, idx);
+}
+
+/// When the type declaration carries `Value`, register an empty
+/// `UserBurdenSpec` and emit E2049 if a `Drop` impl is already registered.
+///
+/// "Carries Value" is detected via `decl.derives.contains(&value_name)` —
+/// the parser routes both pre-proposal `#derive(Value)` and post-proposal
+/// `type T: Value, ... = {...}` into the same `derives: Vec<Name>` field.
+/// When the trait-bound surface lands as a separate frontmatter field,
+/// this detector extends to that field; the conflict rule does not change.
+fn populate_value_burden_if_applicable(
+    checker: &mut ModuleChecker<'_>,
+    decl: &ori_ir::TypeDecl,
+    idx: Idx,
+) {
+    let value_name = checker.interner().intern("Value");
+    if !decl.derives.contains(&value_name) {
+        return;
+    }
+
+    // Query TraitRegistry for an existing `impl T: Drop`. When present,
+    // the Drop impl was registered before this type declaration; the
+    // conflict surfaces at the second registration (this declaration).
+    // `Drop` lookup gracefully no-ops when the prelude has not yet
+    // registered the trait — early-bootstrap modules without `Drop` in
+    // scope cannot collide with `Value` anyway.
+    let drop_name = checker.interner().intern("Drop");
+    let drop_trait_idx = checker
+        .trait_registry()
+        .get_trait_by_name(drop_name)
+        .map(|entry| entry.idx);
+    if let Some(drop_idx) = drop_trait_idx {
+        if checker.trait_registry().has_impl(drop_idx, idx) {
+            checker.push_error(TypeCheckError::value_drop_conflict(decl.span, decl.name));
+            // Fall through: still populate the empty Value-burden so
+            // downstream consumers see a consistent shape (the diagnostic
+            // already gates codegen).
+        }
+    }
+
+    // Empty UserBurdenSpec — Value types have no heap, no owned fields,
+    // no variant payloads, no compiled drop, no user drop. The default
+    // `UserBurdenSpec` already satisfies these zeros; we register it
+    // explicitly so `TypeRegistry::burden(idx)` returns `Some(_)` (vs the
+    // `None` that signals "not yet computed") and downstream lookup-site
+    // `debug_assert!`s are satisfied without re-deriving.
+    let empty_value_spec = UserBurdenSpec::default();
+    checker
+        .type_registry_mut()
+        .register_user_burden(idx, empty_value_spec);
+
+    // Record the Value marker so `register_impl` can detect
+    // late-arriving `impl T: Drop` blocks and emit E2049 at that
+    // registration site (order-independent enforcement).
+    checker.type_registry_mut().record_value_marker(idx);
 }
 
 /// Validate and merge `#repr` attributes into a single resolved `ReprAttrKind`.

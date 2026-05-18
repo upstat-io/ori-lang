@@ -53,6 +53,30 @@ use crate::ArcClassification;
 use super::contract::{ContextRegion, MemoryContract};
 use super::lattice::AimsState;
 
+/// §04A.1 ITEM-3 — IC-7 convergence bound counter (debug-only).
+///
+/// Records the max iteration count observed across `analyze_function` calls
+/// during the current process. Used by the burden-lattice smoke harness to
+/// verify burden-emitted IR does not inflate iteration count beyond
+/// `CHAIN_HEIGHT × |vars| × |blocks|` per `aims-rules.md §6 IA-7`.
+/// Release builds skip the counter (zero overhead).
+#[cfg(debug_assertions)]
+static MAX_ITERATIONS_OBSERVED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Reset the IC-7 watermark; tests call this before driving fixtures so the
+/// observed maximum reflects the test scenario alone. Debug-only, test-only.
+#[cfg(all(debug_assertions, test))]
+pub(crate) fn reset_max_iterations_observed() {
+    MAX_ITERATIONS_OBSERVED.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Read the IC-7 watermark. Debug-only, test-only.
+#[cfg(all(debug_assertions, test))]
+pub(crate) fn max_iterations_observed() -> usize {
+    MAX_ITERATIONS_OBSERVED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Build the inverse map: Invoke-defined var → owner block whose terminator
 /// is the Invoke that defines it.
 ///
@@ -281,6 +305,14 @@ pub fn analyze_function(
         }
 
         if state_map.is_converged() {
+            #[cfg(debug_assertions)]
+            {
+                // §04A.1 ITEM-3 — record watermark for IC-7 bound assertion.
+                let prev = MAX_ITERATIONS_OBSERVED.load(std::sync::atomic::Ordering::Relaxed);
+                if iteration > prev {
+                    MAX_ITERATIONS_OBSERVED.store(iteration, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
             break;
         }
 
@@ -294,6 +326,13 @@ pub fn analyze_function(
                  This indicates a bug in transfer functions."
             );
             widen_to_top(&mut state_map, func);
+            #[cfg(debug_assertions)]
+            {
+                let prev = MAX_ITERATIONS_OBSERVED.load(std::sync::atomic::Ordering::Relaxed);
+                if iteration > prev {
+                    MAX_ITERATIONS_OBSERVED.store(iteration, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
             break;
         }
     }
@@ -321,6 +360,12 @@ pub fn analyze_function(
     // FIRST so subsequent post-convergence passes see the path-sensitive
     // edge map (none read it today, but ordering is defensive).
     post_convergence::populate_class_payload_of_with_liveness(func, sigs, &mut state_map);
+    // §04A.3 ITEM-2 — coexistence handshake class_covered computation. Runs
+    // AFTER `populate_class_payload_of_with_liveness` so the path-sensitive
+    // payload map is in place; runs BEFORE downstream consumers of
+    // `class_covered` (today: `decide()` at realization). Empty when
+    // `func.burden_emitted` is empty (pre-Step-4b functions); cheap then.
+    post_convergence::populate_class_covered(&mut state_map, func);
     // BUG-04-118 §05 Round 2 /tp-help: typed same-class dec obligation table
     // for path-sensitive same-slot dec dedup across Let{Var} / Jump arg /
     // Conditional alias chains. Mirrors class_payload_of's path-sensitive

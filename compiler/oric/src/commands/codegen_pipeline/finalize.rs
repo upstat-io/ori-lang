@@ -33,6 +33,7 @@ pub(super) fn dump_arc_phases(
     classifier: &ori_arc::ArcClassifier,
     pool: &Pool,
     interner: &StringInterner,
+    type_registry: &ori_types::TypeRegistry,
     source_path: &str,
 ) {
     crate::dbg_do!(crate::debug_flags::ORI_DUMP_AFTER_ARC, {
@@ -42,11 +43,19 @@ pub(super) fn dump_arc_phases(
             classifier,
             pool,
             interner,
+            type_registry,
             source_path,
         );
     });
     crate::dbg_do!(crate::debug_flags::ORI_EMIT_ARC_DOT, {
-        crate::arc_dot::emit_arc_dot(arc_cache, annotated_sigs, classifier, pool, interner);
+        crate::arc_dot::emit_arc_dot(
+            arc_cache,
+            annotated_sigs,
+            classifier,
+            pool,
+            interner,
+            type_registry,
+        );
     });
 }
 

@@ -140,9 +140,15 @@ fn emit_defined_dead(
         return;
     }
 
+    // §04A.3 ITEM-3 — coexistence handshake. Defer to the burden walk
+    // when dst's SSA-alias class is fully burden-covered.
+    let class_covered = ctx
+        .state_map
+        .is_class_covered(ctx.state_map.class_id_of(dst));
     let decision = decide(&DecisionContext {
         site: DecisionSite::DefinedDead,
         is_rc_managed: true,
+        class_covered,
     });
 
     if decision.rc != RcDecision::None {
@@ -230,6 +236,10 @@ fn emit_last_use_decs(
         let has_deferred_children = has_live_borrowed_children(ctx, var, instr_idx);
         let reuse_ctx = build_reuse_context(ctx, var);
 
+        // §04A.3 ITEM-3 — coexistence handshake.
+        let class_covered = ctx
+            .state_map
+            .is_class_covered(ctx.state_map.class_id_of(var));
         let decision = decide(&DecisionContext {
             site: DecisionSite::LastUse {
                 is_consuming_primop: false,
@@ -239,6 +249,7 @@ fn emit_last_use_decs(
                 reuse: reuse_ctx,
             },
             is_rc_managed: true,
+            class_covered,
         });
 
         if decision.rc != RcDecision::None {

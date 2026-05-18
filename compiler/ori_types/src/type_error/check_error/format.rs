@@ -383,6 +383,23 @@ impl TypeCheckError {
                     format_name(*field)
                 )
             }
+            TypeErrorKind::DropPartialMove { aggregate, field, type_name } => {
+                format!(
+                    "cannot partially move field `{}.{}` of type `{}` (implements `Drop`); \
+                     use full move, field borrow, or match-destructuring instead",
+                    format_name(*aggregate),
+                    format_name(*field),
+                    format_name(*type_name)
+                )
+            }
+            TypeErrorKind::ValueDropConflict { type_name } => {
+                format!(
+                    "type `{}` carries both `Value` and `Drop`; `Value` declares inline storage \
+                     with bitwise copy and no ARC, so the refcount-zero cleanup path `@drop` \
+                     hooks into never fires — the two markers are mutually exclusive",
+                    format_name(*type_name)
+                )
+            }
             TypeErrorKind::PreContractNotBool { actual } => {
                 format!(
                     "pre() condition must have type `bool`, found `{}`",

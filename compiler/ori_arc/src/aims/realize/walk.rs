@@ -65,13 +65,33 @@ pub(super) fn walk_body_unified(
     // Pre-compute: is this block an unwind cleanup block?
     // Unwind blocks end with Resume. Their explicit RcDec instructions
     // must be kept to balance callee-internal RcIncs (e.g., the RcInc
-    // added for iterator creation).
+    // emitted at iterator creation sites).
     let is_unwind_block = matches!(
         ctx.func.blocks[ctx.blk.index()].terminator,
         crate::ir::ArcTerminator::Resume
     );
 
     for (instr_idx, instr) in old_body.iter().enumerate() {
+        // INVARIANT: Burden* instructions are TF-N/A metadata annotations —
+        // transparent to the predicate-stack realize walk. Counting them as
+        // uses corrupts last-use computation and produces RcInc/RcDec emission
+        // decisions at burden-op positions vs actual code-level last uses,
+        // yielding leaks (BurdenInc/BurdenDec are no-op codegen markers per
+        // RE-1 scalar exemption and cannot substitute for suppressed RcDec).
+        if matches!(
+            instr,
+            ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
+                | ArcInstr::BurdenDecPartial { .. }
+                | ArcInstr::BurdenDecVariant { .. }
+                | ArcInstr::BurdenDecField { .. }
+        ) {
+            // Preserve the burden instruction; do not run use-tracking,
+            // RcInc/RcDec decisions, or alloc-event collection on it.
+            new_body.push(instr.clone());
+            continue;
+        }
+
         // Inline alloc event collection (replaces collect_alloc_events scan).
         collect_alloc_event(ctx, instr, instr_idx, &mut alloc_events);
 
@@ -100,12 +120,12 @@ pub(super) fn walk_body_unified(
             if !is_unwind_block && in_all && !in_proj {
                 continue;
             }
-            // BUG-04-090 §05 Step 7: suppress scope-exit dec on Owned params
-            // that flow directly to a Return terminator on this path.
-            // Path-sensitive: only fires when the current block's forward
-            // CFG terminates in `Return { value: v }` where `v` aliases the
-            // param. Sibling paths that don't return the param still emit
-            // the dec normally.
+            // BUG-04-090 return-transfer dec suppression: suppress scope-exit
+            // dec on Owned params that flow directly to a Return terminator
+            // on this path. Path-sensitive: only fires when the current
+            // block's forward CFG terminates in `Return { value: v }` where
+            // `v` aliases the param. Sibling paths that don't return the
+            // param still emit the dec normally.
             if crate::aims::emit_rc::should_suppress_return_transfer_dec(
                 ctx,
                 *var,
@@ -119,10 +139,11 @@ pub(super) fn walk_body_unified(
         // Push the instruction itself.
         new_body.push(instr.clone());
 
-        // BUG-04-090 §05 F-prj: emit compensating RcInc immediately after a
-        // Project whose dst flows to Return AND whose source resolves to an
-        // Owned param with `return_alias = Some(Project { field })` matching
-        // this Project's field. Without this Inc, the param's scope-exit
+        // BUG-04-090 return-transfer compensating RcInc: emit compensating
+        // RcInc immediately after a Project whose dst flows to Return AND
+        // whose source resolves to an Owned param with
+        // `return_alias = Some(Project { field })` matching this Project's
+        // field. Without this Inc, the param's scope-exit
         // `RcDec param [AggFields]` walks fields and decrements the projected
         // allocation BEFORE the Return — caller receives a freed pointer.
         // The map is precomputed by `build_return_project_inc_targets` in
@@ -139,7 +160,7 @@ pub(super) fn walk_body_unified(
             }
         }
 
-        // BUG-04-090 §05 Session H: Select-aware compensating RcInc.
+        // BUG-04-090 Select-aware compensating RcInc:
         //
         // `Select cond ? %x : %y` aliases dst to one of {x, y} at
         // runtime (AIMS §1.9 conditional alias). RL-2 emits per-source
@@ -194,12 +215,12 @@ pub(super) fn walk_body_unified(
         );
 
         // Emit deferred parent decs whose children's last use is this instruction.
-        // PIN-6 (BUG-04-104 §2.6.3) gating: even when a deferred dec's effective
-        // last-use lands here, suppress the dec when an inter-class transitive-
-        // drop ancestor will cover the var's RC slot. The deferred path is a
-        // distinct emission site from `walk_dec.rs` (which gates defined-dead
-        // and inline last-use); without PIN-6 here, the 2 PIN-6 cells'
-        // canonical dec leaks past the suppression.
+        // PIN-6 gating: even when a deferred dec's effective last-use lands
+        // here, suppress the dec when an inter-class transitive-drop ancestor
+        // will cover the var's RC slot. The deferred path is a distinct
+        // emission site from `walk_dec.rs` (which gates defined-dead and
+        // inline last-use); without PIN-6 here, the canonical dec leaks past
+        // the suppression.
         let pin6_classes_dying_here =
             super::walk_dec::collect_classes_dying_here(ctx, instr, instr_idx);
         deferred.retain(|&(var, strategy, effective_last)| {
@@ -338,12 +359,18 @@ fn emit_pre_instr_incs_unified(
 
         let has_future_use = compute_has_future_use(ctx, var, *count, instr_idx);
         let semantics = classify_use_semantics(ctx, var, pos, instr);
+        // Burden-coexistence handshake: defer to the burden walk when var's
+        // SSA-alias class is fully burden-covered.
+        let class_covered = ctx
+            .state_map
+            .is_class_covered(ctx.state_map.class_id_of(var));
         let decision = decide(&DecisionContext {
             site: DecisionSite::Use {
                 has_future_use,
                 semantics,
             },
             is_rc_managed: true,
+            class_covered,
         });
 
         if decision.rc != RcDecision::None {
@@ -431,17 +458,16 @@ fn classify_use_semantics(
     // semantics). Match by POSITION, not var-equality — the closure may
     // also appear as an arg, in which case the arg occurrence stays
     // Normal so it gets the standard owned-arg Inc/Dec handling.
-    // Ref: BUG-04-106 §05 edit site 2.
     if matches!(instr, ArcInstr::ApplyIndirect { .. }) && pos == 0 {
         return UseSemantics::BorrowingApplyClosure;
     }
 
     // Let { Var(src) } SSA alias for a closure handle: the alias and
-    // source share the same RC slot (per `aims-rules.md §3 TF-11`
-    // transparent-alias semantics — IA-5 step (1) transfers state via
-    // seq_add without RC change). Pre-fix the realize layer treated
-    // these as Normal with has_future_use, emitting a per-alias Inc
-    // even though the alias is just SSA renaming of the same allocation.
+    // source share the same RC slot (per TF-11 transparent-alias
+    // semantics — IA-5 step (1) transfers state via seq_add without RC
+    // change). Pre-fix the realize layer treated these as Normal with
+    // has_future_use, emitting a per-alias Inc even though the alias
+    // is just SSA renaming of the same allocation.
     // For closure types specifically (RcStrategy::Closure), the alias
     // chain leads to ApplyIndirect call sites which borrow the closure
     // (BorrowingApplyClosure semantics above); no per-alias Inc is
@@ -452,11 +478,6 @@ fn classify_use_semantics(
     // semantics for non-closure aliases (str / list / struct), where
     // the existing Normal-with-future-use behavior is correct
     // (per the existing comment about Let alias Inc placement).
-    //
-    // Ref: BUG-04-106 §05 edit site 6 (added during Phase 4 after the
-    // initial 5 edit sites failed to suppress the spurious Inc, which
-    // the AOT closure_env_alias matrix tests caught — the Inc is emitted
-    // at the Let alias site, not at the ApplyIndirect site).
     if matches!(
         instr,
         ArcInstr::Let {
@@ -481,7 +502,7 @@ fn classify_use_semantics(
 /// - `dst` has a downstream consumer (future use in block OR live at exit).
 /// - At least one source operand (`true_val` or `false_val`) will receive
 ///   a per-source `RcDec` at this Select (last-use here AND not suppressed
-///   by Session E's return-transfer gate).
+///   by the return-transfer gate).
 ///
 /// The compensating `RcInc(dst)` keeps the chosen operand's allocation
 /// alive across its source dec (the chosen operand IS dst at runtime per

@@ -17,7 +17,7 @@ use std::fmt::Write;
 
 use ori_arc::{AnnotatedSig, ArcClassification, ArcFunction, ArcTerminator};
 use ori_ir::{Name, StringInterner};
-use ori_types::Pool;
+use ori_types::{Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
 
 use self::node::{render_block_node, render_param_header};
@@ -37,6 +37,7 @@ pub fn emit_arc_dot(
     classifier: &dyn ArcClassification,
     pool: &Pool,
     interner: &StringInterner,
+    type_registry: &TypeRegistry,
 ) {
     let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
     let mut out = String::with_capacity(16384);
@@ -57,6 +58,7 @@ pub fn emit_arc_dot(
             interner,
             pool,
             &builtins,
+            type_registry,
             std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|v| v != "0"),
         );
         // Log verification ICEs but don't abort the dot dump — it's a diagnostic tool.

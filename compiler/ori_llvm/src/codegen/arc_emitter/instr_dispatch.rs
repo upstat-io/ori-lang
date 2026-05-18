@@ -463,7 +463,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 else {
                     return;
                 };
-                let ori_arc::DropKind::Fields(fields) = drop_info.kind else {
+                let ori_arc::DropKind::Fields {
+                    fields,
+                    user_drop: _,
+                } = drop_info.kind
+                else {
                     debug_assert!(
                         false,
                         "BurdenDecPartial on non-struct drop shape: {:?}",
@@ -471,6 +475,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     );
                     return;
                 };
+                // BurdenDecPartial is the mid-block partial-move cleanup
+                // path; the user `@drop` body has NOT fired here (drop fires
+                // at refcount-zero via `emit_drop_fields`'s AUGMENT body,
+                // not at SetField mid-mutation). Walk RC'd fields only.
                 self.emit_drop_field_loop(
                     base_val,
                     base_ty,
@@ -505,7 +513,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 else {
                     return;
                 };
-                let ori_arc::DropKind::Enum(variants) = drop_info.kind else {
+                let ori_arc::DropKind::Enum {
+                    variants,
+                    user_drop: _,
+                } = drop_info.kind
+                else {
                     debug_assert!(
                         false,
                         "BurdenDecVariant on non-enum drop shape: {:?}",
@@ -513,6 +525,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     );
                     return;
                 };
+                // BurdenDecVariant is the mid-block SetTag pre-drop path;
+                // the user `@drop` body has NOT fired (it fires at
+                // refcount-zero via `emit_drop_enum`'s AUGMENT body, not
+                // at SetTag mid-mutation). Walk per-variant fields only.
                 self.emit_variant_burden_walk(self.current_function, base_val, base_ty, &variants);
             }
 

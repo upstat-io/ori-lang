@@ -12,6 +12,8 @@ use super::type_resolution::{
     build_method_generic_metadata, build_where_constraint, collect_generic_params,
     resolve_parsed_type_simple, resolve_type_with_method_generics, resolve_type_with_self,
 };
+use crate::registry::burden::UserBurdenSpec;
+use crate::registry::burden_compose::scc::mint_compiled_drop_fn_sym;
 use crate::{
     Idx, ImplEntry, ImplMethodDef, ImplSpecificity, ModuleChecker, TypeCheckError, WhereConstraint,
 };
@@ -44,11 +46,23 @@ fn register_impl(
     let self_type = resolve_parsed_type_simple(checker, &impl_def.self_ty, arena);
 
     // 3. Resolve trait (if trait impl)
+    //
+    // Parser invariant: a `trait_path: Some(_)` impl block carries at least one path
+    // segment — empty trait paths are unrepresentable in surface syntax (`impl T: { }`
+    // does not parse). An empty `path` here would indicate a parser-level invariant
+    // breach upstream, not a recoverable shape; debug builds surface the violation
+    // while release builds fall back to a synthetic "<unknown>" name so the rest of
+    // registration can continue producing diagnostics rather than panicking.
     let trait_idx = impl_def.trait_path.as_ref().map(|path| {
-        let trait_name = path
-            .last()
-            .copied()
-            .unwrap_or_else(|| checker.interner().intern("<unknown>"));
+        let trait_name = path.last().copied().unwrap_or_else(|| {
+            debug_assert!(
+                false,
+                "register_impl received Some(trait_path) with empty path segments — \
+                 parser invariant violated for impl_def.span={:?}",
+                impl_def.span
+            );
+            checker.interner().intern("<unknown>")
+        });
         checker.pool_mut().named(trait_name)
     });
 
@@ -159,6 +173,121 @@ fn register_impl(
     };
 
     checker.trait_registry_mut().register_impl(entry);
+
+    // 10. Drop trait wiring (§04.3): when this impl is `impl T: Drop`,
+    //     populate `UserBurdenSpec.user_drop = Some(FnSym)` AND mint
+    //     `compiled_drop = Some(FnSym)` so codegen's refcount-zero path
+    //     materializes the AUGMENT body (user @drop FIRST, then field
+    //     walk in reverse declaration order). Per the §04.1 decision
+    //     rule: `compiled_drop = Some(_) iff (in non-singleton SCC) OR
+    //     (self-loop) OR (user_drop = Some(_))`. The third clause fires
+    //     here for every Drop type, including non-recursive ones —
+    //     they need an entry point invoked by `ori_rc_dec` at rc==0.
+    //
+    //     Drop is explicit-impl-only per `drop-trait-proposal.md
+    //     §Auto-derive`; population happens at this `register_impl`
+    //     site, NOT `register_derived_impl`.
+    populate_drop_burden_if_applicable(checker, impl_def, self_type, trait_idx);
+}
+
+/// When `impl_def` is a `Drop` impl on `self_type`, populate
+/// `UserBurdenSpec.user_drop` and `compiled_drop` on the type's burden
+/// entry.
+///
+/// Resolves `Drop`'s trait `Idx` via the interner; gracefully no-ops if
+/// the trait is not yet registered (pre-deployment shape).
+///
+/// `compiled_drop` is minted via the shared SCC `FnSym` helper so the
+/// codegen-side `_ori_drop$<idx_raw>` mangling stays consistent across
+/// the three populator sites (§04.1 recursive, §04.2 closure, §04.3
+/// Drop).
+fn populate_drop_burden_if_applicable(
+    checker: &mut ModuleChecker<'_>,
+    impl_def: &ori_ir::ImplDef,
+    self_type: Idx,
+    trait_idx: Option<Idx>,
+) {
+    let Some(t_idx) = trait_idx else {
+        return;
+    };
+
+    // Resolve Drop's Idx via interner -> trait_registry.
+    let drop_name = checker.interner().intern("Drop");
+    let Some(drop_trait_entry) = checker.trait_registry().get_trait_by_name(drop_name) else {
+        return;
+    };
+    if drop_trait_entry.idx != t_idx {
+        return;
+    }
+
+    // Value/Drop conflict detection (E2049).
+    //
+    // When `impl T: Drop` is being registered AND T's trait set already
+    // carries `Value` (recorded at the type-decl registration site via
+    // `TypeRegistry::record_value_marker`), the two markers mutually
+    // exclude per Annex E §AIMS + `ori-syntax.md §Prelude`: `Value`
+    // declares inline storage with no ARC, so the refcount-zero cleanup
+    // path that `@drop` hooks into never fires.
+    //
+    // The span points at the `impl T: Drop` block (the second
+    // registration to land); the diagnostic still permits Phase 5 to
+    // proceed with whichever burden spec was already populated for T
+    // (the codegen gate at the driver level — `PC-4` — suppresses
+    // emission when any typeck error remains).
+    //
+    // Find the @drop method on the impl_def. Per `drop-trait-proposal.md
+    // §Definition`, the method name is `drop`. Resolve via the AST
+    // impl-def's methods list to obtain its compiled FnSym shape.
+    if checker.type_registry().carries_value_marker(self_type) {
+        // Resolve the type's name from the registry for the diagnostic.
+        // Fall back to the placeholder `<unknown>` when the type is not
+        // registered (shouldn't happen for well-formed input, but the
+        // graceful fallback matches the existing pattern in
+        // `register_impl`).
+        let type_name = checker.type_registry().get_by_idx(self_type).map_or_else(
+            || checker.interner().intern("<unknown>"),
+            |entry| entry.name,
+        );
+        checker.push_error(TypeCheckError::value_drop_conflict(
+            impl_def.span,
+            type_name,
+        ));
+        // Do NOT short-circuit Drop wiring: emitting the diagnostic
+        // suppresses codegen at the driver level, but Phase 5 may still
+        // touch the type's burden. Wiring `user_drop` / `compiled_drop`
+        // below keeps the spec internally consistent (matches the
+        // shape of well-formed Drop types) until the user resolves the
+        // conflict by removing one of the two markers.
+    }
+
+    let drop_method_name = checker.interner().intern("drop");
+    let user_drop_fn_sym = mint_compiled_drop_fn_sym(self_type);
+
+    // Validate the impl actually carries a @drop method body; without
+    // one, we cannot meaningfully wire `user_drop` (the impl would
+    // inherit a default body — Drop has no default per
+    // `drop-trait-proposal.md`). If the parser produced an
+    // empty-method impl block (a user authoring bug), we still
+    // populate so the codegen-side body materialization site reports
+    // a clearer downstream error.
+    let _ = impl_def.methods.iter().any(|m| m.name == drop_method_name);
+
+    // Look up existing burden + merge: preserve any spec already
+    // computed by `burden_compute` at type-registration time;
+    // overlay the user_drop / compiled_drop fields.
+    let existing = checker
+        .type_registry()
+        .burden(self_type)
+        .cloned()
+        .unwrap_or_default();
+    let merged = UserBurdenSpec {
+        user_drop: Some(user_drop_fn_sym),
+        compiled_drop: Some(mint_compiled_drop_fn_sym(self_type)),
+        ..existing
+    };
+    checker
+        .type_registry_mut()
+        .register_user_burden(self_type, merged);
 }
 
 /// Per-impl resolver context.
@@ -306,7 +435,18 @@ fn validate_assoc_types(
     trait_idx: Idx,
     assoc_types: &FxHashMap<Name, Idx>,
 ) {
+    // Registration discipline: trait_idx is queried after the Registration group has
+    // populated TraitRegistry (CK-1 pass 0c). A None here indicates the caller passed
+    // an Idx that bypassed registration — a missing-registration bug, not "trait has
+    // no associated types". Surface in debug builds; release continues without an
+    // associated-type check (downstream impl-checking already emits diagnostics for
+    // the structural problems an unregistered trait would otherwise produce).
     let Some(trait_entry) = checker.trait_registry().get_trait_by_idx(trait_idx) else {
+        debug_assert!(
+            false,
+            "validate_assoc_types called with unregistered trait_idx={trait_idx:?} — \
+             Registration group pass 0c must precede this query (CK-1)"
+        );
         return;
     };
     let trait_name = trait_entry.name;
@@ -337,7 +477,15 @@ fn check_conflicting_defaults(
     trait_idx: Idx,
     explicit_methods: &FxHashSet<Name>,
 ) {
-    // Borrow dance: scope the registry borrow to extract conflict data
+    // Borrow dance: scope the registry borrow to extract conflict data.
+    //
+    // Registration discipline: provider_idxs comes from find_conflicting_defaults,
+    // which already guarded its own super-trait lookup against unregistered ids
+    // (CK-1 pass 0c precedence). Every provider Idx returned here MUST resolve via
+    // get_trait_by_idx; a None branch indicates registry inconsistency between
+    // find_conflicting_defaults's view and the registry's get_trait_by_idx surface.
+    // Surface in debug, fall back to filter_map in release so diagnostic emission
+    // continues with the providers we can name.
     let conflicts: Vec<(Name, Vec<Name>)> = {
         let reg = checker.trait_registry();
         reg.find_conflicting_defaults(trait_idx)
@@ -345,7 +493,16 @@ fn check_conflicting_defaults(
             .map(|(method_name, provider_idxs)| {
                 let names: Vec<Name> = provider_idxs
                     .iter()
-                    .filter_map(|&idx| reg.get_trait_by_idx(idx).map(|e| e.name))
+                    .filter_map(|&idx| {
+                        let entry = reg.get_trait_by_idx(idx);
+                        debug_assert!(
+                            entry.is_some(),
+                            "check_conflicting_defaults: super-trait Idx {idx:?} \
+                             returned by find_conflicting_defaults is missing from \
+                             registry (CK-1 pass 0c invariant breach)"
+                        );
+                        entry.map(|e| e.name)
+                    })
                     .collect();
                 (method_name, names)
             })

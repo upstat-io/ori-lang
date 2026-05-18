@@ -26,8 +26,8 @@ use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ValueRepr};
 use crate::Ownership;
 
-pub use error::VerifyError;
 use error::{push_dec_on_borrowed, push_rc_on_scalar, push_use_before_def};
+pub use error::{BurdenBalanceError, VerifyError};
 
 /// Safely look up the source span for an instruction.
 ///

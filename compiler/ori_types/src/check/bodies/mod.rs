@@ -41,7 +41,9 @@ pub use impls::{check_def_impl_bodies, check_impl_bodies};
 use ori_ir::{ExprId, ExprKind};
 use rustc_hash::FxHashMap;
 
-use crate::check::validators::{validate_body_types, validate_partial_move, ValidatorContext};
+use crate::check::validators::{
+    validate_body_types, validate_drop_partial_move, validate_partial_move, ValidatorContext,
+};
 use crate::check::ModuleChecker;
 use crate::output::FunctionSig;
 use crate::registry::burden::UserBurdenSpec;
@@ -111,6 +113,14 @@ pub(super) fn finalize_body_and_export(
     // (`ori_arc::lower::burden_lower`) never sees patterns that would
     // require fixpoint dataflow over `moved_out_fields[v]`.
     run_partial_move_validator(checker, &expr_types, sig, body_root);
+
+    // Validate Drop-partial-move rejection — emits E2048 for `let $f =
+    // v.field` bindings where `v`'s type implements `Drop`. Per
+    // `drop-trait-proposal.md §Execution Timing`, partial moves on Drop
+    // types are forbidden regardless of CFG path (axis disjoint from
+    // E2043). Producer-side guard so the compiler-walked field drop
+    // after the user `@drop` body never observes absent fields.
+    run_drop_partial_move_validator(checker, &expr_types, sig, body_root);
 
     // Store expression types.
     for (expr_index, ty) in expr_types {
@@ -251,6 +261,51 @@ pub(super) fn run_partial_move_validator(
         let pool = checker.pool();
         let mut errs: Vec<TypeCheckError> = Vec::new();
         validate_partial_move(pool, arena, expr_types, sig, body_root, &mut errs);
+        errs
+    };
+    for err in validation_errors {
+        checker.push_error(err);
+    }
+}
+
+/// Shared E2048 Drop-partial-move enforcement for every body-checking
+/// pass.
+///
+/// Walks `body_root`'s AST top-down and emits `E2048`
+/// (`EDROP_PARTIAL_MOVE`) for any `let $f = v.field` binding whose
+/// receiver type implements `Drop`. Producer-side guard so the
+/// compiler-walked field drop in the AUGMENT path (`drop-trait-proposal.md
+/// §Execution Timing`) never observes absent fields.
+///
+/// Disjoint from `run_partial_move_validator` (E2043, conditional
+/// non-Drop case): the E2048 axis covers EVERY partial move on a Drop
+/// type, regardless of CFG path.
+///
+/// Resolves the `Drop` trait by interning its source name; when the
+/// trait is not yet wired into the prelude / registry, the validator
+/// silently no-ops (pre-deployment shape).
+pub(super) fn run_drop_partial_move_validator(
+    checker: &mut ModuleChecker<'_>,
+    expr_types: &FxHashMap<ExprIndex, Idx>,
+    sig: &FunctionSig,
+    body_root: ExprId,
+) {
+    let validation_errors: Vec<TypeCheckError> = {
+        let arena = checker.arena();
+        let pool = checker.pool();
+        let trait_registry = checker.trait_registry();
+        let drop_trait_name = checker.interner().intern("Drop");
+        let mut errs: Vec<TypeCheckError> = Vec::new();
+        validate_drop_partial_move(
+            pool,
+            arena,
+            expr_types,
+            trait_registry,
+            drop_trait_name,
+            sig,
+            body_root,
+            &mut errs,
+        );
         errs
     };
     for err in validation_errors {
