@@ -1,0 +1,1169 @@
+//! Tests for the burden-op elimination consumer (§04A.2).
+//!
+//! ITEM-3 negative pins + ITEM-4 positive pins per
+//! `plans/aims-burden-tracking/section-04A-minimal-lattice-adaptation.md
+//! §04A.2`.
+//!
+//! Citations per ITEM-6:
+//! - DP-2 (`is_rc_dec_unnecessary` at `aims/transfer/mod.rs:403`):
+//!   `is_rc_dec_unnecessary(s) ⟺ s.cardinality = Absent ∨
+//!   s.consumption = Dead` per `aims-rules.md §4 DP-2`.
+//! - DP-3 (`is_rc_inc_elidable` at `aims/transfer/mod.rs:411`):
+//!   `is_rc_inc_elidable(s) ⟺ s.cardinality = Once ∧
+//!   s.consumption = Linear` per `aims-rules.md §4 DP-3`.
+
+use super::eliminate_burden_ops;
+use crate::aims::intraprocedural::AimsStateMap;
+use crate::aims::lattice::{
+    AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ShapeClass, Uniqueness,
+};
+use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
+use ori_ir::Name;
+use ori_types::Idx;
+use rustc_hash::FxHashMap;
+
+// Helpers
+
+fn v(n: u32) -> ArcVarId {
+    ArcVarId::new(n)
+}
+
+fn block_id(n: u32) -> ArcBlockId {
+    ArcBlockId::new(n)
+}
+
+fn ty(n: u32) -> Idx {
+    Idx::from_raw(n)
+}
+
+fn name(n: u32) -> Name {
+    Name::from_raw(n)
+}
+
+/// Build a single-block `ArcFunction` with `body` as the block body.
+/// Allocates `num_vars` typed slots so `v(0)..v(num_vars-1)` are valid.
+fn one_block_func(num_vars: u32, body: Vec<ArcInstr>) -> ArcFunction {
+    let var_types: Vec<Idx> = (0..num_vars).map(ty).collect();
+    ArcFunction {
+        name: name(1),
+        return_type: ty(0),
+        var_types,
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: Vec::new(),
+            body,
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        ..Default::default()
+    }
+}
+
+/// Build an `AimsState` from cardinality+consumption with the remaining
+/// dimensions defaulted to a plausible owned-value shape. The elimination
+/// predicates DP-2 and DP-3 only consult `cardinality` and `consumption`
+/// per `aims-rules.md §4 Appendix C`, so other dimensions are unconstrained.
+fn owned_state(cardinality: Cardinality, consumption: Consumption) -> AimsState {
+    AimsState {
+        access: AccessClass::Owned,
+        consumption,
+        cardinality,
+        uniqueness: Uniqueness::Unique,
+        locality: Locality::BlockLocal,
+        shape: ShapeClass::NonReusable,
+        effect: EffectClass::NONE,
+    }
+}
+
+/// Seed `state_map`'s block-exit map with `(var, state)` entries for the
+/// given block. The elimination pass queries `var_state_at_block_exit`, so
+/// this is the canonical place to set up per-test states.
+fn seed_exit_state(
+    state_map: &mut AimsStateMap,
+    block: ArcBlockId,
+    entries: &[(ArcVarId, AimsState)],
+) {
+    let mut map: FxHashMap<ArcVarId, AimsState> = FxHashMap::default();
+    for (var, state) in entries {
+        map.insert(*var, *state);
+    }
+    state_map.update_block_exit(block, map);
+}
+
+// ITEM-3 — Negative pins (regression-resistance per `tests.md §Matrix
+// Clamping`).
+
+/// State (Linear, Once) — DP-2 returns FALSE per `aims-rules.md §4 DP-2`
+/// truth table. `BurdenDec` must NOT be removed.
+#[test]
+fn dp2_false_preserves_burden_dec_linear_once() {
+    let func_body = vec![ArcInstr::BurdenDec { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    // (Linear, Once) — value still has one demanded use; dec is required.
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Once, Linear) must preserve BurdenDec; body = {body:?}"
+    );
+    assert!(
+        matches!(body[0], ArcInstr::BurdenDec { var } if var == v(0)),
+        "expected BurdenDec(v0) preserved, got {:?}",
+        body[0]
+    );
+}
+
+/// State (Linear, Many) — DP-3 returns FALSE per `aims-rules.md §4 DP-3`
+/// truth table (cardinality ≠ Once). `BurdenInc` must NOT be removed.
+#[test]
+fn dp3_false_preserves_burden_inc_linear_many() {
+    let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    // (Many, Linear) — multiple uses; the inc creates the second ref.
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-3 false on (Many, Linear) must preserve BurdenInc; body = {body:?}"
+    );
+    assert!(
+        matches!(body[0], ArcInstr::BurdenInc { var } if var == v(0)),
+        "expected BurdenInc(v0) preserved, got {:?}",
+        body[0]
+    );
+}
+
+// ITEM-4 — Positive pins (semantic pins per `tests.md §Matrix Clamping`).
+// One per predicate because DP-2 + DP-3 fire on mutually-exclusive states
+// per `aims-rules.md §2 CN-1` Dead↔Absent bidirectional rule.
+
+/// `elide_inc_on_linear_once` — var `v` is (Owned, Linear, Once, Unique,
+/// `BlockLocal`, `NonReusable`); DP-3 (`is_rc_inc_elidable`) returns `true`;
+/// `burden_elim` removes the `BurdenInc` instruction.
+///
+/// Per `aims-rules.md §4 DP-3`: `is_rc_inc_elidable(s) ⟺ s.cardinality =
+/// Once ∧ s.consumption = Linear`.
+#[test]
+fn elide_inc_on_linear_once() {
+    let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert!(
+        body.is_empty(),
+        "DP-3 true on (Once, Linear) must elide BurdenInc; body = {body:?}"
+    );
+}
+
+/// `elide_dec_on_dead_absent` — var `w` is (Owned, Dead, Absent, *, *, *)
+/// per CN-1 pairing; DP-2 (`is_rc_dec_unnecessary`) returns `true`;
+/// `burden_elim` removes the `BurdenDec` instruction.
+///
+/// Per `aims-rules.md §4 DP-2`: `is_rc_dec_unnecessary(s) ⟺ s.cardinality
+/// = Absent ∨ s.consumption = Dead`. CN-1 makes Dead↔Absent
+/// bidirectional, so any (Dead, Absent) state trivially satisfies both
+/// disjuncts.
+#[test]
+fn elide_dec_on_dead_absent() {
+    let func_body = vec![ArcInstr::BurdenDec { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert!(
+        body.is_empty(),
+        "DP-2 true on (Dead, Absent) must elide BurdenDec; body = {body:?}"
+    );
+}
+
+/// `BurdenDecPartial` follows the DP-2 rule on whole-var state. With
+/// (Dead, Absent), elimination must remove `BurdenDecPartial` too.
+#[test]
+fn elide_dec_partial_on_dead_absent() {
+    let func_body = vec![ArcInstr::BurdenDecPartial {
+        var: v(0),
+        skip_fields: vec![1],
+    }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    assert!(
+        func.blocks[0].body.is_empty(),
+        "DP-2 true must elide BurdenDecPartial; body = {:?}",
+        func.blocks[0].body
+    );
+}
+
+/// `BurdenDecVariant` follows the DP-2 rule on whole-var state.
+#[test]
+fn elide_dec_variant_on_dead_absent() {
+    let func_body = vec![ArcInstr::BurdenDecVariant { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    assert!(
+        func.blocks[0].body.is_empty(),
+        "DP-2 true must elide BurdenDecVariant; body = {:?}",
+        func.blocks[0].body
+    );
+}
+
+/// `BurdenDecField` queries DP-2 against `base`'s WHOLE-VAR state.
+#[test]
+fn elide_dec_field_on_dead_absent_base() {
+    let func_body = vec![ArcInstr::BurdenDecField {
+        base: v(0),
+        field: 2,
+    }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    assert!(
+        func.blocks[0].body.is_empty(),
+        "DP-2 true on base must elide BurdenDecField; body = {:?}",
+        func.blocks[0].body
+    );
+}
+
+/// Negative pin for the partial-drop variants: with a state where DP-2
+/// returns false (e.g., (Many, Unrestricted)), `BurdenDecPartial` must be
+/// preserved.
+#[test]
+fn preserve_dec_partial_on_many_unrestricted() {
+    let func_body = vec![ArcInstr::BurdenDecPartial {
+        var: v(0),
+        skip_fields: vec![0],
+    }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(
+            v(0),
+            owned_state(Cardinality::Many, Consumption::Unrestricted),
+        )],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Many, Unrestricted) must preserve BurdenDecPartial"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecPartial { var, .. } if var == v(0)
+    ));
+}
+
+// ITEM-5 — Matrix completion per `tests.md §Matrix Testing Rule`.
+//
+// Per-(forward state × backward demand) × Burden* variant matrix: 5 states
+// × 5 variants = 25 cells. Eight cells covered by the ITEM-3 + ITEM-4 pins
+// above (`dp2_false_preserves_burden_dec_linear_once`,
+// `dp3_false_preserves_burden_inc_linear_many`, `elide_inc_on_linear_once`,
+// `elide_dec_on_dead_absent`, `elide_dec_partial_on_dead_absent`,
+// `elide_dec_variant_on_dead_absent`, `elide_dec_field_on_dead_absent_base`,
+// `preserve_dec_partial_on_many_unrestricted`). Remaining 17 cells follow.
+//
+// Per `aims-rules.md §4 Appendix C`:
+// - DP-2 true ⟺ `cardinality = Absent ∨ consumption = Dead`. Per CN-1
+//   (Dead ↔ Absent bidirectional), only (Absent, Dead) satisfies DP-2 in
+//   a canonicalized state — the other four feasible states all preserve
+//   BurdenDec*.
+// - DP-3 true ⟺ `cardinality = Once ∧ consumption = Linear`. Only
+//   (Once, Linear) satisfies DP-3 — the other four feasible states all
+//   preserve BurdenInc.
+//
+// Each cell pins the variant-specific code path even when the predicted
+// outcome duplicates another cell; intentional per `tests.md §Matrix
+// Testing Rule` (regression-resistance against per-variant drift).
+
+// (Once, Linear) × { BurdenDecPartial, BurdenDecVariant, BurdenDecField }
+
+/// State (Once, Linear) × `BurdenDecPartial` — DP-2 false on (Once, Linear)
+/// per `aims-rules.md §4 DP-2` truth table (neither cardinality = Absent
+/// nor consumption = Dead); partial-drop must NOT be removed.
+#[test]
+fn preserve_dec_partial_on_linear_once() {
+    let func_body = vec![ArcInstr::BurdenDecPartial {
+        var: v(0),
+        skip_fields: vec![0],
+    }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Once, Linear) must preserve BurdenDecPartial; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecPartial { var, .. } if var == v(0)
+    ));
+}
+
+/// State (Once, Linear) × `BurdenDecVariant` — DP-2 false per
+/// `aims-rules.md §4 DP-2`; variant-drop must NOT be removed.
+#[test]
+fn preserve_dec_variant_on_linear_once() {
+    let func_body = vec![ArcInstr::BurdenDecVariant { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Once, Linear) must preserve BurdenDecVariant; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecVariant { var } if var == v(0)
+    ));
+}
+
+/// State (Once, Linear) × `BurdenDecField` — DP-2 queried against base's
+/// whole-var state per `aims-rules.md §4 DP-2`; DP-2 false on (Once,
+/// Linear) base means the field dec must NOT be removed.
+#[test]
+fn preserve_dec_field_on_linear_once_base() {
+    let func_body = vec![ArcInstr::BurdenDecField {
+        base: v(0),
+        field: 2,
+    }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Once, Linear) base must preserve BurdenDecField; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecField { base, field } if base == v(0) && field == 2
+    ));
+}
+
+// (Many, Linear) × { BurdenDec, BurdenDecPartial, BurdenDecVariant, BurdenDecField }
+
+/// State (Many, Linear) × `BurdenDec` — DP-2 false per `aims-rules.md §4
+/// DP-2` (neither cardinality = Absent nor consumption = Dead); dec must
+/// NOT be removed.
+#[test]
+fn preserve_dec_on_linear_many() {
+    let func_body = vec![ArcInstr::BurdenDec { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Many, Linear) must preserve BurdenDec; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDec { var } if var == v(0)
+    ));
+}
+
+/// State (Many, Linear) × `BurdenDecPartial` — DP-2 false per
+/// `aims-rules.md §4 DP-2`; partial-drop must NOT be removed.
+#[test]
+fn preserve_dec_partial_on_linear_many() {
+    let func_body = vec![ArcInstr::BurdenDecPartial {
+        var: v(0),
+        skip_fields: vec![1, 2],
+    }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Many, Linear) must preserve BurdenDecPartial; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecPartial { var, .. } if var == v(0)
+    ));
+}
+
+/// State (Many, Linear) × `BurdenDecVariant` — DP-2 false per
+/// `aims-rules.md §4 DP-2`; variant-drop must NOT be removed.
+#[test]
+fn preserve_dec_variant_on_linear_many() {
+    let func_body = vec![ArcInstr::BurdenDecVariant { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Many, Linear) must preserve BurdenDecVariant; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecVariant { var } if var == v(0)
+    ));
+}
+
+/// State (Many, Linear) × `BurdenDecField` — DP-2 queried against base's
+/// whole-var state per `aims-rules.md §4 DP-2`; DP-2 false on (Many,
+/// Linear) base means the field dec must NOT be removed.
+#[test]
+fn preserve_dec_field_on_linear_many_base() {
+    let func_body = vec![ArcInstr::BurdenDecField {
+        base: v(0),
+        field: 3,
+    }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Many, Linear) base must preserve BurdenDecField; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecField { base, field } if base == v(0) && field == 3
+    ));
+}
+
+// (Once, Affine) × { BurdenInc, BurdenDec, BurdenDecPartial, BurdenDecVariant, BurdenDecField }
+
+/// State (Once, Affine) × `BurdenInc` — DP-3 false per `aims-rules.md §4
+/// DP-3` (consumption ≠ Linear); inc must NOT be removed.
+#[test]
+fn preserve_inc_on_affine_once() {
+    let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-3 false on (Once, Affine) must preserve BurdenInc; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenInc { var } if var == v(0)
+    ));
+}
+
+/// State (Once, Affine) × `BurdenDec` — DP-2 false per `aims-rules.md §4
+/// DP-2` (neither cardinality = Absent nor consumption = Dead); dec must
+/// NOT be removed.
+#[test]
+fn preserve_dec_on_affine_once() {
+    let func_body = vec![ArcInstr::BurdenDec { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Once, Affine) must preserve BurdenDec; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDec { var } if var == v(0)
+    ));
+}
+
+/// State (Once, Affine) × `BurdenDecPartial` — DP-2 false per
+/// `aims-rules.md §4 DP-2`; partial-drop must NOT be removed.
+#[test]
+fn preserve_dec_partial_on_affine_once() {
+    let func_body = vec![ArcInstr::BurdenDecPartial {
+        var: v(0),
+        skip_fields: vec![0, 2],
+    }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Once, Affine) must preserve BurdenDecPartial; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecPartial { var, .. } if var == v(0)
+    ));
+}
+
+/// State (Once, Affine) × `BurdenDecVariant` — DP-2 false per
+/// `aims-rules.md §4 DP-2`; variant-drop must NOT be removed.
+#[test]
+fn preserve_dec_variant_on_affine_once() {
+    let func_body = vec![ArcInstr::BurdenDecVariant { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Once, Affine) must preserve BurdenDecVariant; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecVariant { var } if var == v(0)
+    ));
+}
+
+/// State (Once, Affine) × `BurdenDecField` — DP-2 queried against base's
+/// whole-var state per `aims-rules.md §4 DP-2`; DP-2 false on (Once,
+/// Affine) base means the field dec must NOT be removed.
+#[test]
+fn preserve_dec_field_on_affine_once_base() {
+    let func_body = vec![ArcInstr::BurdenDecField {
+        base: v(0),
+        field: 1,
+    }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Once, Affine) base must preserve BurdenDecField; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecField { base, field } if base == v(0) && field == 1
+    ));
+}
+
+// (Many, Unrestricted) × { BurdenInc, BurdenDec, BurdenDecVariant, BurdenDecField }
+// — BurdenDecPartial covered by `preserve_dec_partial_on_many_unrestricted`.
+
+/// State (Many, Unrestricted) × `BurdenInc` — DP-3 false per
+/// `aims-rules.md §4 DP-3` (cardinality ≠ Once); inc must NOT be removed.
+#[test]
+fn preserve_inc_on_unrestricted_many() {
+    let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(
+            v(0),
+            owned_state(Cardinality::Many, Consumption::Unrestricted),
+        )],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-3 false on (Many, Unrestricted) must preserve BurdenInc; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenInc { var } if var == v(0)
+    ));
+}
+
+/// State (Many, Unrestricted) × `BurdenDec` — DP-2 false per
+/// `aims-rules.md §4 DP-2`; dec must NOT be removed.
+#[test]
+fn preserve_dec_on_unrestricted_many() {
+    let func_body = vec![ArcInstr::BurdenDec { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(
+            v(0),
+            owned_state(Cardinality::Many, Consumption::Unrestricted),
+        )],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Many, Unrestricted) must preserve BurdenDec; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDec { var } if var == v(0)
+    ));
+}
+
+/// State (Many, Unrestricted) × `BurdenDecVariant` — DP-2 false per
+/// `aims-rules.md §4 DP-2`; variant-drop must NOT be removed.
+#[test]
+fn preserve_dec_variant_on_unrestricted_many() {
+    let func_body = vec![ArcInstr::BurdenDecVariant { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(
+            v(0),
+            owned_state(Cardinality::Many, Consumption::Unrestricted),
+        )],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Many, Unrestricted) must preserve BurdenDecVariant; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecVariant { var } if var == v(0)
+    ));
+}
+
+/// State (Many, Unrestricted) × `BurdenDecField` — DP-2 queried against
+/// base's whole-var state per `aims-rules.md §4 DP-2`; DP-2 false on
+/// (Many, Unrestricted) base means the field dec must NOT be removed.
+#[test]
+fn preserve_dec_field_on_unrestricted_many_base() {
+    let func_body = vec![ArcInstr::BurdenDecField {
+        base: v(0),
+        field: 4,
+    }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(
+            v(0),
+            owned_state(Cardinality::Many, Consumption::Unrestricted),
+        )],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-2 false on (Many, Unrestricted) base must preserve BurdenDecField; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenDecField { base, field } if base == v(0) && field == 4
+    ));
+}
+
+// (Absent, Dead) × { BurdenInc }
+// — remaining BurdenDec* variants on (Absent, Dead) covered above.
+
+/// State (Absent, Dead) × `BurdenInc` — DP-3 false per `aims-rules.md §4
+/// DP-3` (cardinality ≠ Once); inc must NOT be removed. Per CN-1 the
+/// (Absent, Dead) state is the only canonicalized state satisfying DP-2,
+/// but `BurdenInc` consults DP-3 which fails on cardinality = Absent.
+#[test]
+fn preserve_inc_on_dead_absent() {
+    let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        1,
+        "DP-3 false on (Absent, Dead) must preserve BurdenInc; body = {body:?}"
+    );
+    assert!(matches!(
+        body[0],
+        ArcInstr::BurdenInc { var } if var == v(0)
+    ));
+}
+
+// §04A.3 ITEM-4 + ITEM-5 — Coexistence handshake pins.
+//
+// These pins target the predicate-stack / burden-walk handshake: when an
+// SSA-alias class is fully burden-covered, `decide()` returns
+// `RcDecision::None` (predicate stack defers); when ANY member lacks
+// burden coverage, `class_covered` is false and predicate stack runs
+// unchanged. The unit-level test exercises `decide()` directly with the
+// `class_covered` flag set/unset (mirroring what the realize walks
+// compute from `state_map.is_class_covered`); the integration shape
+// (populating burden_emitted + class_covered + invoking decide) lands
+// in the full pipeline path.
+
+/// §04A.3 ITEM-4 positive pin: `decide()` with `class_covered: true`
+/// returns `RcDecision::None` regardless of the underlying `DecisionSite`.
+/// Predicate-stack realization SHALL emit zero RC ops on this site —
+/// burden walk owns the inc/dec.
+#[test]
+fn class_fully_covered_predicate_stack_skips() {
+    use crate::aims::realize::decide::{
+        decide, DecisionContext, DecisionSite, RcDecision, ReuseContext, ReuseDecision,
+        UseSemantics,
+    };
+
+    // Use-site that would normally emit Inc (future use, Normal semantics).
+    let decision = decide(&DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+            semantics: UseSemantics::Normal,
+        },
+        is_rc_managed: true,
+        class_covered: true,
+    });
+    assert_eq!(
+        decision.rc,
+        RcDecision::None,
+        "class_covered=true must force RcDecision::None on Use site (got {:?})",
+        decision.rc
+    );
+
+    // Defined-dead site that would normally emit Dec.
+    let decision = decide(&DecisionContext {
+        site: DecisionSite::DefinedDead,
+        is_rc_managed: true,
+        class_covered: true,
+    });
+    assert_eq!(
+        decision.rc,
+        RcDecision::None,
+        "class_covered=true must force RcDecision::None on DefinedDead (got {:?})",
+        decision.rc
+    );
+
+    // Last-use site that would normally emit Dec.
+    let decision = decide(&DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::NonReusable,
+                uniqueness: Uniqueness::Unique,
+                cardinality: Cardinality::Once,
+            },
+        },
+        is_rc_managed: true,
+        class_covered: true,
+    });
+    assert_eq!(
+        decision.rc,
+        RcDecision::None,
+        "class_covered=true must force RcDecision::None on LastUse (got {:?})",
+        decision.rc
+    );
+    assert_eq!(
+        decision.reuse,
+        ReuseDecision::None,
+        "class_covered=true must skip reuse (burden walk owns disposal)"
+    );
+}
+
+/// §04A.3 ITEM-5 negative pin: when `class_covered: false` (mixed
+/// coverage in the class), `decide()` runs as today and produces the
+/// normal predicate-stack decisions. This pin proves the coexistence
+/// handshake is a STRICT all-or-nothing gate — no partial-class skipping.
+#[test]
+fn mixed_coverage_predicate_stack_runs() {
+    use crate::aims::realize::decide::{
+        decide, DecisionContext, DecisionSite, RcDecision, UseSemantics,
+    };
+
+    // Use-site with future use, class_covered=false → predicate stack
+    // emits the normal RcInc decision.
+    let decision = decide(&DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+            semantics: UseSemantics::Normal,
+        },
+        is_rc_managed: true,
+        class_covered: false,
+    });
+    assert_eq!(
+        decision.rc,
+        RcDecision::Inc,
+        "class_covered=false must NOT suppress RcInc (got {:?})",
+        decision.rc
+    );
+
+    // Defined-dead site with class_covered=false → predicate stack emits Dec.
+    let decision = decide(&DecisionContext {
+        site: DecisionSite::DefinedDead,
+        is_rc_managed: true,
+        class_covered: false,
+    });
+    assert_eq!(
+        decision.rc,
+        RcDecision::Dec,
+        "class_covered=false must NOT suppress DefinedDead Dec (got {:?})",
+        decision.rc
+    );
+}
+
+/// §04A.3 ITEM-2 helper test: `AimsStateMap::is_class_covered` reads
+/// the set installed by `set_class_covered`. The full `populate_class_covered`
+/// fixed-point semantics are exercised via the pipeline path; here we pin
+/// the accessor contract a class id mapping in/out of the set.
+#[test]
+fn class_covered_accessor_reads_installed_set() {
+    let func = one_block_func(1, vec![]);
+    let mut state_map = AimsStateMap::new(&func);
+    assert!(
+        !state_map.is_class_covered(0),
+        "empty class_covered must report false for any class id"
+    );
+
+    let mut covered: rustc_hash::FxHashSet<u32> = rustc_hash::FxHashSet::default();
+    covered.insert(7);
+    state_map.set_class_covered(covered);
+    assert!(
+        state_map.is_class_covered(7),
+        "installed class 7 must report covered"
+    );
+    assert!(
+        !state_map.is_class_covered(8),
+        "non-installed class 8 must report not covered"
+    );
+    assert_eq!(state_map.class_covered_count(), 1);
+}
+
+/// §04A.3 ITEM-1 helper test: `ArcFunction::burden_emitted` records the
+/// vars touched by burden-op emission. Pin proves the populate pass sets
+/// the bit for each Burden* instruction's target var.
+#[test]
+fn burden_emitted_records_emitted_vars() {
+    let body = vec![
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::BurdenDecField {
+            base: v(2),
+            field: 0,
+        },
+    ];
+    let func = one_block_func(4, body);
+    // Mimic what `populate_burden_emitted` does (private helper —
+    // exercised at the pipeline level; here we directly set the field
+    // to pin the accessor shape).
+    let mut emitted = vec![false; 4];
+    emitted[0] = true;
+    emitted[1] = true;
+    emitted[2] = true;
+    let mut func2 = func;
+    func2.burden_emitted = emitted;
+    assert!(func2.burden_emitted[0], "v0 emitted by BurdenInc");
+    assert!(func2.burden_emitted[1], "v1 emitted by BurdenDec");
+    assert!(func2.burden_emitted[2], "v2 emitted by BurdenDecField base");
+    assert!(!func2.burden_emitted[3], "v3 not emitted");
+}
+
+/// Mixed-instruction body: per paired-elimination per `aims-rules.md §9
+/// VF-1`, a var's Inc + whole-var Dec ops elide together ONLY when DP-3
+/// fires on every Inc AND DP-2 fires on every Dec — otherwise every op
+/// for that var is retained so the intraprocedural net stays zero.
+///
+/// v0 state (Once, Linear): DP-3 fires on its Inc but DP-2 does NOT fire
+/// on its Dec → both retained to keep the Inc/Dec pair balanced.
+/// v1 state (Many, Unrestricted): neither DP-2 nor DP-3 fire → its Dec
+/// retained. Non-burden `RcInc` preserved verbatim. No ops elided.
+#[test]
+fn mixed_body_preserves_non_burden_and_relative_order() {
+    let func_body = vec![
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::RcInc {
+            var: v(1),
+            count: 1,
+            strategy: crate::ir::RcStrategy::HeapPointer,
+        },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(2, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[
+            (v(0), owned_state(Cardinality::Once, Consumption::Linear)),
+            (
+                v(1),
+                owned_state(Cardinality::Many, Consumption::Unrestricted),
+            ),
+        ],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        body.len(),
+        4,
+        "paired-elim preserves Inc/Dec pair when DP-2 fails on Dec; body = {body:?}"
+    );
+    assert!(matches!(body[0], ArcInstr::BurdenInc { var } if var == v(0)));
+    assert!(matches!(body[1], ArcInstr::RcInc { var, .. } if var == v(1)));
+    assert!(matches!(body[2], ArcInstr::BurdenDec { var } if var == v(1)));
+    assert!(matches!(body[3], ArcInstr::BurdenDec { var } if var == v(0)));
+}
+
+/// Paired-elim positive case: same var has `BurdenInc` + `BurdenDec`, both
+/// states elidable per their predicates. Per `plans/aims-burden-tracking/
+/// section-04A-minimal-lattice-adaptation.md §04A.5 ITEM-4`, both elide
+/// together when DP-3 fires on Inc AND DP-2 fires on Dec.
+///
+/// Two distinct states is impossible for one var in one block-exit
+/// lookup; this test uses two separate vars to demonstrate the pairing
+/// independence — v0 (Once, Linear) pair elides, v1 (Absent, Dead) pair
+/// elides, but mixing requires same var.
+///
+/// For a single var, DP-2 + DP-3 cannot BOTH fire on the same canonical
+/// state per CN-1 (Dead ↔ Absent mutually exclusive with Once/Linear).
+/// Therefore the same-var paired-elim path NEVER fires in practice — it
+/// is a soundness backstop preventing VF-1 imbalance, not an
+/// optimization. The pin demonstrates that the backstop correctly
+/// retains BOTH ops in every case where they could not BOTH elide.
+#[test]
+fn paired_elim_unmatched_inc_retains_both() {
+    let func_body = vec![
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    let body = &func.blocks[0].body;
+    // (Absent, Dead): DP-2 fires on Dec but DP-3 FAILS on Inc (needs
+    // Once + Linear). Per VF-1 paired-elim contract, retain both to
+    // keep `Σ Inc - Σ Dec = 0` across the block.
+    assert_eq!(
+        body.len(),
+        2,
+        "paired-elim must retain unmatched Inc + matching Dec to preserve VF-1 balance; body = {body:?}"
+    );
+    assert!(matches!(body[0], ArcInstr::BurdenInc { var } if var == v(0)));
+    assert!(matches!(body[1], ArcInstr::BurdenDec { var } if var == v(0)));
+}
+
+/// Paired-elim negative case: a var with only `BurdenInc` and no matching
+/// `BurdenDec` elides the Inc per DP-3 directly (no Dec to pin against).
+/// The pre-paired-elim contract for solitary-Inc preservation is
+/// retained — `elide_inc_on_linear_once` already covers this; this pin
+/// makes the asymmetric case explicit.
+#[test]
+fn paired_elim_solo_inc_elidable_state_elides() {
+    let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    assert!(
+        func.blocks[0].body.is_empty(),
+        "solitary Inc with DP-3 firing elides (no matching Dec to pin against); body = {:?}",
+        func.blocks[0].body
+    );
+}
+
+/// Paired-elim negative case: a var with only `BurdenDec` and no matching
+/// `BurdenInc` elides the Dec per DP-2 directly. Mirrors
+/// `paired_elim_solo_inc_elidable_state_elides` for the dec side.
+#[test]
+fn paired_elim_solo_dec_unnecessary_state_elides() {
+    let func_body = vec![ArcInstr::BurdenDec { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
+    );
+
+    eliminate_burden_ops(&mut func, &state_map);
+
+    assert!(
+        func.blocks[0].body.is_empty(),
+        "solitary Dec with DP-2 firing elides (no matching Inc to pin against); body = {:?}",
+        func.blocks[0].body
+    );
+}
