@@ -1082,6 +1082,7 @@ fn rc_realloc_null_returns_null() {
 /// — a `OnceLock`-cached env var that is non-deterministic in the shared
 /// test process.
 #[test]
+#[cfg(debug_assertions)]
 fn alloc_registry_insert_update_query() {
     use crate::rc::{
         alloc_registry_insert, alloc_registry_query, alloc_registry_remove, alloc_registry_update,

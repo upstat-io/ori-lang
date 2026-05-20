@@ -271,6 +271,7 @@ fn closure_env_capture_burden_emitted_ir_converges() {
 /// within bound for every fixture. Debug-only counter (zero overhead in
 /// release per `aims/intraprocedural/mod.rs::MAX_ITERATIONS_OBSERVED`).
 #[test]
+#[cfg(debug_assertions)]
 fn ic7_iteration_bound_respected_across_harness() {
     let registry = TypeRegistry::new();
     intraprocedural::reset_max_iterations_observed();

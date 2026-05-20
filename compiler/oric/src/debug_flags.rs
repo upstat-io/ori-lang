@@ -139,6 +139,13 @@ flags! {
     /// Usage: `ORI_DISABLE_BURDEN_OPS=1 ori build file.ori`
     ORI_DISABLE_BURDEN_OPS
 
+    /// Disable the §02.5 DP-2/DP-3 burden-op elimination pass.
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` to conditionally
+    /// bypass burden-op elimination for diagnostic bisection.
+    /// Usage: `ORI_DISABLE_BURDEN_ELIM=1 ori build file.ori`
+    ORI_DISABLE_BURDEN_ELIM
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.
