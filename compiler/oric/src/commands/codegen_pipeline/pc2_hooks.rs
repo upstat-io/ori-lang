@@ -9,7 +9,7 @@
 //! are logged via `tracing::error!` tagged with a site discriminator
 //! (`aot_pre_mono` / `aot_pre_mono_lambda` / `aot_mono` / `aot_mono_lambda`).
 //! The helper is the sole PC-2 walker at AOT secondary sites; primary seam
-//! enforcement is in `ori_llvm::codegen::function_compiler::define_phase`.
+//! enforcement is in `ori_llvm::codegen::function_compiler::shared_seam`.
 
 #[cfg(feature = "llvm")]
 use ori_ir::StringInterner;
@@ -26,7 +26,7 @@ use rustc_hash::FxHashSet;
 /// AOT secondary sites (entries are non-generic or already monomorphized).
 ///
 /// Emits `tracing::error!` on each violation but does not propagate — the
-/// primary seam in `ori_llvm::codegen::function_compiler::define_phase` is
+/// primary seam in `ori_llvm::codegen::function_compiler::shared_seam` is
 /// the load-bearing gate; secondary sites are diagnostic localization only.
 #[cfg(feature = "llvm")]
 pub(super) fn run_pc2_hook_aot(
