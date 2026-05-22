@@ -32,7 +32,7 @@ jobs:
     # CI is guaranteed by branch protection — this only runs after a merge to master.
     if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
 
     steps:
       - name: Generate App token
