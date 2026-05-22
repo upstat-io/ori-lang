@@ -104,41 +104,103 @@ pub struct UnresolvedTypeVar {
 /// `ori_llvm`, BEFORE `ori_arc::run_arc_pipeline(...)` is invoked. The AIMS
 /// pipeline mutates `arc_func` in place; calling after would validate the
 /// wrong IR.
+/// Gate order mirrors producer-side validator (`ori_types/check/validators/mod.rs`):
+/// `resolve_fully` → tag check → exemption set. `resolve_fully` load-bearing —
+/// `Tag::Var` in any position may be a Link to a concrete type that fully resolves.
+fn check_unresolved_idx<S: BuildHasher>(
+    pool: &Pool,
+    ty: Idx,
+    func_name: Name,
+    reporting_var_id: ArcVarId,
+    exempt_var_ids: &HashSet<u32, S>,
+) -> Result<(), UnresolvedTypeVar> {
+    let resolved = pool.resolve_fully(ty);
+    let tag = pool.tag(resolved);
+    if matches!(tag, Tag::Var) {
+        let var_id = pool.data(resolved);
+        if exempt_var_ids.contains(&var_id) {
+            return Ok(());
+        }
+        return Err(UnresolvedTypeVar {
+            function: func_name,
+            var_id: reporting_var_id,
+            idx: resolved,
+            tag,
+        });
+    }
+    if matches!(tag, Tag::Projection) {
+        return Err(UnresolvedTypeVar {
+            function: func_name,
+            var_id: reporting_var_id,
+            idx: resolved,
+            tag,
+        });
+    }
+    Ok(())
+}
+
+/// Instruction-operand walker. Exhaustive match — new `Idx`-bearing variants
+/// are compile-time errors here, forcing PC-2 contract re-evaluation.
+fn check_instr_for_unresolved_idx<S: BuildHasher>(
+    pool: &Pool,
+    instr: &ArcInstr,
+    func_name: Name,
+    exempt_var_ids: &HashSet<u32, S>,
+) -> Result<(), UnresolvedTypeVar> {
+    match instr {
+        ArcInstr::Let { dst, ty, .. }
+        | ArcInstr::Apply { dst, ty, .. }
+        | ArcInstr::ApplyIndirect { dst, ty, .. }
+        | ArcInstr::PartialApply { dst, ty, .. }
+        | ArcInstr::Project { dst, ty, .. }
+        | ArcInstr::Construct { dst, ty, .. }
+        | ArcInstr::Reuse { dst, ty, .. }
+        | ArcInstr::CollectionReuse { dst, ty, .. }
+        | ArcInstr::Select { dst, ty, .. } => {
+            check_unresolved_idx(pool, *ty, func_name, *dst, exempt_var_ids)
+        }
+        ArcInstr::RcInc { .. }
+        | ArcInstr::RcDec { .. }
+        | ArcInstr::BurdenInc { .. }
+        | ArcInstr::BurdenDec { .. }
+        | ArcInstr::BurdenDecPartial { .. }
+        | ArcInstr::BurdenDecField { .. }
+        | ArcInstr::BurdenDecVariant { .. }
+        | ArcInstr::IsShared { .. }
+        | ArcInstr::Set { .. }
+        | ArcInstr::SetTag { .. }
+        | ArcInstr::Reset { .. } => Ok(()),
+    }
+}
+
+/// Terminator-operand walker. `Invoke` and `InvokeIndirect` are the only
+/// `Idx`-bearing terminator variants today; exhaustive match catches additions.
+fn check_terminator_for_unresolved_idx<S: BuildHasher>(
+    pool: &Pool,
+    terminator: &ArcTerminator,
+    func_name: Name,
+    exempt_var_ids: &HashSet<u32, S>,
+) -> Result<(), UnresolvedTypeVar> {
+    match terminator {
+        ArcTerminator::Invoke { dst, ty, .. } | ArcTerminator::InvokeIndirect { dst, ty, .. } => {
+            check_unresolved_idx(pool, *ty, func_name, *dst, exempt_var_ids)
+        }
+        ArcTerminator::Return { .. }
+        | ArcTerminator::Jump { .. }
+        | ArcTerminator::Branch { .. }
+        | ArcTerminator::Switch { .. }
+        | ArcTerminator::Resume
+        | ArcTerminator::Unreachable => Ok(()),
+    }
+}
+
 pub fn assert_no_unresolved_type_vars<S: BuildHasher>(
     pool: &Pool,
     func: &ArcFunction,
     interner: &StringInterner,
     exempt_var_ids: &HashSet<u32, S>,
 ) -> Result<(), UnresolvedTypeVar> {
-    // Gate order mirrors the producer-side validator
-    // (ori_types/check/validators/mod.rs): resolve_fully → tag check →
-    // exemption set. `resolve_fully` is load-bearing — a `Tag::Var` in any
-    // position may be a Link to a concrete type that fully resolves.
-    let check_idx = |ty: Idx, reporting_var_id: ArcVarId| -> Result<(), UnresolvedTypeVar> {
-        let resolved = pool.resolve_fully(ty);
-        let tag = pool.tag(resolved);
-        if matches!(tag, Tag::Var) {
-            let var_id = pool.data(resolved);
-            if exempt_var_ids.contains(&var_id) {
-                return Ok(());
-            }
-            return Err(UnresolvedTypeVar {
-                function: func.name,
-                var_id: reporting_var_id,
-                idx: resolved,
-                tag,
-            });
-        }
-        if matches!(tag, Tag::Projection) {
-            return Err(UnresolvedTypeVar {
-                function: func.name,
-                var_id: reporting_var_id,
-                idx: resolved,
-                tag,
-            });
-        }
-        Ok(())
-    };
+    let name = func.name;
 
     // 1. SSA-variable storage (primary position).
     //
@@ -150,61 +212,38 @@ pub fn assert_no_unresolved_type_vars<S: BuildHasher>(
         reason = "ArcVarId is u32; var_types.len() cannot exceed u32::MAX by construction"
     )]
     for (raw_idx, &ty) in func.var_types.iter().enumerate() {
-        check_idx(ty, ArcVarId::new(raw_idx as u32))?;
+        check_unresolved_idx(
+            pool,
+            ty,
+            name,
+            ArcVarId::new(raw_idx as u32),
+            exempt_var_ids,
+        )?;
     }
     // 2. Entry-block parameters.
     for param in &func.params {
-        check_idx(param.ty, param.var)?;
+        check_unresolved_idx(pool, param.ty, name, param.var, exempt_var_ids)?;
     }
     // 3. Return type. `ArcVarId::INVALID` is a sentinel — no owning SSA var.
-    check_idx(func.return_type, ArcVarId::INVALID)?;
+    check_unresolved_idx(
+        pool,
+        func.return_type,
+        name,
+        ArcVarId::INVALID,
+        exempt_var_ids,
+    )?;
     // 4. CFG-block parameters (skip blocks[0]; it mirrors func.params).
     for block in func.blocks.iter().skip(1) {
         for &(var, ty) in &block.params {
-            check_idx(ty, var)?;
+            check_unresolved_idx(pool, ty, name, var, exempt_var_ids)?;
         }
     }
-    // 5. Instruction operands carrying `Idx` payloads. Exhaustive match —
-    //    new `Idx`-bearing variants are compile-time errors here, forcing
-    //    the PC-2 contract to be re-evaluated when the IR grows.
+    // 5+6. Instruction operands + terminator operands (per-block walk).
     for block in &func.blocks {
         for instr in &block.body {
-            match instr {
-                ArcInstr::Let { dst, ty, .. }
-                | ArcInstr::Apply { dst, ty, .. }
-                | ArcInstr::ApplyIndirect { dst, ty, .. }
-                | ArcInstr::PartialApply { dst, ty, .. }
-                | ArcInstr::Project { dst, ty, .. }
-                | ArcInstr::Construct { dst, ty, .. }
-                | ArcInstr::Reuse { dst, ty, .. }
-                | ArcInstr::CollectionReuse { dst, ty, .. }
-                | ArcInstr::Select { dst, ty, .. } => check_idx(*ty, *dst)?,
-                ArcInstr::RcInc { .. }
-                | ArcInstr::RcDec { .. }
-                | ArcInstr::BurdenInc { .. }
-                | ArcInstr::BurdenDec { .. }
-                | ArcInstr::BurdenDecPartial { .. }
-                | ArcInstr::BurdenDecField { .. }
-                | ArcInstr::BurdenDecVariant { .. }
-                | ArcInstr::IsShared { .. }
-                | ArcInstr::Set { .. }
-                | ArcInstr::SetTag { .. }
-                | ArcInstr::Reset { .. } => {}
-            }
+            check_instr_for_unresolved_idx(pool, instr, name, exempt_var_ids)?;
         }
-        // 6. Terminator operands carrying `Idx` payloads. Exhaustive match
-        //    — `Invoke` and `InvokeIndirect` are the only `Idx`-bearing
-        //    terminator variants today.
-        match &block.terminator {
-            ArcTerminator::Invoke { dst, ty, .. }
-            | ArcTerminator::InvokeIndirect { dst, ty, .. } => check_idx(*ty, *dst)?,
-            ArcTerminator::Return { .. }
-            | ArcTerminator::Jump { .. }
-            | ArcTerminator::Branch { .. }
-            | ArcTerminator::Switch { .. }
-            | ArcTerminator::Resume
-            | ArcTerminator::Unreachable => {}
-        }
+        check_terminator_for_unresolved_idx(pool, &block.terminator, name, exempt_var_ids)?;
     }
 
     let _ = interner; // reserved for future Name rendering in Display impl
