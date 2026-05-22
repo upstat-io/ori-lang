@@ -59,51 +59,6 @@ pub struct UnresolvedTypeVar {
     pub tag: Tag,
 }
 
-/// Check that no `Tag::Var` (outside `exempt_var_ids`) or `Tag::Projection`
-/// appears in any type-bearing position of `func`. PC-2 enforcement covers
-/// every `Idx` field on `ArcFunction`, `ArcParam`, `ArcInstr`, and
-/// `ArcTerminator`:
-///
-/// - `func.var_types[*]`              — SSA-variable types (primary storage)
-/// - `func.params[*].ty`              — entry-block parameter types
-/// - `func.return_type`               — declared return-type `Idx`
-/// - `func.blocks[*].params[*].1`     — CFG-block parameter types (tuple
-///   `.1` = `Idx`; `ArcBlock.params` is `Vec<(ArcVarId, Idx)>`)
-/// - `func.blocks[*].body[*].ty`      — instruction operand types for
-///   `Let | Apply | ApplyIndirect | PartialApply | Project | Construct |
-///   Reuse | CollectionReuse | Select`
-/// - `func.blocks[*].terminator.ty`   — terminator operand types for
-///   `Invoke { ty }` and `InvokeIndirect { ty }`
-///
-/// Walkers over instructions and terminators use exhaustive matches with
-/// no `_ => ()` arm: a future `Idx`-bearing variant addition is a
-/// compile-time error here, forcing the PC-2 contract to be re-evaluated.
-/// `var_types`-only scope would let a `Tag::Var` in a parameter, return,
-/// instruction, or terminator position bypass the check entirely.
-///
-/// # Parameters
-///
-/// - `pool`: the frozen type pool (post-typecheck).
-/// - `func`: the ARC function to validate.
-/// - `interner`: string interner for rendering function name in diagnostics.
-/// - `exempt_var_ids`: var IDs that are legitimately `Tag::Var` because they
-///   are `VarState::Generalized` or `VarState::Rigid` (mirrors the producer
-///   side `build_exempt_var_ids` in `ori_types::check::validators`). For
-///   monomorphized functions this set is EMPTY. For non-monomorphized
-///   function bodies (e.g., pre-mono JIT path) the caller populates it from
-///   the owning `FunctionSig.scheme_var_ids`.
-///
-/// # Returns
-///
-/// `Ok(())` when the invariant holds. `Err(UnresolvedTypeVar)` with the FIRST
-/// offending variable (deterministic iteration order).
-///
-/// # When to Call
-///
-/// Call this from `process_arc_function` + `declare_and_process_lambda` in
-/// `ori_llvm`, BEFORE `ori_arc::run_arc_pipeline(...)` is invoked. The AIMS
-/// pipeline mutates `arc_func` in place; calling after would validate the
-/// wrong IR.
 /// Gate order mirrors producer-side validator (`ori_types/check/validators/mod.rs`):
 /// `resolve_fully` → tag check → exemption set. `resolve_fully` load-bearing —
 /// `Tag::Var` in any position may be a Link to a concrete type that fully resolves.
@@ -194,6 +149,51 @@ fn check_terminator_for_unresolved_idx<S: BuildHasher>(
     }
 }
 
+/// Check that no `Tag::Var` (outside `exempt_var_ids`) or `Tag::Projection`
+/// appears in any type-bearing position of `func`. PC-2 enforcement covers
+/// every `Idx` field on `ArcFunction`, `ArcParam`, `ArcInstr`, and
+/// `ArcTerminator`:
+///
+/// - `func.var_types[*]`              — SSA-variable types (primary storage)
+/// - `func.params[*].ty`              — entry-block parameter types
+/// - `func.return_type`               — declared return-type `Idx`
+/// - `func.blocks[*].params[*].1`     — CFG-block parameter types (tuple
+///   `.1` = `Idx`; `ArcBlock.params` is `Vec<(ArcVarId, Idx)>`)
+/// - `func.blocks[*].body[*].ty`      — instruction operand types for
+///   `Let | Apply | ApplyIndirect | PartialApply | Project | Construct |
+///   Reuse | CollectionReuse | Select`
+/// - `func.blocks[*].terminator.ty`   — terminator operand types for
+///   `Invoke { ty }` and `InvokeIndirect { ty }`
+///
+/// Walkers over instructions and terminators use exhaustive matches with
+/// no `_ => ()` arm: a future `Idx`-bearing variant addition is a
+/// compile-time error here, forcing the PC-2 contract to be re-evaluated.
+/// `var_types`-only scope would let a `Tag::Var` in a parameter, return,
+/// instruction, or terminator position bypass the check entirely.
+///
+/// # Parameters
+///
+/// - `pool`: the frozen type pool (post-typecheck).
+/// - `func`: the ARC function to validate.
+/// - `interner`: string interner for rendering function name in diagnostics.
+/// - `exempt_var_ids`: var IDs that are legitimately `Tag::Var` because they
+///   are `VarState::Generalized` or `VarState::Rigid` (mirrors the producer
+///   side `build_exempt_var_ids` in `ori_types::check::validators`). For
+///   monomorphized functions this set is EMPTY. For non-monomorphized
+///   function bodies (e.g., pre-mono JIT path) the caller populates it from
+///   the owning `FunctionSig.scheme_var_ids`.
+///
+/// # Returns
+///
+/// `Ok(())` when the invariant holds. `Err(UnresolvedTypeVar)` with the FIRST
+/// offending variable (deterministic iteration order).
+///
+/// # When to Call
+///
+/// Call this from `process_arc_function` + `declare_and_process_lambda` in
+/// `ori_llvm`, BEFORE `ori_arc::run_arc_pipeline(...)` is invoked. The AIMS
+/// pipeline mutates `arc_func` in place; calling after would validate the
+/// wrong IR.
 pub fn assert_no_unresolved_type_vars<S: BuildHasher>(
     pool: &Pool,
     func: &ArcFunction,
