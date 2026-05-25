@@ -829,14 +829,18 @@ fn demand_propagation_no_callers_stays_maybe_shared() {
     );
 }
 
+/// BUG-04-069: a forwarded Owned param is NOT provably RC==1. `Owned+Linear+Once`
+/// proves no-future-duplication, NOT no-existing-alias (the removed-IC-8/DP-10
+/// fallacy). The forwarded-param Case 2 use-count heuristic is dropped; only a
+/// fresh `Construct` (RC==1 by TF-3) tightens. This is the negative soundness pin.
 #[test]
-fn demand_propagation_forwarded_param_owned_linear_once() {
+fn demand_propagation_forwarded_param_stays_maybe_shared() {
     // callee(p0: T) -> T: { return p0 }
     // caller(p0: T) -> T: { v1 = callee(p0); return v1 }
     //
-    // caller forwards its own parameter to callee. The caller's backward
-    // demand on p0 is Owned+Linear+Once (used once at the callee call).
-    // Since this is the only caller, callee.params[0] should be Unique.
+    // caller forwards its own parameter to callee. `p0` carries MaybeShared
+    // (extract.rs param default); forwarding does NOT make it Unique. The
+    // callee param MUST stay MaybeShared — tightening would be the DP-10 fallacy.
     let callee = ArcFunction {
         name: name(1),
         params: vec![ArcParam {
@@ -887,8 +891,87 @@ fn demand_propagation_forwarded_param_owned_linear_once() {
     let callee_contract = &contracts[&name(1)];
     assert_eq!(
         callee_contract.params[0].uniqueness,
-        Uniqueness::Unique,
-        "forwarded param with Owned+Linear+Once → callee param uniqueness should be Unique"
+        Uniqueness::MaybeShared,
+        "forwarded Owned param is not provably RC==1 → callee param stays MaybeShared (DP-10/IC-8 removed)"
+    );
+}
+
+/// BUG-04-069: a SINGLE fresh-`Construct` variable passed to the SAME
+/// (callee, param_idx) at >=2 call sites is RC>1 at the non-first use. The
+/// per-(callee,param) AND-fold must NOT tighten to Unique — the `count_var_uses
+/// == 1` guard on Case 1 (fresh Construct used exactly once) keeps it
+/// MaybeShared. Closes the DP-10-class hole on the Construct path that an
+/// unguarded `construct_vars.contains` membership check would leave open.
+#[test]
+fn demand_propagation_construct_var_at_two_sites_stays_maybe_shared() {
+    // callee(p0: T) -> T: { return p0 }
+    // caller(): { v0 = Construct; v1 = callee(v0); v2 = callee(v0); return v2 }
+    //
+    // v0 is a fresh Construct (RC==1 at construction) but is passed to the
+    // SAME (callee, param 0) twice → count_var_uses(v0) == 2 → not Unique.
+    let callee = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let caller = ArcFunction {
+        name: name(2),
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: name(1),
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Apply {
+                    dst: var(2),
+                    ty: ty(0),
+                    func: name(1),
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let builtins = crate::borrow::BuiltinOwnershipSets::empty();
+    let interner = ori_ir::StringInterner::new();
+
+    let contracts = analyze_program(&[callee, caller], &classifier, &builtins, &interner);
+
+    let callee_contract = &contracts[&name(1)];
+    assert_eq!(
+        callee_contract.params[0].uniqueness,
+        Uniqueness::MaybeShared,
+        "fresh Construct passed to same (callee,param) at 2 sites is RC>1 at second use → stays MaybeShared"
     );
 }
 

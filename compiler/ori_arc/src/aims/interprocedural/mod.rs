@@ -44,8 +44,6 @@ use super::intraprocedural::analyze_function;
 use super::intraprocedural::AimsStateMap;
 use super::lattice::Uniqueness;
 
-use crate::ownership::Ownership;
-
 pub(crate) use extract::{build_alias_to_param_map, extract_contract};
 
 /// Compute [`MemoryContract`] for all functions via SCC-based fixed-point.
@@ -397,12 +395,9 @@ fn tighten_uniqueness_from_callers(
 
 /// Collect call-site argument uniqueness information for demand propagation.
 ///
-/// For each argument at a call site, checks whether the argument is
-/// guaranteed unique (RC==1) when passed to the callee:
-///
-/// 1. **Construct-defined variable**: fresh allocation, RC==1.
-/// 2. **Owned function parameter with single use**: forwarded linearly.
-///
+/// For each non-scalar argument, folds per `(callee, param_idx)` whether the
+/// argument is a fresh `Construct` used exactly once (RC==1 by TF-3) across all
+/// call sites; the param tightens to `Unique` only when every site qualifies.
 /// Only non-scalar arguments in callee contracts are checked.
 fn collect_call_site_uniqueness(
     func: &ArcFunction,
@@ -438,42 +433,19 @@ fn collect_call_site_uniqueness(
 
 /// Check whether a call-site argument is guaranteed unique (RC==1).
 ///
-/// Uses structural checks rather than backward analysis state, because the
-/// backward analysis double-counts Apply arguments (contract demand + generic
-/// backward demand) and uses `Affine` minimum consumption.
-///
-/// - **Construct-defined variables**: a `Construct` instruction produces a
-///   fresh heap value with RC==1. The argument is unique at the call site.
-/// - **Function parameters with `Owned` ownership and a single use**: the
-///   parameter holds a real reference and is forwarded to exactly one call
-///   without being shared.
-/// - **Other variables**: conservatively treated as not unique.
+/// Only a fresh `Construct` value (RC==1 by TF-3) used EXACTLY ONCE qualifies.
+/// The single-use guard is load-bearing: callers fold this per
+/// `(callee, param_idx)` with logical AND, so a fresh value passed to the same
+/// parameter at multiple sites is RC>1 at the non-first use and must not tighten.
+/// A forwarded `Owned` parameter does NOT qualify — `Owned+Linear+Once` proves
+/// no-future-duplication, NOT no-existing-alias (the removed IC-8 / DP-10 rule).
 fn arg_satisfies_uniqueness(
     func: &ArcFunction,
     construct_vars: &FxHashSet<ArcVarId>,
     arg: ArcVarId,
 ) -> bool {
-    // Case 1: Locally defined by Construct — fresh unique value (RC==1).
-    // O(1) lookup via pre-computed set (avoids O(blocks×instrs) scan).
-    if construct_vars.contains(&arg) {
-        return true;
-    }
-
-    // Case 2: Function parameter — check ownership and linear forwarding.
-    let is_owned_param = func
-        .params
-        .iter()
-        .any(|p| p.var == arg && p.ownership == Ownership::Owned);
-
-    if !is_owned_param {
-        return false;
-    }
-
-    // Count total uses of the variable across the function.
-    // If it appears exactly once (at this call site), the parameter
-    // is forwarded linearly — no other use retains a reference.
-    let use_count = count_var_uses(func, arg);
-    use_count == 1
+    // Fresh Construct (O(1) set lookup) used once across the whole function.
+    construct_vars.contains(&arg) && count_var_uses(func, arg) == 1
 }
 
 /// Count how many times a variable appears as an operand in a function.
