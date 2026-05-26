@@ -4,7 +4,8 @@ use ori_ir::Name;
 use ori_types::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::ContextRegion;
+use crate::aims::contract::{ContextRegion, FipContract};
+use crate::aims::intraprocedural::analyze_function;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
     ArgOwnership, CtorKind, LitValue,
@@ -897,10 +898,10 @@ fn demand_propagation_forwarded_param_stays_maybe_shared() {
 }
 
 /// BUG-04-069: a SINGLE fresh-`Construct` variable passed to the SAME
-/// (callee, param_idx) at >=2 call sites is RC>1 at the non-first use. The
+/// (callee, `param_idx`) at >=2 call sites is RC>1 at the non-first use. The
 /// per-(callee,param) AND-fold must NOT tighten to Unique — the `count_var_uses
 /// == 1` guard on Case 1 (fresh Construct used exactly once) keeps it
-/// MaybeShared. Closes the DP-10-class hole on the Construct path that an
+/// `MaybeShared`. Closes the DP-10-class hole on the Construct path that an
 /// unguarded `construct_vars.contains` membership check would leave open.
 #[test]
 fn demand_propagation_construct_var_at_two_sites_stays_maybe_shared() {
@@ -972,6 +973,81 @@ fn demand_propagation_construct_var_at_two_sites_stays_maybe_shared() {
         callee_contract.params[0].uniqueness,
         Uniqueness::MaybeShared,
         "fresh Construct passed to same (callee,param) at 2 sites is RC>1 at second use → stays MaybeShared"
+    );
+}
+
+/// BUG-04-069: a fresh `Construct` value used once as a normal call argument
+/// AND once as a `BurdenInc` operand is RC>1 — `instr_use_count` counts the
+/// burden-op operand as a real use. `count_var_uses == 2` → the
+/// `count_var_uses == 1` guard on Case 1 keeps the callee param `MaybeShared`,
+/// NOT `Unique`. Pins that the `Burden*` family (`BurdenInc` / `BurdenDec` /
+/// `BurdenDecPartial` / `BurdenDecVariant` / `BurdenDecField`) participates in the
+/// use-count that gates uniqueness-tightening; a regression that stopped
+/// counting a burden operand would silently make a non-unique value appear
+/// unique → unsound RC elision.
+#[test]
+fn demand_propagation_construct_var_with_burden_op_use_stays_maybe_shared() {
+    // callee(p0: T) -> T: { return p0 }
+    // caller(): { v0 = Construct; v1 = callee(v0); BurdenInc(v0); return v1 }
+    //
+    // v0 is fresh (RC==1 at construction) but used twice: once as the Apply
+    // arg, once as a BurdenInc operand → count_var_uses(v0) == 2 → not Unique.
+    let callee = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let caller = ArcFunction {
+        name: name(2),
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: name(1),
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                ArcInstr::BurdenInc { var: var(0) },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let builtins = crate::borrow::BuiltinOwnershipSets::empty();
+    let interner = ori_ir::StringInterner::new();
+
+    let contracts = analyze_program(&[callee, caller], &classifier, &builtins, &interner);
+
+    let callee_contract = &contracts[&name(1)];
+    assert_eq!(
+        callee_contract.params[0].uniqueness,
+        Uniqueness::MaybeShared,
+        "fresh Construct also used as a BurdenInc operand is RC>1 → count_var_uses==2 → stays MaybeShared"
     );
 }
 
