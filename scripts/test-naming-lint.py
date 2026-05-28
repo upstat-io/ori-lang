@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Test-naming hygiene linter.
 
-Enforces `.claude/rules/impl-hygiene.md` §Test Function Naming + `tests.md`
-§Regression Discipline: test function names use `<subject>_<scenario>_<expected>`
-shape; ephemeral identifiers (bug IDs, plan names, section numbers, TPR codes,
-dates, authors, commit hashes) belong in `///` doc comments, never in function
+Enforces test function name shape `<subject>_<scenario>_<expected>`.
+Ephemeral identifiers (bug IDs, plan names, section numbers, TPR codes,
+dates, authors, commit hashes) belong in doc comments, never in function
 names.
 
 Usage:
@@ -13,7 +12,6 @@ Usage:
   scripts/test-naming-lint.py --exit-zero  # report findings without exit 1
 
 Returns exit 1 when any violation is found (unless --exit-zero).
-Counterpart to scripts/test-weakening-lint.py + scripts/sprawl-lint.py.
 """
 from __future__ import annotations
 
@@ -169,7 +167,7 @@ def main(argv: list[str]) -> int:
             print(f"{f.file}:{f.line}: {f.name} [{f.category}] — {f.suggestion}")
         if findings:
             print(f"\nTotal: {len(findings)} test-naming violation(s).")
-            print("Rule: .claude/rules/impl-hygiene.md §Test Function Naming")
+            print("Rule: test function names use <subject>_<scenario>_<expected> shape; bug IDs / plan refs in /// doc comments only.")
         else:
             print("Clean: no test-naming violations found.")
 

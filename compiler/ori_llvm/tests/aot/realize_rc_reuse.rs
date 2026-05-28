@@ -1,9 +1,9 @@
 //! Matrix TDD for `realize_rc_reuse` multi-use Let Var alias chains.
 //!
 //! Counted cross-product matrix: N (alias count) × aggregate shape × use
-//! pattern × narrowability. Three layered semantic pins (RC-trace exact
-//! count, ARC-IR shape FileCheck, end-state leak verdict). Self-verifying
-//! cell counter proves no matrix cell silently skipped.
+//! pattern × narrowability. End-state leak verdict via stderr substring
+//! match on `RC allocation(s) not freed`. Self-verifying cell counter
+//! proves no matrix cell silently skipped.
 
 use crate::util::{assert_aot_success, compile_and_run_capture};
 

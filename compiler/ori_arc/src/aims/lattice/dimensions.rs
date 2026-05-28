@@ -50,6 +50,23 @@ impl Consumption {
     pub fn join(self, other: Self) -> Self {
         self.max(other)
     }
+
+    /// Sequential composition along one execution path.
+    ///
+    /// Matrix: `Dead + X = X`, `Linear + Linear = Unrestricted`,
+    /// `Linear + Affine = Unrestricted`, `Affine + Affine = Unrestricted`,
+    /// `X + Unrestricted = Unrestricted`. Commutative.
+    #[must_use]
+    pub fn seq_add(self, other: Self) -> Self {
+        use Consumption::{Affine, Dead, Linear, Unrestricted};
+        match (self, other) {
+            (Dead, x) | (x, Dead) => x,
+            (Unrestricted, _) | (_, Unrestricted) => Unrestricted,
+            (Linear, Linear) | (Linear, Affine) | (Affine, Linear) | (Affine, Affine) => {
+                Unrestricted
+            }
+        }
+    }
 }
 
 // Cardinality dimension (forward usage count)
