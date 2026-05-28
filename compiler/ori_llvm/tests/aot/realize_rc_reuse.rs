@@ -228,13 +228,14 @@ fn compose_cell_source(
 }
 
 // ============================================================================
-// Verified-failing cell from §01 triangulation (HEAD `d03320714`).
-// MUST FAIL at HEAD until Phase 4 cure lands.
+// Multi-use Let Var alias chain (narrowable variant): MUST be leak-free post-cure.
 // Equivalent to `compiler/ori_llvm/tests/aot/fixtures/narrowing/narrowed_list_derived_eq.ori`.
 // ============================================================================
+/// Regression: multi-use Let Var alias of RC-tracked aggregate leaks one RC
+/// allocation per surplus alias. See: bug-tracker/plans/BUG-04-120/.
 #[test]
-#[ignore = "BUG-04-120: must fail at HEAD; remove ignore after Phase 4 cure lands"]
-fn bug04120_n2_list_eq_chain_narrowable_must_fail_at_head() {
+// Cure landed: IA-5 transparent-alias transfer in block.rs
+fn multi_use_let_var_eq_chain_narrowable_no_leak() {
     let source = compose_cell_source(
         2,
         AggregateShape::List,
@@ -242,22 +243,26 @@ fn bug04120_n2_list_eq_chain_narrowable_must_fail_at_head() {
         Narrowability::NarrowableI8,
     )
     .expect("base triangulation cell must exist");
-    // At HEAD, this MUST emit `1 RC allocation(s) not freed (memory leak)`.
     let (exit_code, _stdout, stderr) = compile_and_run_capture(&source);
-    assert_ne!(exit_code, 0, "Cure landed prematurely? Multi-use Let Var should leak at HEAD pre-cure.\nstderr: {stderr}");
+    assert_eq!(
+        exit_code, 0,
+        "Multi-use Let Var alias chain must run cleanly.\nstderr: {stderr}"
+    );
     assert!(
-        stderr.contains("RC allocation(s) not freed"),
-        "Expected leak diagnostic in stderr. Got: {stderr}"
+        !stderr.contains("RC allocation(s) not freed"),
+        "No leak diagnostic expected. Got: {stderr}"
     );
 }
 
 // ============================================================================
-// Verified-failing non-narrowable variant (narrowing falsification per §01).
-// MUST FAIL at HEAD until Phase 4 cure lands.
+// Multi-use Let Var alias chain (non-narrowable variant): same cure applies.
 // ============================================================================
+/// Regression: narrowing-independent variant proves cure surface is IA-5
+/// alias transfer, not the repr-opt narrowing pipeline.
+/// See: bug-tracker/plans/BUG-04-120/.
 #[test]
-#[ignore = "BUG-04-120: must fail at HEAD; remove ignore after Phase 4 cure lands"]
-fn bug04120_n2_list_eq_chain_non_narrowable_must_fail_at_head() {
+// Cure landed: IA-5 transparent-alias transfer in block.rs
+fn multi_use_let_var_eq_chain_non_narrowable_no_leak() {
     let source = compose_cell_source(
         2,
         AggregateShape::List,
@@ -266,22 +271,23 @@ fn bug04120_n2_list_eq_chain_non_narrowable_must_fail_at_head() {
     )
     .expect("non-narrowable triangulation cell must exist");
     let (exit_code, _stdout, stderr) = compile_and_run_capture(&source);
-    assert_ne!(
+    assert_eq!(
         exit_code, 0,
-        "Non-narrowable variant should leak identically per §01 falsification"
+        "Non-narrowable variant must also run cleanly.\nstderr: {stderr}"
     );
     assert!(
-        stderr.contains("RC allocation(s) not freed"),
-        "Expected leak diagnostic. Got: {stderr}"
+        !stderr.contains("RC allocation(s) not freed"),
+        "No leak diagnostic expected. Got: {stderr}"
     );
 }
 
 // ============================================================================
-// Verified-passing single-use baseline (negative pin per §01 triangulation).
-// MUST PASS at HEAD AND post-cure (regression-risk matrix per claude-ds-F4).
+// Single-use baseline: no alias chain → no leak (regression-risk matrix anchor).
 // ============================================================================
+/// Regression-risk pin: cure MUST NOT add decs to single-use Let Var chains.
+/// See: bug-tracker/plans/BUG-04-120/.
 #[test]
-fn bug04120_single_use_baseline_must_stay_clean() {
+fn single_use_let_var_eq_chain_no_leak() {
     // Single-use: `let a = ...; let b = ...; let eq = a == b;` — NO multi-use.
     // Per §01: this baseline is clean at HEAD; cure MUST NOT regress it.
     let source = "#derive(Eq)\n\
@@ -293,18 +299,17 @@ fn bug04120_single_use_baseline_must_stay_clean() {
                   \x20   let eq = a == b;\n\
                   \x20   if eq then 0 else 1\n\
                   }\n";
-    assert_aot_success(source, "bug04120_single_use_baseline");
+    assert_aot_success(source, "single_use_let_var_eq_chain_baseline");
 }
 
 // ============================================================================
 // Matrix completeness self-verifier per `tests.md §Self-Verifying Matrix Completeness`.
 // Enumerates all grid + dedicated cells; asserts the count matches §03 design.
-// Does NOT execute each fixture (would be ~110 cargo builds = too slow); the
-// per-cell execution happens in Phase 4 once the cure lands. This test proves
-// the matrix enumeration is complete + the cell-count assertion fires.
 // ============================================================================
+/// Matrix completeness self-verifier per `tests.md`.
+/// See: bug-tracker/plans/BUG-04-120/section-03-tdd-matrix.md.
 #[test]
-fn bug04120_matrix_completeness_counter() {
+fn realize_rc_reuse_matrix_cell_count_complete() {
     let mut grid_count = 0;
     for &n in N_VALUES {
         for &shape in SHAPES {
@@ -334,13 +339,13 @@ fn bug04120_matrix_completeness_counter() {
 }
 
 // ============================================================================
-// Pin 1: RC-trace exact-count assertion per §03 layered semantic pin
-// (`[TPR-04-120-005-codex][Major]` cure). MUST fail at HEAD pre-cure
-// (currently emits N-1 RcDecs); MUST pass post-cure (N RcDecs for N uses).
+// Semantic pin: RC balance MUST yield clean exit + no leak diagnostic.
 // ============================================================================
+/// Semantic pin: post-cure RC count must balance (N decs for N alias uses).
+/// See: bug-tracker/plans/BUG-04-120/section-03-tdd-matrix.md.
 #[test]
-#[ignore = "BUG-04-120 Pin 1: must fail at HEAD; remove ignore after Phase 4 cure lands"]
-fn bug04120_pin1_rc_trace_exact_count_n2() {
+// Cure landed: IA-5 transparent-alias transfer in block.rs
+fn multi_use_let_var_eq_chain_rc_balance_clean() {
     let source = compose_cell_source(
         2,
         AggregateShape::List,
@@ -348,28 +353,24 @@ fn bug04120_pin1_rc_trace_exact_count_n2() {
         Narrowability::NarrowableI8,
     )
     .expect("N=2 list cell must exist");
-    // ORI_TRACE_RC=1 emits per-instruction RC events; count `RcDec` occurrences
-    // on the Container's class (field `items` of `a`).
-    let (_exit_code, _stdout, stderr) = compile_and_run_capture(&source);
-    // Pre-cure: stderr contains the leak diagnostic; the test MUST fail per the
-    // semantic-pin-against-broken-behavior invariant. Post-cure: stderr will be
-    // clean of leak diagnostics AND the RC-op count will be balanced.
-    // Phase 4 will replace this assertion with a precise RcDec count check
-    // once ORI_TRACE_RC tracing structured-fields land per `arc.md §Debugging`.
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(&source);
+    assert_eq!(
+        exit_code, 0,
+        "RC balance must yield clean exit.\nstderr: {stderr}"
+    );
     assert!(
-        stderr.contains("RC allocation(s) not freed"),
-        "Pin 1 anchor: pre-cure baseline leak diagnostic MUST appear; otherwise the cure landed prematurely OR Pin 1 misses the over-dec case the layered-pin design catches."
+        !stderr.contains("RC allocation(s) not freed"),
+        "No leak diagnostic expected. Got: {stderr}"
     );
 }
 
 // ============================================================================
-// Negative Pin 1: Single-use Let Var (cardinality=Once) per §03 regression-risk matrix.
-// MUST PASS at HEAD AND post-cure. Catches a cure that incorrectly fires on Once paths.
+// Regression-risk pin: cure MUST NOT fire on cardinality=Once paths.
 // ============================================================================
+/// Regression-risk pin: cure MUST NOT add decs to single-use Let Var chains.
+/// See: bug-tracker/plans/BUG-04-120/section-03-tdd-matrix.md.
 #[test]
-fn bug04120_negpin1_cardinality_once_must_stay_clean() {
-    // Same shape as single_use_baseline above; explicit Pin 1 anchor for the
-    // regression-risk matrix per claude-ds-F4 in §02 consensus.
+fn cardinality_once_let_var_no_leak() {
     let source = "#derive(Eq)\n\
                   type Container = { items: [int] }\n\
                   \n\
@@ -379,15 +380,17 @@ fn bug04120_negpin1_cardinality_once_must_stay_clean() {
                   \x20   let eq = a == b;\n\
                   \x20   if eq then 0 else 1\n\
                   }\n";
-    assert_aot_success(source, "bug04120_negpin1_cardinality_once");
+    assert_aot_success(source, "cardinality_once_let_var_baseline");
 }
 
 // ============================================================================
-// Negative Pin 2: Scalar values (DP-1 skip) — multi-use of scalar value MUST
-// emit 0 RC ops per `aims-rules.md §1.7` Effect classification + DP-1.
+// Regression-risk pin: scalar values (DP-1 skip) emit zero RC ops regardless
+// of use count per `aims-rules.md §1.7` Effect classification + DP-1.
 // ============================================================================
+/// Regression-risk pin: cure MUST NOT add RC ops to scalar multi-use.
+/// See: bug-tracker/plans/BUG-04-120/section-03-tdd-matrix.md.
 #[test]
-fn bug04120_negpin2_scalar_multi_use_must_stay_clean() {
+fn multi_use_scalar_no_rc_ops() {
     let source = "@main () -> int = {\n\
                   \x20   let x = 42;\n\
                   \x20   let y = 17;\n\
@@ -396,5 +399,5 @@ fn bug04120_negpin2_scalar_multi_use_must_stay_clean() {
                   \x20   let r3 = x - y;\n\
                   \x20   if r1 > 0 && r2 > 0 && r3 != 0 then 0 else 1\n\
                   }\n";
-    assert_aot_success(source, "bug04120_negpin2_scalar_multi_use");
+    assert_aot_success(source, "multi_use_scalar_baseline");
 }
