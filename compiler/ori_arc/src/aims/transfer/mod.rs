@@ -261,10 +261,9 @@ pub fn transfer_terminator_def(term: &ArcTerminator) -> Option<DefTransfer> {
 pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 4]> {
     match instr {
         ArcInstr::Let { value, .. } => match value {
-            // IA-5 step (1) transparent-alias transfer: dst's accumulated
-            // demand transfers to v in block.rs::analyze_block BEFORE dst is
-            // removed from current. Returning (v, Once) here would double-
-            // count the demand. Per aims-rules.md §6 IA-5.
+            // Transparent-alias transfer: dst's accumulated demand transfers
+            // to v in block.rs::analyze_block BEFORE dst is removed from
+            // current. Returning (v, Once) here would double-count.
             ArcValue::Var(_) => SmallVec::new(),
             ArcValue::Literal(_) => SmallVec::new(),
             ArcValue::PrimOp { args, .. } => args.iter().map(|v| (*v, Cardinality::Once)).collect(),

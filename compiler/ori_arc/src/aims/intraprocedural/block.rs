@@ -201,15 +201,13 @@ pub(crate) fn compute_block_entry_state(
             // Section 09.2: accumulate per-instruction effects.
             accumulate_instr_effects(instr, dst_demand, state_map, sigs, &mut block_effects);
 
-            // IA-5 step (1) transparent-alias transfer: for Let { Var(v) },
-            // dst's accumulated demand transfers to v via seq_add (cardinality
-            // + consumption) and max (locality) BEFORE dst's state is consumed
-            // by the remove below. Without this, accumulated Many cardinality
-            // on the alias vanishes when dst is removed, leaving the source
-            // under-demanded and a missing RcDec at the alias chain's natural-
-            // death site. Per aims-rules.md §6 IA-5 step (1). The matching
-            // change in transfer/mod.rs removes the redundant (v, Once) from
-            // backward_demands.
+            // Transparent-alias transfer: for Let { Var(v) }, dst's accumulated
+            // demand transfers to v via seq_add (cardinality) and max
+            // (consumption + locality) BEFORE dst's state is consumed by the
+            // remove below. Without this, accumulated Many cardinality on the
+            // alias vanishes when dst is removed, leaving the source under-
+            // demanded and a missing RcDec at the alias chain's natural-death
+            // site.
             if let crate::ir::ArcInstr::Let {
                 value: crate::ir::ArcValue::Var(v),
                 ..

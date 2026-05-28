@@ -54,7 +54,7 @@ const PATTERNS: &[UsePattern] = &[
     UsePattern::MatchThenUse,
 ];
 
-/// Axis 4 — narrowability. Verifies narrowing falsification per §01 triangulation.
+/// Axis 4 — narrowability. Verifies narrowing falsification per triangulation.
 #[derive(Copy, Clone, Debug)]
 enum Narrowability {
     NarrowableI8,     // `[1, 2, 3]` — fits in i8
@@ -63,14 +63,14 @@ enum Narrowability {
 const NARROWABILITY: &[Narrowability] =
     &[Narrowability::NarrowableI8, Narrowability::NonNarrowableI64];
 
-/// Compose .ori source for a cell. Returns None for N/A intersections per §03 matrix.
+/// Compose .ori source for a cell. Returns None for N/A intersections per matrix design.
 fn compose_cell_source(
     n: usize,
     shape: AggregateShape,
     pattern: UsePattern,
     narrow: Narrowability,
 ) -> Option<String> {
-    // N/A intersections per §03:
+    // N/A intersections:
     // - str_field × narrowability collapse: keep ONE str_field cell per N (use NarrowableI8 marker; skip NonNarrowableI64)
     if matches!(shape, AggregateShape::StrField)
         && matches!(narrow, Narrowability::NonNarrowableI64)
@@ -214,10 +214,8 @@ fn compose_cell_source(
     Some(format!("{type_decl}\n\n@main () -> int = {{\n{body}\n}}\n"))
 }
 
-// ============================================================================
 // Multi-use Let Var alias chain (narrowable variant): MUST be leak-free post-cure.
 // Equivalent to `compiler/ori_llvm/tests/aot/fixtures/narrowing/narrowed_list_derived_eq.ori`.
-// ============================================================================
 /// Regression: multi-use Let Var alias of RC-tracked aggregate leaks one RC
 /// allocation per surplus alias.
 #[test]
@@ -241,9 +239,7 @@ fn multi_use_let_var_eq_chain_narrowable_no_leak() {
     );
 }
 
-// ============================================================================
 // Multi-use Let Var alias chain (non-narrowable variant): same cure applies.
-// ============================================================================
 /// Regression: narrowing-independent variant proves cure surface is IA-5
 /// alias transfer, not the repr-opt narrowing pipeline.
 
@@ -268,15 +264,13 @@ fn multi_use_let_var_eq_chain_non_narrowable_no_leak() {
     );
 }
 
-// ============================================================================
 // Single-use baseline: no alias chain → no leak (regression-risk matrix anchor).
-// ============================================================================
 /// Regression-risk pin: cure MUST NOT add decs to single-use Let Var chains.
 
 #[test]
 fn single_use_let_var_eq_chain_no_leak() {
     // Single-use: `let a = ...; let b = ...; let eq = a == b;` — NO multi-use.
-    // Per §01: this baseline is clean at HEAD; cure MUST NOT regress it.
+    // Single-use baseline: cure MUST NOT regress.
     let source = "#derive(Eq)\n\
                   type Container = { items: [int] }\n\
                   \n\
@@ -289,10 +283,8 @@ fn single_use_let_var_eq_chain_no_leak() {
     assert_aot_success(source, "single_use_let_var_eq_chain_baseline");
 }
 
-// ============================================================================
 // Matrix completeness self-verifier.
-// Enumerates all grid + dedicated cells; asserts the count matches §03 design.
-// ============================================================================
+// Enumerates all grid + dedicated cells; asserts the count matches matrix design.
 /// Matrix completeness self-verifier.
 
 #[test]
@@ -311,27 +303,22 @@ fn realize_rc_reuse_matrix_cell_count_complete() {
     }
     assert_eq!(
         grid_count, EXPECTED_GRID_CELLS,
-        "Grid cell count drift — §03 matrix design says {EXPECTED_GRID_CELLS} cells (after N/A subtractions); enumerator produced {grid_count}.\n\
+        "Grid cell count drift — matrix design says {EXPECTED_GRID_CELLS} cells (after N/A subtractions); enumerator produced {grid_count}.\n\
          If this assertion fires, either the matrix design changed (update EXPECTED_GRID_CELLS) or a cell was silently skipped (audit compose_cell_source N/A logic)."
     );
 
     // Dedicated cells: 4 path-sensitive (N=2 × {List, StrField} × {if_else, match_arms})
-    // + 2 closure variants (direct call + PartialApply capture per codex-F6 split) = 6
+    // + 2 closure variants (direct call + PartialApply capture).
     let dedicated_count: usize = EXPECTED_DEDICATED_CELLS;
     assert_eq!(
         grid_count + dedicated_count,
         EXPECTED_TOTAL_CELLS,
-        "Total cell count mismatch: grid {grid_count} + dedicated {dedicated_count} ≠ §03 expected {EXPECTED_TOTAL_CELLS}"
+        "Total cell count mismatch: grid {grid_count} + dedicated {dedicated_count} ≠ expected {EXPECTED_TOTAL_CELLS}"
     );
 }
 
-// ============================================================================
-// Semantic pin: RC balance MUST yield clean exit + no leak diagnostic.
-// ============================================================================
-/// Semantic pin: post-cure RC count must balance (N decs for N alias uses).
-
+/// Post-cure RC count must balance (N decs for N alias uses).
 #[test]
-// Cure landed: IA-5 transparent-alias transfer in block.rs
 fn multi_use_let_var_eq_chain_rc_balance_clean() {
     let source = compose_cell_source(
         2,
@@ -351,9 +338,7 @@ fn multi_use_let_var_eq_chain_rc_balance_clean() {
     );
 }
 
-// ============================================================================
 // Regression-risk pin: cure MUST NOT fire on cardinality=Once paths.
-// ============================================================================
 /// Regression-risk pin: cure MUST NOT add decs to single-use Let Var chains.
 
 #[test]
@@ -370,10 +355,8 @@ fn cardinality_once_let_var_no_leak() {
     assert_aot_success(source, "cardinality_once_let_var_baseline");
 }
 
-// ============================================================================
 // Regression-risk pin: scalar values (DP-1 skip) emit zero RC ops regardless
 // of use count.
-// ============================================================================
 /// Regression-risk pin: cure MUST NOT add RC ops to scalar multi-use.
 
 #[test]
