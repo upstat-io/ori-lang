@@ -56,6 +56,7 @@ pub mod panic;
 pub mod patterns;
 pub mod poly_lambda_mono;
 pub mod rc_matrix;
+pub mod realize_rc_reuse;
 pub mod recursion;
 pub mod recursive_drop;
 pub mod repr;
