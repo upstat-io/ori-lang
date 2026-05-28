@@ -1,22 +1,9 @@
-//! BUG-04-120 realize_rc_reuse multi-use Let Var surplus retain — Phase 3 TDD matrix.
+//! Matrix TDD for `realize_rc_reuse` multi-use Let Var alias chains.
 //!
-//! Per bug-tracker/plans/BUG-04-120/section-03-tdd-matrix.md:
-//! - Counted cross-product matrix: N (alias count) × shape × pattern × narrowability
-//!   = 104 grid cells + 6 dedicated CFG/closure cells = 110 fixtures.
-//! - Three layered semantic pins per `tests.md §Matrix Clamping`:
-//!   - Pin 1: RC-trace exact count (N RcDecs per N uses) via `ORI_TRACE_RC=1` grep
-//!   - Pin 2: ARC-IR shape FileCheck (`CHECK-COUNT-N: RcDec %_` for placement)
-//!   - Pin 3: end-state leak verdict via `ORI_CHECK_LEAKS=1` (retained)
-//! - 6 regression-risk negative pins per claude-ds-F4 in §02 consensus.
-//!
-//! Self-verifying matrix completeness per `tests.md §Matrix Testing Rule` — the
-//! `assert_eq!(test_count, EXPECTED_CELL_COUNT)` at the end of the matrix loop
-//! proves no cells were silently skipped.
-//!
-//! Pre-cure baseline (HEAD `d03320714` / `e4e4c599`): all multi-use cells FAIL
-//! with `1 RC allocation(s) not freed (memory leak)` — confirms tests test the
-//! right thing. Post-cure (Phase 4 walk_dec.rs::emit_last_use_decs extension):
-//! all multi-use cells PASS; single-use baselines remain clean.
+//! Counted cross-product matrix: N (alias count) × aggregate shape × use
+//! pattern × narrowability. Three layered semantic pins (RC-trace exact
+//! count, ARC-IR shape FileCheck, end-state leak verdict). Self-verifying
+//! cell counter proves no matrix cell silently skipped.
 
 use crate::util::{assert_aot_success, compile_and_run_capture};
 
@@ -27,7 +14,7 @@ use crate::util::{assert_aot_success, compile_and_run_capture};
 /// - N=5 × tuple × non-narrowable redundancy (duplicates list stress at N=5):
 ///   1 N × 1 (tuple shape) × 3 patterns × 1 (non_narrowable) = -3 cells.
 /// Net: 108 - 9 - 3 = 96 grid cells. Add 6 dedicated CFG/closure cells = 102 fixtures total.
-/// Self-verifying counter per `tests.md §Self-Verifying Matrix Completeness`.
+/// Self-verifying cell counter.
 const EXPECTED_GRID_CELLS: usize = 96;
 const EXPECTED_DEDICATED_CELLS: usize = 6;
 const EXPECTED_TOTAL_CELLS: usize = EXPECTED_GRID_CELLS + EXPECTED_DEDICATED_CELLS;
@@ -232,7 +219,7 @@ fn compose_cell_source(
 // Equivalent to `compiler/ori_llvm/tests/aot/fixtures/narrowing/narrowed_list_derived_eq.ori`.
 // ============================================================================
 /// Regression: multi-use Let Var alias of RC-tracked aggregate leaks one RC
-/// allocation per surplus alias. See: bug-tracker/plans/BUG-04-120/.
+/// allocation per surplus alias.
 #[test]
 // Cure landed: IA-5 transparent-alias transfer in block.rs
 fn multi_use_let_var_eq_chain_narrowable_no_leak() {
@@ -259,7 +246,7 @@ fn multi_use_let_var_eq_chain_narrowable_no_leak() {
 // ============================================================================
 /// Regression: narrowing-independent variant proves cure surface is IA-5
 /// alias transfer, not the repr-opt narrowing pipeline.
-/// See: bug-tracker/plans/BUG-04-120/.
+
 #[test]
 // Cure landed: IA-5 transparent-alias transfer in block.rs
 fn multi_use_let_var_eq_chain_non_narrowable_no_leak() {
@@ -285,7 +272,7 @@ fn multi_use_let_var_eq_chain_non_narrowable_no_leak() {
 // Single-use baseline: no alias chain → no leak (regression-risk matrix anchor).
 // ============================================================================
 /// Regression-risk pin: cure MUST NOT add decs to single-use Let Var chains.
-/// See: bug-tracker/plans/BUG-04-120/.
+
 #[test]
 fn single_use_let_var_eq_chain_no_leak() {
     // Single-use: `let a = ...; let b = ...; let eq = a == b;` — NO multi-use.
@@ -303,11 +290,11 @@ fn single_use_let_var_eq_chain_no_leak() {
 }
 
 // ============================================================================
-// Matrix completeness self-verifier per `tests.md §Self-Verifying Matrix Completeness`.
+// Matrix completeness self-verifier.
 // Enumerates all grid + dedicated cells; asserts the count matches §03 design.
 // ============================================================================
-/// Matrix completeness self-verifier per `tests.md`.
-/// See: bug-tracker/plans/BUG-04-120/section-03-tdd-matrix.md.
+/// Matrix completeness self-verifier.
+
 #[test]
 fn realize_rc_reuse_matrix_cell_count_complete() {
     let mut grid_count = 0;
@@ -342,7 +329,7 @@ fn realize_rc_reuse_matrix_cell_count_complete() {
 // Semantic pin: RC balance MUST yield clean exit + no leak diagnostic.
 // ============================================================================
 /// Semantic pin: post-cure RC count must balance (N decs for N alias uses).
-/// See: bug-tracker/plans/BUG-04-120/section-03-tdd-matrix.md.
+
 #[test]
 // Cure landed: IA-5 transparent-alias transfer in block.rs
 fn multi_use_let_var_eq_chain_rc_balance_clean() {
@@ -368,7 +355,7 @@ fn multi_use_let_var_eq_chain_rc_balance_clean() {
 // Regression-risk pin: cure MUST NOT fire on cardinality=Once paths.
 // ============================================================================
 /// Regression-risk pin: cure MUST NOT add decs to single-use Let Var chains.
-/// See: bug-tracker/plans/BUG-04-120/section-03-tdd-matrix.md.
+
 #[test]
 fn cardinality_once_let_var_no_leak() {
     let source = "#derive(Eq)\n\
@@ -385,10 +372,10 @@ fn cardinality_once_let_var_no_leak() {
 
 // ============================================================================
 // Regression-risk pin: scalar values (DP-1 skip) emit zero RC ops regardless
-// of use count per `aims-rules.md §1.7` Effect classification + DP-1.
+// of use count.
 // ============================================================================
 /// Regression-risk pin: cure MUST NOT add RC ops to scalar multi-use.
-/// See: bug-tracker/plans/BUG-04-120/section-03-tdd-matrix.md.
+
 #[test]
 fn multi_use_scalar_no_rc_ops() {
     let source = "@main () -> int = {\n\
