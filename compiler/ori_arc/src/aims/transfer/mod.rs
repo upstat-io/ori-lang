@@ -92,7 +92,7 @@ pub fn transfer_def(
 
         // Side-effect-only — no defined variable.
         // BurdenInc/BurdenDec are trivial burden-tracking annotations
-        // emitted by Phase 5 ARC lowering (§03.1); they carry only a var
+        // emitted by Phase 5 ARC lowering (Phase 5); they carry only a var
         // and define nothing, so they fall through this side-effect-only
         // arm exactly like RcInc/RcDec.
         ArcInstr::RcInc { .. }
@@ -128,7 +128,7 @@ fn transfer_let(value: &ArcValue, get_state: &impl Fn(ArcVarId) -> AimsState) ->
 /// - `Tuple`/`Closure` → `NonReusable`
 ///
 /// Per-variable effect: `may_alloc = true` — construction allocates heap memory.
-/// (Section 09.2: precise effect computation.)
+/// (Effect computation: precise effect computation.)
 fn transfer_construct(ctor: &CtorKind) -> DefTransfer {
     let shape = shape_from_ctor(ctor);
     let mut state = AimsState::FRESH;
@@ -192,7 +192,7 @@ fn transfer_apply_conservative() -> DefTransfer {
 /// captured args' states via [`capture_state_update`].
 ///
 /// Per-variable effect: `may_alloc = true` — closure creation allocates.
-/// (Section 09.2: precise effect computation.)
+/// (Effect computation: precise effect computation.)
 fn transfer_partial_apply() -> DefTransfer {
     let mut state = AimsState::FRESH;
     state.effect = EffectClass {
@@ -287,9 +287,9 @@ pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 
         // access/consumption/cardinality/locality based on the closure's
         // own demand state. Returning demand here would double-count.
         // RC operations: AIMS outputs. During migration, no demand.
-        // BurdenInc/BurdenDec (§03.1): trivial Phase 5 markers — emitted
+        // BurdenInc/BurdenDec (Phase 5): trivial Phase 5 markers — emitted
         // outputs of burden lowering, not user-code uses; the AIMS lattice
-        // does not consume them at §04A. No backward demand contributed.
+        // does not consume them. No backward demand contributed.
         ArcInstr::PartialApply { .. }
         | ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
@@ -465,7 +465,7 @@ pub fn is_owned_and_unique(state: &AimsState) -> bool {
 
 /// Update a captured variable's state for `PartialApply`.
 ///
-/// Locality is closure-aware (Section 09.2): captured args inherit the
+/// Locality is closure-aware (effect computation): captured args inherit the
 /// closure's own locality — if the closure stays function-local, captured
 /// args need only `FunctionLocal`; if it escapes to the heap, captured
 /// args get `HeapEscaping`. The closure's state comes from the backward

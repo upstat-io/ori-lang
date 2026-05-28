@@ -35,7 +35,7 @@ pub(crate) struct BlockAnalysisResult {
     /// Per-variable demand at block entry.
     pub entry_state: FxHashMap<ArcVarId, AimsState>,
     /// Effects accumulated from instructions in this block.
-    /// Section 09.2: precise effect computation during analysis.
+    /// Effect computation: precise effect computation during analysis.
     pub effects: EffectSummary,
     /// Pre-strip demand for Invoke-defined dsts that flow into this block's
     /// entry state. Captured at the strip site so predecessor lookups can
@@ -66,7 +66,7 @@ pub(crate) struct BlockAnalysisResult {
 /// can only increase or stay the same across worklist iterations. This
 /// guarantees monotone convergence without the demand-stabilization tricks
 /// that GHC requires for lazy evaluation (`reuseEnv`, weak free variables).
-/// (See: Literature Review §09 — GHC Demand Analysis)
+/// (See: Sergey et al., POPL 2014 — GHC Demand Analysis)
 pub(crate) fn compute_block_exit_state(
     func: &ArcFunction,
     block_id: ArcBlockId,
@@ -98,7 +98,7 @@ pub(crate) fn compute_block_exit_state(
         }
     }
 
-    // Cross-block locality widening (Section 09.2): variables demanded by
+    // Cross-block locality widening (effect computation): variables demanded by
     // successor blocks have crossed a block boundary, so their locality
     // must be at least `FunctionLocal`. This converts `BlockLocal` values
     // that flow to other blocks into `FunctionLocal`.
@@ -120,7 +120,7 @@ pub(crate) fn compute_block_exit_state(
 /// 2. Sets forward state for defined variables via `transfer_def`
 ///
 /// Also accumulates a block-level [`EffectSummary`] from instruction types
-/// (Section 09.2: precise effect computation during analysis, not post-hoc).
+/// (Effect computation: precise effect computation during analysis, not post-hoc).
 ///
 /// `invoke_defs` maps block IDs to variables defined by Invoke terminators
 /// in predecessor blocks. These are defined at this block's entry (normal
@@ -141,7 +141,7 @@ pub(crate) fn compute_block_entry_state(
         .cloned()
         .unwrap_or_default();
 
-    // Block-level effect accumulator (Section 09.2: precise effect computation).
+    // Block-level effect accumulator (Effect computation: precise effect computation).
     // Effects are forward-aggregated during the backward walk — monotonically
     // accumulated (OR) from instruction types and callee contracts. There is no
     // "backward direction" for effects.
@@ -150,10 +150,10 @@ pub(crate) fn compute_block_entry_state(
     // Apply terminator backward demands.
     apply_terminator_demands(&block.terminator, &mut current, state_map, sigs);
 
-    // Terminator effects (Section 09.2).
+    // Terminator effects (effect computation).
     accumulate_terminator_effects(&block.terminator, sigs, &mut block_effects);
 
-    // Return widening (Section 09.2): returned values escape the function,
+    // Return widening (effect computation): returned values escape the function,
     // so their locality must be `HeapEscaping` and access must be `Owned`
     // (the function transfers ownership to the caller).
     if let ArcTerminator::Return { value } = &block.terminator {
@@ -171,7 +171,7 @@ pub(crate) fn compute_block_entry_state(
     // Walk instructions in reverse order.
     for instr in block.body.iter().rev() {
         // Forward transfer: compute the state for the defined variable.
-        // We create the closure inside a limited scope to avoid borrowing
+        // Create the closure inside a limited scope to avoid borrowing
         // `current` across mutation points.
         let def_transfer = {
             let get_state = |v: ArcVarId| -> AimsState {
@@ -198,7 +198,7 @@ pub(crate) fn compute_block_entry_state(
                 None
             };
 
-            // Section 09.2: accumulate per-instruction effects.
+            // Effect computation: accumulate per-instruction effects.
             accumulate_instr_effects(instr, dst_demand, state_map, sigs, &mut block_effects);
 
             // Transparent-alias transfer: for Let { Var(v) }, dst's accumulated
@@ -245,7 +245,7 @@ pub(crate) fn compute_block_entry_state(
             }
 
             // For PartialApply: update captured variables' states.
-            // Uses closure-aware locality (Section 09.2): the closure's own
+            // Uses closure-aware locality (effect computation): the closure's own
             // demand state determines captured variable locality.
             if let crate::ir::ArcInstr::PartialApply { args, .. } = instr {
                 let closure_state = closure_demand.unwrap_or(AimsState::BOTTOM);
@@ -314,8 +314,8 @@ pub(crate) fn compute_block_entry_state(
 /// Apply backward demands from a terminator.
 ///
 /// In addition to cardinality demand, applies:
-/// - Locality widening (Section 09.2): Jump/Invoke args → `FunctionLocal`
-/// - Uniqueness handling (Section 09.1): Invoke args get contract-aware
+/// - Locality widening (effect computation): Jump/Invoke args → `FunctionLocal`
+/// - Uniqueness handling (effect computation): Invoke args get contract-aware
 ///   uniqueness demand (same rule as Apply in `apply_callee_contract`)
 fn apply_terminator_demands(
     term: &ArcTerminator,
@@ -345,7 +345,7 @@ fn apply_terminator_demands(
         _ => {}
     }
 
-    // Section 09.1: contract-aware uniqueness for Invoke args.
+    // Contract-aware: contract-aware uniqueness for Invoke args.
     // Same rule as apply_callee_contract() for Apply instructions,
     // including FIP Conditional specialization.
     if let ArcTerminator::Invoke {
@@ -400,7 +400,7 @@ fn widen_locality(
 
 /// Widen a variable's uniqueness to at least `min_uniqueness`.
 ///
-/// Used by the Section 09.1 Transfer Fusion rule: when a callee's
+/// Used by the transfer fusion rule: when a callee's
 /// `EffectSummary.may_share == true`, borrowed arguments' uniqueness
 /// is widened to `MaybeShared` (the callee might create new references).
 fn widen_uniqueness(
@@ -426,9 +426,9 @@ fn merge_demand(current: &mut FxHashMap<ArcVarId, AimsState>, var: ArcVarId, sta
 /// If the callee has `FipContract::Conditional` and all required-unique args
 /// have `Uniqueness::Unique` in the caller's current backward state (meaning
 /// nothing downstream has required them to be shared), the FIP fast path is
-/// viable and we suppress `may_share` widening.
+/// viable; `may_share` widening suppressed.
 ///
-/// Section 09.2: FIP call-site specialization.
+/// Effect computation: FIP call-site specialization.
 fn compute_effective_may_share(
     contract: &MemoryContract,
     args: &[ArcVarId],
@@ -465,7 +465,7 @@ fn compute_effective_may_share(
 /// precise demand on arguments. Otherwise, fall back to conservative
 /// (all args Owned/Unrestricted/Many).
 ///
-/// # Uniqueness handling (Section 09.1 — Transfer Fusion)
+/// # Uniqueness handling (transfer fusion)
 ///
 /// When the callee's effective `may_share` is true (accounting for FIP
 /// Conditional specialization), borrowed arguments might have their refcount
@@ -488,16 +488,16 @@ fn apply_callee_contract(
     current: &mut FxHashMap<ArcVarId, AimsState>,
 ) {
     if let Some(contract) = sigs.get(&callee) {
-        // Section 09.2: FIP call-site specialization. If the callee is
+        // Effect computation: FIP call-site specialization. If the callee is
         // Conditional FIP and all required-unique args are currently Unique,
         // suppress may_share widening.
         let effective_may_share = compute_effective_may_share(contract, args, current);
 
         // Use per-parameter contracts from interprocedural analysis.
-        // Includes locality_bound (Section 09.2): if the callee may store
+        // Includes locality_bound (effect computation): if the callee may store
         // a parameter into a heap structure, the arg gets HeapEscaping locality.
         for (arg, param_contract) in args.iter().zip(contract.params.iter()) {
-            // Section 09.1: uniqueness demand based on callee effects.
+            // Contract-aware: uniqueness demand based on callee effects.
             // If effective may_share AND this param is borrowed,
             // the callee might RcInc the argument → widen to MaybeShared.
             // If pure / FIP Conditional met, borrowed args preserve uniqueness.
