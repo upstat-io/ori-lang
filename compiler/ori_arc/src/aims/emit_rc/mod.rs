@@ -56,6 +56,7 @@ pub(crate) use drop_hints::{collect_borrowed_call_args, is_collection_var};
 pub(crate) use borrowed_defs::{
     collect_all_borrowed_defs, collect_borrowed_defs, collect_cow_borrowed_receivers,
     collect_inline_enum_projected_defs, collect_iter_element_defs, collect_project_borrowed_defs,
+    is_take_project,
 };
 pub(crate) use coalesce::coalesce_block_rc;
 pub(crate) use dead_cleanup::{emit_dead_at_entry_decs, emit_dead_invoke_dsts};

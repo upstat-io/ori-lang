@@ -28,8 +28,8 @@ use std::collections::VecDeque;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::emit_rc::{
-    is_consuming_primop, is_live_at_exit, is_owned_at_entry, is_ownership_transfer, rc_strategy,
-    same_alloc, BlockCtx, LastUse,
+    is_consuming_primop, is_live_at_exit, is_owned_at_entry, is_ownership_transfer,
+    is_take_project, rc_strategy, same_alloc, BlockCtx, LastUse,
 };
 use crate::aims::emit_reuse::DeathEvent;
 use crate::aims::lattice::SizeClass;
@@ -156,11 +156,21 @@ fn emit_defined_dead(
     }
 
     if decision.rc == RcDecision::Dec {
+        // Take-projected payloads (TPR-07-013) transferred ownership OUT of
+        // the parent sum type; the parent's scope-exit drop is suppressed
+        // (TPR-07-011), so NO ancestor covers this binding's RC slot — it MUST
+        // get its own drop. PIN-6 inter-class payload-of suppression assumes
+        // the parent's drop covers the projected child, which is false for a
+        // take-project (the payload was moved out). Skip PIN-6 for take-
+        // projects so the moved-out binding drops at scope exit (RL-2).
+        let is_take = is_take_project(instr, ctx.func, ctx.pool);
         // PIN-6 (BUG-04-104 §2.6.3): inter-class payload-of suppression. Runs
         // BEFORE PIN-4 + PIN-5 per §2.6.6 Q3 — a positive PIN-6 hit makes
         // the per-class checks below redundant (parent's drop covers
         // regardless of whether the dst is also an apply-alias source).
-        if let Some(class_id) = ctx.state_map.ssa_alias_class_of(dst) {
+        if is_take {
+            // No PIN-6 suppression — fall through to class check + emit.
+        } else if let Some(class_id) = ctx.state_map.ssa_alias_class_of(dst) {
             if pin6_any_ancestor_will_cover(ctx, class_id, dst, instr_idx, classes_dying_here) {
                 return;
             }

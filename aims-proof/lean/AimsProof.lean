@@ -6,3 +6,4 @@ import AimsProof.Lattice
 import AimsProof.Canonicalization
 import AimsProof.Transfer
 import AimsProof.Decision
+import AimsProof.Interprocedural
