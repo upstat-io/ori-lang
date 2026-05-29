@@ -87,6 +87,73 @@ pub(crate) fn is_take_project(instr: &ArcInstr, func: &ArcFunction, pool: &Pool)
     matches!(dst_tag, Tag::Iterator | Tag::DoubleEndedIterator)
 }
 
+/// Collect RC-bearing payload projections that are full move-outs of a
+/// CONSUMED single-variant (tagless) enum.
+///
+/// A single-variant match is an irrefutable full destructure: the scrutinee is
+/// consumed and the payload's ownership transfers to the projection. When such
+/// a payload is jumped to a merge-block param (RL-2: Jump args transfer
+/// ownership to the successor param), the param OWNS the payload and must drop
+/// it at its own scope exit. `propagate_borrowed_closure`'s block-param
+/// unanimity rule would otherwise sweep that result param into a borrowed set
+/// (because the sole incoming arg is itself a `Project` dst), skipping its dec
+/// and leaking the inc'd ref. These dsts are passed to `propagate_borrowed_closure`
+/// so the unanimity check treats the Jump as the ownership transfer it is.
+///
+/// Unlike `is_take_project` (iterators), the parent enum's scope-exit
+/// `RcDec [InlineEnum]` is NOT suppressed: it cancels the matching pre-switch
+/// `RcInc [InlineEnum]`, leaving the result param the sole owner at rc=1.
+/// Multi-variant move-out balance is tracked separately (Construct-consume).
+pub(crate) fn tagless_move_out_projections(func: &ArcFunction, pool: &Pool) -> FxHashSet<ArcVarId> {
+    let mut set = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project {
+                dst, value, field, ..
+            } = instr
+            {
+                if *field == 0 || is_take_project(instr, func, pool) {
+                    continue;
+                }
+                let src_resolved = pool.resolve_fully(func.var_type(*value));
+                if pool.tag(src_resolved) != Tag::Enum
+                    || pool.enum_variants(src_resolved).len() != 1
+                {
+                    continue;
+                }
+                // RC-bearing payload only — scalar/value payloads need no dec.
+                if matches!(func.var_repr(*dst), Some(ValueRepr::RcPointer)) {
+                    set.insert(*dst);
+                }
+            }
+        }
+    }
+    // Propagate through Let aliases ONLY (`let alias = move_out_var`): the
+    // actual Jump arg feeding the merge result param is typically a Let alias
+    // of the Project dst, so the unanimity check must recognize it too. Block
+    // params are intentionally NOT propagated — that is the very edge whose
+    // ownership transfer this set exists to flag.
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if set.contains(src) && set.insert(*dst) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    set
+}
+
 /// Collect variables defined by borrowing instructions (`Project`).
 ///
 /// These create borrowed references that do NOT need independent RC
@@ -192,7 +259,7 @@ pub(crate) fn collect_iter_element_defs(
     }
 
     // Phase 3: propagate through Let aliases and block params.
-    propagate_borrowed_closure(func, &mut iter_elems);
+    propagate_borrowed_closure(func, &mut iter_elems, &FxHashSet::default());
     iter_elems
 }
 
@@ -238,7 +305,11 @@ pub(crate) fn collect_inline_enum_projected_defs(
             }
         }
     }
-    propagate_borrowed_closure(func, &mut projected);
+    propagate_borrowed_closure(
+        func,
+        &mut projected,
+        &tagless_move_out_projections(func, pool),
+    );
     projected
 }
 
@@ -278,7 +349,11 @@ pub(crate) fn collect_project_borrowed_defs(
             }
         }
     }
-    propagate_borrowed_closure(func, &mut borrowed);
+    propagate_borrowed_closure(
+        func,
+        &mut borrowed,
+        &tagless_move_out_projections(func, pool),
+    );
     borrowed
 }
 
@@ -322,7 +397,11 @@ pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction, pool: &Pool) -> FxHa
         }
     }
     // Transitive closure: Let aliases AND block parameter flows.
-    propagate_borrowed_closure(func, &mut borrowed);
+    propagate_borrowed_closure(
+        func,
+        &mut borrowed,
+        &tagless_move_out_projections(func, pool),
+    );
     borrowed
 }
 
@@ -338,7 +417,16 @@ pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction, pool: &Pool) -> FxHa
 /// brings an owned value (e.g., from Construct), the param stays owned so that
 /// edge cleanup emits `RcDec` for it. The borrowed-path predecessors rely on
 /// `emit_project_escape_incs` to add compensating `RcInc`.
-fn propagate_borrowed_closure(func: &ArcFunction, borrowed: &mut FxHashSet<ArcVarId>) {
+///
+/// `move_out_args` are Jump args that transfer ownership to the successor param
+/// (tagless-enum full-payload move-outs per `tagless_move_out_projections`,
+/// RL-2). They break unanimity exactly like a `Construct` arg: a param fed such
+/// an arg is OWNED and gets its own dec. Pass an empty set to disable.
+fn propagate_borrowed_closure(
+    func: &ArcFunction,
+    borrowed: &mut FxHashSet<ArcVarId>,
+    move_out_args: &FxHashSet<ArcVarId>,
+) {
     // Pre-collect all Jump predecessors for each (target_block, param_position).
     // Key: (target_block_idx, param_pos) → Vec<Jump_arg_var>
     let mut param_incoming: rustc_hash::FxHashMap<(usize, usize), Vec<ArcVarId>> =
@@ -382,7 +470,9 @@ fn propagate_borrowed_closure(func: &ArcFunction, borrowed: &mut FxHashSet<ArcVa
         // where the Some path projects from Option and the None path constructs
         // a new value).
         for (&(target_idx, pos), incoming_args) in &param_incoming {
-            let all_borrowed = incoming_args.iter().all(|arg| borrowed.contains(arg));
+            let all_borrowed = incoming_args
+                .iter()
+                .all(|arg| borrowed.contains(arg) && !move_out_args.contains(arg));
             if all_borrowed {
                 if let Some(&(param_var, _)) = func.blocks[target_idx].params.get(pos) {
                     if borrowed.insert(param_var) {
