@@ -25,6 +25,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install schema-validation dependency (locality-conformance gate)
+        run: python3 -m pip install --upgrade jsonschema
+
       - name: Run the proof checker over the full corpus
         run: ORI_RUN_PROOFS=1 aims-proof/scripts/check-proofs.sh
 
