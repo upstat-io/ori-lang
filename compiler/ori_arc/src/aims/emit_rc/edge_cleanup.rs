@@ -86,7 +86,7 @@ fn is_owned_for_rc(
 /// `collect_branch_edge_decs` so only a TRUE same-allocation alias being live
 /// at a successor suppresses `var`'s edge dec — phi-merged alternatives must
 /// not (RL-4 P1 + §10 under-elimination-leaks per-path-net-0 invariant).
-fn compute_same_alloc_reps(
+pub(crate) fn compute_same_alloc_reps(
     func: &ArcFunction,
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
 ) -> FxHashMap<ArcVarId, ArcVarId> {
@@ -145,7 +145,7 @@ fn compute_same_alloc_reps(
 
 /// Whether `a` and `b` denote the same runtime allocation (same
 /// `compute_same_alloc_reps` rep). A var with no entry is its own rep.
-fn same_alloc(reps: &FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) -> bool {
+pub(crate) fn same_alloc(reps: &FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) -> bool {
     reps.get(&a).copied().unwrap_or(a) == reps.get(&b).copied().unwrap_or(b)
 }
 
