@@ -120,6 +120,11 @@ pub(super) fn emit_rc_unified(
     // `is_bypass_safe_entry_for_var` to coordinate exactly-one drop
     // per CFG path without double-free or leak.
     let take_move_facts = crate::aims::emit_rc::take_project::analyze(func, pool);
+    // Same-allocation union-find reps (Let{Var} + apply Direct/Conditional;
+    // EXCLUDES Jump-arg phi). Precomputed once per function for the per-block
+    // walk's `class_alive_after` obligation-table same-alloc gate.
+    let same_alloc_reps =
+        crate::aims::emit_rc::compute_same_alloc_reps(func, state_map.apply_result_aliases());
     let iter_fn_name = interner.intern("iter");
     let predecessors = crate::graph::compute_predecessors(func);
     let mut all_death_events = Vec::new();
@@ -146,6 +151,7 @@ pub(super) fn emit_rc_unified(
             &return_transfer_params,
             &alias_to_param,
             &return_project_inc_targets,
+            &same_alloc_reps,
             iter_fn_name,
             &predecessors,
             &mut block_deferred,
@@ -230,6 +236,7 @@ fn emit_block_rc(
     return_transfer_params: &FxHashSet<ArcVarId>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
     return_project_inc_targets: &FxHashMap<ArcVarId, RcStrategy>,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     iter_fn_name: ori_ir::Name,
     predecessors: &[Vec<usize>],
     block_deferred: &mut FxHashMap<usize, Vec<DeferredDec>>,
@@ -266,6 +273,7 @@ fn emit_block_rc(
         return_transfer_params,
         alias_to_param,
         return_project_inc_targets,
+        same_alloc_reps,
     };
 
     let (deferred_parents, merge_edge_decs) = emit_dead_at_entry_decs(&ctx, &mut new_body);

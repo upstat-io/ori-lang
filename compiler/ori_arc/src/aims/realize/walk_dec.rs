@@ -29,7 +29,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::emit_rc::{
     is_consuming_primop, is_live_at_exit, is_owned_at_entry, is_ownership_transfer, rc_strategy,
-    BlockCtx, LastUse,
+    same_alloc, BlockCtx, LastUse,
 };
 use crate::aims::emit_reuse::DeathEvent;
 use crate::aims::lattice::SizeClass;
@@ -497,10 +497,22 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
 
     let obligations = ctx.state_map.class_dec_obligations();
     if let Some(entry) = obligations.get(&(ctx.blk, class_id)) {
-        let later_obligation_exists = entry
-            .intra_block_obligations
-            .iter()
-            .any(|&(other_var, other_idx)| other_var != var && other_idx > instr_idx);
+        // The later obligation only covers THIS var's dec when it names the
+        // SAME runtime allocation. A phi-merged class unions distinct
+        // allocations (e.g. loop-carried `s` old-value alloc A with the
+        // concat-result alloc B via the back-edge Jump-arg → block-param
+        // edge); alloc B's later obligation must NOT suppress alloc A's dec,
+        // or alloc A leaks every iteration (RL-4 P1 + §10 under-elim
+        // per-path-net-0). `same_alloc` excludes the phi edge.
+        let later_obligation_exists =
+            entry
+                .intra_block_obligations
+                .iter()
+                .any(|&(other_var, other_idx)| {
+                    other_var != var
+                        && other_idx > instr_idx
+                        && same_alloc(ctx.same_alloc_reps, other_var, var)
+                });
         if later_obligation_exists {
             return true;
         }

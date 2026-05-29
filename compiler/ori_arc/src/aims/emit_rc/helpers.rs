@@ -106,6 +106,13 @@ pub(crate) struct BlockCtx<'a> {
     /// Empty when no contract is available OR no params carry
     /// `return_alias = Some(Project { _ })`.
     pub(crate) return_project_inc_targets: &'a FxHashMap<ArcVarId, RcStrategy>,
+    /// Union-find representatives over the SAME-ALLOCATION subset of the SSA-
+    /// alias graph (Let{Var} + apply-result Direct/Conditional; EXCLUDES the
+    /// Jump-arg → block-param phi edge). Two vars share a rep iff they name the
+    /// same runtime allocation. Used by `class_alive_after` so an obligation on
+    /// a phi-merged DIFFERENT allocation does not suppress this var's dec
+    /// (RL-4 P1 + §10 under-elimination per-path-net-0).
+    pub(crate) same_alloc_reps: &'a FxHashMap<ArcVarId, ArcVarId>,
 }
 
 /// Where a variable is last used within a block.

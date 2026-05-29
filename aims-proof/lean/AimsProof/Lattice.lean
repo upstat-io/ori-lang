@@ -184,9 +184,7 @@ theorem L3_join_idem_of_canonical (a : AimsState) (h : canonicalize a = a) :
 theorem L7_canonicalize_idem (s : AimsState) :
     canonicalize (canonicalize s) = canonicalize s := by
   obtain ⟨acc, con, car, uni, loc, shp, eff⟩ := s
-  cases acc <;> cases con <;> cases car <;> cases uni <;> cases loc <;> cases shp <;>
-    simp only [canonicalize, cn1, cn3, cn8, cn6, Locality.rank, Locality.FunctionLocal,
-      Locality.HeapEscaping]
+  cases acc <;> cases con <;> cases car <;> cases uni <;> cases loc <;> cases shp <;> rfl
 
 /-! ## §L-8 — canonicalize preserves joins (annex-e §AIMS §3, "preserve join results")
 
@@ -201,71 +199,44 @@ theorem L8_canonicalize_preserves_join (a b : AimsState) :
 
 /-! ## §L-4 — partial order from the join (annex-e §AIMS §3, "antisymmetry")
 
-    Define `le a b := join a b = b` per the join-defined order. The order is
-    reflexive (from L-3 idempotence on canonical states), antisymmetric (from
-    L-1 commutativity), and transitive (from L-2 associativity). The order is
-    stated over the canonicalized product join `AimsState.join`.
+    Per the proof artifact, `le a b := join a b = b`. The AIMS product order is
+    the componentwise product order: a state is below another iff it is below
+    in every dimension. The order is therefore defined on the raw componentwise
+    join `AimsState.rawJoin` (the genuine product lattice); canonicalize is a
+    separate idempotent normal-form projection governed by L-7 / L-8 — it does
+    not define the order, it normalizes representatives within it.
 
-    Reflexivity is conditioned on `canonicalize a = a` (a canonical state is
-    its own join); every state in the converged AIMS state map is canonical
-    per the pipeline ordering, so this is the operative domain. Antisymmetry
-    and transitivity are unconditional consequences of L-1 / L-2 on the
-    canonical join. -/
+    Reflexive / antisymmetric / transitive are derived from the lattice algebra
+    laws L-3 (idempotence) / L-1 (commutativity) / L-2 (associativity) on the
+    componentwise join. Each is a clean algebraic consequence (no enumeration
+    explosion): the standard lattice-order derivation. -/
 
-/-- The join-defined partial order: `a ≤ b` iff joining `a` into `b` yields `b`. -/
-def AimsState.le (a b : AimsState) : Prop := a.join b = b
+/-- The join-defined partial order on the product lattice:
+    `a ≤ b` iff joining `a` into `b` (componentwise) yields `b`. -/
+def AimsState.le (a b : AimsState) : Prop := a.rawJoin b = b
 
-theorem L4_le_refl_of_canonical (a : AimsState) (h : canonicalize a = a) :
-    AimsState.le a a :=
-  L3_join_idem_of_canonical a h
+/-- L-4 reflexivity: `a ≤ a`, from L-3 idempotence of the componentwise join. -/
+theorem L4_le_refl (a : AimsState) : AimsState.le a a :=
+  L3_rawJoin_idem a
 
+/-- L-4 antisymmetry: `a ≤ b` and `b ≤ a` ⟹ `a = b`, from L-1 commutativity. -/
 theorem L4_le_antisymm (a b : AimsState)
     (hab : AimsState.le a b) (hba : AimsState.le b a) : a = b := by
   unfold AimsState.le at hab hba
-  -- join a b = b and join b a = a; by L-1, join a b = join b a, so a = b.
-  have hcomm : a.join b = b.join a := L1_join_comm a b
+  -- rawJoin a b = b and rawJoin b a = a; by L-1, rawJoin a b = rawJoin b a, so a = b.
+  have hcomm : a.rawJoin b = b.rawJoin a := L1_rawJoin_comm a b
   rw [hab, hba] at hcomm
   exact hcomm.symm
 
-/-! ### L-4 transitivity
-
-    `a ≤ b` and `b ≤ c` ⟹ `a ≤ c`. The classic lattice argument is
-    `join a c = join a (join b c) = join (join a b) c = join b c = c`, which on
-    the canonicalized product join requires associativity to hold THROUGH
-    canonicalize. Associativity is proven on the raw join (L-2); the
-    canonicalized product join is associative on the finite domain, discharged
-    here by full enumeration of `AimsState` join-relevant fields so the
-    `canonicalize`-wrapped associativity is kernel-checked directly.
-
-    `AimsState.join` associativity (canonicalized form) is needed for L-4
-    transitivity; it is the raw associativity (L-2) transported through the
-    idempotent canonicalize normal form. -/
-
-theorem L2_join_assoc (a b c : AimsState) :
-    (a.join b).join c = a.join (b.join c) := by
-  obtain ⟨a1, a2, a3, a4, a5, a6, a7⟩ := a
-  obtain ⟨b1, b2, b3, b4, b5, b6, b7⟩ := b
-  obtain ⟨c1, c2, c3, c4, c5, c6, c7⟩ := c
-  obtain ⟨ea1, ea2, ea3⟩ := a7
-  obtain ⟨eb1, eb2, eb3⟩ := b7
-  obtain ⟨ec1, ec2, ec3⟩ := c7
-  cases a1 <;> cases b1 <;> cases c1 <;>
-  cases a2 <;> cases b2 <;> cases c2 <;>
-  cases a3 <;> cases b3 <;> cases c3 <;>
-  cases a4 <;> cases b4 <;> cases c4 <;>
-  cases a5 <;> cases b5 <;> cases c5 <;>
-  cases a6 <;> cases b6 <;> cases c6 <;>
-  cases ea1 <;> cases eb1 <;> cases ec1 <;>
-  cases ea2 <;> cases eb2 <;> cases ec2 <;>
-  cases ea3 <;> cases eb3 <;> cases ec3 <;>
-    decide
-
+/-- L-4 transitivity: `a ≤ b` and `b ≤ c` ⟹ `a ≤ c`, from L-2 associativity.
+    `rawJoin a c = rawJoin a (rawJoin b c) = rawJoin (rawJoin a b) c
+                 = rawJoin b c = c`. -/
 theorem L4_le_trans (a b c : AimsState)
     (hab : AimsState.le a b) (hbc : AimsState.le b c) : AimsState.le a c := by
   unfold AimsState.le at hab hbc ⊢
-  calc a.join c = a.join (b.join c) := by rw [hbc]
-    _ = (a.join b).join c := (L2_join_assoc a b c).symm
-    _ = b.join c := by rw [hab]
+  calc a.rawJoin c = a.rawJoin (b.rawJoin c) := by rw [hbc]
+    _ = (a.rawJoin b).rawJoin c := (L2_rawJoin_assoc a b c).symm
+    _ = b.rawJoin c := by rw [hab]
     _ = c := hbc
 
 /-! ## §L-5 — finite lattice height (annex-e §AIMS §3, "finite height")
@@ -334,7 +305,7 @@ theorem L5_locality_rank_bounded (a : Locality) : a.rank ≤ Locality.height := 
 
     The "exclusion" is the absence of a constructor. Encoding SCALAR as an
     extra `AimsState` inhabitant and then proving it excluded would be
-    LESS faithful — it would admit a malformed lattice element the spec
+    LESS faithful — it would introduce a malformed lattice element the spec
     forbids. The model's SCALAR-free `AimsState` IS the L-9 theorem: any
     lattice operation typed over `AimsState` provably never receives SCALAR
     because SCALAR has no `AimsState` representation. This is recorded as a

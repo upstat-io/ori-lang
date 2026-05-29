@@ -51,6 +51,7 @@ struct TerminatorFixture {
     return_transfer_params: FxHashSet<ArcVarId>,
     alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>>,
     return_project_inc_targets: FxHashMap<ArcVarId, crate::ir::RcStrategy>,
+    same_alloc_reps: FxHashMap<ArcVarId, ArcVarId>,
     take_move_facts: TakeMoveFacts,
 }
 
@@ -175,6 +176,7 @@ impl TerminatorFixture {
             return_transfer_params: FxHashSet::default(),
             alias_to_param: FxHashMap::default(),
             return_project_inc_targets: FxHashMap::default(),
+            same_alloc_reps: FxHashMap::default(),
             take_move_facts: TakeMoveFacts::empty(),
         }
     }
@@ -204,6 +206,7 @@ impl TerminatorFixture {
             return_transfer_params: &self.return_transfer_params,
             alias_to_param: &self.alias_to_param,
             return_project_inc_targets: &self.return_project_inc_targets,
+            same_alloc_reps: &self.same_alloc_reps,
         }
     }
 

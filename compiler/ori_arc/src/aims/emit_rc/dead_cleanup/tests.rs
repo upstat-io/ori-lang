@@ -76,6 +76,7 @@ struct DeadCleanupFixture {
     return_transfer_params: FxHashSet<ArcVarId>,
     alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>>,
     return_project_inc_targets: FxHashMap<ArcVarId, crate::ir::RcStrategy>,
+    same_alloc_reps: FxHashMap<ArcVarId, ArcVarId>,
 }
 
 impl DeadCleanupFixture {
@@ -97,6 +98,7 @@ impl DeadCleanupFixture {
             return_transfer_params: &self.return_transfer_params,
             alias_to_param: &self.alias_to_param,
             return_project_inc_targets: &self.return_project_inc_targets,
+            same_alloc_reps: &self.same_alloc_reps,
         }
     }
 }
@@ -142,6 +144,7 @@ fn swapped_phi_params_emit_two_rc_decs() {
         return_transfer_params: FxHashSet::default(),
         alias_to_param: FxHashMap::default(),
         return_project_inc_targets: FxHashMap::default(),
+        same_alloc_reps: FxHashMap::default(),
     };
 
     let ctx = fixture.ctx(1);
@@ -192,6 +195,7 @@ fn let_alias_siblings_emit_one_rc_dec() {
         return_transfer_params: FxHashSet::default(),
         alias_to_param: FxHashMap::default(),
         return_project_inc_targets: FxHashMap::default(),
+        same_alloc_reps: FxHashMap::default(),
     };
 
     let ctx = fixture.ctx(1);
