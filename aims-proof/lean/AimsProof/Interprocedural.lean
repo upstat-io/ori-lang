@@ -630,6 +630,178 @@ theorem IC1_callee_processed_before_caller (G : Condensation) (i j : Nat)
     (hedge : G.Edge i j) : i < j :=
   G.forward i j hedge
 
+/-! ## §IC-6 — FipContract sum-type tier join (annex-e §AIMS §7 IC-6)
+
+    The FipContract is the per-function Fully-In-Place classification, a 4-tier
+    sum type ordered along the precision chain
+      `Never < Conditional < Bounded(n) < Certified`
+    with the absorption join (annex-e §AIMS §7 IC-6):
+      Never absorbs all;
+      Conditional absorbs Bounded / Certified;
+      Bounded(n) ⊔ Bounded(m) = Bounded(max(n,m));
+      Bounded(n) ⊔ Certified = Bounded(n);
+      Certified ⊔ Certified = Certified.
+    The provable obligation modeled here is the JOIN ALGEBRA — commutativity,
+    associativity, idempotence, and the absorption ordering — over the 4-tier
+    sum type. (The IC-6 TIMING contract — POST-REALIZATION at Step 5a per PL-1a —
+    is a pipeline-ordering property, not an algebraic one; it is captured by the
+    IC-1 SCC topological-order theorems above, not by this join algebra.) -/
+
+/-- §IC-6 FipContract: the 4-tier FIP classification sum type (annex-e §AIMS §7
+    IC-6). `Bounded` carries an allocation budget `n : Nat`. -/
+inductive FipContract
+  | Never
+  | Conditional
+  | Bounded (n : Nat)
+  | Certified
+deriving Repr, DecidableEq
+
+/-- §IC-6 FipContract join — the 4-tier absorption table (annex-e §AIMS §7 IC-6).
+    Never absorbs all; Conditional absorbs Bounded / Certified;
+    `Bounded(n) ⊔ Bounded(m) = Bounded(max n m)`; `Bounded(n) ⊔ Certified =
+    Bounded(n)`; `Certified ⊔ Certified = Certified`. The arm order encodes the
+    absorption precedence: Never first, then Conditional, then the Bounded /
+    Certified arms. -/
+def FipContract.join : FipContract → FipContract → FipContract
+  | .Never,       _            => .Never
+  | _,            .Never       => .Never
+  | .Conditional, _            => .Conditional
+  | _,            .Conditional => .Conditional
+  | .Bounded n,   .Bounded m   => .Bounded (Nat.max n m)
+  | .Bounded n,   .Certified   => .Bounded n
+  | .Certified,   .Bounded m   => .Bounded m
+  | .Certified,   .Certified   => .Certified
+
+/-! ### §IC-6 absorption ordering (P1)..(P4) (annex-e §AIMS §7 IC-6) -/
+
+/-- §IC-6 (P1) Never absorbs all: `Never ⊔ X = Never` for every X. -/
+theorem IC6_never_absorbs_left (x : FipContract) :
+    FipContract.join .Never x = .Never := by
+  cases x <;> rfl
+
+/-- §IC-6 (P1) Never absorbs all (right): `X ⊔ Never = Never` for every X. -/
+theorem IC6_never_absorbs_right (x : FipContract) :
+    FipContract.join x .Never = .Never := by
+  cases x <;> rfl
+
+/-- §IC-6 (P2) Conditional absorbs Bounded / Certified:
+    `Conditional ⊔ Bounded(n) = Conditional` and
+    `Conditional ⊔ Certified = Conditional` (and symmetrically). -/
+theorem IC6_conditional_absorbs (n : Nat) :
+    FipContract.join .Conditional (.Bounded n) = .Conditional ∧
+    FipContract.join (.Bounded n) .Conditional = .Conditional ∧
+    FipContract.join .Conditional .Certified = .Conditional ∧
+    FipContract.join .Certified .Conditional = .Conditional :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+/-- §IC-6 (P3) Bounded budget max-join:
+    `Bounded(n) ⊔ Bounded(m) = Bounded(max(n,m))`. -/
+theorem IC6_bounded_max_join (n m : Nat) :
+    FipContract.join (.Bounded n) (.Bounded m) = .Bounded (Nat.max n m) := rfl
+
+/-- §IC-6 (P4) Bounded wins over Certified:
+    `Bounded(n) ⊔ Certified = Bounded(n)` (and symmetrically). -/
+theorem IC6_bounded_join_certified (n : Nat) :
+    FipContract.join (.Bounded n) .Certified = .Bounded n ∧
+    FipContract.join .Certified (.Bounded n) = .Bounded n :=
+  ⟨rfl, rfl⟩
+
+/-- §IC-6 Certified self-join: `Certified ⊔ Certified = Certified`. -/
+theorem IC6_certified_idem :
+    FipContract.join .Certified .Certified = .Certified := rfl
+
+/-! ### §IC-6 join algebra (commutative / associative / idempotent)
+
+    The primary theorem `IC6_fip_contract_join_lattice` bundles the join-algebra
+    obligation: commutativity, associativity, idempotence over the 4-tier sum
+    type. The `Bounded`-budget arm rides on `Nat.max` commutativity /
+    associativity / idempotence. -/
+
+/-- §IC-6 join commutativity: `a ⊔ b = b ⊔ a`. The `Bounded`-`Bounded` arm uses
+    `Nat.max_comm` on the budget. -/
+theorem IC6_fip_contract_join_comm (a b : FipContract) :
+    a.join b = b.join a := by
+  cases a <;> cases b <;>
+    first
+      | rfl
+      | (simp only [FipContract.join, Nat.max_comm])
+
+/-- §IC-6 join idempotence: `a ⊔ a = a`. The `Bounded` arm uses `Nat.max_self`. -/
+theorem IC6_fip_contract_join_idem (a : FipContract) : a.join a = a := by
+  cases a <;>
+    first
+      | rfl
+      | (simp only [FipContract.join, Nat.max_self])
+
+/-- §IC-6 join associativity: `(a ⊔ b) ⊔ c = a ⊔ (b ⊔ c)`. The `Bounded`
+    arm uses `Nat.max_assoc` on the budgets; the absorption arms (Never,
+    Conditional) collapse identically under either grouping. Discharged by full
+    case enumeration over the 4-tier sum (the `Bounded` budgets carried
+    symbolically; the `max` regrouping closed by `Nat.max_assoc`). -/
+theorem IC6_fip_contract_join_assoc (a b c : FipContract) :
+    (a.join b).join c = a.join (b.join c) := by
+  cases a <;> cases b <;> cases c <;>
+    first
+      | rfl
+      | (simp only [FipContract.join, Nat.max_assoc])
+
+/-- §IC-6 PRIMARY theorem — the FipContract tier-join lattice obligation.
+    Bundles commutativity, associativity, idempotence, AND the absorption
+    ordering (Never absorbs all; Conditional absorbs Bounded / Certified;
+    `Bounded(n) ⊔ Bounded(m) = Bounded(max n m)`) over the 4-tier `FipContract`
+    sum type — the §AIMS §7 IC-6 join algebra. -/
+theorem IC6_fip_contract_join_lattice :
+    (∀ a b : FipContract, a.join b = b.join a) ∧
+    (∀ a b c : FipContract, (a.join b).join c = a.join (b.join c)) ∧
+    (∀ a : FipContract, a.join a = a) ∧
+    (∀ x : FipContract, FipContract.join .Never x = .Never) ∧
+    (∀ x : FipContract, FipContract.join x .Never = .Never) ∧
+    (∀ n : Nat, FipContract.join .Conditional (.Bounded n) = .Conditional) ∧
+    (FipContract.join .Conditional .Certified = .Conditional) ∧
+    (∀ n m : Nat,
+      FipContract.join (.Bounded n) (.Bounded m) = .Bounded (Nat.max n m)) :=
+  ⟨IC6_fip_contract_join_comm,
+   IC6_fip_contract_join_assoc,
+   IC6_fip_contract_join_idem,
+   IC6_never_absorbs_left,
+   IC6_never_absorbs_right,
+   fun n => (IC6_conditional_absorbs n).1,
+   (IC6_conditional_absorbs 0).2.2.1,
+   IC6_bounded_max_join⟩
+
+/-! ### §IC-6 N-ary fold + absorption corollaries
+
+    `join_fip_contract : List FipContract → FipContract` folds the per-call-site /
+    per-branch claims. The fold collapses to `Never` if ANY claim is `Never`
+    (P1 lifted across the list via associativity). Identity seed is `Certified`
+    (the strongest claim; `Certified ⊔ x` never lowers below `x` except via the
+    Never / Conditional absorption that the list itself contributes). -/
+
+/-- §IC-6 the N-ary fold over a list of observed FipContract claims. Seed is
+    `Certified` (the absorption identity for the precision chain — joining
+    `Certified` with any claim yields that claim or the absorbing tier). -/
+def joinFipContract (claims : List FipContract) : FipContract :=
+  claims.foldr FipContract.join .Certified
+
+/-- §IC-6 (P1) lifted: a list containing any `Never` claim folds to `Never`
+    (Never absorbs all, across the whole list — the soundness floor: any single
+    non-FIP observation forces the joined contract to Never). Proven by induction
+    over the claim list using `IC6_never_absorbs_left` / `_right`. -/
+theorem IC6_fold_never_absorbs (claims : List FipContract)
+    (hmem : FipContract.Never ∈ claims) :
+    joinFipContract claims = .Never := by
+  unfold joinFipContract
+  induction claims with
+  | nil => exact absurd hmem (List.not_mem_nil)
+  | cons hd tl ih =>
+      rcases List.mem_cons.mp hmem with hhd | htl
+      · -- head is Never ⟹ Never ⊔ (fold tl) = Never.
+        subst hhd
+        exact IC6_never_absorbs_left _
+      · -- Never is in the tail ⟹ fold tl = Never ⟹ hd ⊔ Never = Never.
+        rw [List.foldr_cons, ih htl]
+        exact IC6_never_absorbs_right hd
+
 /-! ## §IC-8 — REMOVED (annex-e §AIMS §7 IC-8 removal note)
 
     IC-8 is REMOVED. The former rule derived callee parameter uniqueness from

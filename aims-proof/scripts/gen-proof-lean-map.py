@@ -72,6 +72,7 @@ THEOREM_MAP: dict[str, tuple[str, str, list[str]]] = {
     "TF-9": ("Transfer", "TF9_reuse_fresh", ["FRESH"]),
     "TF-9a": ("Transfer", "TF9a_collection_reuse_fresh", ["FRESH", "CollectionBuffer"]),
     "TF-11": ("Transfer", "TF11_seq_add_consumption_comm", ["seq_add", "Consumption"]),
+    "TF-13": ("Transfer", "TF13_capture_state_update_monotone", ["AimsState", "le"]),
     "TF-14": ("Transfer", "TF14_propagation_spec", ["cardinality", "locality"]),
     # DP — Decision.lean
     "DP-1": ("Decision", "DP1_is_rc_needed_table", ["is_rc_needed", "Owned"]),
@@ -89,6 +90,7 @@ THEOREM_MAP: dict[str, tuple[str, str, list[str]]] = {
     "IC-3": ("Interprocedural", "IC3_paramcontract_join_comm", ["ParamContract", "join"]),
     "IC-4": ("Interprocedural", "IC4_returncontract_join_comm", ["ReturnContract", "join"]),
     "IC-5": ("Interprocedural", "IC5_effectsummary_join_comm", ["EffectSummary", "join"]),
+    "IC-6": ("Interprocedural", "IC6_fip_contract_join_lattice", ["FipContract", "join"]),
     "IC-7": ("Interprocedural", "IC7_fixpoint_converges", ["converge"]),
     "IC-8a": ("Interprocedural", "IC8a_conservative_upper_bounds", ["ParamContract"]),
     # PL — Pipeline.lean
@@ -216,12 +218,7 @@ CN5_DOC = ("Canonicalization", "§CN-5 — Unique+Dead preserves reusable shape 
 # Genuine §18.2 coverage gaps — substantive rule obligations with NO Lean
 # theorem AND not documented as folded/doc-encoded. The Lean proof for these
 # rules is MISSING and must be authored. Emitting a stub theorow is BANNED.
-GAP_IDS = {
-    "IC-6": ("Interprocedural", "FipContract sum-type tier-join soundness — absent from "
-             "Interprocedural.lean proven list (IC-1..IC-7+IC-8a; IC-6 skipped); no Lean theorem"),
-    "TF-13": ("Transfer", "capture_state_update monotonicity — no TF13 theorem; not in the "
-              "TF-3..TF-9a/TF-11/TF-14 proven set; not documented as folded"),
-}
+GAP_IDS: dict[str, tuple[str, str]] = {}
 
 # doc-comment-encoded meta/model obligations (L-9 model invariant, L-10 schema).
 DOC_ENCODED = {

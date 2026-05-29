@@ -657,12 +657,14 @@
     {
       "proof_id": "TF-13",
       "proof_path": "proofs/04-transfers/TF-13.proof",
-      "kind": "gap",
+      "kind": "theorem",
       "lean_module": "AimsProof.Transfer",
-      "lean_theorem": null,
-      "parity_tokens": [],
-      "gap_reason": "capture_state_update monotonicity \u2014 no TF13 theorem; not in the TF-3..TF-9a/TF-11/TF-14 proven set; not documented as folded",
-      "note": "\u00a718.2 COVERAGE GAP \u2014 Lean proof missing; must be authored (NOT a stub)"
+      "lean_theorem": "TF13_capture_state_update_monotone",
+      "parity_tokens": [
+        "AimsState",
+        "le"
+      ],
+      "note": ""
     },
     {
       "proof_id": "TF-14",
@@ -1036,12 +1038,14 @@
     {
       "proof_id": "IC-6",
       "proof_path": "proofs/06-interprocedural/IC-6-fipcontract.proof",
-      "kind": "gap",
+      "kind": "theorem",
       "lean_module": "AimsProof.Interprocedural",
-      "lean_theorem": null,
-      "parity_tokens": [],
-      "gap_reason": "FipContract sum-type tier-join soundness \u2014 absent from Interprocedural.lean proven list (IC-1..IC-7+IC-8a; IC-6 skipped); no Lean theorem",
-      "note": "\u00a718.2 COVERAGE GAP \u2014 Lean proof missing; must be authored (NOT a stub)"
+      "lean_theorem": "IC6_fip_contract_join_lattice",
+      "parity_tokens": [
+        "FipContract",
+        "join"
+      ],
+      "note": ""
     },
     {
       "proof_id": "IC-7",

@@ -407,6 +407,172 @@ theorem TF8_select_downgrade_monotone (u1 u2 : Uniqueness) (h : u1.rank ≤ u2.r
     (Uniqueness.join .MaybeShared u1).rank ≤ (Uniqueness.join .MaybeShared u2).rank := by
   cases u1 <;> cases u2 <;> simp_all [Uniqueness.join, Uniqueness.rank]
 
+/-! ## §8a TF-13 capture_state_update (annex-e §AIMS §4 TF-13, OxCaml LAM pattern)
+
+    `capture_state_update(current, closure_state, closure_card)` mutates the
+    captured-argument state over the §4 TF-13 OxCaml Locality-And-Multiplicity
+    pattern, splitting on the closure's cardinality:
+      Branch 1 (closure_card ≤ Once):
+        consumption := seq_add(current.consumption, Affine)
+        cardinality := seq_add(current.cardinality, Once)
+        locality    := max(current.locality, closure_state.locality)
+      Branch 2 (closure_card > Once, i.e. Many):
+        consumption := Unrestricted
+        cardinality := Many
+        locality    := max(current.locality, closure_state.locality)
+    Access-promotion clause (cross-cuts both branches): when
+    `closure_state.locality ≥ HeapEscaping` the access is promoted to Owned (per
+    TF-13 + CN-8 interaction); otherwise it inherits `current.access`. The L-6
+    obligation is monotonicity in `closure_state` for fixed `current`. -/
+
+/-- TF-13: promote access to Owned when the closure escapes via the heap
+    (`closure_state.locality ≥ HeapEscaping`); else inherit `current.access`. -/
+def promoteAccessForCapture (current closureState : AimsState) : AccessClass :=
+  if closureState.locality.rank ≥ Locality.HeapEscaping.rank
+  then .Owned else current.access
+
+/-- TF-13: the `capture_state_update` forward mutation over the existing
+    AimsState model. `closureCard ≤ Once` selects branch 1 (seq_add accumulation);
+    `closureCard > Once` selects branch 2 (Unrestricted / Many constants). The
+    locality update is `max(current.locality, closure_state.locality)` in both
+    branches; the access-promotion clause is applied in both. Uniqueness / Shape /
+    Effect are unchanged (no propagation per §4 TF-13). -/
+def captureStateUpdate (current closureState : AimsState)
+    (closureCard : Cardinality) : AimsState :=
+  if closureCard.rank ≤ Cardinality.One.rank then
+    { current with
+      access := promoteAccessForCapture current closureState
+    , consumption := Consumption.seqAdd current.consumption .Affine
+    , cardinality := Cardinality.seqAdd current.cardinality .One
+    , locality := current.locality.join closureState.locality }
+  else
+    { current with
+      access := promoteAccessForCapture current closureState
+    , consumption := .Unrestricted
+    , cardinality := .Many
+    , locality := current.locality.join closureState.locality }
+
+/-- TF-13 part (a): branch-1 (`closureCard ≤ Once`) updates exactly per §4 TF-13 —
+    `consumption := seq_add(current.consumption, Affine)`,
+    `cardinality := seq_add(current.cardinality, Once)`,
+    `locality := max(current.locality, closure_state.locality)`. -/
+theorem TF13_branch1_spec (current closureState : AimsState)
+    (k : Cardinality) (hk : k.rank ≤ Cardinality.One.rank) :
+    (captureStateUpdate current closureState k).consumption
+      = Consumption.seqAdd current.consumption .Affine ∧
+    (captureStateUpdate current closureState k).cardinality
+      = Cardinality.seqAdd current.cardinality .One ∧
+    (captureStateUpdate current closureState k).locality
+      = current.locality.join closureState.locality := by
+  unfold captureStateUpdate
+  rw [if_pos hk]
+  exact ⟨rfl, rfl, rfl⟩
+
+/-- TF-13 part (b): branch-2 (`closureCard > Once`) assigns the TOP constants —
+    `consumption := Unrestricted`, `cardinality := Many` — and keeps the
+    `locality := max` mutation. -/
+theorem TF13_branch2_spec (current closureState : AimsState)
+    (k : Cardinality) (hk : ¬ k.rank ≤ Cardinality.One.rank) :
+    (captureStateUpdate current closureState k).consumption = .Unrestricted ∧
+    (captureStateUpdate current closureState k).cardinality = .Many ∧
+    (captureStateUpdate current closureState k).locality
+      = current.locality.join closureState.locality := by
+  unfold captureStateUpdate
+  rw [if_neg hk]
+  exact ⟨rfl, rfl, rfl⟩
+
+/-- TF-13 part (c): Access-promotion clause enumeration. When the closure
+    locality is `≥ HeapEscaping` (`HeapEscaping` or `Unknown`), the output access
+    is `Owned` regardless of `current.access` or the branch taken. -/
+theorem TF13_access_promotion (current closureState : AimsState)
+    (k : Cardinality) (hloc : closureState.locality.rank ≥ Locality.HeapEscaping.rank) :
+    (captureStateUpdate current closureState k).access = .Owned := by
+  -- The access field is `promoteAccessForCapture` in both branches.
+  have hacc : (captureStateUpdate current closureState k).access
+      = promoteAccessForCapture current closureState := by
+    unfold captureStateUpdate
+    split <;> rfl
+  rw [hacc]
+  simp only [promoteAccessForCapture, hloc, if_true]
+
+/-- TF-13 part (c) negative side: when the closure locality is strictly below
+    `HeapEscaping` (`BlockLocal` / `FunctionLocal` / `ArgEscaping`), there is NO
+    promotion — the output access inherits `current.access`. -/
+theorem TF13_no_access_promotion (current closureState : AimsState)
+    (k : Cardinality) (hloc : ¬ closureState.locality.rank ≥ Locality.HeapEscaping.rank) :
+    (captureStateUpdate current closureState k).access = current.access := by
+  have hacc : (captureStateUpdate current closureState k).access
+      = promoteAccessForCapture current closureState := by
+    unfold captureStateUpdate
+    split <;> rfl
+  rw [hacc]
+  simp only [promoteAccessForCapture, hloc, if_false]
+
+/-- TF-13 L-6 layer (b): `capture_state_update` is MONOTONE in `closure_state`
+    for fixed `current` and fixed `closure_card`. The closure_state feeds the
+    output through exactly two channels — the `locality := max(current, ·)` join
+    (monotone over the §1.5 Locality chain) and the access-promotion clause
+    (monotone: a higher closure locality can only promote access from
+    `current.access` up to `Owned`, never down). The proof establishes the
+    join-defined product order `out1 ≤ out2` (componentwise `rawJoin`) by
+    destructuring per dimension and discharging by `decide` per leaf.
+
+    Monotonicity is stated over `s1 ≤ s2` (the product order); the only
+    dimension of `closureState` the output reads is `locality`, so the relevant
+    hypothesis is `s1.locality ≤ s2.locality` (extracted from the product order),
+    and the locality + access channels are the only output dimensions that vary
+    with `closureState`. -/
+theorem TF13_capture_state_update_monotone
+    (current s1 s2 : AimsState) (k : Cardinality)
+    (h : AimsState.le s1 s2) :
+    AimsState.le (captureStateUpdate current s1 k)
+                 (captureStateUpdate current s2 k) := by
+  -- From the product order, the closure-state localities are ≤ on rank.
+  have hjoin : s1.rawJoin s2 = s2 := h
+  have hl : s1.locality.join s2.locality = s2.locality := by
+    have := congrArg AimsState.locality hjoin; simpa [AimsState.rawJoin] using this
+  -- locality.join is `max` on rank, so `s1.locality ≤ s2.locality` (rank order).
+  -- `hl` says the join equals `s2.locality`; rewriting with it gives the rank ≤.
+  have hlrank : s1.locality.rank ≤ s2.locality.rank := by
+    have hjr := congrArg Locality.rank hl
+    -- `(s1.locality.join s2.locality).rank = s2.locality.rank`.
+    simp only [Locality.join] at hjr
+    -- Case on the `if s1.rank ≥ s2.rank` guard inside the join.
+    by_cases hge : s1.locality.rank ≥ s2.locality.rank
+    · rw [if_pos hge] at hjr
+      -- hjr : s1.locality.rank = s2.locality.rank
+      exact Nat.le_of_eq hjr
+    · exact Nat.le_of_lt (Nat.lt_of_not_le hge)
+  -- Now show the rawJoin-order equation field by field on the two outputs.
+  show (captureStateUpdate current s1 k).rawJoin (captureStateUpdate current s2 k)
+       = captureStateUpdate current s2 k
+  -- The outputs agree on every dimension except `access` and `locality`, which
+  -- track `closureState`. Split on the branch + handle both varying dimensions.
+  -- locality channel: max(current.locality, s1.locality) ≤ max(current.locality,
+  -- s2.locality) since s1.locality ≤ s2.locality (rank-monotone max).
+  have hlocchan : (current.locality.join s1.locality).join
+      (current.locality.join s2.locality) = current.locality.join s2.locality := by
+    cases hc : current.locality <;> cases h1 : s1.locality <;> cases h2 : s2.locality <;>
+      first
+        | rfl
+        | (exfalso; rw [h1, h2] at hlrank; simp only [Locality.rank] at hlrank; omega)
+  -- access channel: promoteAccessForCapture is monotone in closureState.locality.
+  have hacc : (promoteAccessForCapture current s1).join
+      (promoteAccessForCapture current s2) = promoteAccessForCapture current s2 := by
+    simp only [promoteAccessForCapture]
+    cases h1 : s1.locality <;> cases h2 : s2.locality <;>
+      first
+        | (cases ha : current.access <;> decide)
+        | (exfalso; rw [h1, h2] at hlrank; simp only [Locality.rank] at hlrank; omega)
+  -- Every output dimension except `access` and `locality` depends only on
+  -- `current` and `k` — identical between the two outputs — so its componentwise
+  -- join is idempotent. `access` uses `hacc`, `locality` uses `hlocchan`.
+  unfold captureStateUpdate
+  split <;>
+    (simp only [AimsState.rawJoin, hacc, hlocchan, Consumption.join_idem,
+      Cardinality.join_idem, Uniqueness.join_idem, Shape.join_idem,
+      EffectClass.join_idem])
+
 /-! ## §9 L-6 layer (b) — per-TF-N transfer-function monotonicity
 
     The §3 L-6 obligation `a ≤ b ⟹ f(a) ≤ f(b)` over the join-defined product
