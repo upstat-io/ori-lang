@@ -43,9 +43,11 @@ via 6 individually-discharged CH theorems (CH-1..CH-5 + CH-comp).
   strict subset of layers is rejected; coverage gate prevents a dropped layer)
 - the coexistence-handshake proofs §11.0
   Per-CH Proof-Status Tracking — SSOT for proof_status / reformulations columns
-- aims-proof/cross-validation/coexistence-handshake.lean (pending §11.1
-  dispatch) — Lean 4 cross-validation artifact consumed by §15 CI nightly per
-  MS-4
+- aims-proof/lean/AimsProof/Coexistence.lean — kernel-checked Lean proofs of
+  CH-1..CH-5 + CH-comp, cross-validated per-theorem by the dual-discharge gate
+  (aims-proof/scripts/dual-discharge.sh). Replaces the retired
+  placeholder-mirror emitter umbrella (the former
+  cross-validation/coexistence-handshake.lean) under the dual-prover design
 
 ### Downstream items (NOT discharged in this dispatch)
 
@@ -53,8 +55,8 @@ Per the dispatch boundary in the coexistence-handshake proofs
 §11.1, the following items are out of scope for this batch:
 
 - CH-2 / CH-3 / CH-4 / CH-5 / CH-comp proof authoring
-- Lean 4 cross-validation transcription
-  (aims-proof/cross-validation/coexistence-handshake.lean)
+- Lean 4 cross-validation (now hand-authored at
+  aims-proof/lean/AimsProof/Coexistence.lean, gated by dual-discharge.sh)
 - §11 close-out runner authoring
   (aims-proof/scripts/run-section-11-proofs.sh)
 - Compiler-conformance cross-walk Tier 2 behavioral harness

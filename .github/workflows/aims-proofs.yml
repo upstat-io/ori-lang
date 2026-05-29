@@ -32,7 +32,7 @@ jobs:
         run: ORI_RUN_PROOFS=1 aims-proof/scripts/check-proofs.sh
 
   lean4-cross-validation:
-    name: Lean 4 Cross-Validation
+    name: Lean 4 Cross-Validation (dual-prover)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: proof-corpus
@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsSL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o "${RUNNER_TEMP}/elan-init.sh"
-          bash "${RUNNER_TEMP}/elan-init.sh" -y --default-toolchain leanprover/lean4:stable
+          bash "${RUNNER_TEMP}/elan-init.sh" -y --default-toolchain leanprover/lean4:v4.30.0
           echo "${HOME}/.elan/bin" >> "${GITHUB_PATH}"
 
       - name: Verify Lean 4 on PATH
@@ -55,10 +55,14 @@ jobs:
       - name: Build the proof checker
         run: cargo build --release -p aims-proof-checker --manifest-path aims-proof/Cargo.toml
 
-      - name: Cross-validate the critical-proof subset (emit-lean4 then lean --run)
+      - name: No-placeholder lint (hard gate)
         working-directory: aims-proof
-        run: |
-          set -e
-          bash scripts/run-bootstrap-proofs.sh
-          bash scripts/run-section-08-proofs.sh
-          bash scripts/run-section-11-proofs.sh
+        run: bash scripts/lean-no-placeholder-lint.sh
+
+      - name: Build the Lean project (lake build, hard gate)
+        working-directory: aims-proof/lean
+        run: lake build
+
+      - name: Dual-discharge gate (Ori checker <-> Lean kernel, hard gate)
+        working-directory: aims-proof
+        run: bash scripts/dual-discharge.sh

@@ -6,13 +6,16 @@
 # sec-11.1 success_criteria: invokes aims-proof/checker/ across the sec-11
 # coexistence corpus ONLY (proofs/11-coexistence/ CH-1..CH-5 + CH-comp +
 # Handshake.proof SSOT spec file), emits per-CH pass/fail keyed to the
-# Per-CH Proof-Status Tracking table, runs the compiler-conformance cross-
+# Per-CH Proof-Status Tracking table, and runs the compiler-conformance cross-
 # walk (CH-4 -> shipped pub(crate) fn eliminate_burden_ops + Tier 2 behavioral
-# fixture; CH-1/CH-2/CH-3/CH-5/CH-comp -> conformance: target-only), and
-# emits the Lean 4 cross-validation artifact at
-# aims-proof/cross-validation/coexistence-handshake.lean (concatenation of
-# per-CH emitted Lean 4 transcriptions). Exits non-zero on any CH-N proof-
-# check failure.
+# fixture; CH-1/CH-2/CH-3/CH-5/CH-comp -> conformance: target-only). Exits
+# non-zero on any CH-N proof-check failure.
+#
+# Lean cross-validation of CH-1..CH-comp is owned by the dual-discharge gate
+# (scripts/dual-discharge.sh) against the hand-authored
+# lean/AimsProof/Coexistence.lean module; the prior placeholder-mirror
+# emitter arm + the cross-validation/coexistence-handshake.lean umbrella are
+# retired.
 #
 # Scope guard: this runner verifies sec-11's OWN proof corpus + the sec-11-
 # owned Lean 4 cross-validation. It does NOT reach into sec-08 RL-31 or
@@ -32,12 +35,6 @@
 # under compiler/ori_arc/tests/aims/coexistence/. A
 # failing tier -> coexistence_handshake_compiler_spec_divergence
 # (exit 2).
-# (d) Lean 4 cross-validation: emit-lean4 CH-1..CH-5 + CH-comp ->
-# aims-proof/cross-validation/coexistence-handshake.lean
-# concatenation; lean --run if toolchain present (graceful
-# degradation when lean4 toolchain unavailable; non-fatal under the
-# sec-11.1 Lean 4 artifact requirement which mandates the
-# transcription artifact, not the toolchain availability).
 #
 # Exit codes + exit_reasons (per scripts/plan_corpus/exit_reasons.py):
 # exit 0 + coexistence_handshake_proven — all green
@@ -57,7 +54,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-mkdir -p test-results proofs/11-coexistence/lean4-emitted ../aims-proof/cross-validation
+mkdir -p test-results
 
 readonly VALID_FAIL_CLASSIFICATIONS=(
     "coexistence_handshake_proof_gap_unprovable"
@@ -170,52 +167,9 @@ EOF
     exit 2
 fi
 
-# Phase (d) — Lean 4 cross-validation. Emit per-CH .lean files and
-# concatenate into aims-proof/cross-validation/coexistence-handshake.lean.
-lean_emit_failed=()
-LEAN_UMBRELLA="cross-validation/coexistence-handshake.lean"
-mkdir -p cross-validation
-
-# Emit header for the umbrella artifact.
-cat > "$LEAN_UMBRELLA" <<'LEANEOF'
--- AIMS-Proof sec-11 coexistence-handshake cross-validation umbrella.
--- SSOT: aims-proof/checker/src/emit/lean4.rs (the SMT / Lean 4 emission strategy Option C).
--- Constructive-by-default per the foundational-axiom policy; classical escalation requires a
--- matched commit per the foundational-axiom policy sec-Permitted-Extensions.
--- Auto-concatenated by aims-proof/scripts/run-section-11-proofs.sh from the
--- per-CH emitted Lean 4 transcriptions at
--- aims-proof/proofs/11-coexistence/lean4-emitted/CH-*.lean.
---
--- Consumed by sec-15 nightly CI per 00-overview.md MS-4 (sec-11 is in the
--- critical-proof cross-validation set alongside sec-01A bootstrap + sec-08
--- RL-31).
-
-LEANEOF
-
-for proof in "${PROOF_FILES[@]}"; do
-    lean_file="proofs/11-coexistence/lean4-emitted/${proof}.lean"
-    if ! "$CHECKER" emit-lean4 "proofs/11-coexistence/${proof}.proof" > "$lean_file" 2>>test-results/section-11-build.log; then
-        lean_emit_failed+=("${proof}")
-        continue
-    fi
-    # Concatenate into umbrella.
-    echo "" >> "$LEAN_UMBRELLA"
-    echo "-- ============================================================" >> "$LEAN_UMBRELLA"
-    echo "-- ${proof} (auto-included from proofs/11-coexistence/lean4-emitted/${proof}.lean)" >> "$LEAN_UMBRELLA"
-    echo "-- ============================================================" >> "$LEAN_UMBRELLA"
-    cat "$lean_file" >> "$LEAN_UMBRELLA"
-done
-
-if [[ ${#lean_emit_failed[@]} -gt 0 ]]; then
-    failing_list=$(IFS=,; echo "${lean_emit_failed[*]}")
-    cat > test-results/section-11-result.json <<EOF
-{"status": "fail", "exit_reason": "coexistence_handshake_compiler_spec_divergence", "phase": "lean4_emit", "proofs_passed": ${proofs_passed}, "lean_emit_failed": "${failing_list}", "reason": "emit-lean4 failed for one or more CH proofs"}
-EOF
-    exit 2
-fi
-
-# All green.
+# All green. Lean cross-validation of CH-1..CH-comp is owned by the
+# dual-discharge gate against lean/AimsProof/Coexistence.lean.
 cat > test-results/section-11-result.json <<EOF
-{"status": "pass", "exit_reason": "coexistence_handshake_proven", "proofs_passed": ${proofs_passed}, "conformance_pass": ${conformance_pass}, "conformance_target_only": ${conformance_target_only}, "tier2_fixture_present": ${tier2_present}, "lean_umbrella": "${LEAN_UMBRELLA}"}
+{"status": "pass", "exit_reason": "coexistence_handshake_proven", "proofs_passed": ${proofs_passed}, "conformance_pass": ${conformance_pass}, "conformance_target_only": ${conformance_target_only}, "tier2_fixture_present": ${tier2_present}}
 EOF
 exit 0

@@ -22,8 +22,10 @@
 # Failure -> realization_rule_infrastructure_failed (exit 3).
 # (b) per-proof discharge: every artifact MUST be status: valid. Fail or
 # UnimplementedEngineShape -> a fail-branch exit_reason (exit 2).
-# (c) RL-31 Lean 4 cross-validation: emit-lean4 RL-31 -> .lean; lean --run
-# if the toolchain is present, else lean_toolchain_missing (graceful).
+# RL-31 Lean cross-validation is owned by the dual-discharge gate
+# (scripts/dual-discharge.sh) against the hand-authored
+# lean/AimsProof/Realization.lean module; the prior placeholder-mirror
+# emitter arm is retired.
 # (d) compiler-conformance cross-walk: each proven RL-N -> shipped emission
 # site; emit per-RL conformance: pass | divergent | target-only. A
 # shipped-rule site missing -> realization_rule_compiler_spec_divergence
@@ -48,7 +50,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-mkdir -p test-results proofs/08-realization/lean4-emitted
+mkdir -p test-results
 
 # --locality-section mode (per §17 SC9): emit a dedicated locality_conformance
 # block in test-results/section-17-locality-result.json with per-manifest-rule
@@ -208,29 +210,6 @@ EOF
     exit 2
 fi
 
-# Phase (c) — RL-31 Lean 4 cross-validation (§08-owned first-landing gate).
-LEAN_FILE="proofs/08-realization/lean4-emitted/RL-31.lean"
-lean4_verdict="not_run"
-if ! "$CHECKER" emit-lean4 proofs/08-realization/RL-31.proof > "$LEAN_FILE" 2>>test-results/section-08-build.log; then
-    cat > test-results/section-08-result.json <<EOF
-{"status": "fail", "exit_reason": "realization_rule_infrastructure_failed", "phase": "emit_lean4", "reason": "emit-lean4 RL-31 exit non-zero; see test-results/section-08-build.log"}
-EOF
-    exit 3
-fi
-if ! command -v lean >/dev/null 2>&1; then
-    # Graceful degradation: the Lean 4 transcription is emitted + ready; the
-    # toolchain is absent. Per the §01A precedent this is an ACCEPTABLE
-    # outcome (the cross-validation is toolchain-gated, not failed).
-    lean4_verdict="lean_toolchain_missing"
-elif lean --run "$LEAN_FILE" >>test-results/section-08-build.log 2>&1; then
-    lean4_verdict="cross_validated"
-else
-    cat > test-results/section-08-result.json <<EOF
-{"status": "fail", "exit_reason": "realization_rule_compiler_spec_divergence", "phase": "lean4_cross_validation", "reason": "lean --run rejected the RL-31 Lean 4 transcription; see test-results/section-08-build.log"}
-EOF
-    exit 2
-fi
-
 # Phase (d) — compiler-conformance cross-walk.
 conformance_divergent=()
 conformance_pass=0
@@ -252,12 +231,12 @@ done
 if [[ ${#conformance_divergent[@]} -gt 0 ]]; then
     divergent_list=$(IFS=,; echo "${conformance_divergent[*]}")
     cat > test-results/section-08-result.json <<EOF
-{"status": "fail", "exit_reason": "realization_rule_compiler_spec_divergence", "phase": "conformance_cross_walk", "proofs_passed": ${proofs_passed}, "lean4_verdict": "${lean4_verdict}", "conformance_divergent": "${divergent_list}"}
+{"status": "fail", "exit_reason": "realization_rule_compiler_spec_divergence", "phase": "conformance_cross_walk", "proofs_passed": ${proofs_passed}, "conformance_divergent": "${divergent_list}"}
 EOF
     exit 2
 fi
 
 cat > test-results/section-08-result.json <<EOF
-{"status": "pass", "exit_reason": "realization_rules_proven", "proofs_passed": ${proofs_passed}, "lean4_verdict": "${lean4_verdict}", "conformance_pass": ${conformance_pass}, "conformance_target_only": ${conformance_target_only}}
+{"status": "pass", "exit_reason": "realization_rules_proven", "proofs_passed": ${proofs_passed}, "conformance_pass": ${conformance_pass}, "conformance_target_only": ${conformance_target_only}}
 EOF
 exit 0

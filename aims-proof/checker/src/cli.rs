@@ -11,11 +11,14 @@
 //! Future subcommands per the proof-checker design sec-Architecture-Sketch +
 //! sec-Cross-references (each scaffolded by a later Agent dispatch):
 //!
-//! - `emit-lean4 <proof-file>` — Lean 4 native emission per
-//! the SMT / Lean 4 emission strategy Option C.
 //! - `coverage-corpus` — drive `scripts/run-coverage-corpus.sh` parity
 //! from inside the checker for local debugging.
 //! - `smoke-test` — drive `scripts/run-smoke-test.sh` parity.
+//!
+//! Lean proofs are hand-authored at `aims-proof/lean/AimsProof/*.lean`
+//! and cross-validated via the dual-discharge gate
+//! (`aims-proof/scripts/dual-discharge.sh`); the checker emits no Lean
+//! source.
 //!
 //! Exit codes (cross-reference §00 FAIL-branch enum + central routing
 //! table at `scripts/plan_corpus/exit_reasons.py:229`):
@@ -38,8 +41,6 @@
 //! when failure surfaces inside coverage-corpus driver).
 
 use crate::checker::{check_proof_file, CheckResult};
-use crate::emit::lean4 as emit_lean4_mod;
-use crate::parser;
 use std::path::PathBuf;
 
 /// CLI subcommand surface — closed enum per the proof-checker design sec-Cross-references.
@@ -55,11 +56,6 @@ pub enum Subcommand {
         engine: Option<String>,
         /// Emit structured JSON to stdout vs human-readable diagnostic.
         json: bool,
-    },
-    /// `emit-lean4 <proof-file>` — placeholder for the SMT / Lean 4 emission strategy Option C.
-    EmitLean4 {
-        /// Path to the proof file the emitter consumes.
-        path: PathBuf,
     },
     /// `coverage-corpus` — placeholder; full impl in run-coverage-corpus.sh.
     CoverageCorpus,
@@ -91,24 +87,6 @@ pub fn run(args: Vec<String>) -> i32 {
             }
             result.exit_code()
         }
-        ParsedArgs::Cmd(Subcommand::EmitLean4 { path }) => {
-            // Native Lean 4 emission per
-            // `the SMT / Lean 4 emission strategy`
-            // Option C. Parser failure routes through exit code 3
-            // (`checker_build_failed` semantics) per the §00 FAIL-branch
-            // enum + §01A bootstrap-infrastructure-failed routing.
-            match parser::parse_proof_file(&path) {
-                Ok(proof) => {
-                    let lean = emit_lean4_mod::emit(&proof);
-                    print!("{}", lean);
-                    0
-                }
-                Err(err) => {
-                    eprintln!("emit-lean4 parse failure: {}", err);
-                    3
-                }
-            }
-        }
         ParsedArgs::Cmd(Subcommand::CoverageCorpus) => {
             eprintln!(
                 "coverage-corpus subcommand not yet implemented; \
@@ -139,14 +117,6 @@ fn parse_args(args: &[String]) -> ParsedArgs {
     }
     match args[1].as_str() {
         "check" => parse_check(&args[2..]),
-        "emit-lean4" => {
-            if args.len() < 3 {
-                return ParsedArgs::Error("emit-lean4 requires <proof-file>".to_string());
-            }
-            ParsedArgs::Cmd(Subcommand::EmitLean4 {
-                path: PathBuf::from(&args[2]),
-            })
-        }
         "coverage-corpus" => ParsedArgs::Cmd(Subcommand::CoverageCorpus),
         "smoke-test" => ParsedArgs::Cmd(Subcommand::SmokeTest),
         other => ParsedArgs::Error(format!("unknown subcommand {:?}", other)),

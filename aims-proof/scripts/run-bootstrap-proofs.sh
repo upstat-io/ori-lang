@@ -21,29 +21,17 @@
 # `checker_smoke_failed` (exit 2) with `failing_proof`,
 # `failing_engine`, `reason` fields populated per §01A
 # FAIL-branch row 5.
-# (c) For each proof passing (b) with status `valid`: emit a Lean 4
-# mirror via `emit-lean4`; invoke `lean --run` on the mirror.
-# Phase (c) is dormant at scaffold-time (no proof reaches it
-# because the stub engines return UnimplementedShape and the
-# §01A gate treats that as FAIL). The wiring exists so the
-# phase-(c) FAIL-branch routes are authored against the eventual
-# PASS-gate path:
-# - emit-lean4 unimplemented/failed → `bootstrap_infrastructure_failed`
-# (exit 3) with phase: "emit_lean4"
-# - lean toolchain absent (`command -v lean` fails) →
-# `bootstrap_infrastructure_failed` (exit 3) with phase:
-# "lean_toolchain_missing"
-# - `lean --run` non-zero exit (binary present) →
-# `cross_validation_divergence` (exit 2) with
-# divergence_class default "lean4_emitter_bug"
-# - cross_validation_divergence_count >= 5 →
-# `bootstrap_divergence_cap_reached` (exit 2)
+# Lean cross-validation is NOT performed here. Under the dual-prover
+# design Lean proofs are hand-authored at aims-proof/lean/AimsProof/*.lean
+# and cross-validated per-theorem by the dual-discharge gate
+# (scripts/dual-discharge.sh) + statement-parity prelude. This runner is
+# purely the §01A Ori-checker bootstrap gate; the prior placeholder-mirror
+# emitter arm is retired.
 #
 # Exit codes match scripts/plan_corpus/exit_reasons.py
 # EXIT_REASON_ROUTING:
-# 0 = bootstrap_cross_validation_passed (11/11 green in both)
-# 2 = checker_smoke_failed / cross_validation_divergence /
-# bootstrap_divergence_cap_reached
+# 0 = bootstrap_cross_validation_passed (11/11 green in the Ori checker)
+# 2 = checker_smoke_failed
 # 3 = bootstrap_infrastructure_failed
 #
 # Cwd contract per §01A: anchors to aims-proof/ via
@@ -54,26 +42,11 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-mkdir -p test-results proofs/01A-bootstrap/lean4-emitted
+mkdir -p test-results
 
 RESULT_FILE="test-results/bootstrap-result.json"
-DIVERGENCE_FILE="test-results/divergence-report.json"
 BUILD_LOG="test-results/bootstrap-build.log"
 INFRA_LOG="test-results/bootstrap-infrastructure-failure.log"
-
-# Iteration-counter scaffold for cross_validation_divergence cap
-# enforcement per §01A Implementation Items "Cross-validation
-# divergence iteration counter mechanism".
-DIVERGENCE_CAP=5
-PRIOR_COUNT=0
-if [ -f "${RESULT_FILE}" ]; then
-  # Best-effort parse of `cross_validation_divergence_count` field
-  # using grep/sed (jq optional). Default 0 when field absent.
-  EXTRACTED=$(grep -o '"cross_validation_divergence_count"[[:space:]]*:[[:space:]]*[0-9]\+' "${RESULT_FILE}" 2>/dev/null | grep -o '[0-9]\+' | head -1 || true)
-  if [ -n "${EXTRACTED}" ]; then
-    PRIOR_COUNT="${EXTRACTED}"
-  fi
-fi
 
 # JSON-string escape (handles backslash and double-quote; sufficient
 # for the ASCII diagnostics this script emits).
@@ -86,27 +59,12 @@ emit_result() {
   local status="$1"; shift
   local exit_reason="$1"; shift
   local body="\"status\": \"$(json_escape "${status}")\", \"exit_reason\": \"$(json_escape "${exit_reason}")\""
-  body="${body}, \"cross_validation_divergence_count\": ${PRIOR_COUNT}"
   while [ $# -ge 2 ]; do
     local k="$1"; shift
     local v="$1"; shift
     body="${body}, \"$(json_escape "${k}")\": \"$(json_escape "${v}")\""
   done
   echo "{${body}}" > "${RESULT_FILE}"
-}
-
-emit_divergence() {
-  # Args: proof_file ori_verdict lean4_verdict divergence_class
-  local proof_file="$1"
-  local ori_verdict="$2"
-  local lean4_verdict="$3"
-  local divergence_class="$4"
-  printf '{"proof_file": "%s", "ori_verdict": "%s", "lean4_verdict": "%s", "divergence_class": "%s"}\n' \
-    "$(json_escape "${proof_file}")" \
-    "$(json_escape "${ori_verdict}")" \
-    "$(json_escape "${lean4_verdict}")" \
-    "$(json_escape "${divergence_class}")" \
-    > "${DIVERGENCE_FILE}"
 }
 
 # Phase (a) — build.
@@ -136,7 +94,6 @@ BOOTSTRAP_PROOFS=(
 
 KERNEL_PASSED=0
 COVERAGE_PASSED=0
-PROOFS_FOR_PHASE_C=()
 
 # Phase (b) — per-proof Ori check.
 for entry in "${BOOTSTRAP_PROOFS[@]}"; do
@@ -188,7 +145,6 @@ for entry in "${BOOTSTRAP_PROOFS[@]}"; do
       else
         COVERAGE_PASSED=$((COVERAGE_PASSED + 1))
       fi
-      PROOFS_FOR_PHASE_C+=("${entry}")
       ;;
     unimplemented_engine_shape|fail)
       # §01A stricter gate: scaffold-time UnimplementedEngineShape is
@@ -210,57 +166,9 @@ for entry in "${BOOTSTRAP_PROOFS[@]}"; do
   esac
 done
 
-# Phase (c) — Lean 4 cross-validation on proofs that passed phase (b).
-# At scaffold-time this loop is empty because phase (b) terminates the
-# script on the first UnimplementedShape; the wiring below is authored
-# against the eventual PASS-gate path per §01A Implementation Items.
-for entry in "${PROOFS_FOR_PHASE_C[@]}"; do
-  PROOF_FILE="proofs/01A-bootstrap/${entry}.proof"
-  PROOF_NAME=$(basename "${entry}")
-  LEAN_FILE="proofs/01A-bootstrap/lean4-emitted/${PROOF_NAME}.lean"
-
-  if ! ./target/release/aims-proof-checker emit-lean4 "${PROOF_FILE}" > "${LEAN_FILE}" 2>>"${INFRA_LOG}"; then
-    emit_result "fail" "bootstrap_infrastructure_failed" \
-      "phase" "emit_lean4" \
-      "failing_proof" "${PROOF_NAME}" \
-      "reason" "emit-lean4 exit non-zero; see ${INFRA_LOG}"
-    exit 3
-  fi
-
-  if ! command -v lean >/dev/null 2>&1; then
-    emit_result "fail" "bootstrap_infrastructure_failed" \
-      "phase" "lean_toolchain_missing" \
-      "failing_proof" "${PROOF_NAME}" \
-      "reason" "lean binary not on PATH; install Lean 4 toolchain per the Lean 4 cross-validation strategy"
-    exit 3
-  fi
-
-  if ! lean --run "${LEAN_FILE}" >>"${INFRA_LOG}" 2>&1; then
-    NEW_COUNT=$((PRIOR_COUNT + 1))
-    PRIOR_COUNT="${NEW_COUNT}"
-    if [ "${NEW_COUNT}" -ge "${DIVERGENCE_CAP}" ]; then
-      emit_result "fail" "bootstrap_divergence_cap_reached" \
-        "failing_proof" "${PROOF_NAME}" \
-        "iterations" "${NEW_COUNT}" \
-        "cap_reached" "true" \
-        "reason" "cross_validation_divergence count >= bootstrap_divergence_reformulation_cap (${DIVERGENCE_CAP})"
-      emit_divergence "${PROOF_FILE}" "valid" "rejected" "lean4_emitter_bug"
-      exit 2
-    fi
-    emit_result "fail" "cross_validation_divergence" \
-      "failing_proof" "${PROOF_NAME}" \
-      "divergence_class" "lean4_emitter_bug" \
-      "reason" "lean --run rejected the emitted mirror; see ${INFRA_LOG}"
-    emit_divergence "${PROOF_FILE}" "valid" "rejected" "lean4_emitter_bug"
-    exit 2
-  fi
-done
-
-# Green path — every proof discharged GREEN in both Ori's checker AND
-# Lean 4 cross-validation. Per §01A "Cross-validation divergence
-# iteration counter mechanism" Implementation Item: the counter resets
-# to 0 on PASS so the next §01A re-dispatch cycle starts fresh.
-PRIOR_COUNT=0
+# Green path — every bootstrap proof discharged GREEN in the Ori
+# checker. Lean cross-validation is owned by the dual-discharge gate
+# (scripts/dual-discharge.sh); this runner no longer emits Lean mirrors.
 emit_result "pass" "bootstrap_cross_validation_passed" \
   "kernel_passed" "${KERNEL_PASSED}" \
   "coverage_passed" "${COVERAGE_PASSED}"

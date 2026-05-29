@@ -1417,7 +1417,7 @@ mod tests {
     fn parse_letter_suffix_theorem_id() {
         // Construct a synthetic header inline (TF-15a is not in the corpus
         // but the parser must accept it).
-        let src = "Theorem TF-15a: synthetic\n Preconditions:\n - foo\n Soundness property:\n bar\n Proof obligation:\n sorry\n";
+        let src = "Theorem TF-15a: synthetic\n  Preconditions:\n    - foo\n  Soundness property:\n    bar\n  Proof obligation:\n    sorry\n";
         let toks = tokenize(src).unwrap();
         let theorems = parse_proof_file_tokens(&toks).expect("TF-15a header must parse");
         assert_eq!(theorems.len(), 1);
@@ -1429,7 +1429,7 @@ mod tests {
     #[test]
     fn parse_compound_suffix_theorem_id_numeric_root() {
         // CN-4-REMOVED: integer root + `-IDENT` chain.
-        let src = "Theorem CN-4-REMOVED: anti-monotonicity confirmation\n Preconditions:\n - foo\n Soundness property:\n bar\n Proof obligation:\n sorry\n";
+        let src = "Theorem CN-4-REMOVED: anti-monotonicity confirmation\n  Preconditions:\n    - foo\n  Soundness property:\n    bar\n  Proof obligation:\n    sorry\n";
         let toks = tokenize(src).unwrap();
         let theorems = parse_proof_file_tokens(&toks)
             .expect("CN-4-REMOVED header must parse");
@@ -1441,7 +1441,7 @@ mod tests {
     #[test]
     fn parse_compound_suffix_theorem_id_identifier_root() {
         // CN-Fixpoint-OneRound: identifier root + `-IDENT` chain.
-        let src = "Theorem CN-Fixpoint-OneRound: 1-round empirical convergence\n Preconditions:\n - foo\n Soundness property:\n bar\n Proof obligation:\n sorry\n";
+        let src = "Theorem CN-Fixpoint-OneRound: 1-round empirical convergence\n  Preconditions:\n    - foo\n  Soundness property:\n    bar\n  Proof obligation:\n    sorry\n";
         let toks = tokenize(src).unwrap();
         let theorems = parse_proof_file_tokens(&toks)
             .expect("CN-Fixpoint-OneRound header must parse");
@@ -1453,7 +1453,7 @@ mod tests {
     #[test]
     fn parse_identifier_only_theorem_id() {
         // CN-Ordering: identifier root, no chain.
-        let src = "Theorem CN-Ordering: CN-8 fires before CN-6\n Preconditions:\n - foo\n Soundness property:\n bar\n Proof obligation:\n sorry\n";
+        let src = "Theorem CN-Ordering: CN-8 fires before CN-6\n  Preconditions:\n    - foo\n  Soundness property:\n    bar\n  Proof obligation:\n    sorry\n";
         let toks = tokenize(src).unwrap();
         let theorems = parse_proof_file_tokens(&toks)
             .expect("CN-Ordering header must parse");
@@ -1465,7 +1465,7 @@ mod tests {
     #[test]
     fn parse_three_part_compound_suffix() {
         // CN-6-Extraction-Reconciliation: integer root + two `-IDENT` parts.
-        let src = "Theorem CN-6-Extraction-Reconciliation: ReturnContract reconciliation\n Preconditions:\n - foo\n Soundness property:\n bar\n Proof obligation:\n sorry\n";
+        let src = "Theorem CN-6-Extraction-Reconciliation: ReturnContract reconciliation\n  Preconditions:\n    - foo\n  Soundness property:\n    bar\n  Proof obligation:\n    sorry\n";
         let toks = tokenize(src).unwrap();
         let theorems = parse_proof_file_tokens(&toks)
             .expect("CN-6-Extraction-Reconciliation header must parse");
@@ -1484,7 +1484,7 @@ mod tests {
 
     #[test]
     fn parse_error_on_unknown_category() {
-        let src = "Theorem XX-1: bad\n Preconditions:\n - foo\n Soundness property:\n bar\n Proof obligation:\n sorry\n";
+        let src = "Theorem XX-1: bad\n  Preconditions:\n    - foo\n  Soundness property:\n    bar\n  Proof obligation:\n    sorry\n";
         let toks = tokenize(src).unwrap();
         let err = parse_proof_file_tokens(&toks).unwrap_err();
         assert_eq!(err.exit_reason, ParseExitReason::NotationMissingTheoremBlock);
@@ -1494,7 +1494,7 @@ mod tests {
     #[test]
     fn parse_error_on_missing_subblock() {
         // Only Preconditions present — Soundness property and Proof obligation missing.
-        let src = "Theorem L-1: foo\n Preconditions:\n - bar\n";
+        let src = "Theorem L-1: foo\n  Preconditions:\n    - bar\n";
         let toks = tokenize(src).unwrap();
         let err = parse_proof_file_tokens(&toks).unwrap_err();
         assert_eq!(err.exit_reason, ParseExitReason::NotationMissingTheoremBlock);
@@ -1504,7 +1504,7 @@ mod tests {
     #[test]
     fn parse_error_on_unrecognized_non_ascii() {
         // U+2603 (snowman) is not in the recognized Greek-codepoint table.
-        let src = "Theorem L-1: \u{2603}\n Preconditions:\n - foo\n Soundness property:\n bar\n Proof obligation:\n sorry\n";
+        let src = "Theorem L-1: \u{2603}\n  Preconditions:\n    - foo\n  Soundness property:\n    bar\n  Proof obligation:\n    sorry\n";
         let err = tokenize(src).unwrap_err();
         assert_eq!(err.exit_reason, ParseExitReason::NotationUnknownSymbol);
     }

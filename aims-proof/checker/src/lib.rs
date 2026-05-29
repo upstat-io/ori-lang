@@ -16,8 +16,11 @@
 //! - `engine` — 8 engines: case_analysis, refinement, rc_counting,
 //! lattice, monotonicity, fixpoint, structural_induction,
 //! interprocedural_summary.
-//! - `cli` — CLI entry (`check`, `emit-lean4`, `coverage-corpus`,
-//! `smoke-test` subcommands).
+//! - `cli` — CLI entry (`check`, `coverage-corpus`, `smoke-test`
+//! subcommands). Lean proofs are hand-authored at
+//! `aims-proof/lean/AimsProof/*.lean` and cross-validated via the
+//! dual-discharge gate (`aims-proof/scripts/dual-discharge.sh`); the
+//! checker emits no Lean source.
 //!
 //! Foundational logic per the foundational-axiom policy is CONSTRUCTIVE. No LEM, no AC,
 //! no functional/propositional extensionality, no proof irrelevance, no
@@ -30,7 +33,6 @@
 pub mod ast;
 pub mod checker;
 pub mod cli;
-pub mod emit;
 pub mod engine;
 pub mod parser;
 
