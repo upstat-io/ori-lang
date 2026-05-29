@@ -5,7 +5,7 @@ Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean)
   rules: shared ENCODING of the §1 dimensions + §5 canonicalize (consumed by
     every L/CN/TF/DP/IC/PL/RL/VF/CH theorem; not a single rule-ID) |
   spec: annex-e §AIMS §1 + §5 |
-  .proof: aims-proof/proofs/02-lattice/Lattice.proof + Product.proof (the §01
+  .proof: aims-proof/proofs/02-lattice/Lattice.proof + Product.proof (the
     lattice-foundation derivation this model must match) |
   map: aims-proof/scripts/proof-lean-map.json (every theorem's `lean` anchor
     imports this model; the model row records the encoding tie).

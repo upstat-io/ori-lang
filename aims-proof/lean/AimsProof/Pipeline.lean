@@ -650,7 +650,7 @@ theorem PL10_check_a_fails_no_survival
     PL-1 prefix-before-suffix, the PL-2/PL-3/PL-4/PL-4a intra-function ordered
     pairs, and the ContextBehavior PL-11 join identity + idempotence + the PL-9
     / PL-10 TRMC well-formedness. Each conjunct is an independently-discharged
-    §07 theorem; PL-comp states they all hold jointly. -/
+    PL-rule theorem; PL-comp states they all hold jointly. -/
 theorem PLcomp_pipeline_composes
     (G : Condensation) (i j : Nat) (hedge : G.Edge i j)
     (c : ContextBehavior)
