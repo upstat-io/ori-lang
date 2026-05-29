@@ -2,6 +2,11 @@
 AIMS lattice-law module — kernel-checked Lean proofs of the lattice algebra
 laws over the finite `AimsState` product.
 
+Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean):
+  rules: L-1..L-10 | spec: annex-e §AIMS §3 |
+  .proof: aims-proof/proofs/02-lattice/L-{1..10}.proof |
+  map: aims-proof/scripts/proof-lean-map.json (theorem -> rule/spec/proof/lean).
+
 Correspondence: `docs/ori_lang/v2026/spec/annex-e-system-considerations.md §AIMS §3`
 ("The AIMS lattice is a product of finite-height lattices; product join is
 componentwise join followed by canonicalization (§5). Every dimension shall
@@ -347,8 +352,9 @@ theorem L5_locality_rank_bounded (a : Locality) : a.rank ≤ Locality.height := 
     `simp only` set discharges the extended law. The kernel-checked per-dim +
     lift lemmas above are the schema instantiated for the current 7 dimensions;
     L-10 asserts the same machinery composes for any well-formed `D`. This is
-    the correct encoding (per the §18.2-L deliverable: a genuinely-meta law MAY
-    be a documented doc-comment explaining it is a proof-schema, not a single
-    theorem — that is the faithful encoding, not a placeholder). -/
+    the correct encoding: a genuinely-meta law (a proof-schema over an open
+    dimension set, per §AIMS §3 dimension-extension protocol) MAY be a
+    documented doc-comment explaining it is a schema, not a single theorem —
+    that is the faithful encoding, not a placeholder. -/
 
 end AimsProof

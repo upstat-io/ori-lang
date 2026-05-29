@@ -2,6 +2,12 @@
 AIMS decision-predicate module — kernel-checked Lean proofs of the decision
 predicates DP-1..DP-9 over the finite `AimsState` product.
 
+Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean):
+  rules: DP-1..DP-9 (DP-10 REMOVED — doc-comment, no theorem) |
+  spec: annex-e §AIMS §3 (dimensions) + §8 (the realization rules each DP gates) |
+  .proof: aims-proof/proofs/05-decisions/DP-{1..9}.proof |
+  map: aims-proof/scripts/proof-lean-map.json (theorem -> rule/spec/proof/lean).
+
 Correspondence: `docs/ori_lang/v2026/spec/annex-e-system-considerations.md §AIMS`.
 The decision predicates map a canonical lattice state (§3 dimensions) to an
 RC / COW / reuse / stack decision; each predicate gates a §8 realization rule:

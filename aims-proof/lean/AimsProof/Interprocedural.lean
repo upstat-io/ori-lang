@@ -2,6 +2,12 @@
 AIMS interprocedural-contract module — kernel-checked Lean proofs of the
 interprocedural contract rules IC-1..IC-8a over the AIMS product lattice.
 
+Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean):
+  rules: IC-1..IC-7 + IC-8a (IC-8 REMOVED — doc-comment, no theorem) |
+  spec: annex-e §AIMS §7 + §3 + §6 |
+  .proof: aims-proof/proofs/06-interprocedural/IC-*.proof |
+  map: aims-proof/scripts/proof-lean-map.json (theorem -> rule/spec/proof/lean).
+
 Correspondence: `docs/ori_lang/v2026/spec/annex-e-system-considerations.md §AIMS §7`
 (Interprocedural Contracts) + §3 (lattice dimensions + orderings) + §6 (pipeline
 ordering PL-1a SCC topological order).

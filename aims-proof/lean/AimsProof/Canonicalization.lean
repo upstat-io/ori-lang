@@ -3,6 +3,12 @@ AIMS canonicalization-rule module — kernel-checked Lean proofs of the active
 canonicalization rules CN-1 / CN-3 / CN-6 / CN-8 over the finite `AimsState`
 product.
 
+Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean):
+  rules: CN-1 / CN-3 / CN-6 / CN-8 (CN-4 / CN-7 REMOVED — doc-comment, no theorem) |
+  spec: annex-e §AIMS §5 |
+  .proof: aims-proof/proofs/03-canonicalization/CN-{1,3,6,8}.proof |
+  map: aims-proof/scripts/proof-lean-map.json (theorem -> rule/spec/proof/lean).
+
 Correspondence: `docs/ori_lang/v2026/spec/annex-e-system-considerations.md §AIMS §5`
 (Canonicalization Rules) + §3 ("Canonicalization (§5) shall be idempotent and
 shall preserve join results.").

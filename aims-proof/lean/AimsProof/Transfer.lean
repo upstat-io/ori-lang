@@ -3,6 +3,14 @@ AIMS transfer-function module — kernel-checked Lean proofs of the per-instruct
 forward transfer functions, the backward-demand accumulation operators, and the
 L-6 layer (b) monotonicity obligations over the finite `AimsState` product.
 
+Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean):
+  rules: TF-3..TF-9a (forward), TF-11 / TF-14 (backward), TF-8 (Select), L-6 layer-b |
+  spec: annex-e §AIMS §4 + Appendix A |
+  .proof: aims-proof/proofs/04-transfers/TF-*.proof + IA-5-step-1.proof + Composition.proof |
+  map: aims-proof/scripts/proof-lean-map.json (theorem -> rule/spec/proof/lean).
+  Note: SCALAR-sentinel rows (TF-1/2a/10/10a) are not modeled — SCALAR is the L-9
+  absence-of-inhabitant sentinel; no AimsState-valued forward image exists.
+
 Correspondence: `docs/ori_lang/v2026/spec/annex-e-system-considerations.md §AIMS §4`
 (Transfer Functions TF-1..TF-15a, forward + backward) + Appendix A
 (Forward Transfer Matrix) + §3 ("Transfer functions shall be monotone:
