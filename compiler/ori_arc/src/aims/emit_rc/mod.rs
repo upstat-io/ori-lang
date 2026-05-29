@@ -59,7 +59,7 @@ pub(crate) use borrowed_defs::{
 };
 pub(crate) use coalesce::coalesce_block_rc;
 pub(crate) use dead_cleanup::{emit_dead_at_entry_decs, emit_dead_invoke_dsts};
-pub(crate) use edge_cleanup::{compute_same_alloc_reps, emit_edge_cleanup, same_alloc};
+pub(crate) use edge_cleanup::emit_edge_cleanup;
 pub(crate) use forward_walk::emit_terminator_rc;
 pub(crate) use helpers::{
     collect_defined_vars, compute_child_effective_last_use, compute_function_project_sources,

@@ -381,32 +381,6 @@ pub(crate) fn canonical_rep_for(class_id: u32, pin4_emits: &Pin4EmitsByClass) ->
         .max_by_key(|&&(var, site)| (emission_site_order(site), var.raw()))
         .map(|&(var, _)| var)
 }
-
-/// Canonical dec-emitter for the SAME-ALLOCATION partition of `var` within its
-/// SSA class. An SSA class can span MULTIPLE distinct runtime allocations when
-/// a block param's predecessors pass different values (loop back-edge unioning
-/// old+new loop-carried values; if/match merge unioning branch alternatives).
-/// Such a class needs one dec PER allocation, so PIN-4 suppression must defer
-/// only to the canonical of `var`'s OWN allocation — never to a phi-merged
-/// sibling denoting a different allocation. Filters the class emitters to
-/// members `same_alloc` as `var` (per `compute_same_alloc_reps`, which excludes
-/// the Jump-arg→block-param phi edges), then picks the latest-emitting. Returns
-/// None when no same-allocation member emits a dec in this block (so the caller
-/// emits `var`'s own dec — its allocation has no other release).
-pub(crate) fn canonical_rep_for_same_alloc(
-    class_id: u32,
-    pin4_emits: &Pin4EmitsByClass,
-    var: ArcVarId,
-    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
-) -> Option<ArcVarId> {
-    let members = pin4_emits.get(&class_id)?;
-    members
-        .iter()
-        .filter(|&&(m, _)| crate::aims::emit_rc::same_alloc(same_alloc_reps, m, var))
-        .max_by_key(|&&(m, site)| (emission_site_order(site), m.raw()))
-        .map(|&(m, _)| m)
-}
-
 /// Total order over `EmissionSite` for canonical-rep selection.
 /// Higher = LATER in program order = preferred for canonical-rep.
 fn emission_site_order(site: EmissionSite) -> usize {

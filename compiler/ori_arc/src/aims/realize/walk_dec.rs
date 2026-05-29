@@ -436,27 +436,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
     if let Some(canonical) =
         crate::aims::emit_rc::dead_cleanup::emission_site::canonical_rep_for(class_id, &pin4_emits)
     {
-        // Per-allocation canonical: an SSA class can span MULTIPLE distinct
-        // allocations when a block param's predecessors pass different values
-        // (loop back-edge unioning old+new loop-carried values; if/match merge
-        // unioning branch alternatives). Each allocation needs its own dec, so
-        // defer only to the canonical of `var`'s OWN same-allocation partition —
-        // a phi-merged sibling being the class-wide canonical does NOT cover
-        // var's allocation (RL-2/RL-4 + §10 04B.2-under-elim per-path-net-0).
-        let same_alloc_reps = crate::aims::emit_rc::compute_same_alloc_reps(
-            ctx.func,
-            ctx.state_map.apply_result_aliases(),
-        );
-        if crate::aims::emit_rc::same_alloc(&same_alloc_reps, canonical, var) {
-            return canonical != var;
-        }
-        return crate::aims::emit_rc::dead_cleanup::emission_site::canonical_rep_for_same_alloc(
-            class_id,
-            &pin4_emits,
-            var,
-            &same_alloc_reps,
-        )
-        .is_some_and(|c| c != var);
+        return canonical != var;
     }
 
     // BUG-04-118 §05 Round 2 /tp-help (Option A refined): when pin4

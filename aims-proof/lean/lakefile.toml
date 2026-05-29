@@ -1,0 +1,11 @@
+name = "AimsProof"
+defaultTargets = ["AimsProof"]
+
+# Project-wide resource bound: a runaway `by decide` enumeration over the
+# finite ~7200-state AimsState product fails (heartbeat-exceeded) rather than
+# hanging the CI / autopilot `lake build` gate.
+[leanOptions]
+maxHeartbeats = 1000000
+
+[[lean_lib]]
+name = "AimsProof"
