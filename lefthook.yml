@@ -71,6 +71,11 @@ pre-commit:
       # shipped-conformance gate treats divergent-pending as non-fatal.
       glob: "aims-proof/proofs/**"
       run: aims-proof/scripts/check-proofs.sh {staged_files}
+    aims-proof-lean-placeholder:
+      # A commit touching any aims-proof Lean file runs the no-placeholder lint
+      # (sorry / admit / ': True := by trivial' / standalone axiom); a hit blocks.
+      glob: "aims-proof/**/*.lean"
+      run: aims-proof/scripts/lean-no-placeholder-lint.sh
 
 commit-msg:
   commands:
