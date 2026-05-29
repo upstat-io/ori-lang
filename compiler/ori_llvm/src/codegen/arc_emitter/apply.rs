@@ -177,6 +177,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
+        // `__cast` intercept: `as` conversions lower to `Apply __cast` (ARC IR
+        // has no cast instruction). Emit the primitive conversion directly,
+        // matching `ori_eval::eval_can_cast` for dual-execution parity. Source/
+        // target pairs not handled here (str parse, range-checked int→byte/char)
+        // fall through to normal dispatch (unresolved — current behavior).
+        if callee_name_str == "__cast" {
+            if let Some(val) = self.try_emit_cast(dst, args, func) {
+                self.def_var_repr(dst, val, func);
+                return;
+            }
+        }
+
         // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
         if let Some(val) = self.try_emit_format_call(callee_name_str, args, func) {
             self.def_var_repr(dst, val, func);
@@ -307,6 +319,52 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit an `ApplyIndirect` instruction (indirect call through closure).
+    /// Emit a primitive `as` cast (the `__cast` intercept). Returns the
+    /// converted value, or `None` for source/target pairs handled elsewhere
+    /// (str parse, range-checked int→byte/char) so the caller falls through.
+    ///
+    /// Matches `ori_eval::eval_can_cast` for the conversions emitted here:
+    /// identity (same primitive — no-op), int→float (sitofp), float→int
+    /// (fptosi), byte→int / char→int (zext — lossless for valid values).
+    fn try_emit_cast(
+        &mut self,
+        dst: ArcVarId,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) -> Option<ValueId> {
+        if args.len() != 1 {
+            return None;
+        }
+        let val = self.var(args[0]);
+        let src_tag = self
+            .pool
+            .tag(self.pool.resolve_fully(func.var_type(args[0])));
+        let tgt_tag = self.pool.tag(self.pool.resolve_fully(func.var_type(dst)));
+
+        // Identity conversion (same primitive type) — no-op.
+        if src_tag == tgt_tag {
+            return Some(val);
+        }
+
+        match (src_tag, tgt_tag) {
+            (Tag::Int, Tag::Float) => {
+                let f64_ty = self.builder.f64_type();
+                Some(self.builder.si_to_fp(val, f64_ty, "cast.int.float"))
+            }
+            (Tag::Float, Tag::Int) => {
+                let i64_ty = self.builder.i64_type();
+                Some(self.builder.fp_to_si(val, i64_ty, "cast.float.int"))
+            }
+            (Tag::Byte, Tag::Int) | (Tag::Char, Tag::Int) => {
+                let i64_ty = self.builder.i64_type();
+                Some(self.builder.zext(val, i64_ty, "cast.widen.int"))
+            }
+            // int→byte / int→char (eval range-checks + panics on out-of-range),
+            // str→int / str→float (parse), X→str (to_str) — not emitted here.
+            _ => None,
+        }
+    }
+
     pub(super) fn emit_apply_indirect(
         &mut self,
         dst: ArcVarId,
