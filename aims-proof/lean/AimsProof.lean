@@ -7,3 +7,4 @@ import AimsProof.Canonicalization
 import AimsProof.Transfer
 import AimsProof.Decision
 import AimsProof.Interprocedural
+import AimsProof.Pipeline
