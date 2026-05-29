@@ -3,3 +3,4 @@
 -- added here as they land.
 import AimsProof.Model
 import AimsProof.Lattice
+import AimsProof.Canonicalization
