@@ -184,82 +184,7 @@ pub(crate) fn compute_block_entry_state(
         };
 
         if def_transfer.is_some() {
-            // Capture destination demand BEFORE removing dst, used for:
-            // - Closure-capture-aware locality
-            // - Effect accumulation (HeapEscaping → may_share)
-            let dst_demand = instr
-                .defined_var()
-                .map(|dst| current.get(&dst).copied().unwrap_or(AimsState::BOTTOM));
-
-            // Capture the closure's downstream demand BEFORE removing dst.
-            let closure_demand = if let crate::ir::ArcInstr::PartialApply { dst, .. } = instr {
-                Some(current.get(dst).copied().unwrap_or(AimsState::BOTTOM))
-            } else {
-                None
-            };
-
-            // Effect computation: accumulate per-instruction effects.
-            accumulate_instr_effects(instr, dst_demand, state_map, sigs, &mut block_effects);
-
-            // Transparent-alias transfer: for Let { Var(v) }, dst's accumulated
-            // demand transfers to v via seq_add (cardinality + consumption)
-            // and max (locality) BEFORE dst's state is consumed by the remove
-            // below. Without this, accumulated Many cardinality on the alias
-            // vanishes when dst is removed, leaving the source under-demanded
-            // and a missing RcDec at the alias chain's natural-death site.
-            if let crate::ir::ArcInstr::Let {
-                value: crate::ir::ArcValue::Var(v),
-                ..
-            } = instr
-            {
-                if !state_map.is_excluded(*v) {
-                    if let Some(dst_state) = dst_demand {
-                        let entry = current.entry(*v).or_insert(AimsState::BOTTOM);
-                        entry.cardinality = entry.cardinality.seq_add(dst_state.cardinality);
-                        entry.consumption = entry.consumption.seq_add(dst_state.consumption);
-                        if entry.locality < dst_state.locality {
-                            entry.locality = dst_state.locality;
-                        }
-                        entry.canonicalize();
-                    }
-                }
-            }
-
-            // If the instruction defines a variable, the defined variable's
-            // demand is consumed here (it's defined at this point, so
-            // predecessors don't need to provide it). Remove from current state.
-            if let Some(dst) = instr.defined_var() {
-                current.remove(&dst);
-            }
-
-            // Use contract-aware state for Apply/Invoke if available.
-            if let crate::ir::ArcInstr::Apply {
-                dst,
-                func: callee,
-                args,
-                ..
-            } = instr
-            {
-                apply_callee_contract(*dst, *callee, args, sigs, &mut current);
-                // backward_demands still runs below to add operand demand.
-            }
-
-            // For PartialApply: update captured variables' states.
-            // Uses closure-aware locality (effect computation): the closure's own
-            // demand state determines captured variable locality.
-            if let crate::ir::ArcInstr::PartialApply { args, .. } = instr {
-                let closure_state = closure_demand.unwrap_or(AimsState::BOTTOM);
-                for &arg in args {
-                    if !state_map.is_excluded(arg) {
-                        let arg_state = current.get(&arg).copied().unwrap_or(AimsState::BOTTOM);
-                        let updated = super::super::transfer::capture_state_update(
-                            &arg_state,
-                            &closure_state,
-                        );
-                        merge_demand(&mut current, arg, updated);
-                    }
-                }
-            }
+            apply_instr_forward_transfer(instr, &mut current, state_map, sigs, &mut block_effects);
         }
 
         // Backward demands: add demand on operands.
@@ -308,6 +233,93 @@ pub(crate) fn compute_block_entry_state(
         entry_state: current,
         effects: block_effects,
         invoke_def_demand,
+    }
+}
+
+/// Apply the forward (definition-time) transfer for one instruction during
+/// the backward walk: accumulate effects, run the transparent-alias transfer,
+/// remove the defined variable, and apply contract-aware / closure-capture
+/// state updates. Called only when the instruction defines a variable.
+fn apply_instr_forward_transfer(
+    instr: &crate::ir::ArcInstr,
+    current: &mut FxHashMap<ArcVarId, AimsState>,
+    state_map: &AimsStateMap,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    block_effects: &mut EffectSummary,
+) {
+    // Capture destination demand BEFORE removing dst, used for:
+    // - Closure-capture-aware locality
+    // - Effect accumulation (HeapEscaping → may_share)
+    let dst_demand = instr
+        .defined_var()
+        .map(|dst| current.get(&dst).copied().unwrap_or(AimsState::BOTTOM));
+
+    // Capture the closure's downstream demand BEFORE removing dst.
+    let closure_demand = if let crate::ir::ArcInstr::PartialApply { dst, .. } = instr {
+        Some(current.get(dst).copied().unwrap_or(AimsState::BOTTOM))
+    } else {
+        None
+    };
+
+    // Effect computation: accumulate per-instruction effects.
+    accumulate_instr_effects(instr, dst_demand, state_map, sigs, block_effects);
+
+    // Transparent-alias transfer: for Let { Var(v) }, dst's accumulated
+    // demand transfers to v via seq_add (cardinality + consumption)
+    // and max (locality) BEFORE dst's state is consumed by the remove
+    // below. Without this, accumulated Many cardinality on the alias
+    // vanishes when dst is removed, leaving the source under-demanded
+    // and a missing RcDec at the alias chain's natural-death site.
+    if let crate::ir::ArcInstr::Let {
+        value: crate::ir::ArcValue::Var(v),
+        ..
+    } = instr
+    {
+        if !state_map.is_excluded(*v) {
+            if let Some(dst_state) = dst_demand {
+                let entry = current.entry(*v).or_insert(AimsState::BOTTOM);
+                entry.cardinality = entry.cardinality.seq_add(dst_state.cardinality);
+                entry.consumption = entry.consumption.seq_add(dst_state.consumption);
+                if entry.locality < dst_state.locality {
+                    entry.locality = dst_state.locality;
+                }
+                entry.canonicalize();
+            }
+        }
+    }
+
+    // If the instruction defines a variable, the defined variable's
+    // demand is consumed here (it's defined at this point, so
+    // predecessors don't need to provide it). Remove from current state.
+    if let Some(dst) = instr.defined_var() {
+        current.remove(&dst);
+    }
+
+    // Use contract-aware state for Apply/Invoke if available.
+    if let crate::ir::ArcInstr::Apply {
+        dst,
+        func: callee,
+        args,
+        ..
+    } = instr
+    {
+        apply_callee_contract(*dst, *callee, args, sigs, current);
+        // backward_demands still runs below to add operand demand.
+    }
+
+    // For PartialApply: update captured variables' states.
+    // Uses closure-aware locality (effect computation): the closure's own
+    // demand state determines captured variable locality.
+    if let crate::ir::ArcInstr::PartialApply { args, .. } = instr {
+        let closure_state = closure_demand.unwrap_or(AimsState::BOTTOM);
+        for &arg in args {
+            if !state_map.is_excluded(arg) {
+                let arg_state = current.get(&arg).copied().unwrap_or(AimsState::BOTTOM);
+                let updated =
+                    super::super::transfer::capture_state_update(&arg_state, &closure_state);
+                merge_demand(current, arg, updated);
+            }
+        }
     }
 }
 

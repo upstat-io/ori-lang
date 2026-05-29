@@ -61,8 +61,7 @@ impl Consumption {
         use Consumption::{Affine, Dead, Linear, Unrestricted};
         match (self, other) {
             (Dead, x) | (x, Dead) => x,
-            (Unrestricted, _) | (_, Unrestricted) => Unrestricted,
-            (Linear, Linear) | (Linear, Affine) | (Affine, Linear) | (Affine, Affine) => {
+            (Unrestricted, _) | (_, Unrestricted) | (Linear | Affine, Linear | Affine) => {
                 Unrestricted
             }
         }

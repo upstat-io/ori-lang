@@ -1,0 +1,59 @@
+// FileCheck test: BUG-04-043 — recursive STRUCT value types must box the
+// back-edge field as an LLVM `ptr`, NOT embed an inline by-value struct.
+//
+// PRE-FIX STATE (red_no_ir): building a recursive struct aborts codegen with
+//   `build_struct: insert_value failed ... num_fields=0` + `error[E5001]`
+//   (the type emits as `%ori.Node = type opaque`). `ori build` exits non-zero,
+//   so the harness's compile_and_capture_ir() panics on the failed compile and
+//   this whole FileCheck file fails — every CHECK below is unsatisfiable until
+//   the fix emits the boxed layout. POST-FIX these CHECKs match the `{ i64, ptr }`
+//   back-edge shape with an EXPLICIT-TAG (non-niche) `Option<Node>`.
+//
+// Subject per BUG-04-043 scope: recursive STRUCT field (NOT a direct-recursive
+// enum, which already lowers today). The recursive back-edge is `next: Option<Node>`.
+//
+// Function-scoped slicing note: the harness slices captured IR to one `define`
+// (default _ori_main) via extract_function_ir(). The module-level
+// `%ori.Node = type { i64, ptr }` body line lives ABOVE the first `define` and is
+// therefore out-of-slice; these pins assert the boxed back-edge at POINT OF USE
+// inside the constructor's IR (matching the convention in abi/small_struct_direct_return.ori),
+// where the `%ori.Node` type name and its `{ i64, ptr }` aggregate appear.
+//
+// ===========================================================================
+// CELL 1 [backedge-ptr] + CELL 2 [option-explicit-tag] (@function: _ori_make_node)
+// The constructor builds a `Node` whose `next` is the recursive back-edge.
+// Cell 1: the back-edge lowers to a pointer, never an inline self-embedded struct.
+// Cell 2: `Option<Node>` is explicit-tag (a tag scalar present), not niche-collapsed
+//         to a bare nullable pointer.
+// ===========================================================================
+//
+// @function: _ori_make_node
+//
+// Cell 1 (backedge-ptr): the Node aggregate is referenced by name and carries a
+// pointer back-edge; the recursive field is NOT an inline by-value %ori.Node.
+// CHECK: %ori.Node
+// CHECK-NOT: { i64, %ori.Node }
+// CHECK-NOT: i64, %ori.Node,
+// CHECK-NOT: type opaque
+//
+// Cell 2 (option-explicit-tag): the `Option<Node>` next-field is built as a
+// tagged aggregate whose first member is the i64 discriminant and whose payload
+// is the boxed pointer — `{ i64, ptr }`. An explicit tag member is present.
+// CHECK: insertvalue { i64, ptr }
+// A niche-encoded Option would lower the whole field to a single bare `ptr`
+// with no tag aggregate; assert that collapse does NOT happen.
+// CHECK-NOT: insertvalue %ori.Node undef, ptr %next, 1
+
+type Node = { value: int, next: Option<Node> }
+
+@make_node (v: int, child: Node) -> Node = Node { value: v, next: Some(child) };
+
+@make_leaf (v: int) -> Node = Node { value: v, next: None };
+
+@head_value (n: Node) -> int = n.value;
+
+@main () -> void = {
+    let leaf = make_leaf(v: 1);
+    let parent = make_node(v: 2, child: leaf);
+    print(msg: head_value(n: parent).to_str())
+}

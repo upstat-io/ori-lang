@@ -17,6 +17,7 @@ Cargo.toml
 LICENSE-APACHE
 LICENSE-MIT
 README.md
+aims-proof
 blog
 build
 build-all.sh

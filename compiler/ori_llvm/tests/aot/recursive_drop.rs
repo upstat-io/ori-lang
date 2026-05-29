@@ -1,29 +1,23 @@
-//! AOT tests for recursive-type drop emission (§04.1 of
-//! `plans/aims-burden-tracking/section-04-recursive-closures-drop-value.md`).
+//! AOT tests for recursive-type drop emission (BUG-04-043).
 //!
 //! These tests exercise the END-TO-END recursive-drop story: SCC-based
 //! cycle detection (registry-side) + per-type compiled drop-glue (codegen
 //! side) + `ori_rc_dec` invocation at refcount-zero (runtime side).
 //!
-//! Pre-existing blocker: `BUG-04-043` — "Recursive tagged-pointer enums
-//! need box-and-load codegen for `Construct`/`Project` (§07.3.A future
-//! work)" prevents recursive struct/enum types from passing through LLVM
-//! codegen. Surface symptom on `type Node = { value: int, next:
-//! Option<Node> }`: `build_struct: insert_value failed (index out of
-//! bounds?) index=0 num_fields=0`. Both AOT tests below cite
-//! `BUG-04-043` in their `#[ignore]` reason per
-//! `.claude/rules/test-disposition.md`.
+//! Root defect (BUG-04-043): recursive struct/enum value types fail AOT
+//! LLVM codegen because the recursive back-edge is laid out by-value,
+//! producing an infinitely-sized / zero-field LLVM struct. Surface symptom
+//! on `type Node = { value: int, next: Option<Node> }`:
+//! `build_struct: insert_value failed (index out of bounds?) index=0
+//! num_fields=0` followed by `error[E5001]: LLVM module verification
+//! failed`. The fix is box-and-load codegen for `Construct`/`Project` of
+//! the recursive back-edge.
 //!
-//! Until `BUG-04-043` ships, the §04.1 algorithmic deliverables (SCC
-//! detection + `compiled_drop` population + cache-before-body cycle
-//! safety) are pinned by:
-//! - `ori_types::registry::burden_compose::scc::tests` — 15-test matrix
-//!   over self-loops, mutually-recursive pairs/triples, non-recursive
-//!   baselines, and decision-rule clauses.
-//! - `ori_llvm::codegen::arc_emitter::tests::{recursive_node_drop_fn_emits_self_referencing_rc_dec,
-//!   mutually_recursive_tree_forest_drop_fns_cross_reference,
-//!   drop_fn_cache_prevents_infinite_generation}` — codegen-IR-level
-//!   verification of the cache cycle-safety pattern at `drop_gen.rs:69`.
+//! These tests are TDD pins authored BEFORE the fix — every one currently
+//! aborts with the recursive-codegen signature above. They pass only once
+//! BUG-04-043 closes (box-and-load for the recursive back-edge), at which
+//! point `assert_aot_success`'s built-in `ORI_CHECK_LEAKS=1` oracle also
+//! verifies the recursive drop balances allocation/deallocation.
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -32,51 +26,70 @@
 
 use crate::util::assert_aot_success;
 
-/// Regression: §04.1 deliverable for recursive-type drop emission.
-/// Verifies a 3-node linked list traverses recursive drop without leak
-/// at scope exit. `ORI_CHECK_LEAKS=1` reports zero leaks; `ORI_TRACE_RC=1`
-/// shows three matching alloc/dec pairs.
-///
-/// Blocked by `BUG-04-043` — recursive struct types require box-and-load
-/// codegen for `Construct`/`Project` at LLVM level. Pin the test now;
-/// re-enable in the same commit that closes `BUG-04-043`.
+/// Canonical BUG-04-043 repro: a 3-node `Node` linked list built in `@main`
+/// must compile, run, and drop the recursive chain without leaking at scope
+/// exit. `assert_aot_success` enables `ORI_CHECK_LEAKS=1`, so a leaked node
+/// surfaces as exit code 2 and fails the test.
 #[test]
-#[ignore = "BUG-04-043: recursive struct types not yet supported by LLVM codegen (Construct/Project box-and-load)"]
-fn test_recursive_node_drop_chain() {
+fn recursive_drop_node_chain_builds_runs_no_leak() {
     let source = r#"
 type Node = { value: int, next: Option<Node> }
 
-@t tests _ () -> void = {
+@main () -> void = {
     let n3 = Node { value: 3, next: None };
     let n2 = Node { value: 2, next: Some(n3) };
     let n1 = Node { value: 1, next: Some(n2) };
     ()
 }
 "#;
-    assert_aot_success(source, "recursive_node_drop_chain");
+    assert_aot_success(source, "recursive_drop_node_chain_builds_runs_no_leak");
 }
 
-/// Regression: §04.1 shared-reference pin per `success_criterion` 2.
-/// Verifies the refcount-zero branch of `ori_rc_dec` MUST NOT fire on
-/// `n1`'s heap node while `n1_alias` still holds rc = 1. Recursive
-/// compiled drop body is invoked only at the FINAL release (rc -> 0).
-///
-/// Blocked by `BUG-04-043` — same root cause as the chain test above.
+/// Aliased recursive value: `let a = node; let b = a;` keeps two live
+/// bindings to the same heap chain through scope exit, then reads
+/// `b.value`. Pins shared-rc drop behavior — the final release (rc -> 0)
+/// drops the recursive chain exactly once, with no double-free. The
+/// `ORI_CHECK_LEAKS=1` oracle catches both a leak (exit 2) and a
+/// double-free abort.
 #[test]
-#[ignore = "BUG-04-043: recursive struct types not yet supported by LLVM codegen (Construct/Project box-and-load)"]
-fn recursive_drop_skips_body_when_rc_above_one() {
+fn recursive_drop_aliased_no_double_free() {
     let source = r#"
 use std.testing { assert_eq }
 type Node = { value: int, next: Option<Node> }
 
-@t tests _ () -> void = {
+@main () -> void = {
     let n3 = Node { value: 3, next: None };
     let n2 = Node { value: 2, next: Some(n3) };
     let n1 = Node { value: 1, next: Some(n2) };
-    let n1_alias = n1;
-    drop_early(value: n1);
-    assert_eq(actual: n1_alias.value, expected: 1);
+    let a = n1;
+    let b = a;
+    assert_eq(actual: b.value, expected: 1);
+    ()
 }
 "#;
-    assert_aot_success(source, "recursive_drop_skips_body_when_rc_above_one");
+    assert_aot_success(source, "recursive_drop_aliased_no_double_free");
+}
+
+/// Trace-balance pin: a 5-node recursive `Node` chain whose drop must
+/// balance inc/dec across the whole chain. The `ORI_CHECK_LEAKS=1` oracle
+/// built into `assert_aot_success` is the balance check — any unmatched
+/// allocation leaks and surfaces as exit code 2. (An explicit
+/// `ORI_TRACE_RC` capture is not possible while the program is RED, because
+/// codegen aborts before a binary is linked; the leak oracle covers the
+/// balance invariant once BUG-04-043 closes.)
+#[test]
+fn recursive_drop_chain_rc_balanced() {
+    let source = r#"
+type Node = { value: int, next: Option<Node> }
+
+@main () -> void = {
+    let n5 = Node { value: 5, next: None };
+    let n4 = Node { value: 4, next: Some(n5) };
+    let n3 = Node { value: 3, next: Some(n4) };
+    let n2 = Node { value: 2, next: Some(n3) };
+    let n1 = Node { value: 1, next: Some(n2) };
+    ()
+}
+"#;
+    assert_aot_success(source, "recursive_drop_chain_rc_balanced");
 }

@@ -9,10 +9,11 @@ use crate::util::{assert_aot_success, compile_and_run_capture};
 
 /// Total cross-product cell count: 3 N values × 6 shapes × 3 patterns × 2 narrowability = 108
 /// minus N/A intersections:
-/// - str_field × narrowability collapse (str is not int-narrowable; keep narrowable_i8 only):
-///   3 N × 3 patterns × 1 (str_field shape) × 1 (skipped non_narrowable variant) = -9 cells.
+/// - `str_field` × narrowability collapse (str is not int-narrowable; keep `narrowable_i8` only):
+///   3 N × 3 patterns × 1 (`str_field` shape) × 1 (skipped `non_narrowable` variant) = -9 cells.
 /// - N=5 × tuple × non-narrowable redundancy (duplicates list stress at N=5):
-///   1 N × 1 (tuple shape) × 3 patterns × 1 (non_narrowable) = -3 cells.
+///   1 N × 1 (tuple shape) × 3 patterns × 1 (`non_narrowable`) = -3 cells.
+///
 /// Net: 108 - 9 - 3 = 96 grid cells. Add 6 dedicated CFG/closure cells = 102 fixtures total.
 /// Self-verifying cell counter.
 const EXPECTED_GRID_CELLS: usize = 96;
@@ -63,6 +64,11 @@ enum Narrowability {
 const NARROWABILITY: &[Narrowability] =
     &[Narrowability::NarrowableI8, Narrowability::NonNarrowableI64];
 
+/// Map a 0-based alias index to its source letter (`a`, `b`, ...).
+fn alias_letter(index: usize) -> char {
+    char::from(b'a' + u8::try_from(index).expect("alias index fits in a byte"))
+}
+
 /// Compose .ori source for a cell. Returns None for N/A intersections per matrix design.
 fn compose_cell_source(
     n: usize,
@@ -95,9 +101,9 @@ fn compose_cell_source(
             "#derive(Eq)\ntype Container = { items: [int] }",
             format!("Container {{ items: {literal} }}"),
             format!("Container {{ items: {literal} }}"),
-            format!("Container {{ items: [1, 2, 4] }}"),
-            format!("Container {{ items: [1, 2, 5] }}"),
-            format!("Container {{ items: [1, 2, 6] }}"),
+            "Container { items: [1, 2, 4] }".to_string(),
+            "Container { items: [1, 2, 5] }".to_string(),
+            "Container { items: [1, 2, 6] }".to_string(),
         ),
         AggregateShape::Map => (
             "#derive(Eq)\ntype Container = { items: {str: int} }",
@@ -142,9 +148,9 @@ fn compose_cell_source(
             "#derive(Eq)\ntype Inner = { inner: [int] }\n#derive(Eq)\ntype Container = { outer: Inner }",
             format!("Container {{ outer: Inner {{ inner: {literal} }} }}"),
             format!("Container {{ outer: Inner {{ inner: {literal} }} }}"),
-            format!("Container {{ outer: Inner {{ inner: [1, 2, 4] }} }}"),
-            format!("Container {{ outer: Inner {{ inner: [1, 2, 5] }} }}"),
-            format!("Container {{ outer: Inner {{ inner: [1, 2, 6] }} }}"),
+            "Container { outer: Inner { inner: [1, 2, 4] } }".to_string(),
+            "Container { outer: Inner { inner: [1, 2, 5] } }".to_string(),
+            "Container { outer: Inner { inner: [1, 2, 6] } }".to_string(),
         ),
     };
 
@@ -171,16 +177,23 @@ fn compose_cell_source(
     let bindings: Vec<String> = ctors
         .iter()
         .enumerate()
-        .map(|(i, ctor)| format!("    let {} = {};", (b'a' + i as u8) as char, ctor))
+        .map(|(i, ctor)| format!("    let {} = {};", alias_letter(i), ctor))
         .collect();
 
     // Build the multi-use pattern.
-    let body = match pattern {
+    let body = compose_body(pattern, &bindings, ctors.len());
+
+    Some(format!("{type_decl}\n\n@main () -> int = {{\n{body}\n}}\n"))
+}
+
+/// Build the `@main` body for a cell from its alias bindings + use pattern.
+fn compose_body(pattern: UsePattern, bindings: &[String], ctor_count: usize) -> String {
+    match pattern {
         UsePattern::EqChain => {
             // Multi-use `a == b`, `a != c`, `a == d`, `a != e`, ...
-            let comparisons: Vec<String> = (1..ctors.len())
+            let comparisons: Vec<String> = (1..ctor_count)
                 .map(|i| {
-                    let other = (b'a' + i as u8) as char;
+                    let other = alias_letter(i);
                     if i == 1 || i % 2 == 1 {
                         format!("a == {other}")
                     } else {
@@ -209,9 +222,7 @@ fn compose_cell_source(
                 bindings.join("\n")
             )
         }
-    };
-
-    Some(format!("{type_decl}\n\n@main () -> int = {{\n{body}\n}}\n"))
+    }
 }
 
 // Multi-use Let Var alias chain (narrowable variant): MUST be leak-free post-cure.
