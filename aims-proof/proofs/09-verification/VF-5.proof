@@ -1,0 +1,73 @@
+Theorem VF-5: end-to-end verification mandate — implementation + invariant enforcement + tests
+
+  Preconditions:
+    - VF-5 governs the end-to-end mandate per Annex E §AIMS VF-5: "Every
+      active subsystem SHALL be end-to-end verified: implementation + invariant
+      enforcement + tests. Missing any = incomplete." Restated by arc.md
+      Non-Negotiable-Invariants #4: "The enabled surface must be end-to-end
+      verified."
+    - VF-5's concrete shape is Subsystem -> Bool per
+      aims-proof/proofs/01-verification/Verification.proof. Discharged here
+      against the sec-01 Verification.proof sorry obligation.
+    - This is a three-tier CONJUNCTION over each active subsystem: a subsystem
+      is end-to-end verified IFF all three tiers (implementation AND invariant
+      enforcement AND tests) are present. Dropping any one tier marks the
+      subsystem incomplete.
+    - TARGET-ONLY mandate: there is no single shipped verifier function — VF-5
+      is a whole-subsystem completeness invariant the verification stack as a
+      whole asserts (per arc.md Non-Negotiable-Invariants #4). conformance:
+      target-only.
+
+  Soundness property:
+    Forall active subsystem S:
+
+      (P1) Three-tier conjunction: S is end-to-end verified IFF S has an
+           implementation AND S has invariant enforcement AND S has tests. The
+           three tiers are independent and all mandatory.
+
+      (P2) Any-missing = incomplete: if S is missing implementation, OR missing
+           invariant enforcement, OR missing tests, then S is incomplete. The
+           negative direction is exhaustive — there is no two-of-three partial
+           credit.
+
+    VF-5 is the completeness mandate: an active subsystem with code but no
+    enforcement silently rots (the invariant degrades with no gate); one with
+    enforcement but no tests has an unexercised gate; one with tests but no
+    implementation is vacuous. All three are required for "active and verified".
+
+  Proof obligation:
+    Constructive discharge by the structural_induction engine via three-tier
+    composition over the subsystem (per the proof-checker design
+    sec-Engine-per-Category-Inventory VF row; the foundational-axiom policy
+    sec-Per-Engine-Constructive-Proof-Shape — layered composition over the
+    implementation / enforcement / tests tiers).
+
+    Part (P1/P2) — three-tier conjunction grid:
+
+      The verifier enumerates a (has_implementation, has_invariant_enforcement,
+      has_tests) grid and asserts end-to-end-verified = the three-way AND:
+        (impl, enforce, tests) -> complete
+        (impl, enforce, no-tests) -> incomplete (missing tests)
+        (impl, no-enforce, tests) -> incomplete (missing enforcement)
+        (no-impl, enforce, tests) -> incomplete (missing implementation)
+      Coverage gate: 4 subsystems (1 complete + 3 each-tier-missing).
+
+    Negative-direction witness (the conjunction has teeth — a missing tier
+    marks incomplete):
+      A subsystem with implementation + tests but NO invariant enforcement is
+      NOT marked complete; accepting it would let an unenforced invariant
+      silently rot (the enforcement gate is absent, so the invariant degrades
+      undetected).
+
+    Engines dispatched:
+      structural_induction (PRIMARY — section_09::verify_vf5_end_to_end_mandate;
+        three-tier conjunction over the subsystem grid; emits Fail on a
+        complete/incomplete mismatch or a wrongly-accepted missing-tier
+        subsystem)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest VF row)
+      rc_counting (SECONDARY — gracious-accept)
+      interprocedural_summary (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_09 structural_induction engine discharges VF-5 via the end-to-end three-tier conjunction (a subsystem is verified iff implementation AND invariant-enforcement AND tests): 1 complete subsystem + 3 each-tier-missing incomplete subsystems, with a negative-direction witness rejecting a subsystem that has implementation and tests but no invariant enforcement; VF-5 is a target-only whole-subsystem completeness mandate the verification stack asserts as a whole

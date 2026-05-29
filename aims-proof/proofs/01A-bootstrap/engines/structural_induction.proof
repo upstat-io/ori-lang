@@ -1,0 +1,82 @@
+Theorem CH-107: structural_induction engine bootstrap (PL-1 ordering on 2-node pipeline DAG)
+
+  Preconditions:
+    - D is a synthetic 2-node pipeline DAG per Annex E §AIMS
+      PL-1 with two nodes step_a and step_b and a single edge
+      step_a precedes step_b in the topological order
+    - PL-1 ordering claim per Annex E §AIMS: step_a's outputs
+      are computed before step_b reads them; the pipeline is a
+      partial order over instruction execution
+    - structural_induction engine consumes inductive-type elimination
+      on Ori-defined ASTs (instructions, blocks, pipeline DAG) per
+      the foundational-axiom policy sec-Per-Engine-Constructive-Proof-Shape
+
+  Soundness property:
+    Forall D in synthetic 2-node pipeline DAGs.
+      PL-1 ordering preservation holds: every output of step_a is
+        available before step_b reads it;
+      the structural induction over D's topology (rooted at step_a,
+        leaf at step_b) discharges the ordering claim.
+
+  Proof obligation:
+    Structural induction over the pipeline DAG D's topology.
+
+      Base case (step_a, the root):
+        step_a has no predecessors; its outputs are computed by
+        running step_a's body. The PL-1 ordering claim is vacuous
+        for step_a (no predecessor reads its inputs). The IH for
+        step_a holds trivially.
+
+      Inductive step (step_b, the leaf, given the IH for step_a):
+        Assume the IH: step_a's outputs are computed and available.
+        For step_b to read step_a's outputs:
+          (a) the dispatcher walks the DAG in topological order
+              per PL-1;
+          (b) step_a precedes step_b in the topological order;
+          (c) step_a's body has run before step_b's body is invoked;
+          (d) step_a's outputs are written to the shared
+              AimsStateMap before step_b reads them.
+        Therefore step_b's read sees step_a's converged output,
+        not a stale or partially-computed value.
+
+    Closed-world coverage:
+      The 2-node DAG has exactly two nodes; the induction is over
+      the topological order with one base case and one inductive
+      step. No node is skipped. No edge is uncovered.
+
+    Topology argument:
+      The pipeline DAG D is acyclic by precondition (synthetic
+      2-node DAG with one edge). Acyclicity ensures the topological
+      order is a total order on this DAG (the order is unique:
+      step_a then step_b). PL-1 ordering preservation reduces to
+      executing in topological order, which the dispatcher does
+      per Annex E §AIMS PL-1.
+
+    Pipeline composition:
+      The dispatch loop in aims-proof/checker/src/checker.rs
+      processes engine results in declared order per the manifest;
+      this scaffold-time bootstrap proof models the engine
+      dispatch as a 2-node DAG where step_a is the
+      structural_induction engine itself and step_b is the
+      verdict-aggregation merge_results. The same PL-1 argument
+      applies: structural_induction returns its verdict before
+      merge_results consumes it.
+
+    Lattice validation:
+      Structural induction over the DAG topology is independent
+      of the lattice; the engine consumes inductive-type
+      elimination over the DAG type per the foundational-axiom policy. The PL-1
+      ordering claim is a structural property; lattice
+      dimensions do not participate.
+
+    Engines dispatched:
+      structural_induction (inductive-type elimination on the
+                            2-node pipeline DAG; per-constructor
+                            case; explicit IH usage at the
+                            inductive step)
+      case_analysis (per-node enumeration: step_a and step_b
+                     exhaust the DAG; closed-world coverage)
+
+  Expected:
+    status: valid
+    reason: 01A bootstrap discharged via §01A Implementation Items (engine constructive verification + Lean 4 cross-validation)

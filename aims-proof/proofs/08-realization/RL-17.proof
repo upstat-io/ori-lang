@@ -1,0 +1,57 @@
+Theorem RL-17: sharing-bound analysis (maximum simultaneous reference count)
+
+  Preconditions:
+    - RL-17 governs sharing-bound analysis per Annex E §AIMS RC Header
+      Compression: "Sharing bound analysis SHALL determine the maximum
+      simultaneous RC. is_local(s) AND Unique -> no header; straight-line N
+      incs -> Bounded(N+1); loops / recursion / global -> Unbounded."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - DP-8 (is_local) <=> Locality IN {BlockLocal, FunctionLocal}; this
+      replaces the former "NoEscape" term per RL-18a (Locality is the SSOT).
+    - Shipped: target-system rule (ori_repr compress_arc_headers is a stubbed
+      pass per repr.md sec-Shipped-vs-stubbed); realize/decide.rs supplies the
+      sharing-bound inputs.
+    - depends-on sec-05: DP-8 (is_local).
+
+  Soundness property:
+    Forall heap value v:
+
+      (P1) Bound classification: RL-17 computes
+        - NoHeader when is_local(v) AND Uniqueness(v) = Unique;
+        - Bounded(N + 1) for straight-line code with N RcInc operations;
+        - Unbounded when v is reachable through a loop, recursion, or global.
+
+      (P2) Soundness: the computed bound is an UPPER bound on the simultaneous
+           reference count — a local-unique value is never shared (NoHeader);
+           straight-line code can create at most N + 1 references (the
+           allocation plus N incs); loops / recursion / global reachability
+           cannot be statically bounded (Unbounded is the conservative
+           fallback).
+
+    RL-17 is the analysis that RL-18 narrows the header width from; the bound
+    must never UNDER-count (an under-count would narrow the header too far and
+    overflow at runtime).
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine via enumeration of the
+    three bound classes.
+
+    Part (P1/P2) — bound-classification grid:
+      local_unique_no_header -> NoHeader
+      straight_line_3_incs_bounded_4 -> Bounded(4)
+      loop_recursion_global_unbounded -> Unbounded
+      Coverage gate: 3 bound classes.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl17_sharing_bound; bound-
+        classification enumeration; emits Fail on a misclassification)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-17 via the sharing-bound classification (local+Unique -> NoHeader; straight-line N incs -> Bounded(N+1); loop/recursion/global -> Unbounded) as an upper bound on simultaneous RC, grounded in the DP-8 is_local predicate and realize/decide.rs sharing-bound inputs

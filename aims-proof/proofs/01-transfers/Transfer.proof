@@ -1,0 +1,91 @@
+Theorem TF-2: Transfer function signatures — forward TF + backward backwardDemand + TF-13 + TF-14
+
+  Preconditions:
+    - Forward transfer function definitions per Annex E §AIMS
+      operate on AimsState x Instr -> AimsState
+    - Backward demand definitions per Annex E §AIMS (TF-11, TF-11a)
+      operate on ArcInstr -> List <ArcVarId, Cardinality, Consumption>
+    - TF-13 capture_state_update is the closure-capture transfer
+      per Annex E §AIMS TF-13 (OxCaml LAM pattern)
+    - TF-14 propagate_project_source_demand is the Project backward-demand
+      propagation per Annex E §AIMS.9 + TF-14
+    - Per-Instr forward definitions (TF-1 through TF-15a) and per-Instr
+      backward-demand patterns (TF-11, TF-11a, TF-12, TF-13, TF-14)
+      discharged at sec-04; sec-01 authors signatures + skeletons only
+
+  Soundness property:
+    Forward transfer signature (per the canonical proof notation:198):
+
+      TF : AimsState -> Instr -> AimsState
+
+      Per-instruction definitions (Appendix A canonical Forward Transfer Matrix):
+        TF-1 Let Literal -> SCALAR (all dimensions)
+        TF-2 Let Var(v) -> state(v)
+        TF-2a Let PrimOp -> SCALAR
+        TF-3 Construct(ctor) -> FRESH(shape_from_ctor(ctor))
+        TF-4 Project(value, field) -> (B, L, 1, src.uniq, src.loc, Phi, NONE)
+                                          + borrow_sources entry
+        TF-5 Apply (no contract) -> CONSERVATIVE
+        TF-5a ApplyIndirect -> CONSERVATIVE
+        TF-6 Apply (contract) -> refine(CONSERVATIVE, callee.return_contract)
+        TF-6a Invoke (contract) -> same as TF-6
+        TF-6b Invoke (no contract) -> CONSERVATIVE
+        TF-6c InvokeIndirect -> CONSERVATIVE
+        TF-7 PartialApply -> FRESH(Phi); captures via TF-13
+        TF-8 Select -> scalar-exclusion join
+        TF-9 Reuse -> FRESH(inherited shape)
+        TF-9a CollectionReuse -> FRESH(C)
+        TF-10 IsShared -> SCALAR
+        TF-10a Reset -> SCALAR
+        TF-15 Set -> no dst; IA-5 step (1) handles value
+        TF-15a SetTag -> no dst; only base receives demand
+
+    Backward demand signature (per the canonical proof notation:212 +
+    Annex E §AIMS TF-11 + TF-11a):
+
+      backwardDemand : ArcInstr -> List <ArcVarId, Cardinality, Consumption>
+
+      Per-instruction backward-demand patterns:
+        TF-11 standard <operand, 1, L> with seq_add accumulation across
+                multiple instructions defining demand on same variable
+        TF-11a terminator demands per Annex E §AIMS TF-11a table
+                (Return, Jump, Branch, Switch, Invoke, InvokeIndirect,
+                 Resume, Unreachable)
+        TF-12 PartialApply emits NO TF-11 demand; captures handled by TF-13
+        TF-13 capture_state_update transfers closure-context state to
+                captured variables per OxCaml LAM (closure cardinality
+                Once: consumption seq_add Affine + locality max;
+                cardinality > Once: Unrestricted + Many + max)
+        TF-14 propagate_project_source_demand widens
+                src.cardinality seq_add dst.cardinality +
+                src.locality max dst.locality +
+                src.consumption seq_add Affine
+
+      seq_add Consumption matrix per Annex E §AIMS TF-11:
+        Dead + X = X
+        Linear + Linear = Unrestricted
+        Linear + Affine = Unrestricted
+        Affine + Affine = Unrestricted
+        X + Unrestricted = Unrestricted
+
+    TF-13 signature:
+
+      capture_state_update : AimsState x AimsState -> AimsState
+      capture_state_update(current, closure_state) = new_state
+
+    TF-14 signature:
+
+      propagate_project_source_demand : AimsStateMap x ArcVarId -> AimsStateMap
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs (19 forward
+            theorems + 5 backward theorems per the section inventory table)
+
+    Engines dispatched:
+      case_analysis (per-instruction forward + backward enumeration)
+      monotonicity (validates L-6 holds for every TF rule via composition)
+      lattice (validates seq_add + alt_join + canonicalize composition)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges per-instruction transfer proofs

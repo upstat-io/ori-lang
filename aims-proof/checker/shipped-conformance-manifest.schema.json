@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ori-lang.org/aims-proof/shipped-conformance-manifest.schema.json",
+  "title": "Shipped-Conformance Manifest",
+  "description": "JSON Schema for aims-proof/checker/shipped-conformance-manifest.json. Per the locality shipped-conformance gate SC3: defines the structural shape {rules: [{id, proof_artifact, unblock_condition, blocked_by, annotation_targets}]} with required-field constraints. Validated by aims-proof/scripts/run-section-08-proofs.sh --locality-section and the pre-commit hook so structural drift surfaces mechanically rather than via human review.",
+  "type": "object",
+  "required": ["rules"],
+  "additionalProperties": true,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "blocked_by": {
+      "type": "string",
+      "description": "Cross-plan advisory pointer to the work that unblocks the manifest (typically locality-representation-unification)."
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "proof_artifact",
+          "unblock_condition",
+          "blocked_by",
+          "annotation_targets"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Rule identifier per Annex E §AIMS (e.g., RL-15a, RL-18a, DP-7, DP-8, CN-6, CN-8, IC-3).",
+            "pattern": "^(L|CN|TF|DP|IC|IA|PL|RL|VF|CH)-[0-9]+[a-zA-Z]*$"
+          },
+          "proof_artifact": {
+            "type": "string",
+            "description": "Path to the proof artifact under aims-proof/proofs/ that discharged this rule against the 5-variant Locality target.",
+            "pattern": "^aims-proof/proofs/.*\\.proof$"
+          },
+          "unblock_condition": {
+            "type": "string",
+            "description": "Plain-prose statement of the shipped-code state that flips the rule from divergent-pending to pass.",
+            "minLength": 1
+          },
+          "blocked_by": {
+            "type": "string",
+            "description": "Subsystem that owns the unblocking work (e.g., locality-representation-unification).",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "annotation_targets": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Exact Annex E §AIMS anchor citations §12 SHALL clear when the rule flips divergent-pending -> pass.",
+            "items": {
+              "type": "string",
+              "pattern": "^Annex E §AIMS .+$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

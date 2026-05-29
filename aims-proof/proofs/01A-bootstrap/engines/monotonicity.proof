@@ -1,0 +1,78 @@
+Theorem CH-105: monotonicity engine bootstrap (TF-3 Construct monotonicity)
+
+  Preconditions:
+    - the Access x Consumption 2-dim sub-lattice per Annex E §AIMS.1 + sec-1.2
+    - Access carrier: Borrowed less than Owned (height 1)
+    - Consumption carrier: Dead less than Linear less than Affine
+      less than Unrestricted (height 3)
+    - the partial order on the sub-lattice is componentwise
+      less-than-or-equal per L-4
+    - TF_construct is a synthetic transfer function modeling
+      Annex E §AIMS TF-3 Construct restricted to the
+      Access x Consumption sub-lattice; TF_construct s returns
+      (Owned, Linear) for every input s on the sub-lattice (the
+      Construct instruction writes FRESH outputs independent of
+      the input state per TF-3)
+    - monotonicity engine consumes per-pair (a, b) finite checks
+      of TF(a) less-than-or-equal-to TF(b) per the foundational-axiom policy
+      sec-Per-Engine-Constructive-Proof-Shape
+
+  Soundness property:
+    Forall a, b in (Access x Consumption) with a less-than-or-equal-to b.
+      TF_construct a less-than-or-equal-to TF_construct b;
+      i.e. TF_construct is monotone on the
+        Access x Consumption sub-lattice (L-6 restricted form).
+
+  Proof obligation:
+    Per-pair finite enumeration over the 8 states of the
+    Access x Consumption sub-lattice; for each ordered pair (a, b)
+    with a less-than-or-equal-to b, exhibit TF_construct on both
+    and verify the order is preserved.
+
+      Setup:
+        TF_construct collapses every state to (Owned, Linear) per
+        the TF-3 Construct rule (FRESH output independent of
+        input). Therefore TF_construct a = (Owned, Linear) and
+        TF_construct b = (Owned, Linear) for every a and b.
+        (Owned, Linear) is reflexively less-than-or-equal-to
+        itself; therefore TF_construct a
+        less-than-or-equal-to TF_construct b is trivially true.
+
+      Per-ordered-pair coverage (8 states; 28 ordered pairs with
+      a strictly-less-than b plus 8 reflexive a = b cases yield
+      36 ordered pairs):
+        For each (a, b) where a less-than-or-equal-to b:
+          TF_construct a = (Owned, Linear);
+          TF_construct b = (Owned, Linear);
+          (Owned, Linear) less-than-or-equal-to (Owned, Linear)
+          holds reflexively.
+        Therefore the monotonicity property holds for every
+        ordered pair on the sub-lattice.
+
+    Closed-world coverage:
+      Every input state on the 8-state sub-lattice maps to the
+      same FRESH output (Owned, Linear); the monotonicity property
+      is satisfied vacuously because the output is constant under
+      the input partial order. This is the canonical monotone
+      behavior for the Construct transfer function: it produces
+      FRESH outputs whose ordering is determined by the constant
+      output, not by the input ordering.
+
+    Lattice validation:
+      L-6 (transfer functions are monotone) is restated for the
+      sub-lattice and discharged by the constant-output argument
+      above. The restricted form composes monotonically with L-6
+      on the full 7-dim lattice when the excluded dimensions
+      (Cardinality, Uniqueness, Locality, Shape, Effect) are at
+      their TF-3 FRESH values: Cardinality = Once, Uniqueness =
+      Unique, Locality = BlockLocal, Shape = shape_from_ctor,
+      Effect = {may_alloc=true}. These are also constant for every
+      input to TF-3 Construct.
+
+    Engines dispatched:
+      monotonicity (per-pair finite checks; constant-output
+                    argument; L-6 restricted-form discharge)
+
+  Expected:
+    status: valid
+    reason: 01A bootstrap discharged via §01A Implementation Items (engine constructive verification + Lean 4 cross-validation)

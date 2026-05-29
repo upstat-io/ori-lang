@@ -1,0 +1,240 @@
+Theorem PL-4: Step 10 (realize_annotations, phase 2) follows Step 9 (merge_blocks) — phase 2 uses ArcVarId-keyed lookups surviving merge
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS + arc.md sec-Pipeline. PL-4 fixes ONE intra-
+      function step boundary: Step 10 (realize_annotations — phase 2) SHALL
+      FOLLOW Step 9 (merge_blocks).
+        Step 9: merge_blocks() — CFG cleanup (block renumbering)
+        Step 10: realize_annotations() — Phase 2: COW + drop hints (post-merge)
+    - PL-4 statement (per Annex E §AIMS PL-4 + arc.md sec-Pipeline
+      "realize_annotations() (step 10) must run AFTER merge_blocks() (step
+      9) — it accesses AimsStateMap via ArcVarId-keyed lookups
+      (var_state_at_block_entry); position-keyed state map fields are stale
+      after merge"): realize_annotations SHALL follow merge_blocks, and
+      phase 2 SHALL access the state map only through ArcVarId-keyed lookups
+      that survive the merge.
+    - PL-4 type signature (per Pipeline.proof lines 37-42, the sorry
+      obligation this theorem discharges):
+        type : Function -> Pipeline
+        realize_annotations (Step 10 phase 2) SHALL follow merge_blocks
+        (Step 9); phase 2 uses ArcVarId-keyed AimsStateMap lookups surviving
+        merge (var_state_at_block_entry).
+    - Shipped per-function driver: ori_arc::pipeline::aims_pipeline::
+      run_aims_pipeline (compiler/ori_arc/src/pipeline/
+      aims_pipeline/mod.rs lines 163-287). The relevant straight-line
+      statements:
+        (a) Steps 6-9 — `postprocess::verify_and_merge(func, config)?`
+            (mod.rs line 275), whose last statement runs Step 9 merge_blocks
+            (postprocess.rs line 47).
+        (b) Step 10 — `apply_phase_2_annotations(func, &state_map, config,
+            &mut result)` (mod.rs line 277), the NEXT statement after
+            verify_and_merge, which calls realize_annotations.
+      The verify_and_merge call (line 275) completes before
+      apply_phase_2_annotations (line 277) begins, so Step 9 precedes Step
+      10 unconditionally.
+    - Shipped phase-2 wrapper: ori_arc::pipeline::aims_pipeline::
+      apply_phase_2_annotations (mod.rs lines 291-333) calls
+      crate::aims::realize::realize_annotations(func, state_map, ...) (mod.rs
+      lines 299-307). Per realize/mod.rs lines 191-194 this function "Runs
+      AFTER merge_blocks() (step 9)".
+    - Shipped phase-2 emission: ori_arc::aims::realize::realize_annotations
+      (compiler/ori_arc/src/aims/realize/mod.rs lines
+      201-209) reads the state map via the ArcVarId-keyed accessor
+      var_state_at_block_entry: realize/mod.rs line 310
+      (`ctx.state_map.var_state_at_block_entry(blk, var)`) and line 359
+      (`ctx.state_map.var_state_at_block_entry(blk, receiver)`). That
+      accessor (state_map.rs lines 646-656) is keyed by (ArcBlockId,
+      ArcVarId) and the merge pass preserves entry block IDs, so the lookup
+      survives merge. Per arc.md sec-Pipeline "The state map is accessed by
+      walking the post-merge IR block indices and using those as block IDs
+      into the pre-merge state map — this works because merge_blocks()
+      preserves entry block IDs."
+    - The merge invalidation that PL-4 routes around: AimsStateMap's
+      position-keyed block_entry_states / block_exit_states vectors
+      (state_map.rs lines 218-227) are indexed by ArcBlockId::index() and
+      become stale after merge_blocks renumbers blocks (PL-3). Phase 2
+      therefore must NOT read those raw vectors directly post-merge — it
+      reads through var_state_at_block_entry, which the merge preserves for
+      entry blocks.
+    - This theorem reasons over the LINEAR per-function pipeline DAG; PL-4
+      is the downstream sibling of PL-3 (Step 5 precedes Step 9) and PL-4a
+      (Step 8a precedes Step 9): together they fix the merge boundary —
+      phase 1 + unwind cleanup BEFORE merge, phase 2 AFTER merge.
+
+  Soundness property:
+    Forall function F processed by run_aims_pipeline.
+      Let pos_9 = position(Step 9 merge_blocks on F) and
+          pos_10 = position(Step 10 realize_annotations on F)
+      in the total intra-function execution order.
+      Two conjuncts SHALL hold:
+
+      (P1) Phase-2-after-merge:
+        pos_9 < pos_10. merge_blocks completes (the CFG is in its final
+        merged shape) strictly before realize_annotations emits COW + drop-
+        hint phase-2 annotations.
+
+      (P2) ArcVarId-keyed-survival:
+        Every state-map read by phase 2 goes through an ArcVarId-keyed
+        accessor (var_state_at_block_entry), NOT a raw position-keyed vector
+        index. Because merge_blocks preserves entry block IDs, the
+        (ArcBlockId, ArcVarId) lookup resolves correctly on the post-merge
+        IR. No phase-2 read touches the merge-invalidated position-keyed
+        block_entry_states / block_exit_states vectors directly.
+
+  Proof obligation:
+    Two-part constructive discharge corresponding to (P1) and (P2), by
+    structural induction over the per-function 12-step pipeline DAG (linear
+    chain ... Step 9 -> Step 10 -> Step 11 -> Step 12) + case analysis on
+    phase 2's state-map access mode.
+
+    Part (P1) — Phase-2-after-merge (structural induction over the per-
+    function step chain):
+
+      Base case — Step 9 (merge_blocks):
+        Step 9 is the last statement of verify_and_merge (postprocess.rs
+        line 47), reached from run_aims_pipeline's verify_and_merge call
+        (mod.rs line 275). Post-condition: the CFG is in final merged shape;
+        position-keyed vectors are now stale.
+
+      Inductive step — Step 10 follows the verify_and_merge return:
+        apply_phase_2_annotations (mod.rs line 277) is the straight-line
+        statement IMMEDIATELY after verify_and_merge (mod.rs line 275). By
+        sequential Rust statement evaluation, line 277 executes only after
+        line 275 returns Ok (the `?` on line 275 short-circuits on Err, so
+        the only path reaching line 277 is the one where Steps 6-9 — merge
+        included — completed). Therefore Step 10 starts after Step 9
+        finishes.
+
+      Termination — Step 10 (realize_annotations):
+        apply_phase_2_annotations calls realize_annotations (mod.rs lines
+        299-307). Per its doc (realize/mod.rs lines 191-194) it "Runs AFTER
+        merge_blocks() (step 9)". pos_9 < pos_10 holds on every path through
+        run_aims_pipeline. (P1) discharged.
+
+    Part (P2) — ArcVarId-keyed-survival (case analysis on phase 2's access
+    mode):
+
+      Case ArcVarId-keyed lookup (the only phase-2 access mode):
+        realize_annotations reads the state map exclusively through
+        var_state_at_block_entry(blk, var) (realize/mod.rs lines 310 + 359).
+        That accessor (state_map.rs lines 646-656) keys on (ArcBlockId,
+        ArcVarId): it returns SCALAR for scalar/immortal vars, else looks up
+        block_entry_states.get(block.index()).and_then(|s| s.get(&var)).
+        Because merge_blocks preserves entry block IDs (arc.md sec-Pipeline),
+        the post-merge block index used as `blk` still resolves to the
+        intended entry-state map. The lookup is sound on the post-merge IR.
+
+      Case raw position-keyed read post-merge (counterfactual — rejected):
+        If phase 2 indexed block_entry_states / block_exit_states directly
+        by a raw post-merge block position, it would read the stale pre-merge
+        vector at a renumbered index (PL-3's invalidation). The shipped
+        realize_annotations does NOT do this — it routes every read through
+        var_state_at_block_entry. arc.md sec-Pipeline forbids the raw read:
+        "Position-keyed state maps (entry_states, exit_states, instr_states)
+        are invalid after merge_blocks() — never query them post-merge." The
+        verifier rejects any phase-2 access that bypasses the ArcVarId-keyed
+        accessor.
+
+    Coverage gate — pipeline-step ordered-pair enumeration:
+
+      The verifier models the shipped per-function schedule as an ordered
+      step list and discharges the ordered-pair predicate position(Step 9)
+      < position(Step 10) plus the renumbers-blocks attribute on Step 9 and
+      the arcvarid-keyed attribute on Step 10. It asserts:
+        - Step 9 (merge_blocks) is present with the renumbers-blocks
+          attribute.
+        - Step 10 (realize_annotations) is present with the
+          arcvarid-keyed-lookup attribute.
+        - position(Step 9) < position(Step 10) in the total order.
+        - Step 10 is the FIRST post-merge step (no step reorders Step 10
+          ahead of Step 9).
+
+      Coverage axes:
+        Phase-2-after-merge (P1): the (Step 9, Step 10) ordered pair, with
+          Step 10 verified to be the immediate post-merge step.
+        ArcVarId-keyed-survival (P2): Step 10 verified arcvarid-keyed (no
+          raw position-keyed read survives the merge boundary into phase 2).
+
+    Negative-direction witness — phase-2-before-merge rejected:
+
+      Hypothetically scheduling Step 10 (realize_annotations) before Step 9
+      (merge_blocks) would have phase 2 emit COW + drop-hint annotations
+      against the pre-merge CFG, which merge_blocks then renumbers — the
+      annotations' (block_idx, instr_idx) coordinates would become invalid
+      exactly as the merge module-doc warns (block_merge/mod.rs lines 39-44:
+      drop hints "would become invalid if blocks are renumbered after hint
+      computation"). merge_blocks even defensively clears stale drop hints at
+      entry (block_merge/mod.rs lines 72-73). The verifier rejects any
+      schedule with position(Step 10) <= position(Step 9).
+
+    Negative-direction witness — phase-2 raw-position-keyed read rejected:
+
+      Even with Step 10 after Step 9, a phase-2 read of the raw
+      block_entry_states vector by post-merge index would address a
+      renumbered (wrong) block. The shipped phase 2 reads only through
+      var_state_at_block_entry (realize/mod.rs lines 310 + 359), which is
+      merge-safe because merge preserves entry block IDs. The verifier
+      rejects any phase-2 access bypassing the ArcVarId-keyed accessor.
+
+    Cycle-soundness witness — PL-4 is the post-merge sibling of PL-3/PL-4a:
+
+      PL-4 fixes the Step-10-after-Step-9 boundary. Its antecedent is PL-3
+      (Step 5 phase 1 precedes Step 9; phase-1 position-keyed reads close
+      before merge) and PL-4a (Step 8a precedes Step 9; unwind cleanup runs
+      before merge). PL-4 completes the merge-boundary triad: phase 1 +
+      unwind BEFORE merge, phase 2 AFTER merge via merge-surviving lookups.
+      The dependency chain is acyclic:
+        PL-3 --> PL-4 (phase 1 before merge implies phase 2 after merge
+                      is the only consistent post-merge emission)
+        PL-4a --> PL-4 (unwind-edge cleanup before merge keeps the CFG
+                      well-formed for phase 2's post-merge walk)
+        PL-4 --> PL-5 (no stale summaries — phase 2 reads only the
+                      merge-surviving ArcVarId-keyed lookups)
+      PL-4 produces nothing PL-3 or PL-4a consumes; no cycle.
+
+    Algorithm-citation declaration:
+      property: intra-function pipeline-step ordering (post-merge
+                           annotation phase 2 runs after the CFG merge and
+                           reads only merge-surviving ArcVarId-keyed state)
+      published: standard "recompute-position-free-results-after-
+                           CFG-cleanup" discipline — passes that survive
+                           block renumbering key on stable value identities
+                           rather than block coordinates; matches the
+                           value-keyed (vreg) survival of analysis results
+                           across LLVM CFG simplification cited in arc.md
+                           sec-Reference Repos
+      determinism: deterministic — verify_and_merge -> merge_blocks
+                           (postprocess.rs line 47) followed by
+                           apply_phase_2_annotations -> realize_annotations
+                           (mod.rs lines 277 + 299) is a fixed straight-line
+                           ordering; no schedule freedom exists
+      reference impl: ori_arc::pipeline::aims_pipeline::run_aims_pipeline
+                           (mod.rs Steps 6-9 verify_and_merge line 275, Step
+                           10 apply_phase_2_annotations line 277) +
+                           ori_arc::pipeline::aims_pipeline::
+                           apply_phase_2_annotations (mod.rs lines 291-333,
+                           realize_annotations call lines 299-307) +
+                           ori_arc::aims::realize::realize_annotations
+                           (realize/mod.rs lines 201-209, ArcVarId-keyed
+                           reads lines 310 + 359) + AimsStateMap::
+                           var_state_at_block_entry (state_map.rs lines
+                           646-656)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — structural induction over the
+        per-function linear pipeline DAG per section_07::
+        verify_pl4_annotations_after_merge; the verifier models the shipped
+        schedule as an ordered step list and discharges (P1)
+        phase-2-after-merge via the ordered-pair predicate position(Step 9)
+        < position(Step 10) and (P2) ArcVarId-keyed-survival via the
+        renumbers-blocks attribute on Step 9 + the arcvarid-keyed attribute
+        on Step 10; emits Fail on any ordering or attribute violation)
+      case_analysis (SECONDARY — per-case grid over the ArcVarId-keyed-lookup
+        case + the rejected raw-position-keyed-read case; gracious-accept
+        once structural_induction has discharged the ordering obligation per
+        the coverage-manifest PL row)
+
+  Expected:
+    status: valid
+    reason: section_07 structural_induction engine discharges PL-4 via the per-function pipeline-DAG ordered pair — (P1) Step 10 realize_annotations (phase 2) follows Step 9 merge_blocks (position(Step 9) < position(Step 10): merge_blocks is the last statement of verify_and_merge at mod.rs line 275, and apply_phase_2_annotations -> realize_annotations is the next statement at mod.rs line 277) and (P2) phase 2 reads only merge-surviving ArcVarId-keyed lookups (realize_annotations calls var_state_at_block_entry at realize/mod.rs lines 310 + 359, keyed by (ArcBlockId, ArcVarId) per state_map.rs lines 646-656, sound because merge preserves entry block IDs — never the merge-invalidated position-keyed vectors at state_map.rs lines 218-227); case_analysis secondary-accepting per the coverage-manifest PL row

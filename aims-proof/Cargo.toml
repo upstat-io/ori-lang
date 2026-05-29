@@ -1,0 +1,14 @@
+# aims-proof workspace
+#
+# Root manifest for the Ori AIMS proof checker. Hosts the
+# `aims-proof-checker` crate (binary + library) and any future sibling
+# tooling crates (e.g. coverage-manifest validators, Lean 4 emitter
+# helpers).
+#
+# Standalone Cargo workspace, separate from the main compiler workspace
+# (no path deps on it). The checker probes the shipped AIMS lattice surface
+# at build time; see checker/build.rs.
+
+[workspace]
+resolver = "2"
+members = ["checker"]

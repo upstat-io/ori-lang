@@ -1,0 +1,104 @@
+Theorem TF-13: capture_state_update monotonicity (OxCaml LAM pattern, both branches)
+
+  Preconditions:
+    - capture_state_update(current, closure_state) per Annex E §AIMS TF-13
+      OxCaml LAM (Locality-And-Multiplicity) pattern is the SSOT for
+      captured-arg backward state mutation
+    - Two branches per closure cardinality:
+        Branch 1 (closure cardinality <= Once):
+          consumption := seq_add(current.consumption, Affine)
+          cardinality := seq_add(current.cardinality, Once)
+          locality := max(current.locality, closure_state.locality)
+        Branch 2 (closure cardinality > Once, i.e., Many):
+          consumption := Unrestricted
+          cardinality := Many
+          locality := max(current.locality, closure_state.locality)
+    - Access promotion clause (cross-cuts both branches):
+        closure_state.locality >= HeapEscaping implies access := Owned
+      Rationale (per Annex E §AIMS TF-13 + CN-8 interaction): Borrowed
+      captures escaping via heap closure would be dangling — CN-8 clamps
+      Borrowed locality to FunctionLocal while heap closure escapes;
+      promoting Access to Owned ensures RC extension is emitted at the
+      capture site.
+    - L-6 monotonicity: capture_state_update SHALL be monotone in
+      closure_state for fixed current (per Annex E §AIMS TF-13 statement
+      "SHALL be monotone per L-6")
+    - Carriers (per §1.2 Consumption, §1.3 Cardinality, §1.5 Locality):
+        Consumption: Dead < Linear < Affine < Unrestricted
+        Cardinality: Absent < Once < Many
+        Locality: BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping
+                     < Unknown
+
+  Soundness property:
+    Forall current, closure_state in AimsState. Forall closure_card in
+    {Once, Many} (the two branches of the §3 TF-13 case split).
+      capture_state_update(current, closure_state, closure_card) produces
+      output per the branch above
+    AND closure_state.locality1 <=_L closure_state.locality2 implies
+        capture_state_update(c, s1, k).locality <=_L
+        capture_state_update(c, s2, k).locality (L-6 layer (b) per
+        argument locality)
+    AND closure_state.locality1 >= HeapEscaping implies output.access = Owned
+    AND output is monotone componentwise in closure_state across the lattice.
+
+  Proof obligation:
+    Three-part discharge:
+      (a) Branch-1 enumeration (closure_card <= Once) — verify the
+          consumption / cardinality / locality update over a representative
+          enumeration of (current, closure_state) pairs; verify monotone in
+          closure_state.
+      (b) Branch-2 enumeration (closure_card > Once) — verify constant
+          assignment (consumption := Unrestricted, cardinality := Many) +
+          locality := max; verify monotone in closure_state.
+      (c) Access promotion clause enumeration — for each closure_state with
+          locality >= HeapEscaping, verify output.access = Owned regardless
+          of current.access.
+
+    Part (a) — branch-1 (closure_card <= Once):
+      Pick representative (current, closure_state) pairs and verify each
+      output component matches the spec:
+        consumption := seq_add(current.consumption, Affine)
+        cardinality := seq_add(current.cardinality, Once)
+        locality := max(current.locality, closure_state.locality)
+      The seq_add definitions are inherited from TF-11.proof Parts (b) + (c)
+      (Consumption + Cardinality matrices). Monotonicity in closure_state:
+      since locality is max(current, closure_state.locality), it is monotone
+      in closure_state.locality by monotonicity of max over a chain (§1.5).
+      Consumption and cardinality are independent of closure_state under
+      this branch — trivially monotone.
+
+    Part (b) — branch-2 (closure_card > Once):
+      The constants Unrestricted (consumption) and Many (cardinality) are
+      lattice-TOP for their carriers; monotonicity holds vacuously (constant
+      output). Locality update = max(current.locality, closure_state.locality)
+      is monotone in closure_state.locality as in part (a).
+
+    Part (c) — Access promotion clause:
+      Per Annex E §AIMS TF-13 + CN-8: closure_state.locality >=
+      HeapEscaping implies output.access := Owned (regardless of current.access).
+      Verified by enumerating closure_state.locality over LOCALITY_CARRIER
+      and checking:
+        closure_state.locality in {BlockLocal, FunctionLocal, ArgEscaping}:
+          output.access := current.access (no promotion)
+        closure_state.locality in {HeapEscaping, Unknown}:
+          output.access := Owned (promoted)
+      Negative witness: if Access promotion did NOT fire on HeapEscaping,
+      Borrowed-locality clamping by CN-8 (clamps to FunctionLocal) would
+      cause the captured variable to be dropped when its FunctionLocal
+      scope ends — but the heap closure still references it. Owned forces
+      RC extension to the heap-closure lifetime.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) over closure_state per
+        section_04::verify_tf13_capture_state_update_monotone)
+      case_analysis (PRIMARY — 2-branch (closure_card) split + Access
+        promotion enumeration over LOCALITY_CARRIER per
+        section_04::verify_tf13_capture_state_update_monotone)
+      lattice (SECONDARY — accepts gracefully; max + seq_add monotone per
+        L-6 layer (a))
+      refinement (SECONDARY — accepts gracefully; TF-13 does NOT call
+        refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-13 via 2-branch enumeration + monotonicity over closure_state + Access promotion enumeration on locality >= HeapEscaping

@@ -1,0 +1,114 @@
+Theorem TF-11: Standard backward demand `(operand, Once, Linear)` + seq_add accumulation soundness
+
+  Preconditions:
+    - TF-11 backward demand emits `(operand, cardinality=Once, consumption=Linear)`
+      per operand of each ArcInstr per Annex E §AIMS TF-11
+    - `consumption=Linear` is load-bearing: without it CN-1 (Dead ↔ Absent)
+      erases the demand. Per Annex E §AIMS TF-11 statement.
+    - Per-variable demand from MULTIPLE instructions ADDITIVELY combines via
+      `seq_add` over Cardinality x Consumption — NOT lattice `max`
+    - Consumption `seq_add` matrix per Annex E §AIMS TF-11:
+        Dead + X = X
+        Linear + Linear = Unrestricted
+        Linear + Affine = Unrestricted
+        Affine + Affine = Unrestricted
+        X + Unrestricted = Unrestricted
+    - Per-Instr demand patterns enumerated verbatim from Annex E §AIMS TF-11
+      table (Let / Construct / Project / Apply / ApplyIndirect / Set / SetTag /
+      IsShared / Reset / Reuse / CollectionReuse / Select / RcInc / RcDec)
+    - IA-5 step (1) alias transfers use `seq_add` per Annex E §AIMS IA-5;
+      cross-instruction accumulation soundness MUST hold uniformly
+
+  Soundness property:
+    Forall arc_instr in ArcInstr.
+      backward_demand_tf11(arc_instr) = expected per the §3 TF-11 table row
+      AND seq_add: Consumption x Consumption -> Consumption is sound per the
+      4 x 4 = 16 input matrix verbatim from Annex E §AIMS TF-11
+      AND seq_add restricted to Cardinality x Cardinality is sound per the
+      3 x 3 = 9 input matrix derived from §1.3 (Absent + X = X; Once + Once =
+      Many; X + Many = Many)
+    AND L-6 monotonicity: a1 <=_C a2 implies seq_add(a1, c) <=_C seq_add(a2, c)
+    for fixed c (`seq_add` monotone in each argument per §1.2 / §1.3 lattice
+    properties).
+
+  Proof obligation:
+    Four-part discharge:
+      (a) Per-Instr demand-table enumeration — 14 instructions per §3 TF-11
+          table; each row's demand list verified against the §3 statement.
+      (b) Consumption `seq_add` 4 x 4 matrix enumeration — 16 inputs;
+          each row verified against the 5-rule statement.
+      (c) Cardinality `seq_add` 3 x 3 matrix enumeration — 9 inputs;
+          (Absent absorbing on left; Once + Once = Many; Many absorbing).
+      (d) Monotonicity check — `seq_add` monotone in argument 1 over the
+          Consumption lattice (Dead < Linear < Affine < Unrestricted per
+          §1.2) AND over the Cardinality lattice (Absent < Once < Many
+          per §1.3).
+
+    Part (a) — per-Instr demand-table enumeration:
+      Per Annex E §AIMS TF-11 table:
+        Let { Var(v) } -> NONE (transparent alias; IA-5 transfers)
+        Let { Literal } -> none
+        Let { PrimOp { args } } -> (arg, Once) per arg
+        Construct { args } -> (arg, Once) per arg
+        Project { value } -> NONE (borrow; IA-5 / TF-14)
+        Apply { args } -> (arg, Once, Linear) per arg (IC-3)
+        ApplyIndirect { closure, args } -> (closure, Once), (arg, Once)/arg
+        Set { base, field, value } -> (base, Once) + (value, Once, Linear)
+        SetTag { base, tag } -> (base, Once) only
+        IsShared { var } -> (var, Once)
+        Reset { var } -> (var, Once)
+        Reuse { token, args } -> (token, Once) + (arg, Once)/arg
+        CollectionReuse { old, args}-> (old, Once) + (arg, Once)/arg
+        Select { cond, t, f } -> (cond, Once) only (IA-5 transfers t/f)
+        RcInc/RcDec { var } -> none (RC op, not a use)
+      Verified: backward_demand_tf11_lookup() enumerates every row above
+      EXACTLY and produces the demand list verbatim. 14-row table is closed
+      (no missing instruction).
+
+    Part (b) — Consumption seq_add 4 x 4 matrix:
+      Per Annex E §AIMS TF-11 `seq_add` matrix statement:
+        seq_add(Dead, X) = X for all X
+        seq_add(Linear, Linear) = Unrestricted
+        seq_add(Linear, Affine) = Unrestricted
+        seq_add(Affine, Linear) = Unrestricted (commutative — §1.2)
+        seq_add(Affine, Affine) = Unrestricted
+        seq_add(X, Unrestricted) = Unrestricted for all X
+        seq_add(Unrestricted, X) = Unrestricted for all X
+      Verified: seq_add_consumption(a, b) enumerates all 16 (a, b) pairs over
+      {Dead, Linear, Affine, Unrestricted} x {Dead, Linear, Affine, Unrestricted}
+      and matches the matrix.
+
+    Part (c) — Cardinality seq_add 3 x 3 matrix:
+      Per Annex E §AIMS + §3 TF-11 accumulation:
+        seq_add(Absent, X) = X (Absent absorbing on left)
+        seq_add(Once, Once) = Many
+        seq_add(Once, Many) = Many
+        seq_add(Many, X) = Many
+      Verified: seq_add_cardinality(a, b) enumerates all 9 (a, b) pairs over
+      {Absent, Once, Many} x {Absent, Once, Many} and matches.
+
+    Part (d) — monotonicity of seq_add:
+      L-6 layer (b) for backward-demand accumulation:
+        forall a1, a2, c in Consumption.
+          a1 <=_C a2 implies seq_add(a1, c) <=_C seq_add(a2, c)
+      Verified by exhaustive enumeration of the Consumption lattice
+      (Dead < Linear < Affine < Unrestricted): pick c in {Dead, Linear,
+      Affine, Unrestricted}; for each pair (a1, a2) with a1 <= a2, verify
+      seq_add(a1, c) <= seq_add(a2, c).
+      Analogously for Cardinality lattice (Absent < Once < Many): 3 x 3 x 3
+      = 27 monotonicity checks; all pass since seq_add is monotone on each
+      argument per §1.2 + §1.3.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — seq_add monotonicity over Consumption + Cardinality
+        lattices per section_04::verify_tf11_backward_demand_seq_add)
+      case_analysis (PRIMARY — 14-row per-Instr demand-table enumeration +
+        16-entry Consumption matrix + 9-entry Cardinality matrix per
+        section_04::verify_tf11_backward_demand_seq_add)
+      lattice (SECONDARY — accepts gracefully; matrix verification + lattice
+        order consumed)
+      refinement (SECONDARY — accepts gracefully; TF-11 emits no refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-11 via per-Instr demand-table enumeration + Consumption + Cardinality seq_add matrix enumeration + monotonicity check

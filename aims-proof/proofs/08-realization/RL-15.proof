@@ -1,0 +1,52 @@
+Theorem RL-15: non-escaping dynamic-size allocation via function-local bump allocator
+
+  Preconditions:
+    - RL-15 governs dynamic-size stack promotion per Annex E §AIMS
+      Stack Promotion: non-escaping dynamic-size values
+      (Locality <= FunctionLocal) SHALL use a function-local bump allocator;
+      bump objects retain RC headers if Uniqueness != Unique; the bump region
+      is freed at function return.
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - DP-8 (is_local) gates locality. A dynamic-size value cannot use a fixed
+      alloca slot, so a function-local bump region is the stack-equivalent.
+    - Shipped: realize/decide.rs Locality consumption; repr.md sec-RH-3.
+    - depends-on sec-05: DP-8 (is_local).
+
+  Soundness property:
+    Forall dynamic-size local value v (Locality <= FunctionLocal):
+
+      (P1) Strategy decision: RL-15 selects a function-local bump allocator,
+           for both Unique and MaybeShared locals.
+
+      (P2) Lifetime soundness: a function-local bump region cannot outlive the
+           function (the value is non-escaping), so freeing the bump region at
+           function return releases every bump object exactly once — no object
+           dangles and none leaks.
+
+    RL-15 refines plain ARC by avoiding individual heap allocation + RC
+    tracking for dynamic-size values that provably do not escape the frame.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine.
+
+    Part (P1/P2) — dynamic-size local strategy:
+      The verifier asserts that a local (BlockLocal / FunctionLocal)
+      dynamic-size value (Unique / MaybeShared) selects BumpAlloc.
+      Coverage gate: 4 cases (Block/Function x Unique/MaybeShared). Negative
+      witness: an ESCAPING dynamic-size value must NOT use the function-local
+      bump (it would dangle after the bump region is freed at return) -> heap.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl15_bump_allocator;
+        dynamic-size-local strategy enumeration; emits Fail on a wrong
+        strategy or an escaping-value bump promotion)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-15 via the dynamic-size-local strategy grid (Block/Function x Unique/MaybeShared -> function-local bump allocator freed at function return) with a negative-direction witness rejecting bump promotion of an escaping dynamic-size value, grounded in repr.md RH-3 + realize/decide.rs Locality consumption

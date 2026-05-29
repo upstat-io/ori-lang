@@ -1,0 +1,61 @@
+Theorem RL-21: program-wide non-atomic RC when no spawn / channel / FFI export
+
+  Preconditions:
+    - RL-21 governs program-wide non-atomic RC per Annex E §AIMS
+      Non-Atomic RC: "A program with no spawn / channel AND no FFI calls
+      exporting Ori-managed pointers -> ALL values thread-local, ALL RC
+      non-atomic. FFI included (foreign code may hand a pointer to another
+      thread)."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - This is the whole-program corollary of RL-19: if NO thread boundary
+      exists anywhere in the program (no spawn, no channel, no FFI export),
+      then no value can possibly cross one, so every value is thread-local
+      and every RC operation is non-atomic.
+    - Shipped: target-system rule; the program-wide spawn / channel / FFI
+      inventory is a call-graph property.
+
+  Soundness property:
+    Forall program P:
+
+      (P1) Program-wide decision: RL-21 makes ALL RC non-atomic iff P contains
+           NO spawn AND NO channel AND NO FFI export.
+
+      (P2) Soundness: with no thread-boundary construct anywhere in P, the
+           call-graph derivation (RL-18a / RL-19) classifies every value
+           thread-local, so non-atomic RC is correct for every value. The
+           presence of ANY one of {spawn, channel, FFI export} reintroduces a
+           possible thread boundary, so the program-wide blanket no longer
+           applies (per-value RL-19 / RL-20 classification resumes).
+
+    RL-21 refines plain ARC at whole-program scope: a program that never
+    spawns a thread, never sends on a channel, and never exports a pointer
+    over FFI is provably single-threaded with respect to Ori-managed memory,
+    so atomic RC is pure overhead and is eliminated everywhere.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine via enumeration over
+    the (spawn x channel x FFI-export) presence flags.
+
+    Part (P1/P2) — program-wide flag grid:
+      no_concurrency_all_nonatomic -> all non-atomic
+      has_spawn_not_all_nonatomic -> NOT all non-atomic
+      has_channel_not_all_nonatomic -> NOT all non-atomic
+      has_ffi_export_not_all_nonatomic -> NOT all non-atomic
+      Coverage gate: 4 program-shape cases — each thread-boundary construct
+      independently defeats the program-wide blanket; FFI export is included
+      (foreign code may hand the pointer to another thread).
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl21_program_wide_nonatomic;
+        program-wide flag enumeration; emits Fail when any thread-boundary
+        construct fails to defeat the all-non-atomic blanket)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-21 via the program-wide (spawn x channel x FFI-export) flag grid — all RC non-atomic iff none of spawn / channel / FFI-export is present, with each construct (FFI included) independently defeating the blanket — the whole-program corollary of RL-19 thread-locality

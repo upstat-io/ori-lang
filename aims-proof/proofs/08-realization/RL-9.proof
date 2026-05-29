@@ -1,0 +1,74 @@
+Theorem RL-9: COW compound contraction (diamond -> single compound instruction)
+
+  Preconditions:
+    - RL-9 governs COW compound contraction per Annex E §AIMS COW:
+      "COW compound contraction: the diamond IsShared -> Branch ->
+      (clone+Set | Set) -> Merge SHALL be contracted into a single compound
+      instruction."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - The expanded diamond is the RL-7 Dynamic-mode realization: a runtime
+      IsShared test branches to in-place mutation (RC == 1) or
+      clone-then-mutate (RC > 1), re-joining at a Merge. The contraction
+      fuses the four-block diamond into one compound instruction encoding
+      the identical runtime selection.
+    - Shipped: emit_rc/cow.rs + realize/decide.rs::decide_annotations emit
+      the COW annotation; the compound contraction is a structural rewrite
+      over the realized diamond.
+
+  Soundness property:
+    Forall COW diamond D (IsShared -> Branch -> {in-place | clone+Set} ->
+    Merge) and its contracted compound instruction C:
+
+      (P1) Observational equivalence: for every runtime uniqueness state
+           (IsShared == false => unique; IsShared == true => shared), D and C
+           select the SAME mutation outcome — in-place on the unique branch,
+           copy on the shared branch.
+
+      (P2) Value-semantics preservation: each selected outcome independently
+           preserves value semantics — in-place on the genuinely-unique
+           runtime branch (no other reference) and copy on the shared
+           runtime branch (isolation).
+
+    RL-9 is a structural refinement: the contracted compound instruction is
+    observably equivalent to the expanded diamond, so the contraction
+    preserves the dual-execution parity invariant (the evaluator and LLVM
+    backends see the same COW behavior whether the diamond is expanded or
+    contracted).
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine via enumeration of
+    both runtime uniqueness states + outcome-equivalence + per-outcome
+    value-semantics check.
+
+    Part (P1) — diamond <-> compound equivalence:
+      The verifier models the diamond's per-runtime-state outcome and the
+      compound's outcome, asserting they agree on every runtime uniqueness
+      state:
+        runtime_unique = true -> both select in-place (StaticUnique)
+        runtime_unique = false -> both select copy (StaticShared)
+      A divergence between the diamond and the compound fails the proof.
+
+    Part (P2) — per-outcome soundness:
+      Each contracted outcome is independently verified
+      value-semantics-preserving (in-place sound on the genuinely-unique
+      branch; copy sound on the shared branch).
+
+      Coverage gate: 2 runtime uniqueness states, each with outcome
+      equivalence + value-semantics soundness.
+
+    Engines dispatched:
+      case_analysis (PRIMARY —
+        section_08::verify_rl9_cow_compound_contraction; runtime-state
+        enumeration + outcome-equivalence + per-outcome value-semantics
+        check; emits Fail on an outcome divergence or an unsound contracted
+        outcome)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-9 via enumeration of both runtime uniqueness states asserting the contracted compound instruction is observably equivalent to the expanded IsShared diamond (in-place on the unique branch, copy on the shared branch) with a per-outcome value-semantics-preservation check, grounded in the shipped emit_rc/cow.rs + realize/decide.rs COW realization

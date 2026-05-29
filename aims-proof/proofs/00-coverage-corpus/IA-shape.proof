@@ -1,0 +1,81 @@
+Theorem IA-1 + IA-7: Backward-dataflow soundness + convergence
+
+  Preconditions:
+    - Function F with a single block B = [i_1; i_2; ...; i_n; return v]
+    - AimsStateMap per arc.md sec-Key-Types (block_entry_states +
+      block_exit_states)
+    - Direction is BACKWARD per Annex E §AIMS IA-1
+    - alt_join is the lattice join (max) per Annex E §AIMS.3
+    - seq_add is the QTT additive composition per Annex E §AIMS.3
+    - CHAIN_HEIGHT = 16 per Annex E §AIMS.8 (Access(1) +
+      Consumption(3) + Cardinality(2) + Uniqueness(2) + Locality(4) +
+      Shape(1) + Effect(3))
+
+  Soundness property:
+    The backward analysis converges to an AimsStateMap satisfying:
+      (1) For every variable v, v's exit state at any program point p
+          is the alt_join of v's entry states at p's successors.
+      (2) Each backward transfer step is monotone per L-6 across
+          the dimension subset it touches (Cardinality + Consumption
+          via seq_add; Locality via max).
+      (3) Convergence is reached in at most
+          CHAIN_HEIGHT * |variables| * |blocks| iterations;
+          for this synthetic 1-block F, |blocks| = 1, so the bound
+          is 16 * |variables|.
+
+  Proof obligation:
+    Structural induction on the backward walk over B's instructions
+    (in REVERSE order from terminator to entry):
+      Base case: terminator (Return v).
+        IA-3 seeds exit state from TF-11a Return demand: (v, 1, L)
+        per the Return row of the terminator-demand table.
+      Inductive step: instruction i_k.
+        Assume entry state at position k+1 is sound.
+        Apply IA-5 step (1) (alias transfer via seq_add) on aliasing
+        defs (Let Var, Project, Select, Construct, Reuse,
+        CollectionReuse, PartialApply, Set with TF-13 Construct
+        rule);
+        apply IA-5 step (2) (TF-11 backward demand) for operand
+        consumption;
+        remove the defined variable from the entry-state map.
+        Monotonicity (L-6) preserved per dimension: Cardinality +
+        Consumption via seq_add (commutative, monotone on QTT
+        carriers); Locality via max (monotone on totally-ordered
+        carrier).
+
+    Convergence (IA-7):
+      The state lattice has finite height
+        CHAIN_HEIGHT = 16 per dimension sum;
+      each variable's state ascends monotonically across iterations;
+      total ascent <= CHAIN_HEIGHT * |variables| * |blocks|;
+      for this 1-block F: at most 16 * |variables| iterations.
+
+    Case analysis on instruction shape (per the IA-5 step (1)
+    by-instruction-type table):
+      Let { Var(v) } (transparent alias): demand transfers to v via
+        seq_add on Cardinality + Consumption, max on Locality.
+      Project (borrow, NOT alias): TF-14 propagation
+        (src.cardinality := seq_add(src.cardinality, dst.cardinality);
+         src.locality := max(src.locality, dst.locality);
+         src.consumption := seq_add(src.consumption, A)).
+      Construct (aggregate builder): destination's LOCALITY transfers
+        to args (arg.locality := max); args ALWAYS promoted to
+        access := O.
+      All other instructions: no alias transfer; TF-11 direct demand
+        only.
+
+    Permutation-invariance (IA-9): N-ary alt_join at CFG merges is
+      permutation-invariant per L-1 + L-2 (commutativity +
+      associativity); fold order over successor states does not
+      affect the result.
+
+    Engines dispatched:
+      structural_induction (IA-1 backward walk + IA-5 alias-transfer
+                            inductive step)
+      fixpoint (IA-7 chain-height-bounded convergence)
+      case_analysis (per-instruction-type IA-5 step (1) enumeration +
+                     IA-9 N-ary join permutation-invariance discharge)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: IA-shape scaffold-time; engine implementation pending

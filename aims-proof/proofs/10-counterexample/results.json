@@ -1,0 +1,106 @@
+{
+  "exit_reason": "counterexample_search_adequate",
+  "runs": [
+    {
+      "attempt_budgets_seconds": [
+        30
+      ],
+      "retry_count": 0,
+      "route_target": "encoder_validated",
+      "shape_id": "fixture-known-sat-vacuity-guard",
+      "smt_result": "SAT",
+      "unsat_core_span": ""
+    },
+    {
+      "attempt_budgets_seconds": [
+        30
+      ],
+      "retry_count": 0,
+      "route_target": "encoder_validated",
+      "shape_id": "fixture-known-unsat-soundness-sanity",
+      "smt_result": "UNSAT",
+      "unsat_core_span": ""
+    },
+    {
+      "attempt_budgets_seconds": [
+        30
+      ],
+      "retry_count": 0,
+      "route_target": "feeds_section_12_adequacy",
+      "shape_id": "04B.1-baseline",
+      "smt_result": "UNSAT",
+      "unsat_core_span": ""
+    },
+    {
+      "attempt_budgets_seconds": [
+        30
+      ],
+      "retry_count": 0,
+      "route_target": "feeds_section_12_adequacy",
+      "shape_id": "04B.2-cross-class-uaf",
+      "smt_result": "UNSAT",
+      "unsat_core_span": ""
+    },
+    {
+      "attempt_budgets_seconds": [
+        30
+      ],
+      "retry_count": 0,
+      "route_target": "feeds_section_12_adequacy",
+      "shape_id": "04B.2-mono-ordering",
+      "smt_result": "UNSAT",
+      "unsat_core_span": ""
+    },
+    {
+      "attempt_budgets_seconds": [
+        30
+      ],
+      "retry_count": 0,
+      "route_target": "feeds_section_12_adequacy",
+      "shape_id": "04B.2-over-elim-closure",
+      "smt_result": "UNSAT",
+      "unsat_core_span": ""
+    },
+    {
+      "attempt_budgets_seconds": [
+        30
+      ],
+      "retry_count": 0,
+      "route_target": "feeds_section_12_adequacy",
+      "shape_id": "04B.2-under-elim",
+      "smt_result": "UNSAT",
+      "unsat_core_span": ""
+    },
+    {
+      "attempt_budgets_seconds": [
+        30
+      ],
+      "retry_count": 0,
+      "route_target": "feeds_section_12_adequacy",
+      "shape_id": "04B.3-eval-aot-parity",
+      "smt_result": "UNSAT",
+      "unsat_core_span": ""
+    },
+    {
+      "attempt_budgets_seconds": [
+        30
+      ],
+      "retry_count": 0,
+      "route_target": "feeds_section_12_adequacy",
+      "shape_id": "bug-04-118",
+      "smt_result": "UNSAT",
+      "unsat_core_span": ""
+    },
+    {
+      "attempt_budgets_seconds": [
+        30
+      ],
+      "retry_count": 0,
+      "route_target": "feeds_section_12_adequacy",
+      "shape_id": "bug-04-120",
+      "smt_result": "UNSAT",
+      "unsat_core_span": ""
+    }
+  ],
+  "schema_version": 1
+}

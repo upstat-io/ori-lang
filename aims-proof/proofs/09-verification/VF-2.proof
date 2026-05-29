@@ -1,0 +1,93 @@
+Theorem VF-2: Layer 2 AIMS contract consistency — AbsentParamHasUses sound; (b)/(c)/(d) target-only
+
+  Preconditions:
+    - VF-2 governs the Layer-2 contract-consistency verifier per Annex E §AIMS VF-2: "independent contract-consistency (NOT a filter over VF-1)."
+      Four checks: (a) parameters declared Absent MUST have no live uses;
+      (b) RL-31 alias metadata backed by a disjointness proof; (c) RL-29
+      noalias returns validated against ReturnContract; (d) RL-30 memory(...)
+      attributes derivable from IC-5 + parameter contracts.
+    - Status per Annex E §AIMS VF-2: only (a) (AbsentParamHasUses) is
+      IMPLEMENTED. (b)/(c)/(d) are TARGET-ONLY — they require RL-29 / RL-30 /
+      RL-31 LLVM fact export. When shipped, they are mandatory per VF-8.
+    - VF-2 carries the common signature ArcFunction x AimsStateMap x
+      MemoryContract -> Result () (List VerifyError) per
+      aims-proof/proofs/01-verification/Verification.proof. Discharged here
+      against the sec-01 Verification.proof sorry obligation.
+    - Shipped verifier site:
+        * compiler/ori_arc/src/verify/mod.rs
+          check_function_with_contract reports VerifyError::AbsentParamHasUses
+          (the only Layer-2 variant currently emitted; it is NOT a whole-lattice
+          oracle — that is VF-3).
+    - depends-on sec-05: DP-2 (Absent) soundness is load-bearing for the
+      AbsentParamHasUses check.
+    - depends-on sec-06: IC-3 ParamContract + IC-5 EffectSummary soundness is
+      load-bearing for the target-only (b)/(c)/(d) checks.
+    - depends-on sec-08: the target-only (b)/(c)/(d) checks are conditional on
+      RL-31 (b), RL-29 (c), RL-30 (d) discharging in sec-08; (b)'s cross-call-site
+      provenance also exercises the interprocedural_summary engine.
+
+  Soundness property:
+    Forall realized ArcFunction F with inferred MemoryContract C:
+
+      (P1) Implemented-check soundness: AbsentParamHasUses fires for parameter
+           p of F IFF p is declared Cardinality = Absent in C AND p has a live
+           use on some forward-reachable path of F. (The contract claimed the
+           parameter is never used; the IR uses it — a contract-vs-realization
+           inconsistency.) A non-Absent parameter, or an Absent parameter with
+           no live use, is consistent.
+
+      (P2) Conditional soundness of (b)/(c)/(d): each target-only check is
+           sound ASSUMING its sec-08 LLVM-fact-export rule discharged —
+           (b) sound given RL-31 (disjointness proof), (c) sound given RL-29
+           (preserves_freshness AND Unique), (d) sound given RL-30 (IC-5 +
+           ParamContract derivation). Emitting any of (b)/(c)/(d) WITHOUT the
+           underlying sec-08 proof would assert unproven alias / noalias /
+           memory facts — so each is gated on its dependency.
+
+    VF-2 is an INDEPENDENT layer, not a filter over VF-1: a structurally
+    well-formed function (VF-1 clean) can still carry a contract inconsistency
+    (VF-2 dirty), and vice versa. The two layers catch disjoint failure classes.
+
+  Proof obligation:
+    Constructive discharge by the structural_induction engine via
+    contract-consistency soundness (per the proof-checker design
+    sec-Engine-per-Category-Inventory VF row; the foundational-axiom policy
+    sec-Per-Engine-Constructive-Proof-Shape).
+
+    Part (P1) — AbsentParamHasUses decision grid:
+
+      The verifier enumerates a (param_absent, has_live_forward_use) grid and
+      asserts the check fires exactly on (Absent AND has-use):
+        (Absent, has-use) -> error (contract violated)
+        (Absent, no-use) -> no error (consistent)
+        (non-Absent, has-use) -> no error (consistent — uses permitted)
+        (non-Absent, no-use) -> no error (consistent)
+      Coverage gate: 4 decisions.
+
+    Part (P2) — target-only conditional soundness:
+
+      The verifier confirms the conditional implication for each of (b)/(c)/(d):
+      (the sec-08 rule discharged) implies (the check is sound). RL-31 / RL-29 /
+      RL-30 are each discharged in sec-08, so (b)/(c)/(d) are each conditionally
+      sound. Coverage gate: 3 target-only checks.
+
+    Negative-direction witness:
+      A target-only check is NOT sound when its sec-08 dependency is
+      UNDISCHARGED — emitting (b)/(c)/(d) without the underlying RL proof would
+      assert unproven facts. The verifier confirms the undischarged case is
+      rejected.
+
+    Engines dispatched:
+      structural_induction (PRIMARY — section_09::verify_vf2_contract_consistency;
+        AbsentParamHasUses decision grid + (b)/(c)/(d) conditional soundness;
+        emits Fail on a decision mismatch or a wrongly-accepted undischarged
+        target-only check)
+      interprocedural_summary (CO-DISPATCH for (b) cross-call-site provenance —
+        gracious-accept at the SECONDARY position once structural_induction has
+        discharged)
+      refinement (SECONDARY — gracious-accept)
+      rc_counting (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_09 structural_induction engine discharges VF-2 via (P1) the AbsentParamHasUses decision grid (fires iff an Absent parameter has a live forward-reachable use, over 4 decisions) and (P2) the target-only conditional soundness of (b) RL-31 / (c) RL-29 / (d) RL-30 (each sound exactly when its sec-08 LLVM-fact-export rule discharged, with a negative witness rejecting the undischarged case), grounded in the shipped compiler/ori_arc/src/verify/mod.rs check_function_with_contract AbsentParamHasUses check

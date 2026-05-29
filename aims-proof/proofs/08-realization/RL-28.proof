@@ -1,0 +1,50 @@
+Theorem RL-28: conservative RC flush for unknown callees
+
+  Preconditions:
+    - RL-28 governs unknown-callee barriers per Annex E §AIMS Selective
+      Barriers: "Unknown callees (FFI, indirect, no contract) require a
+      conservative flush of all pending RC ops."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - An unknown callee has no MemoryContract, so its effect on any variable's
+      RC count is unknown (TF-5 CONSERVATIVE / IC-8a address-taken).
+
+  Soundness property:
+    Forall call site whose callee has no contract (FFI / ApplyIndirect /
+    no-contract Apply):
+
+      (P1) Flush decision: RL-28 conservatively flushes ALL pending RC ops at
+           the call site.
+
+      (P2) Soundness: with no contract, the callee may inc, dec, or share ANY
+           reachable variable; flushing all pending RC ops ensures the count
+           is materialized correctly before the unknown effect. Skipping the
+           flush could leave the count stale across the unknown call.
+
+    RL-28 is the safety fallback of RL-27: where RL-27's per-parameter
+    selectivity needs a contract, RL-28 flushes unconditionally when none
+    exists.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine.
+
+    Part (P1/P2) — unknown-callee flush:
+      ffi_no_contract / indirect_no_contract / apply_no_contract -> flush all;
+      known_contract_selective -> RL-27 selective (not all-flush).
+      Coverage gate: 4 callee-shape cases. Negative-direction witness: an
+      unknown (no-contract) callee must conservatively flush all pending RC
+      ops — asserted.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl28_unknown_callee_flush;
+        unknown-callee enumeration; emits Fail when an unknown callee skips
+        the flush)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-28 via the unknown-callee enumeration (FFI / indirect / no-contract -> conservative all-flush; known-contract -> RL-27 selective) with a negative-direction witness confirming an unknown callee never skips the flush

@@ -1,0 +1,71 @@
+Theorem RL-12: cross-block reuse — dominance + post-dominance + same loop + no-throw
+
+  Preconditions:
+    - RL-12 governs cross-block reuse per Annex E §AIMS Allocation
+      Reuse: a dying value's allocation SHALL be reused across blocks when
+      the death block DOMINATES the allocation block AND the allocation
+      block POST-DOMINATES the death block (EXCLUDING unwind edges) AND both
+      share the same innermost loop header (or neither is in a loop) — to
+      prevent a multiplicity mismatch — AND the dying value is statically
+      Unique AND no block on the path between Reset and Reuse contains a
+      potentially-throwing instruction (Invoke / InvokeIndirect / any
+      may_throw); the no-throw constraint prevents a token leak on unwind
+      (the SCALAR reuse token is permanently leaked if an exception unwinds
+      before the Reuse).
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - Shipped: emit_reuse/planner.rs (cross-block reuse planning) +
+      emit_reuse/detect.rs; graph/ dominator-tree construction supplies the
+      dominance / post-dominance relations.
+    - depends-on sec-05: DP-6 (is_reuse_candidate) soundness; depends-on the
+      dominator-tree invariants from ori_arc::graph.
+
+  Soundness property:
+    Forall dying value v in death-block D and fresh same-type allocation a
+    in alloc-block A:
+
+      (P1) Reuse decision: RL-12 reuses v's allocation for a iff D dominates
+           A AND A post-dominates D (excluding unwind) AND D and A share the
+           same innermost loop AND Uniqueness(v) = Unique AND no throwing
+           instruction lies on the Reset->Reuse path.
+
+      (P2) Value-semantics preservation: the dominance + post-dominance pair
+           guarantees the reuse executes on exactly the paths the death
+           executes (so the dying allocation is always free when reused and
+           never reused without the death); the same-loop constraint
+           prevents a multiplicity mismatch (reusing one iteration's
+           allocation for another's); the no-throw constraint prevents the
+           reuse token leaking on an unwind. Together these make the
+           cross-block reuse observably equivalent to a fresh allocation +
+           separate free.
+
+    RL-12 refines plain ARC across block boundaries while the dominance /
+    post-dominance / loop / no-throw conjunction preserves correctness.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine via enumeration of
+    the constraint conjunction, violating each constraint in turn.
+
+    Part (P1/P2) — constraint conjunction grid:
+      all_constraints_hold_reuse -> reuse fires (sound)
+      no_dominance_no_reuse -> reuse may run without the death
+      no_postdominance_no_reuse -> death may run without the reuse
+      different_loop_no_reuse -> multiplicity mismatch
+      throw_on_path_no_reuse -> token leak on unwind
+      non_unique_no_reuse -> alias corruption
+      Coverage gate: 6 cases (1 fires + 5 each-constraint-violated
+      suppressions) — each violated constraint independently blocks reuse.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl12_cross_block_reuse;
+        constraint-conjunction enumeration; emits Fail when any violated
+        constraint fails to block reuse)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-12 via the cross-block reuse constraint conjunction (dominance + post-dominance excluding unwind + same innermost loop + dying-Unique + no-throw-on-path), enumerating one firing case + five each-constraint-violated suppressions, grounded in the shipped emit_reuse/planner.rs cross-block planning over the ori_arc::graph dominator tree

@@ -1,0 +1,51 @@
+Theorem RL-32: all non-scalar parameters initialize Borrowed; fixpoint promotes to Owned
+
+  Preconditions:
+    - RL-32 governs borrow-inference initialization per Annex E §AIMS
+      Borrow Inference: "All non-scalar parameters initialize Borrowed. The
+      fixpoint promotes to Owned based on demand."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - This is the IC-2 most-optimistic initialization (Access = Borrowed)
+      promoted monotonically by IC-3 join toward Owned.
+    - Shipped: borrow/mod.rs (borrow inference — Owned/Borrowed ABI decisions).
+    - depends-on sec-06: IC-2 (param init) + IC-3 (param join).
+
+  Soundness property:
+    Forall non-scalar parameter p:
+
+      (P1) Inference: p initializes Borrowed (the most optimistic ABI — the
+           caller manages the reference); the monotone fixpoint promotes p to
+           Owned iff demand proves the callee consumes / stores the value.
+
+      (P2) Soundness (monotone toward conservative): Borrowed is the optimistic
+           floor; promotion only INCREASES the ABI obligation (Borrowed <
+           Owned per sec-1.1), never decreases it, so the fixpoint converges
+           and the final ABI never under-claims ownership the callee needs.
+
+    RL-32 refines plain ARC's everything-Owned ABI by inferring Borrowed where
+    the callee provably does not consume the value, eliminating the
+    caller-inc / callee-dec pair at the boundary.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine.
+
+    Part (P1/P2) — inference grid:
+      nonscalar_borrowed_init -> Borrowed (not consumed)
+      nonscalar_consumed_owned -> Owned (consumed; promoted)
+      scalar_borrowed -> Borrowed (no RC; never promoted)
+      Coverage gate: 3 inference cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY —
+        section_08::verify_rl32_borrowed_init_owned_promotion; inference grid;
+        emits Fail on a wrong ABI inference)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-32 via the borrow-inference grid (non-scalar params init Borrowed; demand-driven promotion to Owned when consumed; scalars stay Borrowed/no-RC) as a monotone-toward-conservative fixpoint, grounded in the IC-2/IC-3 contracts + borrow/mod.rs

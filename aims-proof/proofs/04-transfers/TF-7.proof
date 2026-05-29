@@ -1,0 +1,89 @@
+Theorem TF-7: PartialApply transfer produces FRESH(NonReusable)
+
+  Preconditions:
+    - Instruction is `PartialApply { closure_fn, captured_args }` per
+      Annex E §AIMS TF-7 + Appendix A row 7
+    - FRESH(NonReusable) = `(Owned, Linear, Once, Unique, BlockLocal,
+      NonReusable, {may_alloc=true})` per §3 TF-7 + Appendix A
+    - Captured-arg state propagation is handled exclusively by
+      `capture_state_update` (TF-13) at §04.3; TF-7 forward transfer
+      produces only the closure-allocation result-state
+    - The closure shape is ALWAYS `NonReusable` regardless of captured
+      argument count or types — closures carry environment-shape variance
+      not amenable to Reset/Reuse pairing
+
+  Soundness property:
+    Forall PartialApply { closure_fn, captured_args }.
+      transfer_tf7(PartialApply) = FRESH(NonReusable)
+    AND L-6 layer (b) monotonicity holds: TF-7 is a constant function on
+    the closure-fn + capture roster; for ANY pair (a, b) of input states
+    with a ≤ b, f(a) = f(b) = FRESH(NonReusable), hence f(a) ≤ f(b) by
+    L-4 reflexivity.
+
+  Proof obligation:
+    Three-part discharge:
+      (a) Output enumeration — verify all 7 per-dimension columns of
+          Appendix A row 7 are emitted:
+            access = Owned; consumption = Linear; cardinality = Once;
+            uniqueness = Unique; locality = BlockLocal;
+            shape = NonReusable; effect = {may_alloc} = 0b001.
+      (b) Shape constraint — verify shape is ALWAYS NonReusable; PartialApply
+          NEVER emits ReusableCtor / CollectionBuffer / ContextHole. Closures
+          carry captured-env variance making Reset/Reuse structural pairing
+          unsound (RL-11 same-block reuse requires nominal type-id match
+          which closures lack).
+      (c) L-6 layer (b) monotonicity — TF-7 is a constant function on its
+          input AimsState. For fixed PartialApply instruction, f(_) = FRESH
+          (NonReusable). For ANY pair of input states (a, b) with a ≤ b,
+          f(a) = f(b) = FRESH(NonReusable), hence f(a) ≤ f(b) by L-4
+          reflexivity (componentwise product order self-comparable).
+
+    Part (a) — per-dimension column verification:
+      access = Owned per Appendix A row 7 — closure heap allocation owned
+        by the producer of the PartialApply result.
+      consumption = Linear — newly-allocated, exactly-once consumed at
+        each use (Cardinality Once means single use before propagation).
+      cardinality = Once — fresh allocation; downstream uses accumulate
+        via TF-11 backward demand.
+      uniqueness = Unique — newly-allocated closure has RC = 1 by
+        construction; no aliases possible before any subsequent ArcInstr.
+      locality = BlockLocal — allocation site is the basic block where
+        PartialApply lives; escape narrowing happens at later instructions
+        + CN-6/CN-8 canonicalization.
+      shape = NonReusable — closures carry captured-env variance; no
+        nominal type-id for Reset/Reuse pairing (RL-11 + RL-12 require
+        same nominal type which closure instances do not provide).
+      effect = {may_alloc=true} = 0b001 — closure allocation; no sharing,
+        no throwing at PartialApply site.
+
+    Part (b) — shape-NonReusable invariant:
+      Appendix A row 7 column "Shape" reads "NonReusable" verbatim.
+      Verified: transfer_tf7() emits shape = "NonReusable" exclusively.
+      Negative witness: no PartialApply branch emits ReusableStruct,
+      ReusableEnum, CollectionBuffer, or ContextHole.
+
+    Part (c) — per-instance constant-function monotonicity:
+      For ANY input state (a, b) in (AimsState union {SCALAR})^2 with a ≤ b:
+        TF-7 reads NOTHING from `a` — output is determined ONLY by the
+        PartialApply instruction itself (closure_fn + captured-arg count).
+        f(a) = FRESH(NonReusable) = f(b). By L-4 reflexivity,
+        FRESH(NonReusable) ≤ FRESH(NonReusable) on the product order
+        (componentwise on each of the 7 dimensions: Owned ≤ Owned;
+        Linear ≤ Linear; Once ≤ Once; Unique ≤ Unique; BlockLocal ≤
+        BlockLocal; NonReusable ≤ NonReusable; 0b001 ≤ 0b001).
+      Verified via product_le(fresh("NonReusable"), fresh("NonReusable"))
+      = Some(true).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-instance constant-function
+        check per section_04::verify_tf7_partialapply_fresh_nonreusable)
+      case_analysis (PRIMARY — Appendix A row 7 forward-transfer-matrix
+        enumeration; shape-NonReusable invariant
+        per section_04::verify_tf7_partialapply_fresh_nonreusable)
+      lattice (SECONDARY — accepts gracefully; product-order discharged §02)
+      refinement (SECONDARY — accepts gracefully; TF-7 emits FRESH
+        directly, not via refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-7 via per-dimension Appendix A row 7 enumeration + shape-NonReusable invariant + per-instance constant-function monotonicity check

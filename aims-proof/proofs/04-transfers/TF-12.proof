@@ -1,0 +1,64 @@
+Theorem TF-12: PartialApply emits NO TF-11 demand (captures via TF-13)
+
+  Preconditions:
+    - PartialApply { closure_fn, captures } is the closure-construction
+      instruction per Annex E §AIMS TF-7 (forward: FRESH(NonReusable))
+    - Per Annex E §AIMS TF-12: "PartialApply emits NO TF-11 demand.
+      Captured arg demand handled by TF-13."
+    - Captured arguments are NOT subject to the TF-11 standard backward
+      demand (which would emit `(arg, Once, Linear)` per capture). The
+      captured-arg demand is delegated entirely to TF-13
+      `capture_state_update` (proven at TF-13.proof).
+    - Rationale (lives at Annex E §AIMS TF-13): captured args propagate
+      demand via the LAM-style capture-state-update which couples closure
+      cardinality with capture cardinality. A standard TF-11 demand would
+      double-count (TF-11 emitting + TF-13 transferring on the same operand)
+      AND would not couple closure-cardinality to capture cardinality
+      (closure cardinality > Once means each capture is used Many times).
+
+  Soundness property:
+    Forall partial_apply in {PartialApply { closure_fn, captures }}.
+      backward_demand_tf12(partial_apply) = EMPTY
+    AND L-6 monotonicity vacuous (empty demand emission — no codomain state
+    to monotone over).
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Empty-demand confirmation — backward_demand_tf12(PartialApply)
+          returns an empty list (no captures, no closure_fn, no captured
+          arg appears in the demand output).
+      (b) Capture-demand-delegation confirmation — the TF-13 path
+          (capture_state_update) is the EXCLUSIVE owner of captured-arg
+          demand. No double-counting at TF-12.
+
+    Part (a) — empty-demand confirmation:
+      Per Annex E §AIMS TF-12: "PartialApply emits NO TF-11 demand."
+      Verified: backward_demand_tf12() returns an empty Vec for the
+      PartialApply variant. The closure_fn operand (the function reference
+      being partially applied) carries NO TF-11 demand at TF-12 — it is a
+      symbolic function handle, not a refcounted value.
+
+    Part (b) — capture-demand-delegation confirmation:
+      Per Annex E §AIMS TF-12: "Captured arg demand handled by TF-13."
+      Verified: The §3 TF-11 table row for PartialApply does NOT exist
+      (PartialApply is omitted from the 14-row table per the §3 TF-11
+      statement). The §3 TF-13 statement is the SSOT for captured-arg
+      demand. TF-12's contract is precisely "no TF-11 emission" — the
+      delegation is a closure of the joint TF-11 + TF-13 specification.
+      Negative witness: if TF-12 were to emit `(capture, Once, Linear)`
+      via TF-11, the TF-13 capture_state_update would re-process the same
+      capture and double-count its demand (Linear + Linear = Unrestricted
+      per seq_add — would falsely promote consumption).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — vacuous monotonicity for empty backward demand
+        per section_04::verify_tf12_partialapply_no_demand)
+      case_analysis (PRIMARY — confirm PartialApply absent from §3 TF-11
+        table AND backward_demand_tf12 emits empty per
+        section_04::verify_tf12_partialapply_no_demand)
+      lattice (SECONDARY — accepts gracefully; no codomain element)
+      refinement (SECONDARY — accepts gracefully; TF-12 emits no refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-12 via empty-demand confirmation + TF-11-table-absence verification + TF-13 capture-demand-delegation chain-of-custody

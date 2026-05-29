@@ -1,0 +1,214 @@
+-- AIMS-Proof bootstrap translation
+-- SSOT: aims-proof/checker/src/emit/lean4.rs (the SMT / Lean 4 emission strategy Option C)
+-- Constructive-by-default per the foundational-axiom policy; classical escalation
+-- requires matched commit per the foundational-axiom policy §Permitted Extensions.
+-- BANNED: Classical.em, Classical.choice, funext, propext, proof
+-- irrelevance, Markov's Principle — absent a matched extension entry
+-- in the foundational-axiom policy.
+-- Translated from proofs/11-coexistence/CH-2.proof
+
+namespace AimsBootstrap
+
+-- AimsState 7-tuple placeholder per Annex E §AIMS.1 through sec-1.7.
+-- Each dimension is a finite constructive inductive carrier per
+-- the foundational-axiom policy sec-Per-Engine-Constructive-Proof-Shape.
+
+inductive AccessClass
+ | Borrowed
+ | Owned
+
+inductive Consumption
+ | Dead
+ | Linear
+ | Affine
+ | Unrestricted
+
+inductive Cardinality
+ | Absent
+ | One
+ | Many
+
+inductive Uniqueness
+ | Unique
+ | MaybeShared
+ | Shared
+
+inductive Locality
+ | BlockLocal
+ | FunctionLocal
+ | ArgEscaping
+ | HeapEscaping
+ | Unknown
+
+inductive Shape
+ | NonReusable
+ | ReusableStruct
+ | ReusableEnumVariant
+ | CollectionBuffer
+ | ContextHole
+
+structure EffectClass where
+ may_alloc : Bool := false
+ may_share : Bool := false
+ may_throw : Bool := false
+
+structure AimsState where
+ access : AccessClass
+ consumption : Consumption
+ cardinality : Cardinality
+ uniqueness : Uniqueness
+ locality : Locality
+ shape : Shape
+ effect : EffectClass
+
+-- Translated from proofs/11-coexistence/CH-2.proof:CH-2
+-- Theorem name (verbatim from canonical-notation source):
+-- DP - 2 / DP - 3 elimination consumer composition with predicate - stack - derived ops
+-- Preconditions (verbatim from canonical-notation source):
+-- - depends - on CH - 1 ( Burden - registry - lattice composition soundness ) at aims - proof / proofs / 11 - coexistence / CH - 1 . proof emdash CH - 1 ' s lattice - bridge consistency ( P1 ) + acyclic BR - reads - L dependency ( P2 ) + per - class coexistence well - formedness ( P3 ) are load - bearing premises this CH - 2 proof grounds against ( CH - 1 root per the sec - 11 . 1 Per - CH dependency chain table )
+-- - DP - 2 ( ` is_rc_dec_unnecessary ` ) is the canonical - state truth - table predicate discharged at aims - proof / proofs / 5 - decisions / DP - 2 . proof : is_rc_dec_unnecessary ( s ) iff s . cardinality = Absent or s . consumption = Dead ( post - CN - 1 canonical states ; the disjunction is bidirectionally implied )
+-- - DP - 3 ( ` is_rc_inc_elidable ` ) is the canonical - state truth - table predicate discharged at aims - proof / proofs / 5 - decisions / DP - 3 . proof : is_rc_inc_elidable ( s ) iff s . cardinality = Once and s . consumption = Linear ( canonical states ; moved - once , no inc required )
+-- - Predicate - stack - derived ops are the sec - 3 - sec - 4 lattice - only emission path operating purely on L without consulting BR per Handshake . proof Function 2 ( ` predicate_stack_path ` ) ; realization rules per Annex E section AIMS RL - 1 . . RL - 34
+-- - consume_stack ( F , BR , L ) is the sec - 4 A . 2 elimination consumer per Handshake . proof Function 1 ( ` burden_emission_path ` ) , terminating at ` pub ( crate ) fn eliminate_burden_ops ` at compiler / ori_arc / src / aims / realize / burden_elim . rs : 87
+-- - depends - on sec - 2 L - 6 ( monotonicity ) at aims - proof / proofs / 2 - lattice / L - 6 . proof emdash backward transfer functions SHALL be monotone ( a <= b implies f ( a ) <= f ( b ) ) ; monotonicity is the substrate for proving that adding the burden - registry pre - pass writes does NOT race - invalidate the lattice ' s converged L per CH - 4 ( which CH - 2 reduces to as the acyclic - dependency precondition )
+-- - depends - on sec - 7 PL - 2 ( Step 4 precedes Step 5 ) at aims - proof / proofs / 7 - pipeline / PL - 2 . proof emdash analyze_function ( Step 4 ) precedes realize_rc_reuse ( Step 5 ) ; AimsStateMap converges BEFORE emit_burden_ops invocation per docs / ori_lang / proposals / approved / aims - burden - tracking - proposal . md sec - 4 A success_criterion 1 ; therefore DP - 2 / DP - 3 evaluations against L ' s converged state are read - only at consume_stack invocation time
+-- - depends - on sec - 8 RL - 1 + RL - 2 composition at aims - proof / proofs / 8 - realization / RL - 1 - RL - 2 - composition . proof emdash the lattice - only emission path ' s RC inc / dec emission is RC - count - preserving ( every emitted inc balanced by an emitted dec at last use ) ; predicate_stack_path inherits this composition
+-- Soundness property (verbatim from canonical-notation source):
+-- Forall ArcFunction F . Forall BurdenSpec BR . Forall AimsStateMap L ( converged ) .
+-- Forall variable v in vars ( F ) . Forall program point pp .
+--   ( P1 ) Single - elimination decision per ( v , pp ) :
+--     consume_stack emits EXACTLY ONE elimination decision for v at pp :
+--       eliminate ( v , pp ) =
+--         BR . burden_emitted [ v ]
+--         and ( is_rc_dec_unnecessary ( L [ v ] @ pp ) or is_rc_inc_elidable ( L [ v ] @ pp ) )
+--     The burden - derived elimination decision AND the lattice - derived
+--     elimination decision are THE SAME Boolean for each ( v , pp ) pair ;
+--     the burden registry ' s per - variable annotation IS computed from the
+--     same DP - 2 / DP - 3 truth - table evaluations that the lattice consumer
+--     applies at Step 5 / 5 a / 10 burden - elimination sites .
+--   ( P2 ) No race - invalidation :
+--     Predicate - stack ops ( the sec - 3 - sec - 4 lattice - only emission path operating
+--     on L ) do NOT race - invalidate the lattice ' s DP - 2 / DP - 3 elimination
+--     claim . Formally :
+--       Forall predicate - stack op pi ( RC inc / RC dec / Reset / Reuse / IsShared /
+--                               Set / SetTag emitted from L without BR ) .
+--       Forall burden op beta ( RC inc / RC dec emitted from BR ) .
+--         predicate_stack_path ( F , L ) o burden_emission_path ( F , L , BR ) equivalent_to
+--         burden_emission_path ( F , L , BR ) o predicate_stack_path ( F , L )
+--     Composition is commutative because pi and beta operate on the same L
+--     ( read - only after IA - 7 ) with the SAME elimination decision per ( v , pp )
+--     per ( P1 ) ; the union of emitted ops is a SET ( idempotent under
+--     duplication ) , so consume_stack ' s emission is deterministic regardless
+--     of ordering between burden - derived and lattice - derived emissions .
+--   ( P3 ) Stack consumer well - formedness :
+--     For each variable v with active stack burden ( i . e . , v in BR . burden_emitted
+--     AND BR . eliminates ( v ) under DP - 2 / DP - 3 ) :
+--       consume_stack honors the single - elimination invariant by reading
+--       BR ' s per - variable annotation AS the lattice - derived DP - 2 / DP - 3 verdict
+--       ( not re - deriving it ) ; the burden - tracking pre - pass ( sec - 4 A . 2 )
+--       materializes the verdict into BR . burden_emitted , which consume_stack
+--       consumes verbatim .
+-- Proof obligation (verbatim from canonical-notation source):
+-- Three - part constructive discharge , mirroring CH - 1 ' s three - part shape
+-- ( Parts P1 / P2 / P3 ) ; composition of CH - 1 ' s lattice - bridge + acyclic
+-- dependency premises with DP - 2 / DP - 3 truth - table consequence .
+-- Part ( P1 ) emdash single - elimination decision :
+--   Per CH - 1 Part ( P1 ) lattice - bridge consistency , BR . burden_emitted [ v ] is
+--   derived from a pure function on L ' s converged AimsStateMap ; equivalently :
+--     BR . burden_emitted [ v ] iff burden - owned ( L [ v ] ) per Handshake . proof Predicate 1
+--   Per CH - 1 Part ( P1 ) coverage gate , the lattice - bridge predicate
+--   burden - owned ( s ) implies ( is_rc_dec_unnecessary ( s ) or is_rc_inc_elidable ( s ) )
+--   on canonical states post - CN - 1 . . CN - 8 , because :
+--     - burden - owned ( s ) implies s . access = Owned and s . consumption in { Linear , Affine }
+--       and s . uniqueness = Unique and is_rc_dec_unnecessary ( s )
+--     - The fourth conjunct IS is_rc_dec_unnecessary ( s ) ; therefore the
+--       disjunction holds trivially via the right disjunct
+--     - When the third conjunct holds ( Unique ) AND consumption = Linear ,
+--       DP - 3 fires ( Linear and Once on canonical states ; Linear demands at
+--       single use site reach cardinality Once ) ; the disjunction holds via
+--       the left disjunct as well
+--   Therefore eliminate ( v , pp ) computed from BR is bit - identical to
+--   eliminate ( v , pp ) computed from L ' s DP - 2 / DP - 3 truth tables ; the burden -
+--   derived AND lattice - derived elimination decisions are THE SAME Boolean ,
+--   not two decisions stacked .
+--   Conclusion ( P1 ) : single - elimination decision per ( v , pp ) holds by
+--   construction ; consume_stack reads BR . burden_emitted [ v ] ( which is a
+--   memoized DP - 2 / DP - 3 verdict on L [ v ] ) instead of re - evaluating DP - 2 / DP - 3
+--   on L [ v ] ; the verdict is bit - identical either way .
+-- Part ( P2 ) emdash no race - invalidation ( composition commutativity ) :
+--   Per CH - 1 Part ( P2 ) no - double - counting , the dependency direction is
+--   acyclic : BR reads L ( after IA - 7 convergence ) ; L does NOT read BR . Per
+--   CH - 4 ( AimsStateMap immutability under burden - registry mutation ; the sec - 11
+--   success_criterion 12 depends - on sec - 2 L - 2 lattice algebra state - map
+--   immutability under read - only access ) , Forall mutation event M of BR . L is
+--   NOT modified by M .
+--   Given L is read - only after IA - 7 convergence , predicate_stack_path ( F , L )
+--   ( which reads L only ) and burden_emission_path ( F , L , BR ) ( which reads L
+--   + BR , where BR was derived from L ) are both PURE FUNCTIONS of L ( BR is
+--   a memoized derivation per CH - 1 Part P1 ) . Pure functions of the same
+--   input commute trivially under composition :
+--     predicate_stack_path ( F , L ) o burden_emission_path ( F , L , BR )
+--       = predicate_stack_path ( F , L ) o burden_emission_path ( F , L , BR ( L ) )
+--       = ( read - only L , deterministic output ops )
+--       = burden_emission_path ( F , L , BR ( L ) ) o predicate_stack_path ( F , L )
+--   The union of emitted ops is a SET ( each ( v , pp , op_kind ) triple emitted
+--   at most once per L per the single - elimination invariant from Part P1 ) ,
+--   so consume_stack ' s final emission is deterministic regardless of which
+--   path runs first .
+--   Per L - 6 monotonicity , backward transfer functions in sec - 3 IA - 5 step ( 1 )
+--   preserve the conjunction burden - owned ( s ) under alias transfer ; therefore
+--   the predicate_stack_path ' s RC emissions are consistent with the burden_
+--   emission_path ' s RC emissions on every variable for which BR . burden_
+--   emitted [ v ] = true .
+--   Conclusion ( P2 ) : no race - invalidation ; the two emission paths commute
+--   under composition ; consume_stack emits a deterministic single union
+--   of RC ops regardless of which path runs first .
+-- Part ( P3 ) emdash stack consumer well - formedness :
+--   Per CH - 1 Part ( P3 ) per - class coexistence well - formedness , the AIMS
+--   class taxonomy is total + disjoint over the three sub - classes ( A : Owned
+--   x Linear x Once x Unique ; B : Borrowed x Linear x Once x Unique ; C :
+--   MaybeShared x Many ) . The burden registry classifies a variable v as
+--   burden_emitted ONLY when v ' s converged L [ v ] satisfies the burden - owned
+--   conjunction ( Class A per the sec - 11 success_criterion 12 IC - 3 binding ) .
+--   Therefore consume_stack ' s stack - consumer well - formedness reduces to :
+--   for each v in BR . burden_emitted , consume_stack treats BR ' s per - variable
+--   annotation AS the lattice - derived DP - 2 / DP - 3 verdict , NOT a second
+--   independent elimination claim . The burden - tracking pre - pass ( sec - 4 A . 2 )
+--   materializes the lattice ' s DP - 2 / DP - 3 verdict into BR . burden_emitted as
+--   a typed - side - table memoization per Annex E section AIMS . 7 EffectSummary +
+--   arc . md sec - Non - Negotiable - Invariants invariant 5 ( c ) " feed the lattice - driven
+--   analysis as a typed pre - pass input that lands on AimsStateMap ( as
+--   immortal detection does via the immortals : Vec < bool > bitvector ) " .
+--   Conclusion ( P3 ) : stack consumer well - formedness holds ; the burden
+--   registry materializes ( not re - derives ) the lattice ' s DP - 2 / DP - 3 verdict ;
+--   consume_stack honors the single - elimination invariant .
+-- Coverage gate : the three Parts ( P1 , P2 , P3 ) together discharge the
+-- soundness - property clauses ( single - elimination decision , no race -
+-- invalidation , stack consumer well - formedness ) per the sec - 1
+-- Composition . proof : 38 sorry obligation . A regression dropping any
+-- Part leaves a soundness - property clause unverified emdash the joined CH - 2
+-- claim is no stronger than its weakest part .
+-- Engines dispatched :
+--   structural_induction ( PRIMARY emdash per the sec - 11 . 0 Per - CH Proof - Status
+--     Tracking table CH - 2 row + Composition . proof : 59 - 63 skeleton dispatch ;
+--     per - instruction structural - check soundness over ( P1 ) single -
+--     elimination decision + ( P2 ) composition commutativity + ( P3 ) stack
+--     consumer well - formedness )
+--   interprocedural_summary ( CO - PRIMARY emdash per Composition . proof : 59 - 63 ;
+--     SCC - level burden - registry - vs - lattice agreement under IC - 3 + IC - 4
+--     contract dimensions ; load - bearing for class - identification under
+--     callee return contracts )
+--   case_analysis ( CO - PRIMARY emdash DP - 2 + DP - 3 canonical - state truth - table
+--     enumeration per Appendix C ; per - class - row enumeration in ( P3 ) )
+--   lattice ( CO - PRIMARY emdash L - 6 monotonicity for burden - owned preservation
+--     under backward transfer ; L - 7 canonicalization idempotence for
+--     repeated burden - registry reads )
+-- TODO(BUG-XX-NNN): substantive translation pending Mathlib AimsState model;
+-- placeholder body is `True := by trivial` so Lean 4's parser accepts
+-- the file. Semantic equivalence to the Ori claim is out of scope for
+-- the §01A bootstrap per the SMT / Lean 4 emission strategy Option C consequences.
+theorem CH_2_DP_2_DP_3_elimination_consumer_composition_with_predicate_stack_derived_ops : True := by trivial
+
+end AimsBootstrap
+
+def main : IO Unit := pure ()

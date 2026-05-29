@@ -1,0 +1,78 @@
+Theorem TF-9a: CollectionReuse transfer produces FRESH(CollectionBuffer)
+
+  Preconditions:
+    - Instruction is `CollectionReuse { old_var, args }` per Annex E §AIMS TF-9a + Appendix A row 10
+    - `old_var` is a dying collection (list, set, or map) whose buffer
+      backing can be reused by RL-11 structural pairing
+    - FRESH(CollectionBuffer) = `(Owned, Linear, Once, Unique, BlockLocal,
+      CollectionBuffer, {may_alloc=true})` per §3 TF-9a + Appendix A
+    - Shape is ALWAYS CollectionBuffer (distinct from ReusableCtor variants
+      handled by TF-9; distinct from NonReusable + ContextHole)
+
+  Soundness property:
+    Forall CollectionReuse { old_var, args }.
+      transfer_tf9a(CollectionReuse) = FRESH(CollectionBuffer)
+    AND L-6 layer (b) monotonicity holds: TF-9a is a constant function on
+    the static instruction shape; for ANY pair (a, b) of input states with
+    a ≤ b, f(a) = f(b) = FRESH(CollectionBuffer), hence f(a) ≤ f(b) by
+    L-4 reflexivity.
+
+  Proof obligation:
+    Three-part discharge:
+      (a) Output enumeration — verify all 7 per-dimension columns of
+          Appendix A row 10 are emitted:
+            access = Owned; consumption = Linear; cardinality = Once;
+            uniqueness = Unique; locality = BlockLocal;
+            shape = CollectionBuffer; effect = {may_alloc} = 0b001.
+      (b) Shape constraint — verify shape is ALWAYS CollectionBuffer;
+          CollectionReuse NEVER emits ReusableStruct / ReusableEnum /
+          NonReusable / ContextHole. The CollectionBuffer shape is the
+          discriminating mark for {List,Set,Map}Literal allocations
+          per Annex E §AIMS Shape lattice.
+      (c) L-6 layer (b) monotonicity — TF-9a is a constant function on
+          input AimsState. For ANY pair (a, b) with a ≤ b,
+          f(a) = f(b) = FRESH(CollectionBuffer), hence f(a) ≤ f(b) by
+          L-4 reflexivity.
+
+    Part (a) — per-dimension column verification:
+      access = Owned — reused buffer owned by the result.
+      consumption = Linear — fresh buffer slot, exactly-once consumed.
+      cardinality = Once — fresh allocation; downstream uses via TF-11.
+      uniqueness = Unique — RC = 1 invariant inherited from old_var's
+        unique state (RL-11 + DP-6 require source Unique).
+      locality = BlockLocal — CollectionReuse fires within same-block
+        scope or dominator-validated cross-block region.
+      shape = CollectionBuffer — fixed by the CollectionReuse instruction
+        kind; distinguishes from ReusableCtor variants per §1.6.
+      effect = {may_alloc=true} = 0b001 — buffer-equivalent allocation
+        at AIMS layer.
+
+    Part (b) — shape-CollectionBuffer invariant:
+      Appendix A row 10 column "Shape" reads "CollectionBuffer" verbatim.
+      Verified: transfer_tf9a() emits shape = "CollectionBuffer"
+      exclusively. Negative witness: no branch emits ReusableStruct,
+      ReusableEnum, NonReusable, or ContextHole.
+
+    Part (c) — constant-function monotonicity:
+      For ANY input state (a, b) in (AimsState union {SCALAR})^2 with
+      a ≤ b: TF-9a reads NOTHING from `a` — output is determined ONLY
+      by the CollectionReuse instruction kind. f(a) = FRESH
+      (CollectionBuffer) = f(b). By L-4 reflexivity,
+      FRESH(CollectionBuffer) ≤ FRESH(CollectionBuffer) on the product
+      order (componentwise on each of the 7 dimensions).
+      Verified via product_le(fresh("CollectionBuffer"),
+      fresh("CollectionBuffer")) = Some(true).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-instance constant-function
+        check per section_04::verify_tf9a_collectionreuse_fresh_collectionbuffer)
+      case_analysis (PRIMARY — Appendix A row 10 forward-transfer-matrix
+        enumeration + shape-CollectionBuffer invariant per
+        section_04::verify_tf9a_collectionreuse_fresh_collectionbuffer)
+      lattice (SECONDARY — accepts gracefully; product-order at §02)
+      refinement (SECONDARY — accepts gracefully; TF-9a emits FRESH
+        directly, not via refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-9a via per-dimension Appendix A row 10 enumeration + shape-CollectionBuffer invariant + constant-function monotonicity check

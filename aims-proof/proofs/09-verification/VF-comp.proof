@@ -1,0 +1,66 @@
+Theorem VF-comp: layered-stack composition — the stack catches the UNION of VF-1..VF-8 failure classes
+
+  Preconditions:
+    - This is the sec-09 composition theorem per the sec-09 success_criteria:
+      the layered verification stack catches the UNION of the failure classes
+      its constituent layers catch; a fix that passes one layer but regresses
+      another is a correctness regression, not a partial win (per Annex E §AIMS + arc.md Verification Surface: "a fix that passes one layer but
+      regresses another is a correctness regression").
+    - Signature MemoryContract x ArcFunction -> Bool (the whole-stack verdict)
+      per aims-proof/proofs/01-verification/Verification.proof. Discharged
+      against the sec-01 Verification.proof sorry obligation.
+    - Each constituent VF-N is proved by its own theorem (VF-1.proof through
+      VF-8.proof); VF-comp composes them into the joined layered-stack claim.
+    - depends-on every VF-N (the constituent verification layers): VF-1
+      (structural), VF-2 (contract consistency), VF-3 (oracle), VF-4 (FIP),
+      VF-5 (end-to-end mandate), VF-6 (agreement), VF-7 (active-rewrite), VF-8
+      (universal coverage).
+
+  Soundness property:
+    Forall realized ArcFunction F with inferred MemoryContract C:
+
+      (P1) Joined union: the layered stack ACCEPTS (F, C) iff EVERY constituent
+           layer accepts — the stack catches the UNION of the per-layer failure
+           classes. A fix that passes a strict SUBSET of the layers (e.g. passes
+           VF-1 structural but regresses VF-4 FIP balance) is REJECTED by the
+           stack, because some layer in the union catches the regressed class.
+
+      (P2) Conjunction strength: VF-comp is EXACTLY as strong as the conjunction
+           of its constituents — it holds iff every constituent VF-N discharges.
+           It never gracious-accepts over a failing or missing premise. A
+           dropped constituent leaves a failure class uncaught (a false-valid
+           risk), so the coverage gate asserts the full layer count.
+
+    VF-comp is the capstone of the sec-09 contribution: the proof that the AIMS
+    verification stack, layer by layer and composed, catches every inconsistency
+    class — structural well-formedness, contract consistency, oracle
+    re-derivation, FIP certification, end-to-end completeness, contract-
+    realization agreement, active-rewrite soundness, and universal rule coverage
+    — and that no fix passing one layer while regressing another slips through.
+
+  Proof obligation:
+    Constructive discharge by the structural_induction engine via composition of
+    all 8 discharged VF constituents (mirrors section_07::verify_pl_composition +
+    section_08::verify_rl_composition).
+
+    Part (P1/P2) — constituent composition:
+      The verifier re-runs each of the 8 VF constituent verifiers (VF-1 through
+      VF-8), asserts each returns Valid, AND models the union-of-failure-classes
+      property: a fix passing a strict subset of layers (7 of 8, regressing
+      VF-4) is REJECTED by the whole-stack verdict, and a fix passing every
+      layer is accepted. Coverage gate: exactly 8 VF constituents discharged. A
+      failing or missing constituent fails VF-comp (the joined claim is no
+      stronger than its weakest premise).
+
+    Engines dispatched:
+      structural_induction (PRIMARY — section_09::verify_vf_composition;
+        constituent re-run + Valid-assertion + union-semantics check + 8-count
+        coverage gate; emits Fail on any non-discharging constituent, a
+        union-semantics violation, or a count mismatch)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest VF row)
+      rc_counting (SECONDARY — gracious-accept)
+      interprocedural_summary (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_09 structural_induction engine discharges the layered-stack composition theorem VF-comp by composing all 8 discharged VF constituents (each re-run and asserted Valid) plus the union-of-failure-classes property (a fix passing 7 layers but regressing VF-4 is rejected; a fix passing every layer is accepted), with an 8-count coverage gate ensuring no layer is dropped — the joined proof that the AIMS verification stack catches the union of structural / contract / oracle / FIP / end-to-end / agreement / active-rewrite / coverage failure classes

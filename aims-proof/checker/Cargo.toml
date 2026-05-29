@@ -1,0 +1,48 @@
+# aims-proof-checker crate
+#
+# Ori-domain proof checker for the AIMS calculus. AIMS-domain-specific,
+# scoped to the ~105 rules in Annex E §AIMS. NOT a
+# general-purpose dependent-type checker.
+#
+# Per the proof-checker design: ~2000-5000 LOC across all
+# modules; auditable by code review; trusted kernel surface (parser + ast
+# + checker + engine dispatch interfaces) reviewed by >=2 contributors
+# before sec02-09 + sec11 proof corpus depends on it.
+#
+# Zero external dependencies at scaffold-time — smaller trusted kernel,
+# easier read-by-review per Kernel Verification Methodology.
+
+[package]
+name = "aims-proof-checker"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ori AIMS Proofing Suite"]
+description = "Ori-domain proof checker for the AIMS calculus"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "aims_proof_checker"
+path = "src/lib.rs"
+
+[[bin]]
+name = "aims-proof-checker"
+path = "src/main.rs"
+
+[[bin]]
+name = "locality-conformance"
+path = "src/bin/locality_conformance.rs"
+
+[dependencies]
+# Intentionally empty — kernel verification methodology requires the
+# smallest possible trusted surface. New dependencies added only with
+# matched concession entry in the proof-checker design.
+
+[build-dependencies]
+# build.rs probe of compiler/ori_arc/ shipped surface per
+# the locality shipped-conformance gate SC4.
+# Emits LATTICE_VARIANT_COUNT + MAY_ESCAPE_IS_STORED constants the checker
+# consumes for divergent-pending vs pass branch in the §17 cross-walk.
+# Scope: build-only; trusted kernel surface unaffected.
+syn = { version = "2", features = ["full", "parsing"] }
+proc-macro2 = "1"

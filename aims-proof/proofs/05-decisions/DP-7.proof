@@ -1,0 +1,151 @@
+Theorem DP-7: is_rc_skip_eligible truth table — pure-state portion (callee parameter scope)
+
+  Preconditions:
+    - s is a canonical AimsState per Annex E §AIMS product lattice
+    - is_rc_skip_eligible : AimsState -> Bool per Annex E §AIMS DP-7 +
+      Appendix C truth table
+    - DP-7 is a pure boolean predicate over (Locality x Access x Consumption
+      x Cardinality x Uniqueness x is_scalar); Shape / Effect are
+      non-load-bearing
+    - Scope clarification: DP-7 evaluated on CALLEE's parameter state. The
+      callee parameter may be FunctionLocal even when caller's arg is
+      ArgEscaping because parameter contract reflects callee USE (per
+      Annex E §AIMS TF-11 Apply row + Annex E §AIMS DP-7 scope clause).
+      ArgEscaping floor in TF-11 applies to CALLER's arg, not callee's
+      contract.
+    - Uniqueness = Unique clause is load-bearing — Shared+Linear+Once is the
+      negative-direction witness (caller inc never balanced -> leak).
+    - is_local(s) per DP-8: locality in {BlockLocal, FunctionLocal}.
+      Required as DP-7 conjunct via Annex E §AIMS DP-7 +
+      Appendix C row 1 condition.
+    - CN-1 canonical invariant: Consumption = Dead iff Cardinality = Absent.
+    - CN-6 canonical invariant: Locality >= HeapEscaping AND Uniqueness =
+      Unique -> Uniqueness := MaybeShared (wide-locality uniqueness ceiling).
+    - CN-8 canonical invariant: Access = Borrowed AND Locality > FunctionLocal
+      -> Locality := FunctionLocal.
+
+  Soundness property:
+    Forall s in AimsState (canonical).
+      is_rc_skip_eligible(s)
+        <=> (is_local(s)
+              AND s.access = Owned
+              AND s.consumption = Linear
+              AND s.cardinality = Once
+              AND s.uniqueness = Unique
+              AND NOT is_scalar(s))
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Exhaustive enumeration over the 6-tuple product per Appendix C
+          truth table: 5 Locality x 2 Access x 4 Consumption x 3 Cardinality
+          x 3 Uniqueness x 2 is_scalar = 720 candidate input states.
+      (b) Soundness equality on every canonical row + reachable-subset
+          enumeration via CN-1 + CN-6 + CN-8 canonicalization filters.
+
+    Part (a) — Appendix C row partition (7 rows, exhaustive):
+      Row 1: is_local(s) = false (Locality in {ArgEscaping, HeapEscaping,
+        Unknown}) -> false
+        Soundness: predicate false (first conjunct fails). ArgEscaping
+        explicitly excluded per DP-8 — see DP-8 proof + Annex E §AIMS
+        DP-8 rationale (ArgEscaping optimization is stack promotion in
+        caller via RL-15a, NOT RC elision).
+      Row 2: is_local = true, Access = Borrowed -> false
+        Soundness: predicate false (second conjunct fails). Borrowed values
+        never own their RC; caller inc + callee dec asymmetric.
+      Row 3: is_local = true, Owned, Consumption != Linear -> false
+        Soundness: predicate false (third conjunct fails). Affine /
+        Unrestricted / Dead cannot guarantee inc/dec pair cancellation.
+      Row 4: is_local = true, Owned, Linear, Cardinality != Once -> false
+        Soundness: predicate false (fourth conjunct fails). Many uses or
+        Absent (Dead) break the move-once contract.
+      Row 5: is_local = true, Owned, Linear, Once, Uniqueness != Unique -> false
+        Soundness: predicate false (fifth conjunct fails). Negative-direction
+        witness: Shared+Linear+Once caller arg unbalances inc/dec (caller's
+        inc fires; callee skips dec; aliased value's refcount drifts to
+        leak).
+      Row 6: is_local = true, Owned, Linear, Once, Unique, is_scalar = true -> false
+        Soundness: predicate false (sixth conjunct fails). SCALAR carries
+        no RC ops by L-9; skip-eligibility tautologically irrelevant.
+      Row 7: is_local = true, Owned, Linear, Once, Unique, is_scalar = false -> true
+        Soundness: predicate true (all six conjuncts hold). Caller emits
+        RcInc on Owned param; callee's RcDec at parameter death exactly
+        cancels; per Annex E §AIMS RL-3 the pair is elided when DP-7
+        eligibility holds.
+
+    Part (b) — canonical subset filter + coverage gate:
+      Pre-canonical enumeration: 5 x 2 x 4 x 3 x 3 x 2 = 720 product states.
+      Canonical filters applied in §2 ordering (CN-8 -> CN-6 -> CN-1):
+        CN-1 (Consumption = Dead iff Cardinality = Absent):
+          Excludes Dead AND non-Absent + non-Dead AND Absent. Of 4 Consumption
+          x 3 Cardinality = 12 combinations, canonical = 7 (Dead+Absent +
+          3 non-Dead Consumption x Once + 3 non-Dead Consumption x Many).
+        CN-6 (Locality >= HeapEscaping AND Uniqueness = Unique):
+          Excludes Locality in {HeapEscaping, Unknown} AND Uniqueness =
+          Unique combinations. (CN-6 demotes Unique -> MaybeShared, so
+          these states canonicalize away from Unique.)
+        CN-8 (Borrowed AND Locality > FunctionLocal):
+          Clamps Borrowed + (ArgEscaping | HeapEscaping | Unknown) ->
+          Borrowed + FunctionLocal. Excludes Borrowed in 3 wide-locality
+          combinations.
+      Canonical reachable subset enumeration via product:
+        (5 Locality x 2 Access - 3 CN-8-eliminated Borrowed states)
+        x (7 CN-1-canonical (Consumption, Cardinality))
+        x (3 Uniqueness, with CN-6 selectively eliminating Unique on wide
+           Locality x is_local-relevant rows)
+        x (2 is_scalar)
+      Bound from above: 7 canonical (Consumption, Cardinality) x 5 Locality
+        x 2 Access x 3 Uniqueness x 2 is_scalar = 420 states (pre-CN
+        filter); CN-6 + CN-8 + CN-1 jointly admit a reachable subset.
+      Row 7 (true partition) canonical-row enumeration:
+        is_local = true: 2 Locality (BlockLocal, FunctionLocal)
+        Owned x Linear x Once x Unique x is_scalar=false (single canonical
+          row per CN-1)
+        = 2 x 1 x 1 x 1 x 1 x 1 = 2 states yield true.
+      Rows 1-6 (false partition) canonical-row enumeration: balance of the
+        canonical subset; the verifier enumerates exhaustively and confirms
+        soundness equality on each.
+
+    Negative-direction witness — Shared+Linear+Once counterexample:
+      Consider s = (Owned, Linear, Once, Shared, BlockLocal, NonReusable, NONE),
+      is_scalar = false. Per the predicate s.uniqueness = Shared violates
+      fifth conjunct -> DP-7 = false. Per Appendix C Row 5 the same row
+      yields false. Sound: caller's RcInc fires (DP-1 = true; non-elidable
+      per DP-3 because is_inc_elidable requires Linear+Once AND Unique
+      implicitly is reflected upstream). Callee's RcDec elision (per RL-3 +
+      DP-7) would leak the duplicate. Excluding via Uniqueness = Unique
+      requirement is the gate that prevents this.
+
+    ArgEscaping not-local witness (DP-8 composition):
+      Consider s = (Owned, Linear, Once, Unique, ArgEscaping, ReusableCtor*,
+      NONE), is_scalar = false. Per DP-8 is_local(s) = false (ArgEscaping
+      in {ArgEscaping, HeapEscaping, Unknown}). Therefore DP-7 = false per
+      Row 1. Sound: ArgEscaping arg participates in stack promotion in
+      CALLER (per RL-15a) not callee RC elision; the inc/dec ABI obligation
+      is preserved via the caller-stack header (immortal RC where required
+      per RL-15a Owned branch).
+
+    CN-6 wide-locality witness (HeapEscaping):
+      Pre-canonical s = (Owned, Linear, Once, Unique, HeapEscaping,
+        NonReusable, NONE) -> CN-6 demotes Uniqueness := MaybeShared ->
+        post-canonical Uniqueness = MaybeShared -> Row 5 fail.
+      Confirms CN-6 + DP-7 interact correctly: the Unique gate cannot be
+      bypassed by wide-locality states (they canonicalize away from
+      Uniqueness = Unique).
+
+    Live-variable / borrow_sources / project_alias_sources / IC-3 contract
+    typed pre-pass dependency: NOT REQUIRED for DP-7 (pure boolean predicate
+    over canonical AimsState dimensions, evaluated on CALLEE parameter
+    state; IC-3 / borrow_sources / project_alias_sources are upstream
+    inputs to PARAMETER-CONTRACT derivation per IC-2 / IC-3, not to DP-7
+    itself).
+
+    Engines dispatched:
+      case_analysis (PRIMARY — Appendix C row enumeration over 720 candidate
+        product states with CN-1 + CN-6 + CN-8 canonical-filter pre-pass
+        per section_05::verify_dp7_rc_skip_eligible; the verifier checks
+        the soundness equality predicate-vs-row-partition on every
+        enumerated state and emits Fail on any divergence)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-7 via 720-state enumeration with CN-1 + CN-6 + CN-8 canonical filter; 7-row truth table; exactly 2 canonical rows (BlockLocal | FunctionLocal x Owned x Linear x Once x Unique x non-scalar) yield true per Annex E §AIMS DP-7 + Appendix C

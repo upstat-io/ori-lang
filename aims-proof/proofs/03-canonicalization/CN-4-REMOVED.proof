@@ -1,0 +1,23 @@
+Theorem CN-4-REMOVED: anti-monotonicity counterexample confirms removal
+
+  Preconditions:
+    - Former CN-4 rule: MaybeShared to Unique under (BlockLocal, Owned, <=Once)
+    - Annex E §AIMS CN-4 removal note: anti-monotone broke L-2 and L-4
+
+  Soundness property:
+    Without CN-4, max-on-chain on the Uniqueness carrier {Unique, MaybeShared, Shared}
+    satisfies L-2 associativity.
+
+  Proof obligation:
+    Forall (a, b, c) in Uniqueness^3 (27 triples):
+      max_uniq(max_uniq(a, b), c) = max_uniq(a, max_uniq(b, c))
+    The absence of former-CN-4 in the active rule set is verified by
+    exhaustive L-2 check on the Uniqueness carrier.
+
+    Engines dispatched:
+      case_analysis (27-triple L-2 associativity enumeration per
+        section_03::verify_cn4_removed_is_sound)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-4-REMOVED via 27-triple associativity check confirming former-CN-4 absent

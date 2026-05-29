@@ -1,0 +1,68 @@
+Theorem RL-18a: Locality as the escape SSOT; parallel-escape-enum ban
+
+  Preconditions:
+    - RL-18a governs the unified representation constraint per Annex E §AIMS Unified Representation Constraint: "All escape-driven decisions
+      SHALL consume Locality as primary input. Thread-boundary analysis
+      (RL-19) is a program-wide DERIVED property layered on Locality +
+      call-graph — NOT a separate per-variable escape dimension. Parallel
+      per-variable escape enums FORBIDDEN. Locality = SSOT for all escape
+      classification."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - This rule enforces AIMS Invariant 5 (the unified model stays unified)
+      per canon.md sec-7.1 + CLAUDE.md sec-AIMS: new capabilities extend a
+      lattice dimension, never spawn a parallel escape enum.
+    - Consumers of Locality as escape SSOT: RL-14..RL-16 (stack promotion),
+      RL-15a (caller-stack), RL-17 (sharing bound via is_local), RL-19..RL-21
+      (thread-locality).
+
+  Soundness property:
+    Forall value v with Locality(v) = L:
+
+      (P1) Single-SSOT: BOTH the stack-promotion strategy (RL-14..RL-16, a
+           function of L via is_local) AND the thread-locality classification
+           (RL-19, derived from L + the call-graph thread-boundary signal)
+           consume L as their primary input. There is no second per-variable
+           escape enum that could disagree with L.
+
+      (P2) Consistency: the two L-derived verdicts never disagree — a
+           thread-shared value (escaping across a thread boundary) is
+           necessarily non-stack-promotable (is_local(L) = false), because
+           both verdicts trace to the same Locality lattice value. A parallel
+           escape enum could produce a value that is simultaneously
+           "thread-shared" and "stack-promotable" — RL-18a forbids exactly
+           that disagreement.
+
+    RL-18a is the structural invariant that keeps every escape decision
+    flowing through one dimension (Locality), so the refinement proofs of
+    RL-14..RL-21 all rest on the same converged lattice value rather than on
+    independent escape trackers that could drift.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine via enumeration over
+    (Locality x call-graph thread-boundary signal), asserting the
+    stack-promotion verdict and the thread-locality verdict both derive from
+    Locality AND never disagree.
+
+    Part (P1/P2) — Locality-SSOT consistency grid:
+      functionlocal_promotable_threadlocal -> promotable, thread-local
+      heapescaping_crossing_threadshared -> not promotable, thread-shared
+      heapescaping_no_crossing_threadlocal -> not promotable, thread-local
+      For each row the verifier confirms (a) stack-promotability = is_local(L),
+      (b) thread-shared = derives_thread_shared(L, crosses), and (c) the
+      forbidden "thread-shared AND promotable" disagreement never arises.
+      Coverage gate: 3 Locality-SSOT cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl18a_locality_escape_ssot;
+        Locality-SSOT consistency enumeration; emits Fail on a verdict not
+        derived from Locality OR a parallel-enum disagreement)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-18a via the Locality-SSOT consistency grid showing both stack-promotion (is_local) and thread-locality (Locality + call-graph) derive from the single Locality lattice value with no parallel-escape-enum disagreement (thread-shared implies non-promotable), enforcing AIMS Invariant 5 per canon.md sec-7.1

@@ -1,0 +1,43 @@
+Theorem L-1: Lattice join commutativity
+
+  Preconditions:
+    - a, b are AimsState elements per the canonical proof notation
+      sec-Per-Dimension-Symbol-Set
+    - join is the product-lattice componentwise join per Annex E §AIMS + L-1 (commutativity claim)
+
+  Soundness property:
+    Forall a, b in AimsState. join(a, b) = join(b, a)
+
+  Proof obligation:
+    Componentwise: for each dimension d, dim_join_d(a_d, b_d) =
+    dim_join_d(b_d, a_d).
+
+    Per-dimension proof:
+      Access (Borrowed < Owned, height 1):
+        max-based on totally ordered carrier; max commutative.
+      Consumption (Dead < Linear < Affine < Unrestricted, height 3):
+        max-based on totally ordered carrier; max commutative.
+      Cardinality (Absent < Once < Many, height 2):
+        max-based on totally ordered carrier; max commutative.
+      Uniqueness (Unique < MaybeShared < Shared, height 2):
+        max-based on totally ordered carrier; max commutative.
+      Locality (BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping
+                < Unknown, height 4):
+        max-based on totally ordered carrier; max commutative.
+      Shape (flat lattice: equal stays; unequal -> NonReusable):
+        case analysis (a_d == b_d -> a_d; a_d != b_d -> NonReusable);
+        symmetric in a_d, b_d; commutative.
+      Effect (3-bit flag set, componentwise OR):
+        OR commutative on each Bool flag.
+
+    All dimensions commutative implies product commutative.
+    Lattice canonicalization (L-7 idempotence + L-8 join-preservation)
+    preserves the equality across the canonicalize wrapper.
+
+    Engines dispatched:
+      lattice (per-dimension algebraic-identity discharge)
+      monotonicity (validates L-6 monotonicity preserved by canonicalize)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: L-shape scaffold-time; engine implementation pending

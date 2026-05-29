@@ -1,0 +1,94 @@
+Theorem DP-6: is_reuse_candidate truth table — Owned AND non-Shared AND non-NonReusable shape
+
+  Preconditions:
+    - s is a canonical AimsState per Annex E §AIMS product lattice
+    - is_reuse_candidate : AimsState -> Bool per Annex E §AIMS DP-6 +
+      Appendix C truth table
+    - DP-6 is a pure boolean predicate over (Access x Uniqueness x Shape);
+      Consumption / Cardinality / Locality / Effect are non-load-bearing for
+      the DP-6 obligation
+    - Access carrier (Annex E §AIMS): {Borrowed, Owned} with order
+      Borrowed <= Owned
+    - Uniqueness carrier (Annex E §AIMS): {Unique, MaybeShared, Shared}
+      with order Unique <= MaybeShared <= Shared
+    - Shape carrier (Annex E §AIMS): {NonReusable, ReusableStruct,
+      ReusableEnum, CollectionBuffer, ContextHole} (flat lattice; unequal
+      values -> NonReusable per L-7)
+    - CN-3 canonical invariant: Uniqueness = Shared AND Shape != NonReusable
+      -> Shape := NonReusable; canonical states satisfying Shared have
+      Shape = NonReusable per §2 CN-3
+
+  Soundness property:
+    Forall s in AimsState (canonical).
+      is_reuse_candidate(s)
+        <=> (s.access = Owned AND s.uniqueness != Shared AND s.shape != NonReusable)
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Exhaustive enumeration over the (Access x Uniqueness x Shape)
+          product per Appendix C truth table:
+            2 Access x 3 Uniqueness x 5 Shape = 30 input states.
+      (b) Soundness equality — for every enumerated row (post-CN-3 canonical
+          filter), the predicate value equals the Appendix C row partition
+          value.
+
+    Part (a) — Appendix C row partition (4 rows, exhaustive):
+      Row 1: Access = Borrowed, any Uniqueness, any Shape -> false
+        Soundness: predicate false (first conjunct s.access = Owned fails);
+        reuse requires owning the allocation, which Borrowed views never do.
+      Row 2: Access = Owned, Uniqueness = Shared, any Shape -> false
+        Soundness: predicate false (second conjunct s.uniqueness != Shared
+        fails); CN-3 forces Shape := NonReusable when Uniqueness = Shared,
+        so post-canonical states under Row 2 ALSO satisfy Row 3 by structural
+        collapse; the predicate yields false on either grounds.
+      Row 3: Access = Owned, any Uniqueness, Shape = NonReusable -> false
+        Soundness: predicate false (third conjunct s.shape != NonReusable
+        fails); the shape carries no reusable structure.
+      Row 4: Access = Owned, Uniqueness != Shared, Shape != NonReusable -> true
+        Soundness: predicate true (all three conjuncts hold); s carries an
+        owned, non-shared, reusable-shape value eligible for Reset/Reuse
+        emission per RL-11 + RL-11a.
+
+    Part (b) — coverage gate + CN-3 canonical filter:
+      Pre-CN-3 enumeration: 2 x 3 x 5 = 30 product states.
+      CN-3 forces Uniqueness = Shared AND Shape != NonReusable -> Shape :=
+        NonReusable. Infeasible (non-canonical) input rows:
+          Uniqueness = Shared AND Shape in {ReusableStruct, ReusableEnum,
+          CollectionBuffer, ContextHole} = 2 Access x 1 Uniqueness x 4 Shape
+          = 8 non-canonical states.
+      Canonical reachable states: 30 - 8 = 22 states.
+      Row 4 (true partition) within canonical:
+        1 Access (Owned) x 2 Uniqueness (Unique, MaybeShared) x 4 Shape
+        (ReusableStruct, ReusableEnum, CollectionBuffer, ContextHole)
+        = 1 x 2 x 4 = 8 canonical states yield true.
+      Rows 1+2+3 (false partition) within canonical: 22 - 8 = 14 states.
+
+    Negative-direction witness:
+      DP-6 = true on EXACTLY the 8 canonical Owned x (Unique | MaybeShared)
+      x non-NonReusable states. The conjunction is tight; flipping any of
+      the three load-bearing dimensions (Access -> Borrowed, Uniqueness ->
+      Shared, Shape -> NonReusable) flips the predicate to false.
+
+    CN-3 canonical-state agreement witness:
+      Pre-canonical Row 2 (Shared AND ReusableCtor*) and pre-canonical Row 3
+      (NonReusable) both yield false; CN-3 canonicalization collapses Row 2
+      into Row 3 mechanically (Shape := NonReusable when Uniqueness =
+      Shared). The DP-6 predicate value is preserved across canonicalization
+      — false in both pre-canonical and post-canonical states — confirming
+      DP-6 + CN-3 commute per L-7 (canonicalization idempotency).
+
+    Live-variable / borrow_sources / project_alias_sources / IC-3 contract
+    typed pre-pass dependency: NOT REQUIRED for DP-6 (pure boolean predicate
+    over canonical AimsState dimensions; only DP-5 + DP-9 consume those
+    pre-passes per Annex E §AIMS DP-5 / DP-9 + the proof-checker design
+    Engine-per-Category-Inventory DP row).
+
+    Engines dispatched:
+      case_analysis (PRIMARY — Appendix C row enumeration across 22
+        canonical states post-CN-3 per section_05::verify_dp6_reuse_candidate;
+        the verifier checks the soundness equality predicate-vs-row-partition
+        on every canonical row and emits Fail on any divergence)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-6 via 22-canonical-state enumeration (30 pre-CN-3 - 8 non-canonical) over (Access x Uniqueness x Shape) per Annex E §AIMS DP-6 + Appendix C

@@ -1,0 +1,26 @@
+Theorem CN-8: Borrowed locality ceiling
+
+  Preconditions:
+    - s.access = Borrowed
+    - s.locality > FunctionLocal (ArgEscaping, HeapEscaping, or Unknown)
+
+  Soundness property:
+    canonicalize_cn8(s).locality = FunctionLocal.
+
+  Proof obligation:
+    Finite enumeration over 1 Access (Borrowed) x 3 wide-locality variants
+    = 3 trigger input states; verify CN-8 clamps all three to FunctionLocal.
+    Negative enumeration: Borrowed + FunctionLocal preserves; Owned x any
+    locality preserves (CN-8 does not fire on Owned).
+
+    CN-8 monotonicity: forces locality DOWN (toward BlockLocal end of
+    chain); non-monotone in standard max-join sense but monotone in
+    canonicalization-as-feasibility-projection sense per Annex E §AIMS.8 L-7 idempotency.
+
+    Engines dispatched:
+      case_analysis (3-trigger + 6-negative locality enumeration per
+        section_03::verify_cn8_borrowed_locality_ceiling)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-8 via 3-trigger + 6-negative locality enumeration

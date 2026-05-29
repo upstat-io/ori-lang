@@ -1,0 +1,113 @@
+Theorem PL-1: Pipeline-ordering rule signatures — PL-1 through PL-11 + PL-1a + PL-4a
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered DAG per Annex E §AIMS + arc.md sec-Pipeline
+    - Step ordering is load-bearing: stale summaries forbidden (PL-5);
+      adding a pass requires matched constraint update (PL-6)
+    - TRMC normalization (Step 3a + Step 4a) adds the PL-7 through PL-11
+      five-rule cluster for context-region detection + structural verify
+      + rewrite + rollback + ContextBehavior derivation
+    - 13 active PL theorems including PL-1a + PL-4a sub-rules per the
+      section inventory table (line 107)
+
+  Soundness property:
+    PL-1 (interprocedural-first):
+      type : List FunctionId -> Pipeline
+      Steps 1-2 (analyze_program + apply_ownership) SHALL run once across
+      all functions before any per-function step (3-12).
+
+    PL-1a (per-function SCC topological order):
+      type : CallGraph -> List FunctionId
+      Per-function pipeline (Steps 3-12) processes functions in SCC
+      topological order; callees realized before callers (load-bearing
+      for FipContract Certified IFF post-realization-zero-unmatched check).
+
+    PL-2 (Step 4 before Step 5):
+      type : Function -> Pipeline
+      analyze_function (Step 4) SHALL precede realize_rc_reuse (Step 5);
+      state map drives emission.
+
+    PL-3 (Step 5 before Step 9):
+      type : Function -> Pipeline
+      realize_rc_reuse (Step 5 phase 1) SHALL precede merge_blocks (Step 9);
+      position-keyed entry_states / exit_states / instr_states are
+      invalidated by merge.
+
+    PL-4 (Step 10 after Step 9):
+      type : Function -> Pipeline
+      realize_annotations (Step 10 phase 2) SHALL follow merge_blocks
+      (Step 9); phase 2 uses ArcVarId-keyed AimsStateMap lookups surviving
+      merge (var_state_at_block_entry).
+
+    PL-4a (Step 8a unwind_cleanup before Step 9):
+      type : Function -> Pipeline
+      unwind_cleanup (Step 8a) SHALL precede merge_blocks (Step 9);
+      unwind cleanup alters CFG (invoke / resume edges).
+
+    PL-5 (no stale summaries):
+      type : Pipeline -> Bool
+      no pass SHALL rely on stale summaries; if a pipeline step modifies
+      IR or updates an effect summary, all downstream consumers MUST
+      see updated values (verifier-before-input = sequencing bug).
+
+    PL-6 (adding-a-pass meta-rule):
+      type : NewPass -> List Constraint
+      adding a pass requires updating ordering + proving no constraint
+      violation; matched commit pair touching both pipeline + tests.
+
+    PL-7 (TRMC normalization detect candidate):
+      type : Function -> Option ContextRegion
+      Step 3a TRMC normalization detects tail-recursive fns returning
+      constructor applications; ContextBehavior 4-field record carries
+      preserves_context / consumes_hole / requires_unique_context /
+      may_resume_nonlinearly per Annex E §AIMS PL-7 + Leijen & Lorenzen
+      JFP 2025.
+
+    PL-8 (TRMC candidate predicate):
+      type : Function -> Bool
+      candidate = self-recursive + recursive call in tail position of
+      constructor argument + constructor in return path; context region
+      = span from recursive call to wrapping constructor.
+
+    PL-9 (TRMC rewrite idempotency):
+      type : Function -> Function
+      candidate normalized to accept ContextHole parameter
+      (Shape = ContextHole); INTERNAL ABI change; external calling
+      convention preserved via wrapper thunk; idempotent.
+
+    PL-10 (TRMC structural verify + rollback):
+      type : Function -> Result Function (List VerifyError)
+      structural verify (after Step 3a + Step 4 on rewritten IR):
+        (a) ContextHole threaded correctly through recursive calls
+        (b) no new allocations on allocation-free paths
+        (c) rewritten CFG well-formed
+        (d) function arity + calling convention preserved
+        (e) constructor args evaluated in same order
+      on failure: rewrite rolled back to pre-TRMC IR; Steps 3-4 re-run
+      on restored CFG per PL-5 (no stale summaries).
+
+    PL-11 (ContextBehavior initialization + join):
+      type : List ContextBehavior -> ContextBehavior
+      initial most-optimistic: <preserves_context=true, consumes_hole=true,
+        requires_unique_context=false, may_resume_nonlinearly=false>;
+      join: preserves_context(AND), consumes_hole(AND),
+        requires_unique_context(OR), may_resume_nonlinearly(OR).
+
+    Closes opencode S01-R0-F3 PL-category-omission finding: sec-07 dispatch
+    consumes these 13 signatures + sec-07 discharges per-rule theorems
+    (PL-1, PL-1a, PL-2, PL-3, PL-4, PL-4a, PL-5, PL-6, PL-7, PL-8, PL-9,
+     PL-10, PL-11 in the 124-rule inventory).
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline-ordering proofs
+            (13 theorems: PL-1, PL-1a, PL-2, PL-3, PL-4, PL-4a, PL-5,
+             PL-6, PL-7, PL-8, PL-9, PL-10, PL-11)
+
+    Engines dispatched:
+      structural_induction (per-step pipeline DAG correctness)
+      case_analysis (PL-7 / PL-8 / PL-9 / PL-10 / PL-11 TRMC cluster
+                     case-by-case discharge)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges per-rule PL proofs

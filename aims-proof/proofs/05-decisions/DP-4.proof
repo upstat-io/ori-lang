@@ -1,0 +1,84 @@
+Theorem DP-4: needs_cow_check truth table — Uniqueness = MaybeShared
+
+  Preconditions:
+    - s is a canonical AimsState per Annex E §AIMS product lattice
+    - needs_cow_check : AimsState -> Bool per Annex E §AIMS DP-4 +
+      Appendix C truth table
+    - DP-4 is a pure boolean predicate over Uniqueness alone; Access /
+      Consumption / Cardinality / Locality / Shape / Effect are
+      non-load-bearing for the DP-4 obligation
+    - Uniqueness carrier (Annex E §AIMS): {Unique, MaybeShared, Shared}
+      with partial order Unique ≤ MaybeShared ≤ Shared
+    - DP-4 is distinct from DP-5 / DP-9; DP-4 is the runtime-check gate;
+      DP-5 + DP-9 compose Uniqueness with borrow_sources +
+      project_alias_sources + IC-3 ParamContract.uniqueness for COW
+      emission decisions
+
+  Soundness property:
+    Forall s in AimsState (canonical).
+      needs_cow_check(s)
+        <=> s.uniqueness = MaybeShared
+
+    Static fast path: Uniqueness = Unique -> no runtime check (DP-4 =
+      false); in-place mutation safe by construction.
+    Static slow path: Uniqueness = Shared -> no runtime check (DP-4 =
+      false); unconditional copy (the runtime check would always return
+      true).
+    Dynamic check path: Uniqueness = MaybeShared -> runtime IsShared check
+      (DP-4 = true); branch to in-place / copy at runtime.
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Exhaustive enumeration over the 3-value Uniqueness carrier per
+          Appendix C truth table.
+      (b) For each Uniqueness value, verify the predicate value equals the
+          Appendix C row partition value AND verify exactly one row yields
+          true (the MaybeShared row).
+
+    Part (a) — Appendix C row partition (3 rows, exhaustive):
+      Row 1: Uniqueness = Unique -> false (static unique fast path)
+        Soundness: IsShared on Unique always returns false; runtime check
+        would be tautologically false. DP-4 = false signals: skip runtime
+        check, emit in-place mutation directly.
+      Row 2: Uniqueness = MaybeShared -> true (runtime IsShared check)
+        Soundness: runtime IsShared check determines aliasing at the
+        mutation point; branch to in-place (RC = 1) or clone-then-mutate
+        (RC > 1). DP-4 = true signals: emit IsShared + Branch +
+        Set / Clone-Set.
+      Row 3: Uniqueness = Shared -> false (static shared slow path)
+        Soundness: IsShared on Shared always returns true; runtime check
+        would be tautologically true. DP-4 = false signals: skip runtime
+        check, emit unconditional copy.
+
+    Part (b) — negative-direction witness:
+      DP-4 = true on EXACTLY the MaybeShared row; Unique and Shared both
+      return false. The single-row partition is the gate-tightness witness.
+      Coverage: 3 enumerated states; 1 true row; 2 false rows.
+
+    DP-4 vs RL-6 / RL-7 / RL-8 mapping (downstream RC emission):
+      DP-4 = false AND Uniqueness = Unique -> RL-6 (in-place mutation, no
+        check).
+      DP-4 = true AND Uniqueness = MaybeShared -> RL-7 (dynamic COW: emit
+        IsShared check, branch to in-place / copy).
+      DP-4 = false AND Uniqueness = Shared -> RL-8 (unconditional copy).
+      The DP-4 truth table mechanically determines the COW emission rule
+      per Annex E §AIMS RL-6 / RL-7 / RL-8.
+
+    DP-4 vs DP-9 distinction:
+      DP-4 is the BINARY runtime-check predicate (yes / no). DP-9 is the
+      THREE-VALUE cow_mode classification (StaticUnique / StaticShared /
+      Dynamic) that composes Uniqueness with DP-5 alias safety + IC-3
+      ParamContract.uniqueness. DP-9 row (c) MaybeShared + IC-3.uniqueness =
+      Unique -> StaticUnique can override the DP-4 = true verdict at the
+      cow_mode classification layer; DP-4 itself remains the boolean
+      runtime-check gate evaluated PRIOR to DP-9 composition.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — 3-state enumeration over Uniqueness per
+        section_05::verify_dp4_cow_check; the verifier checks the
+        soundness equality on every Uniqueness value + asserts exactly 1
+        row yields true)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-4 via 3-state enumeration over Uniqueness per Annex E §AIMS DP-4 + Appendix C; exactly 1 row (MaybeShared) requires runtime COW check

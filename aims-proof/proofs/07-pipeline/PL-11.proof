@@ -1,0 +1,228 @@
+Theorem PL-11: ContextBehavior initialization (most-optimistic seed) + componentwise join (preserves_context AND, consumes_hole AND, requires_unique_context OR, may_resume_nonlinearly OR)
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS + arc.md sec-Pipeline. PL-11 is the §07.4 TRMC
+      ContextBehavior rule, governing the initialization and join of the
+      ContextBehavior contract introduced by PL-7.
+    - PL-11 statement (per Annex E §AIMS PL-11): the initial (most-
+      optimistic) ContextBehavior is
+        <preserves_context = true, consumes_hole = true,
+         requires_unique_context = false, may_resume_nonlinearly = false>.
+      The join is componentwise:
+        preserves_context (AND), consumes_hole (AND),
+        requires_unique_context (OR), may_resume_nonlinearly (OR).
+    - PL-11 type signature (per Pipeline.proof lines 90-95, the sorry
+      obligation this theorem discharges):
+        type : List ContextBehavior -> ContextBehavior
+        initial most-optimistic: <preserves_context=true, consumes_hole=true,
+        requires_unique_context=false, may_resume_nonlinearly=false>;
+        join: preserves_context(AND), consumes_hole(AND),
+        requires_unique_context(OR), may_resume_nonlinearly(OR).
+    - Shipped join: ori_arc::aims::contract::context::ContextBehavior::join
+      (compiler/ori_arc/src/aims/contract/context.rs lines
+      70-77):
+        preserves_context: self.preserves_context && other.preserves_context
+        consumes_hole: self.consumes_hole && other.consumes_hole
+        requires_unique_context: self.requires_unique_context || other.requires_unique_context
+        may_resume_nonlinearly: self.may_resume_nonlinearly || other.may_resume_nonlinearly
+      The doc comment (context.rs lines 66-68) states the direction:
+      "preserves_context, consumes_hole: AND (must hold on ALL paths);
+      requires_unique_context, may_resume_nonlinearly: OR (ANY path triggers)".
+    - The four fields (context.rs lines 33-50): `preserves_context` (true when
+      the function's return value includes the context variable — preserved on
+      ALL paths), `consumes_hole` (true when the function fills the hole field
+      on ALL paths), `requires_unique_context` (true when ANY path requires
+      unique ownership), `may_resume_nonlinearly` (true when ANY path may resume
+      more than once — derived from EffectSummary.may_share per context.rs lines
+      45-49 + post_convergence.rs lines 424-431).
+    - Initialization distinction (load-bearing): PL-11's "initial most-
+      optimistic" seed <true, true, false, false> is the JOIN IDENTITY the
+      per-region derivation folds from — joining it with any behavior yields
+      that behavior unchanged. It is DISTINCT from the shipped
+      ContextBehavior::default() (context.rs lines 52-63), which is the
+      CONSERVATIVE contract default for functions WITHOUT TRMC candidates:
+      <preserves_context = false, consumes_hole = false,
+       requires_unique_context = true (conservative — require until proven
+       unnecessary), may_resume_nonlinearly = false> (context.rs lines 57-60).
+      The most-optimistic seed and the conservative default differ precisely
+      because the former is the AND/OR join identity (optimistic per-path start)
+      while the latter is the safe whole-function fallback when no derivation
+      runs.
+    - Derivation (per Annex E §AIMS PL-11): preserves_context true when all
+      recursive calls pass the hole unchanged; consumes_hole true when all
+      return paths fill the hole; requires_unique_context true when any path
+      requires unique ownership; may_resume_nonlinearly true when any path may
+      resume > once. The componentwise join folds the per-region behaviors with
+      this AND/AND/OR/OR direction.
+
+  Soundness property:
+    Forall ContextBehavior values a, b (over the 4-tuple Bool x Bool x Bool x
+    Bool domain).
+      Let init = <true, true, false, false> be the most-optimistic seed and
+      join(a, b) the componentwise join.
+      Five conjuncts SHALL hold:
+
+      (P1) Optimistic-initial direction:
+        init.preserves_context = true AND init.consumes_hole = true
+        (AND-fields seed true) AND init.requires_unique_context = false AND
+        init.may_resume_nonlinearly = false (OR-fields seed false).
+
+      (P2) Join identity:
+        join(init, x) = x for every behavior x. The optimistic seed is the
+        identity of the join (folding a list from init recovers the list's
+        join).
+
+      (P3) Join commutativity:
+        join(a, b) = join(b, a) (componentwise AND and OR are each
+        commutative).
+
+      (P4) Join idempotence:
+        join(x, x) = x.
+
+      (P5) Join direction correctness:
+        preserves_context and consumes_hole join by AND (drop to false on any
+        disagreement); requires_unique_context and may_resume_nonlinearly join
+        by OR (rise to true on any disagreement).
+
+  Proof obligation:
+    Five-part constructive discharge corresponding to (P1)-(P5), by
+    case analysis over representative ContextBehavior values (case_analysis-led
+    per the §00 PL row) + structural confirmation of the join lattice laws.
+
+    Part (P1) — Optimistic-initial direction (structural confirmation):
+
+      The verifier models the most-optimistic seed as
+        init = <preserves_context = true, consumes_hole = true,
+                requires_unique_context = false, may_resume_nonlinearly = false>
+      and asserts the AND-fields seed true and the OR-fields seed false. This
+      is the join identity: the top element for the AND-fields (true is the AND
+      identity) and the bottom element for the OR-fields (false is the OR
+      identity). A seed where an AND-field started false (would pin the joined
+      result false regardless of paths) or an OR-field started true (would pin
+      it true) would not be the identity — Fail. (P1) discharged.
+
+    Part (P2) — Join identity (case analysis over representative behaviors):
+
+      The verifier exercises join over three representative behaviors spanning
+      mixed field values and asserts join(init, x) = x for each. Since AND with
+      true is the identity (true && b = b) and OR with false is the identity
+      (false || b = b), folding a list of per-region behaviors starting from
+      init recovers exactly the componentwise join of the list. A model where
+      join(init, x) != x for some x would mean init is not the identity — Fail.
+      (P2) discharged.
+
+    Part (P3) — Join commutativity (case analysis):
+
+      The verifier asserts join(init, x) = join(x, init) over the same three
+      behaviors. Componentwise AND and OR are each commutative
+      (a && b = b && a; a || b = b || a), so the 4-tuple join is commutative.
+      A model where the two orderings disagreed would contradict commutativity —
+      Fail. (P3) discharged.
+
+    Part (P4) — Join idempotence (case analysis):
+
+      The verifier asserts join(x, x) = x over the three behaviors. AND and OR
+      are each idempotent (a && a = a; a || a = a), so the 4-tuple join is
+      idempotent. (P4) discharged.
+
+    Part (P5) — Join direction correctness (structural confirmation on a
+    concrete pair):
+
+      The verifier joins lhs = <true, true, false, false> with rhs = <false,
+      true, true, false> and asserts the result is
+        <preserves_context = false (AND: true && false),
+         consumes_hole = true (AND: true && true),
+         requires_unique_context = true (OR: false || true),
+         may_resume_nonlinearly = false (OR: false || false)>.
+      This pins the AND/AND/OR/OR direction against the shipped join
+      (context.rs lines 70-77). A hypothetical OR/OR/AND/AND join (the inverted
+      direction) would yield a different result on this pair — Fail. (P5)
+      discharged.
+
+    Coverage gate — ContextBehavior join-case enumeration:
+
+      The verifier discharges exactly 3 representative join cases for the
+      lattice laws (require_count("PL-11", 3, ...)), plus the optimistic-initial
+      direction check and the concrete direction-correctness pair. Coverage
+      axes:
+        Optimistic initial (P1): the <true, true, false, false> seed.
+        Join identity (P2): 3 representative behaviors, join(init, x) = x.
+        Commutativity (P3): join(init, x) = join(x, init).
+        Idempotence (P4): join(x, x) = x.
+        Direction (P5): the concrete AND/AND/OR/OR pair.
+
+    Negative-direction witness — inverted join direction rejected:
+
+      A join that applied OR to preserves_context / consumes_hole or AND to
+      requires_unique_context / may_resume_nonlinearly would invert the
+      soundness direction: a single non-context-preserving path would no longer
+      force preserves_context to false, and a single unique-requiring path would
+      no longer force requires_unique_context to true. The (P5) concrete-pair
+      check pins the shipped AND/AND/OR/OR direction; an inverted join yields a
+      different 4-tuple on lhs join rhs and Fails.
+
+    Negative-direction witness — wrong initial seed rejected:
+
+      Seeding the per-region fold from the CONSERVATIVE default <false, false,
+      true, false> (context.rs lines 57-60) instead of the optimistic identity
+      <true, true, false, false> would NOT be the join identity: joining the
+      conservative default with any behavior pins preserves_context /
+      consumes_hole to false (AND with false) and requires_unique_context to
+      true (OR with true), corrupting the fold. The (P1) + (P2) checks pin the
+      optimistic seed as the identity; using the conservative default as the
+      fold seed would Fail (P2)'s join(init, x) = x.
+
+    Cycle-soundness witness — PL-11 closes the TRMC cluster:
+
+      PL-11 (ContextBehavior init + join) consumes the ContextBehavior record
+      PL-7 introduces and the per-region derivation PL-8 scopes; it produces the
+      joined contract field consumed by TRMC realization. Its antecedent is
+      PL-7 (the 4-field record shape). PL-11 consumes no output of PL-9 / PL-10.
+      The dependency chain is acyclic:
+        PL-7 --> PL-11 (join over the ContextBehavior record)
+      PL-11 is a sink of the TRMC-cluster dependency tree.
+
+    Algorithm-citation declaration:
+      property: ContextBehavior lattice — most-optimistic
+                           initialization <true, true, false, false> is the join
+                           identity; the componentwise join is AND on
+                           preserves_context + consumes_hole and OR on
+                           requires_unique_context + may_resume_nonlinearly,
+                           satisfying commutativity + idempotence + identity
+      published: Leijen & Lorenzen, "Tail Recursion Modulo Context",
+                           JFP 2025 (the four-field constructor-context behavior;
+                           must-hold-on-all-paths vs any-path-triggers join
+                           direction); standard product-lattice join discipline
+                           (componentwise meet/join over a finite Boolean
+                           product) per Annex E §AIMS.8 L-1..L-4
+      determinism: deterministic — ContextBehavior::join is a fixed
+                           componentwise Boolean expression (context.rs lines
+                           70-77); no schedule or hash-order freedom; the fold
+                           over per-region behaviors is permutation-invariant by
+                           commutativity + associativity of AND and OR
+      reference impl: ori_arc::aims::contract::context::ContextBehavior::
+                           join (context.rs lines 70-77: AND on preserves_context
+                           + consumes_hole, OR on requires_unique_context +
+                           may_resume_nonlinearly) + the 4-field record
+                           (context.rs lines 33-50) + ContextBehavior::default
+                           conservative-fallback distinction (context.rs lines
+                           52-63) + may_resume_nonlinearly derivation from
+                           EffectSummary.may_share (context.rs lines 45-49 +
+                           post_convergence.rs lines 424-431)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — confirms the optimistic-initial direction
+        and the join lattice laws over the §07.4 TRMC structural model per
+        section_07::verify_pl11_context_behavior_init_join; agrees with
+        case_analysis on the constructive verifier)
+      case_analysis (LED — per the §00 PL-row pair per the proof-checker design-proof-
+        checker-design.md:102, the TRMC cluster is case_analysis-heavy; the
+        verifier discharges (P1) via the seed-direction check, (P2)-(P4) via the
+        three-behavior identity/commutativity/idempotence cases, and (P5) via
+        the concrete AND/AND/OR/OR direction pair; constructive, NOT
+        gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_07 case_analysis-led discharge of PL-11 via the ContextBehavior join lattice — (P1) the most-optimistic initial <preserves_context=true, consumes_hole=true, requires_unique_context=false, may_resume_nonlinearly=false> is the join identity (distinct from the conservative ContextBehavior::default per context.rs lines 52-63), (P2)-(P4) join(init, x)=x + commutativity + idempotence over three representative behaviors, and (P5) the componentwise direction is AND on preserves_context + consumes_hole, OR on requires_unique_context + may_resume_nonlinearly (context.rs lines 70-77); negative pins reject an inverted join direction and a conservative-default fold seed; structural_induction PRIMARY confirms over the same verifier

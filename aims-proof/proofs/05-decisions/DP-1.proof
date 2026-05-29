@@ -1,0 +1,65 @@
+Theorem DP-1: is_rc_needed truth table — Owned AND non-Dead AND not is_scalar
+
+  Preconditions:
+    - s is a canonical AimsState per Annex E §AIMS product lattice
+    - is_rc_needed : AimsState -> Bool per Annex E §AIMS DP-1 +
+      Appendix C truth table
+    - is_scalar(s) per §1.8 L-9 — SCALAR is sentinel, NOT a lattice element
+    - DP-1 is a pure boolean predicate over Access x Consumption x is_scalar;
+      Cardinality / Uniqueness / Locality / Shape / Effect are non-load-bearing
+      for the DP-1 obligation
+
+  Soundness property:
+    Forall s in AimsState (canonical).
+      is_rc_needed(s)
+        <=> (s.access = O AND s.consumption != Dead AND NOT is_scalar(s))
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Exhaustive enumeration over the canonical (Access x Consumption x
+          is_scalar) product per Appendix C truth table:
+            2 Access x 4 Consumption x 2 is_scalar = 16 input states.
+      (b) Soundness equality — for every enumerated row, the predicate value
+          equals the Appendix C row partition value.
+
+    Part (a) — Appendix C row partition (4 rows, exhaustive):
+      Row 1: Access = Borrowed, any Consumption, any is_scalar -> false
+        Soundness: predicate false (first conjunct s.access = O fails).
+      Row 2: Access = O, Consumption = Dead, any is_scalar -> false
+        Soundness: predicate false (second conjunct s.consumption != Dead
+          fails).
+      Row 3: Access = O, Consumption != Dead, is_scalar = true -> false
+        Soundness: predicate false (third conjunct NOT is_scalar fails).
+      Row 4: Access = O, Consumption != Dead, is_scalar = false -> true
+        Soundness: predicate true (all three conjuncts hold); s carries a
+          refcountable owned non-scalar value requiring RC.
+
+    Part (b) — coverage gate:
+      The 4 rows partition the 16 product states:
+        Row 1: 1 x 4 x 2 = 8 states.
+        Row 2: 1 x 1 x 2 = 2 states.
+        Row 3: 1 x 3 x 1 = 3 states.
+        Row 4: 1 x 3 x 1 = 3 states.
+      Total: 8 + 2 + 3 + 3 = 16. Exhaustive coverage; no uncovered rows.
+
+    Negative-direction witness:
+      DP-1 = true on EXACTLY the 3 Owned x non-Dead x non-scalar states
+      (Linear / Affine / Unrestricted x is_scalar=false). Every other
+      enumerated row yields false. Confirms the conjunction is tight.
+
+    Live-variable set typed pre-pass dependency: NOT REQUIRED for DP-1
+    (DP-1 is a pure boolean predicate over canonical AimsState dimensions;
+    only DP-5 + DP-9 consume live-variable / borrow_sources /
+    project_alias_sources / IC-3 contract typed pre-passes per
+    Annex E §AIMS DP-5 / DP-9 + the proof-checker design
+    Engine-per-Category-Inventory DP row).
+
+    Engines dispatched:
+      case_analysis (PRIMARY — Appendix C row enumeration across 16 states
+        per section_05::verify_dp1_rc_needed; the verifier checks the
+        soundness equality predicate-vs-row-partition on every enumerated
+        row and emits Fail on any divergence)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-1 via 16-state enumeration over (Access x Consumption x is_scalar) per Annex E §AIMS DP-1 + Appendix C

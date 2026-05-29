@@ -1,0 +1,31 @@
+Theorem CN-6-Extraction-Reconciliation: ReturnContract pre-widening preserves CN-6 soundness
+
+  Preconditions:
+    - Annex E §AIMS.9 Return Provenance CN-6 notes describe STRUCTURAL
+      EXTRACTION-TIME behavior
+    - ReturnContract.uniqueness extractor traces structurally pre-widening
+    - CN-6 fires on per-variable AimsState locality post-widening
+
+  Soundness property:
+    The ReturnContract Unique field reflects pre-widening structural state,
+    NOT post-widening AimsState. Per-instruction extraction is sound vs
+    CN-6 unconditional canonicalize on the separate per-variable lattice.
+
+  Proof obligation:
+    Finite enumeration over 8 return-instruction kinds (Construct, Reuse,
+    CollectionReuse, PartialApply, ApplyWithContract, ApplyNoContract,
+    Select, Project). For each, verify the extracted ReturnContract
+    uniqueness value lies in the canonical Uniqueness carrier and reflects
+    the per-instruction structural classification (not the post-widening
+    per-variable AimsState).
+
+    The two surfaces (AimsState vs ReturnContract) do not share storage;
+    CN-6 canonicalize_single_pass cannot mutate ReturnContract.
+
+    Engines dispatched:
+      case_analysis (8-instruction-kind enumeration per
+        section_03::verify_cn6_return_contract_extraction_reconciliation)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-6-Extraction-Reconciliation via 8-kind return-instruction enumeration

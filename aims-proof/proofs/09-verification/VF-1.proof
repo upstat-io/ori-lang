@@ -1,0 +1,99 @@
+Theorem VF-1: Layer 1 structural ARC IR well-formedness — 5 checks map 1:1 to 5 VerifyError variants
+
+  Preconditions:
+    - VF-1 governs the Layer-1 structural verifier per Annex E §AIMS
+      VF-1: "ARC IR well-formedness. Checks: use-before-def, dangling block
+      refs, RC on scalar, dec on borrowed (function-param restricted), arg
+      ownership length mismatch."
+    - The verification rules have the common signature
+      ArcFunction x AimsStateMap x MemoryContract -> Bool per
+      the canonical proof notation:285; VF-1's concrete shape is
+      ArcFunction -> Result () (List VerifyError) per
+      aims-proof/proofs/01-verification/Verification.proof. VF-1 is
+      discharged here against the sec-01 Verification.proof sorry obligation.
+    - DecOnBorrowed is restricted to function parameters: check_no_dec_on_borrowed
+      checks func.params for Borrowed receiving RcDec, NOT all borrowed in the
+      body. Field-drop Project+RcDec from RL-14 / RL-14a / RL-15 / RL-15a scope
+      cleanup is EXEMPT (no marker mechanism needed).
+    - Three checkpoints: (1) after AIMS emission (Step 6), (2) after the full
+      pipeline (Step 11), (3) after post-pipeline passes (sec-8 RL-22 through
+      RL-26).
+    - FipStructural is NOT one of the 5 checks — it is constructed by the
+      pipeline runner wrapping Layer-4 FIP errors (per arc.md Verification
+      Surface); the shared VerifyError enum is a carrier, not an attribution.
+    - Shipped verifier site:
+        * compiler/ori_arc/src/verify/mod.rs check_function
+          dispatches check_variable_scope (UseBeforeDef),
+          check_block_connectivity (DanglingBlockRef), check_no_rc_on_scalar
+          (RcOnScalar), check_no_dec_on_borrowed (DecOnBorrowed),
+          check_arg_ownership_len (ArgOwnershipLenMismatch).
+    - depends-on sec-03: CN-1..CN-8 canonicalization soundness ensures VF-1
+      operates on canonical IR (non-canonical inputs would invalidate the
+      UseBeforeDef / DanglingBlockRef detection).
+    - depends-on sec-04: TF-1 SCALAR + TF-3 FRESH + TF-4 Project soundness is
+      load-bearing for RcOnScalar (SCALAR detection) + DecOnBorrowed (Project
+      lineage tracking).
+
+  Soundness property:
+    Forall realized ArcFunction F:
+
+      (P1) Check-error bijection: the 5 structural checks map one-to-one to
+           the 5 VerifyError variants {UseBeforeDef, DanglingBlockRef,
+           RcOnScalar, DecOnBorrowed, ArgOwnershipLenMismatch}. No check is
+           missing and none is duplicated — every well-formedness failure
+           class Layer-1 owns is detected by exactly one check.
+
+      (P2) Detection has teeth: a malformed F exhibiting any failure class is
+           REJECTED (the corresponding check fires), and a well-formed F —
+           INCLUDING the RL-14 field-drop EXEMPTION (a Project+RcDec at scope
+           cleanup, which is param-unrestricted and thus not a DecOnBorrowed
+           violation) — is ACCEPTED.
+
+    VF-1 is the floor of the layered verification stack: it catches structural
+    well-formedness, NOT RC balance or drop placement as holistic properties
+    (those are Layer-4 FIP and the AIMS analysis). Each of the 5 checks targets
+    one specific failure class.
+
+  Proof obligation:
+    Constructive discharge by the structural_induction engine via
+    per-instruction structural-check soundness (per the proof-checker design
+    sec-Engine-per-Category-Inventory VF row; the foundational-axiom policy
+    sec-Per-Engine-Constructive-Proof-Shape — inductive-type elimination over
+    the ArcFunction instruction/block AST).
+
+    Part (P1) — check-error bijection:
+
+      The verifier enumerates the 5-check set, asserts the checks are pairwise
+      distinct, and asserts the count is exactly 5. A duplicated or dropped
+      check fails the coverage gate (a missing check = an undetected failure
+      class; a duplicate = a check-error mismatch).
+
+    Part (P2) — detection coverage:
+
+      The verifier enumerates a fixture grid: one malformed ArcFunction per
+      failure class (each MUST be rejected), one well-formed ArcFunction (MUST
+      be accepted), and one RL-14 field-drop exemption fixture (a Project+RcDec
+      at scope cleanup, which MUST be accepted because check_no_dec_on_borrowed
+      is param-restricted). Coverage gate: 7 fixtures.
+
+    Negative-direction witness (the detection has teeth — a malformed IR is
+    REJECTED):
+      NEG_dec_on_borrowed_param — a genuine DecOnBorrowed on a function
+                                  parameter (NOT the exemption) is REJECTED;
+                                  accepting it would let a borrowed param be
+                                  wrongly dec'd (a double-free of the caller's
+                                  value).
+
+    Engines dispatched:
+      structural_induction (PRIMARY — section_09::verify_vf1_structural_wellformedness;
+        per-instruction structural-check soundness over the bijection + the
+        fixture grid; emits Fail on a missing/duplicated check or an
+        accept/reject mismatch)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest VF row
+        once structural_induction has discharged)
+      rc_counting (SECONDARY — gracious-accept)
+      interprocedural_summary (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_09 structural_induction engine discharges VF-1 via (P1) the 5-check-to-5-VerifyError bijection (distinct + exactly 5) and (P2) the detection-coverage fixture grid (5 malformed classes rejected + 1 well-formed accepted + 1 RL-14 field-drop exemption accepted, plus a negative-direction witness rejecting a parameter DecOnBorrowed), grounded in the shipped compiler/ori_arc/src/verify/mod.rs check_function structural verifier

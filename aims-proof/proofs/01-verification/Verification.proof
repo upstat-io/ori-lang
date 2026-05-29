@@ -1,0 +1,97 @@
+Theorem VF-1: Verification layer signatures — VF-1 through VF-8
+
+  Preconditions:
+    - The AIMS verification stack is layered, NOT a single function
+      per Annex E §AIMS + arc.md sec-Verification-Surface
+    - Each layer catches a different class of inconsistency; a fix that
+      passes one layer but regresses another is a correctness regression
+    - All VF rules have signature ArcFunction x AimsStateMap x MemoryContract
+      -> Bool per the canonical proof notation:285
+    - VF-2 sub-checks (b), (c), (d) are target-only conditional on sec-08
+      RL-29 / RL-30 / RL-31 LLVM fact export landing per Annex E §AIMS VF-2
+    - 8 active VF theorems per the section inventory table (line 109)
+
+  Soundness property:
+    Common type signature for all VF rules (per the canonical proof notation:285):
+
+      VF-N : ArcFunction x AimsStateMap x MemoryContract -> Bool
+
+    VF-1 (Layer 1 — Structural well-formedness):
+      type : ArcFunction -> Result () (List VerifyError)
+      checks: UseBeforeDef, DanglingBlockRef, RcOnScalar, DecOnBorrowed
+              (function-param restricted per Annex E §AIMS VF-1),
+              ArgOwnershipLenMismatch
+      three checkpoints: after AIMS emission (Step 6), after full pipeline
+        (Step 11), after post-pipeline passes (sec-8 RL-22 through RL-26)
+
+    VF-2 (Layer 2 — AIMS Contract Consistency):
+      type : ArcFunction x AimsStateMap x MemoryContract -> Result () (List VerifyError)
+      checks:
+        (a) AbsentParamHasUses (parameters declared Absent MUST have no
+            live uses on any forward-reachable path) — IMPLEMENTED
+        (b) RL-31 alias metadata backed by disjointness proof — target-only
+        (c) RL-29 noalias returns validated against ReturnContract —
+            target-only
+        (d) RL-30 memory(...) attributes derivable from IC-5 + parameter
+            contracts — target-only
+      Mandatory per VF-8 when shipped.
+
+    VF-3 (Layer 3 — Oracle):
+      type : ArcFunction -> MemoryContract
+      re-derives MemoryContract from realized IR (the realized side of
+      the contract); compares against inferred contract along access,
+      consumption, effects dimensions; unsafe mismatches (analysis more
+      optimistic than realization) = errors.
+
+    VF-4 (Layer 4 — FIP Certification):
+      type : ArcFunction x FipContract -> Result () (List FipVerificationError)
+      proves FipContract::Certified functions have zero unmatched
+      alloc / dealloc in realized IR; failures wrapped as
+      VerifyError::FipStructural per pipeline runner wrap pattern.
+
+    VF-5 (end-to-end verification mandate):
+      type : Subsystem -> Bool
+      every active subsystem SHALL be end-to-end verified: implementation
+      + invariant enforcement + tests; missing any = incomplete.
+
+    VF-6 (contracts-and-realization agreement):
+      type : MemoryContract x ArcFunction -> Bool
+      MemoryContract says FipContract::Certified -> realized IR has zero
+      unmatched alloc / dealloc; analysis inferences match realized
+      behavior (the realized-side check is what VF-3 oracle performs;
+      VF-6 is the agreement invariant the verification stack as a whole
+      enforces).
+
+    VF-7 (active-rewrite three-tier discipline):
+      type : Rewrite -> Bool
+      every active rewrite (TRMC normalization, RL-22 through RL-26 post-
+      pipeline RC motion) requires ALL THREE tiers:
+        (a) compile-time structural verification (well-formedness,
+            rollback on failure)
+        (b) test-time behavioral verification (dedicated pre/post-rewrite
+            test suites)
+        (c) documented proof sketch (semantic preconditions where
+            structural validity implies behavioral equivalence)
+      Lacking any tier = not active.
+
+    VF-8 (stack-applies-to-all-rules-incl-target-only):
+      type : Rule -> Bool
+      verification stack applies to ALL rules — incl. unimplemented sec-8
+      rules + target-only sec-1.5 / IC-3 / IC-5 surface; unimplemented
+      rule without verification layer planned = spec gap.
+
+  Proof obligation:
+    sorry -- discharged by sec-09 verification-layer proofs
+            (8 theorems: VF-1, VF-2, VF-3, VF-4, VF-5, VF-6, VF-7, VF-8)
+
+    Engines dispatched:
+      structural_induction (VF-1 + VF-2 per-instruction structural-check
+                            soundness)
+      refinement (VF-3 oracle + VF-6 contracts-realization agreement)
+      rc_counting (VF-4 FIP certification balance proof)
+      interprocedural_summary (VF-2 (b) cross-call-site provenance summary
+                               + VF-8 unimplemented-rule coverage check)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-09 discharges per-rule VF proofs

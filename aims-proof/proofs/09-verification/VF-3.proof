@@ -1,0 +1,94 @@
+Theorem VF-3: Layer 3 oracle re-derivation — re-derived MemoryContract refines the inferred contract
+
+  Preconditions:
+    - VF-3 governs the Layer-3 oracle verifier per Annex E §AIMS VF-3:
+      "re-derives MemoryContract from realized IR + compares against inferred
+      contract along access, consumption, effects. Unsafe mismatches (analysis
+      more optimistic than realization) = errors."
+    - VF-3's concrete shape is ArcFunction -> MemoryContract (the re-derived
+      side of the contract) per aims-proof/proofs/01-verification/Verification.proof.
+      Discharged here against the sec-01 Verification.proof sorry obligation.
+    - The comparison is a REFINEMENT check along three dimensions (access,
+      consumption, effects): the re-derived contract MUST be lattice-<= the
+      inferred contract (the realized IR is no MORE demanding than the inferred
+      contract claimed). An UNSAFE mismatch is the re-derived value EXCEEDING
+      the inferred value (analysis was too optimistic — the realized IR needs
+      more than the contract promised).
+    - Shipped verifier site:
+        * compiler/ori_arc/src/aims/verify/oracle.rs
+          verify_coherence re-derives may_allocate / may_deallocate / may_share
+          from Construct / PartialApply and compares against the inferred
+          contract. The full general-effects cross-check is target-only per
+          Annex E §AIMS frontmatter; the shipped subset is authoritative current
+          behavior.
+    - depends-on sec-02: L-1..L-5 lattice properties are load-bearing for the
+      re-derived contract being lattice-<= the inferred contract; L-6
+      monotonicity is the cross-layer invariant VF-3 preserves.
+    - depends-on sec-06: IC-3 ParamContract + IC-5 EffectSummary soundness is
+      load-bearing for the re-derived contract dimensions.
+
+  Soundness property:
+    Forall realized ArcFunction F with inferred MemoryContract C_inferred and
+    re-derived MemoryContract C_rederived = oracle(F):
+
+      (P1) Refinement direction: F is SAFE iff C_rederived <= C_inferred on
+           every compared dimension (access, consumption, effects). F is UNSAFE
+           (an oracle error) iff C_rederived > C_inferred on any dimension —
+           the realized IR demands more than the inferred contract promised,
+           meaning the analysis was too optimistic.
+
+      (P2) Per-dimension comparison: access, consumption, and effects are each
+           compared independently in the lattice partial order. ANY single
+           dimension where C_rederived > C_inferred is an unsafe mismatch; SAFE
+           requires every dimension to refine.
+
+    VF-3 is the oracle layer: it re-derives the contract from the realized side
+    and checks the inferred side was not too optimistic. A contract that under-
+    claims (re-derived <= inferred) is safe — the realized IR is within the
+    promised envelope. A contract that over-claims (re-derived > inferred) is an
+    error — downstream consumers acting on the optimistic inferred contract
+    would be unsound.
+
+  Proof obligation:
+    Constructive discharge by the refinement engine via definitional rewriting
+    of the lattice partial order (per the proof-checker design
+    sec-Engine-per-Category-Inventory VF row; the foundational-axiom policy
+    sec-Per-Engine-Constructive-Proof-Shape — definitional rewriting +
+    structural congruence + constructive ->-introduction).
+
+    Part (P1/P2) — per-dimension refinement grid:
+
+      The verifier models the lattice rank on each compared dimension (access:
+      Borrowed < Owned; consumption: Dead < Linear < Affine < Unrestricted;
+      effects: false < true, OR-monotone) and asserts SAFE iff re_derived_rank
+      <= inferred_rank on every dimension. Discharged rows:
+        exact_match_safe — equal on every dimension -> SAFE.
+        rederived_below_inferred_safe — re-derived <= inferred on all -> SAFE.
+        access_too_optimistic_unsafe — re-derived Owned vs inferred Borrowed
+                                        -> UNSAFE.
+        consumption_too_optimistic_unsafe — re-derived Unrestricted vs inferred
+                                        Linear -> UNSAFE.
+        effect_too_optimistic_unsafe — re-derived may_allocate vs inferred pure
+                                        -> UNSAFE.
+      Coverage gate: 5 rows (2 safe + 3 unsafe, one unsafe per dimension).
+
+    Negative-direction witness (the refinement direction has teeth — analysis-
+    too-optimistic is REJECTED):
+      A re-derived Owned access against an inferred Borrowed contract is flagged
+      UNSAFE; accepting it would let realization demand more than the contract
+      promised (a miscompilation where a caller treats the value as Borrowed but
+      realization owns it).
+
+    Engines dispatched:
+      refinement (PRIMARY — section_09::verify_vf3_oracle_rederivation;
+        per-dimension lattice-<= refinement over the safe/unsafe grid; emits
+        Fail on a safe/unsafe mismatch or a wrongly-accepted too-optimistic
+        contract)
+      structural_induction (SECONDARY — gracious-accept per the
+        coverage-manifest VF row)
+      rc_counting (SECONDARY — gracious-accept)
+      interprocedural_summary (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_09 refinement engine discharges VF-3 via (P1) the refinement direction (SAFE iff the re-derived MemoryContract is lattice-<= the inferred contract; analysis-too-optimistic = unsafe) and (P2) the per-dimension comparison over access / consumption / effects (5 rows: 2 safe + 3 unsafe, one per dimension, with a negative witness rejecting a too-optimistic access), grounded in the shipped compiler/ori_arc/src/aims/verify/oracle.rs verify_coherence oracle cross-check

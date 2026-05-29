@@ -1,0 +1,114 @@
+Theorem IC-1: Six contract record types — MemoryContract + ParamContract + ReturnContract + EffectSummary + FipContract + ContextBehavior
+
+  Preconditions:
+    - Contract records are the interprocedural summary domain for AIMS
+      per Annex E §AIMS + arc.md sec-Key-Types
+    - MemoryContract is the top-level per-function summary
+    - ParamContract is per-parameter access / consumption / usage state
+    - ReturnContract is per-function return-value state
+    - EffectSummary is per-function memory-effect classification
+    - FipContract is the FIP certification tier per IC-6
+    - ContextBehavior is the TRMC context-region annotation per PL-11
+    - Record field types reference the per-dimension lattices authored
+      at aims-proof/proofs/01-lattice/Lattice.proof + the sentinels
+      authored at aims-proof/proofs/01-lattice/Product.proof
+
+  Soundness property:
+    MemoryContract record (5 fields per PL-11 + the canonical proof notation:89-96):
+
+      MemoryContract = <
+        params: List ParamContract,
+        ret: ReturnContract,
+        effects: EffectSummary,
+        fip: FipContract,
+        context: ContextBehavior
+      >
+
+      Closes opencode S01-R0-F4 MemoryContract-context-missing finding:
+        the 5th field `context: ContextBehavior` is REQUIRED; the legacy
+        4-field shape (omitting context) is rejected.
+
+    ParamContract record (6 fields per IC-3 + the canonical proof notation:99-110):
+
+      ParamContract = <
+        access: Access,
+        consumption: Consumption,
+        cardinality: Cardinality,
+        locality: Locality,
+        uniqueness: Uniqueness,
+        may_share: Bool
+      >
+
+      Initialization per IC-2: most-optimistic (B, empty, absent, bl, u, false);
+      Fixpoint per IC-3: componentwise max + may_share OR; iterate until
+      no dim changes;
+      Convergence bound: included in IC-7 derived limit.
+
+    ReturnContract record (4 fields per IC-4 + sec-1.9):
+
+      ReturnContract = <
+        uniqueness: Uniqueness,
+        preserves_freshness: Bool,
+        locality: Locality,
+        shape: Shape
+      >
+
+      Join over return paths: uniqueness(join), preserves_freshness(AND),
+        locality(join), shape(join).
+      Extracted by structural definition tracing per Annex E §AIMS.9
+      Return Provenance table.
+
+    EffectSummary record (7 fields per IC-5):
+
+      EffectSummary = <
+        may_allocate: Bool,
+        may_deallocate: Bool,
+        may_share: Bool,
+        may_throw: Bool,
+        has_unbounded_stack: Bool,
+        may_read_inaccessible: Bool,
+        alloc_only_on_slow_path: Bool
+      >
+
+      Derivation per Annex E §AIMS IC-5: scan instruction stream + callee
+      contracts (NOT per-variable EffectClass joined componentwise — see
+      Annex E §AIMS.7 CRITICAL note + Effect.proof reconciliation).
+
+    FipContract sum type (per IC-6):
+
+      FipContract = Never | Bounded(n: Int) | Conditional | Certified
+
+      Join semantics per IC-6: Never absorbs all; Conditional absorbs
+      Bounded / Certified; Bounded(n) join Bounded(m) = Bounded(max(n, m));
+      Certified IFF zero unmatched alloc / dealloc in realized IR.
+      Timing: POST-REALIZATION (step 5a). Step 1 inits Never.
+
+    ContextBehavior record (4 Bool fields per PL-11 + the canonical proof notation:146-152):
+
+      ContextBehavior = <
+        preserves_context: Bool,
+        consumes_hole: Bool,
+        requires_unique_context: Bool,
+        may_resume_nonlinearly: Bool
+      >
+
+      Initialization: most-optimistic <true, true, false, false>;
+      Join: preserves_context(AND), consumes_hole(AND),
+        requires_unique_context(OR), may_resume_nonlinearly(OR).
+      Derived from TRMC context-region detection per PL-7 / PL-8 / PL-9.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 (IC-1 through IC-7 interprocedural contract
+            proofs) + sec-07 (PL-11 ContextBehavior derivation proofs)
+
+    Engines dispatched:
+      fixpoint (validates IC-3 + IC-4 + IC-5 + IC-6 + PL-11 monotone fixpoint
+                convergence)
+      interprocedural_summary (validates contract-record SCC topological
+                               ordering + per-function summary computation)
+      case_analysis (validates FipContract sum-type 4-tier ordering +
+                     per-field joins)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 + sec-07 discharge contract record proofs

@@ -1,0 +1,914 @@
+Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
+
+  Preconditions:
+    - IC-1 has decomposed the CallGraph into SCCs in forward
+      topological order (callees before callers) per
+      Annex E §AIMS IC-1 + sec-7 PL-1a
+    - IC-2 (proven separately) seeds ParamContract bottoms; IC-3
+      (proven separately) joins ParamContract toward conservative;
+      IC-4 (proven separately) extracts ReturnContract per
+      function; IC-5 (proven separately) derives EffectSummary
+      per function via per-instruction OR-fold + AND-fold + one-
+      shot SCC assignment
+    - IC-6 type signature (per Interprocedural.proof lines 42-47):
+        join_fip_contract : List FipContract -> FipContract
+      whose output is the per-function FIP classification, joined
+      across all caller-call-site or branch-merge observations
+      and emitted POST-REALIZATION (Step 5a per Annex E §AIMS) so the join consumes realized-IR proof evidence,
+      not Step-1 lattice-only proxies
+    - Spec statement (Annex E §AIMS IC-6): "FIP contract:
+      `Never` absorbs all; `Conditional` absorbs `Bounded /
+      Certified`; `Bounded(n) join Bounded(m) = Bounded(max(n,m))`.
+      `FipContract::Certified IFF zero unmatched alloc / dealloc`
+      in realized IR. **Timing**: POST-REALIZATION (Step 5a).
+      Step 1 inits `Never`. PL-1a ensures callees realized before
+      callers. FipContract does NOT re-enter Step 1 fixpoint."
+    - The FipContract value space is a 4-tier sum type per the
+      shipped enum at compiler/ori_arc/src/aims/
+      contract/mod.rs lines 386-416:
+        FipContract::Never -- "definitely not FIP"
+        FipContract::Conditional -- "FIP with preconditions"
+        FipContract::Bounded(allocation_budget: u32) -- "FBIP with bounded alloc"
+        FipContract::Certified -- "Fully In-Place, zero alloc / dealloc"
+      ordered along the precision chain
+        Never < Conditional < Bounded(n) < Certified
+      where the absorption rule produces the canonical join:
+        Never join X = Never (Never absorbs all)
+        Conditional join X = Conditional when X in {Bounded, Certified}
+                             (Conditional absorbs Bounded / Certified)
+        Bounded(n) join Bounded(m) = Bounded(max(n, m))
+        Bounded(n) join Certified = Bounded(n)
+                             (Certified contributes no extra alloc;
+                              Bounded budget governs)
+        Certified join Certified = Certified
+    - Shipped engine: `FipContract::join` at 
+      compiler/ori_arc/src/aims/contract/mod.rs lines 418-444
+      implements the 4-tier absorption table verbatim; reused as
+      the join operator by interprocedural extraction (Step 1
+      seed) and by Step 5a verification (post-realization
+      authoritative computation)
+    - Realization-time proof engine: `verify_fip_contract` at
+      compiler/ori_arc/src/aims/verify/fip.rs lines
+      75-200 walks the realized ArcFunction and counts unmatched
+      alloc / dealloc per FIP claim; downgrade rules per IC-6
+      spec
+    - Timing contract — POST-REALIZATION (Step 5a):
+      Annex E §AIMS Pipeline Ordering Step 5a
+      `verify_fip_contract` runs AFTER Step 5
+      (`realize_rc_reuse`) materializes RC / reuse / arg-
+      ownership instructions and BEFORE Step 6 (structural
+      verify) consumes them. The FipContract emitted by Step 1
+      interprocedural extraction is PROVISIONAL — seeded `Never`
+      per Annex E §AIMS IC-6 "Step 1 inits `Never`" — and
+      receives its authoritative value only after Step 5a
+      observes the realized IR's alloc / dealloc balance
+    - PL-1a guarantees callees are realized (Step 5a applied)
+      BEFORE callers enter Step 5a, so cross-function joins
+      consume final FipContract values, not Step-1 provisional
+      seeds
+    - Per the Salsa deterministic query contract
+      (compiler.md sec-Salsa "Queries must be pure"), the
+      same {realized ArcFunction, callee MemoryContract set,
+      target triple} input set produces the same FipContract
+      output across compilation runs; the absorption table at
+      lines 418-444 is a pure total function with no hash-map
+      iteration order dependency
+    - L-1 (commutativity of join), L-2 (associativity of join),
+      L-4 (partial-order axiom), L-6 (monotonicity over the
+      precision chain) lemmas from sec-1.8 are proven in sec-02
+      of this plan (Plan-Bug DAG) and provide the lattice-property
+      foundation for the 4-tier sum-type join
+
+  Soundness property:
+    Forall function `f` with N >= 0 observed `FipContract` claims
+    `[fc_1, fc_2, ..., fc_N]` arising from caller call-sites
+    AND / OR per-branch contract emission within `f`.
+      Let `c := join_fip_contract([fc_1, ..., fc_N])` be the
+      emitted result. Six conjuncts SHALL hold per spec
+      Annex E §AIMS IC-6 + sec-7 PL-1a + sec-9 VF-6:
+
+      (P1) Never absorbs all:
+        For all fc_i: fc_i = Never IMPLIES c = Never
+        per the absorption rule "Never absorbs all" at sec-5
+        IC-6 + contract/mod.rs line 421. Never is the lattice
+        TOP of the FipContract precision chain — the "most
+        conservative" claim. Any single Never observation
+        forces the joined contract to Never, which is the
+        soundness floor: a function with ANY non-FIP caller
+        cannot be certified FIP.
+
+      (P2) Conditional absorbs Bounded / Certified:
+        For all fc_i in {Bounded(_), Certified}:
+          fc_i join Conditional = Conditional
+        per the absorption rule "Conditional absorbs Bounded /
+        Certified" at sec-5 IC-6 + contract/mod.rs lines 425-
+        430. Conditional is the second-most-conservative claim:
+        FIP-eligible only when preconditions hold. Bounded and
+        Certified are both "stronger" claims (zero or bounded
+        alloc), but joining with Conditional widens to the
+        less-precise Conditional because the precondition
+        constraint dominates.
+
+      (P3) Bounded budget max-join:
+        Bounded(n) join Bounded(m) = Bounded(max(n, m))
+        per the absorption rule "Bounded(n) join Bounded(m) =
+        Bounded(max(n, m))" at sec-5 IC-6 + contract/mod.rs
+        lines 432-437. The allocation budget grows monotonically
+        across observations — the joined budget is the maximum
+        of the per-observation budgets, never smaller (under-
+        approximating budget would allow more allocation than
+        the realized IR proves, violating VF-6 "contracts and
+        realization must agree" per Annex E §AIMS).
+
+      (P4) Bounded join Certified = Bounded:
+        Bounded(n) join Certified = Bounded(n)
+        per contract/mod.rs lines 432-437 (the `Bounded` arm
+        join `Certified` falls through to the budget-preserving
+        result). Certified contributes zero alloc + zero
+        dealloc, so the Bounded(n) budget remains the binding
+        constraint after the join. The result is NOT Certified
+        because the joined function may allocate up to n;
+        Certified would falsely claim zero alloc.
+
+      (P5) Certified IFF zero unmatched alloc / dealloc:
+        c = Certified IFF the realized ArcFunction has zero
+        unmatched allocation instructions (`Construct`,
+        `Reuse`, `CollectionReuse`, `PartialApply`) AND zero
+        unmatched deallocation events (`RcDec` triggering free
+        OR `Drop` finalization) at the post-realization
+        observation point (Step 5a per sec-7 PL-1a). The
+        bi-implication is the load-bearing soundness contract
+        per Annex E §AIMS VF-6 ("contracts and realization
+        must agree") + sec-7 PL-5 ("no pass relies on stale
+        summaries") + CLAUDE.md sec-AIMS Invariant 1 ("contracts
+        and realization must agree").
+
+      (P6) Timing POST-REALIZATION (Step 5a):
+        c is emitted at Step 5a of the AIMS pipeline (post-
+        Step-5 `realize_rc_reuse`, pre-Step-6 structural
+        verify) per Annex E §AIMS Pipeline Ordering. The
+        Step 1 interprocedural extraction emits a provisional
+        FipContract::Never seed; the authoritative value is
+        computed AFTER realization observes the IR's alloc /
+        dealloc balance. PL-1a ensures callees complete Step 5a
+        before callers enter Step 5a, so cross-function
+        absorption (P1, P2) consumes finalized FipContract
+        values across SCC boundaries. FipContract does NOT
+        re-enter the Step 1 fixpoint per sec-5 IC-6 + sec-5
+        IC-7 ("FipContract excluded (post-realization)"
+        explicitly removes FipContract from the IC-7
+        convergence formula).
+
+  Proof obligation:
+    Six-part discharge corresponding to (P1)..(P6); absorption-
+    table conjuncts (P1)..(P4) ground in the shipped Rust match
+    at contract/mod.rs lines 418-444; certification soundness
+    (P5) grounds in the `verify_fip_contract` realized-IR
+    counting algorithm at fip.rs lines 75-200; timing soundness
+    (P6) grounds in PL-1a's SCC topological ordering + Step 5a's
+    placement after Step 5 in the pipeline (Annex E §AIMS
+    Pipeline Ordering).
+
+    Part (P1) — Never absorbs all:
+
+      Shipped match arm (contract/mod.rs line 421):
+
+        (FipContract::Never, _) | (_, FipContract::Never) =>
+            FipContract::Never,
+
+      The match arm fires symmetrically — `Never join X` AND
+      `X join Never` both produce `Never` for any X in the
+      4-tier FipContract space. Per L-1 (commutativity), the
+      symmetric coverage is mandatory and verified by the
+      `_` pattern in both positions.
+
+      Soundness rationale (per sec-5 IC-6 + sec-9 VF-6):
+      Never is the "definitely not FIP" claim — a single
+      observation proving the function may allocate via a
+      non-FIP path forces the joined contract to widen to
+      Never. The absorption is the lattice TOP of the
+      FipContract precision chain; folding Never with any
+      stronger claim (Conditional / Bounded / Certified)
+      yields Never because the disproof of FIP-eligibility
+      cannot be revoked by adding a stronger claim from a
+      different observation site.
+
+      Per L-2 (associativity), the N-ary fold over a list
+      containing any Never element collapses to Never
+      regardless of fold order. (P1) discharged.
+
+      Negative-direction witness: suppose hypothetical
+      implementer makes Never absorbable by Certified
+      (`(FipContract::Never, FipContract::Certified) =>
+      FipContract::Certified`). Then a function with one
+      Never-claim caller (proving a non-FIP path) and one
+      Certified-claim caller (provisional, pre-realization
+      seed) would emit Certified after the join. Step 5a's
+      `verify_fip_contract` would then check realized IR
+      against the (wrongly-certified) Certified claim, find
+      the Never path's alloc / dealloc, and trigger the
+      `FipStructural` wrap at pipeline/aims_pipeline/mod.rs
+      line 269. The downgrade-on-realization path catches
+      the bug, but only AFTER the wrong contract has been
+      consumed by upstream callers in the SCC fixpoint —
+      wasted convergence iterations + diagnostic noise. The
+      absorption discipline at line 421 is therefore load-
+      bearing for the Step-1 / Step-5a separation; weakening
+      it shifts cost from Step 1 (correct) to Step 5a
+      (recovery from wrong contracts).
+
+    Part (P2) — Conditional absorbs Bounded / Certified:
+
+      Shipped match arms (contract/mod.rs lines 425-430):
+
+        (FipContract::Conditional, _) | (_, FipContract::Conditional) =>
+            FipContract::Conditional,
+
+      The Conditional arms fire symmetrically — `Conditional
+      join X` AND `X join Conditional` both produce
+      `Conditional` for any X in {Bounded(_), Certified}.
+      Per L-1 + L-2, the symmetric coverage + associativity
+      guarantee fold-order independence of the absorption.
+
+      Note: the spec rule sec-5 IC-6 says "Conditional
+      absorbs Bounded / Certified". The match at lines 425-
+      430 covers ALL X (including Never, Conditional itself),
+      but the Never case is already handled by line 421
+      (Never absorbs all, including Conditional). The
+      Conditional-self case yields Conditional trivially.
+      The Bounded / Certified cases yield Conditional per the
+      spec rule.
+
+      Soundness rationale (per sec-5 IC-6):
+      Conditional is the "FIP-eligible with preconditions"
+      claim — meaningful only when paired with caller-side
+      precondition verification. Bounded and Certified are
+      "stronger" claims (specific alloc bounds) but they do
+      NOT subsume Conditional's precondition constraint.
+      Joining widens to Conditional because the precondition
+      requirement dominates: the joined contract MUST
+      preserve the precondition constraint to remain sound,
+      even when one observation site claims a stronger
+      property.
+
+      Per L-6 (monotonicity over the precision chain),
+      Conditional ≤ Bounded(_) ≤ Certified in the lattice
+      partial order; joining a stronger claim WITH Conditional
+      yields the weaker (Conditional) per the join-yields-LUB
+      semantics. (P2) discharged.
+
+    Part (P3) — Bounded budget max-join:
+
+      Shipped match arm (contract/mod.rs lines 432-437):
+
+        (FipContract::Bounded(n), FipContract::Bounded(m)) =>
+            FipContract::Bounded(n.max(m)),
+
+      The max-join is the standard finite-chain join over
+      u32 budgets: per L-1 + L-2, max is commutative and
+      associative on u32. Per L-6 (monotonicity), the budget
+      can only grow when joined with a larger observation,
+      never shrink — the converged budget is the LUB of all
+      per-observation budgets.
+
+      Soundness rationale (per sec-5 IC-6 + sec-9 VF-6):
+      Under-approximating budget (min-join) would allow the
+      realized IR to allocate more than the contract claims,
+      triggering `verify_fip_contract` failure at Step 5a.
+      Max-join is the soundness floor — the joined budget
+      MUST accommodate every observation's claim. The
+      `u32::max` operation is the canonical lattice join for
+      finite-chain budget tracking (Birkhoff 1967 §I.5
+      totally-ordered chains under max).
+
+      Per L-6 (monotonicity), `max(n, m) >= n` and
+      `max(n, m) >= m`, so the joined budget covers every
+      per-observation budget. (P3) discharged.
+
+      Negative-direction witness: suppose hypothetical
+      implementer uses `n.min(m)` instead of `n.max(m)`:
+        (FipContract::Bounded(n), FipContract::Bounded(m)) =>
+            FipContract::Bounded(n.min(m)),
+
+      Then a function with two observations (`Bounded(5)`
+      and `Bounded(10)`) would emit `Bounded(5)` after the
+      join. Step 5a's `verify_fip_contract` would check
+      realized IR allocating 7 allocations on a path observed
+      with `Bounded(10)`, and reject the contract because
+      7 > 5. The realization-time downgrade catches the bug,
+      but the contract was wrong from the start. Max-join
+      is therefore load-bearing for the FBIP discipline;
+      min-join is a soundness-floor violation.
+
+    Part (P4) — Bounded join Certified = Bounded:
+
+      Shipped match arms (contract/mod.rs lines 432-437,
+      falling through after the Bounded-Bounded arm):
+
+        (FipContract::Bounded(n), FipContract::Certified) |
+        (FipContract::Certified, FipContract::Bounded(n)) =>
+            FipContract::Bounded(n),
+
+      The Bounded arm wins over Certified because Bounded(n)
+      claims "at most n allocations" while Certified claims
+      "zero allocations". When joined, the weaker claim
+      (Bounded(n)) must prevail to cover both observation
+      sites: the Bounded site may allocate up to n; the
+      Certified site may not allocate. The joined contract
+      Bounded(n) accommodates both — Certified would
+      falsely claim zero alloc, allowing the Bounded site's
+      n allocations to violate the contract.
+
+      Per L-6 (monotonicity), Bounded(n) ≤ Certified in the
+      precision chain, but for FipContract the "stronger"
+      claim is Certified (zero alloc) and the "weaker" claim
+      is Bounded(n) (at most n alloc). Join yields the LUB
+      in the precision chain — the weaker claim Bounded(n).
+      This is the correct lattice-join direction for a
+      "soundness over precision" reading: under-approximation
+      of allocation is unsound; over-approximation is sound
+      but imprecise. (P4) discharged.
+
+    Part (P5) — Certified IFF zero unmatched alloc / dealloc:
+
+      Shipped match arm (contract/mod.rs line 443):
+
+        (FipContract::Certified, FipContract::Certified) =>
+            FipContract::Certified,
+
+      The Certified-Certified arm is the trivial case:
+      joining two functions both proven Certified yields
+      Certified (zero alloc + zero dealloc still holds for
+      the joined claim). The non-trivial soundness content
+      is the IFF biconditional with the realized IR's
+      alloc / dealloc balance.
+
+      Realization-time verification (fip.rs lines 75-200):
+      `verify_fip_contract` walks the realized ArcFunction
+      and counts:
+        - Allocation instructions: `Construct`, `Reuse`,
+          `CollectionReuse`, `PartialApply` (per
+          Annex E §AIMS IC-5 alloc-trigger table).
+        - Deallocation events: `RcDec` triggering free
+          (post-Step-5 RC realization), `Drop` finalization
+          on owned values transitioning to dead.
+
+      For `FipContract::Certified` to remain Certified after
+      Step 5a, BOTH counts MUST be zero. ANY unmatched
+      alloc OR ANY unmatched dealloc downgrades the contract:
+        - Unmatched alloc only → Bounded(observed_count).
+        - Unmatched dealloc only → Conditional (precondition:
+          caller provides uniquely-owned input that can be
+          consumed).
+        - Both unmatched → Never.
+
+      The IFF biconditional is enforced by the verification
+      pass at fip.rs lines 75-200; failures produce
+      `FipVerificationError` values wrapped as
+      `VerifyError::FipStructural` per pipeline/aims_pipeline/
+      mod.rs line 269 (first-pass wrap) + batch.rs line 231
+      (second-pass batch wrap).
+
+      Per Annex E §AIMS VF-6 ("contracts and
+      realization must agree") + CLAUDE.md sec-AIMS Invariant
+      1, the IFF is non-negotiable: a `Certified` contract
+      with realized IR carrying unmatched alloc / dealloc is
+      a soundness regression. The verification pass at
+      Step 5a is the enforcement layer; the absorption table
+      at contract/mod.rs lines 418-444 is the join operator
+      consuming verified Certified values across SCC
+      boundaries. (P5) discharged.
+
+    Part (P6) — Timing POST-REALIZATION (Step 5a):
+
+      Pipeline ordering (Annex E §AIMS Pipeline Ordering
+      Steps 5 + 5a + 6):
+
+        Step 5: realize_rc_reuse() — Phase 1: RC + reuse
+                                            + arg_ownership
+                                            (pre-merge)
+        Step 5a: verify_fip_contract() — FIP enforcement
+                                            verification
+        Step 6: verify() — ARC IR structural
+                                            sanity
+
+      Step 5a observes the realized IR produced by Step 5 +
+      computes the authoritative FipContract value per (P5).
+      The Step 1 interprocedural extraction (Step 1 sec-7
+      Pipeline Ordering) emits a provisional FipContract::Never
+      seed per sec-5 IC-6 ("Step 1 inits `Never`"); reuse
+      emission consumes this provisional value during Step 5,
+      and Step 5a finalizes it AFTER Step 5 materializes the
+      RC / reuse / arg-ownership instructions.
+
+      Cross-function ordering (PL-1a):
+      Per Annex E §AIMS PL-1a, the per-function pipeline
+      (Steps 3-12) processes functions in SCC topological
+      order, callees before callers. When function `f` enters
+      Step 5a, every callee `g` referenced by `f` has already
+      completed Step 5a, so `f`'s `verify_fip_contract` pass
+      consumes finalized FipContract values from `g`'s
+      MemoryContract.
+
+      Cross-function absorption (P1, P2, P3, P4):
+      When `f` joins FipContract claims across its callees'
+      observation sites, the join operator at lines 418-444
+      consumes the finalized (post-Step-5a) FipContract values
+      per PL-1a's topological ordering. The Step-1 provisional
+      Never seeds are overwritten by Step 5a's authoritative
+      values BEFORE any caller observes them.
+
+      Exclusion from IC-7 convergence:
+      Per Annex E §AIMS IC-7 ("FipContract excluded
+      (post-realization)"), the FipContract is explicitly
+      removed from the IC-7 iteration bound formula
+      (`param_count × 13 + 8 + 6 + 4` — 13 ParamContract +
+      8 ReturnContract + 6 EffectSummary + 4 ContextBehavior;
+      FipContract NOT a term). This is consistent with PL-1a's
+      SCC topological ordering: FipContract does not re-enter
+      the Step 1 fixpoint because its authoritative value is
+      computed at Step 5a, AFTER the Step 1 fixpoint has
+      converged on the other contract fields.
+
+      Per CLAUDE.md sec-AIMS Invariant 3 ("no pass relies on
+      stale summaries") + sec-7 PL-5 ("no pass shall rely on
+      stale summaries"), the Step-1 provisional FipContract
+      seed MUST be overwritten by Step 5a before any
+      downstream consumer (RL-29 `noalias` emission, RL-30
+      memory-attribute emission, FBIP enforcement) reads it.
+      (P6) discharged.
+
+      Negative-direction witness: suppose hypothetical
+      implementer moves FipContract computation INTO the
+      Step 1 interprocedural fixpoint (treating it as a
+      lattice dimension like ParamContract / ReturnContract /
+      EffectSummary). Then the IC-7 convergence formula would
+      need a FipContract height term (currently absent per
+      sec-5 IC-7); the SCC iteration would consume Step-1
+      lattice-proxy FipContract values; and Step 5a's
+      realized-IR verification would have to RE-ENTER Step 1
+      to invalidate any stale FipContract::Certified claims.
+      The pipeline ordering invariant PL-5 ("no stale
+      summaries") would be violated — Step 5a's output would
+      feed back into Step 1 inputs, creating a circular
+      dependency. The Step-1 / Step-5a separation is therefore
+      load-bearing for the AIMS pipeline acyclicity; merging
+      them is a sequencing violation.
+
+    Coherence side-conditions for (P1)..(P6):
+
+      - Absorption-table coverage (P1)..(P4): the four arms
+        plus the `Certified, Certified` arm cover every pair
+        in the 4-tier FipContract value space (4 × 4 = 16
+        pairs; the Never arms cover 7 pairs, the Conditional
+        arms cover 5 pairs, the Bounded-Bounded arm covers
+        1 pair, the Bounded-Certified arms cover 2 pairs,
+        the Certified-Certified arm covers 1 pair; sum = 16).
+        Exhaustiveness verified by Rust's match-exhaustiveness
+        checker at contract/mod.rs lines 418-444.
+
+      - Realization-time downgrade chain (P5): the IFF at
+        (P5) is enforced by `verify_fip_contract` at fip.rs
+        lines 75-200; the downgrade chain
+        Certified → Bounded(n) | Conditional | Never reflects
+        the realized IR's alloc / dealloc balance. The
+        downgrade is monotone per L-6 (always widens, never
+        narrows), so the verification pass cannot accidentally
+        upgrade a Bounded / Conditional / Never contract to
+        Certified.
+
+      - Pipeline ordering invariant (P6): the Step-1 → Step-5a
+        directional dependency is acyclic per sec-7 PL-1a;
+        FipContract values flow only forward (Step 1
+        provisional → Step 5 emission → Step 5a authoritative
+        → downstream consumers). Backward flow would violate
+        PL-5 ("no stale summaries") + AIMS Invariant 3.
+
+      - L-1 + L-2 (commutativity + associativity) lemmas apply
+        pointwise to (P1)..(P4): each absorption rule is
+        symmetric (Never arms, Conditional arms, Bounded-
+        Certified arms cover both join orderings); the max
+        operation in (P3) is commutative + associative on u32.
+
+      - L-6 (monotonicity) applies pointwise: every absorption
+        rule maps to a result no smaller (in the precision
+        chain) than the operands, so the N-ary fold over a
+        list of FipContract claims yields a result that
+        covers every per-observation claim.
+
+    Convergence side-condition (cross-cite to IC-7):
+
+      IC-7 (proven separately) bounds the SCC fixpoint
+      iteration at `param_count × 13 + 8 + 6 + 4`, where
+      FipContract is EXCLUDED from the iteration bound
+      (sec-5 IC-7 + sec-5 IC-6 timing rule). The FipContract
+      value is computed once per function at Step 5a, AFTER
+      the Step 1 fixpoint has converged on all other contract
+      fields. No FipContract value re-enters the Step 1
+      fixpoint loop; the absorption table at lines 418-444 is
+      applied at Step 5a once per function per SCC
+      topological order (PL-1a).
+
+      Convergence is therefore trivially guaranteed: the
+      FipContract value space has 4 tiers (or 4 + u32 budgets
+      for Bounded variants), and the Step 5a verification
+      pass produces a single deterministic value per
+      function. The N-ary join across observation sites is
+      a single-pass fold (per L-1 + L-2 fold-order
+      independence); the realization-time verification at
+      fip.rs lines 75-200 is bounded by the IR size.
+
+    Coverage gate — corpus enumeration:
+
+      The shipped `FipContract::join` + `verify_fip_contract`
+      are exercised by the interprocedural test surface in
+      compiler/ori_arc/src/aims/interprocedural/
+      tests.rs + the FIP verification test suite at
+      compiler/ori_arc/src/aims/verify/fip/
+      tests.rs. Each row below pins one or more (P1)..(P6)
+      conjuncts:
+
+        Row F1: never_absorbs_certified —
+                join_fip_contract([Never, Certified]) returns
+                Never; (P1) Never-absorbs-all pin
+        Row F2: never_absorbs_bounded —
+                join_fip_contract([Never, Bounded(5)]) returns
+                Never; (P1) Never-absorbs-all pin (Bounded
+                variant)
+        Row F3: never_absorbs_conditional —
+                join_fip_contract([Never, Conditional])
+                returns Never; (P1) Never-absorbs-all pin
+                (Conditional variant)
+        Row F4: never_join_never_idempotent —
+                join_fip_contract([Never, Never]) returns
+                Never; (P1) idempotence pin (L-3)
+        Row F5: conditional_absorbs_bounded —
+                join_fip_contract([Conditional, Bounded(7)])
+                returns Conditional; (P2) Conditional-absorbs
+                pin (Bounded variant)
+        Row F6: conditional_absorbs_certified —
+                join_fip_contract([Conditional, Certified])
+                returns Conditional; (P2) Conditional-absorbs
+                pin (Certified variant)
+        Row F7: conditional_self_idempotent —
+                join_fip_contract([Conditional, Conditional])
+                returns Conditional; (P2) idempotence pin
+                (L-3)
+        Row F8: bounded_max_join_smaller_left —
+                join_fip_contract([Bounded(3), Bounded(7)])
+                returns Bounded(7); (P3) max-join pin
+        Row F9: bounded_max_join_smaller_right —
+                join_fip_contract([Bounded(7), Bounded(3)])
+                returns Bounded(7); (P3) max-join pin
+                (commutativity, L-1)
+        Row F10: bounded_max_join_equal —
+                 join_fip_contract([Bounded(5), Bounded(5)])
+                 returns Bounded(5); (P3) idempotence pin
+                 (L-3)
+        Row F11: bounded_join_certified_preserves_budget —
+                 join_fip_contract([Bounded(5), Certified])
+                 returns Bounded(5); (P4) Bounded-wins pin
+        Row F12: certified_join_bounded_preserves_budget —
+                 join_fip_contract([Certified, Bounded(5)])
+                 returns Bounded(5); (P4) Bounded-wins pin
+                 (commutativity, L-1)
+        Row F13: certified_self_idempotent —
+                 join_fip_contract([Certified, Certified])
+                 returns Certified; (P5) idempotence pin
+                 (L-3)
+        Row F14: certified_iff_zero_alloc_zero_dealloc —
+                 function with zero `Construct` / `Reuse` /
+                 `CollectionReuse` / `PartialApply` AND zero
+                 unmatched `RcDec`-triggering-free events at
+                 Step 5a observation → FipContract::Certified;
+                 (P5) IFF pin (positive direction)
+        Row F15: certified_downgraded_on_unmatched_alloc —
+                 function provisionally seeded
+                 FipContract::Certified at Step 1, but Step 5a
+                 observes one unmatched `Construct` instruction
+                 → FipContract::Bounded(1); (P5) IFF pin
+                 (downgrade direction)
+        Row F16: certified_downgraded_on_unmatched_dealloc —
+                 function provisionally seeded Certified at
+                 Step 1, but Step 5a observes one unmatched
+                 `RcDec`-triggering-free → FipContract::
+                 Conditional (caller-precondition); (P5) IFF
+                 pin (dealloc-downgrade direction)
+        Row F17: step_5a_runs_after_step_5 —
+                 pipeline ordering test: Step 5a's
+                 verify_fip_contract observes the post-Step-5
+                 IR, NOT the pre-Step-5 IR; (P6) timing pin
+        Row F18: scc_topological_callees_before_callers —
+                 SCC fixpoint test: mutual-recursion SCC where
+                 A calls B and vice versa; both A and B
+                 complete Step 5a before any caller of the
+                 SCC enters Step 5a; (P6) PL-1a topological
+                 ordering pin
+        Row F19: fipcontract_excluded_from_ic7_iteration —
+                 IC-7 convergence bound test: the iteration
+                 bound formula param_count × 13 + 8 + 6 + 4
+                 does NOT include a FipContract height term;
+                 FipContract values do not contribute to Step 1
+                 fixpoint iteration count; (P6) IC-7 exclusion
+                 pin
+        Row F20: associativity_three_way_join —
+                 join_fip_contract([Bounded(3), Bounded(7),
+                 Conditional]) returns Conditional; verifies
+                 L-2 associativity across all 4 tiers
+        Row F21: never_associativity_three_way —
+                 join_fip_contract([Certified, Bounded(5),
+                 Never]) returns Never; verifies L-2
+                 associativity with Never absorption
+                 dominating
+
+      Coverage axes:
+        Absorption-table correctness (P1)..(P4):
+          Rows F1-F12 directly pin each absorption rule across
+          all 4-tier value combinations
+        Idempotence (L-3):
+          Rows F4, F7, F10, F13 pin self-join idempotence for
+          each tier
+        Commutativity (L-1):
+          Rows F9, F12 pin commutativity (Bounded order
+          irrelevance, Certified-Bounded order irrelevance)
+        Associativity (L-2):
+          Rows F20, F21 pin three-way associativity across
+          mixed tiers
+        Certification IFF (P5):
+          Rows F14-F16 pin the bi-implication between Certified
+          contract and zero-unmatched-alloc / zero-unmatched-
+          dealloc in realized IR; positive direction (F14) +
+          downgrade directions (F15, F16)
+        Timing POST-REALIZATION (P6):
+          Rows F17-F19 pin the Step 5a placement, PL-1a SCC
+          topological ordering, and IC-7 exclusion
+
+    Negative-direction witness — emitting Certified without
+    realized-IR verification rejected:
+
+      Take Row F15 (certified_downgraded_on_unmatched_alloc).
+      Suppose hypothetical implementer emits FipContract::
+      Certified at Step 1 (interprocedural extraction) based
+      ONLY on lattice-state evidence (e.g., every parameter
+      has `may_alloc=false` flag in some hypothetical lattice
+      dimension), bypassing the Step 5a verification:
+
+        // at Step 1 (hypothetical, BANNED):
+        if all_params_no_alloc_flag(func) {
+            contract.fip = FipContract::Certified; // PROVISIONAL
+                                                    // becomes
+                                                    // AUTHORITATIVE
+        }
+
+      Then Step 5a's `verify_fip_contract` would observe
+      realized IR allocating via `Construct` / `Reuse` /
+      `CollectionReuse` / `PartialApply` (the lattice flag
+      was wrong — lattice tracks per-variable demand, not
+      per-function alloc), and reject the contract. The
+      downgrade-on-realization path catches the bug at
+      Step 5a, but only AFTER:
+        1. The wrong contract has been consumed by upstream
+           callers in the SCC fixpoint (Step 1 iteration N).
+        2. Upstream callers' own FipContract::Certified
+           claims propagated based on the wrongly-certified
+           callee.
+        3. The cascade reaches Step 5a for the entire SCC,
+           where every Certified claim downgrades.
+
+      Per CLAUDE.md sec-AIMS Invariant 1 ("contracts and
+      realization must agree") + sec-7 PL-5 ("no pass relies
+      on stale summaries"), the Step-1 provisional Certified
+      claim is sound ONLY if Step 5a is the authoritative
+      computation. Lattice-only Certified emission would
+      bypass Step 5a's verification responsibility, violating
+      VF-6 ("contracts and realization must agree" per sec-9).
+
+      The Step-1 / Step-5a separation is therefore load-
+      bearing for the FBIP discipline; merging FipContract
+      into the Step 1 lattice would introduce a circular
+      dependency between Step 1 (input) and Step 5a (output),
+      creating sequencing violations per PL-5.
+
+    Negative-direction witness — re-entering IC-7 fixpoint
+    rejected:
+
+      Take Row F19 (fipcontract_excluded_from_ic7_iteration).
+      Suppose hypothetical implementer adds a FipContract
+      height term to the IC-7 convergence bound formula:
+
+        // hypothetical (BANNED):
+        let total_height: u32 = scc_funcs
+            .iter()
+            .map(|f| {
+                let param_height = f.params.len() as u32 * 17;
+                let return_height = 8u32;
+                let effect_height = 5u32;
+                let context_height = 4u32;
+                let fip_height = 4u32; // NEW: FipContract
+                                        // 4-tier
+                param_height + return_height + effect_height
+                    + context_height + fip_height
+            })
+            .sum();
+
+      Then the IC-7 iteration bound would over-budget Step 1
+      iterations by `4 × scc_size`, and the SCC fixpoint
+      would attempt to converge FipContract values WITHIN
+      Step 1, before Step 5 (realize_rc_reuse) has emitted
+      the RC / reuse / arg-ownership instructions. The
+      FipContract values converged at Step 1 would be
+      PROVISIONAL Never seeds (per sec-5 IC-6 "Step 1 inits
+      `Never`") — NOT authoritative.
+
+      Step 5a would then need to RE-ENTER Step 1 to invalidate
+      the wrongly-converged FipContract values, creating a
+      circular dependency:
+        Step 1 (input: provisional Never) → Step 5
+          (realization) → Step 5a (output: authoritative
+          Bounded / Certified) → Step 1 (re-enter with new
+          values) → ...
+
+      Per sec-7 PL-5 ("no pass relies on stale summaries"),
+      the circular dependency is a sequencing violation. The
+      IC-7 exclusion of FipContract is therefore load-bearing
+      for the AIMS pipeline acyclicity; re-including
+      FipContract in the IC-7 iteration bound formula breaks
+      the pipeline.
+
+    IC-6 dependencies — terminal within AIMS contract layer:
+
+      IC-6 consumes the realized ArcFunction (post-Step-5) +
+      the converged ContractMap (filled in by Step 1's
+      IC-1 / IC-2 / IC-3 / IC-4 / IC-5 fixpoint) + per-
+      function alloc / dealloc counts from `verify_fip_contract`
+      (Step 5a). It produces a per-function FipContract
+      assignment. The dependency chain at the proof-obligation
+      level is acyclic:
+
+        IC-1 --> IC-2 (parameter contract seeding)
+        IC-2 --> IC-3 (parameter contract componentwise
+                         join)
+        IC-3 --> IC-4 (return contract componentwise join)
+        IC-3 --> IC-5 (effect summary OR-join via callee
+                         inheritance)
+        IC-4 --> IC-5 (effect summary may inherit ReturnContract
+                         refinements through callee chain)
+        IC-5 --> IC-6 (FipContract classification reads
+                         EffectSummary to detect non-FIP paths)
+        L-1 / L-2 / L-6 (sec-1.8 lattice properties) --> IC-6
+        IC-6 (Step 1 provisional Never seed)
+              --> Step 5 (realize_rc_reuse — consumes
+                           provisional FipContract during
+                           reuse emission)
+        Step 5 --> IC-6 (Step 5a verify_fip_contract — emits
+                           authoritative FipContract from
+                           realized IR)
+        IC-6 (Step 5a authoritative)
+              --> RL-29 + RL-30 (LLVM attribute emission
+                                  consumes FipContract for
+                                  FIP-aware attributes)
+        IC-6 (Step 5a authoritative)
+              --> VF-6 (contract-realization agreement
+                         verification at sec-9 VF-6)
+
+      IC-6 is the FIP-classification operator within the IC
+      layer; L-* lemmas are proven upstream in sec-02. The
+      Step-1 / Step-5a separation IS the load-bearing
+      sequencing property; merging would violate PL-5.
+
+    Algorithm-citation declaration:
+      algorithm: 4-tier sum-type lattice join with
+                           absorption table; Never absorbs all;
+                           Conditional absorbs Bounded /
+                           Certified; Bounded(n) join Bounded(m)
+                           = Bounded(max(n,m)); Certified IFF
+                           zero unmatched alloc / dealloc in
+                           realized IR; POST-REALIZATION
+                           (Step 5a) timing per PL-1a SCC
+                           topological ordering
+      published basis: Reinking, A., Xie, N., Lorenzen, A.,
+                           Leijen, D., "Perceus: Garbage Free
+                           Reference Counting with Reuse",
+                           PLDI 2021 (FIP / FBIP certification
+                           via post-realization verification —
+                           Section 5 "Reuse Analysis and
+                           Optimization"); Lorenzen, A.,
+                           Leijen, D., Reinking, A., "FP²:
+                           Fully In-Place Functional
+                           Programming Provides Memory Reuse
+                           for Pure Functional Programs", ICFP
+                           2023 (Theorem 1: FIP certification
+                           = zero alloc + zero dealloc post-
+                           realization; bounded allocation
+                           budget extension Theorem 3);
+                           Birkhoff, G., "Lattice Theory",
+                           3rd ed., American Mathematical
+                           Society Colloquium Publications,
+                           vol. XXV, 1967, §I.5 (totally-
+                           ordered chains under max), §V
+                           (sum-type lattices); Cousot &
+                           Cousot, "Abstract Interpretation:
+                           A Unified Lattice Model for Static
+                           Analysis of Programs by Construction
+                           or Approximation of Fixpoints",
+                           POPL 1977 (interprocedural summary
+                           computation via SCC-topological
+                           monotone iteration with post-
+                           realization verification layer)
+      complexity: O(1) per absorption-table lookup
+                           (constant-time match on 4-tier sum);
+                           O(N + M) per `verify_fip_contract`
+                           pass where N = instruction count
+                           and M = terminator count;
+                           O(scc_size) per SCC topological
+                           order traversal per IC-1 + PL-1a
+      determinism: deterministic; absorption-table
+                           match is a pure total function of
+                           the 4-tier sum-type values;
+                           `verify_fip_contract` is a pure
+                           function of the realized
+                           ArcFunction (Salsa-stable);
+                           SCC topological order is consistent
+                           across compilation runs per IC-1;
+                           commutativity (L-1) + associativity
+                           (L-2) ensure fold-order
+                           independence per sec-6 IA-9
+      reference impl: `FipContract::join` at
+                           compiler/ori_arc/src/
+                           aims/contract/mod.rs lines 418-444;
+                           4-tier enum definition lines 386-
+                           416; `verify_fip_contract` at
+                           compiler/ori_arc/src/
+                           aims/verify/fip.rs lines 75-200;
+                           `FipVerificationError` wrap to
+                           `VerifyError::FipStructural` at
+                           pipeline/aims_pipeline/mod.rs line
+                           269 (first-pass) + batch.rs line
+                           231 (second-pass batch);
+                           interprocedural extraction
+                           initializes provisional Never seed
+                           at compiler/ori_arc/
+                           src/aims/interprocedural/extract.rs
+      cross-language Koka Perceus
+      prior art: (`koka/src/Core/CheckFBIP.hs`)
+                           certifies FIP / FBIP at function
+                           level via similar post-realization
+                           verification — alloc count + dealloc
+                           count post-Reset/Reuse emission;
+                           Lean 4 `lean4/src/Lean/Compiler/IR/`
+                           tracks reuse opportunities via
+                           similar SCC-based analysis with
+                           realization-time verification; FP²
+                           paper's Theorem 1 + Theorem 3
+                           formalize the FIP / FBIP
+                           certification + bounded-budget
+                           extensions that AIMS implements;
+                           Swift SILOptimizer's
+                           `ARCSequenceOpt` certifies
+                           reference-count balance via post-
+                           emission verification (similar
+                           Step 5a discipline); arc.md
+                           §Reference Repos cites Lean 4 +
+                           Swift ARC + Koka Perceus as the
+                           prior art set
+
+    Engines dispatched:
+      fixpoint (PRIMARY — IC-6 4-tier sum-type absorption-table
+        join; verifier checks the six conjuncts (P1)..(P6) plus
+        side-conditions:
+          - (P1) Never-absorbs-all symmetric match arm at
+            contract/mod.rs line 421
+          - (P2) Conditional-absorbs-Bounded/Certified
+            symmetric match arms at lines 425-430
+          - (P3) Bounded(n) join Bounded(m) = Bounded(max(n,m))
+            match arm at lines 432-437 with u32 max operator
+          - (P4) Bounded join Certified = Bounded match arms
+            (fall-through after Bounded-Bounded arm) at lines
+            432-437
+          - (P5) Certified IFF zero unmatched alloc / dealloc
+            via `verify_fip_contract` at fip.rs lines 75-200
+            with downgrade chain Certified → Bounded /
+            Conditional / Never on realized IR observation
+          - (P6) POST-REALIZATION timing (Step 5a per sec-7
+            Pipeline Ordering Step 5a) + PL-1a SCC topological
+            ordering + IC-7 exclusion per sec-5 IC-7
+            convergence bound formula
+        emits Fail on any divergence)
+      interprocedural_summary (per-function FipContract export
+        within SCC fixpoint loop's Step 5a finalization pass;
+        consumed by RL-29 + RL-30 LLVM fact-export gates,
+        by VF-6 contract-realization agreement verification,
+        by Step 5a verify_fip_contract per sec-9)
+      case_analysis (4-tier sum-type absorption table at
+        contract/mod.rs lines 418-444: 16 pair combinations
+        across Never / Conditional / Bounded(_) / Certified
+        enumerated, each verified against the spec absorption
+        rules at sec-5 IC-6; realization-time downgrade chain
+        at fip.rs lines 75-200 verified against the IFF
+        biconditional in P5; timing ordering verified against
+        sec-7 Pipeline Ordering Step 5a placement and PL-1a
+        SCC topological ordering)
+
+  Expected:
+    status: valid
+    reason: section_06 fixpoint engine discharges IC-6 via six-conjunct verification ((P1) Never-absorbs-all + (P2) Conditional-absorbs-Bounded/Certified + (P3) Bounded budget max-join + (P4) Bounded-wins-over-Certified + (P5) Certified IFF zero unmatched alloc / dealloc in realized IR + (P6) POST-REALIZATION timing at Step 5a per PL-1a SCC topological ordering with IC-7 exclusion) over a 21-test corpus covering Never-absorption / Conditional-absorption / Bounded-max-join / Bounded-Certified-fall-through / Certified-IFF-positive / Certified-downgrade-on-unmatched-alloc / Certified-downgrade-on-unmatched-dealloc / Step-5a-after-Step-5 / SCC-topological-callees-before-callers / IC-7-exclusion / three-way-associativity cases; FIP / FBIP soundness inherited from Perceus (Reinking et al. PLDI 2021 Section 5) + FP² (Lorenzen et al. ICFP 2023 Theorem 1 + Theorem 3) + Birkhoff 1967 (sum-type lattice with absorption); shipped engine `FipContract::join` at compiler/ori_arc/src/aims/contract/mod.rs lines 418-444 + `verify_fip_contract` at compiler/ori_arc/src/aims/verify/fip.rs lines 75-200 implement the 4-tier absorption table + realization-time IFF verification in O(1) per join lookup + O(N + M) per verification pass, deterministically across all targets per CLAUDE.md §Salsa deterministic query contract; Step-1 / Step-5a timing separation is load-bearing for AIMS Invariant 1 ("contracts and realization must agree") + AIMS Invariant 3 ("no pass relies on stale summaries") + sec-7 PL-5 + sec-9 VF-6; IC-6 is excluded from the IC-7 iteration bound formula per sec-5 IC-7 ("FipContract excluded (post-realization)") preserving AIMS pipeline acyclicity

@@ -1,0 +1,62 @@
+Theorem TF-10: IsShared transfer produces SCALAR sentinel
+
+  Preconditions:
+    - Instruction is `IsShared { var }` per Annex E §AIMS TF-10 +
+      Appendix A row 11
+    - `IsShared` returns a boolean indicating whether `var`'s physical
+      RC is > 1; the boolean is a pure scalar with no RC consequence
+    - SCALAR is the L-9 sentinel — NOT a lattice element per
+      Annex E §AIMS L-9; SCALAR-valued destinations have no
+      reference-counting representation
+
+  Soundness property:
+    Forall IsShared { var }.
+      transfer_tf10(IsShared) = SCALAR
+    AND L-6 layer (b) monotonicity holds for the constant function
+    f(_) = SCALAR.
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Output verification — TF-10 emits `dst := SCALAR` regardless
+          of `var`'s AimsState. Appendix A row 11 shows SCALAR across
+          every per-dimension column (Access / Consumption / Cardinality
+          / Uniqueness / Locality / Shape / Effect all = SCALAR).
+      (b) L-6 layer (b) monotonicity — TF-10 is a constant function:
+          for ANY pair of input states (a, b) with a ≤ b,
+          f(a) = f(b) = SCALAR; by L-4 reflexivity SCALAR ≤ SCALAR,
+          hence f(a) ≤ f(b).
+
+    Part (a) — SCALAR-output verification:
+      The IsShared result is a boolean scalar. Per Appendix A row 11
+      + Annex E §AIMS L-9, boolean-valued instructions emit the
+      SCALAR sentinel — no RC, no lattice-element representation.
+      Verified: transfer_tf10() emits Tagged::Scalar regardless of
+      input. The boolean is consumed by downstream `Branch` /
+      `Select` / `Set` operations which read it as a runtime u8 flag
+      with zero RC interaction.
+      Note: IsShared is the canonical L-9 sentinel emission site for
+      runtime uniqueness probes; the SCALAR result is downstream-
+      compatible with DP-4 dynamic-COW decision logic.
+
+    Part (b) — constant-function monotonicity:
+      Constant f(_) = SCALAR is trivially monotone: forall a, b.
+      f(a) = f(b) = SCALAR, and SCALAR ≤ SCALAR holds definitionally
+      per L-4 reflexivity (the only valid comparison on SCALAR per
+      L-9 — incomparability with non-SCALAR states is intentional
+      and not in this proof's scope; non-SCALAR inputs map to SCALAR
+      output, which is uniformly comparable to itself only).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-rule discharge per
+        section_04::verify_tf10_isshared_scalar — constant-function
+        check)
+      case_analysis (PRIMARY — Appendix A row 11 forward-transfer
+        enumeration per section_04::verify_tf10_isshared_scalar)
+      lattice (SECONDARY — accepts gracefully; L-9 SCALAR-not-a-
+        lattice-element discharged at §02)
+      refinement (SECONDARY — accepts gracefully; TF-10 emits SCALAR
+        directly, not via refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-10 via SCALAR-output verification + constant-function monotonicity check

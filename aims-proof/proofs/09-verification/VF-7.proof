@@ -1,0 +1,91 @@
+Theorem VF-7: active-rewrite three-tier discipline — (a) structural + (b) behavioral + (c) proof sketch
+
+  Preconditions:
+    - VF-7 governs the active-rewrite discipline per Annex E §AIMS VF-7:
+      "Active rewrites SHALL be sound: identical observable behavior. Each
+      requires ALL THREE: (a) compile-time structural verification (validates
+      well-formedness, rolls back on failure); (b) test-time behavioral
+      verification (dedicated tests for pre/post-rewrite); (c) documented proof
+      sketch (semantic preconditions where structural validity implies
+      behavioral equivalence). Lacking any tier = not active." Restated by
+      arc.md Non-Negotiable-Invariants #2.
+    - VF-7's concrete shape is Rewrite -> Bool per
+      aims-proof/proofs/01-verification/Verification.proof. Discharged here
+      against the sec-01 Verification.proof sorry obligation.
+    - The three tiers are concretely instantiated per rewrite class:
+        * TRMC normalization: (a) = PL-10's five structural checks; (b) = TRMC
+          spec tests verifying input/output equivalence; (c) = constrained-
+          rewrite (context-hole only, arity preserved, evaluation order
+          unchanged).
+        * Post-pipeline RL-22 through RL-26: (a) = VF-1 + VF-2 + VF-3 re-verify
+          (per sec-8); (b) = RC-motion regression tests; (c) = RC ops only, no
+          observable behavior change beyond memory timing.
+    - PL-10 IS VF-7 tier (a) for TRMC per the Annex E §AIMS VF-7
+      cross-reference; depends-on sec-07 PL-10 TRMC structural verification +
+      PL-1..PL-11 pipeline ordering soundness.
+    - TARGET-ONLY where RL-22..RL-26 are concerned (post-pipeline, target-system
+      per Annex E §AIMS frontmatter); the TRMC tier (a) (PL-10) is shipped.
+
+  Soundness property:
+    Forall active rewrite R:
+
+      (P1) Three-tier conjunction: R is active (sound, identical observable
+           behavior) IFF R has (a) compile-time structural verification AND
+           (b) test-time behavioral verification AND (c) a documented proof
+           sketch. Structural verification alone does NOT satisfy soundness —
+           behavioral verification is required (arc.md Non-Negotiable-Invariants
+           #2). Lacking any tier = NOT active.
+
+      (P2) Per-rewrite-class tier mapping: TRMC and RL-22..RL-26 each supply a
+           concrete (a)/(b)/(c). TRMC's tiers are PL-10's five structural checks
+           / TRMC spec tests / the constrained-rewrite proof sketch; the
+           RL-22..RL-26 tiers are VF-1+VF-2+VF-3 re-verify / RC-motion regression
+           tests / the RC-ops-only proof sketch. Each class names all three.
+
+    VF-7 is the active-rewrite gate: a rewrite that passes structural checks but
+    has no behavioral tests could still change observable behavior; one with
+    tests but no proof sketch lacks the semantic argument that structural
+    validity implies equivalence. All three tiers are mandatory before a rewrite
+    runs.
+
+  Proof obligation:
+    Constructive discharge by the structural_induction engine via three-tier
+    composition over the rewrite (per the proof-checker design
+    sec-Engine-per-Category-Inventory VF row; the foundational-axiom policy
+    sec-Per-Engine-Constructive-Proof-Shape — layered composition over the
+    structural / behavioral / proof-sketch tiers).
+
+    Part (P1) — three-tier conjunction grid:
+
+      The verifier enumerates a (tier_a_structural, tier_b_behavioral,
+      tier_c_proof_sketch) grid and asserts active = the three-way AND:
+        (a, b, c) -> active
+        (no-a, b, c) -> not active (missing structural)
+        (a, no-b, c) -> not active (missing behavioral)
+        (a, b, no-c) -> not active (missing proof sketch)
+      Coverage gate: 4 conjunction rows.
+
+    Part (P2) — per-rewrite-class tier mapping:
+
+      The verifier confirms each rewrite class (TRMC, RL-22..RL-26) names a
+      non-empty source for all three tiers. Coverage gate: 2 rewrite classes.
+
+    Negative-direction witness (the conjunction has teeth — structural-only is
+    NOT active):
+      A rewrite with only structural verification (tier a) and no behavioral
+      verification (tier b) or proof sketch (tier c) is NOT active; arc.md
+      Non-Negotiable-Invariants #2 explicitly states "structural tests alone do
+      not satisfy this".
+
+    Engines dispatched:
+      structural_induction (PRIMARY — section_09::verify_vf7_active_rewrite_three_tier;
+        three-tier conjunction over the active/inactive grid + per-class tier
+        mapping; emits Fail on an active/not-active mismatch or a missing tier
+        source)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest VF row)
+      rc_counting (SECONDARY — gracious-accept)
+      interprocedural_summary (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_09 structural_induction engine discharges VF-7 via (P1) the three-tier conjunction (a rewrite is active iff compile-time structural AND test-time behavioral AND documented proof sketch; 4 rows, one missing each tier) and (P2) the per-rewrite-class tier mapping (TRMC = PL-10/spec-tests/constrained-rewrite; RL-22..RL-26 = VF-1+VF-2+VF-3-reverify/RC-motion-regression/RC-ops-only), with a negative-direction witness rejecting a structural-only rewrite; PL-10 is VF-7 tier (a) for TRMC

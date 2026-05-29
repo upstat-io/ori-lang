@@ -1,0 +1,65 @@
+Theorem RL-22: KnownSafe inner-pair elimination (physical RC provably positive)
+
+  Preconditions:
+    - RL-22 governs KnownSafe pair elimination per Annex E §AIMS
+      KnownSafe Pair Elimination: when the physical RC is provably positive
+      (a dominating RcInc in scope with no intervening RcDec), inner
+      RcInc/RcDec pairs on the same variable SHALL be eliminated. KnownSafe(v)
+      = true at a point when there exists a dominating RcInc with no
+      intervening RcDec.
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - RL-22 is a POST-PIPELINE pass operating on realized IR (Swift ARC
+      optimizer lineage per arc.md sec-Advanced-Optimization-Patterns); VF-7
+      tier (a)+(b)+(c) applies when implemented.
+    - Transfer: RcInc(v) -> KnownSafe(v) := true; RcDec(v) -> KnownSafe(v) :=
+      false for v and all SSA / borrow aliases; Set/SetTag and may_deallocate
+      calls -> false.
+
+  Soundness property:
+    Forall variable v with an inner RcInc/RcDec pair at a point P:
+
+      (P1) Elimination decision: RL-22 eliminates the inner pair iff
+           KnownSafe(v) at P — i.e. a dominating RcInc with no intervening
+           RcDec (physical RC >= 2).
+
+      (P2) RC-count preservation: when KnownSafe, physical RC >= 2, so the
+           inner RcDec cannot reach 0 (cannot free); removing the matched
+           inner inc+dec pair is net-0 on the balance ledger — the lifecycle
+           with the inner pair and the lifecycle with it eliminated both
+           balance to RC 0.
+
+    RL-22 refines plain ARC by removing redundant inc/dec pairs the dominating
+    inc makes unnecessary, with no change to the observable RC balance.
+
+  Proof obligation:
+    Constructive discharge by the rc_counting engine.
+
+    Part (P1) — KnownSafe decision grid:
+      dominating_inc_no_dec_eliminate -> KnownSafe (eliminate)
+      intervening_dec_keep_pair -> NOT KnownSafe (RC may be 1; keep)
+      no_dominating_inc_keep_pair -> NOT KnownSafe (keep)
+      Coverage gate: 3 decisions.
+
+    Part (P2) — net-0 balance preservation:
+      The verifier asserts the with-inner-pair lifecycle ([alloc, outer inc,
+      inner inc, inner dec, outer dec, final dec]) and the eliminated
+      lifecycle ([alloc, outer inc, outer dec, final dec]) both net to 0 on
+      the RC ledger. Negative-direction witness: pair elimination must NOT
+      fire without a dominating inc (RC may be 1, so the inner dec could free
+      a still-referenced value) — asserted.
+
+    Engines dispatched:
+      rc_counting (PRIMARY —
+        section_08::verify_rl22_knownsafe_pair_elimination; KnownSafe decision
+        grid + net-0 ledger preservation; emits Fail on a wrong decision or a
+        balance violation)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 rc_counting engine discharges RL-22 via the KnownSafe decision grid (dominating inc + no intervening dec -> eliminate) and net-0 RC-ledger preservation showing the with-inner-pair and eliminated lifecycles both balance, with a negative-direction witness rejecting elimination without a dominating inc, grounded in the Swift ARC KnownSafe lineage (arc.md sec-Advanced-Optimization-Patterns)

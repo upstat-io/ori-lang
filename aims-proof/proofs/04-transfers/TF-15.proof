@@ -1,0 +1,86 @@
+Theorem TF-15: Set transfer produces no dst (in-place mutation; row "—")
+
+  Preconditions:
+    - Instruction is `Set { base, field, value }` per Annex E §AIMS
+      TF-15 + Appendix A row 14
+    - `Set` performs in-place mutation of `base.field := value`; no
+      destination variable is defined
+    - Appendix A row 14 carries "—" across every per-dimension column —
+      no forward transfer (the instruction defines no SSA value)
+    - Backward demand `(base, Once)` + `(value, Once, Linear)` is proven
+      at §04.3 TF-11 (standard backward demand)
+    - IA-5 step (1) intraprocedural alias-transfer (`value.access := Owned`
+      unconditional + `value.locality := max(value.locality, base_state.locality)`)
+      is proven at §04.3 IA-5-step-1 — §04.2 TF-15 cites the anchor and
+      proves the no-dst forward-row property
+
+  Soundness property:
+    Forall Set { base, field, value }.
+      transfer_tf15(Set) = NoDst (no AimsState emitted)
+    AND Appendix A row 14 carries "—" across every per-dimension column.
+    L-6 layer (b) monotonicity holds trivially — no output state to
+    monotone over (no codomain element to compare).
+
+  Proof obligation:
+    Three-part discharge:
+      (a) No-dst confirmation — verify TF-15 emits NoDst (the "—"
+          marker in Appendix A row 14). The state map MUST NOT acquire
+          a new entry from this instruction.
+      (b) Per-dimension "—" verification — every Appendix A row 14
+          column reads "—" verbatim (no Access / Consumption /
+          Cardinality / Uniqueness / Locality / Shape / Effect emitted).
+      (c) L-6 layer (b) monotonicity — vacuously holds for no-dst
+          instructions: the forward-transfer codomain is empty, so the
+          monotonicity quantifier ranges over an empty set. Any pair
+          (a, b) of input states with a ≤ b satisfies the (vacuous)
+          property "f(a) and f(b) are comparable on the dst codomain"
+          since there is no dst codomain element.
+
+    Part (a) — no-dst confirmation:
+      Per Annex E §AIMS TF-15: "Set { base, field, value }: in-place
+      mutation, no `dst`. No forward transfer."
+      Verified: transfer_tf15() returns a NoDst marker (not Tagged::State,
+      not Tagged::Scalar). The state map MUST be UNCHANGED by Set
+      execution (modulo intraprocedural alias-transfer step (1) on
+      `value`'s state — proven at IA-5-step-1 below, NOT part of TF-15
+      forward transfer).
+
+    Part (b) — Appendix A row "—" verification:
+      Appendix A row 14 columns reads:
+        Access: —
+        Consumption: —
+        Cardinality: —
+        Uniqueness: —
+        Locality: —
+        Shape: —
+        Effect: —
+      Verified: TF-15 enumeration emits no per-dimension column;
+      consistent with the "—" marker. The marker indicates "this
+      instruction defines no SSA value" — distinct from emitting
+      SCALAR (which IS a value, just with no RC consequence).
+
+    Part (c) — vacuous monotonicity:
+      L-6 layer (b) monotonicity is the property:
+        forall a, b in AimsState. a ≤ b implies f(a) ≤ f(b).
+      For no-dst instructions, `f` has empty codomain — there is no
+      `f(a)` value to compare. The implication is vacuously true: any
+      property quantified over an empty set holds trivially.
+      Cross-reference: backward-demand monotonicity (TF-11 emits
+      `(base, Once)` + `(value, Once, Linear)`) is the operational
+      L-6 layer (b) for Set; that is proven at §04.3 TF-11. The IA-5
+      step (1) intraprocedural alias-transfer (`value.access := Owned`
+      + `value.locality := max`) is proven at §04.3 IA-5-step-1.
+      §04.2 TF-15 proves only the no-dst forward-row property.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — vacuous L-6 layer (b) discharge for
+        no-dst instructions per section_04::verify_tf15_set_no_dst)
+      case_analysis (PRIMARY — Appendix A row 14 "—" enumeration per
+        section_04::verify_tf15_set_no_dst)
+      lattice (SECONDARY — accepts gracefully; no codomain element)
+      refinement (SECONDARY — accepts gracefully; TF-15 emits no dst,
+        no refine() applicable)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-15 via no-dst confirmation + Appendix A row 14 per-dimension "—" enumeration + vacuous L-6 layer (b) monotonicity

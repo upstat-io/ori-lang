@@ -1,0 +1,51 @@
+Theorem RL-27: selective RC flush at call sites
+
+  Preconditions:
+    - RL-27 governs selective barriers per Annex E §AIMS Selective
+      Barriers: "At call sites, RC ops SHALL be flushed for variables whose
+      callee parameters are Owned + non-Dead, OR Borrowed + may_share = true
+      (the callee may write the RC header). Borrowed + may_share = false +
+      pure functions require no barrier."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - depends-on sec-06: IC-3 ParamContract.access / .may_share is the callee
+      contract gating the flush.
+
+  Soundness property:
+    Forall call site with a variable v passed to a callee parameter:
+
+      (P1) Flush decision: RL-27 flushes pending RC ops for v iff the callee
+           param is (Owned AND non-Dead) OR (Borrowed AND may_share = true).
+           A Borrowed + may_share = false (pure) call is transparent.
+
+      (P2) Soundness: a barrier-requiring call may inc/dec v's count (Owned)
+           or write its RC header (may_share); pending RC ops must be flushed
+           so the callee observes the correct count. A transparent call cannot
+           touch v's count, so no flush is needed (eliding it is sound).
+
+    RL-27 refines plain ARC by flushing pending RC ops only at calls that can
+    observe the count, leaving pure-borrow calls barrier-free.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine.
+
+    Part (P1/P2) — flush-decision grid:
+      owned_nondead_flush -> flush
+      owned_dead_no_flush -> no flush (callee never uses v)
+      borrowed_may_share_flush -> flush (callee may write RC header)
+      borrowed_pure_no_flush -> no flush (transparent)
+      Coverage gate: 4 decisions. Negative-direction witness: a Borrowed +
+      pure call must NOT require a flush — asserted.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl27_selective_flush;
+        flush-decision enumeration; emits Fail on a wrong flush verdict)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-27 via the selective-flush grid (Owned+non-Dead / Borrowed+may_share flush; Owned+Dead / Borrowed+pure transparent) with a negative-direction witness confirming a Borrowed+pure call is barrier-free, grounded in the IC-3 callee contract

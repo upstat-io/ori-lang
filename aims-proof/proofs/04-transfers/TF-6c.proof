@@ -1,0 +1,59 @@
+Theorem TF-6c: InvokeIndirect transfer produces CONSERVATIVE
+
+  Preconditions:
+    - Instruction is `InvokeIndirect { dst, closure, args, normal, unwind }`
+      per Annex E §AIMS TF-6c + Appendix A row 21
+    - Closures have NO `MemoryContract` — same condition as TF-5a
+    - CONSERVATIVE per TF-5 definition (same value)
+
+  Soundness property:
+    transfer_tf6c(InvokeIndirect { _ }) = CONSERVATIVE
+      = (Owned, Unrestricted, Many, MaybeShared, Unknown, NonReusable, ALL)
+    L-6 layer (b) monotonicity: f(_) = CONSERVATIVE constant function;
+    trivially monotone per L-4 reflexivity.
+
+  Proof obligation:
+    Two-part discharge:
+      (a) CONSERVATIVE-parity with TF-5a — verify transfer_tf6c() emits
+          exactly CONSERVATIVE byte-for-byte (same value as TF-5a).
+      (b) L-6 layer (b) monotonicity — constant-function check identical
+          to TF-5a: f(_) = CONSERVATIVE is reflexively monotone.
+
+    Part (a) — CONSERVATIVE-parity check:
+      transfer_tf6c() = CONSERVATIVE = (Owned, Unrestricted, Many,
+      MaybeShared, Unknown, NonReusable, ALL = 0b111). Per Appendix A
+      row 21: TF-6c emits exactly this row (identical to TF-5a row 8 +
+      TF-5 row 6 + TF-6b row 20 — all four no-contract transfer rules
+      converge on CONSERVATIVE). Engine verifies byte-for-byte equality
+      against the canonical conservative() helper.
+
+    Part (b) — constant-function monotonicity:
+      Identical to TF-5 / TF-5a / TF-6b Part (c) — f(_) = CONSERVATIVE
+      is constant on its input domain; CONSERVATIVE ≤ CONSERVATIVE by
+      L-4 reflexivity on each dimension's carrier; product-order
+      componentwise lift gives f(a) ≤ f(b) for any (a, b).
+
+    Rationale for separate TF rule (per Annex E §AIMS TF-6c):
+      InvokeIndirect = Invoke + closure (terminator with unwind cleanup +
+      no contract). TF-6c exists to make the dispatch-via-closure-without-
+      contract case explicit in the rule set. Closure handle (the
+      `closure: ArcVarId` operand) generates backward demand per TF-11
+      `(closure, Once)` + the args; forward transfer on `dst` is
+      CONSERVATIVE because the closure body is opaque at this call site.
+
+      All four no-contract transfer rules (TF-5, TF-5a, TF-6b, TF-6c)
+      converge on CONSERVATIVE per Appendix A — the design unifies the
+      no-contract output across direct/indirect x normal/unwinding axes.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) constant-function discharge per
+        section_04::verify_tf6c_invokeindirect_conservative)
+      case_analysis (PRIMARY — Appendix A row 21 CONSERVATIVE-parity check
+        per section_04::verify_tf6c_invokeindirect_conservative)
+      lattice (SECONDARY — accepts gracefully)
+      refinement (SECONDARY — accepts gracefully; TF-6c emits CONSERVATIVE
+        directly, no refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-6c via Appendix A row 21 CONSERVATIVE-parity check + constant-function monotonicity

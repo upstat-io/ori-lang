@@ -1,0 +1,83 @@
+Theorem L-6: Transfer functions monotone
+
+  Preconditions:
+    - f is an arbitrary transfer function over AimsState per
+      Annex E §AIMS.8 L-6 + sec-3 (TF-1 through TF-15a)
+    - le is the lattice partial order per L-4 (a le b iff join(a, b) = b)
+    - Monotonicity is the per-instruction obligation TF-N rules must
+      satisfy; L-6 states the universal property the lattice itself
+      preserves
+
+  Soundness property:
+    Forall a, b in AimsState. (a le b) implies (f(a) le f(b))
+
+    L-6 has two layers:
+      (a) the lattice operations (join, canonicalize) are themselves
+          monotone — discharged here against the per-dimension joins;
+      (b) every concrete TF-N rule is monotone — discharged at sec-04
+          transfer-function proofs (one obligation per rule TF-1..TF-15a).
+
+    This proof discharges layer (a); sec-04 discharges layer (b)
+    per-TF-rule.
+
+  Proof obligation:
+    Layer (a) — lattice operations are monotone:
+
+    Per-dimension monotonicity argument:
+      Access / Consumption / Cardinality / Uniqueness / Locality:
+        max on a totally ordered carrier is monotone — if x le y then
+        for any z, max(x, z) le max(y, z). Proof per dimension by
+        finite enumeration over all (x, y, z) triples where x le y:
+          if x le y then x <= y in the chain order, so max(x, z) is
+          either z (when z >= y >= x) or y (when y >= z) or no-op
+          relative to x; in every case max(x, z) <= max(y, z) holds
+          by chain totality.
+      Shape (flat lattice with Phi absorbing TOP):
+        join is case_analysis(x == y -> x; x != y -> Phi); le on Shape
+        is the trivial order (every element le itself and le Phi).
+        For x le y (i.e. x = y OR y = Phi): join(x, z) le join(y, z)
+        follows by case-enumeration of z's relation to x and y; the
+        absorbing Phi ensures the right-hand side is Phi whenever the
+        left-hand side is.
+      Effect (componentwise OR on 3-bit flags):
+        OR on Bool is monotone — if b1 le b2 (i.e. b1 = false or
+        b2 = true) then for any b3, OR(b1, b3) le OR(b2, b3).
+        Componentwise composition preserves monotonicity.
+
+    Per-dimension monotonicity pair counts (triples (x, y, z) where
+    x le y, enumerated exhaustively):
+      Access sum_{x le y} |carrier| pairs * |z| = 3 * 2 = 6
+      Consumption sum_{x le y} 4 = 10 * 4 = 40
+      Cardinality sum_{x le y} 3 = 6 * 3 = 18
+      Uniqueness sum_{x le y} 3 = 6 * 3 = 18
+      Locality sum_{x le y} 5 = 15 * 5 = 75
+      Shape sum_{x le y} 5 (trivial order)
+      Effect 8 * 8 * 8 over the Bool-product (componentwise check)
+
+    Lift to product:
+      Suppose a le b at the product level, i.e. a_d le_d b_d for all d.
+      Then for any z, join(a, z)_d = dim_join_d(a_d, z_d)
+      le_d dim_join_d(b_d, z_d) = join(b, z)_d by per-dim monotonicity.
+      Componentwise le implies product le, so join(a, z) le join(b, z).
+
+    Canonicalize preserves monotonicity:
+      canonicalize is built from per-dimension rewrite rules CN-1..CN-8;
+      L-7 (idempotence) + L-8 (join preservation) cover the
+      canonicalize-after-join case. Each individual CN-N rule is
+      monotone by construction (each rewrites a specific dimensional
+      slice downward to a canonical representative; the rewrite is
+      either a no-op or moves the dimensional value within the partial
+      order in a direction that preserves the join structure). Per
+      L-8, canonicalize(join(a, b)) = join(a, b), so monotonicity of
+      the bare join lifts directly to monotonicity of the
+      canonicalize-after-join operation.
+
+    Engines dispatched:
+      lattice (validates per-dimension joins are the max / case_analysis
+        / OR primitives whose monotonicity is enumerated here)
+      monotonicity (per-dimension finite enumeration of the monotonicity
+        property per section_02::verify_l6_lattice_monotonicity)
+
+  Expected:
+    status: valid
+    reason: sec-02 lattice + monotonicity engines discharge L-6 layer (a); per-TF-N monotonicity ships at sec-04

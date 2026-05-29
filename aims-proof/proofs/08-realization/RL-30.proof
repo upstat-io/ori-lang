@@ -1,0 +1,65 @@
+Theorem RL-30: LLVM memory(...) attribute derivation from IC-3 + IC-5
+
+  Preconditions:
+    - RL-30 governs memory(...) export per Annex E §AIMS AIMS -> LLVM
+      Fact Export: effect-based call annotations derived from IC-3
+      ParamContract.access / .may_share + IC-5 EffectSummary. The rule's table
+      maps (may_allocate, may_deallocate, may_share, may_read_inaccessible,
+      param access) to an LLVM memory(...) attribute.
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - Key cases (Annex E §AIMS RL-30): pure (all memory-relevant IC-5
+      false AND all params Cardinality = Absent) -> memory(none); pure
+      read-only (all non-dead params Borrowed + no may_share, no inaccessible
+      read) -> memory(argmem: read); allocating + arg access ->
+      memory(argmem: readwrite, inaccessiblemem: readwrite); pure allocator
+      (no arg access) -> memory(inaccessiblemem: readwrite); deallocating ->
+      memory(inaccessiblemem: readwrite); fallback -> argmem rw +
+      inaccessiblemem rw.
+    - depends-on sec-06: IC-3 ParamContract + IC-5 EffectSummary; VF-2 (d)
+      validates the memory attributes against IC-5 + parameter contracts.
+
+  Soundness property:
+    Forall function f with IC-5 EffectSummary + IC-3 ParamContracts:
+
+      (P1) Attribute derivation: RL-30 selects the memory(...) attribute per
+           the IC-5 + IC-3 case table.
+
+      (P2) Soundness (over-approximation): each emitted memory attribute is an
+           OVER-approximation of f's actual memory effects — it never claims
+           FEWER effects than the contract proves (a pure function gets
+           memory(none) only when IC-5 proves no alloc/dealloc/share/
+           inaccessible-read and no arg access; an allocating function always
+           includes inaccessiblemem: readwrite). LLVM's alias analysis stays
+           sound because the attribute bounds the real effects from above.
+
+    RL-30 refines plain ARC (no memory attributes) by exporting the IC-5
+    effect proof to LLVM, enabling standard LLVM passes to exploit purity.
+
+  Proof obligation:
+    Constructive discharge by the refinement engine via definitional rewriting
+    of the IC-5 + IC-3 inputs to the memory(...) attribute.
+
+    Part (P1/P2) — attribute-derivation grid:
+      pure_no_access_none -> memory(none)
+      pure_readonly_argmem_read -> memory(argmem: read)
+      allocating_arg_access_rw -> memory(argmem: rw, inaccessible: rw)
+      pure_allocator_inaccessible_rw -> memory(inaccessible: rw)
+      deallocating_inaccessible_rw -> memory(inaccessible: rw)
+      Coverage gate: 5 derivations. Negative-direction witness: an allocating
+      function must NOT be marked memory(none) (it accesses inaccessible
+      memory via the allocator) — asserted.
+
+    Engines dispatched:
+      refinement (PRIMARY —
+        section_08::verify_rl30_memory_attribute_derivation; IC-5 + IC-3
+        attribute refinement; emits Fail on an under-approximating attribute)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 refinement engine discharges RL-30 via the memory(...) derivation grid (none / argmem:read / argmem+inaccessible rw / inaccessible rw) refined from IC-5 EffectSummary + IC-3 ParamContract as an over-approximation of actual effects, with a negative-direction witness rejecting memory(none) on an allocating function

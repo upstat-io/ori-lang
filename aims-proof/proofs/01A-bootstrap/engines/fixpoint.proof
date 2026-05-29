@@ -1,0 +1,95 @@
+Theorem CH-106: fixpoint engine bootstrap (IC-7 SCC convergence on 2-function call graph)
+
+  Preconditions:
+    - G is a synthetic 2-function call graph per Annex E §AIMS IC-1 with two functions f and g and a single edge
+      f calls g; G has one SCC of size 1 for each function (no
+      recursion); topological order processes g before f per IC-1
+    - the AimsState dimension under analysis is Access x Consumption
+      per Annex E §AIMS.1 + sec-1.2 (height 1 + height 3 =
+      lattice height 4)
+    - IC-7 convergence bound per the rule's authoritative formula:
+      param_count * 13 + 8 + 6 + 4 (the per-domain heights summed);
+      restricted to the sub-lattice and a 1-param function, the
+      bound is 1 * 4 + 0 + 0 + 0 = 4 iterations
+    - fixpoint engine consumes bounded iteration with explicit
+      termination witness and per-iteration progress measure per
+      the foundational-axiom policy sec-Per-Engine-Constructive-Proof-Shape
+
+  Soundness property:
+    Forall G in synthetic 2-function call graphs over the
+    Access x Consumption sub-lattice.
+      the SCC fixpoint over G converges in at most 4 iterations;
+      the converged ParamContract for f is the LUB of the per-call-site
+      contracts at the f-to-g edge, restricted to the sub-lattice;
+      the convergence is constructive (per L-5 finite-height + IC-7
+      iteration bound).
+
+  Proof obligation:
+    Bounded iteration argument with explicit termination witness.
+
+      Setup:
+        Let the SCC fixpoint maintain a per-function ParamContract
+        for f and for g, each restricted to the Access x Consumption
+        sub-lattice. Initial values per IC-2 are the most-optimistic
+        (Borrowed, Dead) on the sub-lattice.
+
+      Iteration trace (worst case):
+        Iteration 0 (initialization):
+          ParamContract(f) = (Borrowed, Dead); ParamContract(g) = (Borrowed, Dead).
+        Iteration 1 (process g first per IC-1 topological order):
+          g's body has no callees; ParamContract(g) is updated by
+          processing g's body; per IC-3 the join over g's call sites
+          (none in this scaffold-time fixpoint) leaves ParamContract(g)
+          at (Borrowed, Dead).
+          Process f: f calls g once; the call site joins f's argument
+          state into ParamContract(g) per IC-3.
+          ParamContract(g) widens from (Borrowed, Dead) toward the
+          argument state; suppose argument is (Owned, Linear); the
+          join produces (max(Borrowed, Owned), max(Dead, Linear)) =
+          (Owned, Linear).
+        Iteration 2:
+          Re-process g: still no callees; ParamContract(g) stable
+          at (Owned, Linear).
+          Re-process f: f's argument state may have widened if f
+          consumes g's contract; one more pass at most produces a
+          single componentwise widening step.
+        Iteration 3:
+          Same as iteration 2 with no further widening; the
+          fixpoint is reached.
+        Iteration 4 (bound):
+          Iteration 3's output equals iteration 2's output; the
+          convergence check succeeds.
+
+    Progress measure:
+      Define progress(it) = sum over dimensions of the height of
+      the current contract value on that dimension. Per L-5 the
+      sub-lattice has finite height (Access = 1 plus Consumption
+      = 3 = 4). Progress is monotone non-decreasing across
+      iterations (per L-6 monotonicity of the join). The progress
+      measure is bounded above by 4 (the sub-lattice height).
+      Therefore the fixpoint terminates after at most 4 iterations.
+
+    Termination witness:
+      The iteration limit per IC-7 (param_count * 13 plus the
+      domain-heights) bounds the convergence; restricted to one
+      parameter and the Access x Consumption sub-lattice the
+      effective bound is 4 iterations. Beyond iteration 4, the
+      analysis emits a diagnostic per IC-7's "abort with diagnostic"
+      clause; this scaffold-time bootstrap proof exhibits
+      convergence at iteration 3 (one iteration below the bound).
+
+    Lattice validation:
+      L-5 (finite height per dimension) is the substrate for the
+      fixpoint termination argument. L-6 (transfer-function
+      monotonicity) ensures progress is non-decreasing. IC-3's
+      componentwise join is monotone over the partial order on
+      ParamContract per the sub-lattice's componentwise ordering.
+
+    Engines dispatched:
+      fixpoint (bounded iteration; explicit termination witness;
+                per-iteration progress measure; IC-7 convergence
+                bound discharge)
+
+  Expected:
+    status: valid
+    reason: 01A bootstrap discharged via §01A Implementation Items (engine constructive verification + Lean 4 cross-validation)

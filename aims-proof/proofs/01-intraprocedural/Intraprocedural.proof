@@ -1,0 +1,84 @@
+Theorem IA-1: Intraprocedural analysis rule signatures — IA-1 through IA-9
+
+  Preconditions:
+    - Intraprocedural analysis is the per-function backward dataflow producing
+      a converged AimsStateMap per Annex E §AIMS
+    - Step 4 of the AIMS pipeline (analyze_function) runs this analysis
+      per arc.md sec-Pipeline + Annex E §AIMS
+    - Convergence depends on monotone transfer (L-6) + finite chain height
+      per Annex E §AIMS IA-7
+    - 9 IA rules govern direction / ordering / merging / widening / convergence /
+      immortal exclusion per Annex E §AIMS
+
+  Soundness property:
+    IA-1 (backward-direction soundness):
+      type : Function -> AimsStateMap
+      block-entry state is computed from block-exit by walking instructions
+      in reverse; bidirectional interaction with forward TF on per-instruction
+      basis (forward sets definition-time dims; backward accumulates use-time
+      dims).
+
+    IA-2 (reverse postorder traversal):
+      type : Function -> List BlockIndex
+      blocks SHALL be processed in reverse postorder; deterministic ordering
+      independent of hash-map iteration order.
+
+    IA-3 (block exit state = alt_join over successor entries):
+      type : BlockIndex x AimsStateMap -> Map ArcVarId AimsState
+      block_exit_state(B) = alt_join over successor_blocks(B).block_entry_states;
+      terminal blocks (Return / Resume / Unreachable) seeded from TF-11a
+      terminator demands.
+
+    IA-4 (cross-block locality widening):
+      type : AimsStateMap -> AimsStateMap
+      variables flowing across block boundaries SHALL have
+      locality := max(locality, fl) (FunctionLocal).
+
+    IA-5 (per-instruction transfer — two-step):
+      type : AimsState x ArcInstr -> AimsState
+      step (1): backward-transfer-of-forward — transparent alias / borrow /
+                Select / aggregate-builder / non-alias cases handled per
+                Annex E §AIMS IA-5 instruction-type matrix
+      step (2): backward-demand-accumulation per TF-11 — operands receive
+                additive demand via seq_add
+
+    IA-6 (return-value widening):
+      type : AimsStateMap -> AimsStateMap
+      return values widened to (access := O, locality := max(locality, he));
+      applies at Return-instruction points only.
+
+    IA-7 (convergence bound):
+      type : Function -> Int
+      iteration limit = CHAIN_HEIGHT x |variables| x |blocks|,
+        CHAIN_HEIGHT = 16 (sum of dim heights: 1+3+2+2+4+1+3);
+      on exceeded -> widen all to TOP (O, U, omega, s, top, Phi, ALL)
+      (NOTE: uses s for Uniqueness, NOT ms — safety net).
+
+    IA-8 (immortal-variable exclusion):
+      type : Function -> Set ArcVarId
+      immortal vars (heap-allocated constants with MAX_REFCOUNT detected
+      by aims/immortal/ pre-pass) excluded from worklist; treated as scalars.
+
+    IA-9 (N-ary join permutation invariance):
+      type : List AimsState -> AimsState
+      fold order over successor states SHALL NOT affect result;
+      follows from L-1 (commutativity) + L-2 (associativity) of join.
+
+    Closes opencode S01-R0-F3 IA-category-omission finding: §06 dispatch
+    consumes these 9 signatures + sec-06 discharges per-rule theorems
+    (IA-1 through IA-9 in the 124-rule inventory).
+
+  Proof obligation:
+    sorry -- discharged by sec-06 intraprocedural analysis proofs
+            (9 theorems: IA-1 through IA-9)
+
+    Engines dispatched:
+      structural_induction (per-block worklist correctness; instruction-stream
+                            backward walk invariant)
+      fixpoint (convergence proof via CHAIN_HEIGHT bound)
+      case_analysis (per-instruction IA-5 two-step type matrix + IA-3
+                     terminator seeding)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges per-rule IA proofs

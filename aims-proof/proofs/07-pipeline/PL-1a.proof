@@ -1,0 +1,259 @@
+Theorem PL-1a: per-function SCC topological order — the per-function pipeline processes functions callees-before-callers
+
+  Preconditions:
+    - PL-1a statement (per Annex E §AIMS PL-1a + arc.md sec-Pipeline
+      "Pipeline ordering — analyze_program must run before any per-function
+      steps; SCC topological order"): the per-function pipeline (Steps 3-12)
+      SHALL process functions in SCC topological order — callees realized
+      before callers (load-bearing for FipContract Certified, which is a
+      POST-REALIZATION check per Annex E §AIMS IC-6: a caller's FIP
+      certification reads its callees' already-realized contracts).
+    - PL-1a type signature (per Pipeline.proof lines 20-25, the sorry
+      obligation this theorem discharges):
+        type : CallGraph -> List FunctionId
+        Per-function pipeline (Steps 3-12) processes functions in SCC
+        topological order; callees realized before callers.
+    - INDUCTION DOMAIN (per section-07 success-criterion framing, plan
+      Annex E §AIMS §6 07.1): PL-1a reasons over the
+      program CALL-GRAPH SCC DAG — the strongly-connected-component
+      condensation of the call graph, processed in topological order per
+      IC-1 — NOT a literal "pipeline-step DAG". The 12 pipeline steps are
+      the per-function BODY applied at each node of this SCC DAG; PL-1a
+      fixes the ORDER in which the SCC DAG's nodes (functions, grouped by
+      SCC) are visited, not the order of steps within one function.
+    - ANTECEDENT — IC-1 (per Annex E §AIMS IC-1 + the discharged
+      proof at aims-proof/proofs/06-interprocedural/IC-1-scc-topological.proof):
+      scc_decompose(CallGraph) emits the SCC list in FORWARD topological
+      order (callees before callers), proven via Tarjan 1972 Theorem 13 +
+      CLRS 22.16 across IC-1's three conjuncts (P1 partition, P2
+      maximality, P3 forward topological ordering). PL-1a CONSUMES IC-1's
+      ordered SCC list as the iteration order for the per-function
+      pipeline. Without IC-1's topological guarantee, PL-1a's callee-first
+      claim has no foundation.
+    - Shipped engine: the per-function pipeline iterates the function set
+      in the order Step 1's SCC driver fixed. ori_arc::aims::interprocedural::
+      analyze_program (compiler/ori_arc/src/aims/interprocedural/
+      scc_driver.rs lines 33-104) computes
+        let graph = CallGraph::build(functions); (line 39)
+        let sccs = compute_sccs(&graph); (line 40)
+      then processes SCCs in that emitted order:
+        for scc in &sccs { ... } (line 50)
+      analyze callees-before-callers, finalizing each SCC's contracts
+      before the next (recursive SCC: analyze_scc_fixpoint, line 60;
+      non-recursive: analyze_scc_single, line 63). compute_sccs
+      (compiler/ori_arc/src/graph/scc/mod.rs lines 57-77)
+      documents (lines 48-55) "Returns SCCs in forward topological order:
+      leaf SCCs (no outgoing cross-SCC edges) first, root SCCs last ...
+      the correct evaluation order for borrow inference — callee
+      signatures are finalized before any caller is analyzed."
+    - Module-doc contract: ori_arc::aims::interprocedural (mod.rs lines
+      10-13) states "1. Build call graph + Tarjan SCCs ... 2. Process SCCs
+      in topological order (callees before callers)".
+    - SCC = maximal set of mutually-reachable vertices under the call-edge
+      relation; per Tarjan, "Depth-First Search and Linear Graph
+      Algorithms" (SIAM J. Comput., 1972), every directed graph has a
+      unique SCC partition. Topological order = linear extension of the
+      condensation DAG G_scc (Cormen, Leiserson, Rivest, Stein,
+      "Introduction to Algorithms", 3rd ed., sec-22.5).
+
+  Soundness property:
+    Forall CallGraph G of program PROG, let sccs := scc_decompose(G) be
+    IC-1's emitted SCC list and let ITER be the per-function pipeline's
+    function-visitation order (the order Step 1's `for scc in &sccs` loop
+    finalizes contracts, which Steps 3-12 then realize).
+      Two conjuncts SHALL hold:
+
+      (P1) Order-is-a-topological-extension:
+        ITER visits functions grouped by SCC in exactly the position
+        order of `sccs`. For every two distinct SCCs (S_i, S_j) at
+        positions i < j in `sccs`, every function in S_i is visited
+        before every function in S_j.
+
+      (P2) Callees-before-callers:
+        For every directed call edge (caller u -> callee v) in G with
+        scc(u) != scc(v):
+          position(scc(v)) < position(scc(u)) in `sccs`,
+        i.e., the callee's SCC is visited (and its contract finalized)
+        strictly before the caller's SCC. Within a single recursive SCC,
+        mutually-recursive members are co-finalized by the SCC fixpoint
+        (analyze_scc_fixpoint), so no intra-SCC callee-before-caller
+        obligation arises.
+
+  Proof obligation:
+    Two-part constructive discharge corresponding to (P1) and (P2). The
+    induction domain is the program call-graph SCC DAG (per IC-1); the
+    discharge reuses IC-1's Tarjan SCC construction + forward-topological
+    conjunct over the same 9-row call-graph fixture corpus, plus a
+    structural-induction argument that the per-function pipeline inherits
+    that order verbatim.
+
+    Part (P1) — Order-is-a-topological-extension (structural induction on
+    the SCC-DAG condensation):
+
+      Base case — leaf SCCs:
+        A leaf SCC has no outgoing cross-SCC call edge (no member calls a
+        function outside the SCC). Per IC-1 (P3) + Tarjan's natural
+        emission order, leaf SCCs are emitted FIRST in `sccs` (scc/mod.rs
+        lines 48-55). The per-function pipeline visits position 0 first
+        (`for scc in &sccs` begins at index 0, scc_driver.rs line 50).
+        Base case holds: the first-visited SCC has no callee outside
+        itself, so no callee precedes it.
+
+      Inductive step — SCC at position k assuming positions 0..k visited:
+        Assume every SCC at position < k has been visited (contracts
+        finalized). The SCC at position k may call into SCCs at positions
+        < k (its callees, emitted earlier by IC-1 P3) but NOT into SCCs at
+        positions > k (IC-1 P3 forbids a cross-SCC edge from a
+        later-position SCC to an earlier-position SCC; equivalently every
+        callee SCC has a smaller position). By the IH, all of SCC-k's
+        cross-SCC callees are already visited. Visiting SCC-k next extends
+        the topological order by one node. The `for scc in &sccs` loop
+        (scc_driver.rs line 50) advances index 0, 1, 2, ... monotonically,
+        realizing exactly this extension. (P1) discharged by induction over
+        the condensation DAG node count.
+
+    Part (P2) — Callees-before-callers (reduction to IC-1 P3):
+
+      (P2) is IC-1's conjunct (P3) re-stated in iteration-order terms. IC-1
+      (P3) proves: for every cross-SCC edge (u in S_i, v in S_j) with
+      S_i != S_j, position(S_i) < position(S_j) when the edge points from
+      callee-side to caller-side in Tarjan's natural order; equivalently, a
+      caller's SCC has a LARGER position than its callee's SCC (callees
+      first). The per-function pipeline visits SCCs in ascending position
+      order (the `for scc in &sccs` loop), so a callee's SCC (smaller
+      position) is visited strictly before its caller's SCC (larger
+      position). For an intra-SCC edge (caller and callee in the same
+      recursive SCC), analyze_scc_fixpoint (scc_driver.rs lines 125-208)
+      iterates the SCC to a joint fixpoint (line 155 `while changed`), so
+      mutually-recursive members are co-finalized — no callee-before-caller
+      ordering is required or possible within a cycle. (P2) discharged by
+      direct appeal to IC-1 (P3) + the ascending-index loop.
+
+    Coverage gate — corpus enumeration:
+
+      The per-function visitation order is exercised over the SAME 9-row
+      call-graph fixture corpus IC-1 discharges (the corpus is the SSOT for
+      call-graph topological-order coverage; PL-1a verifies the SAME
+      compute_sccs output drives the per-function loop):
+        Row 1: no_functions — empty graph; ITER = [] (vacuous
+                                            P1 + P2)
+        Row 2: single_leaf — one SCC; visited first, no callee
+        Row 3: linear_chain — A -> B -> C; visit order
+                                            {C}, {B}, {A} (callees first)
+        Row 4: simple_cycle — A <-> B; one recursive SCC,
+                                            co-finalized by fixpoint
+        Row 5: diamond — A->B, A->C, B->D, C->D; D first,
+                                            A last (callees before callers)
+        Row 6: self_recursive — A -> A; one self-recursive SCC,
+                                            co-finalized
+        Row 7: mixed_recursive_and_linear — cycle {A,B} + chain feeder;
+                                            callee SCCs first
+        Row 8: topological_order_callees_first — explicit ordering pin:
+                                            cross-SCC edges always go from
+                                            later-position to earlier-position
+        Row 9: all_functions_covered — two disjoint components; every
+                                            function visited in exactly one
+                                            SCC (P1 partition completeness)
+
+      Coverage axes:
+        Topological extension (P1): Rows 1, 2, 9 (empty, singleton,
+          exhaustive partition) + Rows 3, 5 (chain, diamond) — verify ITER
+          groups functions by SCC in ascending position order.
+        Callees-before-callers (P2): Rows 3, 5, 7, 8 (chain, diamond,
+          mixed, explicit pin) — verify every cross-SCC edge points from a
+          larger-position (caller) SCC to a smaller-position (callee) SCC;
+          Rows 4, 6 (cycle, self-loop) verify intra-SCC co-finalization
+          (no ordering obligation within a cycle).
+
+    Negative-direction witness — caller-before-callee rejected:
+
+      Take the linear chain A -> B -> C (Row 3). PL-1a (P2) requires visit
+      order {C}, {B}, {A} — C realized first, A last. Reversing to
+      {A}, {B}, {C} would realize A (the caller) before B (its callee),
+      so A's per-function pipeline (Step 5 realize_rc_reuse, Step 5a
+      verify_fip_contract) would read B's contract before B is realized.
+      Per Annex E §AIMS IC-6, FipContract::Certified is a
+      POST-REALIZATION check (Step 5a) and PL-1a "ensures callees realized
+      before callers"; realizing A first would certify A against an
+      un-realized B contract — a stale-summary hazard per PL-5. The
+      verifier rejects any iteration order placing a caller SCC at a
+      position <= its callee SCC's position.
+
+    Negative-direction witness — partition non-overlap:
+
+      Take the diamond A->B, A->C, B->D, C->D (Row 5). PL-1a (P1) requires
+      four singleton SCCs {A}, {B}, {C}, {D}, each function visited in
+      exactly one SCC. Merging {B} and {C} would visit B and C as one
+      group though B does not reach C and C does not reach B (only common
+      ancestor A and common descendant D) — not a strongly connected
+      component. IC-1 (P2) maximality (inherited as PL-1a's antecedent)
+      separates them; the verifier rejects any visitation grouping that
+      violates the SCC partition.
+
+    Negative-direction witness — empty graph soundness:
+
+      Take G = (V = {}, E = {}) (Row 1). compute_sccs(G) = [] and the
+      per-function loop `for scc in &sccs` (scc_driver.rs line 50) iterates
+      zero times. Both conjuncts hold vacuously: (P1) no SCC pair exists;
+      (P2) no cross-SCC edge exists. This is the IC-7 convergence base
+      case (zero iterations).
+
+    Cycle-soundness witness — PL-1a depends only on IC-1, acyclically:
+
+      PL-1a's order is FIXED by Step 1's SCC driver (scc_driver.rs lines
+      39-50), which runs before any per-function step (PL-1). PL-1a
+      consumes IC-1's topologically-ordered SCC list and adds the
+      iteration-order claim; it produces nothing IC-1 consumes. The
+      dependency chain is acyclic:
+        IC-1 (SCC topological order) --> PL-1a (per-function iteration
+                                          order = IC-1's SCC order)
+        PL-1 (interprocedural-first) --> PL-1a (the per-function loop the
+                                          order applies to runs in the
+                                          suffix PL-1 gates)
+        PL-1a --> IC-6 (FipContract Certified, post-realization, reads
+                                          callee-first realized contracts)
+      PL-1a sits below IC-1 + PL-1 and above IC-6; no cycle.
+
+    Algorithm-citation declaration:
+      algorithm: Tarjan's strongly-connected-components algorithm
+                           + forward-topological condensation order (IC-1
+                           antecedent)
+      published: Tarjan, R. E., "Depth-First Search and Linear
+                           Graph Algorithms", SIAM Journal on Computing,
+                           vol. 1, no. 2, pp. 146-160, June 1972 (SCC
+                           partition + emission order); CLRS 3rd ed.
+                           sec-22.5 Theorem 22.16 (condensation DAG
+                           topological order)
+      complexity: O(|V| + |E|) for the SCC decomposition; the
+                           per-function loop is O(|SCCs|) over that order
+      determinism: deterministic given a deterministic CallGraph
+                           node iteration order; ori_arc::graph::call_graph::
+                           CallGraph preserves insertion order per
+                           Annex E §AIMS PL-5
+      reference impl: ori_arc::aims::interprocedural::analyze_program
+                           (scc_driver.rs lines 33-104: compute_sccs line
+                           40, `for scc in &sccs` line 50) +
+                           ori_arc::graph::scc::compute_sccs (scc/mod.rs
+                           lines 57-77)
+      cross-language Lean 4 src/Lean/Compiler/IR/Borrow.lean uses
+      prior art: Tarjan SCC + topological order for borrow
+                           inference (callee signatures finalized before
+                           callers); cited in arc.md sec-Reference Repos
+
+    Engines dispatched:
+      structural_induction (PRIMARY — structural induction over the program
+        call-graph SCC DAG condensation per section_07::
+        verify_pl1a_scc_topological_order; the verifier reuses IC-1's
+        Tarjan SCC construction + forward-topological conjunct (P3) over the
+        9-row call-graph fixture corpus and discharges (P1)
+        order-is-a-topological-extension via the ascending-index `for scc in
+        &sccs` loop semantics and (P2) callees-before-callers by reduction
+        to IC-1 (P3); emits Fail on any visitation-order violation)
+      case_analysis (SECONDARY — per-SCC-class case grid: leaf SCC /
+        recursive-cycle SCC / self-loop SCC / cross-component partition;
+        gracious-accept once structural_induction has discharged the
+        ordering obligation per the coverage-manifest PL row)
+
+  Expected:
+    status: valid
+    reason: section_07 structural_induction engine discharges PL-1a via structural induction over the program call-graph SCC DAG — (P1) the per-function pipeline visits SCCs in ascending position order (the `for scc in &sccs` loop at scc_driver.rs line 50) and (P2) callees-before-callers reduces to IC-1 conjunct P3, both verified over the 9-row call-graph fixture corpus shared with IC-1 (empty/singleton/chain/cycle/diamond/self-loop/mixed/ordering-pin/partition-pin); shipped order fixed by ori_arc::aims::interprocedural::analyze_program (scc_driver.rs lines 33-104) consuming compute_sccs (scc/mod.rs lines 57-77) per Tarjan 1972 + CLRS 22.16, with case_analysis secondary-accepting per the coverage-manifest PL row

@@ -1,0 +1,97 @@
+Theorem CH-1: Burden-registry-lattice composition soundness
+
+  Preconditions:
+    - F is an ArcFunction in scope of docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
+      sec-04A.2 minimal-lattice-consumer per 00-overview.md DD-3
+    - BR is the burden-registry typed pre-pass output for F
+      (per-variable burden annotations consumed by the consumer
+       per the §04A.2 design)
+    - L is the converged AimsStateMap for F per IA-7
+    - consume_stack(F, BR, L) is the §04A.2 elimination consumer:
+      walks F's instruction stream; for each variable v with burden
+      entries in BR, validates the elimination decision (DP-2 dec
+      unnecessary OR DP-3 inc elidable) against L[v]'s converged
+      lattice state
+    - Lean 4 cross-validation MANDATORY per 00-overview.md MS-4
+      critical-proof set (the Lean 4 cross-validation strategy)
+
+  Soundness property:
+    Forall v in vars(F).
+      consume_stack(F, BR, L)[v] is consistent with L[v] under
+      DP-2 (is_rc_dec_unnecessary) and DP-3 (is_rc_inc_elidable);
+      i.e. no double-counting (burden writes do not race-invalidate
+      elimination decisions);
+      per-class coexistence well-formedness holds (lattice classes +
+      burden classes do not overlap in their elimination claims).
+
+  Proof obligation:
+    Structural induction over F's instruction stream:
+      Base case: F's first instruction.
+        BR pre-pass already populated (typed input per arc.md
+        sec-Non-Negotiable-Invariants invariant 5(c) "typed pre-pass
+        input that lands on AimsStateMap");
+        L's block_entry_states for F.entry seeded by IA backward
+        walk;
+        consume_stack invariant: no elimination decisions emitted
+        before any instruction processed (vacuously true).
+      Inductive step over instruction i_k:
+        Assume consume_stack invariant holds at position k-1.
+        For instruction i_k defining/using v:
+          (a) BR pre-pass entry for v (if any) read from typed
+              side-table (NOT a lattice dimension per arc.md
+              invariant 5);
+          (b) L[v] at position k consulted for canonical state;
+          (c) DP-2 evaluated on L[v]: if is_rc_dec_unnecessary
+              (cardinality = Absent OR consumption = Dead), the
+              burden-registry SHALL agree (no burden write for
+              this v at this point);
+          (d) DP-3 evaluated on L[v]: if is_rc_inc_elidable
+              (cardinality = 1 AND consumption = L), the
+              burden-registry SHALL agree;
+          (e) on disagreement, consume_stack returns an
+              inconsistency diagnostic (this CH-1 theorem proves
+              no inconsistency arises under well-formed BR + L).
+
+    Interprocedural summary (burden-registry-as-typed-pre-pass +
+    DP-2/DP-3 elimination contract):
+      BR is computed by a pass that depends on AimsStateMap L
+      (per the §04A.2 design); the pass is acyclic w.r.t. L
+      (BR pre-pass reads L, not vice versa);
+      no fixpoint cycle between BR and L;
+      contract: BR's writes are sound w.r.t. L's converged state.
+
+    Case analysis on per-class coexistence well-formedness
+    (lattice class C_L vs burden class C_B):
+      Case C_L disjoint from C_B (no variable v in both):
+        Trivially well-formed; no overlap; no race.
+      Case v in both C_L and C_B:
+        C_L (lattice class) records v's canonical lattice state;
+        C_B (burden class) records v's burden annotation;
+        Well-formedness: BR's annotation for v must be consistent
+        with L[v]'s elimination decision per DP-2 + DP-3;
+        Inconsistency = CH-1 violation = §04A.2 design bug.
+
+    Lattice composition (sec-02 lattice transfer composition):
+      Per sec-02, lattice transfer functions compose per L-6
+      monotonicity; consume_stack walks the instruction stream
+      with both L (lattice) and BR (burden) inputs, applying
+      DP-2 / DP-3 at each variable's use point;
+      composition is sound because L and BR are independent typed
+      inputs to consume_stack (no shared mutable state).
+
+    Engines dispatched:
+      structural_induction (instruction-stream walk + per-instruction
+                            invariant maintenance for consume_stack)
+      interprocedural_summary (BR-as-typed-pre-pass + DP-2/DP-3
+                               elimination contract; SCC topological
+                               order if F's CH burden depends on
+                               callees' contracts)
+      case_analysis (per-class coexistence well-formedness branches
+                     + DP-2/DP-3 disagreement vs agreement)
+      lattice (sec-02 lattice transfer composition; L's
+               per-dimension canonicalization preserved by
+               consume_stack's read-only access)
+
+  Expected:
+    status: valid
+    reason: sec-11 section_11 engine discharges CH-shape; structural_induction + interprocedural_summary + case_analysis + lattice (PRIMARY by CH-N) + refinement + rc_counting + monotonicity + fixpoint (SECONDARY gracious-accept) constructively verify the coexistence-handshake composition per the sec-11.0 Per-CH Proof-Status Tracking table

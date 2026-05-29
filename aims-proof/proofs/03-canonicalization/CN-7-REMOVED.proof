@@ -1,0 +1,29 @@
+Theorem CN-7-REMOVED: cow_mode is DP-9 query result not lattice state mutation
+
+  Preconditions:
+    - Annex E §AIMS CN-7 removal note: cow_mode is decision-predicate
+      result (DP-9 per sec-4), not lattice state mutation
+    - Former CN-7: Shared + CollectionBuffer COW-mode assignment
+
+  Soundness property:
+    DP-9 truth table is total over Uniqueness x can_mutate; covers
+    Shared + CollectionBuffer to StaticShared without CN rule firing.
+
+  Proof obligation:
+    Verify DP-9 truth table:
+      Unique + can_mutate(true) to StaticUnique
+      Unique + can_mutate(false) to StaticShared
+      MaybeShared + (any) to Dynamic (or StaticUnique via IC-3)
+      Shared to StaticShared
+    The Shared+CollectionBuffer case routes to StaticShared via DP-9
+    Uniqueness=Shared row without lattice state mutation. CN-7 removal
+    is sound because the lattice was never the right home for this
+    decision-predicate query.
+
+    Engines dispatched:
+      case_analysis (DP-9 truth-table totality check per
+        section_03::verify_cn7_removed_is_sound)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-7-REMOVED via DP-9 truth-table totality check

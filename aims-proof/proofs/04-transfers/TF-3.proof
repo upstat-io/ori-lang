@@ -1,0 +1,67 @@
+Theorem TF-3: Construct transfer produces FRESH(shape_from_ctor)
+
+  Preconditions:
+    - Instruction is `Construct { ty, ctor, args }` per Annex E §AIMS TF-3
+    - `ctor` ranges over the constructor kinds enumerated in §3 TF-3 +
+      Appendix A row 4: Struct / EnumVariant / ListLiteral / SetLiteral /
+      MapLiteral / Tuple / Closure
+    - FRESH(shape) = `(Owned, Linear, Once, Unique, BlockLocal, shape,
+      {may_alloc=true})` per §3 TF-3 + Appendix A row 4
+
+  Soundness property:
+    Forall ctor in {Struct, EnumVariant, ListLiteral, SetLiteral, MapLiteral,
+                    Tuple, Closure}.
+      transfer_tf3(Construct { ctor, _ }) = FRESH(shape_from_ctor(ctor))
+    AND L-6 layer (b) monotonicity holds: TF-3 depends ONLY on the static
+    ctor token, not on input state; per-ctor f(_) = FRESH(shape) is constant.
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Shape mapping enumeration — for each ctor kind, the forward
+          transfer rule maps to FRESH with the canonical shape per §3 TF-3:
+            Struct -> ReusableCtor(Struct) [engine name: ReusableStruct]
+            EnumVariant -> ReusableCtor(EnumVariant) [engine: ReusableEnum]
+            ListLiteral -> CollectionBuffer
+            SetLiteral -> CollectionBuffer
+            MapLiteral -> CollectionBuffer
+            Tuple -> NonReusable
+            Closure -> NonReusable
+          Other 6 per-dimension columns are constants: Owned / Linear / Once
+          / Unique / BlockLocal / Effect={may_alloc=true} = 0b001.
+      (b) L-6 layer (b) monotonicity — TF-3 is per-ctor constant: for fixed
+          ctor token, f(_) = FRESH(shape). For ANY pair of input states
+          (a, b) with a ≤ b, f(a) = f(b) = FRESH(shape), hence f(a) ≤ f(b)
+          by L-4 reflexivity.
+
+    Part (a) — ctor enumeration (7 kinds per §3 TF-3):
+      Struct + EnumVariant: nominal type allocations, reusable shape lets
+        downstream Reset/Reuse fire (DP-6 + RL-11).
+      ListLiteral / SetLiteral / MapLiteral: collection allocations, all
+        share the CollectionBuffer shape — distinct from ReusableCtor and
+        from NonReusable per Annex E §AIMS Shape lattice.
+      Tuple / Closure: NonReusable because tuples have no nominal type-id
+        for reuse matching and closures carry environment-shape variance.
+      All 7 ctors produce FRESH heap allocation (RC = 1, Unique). Effect =
+      {may_alloc=true, may_share=false, may_throw=false} = 0b001 per §1.7.
+
+    Part (b) — per-ctor constant-function monotonicity:
+      For fixed ctor, TF-3 emits FRESH(shape_from_ctor(ctor)) — a constant
+      function on its input state. Per L-4 reflexivity:
+        FRESH(shape) ≤ FRESH(shape) holds (componentwise on the product
+        lattice — every dimension reflexively comparable).
+      Verified via product_le(fresh(shape), fresh(shape)) = Some(true) for
+      each of the 4 distinct shapes emitted (ReusableStruct, ReusableEnum,
+      CollectionBuffer, NonReusable).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-ctor constant-function check
+        per section_04::verify_tf3_construct_fresh)
+      case_analysis (PRIMARY — Appendix A row 4 forward-transfer enumeration
+        across 7 ctor kinds per section_04::verify_tf3_construct_fresh)
+      lattice (SECONDARY — accepts gracefully; product-order discharged §02)
+      refinement (SECONDARY — accepts gracefully; TF-3 emits FRESH directly,
+        not via refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-3 via 7-ctor enumeration with canonical shape mapping + per-ctor constant-function monotonicity check

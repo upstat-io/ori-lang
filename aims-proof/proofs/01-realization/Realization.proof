@@ -1,0 +1,158 @@
+Theorem RL-1: Realization rule signatures — RL-1 through RL-34 + RL-13 confirmation-of-removal
+
+  Preconditions:
+    - Realization rules govern RC emission / COW / reuse / stack promotion /
+      header compression / non-atomic RC / KnownSafe + PRE motion / selective
+      barriers / LLVM fact export / borrow inference per Annex E §AIMS
+    - All RL rules have signature ArcFunction x AimsStateMap -> ArcFunction
+      per the canonical proof notation:264
+    - 37 active RL theorems (RL-1 through RL-34 minus RL-13-REMOVED, plus
+      RL-11a / RL-14a / RL-15a / RL-18a sub-rules) per the section
+      inventory table (line 108)
+    - RL-13 was REMOVED from Annex E §AIMS (same root cause as DP-10)
+    - RL-31 (type-level disjointness) requires cross-call-site
+      provenance-summary parameter per Annex E §AIMS RL-31
+
+  Soundness property:
+    Common type signature for all RL rules (per the canonical proof notation:264):
+
+      RL-N : ArcFunction x AimsStateMap -> ArcFunction
+
+    RC emission cluster (RL-1 through RL-5):
+      RL-1 RC inc emission when value duplicated (passed to Owned param
+             while still live)
+      RL-2 RC dec emission at last use of owned value or scope exit;
+             excludes ownership-transferring uses; includes UNUSED-owned
+             definitional cleanup for Dead/Absent
+      RL-3 RC ops elided when lattice proves unnecessary (via DP-2, DP-3, DP-7)
+      RL-4 edge-specific decs on CFG edges with Jump-arg exemption
+      RL-5 dead-at-entry cleanup for Owned non-scalar block-params with
+             Cardinality = absent
+
+    COW cluster (RL-6 through RL-10):
+      RL-6 static unique mutation (Uniqueness = u): in-place, no IsShared
+      RL-7 dynamic COW (Uniqueness = ms): IsShared check + branch
+      RL-8 static shared mutation (Uniqueness = s): unconditional copy
+      RL-9 COW compound contraction (diamond -> single instruction)
+      RL-10 disjoint field mutation: NO COW when field-disjoint borrows
+             (DP-5 field-aware disjointness; SetTag conservatively blocks)
+
+    Allocation reuse cluster (RL-11 through RL-12, minus RL-13-REMOVED):
+      RL-11 same-block reuse: Reset + Reuse pairing per Annex E §AIMS
+             RL-11 conditions (a, b, c)
+      RL-11a dynamic reuse for MaybeShared: IsShared check; unique fast path,
+             shared fresh-allocation slow path
+      RL-12 cross-block reuse with dominance / post-dominance + same
+             innermost loop header + no-throw constraints
+
+    Stack promotion cluster (RL-14 through RL-16):
+      RL-14 non-escaping unique allocations: alloca, no header, no RC,
+             field-level RcDec for Owned heap children at scope exit
+      RL-14a non-escaping fixed-size non-unique: alloca with MAX_REFCOUNT
+             header (immortal); heap children per RL-14
+      RL-15 non-escaping dynamic-size: function-local bump allocator;
+             bump region freed at function return
+      RL-15a ArgEscaping: caller-stack allocation with conservative
+             header semantics per callee parameter contract
+             (Borrowed+Unique+may_share=false: headerless;
+              Borrowed!=Unique: immortal header;
+              Owned: immortal header;
+              closure capture handled by CN-8 demotion)
+      RL-16 escaping (locality >= he): full heap allocation with RC header
+
+    RC header compression cluster (RL-17 through RL-18):
+      RL-17 sharing-bound analysis: is_local(s) AND u -> no header;
+             straight-line N incs -> Bounded(N+1);
+             loops / recursion / global -> Unbounded
+      RL-18 header width narrowing per RL-17 result:
+             Unique -> none; Bounded <=127 -> i8;
+             <=32767 -> i16; <=2^31-1 -> i32; Unbounded -> i64;
+             ABI-visible types always full-width
+
+    Unified representation constraint:
+      RL-18a all escape-driven decisions consume Locality as primary input;
+             thread-boundary analysis is DERIVED, not separate per-variable
+             escape dimension
+
+    Non-atomic RC cluster (RL-19 through RL-21):
+      RL-19 thread-local values: non-atomic RC (plain load/store)
+      RL-20 thread-shared values: atomic RC
+      RL-21 no-spawn-no-FFI program: ALL non-atomic
+
+    KnownSafe + PRE-style RC motion cluster (RL-22 through RL-26):
+      RL-22 KnownSafe pair elimination when physical RC provably positive
+      RL-23 KnownSafe flag propagation at joins (AND across predecessors)
+      RL-24 bidirectional dataflow identifies matching (Inc, Dec) pairs
+             across blocks
+      RL-25 pair eliminable when KnownSafe = true OR both paths safe AND
+             no CFG hazard
+      RL-26 RC motion forbidden across observable barriers per Annex E §AIMS
+             RL-26 (calls to Owned / may_share=true params; IsShared;
+              Set / SetTag on aggregate containing v)
+
+    Selective barriers cluster (RL-27 through RL-28):
+      RL-27 RC flush at call sites when callee params Owned + non-Dead OR
+             Borrowed + may_share=true
+      RL-28 unknown callees: conservative flush of all pending RC ops
+
+    AIMS -> LLVM fact export cluster (RL-29 through RL-31):
+      RL-29 fresh allocation returns (preserves_freshness=true AND
+             uniqueness=u): LLVM noalias marker
+      RL-30 effect-based call annotations per IC-3 + IC-5;
+             pure calls: memory(none);
+             pure read-only: memory(argmem: read);
+             allocating + arg-access: memory(argmem: readwrite,
+              inaccessiblemem: readwrite);
+             deallocating: memory(inaccessiblemem: readwrite);
+             fallback: argmem: readwrite + inaccessiblemem: readwrite
+      RL-31 disjoint Borrowed parameters: !alias.scope + !noalias metadata
+             pairs; cross-call-site provenance-summary parameter required
+             (cross-function alias-disjointness proof from borrow_sources +
+              project_alias_sources at each call site) — VF-2 (b) consumes
+             this; sec-04B C5 CRITICAL criterion
+
+    Borrow inference cluster (RL-32 through RL-34):
+      RL-32 all non-scalar parameters initialize Borrowed; fixpoint promotes
+             to Owned based on demand
+      RL-33 projection propagation: projected field Owned -> source promoted
+             Owned
+      RL-34 tail call preservation: no RcDec after tail call; transfer
+             ownership when callee Owned; cannot tail-call Borrowed unless
+             dec arranged
+
+    RL-13 confirmation-of-removal entry:
+
+      RL-13 — Construct + Once does NOT imply RC == 1 at death (REMOVED)
+
+      Removed in: Annex E §AIMS RL-13 removal note
+        (same root cause as DP-10)
+
+      Root cause: one use may be "store into data structure" (creates alias
+        via RcInc); Construct + Cardinality=Once alone does not guarantee
+        RC == 1 at death.
+
+      Subsumed by:
+        - Uniqueness dimension (sec-1.4) as direct source of truth for
+          reuse eligibility
+        - DP-6 + RL-11 + RL-12 reuse-candidate gating via Uniqueness
+
+      No theorem skeleton to discharge; this is a CONFIRMATION entry only.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization-rule proofs
+            (37 active theorems: RL-1 through RL-34 minus RL-13-REMOVED,
+             plus RL-11a / RL-14a / RL-15a / RL-18a sub-rules
+             + RL-13 confirmation entry)
+
+    Engines dispatched:
+      rc_counting (RL-1 through RL-5 RC emission balance; RL-22 through
+                   RL-26 KnownSafe + PRE motion soundness)
+      refinement (RL-29 / RL-30 / RL-31 LLVM fact export validation against
+                  IC-3 + IC-5 contract refinement)
+      case_analysis (per-rule cluster discharge: COW + reuse + stack-promotion
+                     + header-compression + non-atomic-RC + selective-barriers +
+                     borrow-inference)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges per-rule RL proofs

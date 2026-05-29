@@ -1,0 +1,110 @@
+Theorem TF-1: Side-table domain types — borrow_sources, project_alias_sources, Return Provenance
+
+  Preconditions:
+    - Auxiliary side tables carry per-variable provenance the lattice
+      cannot express per Annex E §AIMS.9
+    - Side tables are NOT lattice dimensions; they are typed pre-pass
+      or intra-pass annotations consumed by specific DP / TF / RL rules
+    - borrow_sources populated by TF-4 (Project) per Annex E §AIMS
+    - project_alias_sources populated by the 7-rule construction
+      per Annex E §AIMS.9
+    - Return Provenance extracted per-instruction per Annex E §AIMS.9
+      ReturnContract 4-tuple table
+
+  Soundness property:
+    borrow_sources type:
+
+      borrow_sources : ArcVarId -> BorrowSource
+
+      BorrowSource = <
+        source: ArcVarId,
+        path: List Int
+      >
+
+      Population invariant: every Project instruction creates exactly one
+        borrow_sources entry; no other instruction creates entries;
+        read-only after intraprocedural analysis.
+
+      Source field traces through Let Var aliases via root(src) per
+        Annex E §AIMS.9; path field is the FULL projection path
+        from root (field-index list).
+
+      Consumers per Annex E §AIMS.9:
+        - DP-5: queries borrow_sources for active overlapping borrows
+                + project_alias_sources for transitive live aliases
+        - TF-14: projected variable locality widening propagates to
+                borrow source
+
+    project_alias_sources type:
+
+      project_alias_sources : ArcVarId -> List ArcVarId
+
+      Construction (precomputed once; 7 rules per Annex E §AIMS.9):
+        R1: direct Project destinations -> Project root sources
+            (tracing through Let Var aliases via root(src))
+        R2: Let aliases (a = Let Var(b)) -> a maps to [b] union sources(b)
+        R3: Jump-arg -> block-param transitive aliasing
+        R4: CFG merge union sources from all predecessor Jump args
+            tracing to different roots
+        R5: Select aliases (dst = Select(cond, tA, fA)) ->
+            dst maps to [tA, fA] union sources(tA) union sources(fA)
+        R6: Transitive closure for nested Projects
+        R7: Set / SetTag mutation tracking preserves prior aliases;
+            no new alias entry created (in-place; no dst)
+
+      Consumer: propagate_project_source_demand() per TF-14;
+        invoked on every backward worklist iteration; widens
+        src.cardinality (seq_add) + src.locality (max) per Annex E §AIMS.9 Consumer rule for BORROW entries (R1, R6 only).
+        Non-borrow aliases (R2, R3, R5, R7) do NOT trigger
+        propagate_project_source_demand(); they exist for DP-5 safety
+        check only.
+
+    Return Provenance per-instruction extraction table:
+
+      Per Return value, trace structurally (NOT via AimsStateMap) through
+      definitions; classify along 4 dimensions:
+        <uniqueness: Uniqueness, preserves_freshness: Bool,
+         locality: Locality, shape: Shape>
+
+      Per Annex E §AIMS.9 (17-row table):
+        Construct -> (u, true, bl, shape_from_ctor)
+        Reuse -> (u, true, bl, inherited)
+        CollectionReuse -> (u, true, bl, C)
+        PartialApply -> (u, true, bl, Phi)
+        Apply / Invoke (Unique contract) -> inherited
+        Apply / Invoke (non-Unique contract) -> callee's contract values
+        Apply / Invoke (no contract) -> (ms, false, top, Phi)
+        ApplyIndirect / InvokeIndirect -> (ms, false, top, Phi)
+        Project -> (ms, false, he, Phi)
+        IsShared / Reset -> SCALAR (excluded)
+        Let Literal / Let PrimOp -> SCALAR (excluded)
+        Let Var(v) -> follow v
+        Select <t, f> -> per-dim join with
+                                                     scalar exclusion
+        Parameter (or via Let chain) -> (ms, false, he, Phi)
+        Unresolvable -> (ms, false, top, Phi)
+
+      All return paths joined per IC-4:
+        uniqueness(join), preserves_freshness(AND), locality(join), shape(join)
+
+      Pre-widening escape state validation: downgrade Unique -> MaybeShared
+        and preserves_freshness -> false when returned variable has
+        escaping use BEFORE Return point per Annex E §AIMS.9
+        Validation clause.
+
+  Proof obligation:
+    sorry -- discharged by sec-04 (TF-14 + IA-5 step (1) alias-transfer proofs)
+            + sec-05 (DP-5 alias-overlap proofs) + sec-06 (IC-4 return-contract
+            extraction proofs)
+
+    Engines dispatched:
+      case_analysis (per-rule construction R1-R7 + per-instruction extraction
+                     17-row table)
+      monotonicity (validates side-table widening preserves L-6 in
+                    AimsStateMap consumers)
+      lattice (validates project_alias_sources union + Return Provenance
+               IC-4 join soundness)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 + sec-05 + sec-06 discharge side-table consumer proofs

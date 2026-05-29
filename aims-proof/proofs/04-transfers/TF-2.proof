@@ -1,0 +1,52 @@
+Theorem TF-2: Variable binding transfer is transparent identity
+
+  Preconditions:
+    - Instruction is `Let { Var(v) }` per Annex E §AIMS TF-2
+    - `state(v)` is `v`'s current AimsState in the per-function state map
+    - Identity function on AimsState: f(s) = s
+
+  Soundness property:
+    Forall s in AimsState. transfer_tf2(Let { Var(v) }) where state(v) = s
+    yields dst.state = s (transparent alias).
+    L-6 layer (b) monotonicity: forall a, b in AimsState. a ≤ b ⟹ f(a) ≤ f(b).
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Identity preservation — TF-2 specifies `dst.state := state(v)`;
+          no per-dimension transformation. Both SCALAR and non-SCALAR inputs
+          pass through unchanged.
+      (b) Monotonicity of identity — the identity function id(s) = s is
+          monotone on every partial order by definition: a ≤ b ⟹ a ≤ b
+          (the conclusion IS the hypothesis).
+
+    Part (a) — input enumeration:
+      SCALAR input: id(SCALAR) = SCALAR — sentinel preserved.
+      Non-SCALAR input: id(state) = state on all 7 per-dimension carriers
+        (Access x Consumption x Cardinality x Uniqueness x Locality x Shape
+        x Effect = 14,400-state product per Annex E §AIMS carriers).
+      Representative finite enumeration discharged on 3 pair samples:
+        - (FRESH(ReusableStruct), CONSERVATIVE) — fresh ≤ conservative
+        - (FRESH(CollectionBuffer), FRESH(CollectionBuffer)) — reflexive
+        - ((Borrowed, Linear, Once, Unique, BlockLocal, NonReusable, NONE),
+           CONSERVATIVE) — borrow ≤ conservative
+
+    Part (b) — monotonicity:
+      For any partial order ≤ and identity function id: a ≤ b ⟹ id(a) ≤ id(b)
+      ⟺ a ≤ b ⟹ a ≤ b. Tautological.
+      Concrete enumeration: for each (a, b) pair in part (a), verify
+        product_le(transfer_tf2(a), transfer_tf2(b)) = Some(true).
+      Engine confirms via product-lattice componentwise comparison on the
+      7 carriers (5 totally-ordered + Shape flat + Effect componentwise-OR).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) identity-function discharge per
+        section_04::verify_tf2_var_alias — identity preserves ≤ trivially)
+      case_analysis (PRIMARY — input-shape enumeration: SCALAR + non-SCALAR
+        sample pairs per section_04::verify_tf2_var_alias)
+      lattice (SECONDARY — accepts gracefully; product-order primitives
+        discharged at L-1..L-6 layer (a) in §02)
+      refinement (SECONDARY — accepts gracefully; TF-6 / TF-6a only)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-2 via identity-function preservation + product-order componentwise check

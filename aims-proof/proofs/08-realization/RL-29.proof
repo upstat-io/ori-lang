@@ -1,0 +1,58 @@
+Theorem RL-29: LLVM noalias under preserves_freshness AND Unique
+
+  Preconditions:
+    - RL-29 governs noalias export per Annex E §AIMS AIMS -> LLVM Fact
+      Export: "Fresh allocation returns (ReturnContract.preserves_freshness =
+      true AND ReturnContract.uniqueness = Unique) SHALL be marked LLVM
+      noalias. Gate = preserves_freshness, NOT uniqueness alone — a Unique
+      parameter passthrough may alias the caller's copy."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - This is a refinement of the IC-4 ReturnContract: the noalias attribute
+      is sound iff the contract proves the return is freshly allocated.
+    - depends-on sec-06: IC-4 ReturnContract.preserves_freshness +
+      .uniqueness; VF-2 (c) validates noalias against the ReturnContract.
+
+  Soundness property:
+    Forall function return value r with ReturnContract (preserves_freshness,
+    uniqueness):
+
+      (P1) Emission decision: RL-29 marks r noalias iff preserves_freshness =
+           true AND uniqueness = Unique.
+
+      (P2) Soundness (refinement of IC-4): preserves_freshness proves r is
+           produced by a fresh allocation (or a callee whose return contract
+           also preserves freshness), so the returned pointer aliases NOTHING
+           the caller already holds — the noalias attribute is sound. A
+           Unique-but-not-fresh return (a parameter passthrough) may alias the
+           caller's copy, so uniqueness alone is INSUFFICIENT — the
+           preserves_freshness gate is load-bearing.
+
+    RL-29 refines plain ARC (which marks nothing noalias) by exporting the
+    AIMS freshness proof to LLVM as a noalias fact the optimizer exploits.
+
+  Proof obligation:
+    Constructive discharge by the refinement engine via definitional rewriting
+    of the noalias condition against the IC-4 ReturnContract.
+
+    Part (P1/P2) — noalias-emission grid:
+      fresh_unique_noalias -> noalias
+      unique_not_fresh_no_noalias -> NO noalias (passthrough may alias)
+      fresh_maybeshared_no_noalias -> NO noalias
+      Coverage gate: 3 decisions. Negative-direction witness: a
+      Unique-but-not-fresh (passthrough) return must NOT be marked noalias —
+      asserted (the load-bearing preserves_freshness distinction).
+
+    Engines dispatched:
+      refinement (PRIMARY — section_08::verify_rl29_noalias_fresh_unique;
+        noalias-condition refinement against IC-4; emits Fail on an unsound
+        noalias emission)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 refinement engine discharges RL-29 via the noalias-emission gate (preserves_freshness AND Unique) refined against the IC-4 ReturnContract, with a negative-direction witness confirming uniqueness alone is insufficient (a Unique-but-not-fresh passthrough may alias the caller's copy)

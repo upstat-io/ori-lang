@@ -1,0 +1,94 @@
+Theorem L-8: Canonicalization preserves joins
+
+  Preconditions:
+    - canonicalize per Annex E §AIMS (CN-1, CN-2, CN-3, CN-5,
+      CN-6, CN-8 active; CN-4 and CN-7 REMOVED)
+    - join is the product-lattice componentwise join per Annex E §AIMS
+    - L-8 (join preservation) per Annex E §AIMS.8 L-8
+
+  Soundness property:
+    Forall a, b in AimsState. canonicalize(join(a, b)) = join(a, b)
+
+    Equivalent (sec-2 strong form): canonicalize commutes with join on
+    canonical inputs:
+      Forall canonical a, b. canonicalize(join(a, b)) =
+        join(canonicalize(a), canonicalize(b)) = join(a, b)
+
+  Proof obligation:
+    Two layers:
+      (a) the joined state join(a, b) is already canonical when a and b
+          are themselves canonical;
+      (b) canonicalize on a canonical input is the identity (special
+          case of L-7 idempotence).
+
+    Layer (a) — join preserves canonical form:
+
+    Per-CN-rule preservation enumeration:
+      CN-1 (Dead <-> Absent):
+        if a and b each satisfy CN-1 (Dead iff Absent on each side),
+        then join(a, b) per dimension takes the max — for Consumption
+        max(Dead, X) = X and for Cardinality max(Absent, Y) = Y; so
+        if either input is (Dead, Absent), the join inherits the
+        other's (Consumption, Cardinality) coordinate, which is itself
+        CN-1-canonical. Per-pair enumeration over the 12 (Consumption,
+        Cardinality) combinations confirms join stays CN-1-canonical
+        when both inputs are.
+      CN-3 (Shared blocks reuse):
+        if a and b each satisfy CN-3 (Uniqueness = Shared implies
+        Shape = NonReusable), then join Uniqueness = max(a.u, b.u);
+        if the joined Uniqueness is Shared (one side or both were
+        Shared), then the joined Shape = case_analysis on Shape (flat
+        lattice with Phi absorbing); the inputs' Shapes were already
+        NonReusable, so the joined Shape is NonReusable (case:
+        equal -> NonReusable). CN-3 holds.
+      CN-5 (Unique + Dead preserves reusable shape):
+        invariant rule; no mutation; trivially preserved.
+      CN-6 (Wide-locality uniqueness ceiling):
+        if a and b each satisfy CN-6 (Locality >= HeapEscaping implies
+        Uniqueness != Unique), then joined Locality = max(a.loc, b.loc);
+        joined Uniqueness = max(a.u, b.u). If joined Locality reaches
+        HeapEscaping, at least one input had Locality >= HeapEscaping,
+        which forced that input's Uniqueness to non-Unique by CN-6;
+        max with a non-Unique element yields non-Unique. CN-6 holds.
+      CN-8 (Borrowed locality ceiling):
+        if a and b each satisfy CN-8 (Borrowed implies Locality <=
+        FunctionLocal), then joined Access = max(a.acc, b.acc); joined
+        Locality = max(a.loc, b.loc). If joined Access is Borrowed,
+        BOTH inputs had Borrowed (because Borrowed < Owned and
+        max-of-totally-ordered-chain takes the greater); both had
+        Locality <= FunctionLocal by CN-8; max stays <= FunctionLocal.
+        CN-8 holds.
+
+    Per-rule pair enumeration count:
+      CN-1: 12 * 12 = 144 (Consumption x Cardinality squared)
+      CN-3: 15 * 15 = 225 (Uniqueness x Shape squared)
+      CN-6: 15 * 15 = 225 (Locality x Uniqueness squared)
+      CN-8: 10 * 10 = 100 (Access x Locality squared)
+      CN-2 + CN-5: subsumed / invariant — trivially preserved.
+
+    Layer (b) — canonicalize on canonical input is identity:
+      Direct from L-7: canonicalize(canonical) = canonical. Therefore
+      canonicalize(join(canonical a, canonical b)) =
+      canonicalize(join(a, b)) = join(a, b) (by Layer (a)).
+
+    Lift to general (non-canonical) inputs:
+      For arbitrary a, b: canonicalize is applied at join-emission time
+      in every TF-N rule per sec-3; converged AimsStateMap entries are
+      always canonical. The proof obligation as stated assumes the
+      joined state appears in a canonical-input context per the
+      pipeline ordering sec-7 PL-1 through PL-6. Sec-04 transfer
+      function proofs discharge the per-TF-N canonical-output
+      obligation that supplies L-8 with canonical inputs.
+
+    Sentinel handling per L-9: SCALAR pre-filtered before join.
+
+    Engines dispatched:
+      lattice (per-CN-rule preservation enumeration per
+        section_02::verify_l8_canonicalize_preserves_joins)
+      monotonicity (validates each CN-N rewrite preserves the join's
+        monotone progression — joined value is the same or higher in
+        the partial order vs either input)
+
+  Expected:
+    status: valid
+    reason: sec-02 lattice engine discharges L-8 via per-CN-rule join-preservation enumeration + L-7 idempotence composition

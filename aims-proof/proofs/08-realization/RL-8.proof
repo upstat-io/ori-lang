@@ -1,0 +1,64 @@
+Theorem RL-8: static shared mutation (Uniqueness = Shared) — unconditional copy
+
+  Preconditions:
+    - RL-8 governs static-shared COW per Annex E §AIMS COW: "Static
+      shared mutation (Shared): emit unconditional copy."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - DP-9 cow_mode: Shared -> StaticShared (unconditional copy). DP-5
+      (can_mutate_in_place) is false for any Shared value (it requires
+      Uniqueness = Unique), so in-place is never selected.
+    - Shipped: realize/decide.rs::decide_annotations + emit_rc/cow.rs.
+    - depends-on sec-05: DP-5 (can_mutate_in_place) + DP-9 (cow_mode).
+
+  Soundness property:
+    Forall owned value v with Uniqueness(v) = Shared at a mutation point:
+
+      (P1) Mode decision: RL-8 selects StaticShared (unconditional copy)
+           regardless of borrow state. can_mutate_in_place(v) is false for
+           every Shared value (DP-5 requires Unique), so in-place is never
+           chosen.
+
+      (P2) Value-semantics preservation: when RC > 1 is statically proven,
+           at least one other live reference exists; an in-place write would
+           corrupt it. The unconditional copy isolates the mutation to a
+           fresh allocation, preserving every other reference's observed
+           value.
+
+    RL-8 refines plain ARC by skipping the (statically-known-true) runtime
+    IsShared check on a provably-Shared value — the check would always take
+    the copy branch, so the copy is emitted directly.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine.
+
+    Part (P1/P2) — Shared-mutation mode + soundness:
+      The verifier asserts, for both borrow states (no-borrow and
+      active-borrow), that:
+        * can_mutate_in_place is false for the Shared value (DP-5 requires
+          Unique), and
+        * DP-9 selects StaticShared, and
+        * the StaticShared copy preserves value semantics.
+      Coverage gate: 2 borrow-state cases.
+
+    Negative-direction witness (REJECTED):
+      A StaticUnique (in-place) selection on a Shared value is NOT
+      value-semantics-preserving — the other live reference would observe
+      the in-place write. The soundness predicate
+      cow_mode_preserves_value_semantics REFUSES it; the verifier asserts
+      the refusal.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl8_static_shared_mutation;
+        Shared-mode enumeration + DP-5 in-place-refusal + per-case
+        value-semantics check; emits Fail on a wrong mode or an unsound
+        in-place acceptance)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-8 via the Shared-mutation mode enumeration (DP-5 refuses in-place for any Shared value; DP-9 selects StaticShared unconditional copy across both borrow states) with a per-case value-semantics-preservation check and a negative-direction witness rejecting in-place on a Shared value, grounded in the shipped realize/decide.rs decide_annotations COW decision

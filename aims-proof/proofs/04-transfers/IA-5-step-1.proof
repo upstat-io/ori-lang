@@ -1,0 +1,172 @@
+Theorem IA-5-step-1: Intraprocedural alias-transfer soundness (6-case enumeration)
+
+  Preconditions:
+    - Per Annex E §AIMS IA-5 step (1) clause: "backward transfer of
+      forward" — destination's accumulated demand transfers to source via
+      seq_add for Cardinality + Consumption + max for Locality
+    - Six instruction-shape cases per §6 IA-5 statement:
+        (a) Let { Var(v) } — transparent alias
+        (b) Project { value } — borrow (composes with TF-14)
+        (c) Select { cond, t_val, f_val} — conditional alias to both branches
+        (d) Construct / Reuse / CollectionReuse — aggregate builders
+        (e) Set { base, field, value } — in-place mutation
+        (f) Apply / ApplyIndirect / Invoke / InvokeIndirect / PartialApply /
+            RcInc / RcDec / IsShared / Reset — non-aliasing definitions
+    - Case (a) Let { Var(v) } transparent alias:
+        src.cardinality := seq_add(src.cardinality, dst.cardinality)
+        src.consumption := seq_add(src.consumption, dst.consumption)
+        src.locality := max(src.locality, dst.locality)
+    - Case (b) Project — composes with TF-14 (TF-14.proof):
+        src.cardinality := seq_add(src.cardinality, dst.cardinality)
+        src.locality := max(src.locality, dst.locality)
+        src.consumption := seq_add(src.consumption, Affine)
+        no TF-11 demand
+    - Case (c) Select { cond, t_val, f_val } conditional alias:
+        t_val.cardinality := seq_add(t_val.cardinality, dst.cardinality)
+        t_val.consumption := seq_add(t_val.consumption, dst.consumption)
+        t_val.locality := max(t_val.locality, dst.locality)
+        f_val.{cardinality, consumption, locality} := same (parallel update)
+        cond receives only TF-11 (cond, Once)
+    - Case (d) Construct / Reuse / CollectionReuse aggregate builders:
+        for each arg:
+          arg.locality := max(arg.locality, dst.locality)
+          arg.access := Owned (unconditional promotion)
+        Cardinality NOT transferred (Construct uses each arg once)
+    - Case (e) Set { base, field, value } in-place mutation:
+        value.access := Owned (unconditional promotion)
+        value.locality := max(value.locality, base_state.locality)
+        SetTag has no value operand — step (1) is no-op
+    - Case (f) non-aliasing definitions — step (1) no-op; only step (2)
+      TF-11 demand applies. Step (2) is proven at TF-11.proof.
+    - L-6 monotonicity (per Annex E §AIMS IA-5 + §1.2 / §1.3 / §1.5):
+      seq_add monotone over Consumption + Cardinality; max monotone over
+      Locality; unconditional Owned promotion preserves order
+      (Borrowed <= Owned per ACCESS_CARRIER).
+
+  Soundness property:
+    Forall arc_instr in ArcInstr. Forall (src, dst) state pair where dst
+    state has been accumulated at the backward walk.
+      ia5_step1_transfer(arc_instr, src, dst) produces source-side mutation
+      per the case-specific rule above
+    AND src.{cardinality, locality, consumption} are monotone in dst.{...}
+        for fixed src (L-6 layer (b) — seq_add + max monotone)
+    AND Access promotion to Owned preserves order (Owned is TOP of
+        ACCESS_CARRIER lattice).
+
+  Proof obligation:
+    Seven-part discharge (6 cases + monotonicity sweep):
+      (a) Let { Var(v) } transparent alias enumeration — verify
+          seq_add(Cardinality) + seq_add(Consumption) + max(Locality).
+      (b) Project borrow — verify composes with TF-14 (TF-14.proof) +
+          confirm no TF-11 demand emitted.
+      (c) Select conditional alias — verify both branches receive full
+          demand transfer via seq_add; cond receives only TF-11.
+      (d) Construct / Reuse / CollectionReuse aggregate builders — verify
+          locality transfer + unconditional Owned promotion for each arg;
+          verify Cardinality NOT transferred.
+      (e) Set in-place — verify value.access := Owned + value.locality :=
+          max(value.locality, base_state.locality); verify SetTag is no-op.
+      (f) Non-aliasing definitions — verify step (1) no-op for the 8
+          non-aliasing variants; step (2) TF-11 demand applies via TF-11.proof.
+      (g) Monotonicity sweep — enumerate L-6 layer (b) over Locality x
+          Cardinality x Consumption for cases (a) / (c); confirm Owned
+          promotion preserves order for cases (d) / (e).
+
+    Part (a) — Let { Var(v) } transparent alias:
+      Pick representative (src, dst) pairs over the per-dimension carriers
+      and verify each component:
+        out.cardinality == seq_add_K(src.cardinality, dst.cardinality)
+        out.consumption == seq_add_C(src.consumption, dst.consumption)
+        out.locality == max_L(src.locality, dst.locality)
+        out.access == src.access (no promotion at case a)
+        out.uniqueness == src.uniqueness (not propagated)
+        out.shape == src.shape (not propagated)
+        out.effect == src.effect (not propagated)
+
+    Part (b) — Project borrow:
+      Composes with TF-14 (TF-14.proof Part (a)). The IA-5 step (1) Project
+      case is structurally identical to TF-14's
+      propagate_project_source_demand mutation set:
+        src.locality := max(src.locality, dst.locality)
+        src.cardinality := seq_add(src.cardinality, dst.cardinality)
+        src.consumption := seq_add(src.consumption, Affine)
+      AND no TF-11 demand emitted (TF-11.proof Part (a) row "Project").
+
+    Part (c) — Select conditional alias:
+      For Select { cond, t_val, f_val } with destination dst, BOTH t_val
+      and f_val receive the full demand transfer:
+        t_val.{c, k, l} := (seq_add(t_val.c, dst.c), seq_add(t_val.k, dst.k),
+                            max(t_val.l, dst.l))
+        f_val.{c, k, l} := (seq_add(f_val.c, dst.c), seq_add(f_val.k, dst.k),
+                            max(f_val.l, dst.l))
+        cond gets only TF-11 (cond, Once)
+      Rationale (lives at Annex E §AIMS IA-5 + §3 TF-11 table Select
+      row): conditional branches each receive the FULL demand because the
+      backward analysis must conservatively assume either branch may
+      execute — demand is path-summed across branches, not lattice-max'd.
+      Negative witness: if the demand were `max` rather than `seq_add`,
+      Select { cond, x, x } (both arms = same variable x) would underweight
+      x's demand (only one usage counted instead of two — see TF-11.proof
+      Part (b) QTT-consistency).
+
+    Part (d) — Construct / Reuse / CollectionReuse aggregate builders:
+      For each arg:
+        arg.locality := max(arg.locality, dst.locality)
+        arg.access := Owned (unconditional)
+        arg.cardinality, arg.consumption — UNCHANGED at step (1); step (2)
+          TF-11 adds (arg, Once) demand on Construct/Reuse/CollectionReuse
+          per TF-11.proof Part (a).
+      Rationale (per Annex E §AIMS IA-5): local struct field cleanup
+      at scope exit needs Owned for RcDec emission. Cardinality is NOT
+      transferred because Construct consumes each arg exactly once (the
+      single-use is already captured by TF-11 step (2)).
+
+    Part (e) — Set in-place:
+      Set { base, field, value }:
+        value.access := Owned
+        value.locality := max(value.locality, base_state.locality)
+        base direct via TF-11 (base, Once)
+      SetTag { base, tag }:
+        step (1) is no-op — no value operand
+        base direct via TF-11 (base, Once)
+      Verified: ia5_step1_set_promotion() returns Owned for value.access
+      and max(value.locality, base_state.locality) for value.locality
+      across all input combinations.
+
+    Part (f) — non-aliasing definitions:
+      For arc_instr in {Apply, ApplyIndirect, Invoke, InvokeIndirect,
+      PartialApply, RcInc, RcDec, IsShared, Reset}:
+        ia5_step1_transfer(arc_instr, src, dst) = no-op (returns src
+          UNCHANGED)
+      Step (2) TF-11 demand still applies (proven at TF-11.proof Part (a)
+      for the non-PartialApply rows; PartialApply uses TF-12 + TF-13 per
+      TF-12.proof + TF-13.proof).
+      Verified: ia5_step1_non_aliasing_noop() returns src for each of the
+      8 non-aliasing arc_instr.
+
+    Part (g) — L-6 monotonicity sweep:
+      Enumerate the L-6 layer (b) check:
+        forall dst1 <= dst2 (per dimension). forall src.
+          ia5_step1_transfer(arc_instr, src, dst1) <=
+          ia5_step1_transfer(arc_instr, src, dst2)
+      Cases (a) + (b) + (c): seq_add monotone over Consumption +
+        Cardinality + max monotone over Locality per L-6 layer (a)
+        (proven at §02).
+      Case (d): max monotone over Locality; Owned promotion is
+        unconditional — preserves order (Borrowed <= Owned).
+      Case (e): same as (d).
+      Case (f): no-op is trivially monotone (identity function).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) sweep over 6-case ArcInstr
+        dispatch per section_04::verify_ia5_step1_alias_transfer)
+      case_analysis (PRIMARY — 6-case instruction-shape enumeration per
+        section_04::verify_ia5_step1_alias_transfer)
+      lattice (SECONDARY — accepts gracefully; max + seq_add monotone per
+        L-6 layer (a))
+      refinement (SECONDARY — accepts gracefully; IA-5 step (1) does NOT
+        call refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge IA-5 step (1) via 6-case ArcInstr enumeration + L-6 monotonicity sweep + composition with TF-14 + TF-11 step (2)

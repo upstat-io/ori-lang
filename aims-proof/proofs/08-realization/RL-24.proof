@@ -1,0 +1,58 @@
+Theorem RL-24: bidirectional dataflow identifies matching (Inc, Dec) pairs across blocks
+
+  Preconditions:
+    - RL-24 governs PRE-style global RC motion pairing per Annex E §AIMS PRE-Style Global RC Motion: "Bidirectional dataflow (bottom-up
+      release + top-down retain) SHALL identify matching (Inc, Dec) pairs
+      across blocks."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - RL-24 is a POST-PIPELINE pass over realized IR (PRE = partial-redundancy
+      elimination, Clang/LLVM ObjC ARC lineage per arc.md
+      sec-Advanced-Optimization-Patterns).
+
+  Soundness property:
+    Forall RcInc in block B_i and RcDec in block B_d on the same variable v:
+
+      (P1) Matching: RL-24 identifies (B_i, B_d) as a matching pair iff B_d is
+           forward-reachable from B_i (the inc's reference reaches the dec)
+           AND B_i is backward-reachable from B_d (the dec releases that inc's
+           reference). Both directions of the bidirectional dataflow must
+           confirm the pairing.
+
+      (P2) Soundness: a pair matched in BOTH directions is a genuine
+           inc/release pairing — the inc's created reference is exactly the
+           one the dec releases. A pair matched in only one direction is NOT a
+           genuine pairing (a forward-only pair has the inc reaching a dec
+           that releases a DIFFERENT reference; a backward-only pair has a dec
+           whose released reference came from a DIFFERENT inc), so eliminating
+           or moving it would unbalance the count.
+
+    RL-24 supplies the matched-pair set that RL-25 then tests for
+    eliminability.
+
+  Proof obligation:
+    Constructive discharge by the rc_counting engine.
+
+    Part (P1/P2) — bidirectional reachability grid:
+      both_directions_matched -> matched (genuine pair)
+      forward_only_unmatched -> NOT matched
+      backward_only_unmatched -> NOT matched
+      neither_unmatched -> NOT matched
+      Coverage gate: 4 reachability cases — a pair is matched iff BOTH
+      forward and backward reachability hold (the conjunction is the
+      bidirectional-dataflow contract).
+
+    Engines dispatched:
+      rc_counting (PRIMARY —
+        section_08::verify_rl24_bidirectional_pair_matching; bidirectional
+        reachability enumeration; emits Fail when a one-directional pair is
+        wrongly matched)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 rc_counting engine discharges RL-24 via the bidirectional reachability grid (a matched (Inc, Dec) pair requires BOTH forward reachability inc->dec AND backward reachability dec->inc; one-directional pairs are unmatched), the matched-pair set RL-25 consumes for eliminability

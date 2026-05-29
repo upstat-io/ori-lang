@@ -1,0 +1,98 @@
+Theorem DP-8: is_local truth table — Locality in {BlockLocal, FunctionLocal}
+
+  Preconditions:
+    - s is a canonical AimsState per Annex E §AIMS product lattice
+    - is_local : AimsState -> Bool per Annex E §AIMS DP-8 + Appendix C
+      truth table
+    - DP-8 is a pure boolean predicate over Locality alone; Access /
+      Consumption / Cardinality / Uniqueness / Shape / Effect are
+      non-load-bearing for the DP-8 obligation
+    - Locality carrier (Annex E §AIMS): {BlockLocal, FunctionLocal,
+      ArgEscaping, HeapEscaping, Unknown} with partial order
+      BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping < Unknown
+    - ArgEscaping-not-local clause per §4 DP-8 rationale: ArgEscaping
+      explicitly excluded — DP-8 = false on ArgEscaping. The §1.5 Locality
+      partial-order composition with DP-7 establishes:
+        is_local <=> Locality <= FunctionLocal (strict: <= over the
+                     partial order, not lattice meet)
+      ArgEscaping > FunctionLocal in the partial order; DP-8 is the
+      decision predicate carving the local subset out for RC-skip / stack
+      promotion / DP-7 eligibility.
+
+  Soundness property:
+    Forall s in AimsState (canonical).
+      is_local(s)
+        <=> s.locality in {BlockLocal, FunctionLocal}
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Exhaustive enumeration over the 5-value Locality carrier per
+          Appendix C truth table.
+      (b) For each Locality value, verify the predicate value equals the
+          Appendix C row partition value AND verify exactly 2 rows yield
+          true (BlockLocal + FunctionLocal).
+
+    Part (a) — Appendix C row partition (5 rows, exhaustive):
+      Row 1: Locality = BlockLocal -> true
+        Soundness: predicate true. Block-local values never cross basic-block
+        boundaries; stack-promotion candidate (per RL-14); DP-7 eligibility
+        candidate; no RC ops emitted on the stack path.
+      Row 2: Locality = FunctionLocal -> true
+        Soundness: predicate true. Function-local values may cross block
+        boundaries but not function-boundary; stack-promotion candidate;
+        DP-7 eligibility candidate; IA-4 cross-block widening to
+        FunctionLocal is the standard non-escape target.
+      Row 3: Locality = ArgEscaping -> false
+        Soundness: predicate false (DP-8 ArgEscaping-not-local clause per
+        §4 DP-8 rationale). ArgEscaping arg participates in stack
+        promotion in CALLER (per RL-15a) but not RC elision via DP-7 —
+        callee-scoped, no heap persistence; the ABI obligation forbids
+        RC-skip via DP-7 because the value escapes into callee's
+        parameter scope.
+      Row 4: Locality = HeapEscaping -> false
+        Soundness: predicate false. Heap escape requires heap allocation
+        (per RL-16) with full RC header; no stack promotion, no RC
+        elision.
+      Row 5: Locality = Unknown -> false
+        Soundness: predicate false. Conservative default; no optimization;
+        no stack promotion; no RC elision.
+
+    Part (b) — coverage + composition with DP-7:
+      Coverage: 5 enumerated states; 2 true rows; 3 false rows.
+      Negative-direction witness: DP-8 = true on EXACTLY {BlockLocal,
+        FunctionLocal}; the 2-row partition is the tightness gate.
+
+    §1.5 Locality partial-order composition witness with DP-7:
+      DP-7 requires is_local(s) as conjunct (per Appendix C DP-7 Row 1:
+      is_local = false -> DP-7 = false unconditionally). The is_local
+      conjunct + remaining DP-7 conjuncts (Owned, Linear, Once, Unique,
+      non-scalar) together enforce: RC-skip eligibility implies value never
+      escapes its function. Stack promotion (per RL-14 + RL-14a + RL-15)
+      consumes is_local; ArgEscaping arg uses RL-15a's caller-stack-with-
+      immortal-RC-header path, NOT DP-7's RC-skip path. The partition is:
+        is_local AND DP-7 conjuncts -> RC-skip elision
+        ArgEscaping (NOT is_local) -> caller-stack via RL-15a (immortal
+                                      RC header preserves RC obligations)
+        HeapEscaping/Unknown -> heap allocation with full RC header
+
+    DP-8 composition with DP-6 (is_reuse_candidate):
+      DP-6 does NOT consume is_local — reuse eligibility depends on Access
+      + Uniqueness + Shape. A heap-allocated, uniquely-owned ReusableCtor
+      value (DP-6 = true, is_local = false) is a valid reuse target via
+      the cross-block heap-reuse path (RL-12). DP-6 + DP-8 are orthogonal
+      decision predicates.
+
+    Live-variable / borrow_sources / project_alias_sources / IC-3 contract
+    typed pre-pass dependency: NOT REQUIRED for DP-8 (pure boolean predicate
+    over Locality alone; the §1.5 partial-order structure is closed under
+    the 5-value carrier — no side-table consultation needed).
+
+    Engines dispatched:
+      case_analysis (PRIMARY — 5-state enumeration over Locality per
+        section_05::verify_dp8_is_local; the verifier checks the
+        soundness equality on every Locality value + asserts exactly 2
+        rows yield true)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-8 via 5-state enumeration over Locality per Annex E §AIMS DP-8 + Appendix C; exactly 2 rows (BlockLocal, FunctionLocal) satisfy is_local

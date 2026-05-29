@@ -1,0 +1,70 @@
+Theorem RL-13: REMOVED — Construct + Once does NOT imply RC == 1 at death (removal confirmation)
+
+  Preconditions:
+    - RL-13 was REMOVED from Annex E §AIMS Allocation Reuse (same root
+      cause as the removed DP-10). The former rule claimed
+      `Construct + Cardinality = Once => RC == 1 at death`.
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; this is the CONFIRMATION entry
+      the sec-01 Realization.proof RL-13 row points at (no theorem skeleton
+      to discharge — the obligation is to confirm the removal is sound).
+    - Root cause of the removal: one use of a Construct + Once value may be
+      "store into a data structure", which creates an alias via RcInc — so
+      Construct + Once alone does NOT guarantee the value is the sole owner
+      (RC == 1) at death.
+    - Subsumed by: the Uniqueness dimension (sec-1.4) as the direct source
+      of truth for reuse eligibility, and DP-6 + RL-11 + RL-12 reuse gating
+      via Uniqueness.
+    - Per the sec-08 Per-RL Proof-Status Tracking table, RL-13 carries the
+      terminal `n/a - removed` proof_status (exempt from the active-rule
+      enum); this proof confirms the removal closed the unsoundness.
+
+  Soundness property:
+    The removal of RL-13 is sound iff reuse eligibility is established SOLELY
+    via the Uniqueness dimension (DP-6 + RL-11 / RL-12), and the
+    Construct + Once heuristic is NEVER permitted as a reuse gate:
+
+      (C1) A Construct + Once value that has been aliased (stored into a
+           structure -> MaybeShared / Shared) is NOT statically Unique, so
+           it is NOT reuse-eligible-for-in-place under RL-11 (which requires
+           Unique). The removed RL-13 heuristic would have wrongly admitted
+           it on Construct + Once alone.
+
+      (C2) `Construct + Cardinality = Once` does NOT imply `Uniqueness =
+           Unique` at death — the only sound reuse gate is the Uniqueness
+           dimension itself.
+
+    Confirming (C1) + (C2) demonstrates the removal eliminated the DP-10
+    root-cause unsoundness without leaving a residual reuse path that
+    bypasses the Uniqueness proof.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine — a confirmation that
+    the removed heuristic is NOT reachable as a reuse gate.
+
+    Part (C1) — aliased Construct+Once is not Unique:
+      The verifier confirms an aliased (MaybeShared) Construct + Once value
+      is not equal to Unique — RL-11 / RL-12 (which require dying-Unique)
+      reject it; only the runtime IsShared branch (RL-11a) handles a
+      MaybeShared candidate, never the Construct + Once heuristic.
+
+    Part (C2) — Construct + Once does not imply Unique:
+      The verifier confirms the removed claim
+      (`Construct + Once => Unique`) is NOT asserted anywhere — reuse
+      eligibility flows only through DP-6 + the Uniqueness dimension.
+
+      Coverage gate: 2 confirmation cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY —
+        section_08::verify_rl13_removal_confirmation; confirms the
+        Construct + Once heuristic is not reachable as a reuse gate; emits
+        Fail if the removed unsound claim were reintroduced)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges the RL-13 removal confirmation — (C1) an aliased Construct+Once value is not statically Unique so RL-11/RL-12 reject it and (C2) Construct + Once does not imply Unique at death — confirming reuse eligibility flows solely through the Uniqueness dimension (DP-6 + RL-11/RL-12), closing the DP-10 root-cause unsoundness

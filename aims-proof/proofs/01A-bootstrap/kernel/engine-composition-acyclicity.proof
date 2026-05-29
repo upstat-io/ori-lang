@@ -1,0 +1,84 @@
+Theorem RL-103: Engine composition acyclicity
+
+  Preconditions:
+    - the eight engines at aims-proof/checker/src/engine compose via
+      the top-level dispatch loop in aims-proof/checker/src/checker.rs
+      per the proof-checker design sec-Architecture-Sketch
+    - each engine implements the Engine trait at
+      aims-proof/checker/src/engine/mod.rs with stateless discharge
+      per the gate-vs-implementation split Option A
+    - each engine.dispatch consumes only the Theorem argument and
+      returns an EngineResult; no engine reads or writes shared
+      mutable state across calls
+    - the call graph over engine modules is the set of pairs
+      (engines[i], engines[j]) where engines[i].dispatch transitively
+      calls engines[j].dispatch
+    - acyclicity means the call graph is a directed acyclic graph;
+      the dispatch loop in checker.rs is the only composition site
+
+  Soundness property:
+    Forall i, j in 0 to 7 with i not equal to j.
+      engines[i].dispatch does not call engines[j].dispatch;
+      every engine's dispatch returns a verdict computed solely
+        from the theorem argument and from engine-local state;
+      the call graph over engine modules is empty
+        (no edges; trivially acyclic).
+
+  Proof obligation:
+    Structural induction over the engine inventory; case analysis
+    over every engine pair.
+
+      Base case: zero engines.
+        Call graph has zero nodes and zero edges; vacuously acyclic.
+
+      Inductive step: extending the inventory by one engine preserves
+      acyclicity.
+        Assume the inventory of N engines composes acyclically.
+        For the (N + 1) engine e:
+          (a) e.dispatch is stateless w.r.t. other engines per
+              the gate-vs-implementation split Option A; this is a code-level invariant
+              enforced by the Engine trait signature (no engine
+              registry argument; no other-engine references).
+          (b) e does not import any other engine module per the
+              aims-proof/checker/src/engine/mod.rs structure (each
+              engine is a leaf submodule; none re-export or invoke
+              siblings).
+          (c) the dispatch loop in checker.rs is the composition
+              site; checker.rs calls each engine exactly once per
+              theorem; no engine calls checker.rs.
+        Therefore extending the inventory by e adds zero edges to
+        the call graph; the graph remains acyclic.
+
+      Closed-world coverage over the eight engines:
+        case_analysis: leaf — no engine invocations.
+        refinement: leaf — no engine invocations.
+        rc_counting: leaf — no engine invocations.
+        lattice: leaf — no engine invocations.
+        monotonicity: leaf — no engine invocations.
+        fixpoint: leaf — no engine invocations.
+        structural_induction: leaf — no engine invocations.
+        interprocedural_summary: leaf — no engine invocations.
+
+      Composition site (checker.rs):
+        dispatch_theorem walks the per-category engine list and calls
+        engine.dispatch once per engine; no engine calls back into
+        dispatch_theorem; no engine calls another engine.
+        The call graph is rooted at check_proof_file and is a tree
+        of depth at most 2 (check_proof_file -> dispatch_theorem ->
+        engine.dispatch); engine.dispatch is always a leaf.
+
+    Lattice validation:
+      Acyclicity is a structural property of the call graph; lattice
+      dimensions do not participate. The kernel invariant under
+      verification is that the engine inventory composes only via the
+      dispatch loop per the gate-vs-implementation split Option A.
+
+    Engines dispatched:
+      structural_induction (over the engine call-graph DAG; per-node
+                            leaf verification)
+      case_analysis (per-engine-pair enumeration over the inventory;
+                     leaf-vs-internal classification per engine module)
+
+  Expected:
+    status: valid
+    reason: 01A bootstrap discharged via §01A Implementation Items (engine constructive verification + Lean 4 cross-validation)

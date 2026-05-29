@@ -1,0 +1,70 @@
+Theorem IC-3: Parameter contract join convergence on 2-node call graph
+
+  Preconditions:
+    - Call graph G with two functions {f, g}; f calls g once;
+      g has one parameter p.
+    - ParamContract carrier per the canonical proof notation
+      sec-Contract-Record-Syntax:
+        ParamContract = <access, consumption, cardinality, locality,
+                         uniqueness, may_share>
+    - Initial contract per Annex E §AIMS IC-2 (most optimistic):
+        c_0 = <Borrowed, Dead, Absent, BlockLocal, u, may_share=false>
+    - At call site in f, actual argument arg has lattice state
+        s_arg = (O, L, 1, u, bl, R<S>, {alloc})
+    - IC-3 join: contract := componentwise max over <access,
+      consumption, cardinality, locality, uniqueness> + OR over
+      may_share per Annex E §AIMS
+
+  Soundness property:
+    The IC-3 fixpoint loop converges to a contract c* satisfying:
+      c*.access >= s_arg.access (Borrowed <= O)
+      c*.consumption >= s_arg.consumption (Dead < L)
+      c*.cardinality >= s_arg.cardinality (Absent < 1)
+      c*.locality >= s_arg.locality (BlockLocal = bl)
+      c*.uniqueness >= s_arg.uniqueness (u = u)
+      c*.may_share = false (call site does not require sharing)
+    AND the fixpoint is reached in at most IC-7 iterations
+    (param_count * 13 + 8 + 6 + 4 = 1*13 + 18 = 31 for this graph).
+
+  Proof obligation:
+    Round 1:
+      c_0 = <Borrowed, Dead, Absent, BlockLocal, u, false>
+      Apply IC-3 join with s_arg:
+        access: max(Borrowed, O) = O
+        consumption: max(Dead, L) = L
+        cardinality: max(Absent, 1) = 1
+        locality: max(BlockLocal, BlockLocal) = BlockLocal
+        uniqueness: max(u, u) = u
+        may_share: OR(false, false) = false
+      c_1 = <O, L, 1, bl, u, false>
+
+    Round 2:
+      Apply IC-3 join again with same s_arg (single call site):
+        all dimensions stable;
+        c_2 = c_1.
+      Fixpoint reached at round 2.
+
+    Convergence per IC-7:
+      Iteration bound = 1*13 + 8 + 6 + 4 = 31;
+      converged in 2 rounds; well within bound.
+
+    SCC fixpoint:
+      Call graph has no cycles (f -> g, no back edge);
+      SCC decomposition per IC-1 yields {g}, {f} in topological order;
+      g processed first; f's call site reads g's converged contract;
+      no iteration needed across SCCs (PL-1a per Annex E §AIMS).
+
+    Case analysis on IC-8a (address-taken / non-enumerable callsites):
+      g is called directly from f (enumerable single call site);
+      IC-8a does NOT apply; standard IC-3 join used.
+
+    Engines dispatched:
+      fixpoint (IC-7 iteration-bound + 2-round convergence)
+      interprocedural_summary (IC-2 init + IC-3 join across the
+                               single call site)
+      case_analysis (IC-8a enumerable vs non-enumerable case split;
+                     here: enumerable case)
+
+  Expected:
+    status: valid
+    reason: section_06 interprocedural_summary engine discharges IC-3 via nine-conjunct verification (per-dim max P1-P5, may_share OR P6, commutativity P7, associativity P8, monotonicity P9) over a 324-state product carrier with full pair enumeration plus 64-state triple enumeration; IC-shape coverage flipped per §06-IM-A

@@ -1,0 +1,194 @@
+Theorem PL-8: TRMC candidate predicate — self-recursive + recursive call in tail position of a constructor argument + constructor in the return path; context region spans recursive call to wrapping constructor
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS + arc.md sec-Pipeline. PL-8 is the §07.4 TRMC
+      candidate-predicate rule, refining PL-7's detection scope into the exact
+      three-conjunct structural condition and the context-region span.
+    - PL-8 statement (per Annex E §AIMS PL-8): the TRMC candidate
+      predicate = self-recursive + recursive call in tail position of a
+      constructor argument + constructor in the return path. The context
+      region = span from the recursive call to the wrapping constructor.
+    - PL-8 type signature (per Pipeline.proof lines 67-72, the sorry
+      obligation this theorem discharges):
+        type : Function -> Bool
+        candidate = self-recursive + recursive call in tail position of
+        constructor argument + constructor in return path; context region =
+        span from recursive call to wrapping constructor.
+    - Shipped candidate-predicate driver: the predicate is realized across two
+      shipped components:
+        (1) ori_arc::aims::normalize::collect_recursive_call_sites
+            (compiler/ori_arc/src/aims/normalize/detect.rs, via
+            ori_arc::aims::intraprocedural::post_convergence.rs lines 449-450)
+            collects the self-recursive call sites — the SELF-RECURSIVE
+            conjunct. `recursive_defs` is empty for non-self-recursive
+            functions, short-circuiting detection (post_convergence.rs lines
+            451-453).
+        (2) ori_arc::aims::intraprocedural::post_convergence::
+            detect_trmc_candidates (post_convergence.rs lines 469-497) requires
+            a `Construct` (CONSTRUCTOR-IN-RETURN-PATH conjunct, lines 476-487)
+            with a field argument produced by a recursive call
+            (RECURSIVE-CALL-IN-CONSTRUCTOR-ARGUMENT conjunct, lines 493-497).
+      A function passing all three is a TRMC candidate; failing any one is not.
+    - Shipped context-region span: ori_arc::aims::contract::context::
+      ContextRegion (compiler/ori_arc/src/aims/contract/
+      context.rs lines 97-113) records the span:
+        - `open_block` + `open_instr` (context.rs lines 100-102) — the block /
+          instruction index of the `Construct` (context open);
+        - `close_block` + `close_instr` (context.rs lines 107-110) — the block /
+          instruction index of the `Apply`/`Invoke` that fills the hole
+          (context close);
+        - `context_var` (line 104), `hole_field` (line 106), `hole_var`
+          (line 112) carry the constructor root, the hole field index, and the
+          recursive-call result variable.
+      Per the doc comment (context.rs lines 84-86): "The region spans from the
+      constructor allocation (context open) to the recursive call that fills
+      the hole (context close)."
+    - The context region is produced by ori_arc::aims::normalize::
+      detect_context_regions (normalize/mod.rs line 96, re-exported from
+      detect.rs at normalize/mod.rs line 43) and consumed by
+      intraprocedural::analyze_function to record ContextOpen / ContextClose
+      events (context.rs lines 88-90).
+
+  Soundness property:
+    Forall function F.
+      Let candidate(F) = F is a TRMC candidate per Step 3a detection.
+      Two conjuncts SHALL hold:
+
+      (P1) Predicate conjunction:
+        candidate(F) iff self_recursive(F)
+                       AND recursive_call_in_constructor_arg(F)
+                       AND constructor_in_return_path(F).
+        Dropping ANY one of the three structural conditions makes F not a
+        candidate.
+
+      (P2) Context-region span well-formedness:
+        For every detected candidate, the ContextRegion (open_block,
+        open_instr) -> (close_block, close_instr) brackets the recursive call
+        inside the wrapping constructor with addressable, distinct endpoints
+        (distinct positions OR distinct blocks). A degenerate region (same
+        block AND same instruction for open and close) is not well-formed.
+
+  Proof obligation:
+    Two-part constructive discharge corresponding to (P1) and (P2), by
+    case analysis over the three-conjunct truth table (case_analysis-led per
+    the §00 PL row) + structural confirmation of the region span.
+
+    Part (P1) — Predicate conjunction (case analysis over the truth table):
+
+      The verifier models the shipped candidate predicate as the conjunction
+        pl8_is_candidate(c) = c.self_recursive
+                              AND c.recursive_call_in_ctor_arg
+                              AND c.ctor_in_return_path
+      and exercises it over four cases — the all-hold case plus one
+      single-conjunct-drop case per conjunct:
+
+        Case all_three_hold — all conjuncts true -> CANDIDATE
+        Case not_self_recursive — drop conjunct 1 -> NOT
+        Case recursive_call_not_in_ctor_arg — drop conjunct 2 -> NOT
+        Case no_ctor_in_return_path — drop conjunct 3 -> NOT
+
+      Each negative case maps to a shipped short-circuit:
+        - not_self_recursive: collect_recursive_call_sites returns an empty set,
+          so detect_trmc_candidates returns early (post_convergence.rs lines
+          451-453) — no candidate;
+        - recursive_call_not_in_ctor_arg: the Construct's args do not contain a
+          recursive-call result, so the `has_recursive_arg` guard fails
+          (post_convergence.rs lines 493-497) — `continue`, no candidate;
+        - no_ctor_in_return_path: there is no `Construct` to inspect (plain tail
+          recursion), so the per-Construct scan finds nothing
+          (post_convergence.rs lines 469-487) — no candidate.
+
+      For each case the verifier asserts pl8_is_candidate agrees with the
+      expected result. The case-by-case agreement discharges (P1).
+
+    Part (P2) — Context-region span well-formedness (structural confirmation):
+
+      The verifier checks the region span via pl8_region_span_well_formed,
+      modeling the shipped ContextRegion endpoints (open_block, open_instr,
+      close_block, close_instr; context.rs lines 100-110). The span is
+      well-formed iff the endpoints are addressable and distinct — distinct
+      blocks OR distinct instruction indices. A representative region (Construct
+      at open block 1 instruction 2; recursive call producing the hole value at
+      close block 0 instruction 0) is verified well-formed; a degenerate region
+      (open block 0 instr 0 == close block 0 instr 0) is verified NOT
+      well-formed. The recursive call result fills the hole, so close_instr may
+      precede the wrapping Construct in instruction order (the value is
+      computed, then wrapped) or follow it (forward-filled hole) — the span is
+      well-formed in either ordering provided the endpoints are addressable and
+      distinct. (P2) discharged.
+
+    Coverage gate — candidate-predicate case enumeration:
+
+      The verifier discharges exactly 4 candidate-predicate cases
+      (require_count("PL-8", 4, ...)). Coverage axes:
+        Predicate conjunction (P1): the 4 truth-table cases — 1 candidate (all
+          conjuncts hold) + 3 rejections (one per dropped conjunct).
+        Region span (P2): the well-formed representative region + the
+          degenerate-region negative pin.
+
+    Negative-direction witness — single dropped conjunct rejects:
+
+      The candidate predicate is a strict three-way conjunction: dropping
+      self-recursion (no recursive call), or moving the recursive call out of a
+      constructor argument's tail position, or removing the wrapping
+      constructor from the return path (plain tail recursion) each independently
+      blocks candidacy. The verifier's three negative cases pin each dropped
+      conjunct against its shipped short-circuit.
+
+    Negative-direction witness — degenerate region rejected:
+
+      A region whose open and close endpoints coincide (same block AND same
+      instruction) does not bracket a recursive call inside a constructor — it
+      is not a well-formed context region. The verifier's degenerate-region
+      check (open b0.i0 == close b0.i0 -> not well-formed) pins this.
+
+    Cycle-soundness witness — PL-8 sits between PL-7 and PL-9:
+
+      PL-8 (candidate predicate + region span) refines PL-7's detection scope
+      and is the antecedent of PL-9 (rewrite of the detected candidate's
+      context region). Its antecedent is PL-7 (which establishes the detection
+      filter and the ContextHole shape the predicate selects). PL-8 consumes no
+      output of PL-9 / PL-10 / PL-11. The dependency chain is acyclic:
+        PL-7 --> PL-8 (predicate refines the detection conjunction)
+        PL-8 --> PL-9 (rewrite of the detected candidate region)
+      No cycle.
+
+    Algorithm-citation declaration:
+      property: TRMC candidate predicate — a function is a candidate
+                           iff self-recursive AND recursive call in tail
+                           position of a constructor argument AND constructor in
+                           the return path; the context region spans the
+                           recursive call to the wrapping constructor
+      published: Leijen & Lorenzen, "Tail Recursion Modulo Context",
+                           JFP 2025 (the tail-modulo-cons candidate shape: a
+                           self-recursive call appearing under a constructor in
+                           tail position defines the constructor context)
+      determinism: deterministic — collect_recursive_call_sites + the
+                           per-Construct scan apply a fixed three-conjunct
+                           filter in block / instruction order; the region span
+                           is a fixed (open, close) pair of IR positions
+      reference impl: ori_arc::aims::normalize::collect_recursive_call_sites
+                           (self-recursive conjunct, via post_convergence.rs
+                           lines 449-453) + ori_arc::aims::intraprocedural::
+                           post_convergence::detect_trmc_candidates
+                           (constructor-in-return + recursive-call-in-arg
+                           conjuncts, post_convergence.rs lines 469-497) +
+                           ori_arc::aims::contract::context::ContextRegion span
+                           (context.rs lines 97-113)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — confirms the predicate conjunction and
+        the region-span well-formedness over the §07.4 TRMC structural model
+        per section_07::verify_pl8_trmc_candidate_predicate; agrees with
+        case_analysis on the constructive verifier)
+      case_analysis (LED — per the §00 PL-row pair per the proof-checker design-proof-
+        checker-design.md:102, the TRMC cluster is case_analysis-heavy; the
+        verifier discharges (P1) via the four-row predicate truth table — 1
+        candidate + 3 single-conjunct-drop rejections — and (P2) via the
+        well-formed-vs-degenerate region-span check; constructive, NOT
+        gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_07 case_analysis-led discharge of PL-8 via the candidate-predicate truth table — (P1) a function is a TRMC candidate iff self-recursive (collect_recursive_call_sites non-empty, post_convergence.rs lines 449-453) AND recursive call in a constructor argument (lines 493-497) AND constructor in the return path (lines 476-487), verified over a four-row table (1 candidate + 3 single-conjunct-drop rejections), and (P2) the ContextRegion span (open_block/open_instr -> close_block/close_instr, context.rs lines 97-113) brackets the recursive call inside the wrapping constructor with addressable distinct endpoints (degenerate same-block-same-instr region rejected); structural_induction PRIMARY confirms over the same verifier

@@ -1,0 +1,62 @@
+Theorem L-5: Finite lattice height
+
+  Preconditions:
+    - Each AimsState dimension has finite height per Annex E §AIMS.8 L-5
+    - Per-dimension heights per Annex E §AIMS.1 through sec-1.7:
+        Access 1, Consumption 3, Cardinality 2, Uniqueness 2,
+        Locality 4, Shape 1, Effect 3
+    - height(L) for a chain of length k is k - 1 (height counts edges,
+      not nodes); for a flat lattice with TOP it is 1; for a product
+      lattice it is the sum of per-dimension heights
+
+  Soundness property:
+    height(AimsState) = sum of per-dimension heights
+                     = 1 + 3 + 2 + 2 + 4 + 1 + 3
+                     = 16
+    No ascending chain in AimsState exceeds length 16.
+
+  Proof obligation:
+    Per-dimension finite-height witness via maximal-chain construction.
+
+    Per-dimension maximal chains (length = chain edges = height):
+      Access B < O (height 1)
+      Consumption empty < L < A < U (height 3)
+      Cardinality absent < 1 < omega (height 2)
+      Uniqueness u < ms < s (height 2)
+      Locality bl < fl < ae < he < top (height 4)
+      Shape any_element < Phi (height 1)
+                  (flat lattice; every non-Phi element has a single
+                  upward edge to Phi; no chain of length > 1 exists
+                  because non-Phi elements are mutually incomparable)
+      Effect empty < {alloc} < {alloc, share}
+                  < {alloc, share, throw} (height 3)
+                  (one chain via the 3-bit flag inclusion order; total
+                  height = 3 = number of flags)
+
+    Each per-dimension carrier is FINITE by construction (explicit
+    value enumeration in Annex E §AIMS.*); the carrier set
+    is bounded and every chain is bounded by the maximal chain
+    above. Therefore each dimension has finite height.
+
+    Product height = sum of dimension heights:
+      Standard product-lattice fact: for product L = L1 x L2 x ... x Ln
+      with each Li a finite lattice, height(L) = sum_i height(Li).
+      Construction witness: take the maximal chain in each dimension;
+      lift it to the product by holding the other dimensions at their
+      bottom element; concatenate per-dimension chains end-to-end
+      after CN-canonicalization at each step. The resulting product
+      chain has length 1 + 3 + 2 + 2 + 4 + 1 + 3 = 16.
+
+    Matches Annex E §AIMS IA-7 CHAIN_HEIGHT = 16 (used as the
+    intraprocedural convergence bound: CHAIN_HEIGHT * |variables| *
+    |blocks|).
+
+    Engines dispatched:
+      lattice (per-dimension height summation + chain construction
+        per section_02::verify_l5_finite_height)
+      monotonicity (validates the per-dimension order on which the
+        chains are constructed is the same order L-6 covers)
+
+  Expected:
+    status: valid
+    reason: sec-02 lattice engine discharges L-5 via per-dimension chain enumeration + product sum to 16

@@ -1,0 +1,63 @@
+Theorem RL-26: RC motion barriers (calls / IsShared / Set-SetTag)
+
+  Preconditions:
+    - RL-26 governs RC-motion barriers per Annex E §AIMS PRE-Style
+      Global RC Motion: "RC motion SHALL NOT move RcInc(v)/RcDec(v) across
+      RC-observable barriers FOR v: (a) calls passing v to an Owned or
+      may_share=true parameter; (b) IsShared(v) (reads v's RC header); (c)
+      Set/SetTag on v or any aggregate containing v (implicit field drops).
+      Calls where v is NOT an argument (or Borrowed + no may_share) are
+      transparent for v's motion. RcDec(v) additionally cannot move past any
+      use of v or its aliases."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - RL-26 is the safety constraint on the RL-24/RL-25 PRE-style RC motion; a
+      POST-PIPELINE pass over realized IR.
+
+  Soundness property:
+    Forall RcInc(v) / RcDec(v) and forall instruction I on the motion path:
+
+      (P1) Barrier decision: motion of an RC op for v across I is BLOCKED iff I
+           is (a) a call passing v to an Owned or may_share=true parameter, OR
+           (b) IsShared(v), OR (c) Set/SetTag on v or an aggregate containing
+           v. A call where v is not an argument (or Borrowed + no may_share)
+           is transparent (motion permitted). RcDec(v) is additionally blocked
+           from moving past any use of v.
+
+      (P2) Soundness: each barrier OBSERVES v's reference count (a call to an
+           Owned/may_share param may inc/dec it; IsShared reads the header;
+           Set/SetTag triggers implicit field drops). Moving an RC op across
+           such a barrier would change the count the barrier observes —
+           changing observable behavior. A transparent instruction does not
+           touch v's count, so motion across it preserves behavior.
+
+    RL-26 is the constraint that makes RL-24/RL-25 RC motion behavior-
+    preserving: motion is allowed only across instructions that cannot observe
+    v's count.
+
+  Proof obligation:
+    Constructive discharge by the rc_counting engine.
+
+    Part (P1/P2) — barrier-classification grid:
+      call_owned_param_barrier -> blocked (a)
+      isshared_barrier -> blocked (b)
+      set_settag_barrier -> blocked (c)
+      transparent_call_no_barrier -> NOT blocked (v not an argument)
+      Coverage gate: 4 barrier cases. Negative-direction witness: motion across
+      an IsShared(v) barrier must be blocked (it would change the count
+      IsShared observes); RcDec(v) must not move past a use of v — both
+      asserted.
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_08::verify_rl26_rc_motion_barriers;
+        barrier-classification enumeration + IsShared / RcDec-past-use
+        witnesses; emits Fail on a wrong barrier verdict)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 rc_counting engine discharges RL-26 via the RC-motion barrier grid (call-to-Owned/may_share / IsShared / Set-SetTag block motion because they observe v's count; a transparent call does not) with negative-direction witnesses for the IsShared barrier and the RcDec-past-use constraint, making RL-24/RL-25 motion behavior-preserving

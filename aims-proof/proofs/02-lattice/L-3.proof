@@ -1,0 +1,57 @@
+Theorem L-3: Lattice join idempotence
+
+  Preconditions:
+    - a is an AimsState element per the canonical proof notation
+      sec-Per-Dimension-Symbol-Set
+    - join is the product-lattice componentwise join per Annex E §AIMS + sec-1.8 L-3
+
+  Soundness property:
+    Forall a in AimsState. join(a, a) = a
+
+  Proof obligation:
+    Componentwise per-dimension finite enumeration over the 7 carriers
+    proves dim_join_d(x, x) = x for every x. Product idempotence
+    follows by componentwise lift.
+
+    Per-dimension element counts (|carrier|):
+      Access 2
+      Consumption 4
+      Cardinality 3
+      Uniqueness 3
+      Locality 5
+      Shape 5
+      Effect 8
+
+    Total per-dimension enumeration: 30 singleton checks (one per
+    element across the 7 carriers).
+
+    Per-dimension argument:
+      Access / Consumption / Cardinality / Uniqueness / Locality:
+        max(x, x) = x on a totally ordered carrier — the predicate
+        x >= x is reflexive, so max selects either argument and both
+        are x.
+      Shape (flat lattice):
+        case_analysis(x == x -> x; x != x -> Phi); the first arm
+        always fires because equality is reflexive.
+      Effect (componentwise OR):
+        OR(b, b) = b on Bool; per-flag idempotence composes
+        componentwise.
+
+    Lift to product:
+      join(a, a) = (dim_join_d(a_d, a_d))_d
+                 = (a_d)_d (per-dim L-3)
+                 = a
+
+    Sentinel handling: SCALAR pre-filtered per L-9; FRESH /
+    CONSERVATIVE / ALL / NONE are concrete 7-tuples obeying
+    componentwise idempotence.
+
+    Engines dispatched:
+      lattice (per-dimension finite enumeration discharge per
+        section_02::verify_l3_idempotence)
+      monotonicity (validates idempotence preserves L-6 monotonicity:
+        idempotent joins on monotone lattices remain monotone)
+
+  Expected:
+    status: valid
+    reason: sec-02 lattice engine discharges L-3 via per-dimension finite enumeration over the 7 dimension carriers

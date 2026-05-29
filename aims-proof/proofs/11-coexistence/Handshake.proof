@@ -1,0 +1,237 @@
+Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal specification
+
+  Scope:
+    - Authored at the coexistence-handshake proofs sec-11.1
+      first checkbox per the MS-4 mission anchor (00-overview.md MS-4: "Ori-novel
+      coexistence-proof"). Single Source of Truth for the predicates, functions,
+      and partition referenced by CH-1..CH-5 + CH-comp.
+    - Intel: `coexistence_handshake` / `burden_registry` symbol-lookups return
+      not-found (intel-query.sh similar both, 2026-05-28) — consistent with the
+      MS-4 "no reference compiler has this composition" framing per 00-overview.md
+      Design Principle 2 + Annex E §AIMS Prior Art Cross-Reference. Closest
+      prior-art shapes: Koka Perceus FBIP-certification (function-level proof; AIMS
+      operates at instruction-level) at [koka:src/Core/CheckFBIP.hs]; Lean 4 LCNF
+      binary borrow inference (per-pass proof; AIMS proves per-class) at
+      [lean4:src/Lean/Compiler/IR/Borrow.lean]. The coexistence composition itself
+      is Ori-novel. `eliminate_burden_ops` has 29 callers (intel-query.sh callers
+      eliminate_burden_ops, 2026-05-28), all under
+      compiler/ori_arc/src/aims/realize/burden_elim/tests.rs (test
+      fixtures, not production composition surfaces).
+
+  Imports / dependencies:
+    - Annex E §AIMS (the 7-dimension product lattice — Access sec-1.1, Consumption
+      sec-1.2, Cardinality sec-1.3, Uniqueness sec-1.4, Locality sec-1.5, Shape sec-1.6, Effect
+      sec-1.7) for AimsState dimensions consumed by the formal definitions below
+    - Annex E §AIMS DP-1 (`is_rc_needed`), DP-2 (`is_rc_dec_unnecessary`), DP-3
+      (`is_rc_inc_elidable`), DP-9 (`cow_mode`) — the elimination-decision predicates
+      consumed by `class_covered` membership
+    - Annex E §AIMS IC-3 (ParamContract dimensions) — class identification per
+      callee-parameter contract dimensions
+    - Annex E §AIMS RL-2 (RC dec at last use / scope exit), RL-7 (dynamic COW for
+      MaybeShared), RL-14 (headerless stack promotion under Locality <= FunctionLocal
+      and Uniqueness = Unique) — the realization rules per AIMS class
+    - aims-proof/proofs/04-transfers/TF-3.proof (Construct FRESH initialization),
+      TF-4.proof (Project borrow propagation), TF-6.proof / TF-6a.proof
+      (Apply/Invoke refine contract), TF-8.proof (Select scalar-exclusion join),
+      TF-11.proof (backward demand propagation), TF-14.proof (Project source demand
+      propagation), TF-15.proof / TF-15a.proof (Set/SetTag in-place mutation backward
+      demand) — the proven calculus rules CH-1 grounds against
+    - aims-proof/proofs/02-lattice/L-1..L-8.proof (lattice properties: commutativity,
+      associativity, idempotence, partial order, finite height, monotonicity,
+      canonicalization idempotence, canonicalization preserves joins) — substrate
+      L-2/L-6 are load-bearing for CH-4 (lattice state-map immutability under
+      burden-registry mutation) and CH-2 (DP-2/DP-3 elimination consumer composed
+      with predicate-stack ops)
+    - aims-proof/proofs/05-decisions/DP-1.proof, DP-2.proof, DP-3.proof, DP-9.proof
+      — discharge the truth-tables consumed by `class_covered` membership
+    - aims-proof/proofs/06-interprocedural/IC-3-param-join.proof — discharges the
+      `(Borrowed | Owned) x may_share` parameter contract that classifies a
+      variable's AIMS class for CH-3
+
+  Notation:
+    - lattice = converged AimsStateMap per intraprocedural backward analysis
+      (IA-7), with per-variable lattice state at every program point
+    - BR = burden registry, a typed pre-pass producing per-variable burden
+      annotations (per docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
+      sec-04A success_criterion 4: `burden_emitted: BitSet<ArcVarId>` populated by
+      `emit_burden_ops` AND `class_covered: BitSet<ClassId>` derived
+      intraprocedurally in aims/intraprocedural/post_convergence.rs)
+    - C = an AIMS class identified by IC-3 ParamContract dimensions (Access,
+      Consumption, Cardinality, Uniqueness, Locality, may_share)
+    - class_members(C) = the set of program variables (ArcVarId values) assigned
+      to class C by IC-3 + intraprocedural classification
+    - field_type(f) = the static type of struct field f, used to identify the AIMS
+      class membership of a transitive payload
+
+  Definition (Predicate 1): burden-owned
+    burden-owned: AimsState -> Bool
+    burden-owned(s) iff
+        s.access = Owned (per Annex E §AIMS.1)
+      and (s.consumption in {Linear, Affine}) (per Annex E §AIMS.2)
+      and s.uniqueness = Unique (per Annex E §AIMS.4)
+      and is_rc_dec_unnecessary(s) (per Annex E §AIMS DP-2)
+
+    The conjunction is the formal lattice-bridge bridging the burden registry's
+    pre-pass annotations to the lattice's converged AimsStateMap entries. A
+    variable v's converged lattice state L[v] satisfies burden-owned IFF the
+    burden registry's elimination decision (DP-2 / DP-3) is consistent with the
+    lattice's per-variable claim, NOT independent of it.
+
+  Definition (Predicate 2): class_covered
+    class_covered: Type x BurdenRegistry -> Bool
+
+    Per the sec-11 success_criterion 1 mixed-coverage projection-boundary + field-grain
+    dispatch rule (CRITICAL — addresses the partial-coverage gap claude-ds-F7
+    surfaced in /review-plan Step 5 editor pass per sec-11 HISTORY 2026-05-28):
+
+    class_covered(C, BR) iff
+      (Forall v in class_members(C). burden-owned(L[v]) and v in BR.burden_emitted)
+      and (Forall f in fields(C). class_covered(field_type(f), BR))
+      (transitive payload closure — mirrors aims-burden-tracking sec-04A.4
+       coexistence handshake class-coverage rule)
+
+    Mixed-coverage field-grain dispatch (CRITICAL — the partial-coverage cure
+    per sec-11 success_criterion 1):
+      When Exists field f in fields(C). notclass_covered(field_type(f), BR), the parent C
+      is NOT class_covered as a whole, but each individual field f of C carries
+      its own class_covered(field_type(f), BR) bit; dispatch routes per-field to
+      burden_emission_path when the field is class_covered ELSE to
+      predicate_stack_path.
+
+      Projection boundaries (TF-4 Project per sec-3 / aims-proof/proofs/04-transfers/TF-4.proof)
+      inherit the field's dispatch decision, NOT the parent's. Specifically, for
+      `%dst = Project %src.f`, the dispatch decision is class_covered(field_type(f),
+      BR), NOT class_covered(type_of(src), BR).
+
+  Definition (Function 1): burden_emission_path
+    burden_emission_path: ArcFunction x AimsStateMap x BurdenSpec -> ArcFunction
+
+    The sec-03-sec-04A + sec-04A.2 elimination consumer, terminating at the shipped
+    `eliminate_burden_ops` function (compiler/ori_arc/src/aims/realize/
+    burden_elim.rs:87 — verified `pub(crate) fn eliminate_burden_ops` per intel-query
+    callers eliminate_burden_ops 2026-05-28; 29 callers all in
+    compiler/ori_arc/src/aims/realize/burden_elim/tests.rs test
+    fixtures, confirming there is no production composition surface ABOVE
+    `eliminate_burden_ops` that this Handshake.proof must include).
+
+    Pipeline-ordering: `emit_burden_ops` invoked between Step 4 (`analyze_function`)
+    and Step 5 (`realize_rc_reuse`) per docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.mdsection-04A
+    success_criterion 1 (Annex E §AIMS PL-2: Step 4 precedes Step 5). The
+    elimination consumer reads BR (write-once at burden-emit) AND L (read-only
+    after IA-7 convergence). PL-1 interprocedural-first invariant preserved
+    (CH-5 discharges this).
+
+  Definition (Function 2): predicate_stack_path
+    predicate_stack_path: ArcFunction x AimsStateMap -> ArcFunction
+
+    The pre-burden baseline: the sec-03-sec-04 lattice-only emission path operating
+    purely on L without consulting BR. Realization rules per Annex E §AIMS
+    RL-1..RL-34. This is the path Ori shipped BEFORE the sec-04A burden-emit pre-pass
+    landed — the parent baseline. CH-1 grounds against the soundness of this path
+    (RL-1, RL-2 composition under IA-5 step 1 alias-demand accumulation, per
+    Annex E §AIMS §8 sec-08
+    RL-1-RL-2-composition.proof).
+
+  Definition (Function 3): coexistence_dispatch
+    coexistence_dispatch: ArcFunction x AimsStateMap x BurdenSpec x C -> ArcFunction
+
+    The dispatch decision per the soundness theorem decomposition (sec-11
+    success_criterion 2 partition):
+
+      case 1 (class_covered):
+        if class_covered(C, BR):
+          return burden_emission_path(F, L, BR) o predicate_stack_path(F, L)
+          (per the sec-11 success_criterion 2 Case 1 soundness theorem statement:
+           coexistence_dispatch is observably equivalent to BOTH paths — both
+           run, their effects compose, and the lattice state-map remains
+           invariant under the burden-registry mutation per CH-4)
+
+      case 2 (mixed-coverage):
+        if notclass_covered(C, BR) and Exists f in fields(C). class_covered(field_type(f), BR):
+          for each f in fields(C):
+            if class_covered(field_type(f), BR):
+              dispatch field f via burden_emission_path
+            else:
+              dispatch field f via predicate_stack_path
+          (per the sec-11 success_criterion 2 Case 2 soundness theorem statement:
+           per-field dispatch composes via sec-07 PL-3 emission-order; observable
+           equivalence to predicate_stack_path under the projection-boundary +
+           field-grain access dispatch rule)
+
+      case 3 (uncovered):
+        if notclass_covered(C, BR) and Forall f in fields(C). notclass_covered(field_type(f), BR):
+          return predicate_stack_path(F, L)
+          (per the sec-11 success_criterion 2 Case 3 soundness theorem statement:
+           by definition, no burden_emission_path branch taken; coexistence_dispatch
+           equivalent_to predicate_stack_path)
+
+  Definition (Partition): the burden-path vs predicate-stack-path partition
+    The variable space vars(F) of any ArcFunction F is partitioned by
+    class_covered into three disjoint subsets:
+
+      vars(F) = BurdenCovered(F, BR) disjoint_union MixedCoverage(F, BR) disjoint_union Uncovered(F, BR)
+
+    where:
+      BurdenCovered(F, BR) = { v in vars(F) | class_covered(class_of(v), BR) }
+      MixedCoverage(F, BR) = { v in vars(F) | notclass_covered(class_of(v), BR)
+                                            and Exists f. class_covered(field_type(f), BR) }
+      Uncovered(F, BR) = { v in vars(F) | notclass_covered(class_of(v), BR)
+                                            and Forall f. notclass_covered(field_type(f), BR) }
+
+    Totality + disjointness:
+      Forall v in vars(F). v in BurdenCovered(F, BR) XOR v in MixedCoverage(F, BR)
+                       XOR v in Uncovered(F, BR)
+      (CH-3 discharges this — per-class coexistence three sub-classes are
+       total + disjoint at the lattice level per Annex E §AIMS product lattice
+       L-9 SCALAR-exclusion + L-5 finite height + L-7 canonicalization idempotence)
+
+  Soundness theorem (Coexistence Handshake Soundness):
+    Forall ArcFunction F. Forall AimsStateMap L. Forall BurdenSpec BR. Forall class C.
+
+      coexistence_dispatch(F, L, BR, C) produces observably equivalent behavior
+      to the case-specific path per the partition above:
+
+        case 1: equivalent_to burden_emission_path(F, L, BR) AND equivalent_to predicate_stack_path(F, L)
+                (the layered-composition union-coverage semantics — both paths
+                observable, both consistent with L, no double-counting per CH-1)
+
+        case 2: equivalent_to predicate_stack_path(F, L) under per-field dispatch
+                (projection-boundary + field-grain access dispatch rule;
+                sec-07 PL-3 emission-order composes per-field decisions)
+
+        case 3: equivalent_to predicate_stack_path(F, L)
+                (by definition; coexistence_dispatch trivially reduces)
+
+    The theorem is decomposed into six CH-N theorems (CH-1 through CH-5 +
+    CH-comp) per sec-11.0 Per-CH Proof-Status Tracking — each discharged
+    individually under proof_search_cap: 5 per 00-overview Design Principle 3.
+
+  Cross-references:
+    - CH-1.proof — Burden-registry-lattice composition soundness; the root
+      theorem grounding all dispatch decisions via the burden-owned lattice
+      bridge (this Handshake's Predicate 1).
+    - CH-2.proof — DP-2/DP-3 elimination consumer composition with
+      predicate-stack-derived ops; discharges single-elimination invariant
+      (no double-counting) per Predicate 2's class_covered membership.
+    - CH-3.proof — Per-class coexistence three sub-classes (OwnedxLinearxOnce
+      xUnique RL-2+RL-14, BorrowedxLinearxOncexUnique RL-14 headerless,
+      MaybeSharedxMany RL-7 dynamic COW); discharges the partition's
+      totality + disjointness invariant.
+    - CH-4.proof — AimsStateMap immutability under burden-registry mutation;
+      discharges the read-only invariant of L w.r.t. BR mutation events (BR
+      reads L; L does not depend on BR).
+    - CH-5.proof — Phase-ordering composition; PL-1 interprocedural-first
+      with burden-registry as Step 1 typed pre-pass (per Annex E §AIMS
+      PL-2). Discharges CH-4's BR-reads-L acyclic-dependency proof.
+    - CH-comp.proof — CH-1..CH-5 union-soundness composition mirroring sec-09
+      VF-comp.proof pattern (a fix passing a strict subset of CH-N is
+      rejected; 5-count + composition coverage gate prevents a dropped CH
+      layer).
+
+  Expected:
+    status: definition_only
+    reason: this file is the formal-specification SSOT consumed by CH-1..CH-5
+      + CH-comp; it carries no proof obligation of its own. CH-1.proof
+      (authored alongside) discharges the first soundness theorem against
+      this Handshake's Predicate 1 + Function 1 + Function 2 + Function 3
+      definitions; subsequent CH-N proofs ground against the same SSOT.

@@ -1,0 +1,57 @@
+Theorem TF-3: Construct produces FRESH state
+
+  Preconditions:
+    - dst is defined by Construct(ctor) at program point p
+    - shape_from_ctor maps ctor to its shape per Annex E §AIMS TF-3:
+        Struct -> R<S>
+        EnumVariant -> R<V>
+        ListLiteral | SetLiteral | MapLiteral -> C
+        Tuple | Closure -> Phi
+    - TF is the forward transfer function per the canonical proof notation-canonical
+      sec-Transfer-Function-Notation
+
+  Soundness property:
+    Forall ctor.
+      TF(s, Construct(ctor))[dst]
+        = FRESH(shape_from_ctor(ctor))
+        = (O, L, 1, u, bl, shape_from_ctor(ctor), {alloc})
+
+  Proof obligation:
+    Case analysis on ctor variant (per Appendix A Forward Transfer
+    Matrix, Construct row):
+      Case ctor = Struct:
+        TF-3 emits dst := (O, L, 1, u, bl, R<S>, {alloc});
+        matches FRESH(R<S>).
+      Case ctor = EnumVariant:
+        TF-3 emits dst := (O, L, 1, u, bl, R<V>, {alloc});
+        matches FRESH(R<V>).
+      Case ctor in {ListLiteral, SetLiteral, MapLiteral}:
+        TF-3 emits dst := (O, L, 1, u, bl, C, {alloc});
+        matches FRESH(C).
+      Case ctor in {Tuple, Closure}:
+        TF-3 emits dst := (O, L, 1, u, bl, Phi, {alloc});
+        matches FRESH(Phi).
+
+    Monotonicity (L-6):
+      TF-3 is a definitional rule; the post-state FRESH(shape) is
+      the most-optimistic state in the product lattice for the
+      Consumption x Cardinality x Uniqueness x Locality sub-lattice;
+      composition with any subsequent transfer function preserves
+      L-6 because the carrier is bottom (per per-dimension orderings).
+
+    Lattice canonicalization:
+      FRESH(shape) = (O, L, 1, u, bl, shape, {alloc});
+      CN-1 vacuous (consumption=L != Dead, cardinality=1 != Absent);
+      CN-3 vacuous (uniqueness=u, not Shared);
+      CN-6 vacuous (locality=bl < HeapEscaping);
+      CN-8 vacuous (access=O, not Borrowed);
+      state is canonical at definition.
+
+    Engines dispatched:
+      case_analysis (per-ctor enumeration above)
+      monotonicity (L-6 on TF-3's definitional post-state)
+      lattice (canonicalization vacuity discharge)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: TF-shape scaffold-time; engine implementation pending

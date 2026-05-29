@@ -1,0 +1,95 @@
+Theorem VF-1 + VF-4: Layered verifier composition
+
+  Preconditions:
+    - F is an ArcFunction with realized IR (post Step 11)
+    - VF-1 is the structural well-formedness layer per Annex E §AIMS: checks use_before_def, dangling_block_ref, rc_on_scalar,
+      dec_on_borrowed, arg_ownership_len_consistent
+    - VF-4 is the FIP certification layer per Annex E §AIMS:
+      proves FipContract::Certified functions have zero unmatched
+      alloc/dealloc in realized IR
+    - MemoryContract per arc.md sec-Key-Types includes
+      FipContract field (sec-1.7 + sec-5 IC-6)
+    - VF-5: every active subsystem end-to-end verified
+    - VF-6: contracts and realization SHALL agree
+    - VF-8: stack applies to ALL rules incl. unimplemented
+
+  Soundness property:
+    Forall F with MemoryContract.fip = Certified.
+      VF-1(F) AND VF-2(F) AND VF-3(F) AND VF-4(F);
+      i.e. structural well-formedness, contract consistency, oracle
+      cross-check, and FIP certification all hold;
+      composition is sound: each layer's success implies subsequent
+      layers' inputs are well-formed per arc.md sec-Verification-Surface
+      layered stack.
+
+  Proof obligation:
+    Structural induction over F's ArcInstr stream + ArcTerminator
+    sequence:
+      Base case (empty F or single Return v):
+        VF-1: trivially satisfied (no scopes to check, no aliasing);
+        VF-4: trivially satisfied (zero allocations, zero decs).
+      Inductive step over F's instructions:
+        Assume VF-1 + VF-4 hold up to position k;
+        For position k+1, check the new instruction's invariants:
+          Use-before-def: variable used at k+1 has matching def
+            at position <= k; structural check.
+          Dangling block ref: terminator at k+1 targets blocks
+            with valid IDs.
+          RC on scalar: RcInc/RcDec at k+1 targets non-SCALAR var
+            (per arc.md sec-Key-Types ArcClass).
+          Dec on borrowed: RcDec at k+1 targets non-Borrowed var
+            (per VF-1 sec-9 + RL-14/RL-15a field-drop exemption).
+          Arg ownership length: Apply/Invoke at k+1 has args length
+            matching callee param count.
+        Per inductive hypothesis + per-instruction check, VF-1 holds
+        through k+1.
+
+    Refinement (RL-22..RL-26 post-pipeline RC motion soundness):
+      Post-pipeline passes preserve RC balance (refinement
+      argument: pre-state RC = N; post-state RC = N after KnownSafe
+      pair elim + PRE-style motion; matched pair count unchanged);
+      VF-4 re-runs after post-pipeline passes per VF-7 tier (a) +
+      sec-8 closing clause.
+
+    RC counting (VF-4 FIP certification):
+      Walk realized IR; count alloc sites (Construct, Reuse,
+      CollectionReuse, PartialApply) and dec sites (RcDec, drop_fn
+      invocations); for FipContract::Certified, alloc_count -
+      dec_count = 0 on every reachable function-exit path;
+      RL-2 + RL-4 + RL-5 ensure dec emission; VF-4 audits the
+      result.
+
+    Interprocedural summary (VF-7 (a) re-verify of VF-1 + VF-2 +
+    VF-3 after post-pipeline):
+      Per sec-8 closing clause + VF-7 tier (a), VF-1/VF-2/VF-3
+      re-run after RL-22..RL-26 post-pipeline passes;
+      MemoryContract retained across the post-pipeline boundary;
+      callee contracts inherited by callers per IC-5
+      EffectSummary OR-aggregation; soundness composes through
+      the SCC topological order (PL-1a).
+
+    Layered composition (per arc.md sec-Verification-Surface):
+      Layer 1 (VF-1 structural) catches use-before-def, dangling
+      refs, RC-on-scalar, dec-on-borrowed;
+      Layer 2 (VF-2 AimsState consistency) catches
+      AbsentParamHasUses + (target-only) RL-29/RL-30/RL-31 metadata
+      consistency;
+      Layer 3 (VF-3 Oracle) re-derives MemoryContract from realized
+      IR and compares;
+      Layer 4 (VF-4 FIP) proves alloc/dealloc balance;
+      VF-5 + VF-6 + VF-8 enforce end-to-end verification + contract
+      agreement + applicability to all rules.
+
+    Engines dispatched:
+      structural_induction (inductive walk over F's instruction
+                            stream + per-instruction VF-1 check)
+      refinement (VF-1's structural invariants + RL-22..RL-26
+                  post-pipeline RC motion soundness)
+      rc_counting (VF-4 alloc/dec balance per arc.md invariant 1)
+      interprocedural_summary (VF-7 tier (a) re-verify of
+                               VF-1 + VF-2 + VF-3 after
+                               post-pipeline; MemoryContract retention)
+
+  Expected:
+    status: valid
+    reason: §09 layered-verifier composition engine landed (section_09 dispatch: structural_induction PRIMARY + refinement + rc_counting + interprocedural_summary); checker discharges valid

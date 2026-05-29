@@ -1,0 +1,93 @@
+Theorem CH-108: interprocedural_summary engine bootstrap (IC-3 ParamContract join on 2-call-site graph)
+
+  Preconditions:
+    - G is a synthetic 2-call-site graph per Annex E §AIMS
+      IC-2 + IC-3 with one callee g and two caller call sites
+      site_1 and site_2 both calling g
+    - the AimsState dimension under analysis is Access x Consumption
+      per Annex E §AIMS.1 + sec-1.2
+    - site_1 passes argument state (Borrowed, Linear) to g
+    - site_2 passes argument state (Owned, Affine) to g
+    - IC-3 ParamContract join per Annex E §AIMS: callee's
+      parameter contract is the componentwise max of all
+      call-site argument states
+    - interprocedural_summary engine consumes SCC topological order
+      witness, per-node finite enumeration over contract dimensions,
+      and constructive contract-join derivation per the foundational-axiom policy
+      sec-Per-Engine-Constructive-Proof-Shape
+
+  Soundness property:
+    Forall G in synthetic 2-call-site graphs over the
+    Access x Consumption sub-lattice.
+      ParamContract(g) is equal to the componentwise max of all
+        call-site argument states;
+      i.e. ParamContract(g) is the join of site_1's argument and
+        site_2's argument per IC-3.
+
+  Proof obligation:
+    Constructive contract-join derivation with per-call-site finite
+    enumeration.
+
+      Setup:
+        site_1.arg = (Borrowed, Linear);
+        site_2.arg = (Owned, Affine);
+        ParamContract(g) is computed by IC-3 join over the
+        call-site argument set { site_1.arg, site_2.arg }.
+
+      Componentwise join derivation:
+        Access dimension: max(Borrowed, Owned) = Owned
+          (per L-1 + L-4: Borrowed less-than Owned; max yields
+           the upper element).
+        Consumption dimension: max(Linear, Affine) = Affine
+          (per L-1 + L-4: Linear less-than Affine; max yields
+           the upper element).
+        Therefore ParamContract(g) = (Owned, Affine).
+
+      Witness exhibition:
+        The IC-3 join is exhibited as the explicit max-pair
+        (Owned, Affine); no LEM or choice axiom required; the
+        finite-domain join is constructively computed per the
+        case_analysis sub-discharge.
+
+      Closed-world coverage:
+        The call-site set is exactly { site_1, site_2 }; the
+        per-call-site enumeration covers both sites; the join is
+        idempotent on the empty case (no call sites means
+        ParamContract is the most-optimistic initial value per
+        IC-2) and monotone on the per-site addition.
+
+    SCC topological-order witness:
+      G has one SCC for g (size 1) and one SCC each for site_1's
+      and site_2's enclosing functions (the callers); topological
+      order processes g after its callees (g has no callees in
+      this synthetic graph; topological order is g first under
+      the standard "process callees before callers" interpretation,
+      but for IC-3 join purposes the order is "callee's contract
+      reads caller's call-site arguments"; both interpretations
+      yield the same converged contract in this 2-call-site
+      bootstrap case).
+
+    Lattice validation:
+      L-1 (commutativity of join) ensures the join is independent
+      of which call-site argument is processed first. L-4
+      (partial-order reflexivity, antisymmetry, transitivity)
+      ensures the join is well-defined on the sub-lattice. L-6
+      (monotonicity) ensures the join is monotone over the
+      per-call-site lattice product.
+
+    Contract-soundness claim:
+      The derived ParamContract (Owned, Affine) is the LUB of the
+      call-site argument set per IC-3; therefore it
+      conservatively over-approximates every call site's argument;
+      it is sound for downstream consumption per the IC-3
+      contract.
+
+    Engines dispatched:
+      interprocedural_summary (SCC topological-order witness;
+                               per-call-site finite enumeration;
+                               constructive contract-join
+                               derivation)
+
+  Expected:
+    status: valid
+    reason: 01A bootstrap discharged via §01A Implementation Items (engine constructive verification + Lean 4 cross-validation)

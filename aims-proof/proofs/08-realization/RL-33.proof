@@ -1,0 +1,55 @@
+Theorem RL-33: projection propagation — projected field Owned promotes source to Owned
+
+  Preconditions:
+    - RL-33 governs projection propagation per Annex E §AIMS Borrow
+      Inference: "Projection propagation: if a projected field becomes Owned,
+      the source variable SHALL be promoted to Owned."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - A Project (TF-4) creates a Borrowed view of a source aggregate; if that
+      view is promoted to Owned (the field is consumed / stored), the source
+      must also be Owned for the field ownership to be valid.
+    - Shipped: borrow/mod.rs (borrow inference propagation).
+    - depends-on RL-32 (the Borrowed-init / Owned-promotion fixpoint) +
+      sec-01.9 borrow_sources (the projection source).
+
+  Soundness property:
+    Forall projected field d = Project(src.f) and its source variable src:
+
+      (P1) Propagation: if d's inferred access becomes Owned, RL-33 promotes
+           src to Owned; if d stays Borrowed, src keeps its prior access.
+
+      (P2) Soundness: owning a projected field requires owning (a reference
+           into) the source aggregate — a Borrowed source cannot back an Owned
+           field (the field would outlive the borrow). Promoting src to Owned
+           keeps the ownership coherent: the source's RC obligation covers the
+           owned field.
+
+    RL-33 propagates ownership UP the projection chain so the borrow-inference
+    fixpoint stays coherent across Project boundaries.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine.
+
+    Part (P1/P2) — propagation cases:
+      Owned field over a Borrowed source -> source promoted to Owned;
+      Borrowed field -> source unchanged.
+      Coverage gate: 2 propagation cases. Negative-direction witness: an Owned
+      field over a Borrowed source is INCOHERENT (the field cannot own what
+      the source merely borrows) — RL-33 MUST force the source to Owned;
+      leaving it Borrowed is rejected.
+
+    Engines dispatched:
+      case_analysis (PRIMARY —
+        section_08::verify_rl33_projection_owned_propagation; propagation
+        enumeration + incoherent-ownership witness; emits Fail on a
+        non-propagating Owned field)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-33 via projection Owned-promotion (an Owned projected field forces its source to Owned; a Borrowed field leaves the source unchanged) with a negative-direction witness rejecting the incoherent Owned-field-over-Borrowed-source state, keeping the borrow-inference fixpoint coherent across Project boundaries

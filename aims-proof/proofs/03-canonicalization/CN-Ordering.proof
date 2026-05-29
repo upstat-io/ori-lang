@@ -1,0 +1,35 @@
+Theorem CN-Ordering: CN-8 fires before CN-6 (commutativity check)
+
+  Preconditions:
+    - Input: (Borrowed, HeapEscaping, Unique)
+    - CN-8 and CN-6 are both active canonicalization rules
+    - Annex E §AIMS + compiler at ori_arc/src/aims/lattice/mod.rs:
+      298-300 documents the ordering rationale
+
+  Soundness property:
+    CN-8-then-CN-6 =/= CN-6-then-CN-8 on (Borrowed, HeapEscaping, Unique).
+    The correct ordering (CN-8 first) preserves Uniqueness=Unique; the
+    wrong ordering demotes to MaybeShared.
+
+  Proof obligation:
+    CN-8-then-CN-6 path:
+      CN-8 fires: Locality HeapEscaping to FunctionLocal (Borrowed + wide).
+      State: (Borrowed, FunctionLocal, Unique).
+      CN-6 does NOT fire: FunctionLocal < HeapEscaping.
+      Final: (Borrowed, FunctionLocal, Unique).
+
+    CN-6-then-CN-8 path:
+      CN-6 fires: Uniqueness Unique to MaybeShared (Locality >= HeapEscaping).
+      State: (Borrowed, HeapEscaping, MaybeShared).
+      CN-8 fires: Locality HeapEscaping to FunctionLocal.
+      Final: (Borrowed, FunctionLocal, MaybeShared).
+
+    Outcomes differ on Uniqueness; confirms ordering is load-bearing.
+
+    Engines dispatched:
+      case_analysis (commutativity-divergence check per
+        section_03::verify_cn_rule_ordering_cn8_before_cn6)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-Ordering via two-path commutativity-divergence check

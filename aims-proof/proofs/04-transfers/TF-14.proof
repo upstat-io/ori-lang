@@ -1,0 +1,104 @@
+Theorem TF-14: Project backward demand propagation (well-definedness + QTT-consistency)
+
+  Preconditions:
+    - TF-14 propagate_project_source_demand mutates the source variable's
+      AimsState in response to demand accumulated at the destination
+      (projected) variable per Annex E §AIMS TF-14
+    - Mutations:
+        src.locality := max(src.locality, dst.locality)
+        src.cardinality := seq_add(src.cardinality, dst.cardinality)
+        src.consumption := seq_add(src.consumption, Affine)
+    - `seq_add` (not `max`) on Cardinality is QTT-consistent — a use through
+      a projection counts as a use on the source, not a max-merged use.
+      Using `max` would undercount when source and dst both have cardinality
+      Once: max(Once, Once) = Once, but the projection's use AND the
+      source's own direct use both consume the resource — actual cardinality
+      is Many. Per Annex E §AIMS TF-14 statement.
+    - No Access promotion at TF-14 (Owned promotion lives at IA-5 step (1)
+      for `Set`-target value-promotion + escape-instructions); TF-14 leaves
+      src.access UNCHANGED.
+    - Composes with Annex E §AIMS project_alias_sources Rules 1 + 6
+      (BORROW aliases only — non-BORROW R2/R3/R5/R7 aliases do NOT trigger
+      propagate_project_source_demand)
+    - L-6 monotonicity: TF-14 SHALL be monotone in dst.{cardinality,
+      locality, consumption} for fixed src; AND monotone in src for fixed
+      dst (the §3 TF-14 mutation is read-modify-write — both arguments
+      monotone per L-6).
+
+  Soundness property:
+    Forall src, dst in AimsState.
+      out := propagate_project_source_demand(src, dst) produces output
+      with the three mutations per spec
+    AND dst.locality1 <=_L dst.locality2 implies out_with(dst1).locality
+        <=_L out_with(dst2).locality (monotone over dst.locality)
+    AND dst.cardinality1 <=_K dst.cardinality2 implies
+        out_with(dst1).cardinality <=_K out_with(dst2).cardinality
+    AND out.access = src.access (no promotion)
+    AND src.consumption increments by seq_add with Affine (NOT propagated
+        from dst — independent of dst.consumption).
+
+  Proof obligation:
+    Four-part discharge:
+      (a) Spec compliance — verify the three mutations exactly per §3 TF-14
+          over a representative enumeration of (src, dst) pairs.
+      (b) QTT-consistency — verify `seq_add` (not `max`) on Cardinality
+          via the cardinality (Once, Once) -> Many witness; verify the
+          undercount via the `max` alternative.
+      (c) No-Access-promotion — verify out.access = src.access regardless
+          of dst.access or src.access.
+      (d) Monotonicity — enumerate the L-6 layer (b) check on dst.locality
+          and dst.cardinality over their carriers.
+
+    Part (a) — spec compliance:
+      Pick representative (src, dst) pairs over Locality x Cardinality x
+      Consumption x Access and verify:
+        out.locality == max_L(src.locality, dst.locality)
+        out.cardinality == seq_add_K(src.cardinality, dst.cardinality)
+        out.consumption == seq_add_C(src.consumption, Affine)
+        out.access == src.access
+        out.uniqueness == src.uniqueness (no propagation)
+        out.shape == src.shape (no propagation)
+        out.effect == src.effect (no propagation)
+
+    Part (b) — QTT-consistency:
+      Witness: src.cardinality = Once, dst.cardinality = Once.
+        seq_add_K(Once, Once) = Many (correct — count of uses is 2)
+        max_K(Once, Once) = Once (incorrect — undercount)
+      Verified: tf14_qtt_witness() returns Many (not Once) confirming
+      the seq_add path.
+
+    Part (c) — no-Access-promotion:
+      Enumerate src.access in {Borrowed, Owned} x dst.access in
+      {Borrowed, Owned}:
+        out.access = src.access for all 4 combinations
+      Verified: tf14_no_access_promotion() returns the unchanged src.access
+      regardless of dst.access. Negative witness — if Access were promoted
+      to Owned, CN-8's Borrowed-locality clamp would not fire (CN-8 only
+      applies to Borrowed) and downstream RC analysis would mis-emit.
+
+    Part (d) — monotonicity:
+      L-6 layer (b) on dst:
+        forall src in AimsState. forall l1, l2 in LOCALITY_CARRIER.
+          l1 <=_L l2 implies max_L(src.locality, l1) <=_L max_L(src.locality, l2)
+        forall src. forall k1, k2 in CARDINALITY_CARRIER.
+          k1 <=_K k2 implies seq_add_K(src.cardinality, k1) <=_K
+                              seq_add_K(src.cardinality, k2)
+      Both follow from monotonicity of `max` and `seq_add` over their
+      respective lattices per L-6 layer (a) (proven at §02).
+      Verified: 5 x 5 = 25 locality pairs x 5 src.locality values = 125
+      cases for locality monotonicity; 3 x 3 = 9 cardinality pairs x 3
+      src.cardinality values = 27 cases for cardinality monotonicity.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) on dst.locality + dst.cardinality
+        per section_04::verify_tf14_project_propagation)
+      case_analysis (PRIMARY — spec-compliance + QTT-consistency +
+        no-Access-promotion enumeration per
+        section_04::verify_tf14_project_propagation)
+      lattice (SECONDARY — accepts gracefully; max + seq_add monotone per L-6
+        layer (a))
+      refinement (SECONDARY — accepts gracefully; TF-14 does NOT call refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-14 via spec-compliance + QTT-consistency + no-Access-promotion + L-6 monotonicity enumeration on dst.locality + dst.cardinality

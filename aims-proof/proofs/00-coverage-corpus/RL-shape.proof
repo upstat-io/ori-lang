@@ -1,0 +1,81 @@
+Theorem RL-2: Last-use RcDec emission
+
+  Preconditions:
+    - F is an ArcFunction per arc.md sec-Key-Types
+    - AimsStateMap M is converged for F (per IA-7)
+    - owned_non_scalar_vars(F) per Annex E §AIMS RL-2
+    - uses(v) is the set of program points where v is used in F
+    - last_use(v) = max_program_point(uses(v))
+    - Ownership-transferring last uses per RL-2:
+        Return, Construct/Reuse/CollectionReuse arg, Set value,
+        PartialApply capture, Apply/Invoke to Owned param,
+        Jump arg per RL-4 exemption
+    - RC-counting balance per arc.md sec-Non-Negotiable-Invariants
+      invariant 1 (FipContract::Certified requires zero unmatched
+      alloc/dealloc in realized IR)
+
+  Soundness property:
+    Forall v in owned_non_scalar_vars(F).
+      RL-2 emits RcDec(v) at last_use(v) UNLESS last_use(v) is
+      ownership-transferring;
+      For every heap-allocating definition site of v, the realized
+      IR contains a matching RcDec(v) on every CFG path from
+      definition to function exit; RC count balanced per
+      VF-4 / VF-6.
+
+  Proof obligation:
+    RC-counting induction over F's CFG (refinement engine):
+      Refinement claim: pre-state has refcount = N at definition;
+      post-state at function exit has refcount = N - decs_emitted;
+      RL-2 ensures decs_emitted = N for v owned non-scalar with
+      cardinality > 0 (not Absent).
+
+    Case analysis on last_use(v) shape:
+      Case last_use is non-transferring use (Apply Borrowed param,
+                                              Project, IsShared,
+                                              dbg, etc.):
+        RL-2 emits RcDec(v) at the point;
+        balance: +1 inc at definition, -1 dec at last use; net 0;
+        refcount balanced.
+      Case last_use is Return:
+        Ownership-transferring; RL-2 SKIPS emission;
+        caller receives v with owned reference; caller's RL-2
+        owns the dec; balance maintained transitively.
+      Case last_use is Construct/Reuse/CollectionReuse arg:
+        Ownership-transferring; new aggregate captures v;
+        v's refcount inherited by aggregate; RL-2 SKIPS emission;
+        balance preserved.
+      Case last_use is Set value:
+        Ownership-transferring into the receiver's field;
+        receiver inherits v's ref; RL-2 SKIPS; balance preserved.
+      Case last_use is PartialApply capture:
+        Ownership-transferring into closure environment;
+        closure inherits v's ref; RL-2 SKIPS; balance preserved.
+      Case last_use is Apply/Invoke to Owned param:
+        Ownership-transferring into callee's parameter;
+        callee's RL-2 owns the dec; balance preserved across the
+        call boundary.
+      Case last_use is Jump arg (RL-4 exemption):
+        Block param IS successor's name; ownership transfers to
+        successor block param; RL-2 SKIPS; successor block param's
+        own RL-2 owns the dec; balance preserved.
+
+    Refinement post-condition (per arc.md invariant 1):
+      Every Construct/Reuse/CollectionReuse/PartialApply (allocations)
+      paired with one RcDec on every reachable exit path;
+      VF-4 FIP certification (sec-9 VF-4) verifies zero unmatched
+      alloc/dealloc; RL-2 + RL-4 (edge-specific decs) +
+      RL-5 (dead-at-entry cleanup) cover all owned-non-scalar
+      cleanup obligations.
+
+    Engines dispatched:
+      rc_counting (alloc/dec balance per arc.md invariant 1)
+      refinement (post-condition -> pre-condition implication on
+                  every CFG path; pre: refcount = N; post: refcount
+                  drops to 0 by function exit per matched decs)
+      case_analysis (per-last-use-shape enumeration above —
+                     ownership-transferring vs non-transferring)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: RL-shape scaffold-time; engine implementation pending

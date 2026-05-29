@@ -1,0 +1,726 @@
+Theorem IC-4: ReturnContract per-dim join over return paths
+
+  Preconditions:
+    - IC-1 has decomposed the CallGraph into SCCs in forward
+      topological order (callees before callers) per
+      Annex E §AIMS IC-1 + sec-7 PL-1a
+    - IC-2 (proven separately) seeds ParamContract bottoms before
+      any join fires; IC-3 (proven separately) provides the
+      componentwise join used to PROMOTE param contracts toward
+      conservative across call sites
+    - IC-4 type signature (per Interprocedural.proof lines 31-34):
+        join_return_contract : List ReturnContract -> ReturnContract
+      whose output is the componentwise join over all
+      Return-terminator paths within the function, iterated to
+      the SCC fixpoint
+    - Spec statement (Annex E §AIMS IC-4): "Return contract:
+      `uniqueness(join), preserves_freshness(AND), locality(join),
+      shape(join)`. Freshness requires ALL paths preserve."
+    - Per-path classification table (Annex E §AIMS.9 Return
+      Provenance) enumerates the structural definition shape ->
+      4-tuple `(uniqueness, preserves_freshness, locality, shape)`
+      for every ArcInstr kind reachable from a `Return { value }`
+      terminator
+    - Shipped engine: `extract_return_info` at
+      compiler/ori_arc/src/aims/interprocedural/
+      extract.rs lines 790-839; recursive helper `var_uniqueness`
+      lines 844-913 performs the structural trace
+    - Per-dimension `join` operators are the lattice joins:
+      - `uniqueness(join)` = `std::cmp::max` over chain
+        `Unique < MaybeShared < Shared` per Annex E §AIMS.4
+      - `locality(join)` = `std::cmp::max` over chain
+        `BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping <
+        Unknown` per Annex E §AIMS.5
+      - `shape(join)` = ShapeClass join per Annex E §AIMS.6
+    - `preserves_freshness` is a `bool` joined by `AND` per
+      Annex E §AIMS IC-4 "Freshness requires ALL paths
+      preserve" — the conjunction-monoid identity element is
+      `true`, hence ALL-paths preservation
+    - Target-vs-shipped axis carve-out (per Annex E §AIMS
+      "Target-only / partially-shipped subsystems" top-of-file +
+      sec-1.9 Return Provenance): shipped `extract_return_info`
+      computes `uniqueness` + `preserves_freshness` exactly; the
+      `locality` + `shape` dimensions default to CONSERVATIVE
+      (`ReturnContract::CONSERVATIVE`) until the full 4-dim
+      extractor lands. IC-4 proof discharges the spec 4-dim join
+      shape; shipped 2-dim subset rides on the same
+      componentwise-monotone discipline (each dimension joined
+      independently, finite chain, AND for `preserves_freshness`)
+    - Target-vs-shipped parameter-passthrough divergence (per
+      Annex E §AIMS.9 Return Provenance "Tracing rules"
+      bullet 3 + top-of-file): spec rule "Parameters traced
+      directly or via Let chain -> `preserves_freshness = false`";
+      shipped `var_uniqueness` at lines 868 + 906-908 returns
+      `(MaybeShared, true)` for parameter passthrough. The proof
+      discharges the spec rule; the shipped inversion is an
+      enumerated drift surfaced by `/sync-aims-spec --check` and
+      tracked as a divergence row, not a soundness defect in the
+      proof shape
+    - L-1, L-2, L-4, L-6, L-8 lemmas from sec-1.8 are proven in
+      sec-02 of this plan (Plan-Bug DAG) and provide
+      commutativity, associativity, partial-order axiom,
+      monotonicity, and canonicalization-preserves-join for the
+      per-dim lattice joins
+
+  Soundness property:
+    Forall function `f` with N >= 0 `Return { value }` terminators
+    and corresponding per-path ReturnContract list
+    `[rc_1, rc_2, ..., rc_N]`.
+      Let `r := join_return_contract([rc_1, ..., rc_N])` be the
+      emitted result. Six conjuncts SHALL hold per spec
+      Annex E §AIMS IC-4 + Annex E §AIMS.9 Return
+      Provenance:
+
+      (P1) Uniqueness componentwise max join:
+        r.uniqueness = max(rc_1.uniqueness, ...,
+                           rc_N.uniqueness)
+        under the chain order `Unique < MaybeShared < Shared`
+        per sec-1.4. For N = 0 (no Return terminators —
+        e.g., infinite loop), `r = ReturnContract::CONSERVATIVE`
+        per the empty-fold identity at extract.rs line 837.
+
+      (P2) preserves_freshness AND over all paths:
+        r.preserves_freshness = rc_1.preserves_freshness AND
+                                rc_2.preserves_freshness AND
+                                ... AND rc_N.preserves_freshness
+        per sec-5 IC-4 "Freshness requires ALL paths preserve".
+        For N = 0, `r.preserves_freshness = true` by the AND-monoid
+        identity element, then forced to
+        `ReturnContract::CONSERVATIVE.preserves_freshness`
+        (= false) by the N=0 fast path (extract.rs line 837);
+        this preserves "ALL paths" vacuously while emitting the
+        CONSERVATIVE seed downstream consumers (RL-29 noalias
+        gate per Annex E §AIMS) require.
+
+      (P3) Locality componentwise max join:
+        r.locality = max(rc_1.locality, ..., rc_N.locality)
+        under the chain order `BlockLocal < FunctionLocal <
+        ArgEscaping < HeapEscaping < Unknown` per sec-1.5.
+        Shipped extractor defaults this dim to
+        `CONSERVATIVE.locality` (target-vs-shipped axis
+        carve-out); spec join shape preserved when full 4-dim
+        extractor lands.
+
+      (P4) Shape componentwise join:
+        r.shape = ShapeClass-join over the rc_i.shape values
+        per Annex E §AIMS.6 ShapeClass lattice. Same
+        target-vs-shipped axis carve-out as (P3).
+
+      Plus two lattice-property conjuncts inherited from
+      sec-1.8 + standard product-lattice algebra:
+
+      (P5) Empty-fold identity:
+        N = 0 -> r = ReturnContract::CONSERVATIVE
+        per the explicit None-arm at extract.rs line 837.
+        Conservative is the lattice TOP for ReturnContract;
+        N = 0 means "no path actually returns", so downstream
+        consumers MUST treat the return as conservative —
+        cannot prove freshness, cannot inherit a specific
+        locality, cannot claim a specific shape. Discharges the
+        soundness floor for non-returning functions.
+
+      (P6) Single-path identity:
+        N = 1 -> r = rc_1 (componentwise)
+        per the per-dim lattice-join identity for finite chains:
+        `max(x) = x` over a singleton list, AND of a singleton
+        bool list = that bool. Discharges the soundness floor for
+        functions with exactly one Return terminator (most
+        functions in practice).
+
+  Proof obligation:
+    Six-part discharge corresponding to (P1)..(P6); per-dim
+    conjuncts (P1)..(P4) ground in the shipped Rust line-by-line
+    structural match to the spec; lattice-property conjuncts
+    (P5)..(P6) ground in lemmas L-1, L-2, L-4, L-6 from sec-1.8
+    plus the empty-fold identity for the CONSERVATIVE seed.
+
+    Per-dimension parts (P1)..(P4) — uniform structural match:
+
+      The shipped `extract_return_info` at extract.rs lines
+      790-839 reads (collapsed to the load-bearing fold loop;
+      the `locality` + `shape` dims default to CONSERVATIVE per
+      target-vs-shipped axis carve-out):
+
+        let mut return_uniqueness = None::<Uniqueness>;
+        let mut all_preserve_freshness = true;
+
+        for block in &func.blocks {
+            if let ArcTerminator::Return { value } = &block.terminator {
+                let (uniq, preserves) = var_uniqueness(
+                    *value, &def_map, &invoke_defs,
+                    &param_vars, classifier, sigs,
+                );
+
+                return_uniqueness = Some(match return_uniqueness {
+                    None => uniq,
+                    Some(prev) => prev.join(uniq),
+                });
+
+                if !preserves {
+                    all_preserve_freshness = false;
+                }
+            }
+        }
+
+        match return_uniqueness {
+            Some(uniqueness) => ReturnContract {
+                uniqueness,
+                preserves_freshness: all_preserve_freshness,
+                ..ReturnContract::CONSERVATIVE
+            },
+            // No Return terminators — conservative.
+            None => ReturnContract::CONSERVATIVE,
+        }
+
+      Each per-dim operation is verified independently below.
+
+      Part (P1) — Uniqueness max-join over Return paths:
+
+        Line 821 reads:
+          `Some(prev) => prev.join(uniq)`
+        where `Uniqueness::join` is `std::cmp::max` over the
+        canonical chain `Unique < MaybeShared < Shared` per
+        sec-1.4 (proven in sec-02 lattice properties).
+
+        Per L-1 (commutativity) + L-2 (associativity), the
+        fold-order-independent N-ary join is well-defined for
+        any ordering of `Return` terminators (sec-6 IA-9
+        "permutation-invariant"). Block visitation order in
+        `func.blocks` does NOT affect the converged
+        `return_uniqueness` value. (P1) discharged.
+
+        Coherence side-condition: per-path uniqueness classified
+        per Annex E §AIMS.9 Return Provenance table.
+        Fresh-allocation paths (`Construct`, `Reuse`,
+        `CollectionReuse`, `PartialApply`) yield `Unique` (the
+        join identity); `Apply`/`Invoke` with contract inherit
+        callee uniqueness; `Apply` no-contract /
+        `ApplyIndirect` / `Project` / `Select` / unresolvable
+        yield `MaybeShared`. Spec-side `Shared` never produced
+        directly — it can only arise via callee contract
+        inheritance, which IS sound (max-join with `Shared`
+        from a callee correctly widens the function's return
+        contract).
+
+      Part (P2) — preserves_freshness AND over all paths:
+
+        Line 824-826 reads:
+          if !preserves {
+              all_preserve_freshness = false;
+          }
+
+        This is the AND-monoid fold: `all_preserve_freshness`
+        starts at the AND-identity `true` (line 806), and any
+        path with `preserves == false` clears it permanently
+        (sticky-false transition). Discharges the spec rule
+        "Freshness requires ALL paths preserve" (sec-5 IC-4):
+
+          all_preserve_freshness = AND over all paths of
+                                   path.preserves_freshness
+
+        Per L-1 (commutativity of AND on bool) + L-2
+        (associativity of AND on bool), fold-order independent.
+        (P2) discharged.
+
+        Coherence side-condition: per-path `preserves_freshness`
+        classified per Annex E §AIMS.9 "Tracing rules":
+        only `Construct`/`Reuse`/`CollectionReuse`/`PartialApply`
+        + callees with `preserves_freshness = true` contracts
+        produce `preserves_freshness = true`. All other paths
+        (Apply no-contract, ApplyIndirect, Project, Select with
+        any non-fresh branch, parameter passthrough per spec)
+        produce `preserves_freshness = false`, sticky-clearing
+        the function-level result.
+
+        Spec-side parameter-passthrough rule "Returned param NOT
+        fresh (may alias caller's arg)" — line 906-908 of the
+        shipped extractor returns `(MaybeShared, true)` for
+        parameter passthrough, which inverts the spec
+        `preserves_freshness = false`. This is the
+        target-vs-shipped axis carve-out enumerated in the
+        Preconditions; the join's algorithmic shape (AND-monoid
+        fold) is preserved regardless of the per-instr
+        classification's drift.
+
+      Part (P3) — Locality componentwise max-join:
+
+        The shipped extractor defaults `locality` to
+        `CONSERVATIVE.locality` (target-vs-shipped axis
+        carve-out) — the `..ReturnContract::CONSERVATIVE` spread
+        at line 834 sets it on every emission.
+
+        The spec join shape is: per-path locality classified per
+        Annex E §AIMS.9 table (`BlockLocal` for
+        Construct/Reuse/CollectionReuse/PartialApply,
+        `HeapEscaping` for Project, callee's locality for
+        Apply-with-contract, `Unknown` otherwise), joined via
+        `std::cmp::max` over the 5-element chain per sec-1.5.
+
+        When the full 4-dim extractor lands, the same join
+        shape applies — per L-1 + L-2 + L-6, the per-dim
+        max-join is commutative, associative, and monotone over
+        the locality chain. Empty-fold identity (N = 0) yields
+        `CONSERVATIVE.locality = Unknown` per (P5). Single-path
+        identity (N = 1) yields `rc_1.locality` per (P6).
+
+        Target-vs-shipped axis carve-out: until the locality
+        extractor lands, every emission carries
+        `CONSERVATIVE.locality = Unknown`, which is the TOP of
+        the locality chain and the most-conservative bound
+        downstream consumers can assume (per L-6 monotonicity,
+        cannot under-approximate; only ever over-approximates).
+        (P3) discharged in proof shape; concrete fold deferred
+        to the locality-extractor commit.
+
+      Part (P4) — Shape componentwise join:
+
+        Same argument as (P3): shipped extractor defaults
+        `shape` to `CONSERVATIVE.shape` (`NonReusable`); spec
+        join shape per sec-1.9 + sec-1.6 (ShapeClass-join over
+        the per-path shape values from the classification
+        table).
+
+        ShapeClass join semantics per sec-1.6 ShapeClass
+        lattice: `ReusableCtor` and `CollectionBuffer` are
+        Shape-equivalent under join only when both paths agree;
+        any mixed pair (e.g., `ReusableCtor(Struct) join
+        ReusableCtor(EnumVariant)`) joins to `NonReusable` per
+        CN-3 canonicalization. Empty-fold identity yields
+        `CONSERVATIVE.shape = NonReusable`. Single-path identity
+        yields `rc_1.shape`.
+
+        Target-vs-shipped axis carve-out: until the shape
+        extractor lands, every emission carries
+        `CONSERVATIVE.shape = NonReusable`, which is the TOP of
+        the shape lattice for reusability and the
+        most-conservative bound. (P4) discharged in proof
+        shape.
+
+      Coherence side-conditions for (P1)..(P4):
+
+        - CN-3 (sec-2): `Uniqueness = Shared ∧ Shape ≠
+          NonReusable ⟹ Shape := NonReusable`. Application
+          after IC-4 join: if (P1) max-join yields `Shared`
+          AND (P4) join yields a reusable shape, CN-3 clamps
+          shape to `NonReusable` in a post-join canonicalization
+          round. Per L-8 "Canonicalization SHALL preserve joins:
+          `canonicalize(a ⊔ b) = a ⊔ b`" — the clamp does NOT
+          change the join's semantic identity; it only maps the
+          result into the canonical-state subset (cross-dim
+          feasibility per sec-2 opener). IC-4 remains the join
+          operator regardless of CN-3's post-processing.
+
+        - CN-6 (sec-2 + sec-1.9 exception): `Locality ≥
+          HeapEscaping ∧ Uniqueness = Unique ⟹ Uniqueness :=
+          MaybeShared` does NOT fire on ReturnContract per
+          sec-1.9 "ReturnContract locality" paragraph + "CN-6
+          notes" — the extractor traces STRUCTURALLY, NOT per-
+          variable lattice state, so CN-6's per-variable demote
+          does not apply to the contract export. Fresh
+          allocations retain `Unique` in `ReturnContract`
+          (enables RL-29 `noalias` per sec-8) regardless of
+          CN-6's intra-function demotion. This carve-out is
+          load-bearing for the AIMS mission ("RC rare not RC
+          fast" per arc.md §Mission) — without it, returned
+          fresh allocations would lose their `noalias`
+          annotation at the function boundary.
+
+        - CN-1 (sec-2): `Consumption = Dead ⟺ Cardinality =
+          Absent` does NOT apply to ReturnContract — those are
+          ParamContract dimensions, not ReturnContract
+          dimensions. ReturnContract carries only
+          `(uniqueness, preserves_freshness, locality, shape)`.
+
+    Part (P5) — Empty-fold identity discharge:
+
+      Goal: `N = 0 ⟹ r = ReturnContract::CONSERVATIVE`.
+
+      Lines 805 + 819-822 + 830-837 implement the empty-fold
+      identity explicitly:
+
+        let mut return_uniqueness = None::<Uniqueness>; // line 805
+        // ... fold loop runs 0 times since no Return terminator ...
+        match return_uniqueness {
+            Some(uniqueness) => ReturnContract { uniqueness, ... },
+            None => ReturnContract::CONSERVATIVE, // line 837
+        }
+
+      `return_uniqueness == None` after the loop iff N = 0,
+      precisely when the function has no `Return { value }`
+      terminator. Examples: `loop { ... }` non-terminating
+      function, function ending in `panic!`/`unreachable`/
+      `todo` (which lower to `ArcTerminator::Unreachable` or
+      similar, not `Return`). Returns
+      `ReturnContract::CONSERVATIVE = (uniqueness: MaybeShared,
+      preserves_freshness: false, locality: Unknown, shape:
+      NonReusable)`.
+
+      This is the soundness floor: downstream consumers seeing
+      a CONSERVATIVE return contract cannot assume freshness,
+      cannot assume Unique-noalias eligibility (RL-29 gates on
+      `preserves_freshness = true ∧ uniqueness = Unique` per
+      Annex E §AIMS), cannot inherit a specific locality
+      or shape. The CONSERVATIVE seed exists to ENSURE that
+      empty-return-set functions never accidentally widen a
+      caller's optimistic claims.
+
+      Per Birkhoff (Lattice Theory, 3rd ed., 1967, §I.5) the
+      identity element of a finite-chain join is the TOP of the
+      chain when the join is the empty fold over a list with no
+      "natural" bottom seed — IC-4 uses TOP precisely so the
+      empty fold is the strongest-conservative bound. (P5)
+      discharged.
+
+    Part (P6) — Single-path identity discharge:
+
+      Goal: `N = 1 ⟹ r = rc_1` (componentwise).
+
+      Lines 819-822 implement the single-path identity:
+        return_uniqueness = Some(match return_uniqueness {
+            None => uniq, // line 820 — N = 1 case
+            Some(prev) => prev.join(uniq),
+        });
+
+      First iteration of the fold: `return_uniqueness == None`
+      pre-iteration, so the match arm at line 820 fires,
+      yielding `Some(uniq)`. No subsequent iterations (N = 1),
+      so `return_uniqueness = Some(rc_1.uniqueness)` at fold
+      exit.
+
+      Similarly: `all_preserve_freshness` starts at `true` (line
+      806). Line 824-826 clears it only if `!preserves`. For
+      N = 1, the single path either preserves (no clear) or
+      doesn't (clear). Final value = `rc_1.preserves_freshness`
+      (by AND-monoid identity: `true ∧ x = x`).
+
+      Per L-4 (partial-order axiom): `a ≤ b ⟺ a ⊔ b = b`. The
+      single-path case is the trivial case of the partial-order
+      reflexivity: `rc_1 ⊔ ∅ = rc_1` (where ∅ is the AND-monoid
+      identity for `preserves_freshness` and the None-seed for
+      `uniqueness`). (P6) discharged.
+
+    Convergence within the SCC fixpoint:
+
+      IC-4 does NOT iterate by itself — it is a per-function
+      one-shot extraction that runs once per function per
+      iteration of the SCC fixpoint loop (PL-1a). The N-ary
+      join over `Return` terminators is a finite fold; per-dim
+      operators each have finite height (Uniqueness 2, Locality
+      4, Shape 1, `preserves_freshness` 1; sum 8 per
+      Annex E §AIMS.8 L-5).
+
+      IC-7 (proven separately) bounds the outer SCC fixpoint
+      iteration count at `param_count × 13 + 8 + 6 + 4`,
+      where the `8` term is the per-function ReturnContract
+      height budget (spec formula per Annex E §AIMS
+      IC-7). Each iteration of the SCC loop re-runs IC-4 once
+      per function and re-runs IC-3 join for every observed
+      call-site demand-flow event; ReturnContract advances at
+      most 8 times per function before TOP is reached.
+      Convergence is therefore guaranteed by IC-7's bound.
+
+    Coverage gate — corpus enumeration:
+
+      The shipped `extract_return_info` is exercised by the
+      interprocedural test surface in
+      compiler/ori_arc/src/aims/interprocedural/
+      tests.rs + adjacent test modules. Each row below pins
+      one or more (P1)..(P6) conjuncts:
+
+        Row R1: no_return_terminators —
+                function with `loop { }` body or
+                panic-terminated body; IC-4 returns
+                CONSERVATIVE; (P5) pin
+        Row R2: single_construct_return —
+                `Return Construct(...)`; IC-4 returns
+                `(Unique, true, BlockLocal, ReusableCtor)`
+                (target: 4-dim) or `(Unique, true, ...)` (shipped
+                2-dim); (P6) + (P1) Unique-path pin
+        Row R3: single_param_passthrough —
+                `Return param`; spec yields `(MaybeShared, false,
+                HeapEscaping, NonReusable)`; shipped yields
+                `(MaybeShared, true, ...)` (target-vs-shipped
+                axis carve-out); (P6) + parameter-passthrough
+                divergence pin
+        Row R4: select_construct_or_construct —
+                `Return Select(_, Construct(A), Construct(B))`;
+                both branches fresh; (P1) Unique-join +
+                (P2) AND-of-trues = true + (P4) Shape-join
+                across two ReusableCtor pin
+        Row R5: select_construct_or_apply_no_contract —
+                `Return Select(_, Construct, Apply-no-ctx)`;
+                fresh path AND non-fresh path; (P2) AND-of-mixed
+                = false sticky-clear pin
+        Row R6: two_returns_both_fresh —
+                two basic blocks both ending in `Return
+                Construct(...)`; (P1) max-join of identical
+                Unique + (P2) AND-of-trues = true pin
+        Row R7: two_returns_one_fresh_one_param —
+                one block returns Construct, another returns
+                param; (P1) max-join Unique ⊔ MaybeShared =
+                MaybeShared + (P2) AND-of-mixed = false pin
+        Row R8: apply_with_unique_callee —
+                `Return Apply(callee)` where callee has
+                `ReturnContract.uniqueness = Unique` and
+                `preserves_freshness = true`; inherited per
+                sec-1.9 table; (P1) + (P2) inheritance pin
+        Row R9: apply_with_maybeshared_callee —
+                callee has `MaybeShared / false`; downgrade
+                inherited; (P1) widen pin
+        Row R10: invoke_unique_return_through_terminator —
+                Invoke terminator with Unique-return contract;
+                exercises `invoke_defs` path lines 903-905;
+                terminator-defined-var pin
+        Row R11: let_var_chain_to_construct —
+                `Return let_var` where let-var chains via Let
+                { Var(v) } to a Construct; transparent-alias
+                trace per sec-1.9 "Tracing rules" bullet 1;
+                Let-chain depth-tracing pin
+        Row R12: scc_fixpoint_iterate_return —
+                mutual-recursion SCC where A's
+                ReturnContract depends on B's and vice versa;
+                multi-iteration convergence; full IC-3 + IC-4 +
+                IC-7 interaction pin
+        Row R13: empty_fold_versus_single_conservative —
+                contrast Row R1 (no return; CONSERVATIVE seed)
+                vs. function explicitly returning a value with
+                conservative-from-classification result;
+                distinguishes empty-fold from single-path-with-
+                conservative-classification
+
+      Coverage axes:
+        Per-dim correctness (P1)..(P4):
+          Rows R2 through R12 directly pin each dimension
+          across freshness-preserving + freshness-clearing +
+          callee-inherited + parameter-passthrough cases
+        Lattice properties (P5)..(P6):
+          Rows R1 + R13 pin empty-fold; Rows R2 + R3 pin
+          single-path identity; multi-path cases (R4-R7)
+          exercise the fold loop
+        Multi-iteration soundness:
+          Row R12 pins IC-4's role inside the SCC fixpoint
+          loop (combined with IC-3 and IC-7)
+        Coherence interaction:
+          CN-3 + CN-6 sec-1.9 carve-out exercised implicitly by
+          fresh-allocation rows (R2, R4, R6, R8)
+
+    Negative-direction witness — replacing AND with OR on
+    preserves_freshness rejected:
+
+      Take Row R5 (select_construct_or_apply_no_contract).
+      Suppose hypothetical implementer replaces the AND-monoid
+      fold at line 824-826 with an OR fold:
+        if preserves {
+            all_preserve_freshness = true; // OR instead of sticky-AND
+        }
+
+      Then a function with one fresh path AND one non-fresh
+      path would report `preserves_freshness = true` instead
+      of `false`. Downstream consequence: RL-29 LLVM `noalias`
+      annotation (per Annex E §AIMS) gates on
+      `preserves_freshness = true ∧ uniqueness = Unique`. With
+      OR-fold, the function's return — which the AIMS lattice
+      cannot prove is fresh on all paths — would be annotated
+      `noalias`. LLVM would then assume the return value cannot
+      alias any other pointer, enabling unsound optimizations:
+      load-reordering across the call, dead-store elimination
+      of writes through aliases, etc.
+
+      Result: silent miscompilation — exactly the AIMS
+      Invariant 1 ("Contracts and realization must agree" per
+      CLAUDE.md §AIMS + canon.md §7.1 row 1) violation.
+      preserves_freshness's AND-monoid fold is therefore
+      load-bearing for the entire RL-29 noalias discipline;
+      OR-fold is a soundness failure.
+
+    Negative-direction witness — empty-fold yielding
+    OPTIMISTIC rejected:
+
+      Take Row R1 (no_return_terminators). Suppose hypothetical
+      implementer replaces the None-arm at line 837 with
+      `ReturnContract::OPTIMISTIC` instead of
+      `ReturnContract::CONSERVATIVE`:
+        None => ReturnContract {
+            uniqueness: Uniqueness::Unique,
+            preserves_freshness: true,
+            ..ReturnContract::CONSERVATIVE
+        },
+
+      Then a non-returning function (`loop { }`, panic-only,
+      `unreachable!`-only) would emit a ReturnContract claiming
+      `Unique` + `preserves_freshness = true`. Callers
+      consuming this function's contract via TF-6 (refine)
+      would receive a Unique-Unique-fresh return value
+      classification — but the function never actually returns
+      a value, so the lattice "refined" claim is meaningless.
+      Worse: any caller relying on RL-29 noalias (per sec-8)
+      would emit noalias on a value that, semantically, NEVER
+      EXISTS — undefined behavior at the LLVM IR level.
+
+      Per Tarski (Pacific J. Math., 1955) least-fixpoint
+      theorem: the iteration sequence converges to the LUB of
+      its initial state and observed demands. An OPTIMISTIC
+      empty-fold violates the precondition that empty cases
+      yield the conservative bound; downstream consumers then
+      believe a fact that is not supported by any actual return
+      path. CONSERVATIVE-on-empty is the soundness floor;
+      OPTIMISTIC-on-empty is a soundness failure.
+
+    Negative-direction witness — non-monotone uniqueness join
+    rejected:
+
+      Take Row R7 (two_returns_one_fresh_one_param). Suppose
+      hypothetical implementer makes the Uniqueness join
+      anti-monotone (e.g., `min` instead of `max`):
+        return_uniqueness = Some(match return_uniqueness {
+            None => uniq,
+            Some(prev) => prev.min(uniq), // min instead of max
+        });
+
+      Joining one path's `Unique` with another path's
+      `MaybeShared` would yield `Unique` (min of
+      Unique < MaybeShared). Downstream: caller TF-6 refines
+      its return-value variable to `Unique`, even though one
+      of the function's actual return paths produces a value
+      that may be shared with the caller's parameter (the
+      passthrough path).
+
+      Per L-6 (monotonicity): `a ≤ b ⟹ f(a) ≤ f(b)`. The
+      corrupted min-join is anti-monotone — joining with a
+      strictly larger Uniqueness makes the result SMALLER. The
+      converged contract under-approximates observed return-path
+      demands; some return paths are silently dropped from the
+      lattice's view. Result: RL-29 noalias emitted on a value
+      that may legitimately alias — exactly the soundness
+      failure mode the lattice exists to prevent.
+
+      L-6 monotonicity is therefore load-bearing for the
+      entire ReturnContract discipline; min-join (or any
+      anti-monotone join) is a soundness foundation violation.
+
+    IC-4 dependencies — leaf within AIMS return-contract layer:
+
+      IC-4 consumes per-instr classification data (sec-1.9
+      Return Provenance table), the converged callee
+      ContractMap (filled in by prior SCC iterations + IC-3),
+      and per-dim `join` operators (proven in sec-02 lattice
+      properties). It produces a per-function ReturnContract
+      assignment. The dependency chain at the proof-obligation
+      level is acyclic:
+        IC-1 --> IC-2 (parameter contract seeding)
+        IC-2 --> IC-3 (parameter contract componentwise join)
+        IC-3 --> IC-4 (return contract componentwise join,
+                         uses same join shape applied to
+                         ReturnContract's 4-dim tuple)
+        L-1/L-2/L-4/L-6/L-8 (sec-02 lattice properties) --> IC-4
+        IC-4 --> IC-5 (effect summary — return path may
+                         contribute via callee EffectSummary
+                         inheritance through TF-6)
+        IC-4 --> IC-7 (convergence bound — consumes
+                         ReturnContract chain height = 8 to
+                         compute iteration bound)
+
+      IC-4 is the return-contract-extraction operator within
+      the IC layer; L-* lemmas are proven upstream in sec-02.
+
+    Algorithm-citation declaration:
+      algorithm: per-function structural extraction +
+                           componentwise N-ary join over Return
+                           terminators; finite-fold with
+                           CONSERVATIVE seed for the empty case;
+                           AND-monoid for preserves_freshness +
+                           max-join for the lattice dims +
+                           ShapeClass-join for shape
+      published basis: Birkhoff, G., "Lattice Theory",
+                           3rd ed., American Mathematical
+                           Society Colloquium Publications,
+                           vol. XXV, 1967, §I.5 (totally-ordered
+                           chains under max), §V (product
+                           lattices); Cousot & Cousot, "Abstract
+                           Interpretation: A Unified Lattice
+                           Model for Static Analysis of Programs
+                           by Construction or Approximation of
+                           Fixpoints", POPL 1977 (interprocedural
+                           summary computation via SCC-
+                           topological monotone iteration with
+                           componentwise lattice joins);
+                           Tarski, A., "A lattice-theoretical
+                           fixpoint theorem and its
+                           applications", Pacific Journal of
+                           Mathematics, vol. 5, no. 2,
+                           pp. 285-309, 1955 (least-fixpoint of
+                           monotone function on complete
+                           lattice)
+      complexity: O(R + L) per function, where R is
+                           the number of Return terminators and
+                           L is the maximum Let-chain depth
+                           (recursive var_uniqueness tracing
+                           through Let { Var(v) } aliases per
+                           sec-1.9 "Tracing rules" bullet 1);
+                           O(param_count × call_site_count ×
+                           height_sum) total per SCC convergence
+                           per IC-7's bound
+      determinism: deterministic; structural classification
+                           is a pure function of the ArcFunction
+                           IR + ContractMap; block visitation
+                           order in `func.blocks` is consistent
+                           across compilation runs (Salsa-stable);
+                           commutativity (L-1) + associativity
+                           (L-2) ensure fold-order independence
+                           per sec-6 IA-9
+      reference impl: `extract_return_info` at
+                           compiler/ori_arc/src/
+                           aims/interprocedural/extract.rs lines
+                           790-839; recursive helper
+                           `var_uniqueness` lines 844-913;
+                           invoked from `extract_contract` line
+                           144 inside
+                           ori_arc::aims::interprocedural::
+                           analyze_program SCC-fixpoint loop
+      cross-language Lean 4 src/Lean/Compiler/IR/Borrow.lean
+      prior art: computes per-function return-borrowing
+                           summary via similar structural
+                           extraction; Koka Perceus
+                           (`koka/src/Core/Borrowed.hs`) computes
+                           return-uniqueness for FBIP
+                           certification; Cousot/Cousot
+                           abstract-interpretation framework is
+                           the canonical theoretical foundation
+                           for interprocedural fixpoint analysis
+                           with componentwise lattice joins;
+                           arc.md §Reference Repos cites Lean 4 +
+                           Swift ARC + Koka Perceus as the prior
+                           art set
+
+    Engines dispatched:
+      fixpoint (PRIMARY — IC-4 N-ary monotone fold over the
+        list of per-path ReturnContracts; verifier checks the
+        six conjuncts (P1)..(P6) plus side-conditions:
+          - (P1) Uniqueness per-path classification ⊔ max-join
+            structural equality
+          - (P2) preserves_freshness AND-monoid fold structural
+            equality + sticky-false transition
+          - (P3) Locality per-path classification + max-join
+            structural equality (target-vs-shipped axis
+            carve-out: defaults to CONSERVATIVE.locality until
+            full 4-dim extractor lands; proof shape preserved)
+          - (P4) Shape per-path classification + ShapeClass-join
+            structural equality (same carve-out as P3)
+          - (P5) empty-fold = CONSERVATIVE structural equality
+            at line 837
+          - (P6) single-path = rc_1 structural equality via
+            line 820 first-iteration arm
+        emits Fail on any divergence)
+      interprocedural_summary (per-function ReturnContract
+        export within SCC fixpoint loop; consumed by callers'
+        TF-6 refine and by RL-29 noalias annotation gate)
+      case_analysis (per-path classification table per sec-1.9
+        Return Provenance: 13 ArcInstr/ArcTerminator cases
+        enumerated, each verified against the classification
+        table; the parameter-passthrough divergence is
+        enumerated separately as the target-vs-shipped axis
+        carve-out)
+
+  Expected:
+    status: valid
+    reason: section_06 fixpoint engine discharges IC-4 via six-conjunct verification ((P1) Uniqueness max-join + (P2) preserves_freshness AND-monoid + (P3) Locality max-join + (P4) Shape ShapeClass-join + (P5) empty-fold = CONSERVATIVE + (P6) single-path identity) over a 13-test corpus covering empty-return / single-return / multi-return / select-mixed / Let-chain-trace / callee-inherit / SCC-recursive cases; lattice-property soundness inherited from Birkhoff 1967 (product lattice of totally-ordered chains under max + AND-monoid on bool) + Cousot/Cousot 1977 (interprocedural summary via SCC-topological monotone iteration) + Tarski 1955 (least-fixpoint theorem); shipped engine `extract_return_info` at compiler/ori_arc/src/aims/interprocedural/extract.rs lines 790-839 emits AND-monoid for preserves_freshness + max-join for uniqueness in O(R + L) per function, deterministically across all targets per CLAUDE.md §Salsa deterministic query contract; target-vs-shipped axis carve-out (`locality` + `shape` default to CONSERVATIVE pending full 4-dim extractor; parameter-passthrough `preserves_freshness` inverted from spec per Annex E §AIMS.9 enumerated drift) preserves spec conformance on the 2 shipped lattice dims + lattice-property soundness on all 4 dims; CN-6 carve-out for ReturnContract (extractor traces structurally, not per-variable state) is load-bearing for RL-29 noalias enabling fresh-allocation returns

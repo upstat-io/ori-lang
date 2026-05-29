@@ -1,0 +1,50 @@
+Theorem RL-20: thread-shared values use atomic RC
+
+  Preconditions:
+    - RL-20 governs thread-shared atomic RC per Annex E §AIMS
+      Non-Atomic RC: "Thread-shared values SHALL use atomic RC."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - A value is thread-shared (per the RL-18a derivation) when it escapes
+      (Locality >= HeapEscaping) AND a call-graph path carries it across a
+      thread boundary (spawn / channel / FFI export).
+    - Shipped: target-system rule; realize/decide.rs consumes Locality.
+    - depends-on RL-18a (thread-shared derivation).
+
+  Soundness property:
+    Forall value v that is thread-shared (escapes across a thread boundary):
+
+      (P1) Atomicity decision: RL-20 emits atomic RC (CAS) for v.
+
+      (P2) Soundness: a thread-shared value's reference count may be mutated
+           concurrently by multiple threads; only atomic read-modify-write
+           (CAS) prevents a data race that would corrupt the count (and cause
+           a use-after-free or a leak). Non-atomic RC on a thread-shared value
+           is UNSOUND.
+
+    RL-20 is the safety floor of the non-atomic-RC optimization: whenever the
+    analysis cannot prove thread-locality, atomic RC is mandatory.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine.
+
+    Part (P1/P2) — thread-shared atomicity:
+      The verifier confirms a HeapEscaping value crossing a thread boundary is
+      classified thread-shared (derives_thread_shared = true) and receives
+      atomic RC. Negative-direction witness: a thread-shared value MUST NOT
+      use non-atomic RC (a data race on the count would corrupt it) —
+      asserted.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl20_thread_shared_atomic;
+        thread-shared atomicity check + negative witness; emits Fail on a
+        misclassification or a non-atomic selection for a thread-shared value)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-20 via thread-shared atomicity (a value escaping across a thread boundary -> atomic CAS RC) with a negative-direction witness rejecting non-atomic RC on a thread-shared value (data race), grounded in the RL-18a thread-shared derivation

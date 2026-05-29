@@ -1,0 +1,57 @@
+Theorem RL-16: escaping heap allocation (Locality >= HeapEscaping)
+
+  Preconditions:
+    - RL-16 governs escaping heap allocation per Annex E §AIMS Stack
+      Promotion: escaping values (Locality >= HeapEscaping) SHALL be
+      heap-allocated with a full RC header.
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - DP-8 (is_local) is false for HeapEscaping and Unknown — these are the
+      non-promotable localities; the stack-promotion rules (RL-14 / RL-14a /
+      RL-15) and the caller-stack rule (RL-15a, ArgEscaping) do not apply.
+    - Shipped: realize/decide.rs Locality consumption; repr.md sec-RH-3
+      (escaping values carry an RC header).
+    - depends-on sec-05: DP-8 (is_local).
+
+  Soundness property:
+    Forall value v with Locality(v) >= HeapEscaping:
+
+      (P1) Strategy decision: RL-16 selects a heap allocation with a full RC
+           header, regardless of Uniqueness or size.
+
+      (P2) Lifetime soundness: a value that escapes its function frame
+           (HeapEscaping) or whose escape is Unknown cannot live on the stack
+           — the stack frame is popped on return, leaving a stack value
+           dangling. A heap allocation with a full RC header tracks the
+           value's (possibly shared, possibly multi-frame) lifetime correctly,
+           freeing it when the count reaches zero.
+
+    RL-16 is the conservative fallback of the Locality lattice: any value the
+    analysis cannot prove non-escaping (or proves heap-escaping) gets the
+    full heap + RC-header treatment — the same as plain ARC, since no
+    refinement is provable.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine via exhaustive
+    enumeration of the escaping localities x Uniqueness x size.
+
+    Part (P1/P2) — escaping strategy grid:
+      The verifier asserts every (HeapEscaping / Unknown) x (Unique /
+      MaybeShared / Shared) x (fixed / dynamic) combination selects Heap.
+      Coverage gate: 12 combinations. Negative-direction witness: a
+      heap-escaping value must NOT be stack-promoted (headerless / immortal /
+      bump) — it would dangle after the frame is popped — asserted.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl16_escaping_heap;
+        escaping-locality strategy enumeration; emits Fail on a wrong
+        strategy or a stack-promotion of an escaping value)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-16 via exhaustive enumeration of escaping localities (HeapEscaping / Unknown) x Uniqueness x size -> heap allocation with a full RC header, with a negative-direction witness rejecting stack promotion of a heap-escaping value, grounded in repr.md RH-3 + realize/decide.rs Locality consumption

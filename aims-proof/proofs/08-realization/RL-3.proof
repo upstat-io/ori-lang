@@ -1,0 +1,95 @@
+Theorem RL-3: RC op elision when DP-2 / DP-3 / DP-7 prove the op unnecessary
+
+  Preconditions:
+    - RL-3 governs RC-op elision per Annex E §AIMS RC Emission:
+      "RC ops SHALL be ELIDED when the lattice proves unnecessary (DP-2,
+      DP-3, DP-7)."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - Elision is decided in realize/decide.rs (decide() routes each
+      RC-emission decision through the DP predicates) and applied in
+      realize/mod.rs::realize_rc_reuse Sub-step B
+      (emit_unified::emit_rc_unified, line 140).
+    - The three gating predicates (Appendix C truth tables, proven sound at
+      sec-05):
+        * DP-2 is_rc_dec_unnecessary <=> Cardinality = Absent OR Consumption
+          = Dead — a SUPPLEMENTARY dec on an absent/dead value is redundant.
+        * DP-3 is_rc_inc_elidable <=> Cardinality = Once AND Consumption =
+          Linear — a moved-once value needs no inc.
+        * DP-7 is_rc_skip_eligible <=> is_local AND Access = Owned AND
+          Consumption = Linear AND Cardinality = Once AND Uniqueness =
+          Unique AND NOT is_scalar — the caller-inc + callee-dec pair
+          cancels for a local-linear-unique owned non-scalar param.
+    - DP-7's Uniqueness = Unique clause is load-bearing: a non-unique
+      (MaybeShared / Shared) value's caller inc is never balanced, so
+      skipping the pair would leak the upstream reference (Annex E §AIMS DP-7).
+    - depends-on sec-05: DP-2 / DP-3 / DP-7 soundness proofs are the gating
+      predicates RL-3 consumes.
+
+  Soundness property:
+    Forall value v and forall candidate RC op (inc or dec) on v:
+
+      (P1) Elision decision: RL-3 elides the op iff at least one of
+           DP-2(state(v)), DP-3(state(v)), DP-7(state(v)) holds — i.e. iff
+           the lattice proves the op redundant.
+
+      (P2) RC-count preservation (elision is net-preserving): for any value
+           lifecycle, the form with the redundant op present and the form
+           with the op elided produce the SAME net reference count. An
+           elided op contributes 0 to the balance; removing it cannot change
+           whether the lifecycle balances.
+
+    RL-3 refines plain ARC by removing exactly the inc/dec ops the lattice
+    proves redundant, while preserving the observable RC balance: the elided
+    op was a no-op on the net count (its inc/dec partner is either absent or
+    likewise elided).
+
+  Proof obligation:
+    Constructive discharge by the rc_counting engine.
+
+    Part (P1) — elision decision (cross-check against DP-2 / DP-3 / DP-7):
+
+      The verifier enumerates an elision-eligibility grid; each row carries
+      the three predicate values (computed from the sec-05 predicate models)
+      and asserts RL-3's elide decision equals (DP-2 OR DP-3 OR DP-7):
+        dp3_move_elides_inc — DP-3 fires (Once, Linear) -> elide
+        dp2_absent_elides_dec — DP-2 fires (Absent, Dead) -> elide
+        dp7_local_unique_skips_pair — DP-7 fires (local, Owned,
+                                       Linear, Once, Unique) -> elide
+        no_predicate_no_elision — none fires (Many,
+                                       Unrestricted, non-local) -> keep
+        dp7_blocked_by_maybeshared — DP-7 blocked (MaybeShared) -> keep
+        dp7_blocked_by_shared — DP-7 blocked (Shared) -> keep
+      Coverage gate: 6 decisions, each cross-checked against the
+      sec-05-proven predicates. A divergence between RL-3's elision and the
+      predicate disjunction fails the proof.
+
+    Part (P2) — elision preserves balance (balance ledger):
+
+      Sound cases discharged (net = 0 in both forms):
+        redundant_inc_dec_present_balanced — moved-once value with the
+                                             redundant inc+dec present.
+        redundant_inc_dec_elided_balanced — same value with the inc+dec
+                                             elided; balances identically.
+
+    Negative-direction witness (REJECTED):
+      NEG_elide_needed_dec_leaks — eliding a NEEDED dec (DP-2 false, e.g.
+                                   Many cardinality) leaves the alloc
+                                   reference unreleased: net = +1 (leak).
+                                   Rejected.
+      Coverage gate: 3 ledger cases (2 sound + 1 negative witness).
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_08::verify_rl3_rc_op_elision; elision
+        decision cross-check against the DP-2 / DP-3 / DP-7 disjunction +
+        elision-preserves-balance ledger; emits Fail on a predicate
+        divergence or a balance violation)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest
+        RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 rc_counting engine discharges RL-3 via (P1) the elision decision cross-checked against the DP-2 / DP-3 / DP-7 gating disjunction over a 6-row grid (including DP-7 blocked-by-MaybeShared and blocked-by-Shared) and (P2) the elision-preserves-balance ledger (2 sound forms + 1 negative-direction witness showing a wrongly-elided dec leaks), grounded in the shipped realize/decide.rs DP-predicate routing

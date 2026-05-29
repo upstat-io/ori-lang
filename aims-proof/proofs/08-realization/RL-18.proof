@@ -1,0 +1,64 @@
+Theorem RL-18: RC header width narrowing from the RL-17 bound; ABI-visibility carve-out
+
+  Preconditions:
+    - RL-18 governs header width narrowing per Annex E §AIMS RC Header
+      Compression: "RC header width SHALL be narrowed from the RL-17 result:
+      Unique (is_local per RL-17 OR ArgEscaping headerless per RL-15a) ->
+      none; Bounded(<=127) -> i8; Bounded(<=32767) -> i16;
+      Bounded(<=2^31-1) -> i32; Unbounded -> i64. Narrowing ONLY for types
+      not escaping the compilation unit. Types observable through dyn Trait,
+      FFI, or compilation-unit boundaries SHALL always use full-width i64.
+      ABI-visibility is a type-level property, tracked separately from
+      Locality per RL-18a."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - RL-18 consumes the RL-17 SharingBound; repr.md sec-RH-1 owns the header
+      geometry (CG:RT-2) — RL-18 narrows only the strong_count field width.
+    - depends-on RL-17 (the SharingBound input).
+
+  Soundness property:
+    Forall heap value v with RL-17 bound b and ABI-visibility a:
+
+      (P1) Width selection: RL-18 selects
+        - HeaderWidth::None when b = NoHeader;
+        - i8 when b = Bounded(n), n <= 127;
+        - i16 when b = Bounded(n), 127 < n <= 32767;
+        - i32 when b = Bounded(n), 32767 < n <= 2^31-1;
+        - i64 when b = Unbounded OR b = Bounded(n), n > 2^31-1;
+        - i64 ALWAYS when a = ABI-visible (regardless of b).
+
+      (P2) Soundness: the chosen width holds the RL-17 upper bound without
+           overflow (n fits in the width), and an ABI-visible type uses the
+           full-width header so its cross-compilation-unit / dyn-Trait / FFI
+           ABI matches every consumer.
+
+    RL-18 refines plain ARC's fixed i64 header to the smallest width that
+    provably holds the maximum simultaneous count, while the ABI-visibility
+    carve-out preserves cross-boundary ABI compatibility.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine via enumeration of the
+    width-selection grid + the ABI-visibility carve-out.
+
+    Part (P1/P2) — width grid:
+      no_header_none / bounded_4_i8 / bounded_127_i8 (boundary) /
+      bounded_128_i16 / bounded_40000_i32 / unbounded_i64 /
+      abi_visible_bounded_still_i64.
+      Coverage gate: 7 width decisions (including the 127->i8 / 128->i16
+      boundary and the ABI-visible carve-out). Negative-direction witness: an
+      ABI-visible type narrowed below i64 mismatches the cross-compilation-unit
+      ABI -> MUST be i64 — asserted.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl18_header_width_narrowing;
+        width-selection enumeration + ABI carve-out; emits Fail on a wrong
+        width or an ABI-visible narrowing)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-18 via the header-width-narrowing grid (NoHeader->none; Bounded<=127->i8; <=32767->i16; <=2^31-1->i32; Unbounded->i64) with the boundary cases and a negative-direction witness enforcing the ABI-visibility full-width-i64 carve-out, grounded in the RL-17 SharingBound + repr.md RH-1 header geometry

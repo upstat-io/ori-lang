@@ -1,0 +1,43 @@
+Theorem CN-6: Wide-locality uniqueness ceiling
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+      sec-Per-Dimension-Symbol-Set
+    - s.locality is at least HeapEscaping (HeapEscaping or Unknown)
+    - s.uniqueness = u (Unique)
+    - canonicalize(s) is s with CN-6 applied per Annex E §AIMS + sec-1.8 L-6 monotonicity
+    - Exception clause for return values not in scope of this shape;
+      see the canonical proof notation sec-Return-Provenance
+
+  Soundness property:
+    Forall s in AimsState.
+      (s.locality >= HeapEscaping and s.uniqueness = u)
+      implies
+      canonicalize(s).uniqueness = ms
+
+  Proof obligation:
+    Case analysis on s.locality (active locality >= HeapEscaping):
+      Case s.locality = HeapEscaping:
+        CN-6 fires: Uniqueness := ms (MaybeShared);
+        result canonical; other dimensions preserved per Annex E §AIMS (CN-6 mutates only Uniqueness).
+      Case s.locality = Unknown:
+        CN-6 fires (uses >= per the rule's >= ordering covering Unknown);
+        Uniqueness := ms; result canonical.
+
+    Lattice validation:
+      Uniqueness dimension carrier: u < ms < s (height 2);
+      CN-6 moves Uniqueness UP the dimension (u -> ms);
+      monotone per L-6 on the demotion step.
+
+    Idempotence (L-7):
+      After CN-6 fires, s.uniqueness = ms; CN-6 premise no longer
+      holds (uniqueness != u); second canonicalize round is no-op;
+      idempotent in 1 round.
+
+    Engines dispatched:
+      case_analysis (for the HeapEscaping / Unknown enumeration above)
+      lattice (validates state-canonical post-CN-6 + L-7 idempotence)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: CN-shape scaffold-time; engine implementation pending

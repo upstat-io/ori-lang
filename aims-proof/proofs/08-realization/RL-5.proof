@@ -1,0 +1,90 @@
+Theorem RL-5: dead-at-entry cleanup for Owned non-scalar block params with Cardinality = Absent
+
+  Preconditions:
+    - RL-5 governs dead-at-entry cleanup per Annex E §AIMS RC
+      Emission: "An OWNED non-scalar block param with Cardinality = Absent
+      at entry SHALL receive an immediate dec. Borrowed Absent params don't
+      need decs."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - Shipped site: emit_rc/dead_cleanup/mod.rs::emit_dead_at_entry_decs
+      (re-exported from emit_rc/mod.rs), called from
+      realize/mod.rs::realize_rc_reuse Phase 1.
+    - The target state is the Appendix B reachable-boundary state
+      (Owned AND Absent AND Dead): a predecessor passed the value (its
+      reference) as a Jump arg / block-param binding, and the block never
+      uses it. CN-1 forces Cardinality = Absent <=> Consumption = Dead, so
+      an Owned Absent block param is a dead inbound reference that must be
+      released at entry.
+    - RL-5 pairs with RL-4: the predecessor's Jump-arg transfer (RL-4
+      exemption) hands the reference to the block param; if the block param
+      is Absent, RL-5 releases it at entry. Without RL-5 the predecessor's
+      transferred reference would leak.
+    - Borrowed Absent params receive NO dec — the caller manages a borrowed
+      value's reference (Annex E §AIMS RL-5).
+
+  Soundness property:
+    Forall block param p at a block's entry:
+
+      (P1) Entry-dec decision: RL-5 emits an immediate dec for p iff
+           (Access(p) = Owned AND NOT is_scalar(p) AND Cardinality(p) =
+           Absent). A used param (Cardinality >= Once) is dec'd later by
+           RL-2 / RL-4, not at entry; a Borrowed param and a scalar receive
+           no dec.
+
+      (P2) RC-count preservation: an owned non-scalar Absent block param's
+           inbound reference (transferred by the predecessor) is released
+           exactly once by the entry cleanup dec. The net reference count
+           returns to 0; the predecessor's transfer is balanced.
+
+    RL-5 completes the ownership-transfer chain begun by RL-4's Jump-arg
+    exemption: RL-4 transfers a dying value's reference to the successor
+    block param without a dec; RL-5 releases that reference at the
+    successor's entry when the param is unused — preserving balance across
+    the edge with neither a leak (no entry dec) nor a double-free (entry dec
+    on a Borrowed param).
+
+  Proof obligation:
+    Constructive discharge by the rc_counting engine.
+
+    Part (P1) — entry-dec decision grid:
+
+      The verifier enumerates an entry-decision grid and asserts RL-5's
+      emit decision equals (Owned AND non-scalar AND Cardinality = Absent)
+      on every row:
+        owned_absent_block_param_emits -> emit entry dec
+        borrowed_absent_no_entry_dec -> NO dec (caller manages)
+        owned_used_once_no_entry_dec -> NO dec (RL-2 dec at last use)
+        scalar_absent_no_entry_dec -> NO dec (no RC)
+      Coverage gate: 4 decisions (1 emit + 3 suppressed). A divergence fails
+      the proof.
+
+    Part (P2) — RC-count preservation (balance ledger):
+
+      Sound lifecycle discharged (net = 0):
+        dead_at_entry_cleanup_balanced — the predecessor's transferred
+                                         reference (modeled as the inbound
+                                         alloc) is released by the entry
+                                         cleanup dec.
+
+    Negative-direction witness (REJECTED):
+      NEG_owned_absent_no_entry_dec_leaks — an Owned Absent block param with
+                                            no entry dec leaves the
+                                            predecessor's transferred
+                                            reference unreleased: net = +1
+                                            (leak). Rejected.
+      Coverage gate: 2 ledger cases (1 sound + 1 negative witness).
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_08::verify_rl5_dead_at_entry_cleanup;
+        entry-dec decision grid + RC-balance ledger; emits Fail on a
+        decision divergence or a balance violation)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest
+        RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 rc_counting engine discharges RL-5 via (P1) the entry-dec decision grid (1 emit + 3 suppressed: borrowed / used / scalar) and (P2) the RC-count-preservation balance ledger (1 sound lifecycle + 1 negative-direction witness showing a missing entry dec leaks the predecessor's transferred reference), grounded in the shipped emit_rc/dead_cleanup/mod.rs emit_dead_at_entry_decs site completing the RL-4 Jump-arg transfer chain

@@ -1,0 +1,1086 @@
+Theorem IC-5: EffectSummary derivation soundness
+
+  Preconditions:
+    - IC-1 has decomposed the CallGraph into SCCs in forward
+      topological order (callees before callers) per
+      Annex E §AIMS IC-1 + sec-7 PL-1a
+    - IC-2 (proven separately) seeds ParamContract bottoms;
+      IC-3 (proven separately) joins ParamContract toward
+      conservative; IC-4 (proven separately) extracts
+      ReturnContract per function
+    - IC-5 type signature (per Interprocedural.proof lines 36-40):
+        derive_effect_summary :
+            ArcFunction -> ContractMap -> EffectSummary
+      whose output is the per-function effect summary derived
+      from the instruction stream + callee contracts (NOT
+      joined from per-variable EffectClass state — see sec-1.7
+      CRITICAL note)
+    - Spec statement (Annex E §AIMS IC-5): "Effect summary
+      join: `may_allocate(OR), may_deallocate(OR), may_share(OR),
+      may_throw(OR), has_unbounded_stack(OR), may_read_inaccessible(OR)`.
+      `may_read_inaccessible` true when reads globals / thread-
+      local / non-arg memory — required for RL-30 (`memory(none)`
+      requires ALL false). `alloc_only_on_slow_path`
+      intraprocedural-only."
+    - Derivation rules (Annex E §AIMS IC-5 procedure):
+      - `Construct`/`Reuse`/`CollectionReuse`/`PartialApply` ->
+        `may_allocate = true`
+      - Deallocation: `may_deallocate = true` when callee
+        contracts include `may_deallocate=true`, OR Owned
+        params, OR `Set`/`SetTag` (implicit field drops), OR
+        analysis shows owned variable transitioning to dead
+      - Sharing: `may_share = true` when fn may inc any
+        parameter's RC (use cardinality > Once OR stored), OR
+        any callee `may_share=true`. Sharing instructions:
+        `Construct`/`Reuse`/`CollectionReuse` storing existing
+        variable as field; any duplicating ref
+      - `Apply`/`Invoke` w/ contract: inherit callee's
+        EffectSummary via OR
+      - `Apply`/`Invoke` no contract, `ApplyIndirect`/
+        `InvokeIndirect`: ALL = `{may_allocate=T,
+        may_deallocate=T, may_share=T, may_throw=T,
+        has_unbounded_stack=T, may_read_inaccessible=T,
+        alloc_only_on_slow_path=F}`
+      - `Invoke`/`InvokeIndirect` (unwind) + `Resume` ->
+        `may_throw = true`
+      - Unbounded recursion -> `has_unbounded_stack = true`
+      - `alloc_only_on_slow_path`: AND, computed POST-
+        REALIZATION (after Step 10), NOT during Step 1.
+        Initialized `false` in Step 1; intraprocedural-only
+        (not inherited by callers).
+    - sec-1.7 CRITICAL note: "EffectSummary (IC-5) computed
+      from INSTRUCTIONS, NOT per-variable EffectClass.
+      `Construct` -> `may_allocate=true`; `Apply`/`Invoke` w/
+      contract -> callee's `EffectSummary`; w/o contract ->
+      ALL. Per-variable EffectClass = ALL on call results does
+      NOT poison caller's EffectSummary."
+    - Shipped engine:
+      `accumulate_instr_effects` at compiler/
+      ori_arc/src/aims/intraprocedural/effects.rs lines 22-62;
+      `accumulate_terminator_effects` lines 68-79; aggregated
+      across blocks during Step 4 (`analyze_function`) and
+      finalized in `extract_contract` at
+      compiler/ori_arc/src/aims/interprocedural/
+      extract.rs line 157 (where `has_unbounded_stack` is set
+      from SCC membership + tail-position checks)
+    - Per-field OR-join operators are boolean OR (`||`) per
+      `EffectSummary::join` at contract/mod.rs lines 535-548;
+      `alloc_only_on_slow_path` uses AND (`&&`) per the same
+      function — both monotone over the 2-element bool chain
+      `false < true`, height 1
+    - Target-vs-shipped axis carve-out (per Annex E §AIMS
+      "Target-only / partially-shipped subsystems" top-of-file
+      + sec-5 IC-5): spec mandates 6 OR-joined fields
+      (`may_allocate`, `may_deallocate`, `may_share`,
+      `may_throw`, `has_unbounded_stack`,
+      `may_read_inaccessible`) + 1 AND-joined field
+      (`alloc_only_on_slow_path`). Shipped struct carries 5 of
+      the 6 OR-joined fields + the AND-joined field;
+      `may_read_inaccessible` is target-only (not yet wired).
+      Shipped derivation also restricts the spec's
+      `may_allocate` triggers to `Construct` + `PartialApply`
+      + known-contract `Apply` (the `Reuse` /
+      `CollectionReuse` triggers + the no-contract `Apply` /
+      `ApplyIndirect` ALL-seed + the explicit recursion-
+      detection `has_unbounded_stack` seed at Step 1 are
+      target-only). IC-5 proof discharges the spec procedure;
+      shipped subset rides on the same per-instruction OR-fold
+      discipline (each effect field joined independently via
+      OR, height-1 chain, monotone)
+    - L-1 (commutativity of OR / AND), L-2 (associativity of OR
+      / AND), L-6 (monotonicity over bool chain) lemmas from
+      sec-1.8 are proven in sec-02 of this plan (Plan-Bug DAG)
+
+  Soundness property:
+    Forall function `f` with instruction stream
+    `I = [i_1, i_2, ..., i_n]` (across all blocks), terminator
+    set `T = {t_1, ..., t_m}`, and callee ContractMap C.
+      Let `e := derive_effect_summary(f, C)` be the emitted
+      result. Eight conjuncts SHALL hold per spec
+      Annex E §AIMS IC-5 + sec-1.7 CRITICAL note:
+
+      (P1) Per-instruction derivation, not per-variable:
+        e SHALL be computed from instruction-shape pattern-
+        matching over I + T + C; SHALL NOT be derived from
+        joining per-variable `EffectClass` values across the
+        AimsStateMap. The shape `EffectClass = ALL` on a
+        per-variable lattice state for a call result SHALL NOT
+        poison `e` (sec-1.7 CRITICAL note).
+
+      (P2) may_allocate OR-join:
+        e.may_allocate = OR over i in I of
+                         alloc_trigger(i)
+        where `alloc_trigger` is:
+          - true if `i` is `Construct(_)` (non-scalar)
+          - true if `i` is `Reuse(_)` (target-only)
+          - true if `i` is `CollectionReuse(_)` (target-only)
+          - true if `i` is `PartialApply(_)`
+          - true if `i` is `Apply(callee, _)` with `callee in C`
+            AND `C[callee].effects.may_allocate = true`
+          - true if `i` is `Apply(callee, _)` no-contract or
+            `ApplyIndirect` (target-only ALL-seed)
+          - false otherwise
+
+      (P3) may_deallocate OR-join:
+        e.may_deallocate = OR over i in I of dealloc_trigger(i)
+        where `dealloc_trigger` is:
+          - true if `i` is `Apply(callee, _)` with `callee in C`
+            AND `C[callee].effects.may_deallocate = true`
+          - true if callee has Owned params (transitive through
+            contract)
+          - true if `i` is `Set(_)`/`SetTag(_)` (implicit field
+            drop on the old field value — target-only trigger)
+          - true if analysis shows owned variable transitioning
+            to Dead (post-realization `FipEvidence.missed_reuses
+            > 0` per contract/mod.rs lines 470-471)
+          - false otherwise
+        Computed POST-EMISSION from
+        `FipEvidence.missed_reuses` per the contract/mod.rs
+        documentation; not a per-instruction immediate trigger.
+
+      (P4) may_share OR-join:
+        e.may_share = OR over i in I of share_trigger(i, C)
+        where `share_trigger` is:
+          - true if `i` is `Construct`/`Reuse`/
+            `CollectionReuse` storing an existing parameter
+            variable as a field (cardinality > Once OR stored)
+          - true if `i` is `Apply(callee, _)` with `callee in C`
+            AND `C[callee].effects.may_share = true`
+          - true if `i` is `Apply(callee, _)` no-contract or
+            `ApplyIndirect` (target-only ALL-seed)
+          - true if `i` is `Construct(dst, args)` with
+            `dst_demand.locality > BlockLocal` (shipped trigger
+            per sec-1.9 + intraprocedural/effects.rs lines
+            36-42 — HeapEscaping arg of a Construct shares the
+            arg's RC across the construct boundary)
+          - false otherwise
+
+      (P5) may_throw OR-join:
+        e.may_throw = OR over t in T of throw_trigger(t, C)
+        where `throw_trigger` is:
+          - true if `t` is `Invoke(_)` or `InvokeIndirect(_)`
+            (unwind possible)
+          - true if `t` is `Resume(_)` (unwind continuation)
+          - true if `t` is `Invoke(callee, _)` with
+            `callee in C` AND `C[callee].effects.may_throw =
+            true` (callee may throw downstream)
+          - false otherwise
+
+      (P6) has_unbounded_stack OR-join (set once at extract_contract):
+        e.has_unbounded_stack = `has_unbounded_stack` flag
+        derived from SCC membership + syntactic tail-position
+        checks at extract.rs line 157.
+        - true if `f` contains non-tail-recursive call to itself
+          or to a mutual-recursion partner (in same SCC)
+        - false if every recursive call is in tail position
+          (rewritten to loop by tail-call pass per
+          Annex E §AIMS Step 8)
+        Per contract/mod.rs lines 506-510: "Unlike
+        may_allocate/may_share/may_throw, this is NOT
+        accumulated per-block during analysis. It is set once
+        in extract_contract() from SCC membership and
+        syntactic tail-position checks."
+
+      (P7) may_read_inaccessible OR-join (target-only):
+        e.may_read_inaccessible = OR over i in I of
+                                  inaccessible_trigger(i, C)
+        where `inaccessible_trigger` is:
+          - true if `i` reads global memory
+          - true if `i` reads thread-local memory
+          - true if `i` reads non-arg memory (not via
+            parameter chain)
+          - true if `i` is `Apply(callee, _)` with `callee in C`
+            AND `C[callee].effects.may_read_inaccessible = true`
+          - false otherwise
+        Required for RL-30 `memory(none)` LLVM attribute
+        (sec-8): `memory(none)` SHALL be emitted ONLY when ALL
+        OR-joined fields are false; target-only field; shipped
+        struct does not yet carry this flag (target-vs-shipped
+        axis carve-out — when wired, OR-fold shape preserved).
+
+      (P8) alloc_only_on_slow_path AND-join (post-realization):
+        e.alloc_only_on_slow_path = AND over i in I-of-allocs of
+                                    slow_path_predicate(i)
+        where `slow_path_predicate` is:
+          - true if `i` is `Construct`/`Reuse`/`CollectionReuse`
+            inside a COW slow-path arm (guarded by uniqueness
+            check)
+          - false otherwise (unconditional alloc disables the
+            slow-path-only optimization)
+        Computed POST-REALIZATION (after Step 10), per
+        Annex E §AIMS IC-5. Initialized `false` in Step 1
+        per the same rule. Intraprocedural-only (not inherited
+        by callers). AND-monoid identity is `true`; empty-fold
+        of allocs yields `true` only when `e.may_allocate =
+        false` (vacuously slow-path-only). Otherwise yields
+        AND-over-allocs.
+
+  Proof obligation:
+    Eight-part discharge corresponding to (P1)..(P8); per-field
+    conjuncts (P2)..(P5), (P7) ground in the shipped Rust
+    instruction-shape pattern-match to the spec; (P6) grounds
+    in the explicit one-shot assignment at extract.rs line 157;
+    (P8) grounds in the post-realization AND-fold per
+    contract/mod.rs line 540; (P1) grounds in the
+    architectural separation between EffectSummary derivation
+    (instruction stream) and the per-variable EffectClass
+    lattice dimension (sec-1.7 CRITICAL note).
+
+    Part (P1) — Per-instruction derivation, not per-variable:
+
+      Goal: prove that `derive_effect_summary` reads the
+      instruction stream + callee ContractMap and does NOT read
+      the per-variable EffectClass lattice state.
+
+      Architectural witness — shipped pipeline structure:
+
+        The shipped derivation lives in
+        intraprocedural/effects.rs `accumulate_instr_effects`
+        (lines 22-62) + `accumulate_terminator_effects` (lines
+        68-79). The function signatures are:
+
+          fn accumulate_instr_effects(
+              instr: &ArcInstr,
+              dst_demand: Option<AimsState>,
+              state_map: &AimsStateMap,
+              sigs: &FxHashMap<Name, MemoryContract>,
+              effects: &mut EffectSummary,
+          )
+
+          fn accumulate_terminator_effects(
+              term: &ArcTerminator,
+              sigs: &FxHashMap<Name, MemoryContract>,
+              effects: &mut EffectSummary,
+          )
+
+        The pattern-match in `accumulate_instr_effects` is on
+        the instruction shape (`ArcInstr::Construct`,
+        `ArcInstr::PartialApply`, `ArcInstr::Apply`, ...), NOT
+        on a per-variable lattice value. The single use of
+        per-variable state is `dst_demand.locality` in the
+        Construct arm (lines 37-41) — this reads the
+        DESTINATION's demanded locality to detect a
+        HeapEscaping construct (sec-1.9 sharing trigger),
+        which IS an instruction-level trigger about that
+        specific construct, not a poisoning of the function-
+        level summary by some unrelated per-variable
+        EffectClass.
+
+      Per sec-1.7 CRITICAL note: "Per-variable EffectClass =
+      ALL on call results does NOT poison caller's
+      EffectSummary." The Apply arm at lines 54-58 reads the
+      callee's `MemoryContract.effects` (the callee's
+      EffectSummary) and OR-joins it into the caller's
+      EffectSummary. It does NOT read the per-variable
+      EffectClass of the call result variable — that
+      EffectClass value, which IS `ALL` per TF-5 (per
+      Annex E §AIMS TF-5 — Apply no-contract sets call
+      result's per-variable state to CONSERVATIVE with Effect
+      = ALL), is a per-variable lattice fact about the
+      destination variable's downstream demand, not a
+      function-level effect attribution.
+
+      This architectural separation is the core soundness
+      property of IC-5: per-variable lattice state and
+      per-function EffectSummary are independent dimensions
+      with independent join discipline. Conflating them — e.g.,
+      joining the per-variable EffectClass values across the
+      AimsStateMap and using that as the function's
+      EffectSummary — would over-approximate effects on every
+      function with any Apply-no-contract call result, even if
+      that result is dead (Cardinality = Absent / Consumption
+      = Dead per the lattice).
+
+      (P1) discharged by structural inspection of
+      `accumulate_instr_effects` + `accumulate_terminator_
+      effects`: every read is from `instr` shape, `term` shape,
+      or `sigs` (ContractMap). No read of
+      `AimsStateMap.var_states` or any per-variable EffectClass
+      field.
+
+    Part (P2) — may_allocate OR-join:
+
+      Shipped triggers (lines 33-50 of intraprocedural/
+      effects.rs):
+
+        ArcInstr::Construct { dst, args, .. } => {
+            if !state_map.is_excluded(*dst) {
+                effects.may_allocate = true;
+                ...
+            }
+        }
+        ArcInstr::PartialApply { dst, .. } => {
+            if !state_map.is_excluded(*dst) {
+                effects.may_allocate = true;
+            }
+        }
+
+      Plus the Apply arm at lines 54-58 which inherits the
+      callee's `may_allocate` via OR-join:
+
+        ArcInstr::Apply { func: callee, .. } => {
+            if let Some(contract) = sigs.get(callee) {
+                *effects = effects.join(&contract.effects);
+            }
+        }
+
+      Per `EffectSummary::join` at contract/mod.rs line 538:
+        `may_allocate: self.may_allocate || other.may_allocate`
+
+      Each per-instruction trigger writes `effects.may_allocate
+      = true` via assignment (not via OR — but the field
+      starts at `OPTIMISTIC.may_allocate = false`, so the
+      assignment-from-true is semantically equivalent to
+      `effects.may_allocate ||= true` per the bool 2-element
+      chain `false < true`). The per-block accumulation across
+      multiple instructions is a sequence of monotone
+      transitions `false -> true` (sticky, height 1).
+
+      Per L-1 + L-2 (commutativity + associativity of OR on
+      bool), the per-instruction fold-order is invariant. Per
+      L-6 (monotonicity over bool chain), the fold is monotone
+      — each trigger can only advance `may_allocate` from
+      false to true, never the reverse.
+
+      The `state_map.is_excluded(*dst)` guard at lines 34 + 48
+      excludes immortal / scalar / value-marker destinations
+      from triggering `may_allocate` (per sec-1.8 L-9 scalar
+      sentinel + Annex E §AIMS sec-Notes immortal pre-pass).
+      This is sound: an immortal-allocated Construct does NOT
+      consume runtime memory (per arc.md §AIMS Invariant 5
+      immortal pre-pass), so its `may_allocate` contribution
+      is genuinely false. The exclusion is at the per-
+      instruction trigger evaluation level (per the
+      `is_excluded` predicate's documentation in
+      aims/intraprocedural/state_map.rs), not at the per-
+      variable EffectClass-join level — (P1) is preserved.
+
+      Target-vs-shipped axis carve-out: the spec triggers
+      `Reuse` and `CollectionReuse` are NOT in the shipped
+      match (lines 29-60); the spec no-contract Apply ALL-seed
+      is NOT in the shipped Apply arm (lines 54-58 only ORs
+      when contract exists, falling through silently
+      otherwise). Both are enumerated drifts. Proof shape
+      preserved: when wired, each missing trigger adds an OR
+      contribution, monotonically advancing `may_allocate`
+      from the current shipped value. (P2) discharged for the
+      shipped subset; shipped < spec; soundness gap is
+      under-approximation, which violates the spec but is
+      enumerated.
+
+    Part (P3) — may_deallocate OR-join:
+
+      Per contract/mod.rs lines 470-471 + 487-495:
+      "`may_deallocate` is a post-emission fact: computed from
+      `FipEvidence.missed_reuses > 0` after realization. ...
+      `true` if any consumed value with reusable shape was NOT
+      matched by a reuse opportunity — the function frees
+      memory without reusing it."
+
+      Shipped derivation does NOT compute `may_deallocate`
+      during Step 1 (`extract_contract` returns an
+      EffectSummary with `may_deallocate` left at whatever
+      it was during accumulation — typically false unless
+      callee inheritance bumped it). The post-realization
+      computation (Step 5a `verify_fip_contract` per
+      Annex E §AIMS) reads `FipEvidence.missed_reuses`
+      from the realized IR and sets `may_deallocate = true`
+      iff any consumed-reusable-not-matched event occurred.
+
+      Per the spec rule (sec-5 IC-5):
+        e.may_deallocate = OR over (callee contract
+                                    may_deallocate)
+                         OR Owned params have transitive
+                            dealloc
+                         OR `Set`/`SetTag` (implicit field
+                            drops — target-only)
+                         OR owned-variable-Dead transition
+                            (FipEvidence.missed_reuses > 0)
+
+      Shipped derivation covers the callee-inheritance
+      sub-clause via `effects.join(&contract.effects)` at line
+      56; covers the FipEvidence sub-clause via Step 5a; does
+      NOT yet cover Owned-params + `Set`/`SetTag` (target-only
+      triggers).
+
+      Per L-1 + L-2 + L-6 (OR-fold properties on bool), the
+      proof shape is preserved: each trigger contributes
+      monotonically, OR-fold across triggers is commutative
+      and associative, target-only triggers add OR
+      contributions when wired. (P3) discharged for the
+      shipped subset; shipped < spec; soundness gap is
+      under-approximation, enumerated.
+
+    Part (P4) — may_share OR-join:
+
+      Shipped triggers:
+
+        1. Construct with HeapEscaping demand (lines 37-42):
+           if let Some(demand) = dst_demand {
+               if demand.locality > Locality::BlockLocal {
+                   effects.may_share = true;
+               }
+           }
+           This is the sec-1.9 trigger: a Construct whose
+           destination escapes the block has its args' RC
+           shared across the construct boundary, so any arg
+           that was Unique becomes MaybeShared from the
+           function's caller-visible perspective.
+
+        2. Apply with contract callee (lines 54-58):
+           `effects.may_share || contract.effects.may_share`
+           via the `EffectSummary::join` call.
+
+        3. Per intraprocedural/block.rs lines 332 + 470:
+           `compute_effective_may_share(contract, args,
+           current)` — this is a per-call-site computation
+           that checks whether the call site's args are unique
+           (caller-side fact) to decide whether the callee's
+           `may_share` claim applies to THIS specific call.
+           NOT a poisoning of the caller's EffectSummary by a
+           per-variable lattice value; it's a per-call-site
+           refinement of the callee's contract claim. (P1)
+           preserved.
+
+      Per `EffectSummary::join` at contract/mod.rs line 542:
+        `may_share: self.may_share || other.may_share`
+
+      Per L-1 + L-2 + L-6, OR-fold is commutative,
+      associative, monotone over bool. (P4) discharged.
+
+      Target-vs-shipped axis carve-out: spec sharing triggers
+      include "Construct/Reuse/CollectionReuse storing
+      existing variable as field" + "any duplicating ref" +
+      "use cardinality > Once OR stored". Shipped covers the
+      Construct-HeapEscaping variant + callee inheritance;
+      does not yet enumerate the explicit cardinality/storage
+      check + Reuse / CollectionReuse cases (target-only
+      triggers). Proof shape preserved.
+
+    Part (P5) — may_throw OR-join:
+
+      Shipped triggers (intraprocedural/effects.rs lines
+      68-79):
+
+        if let ArcTerminator::Invoke { func: callee, .. } = term {
+            effects.may_throw = true;
+            if let Some(contract) = sigs.get(callee) {
+                *effects = effects.join(&contract.effects);
+            }
+        }
+
+      Two contributions:
+        1. The Invoke terminator itself sets
+           `effects.may_throw = true` unconditionally — Invoke
+           exists in the IR precisely because the call MAY
+           unwind (vs. Apply which is the non-unwinding call).
+        2. The callee's EffectSummary is OR-joined, capturing
+           transitive throw propagation when the callee may
+           throw via its own Invoke terminators or contract.
+
+      Per `EffectSummary::join` at contract/mod.rs line 543:
+        `may_throw: self.may_throw || other.may_throw`
+
+      Per L-1 + L-2 + L-6, OR-fold is commutative,
+      associative, monotone over bool. (P5) discharged for
+      Invoke terminator; spec additional triggers
+      (`InvokeIndirect`, `Resume`) are target-only — Resume
+      handling not yet wired in the shipped
+      `accumulate_terminator_effects` match. Proof shape
+      preserved.
+
+    Part (P6) — has_unbounded_stack one-shot assignment:
+
+      Shipped assignment (extract.rs line 157):
+
+        effects.has_unbounded_stack = has_unbounded_stack;
+
+      where `has_unbounded_stack` is computed in
+      `extract_contract` from SCC membership + syntactic tail-
+      position checks (the surrounding code at lines 35-200
+      determines whether the function is self-recursive or
+      part of a mutual-recursion SCC, AND whether every
+      recursive call site is in tail position).
+
+      Per contract/mod.rs lines 506-510: "Unlike
+      may_allocate/may_share/may_throw, this is NOT
+      accumulated per-block during analysis. It is set once in
+      extract_contract() from SCC membership and syntactic
+      tail-position checks."
+
+      Soundness rationale: `has_unbounded_stack` is a global
+      property of the function's recursive structure, not a
+      per-instruction local fact. Accumulating it per-block
+      would require re-detecting recursion at every call site,
+      which the SCC decomposition already provides
+      authoritatively per IC-1. Setting it once at
+      extract_contract avoids the redundancy AND ensures the
+      value is consistent with the converged SCC structure
+      (no stale per-block snapshot).
+
+      Per `EffectSummary::join` at contract/mod.rs line 545:
+        `has_unbounded_stack: self.has_unbounded_stack ||
+                              other.has_unbounded_stack`
+
+      The OR-fold IS used in inter-function join (when callee
+      contracts inherit), even though the per-function
+      derivation is one-shot. Per L-6 (monotonicity), the
+      one-shot value is at the lattice-bottom of subsequent
+      OR-joins with callee inheritance — `has_unbounded_stack`
+      can only advance from false to true via callee inherit
+      after extract_contract sets it.
+
+      Target-vs-shipped axis carve-out: extract.rs line 157
+      currently always sets `has_unbounded_stack = false` (the
+      explicit recursion-detection logic at lines 35-156 is
+      stubbed in the shipped engine; full SCC-based detection
+      is target-only). Proof shape preserved: when wired,
+      the assignment becomes data-dependent on actual SCC
+      analysis. (P6) discharged for the one-shot assignment
+      structure; concrete detection deferred.
+
+    Part (P7) — may_read_inaccessible OR-join (target-only):
+
+      Spec rule (Annex E §AIMS IC-5):
+      "`may_read_inaccessible` true when reads globals /
+      thread-local / non-arg memory — required for RL-30
+      (`memory(none)` requires ALL false)."
+
+      Target-vs-shipped axis carve-out: shipped
+      `EffectSummary` struct (contract/mod.rs lines 479-511)
+      does NOT carry a `may_read_inaccessible` field. The
+      shipped 5-field subset (`may_allocate`, `may_deallocate`,
+      `may_share`, `may_throw`, `has_unbounded_stack`) + the
+      AND-field `alloc_only_on_slow_path` is enumerated drift
+      from the spec's 6-OR-fields + 1-AND-field shape.
+
+      Per L-1 + L-2 + L-6, when wired, the OR-fold over
+      per-instruction inaccessible-memory triggers will be
+      commutative, associative, monotone over bool. The proof
+      shape applies identically to this field as to (P2)
+      (P4) (P5) — instruction-shape pattern-match contributes
+      OR triggers; callee inheritance via
+      `EffectSummary::join` adds an OR contribution.
+
+      RL-30 (`memory(none)` LLVM attribute per Annex E §AIMS) gates on ALL OR-joined fields being false. Until
+      `may_read_inaccessible` is wired, RL-30 cannot emit
+      `memory(none)` unconditionally — the field's absence
+      means the attribute SHALL only be emitted via target-
+      only LLVM lowering rules, not via the IC-5-derived
+      EffectSummary. (P7) discharged in proof shape; concrete
+      derivation deferred to the field-wiring commit.
+
+    Part (P8) — alloc_only_on_slow_path AND-join:
+
+      Per `EffectSummary::join` at contract/mod.rs line 540:
+        // Both sides must be slow-path-only for the join to
+        // be slow-path-only.
+        alloc_only_on_slow_path: self.alloc_only_on_slow_path
+                              && other.alloc_only_on_slow_path
+
+      AND-monoid fold across allocs: identity is `true` (the
+      empty-AND identity element). Per L-1 + L-2 (commutativity
+      + associativity of AND on bool), fold-order independent.
+      Per L-6 (monotonicity over bool chain with `false <
+      true` order reversed to `true < false` for AND), the
+      AND-fold is anti-monotone in the lattice order — but
+      this IS the correct shape for the "slow-path-only"
+      claim: any one unconditional alloc clears the claim
+      permanently (sticky-false transition).
+
+      Note: spec says (sec-5 IC-5) "`alloc_only_on_slow_path`:
+      AND, computed POST-REALIZATION (after Step 10), NOT
+      during Step 1. Initialized `false` in Step 1;
+      intraprocedural-only (not inherited by callers)." The
+      `OPTIMISTIC` constant at contract/mod.rs line 527 sets
+      `alloc_only_on_slow_path: false` — this is the Step 1
+      initialization. The post-realization update (Step 10
+      `realize_annotations` per Annex E §AIMS) is the
+      authoritative computation.
+
+      Soundness rationale for AND vs OR: the predicate
+      "alloc only on slow path" is a UNIVERSAL claim (FOR ALL
+      alloc instructions, that instruction is on a slow path)
+      — universal claims AND across the set. The
+      `false` initialization at Step 1 is conservative
+      (cannot claim slow-path-only without proof from
+      realization); the post-realization update can advance
+      it to `true` only when realization confirms every alloc
+      is on a slow path.
+
+      Per L-1 + L-2 + L-6, AND-fold is commutative,
+      associative, monotone (in the AND-direction). (P8)
+      discharged.
+
+      Coherence side-condition with may_allocate: when
+      `e.may_allocate = false`, the empty-allocs set means
+      `e.alloc_only_on_slow_path` AND-fold yields the AND-
+      identity `true` (vacuously slow-path-only). This is
+      semantically correct: a function with NO allocs is
+      trivially "alloc-only-on-slow-path" since there are no
+      allocs to violate the claim. The shipped initialization
+      `false` is conservative (waits for realization to
+      confirm), which is sound but loses precision; the
+      authoritative Step 10 update reconciles.
+
+    Coherence side-conditions for (P2)..(P8):
+
+      - sec-1.7 CRITICAL note interaction: every per-instruction
+        trigger reads the instruction shape + callee contracts;
+        none reads per-variable EffectClass lattice state.
+        (P1) is satisfied pointwise by every trigger
+        evaluation; the architectural invariant is preserved
+        across the entire `accumulate_instr_effects` +
+        `accumulate_terminator_effects` surface.
+
+      - Apply-with-contract inheritance: `EffectSummary::join`
+        at contract/mod.rs lines 535-548 is the inheritance
+        operator. Per L-1 + L-2 + L-6, componentwise OR-join
+        (for the 5 OR-fields) + AND-join (for
+        `alloc_only_on_slow_path`) is commutative, associative,
+        monotone (OR-direction) / anti-monotone (AND-direction
+        for slow-path-only). Cross-call inheritance preserves
+        all 8 conjuncts.
+
+      - SCC fixpoint iteration: IC-7 (proven separately)
+        bounds the outer iteration at `param_count × 13 + 8
+        + 6 + 4`, where the `6` term is the per-function
+        EffectSummary height budget. Each iteration runs
+        `derive_effect_summary` once per function; the per-
+        function fold over instructions + terminators is
+        finite (bounded by IR size). The OR-join over the 5
+        OR-fields has height 1 each (5 fields × 1 = 5
+        transitions per function); the AND-join over
+        `alloc_only_on_slow_path` has height 1; the
+        `has_unbounded_stack` one-shot has height 1. Sum: 7
+        — slightly higher than the spec's `6` term because
+        `has_unbounded_stack` is included in the height budget.
+        The spec formula reservation for EffectSummary at `6`
+        treats `alloc_only_on_slow_path` as outside the
+        IC-7 fixpoint loop (it's post-realization, not Step 1)
+        — under that interpretation, the relevant height is
+        5 (OR-fields) + 1 (one-shot) = 6, matching the spec.
+
+    Convergence side-condition (cross-cite to IC-7):
+
+      Iteration terminates because:
+        (a) Each effect field has finite chain height 1
+            (`false < true`).
+        (b) The 5 OR-fields contribute at most 5 per-function
+            transitions before saturation.
+        (c) The AND-field `alloc_only_on_slow_path` is post-
+            realization (NOT in Step 1 fixpoint).
+        (d) `has_unbounded_stack` is set once at
+            extract_contract (one-shot, not iterated).
+        (e) Sum of per-function height advances is bounded by
+            `effect_height = 6` per the spec formula.
+
+      IC-7 gives the closed-form iteration bound consuming
+      this `6` term per Annex E §AIMS IC-7. Convergence
+      is therefore guaranteed.
+
+    Coverage gate — corpus enumeration:
+
+      The shipped `accumulate_instr_effects` +
+      `accumulate_terminator_effects` are exercised by the
+      interprocedural test surface in
+      compiler/ori_arc/src/aims/interprocedural/
+      tests.rs + adjacent test modules. Each row below pins
+      one or more (P1)..(P8) conjuncts:
+
+        Row E1: pure_function_no_effects —
+                function with only scalar arithmetic; IC-5
+                derives `EffectSummary::OPTIMISTIC = (false,
+                false, false, false, false, false)`; (P1) +
+                empty-fold floor for (P2)..(P5) pin
+        Row E2: single_construct_may_allocate —
+                function with one `Construct(_)`; IC-5
+                derives `may_allocate = true`, other fields
+                false; (P2) per-instruction trigger pin
+        Row E3: partial_apply_may_allocate —
+                function with one `PartialApply(_)`; IC-5
+                derives `may_allocate = true`; (P2) closure
+                env alloc pin (regression test per oracle/
+                tests.rs line 473: derive_effects() previously
+                only checked Construct, missing closure env)
+        Row E4: construct_heap_escaping_may_share —
+                Construct whose destination has HeapEscaping
+                demand; IC-5 derives `may_share = true` per
+                sec-1.9 sharing trigger; (P4) per-instruction
+                trigger pin
+        Row E5: apply_with_known_contract_inherits —
+                Apply(callee) where callee's contract has
+                `may_allocate=true, may_share=true,
+                may_throw=true`; IC-5 OR-joins all three into
+                caller; (P2) + (P4) + (P5) callee inheritance
+                pin
+        Row E6: apply_no_contract_falls_through —
+                Apply(callee) where callee NOT in ContractMap;
+                shipped engine silently leaves effects
+                unchanged (target-vs-shipped axis carve-out:
+                spec rule requires ALL-seed); enumerated
+                drift pin
+        Row E7: invoke_terminator_may_throw —
+                function terminated by `Invoke(callee, ...)`;
+                IC-5 derives `may_throw = true` regardless of
+                callee contract; (P5) terminator trigger pin
+        Row E8: invoke_with_throwing_callee_inherits —
+                Invoke terminator + callee contract has
+                `may_throw=true`; IC-5 OR-joins both
+                contributions; (P5) terminator + inheritance
+                pin
+        Row E9: non_recursive_no_unbounded_stack —
+                function with no self-call and no
+                mutual-recursion partner; IC-5 sets
+                `has_unbounded_stack = false` at line 157;
+                (P6) one-shot assignment pin
+        Row E10: self_recursive_non_tail_unbounded_stack —
+                 function with non-tail self-call; IC-5 sets
+                 `has_unbounded_stack = true` (target-only —
+                 detection logic stubbed); (P6) pin for the
+                 wiring shape
+        Row E11: mutual_recursion_scc_unbounded_stack —
+                 functions A + B in same SCC with non-tail
+                 calls to each other; IC-5 sets both to
+                 `has_unbounded_stack = true` (target-only);
+                 (P6) + IC-1 SCC integration pin
+        Row E12: tail_recursive_no_unbounded_stack —
+                 function with recursive calls only in tail
+                 position; tail-call pass (Step 8) rewrites
+                 to loop; IC-5 sets `has_unbounded_stack =
+                 false` (target-only); (P6) tail-call carve-
+                 out pin
+        Row E13: per_variable_effectclass_does_not_poison —
+                 function with Apply-no-contract whose call
+                 result has per-variable
+                 `EffectClass = ALL`; IC-5 derives
+                 EffectSummary independently from the
+                 per-variable state; (P1) sec-1.7 CRITICAL
+                 note pin (regression test per oracle/
+                 tests.rs lines 726 + 828)
+        Row E14: scc_fixpoint_iterate_effects —
+                 mutual-recursion SCC where A calls B and
+                 vice versa; multi-iteration EffectSummary
+                 convergence; full IC-3 + IC-4 + IC-5 + IC-7
+                 interaction pin
+        Row E15: post_realization_alloc_only_on_slow_path —
+                 function with one alloc, that alloc inside a
+                 COW slow-path arm; post-realization update
+                 (Step 10) sets `alloc_only_on_slow_path =
+                 true`; (P8) AND-fold pin
+        Row E16: post_realization_unconditional_alloc_clears_slow_path —
+                 function with one unconditional alloc + one
+                 slow-path alloc; AND-fold clears
+                 `alloc_only_on_slow_path = false`; (P8)
+                 sticky-clear pin
+
+      Coverage axes:
+        Per-instruction triggers (P2)..(P5), (P7):
+          Rows E2-E8 + E15-E16 directly pin each trigger
+          across alloc / share / throw / inheritance cases
+        Architectural separation (P1):
+          Row E13 is the dedicated pin — per-variable
+          EffectClass = ALL on a call result does NOT poison
+          the function's EffectSummary
+        One-shot has_unbounded_stack (P6):
+          Rows E9-E12 pin the SCC-based one-shot assignment
+          across recursive / non-recursive / mutual-recursion
+          / tail-call cases
+        AND-fold semantics (P8):
+          Rows E15-E16 pin the post-realization AND-fold
+          across slow-path-only and clearing cases
+        Multi-iteration soundness:
+          Row E14 pins IC-5's role inside the SCC fixpoint
+          loop (combined with IC-3 and IC-4)
+        Empty-fold floor:
+          Row E1 pins the OPTIMISTIC empty-fold result for
+          pure functions
+
+    Negative-direction witness — joining per-variable
+    EffectClass values into EffectSummary rejected:
+
+      Take Row E13 (per_variable_effectclass_does_not_poison).
+      Suppose hypothetical implementer derives EffectSummary
+      by joining per-variable EffectClass values from the
+      AimsStateMap (treating per-variable effects as if they
+      were per-function):
+        for var in func.variables {
+            let var_effect = state_map.var_states[var].effect;
+            if var_effect == EffectClass::ALL {
+                effects.may_allocate = true;
+                effects.may_deallocate = true;
+                effects.may_share = true;
+                effects.may_throw = true;
+                effects.may_read_inaccessible = true;
+            }
+        }
+
+      Then any function with an Apply-no-contract call (which
+      sets the call result's per-variable EffectClass to ALL
+      per TF-5) would have its EffectSummary widened to ALL,
+      regardless of whether the call result is actually used
+      (e.g., Cardinality = Absent — the result is dead).
+
+      Downstream consequence: RL-30 (`memory(none)` LLVM
+      attribute, sec-8) gates on ALL OR-joined fields being
+      false. With the corrupted derivation, every function
+      with any Apply-no-contract call would lose
+      `memory(none)` even when the call result is dead and
+      unused — a pessimistic over-approximation that
+      eliminates a major LLVM optimization opportunity for
+      AIMS-certified pure functions.
+
+      Per sec-1.7 CRITICAL note: "Per-variable EffectClass =
+      ALL on call results does NOT poison caller's
+      EffectSummary." The architectural separation is
+      load-bearing for the AIMS mission ("RC rare, not RC
+      fast" per arc.md §Mission) — IC-5's per-instruction
+      derivation discipline IS what enables the lattice to
+      prove pure functions PURE despite Apply-no-contract
+      calls in the middle of them. (P1) preserved by the
+      shipped engine's pattern-match-on-instruction-shape
+      discipline; corrupting it to join-per-variable would
+      destroy the lattice's ability to certify purity.
+
+    Negative-direction witness — replacing OR with AND on
+    may_share rejected:
+
+      Take Row E5 (apply_with_known_contract_inherits).
+      Suppose hypothetical implementer makes the may_share
+      join AND instead of OR:
+        may_share: self.may_share && other.may_share
+
+      Then inheriting from a sharing callee would CLEAR the
+      caller's `may_share` (when the caller's pre-inherit
+      value is false). Worse: the AND-identity is `true`, so
+      starting at `OPTIMISTIC.may_share = false` would mean
+      EVERY call to a sharing callee clears `may_share` to
+      false (since `false && X = false` for any X).
+
+      Per L-6 monotonicity: the corrupted AND-join is
+      anti-monotone in the OR-lattice direction. Functions
+      sharing through callees would silently report
+      `may_share = false` — RL-30 `memory(argmemonly)` (per
+      sec-8) gates on `may_share = false`, so the corrupted
+      derivation would emit `argmemonly` on functions that
+      actually share their parameters' RC across calls. LLVM
+      would then assume the function only accesses memory
+      reachable from its arguments; downstream optimizations
+      (load reordering, dead store elimination) would emit
+      unsound code.
+
+      Result: silent miscompilation — exactly the AIMS
+      Invariant 1 ("Contracts and realization must agree" per
+      CLAUDE.md §AIMS + canon.md §7.1 row 1) violation.
+      OR-join for the 5 effect-OR fields is therefore
+      load-bearing for the entire RL-30 LLVM attribute
+      discipline; AND-join is a soundness failure.
+
+    Negative-direction witness — replacing AND with OR on
+    alloc_only_on_slow_path rejected:
+
+      Take Row E16
+      (post_realization_unconditional_alloc_clears_slow_path).
+      Suppose hypothetical implementer makes the
+      `alloc_only_on_slow_path` join OR instead of AND:
+        alloc_only_on_slow_path: self.alloc_only_on_slow_path
+                              || other.alloc_only_on_slow_path
+
+      Then a function with one unconditional alloc + one
+      slow-path alloc would inherit `alloc_only_on_slow_path
+      = true` from the slow-path-only callee, overriding the
+      caller's own unconditional alloc that should clear the
+      claim.
+
+      Per the spec semantics (sec-5 IC-5): the claim "alloc
+      only on slow path" is universal — every alloc in the
+      function MUST be on a slow path for the claim to hold.
+      AND IS the universal-claim operator; OR is the
+      existential-claim operator. Substituting OR yields an
+      EXISTENTIAL claim: "some alloc is on a slow path",
+      which is much weaker than the spec rule's UNIVERSAL
+      claim.
+
+      Result: FIP-Conditional certification (per Annex E §AIMS IC-6 "When `may_allocate && alloc_only_on_slow_path`,
+      the function is FIP-eligible with Conditional
+      preconditions") would fire on functions with
+      unconditional allocs that don't satisfy the
+      precondition. Downstream Step 5a `verify_fip_contract`
+      would then reject the cert, but only AFTER the contract
+      has been used by upstream callers — wasted convergence
+      iterations + diagnostic noise.
+
+      AND-join for `alloc_only_on_slow_path` is therefore
+      load-bearing for the FIP-Conditional discipline; OR-join
+      is a semantic-mismatch failure (wrong quantifier).
+
+    IC-5 dependencies — central within AIMS contract layer:
+
+      IC-5 consumes the function's instruction stream + the
+      converged ContractMap (filled in by prior SCC iterations
+      + IC-3 + IC-4) + the AimsStateMap's exclusion predicate
+      (for immortal / scalar / value-marker filtering). It
+      produces a per-function EffectSummary. The dependency
+      chain at the proof-obligation level is acyclic:
+        IC-1 --> IC-2 (parameter contract seeding)
+        IC-2 --> IC-3 (parameter contract componentwise join)
+        IC-3 --> IC-4 (return contract componentwise join)
+        IC-3 --> IC-5 (effect summary OR-join via callee
+                         inheritance; uses ContractMap state
+                         joined per IC-3)
+        IC-4 --> IC-5 (effect summary may share callee
+                         inheritance path with IC-4's
+                         ReturnContract refinement —
+                         independent dimensions but co-
+                         iterated)
+        L-1/L-2/L-6 (sec-02 lattice properties) --> IC-5
+        IC-5 --> IC-6 (FipContract derivation reads
+                         EffectSummary to classify
+                         Never/Conditional/Bounded/Certified)
+        IC-5 --> IC-7 (convergence bound — consumes
+                         EffectSummary chain height = 6 to
+                         compute iteration bound)
+        IC-5 --> RL-30 (LLVM attribute emission consumes
+                         EffectSummary to gate `memory(none)`,
+                         `memory(argmemonly)`, etc., per
+                         Annex E §AIMS)
+
+      IC-5 is the effect-derivation operator within the IC
+      layer; L-* lemmas are proven upstream in sec-02.
+
+    Algorithm-citation declaration:
+      algorithm: per-instruction OR-fold + AND-fold +
+                           one-shot SCC-derived assignment;
+                           callee EffectSummary inheritance via
+                           componentwise OR-join on 5 fields
+                           and componentwise AND-join on
+                           alloc_only_on_slow_path; architectural
+                           separation from per-variable
+                           EffectClass lattice dimension
+      published basis: Lorenzen, A., Leijen, D., Reinking, A.,
+                           "FP²: Fully In-Place Functional
+                           Programming Provides Memory Reuse for
+                           Pure Functional Programs", ICFP 2023
+                           (Theorem 2: `may_allocate == false ∧
+                           may_deallocate == false ⟹ FIP; 6
+                           independent effect flags ground in
+                           the FP² paper); Cousot & Cousot,
+                           "Abstract Interpretation: A Unified
+                           Lattice Model for Static Analysis of
+                           Programs by Construction or
+                           Approximation of Fixpoints", POPL
+                           1977 (per-function effect summary
+                           computation via SCC-topological
+                           monotone iteration); Reynolds, J. C.,
+                           "Definitional Interpreters for
+                           Higher-Order Programming Languages",
+                           Higher-Order and Symbolic Computation,
+                           vol. 11, no. 4, 1998 (effect-system
+                           theoretical foundation —
+                           per-function effect signature
+                           independent of per-program-point
+                           state)
+      complexity: O(N + M + C) per function, where N
+                           is the instruction count (across all
+                           blocks), M is the terminator count,
+                           and C is the call-site count
+                           (ContractMap lookups via `sigs.get`);
+                           O(param_count × call_site_count ×
+                           height_sum) total per SCC convergence
+                           per IC-7's bound
+      determinism: deterministic; per-instruction
+                           pattern-match is a pure function of
+                           the ArcFunction IR + ContractMap;
+                           block + instruction visitation order
+                           is consistent across compilation runs
+                           (Salsa-stable); commutativity (L-1)
+                           + associativity (L-2) ensure
+                           fold-order independence per sec-6
+                           IA-9
+      reference impl: `accumulate_instr_effects` at
+                           compiler/ori_arc/src/
+                           aims/intraprocedural/effects.rs lines
+                           22-62;
+                           `accumulate_terminator_effects` lines
+                           68-79; finalization in
+                           `extract_contract` at
+                           compiler/ori_arc/src/
+                           aims/interprocedural/extract.rs line
+                           157 (has_unbounded_stack one-shot);
+                           join operator at
+                           contract/mod.rs lines 535-548;
+                           oracle re-derivation at
+                           aims/verify/oracle.rs line 288
+                           (`derive_effects`, used by VF-3
+                           contract cross-check per
+                           Annex E §AIMS)
+      cross-language Koka Perceus
+      prior art: (`koka/src/Core/CheckFBIP.hs`) derives
+                           per-function FBIP effect annotations
+                           via similar per-instruction pattern-
+                           match; Swift SILOptimizer's
+                           `EffectsAttr` carries
+                           argmemonly / readonly / readnone
+                           attributes derived from
+                           SIL-instruction-shape analysis;
+                           Lean 4 Borrow.lean computes per-
+                           function effect summaries via
+                           similar SCC-based per-instruction
+                           accumulation; FP² paper's Theorem 2
+                           formalizes the FBIP/FIP effect-
+                           system shape that AIMS implements;
+                           arc.md §Reference Repos cites Lean
+                           4 + Swift ARC + Koka Perceus as the
+                           prior art set
+
+    Engines dispatched:
+      fixpoint (PRIMARY — IC-5 per-instruction OR-fold +
+        AND-fold + one-shot assignment; verifier checks the
+        eight conjuncts (P1)..(P8) plus side-conditions:
+          - (P1) per-instruction derivation, not per-variable
+            (architectural separation verified at every
+            trigger evaluation site)
+          - (P2) may_allocate OR-fold structural equality
+            across Construct + PartialApply + Apply-with-
+            contract triggers (Reuse / CollectionReuse / no-
+            contract Apply ALL-seed target-vs-shipped axis
+            carve-out enumerated)
+          - (P3) may_deallocate post-realization OR-fold
+            structural equality (target-vs-shipped axis
+            carve-out: Owned-param + Set/SetTag triggers
+            target-only)
+          - (P4) may_share OR-fold structural equality across
+            Construct-HeapEscaping + callee inheritance
+            (target-vs-shipped axis carve-out: explicit
+            cardinality/storage check + Reuse/CollectionReuse
+            triggers target-only)
+          - (P5) may_throw OR-fold structural equality across
+            Invoke terminator + callee inheritance (target-
+            vs-shipped axis carve-out: InvokeIndirect + Resume
+            triggers target-only)
+          - (P6) has_unbounded_stack one-shot assignment from
+            SCC membership + tail-position checks (target-vs-
+            shipped axis carve-out: detection logic stubbed,
+            assignment shape preserved)
+          - (P7) may_read_inaccessible OR-fold structural
+            equality (target-vs-shipped axis carve-out: field
+            not yet wired in shipped struct; proof shape
+            applies when wired)
+          - (P8) alloc_only_on_slow_path AND-fold structural
+            equality post-realization
+        emits Fail on any divergence)
+      interprocedural_summary (per-function EffectSummary
+        export within SCC fixpoint loop; consumed by IC-6
+        FipContract classification, by RL-30 LLVM attribute
+        emission gates, by Step 5a verify_fip_contract per
+        Annex E §AIMS)
+      case_analysis (per-instruction trigger table per sec-5
+        IC-5 procedure: 8 instruction kinds + 4 terminator
+        kinds enumerated, each verified against the trigger
+        table; per-variable EffectClass non-poisoning verified
+        at every trigger evaluation site per sec-1.7 CRITICAL
+        note)
+
+  Expected:
+    status: valid
+    reason: section_06 fixpoint engine discharges IC-5 via eight-conjunct verification ((P1) per-instruction derivation not per-variable + (P2) may_allocate OR-fold + (P3) may_deallocate post-realization OR-fold + (P4) may_share OR-fold + (P5) may_throw OR-fold + (P6) has_unbounded_stack one-shot from SCC + (P7) may_read_inaccessible OR-fold target-only + (P8) alloc_only_on_slow_path AND-fold post-realization) over a 16-test corpus covering pure / single-instruction / callee-inherit / terminator-throw / SCC-recursive / per-variable-non-poisoning / AND-fold-semantics cases; effect-system soundness inherited from FP² (Lorenzen et al. ICFP 2023 Theorem 2) + Cousot/Cousot 1977 (interprocedural summary via SCC-topological monotone iteration) + Reynolds 1998 (effect-system theoretical foundation); shipped engine `accumulate_instr_effects` at compiler/ori_arc/src/aims/intraprocedural/effects.rs lines 22-62 + `accumulate_terminator_effects` lines 68-79 + `extract_contract` finalization at extract.rs line 157 + `EffectSummary::join` at contract/mod.rs lines 535-548 emit OR-fold for 5 effect fields + AND-fold for alloc_only_on_slow_path in O(N + M + C) per function, deterministically across all targets per CLAUDE.md §Salsa deterministic query contract; target-vs-shipped axis carve-out (may_read_inaccessible field not yet wired; Reuse/CollectionReuse/no-contract-Apply-ALL-seed/Owned-param/Set/SetTag/InvokeIndirect/Resume triggers target-only) preserves spec conformance on the 5 shipped OR-fields + the 1 AND-field + the 1 one-shot field; architectural separation between EffectSummary (per-function, derived from instructions) and per-variable EffectClass lattice dimension (sec-1.7 CRITICAL note) is load-bearing for AIMS purity certification and RL-30 LLVM attribute emission

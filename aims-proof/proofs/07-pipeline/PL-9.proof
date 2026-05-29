@@ -1,0 +1,193 @@
+Theorem PL-9: TRMC rewrite idempotency — candidate normalized to accept a ContextHole parameter (INTERNAL ABI change); EXTERNAL calling convention preserved via wrapper thunk; idempotent
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS + arc.md sec-Pipeline. PL-9 is the §07.4 TRMC
+      rewrite rule, governing the Step 3a normalize_function rewrite of a
+      detected candidate (PL-7/PL-8).
+    - PL-9 statement (per Annex E §AIMS PL-9): the candidate is
+      normalized to accept a `ContextHole` parameter (Shape = ContextHole) —
+      an INTERNAL ABI change. The external calling convention is preserved via
+      a wrapper thunk that allocates the initial ContextHole; the recursive
+      call fills the hole. The rewrite SHALL be idempotent. PL-9 (and PL-10)
+      "arity preserved" means EXTERNAL arity.
+    - PL-9 type signature (per Pipeline.proof lines 73-77, the sorry
+      obligation this theorem discharges):
+        type : Function -> Function
+        candidate normalized to accept ContextHole parameter
+        (Shape = ContextHole); INTERNAL ABI change; external calling
+        convention preserved via wrapper thunk; idempotent.
+    - Shipped rewrite driver: ori_arc::aims::normalize::normalize_function
+      (compiler/ori_arc/src/aims/normalize/mod.rs lines 87-132).
+      The rewrite is applied via rewrite_and_verify (normalize/mod.rs lines
+      151-187) when context regions exist and a converged contract is available
+      (normalize/mod.rs lines 113-122). The 4-equation rewrite "converts
+      self-recursion into a loop with block params carrying the context"
+      (normalize/mod.rs lines 18-19) and "Function signature is unchanged"
+      (normalize/mod.rs line 20) — the EXTERNAL calling convention is preserved
+      while the loop body threads the ContextHole internally.
+    - Shipped idempotency mechanism: the TRMC rewrite loop in
+      ori_arc::pipeline::aims_pipeline::trmc::normalize_with_trmc
+      (compiler/ori_arc/src/pipeline/aims_pipeline/trmc.rs lines
+      15-100) runs "at most 2 iterations" (trmc.rs lines 9-14). The first
+      iteration may transform (norm_result.was_transformed true, trmc.rs lines
+      76-94 `continue`); the second iteration re-runs Steps 3-3a over the
+      already-rewritten IR and observes was_transformed false (no further
+      transform), breaking the loop (trmc.rs line 96 `break`). The
+      idempotency invariant is enforced by the debug_assert at trmc.rs lines
+      82-87: `trmc_iterations <= 2` with the message "TRMC rewrite loop
+      exceeded 2 iterations ... idempotency invariant violated".
+    - Shipped ContextHole shape: the candidate constructor's shape is upgraded
+      to ShapeClass::ContextHole at detection (ori_arc::aims::intraprocedural::
+      post_convergence::detect_trmc_candidates, post_convergence.rs lines
+      516-517); the rewrite then threads that hole through the loop body via
+      block params (normalize/mod.rs lines 18-19).
+    - NormalizationResult.was_transformed (ori_arc::aims::normalize::mod.rs
+      lines 50-59) is the per-pass transform signal: "When `true`, the caller
+      must re-run dependent pipeline steps" (normalize/mod.rs lines 54-55). The
+      rewrite_and_verify path sets it true only after the rewrite passes
+      post-rewrite verification (normalize/mod.rs lines 163-170); a
+      verification failure rolls back and returns false (normalize/mod.rs lines
+      172-186).
+
+  Soundness property:
+    Forall function F that is a TRMC candidate, let F' = the rewritten F.
+      Three conjuncts SHALL hold:
+
+      (P1) Idempotency:
+        normalize_function(F) transforms (was_transformed = true on the first
+        pass), and normalize_function(F') does NOT transform
+        (was_transformed = false on the second pass over already-rewritten IR).
+        The rewrite loop terminates in at most 2 iterations.
+
+      (P2) External-arity preservation:
+        external_arity(F') = external_arity(F). The wrapper thunk preserves the
+        caller-visible signature; the ContextHole parameter is added only to
+        the internal worker, never to the external calling convention.
+
+      (P3) Internal ABI change:
+        The rewritten worker accepts the ContextHole parameter
+        (Shape = ContextHole) — the threading of the hole through the loop body
+        is the internal-only ABI change PL-9 introduces.
+
+  Proof obligation:
+    Three-part constructive discharge corresponding to (P1), (P2), (P3), by
+    case analysis over the rewrite model (case_analysis-led per the §00 PL row)
+    + structural confirmation of the idempotency and arity invariants.
+
+    Part (P1) — Idempotency (case analysis on the two-pass model):
+
+      The verifier models the rewrite via a RewriteModel carrying the first-
+      and second-pass transform signals. It asserts:
+        - transformed_first_pass = true: the rewrite fires on the candidate
+          (normalize/mod.rs lines 113-115 + rewrite_and_verify success path
+          lines 163-170). A model where the first pass did not transform would
+          mean the rewrite never fired — Fail.
+        - transformed_second_pass = false: a second normalize pass over the
+          already-rewritten IR does NOT re-transform. This is the shipped
+          <=2-iteration invariant (trmc.rs lines 82-87): the second iteration's
+          norm_result.was_transformed is false, so the loop breaks (trmc.rs
+          line 96). A model where the second pass re-transformed would push the
+          loop past 2 iterations and trip the debug_assert — Fail.
+      The case agreement on both passes discharges (P1).
+
+    Part (P2) — External-arity preservation (structural confirmation):
+
+      The verifier asserts external_arity_before == external_arity_after over
+      the rewrite model. The shipped rewrite keeps the function signature
+      unchanged (normalize/mod.rs line 20); the ContextHole parameter is added
+      to the internal loop worker, and a wrapper thunk allocates the initial
+      ContextHole so callers see the original arity. A model where the external
+      arity changed across the rewrite would break the wrapper-thunk invariant
+      — Fail. (P2) discharged.
+
+    Part (P3) — Internal ABI change (structural confirmation):
+
+      The verifier asserts internal_accepts_context_hole = true: the rewritten
+      worker accepts the ContextHole parameter (Shape = ContextHole, set at
+      post_convergence.rs lines 516-517 and threaded by the loop body per
+      normalize/mod.rs lines 18-19). A model where the worker did not accept the
+      hole would mean the rewrite did not actually thread the context — Fail.
+      (P3) discharged.
+
+    Coverage gate — three-conjunct discharge:
+
+      The verifier discharges all three conjuncts as direct assertions over the
+      rewrite model (no require_count — the obligation is a fixed three-part
+      invariant, not an enumerated grid). Coverage axes:
+        Idempotency (P1): first-pass-transforms + second-pass-no-transform.
+        External arity (P2): arity-before == arity-after.
+        Internal ABI (P3): worker-accepts-ContextHole.
+
+    Negative-direction witness — non-idempotent rewrite rejected:
+
+      A rewrite where a second normalize pass re-transforms already-rewritten
+      IR would push the loop past 2 iterations and trip the shipped
+      debug_assert (trmc.rs lines 82-87). The verifier's negative pin
+      (transformed_second_pass = true -> Fail) rejects this: the second pass
+      MUST observe was_transformed false.
+
+    Negative-direction witness — external arity change rejected:
+
+      A rewrite that changed the caller-visible parameter count (e.g.,
+      external_arity_after = external_arity_before + 1, exposing the ContextHole
+      to callers) breaks the wrapper-thunk invariant. The verifier's negative
+      pin (external_arity_before != external_arity_after -> Fail) rejects this:
+      PL-9 "arity preserved" is EXTERNAL arity; the internal worker's added
+      ContextHole parameter is invisible to callers.
+
+    Cycle-soundness witness — PL-9 sits between PL-8 and PL-10:
+
+      PL-9 (rewrite of the detected candidate) consumes PL-8's candidate
+      predicate + context region and is the antecedent of PL-10 (structural
+      verification of the rewrite's well-formedness, including check (d)
+      "function arity + calling convention preserved", which is PL-9's (P2)
+      re-verified post-rewrite). PL-9 consumes no output of PL-10 / PL-11. The
+      dependency chain is acyclic:
+        PL-8 --> PL-9 (rewrite of the detected candidate region)
+        PL-9 --> PL-10 (structural verification of the rewrite)
+      No cycle.
+
+    Algorithm-citation declaration:
+      property: TRMC rewrite idempotency + external-arity
+                           preservation — the candidate is normalized to thread
+                           a ContextHole parameter (internal ABI) through a loop
+                           body; the wrapper thunk preserves the external
+                           calling convention; the rewrite is idempotent (at
+                           most 2 normalize iterations)
+      published: Leijen & Lorenzen, "Tail Recursion Modulo Context",
+                           JFP 2025 (the modulo-cons rewrite to a loop with a
+                           context-hole accumulator; the wrapper preserving the
+                           source signature); Perceus reuse lineage (Reinking et
+                           al., PLDI 2021) cited in Annex E §AIMS
+      determinism: deterministic — normalize_with_trmc applies the
+                           rewrite in a fixed loop bounded at 2 iterations; the
+                           wrapper thunk and ContextHole threading are fixed
+                           structural rewrites with no schedule freedom
+      reference impl: ori_arc::aims::normalize::normalize_function
+                           (normalize/mod.rs lines 87-132: rewrite dispatch
+                           lines 113-122, signature-unchanged invariant line 20)
+                           + rewrite_and_verify (normalize/mod.rs lines 151-187)
+                           + ori_arc::pipeline::aims_pipeline::trmc::
+                           normalize_with_trmc (trmc.rs lines 15-100:
+                           at-most-2-iterations invariant lines 9-14 +
+                           debug_assert lines 82-87) +
+                           ori_arc::aims::intraprocedural::post_convergence::
+                           detect_trmc_candidates ContextHole upgrade
+                           (post_convergence.rs lines 516-517)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — confirms the idempotency, external-arity,
+        and internal-ABI invariants over the §07.4 TRMC structural model per
+        section_07::verify_pl9_trmc_rewrite_idempotency; agrees with
+        case_analysis on the constructive verifier)
+      case_analysis (LED — per the §00 PL-row pair per the proof-checker design-proof-
+        checker-design.md:102, the TRMC cluster is case_analysis-heavy; the
+        verifier discharges (P1) via the two-pass transform-signal case
+        (first-transforms + second-no-transform), (P2) via the arity-invariance
+        assertion, (P3) via the ContextHole-acceptance assertion; constructive,
+        NOT gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_07 case_analysis-led discharge of PL-9 via the rewrite model — (P1) the rewrite is idempotent (first normalize pass transforms, second pass over already-rewritten IR does not; bounded at 2 iterations per trmc.rs lines 82-87 debug_assert), (P2) EXTERNAL arity is preserved (the wrapper thunk keeps the caller-visible signature unchanged per normalize/mod.rs line 20; the ContextHole parameter is internal-only), and (P3) the rewritten worker accepts the ContextHole parameter (Shape = ContextHole, post_convergence.rs lines 516-517); negative pins reject a re-transforming second pass and an external-arity change; structural_induction PRIMARY confirms over the same verifier

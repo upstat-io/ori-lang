@@ -1,0 +1,354 @@
+Theorem IC-1: SCC decomposition + topological ordering of the call graph
+
+  Preconditions:
+    - CallGraph G = (V, E) is the directed call graph for a compilation
+      unit; V = ArcFunction names; E = direct-call edges per
+      ori_arc::graph::call_graph::CallGraph::build
+    - G is well-formed: every src/dst Name in E resolves to a node in V
+      OR to an external/FFI symbol skipped at SCC consumption time per
+      Annex E §AIMS PL-1 + ori_arc::aims::interprocedural::
+      analyze_program sec-7 step "External/FFI functions not in
+      func_by_name are skipped"
+    - IC-1 type signature (per Interprocedural.proof lines 16-19):
+        scc_decompose : CallGraph -> List (List FunctionId)
+      whose List output enumerates SCCs in FORWARD topological order
+      (callees before callers) per Annex E §AIMS PL-1a + sec-5
+      IC-1 "call graph decomposed into SCCs; processed in topological
+      order (callees before callers)"
+    - SCC = maximal set of mutually-reachable vertices under E; per
+      Tarjan, "Depth-First Search and Linear Graph Algorithms" (SIAM
+      J. Comput., 1972) every directed graph has a unique SCC partition
+    - Topological order = linear extension of the condensation DAG
+      G_scc = (V_scc, E_scc), where V_scc = SCC partition of V and
+      E_scc has (S_i -> S_j) iff (u -> v) in E for some u in S_i,
+      v in S_j, S_i != S_j; G_scc is acyclic by construction (Cormen,
+      Leiserson, Rivest, Stein, "Introduction to Algorithms", 3rd ed.,
+      sec-22.5)
+    - IC-1 is the antecedent of every downstream IC rule: IC-2/IC-3
+      parameter-contract fixpoint, IC-4 return-contract join, IC-5
+      EffectSummary derivation, IC-6 FipContract tier join, IC-7
+      convergence bound — all require the topological ordering of the
+      SCC list to be sound per Annex E §AIMS + sec-7 PL-1a
+    - Shipped engine: ori_arc::graph::scc::compute_sccs uses iterative
+      Tarjan's strongconnect (compiler/ori_arc/src/graph/
+      scc/mod.rs lines 48-152); IC-1 verifies the ALGORITHM CONTRACT,
+      not the iterative-stack-frame mechanics
+
+  Soundness property:
+    Forall G in CallGraph (well-formed).
+      Let sccs := scc_decompose(G) be the emitted SCC list.
+      Three conjuncts SHALL hold:
+
+      (P1) Partition correctness:
+        sccs forms a partition of V(G):
+          (a) every v in V appears in exactly one scc in sccs;
+          (b) every scc in sccs is non-empty;
+          (c) sccs are pairwise disjoint.
+
+      (P2) SCC maximality:
+        For every scc in sccs and every pair (u, v) in scc x scc:
+          u reaches v in G AND v reaches u in G.
+        For every pair (u, v) in V x V with u reaches v AND v reaches u:
+          u and v are in the same scc.
+        (Equivalently: each scc is a strongly-connected component
+        under the standard reachability equivalence relation.)
+
+      (P3) Forward topological ordering:
+        For every pair of distinct SCCs (S_i, S_j) appearing at
+        positions (i, j) in the list sccs with i < j:
+          there exists NO edge (u, v) in E with u in S_j and v in S_i.
+        (Equivalently: every cross-SCC edge (u in S_i, v in S_j) with
+        S_i != S_j satisfies position(S_i) < position(S_j); callees
+        appear before callers in the emitted list.)
+
+  Proof obligation:
+    Three-part discharge corresponding to (P1), (P2), (P3); each
+    grounded in Tarjan's 1972 result + standard graph-theory texts.
+
+    Part (P1) — Partition correctness:
+
+      Tarjan's strongconnect (sec-3 of the 1972 paper, restated for
+      the iterative implementation in ori_arc::graph::scc::mod.rs
+      lines 100-152) maintains the following loop invariants
+      throughout DFS over the unvisited frontier:
+
+        (i) every vertex v in V is visited exactly once via the
+              outer `for root in graph.nodes()` loop guarded by
+              `if !state.indices.contains_key(&root)` (line 64);
+        (ii) on entry to strongconnect(root), root is pushed onto
+              the working stack `state.stack` and marked on_stack;
+        (iii) on completion of root's DFS subtree, when root is the
+              lowlink-equals-index "root of an SCC" sentinel, every
+              vertex above root on the stack (including root itself)
+              is popped into a fresh Scc.members vec.
+
+      From (i) every v in V is visited; from (ii) every visited v is
+      pushed onto the stack; from (iii) every stacked v is popped into
+      exactly one Scc.members vec at the unique completion point of
+      its containing SCC's root. Therefore every v in V appears in
+      exactly one Scc.members vec — conjunct (a).
+
+      The Scc.members vec is initialized in the pop loop (lines 140-
+      147 of mod.rs) and the SCC is pushed onto state.sccs only after
+      at least one vertex (root itself) is popped — Scc.members is
+      non-empty — conjunct (b).
+
+      Pairwise disjointness follows from (i) + (iii): a vertex popped
+      into one Scc.members is removed from state.on_stack and never
+      re-stacked, so it cannot appear in any subsequent pop loop —
+      conjunct (c).
+
+      (P1) discharged.
+
+    Part (P2) — SCC maximality:
+
+      Tarjan's strongconnect computes per-vertex `lowlink` =
+      min(index of v, min over w reachable from v of index of w
+      where w is on the working stack at the time of v's
+      completion). The algorithm pops a vertex v's strongconnect
+      frame and emits an SCC iff lowlink(v) == index(v) at frame
+      completion.
+
+      Tarjan (1972, Theorem 13) proves: lowlink(v) == index(v) at
+      frame completion IFF v is the root of an SCC in the DFS tree,
+      AND the set of vertices popped (all vertices above v on the
+      stack, plus v) is exactly the SCC containing v under the
+      reachability-equivalence relation.
+
+      The shipped strongconnect in mod.rs lines 100-152 implements
+      this lowlink + on_stack discipline directly:
+        - line 110: index assignment via state.index counter
+        - line 111-112: lowlink initialized to index
+        - line 113-116: push onto state.stack + mark on_stack
+        - line 122-132: on successor recursion return, lowlink
+          updated to min(lowlink(v), lowlink(w)) when w is a tree
+          edge, or min(lowlink(v), index(w)) when w is a back edge
+          on the stack — the textbook Tarjan update rule
+        - line 138-148: pop-into-SCC gate triggered iff
+          lowlink(v) == index(v) at frame completion
+
+      By Tarjan's Theorem 13 applied to this implementation:
+        (P2-forward) Every Scc.members emitted contains exactly a
+        maximal set of mutually-reachable vertices.
+        (P2-backward) Every pair (u, v) with u reaches v AND v
+        reaches u lands in the same Scc.members.
+
+      (P2) discharged via Tarjan 1972 Theorem 13 + structural
+      correspondence of the shipped iterative algorithm to the
+      published recursive specification.
+
+    Part (P3) — Forward topological ordering:
+
+      Tarjan's algorithm emits SCCs at the moment their root vertex
+      completes — i.e., when DFS retreats from the last unvisited
+      descendant. This emission order has the canonical property
+      (Tarjan 1972, sec-3 closing remarks; restated in CLRS 3rd ed.
+      sec-22.5 Theorem 22.16):
+
+        SCCs are emitted in REVERSE topological order of the
+        condensation DAG.
+
+      That is, if S_i and S_j are distinct SCCs and there exists a
+      cross-SCC edge (u in S_i, v in S_j) with u reaches v and NOT
+      vice versa (so position(S_i, S_j) in condensation), then S_j
+      is emitted BEFORE S_i in Tarjan's natural output.
+
+      The shipped compute_sccs in mod.rs lines 57-76 emits SCCs into
+      state.sccs in this reverse-topological order (Tarjan natural).
+      Lines 79-87 then document that this IS forward topological
+      order from the CALLEE-FIRST perspective: leaf SCCs (no
+      outgoing call edges, i.e., terminal sinks in the call graph)
+      appear FIRST in the output vec, root SCCs (no incoming call
+      edges, i.e., entry points / main) appear LAST.
+
+      Specifically, the comment block at mod.rs lines 49-55 states:
+        "Returns SCCs in **forward topological order**: leaf SCCs
+         (no outgoing call edges) appear FIRST, root SCCs (no
+         incoming call edges) appear LAST. This is the natural
+         output of Tarjan's and the correct evaluation order for
+         borrow inference — analyze leaf functions before their
+         callers."
+
+      The terminology agreement between Tarjan's "reverse
+      topological" and this file's "forward topological" reduces to
+      the orientation convention: in the call graph, an edge
+      (caller -> callee) means caller depends on callee, so callees
+      are PREDECESSORS in dependency order. Tarjan emits
+      predecessors first (reverse topological of the edge
+      direction = forward topological of the dependency order).
+      This is exactly the order IC-1 requires per Annex E §AIMS IC-1 "callees before callers".
+
+      Formally: let S_i appear at position i and S_j at position j
+      in compute_sccs(G), with i < j. By Tarjan's emission order
+      (1972 sec-3, CLRS 22.16), there is NO edge (u in S_j,
+      v in S_i) in E — any such edge would force S_i to be emitted
+      AFTER S_j in Tarjan's reverse-topological natural output,
+      contradicting i < j. Therefore every cross-SCC edge respects
+      the position ordering: callees (smaller position) appear
+      before callers (larger position).
+
+      (P3) discharged.
+
+    Coverage gate — corpus enumeration:
+
+      The shipped algorithm contract is exercised empirically by
+      9 test cases in compiler/ori_arc/src/graph/scc/
+      tests.rs:
+        Row 1: no_functions — empty graph (V = E = {})
+        Row 2: single_leaf — single vertex, no edges
+        Row 3: linear_chain — A -> B -> C (3 trivial SCCs,
+                                           forward topological order)
+        Row 4: simple_cycle — A <-> B (1 mutually-recursive
+                                           SCC of size 2)
+        Row 5: diamond — A -> B, A -> C, B -> D, C -> D
+                                           (4 trivial SCCs, callees first)
+        Row 6: self_recursive — A -> A (1 self-recursive SCC
+                                           of size 1; is_recursive = true
+                                           per Scc::is_recursive at
+                                           mod.rs lines 42-47)
+        Row 7: mixed_recursive_and_linear — mixed cycle + chain witness
+        Row 8: topological_order_callees_first — explicit ordering pin:
+                                           cross-SCC edges always go from
+                                           earlier-position SCC to
+                                           later-position SCC
+        Row 9: all_functions_covered — partition completeness pin:
+                                           every input function appears
+                                           in exactly one emitted SCC
+
+      Coverage axes:
+        Partition (P1): Rows 1, 2, 9 (empty, singleton, exhaustive
+                            partition); Row 9 is the dedicated P1 pin
+        Maximality (P2): Rows 4, 6, 7 (cycle, self-loop, mixed) —
+                            verify mutually-reachable vertices land in
+                            the same emitted SCC
+        Topological (P3): Rows 3, 5, 7, 8 (chain, diamond, mixed,
+                            explicit pin) — verify cross-SCC edge
+                            direction respects position ordering;
+                            Row 8 is the dedicated P3 pin
+
+      Each row's mutually-reachable equivalence-class structure is
+      hand-derivable from the test fixture's `calls` / `calls_many`
+      construction; the test bodies assert (a) the expected SCC
+      partition (find_scc + len assertions), (b) cross-SCC edge
+      direction via position lookups, and (c) is_recursive flags for
+      self-loops + multi-vertex SCCs.
+
+    Negative-direction witness — anti-monotone ordering rejected:
+
+      Take the linear chain A -> B -> C (Row 3). The forward
+      topological invariant (P3) requires emission order
+      [{C}, {B}, {A}] — C has no outgoing call edges, A has no
+      incoming. Reversing to [{A}, {B}, {C}] would violate (P3):
+      the edge A -> B with position(A) = 0 < position(B) = 1 would
+      mean a caller (A) precedes its callee (B), inverting the
+      "callees before callers" invariant. IC-2/IC-3 fixpoint
+      consuming sccs in this reversed order would attempt to
+      compute A's MemoryContract before B's contract exists,
+      violating Annex E §AIMS PL-5 "no pass relies on stale
+      summaries".
+
+      Tarjan's lowlink discipline (P2 proof) prevents this
+      inversion: A's strongconnect frame cannot complete until
+      every descendant (B, C) has completed and been popped.
+      Therefore C is popped first, B second, A last — exactly the
+      [{C}, {B}, {A}] order.
+
+    Negative-direction witness — partition non-overlap:
+
+      Take the diamond A -> B, A -> C, B -> D, C -> D (Row 5). The
+      partition (P1) requires four singleton SCCs: {A}, {B}, {C},
+      {D}. Hypothetical merge of {B} and {C} (claiming they form
+      one SCC because they both descend from A and both feed into
+      D) would violate (P2): B does not reach C and C does not
+      reach B (no edge between them, only their common ancestor A
+      and common descendant D), so {B, C} is NOT a strongly
+      connected component. Tarjan's lowlink discipline correctly
+      separates them — B's strongconnect frame completes (popping
+      {B}) before C is even visited from A's second outgoing edge.
+
+    Negative-direction witness — empty graph soundness:
+
+      Take G = (V = {}, E = {}) (Row 1). compute_sccs(G) returns
+      [] (the empty list). All three conjuncts hold vacuously:
+        (P1) empty partition of empty V is correct (every v in {}
+             appears in zero SCCs; empty quantifier over no
+             vertices is true).
+        (P2) no pair (u, v) in V x V exists; vacuous.
+        (P3) no pair (S_i, S_j) in sccs x sccs exists; vacuous.
+      The empty-graph case is the IC-7 convergence base case:
+      iteration limit = 0, immediately satisfied.
+
+    Live-variable / borrow_sources / project_alias_sources / IC-3
+    contract typed pre-pass dependency: NOT REQUIRED for IC-1.
+    IC-1 operates purely on the CallGraph topology (V, E) — no
+    AimsStateMap lookups, no per-variable lattice state, no
+    interprocedural contract values. IC-1 is the ANTECEDENT of
+    IC-2/IC-3 contract computation, not a consumer of it. The
+    shipped engine takes &CallGraph as its sole input
+    (ori_arc::graph::scc::compute_sccs signature, mod.rs line 57).
+
+    Cycle-soundness witness — IC-1 has no upstream dependencies:
+
+      IC-1 is the first interprocedural rule in the AIMS pipeline
+      ordering (Annex E §AIMS Step 1: analyze_program calls
+      compute_sccs BEFORE any per-function intraprocedural analysis
+      runs). IC-2 through IC-8a all consume IC-1's output (the
+      topologically-ordered SCC list); IC-1 consumes nothing from
+      the AIMS contract layer. The dependency chain is therefore
+      acyclic at the proof-obligation level:
+        IC-1 --> IC-2/IC-3 (param contract fixpoint per SCC)
+        IC-2/IC-3 --> IC-4 (return contract join over paths)
+        IC-2/IC-3 + IC-4 --> IC-5 (EffectSummary derivation)
+        IC-2..IC-5 --> IC-6 (FipContract, post-realization)
+        IC-2..IC-6 --> IC-7 (convergence bound)
+        IC-1 --> IC-8a (address-taken / closure init)
+
+      IC-1 is the leaf of this dependency tree.
+
+    Algorithm-citation declaration:
+      algorithm: Tarjan's strongly-connected-components
+                           algorithm
+      published: Tarjan, R. E., "Depth-First Search and
+                           Linear Graph Algorithms", SIAM Journal
+                           on Computing, vol. 1, no. 2, pp. 146-160,
+                           June 1972
+      complexity: O(|V| + |E|) — linear in graph size
+      determinism: deterministic given a deterministic
+                           iteration order over CallGraph nodes;
+                           ori_arc::graph::call_graph::CallGraph
+                           uses an indexmap-keyed structure to
+                           preserve insertion order, so
+                           compute_sccs is determinate up to
+                           insertion order of ArcFunctions per
+                           Annex E §AIMS PL-5 "no pass
+                           relies on stale summaries" + canon.md
+                           sec-1 phase purity
+      reference impl: ori_arc::graph::scc::compute_sccs
+                           (compiler/ori_arc/src/
+                           graph/scc/mod.rs lines 48-152)
+      cross-language Lean 4 src/Lean/Compiler/IR/Borrow.lean
+      prior art: also uses Tarjan SCC + topological
+                           order for borrow inference; cited in
+                           arc.md sec-Reference Repos
+
+    Engines dispatched:
+      interprocedural_summary (PRIMARY — SCC topological ordering
+        produced by Tarjan's algorithm per section_06::
+        verify_ic1_scc_topological; the verifier checks all three
+        conjuncts P1/P2/P3 on every emitted SCC list:
+          - P1: partition completeness via union-cardinality check
+            (sum of |scc.members| over all sccs == |V|) AND
+            pairwise disjointness via membership set diff
+          - P2: SCC maximality via reachability oracle: for every
+            (u, v) in scc x scc, verify both u-reaches-v and
+            v-reaches-u in the original CallGraph; for every
+            cross-SCC pair, verify NOT both directions hold
+          - P3: forward topological ordering via position-index
+            comparison: for every edge (u, v) in E with
+            scc(u) != scc(v), assert position(scc(u)) <
+            position(scc(v)) in the emitted list
+        emits Fail on any divergence)
+
+  Expected:
+    status: valid
+    reason: section_06 interprocedural_summary engine discharges IC-1 via three-conjunct verification (P1 partition correctness + P2 SCC maximality + P3 forward topological ordering) over the 9-test corpus in ori_arc::graph::scc::tests covering empty, singleton, chain, cycle, diamond, self-loop, mixed, ordering pin, and partition pin cases; algorithm soundness inherited from Tarjan 1972 Theorem 13 + CLRS 22.16; shipped engine ori_arc::graph::scc::compute_sccs at compiler/ori_arc/src/graph/scc/mod.rs lines 48-152 implements iterative Tarjan strongconnect with O(|V| + |E|) complexity and deterministic emission order per Annex E §AIMS PL-5

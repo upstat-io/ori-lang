@@ -1,0 +1,59 @@
+Theorem RL-34: tail-call preservation — never RcDec after a tail call; transfer only when callee Owned
+
+  Preconditions:
+    - RL-34 governs tail-call preservation per Annex E §AIMS Borrow
+      Inference: "Never insert RcDec after a tail call. Transfer ownership
+      instead — BUT only when the callee parameter is Owned. Callee Borrowed
+      -> ownership transfer violates the ABI (the callee expects a borrow, the
+      caller's dec never fires -> leak). Cannot tail-call to Borrowed unless
+      the caller arranges the dec before the call."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - An RcDec after a tail call breaks TCO (tail-call optimization); the
+      Lean 4 ownParamsUsingArgs lineage (arc.md sec-Advanced-Optimization-
+      Patterns) transfers ownership instead.
+    - depends-on sec-06: IC-3 ParamContract.access (the callee param ABI).
+
+  Soundness property:
+    Forall tail call passing v to a callee parameter:
+
+      (P1) Action decision: when the callee param is Owned, RL-34 transfers
+           ownership of v to the callee (no post-call RcDec — TCO preserved).
+           When the callee param is Borrowed, RL-34 emits the RcDec BEFORE the
+           call (ownership cannot transfer to a Borrowed param).
+
+      (P2) Soundness: an RcDec AFTER a tail call would break TCO (the tail
+           position is no longer the last operation). Transferring ownership
+           to an Owned param is correct (the callee will dec). Transferring to
+           a Borrowed param would leak (the callee never decs a borrow, and
+           the caller's post-call dec is forbidden) — so the caller must dec
+           before the call instead. In NO case is an RcDec inserted after the
+           tail call.
+
+    RL-34 preserves both TCO and RC balance: ownership transfer where the
+    callee owns, pre-call dec where it borrows, never a post-call dec.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine.
+
+    Part (P1/P2) — tail-call action cases:
+      callee Owned -> TransferOwnership (no post-call dec; TCO preserved)
+      callee Borrowed -> DecBeforeCall (cannot transfer; dec pre-call)
+      Coverage gate: 2 action cases. Negative-direction witness: an RcDec is
+      NEVER inserted after a tail call (it breaks TCO) — the action is always
+      either pre-call transfer or pre-call dec; the post-call-dec branch is
+      asserted unreachable.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl34_tail_call_preservation;
+        tail-call action enumeration + never-post-call-dec witness; emits Fail
+        on a wrong action or a post-call dec)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-34 via the tail-call action cases (callee Owned -> transfer ownership, TCO preserved; callee Borrowed -> dec before the call) with a negative-direction witness confirming an RcDec is never inserted after a tail call, preserving both TCO and RC balance

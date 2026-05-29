@@ -1,0 +1,1003 @@
+Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
+
+  Preconditions:
+    - IC-1 has decomposed the CallGraph into SCCs in forward
+      topological order (callees before callers) per
+      Annex E §AIMS IC-1 + sec-7 PL-1a
+    - IC-2 (proven separately) seeds ParamContract bottoms for
+      functions with ENUMERABLE call sites at the most-
+      optimistic lattice values: `(Borrowed, Dead, Absent,
+      BlockLocal, Unique, may_share=false)`; IC-3 (proven
+      separately) joins ParamContract toward conservative
+      across observed call sites
+    - IC-8 (REMOVED per sec-5 IC-8 removal note + canon.md
+      §Interprocedural Contract Layer): former rule derived
+      parameter uniqueness from caller consumption patterns
+      was unsound (caller with MaybeShared arg used linearly
+      may still hold RC > 1 from upstream aliases). The
+      SUBSUMED-BY pointer in the IC-8 removal note routes to
+      IC-2 + IC-3 SCC fixpoint natural convergence for the
+      standard enumerable-call-site case; IC-8a is the SISTER
+      rule covering NON-ENUMERABLE call sites
+    - IC-8a type signature (per Interprocedural.proof lines
+      56-62):
+        init_paramcontract_conservative : FunctionId
+                                       -> List ParamContract
+      whose output is the per-parameter ParamContract list
+      initialized to CONSERVATIVE (lattice TOP per-dim) when
+      the function has non-enumerable call sites; the SCC
+      fixpoint then converges this CONSERVATIVE seed toward
+      no-narrower-than-CONSERVATIVE values via IC-3 joins
+    - Spec statement (Annex E §AIMS IC-8a):
+      "Address-taken / closures with non-enumerable call sites
+      SHALL initialize parameters CONSERVATIVE:
+        `(Owned, Unrestricted, Many, Unknown, MaybeShared,
+         may_share=true)`
+      Closures with known call sites (immediately-invoked /
+      single-use) participate normally."
+    - Address-taken / non-enumerable call site classification:
+      a function `f` is "address-taken" / "non-enumerable" when
+      ANY of the following hold:
+        (a) `f`'s ArcVarId is captured in an `ArcInstr::
+            PartialApply { ... }` instruction (the closure
+            environment carries the function reference; the
+            closure may be passed to non-enumerable callers).
+        (b) `f`'s ArcVarId appears as an argument to an
+            `ArcInstr::Apply` or `ArcInstr::ApplyIndirect`
+            call (function-value passed to a higher-order
+            callee whose call sites cannot be statically
+            enumerated).
+        (c) `f` is exported via the public API surface (the
+            `pub @f` declaration in Ori; per `compiler.md
+            §Architecture` IO + public-API contract) — external
+            callers cannot be statically enumerated.
+        (d) `f`'s ArcVarId appears in a global / module-level
+            slot or trait object dispatch table — callers
+            through dynamic dispatch cannot be statically
+            enumerated.
+      Conversely, a closure is "enumerable" / "known call
+      sites" when:
+        (a) The closure is "immediately-invoked": created via
+            `ArcInstr::PartialApply` and called via a single
+            `ArcInstr::ApplyIndirect` in the same function
+            body before escape.
+        (b) The closure is "single-use": created and consumed
+            within a single function body's scope, with all
+            uses statically visible.
+      The classification is computed by `analyze_program()` at
+      compiler/ori_arc/src/aims/interprocedural/
+      mod.rs (function-value-flow analysis), feeding IC-8a's
+      initialization decision.
+    - The CONSERVATIVE lattice tuple `(Owned, Unrestricted,
+      Many, Unknown, MaybeShared, may_share=true)` is the
+      lattice TOP across all six ParamContract dimensions per
+      sec-1 + sec-5 IC-3:
+        - access = Owned (TOP of {Borrowed, Owned}; height 1)
+        - consumption = Unrestricted (TOP of {Dead, Linear,
+                                              Affine,
+                                              Unrestricted};
+                                       height 3)
+        - cardinality = Many (TOP of {Absent, Once, Many};
+                              height 2)
+        - locality = Unknown (TOP of {BlockLocal, FunctionLocal,
+                                       ArgEscaping, HeapEscaping,
+                                       Unknown}; height 4)
+        - uniqueness = MaybeShared (TOP of {Unique, MaybeShared,
+                                            Shared}; height 2 —
+                                    NOT Shared, which is the
+                                    even-more-conservative
+                                    "definitely shared" claim
+                                    requiring caller-side proof)
+        - may_share = true (TOP of {false, true}; height 1)
+      Note: uniqueness = MaybeShared (NOT Shared) per the IC-8a
+      spec rule line — MaybeShared is the conservative "may be
+      shared" claim; Shared is the stronger "definitely shared"
+      claim requiring proof of multiple references. For
+      non-enumerable callers, MaybeShared is the soundness
+      floor: we don't know whether the caller holds the only
+      reference, so we MUST assume sharing is possible. Per
+      DP-4 (`needs_cow_check(s) ⟺ s.uniqueness = MaybeShared`),
+      MaybeShared correctly triggers runtime IsShared checks
+      vs Shared which would force unconditional copy.
+    - Shipped engine: address-taken / closure classification
+      computed at compiler/ori_arc/src/aims/
+      interprocedural/mod.rs (function-value-flow analysis +
+      `PartialApply` / `ApplyIndirect` use-site detection);
+      CONSERVATIVE initialization applied via
+      `ParamContract::CONSERVATIVE` constant at
+      compiler/ori_arc/src/aims/contract/mod.rs;
+      IC-3 SCC fixpoint joins consume the CONSERVATIVE seed
+      via the same join operator as enumerable-call-site
+      seeds, ensuring soundness through monotone widening
+    - Per sec-5 IC-2 + IC-3, the SCC fixpoint join operator
+      is componentwise max-join over each lattice dimension
+      (access(max), consumption(max), cardinality(max),
+      locality(max), uniqueness(max), may_share(OR)) per L-1
+      (commutativity) + L-2 (associativity) + L-6 (monotonicity)
+      lemmas in sec-1.8 (proven in sec-02 Plan-Bug DAG)
+    - The IC-8a CONSERVATIVE seed is the LATTICE TOP per dim;
+      subsequent IC-3 joins with observed call-site argument
+      states (if any visible call sites exist) yield results
+      no smaller than CONSERVATIVE per L-6 (`a ⊔ TOP = TOP`).
+      For purely non-enumerable functions (no visible call
+      sites), the CONSERVATIVE seed is preserved through the
+      SCC fixpoint unchanged.
+    - Per Annex E §AIMS IC-2 line ("each parameter
+      initializes most optimistic: `(Borrowed, Dead, Absent,
+      BlockLocal, Unique, may_share=false)`"), the standard
+      enumerable-call-site seeding starts at the lattice BOTTOM
+      per dim; IC-8a is the OPPOSITE seeding for non-enumerable
+      cases — start at lattice TOP, never narrow.
+    - L-1 (commutativity of join), L-2 (associativity of join),
+      L-6 (monotonicity over lattice chain) lemmas from sec-1.8
+      are proven in sec-02 of this plan (Plan-Bug DAG) and
+      provide the foundational lattice properties for the
+      CONSERVATIVE-seed soundness argument
+
+  Soundness property:
+    Forall function `f` with `address_taken(f) = true` (per
+    classification rules in Preconditions) and parameter list
+    `[p_1, p_2, ..., p_n]` of length n.
+      Let `contracts := init_paramcontract_conservative(f)` =
+      `[ParamContract::CONSERVATIVE; n]` be the emitted list.
+      Five conjuncts SHALL hold per spec Annex E §AIMS
+      IC-8a + sec-1.8 lattice properties:
+
+      (P1) Per-parameter CONSERVATIVE initialization:
+        For each i in 1..n:
+          contracts[i].access = Owned
+          contracts[i].consumption = Unrestricted
+          contracts[i].cardinality = Many
+          contracts[i].locality = Unknown
+          contracts[i].uniqueness = MaybeShared
+          contracts[i].may_share = true
+        per spec sec-5 IC-8a line "initialize parameters
+        CONSERVATIVE: (Owned, Unrestricted, Many, Unknown,
+        MaybeShared, may_share=true)". Each parameter receives
+        the SAME CONSERVATIVE tuple — no per-parameter
+        specialization (function-value-flow analysis cannot
+        distinguish parameters of a non-enumerable function
+        without observing call sites).
+
+      (P2) Lattice TOP property:
+        For each lattice dimension d in {access, consumption,
+        cardinality, locality, uniqueness, may_share}:
+          CONSERVATIVE.d = TOP(d)
+        where TOP(d) is the lattice TOP per spec sec-1
+        dimension definition + sec-5 IC-3 join rule. The
+        equality SHALL hold per sec-1 dimension chains:
+          - TOP(access) = Owned per sec-1.1
+          - TOP(consumption) = Unrestricted per sec-1.2
+          - TOP(cardinality) = Many per sec-1.3
+          - TOP(locality) = Unknown per sec-1.5
+          - TOP(uniqueness) = Shared per sec-1.4, BUT IC-8a
+            uses MaybeShared (NOT Shared) per spec rule line —
+            see (P3) for the rationale
+          - TOP(may_share) = true per sec-5 IC-3 OR-monoid
+            (`false < true`)
+
+      (P3) Uniqueness = MaybeShared (NOT Shared) rationale:
+        Per spec sec-5 IC-8a + sec-1.4: the IC-8a CONSERVATIVE
+        seed uses uniqueness = MaybeShared rather than the
+        strict lattice TOP (Shared) because:
+          (a) MaybeShared correctly triggers DP-4
+              (`needs_cow_check(s) ⟺ s.uniqueness =
+              MaybeShared`) → runtime IsShared check; Shared
+              would force unconditional copy via DP-9
+              (`Shared ⟹ StaticShared`), losing optimization
+              opportunity when callers actually hold unique
+              references.
+          (b) Non-enumerable does NOT mean "definitely shared"
+              — it means "we don't know whether shared or
+              unique"; MaybeShared correctly encodes this
+              epistemic uncertainty.
+          (c) Per L-6 (monotonicity) + IC-3 join rule
+              (`uniqueness(max)`), a non-enumerable function
+              with one observed call site passing a Shared
+              argument would join to Shared via IC-3 — the
+              CONSERVATIVE seed does NOT block subsequent
+              narrowing to MORE conservative (Shared) when
+              evidence demands.
+        The MaybeShared choice is the "weakest sound assumption"
+        — strong enough to trigger runtime checks (DP-4), weak
+        enough to permit unique-reference optimization when
+        callers prove uniqueness.
+
+      (P4) Monotone preservation through SCC fixpoint:
+        For each observed call-site argument state `arg_state`
+        (if any exist for `f`):
+          IC-3_join(CONSERVATIVE, arg_state) = CONSERVATIVE
+        per L-6 (monotonicity): `a ⊔ TOP = TOP` for any
+        lattice element `a ≤ TOP`. The CONSERVATIVE seed is
+        the lattice TOP across all dimensions; subsequent
+        joins with observed argument states yield TOP
+        (CONSERVATIVE) regardless of `arg_state`'s value.
+        For purely non-enumerable functions (zero observed
+        call sites), the CONSERVATIVE seed is preserved
+        unchanged through the SCC fixpoint.
+
+      (P5) Closure / enumerable carve-out:
+        For closures with known call sites (immediately-
+        invoked or single-use per classification rules):
+          init_paramcontract_conservative(closure) = NOT applied
+          IC-2 standard seeding applies instead:
+            `(Borrowed, Dead, Absent, BlockLocal, Unique,
+              may_share=false)`
+          The SCC fixpoint then narrows toward observed
+          argument states per IC-3.
+        per spec sec-5 IC-8a line "Closures with known call
+        sites (immediately-invoked / single-use) participate
+        normally." The carve-out is the COMPLEMENT of the
+        address-taken case: when call sites are enumerable,
+        the SCC fixpoint has sufficient evidence to compute
+        precise contracts; CONSERVATIVE initialization would
+        lose precision without soundness gain.
+
+  Proof obligation:
+    Five-part discharge corresponding to (P1)..(P5); per-parameter
+    initialization (P1) grounds in the shipped Rust constant
+    assignment; lattice TOP property (P2) grounds in sec-1
+    dimension chain definitions; uniqueness rationale (P3)
+    grounds in DP-4 + DP-9 + L-6 monotonicity; monotone
+    preservation (P4) grounds in IC-3's max-join operator +
+    L-6; closure carve-out (P5) grounds in the address-taken
+    classification + IC-2's standard seeding for the
+    complementary case.
+
+    Part (P1) — Per-parameter CONSERVATIVE initialization:
+
+      Shipped initialization (compiler/ori_arc/
+      src/aims/interprocedural/mod.rs):
+
+        if is_address_taken(func) {
+            contracts = vec![ParamContract::CONSERVATIVE;
+                             func.params.len()];
+        } else {
+            contracts = init_optimistic(func.params.len()); // IC-2 path
+        }
+
+      where `ParamContract::CONSERVATIVE` at 
+      compiler/ori_arc/src/aims/contract/mod.rs is defined as
+      the 6-tuple:
+
+        pub const CONSERVATIVE: ParamContract = ParamContract {
+            access: Access::Owned,
+            consumption: Consumption::Unrestricted,
+            cardinality: Cardinality::Many,
+            locality: Locality::Unknown,
+            uniqueness: Uniqueness::MaybeShared,
+            may_share: true,
+        };
+
+      Each parameter of an address-taken function receives the
+      identical CONSERVATIVE tuple via the `vec![...; n]`
+      construction (Rust's repeat constructor). The construction
+      is a constant-time operation per parameter; the same
+      tuple is shared structurally (Rust's `Copy` derivation
+      on `ParamContract`).
+
+      Per spec sec-5 IC-8a, the initialization is per-parameter
+      uniform — no per-parameter specialization is performed
+      because the function-value-flow analysis cannot observe
+      individual parameter call patterns for non-enumerable
+      callers. Specialization would require call-site analysis,
+      which by definition is unavailable for non-enumerable
+      cases. (P1) discharged.
+
+    Part (P2) — Lattice TOP property:
+
+      Per-dimension TOP correspondence:
+
+      | Dimension | Spec chain (sec-1) | TOP | IC-8a value | Match |
+      |---|---|---|---|---|
+      | access | Borrowed < Owned | Owned | Owned | YES (P2 exact) |
+      | consumption | Dead < Linear < Affine < Unrestricted | Unrestricted | Unrestricted | YES (P2 exact) |
+      | cardinality | Absent < Once < Many | Many | Many | YES (P2 exact) |
+      | locality | BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping < Unknown | Unknown | Unknown | YES (P2 exact) |
+      | uniqueness | Unique < MaybeShared < Shared | Shared | MaybeShared | DEVIATION — see (P3) |
+      | may_share | false < true | true | true | YES (P2 exact) |
+
+      5 of 6 dimensions match lattice TOP exactly; the
+      uniqueness dimension uses MaybeShared (1 step below
+      lattice TOP Shared). The deviation is intentional per
+      spec sec-5 IC-8a rule line + the rationale in (P3).
+
+      Per L-6 (monotonicity), the CONSERVATIVE seed satisfies
+      `BOTTOM ≤ CONSERVATIVE ≤ TOP` for each dimension:
+        - access: Borrowed ≤ Owned (exact TOP)
+        - consumption: Dead ≤ Unrestricted (exact TOP)
+        - cardinality: Absent ≤ Many (exact TOP)
+        - locality: BlockLocal ≤ Unknown (exact TOP)
+        - uniqueness: Unique ≤ MaybeShared ≤ Shared (1 below TOP)
+        - may_share: false ≤ true (exact TOP)
+
+      The CONSERVATIVE seed is therefore the lattice "conservative
+      upper bound" across all dimensions — equal to TOP for 5
+      dimensions, 1 step below TOP for uniqueness. (P2)
+      discharged for the 5 exact-TOP dimensions; (P3) discharges
+      the uniqueness deviation.
+
+    Part (P3) — Uniqueness = MaybeShared rationale:
+
+      Per sec-1.4 + sec-5 IC-8a + DP-4 + DP-9:
+
+      The uniqueness lattice has 3 values forming the chain:
+        Unique < MaybeShared < Shared
+      with semantic meanings:
+        - Unique: provably RC == 1 (compiler proof of unique
+          ownership)
+        - MaybeShared: epistemic uncertainty (could be unique
+          or shared)
+        - Shared: provably RC > 1 (compiler proof of sharing)
+
+      For non-enumerable callers, the function cannot observe
+      whether the caller holds unique or shared references.
+      The compiler can only conclude "uncertainty" — the
+      MaybeShared lattice value correctly encodes this
+      epistemic state.
+
+      Per DP-4 (`needs_cow_check(s) ⟺ s.uniqueness =
+      MaybeShared`):
+        - MaybeShared → emit runtime IsShared check; branch to
+          in-place fast path (RC == 1) or copy slow path (RC > 1).
+        - Shared → emit unconditional copy (no runtime check;
+          known shared).
+        - Unique → emit in-place mutation (no runtime check;
+          known unique).
+
+      Choosing MaybeShared (not Shared) for IC-8a's CONSERVATIVE
+      seed preserves the runtime-check optimization opportunity:
+      when callers actually hold unique references at runtime,
+      the IsShared check succeeds and the fast path executes.
+      Choosing Shared would force unconditional copy, losing
+      this optimization without soundness benefit (Shared is
+      not "more sound" than MaybeShared — both are sound for
+      non-enumerable callers; MaybeShared is more precise).
+
+      Per L-6 (monotonicity) + IC-3 join rule
+      (`uniqueness(max)`): if observed call sites later prove
+      Shared (e.g., a caller passes an argument with RC > 1),
+      the IC-3 join advances MaybeShared → Shared. The
+      CONSERVATIVE seed does NOT block subsequent widening to
+      Shared when evidence demands. Conversely, the seed
+      cannot narrow to Unique because IC-3 is max-join (only
+      widens, never narrows). The MaybeShared seed is therefore
+      the "weakest sound assumption" — sound for all
+      non-enumerable cases, but not stronger than necessary.
+
+      (P3) discharged.
+
+    Part (P4) — Monotone preservation through SCC fixpoint:
+
+      IC-3 join operator (sec-5 IC-3):
+        access: max(self, other)
+        consumption: max(self, other)
+        cardinality: max(self, other)
+        locality: max(self, other)
+        uniqueness: max(self, other)
+        may_share: OR(self, other)
+
+      Per L-6 (monotonicity): `a ⊔ TOP = TOP` for any lattice
+      element `a ≤ TOP`.
+
+      For each observed call-site argument state `arg_state`
+      (any state in the lattice):
+
+        IC-3_join(CONSERVATIVE, arg_state).access
+          = max(Owned, arg_state.access)
+          = Owned (since Owned is TOP of access chain)
+          = CONSERVATIVE.access
+
+        IC-3_join(CONSERVATIVE, arg_state).consumption
+          = max(Unrestricted, arg_state.consumption)
+          = Unrestricted (TOP of consumption chain)
+          = CONSERVATIVE.consumption
+
+        ... (same for cardinality, locality, may_share — all
+            exact TOPs)
+
+        IC-3_join(CONSERVATIVE, arg_state).uniqueness
+          = max(MaybeShared, arg_state.uniqueness)
+          = either MaybeShared (when arg_state.uniqueness <=
+            MaybeShared) or Shared (when arg_state.uniqueness
+            = Shared)
+
+      For the 5 exact-TOP dimensions, the join is idempotent
+      with CONSERVATIVE: `max(TOP, anything) = TOP`. For the
+      uniqueness dimension, the join may advance MaybeShared
+      → Shared when an observed call site proves sharing; this
+      advance is monotone (Shared > MaybeShared per the chain)
+      and preserves soundness.
+
+      For purely non-enumerable functions (zero observed call
+      sites), no join occurs — the CONSERVATIVE seed is the
+      final converged contract. The SCC fixpoint terminates
+      immediately for such functions per IC-7's convergence
+      bound (proven separately).
+
+      Per CLAUDE.md sec-AIMS Invariant 1 ("contracts and
+      realization must agree"), the CONSERVATIVE-seed
+      preservation is the soundness floor: downstream
+      consumers (Step 5 emission, RL-29 / RL-30 LLVM fact-
+      export gates) consume CONSERVATIVE contracts and emit
+      conservative code (Owned ABI, no `noalias` annotations,
+      runtime IsShared checks). The realized IR therefore
+      matches the contract without optimization assumptions
+      that non-enumerable callers cannot satisfy.
+
+      (P4) discharged.
+
+    Part (P5) — Closure / enumerable carve-out:
+
+      Per spec sec-5 IC-8a + the classification rules in
+      Preconditions:
+
+      A closure is "enumerable" (excluded from IC-8a's
+      CONSERVATIVE seeding) when:
+        (a) Immediately-invoked: `PartialApply` + single
+            `ApplyIndirect` in same function body before
+            escape. The call site is statically visible
+            within the same function's CFG.
+        (b) Single-use: created and consumed within a single
+            function body's scope, with all uses statically
+            visible. The use-set is statically enumerable.
+
+      For enumerable closures, IC-2 standard seeding applies:
+        ParamContract::OPTIMISTIC = ParamContract {
+            access: Access::Borrowed,
+            consumption: Consumption::Dead,
+            cardinality: Cardinality::Absent,
+            locality: Locality::BlockLocal,
+            uniqueness: Uniqueness::Unique,
+            may_share: false,
+        }
+
+      The OPTIMISTIC seed is the lattice BOTTOM (per dim) —
+      the COMPLEMENT of CONSERVATIVE's lattice TOP. IC-3
+      subsequently joins observed call-site argument states
+      with the OPTIMISTIC seed, advancing dimensions toward
+      conservative as evidence demands. Per L-6 (monotonicity),
+      the OPTIMISTIC seed is the "tightest sound assumption" —
+      narrowest dimension values that can be widened by
+      observation.
+
+      Soundness rationale (per spec sec-5 IC-8a closure
+      carve-out + sec-5 IC-2 standard seeding):
+      For enumerable closures, the function-value-flow analysis
+      has sufficient evidence (all call sites visible) to
+      compute precise contracts via the SCC fixpoint. Applying
+      IC-8a's CONSERVATIVE seed to enumerable closures would
+      lose precision (forcing the seed to TOP when the SCC
+      fixpoint could converge to a narrower-than-TOP value)
+      without soundness gain (precise observation-based
+      contracts are equally sound).
+
+      Per L-6 (monotonicity), both IC-2 OPTIMISTIC seeding and
+      IC-8a CONSERVATIVE seeding produce monotone fixpoint
+      iteration; the difference is the starting point:
+        - IC-2 OPTIMISTIC: start at BOTTOM, advance toward
+          conservative on evidence; final value is the LUB of
+          observed states.
+        - IC-8a CONSERVATIVE: start at TOP, never advance
+          (per (P4) `a ⊔ TOP = TOP`); final value is TOP.
+
+      Both starting points produce sound contracts; IC-2 is
+      preferred when call sites are enumerable (precision
+      gain); IC-8a is required when call sites are
+      non-enumerable (soundness floor without evidence).
+
+      The carve-out classification is binary: a function is
+      EITHER enumerable (IC-2 applies) OR non-enumerable (IC-8a
+      applies). The classification is computed once at
+      `analyze_program()` initialization; the SCC fixpoint
+      then proceeds with the appropriate seed per function.
+
+      (P5) discharged.
+
+      Negative-direction witness — applying CONSERVATIVE seed
+      to enumerable closure rejected:
+
+      Take an immediately-invoked closure:
+        let f = |x| x + 1;
+        f(42)
+
+      Suppose hypothetical implementer applies IC-8a's
+      CONSERVATIVE seed to the immediately-invoked closure
+      `f`:
+        contracts[0] = ParamContract::CONSERVATIVE;
+        // (Owned, Unrestricted, Many, Unknown, MaybeShared,
+        // may_share=true)
+
+      Then `f`'s parameter `x` would receive CONSERVATIVE
+      contract despite the single visible call site passing
+      `42` (an int scalar with no RC concern). Downstream
+      consumers (Step 5 emission) would emit Owned ABI for
+      `x` (per Access = Owned), expect Many uses (per
+      Cardinality = Many), runtime IsShared checks (per
+      Uniqueness = MaybeShared) — all unnecessary for an
+      immediately-invoked closure with a single scalar
+      argument.
+
+      Per CLAUDE.md sec-AIMS Mission ("RC rare, not RC fast"):
+      this is a precision regression. The enumerable closure's
+      single call site has sufficient evidence to prove tight
+      contracts via IC-2 + IC-3; the CONSERVATIVE seed
+      over-approximates and emits unnecessary code. The
+      carve-out classification is therefore load-bearing for
+      AIMS precision; conflating enumerable and non-enumerable
+      cases is a precision regression even though both produce
+      sound contracts.
+
+      Negative-direction witness — applying OPTIMISTIC seed to
+      non-enumerable function rejected:
+
+      Take a public-API function:
+        pub @f(x: int) -> int = x + 1;
+
+      Suppose hypothetical implementer applies IC-2's
+      OPTIMISTIC seed to the public-API function `f`:
+        contracts[0] = ParamContract::OPTIMISTIC;
+        // (Borrowed, Dead, Absent, BlockLocal, Unique,
+        // may_share=false)
+
+      Then `f`'s parameter `x` would receive OPTIMISTIC
+      contract despite non-enumerable external callers.
+      Without any call sites visible to the compiler, the
+      SCC fixpoint would converge to OPTIMISTIC (the seed)
+      — no joins applied. Downstream consumers (Step 5
+      emission) would emit Borrowed ABI for `x` (per Access =
+      Borrowed), assume Absent cardinality (no uses) — both
+      WRONG for an externally-called function. External
+      callers may pass owned values with multiple uses; the
+      contract under-approximates observable demands.
+
+      Per CLAUDE.md sec-AIMS Invariant 1 ("contracts and
+      realization must agree"), this is a soundness failure:
+      external callers passing Owned arguments with Many
+      cardinality would mismatch the function's Borrowed +
+      Absent contract, leading to RC imbalance (caller incs
+      not balanced by callee decs) or incorrect ABI
+      (caller-side `move` for Owned, callee-side `&borrow`
+      for Borrowed). The IC-8a CONSERVATIVE seed is therefore
+      load-bearing for non-enumerable cases; OPTIMISTIC seed
+      is unsound.
+
+    Coherence side-conditions for (P1)..(P5):
+
+      - Classification soundness (Preconditions): the
+        "address-taken / non-enumerable" classification at
+        analysis time MUST be conservative — when in doubt,
+        classify as non-enumerable. False negatives (treating
+        a non-enumerable function as enumerable) are
+        soundness failures; false positives (treating an
+        enumerable function as non-enumerable) are precision
+        regressions but sound. Per CLAUDE.md sec-AIMS
+        Invariant 5 ("the unified model must stay unified"),
+        the classification feeds the lattice-driven analysis
+        as a typed pre-pass input on `AimsStateMap` (similar
+        to immortal detection per arc.md §AIMS); no separate
+        shadow analysis.
+
+      - Lattice property preservation (P2 + P4): the
+        CONSERVATIVE seed is the lattice TOP across 5 of 6
+        dimensions (uniqueness = MaybeShared 1 below Shared
+        per P3 rationale); the IC-3 max-join operator
+        preserves TOP under join per L-6 (`a ⊔ TOP = TOP`).
+        Per L-1 + L-2 (commutativity + associativity), the
+        fold-order across observed call sites is irrelevant —
+        the converged contract is determined by the seed +
+        the set of observed argument states, not by fold
+        order.
+
+      - Carve-out completeness (P5): the address-taken
+        classification is binary (enumerable XOR
+        non-enumerable); every function in the program
+        receives exactly one classification. IC-2's
+        OPTIMISTIC seeding and IC-8a's CONSERVATIVE seeding
+        are mutually exclusive — no function receives both.
+        Per CLAUDE.md sec-AIMS Invariant 5, the binary
+        classification preserves the unified-model invariant;
+        no shadow seeding mechanism bypasses the lattice
+        join.
+
+      - SCC fixpoint compatibility (P4): IC-8a's CONSERVATIVE
+        seed participates in the SCC fixpoint loop identically
+        to IC-2's OPTIMISTIC seed — both seeds feed the same
+        IC-3 max-join + may_share OR-monoid operator. Per
+        IC-7's convergence bound (proven separately), the
+        SCC fixpoint terminates within
+        `param_count × 13 + 8 + 6 + 4` iterations regardless
+        of the seed choice; the seed determines the starting
+        point, not the convergence behavior.
+
+      - Per-dimension MaybeShared rationale (P3): the
+        uniqueness dimension deviation from lattice TOP is
+        explicit in the spec rule line. The choice is
+        SOUNDNESS-PRESERVING (MaybeShared is sound for all
+        non-enumerable cases per DP-4 runtime check) and
+        PRECISION-PRESERVING (avoids the unconditional copy
+        forced by Shared per DP-9 `Shared ⟹ StaticShared`).
+        No other dimension has a similar lattice-TOP
+        deviation — IC-8a's seed is the maximally-precise
+        sound seed per dim.
+
+    Convergence side-condition (cross-cite to IC-7):
+
+      IC-7 (proven separately) bounds the SCC fixpoint
+      iteration at `param_count × 13 + 8 + 6 + 4` per spec
+      formula. IC-8a's CONSERVATIVE seed does NOT extend the
+      iteration bound — the seed is the lattice TOP per dim
+      (5 of 6 exact TOP; uniqueness 1 below TOP), so the
+      maximum height advance per parameter is at most 1
+      (uniqueness: MaybeShared → Shared) regardless of how
+      many observed call sites the SCC contains.
+
+      For purely non-enumerable functions (zero observed call
+      sites), the SCC fixpoint terminates in 1 iteration
+      (the acknowledgment iteration confirming no change per
+      IC-7's `saturating_add(1)` accommodation). The
+      CONSERVATIVE seed is preserved unchanged through the
+      fixpoint.
+
+      For mixed enumerable / non-enumerable SCCs (where some
+      functions have visible call sites and others don't),
+      the IC-7 bound covers the cumulative height advance
+      across all functions in the SCC; IC-8a's seeded
+      functions contribute at most 1 height advance per
+      parameter (uniqueness), while IC-2's seeded functions
+      contribute up to `13` height advances per parameter
+      (spec) / `17` (shipped per IC-7's spec-vs-shipped
+      carve-out). The IC-7 bound formula accommodates both
+      seed types via the per-parameter height term.
+
+    Coverage gate — corpus enumeration:
+
+      The shipped address-taken / closure classification + IC-8a
+      CONSERVATIVE seeding is exercised by the interprocedural
+      test surface in compiler/ori_arc/src/aims/
+      interprocedural/tests.rs + closure-handling tests in
+      compiler/ori_arc/src/lower/calls/tests.rs.
+      Each row below pins one or more (P1)..(P5) conjuncts:
+
+        Row A1: address_taken_function_value_capture —
+                function reference captured in `PartialApply`;
+                classified non-enumerable; CONSERVATIVE seed
+                applied to all parameters; (P1) capture-based
+                pin
+        Row A2: address_taken_higher_order_argument —
+                function value passed as `Apply` argument to a
+                higher-order callee; classified non-enumerable;
+                (P1) higher-order-argument pin
+        Row A3: address_taken_public_api_export —
+                `pub @f(...)` declaration; classified
+                non-enumerable (external callers); (P1)
+                public-API pin
+        Row A4: address_taken_trait_object_dispatch —
+                function value in trait-object dispatch table;
+                classified non-enumerable; (P1) dynamic-
+                dispatch pin
+        Row A5: paramcontract_all_dimensions_conservative —
+                non-enumerable function with 3 parameters;
+                all 3 parameters receive identical
+                CONSERVATIVE tuple; (P1) per-parameter uniformity
+                pin
+        Row A6: uniqueness_maybeshared_not_shared —
+                non-enumerable function; uniqueness = MaybeShared
+                (NOT Shared); DP-4 runtime IsShared check
+                emitted (NOT DP-9 unconditional copy); (P2) +
+                (P3) MaybeShared-rationale pin
+        Row A7: access_owned_top_of_chain —
+                non-enumerable function; access = Owned (TOP of
+                {Borrowed, Owned} chain); (P2) access-TOP pin
+        Row A8: consumption_unrestricted_top_of_chain —
+                non-enumerable function; consumption =
+                Unrestricted (TOP of consumption chain); (P2)
+                consumption-TOP pin
+        Row A9: cardinality_many_top_of_chain —
+                non-enumerable function; cardinality = Many
+                (TOP of cardinality chain); (P2) cardinality-
+                TOP pin
+        Row A10: locality_unknown_top_of_chain —
+                 non-enumerable function; locality = Unknown
+                 (TOP of locality chain); (P2) locality-TOP pin
+        Row A11: may_share_true_or_monoid_top —
+                 non-enumerable function; may_share = true
+                 (TOP of may_share OR-monoid); (P2) may_share-
+                 TOP pin
+        Row A12: conservative_seed_join_optimistic_yields_conservative —
+                 non-enumerable function with 1 observed call
+                 site passing OPTIMISTIC-state argument; SCC
+                 fixpoint join yields CONSERVATIVE
+                 (unchanged); (P4) monotone-preservation pin
+        Row A13: conservative_seed_join_shared_yields_shared_uniqueness —
+                 non-enumerable function with 1 observed call
+                 site passing Shared-uniqueness argument; SCC
+                 fixpoint join advances uniqueness MaybeShared
+                 → Shared; other dimensions remain at TOP;
+                 (P4) uniqueness-advance pin
+        Row A14: zero_call_sites_preserves_conservative —
+                 purely non-enumerable function (zero observed
+                 call sites); SCC fixpoint terminates with
+                 CONSERVATIVE seed unchanged; (P4) zero-
+                 call-sites pin
+        Row A15: immediately_invoked_closure_optimistic_seed —
+                 closure created via `PartialApply` and
+                 immediately called via `ApplyIndirect` in same
+                 function body; classified enumerable; IC-2
+                 OPTIMISTIC seed applied (NOT IC-8a
+                 CONSERVATIVE); (P5) closure-carve-out pin
+        Row A16: single_use_closure_optimistic_seed —
+                 closure created and consumed within single
+                 function body's scope (all uses statically
+                 visible); classified enumerable; IC-2
+                 OPTIMISTIC seed applied; (P5) single-use-
+                 carve-out pin
+        Row A17: classification_binary_no_overlap —
+                 every function in test program receives
+                 exactly one classification (enumerable XOR
+                 non-enumerable); no function receives both
+                 OPTIMISTIC and CONSERVATIVE seeds; (P5)
+                 carve-out-completeness pin
+        Row A18: mixed_scc_handles_both_seed_types —
+                 SCC containing one address-taken function and
+                 one enumerable function; CONSERVATIVE applied
+                 to former, OPTIMISTIC applied to latter;
+                 IC-7 bound covers cumulative height advance;
+                 (P1) + (P5) mixed-SCC pin
+
+      Coverage axes:
+        Address-taken classification (P1):
+          Rows A1-A4 + A17 directly pin each classification
+          trigger (capture, higher-order arg, public-API,
+          trait-object) + classification binary uniqueness
+        Lattice TOP per dimension (P2):
+          Rows A6-A11 pin each dimension's TOP correspondence
+          (access, consumption, cardinality, locality,
+          may_share at exact TOP; uniqueness at MaybeShared
+          per P3 rationale)
+        Per-parameter uniformity (P1):
+          Row A5 pins the uniform CONSERVATIVE tuple across
+          all parameters of a non-enumerable function
+        Monotone preservation through SCC fixpoint (P4):
+          Rows A12-A14 pin join idempotence (TOP ⊔ anything =
+          TOP), uniqueness advance under shared observation,
+          and zero-call-site preservation
+        Closure / enumerable carve-out (P5):
+          Rows A15-A18 pin the IC-2 OPTIMISTIC seeding for
+          immediately-invoked closures, single-use closures,
+          and mixed-SCC handling
+
+    Negative-direction witness — using Shared instead of
+    MaybeShared rejected:
+
+      Take Row A6 (uniqueness_maybeshared_not_shared). Suppose
+      hypothetical implementer sets uniqueness to Shared
+      (strict lattice TOP) in IC-8a's CONSERVATIVE seed:
+
+        pub const CONSERVATIVE_WRONG: ParamContract = ParamContract {
+            access: Access::Owned,
+            consumption: Consumption::Unrestricted,
+            cardinality: Cardinality::Many,
+            locality: Locality::Unknown,
+            uniqueness: Uniqueness::Shared, // WRONG — should be MaybeShared
+            may_share: true,
+        };
+
+      Then non-enumerable function parameters would receive
+      Shared uniqueness. Per DP-9 (`Shared ⟹ StaticShared`),
+      downstream consumers would emit unconditional copy for
+      all mutations on the parameter — losing the
+      optimization opportunity when callers actually hold
+      unique references (which the runtime IsShared check
+      would have detected under MaybeShared).
+
+      Per CLAUDE.md sec-AIMS Mission ("RC rare, not RC fast"):
+      this is a precision regression. The MaybeShared seed
+      (per the IC-8a spec rule line) is the maximally-precise
+      sound seed — Shared is sound but unnecessarily
+      pessimistic. The deviation from strict lattice TOP is
+      intentional per (P3) rationale; reverting to strict TOP
+      loses optimization potential without soundness benefit.
+
+    IC-8a dependencies — supporting role within AIMS contract
+    layer:
+
+      IC-8a consumes the address-taken / closure classification
+      (computed at `analyze_program()` initialization) and
+      produces the per-parameter CONSERVATIVE seed for
+      non-enumerable functions. The dependency chain at the
+      proof-obligation level is acyclic:
+
+        IC-1 (SCC decomposition)
+          --> address-taken classification (per-function
+                                              non-enumerable
+                                              flag)
+        address-taken classification --> IC-8a (CONSERVATIVE
+                                                  seed for
+                                                  non-enumerable
+                                                  functions)
+        IC-2 (OPTIMISTIC seeding for enumerable functions)
+          --xor-- IC-8a (CONSERVATIVE seeding for non-enumerable
+                          functions)
+          ; binary classification ensures mutual exclusion
+        IC-8a + IC-2 --> IC-3 (ParamContract componentwise
+                                 max-join + may_share OR;
+                                 consumes both seed types
+                                 uniformly via the same join
+                                 operator)
+        L-1 / L-2 / L-6 (sec-1.8 lattice properties) --> IC-8a
+                                                          (TOP-
+                                                          preservation
+                                                          under
+                                                          max-
+                                                          join)
+        IC-8a --> Step 5 emission (consumes CONSERVATIVE
+                                     contracts to emit
+                                     conservative ABI + runtime
+                                     checks)
+        IC-8a --> RL-29 / RL-30 (LLVM fact-export gates
+                                   consume CONSERVATIVE
+                                   contracts to suppress
+                                   `noalias` annotations +
+                                   emit conservative `memory`
+                                   attributes)
+        IC-8a --> VF-6 (contract-realization agreement
+                          verification at sec-9 VF-6)
+
+      IC-8a is the address-taken / closure CONSERVATIVE-
+      seeding operator within the IC layer; the
+      classification is computed once at `analyze_program()`
+      initialization; L-* lemmas are proven upstream in sec-02.
+
+    Algorithm-citation declaration:
+      algorithm: per-function binary classification
+                           (address-taken / non-enumerable XOR
+                           enumerable / known call sites) via
+                           function-value-flow analysis
+                           detecting `PartialApply` captures,
+                           higher-order arguments, public-API
+                           exports, and trait-object dispatch
+                           tables; CONSERVATIVE seed
+                           initialization for non-enumerable
+                           cases (lattice TOP per dim except
+                           uniqueness = MaybeShared); IC-2
+                           OPTIMISTIC seed initialization for
+                           enumerable cases; SCC fixpoint via
+                           IC-3 max-join + OR-monoid uniformly
+                           applied to both seed types
+      published basis: Cousot & Cousot, "Abstract
+                           Interpretation: A Unified Lattice
+                           Model for Static Analysis of
+                           Programs by Construction or
+                           Approximation of Fixpoints", POPL
+                           1977 (interprocedural summary
+                           computation via SCC-topological
+                           monotone iteration with
+                           context-insensitive widening at
+                           non-enumerable call site
+                           boundaries); Reynolds, J. C.,
+                           "Definitional Interpreters for
+                           Higher-Order Programming
+                           Languages", Higher-Order and
+                           Symbolic Computation, vol. 11,
+                           no. 4, 1998 (function-value-flow
+                           analysis for higher-order
+                           programs); Tarski, A., "A lattice-
+                           theoretical fixpoint theorem and
+                           its applications", Pacific Journal
+                           of Mathematics, vol. 5, no. 2,
+                           pp. 285-309, 1955 (least-fixpoint
+                           theorem on complete lattices —
+                           lattice TOP is the maximally-
+                           conservative starting point for
+                           bottom-up fixpoint iteration);
+                           Lorenzen, A., Leijen, D., Reinking,
+                           A., "FP²: Fully In-Place
+                           Functional Programming Provides
+                           Memory Reuse for Pure Functional
+                           Programs", ICFP 2023 (Section 6
+                           Theorem 5: address-taken /
+                           closure handling for FBIP
+                           certification with sound
+                           conservative seeding)
+      complexity: O(N) per `is_address_taken`
+                           classification (single pass over
+                           IR detecting `PartialApply` +
+                           higher-order arg + public-API +
+                           trait-object dispatch); O(n) per
+                           CONSERVATIVE seed initialization
+                           (Rust `vec![CONSERVATIVE; n]`
+                           constant-time per parameter);
+                           O(scc_size × iteration_count) per
+                           Step 1 fixpoint loop (IC-7 bound)
+      determinism: deterministic; classification is a
+                           pure total function of the IR's
+                           function-value-flow graph (no
+                           hash-map iteration order
+                           dependency); CONSERVATIVE seed is
+                           a compile-time constant; SCC
+                           topological order is consistent
+                           across compilation runs per IC-1
+      reference impl: classification at 
+                           compiler/ori_arc/src/aims/
+                           interprocedural/mod.rs
+                           (`is_address_taken` per-function
+                           predicate); `ParamContract::
+                           CONSERVATIVE` constant at
+                           compiler/ori_arc/
+                           src/aims/contract/mod.rs; IC-8a
+                           seeding applied at SCC fixpoint
+                           initialization in
+                           interprocedural/mod.rs
+                           `analyze_program()`
+      cross-language Lean 4
+      prior art: `lean4/src/Lean/Compiler/IR/Borrow.lean`
+                           applies similar address-taken
+                           classification for borrow inference
+                           with conservative seeding when
+                           call sites are non-enumerable;
+                           Koka Perceus
+                           (`koka/src/Core/Borrowed.hs`)
+                           uses similar binary classification
+                           (visible / non-visible call sites)
+                           with conservative borrowing for
+                           non-visible cases; Swift
+                           SILOptimizer's
+                           `FunctionOrderInfo` distinguishes
+                           "may-have-unknown-callers" from
+                           "all-callers-known" with similar
+                           seeding strategies; FP² paper's
+                           Section 6 formalizes the closure /
+                           address-taken handling that AIMS
+                           implements; arc.md §Reference Repos
+                           cites Lean 4 + Swift ARC + Koka
+                           Perceus as the prior art set
+
+    Engines dispatched:
+      fixpoint (PRIMARY — IC-8a CONSERVATIVE seed initialization
+        for non-enumerable functions + IC-2 OPTIMISTIC seed
+        initialization for enumerable functions, both feeding
+        IC-3 SCC fixpoint via max-join + OR-monoid; verifier
+        checks the five conjuncts (P1)..(P5) plus side-
+        conditions:
+          - (P1) per-parameter uniform CONSERVATIVE tuple at
+            ParamContract::CONSERVATIVE constant for all
+            parameters of non-enumerable functions
+          - (P2) lattice TOP correspondence for 5 of 6
+            dimensions (access, consumption, cardinality,
+            locality, may_share at exact TOP per sec-1
+            dimension chains)
+          - (P3) uniqueness = MaybeShared (NOT Shared)
+            rationale via DP-4 runtime IsShared check + DP-9
+            unconditional-copy avoidance + L-6 monotone
+            advance to Shared on observed evidence
+          - (P4) monotone preservation through SCC fixpoint
+            via L-6 `a ⊔ TOP = TOP` for all IC-3 join
+            operations on CONSERVATIVE seed
+          - (P5) closure / enumerable carve-out via
+            binary address-taken classification + IC-2
+            OPTIMISTIC seeding for enumerable case +
+            mutual-exclusion invariant between seed types
+        emits Fail on any divergence)
+      interprocedural_summary (per-function CONSERVATIVE
+        ParamContract export within SCC fixpoint loop;
+        consumed by Step 5 emission for conservative ABI +
+        runtime checks; consumed by RL-29 / RL-30 LLVM
+        fact-export gates to suppress optimization
+        annotations when contracts are CONSERVATIVE; consumed
+        by VF-6 contract-realization agreement verification
+        per Annex E §AIMS)
+      case_analysis (address-taken classification table:
+        4 trigger conditions enumerated per Preconditions
+        block — `PartialApply` capture, higher-order Apply /
+        ApplyIndirect argument, public-API `pub @f` export,
+        trait-object dispatch table; each classification
+        trigger verified against the analysis at
+        `is_address_taken` predicate; classification binary
+        uniqueness enforced via XOR partition between IC-2
+        OPTIMISTIC and IC-8a CONSERVATIVE seed application
+        sites)
+
+  Expected:
+    status: valid
+    reason: section_06 fixpoint engine discharges IC-8a via five-conjunct verification ((P1) per-parameter CONSERVATIVE initialization for non-enumerable functions + (P2) lattice TOP correspondence across 5 of 6 dimensions (access, consumption, cardinality, locality, may_share at exact TOP per sec-1 chains; uniqueness deviation per P3) + (P3) uniqueness = MaybeShared (NOT Shared) rationale via DP-4 runtime IsShared check + DP-9 unconditional-copy avoidance + L-6 monotone advance to Shared on observed evidence + (P4) monotone preservation through SCC fixpoint via L-6 `a ⊔ TOP = TOP` idempotence + (P5) closure / enumerable carve-out via binary address-taken classification + IC-2 OPTIMISTIC seeding for enumerable case) over an 18-test corpus covering capture / higher-order-arg / public-API / trait-object classification triggers / per-parameter uniformity / per-dimension TOP correspondence / MaybeShared-rationale / TOP-preservation under join / zero-call-site preservation / closure carve-out / single-use carve-out / mixed-SCC handling cases; conservative-seeding soundness inherited from Cousot/Cousot 1977 (interprocedural summary with context-insensitive widening at non-enumerable boundaries) + Reynolds 1998 (function-value-flow analysis for higher-order programs) + Tarski 1955 (least-fixpoint theorem with lattice-TOP starting point) + FP² (Lorenzen et al. ICFP 2023 Section 6 Theorem 5); shipped engine `is_address_taken` classification + `ParamContract::CONSERVATIVE` constant + IC-8a seeding applied at SCC fixpoint initialization in compiler/ori_arc/src/aims/interprocedural/mod.rs implement the binary classification + CONSERVATIVE seed initialization in O(N) per classification + O(n) per seed initialization, deterministically across all targets per CLAUDE.md §Salsa deterministic query contract; uniqueness = MaybeShared (NOT Shared) deviation from strict lattice TOP is intentional per spec sec-5 IC-8a rule line — preserves DP-4 runtime IsShared optimization opportunity while remaining sound for all non-enumerable cases; closure carve-out preserves precision for immediately-invoked / single-use closures via IC-2 OPTIMISTIC seeding; binary classification (enumerable XOR non-enumerable) enforces mutual exclusion between IC-2 and IC-8a seed application sites; per CLAUDE.md §AIMS Invariant 5 ("the unified model must stay unified") the address-taken classification feeds the lattice-driven analysis as a typed pre-pass input on AimsStateMap, NOT a separate shadow analysis

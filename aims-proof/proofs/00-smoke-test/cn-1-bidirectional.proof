@@ -1,0 +1,73 @@
+Theorem CN-1: Dead-Absent bidirectional implication
+
+  Preconditions:
+    - s is an AimsState with all dimensions instantiated
+      per the canonical proof notation sec-Per-Dimension-Symbol-Set
+      (working-hypothesis 7-dim: Access, Consumption, Cardinality,
+       Uniqueness, Locality, Shape, Effect)
+    - s = (O, Dead, 1, u, bl, Phi, {})
+      i.e. Access=O, Consumption=Dead, Cardinality=1, Uniqueness=u,
+           Locality=bl, Shape=Phi, Effect={}
+    - canonicalize(s) is s with CN-1 + CN-2 applied per
+      Annex E §AIMS (bounded loop, max 3 rounds to fixpoint)
+
+  Soundness property:
+    Forall s in AimsState.
+      s.consumption = Dead implies canonicalize(s).cardinality = Absent
+    Forall s in AimsState.
+      s.cardinality = Absent implies canonicalize(s).consumption = Dead
+
+  Proof obligation:
+    Case analysis on (s.consumption, s.cardinality):
+      Case (Dead, Absent):
+        Premise vacuously satisfied on both directions;
+        canonicalize(s) = s (idempotent per L-7);
+        s.cardinality = Absent and s.consumption = Dead;
+        both implications hold.
+      Case (Dead, 1):
+        CN-1 fires: Cardinality := Absent;
+        result state has consumption=Dead, cardinality=Absent;
+        forward direction (Dead implies Absent) discharged;
+        reverse direction premise (Absent) false in input state, vacuous.
+      Case (Dead, omega):
+        CN-1 fires: Cardinality := Absent;
+        same as Case (Dead, 1).
+      Case (Linear, Absent):
+        CN-1 fires: Consumption := Dead;
+        result state has consumption=Dead, cardinality=Absent;
+        reverse direction (Absent implies Dead) discharged;
+        forward direction premise (Dead) false in input state, vacuous.
+      Case (Affine, Absent):
+        CN-1 fires: Consumption := Dead;
+        same as Case (Linear, Absent).
+      Case (Unrestricted, Absent):
+        CN-1 fires: Consumption := Dead;
+        same as Case (Linear, Absent).
+      All remaining cases (consumption in {Linear, Affine, Unrestricted}
+       and cardinality in {1, omega}):
+        Both premises false; vacuously satisfied.
+
+    Lattice validation:
+      CN-1 mutates only Consumption + Cardinality dimensions
+      per Annex E §AIMS CN-1; Access=O, Locality=bl, Shape=Phi,
+      Effect={} preserved across canonicalization.
+
+    Monotonicity (L-6) on Consumption x Cardinality sub-lattice:
+      Sub-lattice carrier:
+        Consumption: Dead < Linear < Affine < Unrestricted (height 3)
+        Cardinality: Absent < 1 < omega (height 2)
+      Each canonicalization step is monotone: applying CN-1 to a state
+      where s.consumption = Dead and s.cardinality > Absent moves the
+      state DOWN the Cardinality dimension (omega -> Absent or 1 -> Absent);
+      this preserves the partial order under the dual lattice ordering
+      consistent with L-6's monotone-transfer requirement on the
+      canonicalization map.
+
+    Engines dispatched:
+      case_analysis (for the Dead/Absent enumeration above)
+      lattice (validates Access/Locality/Shape/Effect preservation)
+      monotonicity (L-6 on Consumption x Cardinality sub-lattice)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: scaffold-time; engine implementations pending

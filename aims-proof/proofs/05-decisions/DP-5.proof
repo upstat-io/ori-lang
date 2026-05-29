@@ -1,0 +1,270 @@
+Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + project_alias_sources 7-rule envelope
+
+  Preconditions:
+    - s is a canonical AimsState per Annex E §AIMS product lattice
+    - can_mutate_in_place :
+        AimsState x ArcVarId x FieldPath x ProgramPoint -> Bool
+      per Annex E §AIMS DP-5 + Appendix C truth table
+    - DP-5 is context-dependent — it consults THREE side-table / liveness
+      inputs in addition to AimsState:
+        (i) borrow_sources (per Annex E §AIMS.9) — direct
+              borrow tracker populated by TF-4 Project; entry shape
+              { source: ArcVarId, path: FieldPath } per ArcVarId
+        (ii) project_alias_sources (per Annex E §AIMS.9) —
+              transitive alias tracker; ArcVarId -> SmallVec ArcVarId
+              constructed under 7 rules (R1 Direct, R2 Let, R3 Jump-arg,
+              R4 CFG-merge, R5 Select, R6 Transitive-nested-Project,
+              R7 Set/SetTag preserves prior sources)
+        (iii) live-variable set at the mutation ProgramPoint
+    - InstructionKind in {Set, SetTag} — DP-5 must enforce RL-10 SetTag
+      invalidation: a tag change invalidates ALL payload fields (variant
+      may have different layout) -> DP-5 treats SetTag as overlapping
+      every field, regardless of borrow path
+    - DP-5 is the SOLE decision predicate requiring the typed pre-pass
+      inputs (i) + (ii) + (iii) per Annex E §AIMS DP-5 +
+      the proof-checker design Engine-per-Category-Inventory
+      DP-row
+    - project_alias_sources shipped surface per Annex E §AIMS.9
+      partial-shipment envelope: rules R1, R2, R3, R4, R6 shipped; R5
+      (Select) and R7 (Set/SetTag mutation tracking) target-only. The
+      proof discharges across the FULL 7-rule envelope per sec-05.2
+      success criterion + routing.md sec-2 zero-deferral.
+
+  Soundness property:
+    Forall (s, var, field, point, instruction_kind).
+      can_mutate_in_place(s, var, field, point, instruction_kind)
+        <=> (s.access = O
+              AND s.uniqueness = u
+              AND no_active_overlapping_borrows(var, field, point,
+                                                instruction_kind))
+
+    where no_active_overlapping_borrows decomposes into:
+
+      Step 1 — Direct borrow check (over borrow_sources):
+        For every b such that borrow_sources.b.source = var:
+          if b is live at point AND
+             (instruction_kind = SetTag
+              OR overlaps(borrow_sources.b.path, field))
+          then overlap = true
+        overlaps(p1, p2) = (p1 is a prefix of p2 OR p2 is a prefix of
+        p1). Disjoint = NOT overlaps.
+
+      Step 2 — Transitive alias check (over project_alias_sources):
+        For every a such that var in project_alias_sources.a
+          AND a not in { b : borrow_sources.b.source = var }:
+          if a is live at point
+          then alias_block = true
+        Non-borrow aliases lack field-level granularity; ANY live
+        non-borrow alias blocks conservatively.
+
+      no_active_overlapping_borrows = NOT overlap AND NOT alias_block.
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Exhaustive enumeration over the Appendix C DP-5 5-row truth
+          table, with two orthogonal axes added — instruction_kind in
+          {Set, SetTag} and the sec-1.9 7-rule envelope coverage axis.
+      (b) Soundness equality on every enumerated case + side-table
+          invariants (RL-10 SetTag whole-payload + R5 + R7 target-only
+          rules) discharge against the explicit per-row truth.
+
+    Part (a) — Appendix C DP-5 row partition (5 rows, exhaustive):
+      Row 1: Access != O, any Uniqueness, any borrow state, any alias
+        state -> false
+        Soundness: predicate false (first conjunct s.access = O fails).
+        Borrowed values never own their RC; in-place mutation would
+        violate the borrowed alias contract.
+
+      Row 2: Access = O, Uniqueness != u (MaybeShared OR Shared), any
+        borrow state, any alias state -> false
+        Soundness: predicate false (second conjunct s.uniqueness = u
+        fails). DP-9 distinguishes the MaybeShared and Shared sub-cases
+        via cow_mode (Dynamic / StaticShared respectively); DP-5
+        returns false uniformly. This is the negative-direction witness
+        for the Uniqueness gate — RC > 1 risk forbids unconditional
+        in-place mutation.
+
+      Row 3: Access = O, Uniqueness = u, direct borrow overlaps field
+        at point (instruction_kind respected for SetTag whole-payload
+        semantics), any alias state -> false
+        Soundness: predicate false (third conjunct
+        no_active_overlapping_borrows fails via Step 1). RC = 1 but
+        mutation would corrupt the borrowed view; disjoint-field RL-10
+        exemption does NOT apply when the borrow path overlaps the
+        mutation field (neither is prefix of the other excludes the
+        non-overlap case).
+
+      Row 4: Access = O, Uniqueness = u, no direct overlap, AT LEAST
+        ONE live transitive alias (R2 / R3 / R4 / R5 / R6 / R7) -> false
+        Soundness: predicate false (third conjunct fails via Step 2).
+        Aliases lack field-level granularity per Annex E §AIMS.9;
+        any live non-borrow alias blocks conservatively.
+
+      Row 5: Access = O, Uniqueness = u, no direct overlap, no live
+        transitive alias -> true
+        Soundness: predicate true (all three conjuncts hold). RC = 1 +
+        no active borrow conflict -> in-place mutation safe.
+
+    Part (a.1) — SetTag invalidation clause (per Annex E §AIMS
+    RL-10 + sec-3 TF-15a):
+      For instruction_kind = SetTag, EVERY direct borrow on var that is
+      live at point overlaps (regardless of borrow field path). Reason:
+      SetTag changes the enum discriminant; the payload layout may
+      differ across variants; reading any borrowed field after the tag
+      change is undefined. DP-5 SHALL treat SetTag as overlapping every
+      field path.
+
+      SetTag truth-table sub-rows (composed with Rows 1-5 above):
+        SetTag + O + u + any-live-direct-borrow -> false (Row 3)
+        SetTag + O + u + no-direct-borrow + any-live-alias -> false (Row 4)
+        SetTag + O + u + no-direct-borrow + no-live-alias -> true (Row 5)
+
+      The verifier enumerates the SetTag axis explicitly + confirms
+      RL-10 forces overlap = true on every (live-direct-borrow x any-
+      field-path) combination.
+
+    Part (a.2) — project_alias_sources 7-rule envelope coverage:
+      The proof discharges across all 7 alias-construction rules per
+      Annex E §AIMS.9:
+
+        R1 (Direct Project) — SHIPPED (composes with sec-04
+                                       IA-5 step (1) borrow-rules subset)
+        R2 (Let aliases) — SHIPPED
+        R3 (Jump-arg block-param) — SHIPPED
+        R4 (CFG merge union) — SHIPPED
+        R5 (Select aliases) — TARGET-ONLY (this proof discharges
+                                       at sec-05.2 per routing.md sec-2
+                                       zero-deferral)
+        R6 (Transitive nested-Project) — SHIPPED
+        R7 (Set/SetTag preserves prior sources) — TARGET-ONLY (this
+                                       proof discharges at sec-05.2)
+
+      project_alias_sources envelope summary:
+        shipped: R1, R2, R3, R4, R6
+        target_only_proven_here: R5, R7
+
+      Per-rule discharge witness (each rule contribution to the alias
+      set is exercised by the verifier enumeration over alias-origin
+      kinds):
+        R1: dst = Project src.field -> dst in
+              project_alias_sources.dst-origin-R1 traces to src (and
+              borrow_sources also records the direct borrow). DP-5
+              Step 1 catches this case for overlap; Step 2 NOT triggered
+              (R1 entries ALSO appear in borrow_sources).
+        R2: y = Let Var(x) where x has alias set S -> y maps to
+              [x] union S. Step 2 catches a live y when x not in
+              borrow_sources for var.
+        R3: Jump block1, args = [x]; block1 params [p] -> p maps to
+              [x] union sources(x). Step 2 catches a live p
+              referencing var through x chain.
+        R4: CFG-merge union over predecessor alias entries -> Step 2
+              catches any live merged alias.
+        R5: y = Select(cond, A, B) -> y maps to [A, B] union
+              sources(A) union sources(B). Step 2 catches a live y
+              referencing var through A or B.
+        R6: z = Project y.field2 where y has alias set S -> z maps to
+              [y] union S. Step 2 catches a live z transitively
+              referencing var through y; Step 1 catches the direct
+              borrow on y.field2 only when its source = var.
+        R7: Set / SetTag — base preserves prior sources, NO new alias
+              created. Step 1 catches direct borrows on base; Step 2
+              catches the preserved aliases via base prior alias set.
+
+      The 7-rule envelope is exhaustive per sec-1.9 — no construction
+      rule omitted.
+
+    Part (b) — Coverage gate:
+      Per the verifier section_05::verify_dp5_can_mutate_in_place_with_settag:
+        Pure-lattice axis: 2 Access x 3 Uniqueness = 6 base states.
+        instruction_kind axis: 2 (Set, SetTag).
+        Direct-borrow axis: 3 (none, live-overlap, live-disjoint).
+          Note: SetTag forces overlap regardless of stated path; the
+          verifier expands this axis to enforce RL-10.
+        Transitive-alias axis: 2 (none-live, any-live).
+        Coverage product: 6 x 2 x 3 x 2 = 72 enumerated cases per the
+        Appendix C row partition + RL-10 SetTag + R5 + R7 envelope.
+
+      Row 5 (true partition) canonical-case enumeration:
+        O x u x (no-overlap) x (no-live-alias) x (instruction_kind):
+          (O, u, Set, none, none-live) -> true
+          (O, u, Set, live-disjoint, none-live) -> true (RL-10 disjoint exemption)
+          (O, u, SetTag, none, none-live) -> true
+        SetTag + live-disjoint is FALSE because SetTag invalidates all
+        fields. Total: 3 true cases.
+      Rows 1-4 (false partition) canonical-case enumeration: balance of
+        the product; the verifier enumerates exhaustively and confirms
+        soundness equality on each.
+
+    Negative-direction witness — MaybeShared + no-borrow + no-alias
+    counterexample:
+      Consider s = (O, L, 1, ms, bl, R-S, NONE); no direct borrow on
+      var; no transitive alias live. Per the predicate s.uniqueness =
+      ms violates second conjunct -> DP-5 = false. Per Appendix C
+      Row 2 the same case yields false. Sound: RC may be > 1; DP-9
+      routes the same configuration to Dynamic (runtime IsShared check)
+      per row (d) — DP-5 alone cannot license in-place mutation.
+
+    Negative-direction witness — Unique + live-overlapping-direct-borrow:
+      Consider s = (O, L, 1, u, bl, Phi, NONE); direct borrow b with
+      borrow_sources.b.source = var and borrow_sources.b.path
+      overlapping the mutation field; b live at point. Per the
+      predicate Step 1 sets overlap = true ->
+      no_active_overlapping_borrows = false -> DP-5 = false. Per
+      Appendix C Row 3 the same case yields false. Sound: RC = 1 but
+      borrowed view would observe corrupt state post-mutation.
+
+    Negative-direction witness — Unique + SetTag + any-live-direct-borrow:
+      Consider s = (O, L, 1, u, bl, R-E, NONE); instruction_kind =
+      SetTag; direct borrow b with borrow_sources.b.source = var,
+      borrow_sources.b.path = any field; b live at point. Per RL-10
+      SetTag forces overlap = true regardless of b field path -> Step
+      1 returns block -> DP-5 = false. Sound: tag change invalidates
+      ALL payload fields per sec-3 TF-15a + sec-8 RL-10; any live
+      borrow blocks in-place mutation.
+
+    Negative-direction witness — Unique + live R5 Select alias + no
+    direct borrow + Set:
+      Consider y = Select(cond, A, B); A is the projection root
+      tracking var; y live at point; no entry b with
+      borrow_sources.b.source = var. Per project_alias_sources R5
+      y in project_alias_sources.y-origin-R5 maps to [A, B] union ...;
+      Step 2 finds y live + var in its alias set + y not in
+      borrow_sources for var -> alias_block = true ->
+      no_active_overlapping_borrows = false -> DP-5 = false. Sound:
+      conservatively blocks; no field-level disambiguation possible
+      for Select aliases.
+
+    Positive-direction witness — Unique + disjoint-field-borrow + Set:
+      Consider src holds a struct with two fields { x, y }; a borrow
+      b1 = Project(src, x) is live; mutation is Set(src.y, ...). Per
+      RL-10 disjoint-field exemption + Step 1 overlaps(x, y) = false
+      (neither prefix of the other) -> overlap = false. No live
+      transitive alias on src -> alias_block = false ->
+      no_active_overlapping_borrows = true. Per predicate DP-5 = true.
+      Sound: borrowed view of x unaffected by mutation of y; RC = 1.
+
+    project_alias_sources envelope declaration:
+      shipped: R1, R2, R3, R4, R6
+      target_only_proven_here: R5, R7
+      composes_with: aims-proof/proofs/04-transfers/IA-5-step-1.proof
+                     for the BORROW-rule subset (R1 + R6).
+
+    Live-variable / borrow_sources / project_alias_sources typed
+    pre-pass dependency: REQUIRED for DP-5 (DP-5 is the SOLE decision
+    predicate that consults these typed pre-pass inputs per Annex E §AIMS DP-5 + the proof-checker design DP-row line 99).
+    The verifier constructs synthetic side-table fixtures covering each
+    row of the Appendix C truth table + RL-10 SetTag + R5 + R7
+    envelope; the fixture suite is encoded in
+    section_05::verify_dp5_can_mutate_in_place_with_settag.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — Appendix C 5-row enumeration + RL-10
+        SetTag whole-payload invalidation axis + sec-1.9 7-rule
+        envelope axis per section_05::verify_dp5_can_mutate_in_place_with_settag;
+        the verifier checks the soundness equality predicate-vs-row-
+        partition on every enumerated case and emits Fail on any
+        divergence)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-5 via 72-case enumeration over (Access x Uniqueness x instruction_kind x direct-borrow-state x transitive-alias-state) covering Appendix C 5-row truth table + RL-10 SetTag whole-payload invalidation + sec-1.9 7-rule alias-construction envelope (R1-R7) per Annex E §AIMS DP-5 + Appendix C + sec-8 RL-10

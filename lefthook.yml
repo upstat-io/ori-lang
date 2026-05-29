@@ -64,6 +64,13 @@ pre-commit:
       run: python3 ../.claude/skills/sync-aims-spec/check.py --check
     root-inventory:
       run: diagnostics/repo-hygiene.sh --check-root --no-color
+    aims-proof-check:
+      # A commit touching aims-proof/proofs/** runs the proof checker over the
+      # affected proof corpus; a regression (non-valid verdict / .expected
+      # mismatch / fatal §17 divergence) blocks the commit. The §17
+      # shipped-conformance gate treats divergent-pending as non-fatal.
+      glob: "aims-proof/proofs/**"
+      run: aims-proof/scripts/check-proofs.sh {staged_files}
 
 commit-msg:
   commands:

@@ -1,0 +1,83 @@
+Theorem RL-10: disjoint field mutation (no COW) + SetTag exclusion
+
+  Preconditions:
+    - RL-10 governs disjoint-field COW per Annex E §AIMS COW:
+      "Disjoint field mutation SHALL NOT trigger COW: a receiver mutated at
+      field F, with all active borrows from the same source from DIFFERENT
+      fields -> safe without COW. SetTag excluded: a tag change invalidates
+      ALL payload fields (the variant may have a different layout), so it
+      conflicts with ALL active borrows regardless of field; DP-5 SHALL
+      treat SetTag as overlapping every field."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - DP-5 (can_mutate_in_place) is FIELD-AWARE: a direct borrow blocks
+      in-place only when its field path OVERLAPS the mutation's field path
+      (neither is a prefix of the other => disjoint => no block). SetTag has
+      no single field — it overlaps every field.
+    - Shipped: emit_rc/cow.rs::is_borrow_disjoint_from_siblings +
+      has_borrows_from_aggregate supply the field-disjointness signal;
+      realize/decide.rs::decide_annotations consumes DP-5 with the SetTag
+      flag.
+    - depends-on sec-05: DP-5 (can_mutate_in_place) field-aware
+      disjointness soundness; depends-on sec-01.9 borrow_sources +
+      project_alias_sources for the field-path provenance.
+
+  Soundness property:
+    Forall owned Unique value v mutated at field F with an active borrow b
+    from the same source:
+
+      (P1) Field-aware decision: can_mutate_in_place(v, F) holds (in-place,
+           no COW) iff b's field path is DISJOINT from F (neither a prefix of
+           the other) AND the mutation is NOT a SetTag. An overlapping-field
+           borrow OR any SetTag forces StaticShared (copy).
+
+      (P2) Value-semantics preservation: a disjoint-field in-place write
+           cannot be observed by b (b reads a different, non-overlapping
+           field region), so in-place is sound. A SetTag changes the variant
+           discriminant and hence the entire payload layout, so EVERY active
+           borrow (even a field-disjoint one) would observe corrupted memory
+           — the copy is mandatory.
+
+    RL-10 refines plain ARC's conservative whole-object COW by permitting
+    in-place mutation when field-level disjointness proves no aliasing, while
+    keeping the SetTag exclusion that makes the field-disjointness argument
+    unsound for variant-layout changes.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine via finite
+    enumeration of the (borrow-state x field-disjointness x is_settag) grid
+    + per-branch value-semantics check.
+
+    Part (P1/P2) — field-aware DP-5 grid + soundness:
+      The verifier enumerates and asserts the field-aware
+      can_mutate_in_place decision + the resulting DP-9 mode + its
+      value-semantics soundness:
+        no_borrow_inplace -> in-place (StaticUnique, sound)
+        disjoint_field_set_inplace -> in-place (StaticUnique, sound —
+                                         disjoint borrow unobservable)
+        overlapping_field_must_copy -> copy (StaticShared, DP-5 blocks)
+        disjoint_field_settag_must_copy -> copy (StaticShared — SetTag
+                                         overlaps ALL fields)
+      Coverage gate: 4 field-aware decisions.
+
+    Negative-direction witness (REJECTED):
+      can_mutate_in_place on a SetTag with a disjoint-field borrow must be
+      false — allowing in-place there would corrupt the borrow via the
+      variant-layout change. The field-aware DP-5 model REFUSES it; the
+      verifier asserts the refusal.
+
+    Engines dispatched:
+      case_analysis (PRIMARY —
+        section_08::verify_rl10_disjoint_field_mutation; field-aware DP-5
+        grid enumeration + DP-9 mode + per-branch value-semantics check;
+        emits Fail on a field-disjointness divergence or an unsound in-place
+        selection)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-10 via the field-aware DP-5 grid (no-borrow / disjoint-field-Set -> in-place; overlapping-field / disjoint-field-SetTag -> copy) with a per-branch value-semantics-preservation check and a negative-direction witness rejecting in-place on a SetTag with a disjoint borrow (SetTag overlaps every field), grounded in the shipped emit_rc/cow.rs is_borrow_disjoint_from_siblings field-disjointness signal
