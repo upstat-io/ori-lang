@@ -103,8 +103,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     "opt_unwrap",
                 )?;
                 // After unwrap branch, guaranteed Some — retain unconditionally.
-                let payload = self.builder.extract_value(receiver, 1, "opt.payload")?;
                 let inner_ty = self.pool.option_inner(self.pool.resolve_fully(receiver_ty));
+                // Boxed recursive payload: load through the box pointer. Non-boxed
+                // payloads keep the original register extract (preserves behavior).
+                let payload = if self.is_boxed_enum_field(receiver_ty, inner_ty) {
+                    self.extract_tagged_union_payload(receiver, receiver_ty, 1, inner_ty)?
+                } else {
+                    self.builder.extract_value(receiver, 1, "opt.payload")?
+                };
                 self.inc_value_rc(payload, inner_ty, 1);
                 Some(payload)
             }
@@ -147,8 +153,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let is_some = self.builder.icmp_eq(tag, some, "is_some");
                 self.emit_expect_branch(is_some, arg_vals[1], "expect")?;
                 // After expect branch, guaranteed Some — retain unconditionally.
-                let payload = self.builder.extract_value(receiver, 1, "opt.payload")?;
                 let inner_ty = self.pool.option_inner(self.pool.resolve_fully(receiver_ty));
+                let payload = if self.is_boxed_enum_field(receiver_ty, inner_ty) {
+                    self.extract_tagged_union_payload(receiver, receiver_ty, 1, inner_ty)?
+                } else {
+                    self.builder.extract_value(receiver, 1, "opt.payload")?
+                };
                 self.inc_value_rc(payload, inner_ty, 1);
                 Some(payload)
             }
@@ -261,6 +271,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// This handles the case where the storage type of `field` differs from
     /// the actual variant's payload type (e.g., `int` stored in a `{i64, ptr}`
     /// slot of `Result<int, str>`).
+    ///
+    /// When `payload_ty` is a boxed recursive back-edge (per the boxing SSOT),
+    /// the slot holds an RC `ptr` to the heap-boxed payload — load the box
+    /// pointer, then load the inner value through it, so the result is the
+    /// payload value (not the raw box pointer) the caller's type expects.
     pub(in crate::codegen::arc_emitter) fn extract_tagged_union_payload(
         &mut self,
         receiver: ValueId,
@@ -275,6 +290,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let gep = self
             .builder
             .struct_gep(llvm_recv_ty, alloca, field, "res.payload.gep");
+        if self.is_boxed_enum_field(receiver_ty, payload_ty) {
+            let ptr_ty = self.builder.ptr_type();
+            let box_ptr = self.builder.load(ptr_ty, gep, "res.payload.box");
+            return Some(self.builder.load(llvm_payload_ty, box_ptr, "res.payload"));
+        }
         Some(self.builder.load(llvm_payload_ty, gep, "res.payload"))
     }
 

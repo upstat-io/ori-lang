@@ -98,6 +98,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
+        // §07.2: Tagless single-variant enum drop — struct-like field walk,
+        // no tag, no niche, no switch.
+        if self.is_tagless_enum(ty) {
+            self.emit_drop_tagless(ty, data_ptr);
+            return;
+        }
+
         // §07.2: Niche-encoded enum drop — conditional skip instead of switch.
         if let Some(encoding) = self.get_niche_encoding(ty) {
             self.emit_drop_enum_niche(func_id, data_ptr, ty, variants, &encoding);

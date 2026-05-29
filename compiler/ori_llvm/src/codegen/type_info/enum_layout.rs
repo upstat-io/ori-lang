@@ -26,9 +26,8 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
         variants: &[EnumVariantInfo],
     ) -> BasicTypeEnum<'ll> {
         if self.resolving.borrow().contains(&idx) {
-            if let Some(&named) = self.named_structs.borrow().get(&idx) {
-                return named.into();
-            }
+            // Recursive back-edge: always a heap-boxed pointer, never the
+            // named struct by-value (which would be infinitely sized).
             return self.scx.type_ptr().into();
         }
 
@@ -94,8 +93,15 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
                     if !self.is_non_void_field(f) {
                         return 0;
                     }
-                    let ty = self.resolve(f);
-                    let size = Self::type_store_size(ty);
+                    // A recursive variant field is a boxed `ptr` (one i64 slot)
+                    // per the boxing SSOT — sized from the box, not by recursing
+                    // into the field type (which would inline a mutually- or
+                    // self-recursive back-edge when resolved standalone).
+                    let size = if self.position_is_rc_boxed(idx, f) {
+                        Self::type_store_size(self.scx.type_ptr().into())
+                    } else {
+                        Self::type_store_size(self.resolve(f))
+                    };
                     // Round up to 8-byte i64 slot boundary
                     size.div_ceil(8) * 8
                 })
@@ -140,12 +146,24 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
 
         // Single variant — resolve its fields as the struct body.
         // Tagless variants typically have 1-2 fields; Vec allocation is minimal.
+        //
+        // A recursive back-edge field is a heap-boxed `ptr` per the boxing SSOT
+        // (`position_is_rc_boxed`) — resolving it standalone would inline a
+        // self/mutually-recursive type. Mirror `resolve_struct_field`: box it
+        // to `ptr` so Construct/Project/drop/RC (which consult the same oracle)
+        // agree with the layout.
         if let Some(variant) = variant {
             let field_types: Vec<BasicTypeEnum<'ll>> = variant
                 .fields
                 .iter()
                 .filter(|&&f| self.is_non_void_field(f))
-                .map(|&f| self.resolve(f))
+                .map(|&f| {
+                    if self.position_is_rc_boxed(idx, f) {
+                        self.scx.type_ptr().into()
+                    } else {
+                        self.resolve(f)
+                    }
+                })
                 .collect();
 
             if field_types.is_empty() {

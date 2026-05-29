@@ -24,6 +24,7 @@
 mod enum_layout;
 mod info;
 mod layout_resolver;
+pub(crate) mod repr_box_oracle;
 mod repr_lowering;
 mod store;
 pub(crate) mod type_size;

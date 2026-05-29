@@ -140,20 +140,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let scrut_val = self.var(*scrutinee);
 
                 // §07.2: Niche-encoded enum — emit icmp + cond_br instead of switch.
+                // Tagless single-variant enums never populate `niche_scrutinees`
+                // (their Project { field: 0 } yields a plain `const 0`), so they
+                // flow through the standard switch path below.
                 let handled_niche = self
                     .niche_scrutinees
                     .get(scrutinee)
                     .copied()
                     .and_then(|enum_ty| self.get_niche_encoding(enum_ty));
                 if let Some(encoding) = handled_niche {
-                    if encoding.is_tagless() {
-                        let target = cases
-                            .first()
-                            .map_or_else(|| self.block(*default), |(_, b)| self.block(*b));
-                        self.builder.br(target);
-                    } else {
-                        self.emit_niche_switch(scrut_val, &encoding, cases, *default);
-                    }
+                    self.emit_niche_switch(scrut_val, &encoding, cases, *default);
                 } else {
                     let llvm_cases: Vec<(ValueId, BlockId)> = cases
                         .iter()

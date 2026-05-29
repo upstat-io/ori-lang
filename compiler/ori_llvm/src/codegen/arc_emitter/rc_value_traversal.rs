@@ -9,8 +9,9 @@
 //! for per-variant cleanup.
 
 use ori_ir::{FIELD_CAP, FIELD_DATA};
-use ori_types::Tag;
+use ori_types::{Idx, Tag};
 
+use super::context::is_boxed_enum_field;
 use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
@@ -95,44 +96,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            // Struct: traverse RC fields (remap to memory order)
+            // Struct/Tuple: traverse RC fields/elements (remap to memory order)
             Tag::Struct => {
-                let fields = self.pool.struct_fields(resolved);
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "field count bounded by struct definition"
-                )]
-                for (i, (_, field_ty)) in fields.into_iter().enumerate() {
-                    if self.classifier.needs_rc(field_ty) {
-                        let mem_i = self.remap_struct_field(resolved, i as u32);
-                        if let Some(fv) =
-                            self.builder
-                                .extract_value(val, mem_i, &format!("rc_inc.f.{i}"))
-                        {
-                            self.inc_value_rc(fv, field_ty, count);
-                        }
-                    }
-                }
+                let fields: Vec<Idx> = self
+                    .pool
+                    .struct_fields(resolved)
+                    .into_iter()
+                    .map(|(_, t)| t)
+                    .collect();
+                self.inc_aggregate_fields(val, resolved, &fields, count);
             }
-
-            // Tuple: traverse RC elements (remap to memory order)
             Tag::Tuple => {
                 let elems = self.pool.tuple_elems(resolved);
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "element count bounded by tuple arity"
-                )]
-                for (i, elem_ty) in elems.into_iter().enumerate() {
-                    if self.classifier.needs_rc(elem_ty) {
-                        let mem_i = self.remap_struct_field(resolved, i as u32);
-                        if let Some(ev) =
-                            self.builder
-                                .extract_value(val, mem_i, &format!("rc_inc.e.{i}"))
-                        {
-                            self.inc_value_rc(ev, elem_ty, count);
-                        }
-                    }
-                }
+                self.inc_aggregate_fields(val, resolved, &elems, count);
             }
 
             // Option: recurse into inner type at field 1
@@ -142,7 +118,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
                 if self.classifier.needs_rc(inner) {
-                    if let Some(field) = self.builder.extract_value(val, 1, "rc_inc.opt_inner") {
+                    if is_boxed_enum_field(self.pool, resolved, inner) {
+                        // Boxed recursive inner: the None payload slot holds the
+                        // niche/tag, not a pointer. Route through the tag-aware
+                        // inline path so only Some incs the box pointer.
+                        self.emit_inline_enum_inc(val, resolved, tag, count);
+                    } else if let Some(field) =
+                        self.builder.extract_value(val, 1, "rc_inc.opt_inner")
+                    {
                         self.inc_value_rc(field, inner, count);
                     }
                 }
@@ -221,51 +204,33 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_buffer_rc_dec_map(val, resolved);
             }
 
-            // Struct: traverse RC fields, per-field drop functions (remap to memory order)
+            // Struct/Tuple: traverse RC fields/elements (remap to memory order)
             Tag::Struct => {
-                let fields = self.pool.struct_fields(resolved);
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "field count bounded by struct definition"
-                )]
-                for (i, (_, field_ty)) in fields.into_iter().enumerate() {
-                    if self.classifier.needs_rc(field_ty) {
-                        let mem_i = self.remap_struct_field(resolved, i as u32);
-                        if let Some(fv) =
-                            self.builder
-                                .extract_value(val, mem_i, &format!("rc_dec.f.{i}"))
-                        {
-                            self.dec_value_rc(fv, field_ty);
-                        }
-                    }
-                }
+                let fields: Vec<Idx> = self
+                    .pool
+                    .struct_fields(resolved)
+                    .into_iter()
+                    .map(|(_, t)| t)
+                    .collect();
+                self.dec_aggregate_fields(val, resolved, &fields);
             }
-
-            // Tuple: traverse RC elements (remap to memory order)
             Tag::Tuple => {
                 let elems = self.pool.tuple_elems(resolved);
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "element count bounded by tuple arity"
-                )]
-                for (i, elem_ty) in elems.into_iter().enumerate() {
-                    if self.classifier.needs_rc(elem_ty) {
-                        let mem_i = self.remap_struct_field(resolved, i as u32);
-                        if let Some(ev) =
-                            self.builder
-                                .extract_value(val, mem_i, &format!("rc_dec.e.{i}"))
-                        {
-                            self.dec_value_rc(ev, elem_ty);
-                        }
-                    }
-                }
+                self.dec_aggregate_fields(val, resolved, &elems);
             }
 
             // Option: recurse into inner (same latent bug as inc)
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
                 if self.classifier.needs_rc(inner) {
-                    if let Some(field) = self.builder.extract_value(val, 1, "rc_dec.opt_inner") {
+                    if is_boxed_enum_field(self.pool, resolved, inner) {
+                        // Boxed recursive inner: the None payload slot holds the
+                        // niche/tag, not a pointer. Route through the tag-aware
+                        // inline path so only Some decs the box pointer.
+                        self.emit_inline_enum_dec(val, resolved, tag);
+                    } else if let Some(field) =
+                        self.builder.extract_value(val, 1, "rc_dec.opt_inner")
+                    {
                         self.dec_value_rc(field, inner);
                     }
                 }
@@ -275,6 +240,70 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             _ => {
                 let drop_fn = self.get_or_generate_drop_fn(ty);
                 self.call_rc_dec_all(&[val], drop_fn);
+            }
+        }
+    }
+
+    /// Inc RC for each RC-managed field/element of an aggregate (struct/tuple).
+    ///
+    /// `owner` is the fully-resolved aggregate `Idx`; `field_types` is the
+    /// declaration-order list. A boxed recursive field's slot holds the RC box
+    /// pointer directly (inc it); a non-boxed field recurses.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field/element count bounded by aggregate definition"
+    )]
+    fn inc_aggregate_fields(
+        &mut self,
+        val: super::ValueId,
+        owner: Idx,
+        field_types: &[Idx],
+        count: u32,
+    ) {
+        for (i, &field_ty) in field_types.iter().enumerate() {
+            if !self.classifier.needs_rc(field_ty) {
+                continue;
+            }
+            let mem_i = self.remap_struct_field(owner, i as u32);
+            let Some(fv) = self
+                .builder
+                .extract_value(val, mem_i, &format!("rc_inc.f.{i}"))
+            else {
+                continue;
+            };
+            if is_boxed_enum_field(self.pool, owner, field_ty) {
+                self.call_rc_inc_all(&[fv], count);
+            } else {
+                self.inc_value_rc(fv, field_ty, count);
+            }
+        }
+    }
+
+    /// Dec RC for each RC-managed field/element of an aggregate (struct/tuple).
+    ///
+    /// A boxed recursive field's slot holds the RC box pointer directly (dec it
+    /// through the child drop fn); a non-boxed field recurses.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field/element count bounded by aggregate definition"
+    )]
+    fn dec_aggregate_fields(&mut self, val: super::ValueId, owner: Idx, field_types: &[Idx]) {
+        for (i, &field_ty) in field_types.iter().enumerate() {
+            if !self.classifier.needs_rc(field_ty) {
+                continue;
+            }
+            let mem_i = self.remap_struct_field(owner, i as u32);
+            let Some(fv) = self
+                .builder
+                .extract_value(val, mem_i, &format!("rc_dec.f.{i}"))
+            else {
+                continue;
+            };
+            if is_boxed_enum_field(self.pool, owner, field_ty) {
+                let drop_fn = self.get_or_generate_drop_fn(field_ty);
+                self.call_rc_dec_all(&[fv], drop_fn);
+            } else {
+                self.dec_value_rc(fv, field_ty);
             }
         }
     }

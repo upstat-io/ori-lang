@@ -5,7 +5,7 @@
 //! - `alloca` + GEP + store + load (fallback for recursive/boxed fields)
 
 use ori_arc::ir::ArcVarId;
-use ori_types::{Idx, Tag};
+use ori_types::Idx;
 
 use super::context::is_boxed_enum_field;
 use super::drop_enum::compute_variant_field_offsets;
@@ -150,23 +150,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
                 let field_ty = variant_field_types.get(i).copied();
                 if field_ty.is_some_and(|ft| is_boxed_enum_field(self.pool, ty, ft)) {
-                    let size = self.element_store_size(ty);
+                    // Size the box by the FIELD (boxed payload) type, not the
+                    // enum/Option wrapper `ty` — the box holds the payload value.
+                    let size = self.element_store_size(field_ty.expect("field type present"));
                     let rc_ptr = self.rc_alloc(size, 8);
                     self.builder.store(val, rc_ptr);
                     self.builder.store(rc_ptr, slot);
-                    // When storing an inline enum value to a boxed field, we
-                    // need to increment its sub-pointers ONLY if the source
-                    // value has other live references (i.e., it's borrowed —
-                    // the caller retains a reference). For consumed values
-                    // (owned, last use), this is a move: no inc needed.
+                    // When storing an inline payload value to a boxed slot, the
+                    // box becomes a second owner of the value's heap sub-pointers
+                    // — increment them ONLY if the source has other live
+                    // references (borrowed; the caller retains one). For consumed
+                    // (owned, last-use) values this is a move: no inc. Mirrors
+                    // `box_recursive_field` for the struct-field boxing path.
                     if let Some(&arc_var) = arc_args.get(i) {
                         if self.is_var_borrowed_rooted(arc_var) {
                             let ft = field_ty.expect("field type present");
-                            let resolved = self.pool.resolve_fully(ft);
-                            let pool_tag = self.pool.tag(resolved);
-                            if pool_tag == Tag::Enum {
-                                self.emit_inline_enum_inc(val, resolved, pool_tag, 1);
-                            }
+                            self.inc_value_rc(val, ft, 1);
                         }
                     }
                 } else {

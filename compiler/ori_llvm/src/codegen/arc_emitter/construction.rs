@@ -35,9 +35,30 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 if matches!(self.pool.tag(resolved_ty), Tag::Unit | Tag::Never) {
                     return self.builder.const_zero_ty(llvm_ty);
                 }
+                // Recursive back-edge fields are boxed: the slot holds an RC
+                // pointer to the heap-boxed child, not the inline aggregate.
+                // Box each boxed field (in declaration order) before reorder.
+                let decl_field_types = self.struct_field_types(resolved_ty);
+                let has_boxed_fields = decl_field_types
+                    .iter()
+                    .any(|&ft| is_boxed_enum_field(self.pool, ty, ft));
+                let boxed_args: Vec<ValueId> = if has_boxed_fields {
+                    arg_vals
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &val)| match decl_field_types.get(i).copied() {
+                            Some(ft) if is_boxed_enum_field(self.pool, ty, ft) => {
+                                self.box_recursive_field(val, ft, args.get(i).copied())
+                            }
+                            _ => val,
+                        })
+                        .collect()
+                } else {
+                    arg_vals.clone()
+                };
                 // Reorder args from declaration order to memory order
                 // before truncation and LLVM struct construction.
-                let mem_args = self.reorder_args_to_memory_order(&arg_vals, ty);
+                let mem_args = self.reorder_args_to_memory_order(&boxed_args, ty);
                 // Truncate canonical-width (i64) values to narrowed
                 // field width (i8/i16/i32) when the struct has narrowed fields.
                 let narrowed_args = self.trunc_for_narrowed_struct(llvm_ty, &mem_args, ty);
@@ -64,6 +85,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     return self.tagged_ptr_encode(payload, *variant, "tagged.ctor");
                 }
 
+                // §07.2: Tagless single-variant enum — struct-like, no tag,
+                // no niche; box recursive back-edge fields directly.
+                if self.is_tagless_enum(ty) {
+                    return self.emit_tagless_variant_construct(llvm_ty, ty, &arg_vals, args);
+                }
+
                 // §07.2: Niche-encoded enum — no tag field, payload at index 0.
                 if let Some(encoding) = self.get_niche_encoding(ty) {
                     return self
@@ -76,18 +103,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.builder
                         .const_int_for_struct_field(llvm_ty, 0, u64::from(*variant));
 
-                // Check for recursive enum fields that need RC allocation.
+                // Check for recursive payload fields that need RC allocation.
                 // These require the alloca roundtrip because we need to store
-                // the RC pointer into memory, then load back as i64.
+                // the RC pointer into memory, then load back as i64. Covers
+                // user-defined enums AND Option/Result (whose recursive Some/Ok/
+                // Err payload is boxed identically per the boxing SSOT — the
+                // layout resolver boxes the same position, so Construct must
+                // match or the box pointer and inline value disagree).
                 let resolved_enum = self.pool.resolve_fully(ty);
-                let variant_field_types = if self.pool.tag(resolved_enum) == Tag::Enum {
-                    let all_variants = self.pool.enum_variants(resolved_enum);
-                    all_variants
-                        .get(*variant as usize)
-                        .map(|(_, fields)| fields.clone())
-                        .unwrap_or_default()
-                } else {
-                    Vec::new()
+                let variant_field_types = match self.pool.tag(resolved_enum) {
+                    Tag::Enum => {
+                        let all_variants = self.pool.enum_variants(resolved_enum);
+                        all_variants
+                            .get(*variant as usize)
+                            .map(|(_, fields)| fields.clone())
+                            .unwrap_or_default()
+                    }
+                    // Option: Some (variant 0) carries the inner type; None (1) empty.
+                    Tag::Option if *variant == 0 => vec![self.pool.option_inner(resolved_enum)],
+                    // Result: Ok (variant 0) carries ok type; Err (variant 1) carries err type.
+                    Tag::Result if *variant == 0 => vec![self.pool.result_ok(resolved_enum)],
+                    Tag::Result if *variant == 1 => vec![self.pool.result_err(resolved_enum)],
+                    _ => Vec::new(),
                 };
 
                 // For user-defined enums (Tag::Enum), filter out
@@ -487,5 +524,46 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .insert_value(result, val, idx, &format!("niche.val.{i}"));
         }
         result
+    }
+
+    /// Declaration-order field/element types for a struct or tuple `Idx`.
+    ///
+    /// Returns an empty vec for non-aggregate tags.
+    pub(super) fn struct_field_types(&self, resolved_ty: Idx) -> Vec<Idx> {
+        match self.pool.tag(resolved_ty) {
+            Tag::Struct => self
+                .pool
+                .struct_fields(resolved_ty)
+                .into_iter()
+                .map(|(_, ft)| ft)
+                .collect(),
+            Tag::Tuple => self.pool.tuple_elems(resolved_ty),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Box an inline value for a boxed recursive field/element slot.
+    ///
+    /// Allocates an RC box sized to `field_type`, stores the inline `val` into
+    /// it, and returns the box pointer. When the source variable is rooted at a
+    /// borrowed parameter (the caller retains a live reference), the inline
+    /// value's heap sub-pointers gain a second owner (the box) and are
+    /// incremented; for consumed (moved) values this is a move with no inc.
+    /// Mirrors the enum boxing in `emit_variant_via_alloca`.
+    pub(super) fn box_recursive_field(
+        &mut self,
+        val: ValueId,
+        field_type: Idx,
+        arc_var: Option<ArcVarId>,
+    ) -> ValueId {
+        let size = self.element_store_size(field_type);
+        let rc_ptr = self.rc_alloc(size, 8);
+        self.builder.store(val, rc_ptr);
+        if let Some(var) = arc_var {
+            if self.is_var_borrowed_rooted(var) {
+                self.inc_value_rc(val, field_type, 1);
+            }
+        }
+        rc_ptr
     }
 }

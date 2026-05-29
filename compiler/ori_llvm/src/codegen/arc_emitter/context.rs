@@ -19,28 +19,38 @@ use super::super::value_id::{BlockId, FunctionId, ValueId};
 use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::type_info::TypeInfoStore;
 
-// Recursive enum detection
+// Recursive field / payload detection
 
-/// Check if a field type creates a direct recursive reference within an enum.
-///
-/// Returns `true` when the resolved field type is the same Pool index as the
-/// resolved enum type — meaning the field must be RC-boxed when stored in the
-/// enum payload. Layout: stored as an 8-byte RC pointer instead of inline.
-///
-/// Checks `Tag::Enum`, `Tag::Result`, and `Tag::Option` — the three enum-like
-/// tags that could contain recursive self-references requiring RC boxing.
-/// Currently only `Tag::Enum` can be self-recursive, but `Result`/`Option` are
-/// included defensively for forward-compatibility with future type system changes.
-///
-/// Only handles direct self-recursion (e.g., `type Tree = Node(Tree, Tree)`).
-/// Mutual recursion (`type A = X(B)`, `type B = Y(A)`) is not yet supported.
-pub(super) fn is_boxed_enum_field(pool: &Pool, enum_type: Idx, field_type: Idx) -> bool {
-    let enum_resolved = pool.resolve_fully(enum_type);
-    let field_resolved = pool.resolve_fully(field_type);
-    matches!(
-        pool.tag(enum_resolved),
-        Tag::Enum | Tag::Result | Tag::Option
-    ) && enum_resolved == field_resolved
+/// Whether the field/payload position holding `field_type` inside `owner_type`
+/// is heap-boxed as an 8-byte RC pointer. Thin wrapper over the boxing SSOT
+/// `repr_box_oracle::position_is_rc_boxed`, which the layout resolver also
+/// consumes so box-vs-inline LLVM layout and Construct/Project/drop never
+/// disagree. The name is retained for the enum call sites; the predicate
+/// applies equally to struct fields and tuple elements.
+pub(super) fn is_boxed_enum_field(pool: &Pool, owner_type: Idx, field_type: Idx) -> bool {
+    crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed(pool, owner_type, field_type)
+}
+
+/// True iff any payload position of a tagged union (`Option` / `Result` /
+/// `Enum`) `union_type` is a boxed recursive Struct/Enum back-edge — i.e.,
+/// the union stores a `ptr` box in some variant slot. Used to decide whether
+/// a drop/RC traversal must be tag-aware (the inactive variant's slot holds
+/// the tag/niche, not a valid pointer).
+pub(super) fn tagged_union_has_boxed_inner(pool: &Pool, union_type: Idx) -> bool {
+    let resolved = pool.resolve_fully(union_type);
+    match pool.tag(resolved) {
+        Tag::Option => is_boxed_enum_field(pool, resolved, pool.option_inner(resolved)),
+        Tag::Result => {
+            is_boxed_enum_field(pool, resolved, pool.result_ok(resolved))
+                || is_boxed_enum_field(pool, resolved, pool.result_err(resolved))
+        }
+        Tag::Enum => pool
+            .enum_variants(resolved)
+            .into_iter()
+            .flat_map(|(_, fields)| fields)
+            .any(|fi| is_boxed_enum_field(pool, resolved, fi)),
+        _ => false,
+    }
 }
 
 // Callee interception detection
@@ -323,13 +333,9 @@ pub struct CodegenContext {
 // Re-export convenience method on ArcIrEmitter for use by submodules
 // that need to check boxed enum fields.
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Check if a field type creates a direct recursive reference within an enum.
-    ///
-    /// Convenience wrapper around [`is_boxed_enum_field`] using the emitter's pool.
-    #[expect(
-        dead_code,
-        reason = "convenience for submodules that don't have direct pool access"
-    )]
+    /// Whether the position holding `field_type` inside `enum_type` is a boxed
+    /// recursive back-edge. Convenience wrapper over [`is_boxed_enum_field`]
+    /// using the emitter's pool.
     pub(super) fn is_boxed_enum_field(&self, enum_type: Idx, field_type: Idx) -> bool {
         is_boxed_enum_field(self.pool, enum_type, field_type)
     }

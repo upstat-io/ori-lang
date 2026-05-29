@@ -115,6 +115,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return true;
         }
 
+        // §07.2: Tagless single-variant enum — struct-like layout (no tag,
+        // no `[M x i64]` payload). Project directly from the field slot.
+        if self.is_tagless_enum(val_ty) {
+            self.emit_project_tagless_field(dst, ty, val_ty, value, field, result_ty, func);
+            return true;
+        }
+
         let is_general_enum = matches!(
             val_type_info,
             super::super::type_info::TypeInfo::Enum { .. }
@@ -186,23 +193,62 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.def_var_repr(dst, loaded, func);
             }
         } else {
-            // Result/Option: payload is a typed field.
-            // §07.2: niche layout has no tag field → payload at index 0.
-            let struct_idx = if self.get_niche_encoding(val_ty).is_some() {
-                field - 1 // niche: no tag field
-            } else {
-                field // explicit: tag at 0, payload at 1+
-            };
-            let gep = self.builder.struct_gep(
+            self.emit_project_tagged_union_field(
+                dst,
+                ty,
+                val_ty,
                 llvm_val_ty,
                 alloca,
-                struct_idx,
-                &format!("proj.{field}.gep"),
+                field,
+                result_ty,
+                func,
             );
+        }
+        true
+    }
+
+    /// Project a `Result`/`Option` payload field via alloca + GEP + load. The
+    /// payload is at struct index `field` (explicit tag) or `field - 1` (niche,
+    /// no tag field). When the payload is a boxed recursive back-edge, the slot
+    /// holds an RC `ptr` — load the box pointer then load the inner value
+    /// through it (mirrors the general-enum boxed-field path).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "projection threads dst/types/alloca/field"
+    )]
+    fn emit_project_tagged_union_field(
+        &mut self,
+        dst: ArcVarId,
+        ty: Idx,
+        val_ty: Idx,
+        llvm_val_ty: super::super::value_id::LLVMTypeId,
+        alloca: ValueId,
+        field: u32,
+        result_ty: super::super::value_id::LLVMTypeId,
+        func: &ArcFunction,
+    ) {
+        let struct_idx = if self.get_niche_encoding(val_ty).is_some() {
+            field - 1 // niche: no tag field
+        } else {
+            field // explicit: tag at 0, payload at 1+
+        };
+        let gep = self.builder.struct_gep(
+            llvm_val_ty,
+            alloca,
+            struct_idx,
+            &format!("proj.{field}.gep"),
+        );
+        if is_boxed_enum_field(self.pool, val_ty, ty) {
+            let ptr_ty = self.builder.ptr_type();
+            let box_ptr = self.builder.load(ptr_ty, gep, &format!("proj.{field}.box"));
+            let loaded = self
+                .builder
+                .load(result_ty, box_ptr, &format!("proj.{field}"));
+            self.def_var_repr(dst, loaded, func);
+        } else {
             let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
             self.def_var_repr(dst, loaded, func);
         }
-        true
     }
 
     /// Emit a `Project` instruction (field extraction).
@@ -247,6 +293,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
+        // §07.2: Tagless single-variant enum tag extraction — the discriminant
+        // is always 0 (one variant). No niche field to read.
+        if field == 0 && self.is_tagless_enum(val_ty) {
+            let zero = self.builder.const_i64(0);
+            self.def_var_repr(dst, zero, func);
+            return;
+        }
+
         // §07.2: Niche-encoded enum tag extraction.
         // When Project { field: 0 } targets a niche-encoded enum, extract the
         // niche field value (not a logical variant index). The raw niche field
@@ -254,12 +308,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // correct comparison.
         if field == 0 {
             if let Some(encoding) = self.get_niche_encoding(val_ty) {
-                if encoding.is_tagless() {
-                    // Single-variant: tag is always 0.
-                    let zero = self.builder.const_i64(0);
-                    self.def_var_repr(dst, zero, func);
-                    return;
-                }
                 // Niche: extract the niche field from the struct.
                 let niche_idx = encoding.niche_field_index().unwrap();
                 let v = self.var(value);
@@ -300,6 +348,33 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Remap declaration-order field index to memory-order for LLVM.
         let val_ty = func.var_type(value);
         let mem_field = self.remap_struct_field(val_ty, field);
+
+        // Boxed recursive struct/tuple field: the slot holds an RC pointer to
+        // the heap-boxed child, not the inline aggregate. Extract the box
+        // pointer, then load through it to recover the child value.
+        if is_boxed_enum_field(self.pool, val_ty, ty) {
+            let ptr_ty = self.builder.ptr_type();
+            let rc_ptr = if let Some(extracted) =
+                self.builder
+                    .extract_value(val, mem_field, &format!("proj.{field}.ptr"))
+            {
+                extracted
+            } else {
+                let llvm_val_ty = self.resolve_type(val_ty);
+                let gep = self.builder.struct_gep(
+                    llvm_val_ty,
+                    val,
+                    mem_field,
+                    &format!("proj.{field}.gep"),
+                );
+                self.builder.load(ptr_ty, gep, &format!("proj.{field}.ptr"))
+            };
+            let loaded = self
+                .builder
+                .load(result_ty, rc_ptr, &format!("proj.{field}"));
+            self.def_var_repr(dst, loaded, func);
+            return;
+        }
 
         if let Some(extracted) =
             self.builder
@@ -721,11 +796,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     return;
                 }
 
-                // §07.2: Niche/tagless encoding — conditional tag store.
+                // §07.2: Tagless single-variant enum — no tag to store.
+                if self.is_tagless_enum(base_ty) {
+                    return;
+                }
+
+                // §07.2: Niche encoding — conditional tag store.
                 if let Some(encoding) = self.get_niche_encoding(base_ty) {
-                    if encoding.is_tagless() {
-                        // Single-variant enum: no tag to store.
-                    } else if encoding.needs_tag_store(*tag as u32) {
+                    if encoding.needs_tag_store(*tag as u32) {
                         // Niche variant: write niche_value into the niche field.
                         let niche_idx = encoding.niche_field_index().unwrap();
                         let niche_value = encoding.variant_to_tag_value(*tag as u32);

@@ -87,6 +87,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let inner = self.pool.option_inner(resolved);
                 if self.classifier.needs_rc(inner) {
                     if let Some(field) = self.builder.extract_value(val, 1, "rc.opt_inner") {
+                        if is_boxed_enum_field(self.pool, resolved, inner) {
+                            // Boxed recursive inner: payload is the RC box
+                            // pointer — use directly.
+                            return vec![field];
+                        }
                         return self.extract_rc_data_ptrs(field, inner);
                     }
                 }
@@ -134,7 +139,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.builder
                         .extract_value(val, mem_i, &format!("rc.field.{i}"))
                 {
-                    ptrs.extend(self.extract_rc_data_ptrs(field_val, field_ty));
+                    if is_boxed_enum_field(self.pool, ty, field_ty) {
+                        // Boxed recursive field: the slot value is already the
+                        // RC box pointer — use it directly, do not recurse into
+                        // the (inline) child layout.
+                        ptrs.push(field_val);
+                    } else {
+                        ptrs.extend(self.extract_rc_data_ptrs(field_val, field_ty));
+                    }
                 }
             }
         }
@@ -156,7 +168,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.builder
                         .extract_value(val, mem_i, &format!("rc.elem.{i}"))
                 {
-                    ptrs.extend(self.extract_rc_data_ptrs(elem_val, elem_ty));
+                    if is_boxed_enum_field(self.pool, ty, elem_ty) {
+                        // Boxed recursive element: slot value is the RC box
+                        // pointer — use directly.
+                        ptrs.push(elem_val);
+                    } else {
+                        ptrs.extend(self.extract_rc_data_ptrs(elem_val, elem_ty));
+                    }
                 }
             }
         }
@@ -167,17 +185,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Returns a vec-of-vecs: `[variant_idx][field_idx] = (field_position, field_type)`.
     /// Empty inner vec means the variant has no RC fields.
+    /// Whether a variant-payload position holding `field_ty` inside the tagged
+    /// union `owner_ty` needs an RC dec/inc: either the payload's inline type
+    /// is RC-bearing, OR the position is a boxed recursive back-edge (a heap
+    /// RC box that must be dropped regardless of the inline classification).
+    pub(super) fn payload_needs_rc(&self, owner_ty: Idx, field_ty: Idx) -> bool {
+        self.classifier.needs_rc(field_ty) || is_boxed_enum_field(self.pool, owner_ty, field_ty)
+    }
+
     fn collect_variant_rc_fields(&self, resolved_ty: Idx, pool_tag: Tag) -> Vec<Vec<(u32, Idx)>> {
         match pool_tag {
             Tag::Result => {
                 let ok_ty = self.pool.result_ok(resolved_ty);
                 let err_ty = self.pool.result_err(resolved_ty);
-                let ok_fields = if self.classifier.needs_rc(ok_ty) {
+                // A boxed recursive back-edge is a heap RC box that ALWAYS
+                // needs dec, even when the payload's inline type would not be
+                // classified RC-bearing (e.g. a `Value`-shaped recursive struct).
+                let ok_fields = if self.payload_needs_rc(resolved_ty, ok_ty) {
                     vec![(0_u32, ok_ty)]
                 } else {
                     vec![]
                 };
-                let err_fields = if self.classifier.needs_rc(err_ty) {
+                let err_fields = if self.payload_needs_rc(resolved_ty, err_ty) {
                     vec![(0_u32, err_ty)]
                 } else {
                     vec![]
@@ -186,7 +215,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved_ty);
-                let some_fields = if self.classifier.needs_rc(inner) {
+                let some_fields = if self.payload_needs_rc(resolved_ty, inner) {
                     vec![(0_u32, inner)]
                 } else {
                     vec![]
@@ -202,7 +231,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         field_tys
                             .iter()
                             .enumerate()
-                            .filter(|(_, ty)| self.classifier.needs_rc(**ty))
+                            .filter(|(_, ty)| self.payload_needs_rc(resolved_ty, **ty))
                             .map(|(i, ty)| {
                                 #[expect(
                                     clippy::cast_possible_truncation,
@@ -267,6 +296,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // §07.3.A: Tagged-pointer enum — decode tag, dispatch per variant.
         if self.get_tagged_ptr_encoding(resolved_ty).is_some() {
             self.emit_tagged_ptr_enum_rc(val, &variant_rc_fields, is_inc, count);
+            return;
+        }
+
+        // §07.2: Tagless single-variant enum — struct-like field RC, no tag,
+        // no niche, no switch.
+        if self.is_tagless_enum(resolved_ty) {
+            self.emit_inline_tagless_rc(val, resolved_ty, is_inc, count);
             return;
         }
 
@@ -343,7 +379,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             for &(field_index, field_type) in fields {
                 if matches!(pool_tag, Tag::Result | Tag::Option) {
-                    let field_llvm_ty = self.resolve_type(field_type);
                     let struct_idx = 1 + field_index;
                     let field_ptr = self.builder.struct_gep(
                         enum_llvm_ty,
@@ -351,13 +386,29 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         struct_idx,
                         &format!("{dir}.payload.ptr"),
                     );
-                    let field_val =
-                        self.builder
-                            .load(field_llvm_ty, field_ptr, &format!("{dir}.payload"));
-                    if is_inc {
-                        self.inc_value_rc(field_val, field_type, count);
+                    if is_boxed_enum_field(self.pool, resolved_ty, field_type) {
+                        // Boxed recursive inner: payload slot holds the RC box
+                        // pointer — load the ptr and inc/dec directly.
+                        let ptr_ty = self.builder.ptr_type();
+                        let rc_ptr =
+                            self.builder
+                                .load(ptr_ty, field_ptr, &format!("{dir}.payload.rc"));
+                        if is_inc {
+                            self.call_rc_inc_all(&[rc_ptr], count);
+                        } else {
+                            let drop_fn = self.get_or_generate_drop_fn(field_type);
+                            self.call_rc_dec_all(&[rc_ptr], drop_fn);
+                        }
                     } else {
-                        self.dec_value_rc(field_val, field_type);
+                        let field_llvm_ty = self.resolve_type(field_type);
+                        let field_val =
+                            self.builder
+                                .load(field_llvm_ty, field_ptr, &format!("{dir}.payload"));
+                        if is_inc {
+                            self.inc_value_rc(field_val, field_type, count);
+                        } else {
+                            self.dec_value_rc(field_val, field_type);
+                        }
                     }
                 } else if is_boxed_enum_field(self.pool, resolved_ty, field_type) {
                     let payload_ptr =

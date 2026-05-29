@@ -27,6 +27,7 @@ use ori_arc::{DropInfo, DropKind};
 use ori_ir::{CLOSURE_FIELD_ENV, FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
+use super::context::{is_boxed_enum_field, tagged_union_has_boxed_inner};
 use super::ArcIrEmitter;
 use crate::codegen::value_id::{FunctionId, ValueId};
 
@@ -266,19 +267,33 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
             let mem_index = self.remap_struct_field(ty, field_index);
-            let field_llvm_ty = self.resolve_type(field_type);
             let field_ptr = self.builder.struct_gep(
                 struct_llvm_ty,
                 data_ptr,
                 mem_index,
                 &format!("{name_prefix}.{field_index}.ptr"),
             );
-            let field_val = self.builder.load(
-                field_llvm_ty,
-                field_ptr,
-                &format!("{name_prefix}.{field_index}"),
-            );
-            self.emit_drop_rc_dec(field_val, field_type);
+            if is_boxed_enum_field(self.pool, ty, field_type) {
+                // Recursive back-edge: the slot holds an RC pointer to the
+                // heap-boxed child, not the inline aggregate. Load the box
+                // pointer and dec through the field type's drop fn.
+                let ptr_ty = self.builder.ptr_type();
+                let rc_ptr = self.builder.load(
+                    ptr_ty,
+                    field_ptr,
+                    &format!("{name_prefix}.{field_index}.rc"),
+                );
+                let drop_fn = self.get_or_generate_drop_fn(field_type);
+                self.emit_drop_rc_dec_with_fn(rc_ptr, drop_fn);
+            } else {
+                let field_llvm_ty = self.resolve_type(field_type);
+                let field_val = self.builder.load(
+                    field_llvm_ty,
+                    field_ptr,
+                    &format!("{name_prefix}.{field_index}"),
+                );
+                self.emit_drop_rc_dec(field_val, field_type);
+            }
         }
     }
 
@@ -449,6 +464,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Closures need dynamic drop fn from env header, not a static one.
         if tag == ori_types::Tag::Function {
             self.emit_closure_field_rc_dec(val);
+            return;
+        }
+
+        // Tagged unions (Option/Result/Enum) carrying a BOXED RECURSIVE inner
+        // MUST be dropped tag-aware: the inactive variant's payload slot holds
+        // the niche/tag, not a valid pointer. The flat extract_rc_data_ptrs
+        // path would unconditionally dec that slot — a crash when the inner is
+        // a boxed recursive pointer (the None tag `0x1` is not null, so
+        // ori_rc_dec faults). dec_value_rc switches on the discriminant and
+        // decs only the live variant. Non-recursive tagged unions keep the
+        // flat path (their data ptrs are inner heap pointers that ori_rc_dec
+        // null-checks safely).
+        if matches!(
+            tag,
+            ori_types::Tag::Option | ori_types::Tag::Result | ori_types::Tag::Enum
+        ) && tagged_union_has_boxed_inner(self.pool, resolved)
+        {
+            self.dec_value_rc(val, field_type);
             return;
         }
 

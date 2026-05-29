@@ -61,6 +61,7 @@ mod rc_ops;
 mod rc_value_traversal;
 mod rpo;
 pub(super) mod tag_access;
+mod tagless_enum;
 mod terminators;
 mod value_emission;
 mod variant_construction;
@@ -474,9 +475,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
     /// §07.2: Get the `TagEncoding` for an enum type, if it uses niche encoding.
     ///
-    /// Returns `Some(encoding)` only when the type has a niche or tagless `EnumTag`.
-    /// For explicit tags (the common case), returns `None` — callers fall through
-    /// to the existing codegen path.
+    /// Returns `Some(encoding)` ONLY for `EnumTag::Niche`. Tagless
+    /// (`EnumTag::None`) is dispatched separately via [`get_tagless_encoding`]
+    /// (struct-like, no niche field) and tagged-pointer via
+    /// [`get_tagged_ptr_encoding`]; explicit tags (the common case) return
+    /// `None` so callers fall through to the standard tag-switch path.
     ///
     /// Falls back to on-the-fly canonical computation for types with variable
     /// residue (e.g., `Option<Var(T→str)>`) that weren't in the `ReprPlan`.
@@ -487,14 +490,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // Direct lookup in the plan — fast path for most types.
         if let Some(enum_repr) = self.repr_plan.unwrap().get_enum_repr(resolved) {
             return match &enum_repr.tag {
-                ori_repr::EnumTag::Niche { .. } | ori_repr::EnumTag::None => {
+                ori_repr::EnumTag::Niche { .. } => {
                     Some(tag_access::TagEncoding::from_enum_repr(enum_repr))
                 }
-                // Niche-only fast path. `TaggedPtr` is dispatched separately
-                // via `get_tagged_ptr_encoding()` (§07.3.A) — this query
-                // intentionally returns `None` so the niche-specific code
-                // paths skip tagged-ptr enums.
-                ori_repr::EnumTag::Explicit { .. } | ori_repr::EnumTag::TaggedPtr => None,
+                // Niche-only. `None` (tagless), `TaggedPtr`, and `Explicit`
+                // are each dispatched by their own query — niche-specific
+                // consumers (which `.unwrap()` the niche field) must not see
+                // a tagless or tagged-ptr encoding.
+                ori_repr::EnumTag::Explicit { .. }
+                | ori_repr::EnumTag::TaggedPtr
+                | ori_repr::EnumTag::None => None,
             };
         }
 
@@ -506,15 +511,45 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         ) {
             if let Some(enum_repr) = ori_repr::canonical_enum_for_type(self.pool, resolved) {
                 return match &enum_repr.tag {
-                    ori_repr::EnumTag::Niche { .. } | ori_repr::EnumTag::None => {
+                    ori_repr::EnumTag::Niche { .. } => {
                         Some(tag_access::TagEncoding::from_enum_repr(&enum_repr))
                     }
-                    ori_repr::EnumTag::Explicit { .. } | ori_repr::EnumTag::TaggedPtr => None,
+                    ori_repr::EnumTag::Explicit { .. }
+                    | ori_repr::EnumTag::TaggedPtr
+                    | ori_repr::EnumTag::None => None,
                 };
             }
         }
 
         None
+    }
+
+    /// Whether `ty` is a tagless single-variant enum (`EnumTag::None`).
+    ///
+    /// A tagless enum has no discriminant and no niche field — its LLVM type is
+    /// a plain struct of the single variant's non-void payload fields (see
+    /// `resolve_enum_tagless`). Construct / Project / drop / RC consumers route
+    /// the tagless case through their struct-shaped paths (direct field GEP,
+    /// recursive-field boxing) rather than the niche or explicit-tag paths.
+    pub(super) fn is_tagless_enum(&self, ty: Idx) -> bool {
+        let Some(plan) = self.repr_plan else {
+            return false;
+        };
+        let resolved = self.pool.resolve_fully(ty);
+        if let Some(enum_repr) = plan.get_enum_repr(resolved) {
+            return matches!(enum_repr.tag, ori_repr::EnumTag::None);
+        }
+        // Fallback: recompute canonical for types not in the plan.
+        let tag = self.pool.tag(resolved);
+        if matches!(
+            tag,
+            ori_types::Tag::Option | ori_types::Tag::Result | ori_types::Tag::Enum
+        ) {
+            if let Some(enum_repr) = ori_repr::canonical_enum_for_type(self.pool, resolved) {
+                return matches!(enum_repr.tag, ori_repr::EnumTag::None);
+            }
+        }
+        false
     }
 
     /// Look up the tagged-pointer encoding for an enum type, if present.

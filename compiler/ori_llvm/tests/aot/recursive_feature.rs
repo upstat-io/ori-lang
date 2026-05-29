@@ -113,9 +113,9 @@ type A = Stop | ToB(b: B);
 type B = ToA(a: A);
 
 @main () -> void = {
-    let a = A.Stop;
-    let b = B.ToA(a: a);
-    let a2 = A.ToB(b: b);
+    let a = Stop;
+    let b = ToA(a: a);
+    let a2 = ToB(b: b);
     let depth = 3;
     assert_eq(actual: depth, expected: 3);
     ()
@@ -137,8 +137,8 @@ type S = { e: E };
 type E = Leaf | ToS(s: S);
 
 @main () -> void = {
-    let s1 = S { e: E.Leaf };
-    let e1 = E.ToS(s: s1);
+    let s1 = S { e: Leaf };
+    let e1 = ToS(s: s1);
     let s2 = S { e: e1 };
     let depth = 2;
     assert_eq(actual: depth, expected: 2);

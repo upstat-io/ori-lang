@@ -331,6 +331,26 @@ fn emit_clone_composite_rc_inc<'a>(
         }
         Tag::Option => {
             let inner = pool.option_inner(resolved);
+            // Boxed recursive Some payload: the slot at index 1 holds the RC
+            // box pointer. Clone shares the box (COW value semantics) — RC-inc
+            // the pointer directly; do NOT recurse into it as an inline struct.
+            if crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed(
+                pool, resolved, inner,
+            ) {
+                if let Some(box_ptr) = fc.builder_mut().extract_value(
+                    field_val,
+                    1,
+                    &format!("clone.boxed.{field_idx}"),
+                ) {
+                    let rc_inc_fn = fc.builder_mut().runtime_fn("ori_rc_inc");
+                    fc.builder_mut().call(
+                        rc_inc_fn,
+                        &[box_ptr],
+                        &format!("clone.boxed.inc.{field_idx}"),
+                    );
+                }
+                return;
+            }
             vec![(1, inner)]
         }
         _ => return,

@@ -12,6 +12,88 @@ use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
 use super::emit_field_operation;
 
+/// Compute the same-tag payload result for an `Option` whose Some payload is a
+/// boxed recursive back-edge. Branches on `is_none` so the box pointer is
+/// dereferenced ONLY on the Some path (the None slot holds a null/invalid box
+/// pointer). Returns `none_result` for the None tag, else the recursive
+/// `op` result on the loaded-through payload values. Used by eq / compare /
+/// hash; `op == Hash` ignores `rhs`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "shared Option-boxed-payload branch threads lhs/rhs/op/labels"
+)]
+fn compare_boxed_some_payload<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    lhs: ValueId,
+    rhs: ValueId,
+    inner_ty: Idx,
+    is_none: ValueId,
+    none_result: ValueId,
+    result_ty: LLVMTypeId,
+    op: FieldOp,
+    name: &str,
+    str_ty_id: LLVMTypeId,
+) -> ValueId {
+    let func_id = fc
+        .builder_mut()
+        .current_function()
+        .expect("emit within a function");
+    let entry_bb = fc
+        .builder_mut()
+        .current_block()
+        .expect("emit within a block");
+    let some_bb = fc
+        .builder_mut()
+        .append_block(func_id, &format!("{name}.some"));
+    let join_bb = fc
+        .builder_mut()
+        .append_block(func_id, &format!("{name}.join"));
+    fc.builder_mut().cond_br(is_none, join_bb, some_bb);
+
+    // Some path: load box pointers through the payload slot, recurse.
+    fc.builder_mut().position_at_end(some_bb);
+    let lhs_box = fc
+        .builder_mut()
+        .extract_value_any(lhs, 1, &format!("{name}.lhs_box"));
+    let rhs_box = fc
+        .builder_mut()
+        .extract_value_any(rhs, 1, &format!("{name}.rhs_box"));
+    let inner_llvm = fc.resolve_type(inner_ty);
+    let inner_ty_id = fc.builder_mut().register_type(inner_llvm);
+    let lhs_val = fc
+        .builder_mut()
+        .load(inner_ty_id, lhs_box, &format!("{name}.lhs.boxed"));
+    let rhs_opt = if matches!(op, FieldOp::Hash) {
+        None
+    } else {
+        Some(
+            fc.builder_mut()
+                .load(inner_ty_id, rhs_box, &format!("{name}.rhs.boxed")),
+        )
+    };
+    let payload_result = emit_field_operation(
+        fc,
+        op,
+        lhs_val,
+        rhs_opt,
+        inner_ty,
+        &format!("{name}.payload"),
+        str_ty_id,
+    );
+    let some_end_bb = fc.builder_mut().current_block().unwrap_or(some_bb);
+    fc.builder_mut().br(join_bb);
+
+    // Join: none_result on the None edge, payload_result on the Some edge.
+    fc.builder_mut().position_at_end(join_bb);
+    fc.builder_mut()
+        .phi_from_incoming(
+            result_ty,
+            &[(none_result, entry_bb), (payload_result, some_end_bb)],
+            &format!("{name}.same"),
+        )
+        .unwrap_or(none_result)
+}
+
 /// Option<T> equality: tags must match; both None -> true; both Some -> payload eq.
 ///
 /// Uses `extract_value` on already-loaded values, then recursively dispatches
@@ -37,31 +119,53 @@ pub(super) fn emit_option_eq<'a>(
         .builder_mut()
         .icmp_eq(lhs_tag, rhs_tag, &format!("{name}.tags_eq"));
 
-    let lhs_val = fc
-        .builder_mut()
-        .extract_value_any(lhs, 1, &format!("{name}.lhs_val"));
-    let rhs_val = fc
-        .builder_mut()
-        .extract_value_any(rhs, 1, &format!("{name}.rhs_val"));
-    let payload_eq = emit_field_operation(
-        fc,
-        FieldOp::Equals,
-        lhs_val,
-        Some(rhs_val),
-        inner_ty,
-        &format!("{name}.payload"),
-        str_ty_id,
-    );
-
-    // Both None → true. Both Some → compare payloads.
     let none_tag = fc.builder_mut().const_i64(OPTION_TAG_NONE);
     let is_none = fc
         .builder_mut()
         .icmp_eq(lhs_tag, none_tag, &format!("{name}.is_none"));
     let true_val = fc.builder_mut().const_bool(true);
-    let same_tag_result =
+
+    // Both None → true. Both Some → compare payloads. The payload comparison is
+    // computed under a Some-guarded branch ONLY when the payload is boxed: a
+    // boxed recursive Some payload slot holds an RC pointer that is null/invalid
+    // for None, so an unconditional load-through would dereference null.
+    let payload_boxed = crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed(
+        fc.type_info().pool(),
+        inner_ty,
+    );
+    let same_tag_result = if payload_boxed {
+        let bool_ty = fc.builder_mut().bool_type();
+        compare_boxed_some_payload(
+            fc,
+            lhs,
+            rhs,
+            inner_ty,
+            is_none,
+            true_val,
+            bool_ty,
+            FieldOp::Equals,
+            name,
+            str_ty_id,
+        )
+    } else {
+        let lhs_val = fc
+            .builder_mut()
+            .extract_value_any(lhs, 1, &format!("{name}.lhs_val"));
+        let rhs_val = fc
+            .builder_mut()
+            .extract_value_any(rhs, 1, &format!("{name}.rhs_val"));
+        let payload_eq = emit_field_operation(
+            fc,
+            FieldOp::Equals,
+            lhs_val,
+            Some(rhs_val),
+            inner_ty,
+            &format!("{name}.payload"),
+            str_ty_id,
+        );
         fc.builder_mut()
-            .select(is_none, true_val, payload_eq, &format!("{name}.same_eq"));
+            .select(is_none, true_val, payload_eq, &format!("{name}.same_eq"))
+    };
 
     let false_val = fc.builder_mut().const_bool(false);
     fc.builder_mut()
@@ -95,30 +199,49 @@ pub(super) fn emit_option_compare<'a>(
         fc.builder_mut()
             .emit_icmp_ordering(rhs_tag, lhs_tag, &format!("{name}.tag_cmp"), false);
 
-    let lhs_val = fc
-        .builder_mut()
-        .extract_value_any(lhs, 1, &format!("{name}.lhs_val"));
-    let rhs_val = fc
-        .builder_mut()
-        .extract_value_any(rhs, 1, &format!("{name}.rhs_val"));
-    let payload_cmp = emit_field_operation(
-        fc,
-        FieldOp::Compare,
-        lhs_val,
-        Some(rhs_val),
-        inner_ty,
-        &format!("{name}.payload"),
-        str_ty_id,
-    );
-
     let none_tag = fc.builder_mut().const_i64(OPTION_TAG_NONE);
     let is_none = fc
         .builder_mut()
         .icmp_eq(lhs_tag, none_tag, &format!("{name}.is_none"));
     let equal_ord = fc.builder_mut().const_i8(1);
-    let same_tag_cmp =
+
+    let payload_boxed = crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed(
+        fc.type_info().pool(),
+        inner_ty,
+    );
+    let same_tag_cmp = if payload_boxed {
+        let ord_ty = fc.builder_mut().i8_type();
+        compare_boxed_some_payload(
+            fc,
+            lhs,
+            rhs,
+            inner_ty,
+            is_none,
+            equal_ord,
+            ord_ty,
+            FieldOp::Compare,
+            name,
+            str_ty_id,
+        )
+    } else {
+        let lhs_val = fc
+            .builder_mut()
+            .extract_value_any(lhs, 1, &format!("{name}.lhs_val"));
+        let rhs_val = fc
+            .builder_mut()
+            .extract_value_any(rhs, 1, &format!("{name}.rhs_val"));
+        let payload_cmp = emit_field_operation(
+            fc,
+            FieldOp::Compare,
+            lhs_val,
+            Some(rhs_val),
+            inner_ty,
+            &format!("{name}.payload"),
+            str_ty_id,
+        );
         fc.builder_mut()
-            .select(is_none, equal_ord, payload_cmp, &format!("{name}.same_cmp"));
+            .select(is_none, equal_ord, payload_cmp, &format!("{name}.same_cmp"))
+    };
 
     fc.builder_mut()
         .select(tags_eq, same_tag_cmp, tag_cmp, &format!("{name}.cmp"))
@@ -137,6 +260,40 @@ pub(super) fn emit_option_hash<'a>(
         .builder_mut()
         .extract_value(val, 0, &format!("{name}.tag"))
         .unwrap_or(fallback_i64);
+    let none_tag = fc.builder_mut().const_i64(OPTION_TAG_NONE);
+    let is_none = fc
+        .builder_mut()
+        .icmp_eq(tag, none_tag, &format!("{name}.is_none"));
+
+    let payload_boxed = crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed(
+        fc.type_info().pool(),
+        inner_ty,
+    );
+    if payload_boxed {
+        // None → none_tag. Some → hash the box contents (guarded so the box
+        // pointer is dereferenced only on the Some path). The helper returns
+        // none_tag for None and the recursive payload hash for Some.
+        let i64_ty = fc.builder_mut().i64_type();
+        let combined = compare_boxed_some_payload(
+            fc,
+            val,
+            val,
+            inner_ty,
+            is_none,
+            none_tag,
+            i64_ty,
+            FieldOp::Hash,
+            name,
+            str_ty_id,
+        );
+        // On the Some edge, combine with the tag (XOR) to fold the discriminant
+        // into the hash; on the None edge `combined == none_tag` already.
+        let some_combined = fc.builder_mut().xor(tag, combined, &format!("{name}.hash"));
+        return fc
+            .builder_mut()
+            .select(is_none, none_tag, some_combined, &format!("{name}.h"));
+    }
+
     let payload = fc
         .builder_mut()
         .extract_value_any(val, 1, &format!("{name}.payload"));
@@ -155,10 +312,6 @@ pub(super) fn emit_option_hash<'a>(
         .builder_mut()
         .xor(tag, payload_hash, &format!("{name}.hash"));
     // None: use tag as hash; Some: use combined
-    let none_tag = fc.builder_mut().const_i64(OPTION_TAG_NONE);
-    let is_none = fc
-        .builder_mut()
-        .icmp_eq(tag, none_tag, &format!("{name}.is_none"));
     fc.builder_mut()
         .select(is_none, none_tag, combined, &format!("{name}.h"))
 }

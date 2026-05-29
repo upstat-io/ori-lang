@@ -208,13 +208,33 @@ fn get_or_create_option_eq_thunk<'a>(
         let b_tag = fc.builder_mut().load(i64_ty_id, b_ptr, "b_tag");
         let tags_eq = fc.builder_mut().icmp_eq(a_tag, b_tag, "tags_eq");
 
-        // Payload pointers at byte offset 8 (after i64 tag)
+        // None tag = 1. Both None → true. Both Some → compare payloads. The
+        // payload comparison runs ONLY on the Some path: when the payload is a
+        // boxed recursive back-edge the slot holds an RC box pointer that is
+        // null/invalid for None — dereferencing it unconditionally would crash.
+        let one = fc.builder_mut().const_i64(1);
+        let is_none = fc.builder_mut().icmp_eq(a_tag, one, "is_none");
+        let some_bb = fc.builder_mut().append_block(func_id, "opt.some");
+        let join_bb = fc.builder_mut().append_block(func_id, "opt.join");
+        let true_val = fc.builder_mut().const_bool(true);
+        fc.builder_mut().cond_br(is_none, join_bb, some_bb);
+
+        // Some path: compare payloads via the inner eq thunk.
+        fc.builder_mut().position_at_end(some_bb);
         let i8_ty_id = fc.builder_mut().i8_type();
         let offset_8 = fc.builder_mut().const_i64(8);
-        let a_payload = fc.builder_mut().gep(i8_ty_id, a_ptr, &[offset_8], "a_pay");
-        let b_payload = fc.builder_mut().gep(i8_ty_id, b_ptr, &[offset_8], "b_pay");
-
-        // Compare payloads using inner thunk (indirect call through fn ptr)
+        let mut a_payload = fc.builder_mut().gep(i8_ty_id, a_ptr, &[offset_8], "a_pay");
+        let mut b_payload = fc.builder_mut().gep(i8_ty_id, b_ptr, &[offset_8], "b_pay");
+        // Boxed recursive Some payload: the slot holds the RC box pointer, not
+        // the inline value. Deref once so the inner thunk receives a pointer TO
+        // the payload value (the box contents), not the address of the box slot.
+        if crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed(
+            fc.type_info().pool(),
+            inner_ty,
+        ) {
+            a_payload = fc.builder_mut().load(ptr_ty, a_payload, "a_pay.box");
+            b_payload = fc.builder_mut().load(ptr_ty, b_payload, "b_pay.box");
+        }
         let bool_ty_id = fc.builder_mut().bool_type();
         let payload_eq = fc
             .builder_mut()
@@ -226,14 +246,20 @@ fn get_or_create_option_eq_thunk<'a>(
                 "pay_eq",
             )
             .unwrap_or_else(|| fc.builder_mut().const_bool(false));
+        let some_end_bb = fc.builder_mut().current_block().unwrap_or(some_bb);
+        fc.builder_mut().br(join_bb);
 
-        // None tag = 1: both None -> true. Some tag = 0: compare payloads.
-        let one = fc.builder_mut().const_i64(1);
-        let is_none = fc.builder_mut().icmp_eq(a_tag, one, "is_none");
-        let true_val = fc.builder_mut().const_bool(true);
+        // Join: same_result = is_none ? true : payload_eq.
+        fc.builder_mut().position_at_end(join_bb);
+        let bool_ty_phi = fc.builder_mut().bool_type();
         let same_result = fc
             .builder_mut()
-            .select(is_none, true_val, payload_eq, "same_eq");
+            .phi_from_incoming(
+                bool_ty_phi,
+                &[(true_val, entry), (payload_eq, some_end_bb)],
+                "same_eq",
+            )
+            .unwrap_or(true_val);
         let false_val = fc.builder_mut().const_bool(false);
         let result = fc
             .builder_mut()

@@ -153,9 +153,14 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         // the two-phase named struct pattern. For other types (Option,
         // Result, Tuple), fall back to i64 to break the cycle.
         if self.resolving.borrow().contains(&idx) {
-            // Check if a named struct was already created (Struct/Enum path)
-            if let Some(&named) = self.named_structs.borrow().get(&idx) {
-                return named.into();
+            // Recursive back-edge to a Struct/Enum: the cycle is always
+            // heap-boxed (canonical_inner marks recursive positions
+            // RcPointer), so the field lowers to `ptr`, not the named
+            // struct by-value — a by-value self-reference is infinitely
+            // sized. The named_structs guard distinguishes the Struct/Enum
+            // back-edge (ptr) from the non-Struct/Enum cycle (i64 sentinel).
+            if self.named_structs.borrow().contains_key(&idx) {
+                return self.scx.type_ptr().into();
             }
             // For non-Struct/Enum cycles, fall back to i64
             return self.scx.type_i64().into();
@@ -217,9 +222,17 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                         return payload;
                     }
                 }
-                // Explicit tag: { i64, T }
+                // Explicit tag: { i64, T }. The Some payload is a boxed `ptr`
+                // when it is a recursive back-edge — decided order-independently
+                // by the boxing SSOT (the resolving-stack cycle-break only
+                // approximated it, and the per-Idx ReprPlan marker is unreliable
+                // across structurally-equal Option<T> pool entries).
                 self.resolving.borrow_mut().insert(idx);
-                let payload = self.resolve(*inner);
+                let payload = if self.option_payload_is_rc_boxed(resolved_idx) {
+                    self.scx.type_ptr().into()
+                } else {
+                    self.resolve(*inner)
+                };
                 self.resolving.borrow_mut().remove(&idx);
                 self.scx
                     .type_struct(&[self.scx.type_i64().into(), payload], false)
@@ -242,10 +255,21 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                         return payload;
                     }
                 }
-                // Explicit tag: { i64, payload }
+                // Explicit tag: { i64, payload }. Box whichever arm is a
+                // recursive back-edge (boxing SSOT) so the larger-payload
+                // comparison sees the boxed `ptr` width — same order-independent
+                // decision as the Option arm.
                 self.resolving.borrow_mut().insert(idx);
-                let ok_ty = self.resolve(*ok);
-                let err_ty = self.resolve(*err);
+                let ok_ty = if self.result_ok_is_rc_boxed(resolved_idx) {
+                    self.scx.type_ptr().into()
+                } else {
+                    self.resolve(*ok)
+                };
+                let err_ty = if self.result_err_is_rc_boxed(resolved_idx) {
+                    self.scx.type_ptr().into()
+                } else {
+                    self.resolve(*err)
+                };
                 self.resolving.borrow_mut().remove(&idx);
                 let ok_size = Self::type_store_size(ok_ty);
                 let err_size = Self::type_store_size(err_ty);
@@ -257,6 +281,9 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
             // Tuple: struct of recursively-resolved element types.
             // If the tuple is reordered, use memory-order from TupleRepr.
+            // An element the ReprPlan marks RcPointer is a boxed `ptr`
+            // (recursive back-edge), decided order-independently from the
+            // marker rather than the resolving-stack.
             TypeInfo::Tuple { elements } => {
                 self.resolving.borrow_mut().insert(idx);
                 let field_types: Vec<BasicTypeEnum<'ll>> =
@@ -266,13 +293,24 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                         if t.is_reordered() {
                             t.elements
                                 .iter()
-                                .map(|f| self.resolve(elements[f.original_index as usize]))
+                                .map(|f| {
+                                    self.resolve_tuple_element(
+                                        idx,
+                                        elements[f.original_index as usize],
+                                    )
+                                })
                                 .collect()
                         } else {
-                            elements.iter().map(|&e| self.resolve(e)).collect()
+                            elements
+                                .iter()
+                                .map(|&e| self.resolve_tuple_element(idx, e))
+                                .collect()
                         }
                     } else {
-                        elements.iter().map(|&e| self.resolve(e)).collect()
+                        elements
+                            .iter()
+                            .map(|&e| self.resolve_tuple_element(idx, e))
+                            .collect()
                     };
                 self.resolving.borrow_mut().remove(&idx);
                 self.scx.type_struct(&field_types, false).into()
@@ -297,9 +335,8 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     /// `StructRepr` that codegen's field-index remapping expects.
     fn resolve_struct(&self, idx: Idx, fields: &[(Name, Idx)]) -> BasicTypeEnum<'ll> {
         if self.resolving.borrow().contains(&idx) {
-            if let Some(&named) = self.named_structs.borrow().get(&idx) {
-                return named.into();
-            }
+            // Recursive back-edge: always a heap-boxed pointer, never the
+            // named struct by-value (which would be infinitely sized).
             return self.scx.type_ptr().into();
         }
 
@@ -311,7 +348,9 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         // If the struct is reordered, build LLVM type in memory order.
         // Match fields by NAME (not original_index) to handle Pool entries
         // where struct_fields() returns fields in a different order than
-        // the canonical entry that was optimized.
+        // the canonical entry that was optimized. A field the ReprPlan marks
+        // RcPointer is a boxed `ptr` (recursive back-edge), decided
+        // order-independently from the marker rather than the resolving-stack.
         let field_types: Vec<BasicTypeEnum<'ll>> = if let Some(ori_repr::MachineRepr::Struct(s)) =
             self.repr_plan.and_then(|p| p.get_repr(idx))
         {
@@ -324,20 +363,65 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                             .iter()
                             .find(|(n, _)| *n == f.name)
                             .map_or(fields[f.original_index as usize].1, |(_, ty)| *ty);
-                        self.resolve(ty)
+                        self.resolve_struct_field(idx, ty)
                     })
                     .collect()
             } else {
-                fields.iter().map(|&(_, ty)| self.resolve(ty)).collect()
+                fields
+                    .iter()
+                    .map(|&(_, ty)| self.resolve_struct_field(idx, ty))
+                    .collect()
             }
         } else {
-            fields.iter().map(|&(_, ty)| self.resolve(ty)).collect()
+            fields
+                .iter()
+                .map(|&(_, ty)| self.resolve_struct_field(idx, ty))
+                .collect()
         };
 
         self.scx.set_struct_body(named_struct, &field_types, false);
         self.resolving.borrow_mut().remove(&idx);
 
         named_struct.into()
+    }
+
+    /// Resolve a struct field, boxing it to `ptr` when the field is a recursive
+    /// back-edge per the boxing SSOT; else resolve the field type normally.
+    fn resolve_struct_field(&self, owner_idx: Idx, field_ty: Idx) -> BasicTypeEnum<'ll> {
+        if self.position_is_rc_boxed(owner_idx, field_ty) {
+            return self.scx.type_ptr().into();
+        }
+        self.resolve(field_ty)
+    }
+
+    /// Resolve a tuple element, boxing it to `ptr` when the element is a
+    /// recursive back-edge per the boxing SSOT.
+    fn resolve_tuple_element(&self, owner_idx: Idx, element_ty: Idx) -> BasicTypeEnum<'ll> {
+        if self.position_is_rc_boxed(owner_idx, element_ty) {
+            return self.scx.type_ptr().into();
+        }
+        self.resolve(element_ty)
+    }
+
+    /// Boxing SSOT: whether the position inside `owner_idx` holding `field_ty`
+    /// is a boxed recursive back-edge (lowers to `ptr`).
+    pub(super) fn position_is_rc_boxed(&self, owner_idx: Idx, field_ty: Idx) -> bool {
+        super::repr_box_oracle::position_is_rc_boxed(self.store.pool(), owner_idx, field_ty)
+    }
+
+    /// Whether the `Option` Some payload at `idx` is a boxed recursive back-edge.
+    pub(super) fn option_payload_is_rc_boxed(&self, idx: Idx) -> bool {
+        super::repr_box_oracle::option_payload_is_rc_boxed(self.store.pool(), idx)
+    }
+
+    /// Whether the `Result` Ok payload at `idx` is a boxed recursive back-edge.
+    pub(super) fn result_ok_is_rc_boxed(&self, idx: Idx) -> bool {
+        super::repr_box_oracle::result_ok_is_rc_boxed(self.store.pool(), idx)
+    }
+
+    /// Whether the `Result` Err payload at `idx` is a boxed recursive back-edge.
+    pub(super) fn result_err_is_rc_boxed(&self, idx: Idx) -> bool {
+        super::repr_box_oracle::result_err_is_rc_boxed(self.store.pool(), idx)
     }
 
     // Enum resolution methods (resolve_enum, resolve_enum_explicit,

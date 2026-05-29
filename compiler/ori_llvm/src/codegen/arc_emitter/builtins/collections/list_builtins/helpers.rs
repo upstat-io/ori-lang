@@ -128,6 +128,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .builder
                 .insert_value(result, wide_val, 1, &format!("{label}.opt.val"));
             Some(result)
+        } else if crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed(
+            self.pool, elem_ty,
+        ) {
+            // Recursive element: the runtime filled `opt_val` as an inline
+            // `{ i64, %T }` Option, but the canonical `Option<T>` layout boxes
+            // the Some payload to `{ i64, ptr }`. On the Some path, RC-alloc a
+            // box, copy the inline element in, and build the boxed Option; on
+            // the None path, build `{ tag, null }`.
+            self.rebuild_recursive_first_option(opt_val, elem_ty, label)
         } else {
             // RC-retain the element payload when Some — the runtime memcpy
             // duplicates payload bytes without incrementing RC on inner fields.
@@ -154,6 +163,90 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             Some(opt_val)
         }
+    }
+
+    /// Convert an inline `{ i64 tag, %T value }` Option (as the runtime
+    /// `ori_list_first`/`last` fills it) into the canonical boxed
+    /// `{ i64 tag, ptr }` `Option<T>` for a recursive element type `T`. On the
+    /// Some path: RC-alloc a box sized to `T`, copy the inline element in, and
+    /// store the box pointer. On the None path: `{ tag, null }`.
+    fn rebuild_recursive_first_option(
+        &mut self,
+        inline_opt: ValueId,
+        elem_ty: Idx,
+        label: &str,
+    ) -> Option<ValueId> {
+        let tag = self
+            .builder
+            .extract_value(inline_opt, 0, &format!("{label}.tag"))?;
+        let inline_payload =
+            self.builder
+                .extract_value(inline_opt, 1, &format!("{label}.inline"))?;
+        let some = self.builder.const_int_matching(tag, OPTION_TAG_SOME as u64);
+        let is_some = self.builder.icmp_eq(tag, some, &format!("{label}.is_some"));
+
+        // Boxed-layout Option<T> = { i64, ptr } (recursive Some payload boxed).
+        let boxed_opt_ty = self.builder.register_type(
+            self.builder
+                .scx()
+                .type_struct(
+                    &[
+                        self.builder.scx().type_i64().into(),
+                        self.builder.scx().type_ptr().into(),
+                    ],
+                    false,
+                )
+                .into(),
+        );
+        let null_ptr = self.builder.const_null_ptr();
+        let none_opt = {
+            let mut v = self.builder.const_zero_ty(boxed_opt_ty);
+            v = self
+                .builder
+                .insert_value(v, tag, 0, &format!("{label}.none.tag"));
+            self.builder
+                .insert_value(v, null_ptr, 1, &format!("{label}.none.ptr"))
+        };
+
+        let some_bb = self
+            .builder
+            .append_block(self.current_function, &format!("{label}.box.some"));
+        let join_bb = self
+            .builder
+            .append_block(self.current_function, &format!("{label}.box.join"));
+        let entry_bb = self.builder.current_block();
+        self.builder.cond_br(is_some, some_bb, join_bb);
+
+        // Some path: box the inline element (retaining its heap sub-pointers,
+        // since the list still owns its copy), store the box pointer.
+        self.builder.position_at_end(some_bb);
+        let size = self.element_store_size(elem_ty);
+        let box_ptr = self.rc_alloc(size, 8);
+        self.builder.store(inline_payload, box_ptr);
+        self.inc_value_rc(inline_payload, elem_ty, 1);
+        let mut some_opt = self.builder.const_zero_ty(boxed_opt_ty);
+        some_opt = self
+            .builder
+            .insert_value(some_opt, tag, 0, &format!("{label}.some.tag"));
+        some_opt = self
+            .builder
+            .insert_value(some_opt, box_ptr, 1, &format!("{label}.some.ptr"));
+        let some_end_bb = self.builder.current_block();
+        self.builder.br(join_bb);
+
+        self.builder.position_at_end(join_bb);
+        let mut incoming = Vec::new();
+        if let Some(e) = entry_bb {
+            incoming.push((none_opt, e));
+        }
+        if let Some(s) = some_end_bb {
+            incoming.push((some_opt, s));
+        }
+        Some(
+            self.builder
+                .phi_from_incoming(boxed_opt_ty, &incoming, &format!("{label}.opt"))
+                .unwrap_or(none_opt),
+        )
     }
 
     /// Build `(elem_size, elem_align)` constant pair for COW runtime calls.
