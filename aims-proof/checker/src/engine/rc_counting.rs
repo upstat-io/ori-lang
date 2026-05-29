@@ -57,17 +57,17 @@ impl Engine for RcCountingEngine {
         // §08 realization-rule discharge (PRIMARY engine for RL-1..RL-5 RC
         // emission + RL-22..RL-26 KnownSafe/PRE motion + composition) per
         // Annex E §AIMS §8.
-        if let Some(result) = super::section_08::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::realization_rules::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §09 verification-layer discharge (PRIMARY engine for VF-4 FIP
         // certification alloc-balance proof; SECONDARY gracious-accept for the
         // structural / oracle / coverage VF rules) per
         // Annex E §AIMS §9.
-        if let Some(result) = super::section_09::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::verification_layers::discharge_for_engine(self.name(), theorem) {
             return result;
         }
-        if let Some(result) = super::section_11::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::coexistence_handshake::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         EngineResult {

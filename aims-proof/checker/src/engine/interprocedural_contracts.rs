@@ -97,7 +97,7 @@ fn gracious_accept() -> EngineResult {
 }
 
 // ============================================================================
-// Per-dimension carriers — mirror section_05 layout per Annex E §AIMS.
+// Per-dimension carriers — mirror decision_predicates layout per Annex E §AIMS.
 // ============================================================================
 
 const ACCESS_CARRIER: &[&str] = &["Borrowed", "Owned"];

@@ -16,7 +16,7 @@
 //! for-LEM mandate. `lattice` + `monotonicity` + `fixpoint` engines accept
 //! SECONDARY gracefully (mirrors §02 cross-dispatch acceptance pattern).
 //!
-//! Per-dimension carriers (duplicated from §02 since section_02.rs's
+//! Per-dimension carriers (duplicated from §02 since lattice_algebra.rs's
 //! constants are not pub).
 
 use crate::ast::Theorem;
@@ -65,7 +65,7 @@ fn gracious_accept() -> EngineResult {
 }
 
 // ============================================================================
-// Per-dimension carriers (duplicated from section_02; §02 carriers not pub)
+// Per-dimension carriers (duplicated from lattice_algebra; §02 carriers not pub)
 // ============================================================================
 
 const ACCESS_CARRIER: &[&str] = &["Borrowed", "Owned"];

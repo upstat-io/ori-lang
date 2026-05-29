@@ -757,8 +757,8 @@ mod tests {
     }
 
     #[test]
-    fn smoke_cn1_discharges_valid_via_section_03() {
-        // CN-1 (Dead ↔ Absent bidirectional) discharges via engine/section_03.rs
+    fn smoke_cn1_discharges_valid_via_canonicalization() {
+        // CN-1 (Dead ↔ Absent bidirectional) discharges via engine/canonicalization.rs
         // case_analysis primary dispatch (per §03-IM-A). Scaffold-time
         // UnimplementedEngineShape expectation flipped to Valid when §03 landed.
         let path =
@@ -772,9 +772,9 @@ mod tests {
     }
 
     #[test]
-    fn coverage_l_shape_discharges_valid_via_section_02() {
+    fn coverage_l_shape_discharges_valid_via_lattice_algebra() {
         // L-shape carries theorem L-1; §02 lattice-algebra discharge
-        // ships via engine/section_02.rs. The §00 PASS-gate clause (e)
+        // ships via engine/lattice_algebra.rs. The §00 PASS-gate clause (e)
         // scaffold-time `unimplemented_engine_shape` expectation flipped
         // to `valid` when §02 landed; matched golden file is
         // proofs/00-coverage-corpus/L-shape.expected.

@@ -7,7 +7,7 @@
 //! `refinement`, `rc_counting`, `interprocedural_summary`] per the
 //! coverage-manifest VF row. Each VF-N has ONE PRIMARY engine (constructive
 //! discharge) and SECONDARY engines (gracious-accept once the primary has
-//! discharged), mirroring the `section_07` / `section_08`
+//! discharged), mirroring the `pipeline_ordering` / `realization_rules`
 //! PRIMARY-constructive / SECONDARY-gracious-accept split:
 //!
 //! - `structural_induction` PRIMARY — per-instruction structural-check
@@ -64,7 +64,7 @@ pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<Engi
         Some(run_primary_verifier(suffix))
     } else {
         // SECONDARY engine: gracious-accept once the PRIMARY has discharged
-        // (per the coverage-manifest VF row + the section_07 / section_08
+        // (per the coverage-manifest VF row + the pipeline_ordering / realization_rules
         // gracious-accept precedent).
         Some(gracious_accept())
     }
@@ -111,14 +111,14 @@ fn run_primary_verifier(suffix: &str) -> EngineResult {
         "8" => verify_vf8_stack_applies_to_all_rules(),
         "comp" => verify_vf_composition(),
         other => fail(format!(
-            "section_09 run_primary_verifier reached an unmapped VF suffix {:?}; primary_engine_for and run_primary_verifier are out of sync",
+            "verification_layers run_primary_verifier reached an unmapped VF suffix {:?}; primary_engine_for and run_primary_verifier are out of sync",
             other
         )),
     }
 }
 
 // ============================================================================
-// Engine-result helpers (mirror section_07 / section_08)
+// Engine-result helpers (mirror pipeline_ordering / realization_rules)
 // ============================================================================
 
 fn gracious_accept() -> EngineResult {
@@ -1273,7 +1273,7 @@ fn verify_vf8_stack_applies_to_all_rules() -> EngineResult {
 // independently-discharged premises: re-run each, assert Valid, assert the count
 // is exactly 8. VF-comp is exactly as strong as the conjunction — it never
 // gracious-accepts over a failing or missing premise (mirrors
-// section_07::verify_pl_composition + section_08::verify_rl_composition).
+// pipeline_ordering::verify_pl_composition + realization_rules::verify_rl_composition).
 
 fn verify_vf_composition() -> EngineResult {
     let constituents: [(&str, fn() -> EngineResult); 8] = [
@@ -1331,7 +1331,7 @@ fn verify_vf_composition() -> EngineResult {
 }
 
 // ============================================================================
-// Shared dimension enums (mirror the section_08 modeling vocabulary)
+// Shared dimension enums (mirror the realization_rules modeling vocabulary)
 // ============================================================================
 
 /// Access dimension (Annex E §AIMS) — consumed by VF-3's per-dimension

@@ -55,21 +55,21 @@ impl Engine for FixpointEngine {
         }
         // §03 canonicalization-rule discharge (cross-dispatch acceptance) per
         // Annex E §AIMS §5.
-        if let Some(result) = super::section_03::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::canonicalization::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §04.3 IA-5-step-1 gracious accept (PRIMARY engines for IA-5 are
         // monotonicity + case_analysis; SECONDARY accept pattern).
-        if let Some(result) = super::section_04::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::transfer_functions::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §06 interprocedural-contract discharge (SECONDARY engine; gracious-
         // accept for IC-1/IC-2/IC-3 per coverage-manifest IC row) per
         // Annex E §AIMS §7.
-        if let Some(result) = super::section_06::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::interprocedural_contracts::discharge_for_engine(self.name(), theorem) {
             return result;
         }
-        if let Some(result) = super::section_11::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::coexistence_handshake::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         EngineResult {

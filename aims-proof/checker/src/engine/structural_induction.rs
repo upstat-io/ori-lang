@@ -64,19 +64,19 @@ impl Engine for StructuralInductionEngine {
         }
         // §04.3 IA-5-step-1 gracious accept (PRIMARY engines for IA-5 are
         // monotonicity + case_analysis; SECONDARY accept pattern).
-        if let Some(result) = super::section_04::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::transfer_functions::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §07 pipeline-ordering discharge (PRIMARY engine for PL-1/PL-1a) per
         // Annex E §AIMS §6.
-        if let Some(result) = super::section_07::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::pipeline_ordering::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §09 verification-layer discharge (PRIMARY engine for VF-1/VF-2/VF-5/
         // VF-7/VF-comp structural-check + layered-stack soundness; SECONDARY
         // gracious-accept for VF-3/VF-4/VF-6/VF-8) per
         // Annex E §AIMS §9.
-        if let Some(result) = super::section_09::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::verification_layers::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // sec-11 coexistence-handshake discharge (PRIMARY engine for CH-1 / CH-2 /
@@ -84,7 +84,7 @@ impl Engine for StructuralInductionEngine {
         // immutability + layered-handshake soundness; SECONDARY gracious-accept
         // for CH-3 / CH-5) per
         // the coexistence-handshake proofs.
-        if let Some(result) = super::section_11::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::coexistence_handshake::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         EngineResult {

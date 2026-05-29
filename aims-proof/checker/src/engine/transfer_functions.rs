@@ -14,7 +14,7 @@
 //! refinement (TF-6 / TF-6a `refine(CONSERVATIVE, callee.return_contract)`)
 //!
 //! SECONDARY engines accept gracefully (mirrors §02 + §03 cross-dispatch
-//! acceptance pattern at section_02.rs + section_03.rs).
+//! acceptance pattern at lattice_algebra.rs + canonicalization.rs).
 //!
 //! §04.3 (TF-11 / TF-11a / TF-12 / TF-13 / TF-14 / IA-5-step-1) verifier
 //! functions land below the §04.1 / §04.2 block; §04.4 (TF-Composition)
@@ -169,7 +169,7 @@ fn gracious_accept() -> EngineResult {
 }
 
 // ============================================================================
-// Per-dimension carriers (duplicated from section_02; per-§02 constants not pub)
+// Per-dimension carriers (duplicated from lattice_algebra; per-§02 constants not pub)
 // ============================================================================
 
 const ACCESS_CARRIER: &[&str] = &["Borrowed", "Owned"];
@@ -3450,7 +3450,7 @@ mod tests {
     // verifies the discharge entry point routes each §04.1 + §04.2 + §04.3
     // theorem through the engines defined in coverage-manifest.json.
     #[test]
-    fn coverage_tf_shape_discharges_valid_via_section_04() {
+    fn coverage_tf_shape_discharges_valid_via_transfer_functions() {
         let tf_ids = &[
             // §04.1 (12 forward proofs)
             "TF-1", "TF-2", "TF-2a", "TF-3", "TF-4",

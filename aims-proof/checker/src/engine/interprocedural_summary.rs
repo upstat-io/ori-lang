@@ -68,20 +68,20 @@ impl Engine for InterproceduralSummaryEngine {
         // §06 interprocedural-contract discharge (PRIMARY engine for §06.1
         // IC-1/IC-2/IC-3) per
         // Annex E §AIMS §7.
-        if let Some(result) = super::section_06::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::interprocedural_contracts::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §09 verification-layer discharge (PRIMARY engine for VF-8 stack-
         // applies-to-all-rules coverage check; SECONDARY gracious-accept for the
         // structural / oracle / FIP VF rules) per
         // Annex E §AIMS §9.
-        if let Some(result) = super::section_09::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::verification_layers::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // sec-11 coexistence-handshake discharge (PRIMARY engine for CH-5
         // phase-ordering composition; SECONDARY gracious-accept for CH-1 / CH-2 /
         // CH-3 / CH-4 / CH-comp).
-        if let Some(result) = super::section_11::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::coexistence_handshake::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         EngineResult {

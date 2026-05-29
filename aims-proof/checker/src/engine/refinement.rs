@@ -59,24 +59,24 @@ impl Engine for RefinementEngine {
         // refine(CONSERVATIVE, contract); SECONDARY graceful-accept for other
         // §04.1 theorems) per
         // Annex E §AIMS §4.
-        if let Some(result) = super::section_04::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::transfer_functions::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §08 realization-rule discharge (PRIMARY engine for RL-29/RL-30/RL-31
         // LLVM fact export; SECONDARY gracious-accept for RC-emission +
         // case-analysis RL rules) per
         // Annex E §AIMS §8.
-        if let Some(result) = super::section_08::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::realization_rules::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §09 verification-layer discharge (PRIMARY engine for VF-3 oracle
         // re-derivation + VF-6 contracts↔realization agreement; SECONDARY
         // gracious-accept for the structural / FIP / coverage VF rules) per
         // Annex E §AIMS §9.
-        if let Some(result) = super::section_09::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::verification_layers::discharge_for_engine(self.name(), theorem) {
             return result;
         }
-        if let Some(result) = super::section_11::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::coexistence_handshake::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         EngineResult {

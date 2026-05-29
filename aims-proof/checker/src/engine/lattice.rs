@@ -66,25 +66,25 @@ impl Engine for LatticeEngine {
         }
         // §02 lattice-algebra discharge per
         // Annex E §AIMS §3.
-        if let Some(result) = super::section_02::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::lattice_algebra::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §03 canonicalization-rule discharge per
         // Annex E §AIMS §5.
-        if let Some(result) = super::section_03::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::canonicalization::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §04 transfer-function discharge (SECONDARY engine for §04 — accepts
         // gracefully; primary engines monotonicity + case_analysis discharge) per
         // Annex E §AIMS §4.
-        if let Some(result) = super::section_04::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::transfer_functions::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // sec-11 coexistence-handshake discharge (SECONDARY engine — accepts
         // gracefully on every CH; primary engines structural_induction /
         // case_analysis / interprocedural_summary discharge per the
         // sec-11.0 Per-CH Proof-Status Tracking table).
-        if let Some(result) = super::section_11::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::coexistence_handshake::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         EngineResult {

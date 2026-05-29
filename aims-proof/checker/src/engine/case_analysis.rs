@@ -77,31 +77,31 @@ impl Engine for CaseAnalysisEngine {
         }
         // §03 canonicalization-rule discharge (PRIMARY engine for §03) per
         // Annex E §AIMS §5.
-        if let Some(result) = super::section_03::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::canonicalization::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §04 transfer-function discharge (PRIMARY engine for §04 per-instruction
         // Appendix A enumeration) per
         // Annex E §AIMS §4.
-        if let Some(result) = super::section_04::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::transfer_functions::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §05 decision-predicate discharge (PRIMARY engine for §05 Appendix C
         // truth-table enumeration) per
         // the decision-predicate proofs.
-        if let Some(result) = super::section_05::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::decision_predicates::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §06 interprocedural-contract discharge (SECONDARY engine; gracious-
         // accept for IC-1/IC-2/IC-3 per coverage-manifest IC row) per
         // Annex E §AIMS §7.
-        if let Some(result) = super::section_06::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::interprocedural_contracts::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §07 pipeline-ordering discharge (SECONDARY engine; gracious-accept
         // for PL-1/PL-1a per coverage-manifest PL row) per
         // Annex E §AIMS §6.
-        if let Some(result) = super::section_07::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::pipeline_ordering::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §08 realization-rule discharge (PRIMARY engine for COW / reuse /
@@ -109,13 +109,13 @@ impl Engine for CaseAnalysisEngine {
         // barriers / borrow-inference RL rules; SECONDARY gracious-accept for
         // RC-emission + LLVM-fact-export RL rules) per
         // Annex E §AIMS §8.
-        if let Some(result) = super::section_08::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::realization_rules::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // sec-11 coexistence-handshake discharge (PRIMARY engine for CH-3
         // per-class partition; SECONDARY gracious-accept for CH-1 / CH-2 / CH-4 /
         // CH-5 / CH-comp).
-        if let Some(result) = super::section_11::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::coexistence_handshake::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         EngineResult {

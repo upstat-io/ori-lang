@@ -35,15 +35,15 @@
 
 pub mod bootstrap;
 pub mod case_analysis;
-pub mod section_02;
-pub mod section_03;
-pub mod section_04;
-pub mod section_05;
-pub mod section_06;
-pub mod section_07;
-pub mod section_08;
-pub mod section_09;
-pub mod section_11;
+pub mod lattice_algebra;
+pub mod canonicalization;
+pub mod transfer_functions;
+pub mod decision_predicates;
+pub mod interprocedural_contracts;
+pub mod pipeline_ordering;
+pub mod realization_rules;
+pub mod verification_layers;
+pub mod coexistence_handshake;
 pub mod fixpoint;
 pub mod interprocedural_summary;
 pub mod lattice;

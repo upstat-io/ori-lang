@@ -11,8 +11,8 @@
 //! case_analysis (Appendix C truth-table per-DP-N row enumeration)
 //!
 //! SECONDARY engines accept gracefully (mirrors §02 + §03 + §04
-//! cross-dispatch acceptance pattern at section_02.rs + section_03.rs +
-//! section_04.rs).
+//! cross-dispatch acceptance pattern at lattice_algebra.rs + canonicalization.rs +
+//! transfer_functions.rs).
 
 use crate::ast::Theorem;
 use crate::engine::{EngineResult, EngineVerdict};
@@ -87,7 +87,7 @@ fn gracious_accept() -> EngineResult {
 }
 
 // ============================================================================
-// Per-dimension carriers — mirror section_04 layout per L-9 SCALAR exclusion
+// Per-dimension carriers — mirror transfer_functions layout per L-9 SCALAR exclusion
 // ============================================================================
 
 const ACCESS_CARRIER: &[&str] = &["Borrowed", "Owned"];
@@ -1383,7 +1383,7 @@ mod tests {
     // ------------------------------------------------------------------------
 
     #[test]
-    fn coverage_dp_shape_discharges_valid_via_section_05() {
+    fn coverage_dp_shape_discharges_valid_via_decision_predicates() {
         let dp_ids = &["1", "2", "3", "4", "5", "6", "7", "8", "9", "10-REMOVED"];
         for &suffix in dp_ids.iter() {
             let theorem = make_theorem(suffix);
@@ -1406,7 +1406,7 @@ mod tests {
             // SECONDARY: lattice + monotonicity + refinement do NOT serve
             // the DP category per their `served` matchers; the discharge
             // entry point returns None for them (the engine's dispatch()
-            // emits UnimplementedShape before reaching section_05).
+            // emits UnimplementedShape before reaching decision_predicates).
             for engine in &["lattice", "monotonicity", "refinement"] {
                 let r2 = discharge_for_engine(engine, &theorem);
                 assert!(

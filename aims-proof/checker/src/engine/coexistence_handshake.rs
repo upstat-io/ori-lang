@@ -7,7 +7,7 @@
 //! [`structural_induction`, `interprocedural_summary`, `case_analysis`,
 //! `lattice`] per the coverage-manifest CH row. Each CH-N has ONE PRIMARY
 //! engine (constructive discharge) and SECONDARY engines (gracious-accept
-//! once the primary has discharged), mirroring the `section_09` PRIMARY-
+//! once the primary has discharged), mirroring the `verification_layers` PRIMARY-
 //! constructive / SECONDARY-gracious-accept split:
 //!
 //! - `structural_induction` PRIMARY — CH-1 lattice-bridge + CH-2 single-
@@ -44,7 +44,7 @@ pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<Engi
     // interprocedural_summary / case_analysis / lattice) discharge per the
     // sec-11.0 table; the 4 remaining engines (refinement / rc_counting /
     // monotonicity / fixpoint) gracious-accept as SECONDARY per the
-    // section_09 precedent.
+    // verification_layers precedent.
     if !matches!(
         engine_name,
         "structural_induction"
@@ -62,7 +62,7 @@ pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<Engi
         Some(run_primary_verifier(suffix))
     } else {
         // SECONDARY engine: gracious-accept once the PRIMARY has discharged
-        // (per the coverage-manifest CH row + the section_09 gracious-accept
+        // (per the coverage-manifest CH row + the verification_layers gracious-accept
         // precedent).
         Some(gracious_accept())
     }
@@ -99,14 +99,14 @@ fn run_primary_verifier(suffix: &str) -> EngineResult {
         "5" => verify_ch5_phase_ordering_composition(),
         "comp" => verify_ch_composition(),
         other => fail(format!(
-            "section_11 run_primary_verifier reached an unmapped CH suffix {:?}; primary_engine_for and run_primary_verifier are out of sync",
+            "coexistence_handshake run_primary_verifier reached an unmapped CH suffix {:?}; primary_engine_for and run_primary_verifier are out of sync",
             other
         )),
     }
 }
 
 // ============================================================================
-// Engine-result helpers (mirror section_09)
+// Engine-result helpers (mirror verification_layers)
 // ============================================================================
 
 fn gracious_accept() -> EngineResult {
@@ -145,7 +145,7 @@ fn require_count(rule: &str, expected: u64, actual: u64, label: &str) -> EngineR
 // ============================================================================
 
 /// Modeled AimsState dimensions consumed by CH verifiers. Mirrors the
-/// section_09 modeling vocabulary, restricted to dimensions relevant to the
+/// verification_layers modeling vocabulary, restricted to dimensions relevant to the
 /// coexistence handshake.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Access {

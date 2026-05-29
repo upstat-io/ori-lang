@@ -53,20 +53,20 @@ impl Engine for MonotonicityEngine {
         }
         // §02 lattice-algebra discharge (cross-dispatch acceptance) per
         // Annex E §AIMS §3.
-        if let Some(result) = super::section_02::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::lattice_algebra::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §03 canonicalization-rule discharge (cross-dispatch acceptance) per
         // Annex E §AIMS §5.
-        if let Some(result) = super::section_03::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::canonicalization::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         // §04 transfer-function discharge (PRIMARY engine for §04 L-6 layer b) per
         // Annex E §AIMS §4.
-        if let Some(result) = super::section_04::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::transfer_functions::discharge_for_engine(self.name(), theorem) {
             return result;
         }
-        if let Some(result) = super::section_11::discharge_for_engine(self.name(), theorem) {
+        if let Some(result) = super::coexistence_handshake::discharge_for_engine(self.name(), theorem) {
             return result;
         }
         EngineResult {

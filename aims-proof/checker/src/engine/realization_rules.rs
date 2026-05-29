@@ -8,7 +8,7 @@
 //! `case_analysis`] per the coverage-manifest RL row. Each RL-N has ONE
 //! PRIMARY engine (constructive discharge) and TWO SECONDARY engines
 //! (gracious-accept once the primary has discharged), mirroring the
-//! `section_07` structural_induction-PRIMARY / case_analysis-SECONDARY
+//! `pipeline_ordering` structural_induction-PRIMARY / case_analysis-SECONDARY
 //! split:
 //!
 //! - `rc_counting` PRIMARY — RC-emission balance (RL-1..RL-5) + KnownSafe /
@@ -56,7 +56,7 @@ pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<Engi
         Some(run_primary_verifier(suffix))
     } else {
         // SECONDARY engine: gracious-accept once the PRIMARY has discharged
-        // (per the coverage-manifest RL row + the section_07 gracious-accept
+        // (per the coverage-manifest RL row + the pipeline_ordering gracious-accept
         // precedent).
         Some(gracious_accept())
     }
@@ -141,14 +141,14 @@ fn run_primary_verifier(suffix: &str) -> EngineResult {
         "1-RL-2-composition" => verify_rl1_rl2_composition(),
         "comp" => verify_rl_composition(),
         other => fail(format!(
-            "section_08 run_primary_verifier reached an unmapped RL suffix {:?}; primary_engine_for and run_primary_verifier are out of sync",
+            "realization_rules run_primary_verifier reached an unmapped RL suffix {:?}; primary_engine_for and run_primary_verifier are out of sync",
             other
         )),
     }
 }
 
 // ============================================================================
-// Engine-result helpers (mirror section_07)
+// Engine-result helpers (mirror pipeline_ordering)
 // ============================================================================
 
 fn gracious_accept() -> EngineResult {
@@ -3888,7 +3888,7 @@ fn verify_rl1_rl2_composition() -> EngineResult {
 // verifier composes every discharged RL constituent — re-run each, assert
 // Valid, assert the count is exactly the full active-rule set. RL-comp is
 // exactly as strong as the conjunction; it never gracious-accepts over a
-// failing or missing premise (mirrors section_07::verify_pl_composition).
+// failing or missing premise (mirrors pipeline_ordering::verify_pl_composition).
 
 fn verify_rl_composition() -> EngineResult {
     let constituents: [(&str, fn() -> EngineResult); 38] = [
