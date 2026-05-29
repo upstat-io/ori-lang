@@ -9,11 +9,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::Pool;
 
-use crate::aims::intraprocedural::state_map::AimsStateMap;
+use crate::aims::intraprocedural::state_map::{AimsStateMap, ApplyAliasSource};
 use crate::aims::lattice::{AccessClass, Cardinality};
 use crate::graph::{compute_predecessors, successor_block_ids};
 use crate::ir::{
-    ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership, RcStrategy,
+    ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, RcStrategy,
 };
 
 use super::trampoline::{compute_defined_at_or_before, insert_trampoline};
@@ -75,6 +75,80 @@ fn is_owned_for_rc(
 ///   the block terminator. Emitted on ALL successor edges.
 /// - **Merge-edge decs** (`target: Some(succ)`): branch-local variables at
 ///   merge blocks. Emitted ONLY on the edge to the specific merge successor.
+/// Union-find representative over the SAME-ALLOCATION subset of the SSA-alias
+/// graph: every union edge `compute_ssa_alias_classes` uses EXCEPT edge type 2
+/// (Jump-arg → successor block-param). The Jump-phi edge merges DIFFERENT
+/// runtime allocations into one class when a block param has predecessors
+/// passing distinct values (e.g. `if c then x else y` unions x and y via the
+/// merge param), so it is NOT a same-allocation relation. Edges retained:
+/// Let{Var} aliases, apply-result Direct + Conditional (Project/Wrapped already
+/// excluded by PIN-2). Used by the PIN-4 class-liveness suppression in
+/// `collect_branch_edge_decs` so only a TRUE same-allocation alias being live
+/// at a successor suppresses `var`'s edge dec — phi-merged alternatives must
+/// not (RL-4 P1 + §10 under-elimination-leaks per-path-net-0 invariant).
+fn compute_same_alloc_reps(
+    func: &ArcFunction,
+    apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
+) -> FxHashMap<ArcVarId, ArcVarId> {
+    fn find(parent: &mut FxHashMap<ArcVarId, ArcVarId>, v: ArcVarId) -> ArcVarId {
+        let p = *parent.get(&v).unwrap_or(&v);
+        if p == v {
+            return v;
+        }
+        let r = find(parent, p);
+        parent.insert(v, r);
+        r
+    }
+    fn union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) {
+        let ra = find(parent, a);
+        let rb = find(parent, b);
+        if ra != rb {
+            parent.insert(ra, rb);
+        }
+    }
+    let mut parent: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    // Edge type 1: Let{Var} aliases.
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                union(&mut parent, *dst, *src);
+            }
+        }
+    }
+    // Edge type 4: apply-result Direct + Conditional (Project/Wrapped excluded
+    // per PIN-2, matching compute_ssa_alias_classes). Edge type 2 (Jump-phi)
+    // and edge type 3 (Select, already dropped) are intentionally NOT unioned.
+    for (&dst, source) in apply_result_aliases {
+        match source {
+            ApplyAliasSource::Direct(arg) => union(&mut parent, dst, *arg),
+            ApplyAliasSource::Conditional { candidates } => {
+                for &cand in candidates {
+                    union(&mut parent, dst, cand);
+                }
+            }
+            ApplyAliasSource::Project { .. } | ApplyAliasSource::Wrapped(_) => {}
+        }
+    }
+    let keys: Vec<ArcVarId> = parent.keys().copied().collect();
+    let mut reps = FxHashMap::default();
+    for v in keys {
+        let r = find(&mut parent, v);
+        reps.insert(v, r);
+    }
+    reps
+}
+
+/// Whether `a` and `b` denote the same runtime allocation (same
+/// `compute_same_alloc_reps` rep). A var with no entry is its own rep.
+fn same_alloc(reps: &FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) -> bool {
+    reps.get(&a).copied().unwrap_or(a) == reps.get(&b).copied().unwrap_or(b)
+}
+
 pub(crate) fn emit_edge_cleanup(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
@@ -84,6 +158,7 @@ pub(crate) fn emit_edge_cleanup(
     deferred_parent_decs: &FxHashMap<usize, Vec<DeferredDec>>,
 ) {
     let predecessors = compute_predecessors(func);
+    let same_alloc_reps = compute_same_alloc_reps(func, state_map.apply_result_aliases());
 
     // Collect edge cleanup operations: (pred_block, succ_block, var, strategy).
     let mut edge_decs: Vec<(usize, usize, ArcVarId, RcStrategy)> = Vec::new();
@@ -103,6 +178,7 @@ pub(crate) fn emit_edge_cleanup(
                 pool,
                 all_borrowed_defs,
                 take_move_facts,
+                &same_alloc_reps,
                 &mut edge_decs,
             );
             // Add deferred decs to Invoke edges. target=None → both edges,
@@ -178,6 +254,7 @@ pub(crate) fn emit_edge_cleanup(
             pool,
             all_borrowed_defs,
             take_move_facts,
+            &same_alloc_reps,
             &mut edge_decs,
         );
     }
@@ -199,6 +276,7 @@ fn collect_branch_edge_decs(
     pool: &Pool,
     all_borrowed_defs: &FxHashSet<ArcVarId>,
     take_move_facts: &super::take_project::TakeMoveFacts,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     edge_decs: &mut Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
     let Some(exit_states) = state_map.block_exit_states(blk) else {
@@ -268,9 +346,17 @@ fn collect_branch_edge_decs(
                     // this collection pass (PIN-5).
                     if let Some(class_id) = state_map.ssa_alias_class_of(var) {
                         if let Some(members) = state_map.class_members(class_id) {
+                            // Only a TRUE same-allocation alias being live at the
+                            // successor may suppress var's edge dec. Phi-merged
+                            // alternatives (distinct allocations unioned via a
+                            // Jump-arg→block-param merge param, e.g. `if c then x
+                            // else y`) must NOT suppress — each alternative needs
+                            // its own edge dec on the branch where it dies
+                            // (RL-4 P1 + §10 under-elimination per-path-net-0).
                             if members.iter().any(|&m| {
-                                state_map.var_state_at_block_entry(*succ_id, m).cardinality
-                                    != Cardinality::Absent
+                                same_alloc(same_alloc_reps, m, var)
+                                    && state_map.var_state_at_block_entry(*succ_id, m).cardinality
+                                        != Cardinality::Absent
                             }) {
                                 continue;
                             }
@@ -348,6 +434,7 @@ fn collect_invoke_edge_decs(
     pool: &Pool,
     all_borrowed_defs: &FxHashSet<ArcVarId>,
     take_move_facts: &super::take_project::TakeMoveFacts,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     edge_decs: &mut Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
     let blk = block_id(block_idx);
@@ -499,9 +586,12 @@ fn collect_invoke_edge_decs(
                         let mut emit = true;
                         if let Some(class_id) = state_map.ssa_alias_class_of(var) {
                             if let Some(members) = state_map.class_members(class_id) {
+                                // Same-allocation-only suppression (RL-4 P1):
+                                // phi-merged alternatives must not suppress.
                                 if members.iter().any(|&m| {
-                                    state_map.var_state_at_block_entry(normal, m).cardinality
-                                        != Cardinality::Absent
+                                    same_alloc(same_alloc_reps, m, var)
+                                        && state_map.var_state_at_block_entry(normal, m).cardinality
+                                            != Cardinality::Absent
                                 }) {
                                     emit = false;
                                 }
