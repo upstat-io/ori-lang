@@ -32,7 +32,7 @@
 mod demand_propagation;
 mod extract;
 mod scc_driver;
-pub(crate) mod use_count;
+mod use_count;
 
 #[cfg(test)]
 mod tests;

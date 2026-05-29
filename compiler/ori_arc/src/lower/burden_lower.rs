@@ -6,7 +6,6 @@
 //! no global flow analysis, no fixpoint, no lattice consultation.
 
 use crate::aims::contract::MemoryContract;
-use crate::aims::interprocedural::use_count::count_var_uses;
 use crate::aims::lattice::Uniqueness;
 use crate::graph::{compute_postorder, compute_predecessors};
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, LitValue};
@@ -348,17 +347,6 @@ fn detect_transfer_points<'a>(
         for instr in &block.body {
             for (pos, &arg) in instr.used_vars().iter().enumerate() {
                 if instr.is_owned_position(pos) {
-                    // A single-use value at an owned position is a pure MOVE
-                    // (created then consumed once — no other reference exists),
-                    // so ownership transfers to the recipient with no retain
-                    // needed (DP-3 is_rc_inc_elidable + RL-1 inc-only-when-
-                    // duplicated). Emitting BurdenInc here over-counts by one
-                    // with no balancing BurdenDec (suppressed at the move) →
-                    // net +1 → leak. Multi-use (count > 1) values may be shared
-                    // and keep their BurdenInc.
-                    if count_var_uses(func, arg) == 1 {
-                        continue;
-                    }
                     let arg_idx = func.var_types[arg.index()];
                     let ty: TypeRef = idx_to_type_ref(arg_idx, type_registry);
                     let burden = lookup_burden(ty, type_registry);
@@ -366,12 +354,10 @@ fn detect_transfer_points<'a>(
                 }
             }
             if let ArcInstr::Set { value, .. } = instr {
-                if count_var_uses(func, *value) > 1 {
-                    let value_idx = func.var_types[value.index()];
-                    let ty: TypeRef = idx_to_type_ref(value_idx, type_registry);
-                    let burden = lookup_burden(ty, type_registry);
-                    ctx.transfer_points.push((*value, burden));
-                }
+                let value_idx = func.var_types[value.index()];
+                let ty: TypeRef = idx_to_type_ref(value_idx, type_registry);
+                let burden = lookup_burden(ty, type_registry);
+                ctx.transfer_points.push((*value, burden));
             }
         }
     }
