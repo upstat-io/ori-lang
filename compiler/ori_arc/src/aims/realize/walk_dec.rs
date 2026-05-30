@@ -126,17 +126,46 @@ fn emit_defined_dead(
         || ctx.use_info.contains_key(&dst)
         || is_live_at_exit(ctx.state_map, ctx.blk, dst)
     {
+        if ctx.func.var_reprs[dst.index()] != ValueRepr::Scalar {
+            tracing::debug!(
+                target: "ori_arc::aims::realize::defined_dead",
+                func = ?ctx.func.name, var = dst.raw(),
+                has_use = ctx.use_info.contains_key(&dst),
+                live_exit = is_live_at_exit(ctx.state_map, ctx.blk, dst),
+                excluded = ctx.state_map.is_excluded(dst),
+                reason = "not-managed-defined-dead",
+                "defined-dead RcDec SKIPPED (early)"
+            );
+        }
         return;
     }
 
     // Skip defined-dead RcDec for ALL borrowed variables.
     if ctx.all_borrowed_defs.contains(&dst) {
+        tracing::debug!(
+            target: "ori_arc::aims::realize::defined_dead",
+            func = ?ctx.func.name, var = dst.raw(),
+            reason = "all-borrowed-def",
+            "defined-dead RcDec SUPPRESSED"
+        );
         return;
     }
     if ctx.iter_element_defs.contains(&dst) {
+        tracing::debug!(
+            target: "ori_arc::aims::realize::defined_dead",
+            func = ?ctx.func.name, var = dst.raw(),
+            reason = "iter-element-def",
+            "defined-dead RcDec SUPPRESSED"
+        );
         return;
     }
     if ctx.inline_enum_projected_defs.contains(&dst) {
+        tracing::debug!(
+            target: "ori_arc::aims::realize::defined_dead",
+            func = ?ctx.func.name, var = dst.raw(),
+            reason = "inline-enum-projected-def",
+            "defined-dead RcDec SUPPRESSED"
+        );
         return;
     }
 
