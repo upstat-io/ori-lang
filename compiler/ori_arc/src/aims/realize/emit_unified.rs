@@ -351,6 +351,16 @@ fn build_global_pin4_emits(
         // Same per-block ctx feeds the pre-walk inc-count prediction.
         super::walk::predict_inc_classes(&ctx, iter_fn_name, &var_to_class, &mut inc_counts);
     }
+    // DISABLED — the coarse `inc_count >= 1` relaxation these counts feed
+    // (PIN-4 same-block + PIN-5 same-instr) regressed the AOT suite 28 -> 2091:
+    // a class-level inc count cannot distinguish a distinct retained copy from a
+    // genuine redundant alias, so the relaxation over-fired into mass double-
+    // free. Distinguishing the two needs true per-alias inc-attribution (which
+    // `RcInc` retains which alias), not a class count. Returning an EMPTY map
+    // keeps both gates at their proven baseline behavior; the prediction +
+    // gate scaffolding stays for the per-alias redesign tracked in BUG-04-123
+    // §05 (single remaining cluster task).
+    inc_counts.clear();
     (global, inc_counts)
 }
 

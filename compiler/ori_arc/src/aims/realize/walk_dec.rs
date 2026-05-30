@@ -324,6 +324,7 @@ fn emit_last_use_decs(
             deferred,
             death_events,
             emitted_classes_this_instr,
+            emitted_vars_this_instr,
             classes_dying_here,
         );
     }
@@ -404,11 +405,18 @@ fn apply_last_use_decision(
                 }
 
                 // PIN-4 + PIN-5: class-aware suppression at the emission point.
-                if !class_dec_should_emit(ctx, var, instr_idx, emitted_classes_this_instr) {
+                if !class_dec_should_emit(
+                    ctx,
+                    var,
+                    instr_idx,
+                    emitted_classes_this_instr,
+                    emitted_vars_this_instr,
+                ) {
                     return;
                 }
 
                 new_body.push(ArcInstr::RcDec { var, strategy });
+                emitted_vars_this_instr.insert(var);
                 if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
                     emitted_classes_this_instr.insert(class_id);
                 }
