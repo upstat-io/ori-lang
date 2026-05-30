@@ -41,28 +41,33 @@ fn ensure_ori_binary_fresh_for_profile(release: bool) {
     let result = cell.get_or_init(|| {
         let profile_label = if release { "release" } else { "debug" };
 
-        eprintln!(
-            "[aot-tests] rebuilding workspace `ori` binary ({profile_label}) via `cargo build -p oric --bin ori{}`...",
-            if release { " --release" } else { "" }
-        );
+        eprintln!("[aot-tests] ensuring `ori_rt` staticlib + `ori` binary ({profile_label})...");
 
-        let mut cmd = Command::new(env!("CARGO"));
-        cmd.args(["build", "-p", "oric", "--bin", "ori", "--quiet"]);
-        if release {
-            cmd.arg("--release");
-        }
-        cmd.current_dir(workspace_root());
+        // Build a workspace package for this profile. `ori_rt`'s `libori_rt.a`
+        // (the static lib every AOT binary links) is produced ONLY when ori_rt
+        // is a DIRECT cargo target — a scoped `cargo test -p ori_llvm` builds
+        // just its rlib, and a sibling `cargo clean` leaves the `.a` missing,
+        // silently breaking every panic/catch AOT test (binaries link nothing
+        // and abort on unwind). Build it explicitly — staticlib must be explicit.
+        let build = |pkg: &str, bin: Option<&str>| -> Result<(), String> {
+            let mut cmd = Command::new(env!("CARGO"));
+            cmd.args(["build", "-p", pkg, "--quiet"]);
+            if let Some(b) = bin {
+                cmd.args(["--bin", b]);
+            }
+            if release {
+                cmd.arg("--release");
+            }
+            cmd.current_dir(workspace_root());
+            match cmd.status() {
+                Ok(status) if status.success() => Ok(()),
+                Ok(status) => Err(format!("`cargo build -p {pkg}` exited with {status}")),
+                Err(e) => Err(format!("failed to spawn `cargo build -p {pkg}`: {e}")),
+            }
+        };
 
-        match cmd.status() {
-            Ok(status) if status.success() => Ok(()),
-            Ok(status) => Err(format!(
-                "`cargo build -p oric --bin ori{}` exited with {status}",
-                if release { " --release" } else { "" }
-            )),
-            Err(e) => Err(format!(
-                "failed to spawn `cargo build -p oric --bin ori`: {e}"
-            )),
-        }
+        build("ori_rt", None)?;
+        build("oric", Some("ori"))
     });
 
     if let Err(msg) = result {
