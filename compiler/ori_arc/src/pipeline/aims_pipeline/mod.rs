@@ -233,10 +233,12 @@ pub(crate) fn run_aims_pipeline(
     // parity check.
     if std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() != Ok("1") {
         let _span = tracing::info_span!("emit_burden_ops").entered();
+        let immortals = crate::aims::immortal::detect_immortals(func, config.interner);
         let _burden_ctx = crate::lower::burden_lower::emit_burden_ops(
             func,
             config.type_registry,
             &derived_ownership,
+            &immortals,
             config.contracts,
         );
     }
@@ -275,6 +277,12 @@ pub(crate) fn run_aims_pipeline(
     postprocess::verify_and_merge(func, config)?;
 
     apply_phase_2_annotations(func, &state_map, config, &mut result);
+
+    // Coexistence-mirror: fill the cross-block / scope-exit `BurdenDec` gap by
+    // mirroring the now-final predicate-stack `RcDec` release set, so the
+    // per-value burden ledger nets 0 along every path. Runs after all RC
+    // realization (incl. unwind cleanup) and before the burden-balance check.
+    crate::aims::realize::reconcile_burden_ledger(func);
 
     // Final verification + FBIP.
     let problems = postprocess::emit_postprocess(func, config)?;

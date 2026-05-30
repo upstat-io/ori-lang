@@ -114,6 +114,10 @@ pub(super) fn emit_post_instr_decs_unified(
 }
 
 /// Emit `RcDec` for a defined-but-dead variable.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "post-instruction dec emission needs the full per-block realization context + PIN-4/5/6 class-suppression sets"
+)]
 fn emit_defined_dead(
     ctx: &BlockCtx<'_>,
     instr: &ArcInstr,

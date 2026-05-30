@@ -263,10 +263,6 @@ pub(super) fn emit_rc_unified(
     clippy::too_many_arguments,
     reason = "dec-emitter pre-pass builds a BlockCtx per block; needs the full per-function realization context"
 )]
-#[expect(
-    clippy::type_complexity,
-    reason = "returns the dec-emitter map plus the retained-lineage map computed in the same per-block pass"
-)]
 fn build_global_pin4_emits(
     func: &ArcFunction,
     state_map: &AimsStateMap,

@@ -408,7 +408,7 @@ pub(crate) type GlobalPin4Emits = FxHashMap<u32, FxHashSet<(ArcVarId, usize, Emi
 /// a distinct retained copy holds its OWN owned reference of the heap value, so
 /// its dec must NOT be collapsed against another lineage's. This partitions the
 /// class into `1 + N` lineages (N retained + 1 alloc-ref), each deduped to one
-/// dec per path → `1 + N` total (04B.2-under-elim.lean rc_per_path_invariant).
+/// dec per path → `1 + N` total (04B.2-under-elim.lean `rc_per_path_invariant`).
 /// When there are no within-class retained copies the map is empty → every
 /// member shares the alloc-ref lineage → identical to per-class dedup (no-op
 /// baseline). Within a lineage the existing same-block-latest / cross-block

@@ -405,7 +405,7 @@ fn emit_pre_instr_incs_unified(
 /// pre-walk on the un-RC'd body. Consumed (after Let-alias closure) by the
 /// lineage-equality dec-suppression gate so a class partitions into N retained
 /// lineages + 1 alloc-ref lineage, each deduped to exactly one dec per path
-/// (`1 + N` total — 04B.2-under-elim.lean rc_per_path_invariant).
+/// (`1 + N` total — 04B.2-under-elim.lean `rc_per_path_invariant`).
 pub(crate) fn predict_retained_roots(
     ctx: &BlockCtx<'_>,
     iter_fn_name: ori_ir::Name,

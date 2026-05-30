@@ -355,7 +355,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let i64_ty = self.builder.i64_type();
                 Some(self.builder.fp_to_si(val, i64_ty, "cast.float.int"))
             }
-            (Tag::Byte, Tag::Int) | (Tag::Char, Tag::Int) => {
+            (Tag::Byte | Tag::Char, Tag::Int) => {
                 let i64_ty = self.builder.i64_type();
                 Some(self.builder.zext(val, i64_ty, "cast.widen.int"))
             }

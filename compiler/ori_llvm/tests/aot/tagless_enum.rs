@@ -14,7 +14,7 @@ use crate::util::assert_aot_success;
 /// a tagless enum with a non-heap payload builds and drops trivially.
 #[test]
 fn tagless_enum_scalar_payload_builds_runs() {
-    let source = r#"
+    let source = r"
 use std.testing { assert_eq }
 type Wrap = W(n: int);
 @main () -> void = {
@@ -23,7 +23,7 @@ type Wrap = W(n: int);
     assert_eq(actual: v, expected: 42);
     ()
 }
-"#;
+";
     assert_aot_success(source, "tagless_enum_scalar_payload_builds_runs");
 }
 
@@ -44,7 +44,7 @@ type Wrap = W(s: str);
 /// `[int]` payload — collection element must dec-through on drop.
 #[test]
 fn tagless_enum_list_payload_reads_and_drops() {
-    let source = r#"
+    let source = r"
 use std.testing { assert_eq }
 type Wrap = W(xs: [int]);
 @main () -> void = {
@@ -53,7 +53,7 @@ type Wrap = W(xs: [int]);
     assert_eq(actual: xs.length(), expected: 3);
     ()
 }
-"#;
+";
     assert_aot_success(source, "tagless_enum_list_payload_reads_and_drops");
 }
 

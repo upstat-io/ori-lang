@@ -22,6 +22,7 @@
 //! - FP² (Marshall et al., ESOP 2022): FIP-guided reuse decisions
 
 mod burden_elim;
+mod burden_mirror;
 mod cleanup_redundant;
 pub mod decide;
 mod emit_unified;
@@ -33,6 +34,7 @@ mod walk;
 mod walk_dec;
 
 pub(crate) use burden_elim::eliminate_burden_ops;
+pub(crate) use burden_mirror::reconcile_burden_ledger;
 pub(crate) use cleanup_redundant::cleanup_redundant_project_alias_decs;
 
 use ori_ir::Name;

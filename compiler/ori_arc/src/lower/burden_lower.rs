@@ -184,6 +184,10 @@ pub(crate) fn emit_burden_ops<'a>(
     // callee `ReturnContract.uniqueness ∈ {Unique, MaybeShared}` (i.e., return
     // value is a FRESH allocation owned by caller). AIMS Invariant 5 — read
     // unchanged, no parallel emission.
+    // Immortal var bitvector (`detect_immortals`): empty-string literals carry
+    // no RC, so they receive NO burden ops (the predicate-stack emits none) —
+    // else the FRESH-site inc orphans (VF-1 net=+1). Tests pass `&[]`.
+    immortals: &[bool],
     contracts: &FxHashMap<Name, MemoryContract>,
 ) -> BurdenLowerCtx<'a> {
     let mut ctx = BurdenLowerCtx::new(func);
@@ -195,7 +199,9 @@ pub(crate) fn emit_burden_ops<'a>(
     // `Some(BurdenRef)` wrapping `BuiltinBurdenSpec::EMPTY` per `BURDEN_TABLE`
     // at `ori_registry/src/burden/table.rs:184-193` — required by `aims-rules.md
     // §4 DP-1` (`is_rc_needed: Owned ∧ ¬Dead ∧ ¬is_scalar`) + `§9 VF-1 RcOnScalar`.
-    let owned_vars_needing_rc = compute_owned_vars_needing_rc(&ctx);
+    let mut owned_vars_needing_rc = compute_owned_vars_needing_rc(&ctx);
+    // Exclude immortals (empty-string literals) — no RC, so no burden ops at all.
+    owned_vars_needing_rc.retain(|v| !immortals.get(v.index()).copied().unwrap_or(false));
     let last_uses_at = group_last_uses_filtered(&ctx, &owned_vars_needing_rc);
     let terminator_transfer_per_block =
         compute_terminator_transfer_per_block(func, derived_ownership);
@@ -237,11 +243,89 @@ pub(crate) fn emit_burden_ops<'a>(
         &owned_vars_needing_rc,
     );
 
+    // RL-2 transfer-suppression symmetry: a fresh value whose paired BurdenDec
+    // is transfer-suppressed at its LAST-USE must have its FRESH-site BurdenInc
+    // suppressed too, else the inc is orphaned and the per-value burden ledger
+    // nets +1 (VF-1 imbalance). Mirror the EXACT instruction-level
+    // dec-suppression condition in emit_instr_burdens (line ~1221): dec
+    // suppressed iff the var is transferred at its last-use instr OR its whole
+    // owned-field set was moved (full_move_vars). Terminator-position transfers
+    // are NOT included — their decs are emitted by emit_terminator_burden_decs
+    // and balanced by emit_terminator_burden_incs, a separate inc/dec pair from
+    // the FRESH-site inc. A value transferred at a NON-last use (aliased, still
+    // live) keeps its Inc — its dec is emitted at the later non-transfer use.
+    let mut inc_suppressed_vars: FxHashSet<ArcVarId> = full_move_vars.clone();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            let Some(last_used) = last_uses_at.get(&(block_idx, instr_idx)) else {
+                continue;
+            };
+            let tv = instr_transfer_vars(instr);
+            for &var in last_used {
+                if tv.contains(&var) {
+                    inc_suppressed_vars.insert(var);
+                }
+            }
+        }
+    }
+
+    // RL-2 dec-fidelity for Let-Var aliases: a `Let { Var(src) }` alias whose
+    // SOURCE stays live after the alias is a duplication — the predicate-stack
+    // emits the alias's real RcInc/RcDec, so the alias carries NO burden ops.
+    // It never received a matching FRESH-site BurdenInc (Var aliases are not a
+    // FRESH-allocating instr), so emitting its last-use BurdenDec would net the
+    // alias's burden ledger to -1 (VF-1 imbalance). Suppress that dec. A
+    // move-alias (source used only at the alias) keeps its dec to balance the
+    // source's FRESH-site inc. "Source stays live" = source appears in >= 2
+    // used-var positions (the alias use plus at least one more downstream).
+    let mut use_counts: FxHashMap<ArcVarId, u32> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            for &v in &instr.used_vars() {
+                *use_counts.entry(v).or_default() += 1;
+            }
+        }
+        for v in block.terminator.used_vars() {
+            *use_counts.entry(v).or_default() += 1;
+        }
+    }
+    // Dead FRESH values (defined but never used — e.g. a shadowed `let`
+    // rebind) receive a FRESH-site BurdenInc but no last-use BurdenDec (they
+    // are never last-used). The predicate-stack emits their dead-value cleanup
+    // RcDec per RL-2 (unused owned value -> immediate dec), so they are
+    // predicate-stack-managed and must carry no burden ops; suppress the
+    // orphaned inc symmetrically (it would otherwise net +1).
+    for raw in 0..func.var_types.len() {
+        let var = ArcVarId::new(
+            u32::try_from(raw).unwrap_or_else(|_| panic!("var index {raw} fits in u32")),
+        );
+        if !use_counts.contains_key(&var) {
+            inc_suppressed_vars.insert(var);
+        }
+    }
+    let mut dup_alias_dsts: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if use_counts.get(src).copied().unwrap_or(0) >= 2 {
+                    dup_alias_dsts.insert(*dst);
+                }
+            }
+        }
+    }
+
     let analysis = BurdenAnalysisCtx {
         owned_vars_needing_rc: &owned_vars_needing_rc,
         last_uses_at: &last_uses_at,
         full_move_vars: &full_move_vars,
         partial_move_vars: &partial_move_vars,
+        inc_suppressed_vars: &inc_suppressed_vars,
+        dup_alias_dsts: &dup_alias_dsts,
         contracts,
     };
     emit_burden_ops_for_blocks(
@@ -1003,6 +1087,16 @@ struct BurdenAnalysisCtx<'a> {
     last_uses_at: &'a FxHashMap<(usize, usize), Vec<ArcVarId>>,
     full_move_vars: &'a FxHashSet<ArcVarId>,
     partial_move_vars: &'a FxHashMap<ArcVarId, Vec<u32>>,
+    // Vars whose paired BurdenDec is transfer-suppressed at their last-use
+    // (transferred at last-use instr / terminator, or full-move). The
+    // symmetric FRESH-site BurdenInc is suppressed for these in
+    // emit_fresh_site_burden_inc to keep the per-value burden ledger balanced.
+    inc_suppressed_vars: &'a FxHashSet<ArcVarId>,
+    // Let-Var alias dsts whose source stays live (duplication). The
+    // predicate-stack owns their RC (RcInc/RcDec); they carry no FRESH-site
+    // BurdenInc, so their last-use BurdenDec is suppressed to keep the ledger
+    // balanced (it would otherwise net -1).
+    dup_alias_dsts: &'a FxHashSet<ArcVarId>,
     contracts: &'a FxHashMap<Name, MemoryContract>,
 }
 
@@ -1205,7 +1299,10 @@ fn emit_instr_burdens(new_body: &mut Vec<ArcInstr>, instr: ArcInstr, ctx: &Burde
             // pattern is rebalanced separately by `emit_terminator_burden_decs`
             // (§04A.5 ITEM-3 terminator-level cure) and by `eliminate_burden_ops`
             // paired elision (§04A.5 ITEM-4).
-            if transfer_vars.contains(&var) || ctx.analysis.full_move_vars.contains(&var) {
+            if transfer_vars.contains(&var)
+                || ctx.analysis.full_move_vars.contains(&var)
+                || ctx.analysis.dup_alias_dsts.contains(&var)
+            {
                 continue;
             }
             if let Some(skip_fields) = ctx.analysis.partial_move_vars.get(&var) {
@@ -1286,7 +1383,13 @@ fn emit_fresh_site_burden_inc(
         }
         _ => return,
     };
-    if ctx.analysis.owned_vars_needing_rc.contains(&dst) {
+    // Suppress the FRESH-site Inc when dst is move-transferred into an owned
+    // position: its paired BurdenDec is transfer-suppressed (RL-2), so emitting
+    // the Inc would orphan it (VF-1 net=+1). The container's own drop owns the
+    // released reference. Non-transferred fresh values keep the paired Inc+Dec.
+    if ctx.analysis.owned_vars_needing_rc.contains(&dst)
+        && !ctx.analysis.inc_suppressed_vars.contains(&dst)
+    {
         new_body.push(ArcInstr::BurdenInc { var: dst });
     }
 }

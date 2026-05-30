@@ -89,7 +89,7 @@ fn drive_steps_4_and_4b(
     // `pipeline/aims_pipeline/mod.rs:178-213`).
     let _pre = analyze_function(func, &classifier, &sigs, &[], Vec::new());
     // Step 4b — emit burden ops.
-    let _ctx = emit_burden_ops(func, registry, &[], &rustc_hash::FxHashMap::default());
+    let _ctx = emit_burden_ops(func, registry, &[], &[], &rustc_hash::FxHashMap::default());
     // Re-run Step 4 over burden-emitted IR. Per §03's shipped TF-N/A
     // treatment (`aims/transfer/mod.rs:94-104` forward, `:287-297` backward)
     // burden ops contribute zero forward state + zero backward demand, so
@@ -356,7 +356,13 @@ fn emit_burden_ops_on_scalar_fixture_is_observationally_inert() {
     let classifier = AllRefClassifier;
     let sigs = no_sigs();
     let _pre = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &rustc_hash::FxHashMap::default());
+    let _ctx = emit_burden_ops(
+        &mut func,
+        &registry,
+        &[],
+        &[],
+        &rustc_hash::FxHashMap::default(),
+    );
     assert_eq!(
         count_burden_ops(&func),
         0,

@@ -75,6 +75,7 @@ fn is_owned_for_rc(
 ///   the block terminator. Emitted on ALL successor edges.
 /// - **Merge-edge decs** (`target: Some(succ)`): branch-local variables at
 ///   merge blocks. Emitted ONLY on the edge to the specific merge successor.
+///
 /// Union-find representative over the SAME-ALLOCATION subset of the SSA-alias
 /// graph: every union edge `compute_ssa_alias_classes` uses EXCEPT edge type 2
 /// (Jump-arg → successor block-param). The Jump-phi edge merges DIFFERENT
@@ -267,6 +268,9 @@ pub(crate) fn emit_edge_cleanup(
     clippy::too_many_arguments,
     reason = "edge collection needs full analysis context"
 )]
+/// Collect branch/switch/jump edge `RcDec`s by mapping the shared edge-dead-set
+/// to `(pred, succ, var, RcStrategy)`. The dead-set itself is the SSOT consumed
+/// by both this predicate-stack emitter and burden-op emission.
 fn collect_branch_edge_decs(
     func: &ArcFunction,
     block_idx: usize,
@@ -279,8 +283,46 @@ fn collect_branch_edge_decs(
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     edge_decs: &mut Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
+    for (pred, succ, var) in compute_branch_edge_dead_set(
+        func,
+        block_idx,
+        blk,
+        successors,
+        state_map,
+        pool,
+        all_borrowed_defs,
+        take_move_facts,
+        same_alloc_reps,
+    ) {
+        if let Some(strategy) = rc_strategy(func, var, pool) {
+            edge_decs.push((pred, succ, var, strategy));
+        }
+    }
+}
+
+/// Pure branch/switch/jump edge-dead-set: which `(pred_block, succ_block, var)`
+/// triples have `var` owned-non-scalar live at `pred` exit but dead (Absent) at
+/// `succ` entry, after take-move-class / apply-aliased / same-alloc-member-live
+/// / per-edge-class-dedup suppression. SSOT consumed by both `edge_cleanup`
+/// (`RcDec`) and burden-op emission (`BurdenDec`); strategy re-derived per var.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "pure edge-dead-set analysis needs the full per-block realization context (state map, pool, borrow + take-move + same-alloc facts)"
+)]
+pub(crate) fn compute_branch_edge_dead_set(
+    func: &ArcFunction,
+    block_idx: usize,
+    blk: ArcBlockId,
+    successors: &[ArcBlockId],
+    state_map: &AimsStateMap,
+    pool: &Pool,
+    all_borrowed_defs: &FxHashSet<ArcVarId>,
+    take_move_facts: &super::take_project::TakeMoveFacts,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> Vec<(usize, usize, ArcVarId)> {
+    let mut dead_set: Vec<(usize, usize, ArcVarId)> = Vec::new();
     let Some(exit_states) = state_map.block_exit_states(blk) else {
-        return;
+        return dead_set;
     };
 
     // Filter out variables defined downstream (from project-source demand
@@ -334,86 +376,86 @@ fn collect_branch_edge_decs(
         }
         for succ_id in successors {
             let succ_entry = state_map.var_state_at_block_entry(*succ_id, var);
-            if succ_entry.cardinality == Cardinality::Absent
+            if (succ_entry.cardinality == Cardinality::Absent
                 || !is_owned_for_rc(
                     state_map,
                     var,
                     succ_entry.access,
                     succ_entry.cardinality,
                     all_borrowed_defs,
-                )
+                ))
+                && rc_strategy(func, var, pool).is_some()
             {
-                if let Some(strategy) = rc_strategy(func, var, pool) {
-                    // BUG-04-090 §05 Hypothesis D component #3: suppress
-                    // edge dec when `var` was consumed by an Apply/Invoke
-                    // whose dst aliases it.
-                    let is_unwind_succ = is_unwind_succ_block(func, succ_id.index());
-                    if should_suppress_apply_aliased_dec(state_map, var, is_unwind_succ) {
-                        tracing::debug!(
-                            target: "ori_arc::aims::realize::edge_cleanup",
-                            func = ?func.name, var = var.raw(),
-                            block = block_idx, succ = succ_id.index(),
-                            reason = "apply-aliased-dst",
-                            "RL-4 branch-edge-dec SUPPRESSED"
-                        );
-                        continue;
-                    }
-                    // BUG-04-104 PIN-4 + PIN-5: class-aware skip + per-edge
-                    // batching. Skip when any class member is live at the
-                    // successor's entry (PIN-4), or when the same class
-                    // already emitted a dec for this (pred, succ) edge in
-                    // this collection pass (PIN-5).
-                    if let Some(class_id) = state_map.ssa_alias_class_of(var) {
-                        if let Some(members) = state_map.class_members(class_id) {
-                            // Only a TRUE same-allocation alias being live at the
-                            // successor may suppress var's edge dec. Phi-merged
-                            // alternatives (distinct allocations unioned via a
-                            // Jump-arg→block-param merge param, e.g. `if c then x
-                            // else y`) must NOT suppress — each alternative needs
-                            // its own edge dec on the branch where it dies
-                            // (RL-4 P1 + §10 under-elimination per-path-net-0).
-                            // BUG-04-123 sibling (project-merge): a same-alloc
-                            // member `m` may only carry `var`'s drop across the
-                            // THIS-block→succ edge if it actually EXISTS at this
-                            // block (defined-at-or-before `block_idx`, mirroring
-                            // the `var` guard above). A member defined only on a
-                            // SIBLING branch (e.g. `%15 = %p2` in the else arm)
-                            // is reported `Once`-live at the then-successor entry
-                            // by `var_state_at_block_entry` (backward alias-demand
-                            // bleed) but is NOT reachable on this edge — counting
-                            // it phantom-suppresses the not-taken parent's edge
-                            // dec → leak (`04B.2-under-elim` per-path-net-0).
-                            if let Some(&m_live) = members.iter().find(|&&m| {
-                                defined_at_or_before.contains(&m)
-                                    && same_alloc(same_alloc_reps, m, var)
-                                    && state_map.var_state_at_block_entry(*succ_id, m).cardinality
-                                        != Cardinality::Absent
-                            }) {
-                                tracing::debug!(
-                                    target: "ori_arc::aims::realize::edge_cleanup",
-                                    func = ?func.name, var = var.raw(),
-                                    block = block_idx, succ = succ_id.index(),
-                                    member = m_live.raw(),
-                                    member_card = ?state_map
-                                        .var_state_at_block_entry(*succ_id, m_live)
-                                        .cardinality,
-                                    reason = "pin4-same-alloc-member-live",
-                                    "RL-4 branch-edge-dec SUPPRESSED"
-                                );
-                                continue;
-                            }
-                        }
-                        let edge_key = (block_idx, succ_id.index());
-                        let edge_classes = classes_inserted_per_edge.entry(edge_key).or_default();
-                        if !edge_classes.insert(class_id) {
+                // BUG-04-090 §05 Hypothesis D component #3: suppress
+                // edge dec when `var` was consumed by an Apply/Invoke
+                // whose dst aliases it.
+                let is_unwind_succ = is_unwind_succ_block(func, succ_id.index());
+                if should_suppress_apply_aliased_dec(state_map, var, is_unwind_succ) {
+                    tracing::debug!(
+                        target: "ori_arc::aims::realize::edge_cleanup",
+                        func = ?func.name, var = var.raw(),
+                        block = block_idx, succ = succ_id.index(),
+                        reason = "apply-aliased-dst",
+                        "RL-4 branch-edge-dec SUPPRESSED"
+                    );
+                    continue;
+                }
+                // BUG-04-104 PIN-4 + PIN-5: class-aware skip + per-edge
+                // batching. Skip when any class member is live at the
+                // successor's entry (PIN-4), or when the same class
+                // already emitted a dec for this (pred, succ) edge in
+                // this collection pass (PIN-5).
+                if let Some(class_id) = state_map.ssa_alias_class_of(var) {
+                    if let Some(members) = state_map.class_members(class_id) {
+                        // Only a TRUE same-allocation alias being live at the
+                        // successor may suppress var's edge dec. Phi-merged
+                        // alternatives (distinct allocations unioned via a
+                        // Jump-arg→block-param merge param, e.g. `if c then x
+                        // else y`) must NOT suppress — each alternative needs
+                        // its own edge dec on the branch where it dies
+                        // (RL-4 P1 + §10 under-elimination per-path-net-0).
+                        // BUG-04-123 sibling (project-merge): a same-alloc
+                        // member `m` may only carry `var`'s drop across the
+                        // THIS-block→succ edge if it actually EXISTS at this
+                        // block (defined-at-or-before `block_idx`, mirroring
+                        // the `var` guard above). A member defined only on a
+                        // SIBLING branch (e.g. `%15 = %p2` in the else arm)
+                        // is reported `Once`-live at the then-successor entry
+                        // by `var_state_at_block_entry` (backward alias-demand
+                        // bleed) but is NOT reachable on this edge — counting
+                        // it phantom-suppresses the not-taken parent's edge
+                        // dec → leak (`04B.2-under-elim` per-path-net-0).
+                        if let Some(&m_live) = members.iter().find(|&&m| {
+                            defined_at_or_before.contains(&m)
+                                && same_alloc(same_alloc_reps, m, var)
+                                && state_map.var_state_at_block_entry(*succ_id, m).cardinality
+                                    != Cardinality::Absent
+                        }) {
+                            tracing::debug!(
+                                target: "ori_arc::aims::realize::edge_cleanup",
+                                func = ?func.name, var = var.raw(),
+                                block = block_idx, succ = succ_id.index(),
+                                member = m_live.raw(),
+                                member_card = ?state_map
+                                    .var_state_at_block_entry(*succ_id, m_live)
+                                    .cardinality,
+                                reason = "pin4-same-alloc-member-live",
+                                "RL-4 branch-edge-dec SUPPRESSED"
+                            );
                             continue;
                         }
                     }
-                    edge_decs.push((block_idx, succ_id.index(), var, strategy));
+                    let edge_key = (block_idx, succ_id.index());
+                    let edge_classes = classes_inserted_per_edge.entry(edge_key).or_default();
+                    if !edge_classes.insert(class_id) {
+                        continue;
+                    }
                 }
+                dead_set.push((block_idx, succ_id.index(), var));
             }
         }
     }
+    dead_set
 }
 
 /// Apply collected edge decs: prepend for single-pred successors, trampoline
@@ -423,6 +465,24 @@ fn apply_edge_decs(
     predecessors: &[Vec<usize>],
     edge_decs: Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        let burden_true = func.burden_emitted.iter().filter(|b| **b).count();
+        let edge_vars: Vec<String> = edge_decs
+            .iter()
+            .map(|(p, s, v, _)| {
+                let be = func.burden_emitted.get(v.index()).copied().unwrap_or(false);
+                format!("bb{p}->bb{s}:%{}(burden={be})", v.index())
+            })
+            .collect();
+        tracing::debug!(
+            target: "ori_arc::aims::realize::edge_cleanup",
+            func = ?func.name,
+            burden_emitted_true = burden_true,
+            burden_emitted_len = func.burden_emitted.len(),
+            edge_decs = %edge_vars.join(" "),
+            "apply_edge_decs entry",
+        );
+    }
     let mut edge_groups: FxHashMap<(usize, usize), Vec<EdgeDec>> = FxHashMap::default();
     for (pred, succ, var, strategy) in edge_decs {
         edge_groups
@@ -435,9 +495,24 @@ fn apply_edge_decs(
 
     for ((pred, succ), decs) in &edge_groups {
         if predecessors[*succ].len() == 1 {
+            // Coexistence `BurdenDec` accounting marker adjacent to each edge
+            // `RcDec` whose var carries burden ops — per-value burden ledger
+            // nets 0 across this CFG edge.
             let dec_instrs: Vec<ArcInstr> = decs
                 .iter()
-                .map(|&(var, strategy)| ArcInstr::RcDec { var, strategy })
+                .flat_map(|&(var, strategy)| {
+                    let mut ops = Vec::with_capacity(2);
+                    if func
+                        .burden_emitted
+                        .get(var.index())
+                        .copied()
+                        .unwrap_or(false)
+                    {
+                        ops.push(ArcInstr::BurdenDec { var });
+                    }
+                    ops.push(ArcInstr::RcDec { var, strategy });
+                    ops
+                })
                 .collect();
             let body = &mut func.blocks[*succ].body;
             let mut new_body = dec_instrs;
@@ -461,13 +536,8 @@ fn apply_edge_decs(
 /// ownership-transferred args. Categories 1-2 exclude `Owned` normal-path
 /// transfers; category 3 handles the unwind path for those same variables.
 #[expect(
-    clippy::too_many_lines,
-    reason = "3 cleanup categories in one function — extracting would fragment edge logic"
-)]
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "BUG-04-090 §05 Hypothesis D component #3 added per-category apply_result_aliases gates; \
-              splitting Cat 1/2/3 into helpers would obscure the unwind-vs-normal contract"
+    clippy::too_many_arguments,
+    reason = "Invoke edge-dec collection needs the full per-block realization context"
 )]
 fn collect_invoke_edge_decs(
     func: &ArcFunction,
@@ -479,6 +549,44 @@ fn collect_invoke_edge_decs(
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     edge_decs: &mut Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
+    for (pred, succ, var) in compute_invoke_edge_dead_set(
+        func,
+        block_idx,
+        state_map,
+        pool,
+        all_borrowed_defs,
+        take_move_facts,
+        same_alloc_reps,
+    ) {
+        if let Some(strategy) = rc_strategy(func, var, pool) {
+            edge_decs.push((pred, succ, var, strategy));
+        }
+    }
+}
+
+/// Pure Invoke/InvokeIndirect edge-dead-set (3 cleanup categories: exit-state
+/// vars dying per-edge, borrowed args absent from `exit_states`, unwind cleanup
+/// for owned args). SSOT consumed by both `edge_cleanup` (`RcDec`) and burden-op
+/// emission (`BurdenDec`); strategy re-derived per var by the caller.
+#[expect(
+    clippy::too_many_lines,
+    reason = "3 cleanup categories in one function — extracting would fragment edge logic"
+)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "BUG-04-090 §05 Hypothesis D component #3 added per-category apply_result_aliases gates; \
+              splitting Cat 1/2/3 into helpers would obscure the unwind-vs-normal contract"
+)]
+pub(crate) fn compute_invoke_edge_dead_set(
+    func: &ArcFunction,
+    block_idx: usize,
+    state_map: &AimsStateMap,
+    pool: &Pool,
+    all_borrowed_defs: &FxHashSet<ArcVarId>,
+    take_move_facts: &super::take_project::TakeMoveFacts,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> Vec<(usize, usize, ArcVarId)> {
+    let mut edge_decs: Vec<(usize, usize, ArcVarId, RcStrategy)> = Vec::new();
     let blk = block_id(block_idx);
     let (ArcTerminator::Invoke {
         normal,
@@ -495,7 +603,7 @@ fn collect_invoke_edge_decs(
         ..
     }) = &func.blocks[block_idx].terminator
     else {
-        return;
+        return Vec::new();
     };
     let (normal, unwind) = (*normal, *unwind);
     // InvokeIndirect uses conservative default (Borrowed) for unannotated args,
@@ -687,6 +795,10 @@ fn collect_invoke_edge_decs(
             edge_decs.push((block_idx, unwind.index(), arg, strategy));
         }
     }
+    edge_decs
+        .into_iter()
+        .map(|(p, s, v, _)| (p, s, v))
+        .collect()
 }
 
 /// Check whether arg at position `i` has Owned ownership, respecting the

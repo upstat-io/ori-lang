@@ -13,18 +13,20 @@
 //! 2. Worklist over predecessor exits: for each non-entry block `b`,
 //!    `entry_net[b] = pred.entry_net + pred.delta` agreed across all
 //!    defined predecessors.
-//! 3. CFG-merge predecessor disagreement = imbalance (covers diamond
-//!    predecessor-disagreement case per §04A.4 ITEM-6).
+//! 3. CFG-merge predecessor disagreement = imbalance (covers the diamond
+//!    predecessor-disagreement case).
 //! 4. Terminal block `t` (`Return`/`Resume`/`Unreachable`) MUST have
 //!    `entry_net[t] + delta[t] == 0`.
 //!
-//! Full VF-1 (per-edge dataflow + SCC net-zero obligation per
-//! `aims-rules.md §9 VF-1`) is deferred to §10 of the
-//! `aims-burden-tracking` umbrella; this module ships the basic
-//! function-exit form that gates the §04A wiring + §04A.2 elim +
-//! §04A.3 coexistence cluster.
+//! Full VF-1 (per-edge dataflow + SCC net-zero obligation) is deferred to
+//! later verification work; this module ships the basic function-exit form
+//! that gates burden-op emission, elimination, and the coexistence handshake.
+//!
+//! Set `ORI_LOG=ori_arc::aims::verify::burden_balance=debug` to emit a
+//! per-block burden-delta breakdown for each imbalanced var (locates the
+//! surplus/deficit block for missing CFG-edge or dead-at-entry decs).
 
-use crate::aims::verify::burden_delta::compute_var_block_deltas;
+use crate::aims::verify::burden_delta::{compute_burden_entry_nets, compute_var_block_deltas};
 use crate::graph::compute_predecessors;
 use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
 use crate::verify::BurdenBalanceError;
@@ -59,110 +61,49 @@ pub(crate) fn verify_burden_balance(func: &ArcFunction) -> Vec<BurdenBalanceErro
         )]
         let var = ArcVarId::new(raw as u32);
         let delta = compute_var_block_deltas(func, var);
-        let Some(entry_net) = compute_entry_nets(func, &preds, var, &delta, &mut errors) else {
-            continue;
-        };
-        check_terminal_zero(func, var, &delta, &entry_net, &mut errors);
+        let errs_before = errors.len();
+        let nets = compute_burden_entry_nets(func, &preds, &delta);
+        // Merge disagreement is reported FIRST and suppresses the terminal-net
+        // check for this var (the function-exit net is undefined when a merge
+        // point already diverges) — matching the prior stop-at-first semantics.
+        if let Some(&(b, observed)) = nets.disagree_blocks.first() {
+            errors.push(BurdenBalanceError {
+                var,
+                expected_net: 0,
+                observed_net: observed,
+                exit_block: func.blocks[b].id,
+            });
+        } else {
+            check_terminal_zero(func, var, &delta, &nets.entry_net, &mut errors);
+        }
+        if errors.len() > errs_before {
+            trace_burden_imbalance(func, var, &delta);
+        }
     }
 
     errors
 }
 
-/// Forward dataflow on per-block net burden count for `var`. Mirrors the
-/// TRMC-scope counterpart `compute_burden_entry_nets` in
-/// `aims/normalize/verify.rs`, but reports imbalance via the shared
-/// [`BurdenBalanceError`] shape, scoped over the FULL function (not a
-/// TRMC region).
-fn compute_entry_nets(
-    func: &ArcFunction,
-    preds: &[Vec<usize>],
-    var: ArcVarId,
-    delta: &[i64],
-    errors: &mut Vec<BurdenBalanceError>,
-) -> Option<Vec<Option<i64>>> {
-    let n = func.blocks.len();
-    let mut entry_net: Vec<Option<i64>> = vec![None; n];
-    let entry_idx = func.entry.index();
-    if entry_idx < n {
-        entry_net[entry_idx] = Some(0);
+/// Emit a per-block burden-delta breakdown for a `var` whose balance check
+/// failed. Surfaces WHICH block carries the surplus/deficit so the missing
+/// CFG-edge dec (RL-4) or dead-at-entry dec (RL-5) is locatable without manual
+/// IR-dump correlation. Gated behind `ORI_LOG=ori_arc::aims::verify::burden_balance=debug`; zero-overhead when disabled.
+fn trace_burden_imbalance(func: &ArcFunction, var: ArcVarId, delta: &[i64]) {
+    if !tracing::enabled!(tracing::Level::DEBUG) {
+        return;
     }
-
-    let iter_cap = n.saturating_mul(4).max(16);
-    let mut changed = true;
-    let mut iterations: usize = 0;
-    let mut imbalance_recorded = false;
-
-    while changed && iterations < iter_cap {
-        changed = false;
-        iterations += 1;
-        for b in 0..n {
-            if b == entry_idx || preds[b].is_empty() {
-                continue;
-            }
-            match merge_pred_exits(preds, b, delta, &entry_net) {
-                MergeResult::Agreed(c) => {
-                    if entry_net[b] != Some(c) {
-                        entry_net[b] = Some(c);
-                        changed = true;
-                    }
-                }
-                MergeResult::Disagreed { observed } => {
-                    errors.push(BurdenBalanceError {
-                        var,
-                        expected_net: 0,
-                        observed_net: observed,
-                        exit_block: func.blocks[b].id,
-                    });
-                    imbalance_recorded = true;
-                    break;
-                }
-                MergeResult::Unreachable => {}
-            }
-        }
-        if imbalance_recorded {
-            break;
-        }
-    }
-
-    if imbalance_recorded {
-        None
-    } else {
-        Some(entry_net)
-    }
-}
-
-enum MergeResult {
-    Agreed(i64),
-    Disagreed { observed: i64 },
-    Unreachable,
-}
-
-/// Fold predecessor exit nets at merge point `b`. First defined predecessor
-/// seeds; every subsequent pred MUST match. Returns the agreed exit value,
-/// the divergent observed value, or `Unreachable` when no predecessor has a
-/// defined entry net yet.
-fn merge_pred_exits(
-    preds: &[Vec<usize>],
-    b: usize,
-    delta: &[i64],
-    entry_net: &[Option<i64>],
-) -> MergeResult {
-    let mut chosen: Option<i64> = None;
-    for &p in &preds[b] {
-        let Some(pe) = entry_net[p] else {
-            continue;
-        };
-        let p_exit = pe + delta[p];
-        match chosen {
-            None => chosen = Some(p_exit),
-            Some(c) if c == p_exit => {}
-            Some(_) => return MergeResult::Disagreed { observed: p_exit },
-        }
-    }
-    match chosen {
-        Some(c) => MergeResult::Agreed(c),
-        None => MergeResult::Unreachable,
-    }
+    let per_block: Vec<String> = delta
+        .iter()
+        .enumerate()
+        .filter(|(_, &d)| d != 0)
+        .map(|(b, &d)| format!("bb{b}:{d:+}"))
+        .collect();
+    tracing::debug!(
+        function = ?func.name,
+        var = var.index(),
+        per_block_delta = %per_block.join(" "),
+        "burden imbalance per-block delta (nonzero blocks)",
+    );
 }
 
 /// Every reachable terminal block (`Return` / `Resume` / `Unreachable`)

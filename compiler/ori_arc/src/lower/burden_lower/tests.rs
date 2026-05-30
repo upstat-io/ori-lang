@@ -37,7 +37,8 @@ fn func_with_n_vars(n: u32) -> ArcFunction {
 fn empty_function_collects_no_burdens() {
     let registry = TypeRegistry::new();
     let mut func = empty_func();
-    let ctx: BurdenLowerCtx<'_> = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx: BurdenLowerCtx<'_> =
+        emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     assert!(
         ctx.collected_burdens().is_empty(),
         "empty fn yields zero burden lookups",
@@ -68,7 +69,7 @@ fn construct_emits_one_transfer_point_per_owned_arg() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let tp_vars: Vec<ArcVarId> = ctx.transfer_points().iter().map(|(v, _)| *v).collect();
     assert_eq!(
         tp_vars,
@@ -104,7 +105,7 @@ fn apply_with_one_owned_arg_emits_one_transfer_point() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let tp_vars: Vec<ArcVarId> = ctx.transfer_points().iter().map(|(v, _)| *v).collect();
     assert_eq!(
         tp_vars,
@@ -139,7 +140,7 @@ fn set_emits_one_transfer_point_for_owned_value() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let tp_vars: Vec<ArcVarId> = ctx.transfer_points().iter().map(|(v, _)| *v).collect();
     assert_eq!(
         tp_vars,
@@ -179,7 +180,7 @@ fn borrowed_params_skipped_owned_params_collected() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let collected_vars: Vec<ArcVarId> = ctx.collected_burdens().iter().map(|(v, _)| *v).collect();
     assert_eq!(
         collected_vars,
@@ -222,7 +223,7 @@ fn construct_emits_burden_inc_immediately_before_consuming_construct() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     let inc_vars: Vec<ArcVarId> = body
         .iter()
@@ -294,7 +295,7 @@ fn apply_emits_burden_inc_immediately_before_consuming_apply() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     let inc_vars: Vec<ArcVarId> = body
         .iter()
@@ -376,7 +377,7 @@ fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     // Expected: BurdenInc(var(1)) before Set (TF-15 value carve-out), Set,
     // and possibly BurdenDec(var(0)) after (var(0) is `base` — non-transfer
     // last-use per RL-2; only Set `value` is in the ownership-transferring
@@ -448,7 +449,7 @@ fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value_per_03_4()
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
 
     // Pin 1: BurdenDecField(base=var(0), field=0) appears in body.
@@ -521,7 +522,7 @@ fn settag_emits_burden_dec_variant_before_settag_per_03_4_cycle_50b() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
 
     // Pin 1: BurdenDecVariant(var=var(0)) appears in body.
@@ -613,7 +614,7 @@ fn settag_emits_no_burden_dec_variant_when_base_not_in_owned_vars_per_03_4_cycle
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
 
     // Pin (negative, VF-1 RcOnScalar mirror): zero BurdenDecVariant emitted.
@@ -655,7 +656,7 @@ fn burden_dec_emitted_after_non_transfer_last_use() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     // Expected post-emission: [IsShared, BurdenDec(0)] — IsShared is NOT
     // owned-position so no BurdenInc; var(0) last use is here, non-
     // transfer, so BurdenDec emits after.
@@ -706,7 +707,7 @@ fn partial_apply_emits_burden_inc_for_captured_var() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     let inc_pos = body
         .iter()
@@ -757,7 +758,7 @@ fn collection_reuse_emits_burden_inc_for_owned_arg() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     let inc_pos_arg = body
         .iter()
@@ -816,7 +817,7 @@ fn apply_indirect_emits_burden_inc_for_owned_arg_not_closure() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     // Pin (positive): BurdenInc(arg=var(1)) emitted BEFORE ApplyIndirect.
     let body = &func.blocks[0].body;
     let inc_pos_arg = body
@@ -880,7 +881,7 @@ fn apply_mixed_owned_borrowed_args_emits_burden_inc_per_position() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     // Pin (positive): BurdenInc(args[0]=var(0)) emitted BEFORE Apply.
     let inc_pos_owned = body
@@ -940,7 +941,7 @@ fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     // §04A.5 ITEM-2: post-emission body is [BurdenInc(dst=2) [FRESH-site —
     // ApplyIndirect lowers to TF-5a CONSERVATIVE MaybeShared return],
     // ApplyIndirect]. The PER-ARG BurdenInc loop emits zero entries because
@@ -1010,7 +1011,7 @@ fn multi_block_last_use_pinned_per_block_pending_cross_block() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     // Pin: TWO last_use_points entries for var(0) — one per block. Per-block
     // walk identifies last use in EACH block separately (intra-block scope).
     let var0_entries: Vec<_> = ctx
@@ -1082,7 +1083,7 @@ fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     // §04A.5 ITEM-2: BurdenInc(dst=3) [FRESH-site, TF-3] precedes the per-arg
     // BurdenIncs (cycle 20 pinned the per-arg ordering); all Incs precede
@@ -1155,7 +1156,7 @@ fn scalar_int_var_emits_no_burden_dec_at_last_use() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     let any_burden_dec = body.iter().any(|i| matches!(i, ArcInstr::BurdenDec { .. }));
     assert!(
@@ -1207,7 +1208,7 @@ fn heap_burden_borrowed_param_skipped_at_ownership_filter() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     // Pin: var(1) STR/Borrowed MUST be absent from collected_burdens.
     let var1_collected = ctx
         .collected_burdens()
@@ -1278,7 +1279,7 @@ fn apply_three_args_with_non_adjacent_owned_positions_emits_burden_inc_per_owned
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     let inc_vars: Vec<ArcVarId> = body
         .iter()
@@ -1350,7 +1351,7 @@ fn partial_apply_mixed_str_int_emits_burden_inc_only_for_heap_burden() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     let inc_str_pos = body
         .iter()
@@ -1407,7 +1408,7 @@ fn apply_indirect_scalar_owned_arg_emits_no_burden_inc() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     // §04A.5 ITEM-2: ApplyIndirect dst=2 is STR (heap) → FRESH-site
     // BurdenInc(dst=2) emits per TF-5a CONSERVATIVE MaybeShared return.
     // The per-arg loop still emits ZERO Incs for var(1)=Idx::INT (cycle-24
@@ -1468,7 +1469,7 @@ fn set_scalar_value_emits_no_burden_inc_via_tf_15_carve_out_filter() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     // Pin (negative, VF-1 mirror on Set carve-out): zero BurdenInc emitted.
     let any_burden_inc = body.iter().any(|i| matches!(i, ArcInstr::BurdenInc { .. }));
@@ -1524,7 +1525,7 @@ fn construct_multi_arg_mixed_types_emits_burden_inc_for_heap_burden_args_only() 
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     let inc_vars: Vec<ArcVarId> = body
         .iter()
@@ -1580,7 +1581,7 @@ fn apply_all_borrowed_args_emits_zero_burden_inc() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     // §04A.5 ITEM-2: per-arg loop still emits ZERO Incs (both args Borrowed).
     // FRESH-site BurdenInc(dst=2) emits because dst=STR is heap and Apply
@@ -1629,7 +1630,7 @@ fn partial_apply_empty_args_emits_zero_burden_inc() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     // §04A.5 ITEM-2: per-arg loop emits zero Incs (args=[] → no positions).
     // FRESH-site BurdenInc(dst=0) emits because PartialApply dst is heap
@@ -1677,7 +1678,7 @@ fn construct_empty_args_emits_zero_burden_inc() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     // §04A.5 ITEM-2: per-arg loop emits zero Incs (args=[] → no positions).
     // FRESH-site BurdenInc(dst=0) emits because Construct dst is heap per
@@ -1727,7 +1728,7 @@ fn last_use_detected_at_single_block_use_position() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     assert_eq!(
         ctx.last_use_points(),
         &[(ArcVarId::new(0), 0, 0)],
@@ -1741,7 +1742,7 @@ fn iteration_produces_one_entry_per_var_type() {
     // todo!() — collected_burdens length must match var_types length.
     let registry = TypeRegistry::new();
     let mut func = func_with_n_vars(3);
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     assert_eq!(
         ctx.collected_burdens().len(),
         3,
@@ -1791,7 +1792,7 @@ fn return_str_owned_value_used_in_prior_instr_suppresses_burden_dec_per_rl2() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     // Pin 1: NO BurdenInc on var(0) — IsShared is not owned-position; Return
     // is a transfer (not a BurdenInc site per §03.3 first rule).
@@ -1834,7 +1835,7 @@ fn moved_out_fields_is_empty_when_no_project_per_cycle_42_no_project_negative() 
     // structure-existence. Preserves cycle-40 skeleton intent post-population.
     let registry = TypeRegistry::new();
     let mut func = func_with_n_vars(2);
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     assert!(
         ctx.moved_out_fields().is_empty(),
         "moved_out_fields MUST remain empty when function has zero Project instructions (Pass 1 yields empty project_origins); got {:?}",
@@ -1876,7 +1877,7 @@ fn project_then_construct_arg_sets_moved_out_fields_bit_per_03_4_two_stage_posit
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let fields = ctx
         .moved_out_fields()
         .get(&ArcVarId::new(0))
@@ -1927,7 +1928,7 @@ fn project_then_set_value_sets_moved_out_fields_bit_per_03_4_tf15_carve_out_posi
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let fields = ctx
         .moved_out_fields()
         .get(&ArcVarId::new(0))
@@ -1966,7 +1967,7 @@ fn project_alone_leaves_moved_out_fields_unset_per_03_4_two_stage_negative() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     assert!(
         ctx.moved_out_fields().is_empty(),
         "moved_out_fields MUST remain empty when Project has no transfer-point consumer (TF-4 Borrowed; two-stage rule's stage-2 not fired); got {:?}",
@@ -2009,7 +2010,7 @@ fn project_consumed_at_is_shared_leaves_moved_out_fields_unset_per_03_4_borrowed
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     assert!(
         ctx.moved_out_fields().is_empty(),
         "moved_out_fields MUST remain empty when Project dst is consumed at borrowed position (IsShared; TF-10 SCALAR result; is_owned_position _ => false); got {:?}",
@@ -2069,7 +2070,7 @@ fn jump_arg_to_borrowed_target_block_param_emits_burden_dec_at_terminator_per_rl
         DerivedOwnership::Owned,
         DerivedOwnership::BorrowedFrom(ArcVarId::new(0)),
     ];
-    let _ctx = emit_burden_ops(&mut func, &registry, &derived, &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &derived, &[], &FxHashMap::default());
     let body_0 = &func.blocks[0].body;
     // Pin: BurdenDec(0) IS emitted at terminator-position — Jump-to-
     // Borrowed-block-param is NOT a transfer per RL-2, so var(0)'s
@@ -2140,7 +2141,7 @@ fn invoke_scalar_int_arg_at_owned_position_emits_no_burden_ops_per_vf1_rconscala
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body_0 = &func.blocks[0].body;
     assert!(
         body_0.is_empty(),
@@ -2205,7 +2206,7 @@ fn invoke_indirect_owned_args_at_pos_one_emits_symmetric_burden_dec_for_vf1_bala
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body_0 = &func.blocks[0].body;
     // §04A.5 ITEM-3 — Pin: BurdenDec on var(1) MUST appear, paired with the
     // BurdenInc to preserve VF-1 intraprocedural balance per `aims-rules.md
@@ -2293,7 +2294,7 @@ fn invoke_arg_at_owned_position_emits_symmetric_burden_dec_at_terminator_for_vf1
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body_0 = &func.blocks[0].body;
     // §04A.5 ITEM-3 — Pin: BurdenDec on var(0) MUST appear, paired with the
     // terminator-position BurdenInc to preserve VF-1 intraprocedural net-zero.
@@ -2369,7 +2370,7 @@ fn jump_arg_to_owned_target_block_param_emits_symmetric_burden_dec_at_terminator
         ..ArcFunction::default()
     };
     let derived = vec![DerivedOwnership::Owned, DerivedOwnership::Owned];
-    let _ctx = emit_burden_ops(&mut func, &registry, &derived, &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &derived, &[], &FxHashMap::default());
     let body_0 = &func.blocks[0].body;
     // §04A.5 ITEM-3 — Pin 1: BurdenDec on var(0) MUST appear at terminator,
     // paired with the BurdenInc to preserve VF-1 intraprocedural balance.
@@ -2439,7 +2440,7 @@ fn return_scalar_int_value_emits_zero_burden_ops_per_vf1_rconscalar() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     assert!(
         body.is_empty(),
@@ -2505,7 +2506,7 @@ fn partial_move_at_last_use_emits_burden_dec_partial_per_03_4_cycle_46() {
         ..ArcFunction::default()
     };
 
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
 
     let partial_decs: Vec<&ArcInstr> = body
@@ -2638,7 +2639,7 @@ fn match_destructuring_partial_move_at_last_use_emits_burden_dec_partial() {
         ..ArcFunction::default()
     };
 
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
 
     // BurdenDecPartial emission MUST land inside block 1 (the arm body that
     // contains var(0)'s last use); inspect that block's body specifically so
@@ -2832,7 +2833,7 @@ fn match_branches_with_symmetric_partial_move_intersect_emits_burden_dec_partial
         ..ArcFunction::default()
     };
 
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
 
     // BurdenDecPartial fires at var(0)'s last use, which lives in block 3
     // (the merge block). Pin the count + skip_fields against the INTERSECT
@@ -2988,7 +2989,7 @@ fn loop_back_edge_partial_move_intersect_with_entry_emits_burden_dec_partial() {
         ..ArcFunction::default()
     };
 
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
 
     // BurdenDecPartial fires at var(0)'s last use in block 2. Fixpoint
     // soundness: the move from block 0 propagates through the loop header
@@ -3190,7 +3191,7 @@ fn nested_match_with_inner_diamond_partial_move_emits_burden_dec_partial() {
         ..ArcFunction::default()
     };
 
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
 
     let merge_body = &func.blocks[5].body;
     let partial_decs: Vec<&ArcInstr> = merge_body
@@ -3311,7 +3312,7 @@ fn closure_capture_by_value_of_owned_str_emits_burden_inc_at_partial_apply() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
 
     let body = &func.blocks[0].body;
     let inc_pos = body
@@ -3497,7 +3498,7 @@ fn nested_closure_emits_recursive_burden_inc_through_outer_env() {
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
 
     let body = &func.blocks[0].body;
     let inc_pos = body
@@ -3640,7 +3641,7 @@ fn partial_apply_owned_capture_passed_to_owned_callee_emits_zero_net_burden_per_
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    let _ctx = emit_burden_ops(&mut func, &registry, &[], &FxHashMap::default());
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
 
     let body = &func.blocks[0].body;
     let inc_count = body
