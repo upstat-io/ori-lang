@@ -312,12 +312,24 @@ fn collect_branch_edge_decs(
         // alias sibling (e.g., `%19 = %5` Let alias) would
         // double-free the shared underlying value.
         if take_move_facts.is_in_class(var) {
+            tracing::debug!(
+                target: "ori_arc::aims::realize::edge_cleanup",
+                func = ?func.name, var = var.raw(), block = block_idx,
+                reason = "in-take-move-class",
+                "RL-4 branch-edge-dec SUPPRESSED"
+            );
             continue;
         }
         // Skip variables that are only defined downstream (in a successor
         // block). These come from project-source demand propagation at
         // merge points and don't actually exist at this block's exit.
         if !defined_at_or_before.contains(&var) {
+            tracing::debug!(
+                target: "ori_arc::aims::realize::edge_cleanup",
+                func = ?func.name, var = var.raw(), block = block_idx,
+                reason = "not-defined-at-or-before",
+                "RL-4 branch-edge-dec SUPPRESSED"
+            );
             continue;
         }
         for succ_id in successors {
@@ -337,6 +349,13 @@ fn collect_branch_edge_decs(
                     // whose dst aliases it.
                     let is_unwind_succ = is_unwind_succ_block(func, succ_id.index());
                     if should_suppress_apply_aliased_dec(state_map, var, is_unwind_succ) {
+                        tracing::debug!(
+                            target: "ori_arc::aims::realize::edge_cleanup",
+                            func = ?func.name, var = var.raw(),
+                            block = block_idx, succ = succ_id.index(),
+                            reason = "apply-aliased-dst",
+                            "RL-4 branch-edge-dec SUPPRESSED"
+                        );
                         continue;
                     }
                     // BUG-04-104 PIN-4 + PIN-5: class-aware skip + per-edge
@@ -353,11 +372,34 @@ fn collect_branch_edge_decs(
                             // else y`) must NOT suppress — each alternative needs
                             // its own edge dec on the branch where it dies
                             // (RL-4 P1 + §10 under-elimination per-path-net-0).
-                            if members.iter().any(|&m| {
-                                same_alloc(same_alloc_reps, m, var)
+                            // BUG-04-123 sibling (project-merge): a same-alloc
+                            // member `m` may only carry `var`'s drop across the
+                            // THIS-block→succ edge if it actually EXISTS at this
+                            // block (defined-at-or-before `block_idx`, mirroring
+                            // the `var` guard above). A member defined only on a
+                            // SIBLING branch (e.g. `%15 = %p2` in the else arm)
+                            // is reported `Once`-live at the then-successor entry
+                            // by `var_state_at_block_entry` (backward alias-demand
+                            // bleed) but is NOT reachable on this edge — counting
+                            // it phantom-suppresses the not-taken parent's edge
+                            // dec → leak (`04B.2-under-elim` per-path-net-0).
+                            if let Some(&m_live) = members.iter().find(|&&m| {
+                                defined_at_or_before.contains(&m)
+                                    && same_alloc(same_alloc_reps, m, var)
                                     && state_map.var_state_at_block_entry(*succ_id, m).cardinality
                                         != Cardinality::Absent
                             }) {
+                                tracing::debug!(
+                                    target: "ori_arc::aims::realize::edge_cleanup",
+                                    func = ?func.name, var = var.raw(),
+                                    block = block_idx, succ = succ_id.index(),
+                                    member = m_live.raw(),
+                                    member_card = ?state_map
+                                        .var_state_at_block_entry(*succ_id, m_live)
+                                        .cardinality,
+                                    reason = "pin4-same-alloc-member-live",
+                                    "RL-4 branch-edge-dec SUPPRESSED"
+                                );
                                 continue;
                             }
                         }
