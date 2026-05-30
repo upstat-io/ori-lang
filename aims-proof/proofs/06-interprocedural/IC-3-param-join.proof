@@ -419,7 +419,7 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
       causing missing RcInc emission at call sites where the
       callee will RcDec. Result: double-free or use-after-free
       at runtime — exactly the AIMS Invariant 1 ("Contracts and
-      realization must agree" per CLAUDE.md §AIMS) violation.
+      realization must agree" per Annex E §AIMS §2) violation.
 
       L-6 monotonicity is therefore load-bearing for the
       entire interprocedural RC discipline; (P9) is not a
@@ -435,8 +435,8 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
       equivalent compilation runs (same program, different
       compiler-internal call-graph traversal order) produce
       DIFFERENT ParamContracts — the contract is no longer a
-      function of the program. CLAUDE.md §Salsa & Caching
-      "deterministic (no random/time/IO)" is violated; Salsa's
+      function of the program. The deterministic query contract
+      ("deterministic — no random/time/IO") is violated; the
       memoization correctness contract is broken.
 
       Commutativity (P7) is therefore load-bearing for
@@ -553,4 +553,4 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
 
   Expected:
     status: valid
-    reason: section_06 interprocedural_summary engine discharges IC-3 via nine-conjunct verification ((P1) Access max + (P2) Consumption max + (P3) Cardinality max + (P4) Locality max + (P5) Uniqueness max + (P6) may_share OR + (P7) commutativity + (P8) associativity + (P9) monotonicity) over a 13-test corpus covering per-dim advance / bottom-identity / top-absorption / SCC-multi-iteration / canonicalization-interaction cases; lattice-property soundness inherited from Birkhoff 1967 (product lattice of totally-ordered chains under max) + Cousot/Cousot 1977 (interprocedural summary via SCC-topological monotone iteration); shipped engine `ParamContract::join` at compiler/ori_arc/src/aims/contract/mod.rs lines 390-412 emits componentwise max + OR in O(1) per invocation, deterministically across all targets per CLAUDE.md §Salsa deterministic query contract; target-vs-shipped axis carve-out (`may_escape || may_escape`, IC-4 return-flow OR-joins + ReturnAliasShape::join) preserves spec conformance on the 5 lattice dims + may_share enumerated in Annex E §AIMS IC-3
+    reason: section_06 interprocedural_summary engine discharges IC-3 via nine-conjunct verification ((P1) Access max + (P2) Consumption max + (P3) Cardinality max + (P4) Locality max + (P5) Uniqueness max + (P6) may_share OR + (P7) commutativity + (P8) associativity + (P9) monotonicity) over a 13-test corpus covering per-dim advance / bottom-identity / top-absorption / SCC-multi-iteration / canonicalization-interaction cases; lattice-property soundness inherited from Birkhoff 1967 (product lattice of totally-ordered chains under max) + Cousot/Cousot 1977 (interprocedural summary via SCC-topological monotone iteration); shipped engine `ParamContract::join` at compiler/ori_arc/src/aims/contract/mod.rs lines 390-412 emits componentwise max + OR in O(1) per invocation, deterministically across all targets (deterministic query contract); target-vs-shipped axis carve-out (`may_escape || may_escape`, IC-4 return-flow OR-joins + ReturnAliasShape::join) preserves spec conformance on the 5 lattice dims + may_share enumerated in Annex E §AIMS IC-3

@@ -27,8 +27,8 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
     - project_alias_sources shipped surface per Annex E §AIMS.9
       partial-shipment envelope: rules R1, R2, R3, R4, R6 shipped; R5
       (Select) and R7 (Set/SetTag mutation tracking) target-only. The
-      proof discharges across the FULL 7-rule envelope per sec-05.2
-      success criterion + routing.md sec-2 zero-deferral.
+      proof discharges across the FULL 7-rule envelope, including the
+      target-only rules (no deferral of target-only obligations).
 
   Soundness property:
     Forall (s, var, field, point, instruction_kind).
@@ -133,11 +133,11 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
         R3 (Jump-arg block-param) — SHIPPED
         R4 (CFG merge union) — SHIPPED
         R5 (Select aliases) — TARGET-ONLY (this proof discharges
-                                       at sec-05.2 per routing.md sec-2
-                                       zero-deferral)
+                                       the target-only obligation; no
+                                       deferral)
         R6 (Transitive nested-Project) — SHIPPED
         R7 (Set/SetTag preserves prior sources) — TARGET-ONLY (this
-                                       proof discharges at sec-05.2)
+                                       proof discharges the obligation)
 
       project_alias_sources envelope summary:
         shipped: R1, R2, R3, R4, R6

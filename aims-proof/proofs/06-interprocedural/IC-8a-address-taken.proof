@@ -415,7 +415,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       immediately for such functions per IC-7's convergence
       bound (proven separately).
 
-      Per CLAUDE.md sec-AIMS Invariant 1 ("contracts and
+      Per Annex E §AIMS §2 invariant 1 ("contracts and
       realization must agree"), the CONSERVATIVE-seed
       preservation is the soundness floor: downstream
       consumers (Step 5 emission, RL-29 / RL-30 LLVM fact-
@@ -518,7 +518,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       immediately-invoked closure with a single scalar
       argument.
 
-      Per CLAUDE.md sec-AIMS Mission ("RC rare, not RC fast"):
+      Per Annex E §AIMS §1 ("RC rare, not RC fast"):
       this is a precision regression. The enumerable closure's
       single call site has sufficient evidence to prove tight
       contracts via IC-2 + IC-3; the CONSERVATIVE seed
@@ -551,7 +551,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       callers may pass owned values with multiple uses; the
       contract under-approximates observable demands.
 
-      Per CLAUDE.md sec-AIMS Invariant 1 ("contracts and
+      Per Annex E §AIMS §2 invariant 1 ("contracts and
       realization must agree"), this is a soundness failure:
       external callers passing Owned arguments with Many
       cardinality would mismatch the function's Borrowed +
@@ -571,8 +571,8 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
         a non-enumerable function as enumerable) are
         soundness failures; false positives (treating an
         enumerable function as non-enumerable) are precision
-        regressions but sound. Per CLAUDE.md sec-AIMS
-        Invariant 5 ("the unified model must stay unified"),
+        regressions but sound. Per Annex E §AIMS §2
+        invariant 5 ("the unified model must stay unified"),
         the classification feeds the lattice-driven analysis
         as a typed pre-pass input on `AimsStateMap` (similar
         to immortal detection per arc.md §AIMS); no separate
@@ -595,7 +595,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
         receives exactly one classification. IC-2's
         OPTIMISTIC seeding and IC-8a's CONSERVATIVE seeding
         are mutually exclusive — no function receives both.
-        Per CLAUDE.md sec-AIMS Invariant 5, the binary
+        Per Annex E §AIMS §2 invariant 5, the binary
         classification preserves the unified-model invariant;
         no shadow seeding mechanism bypasses the lattice
         join.
@@ -791,7 +791,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       unique references (which the runtime IsShared check
       would have detected under MaybeShared).
 
-      Per CLAUDE.md sec-AIMS Mission ("RC rare, not RC fast"):
+      Per Annex E §AIMS §1 ("RC rare, not RC fast"):
       this is a precision regression. The MaybeShared seed
       (per the IC-8a spec rule line) is the maximally-precise
       sound seed — Shared is sound but unnecessarily
@@ -1000,4 +1000,4 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
 
   Expected:
     status: valid
-    reason: section_06 fixpoint engine discharges IC-8a via five-conjunct verification ((P1) per-parameter CONSERVATIVE initialization for non-enumerable functions + (P2) lattice TOP correspondence across 5 of 6 dimensions (access, consumption, cardinality, locality, may_share at exact TOP per sec-1 chains; uniqueness deviation per P3) + (P3) uniqueness = MaybeShared (NOT Shared) rationale via DP-4 runtime IsShared check + DP-9 unconditional-copy avoidance + L-6 monotone advance to Shared on observed evidence + (P4) monotone preservation through SCC fixpoint via L-6 `a ⊔ TOP = TOP` idempotence + (P5) closure / enumerable carve-out via binary address-taken classification + IC-2 OPTIMISTIC seeding for enumerable case) over an 18-test corpus covering capture / higher-order-arg / public-API / trait-object classification triggers / per-parameter uniformity / per-dimension TOP correspondence / MaybeShared-rationale / TOP-preservation under join / zero-call-site preservation / closure carve-out / single-use carve-out / mixed-SCC handling cases; conservative-seeding soundness inherited from Cousot/Cousot 1977 (interprocedural summary with context-insensitive widening at non-enumerable boundaries) + Reynolds 1998 (function-value-flow analysis for higher-order programs) + Tarski 1955 (least-fixpoint theorem with lattice-TOP starting point) + FP² (Lorenzen et al. ICFP 2023 Section 6 Theorem 5); shipped engine `is_address_taken` classification + `ParamContract::CONSERVATIVE` constant + IC-8a seeding applied at SCC fixpoint initialization in compiler/ori_arc/src/aims/interprocedural/mod.rs implement the binary classification + CONSERVATIVE seed initialization in O(N) per classification + O(n) per seed initialization, deterministically across all targets per CLAUDE.md §Salsa deterministic query contract; uniqueness = MaybeShared (NOT Shared) deviation from strict lattice TOP is intentional per spec sec-5 IC-8a rule line — preserves DP-4 runtime IsShared optimization opportunity while remaining sound for all non-enumerable cases; closure carve-out preserves precision for immediately-invoked / single-use closures via IC-2 OPTIMISTIC seeding; binary classification (enumerable XOR non-enumerable) enforces mutual exclusion between IC-2 and IC-8a seed application sites; per CLAUDE.md §AIMS Invariant 5 ("the unified model must stay unified") the address-taken classification feeds the lattice-driven analysis as a typed pre-pass input on AimsStateMap, NOT a separate shadow analysis
+    reason: section_06 fixpoint engine discharges IC-8a via five-conjunct verification ((P1) per-parameter CONSERVATIVE initialization for non-enumerable functions + (P2) lattice TOP correspondence across 5 of 6 dimensions (access, consumption, cardinality, locality, may_share at exact TOP per sec-1 chains; uniqueness deviation per P3) + (P3) uniqueness = MaybeShared (NOT Shared) rationale via DP-4 runtime IsShared check + DP-9 unconditional-copy avoidance + L-6 monotone advance to Shared on observed evidence + (P4) monotone preservation through SCC fixpoint via L-6 `a ⊔ TOP = TOP` idempotence + (P5) closure / enumerable carve-out via binary address-taken classification + IC-2 OPTIMISTIC seeding for enumerable case) over an 18-test corpus covering capture / higher-order-arg / public-API / trait-object classification triggers / per-parameter uniformity / per-dimension TOP correspondence / MaybeShared-rationale / TOP-preservation under join / zero-call-site preservation / closure carve-out / single-use carve-out / mixed-SCC handling cases; conservative-seeding soundness inherited from Cousot/Cousot 1977 (interprocedural summary with context-insensitive widening at non-enumerable boundaries) + Reynolds 1998 (function-value-flow analysis for higher-order programs) + Tarski 1955 (least-fixpoint theorem with lattice-TOP starting point) + FP² (Lorenzen et al. ICFP 2023 Section 6 Theorem 5); shipped engine `is_address_taken` classification + `ParamContract::CONSERVATIVE` constant + IC-8a seeding applied at SCC fixpoint initialization in compiler/ori_arc/src/aims/interprocedural/mod.rs implement the binary classification + CONSERVATIVE seed initialization in O(N) per classification + O(n) per seed initialization, deterministically across all targets (deterministic query contract); uniqueness = MaybeShared (NOT Shared) deviation from strict lattice TOP is intentional per spec sec-5 IC-8a rule line — preserves DP-4 runtime IsShared optimization opportunity while remaining sound for all non-enumerable cases; closure carve-out preserves precision for immediately-invoked / single-use closures via IC-2 OPTIMISTIC seeding; binary classification (enumerable XOR non-enumerable) enforces mutual exclusion between IC-2 and IC-8a seed application sites; per Annex E §AIMS §2 invariant 5 ("the unified model must stay unified") the address-taken classification feeds the lattice-driven analysis as a typed pre-pass input on AimsStateMap, NOT a separate shadow analysis

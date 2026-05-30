@@ -11,7 +11,7 @@ Theorem RL-18a: Locality as the escape SSOT; parallel-escape-enum ban
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.
     - This rule enforces AIMS Invariant 5 (the unified model stays unified)
-      per canon.md sec-7.1 + CLAUDE.md sec-AIMS: new capabilities extend a
+      per Annex E §AIMS §2: new capabilities extend a
       lattice dimension, never spawn a parallel escape enum.
     - Consumers of Locality as escape SSOT: RL-14..RL-16 (stack promotion),
       RL-15a (caller-stack), RL-17 (sharing bound via is_local), RL-19..RL-21

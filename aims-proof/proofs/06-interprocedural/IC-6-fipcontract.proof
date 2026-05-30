@@ -140,7 +140,7 @@ Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
         bi-implication is the load-bearing soundness contract
         per Annex E §AIMS VF-6 ("contracts and realization
         must agree") + sec-7 PL-5 ("no pass relies on stale
-        summaries") + CLAUDE.md sec-AIMS Invariant 1 ("contracts
+        summaries") + Annex E §AIMS §2 invariant 1 ("contracts
         and realization must agree").
 
       (P6) Timing POST-REALIZATION (Step 5a):
@@ -370,7 +370,7 @@ Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
       (second-pass batch wrap).
 
       Per Annex E §AIMS VF-6 ("contracts and
-      realization must agree") + CLAUDE.md sec-AIMS Invariant
+      realization must agree") + Annex E §AIMS §2 invariant
       1, the IFF is non-negotiable: a `Certified` contract
       with realized IR carrying unmatched alloc / dealloc is
       a soundness regression. The verification pass at
@@ -430,7 +430,7 @@ Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
       computed at Step 5a, AFTER the Step 1 fixpoint has
       converged on the other contract fields.
 
-      Per CLAUDE.md sec-AIMS Invariant 3 ("no pass relies on
+      Per Annex E §AIMS §2 invariant 3 ("no pass relies on
       stale summaries") + sec-7 PL-5 ("no pass shall rely on
       stale summaries"), the Step-1 provisional FipContract
       seed MUST be overwritten by Step 5a before any
@@ -675,7 +675,7 @@ Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
         3. The cascade reaches Step 5a for the entire SCC,
            where every Certified claim downgrades.
 
-      Per CLAUDE.md sec-AIMS Invariant 1 ("contracts and
+      Per Annex E §AIMS §2 invariant 1 ("contracts and
       realization must agree") + sec-7 PL-5 ("no pass relies
       on stale summaries"), the Step-1 provisional Certified
       claim is sound ONLY if Step 5a is the authoritative
@@ -911,4 +911,4 @@ Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
 
   Expected:
     status: valid
-    reason: section_06 fixpoint engine discharges IC-6 via six-conjunct verification ((P1) Never-absorbs-all + (P2) Conditional-absorbs-Bounded/Certified + (P3) Bounded budget max-join + (P4) Bounded-wins-over-Certified + (P5) Certified IFF zero unmatched alloc / dealloc in realized IR + (P6) POST-REALIZATION timing at Step 5a per PL-1a SCC topological ordering with IC-7 exclusion) over a 21-test corpus covering Never-absorption / Conditional-absorption / Bounded-max-join / Bounded-Certified-fall-through / Certified-IFF-positive / Certified-downgrade-on-unmatched-alloc / Certified-downgrade-on-unmatched-dealloc / Step-5a-after-Step-5 / SCC-topological-callees-before-callers / IC-7-exclusion / three-way-associativity cases; FIP / FBIP soundness inherited from Perceus (Reinking et al. PLDI 2021 Section 5) + FP² (Lorenzen et al. ICFP 2023 Theorem 1 + Theorem 3) + Birkhoff 1967 (sum-type lattice with absorption); shipped engine `FipContract::join` at compiler/ori_arc/src/aims/contract/mod.rs lines 418-444 + `verify_fip_contract` at compiler/ori_arc/src/aims/verify/fip.rs lines 75-200 implement the 4-tier absorption table + realization-time IFF verification in O(1) per join lookup + O(N + M) per verification pass, deterministically across all targets per CLAUDE.md §Salsa deterministic query contract; Step-1 / Step-5a timing separation is load-bearing for AIMS Invariant 1 ("contracts and realization must agree") + AIMS Invariant 3 ("no pass relies on stale summaries") + sec-7 PL-5 + sec-9 VF-6; IC-6 is excluded from the IC-7 iteration bound formula per sec-5 IC-7 ("FipContract excluded (post-realization)") preserving AIMS pipeline acyclicity
+    reason: section_06 fixpoint engine discharges IC-6 via six-conjunct verification ((P1) Never-absorbs-all + (P2) Conditional-absorbs-Bounded/Certified + (P3) Bounded budget max-join + (P4) Bounded-wins-over-Certified + (P5) Certified IFF zero unmatched alloc / dealloc in realized IR + (P6) POST-REALIZATION timing at Step 5a per PL-1a SCC topological ordering with IC-7 exclusion) over a 21-test corpus covering Never-absorption / Conditional-absorption / Bounded-max-join / Bounded-Certified-fall-through / Certified-IFF-positive / Certified-downgrade-on-unmatched-alloc / Certified-downgrade-on-unmatched-dealloc / Step-5a-after-Step-5 / SCC-topological-callees-before-callers / IC-7-exclusion / three-way-associativity cases; FIP / FBIP soundness inherited from Perceus (Reinking et al. PLDI 2021 Section 5) + FP² (Lorenzen et al. ICFP 2023 Theorem 1 + Theorem 3) + Birkhoff 1967 (sum-type lattice with absorption); shipped engine `FipContract::join` at compiler/ori_arc/src/aims/contract/mod.rs lines 418-444 + `verify_fip_contract` at compiler/ori_arc/src/aims/verify/fip.rs lines 75-200 implement the 4-tier absorption table + realization-time IFF verification in O(1) per join lookup + O(N + M) per verification pass, deterministically across all targets (deterministic query contract); Step-1 / Step-5a timing separation is load-bearing for AIMS Invariant 1 ("contracts and realization must agree") + AIMS Invariant 3 ("no pass relies on stale summaries") + sec-7 PL-5 + sec-9 VF-6; IC-6 is excluded from the IC-7 iteration bound formula per sec-5 IC-7 ("FipContract excluded (post-realization)") preserving AIMS pipeline acyclicity

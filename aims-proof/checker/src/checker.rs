@@ -22,10 +22,8 @@
 //! - Aggregate per-theorem and across-theorems per the §00 PASS-gate
 //! verdict enum (Valid / Fail / UnimplementedEngineShape).
 //! - On `unimplemented_engine_shape`: emit
-//! `proof_checker_scope_inadequate` exit_reason per §00 FAIL-branch
-//! enum; fire `STRUCTURE:concession-loophole` reviewer flag unless a
-//! matching concession entry exists in
-//! the proof-checker design sec-Concession-entries.
+//! `proof_checker_scope_inadequate` exit_reason; flag a
+//! concession-loophole unless a matching concession entry exists.
 //! - Compose multi-engine proofs (e.g., sec11 CH proofs invoke
 //! structural_induction + interprocedural_summary + case_analysis +
 //! lattice) via the dispatch loop; engines stateless w.r.t. one

@@ -415,9 +415,8 @@ Theorem IC-2: ParamContract initialization at most-optimistic state
                            emission
       determinism: deterministic; the `OPTIMISTIC` const is
                            compile-time-fixed across all targets
-                           and all compilation sessions per
-                           CLAUDE.md §Salsa & Caching deterministic
-                           query contract
+                           and all compilation sessions (deterministic
+                           query contract)
       reference impl: `ParamContract::OPTIMISTIC` const at
                            compiler/ori_arc/src/aims/
                            contract/mod.rs lines 368-386; consumed
@@ -451,4 +450,4 @@ Theorem IC-2: ParamContract initialization at most-optimistic state
 
   Expected:
     status: valid
-    reason: section_06 interprocedural_summary engine discharges IC-2 via six-conjunct verification ((P1) Borrowed access + (P2) Dead consumption + (P3) Absent cardinality + (P4) BlockLocal locality + (P5) Unique uniqueness + (P6) may_share=false) plus three cascading soundness properties ((S1) product-lattice bottom + (S2) monotone promotion + (S3) Tarski least-fixpoint reachability) over an 8-test corpus covering zero-param / single-dim-promotion / multi-dim-promotion / recursive-SCC / mutual-recursion cases; algorithm soundness inherited from Birkhoff 1967 Theorem II.6 (product lattice minimum) + Tarski 1955 (least-fixpoint of monotone function); shipped engine `ParamContract::OPTIMISTIC` const at compiler/ori_arc/src/aims/contract/mod.rs lines 368-386 emits the seed in O(1) per parameter, deterministically across all targets per CLAUDE.md §Salsa deterministic query contract; target-vs-shipped axis carve-out (`may_escape` legacy field initialized false, IC-4 return-flow fields initialized to None/false) preserves spec conformance on the 5 dims + may_share enumerated in Annex E §AIMS IC-2
+    reason: section_06 interprocedural_summary engine discharges IC-2 via six-conjunct verification ((P1) Borrowed access + (P2) Dead consumption + (P3) Absent cardinality + (P4) BlockLocal locality + (P5) Unique uniqueness + (P6) may_share=false) plus three cascading soundness properties ((S1) product-lattice bottom + (S2) monotone promotion + (S3) Tarski least-fixpoint reachability) over an 8-test corpus covering zero-param / single-dim-promotion / multi-dim-promotion / recursive-SCC / mutual-recursion cases; algorithm soundness inherited from Birkhoff 1967 Theorem II.6 (product lattice minimum) + Tarski 1955 (least-fixpoint of monotone function); shipped engine `ParamContract::OPTIMISTIC` const at compiler/ori_arc/src/aims/contract/mod.rs lines 368-386 emits the seed in O(1) per parameter, deterministically across all targets (deterministic query contract); target-vs-shipped axis carve-out (`may_escape` legacy field initialized false, IC-4 return-flow fields initialized to None/false) preserves spec conformance on the 5 dims + may_share enumerated in Annex E §AIMS IC-2

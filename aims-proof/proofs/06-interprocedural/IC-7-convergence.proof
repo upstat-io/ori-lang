@@ -371,8 +371,8 @@ Theorem IC-7: Convergence iteration limit soundness
 
       Per the diagnostic emission requirement, the user (or CI
       pipeline) is notified of the convergence failure so they
-      can file a bug (per CLAUDE.md sec-Bug Handling: discovery
-      IS the assignment). The diagnostic surfaces the
+      can file a bug (discovery IS the assignment). The
+      diagnostic surfaces the
       convergence anomaly for investigation, preventing the
       bug from silently degrading optimization quality.
 
@@ -396,10 +396,9 @@ Theorem IC-7: Convergence iteration limit soundness
       on iteration count; the recovery path is tracked
       separately. When wired, the recovery applies CONSERVATIVE
       values across all dimensions per the spec rule, and the
-      diagnostic surfaces via the ori_diagnostic infrastructure
-      (per CLAUDE.md sec-Diagnostics).
+      diagnostic surfaces via the ori_diagnostic infrastructure.
 
-      Per CLAUDE.md sec-AIMS Invariant 4 ("the enabled surface
+      Per Annex E §AIMS §2 invariant 4 ("the enabled surface
       must be end-to-end verified"), the missing recovery path
       is a known target-only gap. The `debug_assert!` provides
       end-to-end verification in debug builds; release builds
@@ -437,7 +436,7 @@ Theorem IC-7: Convergence iteration limit soundness
       but does not produce wrong output — only loss of
       diagnostic precision.
 
-      Per CLAUDE.md sec-AIMS Invariant 3 ("no pass relies on
+      Per Annex E §AIMS §2 invariant 3 ("no pass relies on
       stale summaries"), the diagnostic gap is a correctness
       regression even though the converged contracts remain
       sound. The shipped formula at mod.rs lines 264-272 uses
@@ -857,4 +856,4 @@ Theorem IC-7: Convergence iteration limit soundness
 
   Expected:
     status: valid
-    reason: section_06 fixpoint engine discharges IC-7 via three-conjunct verification ((P1) finite-height termination via Tarski 1955 LFP theorem on complete lattices with L-5 + L-6 monotonicity + finite-height lemmas + (P2) closed-form formula soundness via per-dimension height decomposition summed across SCC functions yielding L_spec = sum_{i=1..k} (p_i × 13 + 8 + 6 + 4) and L_shipped = sum_{i=1..k} (p_i × 17 + 8 + 5 + 4) + (P3) widen-and-emit-diagnostic recovery on bound exceeded with `debug_assert!` enforcement) over a 17-test corpus covering zero-arity / single-arity / multi-arity / per-dimension-height-advance / SCC-mutual-recursion / large-SCC / debug-assert-fires / overflow-safety / zero-iteration / FipContract-exclusion / acknowledgment-iteration cases; convergence-bound soundness inherited from Tarski 1955 (least-fixpoint theorem on complete lattices) + Birkhoff 1967 (product-lattice height = sum of component heights) + Cousot/Cousot 1977 (interprocedural summary via SCC-topological monotone iteration with closed-form iteration bounds); shipped engine `total_height` computation at compiler/ori_arc/src/aims/interprocedural/mod.rs lines 264-272 + `debug_assert!` enforcement at lines 274-278 implements the SHIPPED formula 17 × p + 8 + 5 + 4 per function summed across SCC, deterministically across all targets per CLAUDE.md §Salsa deterministic query contract; spec-vs-shipped axis carve-out (per-parameter height 13 spec / 17 shipped; effect-height 6 spec / 5 shipped due to may_read_inaccessible + may_escape + transfers_through_return + return_alias enumerated drifts per top-of-file carve-out + BUG-04-090) preserves spec conformance — shipped bound >= spec bound for ALL params >= 1, making the shipped formula a sound upper bound for the spec formula; FipContract excluded from iteration bound per sec-5 IC-7 + sec-5 IC-6 post-realization timing (Step 5a); `saturating_add(1)` floor accommodates the Tarski 1955 acknowledgment iteration confirming LFP stability; widen-and-emit-diagnostic recovery on bound exceeded is target-only per sec-5 IC-7, enumerated drift, with `debug_assert!` providing debug-build safety net per CLAUDE.md §AIMS Invariant 4 ("the enabled surface must be end-to-end verified")
+    reason: section_06 fixpoint engine discharges IC-7 via three-conjunct verification ((P1) finite-height termination via Tarski 1955 LFP theorem on complete lattices with L-5 + L-6 monotonicity + finite-height lemmas + (P2) closed-form formula soundness via per-dimension height decomposition summed across SCC functions yielding L_spec = sum_{i=1..k} (p_i × 13 + 8 + 6 + 4) and L_shipped = sum_{i=1..k} (p_i × 17 + 8 + 5 + 4) + (P3) widen-and-emit-diagnostic recovery on bound exceeded with `debug_assert!` enforcement) over a 17-test corpus covering zero-arity / single-arity / multi-arity / per-dimension-height-advance / SCC-mutual-recursion / large-SCC / debug-assert-fires / overflow-safety / zero-iteration / FipContract-exclusion / acknowledgment-iteration cases; convergence-bound soundness inherited from Tarski 1955 (least-fixpoint theorem on complete lattices) + Birkhoff 1967 (product-lattice height = sum of component heights) + Cousot/Cousot 1977 (interprocedural summary via SCC-topological monotone iteration with closed-form iteration bounds); shipped engine `total_height` computation at compiler/ori_arc/src/aims/interprocedural/mod.rs lines 264-272 + `debug_assert!` enforcement at lines 274-278 implements the SHIPPED formula 17 × p + 8 + 5 + 4 per function summed across SCC, deterministically across all targets (deterministic query contract); spec-vs-shipped axis carve-out (per-parameter height 13 spec / 17 shipped; effect-height 6 spec / 5 shipped due to may_read_inaccessible + may_escape + transfers_through_return + return_alias enumerated drifts per top-of-file carve-out + BUG-04-090) preserves spec conformance — shipped bound >= spec bound for ALL params >= 1, making the shipped formula a sound upper bound for the spec formula; FipContract excluded from iteration bound per sec-5 IC-7 + sec-5 IC-6 post-realization timing (Step 5a); `saturating_add(1)` floor accommodates the Tarski 1955 acknowledgment iteration confirming LFP stability; widen-and-emit-diagnostic recovery on bound exceeded is target-only per sec-5 IC-7, enumerated drift, with `debug_assert!` providing debug-build safety net per Annex E §AIMS §2 invariant 4 ("the enabled surface must be end-to-end verified")

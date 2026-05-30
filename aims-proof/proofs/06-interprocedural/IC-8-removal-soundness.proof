@@ -60,8 +60,8 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
           produces a fresh allocation per TF-9 / TF-9a
           carrying `Uniqueness = Unique`; the same call-
           site IC-3 max-join logic as Path A applies.
-    - Per CLAUDE.md sec-AIMS Mission ("RC rare, not RC fast")
-      + sec-AIMS Invariant 5 ("the unified model must stay
+    - Per Annex E §AIMS §1 ("RC rare, not RC fast")
+      + Annex E §AIMS §2 invariant 5 ("the unified model must stay
       unified"): IC-8's former derivation was a SHADOW
       uniqueness tracker bypassing the lattice's IC-2 /
       IC-3 SCC fixpoint path. The removal restores unified-
@@ -168,7 +168,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
       MaybeShared, propagated to the callee parameter via the
       same join.
 
-      Per CLAUDE.md sec-AIMS Invariant 1 ("contracts and
+      Per Annex E §AIMS §2 invariant 1 ("contracts and
       realization must agree"): emitting Unique for the
       callee parameter while the realized IR carries
       RC=2 at the call site is a soundness regression. The
@@ -229,7 +229,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
         Path B applies. The callee parameter uniqueness
         inherits Unique via IC-3 join.
 
-      Per CLAUDE.md sec-AIMS Invariant 5 ("the unified model
+      Per Annex E §AIMS §2 invariant 5 ("the unified model
       must stay unified"): each sound path routes through
       the lattice + IC-2/IC-3 SCC fixpoint mechanism, NOT
       through a shadow uniqueness tracker. The IC-8 removal
@@ -418,7 +418,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
       mutation. The caller-side `alias` (still live, RC=1)
       is corrupted by the in-place mutation — soundness
       regression per Annex E §AIMS.4 Uniqueness
-      semantics + CLAUDE.md sec-AIMS Invariant 1
+      semantics + Annex E §AIMS §2 invariant 1
       ("contracts and realization must agree").
 
       Per Annex E §AIMS VF-3 (oracle cross-check),
@@ -638,4 +638,4 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
 
   Expected:
     status: valid
-    reason: section_06 fixpoint engine discharges IC-8-REMOVED via three-conjunct verification ((P1) counterexample existence via c_counter construction with caller-side RC > 1 under (Owned, Linear, Once) backward demand + (P2) alternative-paths enumeration over the 3-path set (IC-2/IC-3 SCC fixpoint via fresh origin, caller-side TF-3 FRESH at definition, caller-side TF-9 / TF-9a Reuse) + (P3) negative pin via structural inequality former_IC_8_output (Unique) != sound_IC_2_IC_3_output (MaybeShared) on counterexample) over an 8-row test corpus covering counterexample / former-output / sound-output / Path-A / Path-B / Path-C / companion-DP-10 / enumeration-grid cases; removal soundness inherited from Tarski 1955 (monotone fixpoint as canonical sound derivation) + Perceus (Reinking et al. PLDI 2021 Section 5 uniqueness-as-PAST-RC) + Cousot/Cousot 1977 (shadow non-lattice paths break soundness guarantee); former IC-8 rule REMOVED from compiler/ori_arc/src/aims/interprocedural/mod.rs (no surviving derivation code); sound alternative paths implemented via IC-2 init_optimistic + IC-3 ParamContract::join + TF-3 Construct transfer + TF-9 / TF-9a Reuse transfer in compiler/ori_arc/src/aims/transfer/; companion DP-10 removal in sec-4 truth tables shares root cause (backward demand does not constrain past RC); per CLAUDE.md sec-AIMS Invariant 5 ("the unified model must stay unified") the IC-8 removal restores unified-model discipline by eliminating a shadow uniqueness tracker bypassing the lattice + IC-2/IC-3 SCC fixpoint; per CLAUDE.md sec-AIMS Invariant 1 ("contracts and realization must agree") the negative pin establishes that the former IC-8 derivation could not satisfy the contract-realization agreement on the counterexample
+    reason: section_06 fixpoint engine discharges IC-8-REMOVED via three-conjunct verification ((P1) counterexample existence via c_counter construction with caller-side RC > 1 under (Owned, Linear, Once) backward demand + (P2) alternative-paths enumeration over the 3-path set (IC-2/IC-3 SCC fixpoint via fresh origin, caller-side TF-3 FRESH at definition, caller-side TF-9 / TF-9a Reuse) + (P3) negative pin via structural inequality former_IC_8_output (Unique) != sound_IC_2_IC_3_output (MaybeShared) on counterexample) over an 8-row test corpus covering counterexample / former-output / sound-output / Path-A / Path-B / Path-C / companion-DP-10 / enumeration-grid cases; removal soundness inherited from Tarski 1955 (monotone fixpoint as canonical sound derivation) + Perceus (Reinking et al. PLDI 2021 Section 5 uniqueness-as-PAST-RC) + Cousot/Cousot 1977 (shadow non-lattice paths break soundness guarantee); former IC-8 rule REMOVED from compiler/ori_arc/src/aims/interprocedural/mod.rs (no surviving derivation code); sound alternative paths implemented via IC-2 init_optimistic + IC-3 ParamContract::join + TF-3 Construct transfer + TF-9 / TF-9a Reuse transfer in compiler/ori_arc/src/aims/transfer/; companion DP-10 removal in sec-4 truth tables shares root cause (backward demand does not constrain past RC); per Annex E §AIMS §2 invariant 5 ("the unified model must stay unified") the IC-8 removal restores unified-model discipline by eliminating a shadow uniqueness tracker bypassing the lattice + IC-2/IC-3 SCC fixpoint; per Annex E §AIMS §2 invariant 1 ("contracts and realization must agree") the negative pin establishes that the former IC-8 derivation could not satisfy the contract-realization agreement on the counterexample
