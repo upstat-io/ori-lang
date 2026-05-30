@@ -74,6 +74,34 @@ type Node = { value: int, next: Option<Node> }
     assert_aot_success(source, "recursive_feature_result_ok_holds_recursive_node");
 }
 
+/// Sum-type matrix sibling of `recursive_feature_result_ok_holds_recursive_node`:
+/// a recursive `Node` lives in the `Some` arm of an `Option<Node>`. Matching
+/// `Some(node)` take-projects the payload out of a consumed scrutinee whose own
+/// drop is then sequenced after the projected binding's last use. The container
+/// must not be credited with covering the moved-out payload's RC slot
+/// (`04B.2-under-elim`: every concrete CFG path nets RC to 0). Pins the fix
+/// across the `Result`/`Option` sum-type dimension.
+#[test]
+fn recursive_feature_option_some_holds_recursive_node() {
+    let source = r#"
+use std.testing { assert_eq }
+type Node = { value: int, next: Option<Node> }
+
+@main () -> void = {
+    let n2 = Node { value: 2, next: None };
+    let n1 = Node { value: 1, next: Some(n2) };
+    let o: Option<Node> = Some(n1);
+    let v = match o {
+        Some(node) -> node.value,
+        None -> 0,
+    };
+    assert_eq(actual: v, expected: 1);
+    ()
+}
+"#;
+    assert_aot_success(source, "recursive_feature_option_some_holds_recursive_node");
+}
+
 /// A generic recursive `Box<T>` instantiated at BOTH `Box<int>` and
 /// `Box<str>` in one program. Each monomorphization lays out a
 /// `next: Option<Box<T>>` back-edge, so both specializations hit the
