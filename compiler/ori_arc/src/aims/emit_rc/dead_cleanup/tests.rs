@@ -77,6 +77,8 @@ struct DeadCleanupFixture {
     alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>>,
     return_project_inc_targets: FxHashMap<ArcVarId, crate::ir::RcStrategy>,
     same_alloc_reps: FxHashMap<ArcVarId, ArcVarId>,
+    global_pin4_emits: super::emission_site::GlobalPin4Emits,
+    post_doms: crate::graph::PostDominatorTree,
 }
 
 impl DeadCleanupFixture {
@@ -96,6 +98,8 @@ impl DeadCleanupFixture {
             child_effective_last_use: &self.child_effective_last_use,
             take_move_facts: &self.take_move_facts,
             return_transfer_params: &self.return_transfer_params,
+            global_pin4_emits: &self.global_pin4_emits,
+            post_doms: &self.post_doms,
             alias_to_param: &self.alias_to_param,
             return_project_inc_targets: &self.return_project_inc_targets,
             same_alloc_reps: &self.same_alloc_reps,
@@ -124,6 +128,7 @@ fn swapped_phi_params_emit_two_rc_decs() {
     entry_states.insert(v(3), AimsState::FRESH);
     state_map.update_block_entry(ArcBlockId::new(1), entry_states);
 
+    let post_doms = crate::graph::PostDominatorTree::build(&func);
     let fixture = DeadCleanupFixture {
         func,
         state_map,
@@ -145,6 +150,8 @@ fn swapped_phi_params_emit_two_rc_decs() {
         alias_to_param: FxHashMap::default(),
         return_project_inc_targets: FxHashMap::default(),
         same_alloc_reps: FxHashMap::default(),
+        global_pin4_emits: super::emission_site::GlobalPin4Emits::default(),
+        post_doms,
     };
 
     let ctx = fixture.ctx(1);
@@ -175,6 +182,7 @@ fn let_alias_siblings_emit_one_rc_dec() {
     entry_states.insert(v(3), AimsState::FRESH);
     state_map.update_block_entry(ArcBlockId::new(1), entry_states);
 
+    let post_doms = crate::graph::PostDominatorTree::build(&func);
     let fixture = DeadCleanupFixture {
         func,
         state_map,
@@ -196,6 +204,8 @@ fn let_alias_siblings_emit_one_rc_dec() {
         alias_to_param: FxHashMap::default(),
         return_project_inc_targets: FxHashMap::default(),
         same_alloc_reps: FxHashMap::default(),
+        global_pin4_emits: super::emission_site::GlobalPin4Emits::default(),
+        post_doms,
     };
 
     let ctx = fixture.ctx(1);

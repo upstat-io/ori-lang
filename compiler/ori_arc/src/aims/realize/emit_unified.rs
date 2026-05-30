@@ -76,6 +76,10 @@ fn trace_phase_snapshot(
 /// 2. Dead Invoke cleanup (orphaned Invoke result variables)
 /// 3. Inter-block edge cleanup (with deferred parent decs)
 /// 4. RC coalescing peephole per block
+#[expect(
+    clippy::too_many_lines,
+    reason = "per-function realization orchestrator: setup, PIN-4 pre-pass, forward walk, edge cleanup, post-passes"
+)]
 pub(super) fn emit_rc_unified(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
@@ -135,6 +139,30 @@ pub(super) fn emit_rc_unified(
     let mut block_deferred: FxHashMap<usize, Vec<DeferredDec>> = FxHashMap::default();
     let mut synergy = metrics::SynergyMetrics::default();
 
+    // BUG-04-123 cluster fix: function-level cross-block PIN-4 emitter map +
+    // post-dominator tree. The PIN-4 gate sites suppress a class member's dec
+    // only when ANOTHER member covers its RC slot on every path
+    // (`class_member_suppresses`). Post-dominance — not raw block order — gates
+    // cross-block suppression so a branch (neither arm post-dominates) keeps one
+    // dec per path (under-emission leak otherwise).
+    let post_doms = crate::graph::PostDominatorTree::build(func);
+    let global_pin4_emits = build_global_pin4_emits(
+        func,
+        state_map,
+        pool,
+        &post_doms,
+        &all_borrowed_defs,
+        &project_borrowed_defs,
+        &iter_element_defs,
+        &inline_enum_projected_defs,
+        &func_project_sources,
+        &take_move_facts,
+        &return_transfer_params,
+        &alias_to_param,
+        &return_project_inc_targets,
+        &same_alloc_reps,
+    );
+
     // Phase 1: per-block RC emission via unified forward walk.
     for block_idx in 0..func.blocks.len() {
         let (death_events, alloc_events, walk_metrics) = emit_block_rc(
@@ -149,6 +177,8 @@ pub(super) fn emit_rc_unified(
             &func_project_sources,
             &take_move_facts,
             &return_transfer_params,
+            &global_pin4_emits,
+            &post_doms,
             &alias_to_param,
             &return_project_inc_targets,
             &same_alloc_reps,
@@ -218,6 +248,81 @@ pub(super) fn emit_rc_unified(
 /// Emit RC operations for a single block via the unified forward walk.
 ///
 /// Returns `(death_events, alloc_events, walk_metrics)`.
+/// Build the function-level PIN-4 emitter map: every emitting SSA-alias-class
+/// member tagged with its block index. Consumed by `class_member_suppresses`
+/// (with the post-dominator tree) so a class spanning blocks decs once per path.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "PIN-4 pre-pass builds a BlockCtx per block; needs the full per-function realization context"
+)]
+fn build_global_pin4_emits(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    pool: &Pool,
+    post_doms: &crate::graph::PostDominatorTree,
+    all_borrowed_defs: &FxHashSet<ArcVarId>,
+    project_borrowed_defs: &FxHashSet<ArcVarId>,
+    iter_element_defs: &FxHashSet<ArcVarId>,
+    inline_enum_projected_defs: &FxHashSet<ArcVarId>,
+    func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
+    take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
+    return_transfer_params: &FxHashSet<ArcVarId>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    return_project_inc_targets: &FxHashMap<ArcVarId, RcStrategy>,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits {
+    use crate::aims::emit_rc::dead_cleanup::emission_site::pin4_class_emits_dec_set;
+    use crate::aims::emit_rc::{
+        block_id, collect_borrowed_defs, collect_defined_vars, compute_child_effective_last_use,
+        precompute_block_uses, BlockCtx,
+    };
+    let empty_global =
+        crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits::default();
+    let mut global = crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits::default();
+    for block_idx in 0..func.blocks.len() {
+        let use_info = precompute_block_uses(&func.blocks[block_idx]);
+        let defined_in_block = collect_defined_vars(&func.blocks[block_idx]);
+        let borrowed_defs = collect_borrowed_defs(&func.blocks[block_idx], func, pool);
+        let child_elu = compute_child_effective_last_use(
+            &func.blocks[block_idx],
+            &use_info,
+            func_project_sources,
+        );
+        let is_unwind = matches!(
+            func.blocks[block_idx].terminator,
+            crate::ir::ArcTerminator::Resume
+        );
+        let ctx = BlockCtx {
+            func,
+            blk: block_id(block_idx),
+            state_map,
+            defined_in_block: &defined_in_block,
+            borrowed_defs: &borrowed_defs,
+            all_borrowed_defs,
+            project_borrowed_defs,
+            iter_element_defs,
+            inline_enum_projected_defs,
+            use_info: &use_info,
+            pool,
+            child_effective_last_use: &child_elu,
+            take_move_facts,
+            return_transfer_params,
+            global_pin4_emits: &empty_global,
+            post_doms,
+            alias_to_param,
+            return_project_inc_targets,
+            same_alloc_reps,
+        };
+        for (class_id, members) in pin4_class_emits_dec_set(&ctx, is_unwind) {
+            let entry = global.entry(class_id).or_default();
+            for (var, site) in members {
+                entry.insert((var, block_idx, site));
+            }
+        }
+    }
+    global
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "block-level RC emission needs full context"
@@ -234,6 +339,8 @@ fn emit_block_rc(
     func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
     take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
     return_transfer_params: &FxHashSet<ArcVarId>,
+    global_pin4_emits: &crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits,
+    post_doms: &crate::graph::PostDominatorTree,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
     return_project_inc_targets: &FxHashMap<ArcVarId, RcStrategy>,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
@@ -271,6 +378,8 @@ fn emit_block_rc(
         child_effective_last_use: &child_elu,
         take_move_facts,
         return_transfer_params,
+        global_pin4_emits,
+        post_doms,
         alias_to_param,
         return_project_inc_targets,
         same_alloc_reps,

@@ -81,6 +81,18 @@ pub(crate) struct BlockCtx<'a> {
     /// value (path-sensitive via `block_returns_var`). Empty when the function
     /// has no `MemoryContract` (FFI / external / pre-fixpoint).
     pub(crate) return_transfer_params: &'a FxHashSet<ArcVarId>,
+    /// Function-level cross-block canonical-dec map (BUG-04-123 cluster fix):
+    /// every emitting SSA-alias-class member tagged with its block index,
+    /// computed ONCE per function before the per-block walk. The PIN-4 gate sites
+    /// consult `class_member_suppresses` against this (with `post_doms`) so a
+    /// multi-use class spanning blocks decs exactly once PER PATH (vs once per
+    /// block under the prior per-block `pin4_class_emits_dec_set`). Empty map in
+    /// unit-test contexts that bypass the walk driver.
+    pub(crate) global_pin4_emits: &'a super::dead_cleanup::emission_site::GlobalPin4Emits,
+    /// Post-dominator tree, computed ONCE per function. Gates cross-block PIN-4
+    /// suppression in `class_member_suppresses`: a member's dec covers `var`'s
+    /// RC slot only when its block post-dominates `var`'s block.
+    pub(crate) post_doms: &'a crate::graph::PostDominatorTree,
     /// Multi-valued alias map: variable → set of parameter indices it aliases.
     ///
     /// Computed once per function by `build_alias_to_param_map` (interprocedural

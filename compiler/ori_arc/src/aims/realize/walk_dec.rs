@@ -495,12 +495,19 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
     // Preserves the generics::* WIN delta — when pin4_class_emits_dec_set
     // identifies a canonical emitter for this class, defer to it: suppress
     // when var != canonical, fire when var == canonical.
-    let pin4_emits =
-        crate::aims::emit_rc::dead_cleanup::emission_site::pin4_class_emits_dec_set(ctx, false);
-    if let Some(canonical) =
-        crate::aims::emit_rc::dead_cleanup::emission_site::canonical_rep_for(class_id, &pin4_emits)
+    // BUG-04-123 cluster fix: consult the FUNCTION-LEVEL canonical-rep so a
+    // multi-use class spanning blocks elects one canonical emitter across ALL
+    // blocks (vs the prior per-block `pin4_class_emits_dec_set`).
+    if let Some(suppressed) =
+        crate::aims::emit_rc::dead_cleanup::emission_site::class_member_suppresses(
+            class_id,
+            var,
+            ctx.blk.index(),
+            ctx.post_doms,
+            ctx.global_pin4_emits,
+        )
     {
-        return canonical != var;
+        return suppressed;
     }
 
     // BUG-04-118 §05 Round 2 /tp-help (Option A refined): when pin4

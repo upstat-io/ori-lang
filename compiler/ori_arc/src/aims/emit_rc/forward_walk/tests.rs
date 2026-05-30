@@ -53,6 +53,8 @@ struct TerminatorFixture {
     return_project_inc_targets: FxHashMap<ArcVarId, crate::ir::RcStrategy>,
     same_alloc_reps: FxHashMap<ArcVarId, ArcVarId>,
     take_move_facts: TakeMoveFacts,
+    global_pin4_emits: crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits,
+    post_doms: crate::graph::PostDominatorTree,
 }
 
 /// Select the RC strategy a fixture should use for its test variables.
@@ -161,6 +163,7 @@ impl TerminatorFixture {
             state_map.update_block_exit(ArcBlockId::new(0), exit_map);
         }
 
+        let post_doms = crate::graph::PostDominatorTree::build(&func);
         Self {
             func,
             state_map,
@@ -178,6 +181,9 @@ impl TerminatorFixture {
             return_project_inc_targets: FxHashMap::default(),
             same_alloc_reps: FxHashMap::default(),
             take_move_facts: TakeMoveFacts::empty(),
+            global_pin4_emits:
+                crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits::default(),
+            post_doms,
         }
     }
 
@@ -204,6 +210,8 @@ impl TerminatorFixture {
             child_effective_last_use: &self.child_effective_last_use,
             take_move_facts: &self.take_move_facts,
             return_transfer_params: &self.return_transfer_params,
+            global_pin4_emits: &self.global_pin4_emits,
+            post_doms: &self.post_doms,
             alias_to_param: &self.alias_to_param,
             return_project_inc_targets: &self.return_project_inc_targets,
             same_alloc_reps: &self.same_alloc_reps,

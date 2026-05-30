@@ -20,7 +20,19 @@ use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx, LastUse};
 use super::{block_id, rc_strategy};
 
 pub(crate) mod emission_site;
-use emission_site::{canonical_rep_for, pin4_class_emits_dec_set, Pin4EmitsByClass};
+use emission_site::class_member_suppresses;
+
+/// PIN-4 cross-block suppression test: true when another class member's dec
+/// covers `var`'s RC slot on every path (post-dominance), so `var` must not emit.
+fn pin4_suppressed(ctx: &BlockCtx<'_>, class_id: u32, var: ArcVarId) -> bool {
+    class_member_suppresses(
+        class_id,
+        var,
+        ctx.blk.index(),
+        ctx.post_doms,
+        ctx.global_pin4_emits,
+    ) == Some(true)
+}
 
 /// Phase A: `RcDec` for variables live at entry, unused in block, dead at exit.
 ///
@@ -80,10 +92,9 @@ pub(crate) fn emit_dead_at_entry_decs(
     // the fix.
     let mut let_reps_dec_emitted: FxHashSet<ArcVarId> = FxHashSet::default();
 
-    // BUG-04-111 §05 Step 2: pre-compute the per-class emission map for this
-    // block. Consumed by the PIN-4 canonical-rep query at Source 1 (below)
-    // and at Source 2 (`emit_dead_block_param_decs` — passed in).
-    let pin4_emits: Pin4EmitsByClass = pin4_class_emits_dec_set(ctx, is_unwind_block);
+    // BUG-04-123 cluster fix: the per-class canonical emitter is now computed
+    // FUNCTION-LEVEL once (`ctx.global_pin4_emits`), so Source 1 and Source 2
+    // below query `canonical_rep_for_global` directly — no per-block pre-compute.
 
     // Source 1: variables in entry_states.
     if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
@@ -233,10 +244,8 @@ pub(crate) fn emit_dead_at_entry_decs(
             // the suppression fired even when no class member would actually
             // emit, leaving the dec unbalanced (BUG-04-111 leak shape).
             if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
-                if let Some(canonical) = canonical_rep_for(class_id, &pin4_emits) {
-                    if canonical != var {
-                        continue;
-                    }
+                if pin4_suppressed(ctx, class_id, var) {
+                    continue;
                 }
             }
             if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
@@ -248,7 +257,7 @@ pub(crate) fn emit_dead_at_entry_decs(
     }
 
     // Source 2: block parameters absent from entry_states.
-    emit_dead_block_param_decs(ctx, new_body, &pin4_emits);
+    emit_dead_block_param_decs(ctx, new_body);
 
     (deferred_parents, merge_edge_decs)
 }
@@ -269,11 +278,7 @@ pub(crate) fn emit_dead_at_entry_decs(
     clippy::cognitive_complexity,
     reason = "pre-existing; refactoring would risk RC emission regressions"
 )]
-fn emit_dead_block_param_decs(
-    ctx: &BlockCtx<'_>,
-    new_body: &mut Vec<ArcInstr>,
-    pin4_emits: &Pin4EmitsByClass,
-) {
+fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
     let entry_states = ctx.state_map.block_entry_states(ctx.blk);
     let block = &ctx.func.blocks[ctx.blk.index()];
     // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
@@ -397,10 +402,8 @@ fn emit_dead_block_param_decs(
         // rationale as Source 1's refactor — see §05 Step 3 comment in
         // `emit_dead_at_entry_decs`.
         if let Some(class_id) = ctx.state_map.ssa_alias_class_of(param_var) {
-            if let Some(canonical) = canonical_rep_for(class_id, pin4_emits) {
-                if canonical != param_var {
-                    continue;
-                }
+            if pin4_suppressed(ctx, class_id, param_var) {
+                continue;
             }
         }
         // BUG-04-104 PIN-6 (§2.6.3): inter-class payload-of suppression at

@@ -366,21 +366,6 @@ pub(crate) fn pin4_class_emits_dec_set(
     result
 }
 
-/// §05 Step 3: select the canonical rep for `class_id` from its emitting
-/// members per gemini Round 2 F1's LATEST-emission-site rule.
-///
-/// `PhaseAEntry`/`PhaseABlockParam` fire at block entry (EARLIEST). `BodyWalk`
-/// variants fire at `instr_idx` (later). `MergeEdgeRouted` fires post-exit
-/// (LATEST). Picking the latest preserves correct RC semantics — earlier
-/// class member uses are read-only borrows; the actual decrement fires at
-/// the latest emission point.
-pub(crate) fn canonical_rep_for(class_id: u32, pin4_emits: &Pin4EmitsByClass) -> Option<ArcVarId> {
-    let members = pin4_emits.get(&class_id)?;
-    members
-        .iter()
-        .max_by_key(|&&(var, site)| (emission_site_order(site), var.raw()))
-        .map(|&(var, _)| var)
-}
 /// Total order over `EmissionSite` for canonical-rep selection.
 /// Higher = LATER in program order = preferred for canonical-rep.
 fn emission_site_order(site: EmissionSite) -> usize {
@@ -394,4 +379,78 @@ fn emission_site_order(site: EmissionSite) -> usize {
         // Merge-edge fires at block boundaries — strictly latest.
         EmissionSite::MergeEdgeRouted => usize::MAX,
     }
+}
+
+/// Function-level analogue of [`Pin4EmitsByClass`]: every emitting class member
+/// tagged with its block index, so PIN-4 suppression can reason about which
+/// member's dec covers `var`'s RC slot ACROSS blocks, not just within one.
+/// `usize` = the member's block position (`ArcBlockId::index()`).
+pub(crate) type GlobalPin4Emits = FxHashMap<u32, FxHashSet<(ArcVarId, usize, EmissionSite)>>;
+
+/// Cross-block PIN-4 suppression with post-dominance (BUG-04-123 cluster).
+///
+/// Returns `None` when `class_id` has no recorded emitters (caller falls
+/// through to side-table dedup), `Some(true)` to suppress `var`'s dec, else
+/// `Some(false)`. A class member suppresses `var` when it covers `var`'s RC slot
+/// on EVERY path from `var`'s block to exit: same-block members dedup by latest
+/// emission site; cross-block members must POST-DOMINATE `var`'s block.
+///
+/// Post-dominance — not raw block order — is load-bearing: a class's emitters
+/// are leaf decs (RL-4 Jump-arg exemption transfers ownership at merges), so on
+/// a linear chain the later leaf post-dominates the earlier (suppress earlier),
+/// but on a branch neither post-dominates the other (both emit, one per path).
+/// This preserves the per-path RC-balance invariant (RL-2/RL-4/RL-5): every
+/// concrete CFG path nets exactly one dec.
+pub(crate) fn class_member_suppresses(
+    class_id: u32,
+    var: ArcVarId,
+    var_block: usize,
+    post_doms: &crate::graph::PostDominatorTree,
+    global: &GlobalPin4Emits,
+) -> Option<bool> {
+    let members = global.get(&class_id)?;
+    let var_site = members
+        .iter()
+        .find(|&&(m, b, _)| m == var && b == var_block)
+        .map(|&(_, _, s)| emission_site_order(s));
+    let suppressor = members.iter().find(|&&(m, m_block, m_site)| {
+        if m == var && m_block == var_block {
+            return false;
+        }
+        if m_block == var_block {
+            match var_site {
+                Some(vs) => (emission_site_order(m_site), m.raw()) > (vs, var.raw()),
+                None => false,
+            }
+        } else {
+            post_doms.post_dominates(
+                crate::aims::emit_rc::block_id(m_block),
+                crate::aims::emit_rc::block_id(var_block),
+            )
+        }
+    });
+    if tracing::enabled!(target: "ori_arc::aims::realize::class_dec", tracing::Level::TRACE) {
+        if let Some(&(m, m_block, _)) = suppressor {
+            tracing::trace!(
+                target: "ori_arc::aims::realize::class_dec",
+                class_id,
+                var = var.raw(),
+                var_block,
+                covered_by = m.raw(),
+                cover_block = m_block,
+                relation = if m_block == var_block { "same-block-latest" } else { "post-dominator" },
+                "PIN-4 cross-block dec SUPPRESSED (covering member fires on every path)"
+            );
+        } else {
+            tracing::trace!(
+                target: "ori_arc::aims::realize::class_dec",
+                class_id,
+                var = var.raw(),
+                var_block,
+                emitters = members.len(),
+                "PIN-4 cross-block dec EMITS (no member post-dominates this block)"
+            );
+        }
+    }
+    Some(suppressor.is_some())
 }
