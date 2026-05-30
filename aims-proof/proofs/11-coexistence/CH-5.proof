@@ -17,15 +17,15 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
       apply_ownership) run once across all functions BEFORE any per-function
       step. Per-function pipeline (Steps 3-12) processes functions in SCC
       topological order per PL-1a.
-    - Burden-registry pre-pass per the sec-04A.2 design is a typed pre-pass
+    - Burden-registry pre-pass per the burden-prototype design is a typed pre-pass
       input that lands on AimsStateMap per Annex E §AIMS §2
       invariant 5(c) — NOT a new lattice dimension; NOT an independent RC
-      emission path. Two viable insertion points per the sec-04A.2 design:
+      emission path. Two viable insertion points per the burden-prototype design:
         (a) Step 1 typed pre-pass: BEFORE analyze_program (interprocedural-
             first; per-variable burden derivation from sec-01-sec-04 contract data)
         (b) Step 4-companion pre-pass: BETWEEN analyze_function (Step 4) and
             realize_rc_reuse (Step 5) (per-function granularity; the shipped
-            insertion point per sec-04A success_criterion 1 — emit_burden_ops
+            insertion point per the burden-prototype coverage shape — emit_burden_ops
             invoked between Step 4 and Step 5)
       CH-5 discharges (b) — the shipped insertion. (a) is a target
       formulation per the sec-11 success_criterion 12 depends-on sec-07 PL-1..PL-11
@@ -48,7 +48,7 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
 
   Soundness property:
     Forall function F. Forall pipeline ordering P with burden-registry pre-pass
-    inserted at the sec-04A.2-shipped Step 4-companion position (between Steps
+    inserted at the shipped-burden-prototype Step 4-companion position (between Steps
     4 and 5).
 
       (P1) PL-1 interprocedural-first invariant preservation:
@@ -84,9 +84,9 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
 
       (P4) PL-6 adding-a-pass meta-rule honored:
         The pipeline ordering update (insertion of emit_burden_ops at the
-        sec-04A.2-shipped position) is documented in Annex E §AIMS (the
-        pipeline definition) + docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.mdsection-04A-
-        minimal-lattice-adaptation.md sec-04A success_criterion 1 (the shipped
+        shipped-burden-prototype position) is documented in Annex E §AIMS (the
+        pipeline definition) + docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
+        success_criterion 1 (the shipped
         insertion point); no PL-1..PL-11 invariant is violated by the
         addition.
 
@@ -98,7 +98,7 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
     Part (P1) — PL-1 interprocedural-first invariant preservation:
 
       Per PL-1 (Annex E §AIMS PL-1), Steps 1-2 SHALL run once across all
-      functions BEFORE any per-function step. The sec-04A.2-shipped insertion
+      functions BEFORE any per-function step. The shipped-burden-prototype insertion
       point places emit_burden_ops at the Step 4-companion position — i.e.,
       WITHIN the per-function pipeline (Steps 3-12), specifically between
       Step 4 (analyze_function) and Step 5 (realize_rc_reuse).
@@ -180,8 +180,8 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
       Per PL-6 (adding a pass requires updating ordering + proving no
       constraint violation), the burden-registry pre-pass addition is:
         (a) Documented: Annex E §AIMS lists the pipeline steps; the
-            sec-04A.2 insertion is documented in docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-            docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md sec-04A success_criterion
+            burden-prototype insertion is documented in docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
+            docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md coverage shape
             1
         (b) Constraint-no-violation proven: Parts (P1) + (P2) + (P3) above
             jointly establish that no PL-1..PL-11 invariant is violated:

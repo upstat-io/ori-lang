@@ -1,6 +1,6 @@
 """§17 locality shipped-conformance verdict-boundary tests.
 
-Per the locality shipped-conformance gate SC7:
+Per the locality shipped-conformance cross-walk:
 5 explicit fixture classes the probe tuple distinguishes, replacing OR-shape
 negative pin with explicit per-shape coverage.
 

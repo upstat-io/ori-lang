@@ -1,30 +1,30 @@
-; SMT-LIB2 encoding — §04B.3 eval-AOT dual-execution parity break
+; SMT-LIB2 encoding — eval-AOT dual-execution parity break
 ; ============================================================================
 ; Shape: CFG-merge join between Ok and Err arms produces a state where one
 ; arm's RcDec is dropped at LLVM codegen, BREAKING the eval/AOT parity that
 ; `canon.md §7.1` invariant 2 requires.
 ;
-; Empirical signature (per §04B.3 HISTORY 2026-05-18 §04B.3 evidence):
+; Empirical signature (per the burden-prototype parity-break evidence):
 ; - Eval positive-pin PASSES (eval backend correctly emits paired inc/dec)
 ; - AOT positive-pin FAILS with `ori: 1 RC allocation(s) not freed (memory leak)`
 ; - IR analysis via `ORI_DUMP_AFTER_ARC=1 ORI_LOG=ori_arc::aims::realize=trace`:
 ; burden_inc/burden_dec pairs SURVIVE elimination on alias-chain vars
 ; %17, %12, %23, %29 — lattice DP-2/DP-3 consumer NOT over-eliminating in
-; isolation; per-block post-§04A.2 RC snapshot confirms RcInc[6] at block 12
+; isolation; per-block post-burden-elimination RC snapshot confirms RcInc[6] at block 12
 ; paired with RcDec[6, 5] at blocks 13+15
 ; - AOT leak attributable to CFG-merge join between Ok/Err arm decs where
-; LLVM codegen consumption of post-§04A.2 ARC IR drops ONE dec
+; LLVM codegen consumption of post-burden-elimination ARC IR drops ONE dec
 ;
 ; Per `canon.md §7.1` AIMS invariants:
 ; #1 Contracts and realization must agree
 ; #2 Active rewrites must be sound (identical observable behavior across
 ; eval + AOT)
-; The §04B.3 finding is a contracts↔realization disagreement.
+; The parity-break finding is a contracts↔realization disagreement.
 ;
 ; Question to the SMT solver: under the proven calculus (RL-2 with terminal-
 ; dec emission per CFG-merge arm, IA-3 alt_join, DP-2 supplementary-only
 ; restriction, dual-execution parity per VF-7 (a)(b)(c) tiers), can the LLVM
-; backend consume the SAME post-§04A.2 ARC IR and produce a DIFFERENT
+; backend consume the SAME post-burden-elimination ARC IR and produce a DIFFERENT
 ; emission than the eval backend?
 ;
 ; Expected: UNSAT
@@ -42,7 +42,7 @@
 ; Source mapping (per §10.0 shape-04B.3-eval-aot-parity-break row):
 ; shape_id = shape-04B.3-eval-aot-parity-break
 ; source = docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-; HISTORY 2026-05-18 §04B.3 evidence (Eval PASS / AOT FAIL
+; burden-prototype parity-break evidence (Eval PASS / AOT FAIL
 ; on burden_alias_inner_survives_result_destructure)
 ;
 ; Cited proven rules (per §02-§09):
@@ -81,7 +81,7 @@
 (declare-datatype Block
   ( (B_alloc)
     (B_branch) ; Branch(cond) → ok_arm / err_arm
-    (B_ok_arm) ; inc at block 12 (per §04B.3 evidence)
+    (B_ok_arm) ; inc at block 12 (per the parity-break evidence)
     (B_err_arm)
     (B_merge) ; block param from Jump args
     (B_exit) ))
@@ -100,7 +100,7 @@
 ; §2. Calculus axioms (per §02-§09 + canon.md §7.1)
 ; ----------------------------------------------------------------------------
 
-; --- The ARC IR (post-§04A.2 lattice consumer) is the SAME across both
+; --- The ARC IR (post-burden-elimination lattice consumer) is the SAME across both
 ; backends — both consume the identical ArcFunction. Encode as: the
 ; emitted-instr count per (block, backend) is determined by the SHARED
 ; IR plus the backend-specific lowering.
@@ -118,7 +118,7 @@
        (= (rc_emitted_inc Eval blk) (rc_emitted_inc AOT blk)))))
 
 ; --- RL-2 per-arm dec: V_alias dies on both arms (alias chain extends past
-; destructure, then dec'd in each arm's exit per the §04B.3 IR analysis
+; destructure, then dec'd in each arm's exit per the parity-break IR analysis
 ; "RcInc[6] at block 12 paired with RcDec[6, 5] at blocks 13+15").
 ; ⇒ each backend emits ≥ 1 dec at B_ok_arm AND ≥ 1 dec at B_err_arm.
 (assert (>= (rc_emitted_dec Eval B_ok_arm) 1))

@@ -2,8 +2,8 @@
 #
 # run-locality-conformance.sh — §17 locality shipped-conformance runner.
 #
-# Per the locality shipped-conformance gate
-# SC1 + SC5 + SC9: emits a per-manifest-rule verdict block in
+# Per the locality shipped-conformance cross-walk:
+# emits a per-manifest-rule verdict block in
 # test-results/section-17-locality-result.json that §12 / §15 / §16 / the
 # §17 flip protocol consume. Invoked by run-section-08-proofs.sh
 # --locality-section (sibling-extension shape).

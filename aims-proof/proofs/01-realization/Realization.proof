@@ -109,7 +109,7 @@ Theorem RL-1: Realization rule signatures — RL-1 through RL-34 + RL-13 confirm
              pairs; cross-call-site provenance-summary parameter required
              (cross-function alias-disjointness proof from borrow_sources +
               project_alias_sources at each call site) — VF-2 (b) consumes
-             this; sec-04B C5 CRITICAL criterion
+             this; the burden-prototype C5 CRITICAL criterion
 
     Borrow inference cluster (RL-32 through RL-34):
       RL-32 all non-scalar parameters initialize Borrowed; fixpoint promotes

@@ -4,8 +4,8 @@
   "excluded_shapes": [
     {
       "shape_id": "shape-04B.4a-cross-pattern-categories",
-      "source": "docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md HISTORY 2026-05-18 §04B.4a evaluation",
-      "exclusion_rationale": "§04B.4a is an EVALUATION CRITERION (scoped 150s regression matrix run with full §03-§04A burden machinery active), NOT a novel calculus FAILURE SHAPE. The empirical outcome was THREE distinct BUILD BREAKs in §03-§04A burden machinery (E0061 arity mismatch in burden_lower.rs:240; E0425 cfg-test-gated reference in burden_lattice_smoke.rs:276,281; transitive blocker on cargo stf burden). Build breaks in the impl are CONSTRUCTION-side defects, not shapes the calculus needs to refute — there is no semantic IR for the SMT solver to evaluate. The criterion's spirit ('zero NEW failures introduced by §03-§04A burden machinery') is operational (regression-matrix execution), not calculus-level (no new IR pattern the proven calculus must cover).",
+      "source": "docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md cross-pattern evaluation",
+      "exclusion_rationale": "This is an EVALUATION CRITERION (scoped 150s regression matrix run with full burden-construction machinery active), NOT a novel calculus FAILURE SHAPE. The empirical outcome was THREE distinct BUILD BREAKs in the burden-construction machinery (E0061 arity mismatch in burden_lower.rs:240; E0425 cfg-test-gated reference in burden_lattice_smoke.rs:276,281; transitive blocker on cargo stf burden). Build breaks in the impl are CONSTRUCTION-side defects, not shapes the calculus needs to refute — there is no semantic IR for the SMT solver to evaluate. The criterion's spirit ('zero NEW failures introduced by the burden-construction machinery') is operational (regression-matrix execution), not calculus-level (no new IR pattern the proven calculus must cover).",
       "proof_anchor": {
         "rule_id": "VF-5",
         "rule_path": "aims-proof/proofs/09-verification/VF-5.proof",
@@ -19,12 +19,12 @@
     },
     {
       "shape_id": "shape-04B.4b-cross-pattern-categories",
-      "source": "docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md HISTORY 2026-05-18 §04B.4b evaluation",
-      "exclusion_rationale": "§04B.4b is the './test-all.sh' EVALUATION CRITERION (full corpus regression). Per §04B.4b HISTORY 2026-05-18: 'test-all.sh execution NOT attempted because §04B.4a (evaluated immediately prior, same session) confirmed two BUILD BREAK sites'. Same exclusion rationale as §04B.4a — this is an evaluation criterion that surfaced a CONSTRUCTION-side build-break, not a calculus shape requiring SMT encoding. No semantic IR exists for the SMT solver to evaluate. The four §04B.2 cross-pattern categories already encoded (mono-pipeline-ordering, under-elim leaks, cross-class UAF, over-elim closure-env) cover the calculus surface; §04B.4a/b would re-execute those categories' empirical reproductions, not introduce new shapes.",
+      "source": "docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md cross-pattern evaluation",
+      "exclusion_rationale": "This is the './test-all.sh' EVALUATION CRITERION (full corpus regression). Per the burden-prototype evidence: 'test-all.sh execution NOT attempted because the prior cross-pattern criterion (evaluated immediately prior, same session) confirmed two BUILD BREAK sites'. Same exclusion rationale as the build-break criterion above — this is an evaluation criterion that surfaced a CONSTRUCTION-side build-break, not a calculus shape requiring SMT encoding. No semantic IR exists for the SMT solver to evaluate. The four cross-pattern categories already encoded (mono-pipeline-ordering, under-elim leaks, cross-class UAF, over-elim closure-env) cover the calculus surface; the excluded criteria would re-execute those categories' empirical reproductions, not introduce new shapes.",
       "proof_anchor": {
         "rule_id": "VF-5",
         "rule_path": "aims-proof/proofs/09-verification/VF-5.proof",
-        "rule_summary": "End-to-end verification requires a buildable impl + test execution. §04B.4b's outcome (transitive build-break blocker) falls outside the calculus's purview — calculus assumes a well-formed ARC IR input."
+        "rule_summary": "End-to-end verification requires a buildable impl + test execution. The criterion's outcome (transitive build-break blocker) falls outside the calculus's purview — calculus assumes a well-formed ARC IR input."
       },
       "shape_overlap_with_encoded_shapes": [
         "shape-04B.2-mono-pipeline-ordering",

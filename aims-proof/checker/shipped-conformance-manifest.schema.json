@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ori-lang.org/aims-proof/shipped-conformance-manifest.schema.json",
   "title": "Shipped-Conformance Manifest",
-  "description": "JSON Schema for aims-proof/checker/shipped-conformance-manifest.json. Per the locality shipped-conformance gate SC3: defines the structural shape {rules: [{id, proof_artifact, unblock_condition, blocked_by, annotation_targets}]} with required-field constraints. Validated by aims-proof/scripts/run-section-08-proofs.sh --locality-section and the pre-commit hook so structural drift surfaces mechanically rather than via human review.",
+  "description": "JSON Schema for aims-proof/checker/shipped-conformance-manifest.json. Per the locality shipped-conformance cross-walk: defines the structural shape {rules: [{id, proof_artifact, unblock_condition, blocked_by, annotation_targets}]} with required-field constraints. Validated by aims-proof/scripts/run-section-08-proofs.sh --locality-section and the pre-commit hook so structural drift surfaces mechanically rather than via human review.",
   "type": "object",
   "required": ["rules"],
   "additionalProperties": true,

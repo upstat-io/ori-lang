@@ -1,8 +1,8 @@
-; SMT-LIB2 encoding — §04B.2 cross-pattern category (3): cross-class alias-chain UAF
+; SMT-LIB2 encoding — cross-pattern category (3): cross-class alias-chain UAF
 ; ============================================================================
 ; Shape: cross-class alias-chain use-after-free segfault — specifically
 ; generics::test_borrow_list_int_nested_pin6_chain_then_return_no_leak exiting
-; with -139 SIGSEGV (per §04B.2 HISTORY 2026-05-18 evidence).
+; with -139 SIGSEGV (per the burden-prototype evidence).
 ;
 ; "Cross-class" = the alias spans TWO allocation classes (e.g., outer Result
 ; class B + inner Inner class A) with the inner alias's lifetime extending
@@ -36,7 +36,7 @@
 ; Source mapping (per §10.0 shape-04B.2-cross-class-uaf row):
 ; shape_id = shape-04B.2-cross-class-uaf
 ; source = docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-; HISTORY 2026-05-18 §04B.2 category (3) — 1 generics test
+; burden-prototype evidence, category (3) — 1 generics test
 ; (test_borrow_list_int_nested_pin6_chain_then_return_no_leak,
 ; exit -139 SIGSEGV)
 ;

@@ -15,7 +15,7 @@
 ; (emit_format_fields intermediate-concat leak in Debug derive)
 ;
 ; This shape is a CODEGEN-SIDE multi-use Let Var on RC-tracked aggregate
-; (the §04B.4a HISTORY notes "BUG-04-120 multi-use Let Var on RC-tracked
+; (the burden-prototype evidence notes "BUG-04-120 multi-use Let Var on RC-tracked
 ; aggregate" classification — multi-use because the derived-Eq codepath
 ; emits multiple field-comparisons over the same narrowed-list aggregate;
 ; "Let Var" because the comparison emits Let Var aliases of the aggregate's

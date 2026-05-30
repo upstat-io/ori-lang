@@ -1,14 +1,12 @@
-Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal specification
+Definition: Coexistence Handshake — burden-prototype minimal-lattice-consumer formal specification
 
   Scope:
-    - Authored at the coexistence-handshake proofs the §11 coexistence section
-      first checkbox per the MS-4 mission anchor (00-overview.md MS-4: "Ori-novel
-      coexistence-proof"). Single Source of Truth for the predicates, functions,
+    - Authored at the coexistence-handshake proofs, the §11 coexistence section
+      first checkbox, per the Ori-novel coexistence-proof mission. Single Source of Truth for the predicates, functions,
       and partition referenced by CH-1..CH-5 + CH-comp.
     - Intel: `coexistence_handshake` / `burden_registry` symbol-lookups return
       not-found (intel-query.sh similar both, 2026-05-28) — consistent with the
-      MS-4 "no reference compiler has this composition" framing per 00-overview.md
-      Design Principle 2 + Annex E §AIMS Prior Art Cross-Reference. Closest
+      "no reference compiler has this composition" framing per Annex E §AIMS Prior Art Cross-Reference. Closest
       prior-art shapes: Koka Perceus FBIP-certification (function-level proof; AIMS
       operates at instruction-level) at [koka:src/Core/CheckFBIP.hs]; Lean 4 LCNF
       binary borrow inference (per-pass proof; AIMS proves per-class) at
@@ -53,7 +51,7 @@ Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal 
       (IA-7), with per-variable lattice state at every program point
     - BR = burden registry, a typed pre-pass producing per-variable burden
       annotations (per docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-      sec-04A success_criterion 4: `burden_emitted: BitSet<ArcVarId>` populated by
+      burden-prototype coverage shape: `burden_emitted: BitSet<ArcVarId>` populated by
       `emit_burden_ops` AND `class_covered: BitSet<ClassId>` derived
       intraprocedurally in aims/intraprocedural/post_convergence.rs)
     - C = an AIMS class identified by IC-3 ParamContract dimensions (Access,
@@ -86,7 +84,7 @@ Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal 
     class_covered(C, BR) iff
       (Forall v in class_members(C). burden-owned(L[v]) and v in BR.burden_emitted)
       and (Forall f in fields(C). class_covered(field_type(f), BR))
-      (transitive payload closure — mirrors aims-burden-tracking sec-04A.4
+      (transitive payload closure — mirrors the aims-burden-tracking-proposal
        coexistence handshake class-coverage rule)
 
     Mixed-coverage field-grain dispatch (CRITICAL — the partial-coverage cure
@@ -105,7 +103,7 @@ Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal 
   Definition (Function 1): burden_emission_path
     burden_emission_path: ArcFunction x AimsStateMap x BurdenSpec -> ArcFunction
 
-    The sec-03-sec-04A + sec-04A.2 elimination consumer, terminating at the shipped
+    The burden-construction + burden-elimination consumer, terminating at the shipped
     `eliminate_burden_ops` function (compiler/ori_arc/src/aims/realize/
     burden_elim.rs:87 — verified `pub(crate) fn eliminate_burden_ops` per intel-query
     callers eliminate_burden_ops 2026-05-28; 29 callers all in
@@ -114,7 +112,7 @@ Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal 
     `eliminate_burden_ops` that this Handshake.proof must include).
 
     Pipeline-ordering: `emit_burden_ops` invoked between Step 4 (`analyze_function`)
-    and Step 5 (`realize_rc_reuse`) per docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.mdsection-04A
+    and Step 5 (`realize_rc_reuse`) per docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
     success_criterion 1 (Annex E §AIMS PL-2: Step 4 precedes Step 5). The
     elimination consumer reads BR (write-once at burden-emit) AND L (read-only
     after IA-7 convergence). PL-1 interprocedural-first invariant preserved
@@ -125,7 +123,7 @@ Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal 
 
     The pre-burden baseline: the sec-03-sec-04 lattice-only emission path operating
     purely on L without consulting BR. Realization rules per Annex E §AIMS
-    RL-1..RL-34. This is the path Ori shipped BEFORE the sec-04A burden-emit pre-pass
+    RL-1..RL-34. This is the path Ori shipped BEFORE the burden-emit pre-pass
     landed — the parent baseline. CH-1 grounds against the soundness of this path
     (RL-1, RL-2 composition under IA-5 step 1 alias-demand accumulation, per
     Annex E §AIMS §8 sec-08
@@ -203,7 +201,7 @@ Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal 
 
     The theorem is decomposed into six CH-N theorems (CH-1 through CH-5 +
     CH-comp) per the §11 coexistence section Per-CH Proof-Status Tracking — each discharged
-    individually under proof_search_cap: 5 per 00-overview Design Principle 3.
+    individually under proof_search_cap: 5.
 
   Cross-references:
     - CH-1.proof — Burden-registry-lattice composition soundness; the root

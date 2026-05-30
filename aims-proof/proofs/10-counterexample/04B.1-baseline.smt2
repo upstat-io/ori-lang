@@ -1,12 +1,12 @@
-; SMT-LIB2 encoding — §04B.1 baseline single-class shapes
+; SMT-LIB2 encoding — baseline single-class shapes
 ; ============================================================================
-; Shape: §04B.1 Criterion 1 = emission-alone (no §04A.2 elimination) on
+; Shape: Criterion 1 = emission-alone (no burden-elimination) on
 ; SINGLE-CLASS shapes. Empirical FAIL: 12/16 fail-baseline under emission alone
-; (per §04B HISTORY 2026-05-18, §04B.1 evaluation).
+; (per the burden-prototype baseline evaluation).
 ;
 ; Single-class = one allocation class A; the shape exercises emission-side
 ; RcInc/RcDec patterns WITHOUT the cross-class drop_fn cascade of BUG-04-118
-; or the cross-class alias of §04B.2 cat (3). The 12/16 fail-baseline means
+; or the cross-class alias of the mono-pipeline cat (3). The 12/16 fail-baseline means
 ; the emission-alone path produces a NET-IMBALANCED RC ledger for class A
 ; on 12 of 16 single-class test fixtures.
 ;
@@ -30,8 +30,8 @@
 ; Source mapping (per §10.0 shape-04B.1-baseline-single-class row):
 ; shape_id = shape-04B.1-baseline-single-class
 ; source = docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-; (HISTORY 2026-05-18 §04B.1 Criterion 1 FAIL: 12/16 fail-
-; baseline under emission alone, single-class shapes)
+; (Criterion 1 FAIL: 12/16 fail-baseline under emission
+; alone, single-class shapes)
 ;
 ; Cited proven rules (per §02-§09):
 ; - RL-1 RC inc when duplicating

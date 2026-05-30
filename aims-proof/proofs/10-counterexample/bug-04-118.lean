@@ -147,7 +147,7 @@ theorem bug_04_118_no_counterexample
 -- ============================================================================
 -- The theorem above corresponds to the SMT UNSAT verdict in bug-04-118.smt2 §5.
 -- Routing per §10.1 outcome-classification table:
--- Lean theorem proves → cross-validates SMT UNSAT → feeds §12 SSOT
+-- Lean theorem proves → cross-validates SMT UNSAT → feeds the empirical-adequacy SSOT
 -- Lean theorem refused to type-check → cross-validation divergence → ENCODER_INVALID
 -- halt per §10.1 success_criterion #4
 

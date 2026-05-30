@@ -9,8 +9,8 @@
 //! pub const LATTICE_VARIANT_COUNT: usize = N;
 //! pub const MAY_ESCAPE_IS_STORED: bool = B;
 //!
-//! Per `the locality shipped-conformance gate`
-//! SC4: probe is the PRODUCER (emits the tuple); the cross-walk +
+//! Per the locality shipped-conformance cross-walk:
+//! probe is the PRODUCER (emits the tuple); the cross-walk +
 //! verdict-boundary tests are CONSUMERS (read the tuple to branch
 //! divergent-pending vs pass).
 //!

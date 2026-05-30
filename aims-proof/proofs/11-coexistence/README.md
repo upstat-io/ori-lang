@@ -1,11 +1,11 @@
 ## §11 Coexistence Handshake Proofs — Corpus Overview
 
-Discharges the §04A.2 minimal-lattice-consumer coexistence handshake — Ori's
-novel composition that no reference compiler has. Contributes to MS-4
-(Ori-novel coexistence-proof) per the AIMS proof suite MS-4
+Discharges the burden-prototype minimal-lattice-consumer coexistence handshake — Ori's
+novel composition that no reference compiler has. Contributes to the
+Ori-novel coexistence-proof mission
 via 6 individually-discharged CH theorems (CH-1..CH-5 + CH-comp).
 
-- Per-CH proof_search_cap: 5 per 00-overview.md Design Principle 3
+- Per-CH proof_search_cap: 5
 - PRIMARY engines per CH: structural_induction + interprocedural_summary +
   case_analysis + lattice (per aims-proof/proofs/01-theorems/Composition.proof
   lines 28-32, 59-63, 93-97, 126-130, 165-169)
@@ -65,7 +65,7 @@ Per the dispatch boundary in the coexistence-handshake proofs
   (scripts/plan_corpus/exit_reasons.py)
 - Coverage-manifest CH-shape flip
   (aims-proof/proofs/00-coverage-corpus/CH-shape.proof + coverage-manifest.json)
-- §15 critical-proof cross-validation slot wiring
+- the CI gate critical-proof cross-validation slot wiring
 - §11.0 Per-CH Proof-Status Tracking table row flips
 - §11.1 checkbox flips
 

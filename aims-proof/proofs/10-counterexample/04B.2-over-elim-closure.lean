@@ -1,7 +1,7 @@
 -- AIMS-Proof §10 counterexample-search cross-validation
 -- Cross-validates aims-proof/proofs/10-counterexample/04B.2-over-elim-closure.smt2
 --
--- §04B.2 cross-pattern category (4): over-elimination on closure-env producing
+-- cross-pattern category (4): over-elimination on closure-env producing
 -- double-frees.
 -- Cross-validation question (mirrors SMT goal §4):
 -- Under the proven calculus (TF-13 capture_state_update, RL-2 with

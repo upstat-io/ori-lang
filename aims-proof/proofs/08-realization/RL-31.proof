@@ -7,8 +7,8 @@ Theorem RL-31: disjoint Borrowed parameters -> !alias.scope + !noalias metadata 
       a CROSS-FUNCTION provenance summary not in IC-2/IC-3 alone: each call
       site proves the actual arguments to distinct Borrowed params trace to
       different source aggregates or disjoint fields.
-    - CRITICAL: RL-31 directly addresses sec-04B C5 (the CRITICAL criterion) —
-      the Ori-novel realization rule whose soundness sec-04B assumed but never
+    - CRITICAL: RL-31 directly addresses the burden-prototype C5 (the CRITICAL criterion) —
+      the Ori-novel realization rule whose soundness the burden prototype assumed but never
       proved; sec-08 makes the proof explicit. sec-11 coexistence builds on it.
     - Signature ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; discharged against the sec-01

@@ -1,7 +1,7 @@
 -- AIMS-Proof §10 counterexample-search cross-validation
 -- Cross-validates aims-proof/proofs/10-counterexample/04B.1-baseline.smt2
 --
--- §04B.1 baseline single-class shapes (emission alone, no §04A.2 elimination).
+-- baseline single-class shapes (emission alone, no burden-elimination).
 -- Cross-validation question (mirrors SMT goal §3):
 -- Under the proven calculus (RL-1, RL-2, RL-4, RL-5, RL-1-RL-2 composition
 -- P2), can a single-class shape produce a net-imbalanced RC ledger under

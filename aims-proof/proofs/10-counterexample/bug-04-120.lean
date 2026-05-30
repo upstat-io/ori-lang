@@ -3,7 +3,7 @@
 --
 -- BUG-04-120 narrowed-list derived Eq codegen leak shape: 24-byte unfreed
 -- allocation on the derived-Eq codepath over a list whose elements were
--- narrowed to i8/i16/i32 by repr-opt §04. Classification per §04B.4a HISTORY:
+-- narrowed to i8/i16/i32 by repr-opt. Classification per the burden-prototype evidence:
 -- "multi-use Let Var on RC-tracked aggregate".
 --
 -- Cross-validation question (mirrors SMT goal §3):

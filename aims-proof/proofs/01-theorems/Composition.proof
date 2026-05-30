@@ -3,14 +3,14 @@ Theorem CH-1: Burden-registry-lattice composition soundness
   Preconditions:
     - BR is the burden-registry typed pre-pass output for function F
       (per-variable burden annotations consumed by the consumer per the
-       sec-04A.2 design at docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md)
+       burden-prototype design at docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md)
     - L is the lattice analysis converged AimsStateMap for F per IA-7
-    - consume_stack(F, BR, L) is the sec-04A.2 elimination consumer:
+    - consume_stack(F, BR, L) is the burden-elimination consumer:
       walks F's instruction stream; for each variable v with burden
       entries in BR, validates the elimination decision (DP-2 dec
       unnecessary OR DP-3 inc elidable) against L[v]'s converged
       lattice state
-    - Lean 4 cross-validation MANDATORY per 00-overview.md MS-4
+    - Lean 4 cross-validation MANDATORY per the dual-prover Lean formalization
       critical-proof set (the Lean 4 cross-validation strategy)
 
   Soundness property:
@@ -40,7 +40,7 @@ Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-
   Preconditions:
     - DP-2 (is_rc_dec_unnecessary) and DP-3 (is_rc_inc_elidable) are
       pure-state predicates per Annex E §AIMS
-    - Predicate-stack-derived ops are the sec-04A.2 burden-registry
+    - Predicate-stack-derived ops are the burden-prototype burden-registry
       writes derived from active stack burden tracking
     - Coexistence claim: consume_stack reads BR + L; emits eliminations
       consistent with both — NO double-counting on stack consumers
@@ -105,7 +105,7 @@ Theorem CH-4: AimsStateMap immutability under burden-registry mutation
   Preconditions:
     - L is the converged AimsStateMap for function F (output of IA-7)
     - BR is the burden-registry computed AFTER L's convergence per
-      sec-04A.2 design (acyclic dependency: BR reads L, L does not
+      the burden-prototype design (acyclic dependency: BR reads L, L does not
       depend on BR)
     - consume_stack walks the instruction stream with BOTH L (read-only)
       and BR (read-only) as inputs
@@ -138,7 +138,7 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
   Preconditions:
     - PL-1 mandates interprocedural-first ordering (Steps 1-2 across all
       functions before any per-function step) per Annex E §AIMS
-    - Burden-registry pre-pass per sec-04A.2 design is a typed pre-pass
+    - Burden-registry pre-pass per the burden-prototype design is a typed pre-pass
       input that lands on AimsStateMap (per Annex E §AIMS §2
       invariant 5(c)) — NOT a new lattice dimension; NOT an independent
       RC emission path

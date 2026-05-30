@@ -1,9 +1,9 @@
-; SMT-LIB2 encoding — §04B.2 cross-pattern category (4): over-elim closure-env double-free
+; SMT-LIB2 encoding — cross-pattern category (4): over-elim closure-env double-free
 ; ============================================================================
-; Shape: §04A.2 over-elimination on closure-env producing double-frees. Empirical
+; Shape: burden-elimination over-elimination on closure-env producing double-frees. Empirical
 ; signature: 2 higher_order tests (test_hof_closure_capture_in_loop +
 ; test_hof_make_predicate) — FATAL `ori_rc_dec called on already-freed allocation`.
-; Per §04B.2 HISTORY 2026-05-18: "emission-side dual to BUG-04-118 match-alias
+; Per the burden-prototype evidence: "emission-side dual to BUG-04-118 match-alias
 ; shape but on closure shapes."
 ;
 ; Closure-env shape: PartialApply captures variable `v` into closure env;
@@ -33,7 +33,7 @@
 ; Source mapping (per §10.0 shape-04B.2-over-elimination-closure-env row):
 ; shape_id = shape-04B.2-over-elimination-closure-env
 ; source = docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-; HISTORY 2026-05-18 §04B.2 category (4) — 2 higher_order tests
+; burden-prototype evidence, category (4) — 2 higher_order tests
 ; (test_hof_closure_capture_in_loop, test_hof_make_predicate)
 ;
 ; Cited proven rules (per §02-§09):

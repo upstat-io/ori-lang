@@ -19,7 +19,7 @@ Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-
       operating purely on L without consulting BR per Handshake.proof
       Function 2 (`predicate_stack_path`); realization rules per
       Annex E §AIMS RL-1..RL-34
-    - consume_stack(F, BR, L) is the sec-04A.2 elimination consumer per
+    - consume_stack(F, BR, L) is the burden-elimination consumer per
       Handshake.proof Function 1 (`burden_emission_path`), terminating at
       `pub(crate) fn eliminate_burden_ops` at compiler/ori_arc/
       src/aims/realize/burden_elim.rs:87
@@ -32,7 +32,7 @@ Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-
       PL-2.proof — analyze_function (Step 4) precedes realize_rc_reuse (Step 5);
       AimsStateMap converges BEFORE emit_burden_ops invocation per
       docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-      sec-04A success_criterion 1; therefore DP-2/DP-3 evaluations against
+      coverage shape; therefore DP-2/DP-3 evaluations against
       L's converged state are read-only at consume_stack invocation time
     - depends-on sec-08 RL-1 + RL-2 composition at aims-proof/proofs/08-realization/
       RL-1-RL-2-composition.proof — the lattice-only emission path's
@@ -79,7 +79,7 @@ Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-
         AND BR.eliminates(v) under DP-2 / DP-3):
           consume_stack honors the single-elimination invariant by reading
           BR's per-variable annotation AS the lattice-derived DP-2/DP-3 verdict
-          (not re-deriving it); the burden-tracking pre-pass (sec-04A.2)
+          (not re-deriving it); the burden-tracking pre-pass
           materializes the verdict into BR.burden_emitted, which consume_stack
           consumes verbatim.
 

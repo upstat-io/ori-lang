@@ -1,8 +1,8 @@
-; SMT-LIB2 encoding — §04B.2 cross-pattern category (2): under-elimination leaks
+; SMT-LIB2 encoding — cross-pattern category (2): under-elimination leaks
 ; ============================================================================
 ; Shape: under-elimination memory leaks on path-sensitive control flow + jump-arg
 ; merges + generic forwarders. Empirical signature: 7 generics tests / 17 total
-; leaked allocations (per §04B.2 HISTORY 2026-05-18 evidence).
+; leaked allocations (per the burden-prototype evidence).
 ;
 ; Under-elimination = the lattice/realization pipeline KEEPS an RcInc whose
 ; partner RcDec is dropped (or vice versa) along ONE path of a CFG merge,
@@ -25,7 +25,7 @@
 ; Source mapping (per §10.0 shape-04B.2-under-elimination-leaks row):
 ; shape_id = shape-04B.2-under-elimination-leaks
 ; source = docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-; (HISTORY 2026-05-18 §04B.2 category (2) — 7 generics tests,
+; (burden-prototype evidence, category (2) — 7 generics tests,
 ; 17 leaked allocations on path-sensitive control flow,
 ; jump-arg merges, generic forwarders)
 ; fixture_path= aims-proof/proofs/10-counterexample/04B.2-under-elim.smt2
@@ -66,7 +66,7 @@
 ; ----------------------------------------------------------------------------
 ; §1. Path-sensitive CFG with two arms + merge
 ; ----------------------------------------------------------------------------
-; Layout (mirrors the §04B.2 path-sensitive control-flow shape):
+; Layout (mirrors the under-elimination path-sensitive control-flow shape):
 ; entry -> Branch(cond)
 ; ok_arm (live %v + ownership-transferring use)
 ; err_arm (live %v + last-use)

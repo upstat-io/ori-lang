@@ -218,7 +218,7 @@ Theorem CH-3: Per-class coexistence with active stack burden — three sub-class
           skips Borrowed variables per the shipped burden_lower.rs
           DerivedOwnership side-table consumption per
           docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-          sec-04A success_criterion 4); RL-14 headerless invariant holds (no
+          coverage shape); RL-14 headerless invariant holds (no
           RC emission); consume_stack does NOT enter burden_emission_path
           for Class B variables.
 

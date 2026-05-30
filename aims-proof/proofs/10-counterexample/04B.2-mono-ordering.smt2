@@ -1,4 +1,4 @@
-; SMT-LIB2 encoding — §04B.2 cross-pattern category (1): mono-pipeline-ordering
+; SMT-LIB2 encoding — cross-pattern category (1): mono-pipeline-ordering
 ; ============================================================================
 ; Shape: monomorphization-pipeline-ordering interaction with burden emission.
 ; Empirical signature: E5001 unresolved `__cast` in 3 generics::test_borrow_list_int_*
@@ -11,7 +11,7 @@
 ; the 12 AIMS pipeline steps. The mono pipeline runs UPSTREAM of the
 ; AIMS pipeline (canon → mono → ori_arc::lower → analyze_program), so any
 ; AIMS step that consumes `__cast` AFTER mono has converged is sound. The
-; E5001 surface in §04B.2 indicates an instruction reached an AIMS step
+; E5001 surface in this cross-pattern category indicates an instruction reached an AIMS step
 ; with `__cast` STILL UNRESOLVED — meaning the ordering invariant was
 ; violated upstream of analyze_program (Step 1) or apply_ownership (Step 2).
 ;
@@ -34,7 +34,7 @@
 ; §10.0 shape-04B.2-mono-pipeline-ordering row):
 ; shape_id = shape-04B.2-mono-pipeline-ordering
 ; source = docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-; (HISTORY 2026-05-18 §04B.2 evidence: category (1)
+; (burden-prototype evidence: category (1)
 ; monomorphization-pipeline-ordering interaction with burden emission)
 ; fixture_path= aims-proof/proofs/10-counterexample/04B.2-mono-ordering.smt2
 ;
@@ -57,7 +57,7 @@
 ; - similar "mono_pipeline" --repo ori → Symbol-not-found (graph degradation
 ; per intelligence.md graceful-degradation contract).
 ; Manual fallback: `compiler/oric/src/pipeline/mono/` carries
-; the imported-mono machinery; the §04B.2 HISTORY entry pins commit
+; the imported-mono machinery; the burden-prototype evidence pins commit
 ; 4ac52f23d as the introduction site.
 ; - callers "transfer_select" --repo ori → 1 caller: transfer_def at
 ; ori_arc/src/aims/transfer/mod.rs:71. Used here to anchor the AIMS-side
@@ -104,7 +104,7 @@
 ; ----------------------------------------------------------------------------
 
 ; A protocol-builtin instance under test. `__cast` is the canonical case from
-; §04B.2 HISTORY 2026-05-18 (E5001 unresolved __cast).
+; the burden-prototype evidence (E5001 unresolved __cast).
 (declare-datatype Instr ((I_cast)))
 
 ; cast_resolved_at(step) — TRUE iff after step `step` the `__cast` operand
@@ -155,7 +155,7 @@
 ; §4. The counterexample question (E5001 shape)
 ; ----------------------------------------------------------------------------
 ; E5001 shape: a downstream AIMS consumer (PS_realize_rc) reads an UNRESOLVED
-; __cast operand — the empirical signature observed in §04B.2 generics tests.
+; __cast operand — the empirical signature observed in the burden-prototype generics tests.
 
 (push 1)
 

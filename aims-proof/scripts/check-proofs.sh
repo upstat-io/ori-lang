@@ -28,7 +28,7 @@
 #                                         unimplemented_engine_shape.
 #   any other verdict (fail / parse_failure / mismatch) -> regression -> exit 1.
 #
-# §17 shipped-conformance gate: the locality cross-walk emits
+# Locality shipped-conformance cross-walk: the locality cross-walk emits
 # divergent-pending(blocked-by: locality-representation-unification) while
 # shipped Locality is 4-variant; divergent-pending is NON-FATAL. A fatal
 # `divergent` verdict (manifest-free rule drift) or probe/manifest
@@ -92,7 +92,7 @@ else
     done
 fi
 
-# --- §17 shipped-conformance gate (non-fatal on divergent-pending). ---
+# --- Locality shipped-conformance cross-walk (non-fatal on divergent-pending). ---
 # Always run on a full-tree invocation; on an affected-set run, run when any
 # §17-relevant proof (08-realization / 05-decisions / 03-canonicalization /
 # 06-interprocedural) is in scope. The runner is anchored to aims-proof/.

@@ -2,8 +2,8 @@
 #
 # flip-divergent-pending.sh — §17 locality shipped-conformance flip protocol.
 #
-# Per the locality shipped-conformance gate
-# SC6: separate top-level script mirroring §10's counterexample-search
+# Per the locality shipped-conformance cross-walk:
+# separate top-level script mirroring §10's counterexample-search
 # pattern. Re-runs run-section-08-proofs.sh --locality-section, asserts
 # every manifest rule emits `pass`, exits non-zero if any still emits
 # `divergent-pending` under --as-flip-trigger mode. Consumers (§12

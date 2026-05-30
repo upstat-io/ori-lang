@@ -3,13 +3,13 @@ Theorem CH-1: Burden-registry-lattice composition soundness
   Preconditions:
     - BR is the burden-registry typed pre-pass output for function F, with
       the side tables described in docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-      sec-04A success_criterion 4:
+      burden-prototype coverage shape:
         BR.burden_emitted: BitSet<ArcVarId> (populated by emit_burden_ops)
         BR.class_covered: BitSet<ClassId> (derived intraprocedurally in
                                               aims/intraprocedural/post_convergence.rs)
     - L is the lattice analysis converged AimsStateMap for F per Annex E §AIMS IA-7 (intraprocedural backward dataflow reaches fixpoint at finite
       height per L-5 + L-6 + IA-7's iteration bound)
-    - consume_stack(F, BR, L) is the sec-04A.2 elimination consumer as defined
+    - consume_stack(F, BR, L) is the burden-elimination consumer as defined
       in aims-proof/proofs/11-coexistence/Handshake.proof Function 1
       (burden_emission_path), terminating at the shipped `pub(crate) fn
       eliminate_burden_ops` at compiler/ori_arc/src/aims/realize/
@@ -106,7 +106,7 @@ Theorem CH-1: Burden-registry-lattice composition soundness
 
       (P3) Per-class coexistence well-formedness:
         For each AIMS class C (identified by IC-3 ParamContract dimensions
-        per the burden-tracking sec-04A success_criterion 4 class taxonomy),
+        per the burden-tracking class taxonomy),
         the lattice's per-variable claim AND the burden registry's per-class
         annotation agree on class membership:
 
@@ -168,7 +168,7 @@ Theorem CH-1: Burden-registry-lattice composition soundness
       shipped pipeline ordering (Annex E §AIMS PL-2 Step 4 precedes
       Step 5; emit_burden_ops invoked between Step 4 analyze_function and
       Step 5 realize_rc_reuse per docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-      sec-04A success_criterion 1), BR.class_covered is computed from L
+      coverage shape), BR.class_covered is computed from L
       AFTER L converges; therefore burden-owned(L[v]) is a function of
       L's converged state, computed once and consumed by consume_stack at
       Step 5 / 5a / 10 burden-elimination sites.

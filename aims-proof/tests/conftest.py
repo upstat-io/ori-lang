@@ -1,7 +1,7 @@
 """Pytest configuration for §17 locality shipped-conformance tests.
 
 Provides the mock_shipped_lattice_probe fixture per
-the locality shipped-conformance gate SC7:
+the locality shipped-conformance cross-walk:
 inject synthetic (lattice_variant_count, may_escape_is_stored) tuples into
 the cross-walk via env-var overrides (ORI_LOCALITY_PROBE_VARIANT_COUNT +
 ORI_LOCALITY_PROBE_MAY_ESCAPE_STORED), simulating shipped states (4-variant

@@ -40,7 +40,7 @@ path = "src/bin/locality_conformance.rs"
 
 [build-dependencies]
 # build.rs probe of compiler/ori_arc/ shipped surface per
-# the locality shipped-conformance gate SC4.
+# the locality shipped-conformance cross-walk.
 # Emits LATTICE_VARIANT_COUNT + MAY_ESCAPE_IS_STORED constants the checker
 # consumes for divergent-pending vs pass branch in the §17 cross-walk.
 # Scope: build-only; trusted kernel surface unaffected.

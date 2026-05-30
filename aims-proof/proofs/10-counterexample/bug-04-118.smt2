@@ -25,8 +25,8 @@
 ; shape_id = shape-bug-04-118-result-inner-alias
 ; source = BUG-04-118
 ; fixture_path= aims-proof/proofs/10-counterexample/bug-04-118.smt2 (this file)
-; classification on UNSAT → feeds §12 SSOT empirical-adequacy verdict per MS-5
-; classification on SAT → routes §02-§09 + §11 + §12 per outcome-classification table
+; classification on UNSAT → feeds the empirical-adequacy SSOT verdict
+; classification on SAT → routes §02-§09 + §11 + the empirical-adequacy SSOT per outcome-classification table
 ;
 ; Cited proven rules (per the proven calculus from §02-§09):
 ; - TF-3 Construct produces FRESH(BlockLocal, Owned, Linear, Once, Unique, may_alloc=T)

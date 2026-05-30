@@ -2,7 +2,7 @@
 -- Cross-validates aims-proof/proofs/10-counterexample/04B.2-mono-ordering.smt2
 -- Hand-authored counterexample proof under lean/AimsProof/ (no emitter).
 --
--- Translated from §04B.2 cross-pattern category (1): mono-pipeline-ordering
+-- Translated from cross-pattern category (1): mono-pipeline-ordering
 -- (per docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md HISTORY
 -- 2026-05-18 — E5001 unresolved `__cast` in generics::test_borrow_list_int_*).
 --
@@ -86,7 +86,7 @@ theorem e5001_refuted
 -- ============================================================================
 -- The theorem above corresponds to the SMT UNSAT verdict in
 -- 04B.2-mono-ordering.smt2 §4. Routing per §10.1 outcome-classification:
--- Lean theorem proves → cross-validates SMT UNSAT → feeds §12
+-- Lean theorem proves → cross-validates SMT UNSAT → feeds the empirical-adequacy SSOT verdict
 -- Lean theorem refused to type-check → ENCODER_INVALID halt per §10.1 SC #4
 
 end AimsMonoPipelineOrdering

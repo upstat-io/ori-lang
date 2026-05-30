@@ -11,13 +11,13 @@ Theorem CH-4: AimsStateMap immutability under burden-registry mutation
       height per L-5 + L-6); L's per-variable AimsState assignments are
       canonical post-CN-1..CN-8
     - BR is the burden-registry typed pre-pass output computed AFTER L's
-      convergence per the sec-04A.2 design (acyclic dependency: BR reads L,
+      convergence per the burden-prototype design (acyclic dependency: BR reads L,
       L does not depend on BR); BR.burden_emitted is a derived BitSet<ArcVarId>
       populated by emit_burden_ops at Step 4-companion pre-pass per
       docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-      sec-04A success_criterion 4
+      coverage shape
     - consume_stack walks the instruction stream with BOTH L (read-only after
-      IA-7) AND BR (read-only after the sec-04A.2 pre-pass write) as inputs
+      IA-7) AND BR (read-only after the burden-prototype pre-pass write) as inputs
     - depends-on sec-02 L-2 (associativity) at aims-proof/proofs/02-lattice/
       L-2.proof — lattice state-map immutability under read-only access; L-2
       is load-bearing for proving that lattice state remains canonical under
@@ -30,7 +30,7 @@ Theorem CH-4: AimsStateMap immutability under burden-registry mutation
     - depends-on sec-07 PL-2 (Step 4 precedes Step 5) at aims-proof/proofs/07-
       pipeline/PL-2.proof — analyze_function (Step 4) precedes realize_rc_
       reuse (Step 5); emit_burden_ops invoked between Step 4 and Step 5 per
-      sec-04A success_criterion 1; therefore L is converged (read-only) BEFORE
+      the burden-prototype coverage shape; therefore L is converged (read-only) BEFORE
       BR writes occur
     - depends-on sec-07 PL-5 (no stale summaries) at aims-proof/proofs/07-
       pipeline/PL-5.proof — no pass may rely on stale summaries; burden-
@@ -45,7 +45,7 @@ Theorem CH-4: AimsStateMap immutability under burden-registry mutation
     - Mutation events: a BR mutation event M is a write to BR.burden_emitted
       or to any companion side-table BR carries (e.g., BR.class_covered:
       BitSet<ClassId>). The set of mutation events for a function F is the
-      finite set of emit_burden_ops calls during the sec-04A.2 pre-pass; for
+      finite set of emit_burden_ops calls during the burden-prototype pre-pass; for
       any post-Step-4 program point pp, BR's state is THE result of replaying
       that finite event sequence
 
@@ -94,7 +94,7 @@ Theorem CH-4: AimsStateMap immutability under burden-registry mutation
 
       Per PL-2, the AIMS pipeline orders Step 4 (analyze_function) BEFORE
       Step 5 (realize_rc_reuse); emit_burden_ops invokes between Step 4 and
-      Step 5 per sec-04A success_criterion 1. Therefore at the time of any BR
+      Step 5 per the burden-prototype coverage shape. Therefore at the time of any BR
       mutation event M, L has already reached IA-7 convergence and is no
       longer being updated.
 
@@ -107,9 +107,9 @@ Theorem CH-4: AimsStateMap immutability under burden-registry mutation
 
       The disjointness is structural: BR's writes go to BR.burden_emitted
       (and BR's companion side-tables); they do NOT alias any field of
-      AimsStateMap. Per the Rust ownership model + the sec-04A burden-registry
-      module boundary (docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.mdsection-04A-minimal-
-      lattice-adaptation.md sec-04A success_criterion 4), BR's mutation API
+      AimsStateMap. Per the Rust ownership model + the burden-registry
+      module boundary (docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
+      success_criterion 4), BR's mutation API
       takes &mut BR and &L (immutable reference) — Rust's borrow checker
       mechanically prohibits a BR mutation from modifying L through the
       same code path.

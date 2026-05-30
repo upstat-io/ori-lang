@@ -79,8 +79,8 @@ Theorem CH-comp: layered-handshake composition — the handshake catches the UNI
                  (burden-owned fails) trivially reduces coexistence_dispatch
                  equivalent_to predicate_stack_path by definition
 
-    CH-comp is the capstone of the sec-11 contribution to MS-4 (Ori-novel
-    coexistence-proof per 00-overview.md MS-4): the proof that the AIMS
+    CH-comp is the capstone of the sec-11 contribution to the Ori-novel
+    coexistence-proof mission: the proof that the AIMS
     coexistence handshake, layer by layer and composed, catches every
     inconsistency class — lattice-bridge consistency, single-elimination
     determinism, per-class partition well-formedness, AimsStateMap
@@ -199,4 +199,4 @@ Theorem CH-comp: layered-handshake composition — the handshake catches the UNI
 
   Expected:
     status: valid
-    reason: section_11 structural_induction (PRIMARY) engine discharges the layered-handshake composition theorem CH-comp by composing all 5 discharged CH constituents (CH-1 lattice-bridge + CH-2 single- elimination + CH-3 per-class partition + CH-4 AimsStateMap immutability + CH-5 phase-ordering, each re-run and asserted Valid) plus the union- of-failure-classes property (a fix passing 4 layers but regressing CH-5 is rejected; a fix passing every layer is accepted) plus exhaustive case-partition coverage over the Handshake.proof soundness theorem's case 1 / case 2 / case 3 decomposition, with a 5-count coverage gate ensuring no CH layer is dropped — the joined proof that the AIMS coexistence handshake catches the union of lattice-bridge / single- elimination / per-class partition / AimsStateMap immutability / phase- ordering failure classes, the sec-11 contribution to MS-4 (Ori-novel coexistence-proof) per 00-overview.md MS-4
+    reason: section_11 structural_induction (PRIMARY) engine discharges the layered-handshake composition theorem CH-comp by composing all 5 discharged CH constituents (CH-1 lattice-bridge + CH-2 single- elimination + CH-3 per-class partition + CH-4 AimsStateMap immutability + CH-5 phase-ordering, each re-run and asserted Valid) plus the union- of-failure-classes property (a fix passing 4 layers but regressing CH-5 is rejected; a fix passing every layer is accepted) plus exhaustive case-partition coverage over the Handshake.proof soundness theorem's case 1 / case 2 / case 3 decomposition, with a 5-count coverage gate ensuring no CH layer is dropped — the joined proof that the AIMS coexistence handshake catches the union of lattice-bridge / single- elimination / per-class partition / AimsStateMap immutability / phase- ordering failure classes, the sec-11 contribution to the Ori-novel coexistence-proof mission

@@ -3,8 +3,7 @@
 //! Reads aims-proof/checker/shipped-conformance-manifest.json + build-time
 //! probe consts (`LATTICE_VARIANT_COUNT`, `MAY_ESCAPE_IS_STORED`) and emits
 //! a per-manifest-rule verdict block to stdout (canonical JSON). Per
-//! `the locality shipped-conformance gate`
-//! SC1 + SC5.
+//! the locality shipped-conformance cross-walk.
 //!
 //! Verdict rule (per rule):
 //! variants == 5 AND !may_escape_stored -> `pass`
