@@ -297,6 +297,15 @@ fn build_global_pin4_emits(
     // `predict_inc_classes` computes the real counts into `inc_counts` below.
     let empty_inc: FxHashMap<u32, usize> = FxHashMap::default();
     let mut inc_counts: FxHashMap<u32, usize> = FxHashMap::default();
+    // Full var→canonical-class reverse map (covers class ROOTS that
+    // `ssa_alias_class_of` omits) so `predict_inc_classes` attributes an inc to
+    // the SAME class id the dec-suppressor consults.
+    let mut var_to_class: FxHashMap<ArcVarId, u32> = FxHashMap::default();
+    for (class_id, members) in state_map.class_members_iter() {
+        for &m in members {
+            var_to_class.entry(m).or_insert(class_id);
+        }
+    }
     let mut global = crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits::default();
     for block_idx in 0..func.blocks.len() {
         let use_info = precompute_block_uses(&func.blocks[block_idx]);
@@ -327,7 +336,7 @@ fn build_global_pin4_emits(
             take_move_facts,
             return_transfer_params,
             global_pin4_emits: &empty_global,
-            inc_counts,
+            inc_counts: &empty_inc,
             post_doms,
             alias_to_param,
             return_project_inc_targets,
@@ -339,8 +348,10 @@ fn build_global_pin4_emits(
                 entry.insert((var, block_idx, site));
             }
         }
+        // Same per-block ctx feeds the pre-walk inc-count prediction.
+        super::walk::predict_inc_classes(&ctx, iter_fn_name, &var_to_class, &mut inc_counts);
     }
-    global
+    (global, inc_counts)
 }
 
 #[expect(

@@ -64,6 +64,11 @@ pub(super) fn emit_post_instr_decs_unified(
     // RcDec at this instruction, subsequent same-class same-instr emissions
     // are suppressed.
     let mut emitted_classes_this_instr: FxHashSet<u32> = FxHashSet::default();
+    // Parallel per-var set: PIN-5 for retained-copy classes (inc_count >= 1)
+    // suppresses only a true same-var double-use, not distinct same-instr
+    // operands. Kept alongside the class set so PIN-6 + non-inc PIN-5 are
+    // unchanged.
+    let mut emitted_vars_this_instr: FxHashSet<ArcVarId> = FxHashSet::default();
 
     // PIN-6 (BUG-04-104 §2.6.3): pre-collect the set of classes whose canonical
     // dec will fire at this instruction. The same-emission branch of
@@ -82,6 +87,7 @@ pub(super) fn emit_post_instr_decs_unified(
         instr_idx,
         new_body,
         &mut emitted_classes_this_instr,
+        &mut emitted_vars_this_instr,
         &classes_dying_here,
         metrics,
     );
@@ -101,6 +107,7 @@ pub(super) fn emit_post_instr_decs_unified(
         deferred,
         death_events,
         &mut emitted_classes_this_instr,
+        &mut emitted_vars_this_instr,
         &classes_dying_here,
         metrics,
     );
@@ -113,6 +120,7 @@ fn emit_defined_dead(
     instr_idx: usize,
     new_body: &mut Vec<ArcInstr>,
     emitted_classes_this_instr: &mut FxHashSet<u32>,
+    emitted_vars_this_instr: &mut FxHashSet<ArcVarId>,
     classes_dying_here: &FxHashMap<u32, FxHashSet<ArcVarId>>,
     metrics: &mut super::metrics::SynergyMetrics,
 ) {
@@ -224,11 +232,18 @@ fn emit_defined_dead(
         }
 
         // PIN-4 + PIN-5: class-aware suppression.
-        if !class_dec_should_emit(ctx, dst, instr_idx, emitted_classes_this_instr) {
+        if !class_dec_should_emit(
+            ctx,
+            dst,
+            instr_idx,
+            emitted_classes_this_instr,
+            emitted_vars_this_instr,
+        ) {
             return;
         }
         if let Some(strategy) = rc_strategy(ctx.func, dst, ctx.pool) {
             new_body.push(ArcInstr::RcDec { var: dst, strategy });
+            emitted_vars_this_instr.insert(dst);
             if let Some(class_id) = ctx.state_map.ssa_alias_class_of(dst) {
                 emitted_classes_this_instr.insert(class_id);
             }
@@ -248,6 +263,7 @@ fn emit_last_use_decs(
     deferred: &mut Vec<(ArcVarId, RcStrategy, LastUse)>,
     death_events: &mut Vec<DeathEvent>,
     emitted_classes_this_instr: &mut FxHashSet<u32>,
+    emitted_vars_this_instr: &mut FxHashSet<ArcVarId>,
     classes_dying_here: &FxHashMap<u32, FxHashSet<ArcVarId>>,
     metrics: &mut super::metrics::SynergyMetrics,
 ) {
@@ -332,6 +348,7 @@ fn apply_last_use_decision(
     deferred: &mut Vec<(ArcVarId, RcStrategy, LastUse)>,
     death_events: &mut Vec<DeathEvent>,
     emitted_classes_this_instr: &mut FxHashSet<u32>,
+    emitted_vars_this_instr: &mut FxHashSet<ArcVarId>,
     classes_dying_here: &FxHashMap<u32, FxHashSet<ArcVarId>>,
 ) {
     match decision.rc {
@@ -427,6 +444,7 @@ fn class_dec_should_emit(
     var: ArcVarId,
     instr_idx: usize,
     emitted_classes_this_instr: &FxHashSet<u32>,
+    emitted_vars_this_instr: &FxHashSet<ArcVarId>,
 ) -> bool {
     let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) else {
         tracing::debug!(
@@ -438,8 +456,19 @@ fn class_dec_should_emit(
         return true; // singleton — emit normally
     };
 
-    // PIN-5: same-class dec already emitted at this instruction.
-    if emitted_classes_this_instr.contains(&class_id) {
+    // PIN-5: same-class dec already emitted at this instruction. A retained-copy
+    // class (`inc_count >= 1`) holds multiple owned references; its distinct
+    // same-instr operands (e.g. `%a == %b`, both aliases of one heap value with
+    // rc > 1) are distinct owned references and EACH needs a dec — collapsing
+    // them under-emits (leak). For such a class, suppress only a TRUE same-var
+    // double-use (`f(%a, %a)`), never a distinct sibling.
+    let class_incs = ctx.inc_counts.get(&class_id).copied().unwrap_or(0);
+    let pin5_suppress = if class_incs >= 1 {
+        emitted_vars_this_instr.contains(&var)
+    } else {
+        emitted_classes_this_instr.contains(&class_id)
+    };
+    if pin5_suppress {
         tracing::debug!(
             target: "ori_arc::aims::realize::class_dec",
             func = ?ctx.func.name, var = var.raw(), class = class_id,

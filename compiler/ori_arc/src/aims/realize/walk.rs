@@ -406,11 +406,38 @@ fn emit_pre_instr_incs_unified(
 pub(crate) fn predict_inc_classes(
     ctx: &BlockCtx<'_>,
     iter_fn_name: ori_ir::Name,
+    var_to_class: &FxHashMap<ArcVarId, u32>,
     out: &mut FxHashMap<u32, usize>,
 ) {
+    // The dec-suppressor keys on `ssa_alias_class_of(dec_var)` (the canonical
+    // class id). An inc target is often the class ROOT (e.g. the alloc `%0`),
+    // and `class_id_of` returns `var.raw()` for roots (omitted from the
+    // var→class map), which differs from the canonical class id. Resolve via
+    // the full-membership reverse map so inc counts land under the SAME class
+    // the suppressor consults.
+    let class_of = |v: ArcVarId| -> u32 {
+        var_to_class
+            .get(&v)
+            .copied()
+            .unwrap_or_else(|| ctx.state_map.class_id_of(v))
+    };
     let block = &ctx.func.blocks[ctx.blk.index()];
     let mut uses_so_far: FxHashMap<ArcVarId, usize> = FxHashMap::default();
     for (instr_idx, instr) in block.body.iter().enumerate() {
+        // Burden annotations are TF-N/A metadata, not real uses — skip them so
+        // `uses_so_far` stays in lock-step with `precompute_block_uses` (else
+        // `compute_has_future_use`'s `debug_assert!` fires). Symmetric to the
+        // burden-skip in `walk_body_unified` + `precompute_block_uses`.
+        if matches!(
+            instr,
+            ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
+                | ArcInstr::BurdenDecPartial { .. }
+                | ArcInstr::BurdenDecVariant { .. }
+                | ArcInstr::BurdenDecField { .. }
+        ) {
+            continue;
+        }
         if let ArcInstr::Apply { func, args, .. } = instr {
             if *func == iter_fn_name {
                 if let Some(&coll_var) = args.first() {
@@ -419,7 +446,7 @@ pub(crate) fn predict_inc_classes(
                         && ctx.func.var_reprs[coll_var.index()] != ValueRepr::Scalar
                         && rc_strategy(ctx.func, coll_var, ctx.pool).is_some()
                     {
-                        *out.entry(ctx.state_map.class_id_of(coll_var)).or_default() += 1;
+                        *out.entry(class_of(coll_var)).or_default() += 1;
                     }
                 }
             }
@@ -430,7 +457,7 @@ pub(crate) fn predict_inc_classes(
                 && ctx.func.var_reprs[var.index()] != ValueRepr::Scalar
             {
                 if rc_strategy(ctx.func, var, ctx.pool).is_some() {
-                    *out.entry(ctx.state_map.class_id_of(var)).or_default() += 1;
+                    *out.entry(class_of(var)).or_default() += 1;
                 }
                 continue;
             }
