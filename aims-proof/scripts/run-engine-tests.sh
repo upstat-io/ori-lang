@@ -10,7 +10,7 @@
 # each). Test failures route through checker_smoke_failed (exit 2)
 # with structured JSON diagnostic per the §00 FAIL-branch table.
 #
-# Exit codes match scripts/plan_corpus/exit_reasons.py
+# Exit codes follow this checker's documented exit-code contract.
 # EXIT_REASON_ROUTING:
 # 0 = engine tests green
 # 2 = checker_smoke_failed (one or more engine unit tests failed)

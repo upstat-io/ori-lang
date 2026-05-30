@@ -28,7 +28,7 @@
 # purely the §01A Ori-checker bootstrap gate; the prior placeholder-mirror
 # emitter arm is retired.
 #
-# Exit codes match scripts/plan_corpus/exit_reasons.py
+# Exit codes follow this checker's documented exit-code contract.
 # EXIT_REASON_ROUTING:
 # 0 = bootstrap_cross_validation_passed (11/11 green in the Ori checker)
 # 2 = checker_smoke_failed

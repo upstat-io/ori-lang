@@ -21,9 +21,8 @@
 # LATTICE_FAILURE_CLASSIFICATION to override per success_criteria
 # 3 / 4 / 5 / 7 (00-overview.md DP-3 cases).
 #
-# Exit codes + exit_reasons (per scripts/plan_corpus/exit_reasons.py
-# CANONICAL_EXIT_REASONS — §02-IM-A registered the 5 semantic names
-# below + consumes proof_search_cap_reached already at line 129):
+# Exit codes + exit_reasons (per this checker's documented exit-code
+# contract — the 5 semantic names below plus proof_search_cap_reached):
 # exit 0 + lattice_axioms_proven — 10/10 green
 # exit 2 + lattice_proof_gap_unprovable — default fail
 # exit 2 + lattice_dimension_reformulation_required — DP-3 case 3

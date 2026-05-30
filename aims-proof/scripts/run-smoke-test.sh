@@ -18,7 +18,7 @@
 # — verdict comparison; mismatch routes through
 # checker_smoke_failed (exit 2).
 #
-# Exit codes match scripts/plan_corpus/exit_reasons.py
+# Exit codes follow this checker's documented exit-code contract.
 # EXIT_REASON_ROUTING:
 # 0 = smoke_passes_in_ori_checker (PASS)
 # 2 = checker_smoke_failed (engine-test or diff failure)

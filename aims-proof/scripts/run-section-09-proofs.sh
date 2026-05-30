@@ -24,7 +24,7 @@
 # shipped-layer site missing -> verification_layer_compiler_spec_divergence
 # (exit 2).
 #
-# Exit codes + exit_reasons (per scripts/plan_corpus/exit_reasons.py):
+# Exit codes + exit_reasons (per this checker's documented exit-code contract):
 # exit 0 + verification_layers_proven — all green
 # exit 2 + verification_layer_proof_gap_unprovable — default proof fail
 # exit 2 + verification_layer_reformulation_required — layer reformulation

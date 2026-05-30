@@ -23,7 +23,7 @@
 # mandatory; up to CH-10 optional). Missing routes through
 # theorem_inventory_incomplete (exit 2).
 #
-# Exit codes match scripts/plan_corpus/exit_reasons.py
+# Exit codes follow this checker's documented exit-code contract.
 # EXIT_REASON_ROUTING:
 # 0 = foundation_authored_clean (PASS)
 # 2 = calculus_parse_failed | calculus_typecheck_failed |

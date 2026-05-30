@@ -22,7 +22,7 @@
 # FIRST every invocation. Known-SAT non-SAT OR known-UNSAT non-UNSAT →
 # ENCODER_INVALID halt; no real-shape verdict trusted.
 #
-# Exit codes + exit_reasons (per scripts/plan_corpus/exit_reasons.py):
+# Exit codes + exit_reasons (per this checker's documented exit-code contract):
 # exit 0 + counterexample_search_adequate — all UNSAT, fixtures green
 # exit 2 + counterexample_witness_found — SAT, recovery cycle live
 # exit 2 + counterexample_proof_gap_unprovable — SAT, unrecoverable
@@ -46,9 +46,6 @@
 # - file-symbols "aims-proof/scripts" --repo ori → 0 symbols (shell scripts
 # not indexed); manual read of sibling runners (§02 / §03 / §04 / §05 /
 # §06 / §08 / §09) confirms the cwd-anchor + test-results discipline.
-# - callers "CANONICAL_EXIT_REASONS" --repo ori → 0 callers (Python module-
-# level constant); manual read of scripts/plan_corpus/exit_reasons.py
-# confirms the 7 §10 keys are registered with EXIT_REASON_ROUTING rows.
 #
 # Cwd contract: anchors to aims-proof/ via cd "$(dirname "$0")/.." at entry.
 

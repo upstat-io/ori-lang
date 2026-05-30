@@ -36,7 +36,7 @@
 # failing tier -> coexistence_handshake_compiler_spec_divergence
 # (exit 2).
 #
-# Exit codes + exit_reasons (per scripts/plan_corpus/exit_reasons.py):
+# Exit codes + exit_reasons (per this checker's documented exit-code contract):
 # exit 0 + coexistence_handshake_proven — all green
 # exit 2 + coexistence_handshake_proof_gap_unprovable — default proof fail
 # exit 2 + coexistence_handshake_reformulation_required — CH reformulation

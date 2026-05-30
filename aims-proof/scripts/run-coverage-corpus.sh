@@ -20,7 +20,7 @@
 # per IT 126; engines are stubs, parser-can-parse +
 # dispatcher-can-route is the gate).
 #
-# Exit codes match scripts/plan_corpus/exit_reasons.py
+# Exit codes follow this checker's documented exit-code contract.
 # EXIT_REASON_ROUTING:
 # 0 = all 10 shapes pass
 # 2 = checker_smoke_failed (one or more shapes failed) — populated

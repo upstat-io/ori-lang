@@ -20,9 +20,8 @@
 # `check-section-04-compiler-conformance.sh` (§04-IM-G); divergence
 # routes through `transfer_compiler_spec_divergence` (exit 2).
 #
-# Exit codes + exit_reasons (per scripts/plan_corpus/exit_reasons.py
-# CANONICAL_EXIT_REASONS — §04-IM-A registered the 6 semantic names
-# below + consumes proof_search_cap_reached already at line 129):
+# Exit codes + exit_reasons (per this checker's documented exit-code
+# contract — the 6 semantic names below plus proof_search_cap_reached):
 # exit 0 + transfer_proofs_passed — 27/27 green + cross-walk pass
 # exit 2 + transfer_proof_gap_unprovable — default fail
 # exit 2 + transfer_rule_reformulation_required — DP-3 case 3

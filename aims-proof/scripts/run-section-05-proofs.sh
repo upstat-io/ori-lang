@@ -22,9 +22,8 @@
 # routes through `decision_predicate_compiler_spec_divergence`
 # (exit 2).
 #
-# Exit codes + exit_reasons (per scripts/plan_corpus/exit_reasons.py
-# CANONICAL_EXIT_REASONS — §05-IM-A registered the 6 semantic names
-# below + consumes proof_search_cap_reached already at line 129):
+# Exit codes + exit_reasons (per this checker's documented exit-code
+# contract — the 6 semantic names below plus proof_search_cap_reached):
 # exit 0 + decision_predicates_proven — 10/10 green + cross-walk pass
 # exit 2 + decision_predicate_proof_gap_unprovable — default fail
 # exit 2 + decision_predicate_rule_reformulation_required — DP-3 case 3

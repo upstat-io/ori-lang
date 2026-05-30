@@ -31,7 +31,7 @@
 # shipped-rule site missing -> realization_rule_compiler_spec_divergence
 # (exit 2).
 #
-# Exit codes + exit_reasons (per scripts/plan_corpus/exit_reasons.py):
+# Exit codes + exit_reasons (per this checker's documented exit-code contract):
 # exit 0 + realization_rules_proven — all green
 # exit 2 + realization_rule_proof_gap_unprovable — default proof fail
 # exit 2 + realization_rule_reformulation_required — rule reformulation

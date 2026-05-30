@@ -14,7 +14,7 @@
 //! verdict-boundary tests are CONSUMERS (read the tuple to branch
 //! divergent-pending vs pass).
 //!
-//! BANNED: shell grep (per CLAUDE.md §ALWAYS improve tooling).
+//! BANNED: shell grep.
 //! BANNED: source-file `include!` reflection.
 
 use std::env;
