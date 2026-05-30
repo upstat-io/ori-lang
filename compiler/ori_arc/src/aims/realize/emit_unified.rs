@@ -342,18 +342,29 @@ fn build_global_pin4_emits(
         // Same per-block ctx feeds the pre-walk retained-copy-root prediction.
         super::walk::predict_retained_roots(&ctx, iter_fn_name, &mut retained_roots);
     }
-    // DISABLED — the lineage-equality gate these roots feed regressed the AOT
-    // suite 28 -> 1950: splitting EVERY within-class-retained-copy class into
-    // per-lineage dedup over-applies. The baseline post-dominance/same-instr
-    // class dedup already emits the correct dec count for the vast majority of
-    // retained-copy classes; making suppression lineage-restrictive emits extra
-    // decs on them -> mass double-free. The ~28 failing cells are SPECIFIC shapes
-    // (same-instr distinct operands of one multi-retained heap value) that need a
-    // SURGICAL fix, not a broad dedup change. Clearing the roots makes the map
-    // empty -> N=0 for every class -> both gates no-op -> proven 2275/28 baseline.
-    // Scaffolding retained for the surgical redesign tracked in BUG-04-123 §05.
-    retained_roots.clear();
-    let lineage_roots = super::walk::build_lineage_map(func, &retained_roots);
+    let mut lineage_roots = super::walk::build_lineage_map(func, &retained_roots);
+    // Consumption-aware filter — keep a retained lineage ONLY when its reference
+    // DIES within the class (some lineage member is a predicted dec emitter in
+    // `global`). A retained alias that later TRANSFERS OUT (consumed by a
+    // Construct / owned-arg / Jump-arg — RL-2 ownership transfer suppresses its
+    // dec prediction, so it is ABSENT from `global`) is balanced by the
+    // enclosing value's drop and needs NO class dec; keeping it would over-split
+    // the class into a spurious extra lineage and double-free (the broad-split
+    // 28 -> 1950 over-application). Filtering to within-class-dying lineages
+    // leaves only genuine distinct owned references, so the per-lineage dedup
+    // emits exactly `1 + (retained that die in class)` per path — the correct
+    // count (string_sso's b/c die at the comparisons; a transferred copy drops).
+    let emitter_vars: FxHashSet<ArcVarId> = global
+        .values()
+        .flat_map(|s| s.iter().map(|&(v, _, _)| v))
+        .collect();
+    let mut root_dies_in_class: FxHashMap<ArcVarId, bool> = FxHashMap::default();
+    for (&v, &root) in &lineage_roots {
+        let dies = emitter_vars.contains(&v);
+        let e = root_dies_in_class.entry(root).or_insert(false);
+        *e = *e || dies;
+    }
+    lineage_roots.retain(|_v, root| root_dies_in_class.get(&*root).copied().unwrap_or(false));
     (global, lineage_roots)
 }
 
