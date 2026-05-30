@@ -120,7 +120,7 @@ pub(super) fn walk_body_unified(
             if !is_unwind_block && in_all && !in_proj {
                 continue;
             }
-            // BUG-04-090 return-transfer dec suppression: suppress scope-exit
+            // Return-transfer dec suppression: suppress scope-exit
             // dec on Owned params that flow directly to a Return terminator
             // on this path. Path-sensitive: only fires when the current
             // block's forward CFG terminates in `Return { value: v }` where
@@ -139,7 +139,7 @@ pub(super) fn walk_body_unified(
         // Push the instruction itself.
         new_body.push(instr.clone());
 
-        // BUG-04-090 return-transfer compensating RcInc: emit compensating
+        // Return-transfer compensating RcInc: emit compensating
         // RcInc immediately after a Project whose dst flows to Return AND
         // whose source resolves to an Owned param with
         // `return_alias = Some(Project { field })` matching this Project's
@@ -160,7 +160,7 @@ pub(super) fn walk_body_unified(
             }
         }
 
-        // BUG-04-090 Select-aware compensating RcInc:
+        // Select-aware compensating RcInc:
         //
         // `Select cond ? %x : %y` aliases dst to one of {x, y} at
         // runtime (AIMS §1.9 conditional alias). RL-2 emits per-source
@@ -215,11 +215,11 @@ pub(super) fn walk_body_unified(
         );
 
         // Emit deferred parent decs whose children's last use is this instruction.
-        // PIN-6 gating: even when a deferred dec's effective last-use lands
+        // Payload-of-ancestor gating: even when a deferred dec's effective last-use lands
         // here, suppress the dec when an inter-class transitive-drop ancestor
         // will cover the var's RC slot. The deferred path is a distinct
         // emission site from `walk_dec.rs` (which gates defined-dead and
-        // inline last-use); without PIN-6 here, the canonical dec leaks past
+        // inline last-use); without the payload-of-ancestor gate here, the canonical dec leaks past
         // the suppression.
         let pin6_classes_dying_here =
             super::walk_dec::collect_classes_dying_here(ctx, instr, instr_idx);
@@ -402,7 +402,7 @@ fn emit_pre_instr_incs_unified(
 /// decision (same `uses_so_far` + `compute_has_future_use` + `decide` chain,
 /// burden-skipped to stay in lock-step with `precompute_block_uses`). Runs
 /// pre-walk on the un-RC'd body. Consumed (after Let-alias closure) by the
-/// PIN-4/PIN-5 lineage-equality gate so a class partitions into N retained
+/// lineage-equality dec-suppression gate so a class partitions into N retained
 /// lineages + 1 alloc-ref lineage, each deduped to exactly one dec per path
 /// (`1 + N` total — 04B.2-under-elim.lean rc_per_path_invariant).
 pub(crate) fn predict_retained_roots(
@@ -483,7 +483,7 @@ pub(crate) fn predict_retained_roots(
 /// retained root maps to itself, then `Let { dst, Var(src) }` renamings inherit
 /// their source's root (forward fixpoint over the whole function). A var ABSENT
 /// from the result is in the alloc-reference lineage. `lineage_of(a) ==
-/// lineage_of(b)` (both `None`, or both `Some(same root)`) is the PIN-4/PIN-5
+/// lineage_of(b)` (both `None`, or both `Some(same root)`) is the dec-suppression gate's
 /// same-lineage predicate. Closure follows `Let`-Var renamings ONLY (same value,
 /// same class); `Project`/`Select`/Jump-phi vars stay alloc-reference
 /// (conservative — they may carry either reference at runtime).
@@ -507,7 +507,13 @@ pub(crate) fn build_lineage_map(
                 } = instr
                 {
                     if let Some(&root) = lineage.get(src) {
-                        if lineage.insert(*dst, root).is_none() {
+                        // A retained root keeps its OWN lineage — the Let-alias
+                        // closure extends only to non-root borrow-view
+                        // descendants. Overwriting a distinct root's
+                        // self-mapping merges separate owned references (each
+                        // from a distinct establishment inc) into one lineage
+                        // and under-counts decs on alias chains.
+                        if !retained_roots.contains(dst) && lineage.insert(*dst, root).is_none() {
                             changed = true;
                         }
                     }
