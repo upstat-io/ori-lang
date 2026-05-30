@@ -199,7 +199,7 @@ fn construct_emits_burden_inc_immediately_before_consuming_construct() {
     // has a follow-up use (Let-Var alias keeps it alive past the Construct).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -215,6 +215,15 @@ fn construct_emits_burden_inc_immediately_before_consuming_construct() {
                     dst: ArcVarId::new(2),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(0)),
+                },
+                // Follow-up use keeps the Construct result var(1) live, so the
+                // FRESH-site BurdenInc is emitted (a DEAD result is correctly
+                // suppressed — its cleanup is predicate-stack-managed per the
+                // proven CH-comp case-3 coexistence handshake).
+                ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(1)),
                 },
             ],
             terminator: ArcTerminator::Unreachable,
@@ -267,7 +276,7 @@ fn apply_emits_burden_inc_immediately_before_consuming_apply() {
     // Idx::STR (heap-burden) per cycle-24 VF-1 RcOnScalar mirror.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -287,6 +296,12 @@ fn apply_emits_burden_inc_immediately_before_consuming_apply() {
                     dst: ArcVarId::new(2),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(0)),
+                },
+                // Keep the result var(1) live so its FRESH-site BurdenInc emits.
+                ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(1)),
                 },
             ],
             terminator: ArcTerminator::Unreachable,
@@ -924,17 +939,25 @@ fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
     // Per `aims-rules.md §8 RL-2` ownership-transferring exception.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
-            body: vec![ArcInstr::ApplyIndirect {
-                dst: ArcVarId::new(2),
-                ty: Idx::STR,
-                closure: ArcVarId::new(0),
-                args: vec![ArcVarId::new(1)],
-                arg_ownership: Vec::new(), // empty → all-Borrowed default
-            }],
+            body: vec![
+                ArcInstr::ApplyIndirect {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    closure: ArcVarId::new(0),
+                    args: vec![ArcVarId::new(1)],
+                    arg_ownership: Vec::new(), // empty → all-Borrowed default
+                },
+                // Keep the result var(2) live so its FRESH-site BurdenInc emits.
+                ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(2)),
+                },
+            ],
             terminator: ArcTerminator::Unreachable,
         }],
         entry: ArcBlockId::new(0),
@@ -1050,6 +1073,7 @@ fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
             Idx::STR,
             Idx::STR,
             Idx::STR,
+            Idx::STR,
         ],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
@@ -1075,6 +1099,12 @@ fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
                     dst: ArcVarId::new(6),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(2)),
+                },
+                // Keep the result var(3) live so its FRESH-site BurdenInc emits.
+                ArcInstr::Let {
+                    dst: ArcVarId::new(7),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(3)),
                 },
             ],
             terminator: ArcTerminator::Unreachable,
@@ -1245,7 +1275,15 @@ fn apply_three_args_with_non_adjacent_owned_positions_emits_burden_inc_per_owned
     // keep them alive past Apply, so per-arg BurdenInc IS emitted.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        var_types: vec![
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+        ],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -1271,6 +1309,12 @@ fn apply_three_args_with_non_adjacent_owned_positions_emits_burden_inc_per_owned
                     dst: ArcVarId::new(5),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(2)),
+                },
+                // Keep the result var(3) live so its FRESH-site BurdenInc emits.
+                ArcInstr::Let {
+                    dst: ArcVarId::new(6),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(3)),
                 },
             ],
             terminator: ArcTerminator::Unreachable,
@@ -1391,17 +1435,25 @@ fn apply_indirect_scalar_owned_arg_emits_no_burden_inc() {
     // potentially passing the PartialApply pin.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::INT, Idx::STR],
+        var_types: vec![Idx::STR, Idx::INT, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
-            body: vec![ArcInstr::ApplyIndirect {
-                dst: ArcVarId::new(2),
-                ty: Idx::STR,
-                closure: ArcVarId::new(0),
-                args: vec![ArcVarId::new(1)],
-                arg_ownership: vec![ArgOwnership::Owned],
-            }],
+            body: vec![
+                ArcInstr::ApplyIndirect {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    closure: ArcVarId::new(0),
+                    args: vec![ArcVarId::new(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                // Keep the result var(2) live so its FRESH-site BurdenInc emits.
+                ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(2)),
+                },
+            ],
             terminator: ArcTerminator::Unreachable,
         }],
         entry: ArcBlockId::new(0),
@@ -1497,7 +1549,15 @@ fn construct_multi_arg_mixed_types_emits_burden_inc_for_heap_burden_args_only() 
     // 20 + cycle 24 but fails cycle 27).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::INT, Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        var_types: vec![
+            Idx::STR,
+            Idx::INT,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+            Idx::STR,
+        ],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -1517,6 +1577,12 @@ fn construct_multi_arg_mixed_types_emits_burden_inc_for_heap_burden_args_only() 
                     dst: ArcVarId::new(5),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(2)),
+                },
+                // Keep the result var(3) live so its FRESH-site BurdenInc emits.
+                ArcInstr::Let {
+                    dst: ArcVarId::new(6),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(3)),
                 },
             ],
             terminator: ArcTerminator::Unreachable,
@@ -1563,18 +1629,28 @@ fn apply_all_borrowed_args_emits_zero_burden_inc() {
     // tests.md §Matrix Clamping clamp-from-all-sides.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
-            body: vec![ArcInstr::Apply {
-                dst: ArcVarId::new(2),
-                ty: Idx::STR,
-                func: Name::from_raw(99),
-                args: vec![ArcVarId::new(0), ArcVarId::new(1)],
-                arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Borrowed],
-                mono_instance_id: None,
-            }],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+                    arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+                // Keep the result var(2) live so its FRESH-site BurdenInc emits
+                // (a dead result is correctly suppressed — predicate-stack-
+                // managed per the proven CH-comp case-3 coexistence handshake).
+                ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(2)),
+                },
+            ],
             terminator: ArcTerminator::Unreachable,
         }],
         entry: ArcBlockId::new(0),
@@ -1614,16 +1690,27 @@ fn partial_apply_empty_args_emits_zero_burden_inc() {
     // empty, single-element, boundary).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
-            body: vec![ArcInstr::PartialApply {
-                dst: ArcVarId::new(0),
-                ty: Idx::STR,
-                func: Name::from_raw(99),
-                args: Vec::new(),
-            }],
+            body: vec![
+                ArcInstr::PartialApply {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    func: Name::from_raw(99),
+                    args: Vec::new(),
+                },
+                // Follow-up use keeps the result var(0) live so its FRESH-site
+                // BurdenInc emits (a DEAD result is correctly suppressed —
+                // predicate-stack-managed per the proven CH-comp case-3
+                // coexistence handshake).
+                ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                },
+            ],
             terminator: ArcTerminator::Unreachable,
         }],
         entry: ArcBlockId::new(0),
@@ -1662,16 +1749,24 @@ fn construct_empty_args_emits_zero_burden_inc() {
     // args=[] → predicate false for all pos → zero BurdenInc.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
-            body: vec![ArcInstr::Construct {
-                dst: ArcVarId::new(0),
-                ty: Idx::STR,
-                ctor: CtorKind::Tuple,
-                args: Vec::new(),
-            }],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    ctor: CtorKind::Tuple,
+                    args: Vec::new(),
+                },
+                // Keep the result var(0) live so its FRESH-site BurdenInc emits.
+                ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                },
+            ],
             terminator: ArcTerminator::Unreachable,
         }],
         entry: ArcBlockId::new(0),

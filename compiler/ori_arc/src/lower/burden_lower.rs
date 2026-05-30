@@ -1118,11 +1118,20 @@ fn emit_burden_ops_for_blocks(
     // `emit_terminator_burden_incs`). The terminator Dec emission then emits
     // one BurdenDec per Inc for vars whose last-use is terminator-transferred,
     // preserving VF-1 intraprocedural balance per `aims-rules.md §9 VF-1`.
+    // FRESH-site BurdenInc for Invoke/InvokeIndirect results, indexed by the
+    // `normal` successor block where the result `dst` is bound.
+    let invoke_result_incs = compute_invoke_result_incs(func, analysis);
     for (block_idx, block) in func.blocks.iter_mut().enumerate() {
         let original = std::mem::take(&mut block.body);
         let terminator_idx = original.len();
         let mut new_body: Vec<ArcInstr> = Vec::with_capacity(original.len() * 2);
         let mut inc_counts: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+        // Prepend the Invoke-result FRESH-site Incs bound on this block's
+        // normal-entry edge, before any body instruction.
+        for &dst in &invoke_result_incs[block_idx] {
+            new_body.push(ArcInstr::BurdenInc { var: dst });
+            *inc_counts.entry(dst).or_insert(0) += 1;
+        }
         for (instr_idx, instr) in original.into_iter().enumerate() {
             let ctx = BurdenEmitCtx {
                 block_idx,
@@ -1392,6 +1401,54 @@ fn emit_fresh_site_burden_inc(
     {
         new_body.push(ArcInstr::BurdenInc { var: dst });
     }
+}
+
+/// Per-block entry `BurdenInc` list for FRESH-allocating `Invoke` /
+/// `InvokeIndirect` results. A may-unwind call binds its result `dst` on the
+/// `normal` successor edge, so its FRESH-site `BurdenInc` — the terminator
+/// analogue of `emit_fresh_site_burden_inc`'s `Apply` / `ApplyIndirect` arms —
+/// lands at the TOP of the `normal` successor block. Gated identically per
+/// `aims-rules.md §3 TF-6 / TF-6a / TF-6c`: `Invoke` consults the callee
+/// `ReturnContract.uniqueness` (`Unique` / `MaybeShared` emit; `Shared` skips;
+/// no contract is conservative `MaybeShared`); `InvokeIndirect` is always
+/// conservative. The `owned_vars_needing_rc` + `!inc_suppressed_vars` filter
+/// mirrors the final push gate so a transfer-suppressed dst gets no orphan inc.
+/// Result indexed by successor block index; consumed by
+/// `emit_burden_ops_for_blocks`.
+fn compute_invoke_result_incs(
+    func: &ArcFunction,
+    analysis: &BurdenAnalysisCtx<'_>,
+) -> Vec<Vec<ArcVarId>> {
+    let mut per_succ: Vec<Vec<ArcVarId>> = vec![Vec::new(); func.blocks.len()];
+    for block in &func.blocks {
+        let (dst, normal) = match &block.terminator {
+            ArcTerminator::Invoke {
+                dst,
+                func: callee,
+                normal,
+                ..
+            } => {
+                let shared_return = matches!(
+                    analysis.contracts.get(callee),
+                    Some(c) if matches!(c.return_info.uniqueness, Uniqueness::Shared)
+                );
+                if shared_return {
+                    continue;
+                }
+                (*dst, *normal)
+            }
+            ArcTerminator::InvokeIndirect { dst, normal, .. } => (*dst, *normal),
+            _ => continue,
+        };
+        if analysis.owned_vars_needing_rc.contains(&dst)
+            && !analysis.inc_suppressed_vars.contains(&dst)
+        {
+            if let Some(slot) = per_succ.get_mut(normal.index()) {
+                slot.push(dst);
+            }
+        }
+    }
+    per_succ
 }
 
 /// Snapshot vars consumed at an owned position by `instr`, used to suppress
