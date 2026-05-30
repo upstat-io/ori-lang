@@ -429,19 +429,44 @@ fn class_dec_should_emit(
     emitted_classes_this_instr: &FxHashSet<u32>,
 ) -> bool {
     let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) else {
+        tracing::debug!(
+            target: "ori_arc::aims::realize::class_dec",
+            func = ?ctx.func.name, var = var.raw(),
+            decision = "emit", reason = "singleton-no-class",
+            "class-dec PIN decision"
+        );
         return true; // singleton — emit normally
     };
 
     // PIN-5: same-class dec already emitted at this instruction.
     if emitted_classes_this_instr.contains(&class_id) {
+        tracing::debug!(
+            target: "ori_arc::aims::realize::class_dec",
+            func = ?ctx.func.name, var = var.raw(), class = class_id,
+            decision = "suppress", reason = "pin5-same-instr-class-emitted",
+            "class-dec PIN decision"
+        );
         return false;
     }
 
     // PIN-4: class still has live members after this instruction.
     if class_alive_after(ctx, class_id, instr_idx, var) {
+        tracing::debug!(
+            target: "ori_arc::aims::realize::class_dec",
+            func = ?ctx.func.name, var = var.raw(), class = class_id,
+            decision = "suppress", reason = "pin4-class-alive-after",
+            "class-dec PIN decision"
+        );
         return false;
     }
 
+    tracing::debug!(
+        target: "ori_arc::aims::realize::class_dec",
+        func = ?ctx.func.name, var = var.raw(), class = class_id,
+        members = ?ctx.state_map.class_members(class_id),
+        decision = "emit", reason = "no-suppression",
+        "class-dec PIN decision"
+    );
     true
 }
 
