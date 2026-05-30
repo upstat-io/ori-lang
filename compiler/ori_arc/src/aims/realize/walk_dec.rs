@@ -505,6 +505,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
             ctx.blk.index(),
             ctx.post_doms,
             ctx.global_pin4_emits,
+            ctx.inc_counts,
         )
     {
         return suppressed;

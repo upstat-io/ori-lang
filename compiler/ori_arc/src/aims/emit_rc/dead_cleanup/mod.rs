@@ -31,6 +31,7 @@ fn pin4_suppressed(ctx: &BlockCtx<'_>, class_id: u32, var: ArcVarId) -> bool {
         ctx.blk.index(),
         ctx.post_doms,
         ctx.global_pin4_emits,
+        ctx.inc_counts,
     ) == Some(true)
 }
 

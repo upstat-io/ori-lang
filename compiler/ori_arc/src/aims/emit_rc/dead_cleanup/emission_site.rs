@@ -400,15 +400,27 @@ pub(crate) type GlobalPin4Emits = FxHashMap<u32, FxHashSet<(ArcVarId, usize, Emi
 /// a linear chain the later leaf post-dominates the earlier (suppress earlier),
 /// but on a branch neither post-dominates the other (both emit, one per path).
 /// This preserves the per-path RC-balance invariant (RL-2/RL-4/RL-5): every
-/// concrete CFG path nets exactly one dec.
+/// concrete CFG path nets exactly one dec PER OWNED REFERENCE.
+///
+/// `inc_counts` carries the per-class count of establishment `RcInc`s. A class
+/// with `inc_count >= 1` represents MULTIPLE owned references of one heap value
+/// (retained copies, each `RcInc`-balanced), not a single shared reference: it
+/// needs `1 + inc_count` decs per path, so its same-block distinct emitters
+/// (distinct operands at a use site — each its own owned reference) must NOT be
+/// collapsed to one. Collapsing under-emits and leaks the un-dec'd retained copy
+/// (04B.2-under-elim.lean rc_per_path_invariant). Cross-block post-dominance
+/// suppression still applies — that dedups genuine same-reference chain
+/// redundancy, not distinct retained references.
 pub(crate) fn class_member_suppresses(
     class_id: u32,
     var: ArcVarId,
     var_block: usize,
     post_doms: &crate::graph::PostDominatorTree,
     global: &GlobalPin4Emits,
+    inc_counts: &FxHashMap<u32, usize>,
 ) -> Option<bool> {
     let members = global.get(&class_id)?;
+    let class_incs = inc_counts.get(&class_id).copied().unwrap_or(0);
     let var_site = members
         .iter()
         .find(|&&(m, b, _)| m == var && b == var_block)
@@ -418,6 +430,12 @@ pub(crate) fn class_member_suppresses(
             return false;
         }
         if m_block == var_block {
+            // Retained-copy class: same-block distinct emitters are distinct
+            // owned references (each balancing one establishment inc), so do
+            // NOT collapse them — every same-block emitter is needed.
+            if class_incs >= 1 {
+                return false;
+            }
             match var_site {
                 Some(vs) => (emission_site_order(m_site), m.raw()) > (vs, var.raw()),
                 None => false,

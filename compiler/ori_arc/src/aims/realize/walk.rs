@@ -389,6 +389,76 @@ fn emit_pre_instr_incs_unified(
     }
 }
 
+/// Predict the per-SSA-alias-class establishment-`RcInc` count for `ctx.blk`,
+/// accumulating into `out`. Faithful read-only mirror of the inc decisions in
+/// [`emit_pre_instr_incs_unified`] — iter-fn balance, project-borrowed-at-owned-
+/// position, and the use-site `decide(DecisionSite::Use) == Inc` path — keyed by
+/// `class_id_of(var)`. Consumed by `class_member_suppresses` (via `inc_counts`):
+/// a class with `count >= 1` holds multiple owned references (retained copies)
+/// and must NOT have its same-block distinct dec emitters collapsed (under-
+/// emission leak; RL-1 inc ↔ RL-2/RL-4 per-path dec balance,
+/// 04B.2-under-elim.lean rc_per_path_invariant).
+///
+/// Runs pre-walk on the un-RC'd body, so it CANNOT scan emitted `RcInc`s; it
+/// re-derives the same decisions the walk will make. Kept in lock-step with
+/// `emit_pre_instr_incs_unified` (same accepted parallel-predictor pattern as
+/// `var_emits_dec_in_block` mirrors the dec walk).
+pub(crate) fn predict_inc_classes(
+    ctx: &BlockCtx<'_>,
+    iter_fn_name: ori_ir::Name,
+    out: &mut FxHashMap<u32, usize>,
+) {
+    let block = &ctx.func.blocks[ctx.blk.index()];
+    let mut uses_so_far: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+    for (instr_idx, instr) in block.body.iter().enumerate() {
+        if let ArcInstr::Apply { func, args, .. } = instr {
+            if *func == iter_fn_name {
+                if let Some(&coll_var) = args.first() {
+                    if ctx.all_borrowed_defs.contains(&coll_var)
+                        && !ctx.project_borrowed_defs.contains(&coll_var)
+                        && ctx.func.var_reprs[coll_var.index()] != ValueRepr::Scalar
+                        && rc_strategy(ctx.func, coll_var, ctx.pool).is_some()
+                    {
+                        *out.entry(ctx.state_map.class_id_of(coll_var)).or_default() += 1;
+                    }
+                }
+            }
+        }
+        for (pos, var) in instr.used_vars().into_iter().enumerate() {
+            if instr.is_owned_position(pos)
+                && ctx.project_borrowed_defs.contains(&var)
+                && ctx.func.var_reprs[var.index()] != ValueRepr::Scalar
+            {
+                if rc_strategy(ctx.func, var, ctx.pool).is_some() {
+                    *out.entry(ctx.state_map.class_id_of(var)).or_default() += 1;
+                }
+                continue;
+            }
+            if !is_rc_managed(ctx, var) {
+                continue;
+            }
+            let count = uses_so_far.entry(var).or_insert(0);
+            *count += 1;
+            let has_future_use = compute_has_future_use(ctx, var, *count, instr_idx);
+            let semantics = classify_use_semantics(ctx, var, pos, instr);
+            let class_covered = ctx
+                .state_map
+                .is_class_covered(ctx.state_map.class_id_of(var));
+            let decision = decide(&DecisionContext {
+                site: DecisionSite::Use {
+                    has_future_use,
+                    semantics,
+                },
+                is_rc_managed: true,
+                class_covered,
+            });
+            if decision.rc == RcDecision::Inc && rc_strategy(ctx.func, var, ctx.pool).is_some() {
+                *out.entry(ctx.state_map.class_id_of(var)).or_default() += 1;
+            }
+        }
+    }
+}
+
 // Helpers
 
 /// Compute whether a variable has a future use from this point.

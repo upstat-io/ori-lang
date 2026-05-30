@@ -146,7 +146,11 @@ pub(super) fn emit_rc_unified(
     // cross-block suppression so a branch (neither arm post-dominates) keeps one
     // dec per path (under-emission leak otherwise).
     let post_doms = crate::graph::PostDominatorTree::build(func);
-    let global_pin4_emits = build_global_pin4_emits(
+    // `build_global_pin4_emits` also predicts per-class establishment-inc counts
+    // (pre-walk, via `predict_inc_classes`): a class with retained copies needs
+    // `1 + inc_count` decs per path, so `class_member_suppresses` must not
+    // collapse its same-block distinct emitters (under-emission leak otherwise).
+    let (global_pin4_emits, inc_counts) = build_global_pin4_emits(
         func,
         state_map,
         pool,
@@ -161,6 +165,7 @@ pub(super) fn emit_rc_unified(
         &alias_to_param,
         &return_project_inc_targets,
         &same_alloc_reps,
+        iter_fn_name,
     );
 
     // Phase 1: per-block RC emission via unified forward walk.
@@ -179,6 +184,7 @@ pub(super) fn emit_rc_unified(
             &return_transfer_params,
             &global_pin4_emits,
             &post_doms,
+            &inc_counts,
             &alias_to_param,
             &return_project_inc_targets,
             &same_alloc_reps,
@@ -255,6 +261,10 @@ pub(super) fn emit_rc_unified(
     clippy::too_many_arguments,
     reason = "PIN-4 pre-pass builds a BlockCtx per block; needs the full per-function realization context"
 )]
+#[expect(
+    clippy::type_complexity,
+    reason = "returns the PIN-4 emitter map plus the per-class inc-count map computed in the same per-block pass"
+)]
 fn build_global_pin4_emits(
     func: &ArcFunction,
     state_map: &AimsStateMap,
@@ -270,7 +280,11 @@ fn build_global_pin4_emits(
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
     return_project_inc_targets: &FxHashMap<ArcVarId, RcStrategy>,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
-) -> crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits {
+    iter_fn_name: ori_ir::Name,
+) -> (
+    crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits,
+    FxHashMap<u32, usize>,
+) {
     use crate::aims::emit_rc::dead_cleanup::emission_site::pin4_class_emits_dec_set;
     use crate::aims::emit_rc::{
         block_id, collect_borrowed_defs, collect_defined_vars, compute_child_effective_last_use,
@@ -278,6 +292,11 @@ fn build_global_pin4_emits(
     };
     let empty_global =
         crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits::default();
+    // Empty placeholder for the ctx `inc_counts` field during this pre-pass:
+    // dec-emitter prediction (`pin4_class_emits_dec_set`) never reads it, and
+    // `predict_inc_classes` computes the real counts into `inc_counts` below.
+    let empty_inc: FxHashMap<u32, usize> = FxHashMap::default();
+    let mut inc_counts: FxHashMap<u32, usize> = FxHashMap::default();
     let mut global = crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits::default();
     for block_idx in 0..func.blocks.len() {
         let use_info = precompute_block_uses(&func.blocks[block_idx]);
@@ -308,6 +327,7 @@ fn build_global_pin4_emits(
             take_move_facts,
             return_transfer_params,
             global_pin4_emits: &empty_global,
+            inc_counts,
             post_doms,
             alias_to_param,
             return_project_inc_targets,
@@ -341,6 +361,7 @@ fn emit_block_rc(
     return_transfer_params: &FxHashSet<ArcVarId>,
     global_pin4_emits: &crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits,
     post_doms: &crate::graph::PostDominatorTree,
+    inc_counts: &FxHashMap<u32, usize>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
     return_project_inc_targets: &FxHashMap<ArcVarId, RcStrategy>,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
@@ -379,6 +400,7 @@ fn emit_block_rc(
         take_move_facts,
         return_transfer_params,
         global_pin4_emits,
+        inc_counts,
         post_doms,
         alias_to_param,
         return_project_inc_targets,

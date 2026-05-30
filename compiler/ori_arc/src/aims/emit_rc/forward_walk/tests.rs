@@ -55,6 +55,7 @@ struct TerminatorFixture {
     take_move_facts: TakeMoveFacts,
     global_pin4_emits: crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits,
     post_doms: crate::graph::PostDominatorTree,
+    inc_counts: FxHashMap<u32, usize>,
 }
 
 /// Select the RC strategy a fixture should use for its test variables.
@@ -184,6 +185,7 @@ impl TerminatorFixture {
             global_pin4_emits:
                 crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits::default(),
             post_doms,
+            inc_counts: FxHashMap::default(),
         }
     }
 
@@ -211,6 +213,7 @@ impl TerminatorFixture {
             take_move_facts: &self.take_move_facts,
             return_transfer_params: &self.return_transfer_params,
             global_pin4_emits: &self.global_pin4_emits,
+            inc_counts: &self.inc_counts,
             post_doms: &self.post_doms,
             alias_to_param: &self.alias_to_param,
             return_project_inc_targets: &self.return_project_inc_targets,

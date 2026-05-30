@@ -89,6 +89,14 @@ pub(crate) struct BlockCtx<'a> {
     /// block under the prior per-block `pin4_class_emits_dec_set`). Empty map in
     /// unit-test contexts that bypass the walk driver.
     pub(crate) global_pin4_emits: &'a super::dead_cleanup::emission_site::GlobalPin4Emits,
+    /// Per-class establishment-`RcInc` counts, computed ONCE per function.
+    /// Consumed by `class_member_suppresses`: a class with `inc_count >= 1`
+    /// holds multiple owned references (retained copies) and needs
+    /// `1 + inc_count` decs per path, so its same-block distinct emitters are
+    /// NOT collapsed. Empty map in unit-test contexts that bypass the walk
+    /// driver (no incs → no retained-copy suppression-relaxation, identical to
+    /// pre-relaxation behavior).
+    pub(crate) inc_counts: &'a FxHashMap<u32, usize>,
     /// Post-dominator tree, computed ONCE per function. Gates cross-block PIN-4
     /// suppression in `class_member_suppresses`: a member's dec covers `var`'s
     /// RC slot only when its block post-dominates `var`'s block.
