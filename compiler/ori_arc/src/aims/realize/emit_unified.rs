@@ -344,7 +344,8 @@ fn build_global_pin4_emits(
         // Same per-block ctx feeds the pre-walk retained-copy-root prediction.
         super::walk::predict_retained_roots(&ctx, iter_fn_name, &mut retained_roots);
     }
-    let mut lineage_roots = super::walk::build_lineage_map(func, &retained_roots);
+    let mut lineage_roots =
+        super::walk::build_lineage_map(func, &retained_roots, state_map.apply_result_aliases());
     // Consumption-aware filter — keep a retained lineage ONLY when its reference
     // DIES within the class (some lineage member is a predicted dec emitter in
     // `global`). A retained alias that later TRANSFERS OUT (consumed by a

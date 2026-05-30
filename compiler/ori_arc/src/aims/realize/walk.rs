@@ -15,6 +15,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::emit_rc::{is_live_at_exit, rc_strategy, BlockCtx, LastUse};
 use crate::aims::emit_reuse::{ctor_to_shape, is_reusable_ctor, AllocEvent, DeathEvent};
+use crate::aims::intraprocedural::state_map::ApplyAliasSource;
 use crate::aims::lattice::SizeClass;
 use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, RcStrategy, ValueRepr};
 
@@ -490,6 +491,7 @@ pub(crate) fn predict_retained_roots(
 pub(crate) fn build_lineage_map(
     func: &ArcFunction,
     retained_roots: &FxHashSet<ArcVarId>,
+    apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
 ) -> FxHashMap<ArcVarId, ArcVarId> {
     let mut lineage: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
     for &r in retained_roots {
@@ -517,6 +519,26 @@ pub(crate) fn build_lineage_map(
                             changed = true;
                         }
                     }
+                }
+            }
+        }
+        // Apply/Invoke-result passthrough closure: a Direct/Project apply-result
+        // aliases the SAME allocation as its source arg (callee returns the arg
+        // or one projection of it), so it carries that arg's retained reference
+        // and inherits its lineage. Without this, the passthrough result falls
+        // into the alloc-reference lineage with the root's own alias, and the
+        // dec-suppression gate dedups two distinct owned references to one
+        // (under-emission leak). Wrapped (separate wrapper allocation) and
+        // Conditional (path-dependent) do NOT extend — their decs are scheduled
+        // by the apply-aliased-dec suppression machinery.
+        for (dst, source) in apply_result_aliases {
+            let src = match source {
+                ApplyAliasSource::Direct(arg) | ApplyAliasSource::Project { arg, .. } => *arg,
+                ApplyAliasSource::Wrapped(_) | ApplyAliasSource::Conditional { .. } => continue,
+            };
+            if let Some(&root) = lineage.get(&src) {
+                if !retained_roots.contains(dst) && lineage.insert(*dst, root).is_none() {
+                    changed = true;
                 }
             }
         }
