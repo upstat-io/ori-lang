@@ -1,6 +1,6 @@
 -- AIMS-Proof §10 counterexample-search cross-validation
 -- Cross-validates aims-proof/proofs/10-counterexample/bug-04-118.smt2
--- SSOT for Lean emission: aims-proof/checker/src/emit/lean4.rs (the SMT / Lean 4 emission strategy Option C)
+-- Hand-authored counterexample proof under lean/AimsProof/ (no emitter).
 -- Constructive-by-default per the foundational-axiom policy; classical escalation requires
 -- matched commit per the foundational-axiom policy §Permitted Extensions.
 --
@@ -20,8 +20,7 @@
 namespace AimsBootstrap
 
 -- ============================================================================
--- §1. Lattice carriers (verbatim from §01A bootstrap shape per
--- aims-proof/proofs/01A-bootstrap/lean4-emitted/case_analysis.lean)
+-- §1. Lattice carriers (verbatim from §01A bootstrap shape)
 -- ============================================================================
 
 inductive AccessClass

@@ -159,7 +159,7 @@ def test_fixture_manifest_free_divergence_emits_fatal(mock_shipped_lattice_probe
     Simulates rule path drift outside the manifest set (e.g., a new
     ParamContract mutation that produces a non-canonical (variants, stored)
     tuple). The cross-walk treats unrecognized shapes as fatal so §17
-    amends the manifest or routes to /fix-bug per CLAUDE.md §Zero Deferral.
+    amends the manifest or surfaces the divergence for manual fix.
     """
     # variant_count=6 is outside the recognized {4, 5} domain.
     result = mock_shipped_lattice_probe(6, False)

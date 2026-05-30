@@ -1,6 +1,6 @@
 -- AIMS-Proof §10 counterexample-search cross-validation
 -- Cross-validates aims-proof/proofs/10-counterexample/04B.2-mono-ordering.smt2
--- SSOT for Lean emission: aims-proof/checker/src/emit/lean4.rs (the SMT / Lean 4 emission strategy Option C)
+-- Hand-authored counterexample proof under lean/AimsProof/ (no emitter).
 --
 -- Translated from §04B.2 cross-pattern category (1): mono-pipeline-ordering
 -- (per docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md HISTORY

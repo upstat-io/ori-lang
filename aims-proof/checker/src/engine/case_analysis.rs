@@ -41,7 +41,7 @@ impl Engine for CaseAnalysisEngine {
     fn accepts(&self, _step: &ProofStep) -> bool {
         // Scaffold-time: every step routed by category in the manifest is
         // accepted. Per-shape accept predicates (Appendix A / B / C grid
-        // matchers) ship in subsequent /fix-bug dispatches per
+        // matchers) ship in subsequent work per
         // the proof-checker design sec-Kernel-Verification-Methodology.
         true
     }

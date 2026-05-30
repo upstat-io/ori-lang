@@ -81,8 +81,7 @@ Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal 
     class_covered: Type x BurdenRegistry -> Bool
 
     Per the sec-11 success_criterion 1 mixed-coverage projection-boundary + field-grain
-    dispatch rule (CRITICAL — addresses the partial-coverage gap claude-ds-F7
-    surfaced in /review-plan Step 5 editor pass per sec-11 HISTORY 2026-05-28):
+    dispatch rule (addresses the partial-coverage gap in mixed class coverage):
 
     class_covered(C, BR) iff
       (Forall v in class_members(C). burden-owned(L[v]) and v in BR.burden_emitted)

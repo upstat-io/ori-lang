@@ -500,9 +500,8 @@ fn category_from_prefix(s: &str) -> Option<Category> {
 /// - `UnimplementedEngineShape` -> `proof_checker_scope_inadequate`
 /// (exit_code 0 at scaffold-time per §00 PASS-gate (e); semantic key
 /// carried in JSON `status` field). Once engines ship per-shape
-/// discharge, the same verdict surfacing in production routes via
-/// `/continue-roadmap` autopilot to `/create-plan --inline` per
-/// routing.md §3 case (c).
+/// discharge, the same verdict surfacing in production signals that
+/// a missing engine shape needs to be added.
 /// - `ParseFailure` -> `checker_build_failed` (exit_code 3,
 /// halt_and_report, retry_policy: after_fix) when the parser cannot
 /// produce structured JSON output; otherwise the parser emits an
@@ -556,8 +555,7 @@ impl CheckResult {
     /// Map this verdict to the §00 FAIL-branch exit_reason key.
     ///
     /// SSOT: `the design-validation gate`
-    /// FAIL-branch closed exit_reason enum + central routing table at
-    /// `scripts/plan_corpus/exit_reasons.py:229`.
+    /// FAIL-branch closed exit_reason enum.
     pub fn exit_reason(&self) -> &'static str {
         match self {
             CheckResult::Valid => "smoke_passes_in_ori_checker",

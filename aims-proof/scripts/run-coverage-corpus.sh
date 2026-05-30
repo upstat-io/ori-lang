@@ -47,9 +47,8 @@ fi
 # 10 categories per coverage-manifest.json (the proof-checker design
 # Engine-per-Category-Inventory). The list is hardcoded here to
 # match the manifest order; drift between this list and
-# coverage-manifest.json is a STRUCTURE:operational-rule-leak Major
-# per routing.md §7 — reviewer cure: regenerate this list from the
-# manifest or amend the manifest.
+# coverage-manifest.json is an error — cure: regenerate this list
+# from the manifest or amend the manifest.
 CATEGORIES=("L" "CN" "TF" "DP" "IC" "IA" "PL" "RL" "VF" "CH")
 FAILED=()
 

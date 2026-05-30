@@ -34,7 +34,7 @@ mkdir -p test-results
 if ! cargo test --release -p aims-proof-checker > test-results/engine-test-log.log 2>&1; then
   # Engine-test failure: failing_engine name not yet derivable
   # mechanically (engine tests are stubbed at scaffold time); record
-  # the raw log path for downstream /fix-bug --autopilot dispatch.
+  # the raw log path for downstream failure diagnosis.
   echo '{"status": "fail", "failing_engine": "unknown", "reason": "cargo test exit non-zero; see test-results/engine-test-log.log"}' > test-results/engine-test-result.json
   exit 2
 fi

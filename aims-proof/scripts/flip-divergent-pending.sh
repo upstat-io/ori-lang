@@ -26,13 +26,13 @@
 # --as-conformance-probe:
 # 0 — `pass` (every manifest rule flipped) — §12/§15/§16 close-outs unblock
 # 0 — `divergent_pending` (locality work has not landed; flip pending) — non-fatal
-# 2 — `fatal_divergent` (manifest-free divergence) — routes to /fix-bug
+# 2 — `fatal_divergent` (manifest-free divergence) — surfaces for manual fix
 # 3 — `probe_compile_failure` (build.rs cannot parse shipped surface)
 # 1 — `manifest_invalid` (manifest fails schema validation)
 # --as-flip-trigger:
 # 0 — `pass` (every manifest rule flipped) — flip succeeded
 # 2 — `divergent_pending` (flip FAILED — expected pass post-locality-migration)
-# 2 — `fatal_divergent` (manifest-free divergence) — routes to /fix-bug
+# 2 — `fatal_divergent` (manifest-free divergence) — surfaces for manual fix
 # 3 — `probe_compile_failure` (build.rs cannot parse shipped surface)
 # 1 — `manifest_invalid` (manifest fails schema validation)
 #

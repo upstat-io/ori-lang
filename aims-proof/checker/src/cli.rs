@@ -20,8 +20,7 @@
 //! (`aims-proof/scripts/dual-discharge.sh`); the checker emits no Lean
 //! source.
 //!
-//! Exit codes (cross-reference §00 FAIL-branch enum + central routing
-//! table at `scripts/plan_corpus/exit_reasons.py:229`):
+//! Exit codes (cross-reference §00 FAIL-branch enum):
 //!
 //! - 0 — Valid (`smoke_passes_in_ori_checker`) OR
 //! UnimplementedEngineShape (`proof_checker_scope_inadequate`) at

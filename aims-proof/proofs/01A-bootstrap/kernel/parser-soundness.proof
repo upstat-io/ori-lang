@@ -6,22 +6,19 @@ Theorem RL-101: Parser soundness round-trip
       the canonical proof notation sec-Notation-Parseability
     - ast is parse_proof_file_tokens_with_source tokens f produced
       ProofFile structure per aims-proof/checker/src/ast.rs
-    - emit_lean4 ast is the Lean 4 surface rendered by
-      aims-proof/checker/src/emit/lean4.rs per the SMT / Lean 4 emission strategy Option C
-    - reverse_parse round-trips the emitted Lean 4 representation back
-      through a canonical-notation projection per the same AST shape
+    - reparse f re-runs parse_proof_file_tokens_with_source on the same
+      source and yields a ProofFile of the identical AST shape
     - the kernel surface comprises parser.rs and ast.rs and the
       dispatch loop in checker.rs per the proof-checker design sec-Kernel-Verification-Methodology
 
   Soundness property:
     Forall f in CanonicalNotationFile.
       parse_proof_file f succeeds implies
-        emit_lean4 parse_proof_file f preserves every Theorem id and
-        every Theorem soundness source and every Theorem proof
-        obligation step source modulo whitespace normalization;
-      i.e. no theorem accepted by the parser is dropped or renamed by
-        the emitter pass; the AST is total over its accepted input
-        domain.
+        reparse f preserves every Theorem id and every Theorem
+        soundness source and every Theorem proof obligation step
+        source modulo whitespace normalization;
+      i.e. no theorem accepted by the parser is dropped or renamed on
+        re-parse; the AST is total over its accepted input domain.
 
   Proof obligation:
     Structural induction over ProofFile.theorems and per-theorem
@@ -29,9 +26,9 @@ Theorem RL-101: Parser soundness round-trip
 
       Base case: ProofFile with zero theorems.
         parser rejects an empty theorem list per parse_proof_file_tokens_with_source
-        emitting NotationMissingTheoremBlock; emitter never invoked
-        on a zero-theorem file because the parser returns an error
-        BEFORE emit_lean4 is reached.
+        emitting NotationMissingTheoremBlock; the success branch is
+        never reached on a zero-theorem file because the parser returns
+        an error BEFORE producing an AST.
 
       Inductive step: ProofFile with N theorems implies the same
       property holds at N + 1.
@@ -42,32 +39,28 @@ Theorem RL-101: Parser soundness round-trip
               every prefix the lexer can produce given category_word
               keyword classification.
           (b) t.preconditions is a list of bullets read by
-              parse_preconditions; emitter preserves the bullets
-              verbatim in a Lean 4 comment block.
+              parse_preconditions; the bullets are preserved verbatim
+              in the AST.
           (c) t.soundness.source is a verbatim canonical-notation
               string read by parse_soundness via read_indented_body;
-              emitter preserves the string verbatim in a Lean 4
-              comment block above the declaration.
+              the string is preserved verbatim in the AST.
           (d) t.obligation is either ProofObligation::Sorry or
               ProofObligation::Steps with a single opaque step source;
-              emitter preserves both shapes via a placeholder Lean 4
-              theorem body annotated by sorry; no proof obligation
+              both shapes are preserved in the AST; no proof obligation
               text is dropped.
-          (e) t.expected is preserved verbatim; emitter echoes the
-              Expected status and reason into the Lean 4 source as a
-              comment block matching the .expected golden file shape.
+          (e) t.expected is preserved verbatim; the Expected status and
+              reason are retained in the AST, matching the .expected
+              golden file shape.
 
       Closed-world coverage:
-        Every Token variant produced by tokenize maps to a
-        token_to_source rendering; every parser sub-block consumer
-        emits a Lean 4 surface equivalent; no parser-accepted input
-        falls off the emitter dispatch.
+        Every Token variant produced by tokenize maps to a parser
+        sub-block consumer; no parser-accepted input falls off the
+        parse dispatch.
 
     Lattice validation:
       Parser-soundness is a structural property; lattice dimensions
       do not participate. The kernel invariant under verification is
-      that every accepted input is faithfully reproduced through the
-      emit-lean4 path per the SMT / Lean 4 emission strategy Option C.
+      that every accepted input is faithfully reproduced on re-parse.
 
     Engines dispatched:
       structural_induction (over ProofFile.theorems and per-theorem

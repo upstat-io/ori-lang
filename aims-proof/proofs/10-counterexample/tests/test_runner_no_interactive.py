@@ -7,8 +7,7 @@ shells out to for banned interactive shapes:
   Python calls: `input()`, `getpass.getpass()`
 
 Passes iff zero hits. the non-interactive runner contract
-Mode: autopilot dispatch via /continue-roadmap MUST NOT hang on an interactive
-prompt.
+Mode: automated dispatch MUST NOT hang on an interactive prompt.
 
 The runner shells out to:
   - `python3 - ...` heredocs (inline; scanned via the runner-body grep below)

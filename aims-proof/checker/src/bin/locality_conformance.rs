@@ -173,7 +173,7 @@ fn classify(
     // canonical shapes signals shipped surface drift beyond what §17
     // tracks. Today: only (4,true), (4,false), (5,true), (5,false) are
     // recognized; anything else routes to fatal divergent so §17 amends
-    // the manifest or routes to /fix-bug.
+    // the manifest or surfaces for manual fix.
     let recognized_shape = matches!(
         (variant_count, may_escape_stored),
         (4, true) | (4, false) | (5, true) | (5, false)
