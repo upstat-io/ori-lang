@@ -215,7 +215,7 @@ DOC_ENCODED_TF = {
 }
 CN5_DOC = ("Canonicalization", "§CN-5 — Unique+Dead preserves reusable shape (forbids a collapse, adds no theorem)")
 
-# Genuine §18.2 coverage gaps — substantive rule obligations with NO Lean
+# Genuine dual-prover-formalization coverage gaps — substantive rule obligations with NO Lean
 # theorem AND not documented as folded/doc-encoded. The Lean proof for these
 # rules is MISSING and must be authored. Emitting a stub theorow is BANNED.
 GAP_IDS: dict[str, tuple[str, str]] = {}
@@ -299,7 +299,7 @@ def classify(rel: str, pid: str, status: str | None) -> dict:
         mod, reason = GAP_IDS[pid]
         row.update(kind="gap", lean_module=f"AimsProof.{mod}", lean_theorem=None,
                    parity_tokens=[], gap_reason=reason,
-                   note="§18.2 COVERAGE GAP — Lean proof missing; must be authored (NOT a stub)")
+                   note="dual-prover-formalization COVERAGE GAP — Lean proof missing; must be authored (NOT a stub)")
         return row
     if pid in THEOREM_MAP:
         mod, thm, tokens = THEOREM_MAP[pid]
@@ -309,7 +309,7 @@ def classify(rel: str, pid: str, status: str | None) -> dict:
         return row
     raise SystemExit(
         f"UNMAPPED .proof rule id {pid!r} ({rel}) — no Lean theorem mapping. "
-        f"Authoring a fake row is BANNED; this is a §18.2 coverage gap to report."
+        f"Authoring a fake row is BANNED; this is a dual-prover-formalization coverage gap to report."
     )
 
 

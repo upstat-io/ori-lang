@@ -36,8 +36,8 @@ pub mod cli;
 pub mod engine;
 pub mod parser;
 
-/// Shipped-lattice probe constants emitted by `build.rs` for §17
-/// locality shipped-conformance. Consumed by the locality-conformance
+/// Shipped-lattice probe constants emitted by `build.rs` for the
+/// locality shipped-conformance cross-walk. Consumed by the locality-conformance
 /// binary at `src/bin/locality_conformance.rs` and by verdict-boundary
 /// tests via mock-injection (the constants themselves are read-only).
 #[allow(missing_docs)]

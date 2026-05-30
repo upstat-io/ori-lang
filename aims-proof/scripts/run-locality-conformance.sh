@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
-# run-locality-conformance.sh — §17 locality shipped-conformance runner.
+# run-locality-conformance.sh — locality shipped-conformance runner.
 #
 # Per the locality shipped-conformance cross-walk:
 # emits a per-manifest-rule verdict block in
-# test-results/section-17-locality-result.json that §12 / §15 / §16 / the
-# §17 flip protocol consume. Invoked by run-section-08-proofs.sh
+# test-results/section-17-locality-result.json that the aims-rules revision /
+# the CI gate / the global reframing / the locality cross-walk flip protocol
+# consume. Invoked by run-section-08-proofs.sh
 # --locality-section (sibling-extension shape).
 #
 # Phases:
@@ -14,7 +15,7 @@
 # failure -> locality_conformance_probe_compile_failure (exit 3).
 # (b) validate aims-proof/checker/shipped-conformance-manifest.json
 # against shipped-conformance-manifest.schema.json — python3 and
-# jsonschema are HARD REQUIREMENTS per §17 SC3 (codex-F3 round-2 cure);
+# jsonschema are HARD REQUIREMENTS per the locality cross-walk SC3 (codex-F3 round-2 cure);
 # absence exits 3 with locality_conformance_probe_compile_failure;
 # schema-validation failure -> locality_conformance_manifest_invalid (exit 1).
 # (c) run the locality-conformance binary which reads probe consts
@@ -40,23 +41,23 @@ EOF
     exit 3
 fi
 
-# Phase (b) — manifest schema validation (HARD dependency per §17 SC3 validator-
+# Phase (b) — manifest schema validation (HARD dependency per the locality cross-walk SC3 validator-
 # dependency discipline). jsonschema MUST be available; silently skipping
 # validation would let manifest drift ship undetected. If python3 or jsonschema
 # is missing, exit non-zero with locality_conformance_probe_compile_failure and
 # surface an installation hint to stderr.
 if ! command -v python3 >/dev/null 2>&1; then
     cat > "$RESULT_PATH" <<EOF
-{"verdict": "probe_compile_failure", "exit_reason": "locality_conformance_probe_compile_failure", "autopilot_routable": false, "phase": "schema_validate", "reason": "python3 not found on PATH; required for manifest schema validation per §17 SC3. Install python3."}
+{"verdict": "probe_compile_failure", "exit_reason": "locality_conformance_probe_compile_failure", "autopilot_routable": false, "phase": "schema_validate", "reason": "python3 not found on PATH; required for manifest schema validation per the locality cross-walk SC3. Install python3."}
 EOF
-    echo "run-locality-conformance.sh: python3 not found; install python3 to validate manifest schema per §17 SC3" >&2
+    echo "run-locality-conformance.sh: python3 not found; install python3 to validate manifest schema per the locality cross-walk SC3" >&2
     exit 3
 fi
 if ! python3 -c "import jsonschema"; then
     cat > "$RESULT_PATH" <<EOF
-{"verdict": "probe_compile_failure", "exit_reason": "locality_conformance_probe_compile_failure", "autopilot_routable": false, "phase": "schema_validate", "reason": "python3 jsonschema package not installed; required for manifest schema validation per §17 SC3. Install with: pip install jsonschema"}
+{"verdict": "probe_compile_failure", "exit_reason": "locality_conformance_probe_compile_failure", "autopilot_routable": false, "phase": "schema_validate", "reason": "python3 jsonschema package not installed; required for manifest schema validation per the locality cross-walk SC3. Install with: pip install jsonschema"}
 EOF
-    echo "run-locality-conformance.sh: python3 jsonschema package not installed; install with: pip install jsonschema (required per §17 SC3 validator-dependency discipline)" >&2
+    echo "run-locality-conformance.sh: python3 jsonschema package not installed; install with: pip install jsonschema (required per the locality cross-walk SC3 validator-dependency discipline)" >&2
     exit 3
 fi
 if ! python3 - <<PY >> "$BUILD_LOG" 2>&1

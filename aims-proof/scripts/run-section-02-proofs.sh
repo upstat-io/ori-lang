@@ -19,7 +19,7 @@
 # (exit 2). Default is `lattice_proof_gap_unprovable`; callers
 # driving the §02 design-laboratory reformulation cycle MAY set
 # LATTICE_FAILURE_CLASSIFICATION to override per success_criteria
-# 3 / 4 / 5 / 7 (00-overview.md DP-3 cases).
+# 3 / 4 / 5 / 7 (DP-3 cases).
 #
 # Exit codes + exit_reasons (per this checker's documented exit-code
 # contract — the 5 semantic names below plus proof_search_cap_reached):

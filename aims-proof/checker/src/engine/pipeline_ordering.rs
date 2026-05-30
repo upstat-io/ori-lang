@@ -1582,7 +1582,7 @@ fn verify_pl9_trmc_rewrite_idempotency() -> EngineResult {
 // (c) rewritten CFG well-formed
 // (d) function arity + calling convention preserved
 // (e) constructor args evaluated in same order
-// PL-10 is gated end-to-end by the Ori-owned checker; NOT in §15's Lean 4
+// PL-10 is gated end-to-end by the Ori-owned checker; NOT in the CI gate's Lean 4
 // critical-proof subset (§01A + §08 RL-31 + §11 only).
 //
 // Verifier: (P1) the 5-check enumeration is complete (exactly 5 checks, each

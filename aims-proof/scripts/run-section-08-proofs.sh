@@ -15,7 +15,7 @@
 # §08-owned RL-31 Lean 4 cross-validation. It does NOT reach into §11's
 # coexistence-handshake critical-proof set (§11 depends on §08 RL-31). The
 # full nightly aggregation across the critical-proof cross-validation set
-# (§01A + §08 RL-31 + §11) is owned by §15.
+# (§01A + §08 RL-31 + §11) is owned by the CI gate.
 #
 # Phases:
 # (a) cargo build --release -p aims-proof-checker — pre-run build.
@@ -52,11 +52,12 @@ cd "$(dirname "$0")/.."
 
 mkdir -p test-results
 
-# --locality-section mode (per §17 SC9): emit a dedicated locality_conformance
+# --locality-section mode (per the locality cross-walk SC9): emit a dedicated locality_conformance
 # block in test-results/section-17-locality-result.json with per-manifest-rule
 # verdict rows {rule_id, conformance, proof_artifact, unblock_condition,
-# blocked_by, annotation_targets}. Consumed by §12 / §15 / §16 / §17 flip
-# protocol. Sibling-extension shape per §17 SC10.
+# blocked_by, annotation_targets}. Consumed by the aims-rules revision / the CI gate /
+# the global reframing / the locality cross-walk flip
+# protocol. Sibling-extension shape per the locality cross-walk SC10.
 #
 # Probe inputs (read from checker crate after build):
 # LATTICE_VARIANT_COUNT (usize) — count of `enum Locality` variants in
@@ -67,7 +68,7 @@ mkdir -p test-results
 #
 # Verdict per manifest rule:
 # LATTICE_VARIANT_COUNT == 5 AND MAY_ESCAPE_IS_STORED == false -> `pass`
-# LATTICE_VARIANT_COUNT == 4 OR MAY_ESCAPE_IS_STORED == true -> `divergent-pending(blocked-by: locality-representation-unification)`
+# LATTICE_VARIANT_COUNT == 4 OR MAY_ESCAPE_IS_STORED == true -> `divergent-pending(blocked-by: the unified-locality dimension)`
 # Else (manifest-free rule path drift) -> fatal `divergent`
 LOCALITY_SECTION_MODE=0
 for arg in "$@"; do

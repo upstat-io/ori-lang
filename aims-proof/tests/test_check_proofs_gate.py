@@ -1,6 +1,6 @@
 """Durable integration regression test for the proof-checking CI gate.
 
-Per the proof CI integration §15.1 item 10:
+Per the proof CI integration gate item 10:
 verifies scripts/check-proofs.sh catches a deliberate proof break (exit 1,
 broken artifact cited) AND passes a valid proof through the same path (exit 0).
 

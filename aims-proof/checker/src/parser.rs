@@ -550,7 +550,7 @@ fn scan_utf8_greek(s: &str, line: usize, col: usize) -> Result<(String, usize), 
         '\u{21A6}' => ("mapsto", 1), // ↦
         '\u{2014}' => ("emdash", 1), // — (treat as decorative; surfaces in titles)
         '\u{2013}' => ("endash", 1), // –
-        '\u{00A7}' => ("section", 1),// § (theorem-prose section marker, e.g. "§04A.2")
+        '\u{00A7}' => ("section", 1),// § (theorem-prose section marker, e.g. "§08")
         '\u{2192}' => ("rarrow", 1), // → (chain-order / call-graph arrow)
         '\u{2260}' => ("ne", 1), // ≠ (not-equal predicate in prose)
         '\u{00D7}' => ("times", 1), // × (cartesian product in prose)

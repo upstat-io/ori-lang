@@ -12,7 +12,7 @@
 # Scope guard: this runner verifies §09's OWN proof corpus. VF-5/VF-6/VF-7/VF-8
 # are TARGET-only mandates the verification stack asserts as a whole (no single
 # shipped verifier function) -> conformance: target-only. The full nightly
-# aggregation across the critical-proof cross-validation set is owned by §15.
+# aggregation across the critical-proof cross-validation set is owned by the CI gate.
 #
 # Phases:
 # (a) cargo build --release -p aims-proof-checker — pre-run build.

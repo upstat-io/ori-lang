@@ -38,9 +38,8 @@ Theorem RL-31: disjoint Borrowed parameters -> !alias.scope + !noalias metadata 
       provenance tables); depends-on sec-06: IC-3 ParamContract.access (the
       Borrowed dimension). VF-2 (b) consumes the disjointness proof.
     - RL-31 is in the critical-proof cross-validation set (alongside sec-01A
-      bootstrap + sec-11 coexistence handshake per 00-overview Design
-      Principle 1 + MS-4); the sec-08 close-out gate cross-validates RL-31
-      against Lean 4 (sec-15 automates the nightly re-check).
+      bootstrap + sec-11 coexistence handshake); the sec-08 close-out gate cross-validates RL-31
+      against Lean 4 (the CI gate automates the nightly re-check).
 
   Soundness property:
     Forall function f with Borrowed parameters p_i, p_j, and forall call site
@@ -102,7 +101,7 @@ Theorem RL-31: disjoint Borrowed parameters -> !alias.scope + !noalias metadata 
       critical-proof cross-validation set; at sec-08 close-out the RL-31 proof
       MUST cross-validate against Lean 4 — this RL-31.proof checks clean by
       Ori's checker AND its Lean 4 transcription checks clean, gated by
-      aims-proof/run-section-08-proofs.sh (sec-15 automates the recurring
+      aims-proof/run-section-08-proofs.sh (the CI gate automates the recurring
       nightly re-check). Evidence anchor: aims-proof/proofs/08-realization/RL-31.proof
       + the run-section-08-proofs.sh RL-31 Lean 4 emission step.
 
@@ -119,4 +118,4 @@ Theorem RL-31: disjoint Borrowed parameters -> !alias.scope + !noalias metadata 
 
   Expected:
     status: valid
-    reason: section_08 refinement engine discharges the CRITICAL RL-31 via the full 8-clause SUFFICIENT condition enumerated as explicit theorem antecedents (clauses 1/2/3/4/5/6/7/8), across BOTH disjointness facets (a) call-site provenance on the callers' function-local tables AND (b) type-level via BurdenSpec.field_type chains, with negative-direction witnesses for the prefix-overlap, untraceable-FAIL, any-site-fails, and type-level-facet-alone cases — directly addressing sec-04B C5, with the Lean 4 cross-validation gate owned by the sec-08 close-out runner
+    reason: section_08 refinement engine discharges the CRITICAL RL-31 via the full 8-clause SUFFICIENT condition enumerated as explicit theorem antecedents (clauses 1/2/3/4/5/6/7/8), across BOTH disjointness facets (a) call-site provenance on the callers' function-local tables AND (b) type-level via BurdenSpec.field_type chains, with negative-direction witnesses for the prefix-overlap, untraceable-FAIL, any-site-fails, and type-level-facet-alone cases — directly addressing the burden-prototype C5, with the Lean 4 cross-validation gate owned by the sec-08 close-out runner

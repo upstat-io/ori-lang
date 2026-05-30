@@ -29,14 +29,14 @@
 #   any other verdict (fail / parse_failure / mismatch) -> regression -> exit 1.
 #
 # Locality shipped-conformance cross-walk: the locality cross-walk emits
-# divergent-pending(blocked-by: locality-representation-unification) while
+# divergent-pending(blocked-by: the unified-locality dimension) while
 # shipped Locality is 4-variant; divergent-pending is NON-FATAL. A fatal
 # `divergent` verdict (manifest-free rule drift) or probe/manifest
 # infrastructure failure DOES fail the gate.
 #
 # Exit codes:
-#   0 — all affected proofs conform; §17 gate non-fatal-or-pass.
-#   1 — a proof regression OR a fatal §17 divergence.
+#   0 — all affected proofs conform; locality cross-walk gate non-fatal-or-pass.
+#   1 — a proof regression OR a fatal locality cross-walk divergence.
 #   3 — infrastructure failure (checker build failed).
 #
 # Cwd contract: anchors to aims-proof/ (this script's parent dir's parent),
@@ -94,14 +94,14 @@ fi
 
 # --- Locality shipped-conformance cross-walk (non-fatal on divergent-pending). ---
 # Always run on a full-tree invocation; on an affected-set run, run when any
-# §17-relevant proof (08-realization / 05-decisions / 03-canonicalization /
+# locality-cross-walk-relevant proof (08-realization / 05-decisions / 03-canonicalization /
 # 06-interprocedural) is in scope. The runner is anchored to aims-proof/.
 run_locality_gate() {
     local result="${AIMS_PROOF_DIR}/test-results/section-17-locality-result.json"
     local rc=0
     ( cd "$AIMS_PROOF_DIR" && bash scripts/run-locality-conformance.sh ) > /dev/null 2>&1 || rc=$?
     if [[ ! -f "$result" ]]; then
-        echo "check-proofs: §17 locality cross-walk produced no result envelope (rc=${rc})" >&2
+        echo "check-proofs: locality cross-walk produced no result envelope (rc=${rc})" >&2
         return 1
     fi
     local verdict
@@ -110,11 +110,11 @@ run_locality_gate() {
         pass|divergent_pending|divergent-pending)
             # pass: shipped lattice is 5-variant. divergent-pending: shipped
             # lattice still 4-variant — EXPECTED + NON-FATAL.
-            echo "check-proofs: §17 locality conformance verdict: ${verdict} (non-fatal)" >&2
+            echo "check-proofs: locality conformance verdict: ${verdict} (non-fatal)" >&2
             return 0
             ;;
         *)
-            echo "check-proofs: §17 locality conformance FATAL verdict: ${verdict} (rc=${rc})" >&2
+            echo "check-proofs: locality conformance FATAL verdict: ${verdict} (rc=${rc})" >&2
             return 1
             ;;
     esac
@@ -172,7 +172,7 @@ for proof in "${PROOF_SET[@]+"${PROOF_SET[@]}"}"; do
     fi
 done
 
-# --- §17 gate evaluation. ---
+# --- Locality cross-walk gate evaluation. ---
 locality_fatal=0
 if [[ "$locality_gate_relevant" -eq 1 ]]; then
     if ! run_locality_gate; then

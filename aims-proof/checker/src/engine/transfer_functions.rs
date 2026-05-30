@@ -3061,12 +3061,12 @@ instr={:?} once={:?} twice={:?}",
         }
     }
 
-    // Part (e) — L-6 §12 SSOT-revision closure regression: confirm that
+    // Part (e) — L-6 aims-rules-revision closure regression: confirm that
     // §02 L-6 layer (a) (lattice operations monotone) AND §04 L-6
     // layer (b) (per-TF-N monotone) BOTH discharge GREEN by composing
     // them here. The composition is GREEN iff both layers are GREEN —
     // §02 L-6.proof Part (a) and §04.1/§04.2/§04.3 per-TF-N proofs.
-    // This is the §02 L-6 §12 queue entry flip predicate: passing this
+    // This is the §02 L-6 aims-rules-revision queue entry flip predicate: passing this
     // verifier closes the `partial-complete pending §04 layer (b)`
     // entry per `aims-proof/proofs/02-lattice/L-6.proof:14,20` split.
     let layer_closure_checked = sweep_checked + idem_checked + step_checked;

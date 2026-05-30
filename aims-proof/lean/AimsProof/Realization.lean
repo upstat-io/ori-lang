@@ -1288,7 +1288,7 @@ theorem RL31_disjoint_roots_no_common_aggregate (a b : RootSet)
     root sets share no common source aggregate, so the emitted `!noalias`
     metadata is SOUND — LLVM's alias analysis correctly treats `p_i` and `p_j` as
     non-aliasing. This is the Ori-novel disjoint-Borrowed alias-metadata theorem
-    (00-overview MS-4 critical rule). -/
+    (a critical rule). -/
 theorem RL31_disjoint_borrowed_noalias (pi pj : ArgProvenance)
     (h : siteProvesDisjoint pi pj = true) :
     (pi.traceable = true) ∧ (pj.traceable = true)

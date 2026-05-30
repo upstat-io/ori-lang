@@ -1864,7 +1864,7 @@ fn verify_rl13_removal_confirmation() -> EngineResult {
 //
 // Shipped: realize/project_escape.rs (escape-driven field RcDec) +
 // realize/decide.rs (Locality consumption); repr.md sec-RH-3 heap-vs-stack
-// classification. RL-15a is the CRITICAL rule sec-11 + sec-04B C5 build on.
+// classification. RL-15a is the CRITICAL rule sec-11 + the burden-prototype C5 build on.
 
 /// Locality dimension (Annex E §AIMS.5).
 /// BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping < Unknown.
@@ -2146,7 +2146,7 @@ fn verify_rl15_bump_allocator() -> EngineResult {
 // (CN-8) "Borrowed callee parameter" in RL-15a refers to the CALLEE's
 // contract, not the value's Access at the caller (caller value =
 // Owned + ArgEscaping; callee receives as Borrowed).
-// CRITICAL: sec-11 coexistence + sec-04B C5 build on RL-15a.
+// CRITICAL: sec-11 coexistence + the burden-prototype C5 build on RL-15a.
 
 /// Callee parameter contract dimensions consumed by RL-15a's category split.
 #[derive(Clone, Copy)]
@@ -3240,7 +3240,7 @@ fn verify_rl28_unknown_callee_flush() -> EngineResult {
 // (noalias / memory(...) / !alias.scope) are a REFINEMENT of the IC-3 / IC-4 /
 // IC-5 interprocedural contracts. The refinement engine discharges that each
 // emitted attribute is sound against the contract it derives from. RL-31 is
-// CRITICAL (sec-04B C5). Shipped: target-system rules (LLVM fact export per
+// CRITICAL (burden-prototype C5). Shipped: target-system rules (LLVM fact export per
 // the semantic-optimization-pipeline plan); VF-2 (b)/(c)/(d) consume these.
 
 // ----------------------------------------------------------------------------
@@ -3460,9 +3460,9 @@ fn verify_rl30_memory_attribute_derivation() -> EngineResult {
 // can alias the same memory at runtime. The proof requires a cross-function
 // provenance summary (NOT IC-2/IC-3 alone): each call site proves the actual
 // arguments to distinct Borrowed params trace to different source aggregates
-// or disjoint fields. CRITICAL — directly addresses sec-04B C5; the Ori-novel
-// rule whose soundness sec-04B assumed. The full 8-clause SUFFICIENT condition
-// (sec-04B C5 proven_by line 90) is enumerated as explicit theorem antecedents,
+// or disjoint fields. CRITICAL — directly addresses the burden-prototype C5; the Ori-novel
+// rule whose soundness the burden prototype assumed. The full 8-clause SUFFICIENT condition
+// (the burden-prototype C5 proven_by line 90) is enumerated as explicit theorem antecedents,
 // across BOTH disjointness facets: (a) call-site provenance + (b) type-level.
 
 fn verify_rl31_disjoint_borrowed_alias_metadata() -> EngineResult {
@@ -3810,7 +3810,7 @@ fn verify_rl34_tail_call_preservation() -> EngineResult {
 // RL-1/RL-2 composition (BUG-04-120 multi-use Let Var RC-balance shape)
 // ----------------------------------------------------------------------------
 //
-// Per the sec-08 success_criteria + 00-overview Known Failure Modes: RL-1 (RC
+// Per the sec-08 success_criteria + the known failure modes: RL-1 (RC
 // inc on duplication to a live Owned param) and RL-2 (RC dec at last use /
 // scope exit) are proved separately by their own theorems; this obligation
 // proves their COMPOSITION on the multi-use Let Var shape preserves RC

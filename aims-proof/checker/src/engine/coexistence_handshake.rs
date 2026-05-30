@@ -25,7 +25,7 @@
 //! catches a distinct failure class; CH-comp catches the union), and carries
 //! a negative-direction witness so the check has teeth (a fix passing one CH
 //! but regressing another is REJECTED). Verifiers reason over a model of the
-//! shipped pipeline + the sec-04A.2 burden-registry pre-pass design.
+//! shipped pipeline + the burden-prototype burden-registry pre-pass design.
 
 use crate::ast::{Category, Theorem};
 use crate::engine::{EngineResult, EngineVerdict};

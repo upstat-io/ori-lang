@@ -164,7 +164,7 @@ Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-
       Therefore consume_stack's stack-consumer well-formedness reduces to:
       for each v in BR.burden_emitted, consume_stack treats BR's per-variable
       annotation AS the lattice-derived DP-2/DP-3 verdict, NOT a second
-      independent elimination claim. The burden-tracking pre-pass (sec-04A.2)
+      independent elimination claim. The burden-tracking pre-pass
       materializes the lattice's DP-2/DP-3 verdict into BR.burden_emitted as
       a typed-side-table memoization per Annex E §AIMS.7 EffectSummary +
       Annex E §AIMS §2 invariant 5 "feed the lattice-driven

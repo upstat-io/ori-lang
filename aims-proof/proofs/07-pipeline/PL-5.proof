@@ -28,10 +28,10 @@ Theorem PL-5: no pass relies on stale summaries — every summary is read strict
         no pass SHALL rely on stale summaries; if a pipeline step modifies
         IR or updates an effect summary, all downstream consumers MUST see
         updated values (verifier-before-input = sequencing bug).
-    - PL-5 is gated end-to-end by the Ori-owned checker; it is NOT in §15's
+    - PL-5 is gated end-to-end by the Ori-owned checker; it is NOT in the CI gate's
       Lean 4 critical-proof subset (scoped to §01A bootstrap + §08 RL-31 +
       §11 coexistence handshake only per section-07 success criterion line
-      10). §15 lists §07 in depends_on solely to recurse
+      10). The CI gate lists §07 in depends_on solely to recurse
       aims-proof/proofs/07-pipeline/ into the CI checker corpus.
     - Shipped per-function driver: ori_arc::pipeline::aims_pipeline::
       run_aims_pipeline (compiler/ori_arc/src/pipeline/
@@ -300,4 +300,4 @@ Theorem PL-5: no pass relies on stale summaries — every summary is read strict
 
   Expected:
     status: valid
-    reason: section_07 structural_induction engine discharges PL-5 via the per-function summary-dependency DAG — (P1) every summary (MemoryContract Step 1, ValueRepr Step 3, AimsStateMap Step 4) is read strictly after its latest production (prod_latest(S) < r for every read r) and (P2) the Step 4a rollback re-production supersedes the discarded TRMC-rewritten summaries (verify_trmc_soundness recomputes var_reprs at trmc.rs line 145 + AimsStateMap at trmc.rs lines 151-157 on the restored CFG, run_aims_pipeline rebinds state_map at mod.rs line 195 shadowing the pre-rollback binding, so Step 5 realize_rc_reuse and Step 10 realize_annotations read the restored non-stale map); grounded in the shipped run_aims_pipeline driver (mod.rs lines 163-287) + trmc::verify_trmc_soundness (trmc.rs lines 109-162); PL-5 is gated end-to-end by the Ori-owned checker, NOT in §15's Lean 4 critical-proof subset (§01A + §08 RL-31 + §11 only per section-07 success criterion line 10); case_analysis secondary-accepting per the coverage-manifest PL row
+    reason: section_07 structural_induction engine discharges PL-5 via the per-function summary-dependency DAG — (P1) every summary (MemoryContract Step 1, ValueRepr Step 3, AimsStateMap Step 4) is read strictly after its latest production (prod_latest(S) < r for every read r) and (P2) the Step 4a rollback re-production supersedes the discarded TRMC-rewritten summaries (verify_trmc_soundness recomputes var_reprs at trmc.rs line 145 + AimsStateMap at trmc.rs lines 151-157 on the restored CFG, run_aims_pipeline rebinds state_map at mod.rs line 195 shadowing the pre-rollback binding, so Step 5 realize_rc_reuse and Step 10 realize_annotations read the restored non-stale map); grounded in the shipped run_aims_pipeline driver (mod.rs lines 163-287) + trmc::verify_trmc_soundness (trmc.rs lines 109-162); PL-5 is gated end-to-end by the Ori-owned checker, NOT in the CI gate's Lean 4 critical-proof subset (§01A + §08 RL-31 + §11 only per section-07 success criterion line 10); case_analysis secondary-accepting per the coverage-manifest PL row

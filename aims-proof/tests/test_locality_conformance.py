@@ -1,4 +1,4 @@
-"""§17 locality shipped-conformance verdict-boundary tests.
+"""Locality shipped-conformance verdict-boundary tests.
 
 Per the locality shipped-conformance cross-walk:
 5 explicit fixture classes the probe tuple distinguishes, replacing OR-shape
@@ -28,11 +28,11 @@ Shipped-state ground truth: actual current shipped state is `(4, True)` because
 
 Mock-injection per SC7: tests inject synthetic probe tuples via
 conftest.mock_shipped_lattice_probe fixture (env-var override
-ORI_LOCALITY_PROBE_*) — no dependency on locality-representation-unification
+ORI_LOCALITY_PROBE_*) — no dependency on the unified-locality dimension
 landing first.
 
 PLUS Tier-1 real-probe integration test `test_real_probe_matches_shipped_state`
-(per §17 SC8 / claude-ds-F3 cure): runs the locality-conformance binary
+(per the locality cross-walk SC8 / claude-ds-F3 cure): runs the locality-conformance binary
 WITHOUT env-var overrides, exercising the real build.rs syn-AST parse path
 against the actual compiler tree; asserts exit 0 + verdict `divergent_pending`
 + probe_tuple matches `(4, True)`.
@@ -88,7 +88,7 @@ def test_fixture_4_variant_stored_emits_divergent_pending(mock_shipped_lattice_p
     Actual current shipped state per `compiler/ori_arc/src/aims/
     contract/mod.rs:269` retaining `pub may_escape: bool` as a stored struct
     field. Every manifest rule emits `divergent-pending(blocked-by:
-    locality-representation-unification)` under this probe tuple.
+    unified-locality-dimension)` under this probe tuple.
     """
     result = mock_shipped_lattice_probe(4, True)
     assert result.returncode == 0, f"expected exit 0, got {result.returncode}: {result.stdout}"
@@ -102,13 +102,13 @@ def test_fixture_4_variant_stored_emits_divergent_pending(mock_shipped_lattice_p
     assert rule_ids_in_envelope == MANIFEST_RULE_IDS
     for row in env["rule_verdicts"]:
         assert row["current"].startswith("divergent-pending"), row
-        assert "locality-representation-unification" in row["current"], row
+        assert "unified-locality-dimension" in row["current"], row
 
 
 def test_fixture_4_variant_derived_emits_divergent_pending(mock_shipped_lattice_probe) -> None:
     """NEGATIVE (partial-migration intermediate): (4, False) — four Locality
     variants, may_escape DERIVED (not stored). Not current shipped state but
-    a recognized partial-migration shape per §17 SC7. All manifest rules emit
+    a recognized partial-migration shape per the locality cross-walk SC7. All manifest rules emit
     `divergent-pending`, exit 0.
     """
     result = mock_shipped_lattice_probe(4, False)
@@ -123,7 +123,7 @@ def test_fixture_4_variant_derived_emits_divergent_pending(mock_shipped_lattice_
     assert rule_ids_in_envelope == MANIFEST_RULE_IDS
     for row in env["rule_verdicts"]:
         assert row["current"].startswith("divergent-pending"), row
-        assert "locality-representation-unification" in row["current"], row
+        assert "unified-locality-dimension" in row["current"], row
 
 
 def test_fixture_5_variant_stored_emits_divergent_pending(mock_shipped_lattice_probe) -> None:
@@ -158,7 +158,7 @@ def test_fixture_manifest_free_divergence_emits_fatal(mock_shipped_lattice_probe
 
     Simulates rule path drift outside the manifest set (e.g., a new
     ParamContract mutation that produces a non-canonical (variants, stored)
-    tuple). The cross-walk treats unrecognized shapes as fatal so §17
+    tuple). The cross-walk treats unrecognized shapes as fatal so the cross-walk
     amends the manifest or surfaces the divergence for manual fix.
     """
     # variant_count=6 is outside the recognized {4, 5} domain.
@@ -190,7 +190,7 @@ def test_fixture_5_variant_derived_passes_for_every_manifest_rule(
 
 
 def test_real_probe_matches_shipped_state(workspace_root: Path) -> None:
-    """Tier-1 integration test per §17 SC8 (cures claude-ds-F3): runs the
+    """Tier-1 integration test per the locality cross-walk SC8 (cures claude-ds-F3): runs the
     locality-conformance binary WITHOUT env-var overrides, exercising the
     real build.rs syn-AST parse path against
     `compiler/ori_arc/src/aims/lattice/dimensions.rs` +

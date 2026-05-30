@@ -2,7 +2,7 @@ Theorem RL-1-RL-2-composition: multi-use Let Var RC-balance (BUG-04-120)
 
   Preconditions:
     - This is the named RL-1/RL-2 composition obligation per the sec-08
-      success_criteria + 00-overview Known Failure Modes (BUG-04-120, the
+      success_criteria + the known failure modes (BUG-04-120, the
       canonical multi-use Let Var shape).
     - Signature ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; discharged against the sec-01

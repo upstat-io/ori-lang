@@ -21,10 +21,10 @@ Theorem PL-10: TRMC structural verification (five checks (a)-(e)) + rollback to 
         structural verify (after Step 3a + Step 4 on rewritten IR): (a)-(e);
         on failure: rewrite rolled back to pre-TRMC IR; Steps 3-4 re-run on
         restored CFG per PL-5 (no stale summaries).
-    - PL-10 is gated end-to-end by the Ori-owned checker; it is NOT in §15's
+    - PL-10 is gated end-to-end by the Ori-owned checker; it is NOT in the CI gate's
       Lean 4 critical-proof subset (scoped to §01A bootstrap + §08 RL-31 +
       §11 coexistence handshake only per section-07 success criterion line
-      10). §15 lists §07 in depends_on solely to recurse
+      10). The CI gate lists §07 in depends_on solely to recurse
       aims-proof/proofs/07-pipeline/ into the CI checker corpus.
     - Shipped structural-verification driver: ori_arc::pipeline::aims_pipeline::
       trmc::verify_trmc_soundness (compiler/ori_arc/src/pipeline/
@@ -224,4 +224,4 @@ Theorem PL-10: TRMC structural verification (five checks (a)-(e)) + rollback to 
 
   Expected:
     status: valid
-    reason: section_07 case_analysis-led discharge of PL-10 via the five-check enumeration + survival/rollback split — (P1) verify_trmc_soundness runs exactly five distinct structural checks (a)-(e) (verify.rs check functions + verify_trmc_burden_balance lines 593-633), (P2) all-pass -> trmc_rewrite_survived = true (trmc.rs lines 128-131), and (P3) any-fail -> rollback to pre-TRMC IR + Steps 3-4 re-run on the restored CFG (trmc.rs lines 144 + 145 + 150 + 151-157) returning trmc_rewrite_survived = false (trmc.rs line 158), preserving PL-5; PL-10 is gated end-to-end by the Ori-owned checker, NOT in §15's Lean 4 critical-proof subset (§01A + §08 RL-31 + §11 only per section-07 success criterion line 10); structural_induction PRIMARY confirms over the same verifier
+    reason: section_07 case_analysis-led discharge of PL-10 via the five-check enumeration + survival/rollback split — (P1) verify_trmc_soundness runs exactly five distinct structural checks (a)-(e) (verify.rs check functions + verify_trmc_burden_balance lines 593-633), (P2) all-pass -> trmc_rewrite_survived = true (trmc.rs lines 128-131), and (P3) any-fail -> rollback to pre-TRMC IR + Steps 3-4 re-run on the restored CFG (trmc.rs lines 144 + 145 + 150 + 151-157) returning trmc_rewrite_survived = false (trmc.rs line 158), preserving PL-5; PL-10 is gated end-to-end by the Ori-owned checker, NOT in the CI gate's Lean 4 critical-proof subset (§01A + §08 RL-31 + §11 only per section-07 success criterion line 10); structural_induction PRIMARY confirms over the same verifier

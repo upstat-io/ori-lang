@@ -5,8 +5,8 @@ Theorem RL-15a: ArgEscaping caller-stack allocation — 4 emission categories (C
       SHALL be stack-allocated in the CALLER, with the header decision
       determined by the CALLEE's parameter contract (NOT the caller's
       Access, which is Owned + ArgEscaping). CRITICAL: sec-11 coexistence
-      handshake + sec-04B C5 build on RL-15a; it is the Ori-novel realization
-      rule whose soundness sec-04B assumed but never proved.
+      handshake + the burden-prototype C5 build on RL-15a; it is the Ori-novel realization
+      rule whose soundness the burden prototype assumed but never proved.
     - Signature ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.

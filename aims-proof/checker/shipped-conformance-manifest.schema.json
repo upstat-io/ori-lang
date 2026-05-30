@@ -15,7 +15,7 @@
     },
     "blocked_by": {
       "type": "string",
-      "description": "Cross-plan advisory pointer to the work that unblocks the manifest (typically locality-representation-unification)."
+      "description": "Cross-plan advisory pointer to the work that unblocks the manifest (typically the unified-locality dimension)."
     },
     "rules": {
       "type": "array",
@@ -48,13 +48,13 @@
           },
           "blocked_by": {
             "type": "string",
-            "description": "Subsystem that owns the unblocking work (e.g., locality-representation-unification).",
+            "description": "Subsystem that owns the unblocking work (e.g., the unified-locality dimension).",
             "pattern": "^[a-z][a-z0-9-]*$"
           },
           "annotation_targets": {
             "type": "array",
             "minItems": 1,
-            "description": "Exact Annex E §AIMS anchor citations §12 SHALL clear when the rule flips divergent-pending -> pass.",
+            "description": "Exact Annex E §AIMS anchor citations the aims-rules revision SHALL clear when the rule flips divergent-pending -> pass.",
             "items": {
               "type": "string",
               "pattern": "^Annex E §AIMS .+$"

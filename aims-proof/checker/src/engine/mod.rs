@@ -114,7 +114,7 @@ pub enum EngineVerdict {
 
     /// Engine cannot discharge this shape with its current
     /// implementation. Routes through `proof_checker_scope_inadequate`
-    /// per §00 FAIL-branch enum UNLESS the plan explicitly narrows MS-3
+    /// per §00 FAIL-branch enum UNLESS the scope is explicitly narrowed
     /// via a matching concession entry in
     /// the proof-checker design sec-Concession-entries.
     UnimplementedShape,

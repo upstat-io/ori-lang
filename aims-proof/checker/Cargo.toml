@@ -42,7 +42,7 @@ path = "src/bin/locality_conformance.rs"
 # build.rs probe of compiler/ori_arc/ shipped surface per
 # the locality shipped-conformance cross-walk.
 # Emits LATTICE_VARIANT_COUNT + MAY_ESCAPE_IS_STORED constants the checker
-# consumes for divergent-pending vs pass branch in the §17 cross-walk.
+# consumes for divergent-pending vs pass branch in the locality cross-walk.
 # Scope: build-only; trusted kernel surface unaffected.
 syn = { version = "2", features = ["full", "parsing"] }
 proc-macro2 = "1"

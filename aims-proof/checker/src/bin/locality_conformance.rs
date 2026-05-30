@@ -1,4 +1,4 @@
-//! locality-conformance — §17 locality shipped-conformance cross-walk.
+//! locality-conformance — locality shipped-conformance cross-walk.
 //!
 //! Reads aims-proof/checker/shipped-conformance-manifest.json + build-time
 //! probe consts (`LATTICE_VARIANT_COUNT`, `MAY_ESCAPE_IS_STORED`) and emits
@@ -10,7 +10,7 @@
 //! variants == 4 OR may_escape_stored -> `divergent-pending`
 //!
 //! Manifest-free divergence (a SHIPPED rule path drifts AWAY from the
-//! manifest set without §17 update) -> fatal `divergent`. Detection
+//! manifest set without a cross-walk update) -> fatal `divergent`. Detection
 //! today: if probe surface itself parses but yields an unexpected
 //! (variants, stored) tuple outside {(4,true), (4,false), (5,true),
 //! (5,false)}. Build.rs panics on truly absent surface; that is the
@@ -19,7 +19,7 @@
 //! Exit codes:
 //! 0 — all manifest rules emit `pass`
 //! 0 — all manifest rules emit `divergent-pending` (non-fatal under
-//! Lazy-Migration Policy per §17)
+//! the lazy-migration policy)
 //! 2 — any rule emits fatal `divergent`
 //! 3 — manifest read / parse failure (manifest_invalid)
 //!
@@ -169,9 +169,9 @@ fn classify(
     rules: &[ManifestRule],
 ) -> (String, String, Vec<RuleRow>) {
     // Manifest-free divergence detection: a probe tuple outside the four
-    // canonical shapes signals shipped surface drift beyond what §17
+    // canonical shapes signals shipped surface drift beyond what the cross-walk
     // tracks. Today: only (4,true), (4,false), (5,true), (5,false) are
-    // recognized; anything else routes to fatal divergent so §17 amends
+    // recognized; anything else routes to fatal divergent so the cross-walk amends
     // the manifest or surfaces for manual fix.
     let recognized_shape = matches!(
         (variant_count, may_escape_stored),

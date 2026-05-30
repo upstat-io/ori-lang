@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 #
-# flip-divergent-pending.sh — §17 locality shipped-conformance flip protocol.
+# flip-divergent-pending.sh — locality shipped-conformance flip protocol.
 #
 # Per the locality shipped-conformance cross-walk:
 # separate top-level script mirroring §10's counterexample-search
 # pattern. Re-runs run-section-08-proofs.sh --locality-section, asserts
 # every manifest rule emits `pass`, exits non-zero if any still emits
-# `divergent-pending` under --as-flip-trigger mode. Consumers (§12
-# annotation-clearer, §15 nightly gate, §16 reframer) cite this script as the
-# flip trigger.
+# `divergent-pending` under --as-flip-trigger mode. Consumers (the aims-rules
+# revision annotation-clearer, the CI gate nightly gate, the global reframer)
+# cite this script as the flip trigger.
 #
 # Emits a structured JSON envelope to stdout per outcome:
 # {verdict, exit_reason, autopilot_routable, rule_verdicts[], probe_tuple}
 #
-# DUAL INVOCATION MODES (per §17 SC6):
+# DUAL INVOCATION MODES (per the locality cross-walk SC6):
 # --as-conformance-probe (DEFAULT) — periodic conformance check;
 # `divergent_pending` is non-fatal (exit 0,
-# expected steady-state under Lazy-Migration Policy)
+# expected steady-state under the lazy-migration policy)
 # --as-flip-trigger — post-locality-migration assertion; `divergent_pending`
 # is FATAL (exit code 2 + locality_conformance_flip_failed
 # emitted to stderr) so the orchestrator surfaces the
@@ -24,7 +24,7 @@
 #
 # Exit codes by mode:
 # --as-conformance-probe:
-# 0 — `pass` (every manifest rule flipped) — §12/§15/§16 close-outs unblock
+# 0 — `pass` (every manifest rule flipped) — downstream close-outs unblock
 # 0 — `divergent_pending` (locality work has not landed; flip pending) — non-fatal
 # 2 — `fatal_divergent` (manifest-free divergence) — surfaces for manual fix
 # 3 — `probe_compile_failure` (build.rs cannot parse shipped surface)
@@ -36,7 +36,7 @@
 # 3 — `probe_compile_failure` (build.rs cannot parse shipped surface)
 # 1 — `manifest_invalid` (manifest fails schema validation)
 #
-# BANNED per §17 SC6: AskUserQuestion in this path; tool-role per
+# BANNED per the locality cross-walk SC6: AskUserQuestion in this path; tool-role per
 # the non-interactive runner contract.
 #
 # Cwd contract: anchors to aims-proof/ via cd "$(dirname "$0")/.." at entry.
@@ -49,7 +49,7 @@ mkdir -p test-results
 readonly RESULT_PATH="test-results/section-17-locality-result.json"
 readonly FLIP_LOG="test-results/section-17-flip-protocol.log"
 
-# Flag parsing — dual invocation modes per §17 SC6.
+# Flag parsing — dual invocation modes per the locality cross-walk SC6.
 mode="as-conformance-probe"
 for arg in "$@"; do
     case "$arg" in
@@ -74,7 +74,7 @@ cross_walk_exit=$?
 set -e
 
 # The cross-walk wrote $RESULT_PATH; emit it verbatim to stdout (structured
-# JSON envelope per §17 SC6). Consumers (§12/§15/§16) read this envelope.
+# JSON envelope per the locality cross-walk SC6). Downstream consumers read this envelope.
 if [[ -f "$RESULT_PATH" ]]; then
     cat "$RESULT_PATH"
 else
@@ -97,7 +97,7 @@ if [[ "$mode" == "as-flip-trigger" ]]; then
     fi
 fi
 
-# Pass through the cross-walk's exit code; §17 SC6 verdict classes already
+# Pass through the cross-walk's exit code; the locality cross-walk SC6 verdict classes already
 # encode the routing decision (pass / divergent_pending = exit 0;
 # fatal_divergent = exit 2; manifest_invalid = exit 1; probe_compile_failure
 # = exit 3).

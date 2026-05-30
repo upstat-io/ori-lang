@@ -21,7 +21,7 @@
 # owned Lean 4 cross-validation. It does NOT reach into sec-08 RL-31 or
 # sec-01A bootstrap corpora (those are sec-08 / sec-01A close-out gates;
 # full nightly aggregation across the critical-proof cross-validation set is
-# owned by sec-15).
+# owned by the CI gate).
 #
 # Phases:
 # (a) cargo build --release -p aims-proof-checker — pre-run build.

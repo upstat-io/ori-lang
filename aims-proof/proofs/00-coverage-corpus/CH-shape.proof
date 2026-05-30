@@ -2,17 +2,17 @@ Theorem CH-1: Burden-registry-lattice composition soundness
 
   Preconditions:
     - F is an ArcFunction in scope of docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-      sec-04A.2 minimal-lattice-consumer per 00-overview.md DD-3
+      burden-prototype minimal-lattice-consumer
     - BR is the burden-registry typed pre-pass output for F
       (per-variable burden annotations consumed by the consumer
-       per the §04A.2 design)
+       per the burden-prototype design)
     - L is the converged AimsStateMap for F per IA-7
-    - consume_stack(F, BR, L) is the §04A.2 elimination consumer:
+    - consume_stack(F, BR, L) is the burden-elimination consumer:
       walks F's instruction stream; for each variable v with burden
       entries in BR, validates the elimination decision (DP-2 dec
       unnecessary OR DP-3 inc elidable) against L[v]'s converged
       lattice state
-    - Lean 4 cross-validation MANDATORY per 00-overview.md MS-4
+    - Lean 4 cross-validation MANDATORY per the dual-prover Lean formalization
       critical-proof set (the Lean 4 cross-validation strategy)
 
   Soundness property:
@@ -55,7 +55,7 @@ Theorem CH-1: Burden-registry-lattice composition soundness
     Interprocedural summary (burden-registry-as-typed-pre-pass +
     DP-2/DP-3 elimination contract):
       BR is computed by a pass that depends on AimsStateMap L
-      (per the §04A.2 design); the pass is acyclic w.r.t. L
+      (per the burden-prototype design); the pass is acyclic w.r.t. L
       (BR pre-pass reads L, not vice versa);
       no fixpoint cycle between BR and L;
       contract: BR's writes are sound w.r.t. L's converged state.
@@ -69,7 +69,7 @@ Theorem CH-1: Burden-registry-lattice composition soundness
         C_B (burden class) records v's burden annotation;
         Well-formedness: BR's annotation for v must be consistent
         with L[v]'s elimination decision per DP-2 + DP-3;
-        Inconsistency = CH-1 violation = §04A.2 design bug.
+        Inconsistency = CH-1 violation = burden-prototype design bug.
 
     Lattice composition (sec-02 lattice transfer composition):
       Per sec-02, lattice transfer functions compose per L-6
