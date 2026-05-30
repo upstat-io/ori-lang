@@ -11,12 +11,12 @@
 //! Post-instruction dec emission and death event collection live in
 //! [`super::walk_dec`].
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::emit_rc::{is_live_at_exit, rc_strategy, BlockCtx, LastUse};
 use crate::aims::emit_reuse::{ctor_to_shape, is_reusable_ctor, AllocEvent, DeathEvent};
 use crate::aims::lattice::SizeClass;
-use crate::ir::{ArcInstr, ArcValue, ArcVarId, RcStrategy, ValueRepr};
+use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, RcStrategy, ValueRepr};
 
 use super::decide::{decide, DecisionContext, DecisionSite, RcDecision, UseSemantics};
 use super::walk_dec::{emit_post_instr_decs_unified, is_rc_managed};
@@ -389,45 +389,32 @@ fn emit_pre_instr_incs_unified(
     }
 }
 
-/// Predict the per-SSA-alias-class establishment-`RcInc` count for `ctx.blk`,
-/// accumulating into `out`. Faithful read-only mirror of the inc decisions in
-/// [`emit_pre_instr_incs_unified`] — iter-fn balance, project-borrowed-at-owned-
-/// position, and the use-site `decide(DecisionSite::Use) == Inc` path — keyed by
-/// `class_id_of(var)`. Consumed by `class_member_suppresses` (via `inc_counts`):
-/// a class with `count >= 1` holds multiple owned references (retained copies)
-/// and must NOT have its same-block distinct dec emitters collapsed (under-
-/// emission leak; RL-1 inc ↔ RL-2/RL-4 per-path dec balance,
-/// 04B.2-under-elim.lean rc_per_path_invariant).
+/// Collect the WITHIN-CLASS retained-copy ROOTS for `ctx.blk` into `out`. A
+/// retained-copy root is the `dst` of a `Let { dst, Var(src) }` whose `src` use
+/// fires an establishment `RcInc` (the use-site `decide(DecisionSite::Use) ==
+/// Inc` path, RL-1) — i.e. an alias that took its OWN owned reference of the
+/// heap value and so needs its OWN dec (vs a pure renaming that shares one
+/// reference). Cross-class incs (iter-fn balance, project-borrowed-at-owned-arg)
+/// are NOT recorded: their reference leaves the SSA-alias-class, so the enclosing
+/// value's drop balances them — they create no within-class retained copy.
 ///
-/// Runs pre-walk on the un-RC'd body, so it CANNOT scan emitted `RcInc`s; it
-/// re-derives the same decisions the walk will make. Kept in lock-step with
-/// `emit_pre_instr_incs_unified` (same accepted parallel-predictor pattern as
-/// `var_emits_dec_in_block` mirrors the dec walk).
-pub(crate) fn predict_inc_classes(
+/// Faithful read-only mirror of [`emit_pre_instr_incs_unified`]'s use-site inc
+/// decision (same `uses_so_far` + `compute_has_future_use` + `decide` chain,
+/// burden-skipped to stay in lock-step with `precompute_block_uses`). Runs
+/// pre-walk on the un-RC'd body. Consumed (after Let-alias closure) by the
+/// PIN-4/PIN-5 lineage-equality gate so a class partitions into N retained
+/// lineages + 1 alloc-ref lineage, each deduped to exactly one dec per path
+/// (`1 + N` total — 04B.2-under-elim.lean rc_per_path_invariant).
+pub(crate) fn predict_retained_roots(
     ctx: &BlockCtx<'_>,
     iter_fn_name: ori_ir::Name,
-    var_to_class: &FxHashMap<ArcVarId, u32>,
-    out: &mut FxHashMap<u32, usize>,
+    out: &mut FxHashSet<ArcVarId>,
 ) {
-    // The dec-suppressor keys on `ssa_alias_class_of(dec_var)` (the canonical
-    // class id). An inc target is often the class ROOT (e.g. the alloc `%0`),
-    // and `class_id_of` returns `var.raw()` for roots (omitted from the
-    // var→class map), which differs from the canonical class id. Resolve via
-    // the full-membership reverse map so inc counts land under the SAME class
-    // the suppressor consults.
-    let class_of = |v: ArcVarId| -> u32 {
-        var_to_class
-            .get(&v)
-            .copied()
-            .unwrap_or_else(|| ctx.state_map.class_id_of(v))
-    };
     let block = &ctx.func.blocks[ctx.blk.index()];
     let mut uses_so_far: FxHashMap<ArcVarId, usize> = FxHashMap::default();
     for (instr_idx, instr) in block.body.iter().enumerate() {
         // Burden annotations are TF-N/A metadata, not real uses — skip them so
-        // `uses_so_far` stays in lock-step with `precompute_block_uses` (else
-        // `compute_has_future_use`'s `debug_assert!` fires). Symmetric to the
-        // burden-skip in `walk_body_unified` + `precompute_block_uses`.
+        // `uses_so_far` stays in lock-step with `precompute_block_uses`.
         if matches!(
             instr,
             ArcInstr::BurdenInc { .. }
@@ -438,27 +425,20 @@ pub(crate) fn predict_inc_classes(
         ) {
             continue;
         }
-        if let ArcInstr::Apply { func, args, .. } = instr {
+        // iter-fn balance inc: cross-class (balances the iterator's Drop), not a
+        // within-class retained copy — does NOT advance `uses_so_far`, skip.
+        if let ArcInstr::Apply { func, .. } = instr {
             if *func == iter_fn_name {
-                if let Some(&coll_var) = args.first() {
-                    if ctx.all_borrowed_defs.contains(&coll_var)
-                        && !ctx.project_borrowed_defs.contains(&coll_var)
-                        && ctx.func.var_reprs[coll_var.index()] != ValueRepr::Scalar
-                        && rc_strategy(ctx.func, coll_var, ctx.pool).is_some()
-                    {
-                        *out.entry(class_of(coll_var)).or_default() += 1;
-                    }
-                }
+                // no within-class retained root
             }
         }
         for (pos, var) in instr.used_vars().into_iter().enumerate() {
+            // project-borrowed-at-owned-position inc: cross-class; keep the
+            // `continue` so `uses_so_far` matches the emitter, but record no root.
             if instr.is_owned_position(pos)
                 && ctx.project_borrowed_defs.contains(&var)
                 && ctx.func.var_reprs[var.index()] != ValueRepr::Scalar
             {
-                if rc_strategy(ctx.func, var, ctx.pool).is_some() {
-                    *out.entry(class_of(var)).or_default() += 1;
-                }
                 continue;
             }
             if !is_rc_managed(ctx, var) {
@@ -479,11 +459,63 @@ pub(crate) fn predict_inc_classes(
                 is_rc_managed: true,
                 class_covered,
             });
+            // The inc fires for the USED var; the within-class retained copy it
+            // creates is the `Let` dst that takes the bumped reference. Record
+            // that dst as a retained root (the Let-alias closure in
+            // `build_lineage_map` extends it to descendants).
             if decision.rc == RcDecision::Inc && rc_strategy(ctx.func, var, ctx.pool).is_some() {
-                *out.entry(ctx.state_map.class_id_of(var)).or_default() += 1;
+                if let ArcInstr::Let {
+                    dst,
+                    value: crate::ir::ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if *src == var {
+                        out.insert(*dst);
+                    }
+                }
             }
         }
     }
+}
+
+/// Build the per-var retained-lineage map from the retained-copy ROOTS: each
+/// retained root maps to itself, then `Let { dst, Var(src) }` renamings inherit
+/// their source's root (forward fixpoint over the whole function). A var ABSENT
+/// from the result is in the alloc-reference lineage. `lineage_of(a) ==
+/// lineage_of(b)` (both `None`, or both `Some(same root)`) is the PIN-4/PIN-5
+/// same-lineage predicate. Closure follows `Let`-Var renamings ONLY (same value,
+/// same class); `Project`/`Select`/Jump-phi vars stay alloc-reference
+/// (conservative — they may carry either reference at runtime).
+pub(crate) fn build_lineage_map(
+    func: &ArcFunction,
+    retained_roots: &FxHashSet<ArcVarId>,
+) -> FxHashMap<ArcVarId, ArcVarId> {
+    let mut lineage: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for &r in retained_roots {
+        lineage.insert(r, r);
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: crate::ir::ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if let Some(&root) = lineage.get(src) {
+                        if lineage.insert(*dst, root).is_none() {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    lineage
 }
 
 // Helpers

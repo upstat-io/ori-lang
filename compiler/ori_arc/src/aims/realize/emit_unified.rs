@@ -150,7 +150,7 @@ pub(super) fn emit_rc_unified(
     // (pre-walk, via `predict_inc_classes`): a class with retained copies needs
     // `1 + inc_count` decs per path, so `class_member_suppresses` must not
     // collapse its same-block distinct emitters (under-emission leak otherwise).
-    let (global_pin4_emits, inc_counts) = build_global_pin4_emits(
+    let (global_pin4_emits, lineage_roots) = build_global_pin4_emits(
         func,
         state_map,
         pool,
@@ -184,7 +184,7 @@ pub(super) fn emit_rc_unified(
             &return_transfer_params,
             &global_pin4_emits,
             &post_doms,
-            &inc_counts,
+            &lineage_roots,
             &alias_to_param,
             &return_project_inc_targets,
             &same_alloc_reps,
@@ -283,7 +283,7 @@ fn build_global_pin4_emits(
     iter_fn_name: ori_ir::Name,
 ) -> (
     crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits,
-    FxHashMap<u32, usize>,
+    FxHashMap<ArcVarId, ArcVarId>,
 ) {
     use crate::aims::emit_rc::dead_cleanup::emission_site::pin4_class_emits_dec_set;
     use crate::aims::emit_rc::{
@@ -292,20 +292,11 @@ fn build_global_pin4_emits(
     };
     let empty_global =
         crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits::default();
-    // Empty placeholder for the ctx `inc_counts` field during this pre-pass:
-    // dec-emitter prediction (`pin4_class_emits_dec_set`) never reads it, and
-    // `predict_inc_classes` computes the real counts into `inc_counts` below.
-    let empty_inc: FxHashMap<u32, usize> = FxHashMap::default();
-    let mut inc_counts: FxHashMap<u32, usize> = FxHashMap::default();
-    // Full var→canonical-class reverse map (covers class ROOTS that
-    // `ssa_alias_class_of` omits) so `predict_inc_classes` attributes an inc to
-    // the SAME class id the dec-suppressor consults.
-    let mut var_to_class: FxHashMap<ArcVarId, u32> = FxHashMap::default();
-    for (class_id, members) in state_map.class_members_iter() {
-        for &m in members {
-            var_to_class.entry(m).or_insert(class_id);
-        }
-    }
+    // Empty placeholder for the ctx `lineage_roots` field during this pre-pass:
+    // dec-emitter prediction (`pin4_class_emits_dec_set`) never reads it; the
+    // real lineage map is built from `retained_roots` AFTER the loop.
+    let empty_lineage: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let mut retained_roots: FxHashSet<ArcVarId> = FxHashSet::default();
     let mut global = crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits::default();
     for block_idx in 0..func.blocks.len() {
         let use_info = precompute_block_uses(&func.blocks[block_idx]);
@@ -336,7 +327,7 @@ fn build_global_pin4_emits(
             take_move_facts,
             return_transfer_params,
             global_pin4_emits: &empty_global,
-            inc_counts: &empty_inc,
+            lineage_roots: &empty_lineage,
             post_doms,
             alias_to_param,
             return_project_inc_targets,
@@ -348,20 +339,22 @@ fn build_global_pin4_emits(
                 entry.insert((var, block_idx, site));
             }
         }
-        // Same per-block ctx feeds the pre-walk inc-count prediction.
-        super::walk::predict_inc_classes(&ctx, iter_fn_name, &var_to_class, &mut inc_counts);
+        // Same per-block ctx feeds the pre-walk retained-copy-root prediction.
+        super::walk::predict_retained_roots(&ctx, iter_fn_name, &mut retained_roots);
     }
-    // DISABLED — the coarse `inc_count >= 1` relaxation these counts feed
-    // (PIN-4 same-block + PIN-5 same-instr) regressed the AOT suite 28 -> 2091:
-    // a class-level inc count cannot distinguish a distinct retained copy from a
-    // genuine redundant alias, so the relaxation over-fired into mass double-
-    // free. Distinguishing the two needs true per-alias inc-attribution (which
-    // `RcInc` retains which alias), not a class count. Returning an EMPTY map
-    // keeps both gates at their proven baseline behavior; the prediction +
-    // gate scaffolding stays for the per-alias redesign tracked in BUG-04-123
-    // §05 (single remaining cluster task).
-    inc_counts.clear();
-    (global, inc_counts)
+    // DISABLED — the lineage-equality gate these roots feed regressed the AOT
+    // suite 28 -> 1950: splitting EVERY within-class-retained-copy class into
+    // per-lineage dedup over-applies. The baseline post-dominance/same-instr
+    // class dedup already emits the correct dec count for the vast majority of
+    // retained-copy classes; making suppression lineage-restrictive emits extra
+    // decs on them -> mass double-free. The ~28 failing cells are SPECIFIC shapes
+    // (same-instr distinct operands of one multi-retained heap value) that need a
+    // SURGICAL fix, not a broad dedup change. Clearing the roots makes the map
+    // empty -> N=0 for every class -> both gates no-op -> proven 2275/28 baseline.
+    // Scaffolding retained for the surgical redesign tracked in BUG-04-123 §05.
+    retained_roots.clear();
+    let lineage_roots = super::walk::build_lineage_map(func, &retained_roots);
+    (global, lineage_roots)
 }
 
 #[expect(
@@ -382,7 +375,7 @@ fn emit_block_rc(
     return_transfer_params: &FxHashSet<ArcVarId>,
     global_pin4_emits: &crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits,
     post_doms: &crate::graph::PostDominatorTree,
-    inc_counts: &FxHashMap<u32, usize>,
+    lineage_roots: &FxHashMap<ArcVarId, ArcVarId>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
     return_project_inc_targets: &FxHashMap<ArcVarId, RcStrategy>,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
@@ -421,7 +414,7 @@ fn emit_block_rc(
         take_move_facts,
         return_transfer_params,
         global_pin4_emits,
-        inc_counts,
+        lineage_roots,
         post_doms,
         alias_to_param,
         return_project_inc_targets,

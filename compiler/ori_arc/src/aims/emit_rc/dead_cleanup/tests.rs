@@ -79,7 +79,7 @@ struct DeadCleanupFixture {
     same_alloc_reps: FxHashMap<ArcVarId, ArcVarId>,
     global_pin4_emits: super::emission_site::GlobalPin4Emits,
     post_doms: crate::graph::PostDominatorTree,
-    inc_counts: FxHashMap<u32, usize>,
+    lineage_roots: FxHashMap<ArcVarId, ArcVarId>,
 }
 
 impl DeadCleanupFixture {
@@ -100,7 +100,7 @@ impl DeadCleanupFixture {
             take_move_facts: &self.take_move_facts,
             return_transfer_params: &self.return_transfer_params,
             global_pin4_emits: &self.global_pin4_emits,
-            inc_counts: &self.inc_counts,
+            lineage_roots: &self.lineage_roots,
             post_doms: &self.post_doms,
             alias_to_param: &self.alias_to_param,
             return_project_inc_targets: &self.return_project_inc_targets,
@@ -154,7 +154,7 @@ fn swapped_phi_params_emit_two_rc_decs() {
         same_alloc_reps: FxHashMap::default(),
         global_pin4_emits: super::emission_site::GlobalPin4Emits::default(),
         post_doms,
-        inc_counts: FxHashMap::default(),
+        lineage_roots: FxHashMap::default(),
     };
 
     let ctx = fixture.ctx(1);
@@ -209,7 +209,7 @@ fn let_alias_siblings_emit_one_rc_dec() {
         same_alloc_reps: FxHashMap::default(),
         global_pin4_emits: super::emission_site::GlobalPin4Emits::default(),
         post_doms,
-        inc_counts: FxHashMap::default(),
+        lineage_roots: FxHashMap::default(),
     };
 
     let ctx = fixture.ctx(1);

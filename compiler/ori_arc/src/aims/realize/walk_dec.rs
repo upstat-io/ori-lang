@@ -464,18 +464,22 @@ fn class_dec_should_emit(
         return true; // singleton — emit normally
     };
 
-    // PIN-5: same-class dec already emitted at this instruction. A retained-copy
-    // class (`inc_count >= 1`) holds multiple owned references; its distinct
-    // same-instr operands (e.g. `%a == %b`, both aliases of one heap value with
-    // rc > 1) are distinct owned references and EACH needs a dec — collapsing
-    // them under-emits (leak). For such a class, suppress only a TRUE same-var
-    // double-use (`f(%a, %a)`), never a distinct sibling.
-    let class_incs = ctx.inc_counts.get(&class_id).copied().unwrap_or(0);
-    let pin5_suppress = if class_incs >= 1 {
-        emitted_vars_this_instr.contains(&var)
-    } else {
-        emitted_classes_this_instr.contains(&class_id)
-    };
+    // PIN-5: same-LINEAGE dec already emitted at this instruction. A class
+    // partitions into N retained lineages (each a distinct owned reference) + 1
+    // alloc-ref lineage; each lineage needs exactly one dec. Suppress `var` only
+    // when an already-emitted same-instr var shares its class AND its lineage —
+    // so a true same-var double-use (`f(%a, %a)`) and a same-lineage renaming
+    // are collapsed, but a distinct retained-copy sibling (`%a == %b`, different
+    // lineages of one heap value with rc > 1) each keeps its dec (else under-
+    // emission leak; 04B.2-under-elim.lean rc_per_path_invariant). When there are
+    // no within-class retained copies (`lineage_roots` empty) every same-class
+    // var shares the alloc-ref lineage → identical to per-class dedup (no-op
+    // baseline). `emitted_classes_this_instr` is retained for PIN-6.
+    let _ = emitted_classes_this_instr;
+    let var_lineage = ctx.lineage_roots.get(&var);
+    let pin5_suppress = emitted_vars_this_instr.iter().any(|&v| {
+        ctx.state_map.class_id_of(v) == class_id && ctx.lineage_roots.get(&v) == var_lineage
+    });
     if pin5_suppress {
         tracing::debug!(
             target: "ori_arc::aims::realize::class_dec",
@@ -542,7 +546,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
             ctx.blk.index(),
             ctx.post_doms,
             ctx.global_pin4_emits,
-            ctx.inc_counts,
+            ctx.lineage_roots,
         )
     {
         return suppressed;
