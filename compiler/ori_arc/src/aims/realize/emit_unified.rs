@@ -78,7 +78,7 @@ fn trace_phase_snapshot(
 /// 4. RC coalescing peephole per block
 #[expect(
     clippy::too_many_lines,
-    reason = "per-function realization orchestrator: setup, PIN-4 pre-pass, forward walk, edge cleanup, post-passes"
+    reason = "per-function realization orchestrator: setup, dec-emitter pre-pass, forward walk, edge cleanup, post-passes"
 )]
 pub(super) fn emit_rc_unified(
     func: &mut ArcFunction,
@@ -139,17 +139,19 @@ pub(super) fn emit_rc_unified(
     let mut block_deferred: FxHashMap<usize, Vec<DeferredDec>> = FxHashMap::default();
     let mut synergy = metrics::SynergyMetrics::default();
 
-    // BUG-04-123 cluster fix: function-level cross-block PIN-4 emitter map +
-    // post-dominator tree. The PIN-4 gate sites suppress a class member's dec
-    // only when ANOTHER member covers its RC slot on every path
+    // Function-level cross-block dec-emitter map + post-dominator tree. The
+    // same-block / same-instruction dec-suppression gates suppress a class
+    // member's dec only when ANOTHER member covers its RC slot on every path
     // (`class_member_suppresses`). Post-dominance — not raw block order — gates
     // cross-block suppression so a branch (neither arm post-dominates) keeps one
     // dec per path (under-emission leak otherwise).
     let post_doms = crate::graph::PostDominatorTree::build(func);
-    // `build_global_pin4_emits` also predicts per-class establishment-inc counts
-    // (pre-walk, via `predict_inc_classes`): a class with retained copies needs
-    // `1 + inc_count` decs per path, so `class_member_suppresses` must not
-    // collapse its same-block distinct emitters (under-emission leak otherwise).
+    // `build_global_pin4_emits` also returns the retained-lineage map, filtered
+    // to lineages that die within their SSA-alias class. A within-class retained
+    // copy that transfers out (Construct / owned-arg / Jump-arg / Return) is
+    // balanced by the enclosing value's drop, so it is dropped from the map and
+    // its class dedups normally; a copy that dies in-class keeps its own dec so
+    // the class nets `1 + N` decs per path (rc_per_path_invariant).
     let (global_pin4_emits, lineage_roots) = build_global_pin4_emits(
         func,
         state_map,
@@ -254,16 +256,16 @@ pub(super) fn emit_rc_unified(
 /// Emit RC operations for a single block via the unified forward walk.
 ///
 /// Returns `(death_events, alloc_events, walk_metrics)`.
-/// Build the function-level PIN-4 emitter map: every emitting SSA-alias-class
+/// Build the function-level dec-emitter map: every emitting SSA-alias-class
 /// member tagged with its block index. Consumed by `class_member_suppresses`
 /// (with the post-dominator tree) so a class spanning blocks decs once per path.
 #[expect(
     clippy::too_many_arguments,
-    reason = "PIN-4 pre-pass builds a BlockCtx per block; needs the full per-function realization context"
+    reason = "dec-emitter pre-pass builds a BlockCtx per block; needs the full per-function realization context"
 )]
 #[expect(
     clippy::type_complexity,
-    reason = "returns the PIN-4 emitter map plus the per-class inc-count map computed in the same per-block pass"
+    reason = "returns the dec-emitter map plus the retained-lineage map computed in the same per-block pass"
 )]
 fn build_global_pin4_emits(
     func: &ArcFunction,
@@ -521,7 +523,7 @@ fn count_rc_ops(func: &ArcFunction) -> usize {
         .count()
 }
 
-/// BUG-04-090 F-prj: precompute the per-Project compensating-Inc target map.
+/// Precompute the per-Project compensating-Inc target map for return-transfer.
 ///
 /// Identifies every `Project { dst, value, field }` instruction whose `dst`
 /// flows to a `Return` terminator AND whose `value` resolves (via Let-alias
@@ -540,7 +542,7 @@ struct ReturnTransferSetup {
     return_project_inc_targets: FxHashMap<ArcVarId, RcStrategy>,
 }
 
-/// Pre-compute the BUG-04-090 return-transfer surface from the function's
+/// Pre-compute the return-transfer surface from the function's
 /// `MemoryContract`. Empty when no contract is available — equivalent to the
 /// pre-fix behavior.
 fn build_return_transfer_setup(
@@ -663,7 +665,7 @@ fn build_return_project_inc_targets(
         }
     }
 
-    // BUG-04-104 closure_env_alias Path 2: closure-body F-prj. When the
+    // closure_env_alias Path 2: closure-body return-projection. When the
     // function has a BORROWED param (closure body's env exposed as a
     // borrow) AND the body returns a Project of that param via a Let/Jump
     // chain, the caller's ApplyIndirect treats the result as Owned per
