@@ -782,6 +782,26 @@ fn record_payload_edge_lifetime(
     }
     state_map.ensure_singleton_class(arg_class);
     state_map.ensure_singleton_class(dst_class);
+    // BUG-04-123 / RL-2: if the container class is destructured by a take-
+    // project (a non-tag-field `Project` from a container-class member yielding
+    // an RC-managed payload), the container's scope-exit drop is shallow — it
+    // does not recurse into the moved-out slot. Recording a payload-of edge
+    // makes PIN-6 suppress the extracted payload's own canonical dec, leaking it
+    // on the consuming path (counterexample `04B.2-under-elim`: every concrete
+    // CFG path must net RC to 0). The liveness proxy below cannot see this — a
+    // late container dec makes the container appear to "outlive" the payload.
+    if container_payload_moved_out(dst_class, func, state_map) {
+        tracing::debug!(
+            func = ?func.name,
+            arg_var = arg.raw(),
+            dst_var = dst.raw(),
+            arg_class,
+            dst_class,
+            action = "SKIP",
+            "BUG-04-123 record_payload_edge: container destructured (take-project)"
+        );
+        return;
+    }
     let outlives = class_lifetime_extends_past_path_sensitive(
         arg_class,
         dst_class,
@@ -811,6 +831,31 @@ fn record_payload_edge_lifetime(
 /// Return `Some(RcStrategy)` for non-scalar `dst`, `None` for scalar.
 fn dst_strategy_of(func: &ArcFunction, dst: ArcVarId) -> Option<RcStrategy> {
     *func.var_rc_strategies.get(dst.index())?
+}
+
+/// Whether `container_class` has a payload moved OUT via a take-project: a
+/// non-tag-field `Project` whose source is a `container_class` member and whose
+/// RC-managed destination is the extracted payload (BUG-04-123 / RL-2).
+///
+/// A destructured container's scope-exit drop is shallow — it reclaims only the
+/// container shell, never recursing into the moved-out slot — so it cannot cover
+/// the extracted payload. Distinct from the liveness proxy in
+/// `class_lifetime_extends_past_path_sensitive`, which is fooled when a late
+/// container dec makes the container appear to outlive the extracted payload.
+fn container_payload_moved_out(
+    container_class: u32,
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+) -> bool {
+    func.blocks.iter().flat_map(|b| b.body.iter()).any(|instr| {
+        matches!(
+            instr,
+            ArcInstr::Project { dst, value, field, .. }
+                if *field != 0
+                    && dst_strategy_of(func, *dst).is_some()
+                    && state_map.class_id_of(*value) == container_class
+        )
+    })
 }
 
 /// Post-convergence `class_payload_of` population (BUG-04-118 §05.4).
