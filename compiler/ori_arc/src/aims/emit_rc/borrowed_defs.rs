@@ -47,16 +47,16 @@ use crate::ownership::Ownership;
 /// 3. **Is** an ownership transfer (the parent enum has no payload
 ///    left to drop, so its scope-exit `RcDec` is suppressed).
 ///
-/// # Scope
+/// # Current scope
 ///
-/// Fires for any RC-managed payload (`rc_strategy(dst).is_some()` — non-scalar
-/// repr carrying a refcount/drop: iterator, struct, list, map, set, nested sum
-/// type) projected at a non-tag field from a sum type (`Enum`, `Option`,
-/// `Result`). Ori `match` consumes its scrutinee, so a payload projected out of
-/// a matched sum value is a move-out, not a borrow. The dst gate couples exactly
-/// to whether a `RcDec` is emitted for the moved-out binding — if `rc_strategy`
-/// returns `None` (scalar / drop-free), no dec is owed and the projection is not
-/// a take.
+/// This predicate only fires for `Tag::Iterator` and
+/// `Tag::DoubleEndedIterator` payloads projected from sum types
+/// (`Enum`, `Option`, `Result`). Those are the only types that
+/// (a) are `UnmanagedPtr` (no refcount, move-only) and
+/// (b) can reach a `Project` instruction as a variant payload. Other
+/// unique-owned types (channels via `OpaquePtr` — though channels
+/// currently have no RC header dropping pipeline at all) can be added
+/// here when they grow `Project` call sites.
 #[inline]
 pub(crate) fn is_take_project(instr: &ArcInstr, func: &ArcFunction, pool: &Pool) -> bool {
     let ArcInstr::Project {
@@ -77,9 +77,14 @@ pub(crate) fn is_take_project(instr: &ArcInstr, func: &ArcFunction, pool: &Pool)
     if !matches!(src_tag, Tag::Enum | Tag::Option | Tag::Result) {
         return false;
     }
-    // Destination is a take iff it is RC-managed — couples to dec emission
-    // (RL-2: a moved-out binding drops at its own scope exit).
-    super::rc_strategy(func, *dst, pool).is_some()
+    // Destination (the projected payload) must be a unique-owned
+    // Box type — currently only iterators. `Tag::Channel` uses a
+    // different representation (`OpaquePtr`) and has its own drop
+    // model, so it is excluded for now.
+    let dst_ty = func.var_type(*dst);
+    let dst_resolved = pool.resolve_fully(dst_ty);
+    let dst_tag = pool.tag(dst_resolved);
+    matches!(dst_tag, Tag::Iterator | Tag::DoubleEndedIterator)
 }
 
 /// Collect RC-bearing payload projections that are full move-outs of a
