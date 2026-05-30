@@ -3,8 +3,8 @@ Theorem L-1: Lattice join commutativity
   Preconditions:
     - a, b are AimsState elements per the canonical proof notation
       sec-Per-Dimension-Symbol-Set
-    - join is the product-lattice componentwise join per Annex E §AIMS + sec-1.8 L-1
-    - Per-dimension joins per Annex E §AIMS.1 through sec-1.7
+    - join is the product-lattice componentwise join per Annex E §AIMS + §AIMS §3 L-1
+    - Per-dimension joins per Annex E §AIMS §3.1 through §AIMS §3.7
 
   Soundness property:
     Forall a, b in AimsState. join(a, b) = join(b, a)

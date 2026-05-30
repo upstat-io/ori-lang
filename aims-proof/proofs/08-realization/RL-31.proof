@@ -30,11 +30,11 @@ Theorem RL-31: disjoint Borrowed parameters -> !alias.scope + !noalias metadata 
         (7) same-root disjoint-fields case -> trace to the originating Project
             + compare field indices, disjoint iff neither field path is a
             prefix of the other (nested-projection prefix test);
-        (8) borrow_sources is function-local (sec-1.9), so the cross-function
+        (8) borrow_sources is function-local (§AIMS §7), so the cross-function
             proof operates on the CALLERS' local provenance tables, NOT callee
             IC-2/IC-3 alone.
     - depends-on sec-05: DP-5 disjointness is the prerequisite; depends-on
-      sec-01.9 borrow_sources + project_alias_sources (the function-local
+      §AIMS §7 borrow_sources + project_alias_sources (the function-local
       provenance tables); depends-on sec-06: IC-3 ParamContract.access (the
       Borrowed dimension). VF-2 (b) consumes the disjointness proof.
     - RL-31 is in the critical-proof cross-validation set (alongside sec-01A

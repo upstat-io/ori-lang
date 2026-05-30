@@ -2,11 +2,11 @@ Theorem CH-comp: layered-handshake composition — the handshake catches the UNI
 
   Preconditions:
     - This is the sec-11 composition theorem per the sec-11 success_criterion 4 +
-      sec-11.0 Per-CH Proof-Status Tracking table CH-comp row: the layered
+      the §11 coexistence section Per-CH Proof-Status Tracking table CH-comp row: the layered
       coexistence handshake catches the UNION of the failure classes its
       constituent CH-N theorems catch; a fix passing one CH but regressing
       another is a correctness regression, NOT a partial win (per
-      Annex E §AIMS + arc.md Verification Surface: "a fix that passes
+      Annex E §AIMS §9: "a fix that passes
       one layer but regresses another is a correctness regression").
     - Mirror precedent: aims-proof/proofs/09-verification/VF-comp.proof —
       the sec-09 layered-verifier composition theorem the sec-11 CH-comp pattern

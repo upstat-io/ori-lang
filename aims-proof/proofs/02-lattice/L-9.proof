@@ -24,7 +24,7 @@ Theorem L-9: SCALAR sentinel excluded from lattice operations
           state pre-filters SCALAR before invoking join.
 
     Part (a) — domain enumeration:
-      Per-dimension carriers (per Annex E §AIMS.1 through sec-1.7):
+      Per-dimension carriers (per Annex E §AIMS §3.1 through §AIMS §3.7):
         Access = {B, O} — SCALAR not in
         Consumption = {empty, L, A, U} — SCALAR not in
         Cardinality = {absent, 1, omega} — SCALAR not in

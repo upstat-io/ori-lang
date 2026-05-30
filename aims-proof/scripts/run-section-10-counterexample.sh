@@ -38,14 +38,9 @@
 # - Per-shape solver call respects --initial-timeout-seconds budget; no
 # unbounded `wait`.
 #
-# Intel-query citations (per intelligence.md graph-first protocol; queries
-# run 2026-05-28 at section entry):
-# - similar "run_section_09" --repo ori → Symbol-not-found (shell-script
-# symbols not indexed); fallback: aims-proof/scripts/run-section-09-proofs.sh
-# read as SSOT for the conformance/discharge pattern this script mirrors.
-# - file-symbols "aims-proof/scripts" --repo ori → 0 symbols (shell scripts
-# not indexed); manual read of sibling runners (§02 / §03 / §04 / §05 /
-# §06 / §08 / §09) confirms the cwd-anchor + test-results discipline.
+# Sibling runners (§02 / §03 / §04 / §05 / §06 / §08 / §09) are the SSOT for
+# the conformance/discharge + cwd-anchor + test-results discipline this script
+# mirrors.
 #
 # Cwd contract: anchors to aims-proof/ via cd "$(dirname "$0")/.." at entry.
 

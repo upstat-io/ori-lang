@@ -1,7 +1,7 @@
 Theorem PL-1: Pipeline-ordering rule signatures — PL-1 through PL-11 + PL-1a + PL-4a
 
   Preconditions:
-    - The AIMS pipeline is a 12-step strictly-ordered DAG per Annex E §AIMS + arc.md sec-Pipeline
+    - The AIMS pipeline is a 12-step strictly-ordered DAG per Annex E §AIMS §6
     - Step ordering is load-bearing: stale summaries forbidden (PL-5);
       adding a pass requires matched constraint update (PL-6)
     - TRMC normalization (Step 3a + Step 4a) adds the PL-7 through PL-11

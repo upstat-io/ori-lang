@@ -8,7 +8,7 @@ Theorem VF-7: active-rewrite three-tier discipline — (a) structural + (b) beha
       verification (dedicated tests for pre/post-rewrite); (c) documented proof
       sketch (semantic preconditions where structural validity implies
       behavioral equivalence). Lacking any tier = not active." Restated by
-      arc.md Non-Negotiable-Invariants #2.
+      Annex E §AIMS §2 invariant 2.
     - VF-7's concrete shape is Rewrite -> Bool per
       aims-proof/proofs/01-verification/Verification.proof. Discharged here
       against the sec-01 Verification.proof sorry obligation.
@@ -33,7 +33,7 @@ Theorem VF-7: active-rewrite three-tier discipline — (a) structural + (b) beha
            behavior) IFF R has (a) compile-time structural verification AND
            (b) test-time behavioral verification AND (c) a documented proof
            sketch. Structural verification alone does NOT satisfy soundness —
-           behavioral verification is required (arc.md Non-Negotiable-Invariants
+           behavioral verification is required (Annex E §AIMS Non-Negotiable-Invariants
            #2). Lacking any tier = NOT active.
 
       (P2) Per-rewrite-class tier mapping: TRMC and RL-22..RL-26 each supply a
@@ -73,7 +73,7 @@ Theorem VF-7: active-rewrite three-tier discipline — (a) structural + (b) beha
     Negative-direction witness (the conjunction has teeth — structural-only is
     NOT active):
       A rewrite with only structural verification (tier a) and no behavioral
-      verification (tier b) or proof sketch (tier c) is NOT active; arc.md
+      verification (tier b) or proof sketch (tier c) is NOT active; Annex E §AIMS
       Non-Negotiable-Invariants #2 explicitly states "structural tests alone do
       not satisfy this".
 

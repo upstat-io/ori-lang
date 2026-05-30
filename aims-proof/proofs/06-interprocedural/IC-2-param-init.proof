@@ -46,7 +46,7 @@ Theorem IC-2: ParamContract initialization at most-optimistic state
 
       (P1) Access dimension bottom:
         pc.access = AccessClass::Borrowed
-        (per Annex E §AIMS.1: `Borrowed < Owned`; Borrowed
+        (per Annex E §AIMS §3.1: `Borrowed < Owned`; Borrowed
         is the unique minimum element of the Access lattice).
 
       (P2) Consumption dimension bottom:
@@ -88,7 +88,7 @@ Theorem IC-2: ParamContract initialization at most-optimistic state
 
   Proof obligation:
     Six-part discharge corresponding to (P1)..(P6); each grounded
-    in (a) the per-dimension partial order defined in Annex E §AIMS.1 through sec-1.5 and sec-5 IC-3, and (b) the structural
+    in (a) the per-dimension partial order defined in Annex E §AIMS §3.1 through §AIMS §3.5 and sec-5 IC-3, and (b) the structural
     match between spec values and the `ParamContract::OPTIMISTIC`
     Rust const at compiler/ori_arc/src/aims/contract/
     mod.rs lines 368-386.
@@ -96,7 +96,7 @@ Theorem IC-2: ParamContract initialization at most-optimistic state
     Part (P1) — Access bottom:
 
       Access is a 2-element chain `Borrowed < Owned` with join
-      defined as `max` (Annex E §AIMS.1). Bottom of a
+      defined as `max` (Annex E §AIMS §3.1). Bottom of a
       finite chain under `max` join is the smallest element by
       definition; here that is `Borrowed`.
 
@@ -322,7 +322,7 @@ Theorem IC-2: ParamContract initialization at most-optimistic state
       (`is_rc_dec_unnecessary`) evaluates
       `cardinality = Absent ∨ consumption = Dead` → false for
       every param; no dec elision. The AIMS mission ("RC rare,
-      not RC ops faster" per arc.md §Mission + Annex E §AIMS
+      not RC ops faster" per Annex E §AIMS §1 + Annex E §AIMS
       Mission) collapses — every RC op survives to emitted IR
       because the lattice can no longer prove any dim is below
       conservative.

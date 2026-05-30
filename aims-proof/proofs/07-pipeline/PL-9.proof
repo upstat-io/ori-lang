@@ -2,7 +2,7 @@ Theorem PL-9: TRMC rewrite idempotency — candidate normalized to accept a Cont
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-9 is the §07.4 TRMC
+      Annex E §AIMS §6. PL-9 is the §07.4 TRMC
       rewrite rule, governing the Step 3a normalize_function rewrite of a
       detected candidate (PL-7/PL-8).
     - PL-9 statement (per Annex E §AIMS PL-9): the candidate is

@@ -2,7 +2,7 @@ Theorem CH-104: lattice engine bootstrap (L-7 idempotency on 2-dim sub-lattice)
 
   Preconditions:
     - s is an AimsState restricted to the Access x Consumption
-      2-dim sub-lattice per Annex E §AIMS.1 + sec-1.2
+      2-dim sub-lattice per Annex E §AIMS §3.1 + §AIMS §3.2
     - Access carrier: Borrowed, Owned (height 1)
     - Consumption carrier: Dead, Linear, Affine, Unrestricted
       (height 3)

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# check-section-04-compiler-conformance.sh — §04-IM-G compiler-conformance
+# check-section-04-compiler-conformance.sh — the section-04 compiler-conformance cross-walk compiler-conformance
 # cross-walk gate.
 #
 # Per Annex E §AIMS §4
-# §04-IM-G: "Mechanically cross-walks every proven TF-N rule against
+# the section-04 compiler-conformance cross-walk: "Mechanically cross-walks every proven TF-N rule against
 # the compiler implementation site
 # compiler/ori_arc/src/aims/transfer/mod.rs."
 #

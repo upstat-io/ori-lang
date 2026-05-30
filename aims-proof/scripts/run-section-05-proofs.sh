@@ -18,7 +18,7 @@
 # discharge GREEN (status: valid). Fail or UnimplementedEngineShape
 # routes through a fail-branch exit_reason (exit 2).
 # (c) After 10 proofs discharge GREEN, invoke
-# `check-section-05-compiler-conformance.sh` (§05-IM-K); divergence
+# `check-section-05-compiler-conformance.sh` (the section-05 compiler-conformance cross-walk); divergence
 # routes through `decision_predicate_compiler_spec_divergence`
 # (exit 2).
 #
@@ -43,7 +43,7 @@
 # Invalid values route through decision_predicate_infrastructure_failed
 # (exit 3).
 #
-# Proof artifact roster (10 total per §05-IM-E composition):
+# Proof artifact roster (10 total per the section-05 composition):
 # 9 active DPs: DP-1, DP-2, DP-3, DP-4, DP-5, DP-6, DP-7, DP-8, DP-9
 # 1 confirmation: DP-10-REMOVED
 #
@@ -132,7 +132,7 @@ EOF
     exit 2
 fi
 
-# Phase (c) — compiler-conformance cross-walk (§05-IM-K).
+# Phase (c) — compiler-conformance cross-walk (the section-05 compiler-conformance cross-walk).
 conformance_script="scripts/check-section-05-compiler-conformance.sh"
 if [[ ! -x "$conformance_script" ]]; then
     cat > test-results/section-05-result.json <<EOF

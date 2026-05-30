@@ -61,7 +61,7 @@ Theorem IC-7: Convergence iteration limit soundness
           uniqueness 2 + preserves_freshness 1 + locality 4 +
           shape 1; sum = 8). Shipped return-height = 8 matches
           spec (the carve-out for `locality` / `shape`
-          defaulting to CONSERVATIVE per sec-1.9 does NOT
+          defaulting to CONSERVATIVE per §AIMS §7 does NOT
           reduce chain height — defaulted dimensions still
           have positions in the join's domain).
         - Spec context-height = 4 (ContextBehavior 4 boolean
@@ -91,7 +91,7 @@ Theorem IC-7: Convergence iteration limit soundness
       (per Tarski 1955: the fixpoint detection iteration runs
       one more pass after the last monotone increase to confirm
       stability).
-    - Per L-5 (sec-1.8 lattice properties): every lattice
+    - Per L-5 (§AIMS §3 lattice properties): every lattice
       dimension has finite height; product height = sum of
       dimension heights. The per-parameter height (17 shipped /
       13 spec) is the sum of ParamContract dimension heights;
@@ -100,7 +100,7 @@ Theorem IC-7: Convergence iteration limit soundness
       is the sum of EffectSummary OR-fold + AND-fold + one-shot
       heights; the context-height (4) is the sum of
       ContextBehavior 4-boolean-flag heights.
-    - Per L-6 (sec-1.8): transfer functions SHALL be monotone;
+    - Per L-6 (§AIMS §3): transfer functions SHALL be monotone;
       joins SHALL be monotone over each lattice dimension's
       partial order. Monotonicity is the foundational lattice
       property guaranteeing convergence per Tarski 1955 (least-
@@ -135,7 +135,7 @@ Theorem IC-7: Convergence iteration limit soundness
         L_spec = sum_{i=1..k} (p_i × 13 + 8 + 6 + 4)
         L_shipped = sum_{i=1..k} (p_i × 17 + 8 + 5 + 4)
       Three conjuncts SHALL hold per spec Annex E §AIMS
-      IC-7 + sec-1.8 L-5 + sec-1.8 L-6:
+      IC-7 + §AIMS §3 L-5 + §AIMS §3 L-6:
 
       (P1) Finite-height termination:
         The product lattice over the SCC's contract space has
@@ -202,7 +202,7 @@ Theorem IC-7: Convergence iteration limit soundness
 
     Part (P1) — Finite-height termination:
 
-      Lattice-property foundation (per sec-1.8):
+      Lattice-property foundation (per §AIMS §3):
       - L-5: every dimension has finite height; product height
         = sum of dimension heights. The SCC's contract space
         is a product of per-function product lattices, where
@@ -280,7 +280,7 @@ Theorem IC-7: Convergence iteration limit soundness
       | Total (shipped) | **17** | (13 + 1 + 1 + 2 = 17) |
 
       Per-function ReturnContract height (spec sec-5 IC-4 +
-      sec-1.9 Return Provenance):
+      §AIMS §7 Return Provenance):
 
       | Dimension | Height | Chain |
       |---|---|---|
@@ -291,7 +291,7 @@ Theorem IC-7: Convergence iteration limit soundness
       | Total | **8** | (2+1+4+1 = 8) |
 
       Spec and shipped agree on ReturnContract height (8). The
-      `locality` + `shape` carve-out in sec-1.9 (defaulting to
+      `locality` + `shape` carve-out in §AIMS §7 (defaulting to
       CONSERVATIVE in shipped extractor) does NOT reduce chain
       height — the defaulted dimensions still occupy positions
       in the join's domain. The proof shape is preserved.
@@ -449,7 +449,7 @@ Theorem IC-7: Convergence iteration limit soundness
 
     Coherence side-conditions for (P1)..(P3):
 
-      - L-5 + L-6 lemmas (sec-1.8) provide the foundational
+      - L-5 + L-6 lemmas (§AIMS §3) provide the foundational
         lattice properties: finite height + monotone joins +
         monotone transfer functions. Tarski 1955 (least-
         fixpoint theorem on complete lattices) provides the
@@ -687,7 +687,7 @@ Theorem IC-7: Convergence iteration limit soundness
     layer:
 
       IC-7 consumes the per-function parameter counts (from
-      the IR) + per-dimension height constants (from sec-1.8
+      the IR) + per-dimension height constants (from §AIMS §3
       L-5 + per-rule height tables at IC-3 / IC-4 / IC-5 /
       PL-11). It produces a single u32 iteration bound per
       SCC. The dependency chain at the proof-obligation level
@@ -695,10 +695,10 @@ Theorem IC-7: Convergence iteration limit soundness
 
         IC-1 --> SCC decomposition feeds the per-SCC
                    iteration bound computation
-        L-5 (sec-1.8 finite-height lemma) --> IC-7 (closed-
+        L-5 (§AIMS §3 finite-height lemma) --> IC-7 (closed-
                                                 form formula
                                                 soundness)
-        L-6 (sec-1.8 monotonicity lemma) --> IC-7 (Tarski
+        L-6 (§AIMS §3 monotonicity lemma) --> IC-7 (Tarski
                                                 applicability)
         IC-3 (sec-5 ParamContract heights) --> IC-7 (per-
                                                   parameter
@@ -812,8 +812,7 @@ Theorem IC-7: Convergence iteration limit soundness
                            Theorem 4 formalizes the closed-
                            form iteration bound for
                            interprocedural FBIP analysis that
-                           AIMS implements; arc.md
-                           §Reference Repos cites Lean 4 +
+                           AIMS implements cites Lean 4 +
                            Swift ARC + Koka Perceus as the
                            prior art set
 
@@ -844,7 +843,7 @@ Theorem IC-7: Convergence iteration limit soundness
         EXCLUDED per sec-5 IC-7 + sec-5 IC-6 post-realization
         timing)
       case_analysis (per-dimension height decomposition table
-        per sec-1.8 L-5 + per-rule IC-3 / IC-4 / IC-5 /
+        per §AIMS §3 L-5 + per-rule IC-3 / IC-4 / IC-5 /
         PL-11 height tables: 6 ParamContract dimensions + 4
         ReturnContract dimensions + 6 EffectSummary OR-fields
         + 1 EffectSummary one-shot + 4 ContextBehavior boolean

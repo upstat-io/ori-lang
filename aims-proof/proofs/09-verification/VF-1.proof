@@ -19,7 +19,7 @@ Theorem VF-1: Layer 1 structural ARC IR well-formedness — 5 checks map 1:1 to 
       pipeline (Step 11), (3) after post-pipeline passes (sec-8 RL-22 through
       RL-26).
     - FipStructural is NOT one of the 5 checks — it is constructed by the
-      pipeline runner wrapping Layer-4 FIP errors (per arc.md Verification
+      pipeline runner wrapping Layer-4 FIP errors (per Annex E §AIMS §9
       Surface); the shared VerifyError enum is a carrier, not an attribution.
     - Shipped verifier site:
         * compiler/ori_arc/src/verify/mod.rs check_function

@@ -1,7 +1,7 @@
 //! §03 canonicalization-rule constructive discharge.
 //!
 //! Per `Annex E §AIMS §5`
-//! Implementation Items §03-IM-A: each of CN-1, CN-2, CN-3, CN-5, CN-6, CN-8
+//! Implementation Items the section-03 implementation: each of CN-1, CN-2, CN-3, CN-5, CN-6, CN-8
 //! is discharged constructively via finite enumeration over the canonical
 //! per-dimension carriers (Access, Consumption, Cardinality, Uniqueness,
 //! Locality, Shape, Effect). CN-4-REMOVED + CN-7-REMOVED carry confirmation

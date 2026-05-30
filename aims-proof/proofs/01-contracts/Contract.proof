@@ -2,7 +2,7 @@ Theorem IC-1: Six contract record types — MemoryContract + ParamContract + Ret
 
   Preconditions:
     - Contract records are the interprocedural summary domain for AIMS
-      per Annex E §AIMS + arc.md sec-Key-Types
+      per Annex E §AIMS §7
     - MemoryContract is the top-level per-function summary
     - ParamContract is per-parameter access / consumption / usage state
     - ReturnContract is per-function return-value state
@@ -44,7 +44,7 @@ Theorem IC-1: Six contract record types — MemoryContract + ParamContract + Ret
       no dim changes;
       Convergence bound: included in IC-7 derived limit.
 
-    ReturnContract record (4 fields per IC-4 + sec-1.9):
+    ReturnContract record (4 fields per IC-4 + §AIMS §7):
 
       ReturnContract = <
         uniqueness: Uniqueness,

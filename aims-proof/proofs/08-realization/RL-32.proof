@@ -21,7 +21,7 @@ Theorem RL-32: all non-scalar parameters initialize Borrowed; fixpoint promotes 
 
       (P2) Soundness (monotone toward conservative): Borrowed is the optimistic
            floor; promotion only INCREASES the ABI obligation (Borrowed <
-           Owned per sec-1.1), never decreases it, so the fixpoint converges
+           Owned per §AIMS §3.1), never decreases it, so the fixpoint converges
            and the final ABI never under-claims ownership the callee needs.
 
     RL-32 refines plain ARC's everything-Owned ABI by inferring Borrowed where

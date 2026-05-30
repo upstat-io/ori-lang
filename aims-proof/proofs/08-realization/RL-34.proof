@@ -11,7 +11,7 @@ Theorem RL-34: tail-call preservation — never RcDec after a tail call; transfe
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.
     - An RcDec after a tail call breaks TCO (tail-call optimization); the
-      Lean 4 ownParamsUsingArgs lineage (arc.md sec-Advanced-Optimization-
+      Lean 4 ownParamsUsingArgs lineage (Annex E §AIMS §8
       Patterns) transfers ownership instead.
     - depends-on sec-06: IC-3 ParamContract.access (the callee param ABI).
 

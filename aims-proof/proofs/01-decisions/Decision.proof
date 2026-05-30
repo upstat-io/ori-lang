@@ -51,9 +51,8 @@ Theorem DP-1: Decision predicate signatures — pure-state DPs + context-depende
         the tag change invalidates ALL payload fields (variant may have
         different layout) -> DP-5 treats SetTag as overlapping every field;
         tag-mutation context blocks whenever ANY borrow is live regardless
-        of field path. Signature amended at sec-05.3 close-out per
-        sec-05-IM-F evolution (rule_reformulation_required case 3 surfaced
-        during sec-05.2 DP-5 discharge).
+        of field path. Signature amended at rule reformulation (case 3) surfaced
+        during the DP-5 discharge.
 
       DP-9 : AimsState x ArcVarId x FieldPath x ProgramPoint x ParamContract -> CowMode
         cow_mode(s, var, field, point, contract) =
@@ -65,15 +64,14 @@ Theorem DP-1: Decision predicate signatures — pure-state DPs + context-depende
           Shared -> StaticShared
 
         Row (c) joint-DP-5 refinement (per Annex E §AIMS DP-9 row (c)
-        + sec-05.2 DP-9 proof artifact): MaybeShared + IC-3 ParamContract.
+        + the DP-9 proof artifact): MaybeShared + IC-3 ParamContract.
         uniqueness = Unique routes to StaticUnique only when DP-5 returns
         true locally; falls through to Dynamic (row c-prime) when DP-5
         returns false. IC-3 proves not-shared at function entry but does
         NOT prove no-active-local-borrows at the mutation point; DP-9 must
         compose IC-3 (interprocedural) with DP-5 (intraprocedural alias
-        safety). Signature amended at sec-05.3 close-out per sec-05-IM-F
-        evolution (rule_reformulation_required case 3 surfaced during
-        sec-05.2 DP-9 discharge).
+        safety). Signature amended at rule reformulation (case 3) surfaced during
+        the DP-9 discharge.
 
       CowMode : closed sum type (per the canonical proof notation:257):
         CowMode = StaticUnique | StaticShared | Dynamic
@@ -87,14 +85,14 @@ Theorem DP-1: Decision predicate signatures — pure-state DPs + context-depende
 
       Root cause: Backward analysis proves "no future duplication" but
         NOT "no existing aliases". Uniqueness is ONLY established via
-        the Uniqueness lattice dimension (sec-1.4) OR via fresh allocation
+        the Uniqueness lattice dimension (§AIMS §3.4) OR via fresh allocation
         (TF-3 FRESH output). DP-10's inference from Consumption x Cardinality
         alone was unsound: one use may be "store into data structure"
         (creates alias via RcInc).
 
       Subsumed by:
         - TF-3 (fresh allocation establishes Uniqueness = u directly)
-        - Uniqueness dimension (sec-1.4) as direct source of truth
+        - Uniqueness dimension (§AIMS §3.4) as direct source of truth
 
       No theorem skeleton to discharge; this is a CONFIRMATION entry only.
 

@@ -63,7 +63,7 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
     Two-part discharge:
       (a) Exhaustive enumeration over the Appendix C DP-5 5-row truth
           table, with two orthogonal axes added — instruction_kind in
-          {Set, SetTag} and the sec-1.9 7-rule envelope coverage axis.
+          {Set, SetTag} and the §AIMS §7 7-rule envelope coverage axis.
       (b) Soundness equality on every enumerated case + side-table
           invariants (RL-10 SetTag whole-payload + R5 + R7 target-only
           rules) discharge against the explicit per-row truth.
@@ -170,7 +170,7 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
               created. Step 1 catches direct borrows on base; Step 2
               catches the preserved aliases via base prior alias set.
 
-      The 7-rule envelope is exhaustive per sec-1.9 — no construction
+      The 7-rule envelope is exhaustive per §AIMS §7 — no construction
       rule omitted.
 
     Part (b) — Coverage gate:
@@ -259,7 +259,7 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
 
     Engines dispatched:
       case_analysis (PRIMARY — Appendix C 5-row enumeration + RL-10
-        SetTag whole-payload invalidation axis + sec-1.9 7-rule
+        SetTag whole-payload invalidation axis + §AIMS §7 7-rule
         envelope axis per section_05::verify_dp5_can_mutate_in_place_with_settag;
         the verifier checks the soundness equality predicate-vs-row-
         partition on every enumerated case and emits Fail on any
@@ -267,4 +267,4 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
 
   Expected:
     status: valid
-    reason: section_05 case_analysis engine discharges DP-5 via 72-case enumeration over (Access x Uniqueness x instruction_kind x direct-borrow-state x transitive-alias-state) covering Appendix C 5-row truth table + RL-10 SetTag whole-payload invalidation + sec-1.9 7-rule alias-construction envelope (R1-R7) per Annex E §AIMS DP-5 + Appendix C + sec-8 RL-10
+    reason: section_05 case_analysis engine discharges DP-5 via 72-case enumeration over (Access x Uniqueness x instruction_kind x direct-borrow-state x transitive-alias-state) covering Appendix C 5-row truth table + RL-10 SetTag whole-payload invalidation + §AIMS §7 7-rule alias-construction envelope (R1-R7) per Annex E §AIMS DP-5 + Appendix C + sec-8 RL-10

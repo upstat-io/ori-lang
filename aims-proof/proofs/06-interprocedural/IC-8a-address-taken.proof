@@ -10,7 +10,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       BlockLocal, Unique, may_share=false)`; IC-3 (proven
       separately) joins ParamContract toward conservative
       across observed call sites
-    - IC-8 (REMOVED per sec-5 IC-8 removal note + canon.md
+    - IC-8 (REMOVED per sec-5 IC-8 removal note 
       §Interprocedural Contract Layer): former rule derived
       parameter uniqueness from caller consumption patterns
       was unsound (caller with MaybeShared arg used linearly
@@ -114,7 +114,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       (access(max), consumption(max), cardinality(max),
       locality(max), uniqueness(max), may_share(OR)) per L-1
       (commutativity) + L-2 (associativity) + L-6 (monotonicity)
-      lemmas in sec-1.8 (proven in sec-02 Plan-Bug DAG)
+      lemmas in §AIMS §3 (proven in sec-02 Plan-Bug DAG)
     - The IC-8a CONSERVATIVE seed is the LATTICE TOP per dim;
       subsequent IC-3 joins with observed call-site argument
       states (if any visible call sites exist) yield results
@@ -129,7 +129,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       per dim; IC-8a is the OPPOSITE seeding for non-enumerable
       cases — start at lattice TOP, never narrow.
     - L-1 (commutativity of join), L-2 (associativity of join),
-      L-6 (monotonicity over lattice chain) lemmas from sec-1.8
+      L-6 (monotonicity over lattice chain) lemmas from §AIMS §3
       are proven in sec-02 of this plan (Plan-Bug DAG) and
       provide the foundational lattice properties for the
       CONSERVATIVE-seed soundness argument
@@ -141,7 +141,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       Let `contracts := init_paramcontract_conservative(f)` =
       `[ParamContract::CONSERVATIVE; n]` be the emitted list.
       Five conjuncts SHALL hold per spec Annex E §AIMS
-      IC-8a + sec-1.8 lattice properties:
+      IC-8a + §AIMS §3 lattice properties:
 
       (P1) Per-parameter CONSERVATIVE initialization:
         For each i in 1..n:
@@ -166,18 +166,18 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
         where TOP(d) is the lattice TOP per spec sec-1
         dimension definition + sec-5 IC-3 join rule. The
         equality SHALL hold per sec-1 dimension chains:
-          - TOP(access) = Owned per sec-1.1
-          - TOP(consumption) = Unrestricted per sec-1.2
-          - TOP(cardinality) = Many per sec-1.3
-          - TOP(locality) = Unknown per sec-1.5
-          - TOP(uniqueness) = Shared per sec-1.4, BUT IC-8a
+          - TOP(access) = Owned per §AIMS §3.1
+          - TOP(consumption) = Unrestricted per §AIMS §3.2
+          - TOP(cardinality) = Many per §AIMS §3.3
+          - TOP(locality) = Unknown per §AIMS §3.5
+          - TOP(uniqueness) = Shared per §AIMS §3.4, BUT IC-8a
             uses MaybeShared (NOT Shared) per spec rule line —
             see (P3) for the rationale
           - TOP(may_share) = true per sec-5 IC-3 OR-monoid
             (`false < true`)
 
       (P3) Uniqueness = MaybeShared (NOT Shared) rationale:
-        Per spec sec-5 IC-8a + sec-1.4: the IC-8a CONSERVATIVE
+        Per spec sec-5 IC-8a + §AIMS §3.4: the IC-8a CONSERVATIVE
         seed uses uniqueness = MaybeShared rather than the
         strict lattice TOP (Shared) because:
           (a) MaybeShared correctly triggers DP-4
@@ -319,7 +319,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
 
     Part (P3) — Uniqueness = MaybeShared rationale:
 
-      Per sec-1.4 + sec-5 IC-8a + DP-4 + DP-9:
+      Per §AIMS §3.4 + sec-5 IC-8a + DP-4 + DP-9:
 
       The uniqueness lattice has 3 values forming the chain:
         Unique < MaybeShared < Shared
@@ -575,7 +575,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
         invariant 5 ("the unified model must stay unified"),
         the classification feeds the lattice-driven analysis
         as a typed pre-pass input on `AimsStateMap` (similar
-        to immortal detection per arc.md §AIMS); no separate
+        to immortal detection per Annex E §AIMS); no separate
         shadow analysis.
 
       - Lattice property preservation (P2 + P4): the
@@ -825,7 +825,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
                                  consumes both seed types
                                  uniformly via the same join
                                  operator)
-        L-1 / L-2 / L-6 (sec-1.8 lattice properties) --> IC-8a
+        L-1 / L-2 / L-6 (§AIMS §3 lattice properties) --> IC-8a
                                                           (TOP-
                                                           preservation
                                                           under
@@ -949,7 +949,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
                            seeding strategies; FP² paper's
                            Section 6 formalizes the closure /
                            address-taken handling that AIMS
-                           implements; arc.md §Reference Repos
+                           implements; the published reference-compiler corpus
                            cites Lean 4 + Swift ARC + Koka
                            Perceus as the prior art set
 

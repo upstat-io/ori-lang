@@ -9,12 +9,12 @@ Theorem DP-9: cow_mode 5-row classification with row (c) joint DP-5 refinement
         CowMode = StaticUnique | StaticShared | Dynamic
       per aims-proof/proofs/01-decisions/Decision.proof lines 58-59
     - DP-9 is context-dependent — it consults FOUR pre-pass inputs:
-        (i) borrow_sources (per sec-1.9)
-        (ii) project_alias_sources (per sec-1.9)
+        (i) borrow_sources (per §AIMS §7)
+        (ii) project_alias_sources (per §AIMS §7)
         (iii) live-variable set at the ProgramPoint
         (iv) IC-3 ParamContract.uniqueness (per sec-5 IC-3)
     - DP-5 is the upstream sub-predicate composed by rows (a), (b),
-      (c), (c-prime) per Annex E §AIMS DP-9 + sec-05.2 DP-9 row
+      (c), (c-prime) per Annex E §AIMS DP-9
       (c) joint DP-5 refinement
     - DP-9 / IC-3 / DP-5 dependency chain is non-cyclic at the proof-
       obligation level: DP-9 reads IC-3.uniqueness as opaque upstream
@@ -86,7 +86,7 @@ Theorem DP-9: cow_mode 5-row classification with row (c) joint DP-5 refinement
                  IC-3.uniqueness = u -> Dynamic
         Soundness: IC-3 proves not shared at entry but DP-5 reveals
         local borrow blocks in-place; the joint check refinement (per
-        agy blind-spot 6 cure + sec-05.2 success criterion) forces
+        agy blind-spot 6 cure) forces
         fall-through to Dynamic. The Dynamic runtime IsShared check is
         sound here because IC-3.uniqueness = u combined with backward
         analysis preserving ms at the local point means the local
@@ -187,4 +187,4 @@ Theorem DP-9: cow_mode 5-row classification with row (c) joint DP-5 refinement
 
   Expected:
     status: valid
-    reason: section_05 case_analysis engine discharges DP-9 via 18-case enumeration over (Uniqueness x DP-5-result x IC-3.uniqueness) covering Appendix C 6-row classification (rows a, b, c, c-prime, d, e) including the row (c) joint-DP-5 refinement per Annex E §AIMS DP-9 + sec-05.2 success criterion
+    reason: section_05 case_analysis engine discharges DP-9 via 18-case enumeration over (Uniqueness x DP-5-result x IC-3.uniqueness) covering Appendix C 6-row classification (rows a, b, c, c-prime, d, e) including the row (c) joint-DP-5 refinement per Annex E §AIMS DP-9

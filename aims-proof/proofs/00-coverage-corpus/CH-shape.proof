@@ -27,7 +27,7 @@ Theorem CH-1: Burden-registry-lattice composition soundness
   Proof obligation:
     Structural induction over F's instruction stream:
       Base case: F's first instruction.
-        BR pre-pass already populated (typed input per arc.md
+        BR pre-pass already populated (typed input per Annex E §AIMS
         sec-Non-Negotiable-Invariants invariant 5(c) "typed pre-pass
         input that lands on AimsStateMap");
         L's block_entry_states for F.entry seeded by IA backward
@@ -38,7 +38,7 @@ Theorem CH-1: Burden-registry-lattice composition soundness
         Assume consume_stack invariant holds at position k-1.
         For instruction i_k defining/using v:
           (a) BR pre-pass entry for v (if any) read from typed
-              side-table (NOT a lattice dimension per arc.md
+              side-table (NOT a lattice dimension per Annex E §AIMS
               invariant 5);
           (b) L[v] at position k consulted for canonical state;
           (c) DP-2 evaluated on L[v]: if is_rc_dec_unnecessary
@@ -94,4 +94,4 @@ Theorem CH-1: Burden-registry-lattice composition soundness
 
   Expected:
     status: valid
-    reason: sec-11 section_11 engine discharges CH-shape; structural_induction + interprocedural_summary + case_analysis + lattice (PRIMARY by CH-N) + refinement + rc_counting + monotonicity + fixpoint (SECONDARY gracious-accept) constructively verify the coexistence-handshake composition per the sec-11.0 Per-CH Proof-Status Tracking table
+    reason: sec-11 section_11 engine discharges CH-shape; structural_induction + interprocedural_summary + case_analysis + lattice (PRIMARY by CH-N) + refinement + rc_counting + monotonicity + fixpoint (SECONDARY gracious-accept) constructively verify the coexistence-handshake composition per the §11 coexistence section Per-CH Proof-Status Tracking table

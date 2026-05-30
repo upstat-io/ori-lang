@@ -75,7 +75,7 @@ Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
       iteration order dependency
     - L-1 (commutativity of join), L-2 (associativity of join),
       L-4 (partial-order axiom), L-6 (monotonicity over the
-      precision chain) lemmas from sec-1.8 are proven in sec-02
+      precision chain) lemmas from §AIMS §3 are proven in sec-02
       of this plan (Plan-Bug DAG) and provide the lattice-property
       foundation for the 4-tier sum-type join
 
@@ -755,7 +755,7 @@ Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
                          refinements through callee chain)
         IC-5 --> IC-6 (FipContract classification reads
                          EffectSummary to detect non-FIP paths)
-        L-1 / L-2 / L-6 (sec-1.8 lattice properties) --> IC-6
+        L-1 / L-2 / L-6 (§AIMS §3 lattice properties) --> IC-6
         IC-6 (Step 1 provisional Never seed)
               --> Step 5 (realize_rc_reuse — consumes
                            provisional FipContract during
@@ -867,8 +867,7 @@ Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
                            `ARCSequenceOpt` certifies
                            reference-count balance via post-
                            emission verification (similar
-                           Step 5a discipline); arc.md
-                           §Reference Repos cites Lean 4 +
+                           Step 5a discipline) cites Lean 4 +
                            Swift ARC + Koka Perceus as the
                            prior art set
 

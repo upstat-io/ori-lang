@@ -2,7 +2,7 @@ Theorem VF-1: Verification layer signatures — VF-1 through VF-8
 
   Preconditions:
     - The AIMS verification stack is layered, NOT a single function
-      per Annex E §AIMS + arc.md sec-Verification-Surface
+      per Annex E §AIMS §9
     - Each layer catches a different class of inconsistency; a fix that
       passes one layer but regresses another is a correctness regression
     - All VF rules have signature ArcFunction x AimsStateMap x MemoryContract
@@ -77,7 +77,7 @@ Theorem VF-1: Verification layer signatures — VF-1 through VF-8
     VF-8 (stack-applies-to-all-rules-incl-target-only):
       type : Rule -> Bool
       verification stack applies to ALL rules — incl. unimplemented sec-8
-      rules + target-only sec-1.5 / IC-3 / IC-5 surface; unimplemented
+      rules + target-only §AIMS §3.5 / IC-3 / IC-5 surface; unimplemented
       rule without verification layer planned = spec gap.
 
   Proof obligation:

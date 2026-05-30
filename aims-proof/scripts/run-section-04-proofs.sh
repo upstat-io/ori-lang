@@ -17,7 +17,7 @@
 # discharge GREEN (status: valid). Fail or UnimplementedEngineShape
 # routes through a fail-branch exit_reason (exit 2).
 # (c) After 27 proofs discharge GREEN, invoke
-# `check-section-04-compiler-conformance.sh` (§04-IM-G); divergence
+# `check-section-04-compiler-conformance.sh` (the section-04 compiler-conformance cross-walk); divergence
 # routes through `transfer_compiler_spec_divergence` (exit 2).
 #
 # Exit codes + exit_reasons (per this checker's documented exit-code
@@ -38,7 +38,7 @@
 # Unset / empty → defaults to transfer_proof_gap_unprovable.
 # Invalid values route through transfer_infrastructure_failed (exit 3).
 #
-# Proof artifact roster (27 total per §04-IM-E composition):
+# Proof artifact roster (27 total per the section-04 composition):
 # 19 forward TF: TF-1, TF-2, TF-2a, TF-3, TF-4, TF-5, TF-5a, TF-6,
 # TF-6a, TF-6b, TF-6c, TF-7, TF-8, TF-9, TF-9a, TF-10,
 # TF-10a, TF-15, TF-15a
@@ -149,7 +149,7 @@ EOF
     exit 2
 fi
 
-# Phase (c) — compiler-conformance cross-walk (§04-IM-G).
+# Phase (c) — compiler-conformance cross-walk (the section-04 compiler-conformance cross-walk).
 conformance_script="scripts/check-section-04-compiler-conformance.sh"
 if [[ ! -x "$conformance_script" ]]; then
     cat > test-results/section-04-result.json <<EOF

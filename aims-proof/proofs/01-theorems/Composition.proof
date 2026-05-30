@@ -139,7 +139,7 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
     - PL-1 mandates interprocedural-first ordering (Steps 1-2 across all
       functions before any per-function step) per Annex E §AIMS
     - Burden-registry pre-pass per sec-04A.2 design is a typed pre-pass
-      input that lands on AimsStateMap (per arc.md sec-Non-Negotiable-Invariants
+      input that lands on AimsStateMap (per Annex E §AIMS §2
       invariant 5(c)) — NOT a new lattice dimension; NOT an independent
       RC emission path
     - Burden-registry runs as Step 1 typed pre-pass (BEFORE analyze_program)

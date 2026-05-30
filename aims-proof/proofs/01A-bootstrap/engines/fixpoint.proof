@@ -5,7 +5,7 @@ Theorem CH-106: fixpoint engine bootstrap (IC-7 SCC convergence on 2-function ca
       f calls g; G has one SCC of size 1 for each function (no
       recursion); topological order processes g before f per IC-1
     - the AimsState dimension under analysis is Access x Consumption
-      per Annex E §AIMS.1 + sec-1.2 (height 1 + height 3 =
+      per Annex E §AIMS §3.1 + §AIMS §3.2 (height 1 + height 3 =
       lattice height 4)
     - IC-7 convergence bound per the rule's authoritative formula:
       param_count * 13 + 8 + 6 + 4 (the per-domain heights summed);

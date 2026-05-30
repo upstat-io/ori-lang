@@ -2,13 +2,13 @@ Theorem PL-3: Step 5 (realize_rc_reuse, phase 1) precedes Step 9 (merge_blocks) 
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-3 fixes ONE intra-
+      Annex E §AIMS §6. PL-3 fixes ONE intra-
       function step boundary: Step 5 (realize_rc_reuse — phase 1) SHALL
       precede Step 9 (merge_blocks).
         Step 5: realize_rc_reuse() — Phase 1: RC + reuse + arg_ownership (pre-merge)
         Step 8a: unwind_cleanup() — Invoke-unwind RC cleanup
         Step 9: merge_blocks() — CFG cleanup (block renumbering)
-    - PL-3 statement (per Annex E §AIMS PL-3 + arc.md sec-Pipeline
+    - PL-3 statement (per Annex E §AIMS PL-3 + Annex E §AIMS §6
       "Position-keyed state maps (entry_states, exit_states, instr_states)
       are invalid after merge_blocks() — never query them post-merge"):
       realize_rc_reuse (phase 1) SHALL precede merge_blocks; phase 1's
@@ -56,7 +56,7 @@ Theorem PL-3: Step 5 (realize_rc_reuse, phase 1) precedes Step 9 (merge_blocks) 
       by ArcBlockId::index() (compiler/ori_arc/src/aims/
       intraprocedural/state_map.rs lines 218-227). After merge_blocks
       renumbers / removes blocks, an old block index no longer maps to the
-      same block — the position-keyed vectors are stale. Per arc.md
+      same block — the position-keyed vectors are stale. Per Annex E §AIMS
       sec-Pipeline "Position-keyed state maps (entry_states, exit_states,
       instr_states) are invalid after merge_blocks() — never query them
       post-merge." Phase 1 (realize_rc_reuse) consumes these position-keyed
@@ -135,7 +135,7 @@ Theorem PL-3: Step 5 (realize_rc_reuse, phase 1) precedes Step 9 (merge_blocks) 
         removes unreachable blocks and Phase 4 merge_jump_chains (line 88)
         collapses Jump chains — both change ArcBlockId::index() assignments.
         After this, block_entry_states[old_idx] no longer addresses the
-        block it was built for. Per arc.md sec-Pipeline the position-keyed
+        block it was built for. Per Annex E §AIMS §6 the position-keyed
         maps are "invalid after merge_blocks() — never query them
         post-merge." The shipped driver routes the post-merge phase (Step
         10) through ArcVarId-keyed lookups instead (PL-4), so no
@@ -207,7 +207,7 @@ Theorem PL-3: Step 5 (realize_rc_reuse, phase 1) precedes Step 9 (merge_blocks) 
                            consumed before any pass that renumbers basic
                            blocks; the same shape governs LLVM's
                            BasicBlock-index invalidation after CFG
-                           simplification cited in arc.md sec-Reference Repos
+                           simplification from the published reference-compiler corpus
       determinism: deterministic — realize_rc_reuse (mod.rs line 248)
                            followed by verify_and_merge -> merge_blocks
                            (postprocess.rs line 47) is a fixed straight-line

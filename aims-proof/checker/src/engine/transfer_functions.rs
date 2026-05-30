@@ -1,7 +1,7 @@
 //! §04 transfer-function constructive discharge — §04.1 + §04.2 scope.
 //!
 //! Per `Annex E §AIMS §4`
-//! Implementation Items §04-IM-C + §04.1 + §04.2: each of TF-1, TF-2, TF-2a,
+//! Implementation Items the section-04 implementation: each of TF-1, TF-2, TF-2a,
 //! TF-3, TF-4, TF-5, TF-5a, TF-6, TF-6a, TF-6b, TF-6c, TF-7, TF-8, TF-9,
 //! TF-9a, TF-10, TF-10a, TF-15, TF-15a, TF-N-A is discharged constructively
 //! via finite enumeration over the canonical per-dimension carriers +
@@ -178,7 +178,7 @@ const CARDINALITY_CARRIER: &[&str] = &["Absent", "Once", "Many"];
 const UNIQUENESS_CARRIER: &[&str] = &["Unique", "MaybeShared", "Shared"];
 const LOCALITY_CARRIER: &[&str] =
     &["BlockLocal", "FunctionLocal", "ArgEscaping", "HeapEscaping", "Unknown"];
-// Shape (sec-1.6) is a FLAT lattice (equal stays, unequal -> NonReusable) — no
+// Shape (§AIMS §3.6) is a FLAT lattice (equal stays, unequal -> NonReusable) — no
 // totally-ordered carrier; the rank_in / dim_max / le_on helpers below operate
 // only on the five ordered dimensions. Effect: 3-bit flag set over
 // {may_alloc, may_share, may_throw} as u8 0..8.
@@ -3445,8 +3445,8 @@ mod tests {
         }
     }
 
-    // Coverage flip per §04-IM-D: TF-shape expected_outcome flips from
-    // `unimplemented_engine_shape` to `valid` once §04-IM-C lands. Test
+    // Coverage flip per the section-04 coverage manifest: TF-shape expected_outcome flips from
+    // `unimplemented_engine_shape` to `valid` once the section-04 implementation lands. Test
     // verifies the discharge entry point routes each §04.1 + §04.2 + §04.3
     // theorem through the engines defined in coverage-manifest.json.
     #[test]

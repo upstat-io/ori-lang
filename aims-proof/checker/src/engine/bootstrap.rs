@@ -262,7 +262,7 @@ fn verify_engine_acyclicity(_engine_name: &str) -> EngineResult {
 // COVERAGE verifiers (one per engine)
 // ---------------------------------------------------------------------------
 
-/// Total-order rank for the `Access` carrier per Annex E §AIMS.1.
+/// Total-order rank for the `Access` carrier per Annex E §AIMS §3.1.
 /// `Borrowed < Owned` (height 1). Returns `None` when `s` is outside
 /// the documented carrier (Fail surface).
 fn access_rank(s: &str) -> Option<u32> {
@@ -274,7 +274,7 @@ fn access_rank(s: &str) -> Option<u32> {
 }
 
 /// Total-order rank for the `Consumption` carrier per Annex E §AIMS
-/// sec-1.2. `Dead < Linear < Affine < Unrestricted` (height 3).
+/// §AIMS §3.2. `Dead < Linear < Affine < Unrestricted` (height 3).
 fn consumption_rank(s: &str) -> Option<u32> {
     match s {
         "Dead" => Some(0),

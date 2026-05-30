@@ -5,7 +5,7 @@ Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-
       aims-proof/proofs/11-coexistence/CH-1.proof — CH-1's lattice-bridge
       consistency (P1) + acyclic BR-reads-L dependency (P2) + per-class
       coexistence well-formedness (P3) are load-bearing premises this CH-2
-      proof grounds against (CH-1 root per the sec-11.1 Per-CH dependency chain
+      proof grounds against (CH-1 root per the §11 coexistence section Per-CH dependency chain
       table)
     - DP-2 (`is_rc_dec_unnecessary`) is the canonical-state truth-table
       predicate discharged at aims-proof/proofs/05-decisions/DP-2.proof:
@@ -167,7 +167,7 @@ Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-
       independent elimination claim. The burden-tracking pre-pass (sec-04A.2)
       materializes the lattice's DP-2/DP-3 verdict into BR.burden_emitted as
       a typed-side-table memoization per Annex E §AIMS.7 EffectSummary +
-      arc.md sec-Non-Negotiable-Invariants invariant 5(c) "feed the lattice-driven
+      Annex E §AIMS §2 invariant 5 "feed the lattice-driven
       analysis as a typed pre-pass input that lands on AimsStateMap (as
       immortal detection does via the immortals: Vec<bool> bitvector)".
 
@@ -183,7 +183,7 @@ Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-
     claim is no stronger than its weakest part.
 
     Engines dispatched:
-      structural_induction (PRIMARY — per the sec-11.0 Per-CH Proof-Status
+      structural_induction (PRIMARY — per the §11 coexistence section Per-CH Proof-Status
         Tracking table CH-2 row + Composition.proof:59-63 skeleton dispatch;
         per-instruction structural-check soundness over (P1) single-
         elimination decision + (P2) composition commutativity + (P3) stack
@@ -200,4 +200,4 @@ Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-
 
   Expected:
     status: valid
-    reason: section_11 structural_induction + interprocedural_summary + case_analysis + lattice engines discharge CH-2 via (P1) single- elimination decision proven constructively from CH-1's lattice-bridge (burden-owned implies DP-2 or DP-3 on canonical states); (P2) no race-invalidation proven from CH-1 Part P2 acyclic BR-reads-L dependency + L-6 monotonicity (read-only L + pure-function ops commute under composition); (P3) stack consumer well-formedness proven from CH-1 Part P3 class taxonomy + arc.md invariant 5(c) typed-pre-pass memoization; coverage gate: exactly 3 Parts discharged, a dropped Part fails CH-2 (the joined claim is no stronger than its weakest part)
+    reason: section_11 structural_induction + interprocedural_summary + case_analysis + lattice engines discharge CH-2 via (P1) single- elimination decision proven constructively from CH-1's lattice-bridge (burden-owned implies DP-2 or DP-3 on canonical states); (P2) no race-invalidation proven from CH-1 Part P2 acyclic BR-reads-L dependency + L-6 monotonicity (read-only L + pure-function ops commute under composition); (P3) stack consumer well-formedness proven from CH-1 Part P3 class taxonomy + Annex E §AIMS §2 invariant 5 typed-pre-pass memoization; coverage gate: exactly 3 Parts discharged, a dropped Part fails CH-2 (the joined claim is no stronger than its weakest part)

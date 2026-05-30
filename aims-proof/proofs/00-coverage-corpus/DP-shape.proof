@@ -50,4 +50,4 @@ Theorem DP-1: is_rc_needed truth table
 
   Expected:
     status: valid
-    reason: section_05 case_analysis engine discharges DP-1 via 16-state Appendix C truth-table enumeration; DP-shape coverage flipped per §05-IM-D
+    reason: section_05 case_analysis engine discharges DP-1 via 16-state Appendix C truth-table enumeration; DP-shape coverage flipped per the section-05 coverage manifest

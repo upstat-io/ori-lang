@@ -1,7 +1,7 @@
 Theorem RL-2: Last-use RcDec emission
 
   Preconditions:
-    - F is an ArcFunction per arc.md sec-Key-Types
+    - F is an ArcFunction per Annex E §AIMS §7
     - AimsStateMap M is converged for F (per IA-7)
     - owned_non_scalar_vars(F) per Annex E §AIMS RL-2
     - uses(v) is the set of program points where v is used in F
@@ -10,7 +10,7 @@ Theorem RL-2: Last-use RcDec emission
         Return, Construct/Reuse/CollectionReuse arg, Set value,
         PartialApply capture, Apply/Invoke to Owned param,
         Jump arg per RL-4 exemption
-    - RC-counting balance per arc.md sec-Non-Negotiable-Invariants
+    - RC-counting balance per Annex E §AIMS §2
       invariant 1 (FipContract::Certified requires zero unmatched
       alloc/dealloc in realized IR)
 
@@ -60,7 +60,7 @@ Theorem RL-2: Last-use RcDec emission
         successor block param; RL-2 SKIPS; successor block param's
         own RL-2 owns the dec; balance preserved.
 
-    Refinement post-condition (per arc.md invariant 1):
+    Refinement post-condition (per Annex E §AIMS §2 invariant 1):
       Every Construct/Reuse/CollectionReuse/PartialApply (allocations)
       paired with one RcDec on every reachable exit path;
       VF-4 FIP certification (sec-9 VF-4) verifies zero unmatched
@@ -69,7 +69,7 @@ Theorem RL-2: Last-use RcDec emission
       cleanup obligations.
 
     Engines dispatched:
-      rc_counting (alloc/dec balance per arc.md invariant 1)
+      rc_counting (alloc/dec balance per Annex E §AIMS §2 invariant 1)
       refinement (post-condition -> pre-condition implication on
                   every CFG path; pre: refcount = N; post: refcount
                   drops to 0 by function exit per matched decs)

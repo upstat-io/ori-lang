@@ -1,7 +1,7 @@
 Theorem RL-comp: whole-suite composition — RL-1..RL-34 realization equals plain ARC
 
   Preconditions:
-    - This is the sec-08.12 composition theorem per the sec-08
+    - This is the §08.12 composition theorem per the sec-08
       success_criteria: RL-1..RL-34 applied to a realized ArcFunction produce
       observably equivalent behavior to plain ARC on the same function.
     - Signature ArcFunction x AimsStateMap -> ArcFunction per

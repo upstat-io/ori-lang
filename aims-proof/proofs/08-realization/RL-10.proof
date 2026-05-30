@@ -20,7 +20,7 @@ Theorem RL-10: disjoint field mutation (no COW) + SetTag exclusion
       realize/decide.rs::decide_annotations consumes DP-5 with the SetTag
       flag.
     - depends-on sec-05: DP-5 (can_mutate_in_place) field-aware
-      disjointness soundness; depends-on sec-01.9 borrow_sources +
+      disjointness soundness; depends-on §AIMS §7 borrow_sources +
       project_alias_sources for the field-path provenance.
 
   Soundness property:

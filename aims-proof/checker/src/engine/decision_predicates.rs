@@ -1,7 +1,7 @@
 //! §05 decision-predicate constructive discharge — §05.1 scope.
 //!
 //! Per `the decision-predicate proofs`
-//! Implementation Items §05-IM-C + §05.1: each of DP-1, DP-2, DP-3, DP-4
+//! Implementation Items the section-05 implementation: each of DP-1, DP-2, DP-3, DP-4
 //! (pure-state, full §05.1 also covers DP-6, DP-7, DP-8 + DP-10-REMOVED;
 //! authored progressively per success_criterion enumeration) is
 //! discharged constructively via finite enumeration over the Appendix C
@@ -1375,7 +1375,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------------
-    // Coverage flip per §05-IM-D: DP-shape expected_outcome flips from
+    // Coverage flip per the section-05 coverage manifest: DP-shape expected_outcome flips from
     // `unimplemented_engine_shape` to `valid` once the §05.1 deliverables
     // discharge. Test verifies the discharge entry point routes each §05.1
     // theorem through the case_analysis engine + secondary engines accept

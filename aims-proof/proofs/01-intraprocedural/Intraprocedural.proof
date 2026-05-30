@@ -4,7 +4,7 @@ Theorem IA-1: Intraprocedural analysis rule signatures — IA-1 through IA-9
     - Intraprocedural analysis is the per-function backward dataflow producing
       a converged AimsStateMap per Annex E §AIMS
     - Step 4 of the AIMS pipeline (analyze_function) runs this analysis
-      per arc.md sec-Pipeline + Annex E §AIMS
+      per Annex E §AIMS §6
     - Convergence depends on monotone transfer (L-6) + finite chain height
       per Annex E §AIMS IA-7
     - 9 IA rules govern direction / ordering / merging / widening / convergence /

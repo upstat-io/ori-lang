@@ -5,7 +5,7 @@ Theorem VF-8: stack applies to ALL rules including unimplemented sec-8 and targe
       "Stack applies to ALL rules — incl. unimplemented sec-8 rules.
       Unimplemented rule without verification layer planned = spec gap." The
       sec-01 Verification.proof restates: "verification stack applies to ALL
-      rules — incl. unimplemented sec-8 rules + target-only sec-1.5 / IC-3 /
+      rules — incl. unimplemented sec-8 rules + target-only §AIMS §3.5 / IC-3 /
       IC-5 surface."
     - VF-8's concrete shape is Rule -> Bool per
       aims-proof/proofs/01-verification/Verification.proof. Discharged here
@@ -13,7 +13,7 @@ Theorem VF-8: stack applies to ALL rules including unimplemented sec-8 and targe
     - Coverage applies to three rule classes: (1) implemented rules (carry an
       ACTIVE verification layer — e.g. sec-8 RL-1..RL-5 covered by VF-1 / VF-4);
       (2) unimplemented sec-8 rules (RL-22 through RL-26 post-pipeline, covered
-      by a PLANNED VF-7 three-tier layer); (3) target-only surface (sec-1.5
+      by a PLANNED VF-7 three-tier layer); (3) target-only surface (§AIMS §3.5
       ArgEscaping, IC-3 ParamContract, IC-5 EffectSummary — covered by a PLANNED
       VF-2 (b)/(c)/(d) layer via RL-29 / RL-30 / RL-31). An unimplemented rule
       with NO planned layer is a SPEC GAP.

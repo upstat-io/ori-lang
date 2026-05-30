@@ -1,7 +1,7 @@
 Theorem PL-1a: per-function SCC topological order — the per-function pipeline processes functions callees-before-callers
 
   Preconditions:
-    - PL-1a statement (per Annex E §AIMS PL-1a + arc.md sec-Pipeline
+    - PL-1a statement (per Annex E §AIMS PL-1a + Annex E §AIMS §6
       "Pipeline ordering — analyze_program must run before any per-function
       steps; SCC topological order"): the per-function pipeline (Steps 3-12)
       SHALL process functions in SCC topological order — callees realized
@@ -54,7 +54,7 @@ Theorem PL-1a: per-function SCC topological order — the per-function pipeline 
       Algorithms" (SIAM J. Comput., 1972), every directed graph has a
       unique SCC partition. Topological order = linear extension of the
       condensation DAG G_scc (Cormen, Leiserson, Rivest, Stein,
-      "Introduction to Algorithms", 3rd ed., sec-22.5).
+      "Introduction to Algorithms", 3rd ed., §22.5).
 
   Soundness property:
     Forall CallGraph G of program PROG, let sccs := scc_decompose(G) be
@@ -222,7 +222,7 @@ Theorem PL-1a: per-function SCC topological order — the per-function pipeline 
                            Graph Algorithms", SIAM Journal on Computing,
                            vol. 1, no. 2, pp. 146-160, June 1972 (SCC
                            partition + emission order); CLRS 3rd ed.
-                           sec-22.5 Theorem 22.16 (condensation DAG
+                           §22.5 Theorem 22.16 (condensation DAG
                            topological order)
       complexity: O(|V| + |E|) for the SCC decomposition; the
                            per-function loop is O(|SCCs|) over that order
@@ -238,7 +238,7 @@ Theorem PL-1a: per-function SCC topological order — the per-function pipeline 
       cross-language Lean 4 src/Lean/Compiler/IR/Borrow.lean uses
       prior art: Tarjan SCC + topological order for borrow
                            inference (callee signatures finalized before
-                           callers); cited in arc.md sec-Reference Repos
+                           callers); from the published reference-compiler corpus
 
     Engines dispatched:
       structural_induction (PRIMARY — structural induction over the program

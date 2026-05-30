@@ -2,13 +2,13 @@ Theorem PL-2: Step 4 (analyze_function) precedes Step 5 (realize_rc_reuse) — t
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-2 fixes ONE intra-
+      Annex E §AIMS §6. PL-2 fixes ONE intra-
       function step boundary: within each function's per-function suffix
       (Steps 3-12), Step 4 (analyze_function) SHALL precede Step 5
       (realize_rc_reuse).
         Step 4: analyze_function() — backward dataflow -> converged AimsStateMap
         Step 5: realize_rc_reuse() — Phase 1: RC + reuse + arg_ownership (pre-merge)
-    - PL-2 statement (per Annex E §AIMS PL-2 + arc.md sec-Pipeline
+    - PL-2 statement (per Annex E §AIMS PL-2 + Annex E §AIMS §6
       "analyze_function (step 4) must run before realize_rc_reuse (step 5)
       — state map drives emission"): analyze_function SHALL precede
       realize_rc_reuse on every function F; realizing before analyzing
@@ -125,7 +125,7 @@ Theorem PL-2: Step 4 (analyze_function) precedes Step 5 (realize_rc_reuse) — t
         placing Step 5 at a position <= position(Step 4).
 
       Case Step 4a rollback (TRMC verification failure):
-        Per Annex E §AIMS PL-10 + arc.md sec-Pipeline, on TRMC
+        Per Annex E §AIMS PL-10 + Annex E §AIMS §6, on TRMC
         structural-verification failure Step 4a rolls the rewrite back to
         pre-TRMC IR AND re-runs Steps 3-4 on the restored CFG. The shipped
         Step 4a (verify_trmc_soundness, mod.rs lines 195-196) returns the
@@ -198,8 +198,8 @@ Theorem PL-2: Step 4 (analyze_function) precedes Step 5 (realize_rc_reuse) — t
                            discipline — "analyze, then transform" is the
                            canonical shape of every optimizing pass manager;
                            matches Lean 4 src/Lean/Compiler/IR (analysis pass
-                           feeding RC insertion) cited in arc.md
-                           sec-Reference Repos
+                           feeding RC insertion) from the published reference-compiler corpus
+                            Repos
       determinism: deterministic — the `let state_map = ...` binding
                            followed by `realize_rc_reuse(func, &state_map)`
                            is a fixed straight-line ordering enforced by

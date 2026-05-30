@@ -13,7 +13,7 @@ Theorem IC-5: EffectSummary derivation soundness
             ArcFunction -> ContractMap -> EffectSummary
       whose output is the per-function effect summary derived
       from the instruction stream + callee contracts (NOT
-      joined from per-variable EffectClass state — see sec-1.7
+      joined from per-variable EffectClass state — see §AIMS §3.7
       CRITICAL note)
     - Spec statement (Annex E §AIMS IC-5): "Effect summary
       join: `may_allocate(OR), may_deallocate(OR), may_share(OR),
@@ -48,7 +48,7 @@ Theorem IC-5: EffectSummary derivation soundness
         REALIZATION (after Step 10), NOT during Step 1.
         Initialized `false` in Step 1; intraprocedural-only
         (not inherited by callers).
-    - sec-1.7 CRITICAL note: "EffectSummary (IC-5) computed
+    - §AIMS §3.7 CRITICAL note: "EffectSummary (IC-5) computed
       from INSTRUCTIONS, NOT per-variable EffectClass.
       `Construct` -> `may_allocate=true`; `Apply`/`Invoke` w/
       contract -> callee's `EffectSummary`; w/o contract ->
@@ -89,7 +89,7 @@ Theorem IC-5: EffectSummary derivation soundness
       OR, height-1 chain, monotone)
     - L-1 (commutativity of OR / AND), L-2 (associativity of OR
       / AND), L-6 (monotonicity over bool chain) lemmas from
-      sec-1.8 are proven in sec-02 of this plan (Plan-Bug DAG)
+      §AIMS §3 are proven in sec-02 of this plan (Plan-Bug DAG)
 
   Soundness property:
     Forall function `f` with instruction stream
@@ -97,7 +97,7 @@ Theorem IC-5: EffectSummary derivation soundness
     set `T = {t_1, ..., t_m}`, and callee ContractMap C.
       Let `e := derive_effect_summary(f, C)` be the emitted
       result. Eight conjuncts SHALL hold per spec
-      Annex E §AIMS IC-5 + sec-1.7 CRITICAL note:
+      Annex E §AIMS IC-5 + §AIMS §3.7 CRITICAL note:
 
       (P1) Per-instruction derivation, not per-variable:
         e SHALL be computed from instruction-shape pattern-
@@ -105,7 +105,7 @@ Theorem IC-5: EffectSummary derivation soundness
         joining per-variable `EffectClass` values across the
         AimsStateMap. The shape `EffectClass = ALL` on a
         per-variable lattice state for a call result SHALL NOT
-        poison `e` (sec-1.7 CRITICAL note).
+        poison `e` (§AIMS §3.7 CRITICAL note).
 
       (P2) may_allocate OR-join:
         e.may_allocate = OR over i in I of
@@ -150,7 +150,7 @@ Theorem IC-5: EffectSummary derivation soundness
             `ApplyIndirect` (target-only ALL-seed)
           - true if `i` is `Construct(dst, args)` with
             `dst_demand.locality > BlockLocal` (shipped trigger
-            per sec-1.9 + intraprocedural/effects.rs lines
+            per §AIMS §7 + intraprocedural/effects.rs lines
             36-42 — HeapEscaping arg of a Construct shares the
             arg's RC across the construct boundary)
           - false otherwise
@@ -224,7 +224,7 @@ Theorem IC-5: EffectSummary derivation soundness
     contract/mod.rs line 540; (P1) grounds in the
     architectural separation between EffectSummary derivation
     (instruction stream) and the per-variable EffectClass
-    lattice dimension (sec-1.7 CRITICAL note).
+    lattice dimension (§AIMS §3.7 CRITICAL note).
 
     Part (P1) — Per-instruction derivation, not per-variable:
 
@@ -260,13 +260,13 @@ Theorem IC-5: EffectSummary derivation soundness
         per-variable state is `dst_demand.locality` in the
         Construct arm (lines 37-41) — this reads the
         DESTINATION's demanded locality to detect a
-        HeapEscaping construct (sec-1.9 sharing trigger),
+        HeapEscaping construct (§AIMS §7 sharing trigger),
         which IS an instruction-level trigger about that
         specific construct, not a poisoning of the function-
         level summary by some unrelated per-variable
         EffectClass.
 
-      Per sec-1.7 CRITICAL note: "Per-variable EffectClass =
+      Per §AIMS §3.7 CRITICAL note: "Per-variable EffectClass =
       ALL on call results does NOT poison caller's
       EffectSummary." The Apply arm at lines 54-58 reads the
       callee's `MemoryContract.effects` (the callee's
@@ -344,10 +344,10 @@ Theorem IC-5: EffectSummary derivation soundness
 
       The `state_map.is_excluded(*dst)` guard at lines 34 + 48
       excludes immortal / scalar / value-marker destinations
-      from triggering `may_allocate` (per sec-1.8 L-9 scalar
+      from triggering `may_allocate` (per §AIMS §3 L-9 scalar
       sentinel + Annex E §AIMS sec-Notes immortal pre-pass).
       This is sound: an immortal-allocated Construct does NOT
-      consume runtime memory (per arc.md §AIMS Invariant 5
+      consume runtime memory (per Annex E §AIMS §2 invariant 5
       immortal pre-pass), so its `may_allocate` contribution
       is genuinely false. The exclusion is at the per-
       instruction trigger evaluation level (per the
@@ -421,7 +421,7 @@ Theorem IC-5: EffectSummary derivation soundness
                    effects.may_share = true;
                }
            }
-           This is the sec-1.9 trigger: a Construct whose
+           This is the §AIMS §7 trigger: a Construct whose
            destination escapes the block has its args' RC
            shared across the construct boundary, so any arg
            that was Unique becomes MaybeShared from the
@@ -625,7 +625,7 @@ Theorem IC-5: EffectSummary derivation soundness
 
     Coherence side-conditions for (P2)..(P8):
 
-      - sec-1.7 CRITICAL note interaction: every per-instruction
+      - §AIMS §3.7 CRITICAL note interaction: every per-instruction
         trigger reads the instruction shape + callee contracts;
         none reads per-variable EffectClass lattice state.
         (P1) is satisfied pointwise by every trigger
@@ -706,7 +706,7 @@ Theorem IC-5: EffectSummary derivation soundness
         Row E4: construct_heap_escaping_may_share —
                 Construct whose destination has HeapEscaping
                 demand; IC-5 derives `may_share = true` per
-                sec-1.9 sharing trigger; (P4) per-instruction
+                §AIMS §7 sharing trigger; (P4) per-instruction
                 trigger pin
         Row E5: apply_with_known_contract_inherits —
                 Apply(callee) where callee's contract has
@@ -755,7 +755,7 @@ Theorem IC-5: EffectSummary derivation soundness
                  result has per-variable
                  `EffectClass = ALL`; IC-5 derives
                  EffectSummary independently from the
-                 per-variable state; (P1) sec-1.7 CRITICAL
+                 per-variable state; (P1) §AIMS §3.7 CRITICAL
                  note pin (regression test per oracle/
                  tests.rs lines 726 + 828)
         Row E14: scc_fixpoint_iterate_effects —
@@ -830,11 +830,11 @@ Theorem IC-5: EffectSummary derivation soundness
       eliminates a major LLVM optimization opportunity for
       AIMS-certified pure functions.
 
-      Per sec-1.7 CRITICAL note: "Per-variable EffectClass =
+      Per §AIMS §3.7 CRITICAL note: "Per-variable EffectClass =
       ALL on call results does NOT poison caller's
       EffectSummary." The architectural separation is
       load-bearing for the AIMS mission ("RC rare, not RC
-      fast" per arc.md §Mission) — IC-5's per-instruction
+      fast" per Annex E §AIMS §1) — IC-5's per-instruction
       derivation discipline IS what enables the lattice to
       prove pure functions PURE despite Apply-no-contract
       calls in the middle of them. (P1) preserved by the
@@ -1029,7 +1029,7 @@ Theorem IC-5: EffectSummary derivation soundness
                            accumulation; FP² paper's Theorem 2
                            formalizes the FBIP/FIP effect-
                            system shape that AIMS implements;
-                           arc.md §Reference Repos cites Lean
+                           the published reference-compiler corpus cites Lean
                            4 + Swift ARC + Koka Perceus as the
                            prior art set
 
@@ -1078,9 +1078,9 @@ Theorem IC-5: EffectSummary derivation soundness
         IC-5 procedure: 8 instruction kinds + 4 terminator
         kinds enumerated, each verified against the trigger
         table; per-variable EffectClass non-poisoning verified
-        at every trigger evaluation site per sec-1.7 CRITICAL
+        at every trigger evaluation site per §AIMS §3.7 CRITICAL
         note)
 
   Expected:
     status: valid
-    reason: section_06 fixpoint engine discharges IC-5 via eight-conjunct verification ((P1) per-instruction derivation not per-variable + (P2) may_allocate OR-fold + (P3) may_deallocate post-realization OR-fold + (P4) may_share OR-fold + (P5) may_throw OR-fold + (P6) has_unbounded_stack one-shot from SCC + (P7) may_read_inaccessible OR-fold target-only + (P8) alloc_only_on_slow_path AND-fold post-realization) over a 16-test corpus covering pure / single-instruction / callee-inherit / terminator-throw / SCC-recursive / per-variable-non-poisoning / AND-fold-semantics cases; effect-system soundness inherited from FP² (Lorenzen et al. ICFP 2023 Theorem 2) + Cousot/Cousot 1977 (interprocedural summary via SCC-topological monotone iteration) + Reynolds 1998 (effect-system theoretical foundation); shipped engine `accumulate_instr_effects` at compiler/ori_arc/src/aims/intraprocedural/effects.rs lines 22-62 + `accumulate_terminator_effects` lines 68-79 + `extract_contract` finalization at extract.rs line 157 + `EffectSummary::join` at contract/mod.rs lines 535-548 emit OR-fold for 5 effect fields + AND-fold for alloc_only_on_slow_path in O(N + M + C) per function, deterministically across all targets (deterministic query contract); target-vs-shipped axis carve-out (may_read_inaccessible field not yet wired; Reuse/CollectionReuse/no-contract-Apply-ALL-seed/Owned-param/Set/SetTag/InvokeIndirect/Resume triggers target-only) preserves spec conformance on the 5 shipped OR-fields + the 1 AND-field + the 1 one-shot field; architectural separation between EffectSummary (per-function, derived from instructions) and per-variable EffectClass lattice dimension (sec-1.7 CRITICAL note) is load-bearing for AIMS purity certification and RL-30 LLVM attribute emission
+    reason: section_06 fixpoint engine discharges IC-5 via eight-conjunct verification ((P1) per-instruction derivation not per-variable + (P2) may_allocate OR-fold + (P3) may_deallocate post-realization OR-fold + (P4) may_share OR-fold + (P5) may_throw OR-fold + (P6) has_unbounded_stack one-shot from SCC + (P7) may_read_inaccessible OR-fold target-only + (P8) alloc_only_on_slow_path AND-fold post-realization) over a 16-test corpus covering pure / single-instruction / callee-inherit / terminator-throw / SCC-recursive / per-variable-non-poisoning / AND-fold-semantics cases; effect-system soundness inherited from FP² (Lorenzen et al. ICFP 2023 Theorem 2) + Cousot/Cousot 1977 (interprocedural summary via SCC-topological monotone iteration) + Reynolds 1998 (effect-system theoretical foundation); shipped engine `accumulate_instr_effects` at compiler/ori_arc/src/aims/intraprocedural/effects.rs lines 22-62 + `accumulate_terminator_effects` lines 68-79 + `extract_contract` finalization at extract.rs line 157 + `EffectSummary::join` at contract/mod.rs lines 535-548 emit OR-fold for 5 effect fields + AND-fold for alloc_only_on_slow_path in O(N + M + C) per function, deterministically across all targets (deterministic query contract); target-vs-shipped axis carve-out (may_read_inaccessible field not yet wired; Reuse/CollectionReuse/no-contract-Apply-ALL-seed/Owned-param/Set/SetTag/InvokeIndirect/Resume triggers target-only) preserves spec conformance on the 5 shipped OR-fields + the 1 AND-field + the 1 one-shot field; architectural separation between EffectSummary (per-function, derived from instructions) and per-variable EffectClass lattice dimension (§AIMS §3.7 CRITICAL note) is load-bearing for AIMS purity certification and RL-30 LLVM attribute emission

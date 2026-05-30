@@ -171,7 +171,7 @@ Theorem DP-10-REMOVED: DP-10 removal soundness via constructive counterexample +
             the counterexample's lattice projection + per-path
             subsumption witness.
       This proof artifact's structure matches CH-102's per the §05.1
-      Implementation Item §05-IM-D pattern-mirroring requirement.
+      Implementation Item the section-05 coverage manifest pattern-mirroring requirement.
 
     Live-variable / borrow_sources / project_alias_sources / IC-3 contract
     typed pre-pass dependency:

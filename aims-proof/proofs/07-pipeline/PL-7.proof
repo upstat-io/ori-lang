@@ -2,7 +2,7 @@ Theorem PL-7: TRMC normalization (Step 3a) detects tail-recursive constructor ca
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-7 is the first rule of the
+      Annex E §AIMS §6. PL-7 is the first rule of the
       §07.4 TRMC cluster (PL-7 through PL-11), governing Step 3a TRMC
       normalization detection.
     - PL-7 statement (per Annex E §AIMS PL-7 + Leijen & Lorenzen,

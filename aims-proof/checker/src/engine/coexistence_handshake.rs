@@ -2,7 +2,7 @@
 //! layered-handshake composition obligation).
 //!
 //! Per `the coexistence-handshake proofs`
-//! sec-11.1 Per-CH dependency chain + the sec-01 `aims-proof/proofs/01-theorems/
+//! the §11 coexistence section Per-CH dependency chain + the sec-01 `aims-proof/proofs/01-theorems/
 //! Composition.proof` sorry obligation, the CH category dispatches to
 //! [`structural_induction`, `interprocedural_summary`, `case_analysis`,
 //! `lattice`] per the coverage-manifest CH row. Each CH-N has ONE PRIMARY
@@ -39,10 +39,10 @@ pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<Engi
     let suffix = theorem.id.suffix.as_str();
     let primary = primary_engine_for(suffix)?;
     // CH-shape per coverage-manifest.json runs all 8 engines simultaneously
-    // (sec-11.0 Per-CH Proof-Status Tracking table CH-shape comprehensive
+    // (the §11 coexistence section Per-CH Proof-Status Tracking table CH-shape comprehensive
     // engine spectrum). The 4 PRIMARY engines (structural_induction /
     // interprocedural_summary / case_analysis / lattice) discharge per the
-    // sec-11.0 table; the 4 remaining engines (refinement / rc_counting /
+    // the §11 coexistence section table; the 4 remaining engines (refinement / rc_counting /
     // monotonicity / fixpoint) gracious-accept as SECONDARY per the
     // verification_layers precedent.
     if !matches!(
@@ -68,7 +68,7 @@ pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<Engi
     }
 }
 
-/// Map a CH rule suffix to its PRIMARY engine per the sec-11.0 Per-CH Proof-
+/// Map a CH rule suffix to its PRIMARY engine per the §11 coexistence section Per-CH Proof-
 /// Status Tracking table, or `None` when the rule is not implemented.
 fn primary_engine_for(suffix: &str) -> Option<&'static str> {
     let engine = match suffix {
@@ -203,7 +203,7 @@ fn dp3_is_rc_inc_elidable(s: ModeledState) -> bool {
 /// canonical states (Linear|Affine ∧ DP-2-applicable, where DP-2 requires
 /// Dead or Absent). The intended semantics is the canonical Class A
 /// pattern: Owned ∧ Linear ∧ Once ∧ Unique (the RL-2 + RL-14 candidate per
-/// sec-11.0 Per-CH Proof-Status Tracking table CH-3 row). DP-3 fires on
+/// the §11 coexistence section Per-CH Proof-Status Tracking table CH-3 row). DP-3 fires on
 /// this pattern, so the burden registry's elimination decision is a
 /// well-defined pure function on canonical states.
 fn burden_owned(s: ModeledState) -> bool {

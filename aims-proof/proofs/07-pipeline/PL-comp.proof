@@ -3,7 +3,7 @@ Theorem PL-comp: composition theorem — the full 12-step AIMS pipeline produces
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered per-function sequence
       preceded by the once-per-program interprocedural prefix (Steps 1-2)
-      per Annex E §AIMS + arc.md sec-Pipeline. PL-comp is the JOINED
+      per Annex E §AIMS §6. PL-comp is the JOINED
       pipeline invariant: running the whole schedule on a function F yields a
       realized ArcFunction whose AimsStateMap (the converged Step-4 / Step-4a
       map consumed at realization) is consistent with the pre-realization
@@ -227,8 +227,8 @@ Theorem PL-comp: composition theorem — the full 12-step AIMS pipeline produces
                            the constituent dependency relation is well-founded
                            (no premise presupposes the conclusion); the same
                            shape governs modular dataflow-soundness composition
-                           in Lean 4 src/Lean/Compiler/IR cited in arc.md
-                           sec-Reference Repos
+                           in Lean 4 src/Lean/Compiler/IR from the published reference-compiler corpus
+                            Repos
       determinism: deterministic — the constituent set is fixed (the 13
                            §07 invariants), each constituent verifier is itself
                            deterministic, and the conjunction-fold order does

@@ -2,11 +2,11 @@ Theorem PL-6: adding a pass requires updating ordering + proving no constraint v
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-6 is the META-RULE that
+      Annex E §AIMS §6. PL-6 is the META-RULE that
       governs how the schedule itself may be EXTENDED: it does not fix a
       single ordered pair (the way PL-2/PL-3/PL-4/PL-4a do) but constrains
       every act of adding a new pass to the schedule.
-    - PL-6 statement (per Annex E §AIMS PL-6 + arc.md sec-Critical-Rules
+    - PL-6 statement (per Annex E §AIMS PL-6 + Annex E §AIMS §6
       "Do NOT add passes without updating the pipeline. Do NOT call out of
       order."): adding a pass requires (1) updating the pipeline ordering to
       place the new pass at a declared position, (2) proving the insertion
@@ -39,14 +39,14 @@ Theorem PL-6: adding a pass requires updating ordering + proving no constraint v
             at a chosen position in this sequence; "updating ordering" is
             literally editing this driver.
         (b) The "Do NOT add passes without updating the pipeline. Do NOT call
-            out of order." directive (arc.md sec-Critical-Rules
+            out of order." directive (Annex E §AIMS §6
             sec-Pipeline-ordering, the last bullet) is the human-readable
             statement of the meta-rule.
         (c) The "matched commit pair touching both pipeline + tests" leg
             mirrors the project-wide PL-6 discipline (Pipeline.proof line 57):
             a pipeline-ordering edit lands with its ordering tests in the same
             commit, so a constraint regression is caught at commit time.
-            arc.md sec-7 relationship-to-sec-8 note ("PL-6 governs in-pipeline
+            Annex E §AIMS §6 (relationship to §8) ("PL-6 governs in-pipeline
             passes; post-pipeline ops on output") fixes the SCOPE of the
             meta-rule to in-pipeline insertions.
     - This theorem reasons over the SET of ordering constraints the schedule
@@ -180,7 +180,7 @@ Theorem PL-6: adding a pass requires updating ordering + proving no constraint v
     Negative-direction witness — out-of-order insertion rejected:
 
       An insertion that places a state-map consumer before Step 4
-      analyze_function (the "Do NOT call out of order" prohibition, arc.md
+      analyze_function (the "Do NOT call out of order" prohibition, Annex E §AIMS
       sec-Critical-Rules) leaves position'(Step 4) < pos(p) false; the
       verifier Fails the dependency check. The pass would read an absent
       AimsStateMap — a PL-5 staleness/absence bug. The meta-rule rejects it
@@ -227,7 +227,7 @@ Theorem PL-6: adding a pass requires updating ordering + proving no constraint v
                            preserving the analysis-validity constraints of
                            existing passes; the same shape governs LLVM's
                            PassManager pass-dependency / analysis-preservation
-                           declarations cited in arc.md sec-Reference Repos
+                           declarations from the published reference-compiler corpus
       determinism: deterministic — admissibility of a given NewPass
                            insertion is a fixed function of its declared
                            position, its declared dependency set, and the
@@ -239,7 +239,7 @@ Theorem PL-6: adding a pass requires updating ordering + proving no constraint v
                            postprocess::verify_and_merge (postprocess.rs lines
                            15-51) + the "Do NOT add passes without updating the
                            pipeline. Do NOT call out of order." directive
-                           (arc.md sec-Critical-Rules sec-Pipeline-ordering)
+                           (Annex E §AIMS §6)
 
     Engines dispatched:
       structural_induction (PRIMARY — structural induction over the
@@ -259,4 +259,4 @@ Theorem PL-6: adding a pass requires updating ordering + proving no constraint v
 
   Expected:
     status: valid
-    reason: section_07 structural_induction engine discharges PL-6 via the post-insertion schedule SCHED' — (P1) an admissible NewPass occupies a unique declared position (ordering updated, not called out of order), (P2) every preserved ordered-pair predicate PL-2/PL-3/PL-4/PL-4a still holds on SCHED' AND the NewPass's declared dependencies are satisfied (a predicate-violating or dependency-violating insertion is rejected), and (P3) the insertion lands with a matched ordering-test commit (a test-less insertion is rejected); grounded in the shipped run_aims_pipeline straight-line ordering (mod.rs lines 163-287) + the "Do NOT add passes without updating the pipeline. Do NOT call out of order." directive (arc.md sec-Critical-Rules); PL-6 is the meta-companion of PL-5 (an out-of-order insertion would read a stale/absent summary); case_analysis secondary-accepting per the coverage-manifest PL row
+    reason: section_07 structural_induction engine discharges PL-6 via the post-insertion schedule SCHED' — (P1) an admissible NewPass occupies a unique declared position (ordering updated, not called out of order), (P2) every preserved ordered-pair predicate PL-2/PL-3/PL-4/PL-4a still holds on SCHED' AND the NewPass's declared dependencies are satisfied (a predicate-violating or dependency-violating insertion is rejected), and (P3) the insertion lands with a matched ordering-test commit (a test-less insertion is rejected); grounded in the shipped run_aims_pipeline straight-line ordering (mod.rs lines 163-287) + the "Do NOT add passes without updating the pipeline. Do NOT call out of order." directive (Annex E §AIMS §6); PL-6 is the meta-companion of PL-5 (an out-of-order insertion would read a stale/absent summary); case_analysis secondary-accepting per the coverage-manifest PL row

@@ -8,7 +8,7 @@ Theorem L-2: Product lattice + AimsState + AimsStateMap + sentinels
     - AimsState = the 7-tuple state value per the canonical proof notation
       sec-AimsState-Representation
     - AimsStateMap = per-block / per-instruction map carrying AimsState values
-      per arc.md sec-Key-Types AimsStateMap row
+      per Annex E §AIMS §7 AimsStateMap row
     - Sentinels SCALAR, FRESH, CONSERVATIVE, ALL, NONE are special-cased
       per Annex E §AIMS + Appendix A + L-9
 
@@ -21,7 +21,7 @@ Theorem L-2: Product lattice + AimsState + AimsStateMap + sentinels
       Canonical authored form for a single state (parenthesized, comma-separated):
         (O, L, 1, u, bl, R_S, {alloc})
 
-    AimsStateMap definition (per arc.md sec-Key-Types AimsStateMap row +
+    AimsStateMap definition (per Annex E §AIMS §7 AimsStateMap row +
     Annex E §AIMS IA backward dataflow):
 
       AimsStateMap = CfgNode -> AimsState
@@ -32,7 +32,7 @@ Theorem L-2: Product lattice + AimsState + AimsStateMap + sentinels
         - converged value: Map ArcVarId AimsState at function exit
 
       Position-keyed entries (entry_states, exit_states, instr_states) are
-      invalidated by merge_blocks() per arc.md sec-Pipeline PL-3 invariant;
+      invalidated by merge_blocks() per Annex E §AIMS §6 PL-3 invariant;
       step 10 realize_annotations() consults AimsStateMap via ArcVarId-keyed
       lookups exclusively.
 

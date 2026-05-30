@@ -3,7 +3,7 @@ Theorem VF-6: contracts and realization agreement — composes VF-3 oracle + VF-
   Preconditions:
     - VF-6 governs the contracts-realization agreement invariant per Annex E §AIMS VF-6: "Contracts and realization SHALL agree. MemoryContract says
       FipContract::Certified -> realized IR has zero unmatched alloc/dealloc."
-      Restated by arc.md Non-Negotiable-Invariants #1: "Contracts and realization
+      Restated by Annex E §AIMS §2 invariant 1: "Contracts and realization
       must agree."
     - VF-6's concrete shape is MemoryContract x ArcFunction -> Bool per
       aims-proof/proofs/01-verification/Verification.proof: analysis inferences

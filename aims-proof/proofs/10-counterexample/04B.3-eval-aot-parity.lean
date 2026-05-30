@@ -4,7 +4,7 @@
 -- §04B.3 eval-AOT dual-execution parity break: CFG-merge join between Ok and
 -- Err arms produces a state where one arm's RcDec is dropped at LLVM codegen.
 -- Cross-validation question (mirrors SMT goal §3):
--- Under the proven calculus + VF-7 / canon.md §7.1 invariant 2, can the
+-- Under the proven calculus + VF-7 / Annex E §AIMS §2 invariant 2, can the
 -- AOT backend produce a different cumulative RC balance than the eval
 -- backend on the same ARC IR?
 
@@ -15,7 +15,7 @@ inductive Backend
   | AOT
 deriving Repr, DecidableEq
 
--- The dual-execution parity axiom exported by VF-7 + canon.md §7.1 inv 2:
+-- The dual-execution parity axiom exported by VF-7 + Annex E §AIMS §2 invariant 2:
 -- both backends consume the SAME post-§04A.2 ARC IR and MUST produce
 -- identical observable cumulative RC balances at scope exit.
 def parity_invariant (rc_balance_at_exit : Backend → Int) : Prop :=

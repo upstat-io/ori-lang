@@ -2,7 +2,7 @@ Theorem L-5: Finite lattice height
 
   Preconditions:
     - Each AimsState dimension has finite height per Annex E §AIMS.8 L-5
-    - Per-dimension heights per Annex E §AIMS.1 through sec-1.7:
+    - Per-dimension heights per Annex E §AIMS §3.1 through §AIMS §3.7:
         Access 1, Consumption 3, Cardinality 2, Uniqueness 2,
         Locality 4, Shape 1, Effect 3
     - height(L) for a chain of length k is k - 1 (height counts edges,

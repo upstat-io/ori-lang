@@ -1,7 +1,7 @@
 Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal specification
 
   Scope:
-    - Authored at the coexistence-handshake proofs sec-11.1
+    - Authored at the coexistence-handshake proofs the §11 coexistence section
       first checkbox per the MS-4 mission anchor (00-overview.md MS-4: "Ori-novel
       coexistence-proof"). Single Source of Truth for the predicates, functions,
       and partition referenced by CH-1..CH-5 + CH-comp.
@@ -19,9 +19,9 @@ Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal 
       fixtures, not production composition surfaces).
 
   Imports / dependencies:
-    - Annex E §AIMS (the 7-dimension product lattice — Access sec-1.1, Consumption
-      sec-1.2, Cardinality sec-1.3, Uniqueness sec-1.4, Locality sec-1.5, Shape sec-1.6, Effect
-      sec-1.7) for AimsState dimensions consumed by the formal definitions below
+    - Annex E §AIMS (the 7-dimension product lattice — Access §AIMS §3.1, Consumption
+      §AIMS §3.2, Cardinality §AIMS §3.3, Uniqueness §AIMS §3.4, Locality §AIMS §3.5, Shape §AIMS §3.6, Effect
+      §AIMS §3.7) for AimsState dimensions consumed by the formal definitions below
     - Annex E §AIMS DP-1 (`is_rc_needed`), DP-2 (`is_rc_dec_unnecessary`), DP-3
       (`is_rc_inc_elidable`), DP-9 (`cow_mode`) — the elimination-decision predicates
       consumed by `class_covered` membership
@@ -66,7 +66,7 @@ Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal 
   Definition (Predicate 1): burden-owned
     burden-owned: AimsState -> Bool
     burden-owned(s) iff
-        s.access = Owned (per Annex E §AIMS.1)
+        s.access = Owned (per Annex E §AIMS §3.1)
       and (s.consumption in {Linear, Affine}) (per Annex E §AIMS.2)
       and s.uniqueness = Unique (per Annex E §AIMS.4)
       and is_rc_dec_unnecessary(s) (per Annex E §AIMS DP-2)
@@ -202,7 +202,7 @@ Definition: Coexistence Handshake — sec-04A.2 minimal-lattice-consumer formal 
                 (by definition; coexistence_dispatch trivially reduces)
 
     The theorem is decomposed into six CH-N theorems (CH-1 through CH-5 +
-    CH-comp) per sec-11.0 Per-CH Proof-Status Tracking — each discharged
+    CH-comp) per the §11 coexistence section Per-CH Proof-Status Tracking — each discharged
     individually under proof_search_cap: 5 per 00-overview Design Principle 3.
 
   Cross-references:

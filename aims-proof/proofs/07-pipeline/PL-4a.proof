@@ -2,13 +2,13 @@ Theorem PL-4a: Step 8a (unwind_cleanup) precedes Step 9 (merge_blocks) — unwin
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-4a fixes ONE intra-
+      Annex E §AIMS §6. PL-4a fixes ONE intra-
       function step boundary: Step 8a (unwind_cleanup) SHALL precede Step 9
       (merge_blocks).
         Step 8: detect/rewrite tail calls — CFG optimization
         Step 8a: unwind_cleanup() — Invoke-unwind RC cleanup
         Step 9: merge_blocks() — CFG cleanup (downgrades trivial Invokes)
-    - PL-4a statement (per Annex E §AIMS PL-4a + arc.md sec-Pipeline
+    - PL-4a statement (per Annex E §AIMS PL-4a + Annex E §AIMS §6
       "unwind_cleanup() (step 8a) — Invoke-unwind RC cleanup (must precede
       merge)"): unwind_cleanup SHALL precede merge_blocks; unwind cleanup
       adds RC-cleanup work to the Invoke unwind (Resume) edges, and
@@ -210,8 +210,8 @@ Theorem PL-4a: Step 8a (unwind_cleanup) precedes Step 9 (merge_blocks) — unwin
                            pad edges must carry their cleanup work before a
                            simplifier prunes "trivial" unwind paths; matches
                            LLVM's requirement that cleanup landing pads exist
-                           before SimplifyCFG runs, cited in arc.md
-                           sec-Reference Repos
+                           before SimplifyCFG runs, from the published reference-compiler corpus
+                            Repos
       determinism: deterministic — add_invoke_unwind_cleanup
                            (postprocess.rs line 42) followed by merge_blocks
                            (postprocess.rs line 47) is a fixed straight-line

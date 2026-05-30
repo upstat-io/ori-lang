@@ -83,7 +83,7 @@ impl Engine for LatticeEngine {
         // sec-11 coexistence-handshake discharge (SECONDARY engine — accepts
         // gracefully on every CH; primary engines structural_induction /
         // case_analysis / interprocedural_summary discharge per the
-        // sec-11.0 Per-CH Proof-Status Tracking table).
+        // the §11 coexistence section Per-CH Proof-Status Tracking table).
         if let Some(result) = super::coexistence_handshake::discharge_for_engine(self.name(), theorem) {
             return result;
         }

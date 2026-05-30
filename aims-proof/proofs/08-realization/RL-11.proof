@@ -18,7 +18,7 @@ Theorem RL-11: same-block allocation reuse — conditions (a) + (b) + (c)
       realize/mod.rs::realize_rc_reuse Sub-step C (emit_reuse_from_events,
       lines 143-167).
     - depends-on sec-05: DP-6 (is_reuse_candidate) soundness; depends-on
-      sec-01.9 project_alias_sources for the intervening-alias-use check.
+      §AIMS §7 project_alias_sources for the intervening-alias-use check.
 
   Soundness property:
     Forall dying value v in block B and forall fresh same-type allocation a

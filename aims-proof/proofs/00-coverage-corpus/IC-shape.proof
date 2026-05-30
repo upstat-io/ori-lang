@@ -67,4 +67,4 @@ Theorem IC-3: Parameter contract join convergence on 2-node call graph
 
   Expected:
     status: valid
-    reason: section_06 interprocedural_summary engine discharges IC-3 via nine-conjunct verification (per-dim max P1-P5, may_share OR P6, commutativity P7, associativity P8, monotonicity P9) over a 324-state product carrier with full pair enumeration plus 64-state triple enumeration; IC-shape coverage flipped per §06-IM-A
+    reason: section_06 interprocedural_summary engine discharges IC-3 via nine-conjunct verification (per-dim max P1-P5, may_share OR P6, commutativity P7, associativity P8, monotonicity P9) over a 324-state product carrier with full pair enumeration plus 64-state triple enumeration; IC-shape coverage flipped per the section-06 implementation

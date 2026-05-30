@@ -1,7 +1,7 @@
 //! §06 interprocedural-contract constructive discharge — §06.1 + §06.2 scope.
 //!
 //! Per `Annex E §AIMS §7`
-//! Implementation Items §06-IM-A + §06.1 + §06.2: each of IC-1..IC-5 is
+//! Implementation Items the section-06 implementation + §06.1 + §06.2: each of IC-1..IC-5 is
 //! discharged constructively per the foundational-axiom policy
 //! sec-Per-Engine-Constructive-Proof-Shape — finite enumeration over the
 //! call-graph fixture corpus (IC-1), per-dimension lattice-bottom witness
@@ -118,7 +118,7 @@ const SHAPE_CARRIER: &[&str] = &[
     "ContextHole",
 ];
 
-/// Total-order rank for `Access` per Annex E §AIMS.1.
+/// Total-order rank for `Access` per Annex E §AIMS §3.1.
 /// `Borrowed (0) < Owned (1)` — height 1.
 fn access_rank(s: &str) -> Option<u32> {
     match s {
@@ -674,7 +674,7 @@ fn verify_ic2_param_init() -> EngineResult {
 // IC-3: ParamContract join — componentwise max + may_share OR
 // ============================================================================
 //
-// Per Annex E §AIMS IC-3 + sec-1.8 L-1/L-2/L-6: join_param_contract
+// Per Annex E §AIMS IC-3 + §AIMS §3 L-1/L-2/L-6: join_param_contract
 // composes per-dimension `max` on each totally-ordered chain plus boolean
 // OR on may_share. Nine conjuncts:
 // (P1)..(P5) per-dim max correctness — enumerate every pair within
@@ -963,7 +963,7 @@ fn verify_chain_max(
 // IC-4: ReturnContract per-dim join over return paths
 // ============================================================================
 //
-// Per Annex E §AIMS IC-4 + sec-1.9 Return Provenance:
+// Per Annex E §AIMS IC-4 + §AIMS §7 Return Provenance:
 // `join_return_contract([rc_1, ..., rc_N])` composes per-dim joins on the
 // 4-tuple `(uniqueness, preserves_freshness, locality, shape)`:
 // uniqueness — max over chain Unique < MaybeShared < Shared
@@ -1311,7 +1311,7 @@ fn verify_ic4_return_contract() -> EngineResult {
 // IC-5: EffectSummary derivation soundness
 // ============================================================================
 //
-// Per Annex E §AIMS IC-5 + sec-1.7 CRITICAL note:
+// Per Annex E §AIMS IC-5 + §AIMS §3.7 CRITICAL note:
 // `derive_effect_summary(f, C)` reads instruction-shape + terminator-shape +
 // ContractMap C; NEVER reads per-variable EffectClass state. Six OR-joined
 // fields + 1 AND-joined field:
@@ -1473,7 +1473,7 @@ fn verify_ic5_effect_summary() -> EngineResult {
     // (P1) Per-instruction derivation, not per-variable.
     // Structural witness: derive_effects_from_instr_kinds reads only its
     // explicit inputs (instr_kinds, throwing_terms, callee_summaries,
-    // is_self_recursive). Per sec-1.7 CRITICAL note: per-variable
+    // is_self_recursive). Per §AIMS §3.7 CRITICAL note: per-variable
     // EffectClass = ALL on a call result does NOT poison the function's
     // EffectSummary. Discharge by witnessing: empty instruction list +
     // empty terminator list + empty callee map -> EffectSummary::bottom
@@ -2067,7 +2067,7 @@ fn verify_ic7_convergence() -> EngineResult {
     // Annex E §AIMS chain definitions. Enumerate every active
     // dimension's height; sum to the per-parameter total.
     //
-    // Spec ParamContract heights per sec-1.1..1.5:
+    // Spec ParamContract heights per §AIMS §3.1..1.5:
     // access: 1 (Borrowed < Owned)
     // consumption: 3 (Dead < Linear < Affine < Unrestricted)
     // cardinality: 2 (Absent < Once < Many)
@@ -2110,7 +2110,7 @@ fn verify_ic7_convergence() -> EngineResult {
         ));
     }
 
-    // ReturnContract height per IC-4 + sec-1.9: 8 (uniqueness(2) +
+    // ReturnContract height per IC-4 + §AIMS §7: 8 (uniqueness(2) +
     // preserves_freshness(1) + locality(4) + shape(1) = 8). Spec +
     // shipped agree.
     let return_h: u32 = 2 + 1 + 4 + 1;
@@ -3123,7 +3123,7 @@ mod tests {
 
     #[test]
     fn ic5_per_variable_effectclass_does_not_poison() {
-        // Critical sec-1.7 invariant: derive_effects_from_instr_kinds reads
+        // Critical §AIMS §3.7 invariant: derive_effects_from_instr_kinds reads
         // ONLY explicit inputs. Empty instr + empty terms + empty callees
         // -> bottom, regardless of any per-variable hint the verifier
         // could naively consult (none accepted by the function signature).

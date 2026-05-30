@@ -2,7 +2,7 @@ Theorem PL-5: no pass relies on stale summaries — every summary is read strict
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-5 is the cross-cutting
+      Annex E §AIMS §6. PL-5 is the cross-cutting
       sequencing invariant over the WHOLE schedule (not a single ordered
       pair): every summary a pipeline step produces SHALL be observed by its
       downstream consumers at the values current at consumption time. A
@@ -17,7 +17,7 @@ Theorem PL-5: no pass relies on stale summaries — every summary is read strict
                                             REPLACING ValueRepr + AimsStateMap
         Step 5: realize_rc_reuse() — consumes AimsStateMap (phase 1)
         Step 10: realize_annotations() — consumes AimsStateMap (phase 2)
-    - PL-5 statement (per Annex E §AIMS PL-5 + arc.md
+    - PL-5 statement (per Annex E §AIMS PL-5 + Annex E §AIMS
       sec-Non-Negotiable-Invariants #3): "No pass may rely on stale
       summaries. If a pipeline step modifies IR or updates an effect
       summary, all downstream consumers must see updated values. A verifier
@@ -218,7 +218,7 @@ Theorem PL-5: no pass relies on stale summaries — every summary is read strict
       AimsStateMap BEFORE Step 4 binds it (or before Step 4a rebinds it on
       rollback) would have realize_rc_reuse consume an absent or
       pre-convergence map — exactly the "verifier that runs before its inputs
-      are available" sequencing bug PL-5 forbids (arc.md
+      are available" sequencing bug PL-5 forbids (Annex E §AIMS
       sec-Non-Negotiable-Invariants #3). The verifier rejects any schedule
       with a read of S at a position <= prod_latest(S).
 
@@ -262,7 +262,7 @@ Theorem PL-5: no pass relies on stale summaries — every summary is read strict
                            later assignment killed; the same shape governs
                            SSA def-use validity and the analysis-summary
                            invalidation discipline in Lean 4 src/Lean/
-                           Compiler/IR cited in arc.md sec-Reference Repos
+                           Compiler/IR from the published reference-compiler corpus
       determinism: deterministic — the straight-line `let state_map`
                            (mod.rs line 182) then `let (state_map, ...)` rebind
                            (mod.rs line 195) then `&state_map` read (mod.rs

@@ -7,7 +7,7 @@ Theorem CH-3: Per-class coexistence with active stack burden — three sub-class
       CH-3 expands here in detail (CH-1 cites the partition's well-formedness
       as a precondition for the lattice-bridge consistency; CH-3 discharges
       the partition itself)
-    - Three AIMS variable classes per sec-11.0 Per-CH Proof-Status Tracking
+    - Three AIMS variable classes per the §11 coexistence section Per-CH Proof-Status Tracking
       table CH-3 row + the sec-11 success_criterion 12 IC-3 binding:
         sub-class A: Owned x Linear x Once x Unique — RL-2 + RL-14 candidate
                      (burden-emission-eligible; last-use dec + headerless
@@ -244,13 +244,13 @@ Theorem CH-3: Per-class coexistence with active stack burden — three sub-class
     claim is no stronger than its weakest part.
 
     Engines dispatched:
-      structural_induction (CO-PRIMARY — per the sec-11.0 Per-CH Proof-Status
+      structural_induction (CO-PRIMARY — per the §11 coexistence section Per-CH Proof-Status
         Tracking table CH-3 row + Composition.proof:93-97 skeleton dispatch;
         per-instruction structural-check soundness over (P3) per-class
         realization invariant emission)
       interprocedural_summary (CO-PRIMARY — per Composition.proof:93-97;
         SCC-level class identification under IC-3 ParamContract dimensions)
-      case_analysis (PRIMARY — per the sec-11.0 table CH-3 row + the partition's
+      case_analysis (PRIMARY — per the §11 coexistence section table CH-3 row + the partition's
         canonical-state enumeration in Part (P1) over Appendix B + Appendix
         C truth tables; pairwise disjointness in (P2) via lattice-dimension
         witness contradictions)

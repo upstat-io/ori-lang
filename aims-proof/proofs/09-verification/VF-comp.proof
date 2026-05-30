@@ -4,7 +4,7 @@ Theorem VF-comp: layered-stack composition — the stack catches the UNION of VF
     - This is the sec-09 composition theorem per the sec-09 success_criteria:
       the layered verification stack catches the UNION of the failure classes
       its constituent layers catch; a fix that passes one layer but regresses
-      another is a correctness regression, not a partial win (per Annex E §AIMS + arc.md Verification Surface: "a fix that passes one layer but
+      another is a correctness regression, not a partial win (per Annex E §AIMS §9: "a fix that passes one layer but
       regresses another is a correctness regression").
     - Signature MemoryContract x ArcFunction -> Bool (the whole-stack verdict)
       per aims-proof/proofs/01-verification/Verification.proof. Discharged

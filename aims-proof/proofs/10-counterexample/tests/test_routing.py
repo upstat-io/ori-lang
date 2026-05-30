@@ -16,7 +16,7 @@ The 7 exit_reasons (per the counterexample search
   7. counterexample_infrastructure_failed (solver/scaffold/runner fail) → exit 3
 
 Partial coverage (only PASS + one FAIL) is flagged as
-INVERTED-TDD:positive-test-modification per impl-hygiene.md §Finding Categories.
+INVERTED-TDD:positive-test-modification.
 """
 
 from __future__ import annotations

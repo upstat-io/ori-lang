@@ -13,7 +13,7 @@
 //! observe well-formedness and add no counterexample). This mirrors the
 //! §01A bootstrap cross-dispatch acceptance pattern at `bootstrap.rs`.
 //!
-//! Per-dimension carriers (from Annex E §AIMS.1 through sec-1.7):
+//! Per-dimension carriers (from Annex E §AIMS §3.1 through §AIMS §3.7):
 //! Access {Borrowed, Owned} (h=1, |C|=2)
 //! Consumption {Dead, Linear, Affine, Unrestricted} (h=3, |C|=4)
 //! Cardinality {Absent, Once, Many} (h=2, |C|=3)
@@ -422,7 +422,7 @@ fn verify_l4_partial_order() -> EngineResult {
 // ============================================================================
 
 fn verify_l5_finite_height() -> EngineResult {
-    // Per-dim heights from Annex E §AIMS.1 through sec-1.7.
+    // Per-dim heights from Annex E §AIMS §3.1 through §AIMS §3.7.
     let claimed = [
         ("Access", 1u32),
         ("Consumption", 3),
@@ -874,7 +874,7 @@ fn verify_l9_scalar_exclusion() -> EngineResult {
 // {Local, Shared}, height 1, join = max) and verify each obligation lifts on
 // the extended product `AimsState x D` using componentwise-lift lemmas. Each
 // L-N' lift below is exposed as a private helper for per-lift pytest coverage
-// (per §02-IM-C success_criterion 9 — fail-fast a future dimension addition
+// (per the section-02 implementation success_criterion 9 — fail-fast a future dimension addition
 // that breaks any of L-4/L-6/L-7/L-8/L-9 layer (a)).
 
 const THREAD_SHARED_CARRIER: &[&str] = &["Local", "Shared"];
@@ -1233,7 +1233,7 @@ mod tests {
         assert_eq!(r.verdict, EngineVerdict::Valid, "L-10 failed: {}", r.reason);
     }
 
-    // Per-lift coverage for L-10 (§02-IM-C). One pytest case per L-N' lift
+    // Per-lift coverage for L-10 (the section-02 implementation). One pytest case per L-N' lift
     // beyond the L-1'/L-2'/L-3'/L-5' baseline (which are exercised by
     // l10_dimension_extension_schema_passes). These cases fail-fast a future
     // dimension extension that breaks any specific axiom on the new dim

@@ -38,7 +38,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
       `true`, hence ALL-paths preservation
     - Target-vs-shipped axis carve-out (per Annex E §AIMS
       "Target-only / partially-shipped subsystems" top-of-file +
-      sec-1.9 Return Provenance): shipped `extract_return_info`
+      §AIMS §7 Return Provenance): shipped `extract_return_info`
       computes `uniqueness` + `preserves_freshness` exactly; the
       `locality` + `shape` dimensions default to CONSERVATIVE
       (`ReturnContract::CONSERVATIVE`) until the full 4-dim
@@ -56,7 +56,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
       enumerated drift surfaced by `/sync-aims-spec --check` and
       tracked as a divergence row, not a soundness defect in the
       proof shape
-    - L-1, L-2, L-4, L-6, L-8 lemmas from sec-1.8 are proven in
+    - L-1, L-2, L-4, L-6, L-8 lemmas from §AIMS §3 are proven in
       sec-02 of this plan (Plan-Bug DAG) and provide
       commutativity, associativity, partial-order axiom,
       monotonicity, and canonicalization-preserves-join for the
@@ -75,7 +75,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         r.uniqueness = max(rc_1.uniqueness, ...,
                            rc_N.uniqueness)
         under the chain order `Unique < MaybeShared < Shared`
-        per sec-1.4. For N = 0 (no Return terminators —
+        per §AIMS §3.4. For N = 0 (no Return terminators —
         e.g., infinite loop), `r = ReturnContract::CONSERVATIVE`
         per the empty-fold identity at extract.rs line 837.
 
@@ -95,7 +95,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
       (P3) Locality componentwise max join:
         r.locality = max(rc_1.locality, ..., rc_N.locality)
         under the chain order `BlockLocal < FunctionLocal <
-        ArgEscaping < HeapEscaping < Unknown` per sec-1.5.
+        ArgEscaping < HeapEscaping < Unknown` per §AIMS §3.5.
         Shipped extractor defaults this dim to
         `CONSERVATIVE.locality` (target-vs-shipped axis
         carve-out); spec join shape preserved when full 4-dim
@@ -107,7 +107,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         target-vs-shipped axis carve-out as (P3).
 
       Plus two lattice-property conjuncts inherited from
-      sec-1.8 + standard product-lattice algebra:
+      §AIMS §3 + standard product-lattice algebra:
 
       (P5) Empty-fold identity:
         N = 0 -> r = ReturnContract::CONSERVATIVE
@@ -131,7 +131,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
     Six-part discharge corresponding to (P1)..(P6); per-dim
     conjuncts (P1)..(P4) ground in the shipped Rust line-by-line
     structural match to the spec; lattice-property conjuncts
-    (P5)..(P6) ground in lemmas L-1, L-2, L-4, L-6 from sec-1.8
+    (P5)..(P6) ground in lemmas L-1, L-2, L-4, L-6 from §AIMS §3
     plus the empty-fold identity for the CONSERVATIVE seed.
 
     Per-dimension parts (P1)..(P4) — uniform structural match:
@@ -180,7 +180,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
           `Some(prev) => prev.join(uniq)`
         where `Uniqueness::join` is `std::cmp::max` over the
         canonical chain `Unique < MaybeShared < Shared` per
-        sec-1.4 (proven in sec-02 lattice properties).
+        §AIMS §3.4 (proven in sec-02 lattice properties).
 
         Per L-1 (commutativity) + L-2 (associativity), the
         fold-order-independent N-ary join is well-defined for
@@ -254,7 +254,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         Construct/Reuse/CollectionReuse/PartialApply,
         `HeapEscaping` for Project, callee's locality for
         Apply-with-contract, `Unknown` otherwise), joined via
-        `std::cmp::max` over the 5-element chain per sec-1.5.
+        `std::cmp::max` over the 5-element chain per §AIMS §3.5.
 
         When the full 4-dim extractor lands, the same join
         shape applies — per L-1 + L-2 + L-6, the per-dim
@@ -276,11 +276,11 @@ Theorem IC-4: ReturnContract per-dim join over return paths
 
         Same argument as (P3): shipped extractor defaults
         `shape` to `CONSERVATIVE.shape` (`NonReusable`); spec
-        join shape per sec-1.9 + sec-1.6 (ShapeClass-join over
+        join shape per §AIMS §7 + §AIMS §3.6 (ShapeClass-join over
         the per-path shape values from the classification
         table).
 
-        ShapeClass join semantics per sec-1.6 ShapeClass
+        ShapeClass join semantics per §AIMS §3.6 ShapeClass
         lattice: `ReusableCtor` and `CollectionBuffer` are
         Shape-equivalent under join only when both paths agree;
         any mixed pair (e.g., `ReusableCtor(Struct) join
@@ -310,10 +310,10 @@ Theorem IC-4: ReturnContract per-dim join over return paths
           feasibility per sec-2 opener). IC-4 remains the join
           operator regardless of CN-3's post-processing.
 
-        - CN-6 (sec-2 + sec-1.9 exception): `Locality ≥
+        - CN-6 (sec-2 + §AIMS §7 exception): `Locality ≥
           HeapEscaping ∧ Uniqueness = Unique ⟹ Uniqueness :=
           MaybeShared` does NOT fire on ReturnContract per
-          sec-1.9 "ReturnContract locality" paragraph + "CN-6
+          §AIMS §7 "ReturnContract locality" paragraph + "CN-6
           notes" — the extractor traces STRUCTURALLY, NOT per-
           variable lattice state, so CN-6's per-variable demote
           does not apply to the contract export. Fresh
@@ -321,7 +321,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
           (enables RL-29 `noalias` per sec-8) regardless of
           CN-6's intra-function demotion. This carve-out is
           load-bearing for the AIMS mission ("RC rare not RC
-          fast" per arc.md §Mission) — without it, returned
+          fast" per Annex E §AIMS §1) — without it, returned
           fresh allocations would lose their `noalias`
           annotation at the function boundary.
 
@@ -463,7 +463,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
                 `Return Apply(callee)` where callee has
                 `ReturnContract.uniqueness = Unique` and
                 `preserves_freshness = true`; inherited per
-                sec-1.9 table; (P1) + (P2) inheritance pin
+                §AIMS §7 table; (P1) + (P2) inheritance pin
         Row R9: apply_with_maybeshared_callee —
                 callee has `MaybeShared / false`; downgrade
                 inherited; (P1) widen pin
@@ -474,7 +474,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         Row R11: let_var_chain_to_construct —
                 `Return let_var` where let-var chains via Let
                 { Var(v) } to a Construct; transparent-alias
-                trace per sec-1.9 "Tracing rules" bullet 1;
+                trace per §AIMS §7 "Tracing rules" bullet 1;
                 Let-chain depth-tracing pin
         Row R12: scc_fixpoint_iterate_return —
                 mutual-recursion SCC where A's
@@ -501,7 +501,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
           Row R12 pins IC-4's role inside the SCC fixpoint
           loop (combined with IC-3 and IC-7)
         Coherence interaction:
-          CN-3 + CN-6 sec-1.9 carve-out exercised implicitly by
+          CN-3 + CN-6 §AIMS §7 carve-out exercised implicitly by
           fresh-allocation rows (R2, R4, R6, R8)
 
     Negative-direction witness — replacing AND with OR on
@@ -600,7 +600,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
 
     IC-4 dependencies — leaf within AIMS return-contract layer:
 
-      IC-4 consumes per-instr classification data (sec-1.9
+      IC-4 consumes per-instr classification data (§AIMS §7
       Return Provenance table), the converged callee
       ContractMap (filled in by prior SCC iterations + IC-3),
       and per-dim `join` operators (proven in sec-02 lattice
@@ -656,7 +656,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
                            L is the maximum Let-chain depth
                            (recursive var_uniqueness tracing
                            through Let { Var(v) } aliases per
-                           sec-1.9 "Tracing rules" bullet 1);
+                           §AIMS §7 "Tracing rules" bullet 1);
                            O(param_count × call_site_count ×
                            height_sum) total per SCC convergence
                            per IC-7's bound
@@ -688,7 +688,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
                            the canonical theoretical foundation
                            for interprocedural fixpoint analysis
                            with componentwise lattice joins;
-                           arc.md §Reference Repos cites Lean 4 +
+                           the published reference-compiler corpus cites Lean 4 +
                            Swift ARC + Koka Perceus as the prior
                            art set
 
@@ -714,7 +714,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
       interprocedural_summary (per-function ReturnContract
         export within SCC fixpoint loop; consumed by callers'
         TF-6 refine and by RL-29 noalias annotation gate)
-      case_analysis (per-path classification table per sec-1.9
+      case_analysis (per-path classification table per §AIMS §7
         Return Provenance: 13 ArcInstr/ArcTerminator cases
         enumerated, each verified against the classification
         table; the parameter-passthrough divergence is

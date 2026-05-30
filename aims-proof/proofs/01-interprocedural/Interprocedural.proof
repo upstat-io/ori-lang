@@ -4,7 +4,7 @@ Theorem IC-2: Interprocedural contract rule signatures — IC-1 through IC-7 + I
     - Interprocedural contracts are the per-function MemoryContract summary
       computed via SCC fixpoint per Annex E §AIMS
     - Step 1 of the AIMS pipeline (analyze_program) runs this analysis
-      per arc.md sec-Pipeline + Annex E §AIMS (interprocedural-first)
+      per Annex E §AIMS §6 (interprocedural-first)
     - Convergence depends on monotone componentwise max + finite domain
       per IC-7
     - 8 active IC rules + 1 IC-8a address-taken / closure rule govern
@@ -37,7 +37,7 @@ Theorem IC-2: Interprocedural contract rule signatures — IC-1 through IC-7 + I
       type : FunctionId -> EffectSummary
       derived from instruction stream + callee contracts per Annex E §AIMS
       IC-5 procedure (7-field OR-join over instructions; NOT joined from
-      per-variable EffectClass per sec-1.7 CRITICAL note).
+      per-variable EffectClass per §AIMS §3.7 CRITICAL note).
 
     IC-6 (FipContract sum-type tier join):
       type : List FipContract -> FipContract

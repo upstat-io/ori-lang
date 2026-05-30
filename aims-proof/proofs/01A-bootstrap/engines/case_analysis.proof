@@ -2,7 +2,7 @@ Theorem CH-101: case_analysis engine bootstrap
 
   Preconditions:
     - a, b are AimsState elements restricted to the
-      Access x Consumption 2-dim sub-lattice per Annex E §AIMS.1 + sec-1.2
+      Access x Consumption 2-dim sub-lattice per Annex E §AIMS §3.1 + §AIMS §3.2
     - Access carrier: Borrowed, Owned (height 1)
     - Consumption carrier: Dead, Linear, Affine, Unrestricted
       (height 3)

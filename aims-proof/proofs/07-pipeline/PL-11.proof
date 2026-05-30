@@ -2,7 +2,7 @@ Theorem PL-11: ContextBehavior initialization (most-optimistic seed) + component
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-11 is the §07.4 TRMC
+      Annex E §AIMS §6. PL-11 is the §07.4 TRMC
       ContextBehavior rule, governing the initialization and join of the
       ContextBehavior contract introduced by PL-7.
     - PL-11 statement (per Annex E §AIMS PL-11): the initial (most-

@@ -132,7 +132,7 @@ Theorem RL-1: Realization rule signatures — RL-1 through RL-34 + RL-13 confirm
         RC == 1 at death.
 
       Subsumed by:
-        - Uniqueness dimension (sec-1.4) as direct source of truth for
+        - Uniqueness dimension (§AIMS §3.4) as direct source of truth for
           reuse eligibility
         - DP-6 + RL-11 + RL-12 reuse-candidate gating via Uniqueness
 

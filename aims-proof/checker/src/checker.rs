@@ -755,7 +755,7 @@ mod tests {
     #[test]
     fn smoke_cn1_discharges_valid_via_canonicalization() {
         // CN-1 (Dead ↔ Absent bidirectional) discharges via engine/canonicalization.rs
-        // case_analysis primary dispatch (per §03-IM-A). Scaffold-time
+        // case_analysis primary dispatch (per the section-03 implementation). Scaffold-time
         // UnimplementedEngineShape expectation flipped to Valid when §03 landed.
         let path =
             workspace_root().join("proofs/00-smoke-test/cn-1-bidirectional.proof");

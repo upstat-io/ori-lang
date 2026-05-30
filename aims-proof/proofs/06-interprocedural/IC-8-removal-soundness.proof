@@ -67,7 +67,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
       IC-3 SCC fixpoint path. The removal restores unified-
       model discipline by routing all parameter-uniqueness
       derivation through IC-2 / IC-3 + TF-3 / TF-9 / TF-9a.
-    - L-6 (monotonicity over lattice chain) from sec-1.8:
+    - L-6 (monotonicity over lattice chain) from §AIMS §3:
       established uniqueness can only be widened (Unique →
       MaybeShared → Shared) by IC-3 max-join, never narrowed.
       The IC-2 OPTIMISTIC seed starts at Unique; subsequent
@@ -298,7 +298,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
         property of the c_counter construction, not a
         probabilistic claim. The pin holds across every
         compilation run because IC-2/IC-3 fixpoint converges
-        deterministically (per IC-7 + sec-1.8 L-1/L-2/L-3
+        deterministically (per IC-7 + §AIMS §3 L-1/L-2/L-3
         commutativity/associativity/idempotence).
 
       - Companion DP-10 removal (sec-4 DP-10): the former
@@ -492,7 +492,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
                                                    not
                                                    constrain
                                                    past RC)
-        L-6 (sec-1.8 monotonicity) --> IC-8-REMOVED (sound
+        L-6 (§AIMS §3 monotonicity) --> IC-8-REMOVED (sound
                                                        alternative
                                                        paths
                                                        preserve
@@ -597,7 +597,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
                            ICFP 2023) Section 5 formalizes
                            the uniqueness-as-PAST-RC
                            semantics that the IC-8 removal
-                           preserves; arc.md §Reference
+                           preserves
                            Repos cites Lean 4 + Swift ARC
                            + Koka Perceus as the prior art
                            set

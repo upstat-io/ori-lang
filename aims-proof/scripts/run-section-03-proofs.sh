@@ -38,7 +38,7 @@
 # Invalid values route through canonicalization_infrastructure_failed
 # (exit 3).
 #
-# Proof artifact roster (11 total per §03-IM-E composition):
+# Proof artifact roster (11 total per the section-03 composition):
 # 6 active CN proofs: CN-1, CN-2, CN-3, CN-5, CN-6, CN-8
 # 2 confirmation proofs: CN-4-REMOVED, CN-7-REMOVED
 # 1 reconciliation proof: CN-6-Extraction-Reconciliation

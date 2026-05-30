@@ -3,7 +3,7 @@ Theorem L-2: Lattice join associativity
   Preconditions:
     - a, b, c are AimsState elements per the canonical proof notation
       sec-Per-Dimension-Symbol-Set
-    - join is the product-lattice componentwise join per Annex E §AIMS + sec-1.8 L-2
+    - join is the product-lattice componentwise join per Annex E §AIMS + §AIMS §3 L-2
 
   Soundness property:
     Forall a, b, c in AimsState. join(join(a, b), c) = join(a, join(b, c))

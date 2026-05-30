@@ -2,7 +2,7 @@ Theorem IA-1 + IA-7: Backward-dataflow soundness + convergence
 
   Preconditions:
     - Function F with a single block B = [i_1; i_2; ...; i_n; return v]
-    - AimsStateMap per arc.md sec-Key-Types (block_entry_states +
+    - AimsStateMap per Annex E §AIMS §7 (block_entry_states +
       block_exit_states)
     - Direction is BACKWARD per Annex E §AIMS IA-1
     - alt_join is the lattice join (max) per Annex E §AIMS.3

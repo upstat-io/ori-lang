@@ -37,7 +37,7 @@ Theorem CH-4: AimsStateMap immutability under burden-registry mutation
       registry pre-pass outputs become typed inputs to subsequent pipeline
       steps without circular dependency; PL-5 directly implies BR is a fresh
       derivation from L's final converged state
-    - depends-on arc.md sec-Non-Negotiable-Invariants invariant 5(c) — typed
+    - depends-on Annex E §AIMS §2 invariant 5 — typed
       pre-pass inputs that land on AimsStateMap (as immortal detection does
       via the immortals: Vec<bool> bitvector); BR.burden_emitted is the
       canonical example of a typed pre-pass input — it lands on AimsStateMap
@@ -118,7 +118,7 @@ Theorem CH-4: AimsStateMap immutability under burden-registry mutation
       trigger a re-evaluation of L's transfer functions, monotone updates
       preserve L's pre-mutation values when the input lattice state has not
       changed — which it has not, because BR is outside L's lattice product
-      per arc.md invariant 5(c).
+      per Annex E §AIMS §2 invariant 5.
 
       Conclusion (P1): L[v]@pp is invariant under BR mutation events for
       every variable v at every program point pp. The invariance is
@@ -172,7 +172,7 @@ Theorem CH-4: AimsStateMap immutability under burden-registry mutation
       "re-fire" under subsequent pipeline steps (Step 5 realize_rc_reuse
       consumes them read-only; Step 9 merge_blocks invalidates the
       position-keyed projection but preserves the ArcVarId-keyed view
-      block_entry_states points to via the block-index mapping per arc.md
+      block_entry_states points to via the block-index mapping per Annex E §AIMS
       sec-Pipeline-Ordering).
 
       Conclusion (P3): block-boundary maps remain at their post-IA-7
@@ -188,7 +188,7 @@ Theorem CH-4: AimsStateMap immutability under burden-registry mutation
     phase-ordering composition, CH-comp union-soundness) to ground against.
 
     Engines dispatched:
-      structural_induction (PRIMARY — per the sec-11.0 Per-CH Proof-Status
+      structural_induction (PRIMARY — per the §11 coexistence section Per-CH Proof-Status
         Tracking table CH-4 row + Composition.proof:126-130 skeleton
         dispatch; structural induction over BR mutation event sequence;
         per-mutation immutability check)

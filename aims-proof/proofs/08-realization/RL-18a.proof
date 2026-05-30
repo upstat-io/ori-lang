@@ -65,4 +65,4 @@ Theorem RL-18a: Locality as the escape SSOT; parallel-escape-enum ban
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges RL-18a via the Locality-SSOT consistency grid showing both stack-promotion (is_local) and thread-locality (Locality + call-graph) derive from the single Locality lattice value with no parallel-escape-enum disagreement (thread-shared implies non-promotable), enforcing AIMS Invariant 5 per canon.md sec-7.1
+    reason: section_08 case_analysis engine discharges RL-18a via the Locality-SSOT consistency grid showing both stack-promotion (is_local) and thread-locality (Locality + call-graph) derive from the single Locality lattice value with no parallel-escape-enum disagreement (thread-shared implies non-promotable), enforcing AIMS Invariant 5 per Annex E §AIMS §2

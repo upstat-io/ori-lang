@@ -285,7 +285,7 @@ Theorem CN-4: REMOVED anti-monotone canonicalization that broke L-2 and L-4
 
   Soundness property:
     REMOVED. Uniqueness is ESTABLISHED by transfer functions (TF-3 FRESH output)
-    or by the Uniqueness lattice dimension (sec-1.4) as direct source of truth;
+    or by the Uniqueness lattice dimension (§AIMS §3.4) as direct source of truth;
     NEVER re-derived in canonicalization.
 
   Proof obligation:
@@ -326,7 +326,7 @@ Theorem CN-6: Wide-locality uniqueness ceiling
   Preconditions:
     - s is an AimsState per the canonical proof notation
     - CN-6 per Annex E §AIMS (HeapEscaping or wider with Unique implies MaybeShared)
-    - Exception clause for return values is bounded to sec-1.9 Return Provenance
+    - Exception clause for return values is bounded to §AIMS §7 Return Provenance
 
   Soundness property:
     Forall s in AimsState.
@@ -481,7 +481,7 @@ Theorem TF-4: Project forward transfer Borrowed inherits source
 
   Preconditions:
     - dst is defined by Project(src, field) at program point p per Annex E §AIMS TF-4
-    - Borrow source tracked in borrow_sources side-table per sec-1.9
+    - Borrow source tracked in borrow_sources side-table per §AIMS §7
 
   Soundness property:
     Forall src, field.
@@ -1290,7 +1290,7 @@ Theorem IC-5: EffectSummary derivation from instruction stream and callee contra
   Preconditions:
     - EffectSummary 7-flag record per Annex E §AIMS IC-5
     - Fields: may_allocate, may_deallocate, may_share, may_throw, has_unbounded_stack, may_read_inaccessible, alloc_only_on_slow_path
-    - Derived from INSTRUCTIONS plus callee contracts (NOT per-variable EffectClass per sec-1.7)
+    - Derived from INSTRUCTIONS plus callee contracts (NOT per-variable EffectClass per §AIMS §3.7)
 
   Soundness property:
     Forall function f with instruction stream I.

@@ -2,12 +2,12 @@ Theorem PL-4: Step 10 (realize_annotations, phase 2) follows Step 9 (merge_block
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-4 fixes ONE intra-
+      Annex E §AIMS §6. PL-4 fixes ONE intra-
       function step boundary: Step 10 (realize_annotations — phase 2) SHALL
       FOLLOW Step 9 (merge_blocks).
         Step 9: merge_blocks() — CFG cleanup (block renumbering)
         Step 10: realize_annotations() — Phase 2: COW + drop hints (post-merge)
-    - PL-4 statement (per Annex E §AIMS PL-4 + arc.md sec-Pipeline
+    - PL-4 statement (per Annex E §AIMS PL-4 + Annex E §AIMS §6
       "realize_annotations() (step 10) must run AFTER merge_blocks() (step
       9) — it accesses AimsStateMap via ArcVarId-keyed lookups
       (var_state_at_block_entry); position-keyed state map fields are stale
@@ -46,7 +46,7 @@ Theorem PL-4: Step 10 (realize_annotations, phase 2) follows Step 9 (merge_block
       (`ctx.state_map.var_state_at_block_entry(blk, receiver)`). That
       accessor (state_map.rs lines 646-656) is keyed by (ArcBlockId,
       ArcVarId) and the merge pass preserves entry block IDs, so the lookup
-      survives merge. Per arc.md sec-Pipeline "The state map is accessed by
+      survives merge. Per Annex E §AIMS §6 "The state map is accessed by
       walking the post-merge IR block indices and using those as block IDs
       into the pre-merge state map — this works because merge_blocks()
       preserves entry block IDs."
@@ -121,7 +121,7 @@ Theorem PL-4: Step 10 (realize_annotations, phase 2) follows Step 9 (merge_block
         That accessor (state_map.rs lines 646-656) keys on (ArcBlockId,
         ArcVarId): it returns SCALAR for scalar/immortal vars, else looks up
         block_entry_states.get(block.index()).and_then(|s| s.get(&var)).
-        Because merge_blocks preserves entry block IDs (arc.md sec-Pipeline),
+        Because merge_blocks preserves entry block IDs (Annex E §AIMS §6),
         the post-merge block index used as `blk` still resolves to the
         intended entry-state map. The lookup is sound on the post-merge IR.
 
@@ -130,7 +130,7 @@ Theorem PL-4: Step 10 (realize_annotations, phase 2) follows Step 9 (merge_block
         by a raw post-merge block position, it would read the stale pre-merge
         vector at a renumbered index (PL-3's invalidation). The shipped
         realize_annotations does NOT do this — it routes every read through
-        var_state_at_block_entry. arc.md sec-Pipeline forbids the raw read:
+        var_state_at_block_entry. Annex E §AIMS §6 forbids the raw read:
         "Position-keyed state maps (entry_states, exit_states, instr_states)
         are invalid after merge_blocks() — never query them post-merge." The
         verifier rejects any phase-2 access that bypasses the ArcVarId-keyed
@@ -202,8 +202,8 @@ Theorem PL-4: Step 10 (realize_annotations, phase 2) follows Step 9 (merge_block
                            block renumbering key on stable value identities
                            rather than block coordinates; matches the
                            value-keyed (vreg) survival of analysis results
-                           across LLVM CFG simplification cited in arc.md
-                           sec-Reference Repos
+                           across LLVM CFG simplification from the published reference-compiler corpus
+                            Repos
       determinism: deterministic — verify_and_merge -> merge_blocks
                            (postprocess.rs line 47) followed by
                            apply_phase_2_annotations -> realize_annotations

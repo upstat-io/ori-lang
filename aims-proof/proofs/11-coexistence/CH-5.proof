@@ -10,7 +10,7 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
     - depends-on CH-1 (Burden-registry-lattice composition soundness) at
       aims-proof/proofs/11-coexistence/CH-1.proof — CH-1's Part (P2)
       no-double-counting + acyclic-dependency direction are inherited
-      premises (CH-1 is the root per the sec-11.1 Per-CH dependency chain;
+      premises (CH-1 is the root per the §11 coexistence section Per-CH dependency chain;
       CH-5 transitively depends on CH-1 via CH-4)
     - PL-1 (Interprocedural-first ordering) at aims-proof/proofs/07-pipeline/
       PL-1.proof — Steps 1-2 (interprocedural: analyze_program +
@@ -18,7 +18,7 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
       step. Per-function pipeline (Steps 3-12) processes functions in SCC
       topological order per PL-1a.
     - Burden-registry pre-pass per the sec-04A.2 design is a typed pre-pass
-      input that lands on AimsStateMap per arc.md sec-Non-Negotiable-Invariants
+      input that lands on AimsStateMap per Annex E §AIMS §2
       invariant 5(c) — NOT a new lattice dimension; NOT an independent RC
       emission path. Two viable insertion points per the sec-04A.2 design:
         (a) Step 1 typed pre-pass: BEFORE analyze_program (interprocedural-
@@ -163,7 +163,7 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
       Per CH-4 Part (P3) block-boundary map immutability, L.block_entry_
       states + L.block_exit_states remain at their post-IA-7 converged values
       across BR mutations; downstream consumers reading L via ArcVarId-keyed
-      lookups (Step 10 realize_annotations per arc.md sec-Pipeline) see the
+      lookups (Step 10 realize_annotations per Annex E §AIMS §6) see the
       same converged L that BR(F) was computed from.
 
       Per CH-1 Part (P1) lattice-bridge consistency, BR(F).burden_emitted[v]
@@ -213,10 +213,10 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
     corollary; Part (P4) is the PL-6 meta-rule discharge.
 
     Engines dispatched:
-      structural_induction (CO-PRIMARY — per the sec-11.0 Per-CH Proof-Status
+      structural_induction (CO-PRIMARY — per the §11 coexistence section Per-CH Proof-Status
         Tracking table CH-5 row + Composition.proof:165-169 skeleton
         dispatch; structural induction over pipeline-step sequencing)
-      interprocedural_summary (PRIMARY — per the sec-11.0 table CH-5 row +
+      interprocedural_summary (PRIMARY — per the §11 coexistence section table CH-5 row +
         Composition.proof:165-169; SCC-level pipeline-ordering proof; PL-1
         + PL-1a interprocedural-first preservation under burden-registry
         insertion)

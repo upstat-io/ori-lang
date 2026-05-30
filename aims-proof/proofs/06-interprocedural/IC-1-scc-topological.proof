@@ -23,7 +23,7 @@ Theorem IC-1: SCC decomposition + topological ordering of the call graph
       E_scc has (S_i -> S_j) iff (u -> v) in E for some u in S_i,
       v in S_j, S_i != S_j; G_scc is acyclic by construction (Cormen,
       Leiserson, Rivest, Stein, "Introduction to Algorithms", 3rd ed.,
-      sec-22.5)
+      §22.5)
     - IC-1 is the antecedent of every downstream IC rule: IC-2/IC-3
       parameter-contract fixpoint, IC-4 return-contract join, IC-5
       EffectSummary derivation, IC-6 FipContract tier join, IC-7
@@ -143,7 +143,7 @@ Theorem IC-1: SCC decomposition + topological ordering of the call graph
       completes — i.e., when DFS retreats from the last unvisited
       descendant. This emission order has the canonical property
       (Tarjan 1972, sec-3 closing remarks; restated in CLRS 3rd ed.
-      sec-22.5 Theorem 22.16):
+      §22.5 Theorem 22.16):
 
         SCCs are emitted in REVERSE topological order of the
         condensation DAG.
@@ -321,7 +321,7 @@ Theorem IC-1: SCC decomposition + topological ordering of the call graph
                            compute_sccs is determinate up to
                            insertion order of ArcFunctions per
                            Annex E §AIMS PL-5 "no pass
-                           relies on stale summaries" + canon.md
+                           relies on stale summaries" 
                            sec-1 phase purity
       reference impl: ori_arc::graph::scc::compute_sccs
                            (compiler/ori_arc/src/
@@ -329,7 +329,7 @@ Theorem IC-1: SCC decomposition + topological ordering of the call graph
       cross-language Lean 4 src/Lean/Compiler/IR/Borrow.lean
       prior art: also uses Tarjan SCC + topological
                            order for borrow inference; cited in
-                           arc.md sec-Reference Repos
+                           the published reference-compiler corpus
 
     Engines dispatched:
       interprocedural_summary (PRIMARY — SCC topological ordering

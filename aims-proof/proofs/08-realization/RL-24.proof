@@ -8,7 +8,7 @@ Theorem RL-24: bidirectional dataflow identifies matching (Inc, Dec) pairs acros
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.
     - RL-24 is a POST-PIPELINE pass over realized IR (PRE = partial-redundancy
-      elimination, Clang/LLVM ObjC ARC lineage per arc.md
+      elimination, Clang/LLVM ObjC ARC lineage per Annex E §AIMS
       sec-Advanced-Optimization-Patterns).
 
   Soundness property:

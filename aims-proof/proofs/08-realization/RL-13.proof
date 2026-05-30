@@ -12,7 +12,7 @@ Theorem RL-13: REMOVED — Construct + Once does NOT imply RC == 1 at death (rem
       "store into a data structure", which creates an alias via RcInc — so
       Construct + Once alone does NOT guarantee the value is the sole owner
       (RC == 1) at death.
-    - Subsumed by: the Uniqueness dimension (sec-1.4) as the direct source
+    - Subsumed by: the Uniqueness dimension (§AIMS §3.4) as the direct source
       of truth for reuse eligibility, and DP-6 + RL-11 + RL-12 reuse gating
       via Uniqueness.
     - Per the sec-08 Per-RL Proof-Status Tracking table, RL-13 carries the

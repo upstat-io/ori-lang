@@ -30,7 +30,7 @@
 //! DAG (per Annex E §AIMS §6 07.1). The §07.2 rules
 //! (PL-2/PL-3/PL-4/PL-4a) reason over the linear per-function pipeline-step
 //! DAG: each fixes one ordered (Step i, Step j) boundary in the shipped
-//! schedule (Annex E §AIMS + arc.md sec-Pipeline).
+//! schedule (Annex E §AIMS §6).
 
 use crate::ast::Theorem;
 use crate::engine::{EngineResult, EngineVerdict};
@@ -180,7 +180,7 @@ fn verify_pl_composition() -> EngineResult {
 // PL-1: interprocedural-first — Steps 1-2 run once before any per-function step
 // ============================================================================
 //
-// Per Annex E §AIMS PL-1 + arc.md sec-Pipeline: the 12-step pipeline
+// Per Annex E §AIMS PL-1 + Annex E §AIMS §6: the 12-step pipeline
 // partitions into a run-once interprocedural PREFIX {Step 1, Step 2} and a
 // per-function SUFFIX {Step 3, 3a, 4, 4a, 5, 5a, 6, 7, 8, 8a, 9, 10, 11, 12}.
 // Two conjuncts:
@@ -551,7 +551,7 @@ fn pl1a_check_callees_before_callers(
 // §07.2 step-boundary ordering — PL-2 / PL-3 / PL-4 / PL-4a
 // ============================================================================
 //
-// Per Annex E §AIMS + arc.md sec-Pipeline, the shipped per-function
+// Per Annex E §AIMS §6, the shipped per-function
 // suffix runs Steps 3..12 (with sub-steps 3a/4a/5a/8a) as a fixed
 // straight-line schedule inside run_aims_pipeline
 // (compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs lines
@@ -800,7 +800,7 @@ fn verify_pl4a_unwind_before_merge() -> EngineResult {
 // §07.3 staleness — PL-5: no pass relies on stale summaries
 // ============================================================================
 //
-// Per Annex E §AIMS PL-5 + arc.md sec-Non-Negotiable-Invariants #3, no
+// Per Annex E §AIMS PL-5 + Annex E §AIMS §2 #3, no
 // pass may read a summary at a value a later mutation superseded. The verifier
 // models the per-function summary-dependency DAG: each summary
 // (MemoryContract from Step 1, ValueRepr from Step 3, AimsStateMap from Step 4)
@@ -982,7 +982,7 @@ fn verify_pl5_no_stale_summaries() -> EngineResult {
 // proving no constraint violation
 // ============================================================================
 //
-// Per Annex E §AIMS PL-6 + arc.md sec-Critical-Rules "Do NOT add passes
+// Per Annex E §AIMS PL-6 + Annex E §AIMS §6 "Do NOT add passes
 // without updating the pipeline. Do NOT call out of order.", a NewPass
 // insertion is ADMISSIBLE iff (P1) it occupies a declared position in the
 // post-insertion schedule, (P2) every preserved ordered-pair predicate
@@ -1199,7 +1199,7 @@ fn verify_pl6_adding_a_pass_meta_rule() -> EngineResult {
 // §07.4 TRMC cluster — PL-7 / PL-8 / PL-9 / PL-10 / PL-11
 // ============================================================================
 //
-// Per Annex E §AIMS PL-7..PL-11 + arc.md sec-Pipeline (Step 3a
+// Per Annex E §AIMS PL-7..PL-11 + Annex E §AIMS §6 (Step 3a
 // normalize_function, Step 4a verify_trmc_soundness) + Leijen & Lorenzen
 // "Tail Recursion Modulo Context" (JFP 2025). The TRMC cluster is the §07.4
 // deliverable. The §00 PL-row engines are [structural_induction,

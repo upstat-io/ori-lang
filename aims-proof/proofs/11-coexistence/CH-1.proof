@@ -221,7 +221,7 @@ Theorem CH-1: Burden-registry-lattice composition soundness
 
     Part (P3) — per-class coexistence well-formedness:
 
-      The AIMS class taxonomy per the sec-11.0 Per-CH Proof-Status Tracking
+      The AIMS class taxonomy per the §11 coexistence section Per-CH Proof-Status Tracking
       table CH-3 row is total + disjoint over three sub-classes (CH-3
       discharges this in detail; CH-1 cites the partition's well-formedness
       as a precondition for the lattice-bridge consistency to be
@@ -284,7 +284,7 @@ Theorem CH-1: Burden-registry-lattice composition soundness
     stronger than its weakest part.
 
     Engines dispatched:
-      structural_induction (PRIMARY — per the sec-11.0 Per-CH Proof-Status
+      structural_induction (PRIMARY — per the §11 coexistence section Per-CH Proof-Status
         Tracking table CH-1 row + Composition.proof:28-32 skeleton dispatch;
         per-instruction structural-check soundness over (P1) lattice-bridge
         consistency + (P2) acyclic-dependency invariant + (P3) per-class

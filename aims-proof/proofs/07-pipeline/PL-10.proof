@@ -2,7 +2,7 @@ Theorem PL-10: TRMC structural verification (five checks (a)-(e)) + rollback to 
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-10 is the §07.4 TRMC
+      Annex E §AIMS §6. PL-10 is the §07.4 TRMC
       structural-verification rule, governing Step 4a verify_trmc_soundness.
     - PL-10 statement (per Annex E §AIMS PL-10): after Step 3a + Step 4
       on the rewritten IR, structural verification runs FIVE checks:
@@ -190,7 +190,7 @@ Theorem PL-10: TRMC structural verification (five checks (a)-(e)) + rollback to 
                            preserved, evaluation order unchanged); standard
                            transform-validate-rollback discipline (analyze, then
                            transform, then verify-or-revert) shared with Lean 4
-                           src/Lean/Compiler/IR cited in arc.md sec-Reference
+                           src/Lean/Compiler/IR cited in Annex E §AIMS sec-Reference
                            Repos
       determinism: deterministic — verify_trmc_soundness runs a fixed
                            set of structural checks and a fixed rollback-and-

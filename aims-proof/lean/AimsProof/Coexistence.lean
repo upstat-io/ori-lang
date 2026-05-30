@@ -347,7 +347,7 @@ theorem CH3_burden_owned_excludes_BC (s : AimsState) (h : burden_owned s = true)
         exact absurd h (by decide)
 
 /-! ## §CH-4 — AimsStateMap immutability under burden-op elimination
-    (annex-e §AIMS §6 + arc.md invariant 5(c))
+    (annex-e §AIMS §6 + Annex E §AIMS §2 invariant 5)
 
     The elimination consumer `eliminate_burden_ops` reads the frozen converged
     state map (a finite `var → AimsState` map) and the burden registry, and
@@ -363,7 +363,7 @@ abbrev StateMap := List (Nat × AimsState)
 
 /-- §CH-4 a burden-registry mutation event: a write of a burden annotation for a
     variable. It carries NO state-map field — the registry is a disjoint side
-    table (arc.md invariant 5(c): a typed pre-pass input, not a lattice
+    table (Annex E §AIMS §2 invariant 5: a typed pre-pass input, not a lattice
     dimension). -/
 structure BurdenMutation where
   var : Nat

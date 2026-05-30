@@ -175,7 +175,7 @@ fn require_count(rule: &str, expected: u64, actual: u64, label: &str) -> EngineR
 // (check_variable_scope / check_block_connectivity / check_no_rc_on_scalar /
 // check_no_dec_on_borrowed / check_arg_ownership_len). FipStructural is
 // constructed by the pipeline runner wrapping layer-4 errors, NOT by these 5
-// checks (per arc.md §Verification-Surface).
+// checks (per Annex E §AIMS §9).
 
 /// The structural well-formedness failure classes Layer 1 detects. Each maps to
 /// one VerifyError variant via the shipped check function.
@@ -792,7 +792,7 @@ fn verify_vf4_fip_certification() -> EngineResult {
 //
 // Target-only mandate (no single shipped verifier function — VF-5 is a
 // whole-subsystem completeness invariant the verification stack as a whole
-// asserts per arc.md §Non-Negotiable-Invariants #4).
+// asserts per Annex E §AIMS §2 invariant 4).
 
 fn verify_vf5_end_to_end_mandate() -> EngineResult {
     struct Subsystem {
@@ -1039,7 +1039,7 @@ fn verify_vf7_active_rewrite_three_tier() -> EngineResult {
             expect_active: false,
         },
         // Missing (b) behavioral → not active (structural alone insufficient
-        // per arc.md §Non-Negotiable-Invariants #2).
+        // per Annex E §AIMS §2 invariant 2).
         Row {
             label: "missing_behavioral_not_active",
             tier_a_structural: true,
@@ -1130,7 +1130,7 @@ fn verify_vf7_active_rewrite_three_tier() -> EngineResult {
     }
     // Negative-direction witness: a rewrite with ONLY structural verification
     // (tier a) but no behavioral verification (tier b) must NOT be active — the
-    // arc.md invariant 2 explicitly states "structural tests alone do not
+    // Annex E §AIMS §2 invariant 2 explicitly states "structural tests alone do not
     // satisfy this".
     if rewrite_active(true, false, false) {
         return fail(

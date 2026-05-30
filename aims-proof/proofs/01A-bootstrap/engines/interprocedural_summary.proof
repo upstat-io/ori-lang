@@ -5,7 +5,7 @@ Theorem CH-108: interprocedural_summary engine bootstrap (IC-3 ParamContract joi
       IC-2 + IC-3 with one callee g and two caller call sites
       site_1 and site_2 both calling g
     - the AimsState dimension under analysis is Access x Consumption
-      per Annex E §AIMS.1 + sec-1.2
+      per Annex E §AIMS §3.1 + §AIMS §3.2
     - site_1 passes argument state (Borrowed, Linear) to g
     - site_2 passes argument state (Owned, Affine) to g
     - IC-3 ParamContract join per Annex E §AIMS: callee's

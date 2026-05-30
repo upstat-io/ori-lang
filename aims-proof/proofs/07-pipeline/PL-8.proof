@@ -2,7 +2,7 @@ Theorem PL-8: TRMC candidate predicate — self-recursive + recursive call in ta
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. PL-8 is the §07.4 TRMC
+      Annex E §AIMS §6. PL-8 is the §07.4 TRMC
       candidate-predicate rule, refining PL-7's detection scope into the exact
       three-conjunct structural condition and the context-region span.
     - PL-8 statement (per Annex E §AIMS PL-8): the TRMC candidate

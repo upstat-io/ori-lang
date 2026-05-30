@@ -1857,7 +1857,7 @@ fn verify_rl13_removal_confirmation() -> EngineResult {
 //
 // Per Annex E §AIMS Stack Promotion (RL-14 / RL-14a / RL-15 / RL-15a /
 // RL-16), the allocation strategy is driven by the Locality dimension
-// (sec-1.5) per DP-8 (is_local) + CN-8 (Borrowed locality ceiling). The
+// (§AIMS §3.5) per DP-8 (is_local) + CN-8 (Borrowed locality ceiling). The
 // case_analysis engine enumerates the Locality x Uniqueness x size grid and
 // the RL-15a 4-category callee-contract grid, discharging that each chosen
 // strategy correctly handles RC ownership.
@@ -2560,7 +2560,7 @@ fn verify_rl18_header_width_narrowing() -> EngineResult {
 // program-wide DERIVED property layered on Locality + call-graph, NOT a
 // separate per-variable escape dimension. Parallel per-variable escape enums
 // are FORBIDDEN (Locality = SSOT). This enforces AIMS Invariant 5 (the unified
-// model stays unified) per canon.md sec-7.1.
+// model stays unified) per Annex E §AIMS §2.
 
 /// Thread-locality DERIVED from Locality + call-graph (RL-18a / RL-19): a
 /// value is thread-shared iff it escapes (Locality >= HeapEscaping) AND a
@@ -2801,7 +2801,7 @@ fn verify_rl21_program_wide_nonatomic() -> EngineResult {
 // eliminated KnownSafe pair removes one inc + one matched dec (net 0), and
 // RC motion across a barrier is forbidden because the barrier observes the
 // count. Shipped: target-system rules (RL-22..26 are post-pipeline per
-// Annex E §AIMS + arc.md sec-Advanced-Optimization-Patterns — Swift ARC
+// Annex E §AIMS + Annex E §AIMS §8 — Swift ARC
 // optimizer lineage); VF-7 tier (a)+(b)+(c) applies when implemented.
 
 /// KnownSafe(v) at a point: there exists a DOMINATING RcInc with no
@@ -3623,7 +3623,7 @@ fn verify_rl31_disjoint_borrowed_alias_metadata() -> EngineResult {
 
     // Clause (8) + facet (b) type-level disjointness: the cross-function proof
     // operates on the CALLERS' function-local borrow_sources / project_alias_sources
-    // (sec-1.9), NOT callee IC-2/IC-3 alone. Facet (b) adds a type-level
+    // (§AIMS §7), NOT callee IC-2/IC-3 alone. Facet (b) adds a type-level
     // disjointness check via BurdenSpec.field_type chains, which is
     // demonstrably MORE precise than the contract-layer encoding for the
     // BUG-04-118 shape. Both facets must hold for the metadata to be sound.

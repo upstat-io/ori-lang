@@ -7,8 +7,8 @@ Theorem VF-1 + VF-4: Layered verifier composition
     - VF-4 is the FIP certification layer per Annex E §AIMS:
       proves FipContract::Certified functions have zero unmatched
       alloc/dealloc in realized IR
-    - MemoryContract per arc.md sec-Key-Types includes
-      FipContract field (sec-1.7 + sec-5 IC-6)
+    - MemoryContract per Annex E §AIMS §7 includes
+      FipContract field (§AIMS §3.7 + sec-5 IC-6)
     - VF-5: every active subsystem end-to-end verified
     - VF-6: contracts and realization SHALL agree
     - VF-8: stack applies to ALL rules incl. unimplemented
@@ -19,7 +19,7 @@ Theorem VF-1 + VF-4: Layered verifier composition
       i.e. structural well-formedness, contract consistency, oracle
       cross-check, and FIP certification all hold;
       composition is sound: each layer's success implies subsequent
-      layers' inputs are well-formed per arc.md sec-Verification-Surface
+      layers' inputs are well-formed per Annex E §AIMS §9
       layered stack.
 
   Proof obligation:
@@ -36,7 +36,7 @@ Theorem VF-1 + VF-4: Layered verifier composition
           Dangling block ref: terminator at k+1 targets blocks
             with valid IDs.
           RC on scalar: RcInc/RcDec at k+1 targets non-SCALAR var
-            (per arc.md sec-Key-Types ArcClass).
+            (per Annex E §AIMS §7 ArcClass).
           Dec on borrowed: RcDec at k+1 targets non-Borrowed var
             (per VF-1 sec-9 + RL-14/RL-15a field-drop exemption).
           Arg ownership length: Apply/Invoke at k+1 has args length
@@ -68,7 +68,7 @@ Theorem VF-1 + VF-4: Layered verifier composition
       EffectSummary OR-aggregation; soundness composes through
       the SCC topological order (PL-1a).
 
-    Layered composition (per arc.md sec-Verification-Surface):
+    Layered composition (per Annex E §AIMS §9):
       Layer 1 (VF-1 structural) catches use-before-def, dangling
       refs, RC-on-scalar, dec-on-borrowed;
       Layer 2 (VF-2 AimsState consistency) catches
@@ -85,7 +85,7 @@ Theorem VF-1 + VF-4: Layered verifier composition
                             stream + per-instruction VF-1 check)
       refinement (VF-1's structural invariants + RL-22..RL-26
                   post-pipeline RC motion soundness)
-      rc_counting (VF-4 alloc/dec balance per arc.md invariant 1)
+      rc_counting (VF-4 alloc/dec balance per Annex E §AIMS §2 invariant 1)
       interprocedural_summary (VF-7 tier (a) re-verify of
                                VF-1 + VF-2 + VF-3 after
                                post-pipeline; MemoryContract retention)

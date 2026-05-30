@@ -2,7 +2,7 @@ Theorem PL-1: interprocedural-first — Steps 1-2 run once across all functions 
 
   Preconditions:
     - The AIMS pipeline is a 12-step strictly-ordered sequence per
-      Annex E §AIMS + arc.md sec-Pipeline. Steps partition into
+      Annex E §AIMS §6. Steps partition into
       an INTERPROCEDURAL prefix (Steps 1-2, run ONCE across the whole
       program) and a PER-FUNCTION suffix (Steps 3-12, run per function):
         Step 1: analyze_program() — MemoryContract per fn (SCC fixpoint)
@@ -21,7 +21,7 @@ Theorem PL-1: interprocedural-first — Steps 1-2 run once across all functions 
         Step 10: realize_annotations() — COW + drop hints (post-merge)
         Step 11: verify()
         Step 12: FBIP enforcement
-    - PL-1 statement (per Annex E §AIMS PL-1 + arc.md sec-Pipeline
+    - PL-1 statement (per Annex E §AIMS PL-1 + Annex E §AIMS §6
       "Interprocedural (once)" header): Steps 1-2 SHALL run once across
       ALL functions before ANY per-function step (3-12) runs on ANY
       function.
@@ -186,7 +186,7 @@ Theorem PL-1: interprocedural-first — Steps 1-2 run once across all functions 
 
       PL-1 fixes the FIRST boundary in the pipeline order (prefix before
       suffix). Steps 1-2 consume only lowered ArcFunctions (the output of
-      ARC lowering, canon.md sec-1 phase 5) — no later pipeline step's
+      ARC lowering,  sec-1 phase 5) — no later pipeline step's
       output. The dependency chain is acyclic at the proof-obligation
       level:
         PL-1 --> PL-1a (per-function SCC topological order within the
@@ -205,11 +205,11 @@ Theorem PL-1: interprocedural-first — Steps 1-2 run once across all functions 
                            transformation" shape matches Lean 4
                            src/Lean/Compiler/IR (collect_O whole-program
                            pass before per-decl RC insertion) cited in
-                           arc.md sec-Reference Repos
+                           the published reference-compiler corpus
       determinism: deterministic given a deterministic function
                            iteration order; the shipped slice
                            `functions: &[ArcFunction]` preserves insertion
-                           order per Annex E §AIMS PL-5 + canon.md
+                           order per Annex E §AIMS PL-5 
                            sec-1 phase purity
       reference impl: ori_arc::pipeline::aims_pipeline::
                            run_aims_pipeline_all (batch.rs lines 31-84:

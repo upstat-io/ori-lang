@@ -12,7 +12,7 @@ Theorem RL-33: projection propagation — projected field Owned promotes source 
       must also be Owned for the field ownership to be valid.
     - Shipped: borrow/mod.rs (borrow inference propagation).
     - depends-on RL-32 (the Borrowed-init / Owned-promotion fixpoint) +
-      sec-01.9 borrow_sources (the projection source).
+      §AIMS §7 borrow_sources (the projection source).
 
   Soundness property:
     Forall projected field d = Project(src.f) and its source variable src:

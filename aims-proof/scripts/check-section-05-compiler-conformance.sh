@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# check-section-05-compiler-conformance.sh — §05-IM-K compiler-conformance
+# check-section-05-compiler-conformance.sh — the section-05 compiler-conformance cross-walk compiler-conformance
 # cross-walk gate.
 #
 # Per the decision-predicate proofs
-# §05-IM-K: "Mechanically cross-walks every proven DP-N rule against
+# the section-05 compiler-conformance cross-walk: "Mechanically cross-walks every proven DP-N rule against
 # the compiler implementation sites
 # compiler/ori_arc/src/aims/realize/emit_unified.rs (RC + COW
 # emission — DP-1 / DP-7 / DP-4 / DP-5 / DP-9 consumers)
@@ -48,7 +48,7 @@ fi
 
 # Conformance entries: each row = "DP-id|target-file|required-token|description"
 #
-# Target-file is one of {emit_unified, decide, burden_elim} per the §05-IM-K
+# Target-file is one of {emit_unified, decide, burden_elim} per the the section-05 compiler-conformance cross-walk
 # consumer-site mapping. Required-token is a literal string that MUST appear
 # in the named file (function name, symbol, or canonical-constant reference).
 # Absence indicates the compiler has dropped or renamed the rule's

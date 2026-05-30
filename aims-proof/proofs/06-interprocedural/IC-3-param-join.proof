@@ -26,9 +26,9 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
       ori_arc::aims::interprocedural::analyze_program SCC-fixpoint
       loop on every call-site demand-flow event
     - Per-dimension `join` operators are the lattice joins defined
-      in Annex E §AIMS.1 (Access::join), sec-1.2
-      (Consumption::join), sec-1.3 (Cardinality::join), sec-1.4
-      (Uniqueness::join), sec-1.5 (Locality::join), each
+      in Annex E §AIMS §3.1 (Access::join), §AIMS §3.2
+      (Consumption::join), §AIMS §3.3 (Cardinality::join), §AIMS §3.4
+      (Uniqueness::join), §AIMS §3.5 (Locality::join), each
       implemented as `std::cmp::max` over the chain order
     - `may_share` is a `bool` joined by short-circuit OR (`||`)
       per Annex E §AIMS IC-3 "may_share(OR)"
@@ -41,7 +41,7 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
       proof discharges the 5 spec lattice dims + may_share; the
       auxiliary fields ride alongside under the same monotone
       OR / max-join discipline (verified in §IC-4)
-    - L-1, L-2, L-3, L-4, L-6 lemmas from sec-1.8 are proven in
+    - L-1, L-2, L-3, L-4, L-6 lemmas from §AIMS §3 are proven in
       §02 of this plan (Plan-Bug DAG) and provide commutativity,
       associativity, idempotence, partial-order axiom, and
       monotonicity of the per-dimension joins
@@ -53,35 +53,35 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
 
       (P1) Access componentwise max:
         r.access = max(p.access, q.access)
-        under the chain order `Borrowed < Owned` per sec-1.1.
+        under the chain order `Borrowed < Owned` per §AIMS §3.1.
 
       (P2) Consumption componentwise max:
         r.consumption = max(p.consumption, q.consumption)
         under the chain order `Dead < Linear < Affine <
-        Unrestricted` per sec-1.2.
+        Unrestricted` per §AIMS §3.2.
 
       (P3) Cardinality componentwise max:
         r.cardinality = max(p.cardinality, q.cardinality)
         under the chain order `Absent < Once < Many` per
-        sec-1.3.
+        §AIMS §3.3.
 
       (P4) Locality componentwise max:
         r.locality_bound = max(p.locality_bound,
                                q.locality_bound)
         under the chain order `BlockLocal < FunctionLocal <
-        ArgEscaping < HeapEscaping < Unknown` per sec-1.5.
+        ArgEscaping < HeapEscaping < Unknown` per §AIMS §3.5.
 
       (P5) Uniqueness componentwise max:
         r.uniqueness = max(p.uniqueness, q.uniqueness)
         under the chain order `Unique < MaybeShared < Shared`
-        per sec-1.4.
+        per §AIMS §3.4.
 
       (P6) `may_share` boolean OR:
         r.may_share = p.may_share || q.may_share
         per sec-5 IC-3 may_share(OR) clause.
 
       Plus three lattice-property conjuncts inherited from
-      sec-1.8 + standard product-lattice algebra:
+      §AIMS §3 + standard product-lattice algebra:
 
       (P7) Commutativity:
         join_param_contract(p, q) = join_param_contract(q, p)
@@ -107,7 +107,7 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
     Nine-part discharge corresponding to (P1)..(P9); per-dim
     conjuncts (P1)..(P6) ground in the shipped Rust line-by-line
     structural match to the spec; lattice-property conjuncts
-    (P7)..(P9) ground in lemmas L-1, L-2, L-6 from sec-1.8.
+    (P7)..(P9) ground in lemmas L-1, L-2, L-6 from §AIMS §3.
 
     Per-dimension parts (P1)..(P5) — uniform structural match:
 
@@ -135,19 +135,19 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
       boolean OR.
 
       Part (P1) — `access.join` IS `max` over `Borrowed < Owned`
-      by sec-1.1; line 392 structurally matches spec.
+      by §AIMS §3.1; line 392 structurally matches spec.
 
       Part (P2) — `consumption.join` IS `max` over `Dead <
-      Linear < Affine < Unrestricted` by sec-1.2; line 393
+      Linear < Affine < Unrestricted` by §AIMS §3.2; line 393
       structurally matches spec.
 
       Part (P3) — `cardinality.join` IS `max` over `Absent <
-      Once < Many` by sec-1.3; line 394 structurally matches
+      Once < Many` by §AIMS §3.3; line 394 structurally matches
       spec.
 
       Part (P4) — `locality_bound.join` IS `max` over
       `BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping
-      < Unknown` by sec-1.5; line 397 structurally matches
+      < Unknown` by §AIMS §3.5; line 397 structurally matches
       spec. The shipped struct preserves `locality_bound` as
       the SSOT dimension name; spec Annex E §AIMS.5
       "Both `seq_add` and `alt_join` coincide with `join` for
@@ -156,7 +156,7 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
       lattice join for Locality.
 
       Part (P5) — `uniqueness.join` IS `max` over `Unique <
-      MaybeShared < Shared` by sec-1.4; line 398 structurally
+      MaybeShared < Shared` by §AIMS §3.4; line 398 structurally
       matches spec.
 
       Coherence side-conditions for (P1)..(P5):
@@ -199,7 +199,7 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
       which is the canonical lattice-join for the 2-element
       boolean chain. Structural match to spec.
 
-      Coherence with sec-1.5 note "`may_share` = per-parameter
+      Coherence with §AIMS §3.5 note "`may_share` = per-parameter
       property (orthogonal to Locality)": no canonicalization
       rule (CN-1 through CN-8) mutates `may_share`, so the
       OR-join survives the post-join canonicalization round
@@ -301,7 +301,7 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
     Convergence side-condition (cross-cite to IC-7):
 
       Iteration terminates because:
-        (a) Each per-dim chain has finite height per sec-1.8 L-5
+        (a) Each per-dim chain has finite height per §AIMS §3 L-5
             (Access 1, Consumption 3, Cardinality 2, Locality
             4, Uniqueness 2; sum 12).
         (b) `may_share` has height 1 (false → true).
@@ -441,7 +441,7 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
 
       Commutativity (P7) is therefore load-bearing for
       compilation determinism; non-commutative joins are
-      banned at the lattice level (sec-1.8 L-1).
+      banned at the lattice level (§AIMS §3 L-1).
 
     Negative-direction witness — non-associative N-ary join
     rejected:
@@ -529,7 +529,7 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
                            canonical theoretical foundation
                            for interprocedural fixpoint
                            analysis with componentwise lattice
-                           joins; arc.md §Reference Repos
+                           joins; the published reference-compiler corpus
                            cites Lean 4 + Swift ARC + Koka
                            Perceus as the prior art set
 

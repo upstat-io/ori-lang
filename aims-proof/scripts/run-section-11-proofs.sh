@@ -3,7 +3,7 @@
 # run-section-11-proofs.sh — sec-11 coexistence-handshake-proofs gate.
 #
 # Per the coexistence-handshake proofs
-# sec-11.1 success_criteria: invokes aims-proof/checker/ across the sec-11
+# the §11 coexistence section success_criteria: invokes aims-proof/checker/ across the sec-11
 # coexistence corpus ONLY (proofs/11-coexistence/ CH-1..CH-5 + CH-comp +
 # Handshake.proof SSOT spec file), emits per-CH pass/fail keyed to the
 # Per-CH Proof-Status Tracking table, and runs the compiler-conformance cross-
@@ -26,7 +26,7 @@
 # Phases:
 # (a) cargo build --release -p aims-proof-checker — pre-run build.
 # Failure -> coexistence_handshake_infrastructure_failed-class
-# (compiler_spec_divergence routing per the sec-11.1 Decision table).
+# (compiler_spec_divergence routing per the §11 coexistence section Decision table).
 # (b) per-proof discharge: every CH-N artifact MUST be status: valid.
 # Fail or UnimplementedEngineShape -> a fail-branch exit_reason
 # (exit 2).
@@ -132,7 +132,7 @@ fi
 # qualifier + Tier 2 behavioral fixture asserting AimsStateMap immutability +
 # RC inc-dec balance + elimination terminates in eliminate_burden_ops).
 # CH-1/CH-2/CH-3/CH-5/CH-comp -> conformance: target-only (no single shipped
-# function per the sec-11.1 coexistence_dispatch surface that has not yet
+# function per the §11 coexistence section coexistence_dispatch surface that has not yet
 # landed; production composition surface above eliminate_burden_ops pending).
 conformance_pass=0
 conformance_target_only=5 # CH-1, CH-2, CH-3, CH-5, CH-comp

@@ -1,7 +1,7 @@
 Theorem CH-105: monotonicity engine bootstrap (TF-3 Construct monotonicity)
 
   Preconditions:
-    - the Access x Consumption 2-dim sub-lattice per Annex E §AIMS.1 + sec-1.2
+    - the Access x Consumption 2-dim sub-lattice per Annex E §AIMS §3.1 + §AIMS §3.2
     - Access carrier: Borrowed less than Owned (height 1)
     - Consumption carrier: Dead less than Linear less than Affine
       less than Unrestricted (height 3)

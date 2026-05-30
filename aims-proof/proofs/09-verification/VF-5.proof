@@ -3,7 +3,7 @@ Theorem VF-5: end-to-end verification mandate — implementation + invariant enf
   Preconditions:
     - VF-5 governs the end-to-end mandate per Annex E §AIMS VF-5: "Every
       active subsystem SHALL be end-to-end verified: implementation + invariant
-      enforcement + tests. Missing any = incomplete." Restated by arc.md
+      enforcement + tests. Missing any = incomplete." Restated by Annex E §AIMS
       Non-Negotiable-Invariants #4: "The enabled surface must be end-to-end
       verified."
     - VF-5's concrete shape is Subsystem -> Bool per
@@ -15,7 +15,7 @@ Theorem VF-5: end-to-end verification mandate — implementation + invariant enf
       subsystem incomplete.
     - TARGET-ONLY mandate: there is no single shipped verifier function — VF-5
       is a whole-subsystem completeness invariant the verification stack as a
-      whole asserts (per arc.md Non-Negotiable-Invariants #4). conformance:
+      whole asserts (per Annex E §AIMS §2 invariant 4). conformance:
       target-only.
 
   Soundness property:

@@ -11,7 +11,7 @@ Theorem RL-22: KnownSafe inner-pair elimination (physical RC provably positive)
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.
     - RL-22 is a POST-PIPELINE pass operating on realized IR (Swift ARC
-      optimizer lineage per arc.md sec-Advanced-Optimization-Patterns); VF-7
+      optimizer lineage per Annex E §AIMS §8); VF-7
       tier (a)+(b)+(c) applies when implemented.
     - Transfer: RcInc(v) -> KnownSafe(v) := true; RcDec(v) -> KnownSafe(v) :=
       false for v and all SSA / borrow aliases; Set/SetTag and may_deallocate
@@ -62,4 +62,4 @@ Theorem RL-22: KnownSafe inner-pair elimination (physical RC provably positive)
 
   Expected:
     status: valid
-    reason: section_08 rc_counting engine discharges RL-22 via the KnownSafe decision grid (dominating inc + no intervening dec -> eliminate) and net-0 RC-ledger preservation showing the with-inner-pair and eliminated lifecycles both balance, with a negative-direction witness rejecting elimination without a dominating inc, grounded in the Swift ARC KnownSafe lineage (arc.md sec-Advanced-Optimization-Patterns)
+    reason: section_08 rc_counting engine discharges RL-22 via the KnownSafe decision grid (dominating inc + no intervening dec -> eliminate) and net-0 RC-ledger preservation showing the with-inner-pair and eliminated lifecycles both balance, with a negative-direction witness rejecting elimination without a dominating inc, grounded in the Swift ARC KnownSafe lineage (Annex E §AIMS §8)
