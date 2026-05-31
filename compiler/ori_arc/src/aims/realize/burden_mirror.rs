@@ -26,19 +26,9 @@
 //! the Step-4b `burden_emitted` flag (Phase 2.5 elimination may have removed a
 //! var's inc).
 
+use crate::aims::verify::burden_delta::whole_var_dec_target;
 use crate::graph::{compute_postorder, compute_predecessors};
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
-
-/// Whole-var burden-dec variant target, or `None` for non-dec / field-grain
-/// `BurdenDecField`.
-fn whole_var_dec_target(instr: &ArcInstr) -> Option<usize> {
-    match instr {
-        ArcInstr::BurdenDec { var }
-        | ArcInstr::BurdenDecPartial { var, .. }
-        | ArcInstr::BurdenDecVariant { var } => Some(var.index()),
-        _ => None,
-    }
-}
 
 #[expect(
     clippy::cast_possible_truncation,
@@ -118,9 +108,9 @@ fn compute_inc_dec_presence(func: &ArcFunction, num_vars: usize) -> (Vec<bool>, 
                 if var.index() < num_vars {
                     has_inc[var.index()] = true;
                 }
-            } else if let Some(vi) = whole_var_dec_target(instr) {
-                if vi < num_vars {
-                    has_dec[vi] = true;
+            } else if let Some(dec_var) = whole_var_dec_target(instr) {
+                if dec_var.index() < num_vars {
+                    has_dec[dec_var.index()] = true;
                 }
             }
         }
@@ -201,10 +191,12 @@ fn merge_equalize_preds(
         .iter()
         .filter_map(|&p| exit_net[p].map(|e| (p, e)))
         .collect();
-    if defined.is_empty() {
+    // No defined predecessor (back-edge / unvisited): nothing to equalize.
+    // `min()` collapses the empty-`defined` case into the same early return as
+    // the binding success, so there is no dead default value.
+    let Some(target) = defined.iter().map(|(_, e)| *e).min() else {
         return (0, 0);
-    }
-    let target = defined.iter().map(|(_, e)| *e).min().unwrap_or(0);
+    };
     let mut decs = 0usize;
     for &(p, e) in &defined {
         for _ in 0..(e - target) {
@@ -236,7 +228,7 @@ fn walk_block_balanced(
         if matches!(&instr, ArcInstr::BurdenInc { var: v } if v.index() == raw) {
             running += 1;
         }
-        if whole_var_dec_target(&instr) == Some(raw) {
+        if whole_var_dec_target(&instr).map(ArcVarId::index) == Some(raw) {
             if running <= 0 {
                 new_body.push(ArcInstr::BurdenInc { var });
                 running += 1;

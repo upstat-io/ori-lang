@@ -1,0 +1,385 @@
+//! Moved-out-fields forward-dataflow cluster for the Phase 5 burden walk.
+//!
+//! Computes, per owned aggregate var, the set of top-level field indices
+//! transferred out via field-projection moves along every reachable CFG path.
+//! Feeds the full-move / partial-move partition that gates `BurdenDec`
+//! suppression and `BurdenDecPartial.skip_fields` per `Spec: Annex E §AIMS
+//! RL-2`. Pure structural bookkeeping over `BurdenLowerCtx`'s per-block maps;
+//! no lattice consultation.
+
+use crate::graph::{compute_postorder, compute_predecessors};
+use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
+use crate::lower::burden::{Burden, TypeRef};
+use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
+use ori_types::TypeRegistry;
+use rustc_hash::{FxHashMap, FxHashSet};
+
+use super::{instr_transfer_vars, BurdenLowerCtx};
+
+/// Populate `ctx.moved_out_fields_{block_local,block_entry,block_exit}` per the
+/// Non-Drop partial-move forward-flow rule. Three-pass walk over the CFG;
+/// BOUNDED structural bookkeeping (finite field set per var, monotone field-set
+/// growth → bounded fixpoint).
+///
+/// **Pass 1**: walk every block's body; record every `ArcInstr::Project
+/// { dst, value, field, .. }` as a `dst → (value, field)` entry in a local
+/// map.
+///
+/// **Pass 2**: walk every block's body + terminator; for each transferred
+/// var (per `instr_transfer_vars` which honors `is_owned_position` + the
+/// Set-value carve-out per `Spec: Annex E §AIMS TF-15` + IA-5 step (1), and
+/// per the precomputed `terminator_transfer_per_block` set), if the
+/// transferred var matches a `project_dst`, insert `(project_src, field)` into
+/// `block_local[block_idx]`. This is the per-block transfer function output
+/// ("what gets moved DURING this block").
+///
+/// Project ALONE does NOT set the bit (per `Spec: Annex E §AIMS TF-4` —
+/// Project produces `Borrowed`; `is_owned_position`'s `_ => false`
+/// excludes it). Project consumed at a borrowed position (e.g.,
+/// `IsShared`) also leaves the bit unset — `IsShared` falls through
+/// `_ => false` in `is_owned_position` and has no Set-value-style
+/// carve-out.
+///
+/// **Pass 3 (X.2 merge)**: forward dataflow over the CFG. For each
+/// block `B` in reverse-postorder:
+///   - `entry(B) := INTERSECT over P in predecessors(B): exit(P)` (or
+///     empty map for entry block); only fields moved on ALL incoming
+///     paths are "definitely moved" at entry.
+///   - `exit(B) := entry(B) ∪ block_local(B)` (pointwise union: for
+///     each `(var, fields)` pair, merge field sets via set union).
+///
+/// Bounded fixpoint via worklist iteration to handle CFG back edges
+/// (loops) — monotonicity of `∪` over a finite field-index set
+/// (`burden.owned_fields()` is bounded by the struct's declared field
+/// count, ≤ 256 in practice) guarantees termination in `O(N_BLOCKS *
+/// MAX_FIELDS)` steps. Defensive iteration cap: `max(N_BLOCKS, 64) * 4`
+/// rounds per `Spec: Annex E §AIMS IC-7` convergence-bound pattern.
+///
+/// When E2043 typeck rejection guarantees equal predecessor exit sets the
+/// INTERSECT degenerates to pick-any; INTERSECT remains the correct merge —
+/// robust across both rejection states and structurally simpler than
+/// special-casing per typeck status.
+///
+/// **Union rebuild**: `moved_out_fields_union` rebuilt as the pointwise
+/// union over every `block_exit[B]`. Preserves the `moved_out_fields()`
+/// accessor contract; consumed by `compute_full_move_vars` /
+/// `compute_partial_move_vars` per `Spec: Annex E §AIMS RL-2`
+/// partial-transfer semantics.
+pub(super) fn populate_moved_out_fields(
+    ctx: &mut BurdenLowerCtx<'_>,
+    func: &ArcFunction,
+    terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
+) {
+    // Pass 1: collect (project_dst → (project_src, field)) tuples.
+    let mut project_origins: FxHashMap<ArcVarId, (ArcVarId, u32)> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project {
+                dst, value, field, ..
+            } = instr
+            {
+                project_origins.insert(*dst, (*value, *field));
+            }
+        }
+    }
+
+    // Pass 2: walk instructions + terminators; check transfer-vars against
+    // project_origins. instr_transfer_vars honors is_owned_position +
+    // Set-value carve-out; terminator_transfer_per_block carries
+    // Return / Jump-to-Owned-param / Invoke-Owned / InvokeIndirect-Owned
+    // per `Spec: Annex E §AIMS RL-2`. Insertions land in
+    // `block_local[block_idx]` — the per-block transfer function output
+    // consumed by Pass 3's merge.
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for instr in &block.body {
+            let transfer_vars = instr_transfer_vars(instr);
+            for var in &transfer_vars {
+                if let Some(&(src, field)) = project_origins.get(var) {
+                    ctx.moved_out_fields_block_local[block_idx]
+                        .entry(src)
+                        .or_default()
+                        .insert(field);
+                }
+            }
+        }
+        if let Some(term_transfers) = terminator_transfer_per_block.get(block_idx) {
+            for var in term_transfers {
+                if let Some(&(src, field)) = project_origins.get(var) {
+                    ctx.moved_out_fields_block_local[block_idx]
+                        .entry(src)
+                        .or_default()
+                        .insert(field);
+                }
+            }
+        }
+    }
+
+    // Pass 3: forward dataflow with INTERSECT-at-entry merge.
+    propagate_moved_out_fields(ctx, func);
+
+    // Union step: rebuild the flat view from block_exit storage. Each
+    // var's union is the set of fields moved on ANY reachable CFG path
+    // from definition to last use — matches the partial-transfer
+    // semantics consumed by `compute_full_move_vars` /
+    // `compute_partial_move_vars`. Cleared first to keep
+    // `populate_moved_out_fields` idempotent on repeat invocation.
+    ctx.moved_out_fields_union.clear();
+    for per_block in &ctx.moved_out_fields_block_exit {
+        for (&src, fields) in per_block {
+            let union_entry = ctx.moved_out_fields_union.entry(src).or_default();
+            for &field in fields {
+                union_entry.insert(field);
+            }
+        }
+    }
+}
+
+/// Pass 3 — forward CFG dataflow propagating moved-field sets via
+/// INTERSECT-at-entry merge.
+///
+/// Computes `entry(B) := INTERSECT over P in predecessors(B): exit(P)`
+/// (empty for entry block) and `exit(B) := entry(B) ∪ block_local(B)`
+/// for every block in reverse-postorder. Bounded fixpoint via worklist
+/// iteration handles back edges; monotonicity of `∪` over a finite
+/// field-index set guarantees termination.
+///
+/// INTERSECT semantics: for each var-key in the intersect result, the
+/// field set is the intersection of fields moved on EVERY predecessor
+/// path. Vars present in only one predecessor's exit set are DROPPED
+/// from the intersect (NOT definitely-moved on this path). Per `Spec:
+/// Annex E §AIMS RL-2`, this is the architecturally-correct merge —
+/// emitting `BurdenDecPartial` with a field skipped only because ONE
+/// of N predecessors moved it would be a use-after-free if the run-time
+/// execution took a different predecessor.
+fn propagate_moved_out_fields(ctx: &mut BurdenLowerCtx<'_>, func: &ArcFunction) {
+    let n = func.blocks.len();
+    if n == 0 {
+        return;
+    }
+
+    let predecessors = compute_predecessors(func);
+
+    // Optimistic-⊤ initialization for MUST-move INTERSECT fixpoint per
+    // standard dataflow practice (Kildall 1973; Aho/Lam/Sethi/Ullman
+    // chapter 9.3). For an INTERSECT (must-) analysis, non-entry blocks
+    // are seeded with the lattice top ⊤ so that INTERSECT with ⊤ acts
+    // as identity until each predecessor has been processed at least
+    // once. Without ⊤ seeding, a back-edge predecessor's empty initial
+    // exit would falsely "intersect away" a fact contributed by a
+    // forward predecessor, yielding a strictly-weaker (incorrect)
+    // fixpoint at loop-exit blocks.
+    //
+    // ⊤ here = the universe of all `(project_src, field)` pairs that
+    // appear in ANY block_local; no block can possibly move a (var,
+    // field) pair outside this universe, so this is a sound upper
+    // bound. Entry block stays at ⊥ (empty) — the entry has no
+    // predecessors and starts with "nothing yet moved".
+    let universe = compute_block_local_universe(&ctx.moved_out_fields_block_local);
+    let entry_idx = func.entry.index();
+    for b in 0..n {
+        if b != entry_idx {
+            ctx.moved_out_fields_block_exit[b].clone_from(&universe);
+        }
+    }
+
+    // Reverse-postorder traversal: visiting blocks in RPO converges on a
+    // single pass for DAG IR. Back edges require the outer worklist loop
+    // below.
+    let mut rpo = compute_postorder(func);
+    rpo.reverse();
+
+    // Defensive iteration cap per `Spec: Annex E §AIMS IC-7`
+    // convergence-bound pattern. Each round MAY shrink (or grow once at
+    // most, on the first non-⊤ pass through a block) one (var, field)
+    // pair per block; lattice height is bounded by `n_blocks *
+    // max_fields_per_struct`. Practical cap is `max(N_BLOCKS, 64) * 4`
+    // — far above any realistic loop-fixpoint depth.
+    let iteration_cap = n.saturating_mul(4).max(64);
+    let mut changed = true;
+    let mut rounds = 0usize;
+    while changed && rounds < iteration_cap {
+        changed = false;
+        rounds += 1;
+        for &b in &rpo {
+            // Compute new entry state: INTERSECT over predecessors' exits.
+            // Entry block (or any unreachable block with no predecessors)
+            // has empty entry.
+            let new_entry =
+                intersect_predecessor_exits(&predecessors[b], &ctx.moved_out_fields_block_exit);
+
+            // Compute new exit state: entry ∪ block_local.
+            let new_exit = union_entry_with_local(&new_entry, &ctx.moved_out_fields_block_local[b]);
+
+            if ctx.moved_out_fields_block_entry[b] != new_entry {
+                ctx.moved_out_fields_block_entry[b] = new_entry;
+                changed = true;
+            }
+            if ctx.moved_out_fields_block_exit[b] != new_exit {
+                ctx.moved_out_fields_block_exit[b] = new_exit;
+                changed = true;
+            }
+        }
+    }
+
+    debug_assert!(
+        !changed,
+        "moved_out_fields fixpoint failed to converge in {iteration_cap} rounds — lattice height should be O(n_blocks * max_fields_per_struct)",
+    );
+}
+
+/// Compute the universe of `(project_src, field)` pairs that appear in
+/// ANY block-local moved-field map. This is the lattice top ⊤ for the
+/// MUST-move INTERSECT analysis: a sound upper bound on what any block
+/// could possibly move.
+fn compute_block_local_universe(
+    block_local: &[FxHashMap<ArcVarId, FxHashSet<u32>>],
+) -> FxHashMap<ArcVarId, FxHashSet<u32>> {
+    let mut universe: FxHashMap<ArcVarId, FxHashSet<u32>> = FxHashMap::default();
+    for per_block in block_local {
+        for (&src, fields) in per_block {
+            let dest = universe.entry(src).or_default();
+            for &f in fields {
+                dest.insert(f);
+            }
+        }
+    }
+    universe
+}
+
+/// INTERSECT field-sets across predecessors' exit states.
+///
+/// For each var-key present in ALL predecessor exit sets, take the
+/// intersection of field sets. Var-keys present in only a strict subset
+/// of predecessors are dropped (NOT definitely-moved at this entry).
+/// Empty predecessor list (entry block) returns an empty map.
+fn intersect_predecessor_exits(
+    preds: &[usize],
+    block_exits: &[FxHashMap<ArcVarId, FxHashSet<u32>>],
+) -> FxHashMap<ArcVarId, FxHashSet<u32>> {
+    let mut result: FxHashMap<ArcVarId, FxHashSet<u32>> = FxHashMap::default();
+    let Some((&first, rest)) = preds.split_first() else {
+        return result;
+    };
+    // Seed from first predecessor.
+    for (&src, fields) in &block_exits[first] {
+        result.insert(src, fields.clone());
+    }
+    // Intersect against each remaining predecessor.
+    for &p in rest {
+        let other = &block_exits[p];
+        result.retain(|src, fields| {
+            let Some(other_fields) = other.get(src) else {
+                return false;
+            };
+            fields.retain(|f| other_fields.contains(f));
+            !fields.is_empty()
+        });
+    }
+    result
+}
+
+/// Pointwise union of `entry` and `local`. For each var present in
+/// either, the result's field set is the union. Pure function — the
+/// per-block transfer function `exit(B) = entry(B) ∪ block_local(B)`.
+fn union_entry_with_local(
+    entry: &FxHashMap<ArcVarId, FxHashSet<u32>>,
+    local: &FxHashMap<ArcVarId, FxHashSet<u32>>,
+) -> FxHashMap<ArcVarId, FxHashSet<u32>> {
+    let mut result = entry.clone();
+    for (&src, fields) in local {
+        let dest = result.entry(src).or_default();
+        for &f in fields {
+            dest.insert(f);
+        }
+    }
+    result
+}
+
+/// Derive the full-move var set. For each `var` in `owned_vars_needing_rc`,
+/// the full-move criterion holds when every `Burden::owned_fields()` entry's
+/// `field_path[0]` (top-level field index) is contained in
+/// `moved_out_fields[var]`. Vacuously true for vars with empty
+/// `owned_fields()` (treated as not-full-move because such a var would not be
+/// in `owned_vars_needing_rc` per the `burden_carries_rc` filter — the vacuous
+/// case is unreachable in practice).
+///
+/// Returns a set of vars whose `BurdenDec` emission is SUPPRESSED at last-use
+/// sites + terminator-positions per AIMS RL-2 (`BurdenDec` SHALL be emitted at
+/// last use of an owned value UNLESS the last use is ownership-transferring;
+/// full-move == complete field-projection transfer).
+///
+/// Partial-move (some-but-not-all fields covered by `moved_out_fields`) is NOT
+/// in the full-move set — those vars still emit a conservative FULL `BurdenDec`
+/// at last-use; field-aware partial-drop emission is handled by the
+/// `BurdenDecPartial` IR variant.
+pub(super) fn compute_full_move_vars(
+    func: &ArcFunction,
+    moved_out_fields: &FxHashMap<ArcVarId, FxHashSet<u32>>,
+    type_registry: &TypeRegistry,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let mut full_move_vars: FxHashSet<ArcVarId> = FxHashSet::default();
+    for &var in owned_vars_needing_rc {
+        let Some(moved_fields) = moved_out_fields.get(&var) else {
+            continue;
+        };
+        let var_type = func.var_types[var.index()];
+        let ty: TypeRef = idx_to_type_ref(var_type, type_registry);
+        let Some(burden) = lookup_burden(ty, type_registry) else {
+            continue;
+        };
+        // Empty owned_fields → vacuous all() returns true; guard against
+        // false-positive by requiring at least one owned field. Vars in
+        // owned_vars_needing_rc pass burden_carries_rc which excludes EMPTY
+        // burdens, so this guard is defensive (catches future edge cases).
+        let mut has_owned_field = false;
+        let all_top_level_moved = burden.owned_fields().all(|of| {
+            has_owned_field = true;
+            of.field_path
+                .first()
+                .is_some_and(|f| moved_fields.contains(f))
+        });
+        if has_owned_field && all_top_level_moved {
+            full_move_vars.insert(var);
+        }
+    }
+    full_move_vars
+}
+
+/// Derive the partial-move var map. For each `var` in `owned_vars_needing_rc`
+/// whose `moved_out_fields[var]` is non-empty AND `var` is NOT in
+/// `full_move_vars`, collect a sorted `Vec<u32>` of the moved-out top-level
+/// field indices. This is the `skip_fields` payload for the
+/// `BurdenDecPartial { var, skip_fields }` IR variant.
+///
+/// Sorted-Vec encoding makes pass output deterministic: `moved_out_fields[var]`
+/// is a `FxHashSet<u32>` whose iteration order is non-deterministic, so sorting
+/// at emission time yields byte-identical IR across runs.
+///
+/// Returns a map from `ArcVarId` to its sorted `skip_fields`. Vars in
+/// `full_move_vars` are excluded (suppression branch handles them); vars
+/// with empty `moved_out_fields` are excluded (no skip required → emit full
+/// `BurdenDec`). The result feeds the three-way branch in
+/// `emit_instr_burdens` and `emit_terminator_burden_decs` at last-use sites.
+pub(super) fn compute_partial_move_vars(
+    moved_out_fields: &FxHashMap<ArcVarId, FxHashSet<u32>>,
+    full_move_vars: &FxHashSet<ArcVarId>,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> FxHashMap<ArcVarId, Vec<u32>> {
+    let mut partial: FxHashMap<ArcVarId, Vec<u32>> = FxHashMap::default();
+    for (&var, fields) in moved_out_fields {
+        if fields.is_empty() {
+            continue;
+        }
+        if !owned_vars_needing_rc.contains(&var) {
+            continue;
+        }
+        if full_move_vars.contains(&var) {
+            continue;
+        }
+        let mut sorted: Vec<u32> = fields.iter().copied().collect();
+        sorted.sort_unstable();
+        partial.insert(var, sorted);
+    }
+    partial
+}

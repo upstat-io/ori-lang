@@ -10,6 +10,23 @@
 
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 
+/// Whole-var burden-dec variant target, or `None` for a non-dec instruction
+/// or the field-grain `BurdenDecField`.
+///
+/// SSOT for the whole-var burden-dec variant set `{BurdenDec, BurdenDecPartial,
+/// BurdenDecVariant}`. `BurdenDecField` (field-grain) is excluded — it targets
+/// a field of the base, not the whole-var balance. Every site reasoning about
+/// whole-var burden decs consumes this predicate (`compute_var_block_deltas`
+/// here; `reconcile_burden_ledger` in `aims/realize/burden_mirror.rs`).
+pub(crate) fn whole_var_dec_target(instr: &ArcInstr) -> Option<ArcVarId> {
+    match instr {
+        ArcInstr::BurdenDec { var }
+        | ArcInstr::BurdenDecPartial { var, .. }
+        | ArcInstr::BurdenDecVariant { var } => Some(*var),
+        _ => None,
+    }
+}
+
 /// Forward burden-balance dataflow result for one variable.
 ///
 /// `entry_net[b]` is the agreed net `Σ BurdenInc − Σ BurdenDec*` along every
@@ -97,12 +114,10 @@ pub(crate) fn compute_var_block_deltas(func: &ArcFunction, var: ArcVarId) -> Vec
     let mut delta: Vec<i64> = vec![0; func.blocks.len()];
     for (idx, block) in func.blocks.iter().enumerate() {
         for instr in &block.body {
-            match instr {
-                ArcInstr::BurdenInc { var: v } if *v == var => delta[idx] += 1,
-                ArcInstr::BurdenDec { var: v } if *v == var => delta[idx] -= 1,
-                ArcInstr::BurdenDecPartial { var: v, .. } if *v == var => delta[idx] -= 1,
-                ArcInstr::BurdenDecVariant { var: v } if *v == var => delta[idx] -= 1,
-                _ => {}
+            if matches!(instr, ArcInstr::BurdenInc { var: v } if *v == var) {
+                delta[idx] += 1;
+            } else if whole_var_dec_target(instr) == Some(var) {
+                delta[idx] -= 1;
             }
         }
     }
