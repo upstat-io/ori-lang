@@ -15,6 +15,7 @@ use ori_ir::{DerivedTrait, FieldOp};
 use ori_types::Idx;
 use tracing::trace;
 
+use super::super::arc_emitter::narrowed_collection_element_width;
 use super::super::function_compiler::FunctionCompiler;
 use super::super::type_info::TypeInfo;
 use super::super::value_id::{LLVMTypeId, ValueId};
@@ -106,29 +107,11 @@ pub(super) fn emit_field_operation<'a>(
             FieldOp::Hash => emit_str_hash_call(fc, lhs, name, str_ty_id),
         },
 
-        // List/Set: use ori_list_eq_scalar for equality (byte-level comparison)
-        TypeInfo::List { element } | TypeInfo::Set { element } => {
-            let elem = *element;
-            match op {
-                FieldOp::Equals => {
-                    emit_list_eq_call(fc, lhs, expect_rhs(rhs), elem, name, str_ty_id)
-                }
-                FieldOp::Compare => fc.builder_mut().const_i8(1), // Equal fallback
-                FieldOp::Hash => fc.builder_mut().const_i64(0),   // Hash fallback
-            }
-        }
-
-        // Map: use ori_map_eq with key/value comparison callbacks
-        TypeInfo::Map { key, value } => {
-            let key = *key;
-            let value = *value;
-            match op {
-                FieldOp::Equals => {
-                    emit_map_eq_call(fc, lhs, expect_rhs(rhs), key, value, name, str_ty_id)
-                }
-                FieldOp::Compare => fc.builder_mut().const_i8(1), // Equal fallback
-                FieldOp::Hash => fc.builder_mut().const_i64(0),   // Hash fallback
-            }
+        // List/Set/Map: byte-level (scalar) or thunk-driven (deep) equality;
+        // Compare/Hash fall back to Equal/0. `field_type` is the enclosing
+        // collection idx, threaded so narrowed element strides key on it.
+        TypeInfo::List { .. } | TypeInfo::Set { .. } | TypeInfo::Map { .. } => {
+            emit_collection_field_op(fc, op, lhs, rhs, field_type, &info, name, str_ty_id)
         }
 
         // Wrapper types: Option, Result, Tuple — structural comparison
@@ -168,6 +151,50 @@ fn emit_fallback<'a>(
         FieldOp::Equals => fc.builder_mut().icmp_eq(lhs, expect_rhs(rhs), name),
         FieldOp::Compare => fc.builder_mut().const_i8(1), // Equal
         FieldOp::Hash => fc.builder_mut().const_i64(0),
+    }
+}
+
+/// Dispatch a field op for a collection type (List, Set, Map).
+///
+/// `Equals` routes to `ori_list_eq_*` / `ori_map_eq` (scalar or deep);
+/// `Compare`/`Hash` fall back to `Equal` / `0`. `collection_type` is the
+/// enclosing collection idx, threaded into element-size computation so a
+/// narrowed element stride keys on that specific collection.
+fn emit_collection_field_op<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    op: FieldOp,
+    lhs: ValueId,
+    rhs: Option<ValueId>,
+    collection_type: Idx,
+    info: &TypeInfo,
+    name: &str,
+    str_ty_id: LLVMTypeId,
+) -> ValueId {
+    match op {
+        FieldOp::Equals => match info {
+            TypeInfo::List { element } | TypeInfo::Set { element } => emit_list_eq_call(
+                fc,
+                lhs,
+                expect_rhs(rhs),
+                collection_type,
+                *element,
+                name,
+                str_ty_id,
+            ),
+            TypeInfo::Map { key, value } => emit_map_eq_call(
+                fc,
+                lhs,
+                expect_rhs(rhs),
+                collection_type,
+                *key,
+                *value,
+                name,
+                str_ty_id,
+            ),
+            _ => emit_fallback(fc, op, lhs, rhs, name),
+        },
+        FieldOp::Compare => fc.builder_mut().const_i8(1), // Equal fallback
+        FieldOp::Hash => fc.builder_mut().const_i64(0),   // Hash fallback
     }
 }
 
@@ -310,12 +337,13 @@ fn emit_list_eq_call<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     lhs: ValueId,
     rhs: ValueId,
+    collection_type: Idx,
     element_type: Idx,
     name: &str,
     str_ty_id: LLVMTypeId,
 ) -> ValueId {
     let info = fc.type_info().get(element_type);
-    let elem_size = compute_elem_size(fc, element_type, &info);
+    let elem_size = compute_elem_size(fc, collection_type, element_type, &info);
 
     let lhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.lhs_list"));
     fc.builder_mut().store(lhs, lhs_alloca);
@@ -353,6 +381,7 @@ fn emit_map_eq_call<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     lhs: ValueId,
     rhs: ValueId,
+    collection_type: Idx,
     key_type: Idx,
     val_type: Idx,
     name: &str,
@@ -366,8 +395,8 @@ fn emit_map_eq_call<'a>(
     let key_info = fc.type_info().get(key_type);
     let val_info = fc.type_info().get(val_type);
 
-    let key_size = compute_elem_size(fc, key_type, &key_info);
-    let val_size = compute_elem_size(fc, val_type, &val_info);
+    let key_size = compute_elem_size(fc, collection_type, key_type, &key_info);
+    let val_size = compute_elem_size(fc, collection_type, val_type, &val_info);
     let key_size_val = fc.builder_mut().const_i64(key_size);
     let val_size_val = fc.builder_mut().const_i64(val_size);
 
@@ -425,7 +454,18 @@ fn needs_deep_comparison(info: &TypeInfo) -> bool {
 /// For compound types (Struct, Option, Result, Tuple), resolves the LLVM
 /// type to compute the actual store size. Structs with fat-pointer fields
 /// (e.g., `str` = 24 bytes) cannot use `fields.len() * 8`.
-fn compute_elem_size<'a>(fc: &FunctionCompiler<'_, 'a, 'a, '_>, ty: Idx, info: &TypeInfo) -> i64 {
+///
+/// `collection_idx` is the enclosing collection type whose backing buffer
+/// stores elements of `ty` (e.g. the `[int]` / `{K: V}` type). For narrowed
+/// int elements the stride is keyed on THAT collection's `ReprPlan` entry via
+/// the [`narrowed_collection_element_width`] SSOT — never a `ReprPlan`-wide
+/// scan, which conflates widths across distinct narrowed collections.
+fn compute_elem_size<'a>(
+    fc: &FunctionCompiler<'_, 'a, 'a, '_>,
+    collection_idx: Idx,
+    ty: Idx,
+    info: &TypeInfo,
+) -> i64 {
     match info {
         TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Ordering => 1,
         TypeInfo::Char => 4,
@@ -438,24 +478,18 @@ fn compute_elem_size<'a>(fc: &FunctionCompiler<'_, 'a, 'a, '_>, ty: Idx, info: &
             crate::codegen::TypeLayoutResolver::type_store_size(llvm_ty) as i64
         }
         _ => {
-            // Integer narrowing phase C: check if this element type is narrowed
-            // as a collection element. For `int` elements in narrowed
-            // collections, the element size is 1/2/4 instead of canonical 8.
+            // Integer narrowing phase C: when `ty` is an int element narrowed
+            // within THIS collection's backing buffer, the stride is 1/2/4
+            // instead of canonical 8. The width is read from the specific
+            // `collection_idx` entry, so two narrowed int collections of
+            // different widths each get their own stride.
             if let Some(plan) = fc.repr_plan() {
                 let resolved = fc.pool().resolve_fully(ty);
                 if fc.pool().tag(resolved) == ori_types::Tag::Int {
-                    for idx in plan.decision_indices() {
-                        if let Some(ori_repr::MachineRepr::FatPointer(
-                            ori_repr::FatRepr::Collection { ref element_repr },
-                        )) = plan.get_repr(idx)
-                        {
-                            if let ori_repr::MachineRepr::Int { width, .. } = element_repr.as_ref()
-                            {
-                                if *width != ori_repr::IntWidth::I64 {
-                                    return i64::from(width.size_bytes());
-                                }
-                            }
-                        }
+                    if let Some(width) =
+                        narrowed_collection_element_width(plan, fc.pool(), collection_idx)
+                    {
+                        return i64::from(width.size_bytes());
                     }
                 }
             }

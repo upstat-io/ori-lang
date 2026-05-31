@@ -108,12 +108,12 @@ pub(super) fn get_or_create_derive_eq_thunk<'a>(
 /// (str, nested collections), calls `ori_list_eq_deep` with an inner eq thunk.
 fn get_or_create_list_eq_thunk<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    _list_ty: Idx,
+    list_ty: Idx,
     element_ty: Idx,
 ) -> Option<ValueId> {
     let elem_info = fc.type_info().get(element_ty);
     let use_deep = needs_deep_comparison(&elem_info);
-    let elem_size = compute_elem_size(fc, element_ty, &elem_info);
+    let elem_size = compute_elem_size(fc, list_ty, element_ty, &elem_info);
 
     // For deep comparison, we need an inner thunk for element equality
     let inner_thunk = if use_deep {

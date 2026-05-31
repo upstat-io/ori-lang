@@ -161,17 +161,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Without `user_drop`, the function emits the plain field walk +
     /// free.
     ///
-    /// The §04.3 plan body specifies an `invoke` + landing-pad wrapper
-    /// around the `user_drop` call so a panicking @drop body still runs
-    /// the field walk via the unwind path. That landing-pad wiring is
-    /// tracked as a follow-up at BUG-04-118 (recursive struct codegen
-    /// blocker); for now the user @drop call uses a plain `call`. The
-    /// `call_drop_fn` runtime guard (per `ori_rt::rc::call_drop_fn`)
-    /// catches the panic and aborts via the `SIGABRT_EXIT_CODE` exit
-    /// path — sound but stricter than the proposal's "first panic
-    /// recoverable" stance. Architectural integrity is preserved (the
-    /// AUGMENT shape is in place); landing-pad wiring is a clearly
-    /// scoped follow-up.
+    /// The `user_drop` call uses a plain `call`, not an `invoke` +
+    /// landing-pad wrapper. A panic in the @drop body therefore aborts via
+    /// the `call_drop_fn` runtime guard (per `ori_rt::rc::call_drop_fn`),
+    /// which exits with `SIGABRT_EXIT_CODE` — sound, but stricter than the
+    /// "first panic recoverable" stance: the field walk does not run on the
+    /// unwind path. The AUGMENT body shape is in place; landing-pad wiring
+    /// is unimplemented.
     fn emit_drop_fields(
         &mut self,
         data_ptr: ValueId,
@@ -195,8 +191,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a plain `call` to the user @drop method FOR the AUGMENT body.
     ///
     /// The user @drop method is a normal impl method compiled via
-    /// `compile_impls` (`llvm.md §Architecture`); its mangled name follows
-    /// `_ori_<Type>$drop` per `llvm.md §Type-Qualified Mangling`. The
+    /// `compile_impls`; its mangled name follows the type-qualified scheme
+    /// (`_ori_<Type>$drop`). The
     /// `FnSym` is a sync token minted by `mint_compiled_drop_fn_sym` at
     /// `register_impl` time — codegen looks up the actual LLVM function
     /// via `get_or_declare_function` on the canonical mangled name.
@@ -213,14 +209,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         _fn_sym: ori_registry::burden::FnSym,
     ) {
-        // Drop method mangling is owned by `llvm.md §Type-Qualified
-        // Mangling`. We use `pool.name_of_typeidx` semantics via the
-        // type registry; in the absence of a direct API, fall back to
-        // the structured `_ori_drop$<idx>` route used by the compiled
-        // drop function. The user @drop dispatch is plan-anchored at
-        // §04.3 AUGMENT body shape and tracked under BUG-04-118 for
-        // full AOT integration; the call shape below is the correct
-        // structural slot.
+        // Drop method mangling follows the type-qualified mangling scheme;
+        // in the absence of a direct name-resolution API here, the call
+        // uses the structured `_ori_user_drop$<idx>` route. This is the
+        // AUGMENT body shape; full AOT user-@drop integration is
+        // unimplemented.
         let func_name = format!("_ori_user_drop${}", ty.raw());
         let ptr_ty = self.builder.ptr_type();
         let user_drop_fn = self

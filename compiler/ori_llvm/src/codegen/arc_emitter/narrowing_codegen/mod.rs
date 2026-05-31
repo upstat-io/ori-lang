@@ -10,10 +10,41 @@
 //!   constructing or extracting fields of narrowed structs.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
-use ori_types::Idx;
+use ori_types::{Idx, Pool};
 
 use super::ArcIrEmitter;
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
+
+#[cfg(test)]
+mod tests;
+
+/// SSOT for narrowed collection-element width, keyed on a SPECIFIC collection
+/// `Idx`. Resolves `collection_idx` through the `Pool`, looks up that exact
+/// type's `ReprPlan` entry, and returns the narrowed element `IntWidth` when
+/// the collection's element repr is `Int` narrowed below canonical `i64`.
+///
+/// Keying on `collection_idx` (not a `ReprPlan`-wide scan) is correct when a
+/// program holds two narrowed-int collections of different widths: each
+/// collection's stride comes from its own entry, never the first match in an
+/// unordered map.
+pub(crate) fn narrowed_collection_element_width(
+    plan: &ori_repr::ReprPlan,
+    pool: &Pool,
+    collection_idx: Idx,
+) -> Option<ori_repr::IntWidth> {
+    use ori_repr::{FatRepr, IntWidth, MachineRepr};
+
+    let resolved = pool.resolve_fully(collection_idx);
+    let repr = plan.get_repr(resolved)?;
+    if let MachineRepr::FatPointer(FatRepr::Collection { ref element_repr }) = repr {
+        if let MachineRepr::Int { width, .. } = element_repr.as_ref() {
+            if *width != IntWidth::I64 {
+                return Some(*width);
+            }
+        }
+    }
+    None
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // Collection element narrowing (integer narrowing phase C)
@@ -21,23 +52,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Check if a collection type has narrowed int elements in the `ReprPlan`.
     ///
     /// Returns the narrowed `IntWidth` if the collection's element repr has been
-    /// narrowed below canonical `i64`, `None` otherwise.
+    /// narrowed below canonical `i64`, `None` otherwise. Delegates to the
+    /// context-free [`narrowed_collection_element_width`] SSOT.
     pub(super) fn narrowed_collection_element_width(
         &self,
         collection_idx: Idx,
     ) -> Option<ori_repr::IntWidth> {
-        use ori_repr::{FatRepr, IntWidth, MachineRepr};
-
         let plan = self.repr_plan?;
-        let repr = plan.get_repr(collection_idx)?;
-        if let MachineRepr::FatPointer(FatRepr::Collection { ref element_repr }) = repr {
-            if let MachineRepr::Int { width, .. } = element_repr.as_ref() {
-                if *width != IntWidth::I64 {
-                    return Some(*width);
-                }
-            }
-        }
-        None
+        narrowed_collection_element_width(plan, self.pool, collection_idx)
     }
 
     /// Compute the element store size for a collection, consulting `ReprPlan`

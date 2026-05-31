@@ -68,6 +68,7 @@ mod variant_construction;
 
 pub use context::CodegenContext;
 use context::EmittedValue;
+pub(crate) use narrowing_codegen::narrowed_collection_element_width;
 
 use ori_arc::ir::ArcVarId;
 use ori_arc::ArcClassification;
