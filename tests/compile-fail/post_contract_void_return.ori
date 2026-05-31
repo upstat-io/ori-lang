@@ -7,7 +7,7 @@
     post(r -> true)
 = ();
 
-#[compile_fail("E2046")]
+#[compile_fail(code: "E2046")]
 @test_post_void_return tests _ () -> void = {
     bad_void(x: 5);
     ()

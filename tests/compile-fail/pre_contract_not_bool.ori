@@ -7,7 +7,7 @@
     pre(x)
 = x + 1;
 
-#[compile_fail("E2044")]
+#[compile_fail(code: "E2044")]
 @test_pre_not_bool tests _ () -> void = {
     let _ = bad_pre(x: 5);
     ()
