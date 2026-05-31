@@ -13,12 +13,15 @@
 //!
 //! The fix requires emitting the AOT user-`@drop` function (currently the
 //! `_ori_user_drop$<idx>` target is undefined) AND wrapping the drop call in
-//! `invoke` + a cleanup landing pad. Tracked as BUG-04-125.
+//! `invoke` + a cleanup landing pad. Tracked as BUG-04-125. A precondition is
+//! BUG-02-034 (user `impl <prelude-trait> for Type` currently ICEs in
+//! type-check registration before codegen runs).
 //!
 //! AOT entry points use `@main` — `@t tests _` fails to link (E5006: no main).
-//! Each test asserts the EXACT stdout sentinel sequence via
-//! `compile_and_run_capture` — referencing `assert_aot_success` without
-//! calling it (the prior shape) asserts nothing.
+//! Trait impls use `impl Drop for T { ... }`; expression-bodied `@drop`
+//! methods take a trailing `;`. Each test asserts the EXACT stdout sentinel
+//! sequence via `compile_and_run_capture` — referencing `assert_aot_success`
+//! without calling it (the prior shape) asserts nothing.
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -31,19 +34,19 @@ use crate::util::compile_and_run_capture;
 /// declaration order, then the allocation is freed. The captured stdout order
 /// pins both axes: user-@drop-first AND reverse-declaration field walk.
 #[test]
-#[ignore = "BUG-04-125: AOT user-@drop emission + invoke/landing-pad lowering unimplemented; un-ignored when the §05 fix lands"]
+#[ignore = "BUG-04-125: AOT user-@drop emission + invoke/landing-pad lowering unimplemented (BUG-02-034 ICE upstream); un-ignored when the §05 fix lands"]
 fn drop_struct_runs_user_method_first_then_fields_in_reverse_decl_order() {
     let source = r#"
 type Logged = { tag: str }
 
-impl Logged: Drop {
-    @drop (self) -> void = print(`drop-Logged-{self.tag}`)
+impl Drop for Logged {
+    @drop (self) -> void = print(msg: `drop-Logged-{self.tag}`);
 }
 
 type Resource = { a: Logged, b: Logged }
 
-impl Resource: Drop {
-    @drop (self) -> void = print("drop-Resource-user")
+impl Drop for Resource {
+    @drop (self) -> void = print(msg: "drop-Resource-user");
 }
 
 @main () -> void = {
@@ -66,19 +69,19 @@ impl Resource: Drop {
 /// On an enum-shaped Drop type, the user `@drop` runs first, then the
 /// discriminant-switch + per-variant field walk fires in reverse order.
 #[test]
-#[ignore = "BUG-04-125: AOT enum user-@drop emission (emit_user_drop_call_enum) + invoke/landing-pad lowering unimplemented; un-ignored when the §05 fix lands"]
+#[ignore = "BUG-04-125: AOT enum user-@drop emission (emit_user_drop_call_enum) + invoke/landing-pad lowering unimplemented (BUG-02-034 ICE upstream); un-ignored when the §05 fix lands"]
 fn drop_enum_runs_user_method_first_then_variant_fields_in_reverse_order() {
     let source = r#"
 type Logged = { tag: str }
 
-impl Logged: Drop {
-    @drop (self) -> void = print(`drop-Logged-{self.tag}`)
+impl Drop for Logged {
+    @drop (self) -> void = print(msg: `drop-Logged-{self.tag}`);
 }
 
 type EventLog = Single(payload: Logged) | Pair(first: Logged, second: Logged)
 
-impl EventLog: Drop {
-    @drop (self) -> void = print("drop-EventLog-user")
+impl Drop for EventLog {
+    @drop (self) -> void = print(msg: "drop-EventLog-user");
 }
 
 @main () -> void = {
@@ -108,20 +111,20 @@ impl EventLog: Drop {
 /// SIGABRT. `ORI_CHECK_LEAKS=1` (on by default in the harness) confirms the
 /// heap `str` fields were freed on the unwind path.
 #[test]
-#[ignore = "BUG-04-125: invoke/landing-pad lowering unimplemented (currently aborts on first @drop panic); un-ignored when the §05 fix lands"]
+#[ignore = "BUG-04-125: invoke/landing-pad lowering unimplemented (currently aborts on first @drop panic; BUG-02-034 ICE upstream); un-ignored when the §05 fix lands"]
 fn drop_struct_user_panic_still_runs_field_walk_then_resumes_unwind() {
     let source = r#"
 type Logged = { tag: str }
 
-impl Logged: Drop {
-    @drop (self) -> void = print(`drop-Logged-{self.tag}`)
+impl Drop for Logged {
+    @drop (self) -> void = print(msg: `drop-Logged-{self.tag}`);
 }
 
 type Resource = { a: Logged, b: Logged }
 
-impl Resource: Drop {
+impl Drop for Resource {
     @drop (self) -> void = {
-        print("drop-Resource-pre-panic")
+        print(msg: "drop-Resource-pre-panic");
         panic(msg: "intentional")
     }
 }
@@ -155,19 +158,19 @@ impl Resource: Drop {
 /// `ori_drop_double_panic_abort`. Observable as a non-recoverable exit
 /// (neither clean 0, panic 1, nor leak 2).
 #[test]
-#[ignore = "BUG-04-125: nested-panic abort via ori_drop_double_panic_abort needs the landing-pad emission; un-ignored when the §05 fix lands"]
+#[ignore = "BUG-04-125: nested-panic abort via ori_drop_double_panic_abort needs the landing-pad emission (BUG-02-034 ICE upstream); un-ignored when the §05 fix lands"]
 fn drop_nested_panic_during_cleanup_aborts_process() {
     let source = r#"
 type Logged = { tag: str }
 
-impl Logged: Drop {
-    @drop (self) -> void = panic(msg: `panic-in-Logged-{self.tag}`)
+impl Drop for Logged {
+    @drop (self) -> void = panic(msg: `panic-in-Logged-{self.tag}`);
 }
 
 type Resource = { a: Logged, b: Logged }
 
-impl Resource: Drop {
-    @drop (self) -> void = panic(msg: "panic-in-Resource")
+impl Drop for Resource {
+    @drop (self) -> void = panic(msg: "panic-in-Resource");
 }
 
 @main () -> void = {
