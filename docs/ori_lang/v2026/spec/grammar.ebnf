@@ -547,10 +547,12 @@ label = ":" identifier .  /* no space around colon */
 // --- Lambda ---
 // See: 09-expressions.md § Lambda
 
-lambda        = simple_lambda | typed_lambda .
-simple_lambda = lambda_params "->" expression .
-typed_lambda  = "(" [ typed_param { "," typed_param } ] ")" "->" type "=" expression .
-lambda_params = identifier | "(" [ identifier { "," identifier } ] ")" .
+lambda        = lambda_params "->" lambda_tail .
+lambda_params = bare_params | typed_params .
+bare_params   = identifier | "(" [ identifier { "," identifier } ] ")" .
+typed_params  = "(" [ typed_param { "," typed_param } ] ")" .
+// lambda_tail: first alt = explicit return type; second alt = inferred return.
+lambda_tail   = type "=" expression | expression .
 typed_param   = identifier ":" type .
 
 // --- Control Flow ---

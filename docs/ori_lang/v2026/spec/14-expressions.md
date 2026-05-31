@@ -146,7 +146,9 @@ items.map(double);               // error: named arg required
 items.map(transform: double);    // OK: function reference needs name
 ```
 
-A lambda expression is `x -> expr`, `(a, b) -> expr`, `() -> expr`, or `(x: Type) -> Type = expr`. Function references and variables holding functions are not lambda expressions and require named arguments.
+A lambda expression is `x -> expr`, `(a, b) -> expr`, `() -> expr`, `(x: Type) -> expr`, or `(x: Type) -> Type = expr`. Function references and variables holding functions are not lambda expressions and require named arguments.
+
+A lambda with typed parameters may either declare an explicit return type or leave it inferred. In `(x: Type) -> Type = expr` the return type is declared and `expr` is the body; in `(x: Type) -> expr` the return type shall be inferred from `expr` by the same inference applied to untyped lambdas. After `->`, an explicit return type shall be recognised only when it is immediately followed by `=`; otherwise the tokens after `->` shall be parsed as the body expression. A typed-parameter lambda whose `->` is followed by a parseable type with no subsequent `=` and no body (for example `(x: int) -> int`) is incomplete and shall be rejected with a diagnostic directing the author to add `= <body>` or to drop the return type.
 
 For methods, `self` is not counted when determining "single parameter." A method like `map(transform: fn)` has one explicit parameter, so lambda arguments may be positional.
 
