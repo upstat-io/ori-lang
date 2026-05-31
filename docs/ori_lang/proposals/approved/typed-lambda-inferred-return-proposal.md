@@ -1,8 +1,9 @@
 # Proposal: Typed-Parameter Lambdas with Inferred Return Type
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-05-31
+**Approved:** 2026-05-31
 **Affects:** Grammar, parser (`ori_parse`), spec (Clause 14), type system (inference only — no new rules)
 
 ---

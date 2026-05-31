@@ -101,9 +101,37 @@ export ORI_VERIFY_EACH=1
 
 # --- Test runner functions ---
 
+# Concurrent-build-race signature: a parallel `cargo`/`cargo clean` on the
+# shared target/ corrupts in-flight build artifacts, so cargo cannot write a
+# `.rmeta`/`.rlib`/`.o` it expects to exist. This is a transient INFRASTRUCTURE
+# error, NOT a compile or test failure — reporting it as a suite "FAILED" is a
+# spurious result. The signature is stable across cargo versions.
+BUILD_RACE_RE='os error 2|could not write output|error: failed to write|No such file or directory \(os error 2\)'
+
+# cargo_race_retry <output_file> <cargo args...>
+# Runs a cargo invocation; on a build-artifact race (signature above) waits and
+# retries ONCE (the racing build usually finishes in seconds). A genuine
+# compile/test failure (no race signature) returns immediately — never masked.
+cargo_race_retry() {
+    local out="$1"; shift
+    local attempt
+    for attempt in 1 2; do
+        if cargo "$@" > "$out" 2>&1; then
+            return 0
+        fi
+        if [[ $attempt -eq 1 ]] && grep -qE "$BUILD_RACE_RE" "$out"; then
+            echo "  ⚠ build-artifact race (os error 2) — concurrent cargo on shared target/; retrying once after 5s" >&2
+            sleep 5
+            continue
+        fi
+        return 1
+    done
+    return 1
+}
+
 run_rust_workspace() {
     echo "=== Running Rust unit tests (workspace) ==="
-    if cargo test --workspace --exclude ori_llvm > "$RUST_OUTPUT" 2>&1; then
+    if cargo_race_retry "$RUST_OUTPUT" test --workspace --exclude ori_llvm; then
         echo "  ✓ Rust workspace tests passed"
         return 0
     else
@@ -114,7 +142,7 @@ run_rust_workspace() {
 
 run_rust_rt() {
     echo "=== Running runtime library tests (ori_rt) ==="
-    if cargo test -p ori_rt > "$RUST_RT_OUTPUT" 2>&1; then
+    if cargo_race_retry "$RUST_RT_OUTPUT" test -p ori_rt; then
         echo "  ✓ Runtime library tests passed"
         return 0
     else
@@ -125,8 +153,10 @@ run_rust_rt() {
 
 run_rust_llvm() {
     echo "=== Running Rust unit tests (ori_llvm) ==="
-    # Run ori_llvm lib unit tests + doc-tests (AOT integration tests run separately below)
-    if cargo test -p ori_llvm --lib > "$RUST_LLVM_OUTPUT" 2>&1 && \
+    # Lib binary is pre-built in Phase 2c (run-only here). Doctests compile +
+    # run together (no --no-run), so they are the lone compiling invocation in
+    # the parallel phase — nothing concurrent to race against internally.
+    if cargo_race_retry "$RUST_LLVM_OUTPUT" test -p ori_llvm --lib && \
        cargo test -p ori_llvm --doc >> "$RUST_LLVM_OUTPUT" 2>&1; then
         echo "  ✓ Rust LLVM tests passed"
         return 0
@@ -138,7 +168,7 @@ run_rust_llvm() {
 
 run_aot() {
     echo "=== Running AOT integration tests ==="
-    if cargo test -p ori_llvm --test aot > "$AOT_OUTPUT" 2>&1; then
+    if cargo_race_retry "$AOT_OUTPUT" test -p ori_llvm --test aot; then
         echo "  ✓ AOT integration tests passed"
         return 0
     else
@@ -320,10 +350,36 @@ if [[ $PARALLEL -eq 1 ]]; then
 
     echo ""
 
-    # Phase 3: All remaining tests in parallel (no cargo lock contention)
-    # - run_rust_rt: -p ori_rt (unit tests)
-    # - run_rust_llvm: -p ori_llvm --lib (unit tests)
-    # - run_aot: -p ori_llvm --test aot (AOT integration tests)
+    # Phase 2c: Pre-compile ALL Phase-3 cargo-test binaries SERIALLY (--no-run).
+    # Phase 3 runs `cargo test -p ori_llvm --lib` and `cargo test -p ori_llvm
+    # --test aot` in parallel — SAME package, SAME target/debug/deps. Letting
+    # both (or a concurrent external cargo) compile ori_llvm + its ori_arc dep
+    # at once corrupts shared build artifacts (`failed to write ...rmeta: No
+    # such file (os error 2)`), which test-all would otherwise report as a
+    # spurious suite FAILED. Building once here, serially, leaves Phase 3 as
+    # pure test execution: cargo finds the pre-built binaries and compiles
+    # nothing (the lone exception is ori_llvm doctests, which run alone).
+    echo "=== Pre-compiling Phase-3 test binaries (serial, race-free) ==="
+    PRECOMPILE_OUTPUT=$(mktemp)
+    if cargo_race_retry "$PRECOMPILE_OUTPUT" test --no-run -q -p ori_rt -p ori_llvm --lib --tests; then
+        echo "  ✓ Phase-3 test binaries pre-built"
+    else
+        echo -e "  ${RED}✗ Phase-3 test-binary pre-compile FAILED${NC}"
+        cat "$PRECOMPILE_OUTPUT"
+    fi
+    rm -f "$PRECOMPILE_OUTPUT"
+
+    echo ""
+
+    # Phase 3: All remaining tests in parallel. Pre-compiled by Phase 2c, so
+    # these invocations only RUN their binaries — no concurrent `cargo` compile
+    # into the shared target/, hence no build-artifact race. (Earlier this
+    # comment claimed "no cargo lock contention", but run_rust_llvm `--lib` and
+    # run_aot `--test aot` are the SAME ori_llvm package and DID race on a
+    # concurrent compile; Phase 2c removes that by pre-building both.)
+    # - run_rust_rt: -p ori_rt (run pre-built)
+    # - run_rust_llvm: -p ori_llvm --lib (run pre-built) + --doc (lone compiler)
+    # - run_aot: -p ori_llvm --test aot (run pre-built)
     # - run_ori_interpreter: direct binary (./target/debug/ori), no cargo
     # - run_ori_llvm: direct binary (./target/release/ori), no cargo
     run_rust_rt &
