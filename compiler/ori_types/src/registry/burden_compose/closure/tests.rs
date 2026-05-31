@@ -313,19 +313,19 @@ fn closure_owned_borrowed_partition_is_a_pure_function_of_classification_input()
     // post-borrow-check-correct partition — no drift is possible from the
     // composer itself.
     let ci = closure_idx(13);
-    let cap = ClosureCapture {
+    let cap = [ClosureCapture {
         field_index: 0,
         field_type: Idx::STR,
-    };
+    }];
 
-    let as_owned = compose_closure_burden_spec(ci, &[cap.clone()], &[]);
+    let as_owned = compose_closure_burden_spec(ci, &cap, &[]);
     assert_eq!(as_owned.owned_fields.len(), 1);
     assert!(
         as_owned.borrowed_fields.is_empty(),
         "owned-classified capture leaves zero residue in borrowed_fields",
     );
 
-    let as_borrowed = compose_closure_burden_spec(ci, &[], &[cap]);
+    let as_borrowed = compose_closure_burden_spec(ci, &[], &cap);
     assert!(
         as_borrowed.owned_fields.is_empty(),
         "borrowed-classified capture leaves zero residue in owned_fields — a \

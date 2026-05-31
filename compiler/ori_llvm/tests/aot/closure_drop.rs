@@ -60,7 +60,7 @@ use crate::util::assert_aot_success;
 /// a registered closure burden; the AOT slice re-enables once the
 /// auto-registration wiring lands.
 #[test]
-#[ignore = "BUG-04-043: closure AOT slice blocked by ARC closure + Construct/Project box-and-load codegen; re-enables alongside the infer_lambda closure-UserBurdenSpec auto-registration wiring"]
+#[ignore = "BUG-02-033: closure AOT slice blocked by the infer_lambda closure-UserBurdenSpec auto-registration wiring (blocks.rs:223); recursive-codegen blocker BUG-04-043 is resolved, so this re-enables when the lambda-side burden-wiring lands"]
 fn test_closure_capture_by_value_str_drops_at_scope_exit() {
     let source = r#"
 @t tests _ () -> void = {
@@ -81,7 +81,7 @@ fn test_closure_capture_by_value_str_drops_at_scope_exit() {
 ///
 /// Blocked by the same §04.2 lambda-side wiring follow-up as the test above.
 #[test]
-#[ignore = "BUG-04-043: closure AOT slice blocked by ARC closure + Construct/Project box-and-load codegen; re-enables alongside the infer_lambda closure-UserBurdenSpec auto-registration wiring"]
+#[ignore = "BUG-02-033: closure AOT slice blocked by the infer_lambda closure-UserBurdenSpec auto-registration wiring (blocks.rs:223); recursive-codegen blocker BUG-04-043 is resolved, so this re-enables when the lambda-side burden-wiring lands"]
 fn test_closure_env_header_drop_fn_invokes_at_refcount_zero() {
     let source = r#"
 @t tests _ () -> void = {

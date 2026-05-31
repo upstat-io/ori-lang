@@ -3782,10 +3782,10 @@ fn partial_apply_owned_capture_passed_to_owned_callee_emits_zero_net_burden_per_
 /// NOT an ownership transfer (Jump arg to a Borrowed target-block-param) MUST
 /// be suppressed at the terminator exactly as it is at instruction position.
 /// The alias is predicate-stack-managed (its source stays live) and received no
-/// FRESH-site BurdenInc, so a terminator-position BurdenDec would net its
-/// burden ledger to -1 (VF-1 imbalance). Positive pin: zero BurdenDec for the
-/// alias. Negative pin: reverting the terminator-path dup_alias_dsts suppression
-/// re-introduces the spurious unpaired BurdenDec (asserted by the count == 0).
+/// FRESH-site `BurdenInc`, so a terminator-position `BurdenDec` would net its
+/// burden ledger to -1 (VF-1 imbalance). Positive pin: zero `BurdenDec` for the
+/// alias. Negative pin: reverting the terminator-path `dup_alias_dsts` suppression
+/// re-introduces the spurious unpaired `BurdenDec` (asserted by the count == 0).
 #[test]
 fn dup_alias_at_terminator_nontransfer_suppresses_burden_dec() {
     let registry = TypeRegistry::new();

@@ -605,8 +605,8 @@ fn test_nested_closure_borrowed_list_param() {
 /// closure capturing a heap str through a path the borrow checker classifies
 /// as a borrow (passed in as a borrowed parameter, then re-captured) is still
 /// leak-clean: the env owns the stored copy, the env-drop decs it exactly
-/// once, and the wrapper does NOT inc it. The owned/borrowed BurdenSpec
-/// partition is consulted for the BODY's borrow treatment (wrapper RcInc
+/// once, and the wrapper does NOT inc it. The owned/borrowed `BurdenSpec`
+/// partition is consulted for the BODY's borrow treatment (wrapper `RcInc`
 /// skip), never for the env-drop dec decision — so a by-value→by-reference
 /// refinement cannot drift the env-drop into a missed or spurious dec.
 #[test]
