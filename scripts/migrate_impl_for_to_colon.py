@@ -117,10 +117,7 @@ def process(path: str, apply: bool) -> int:
 
 import re as _re
 
-# A colon trait_impl header line opening a body (`{` or `{}` at end). Every such
-# header in a migrated corpus file is a migration product (the corpus had zero
-# pre-existing colon impls), so each is followed by exactly one spurious blank
-# line from the pre-fix double-newline bug.
+# Matches a colon trait_impl header line opening a body (trailing `{` or `{}`).
 _COLON_IMPL_HEADER_RE = _re.compile(r"^\s*impl\b[^=]*:.*\{\}?\s*$")
 
 
