@@ -648,17 +648,25 @@ fn trait_strategy() -> impl Strategy<Value = String> {
         .prop_map(|(name, methods)| format!("trait {} {{\n{}\n}}", name, methods.join("\n")))
 }
 
-/// Generate an impl block.
+/// Generate an impl block on the fixed subject `Foo` — inherent (`impl Foo`)
+/// or colon trait form (`impl Foo: Trait`, grammar.ebnf:312). Fixed subject
+/// lets the idempotence harness prepend a matching `type Foo` without rewriting.
 fn impl_strategy() -> impl Strategy<Value = String> {
     (
-        type_identifier_strategy(),
+        prop::option::of(type_identifier_strategy()),
         prop::collection::vec(
             (identifier_strategy(), simple_expr_strategy())
                 .prop_map(|(name, body)| format!("    @{} (self) -> int = {}", name, body)),
             1..3,
         ),
     )
-        .prop_map(|(ty, methods)| format!("impl {} {{\n{}\n}}", ty, methods.join("\n")))
+        .prop_map(|(trait_opt, methods)| {
+            let header = match trait_opt {
+                Some(tr) => format!("impl Foo: {}", tr),
+                None => "impl Foo".to_string(),
+            };
+            format!("{} {{\n{}\n}}", header, methods.join("\n"))
+        })
 }
 
 /// Generate a generic type parameter.
@@ -866,12 +874,11 @@ proptest! {
         }
     }
 
-    /// Test idempotence for impl blocks.
+    /// Test idempotence for impl blocks (inherent + colon trait form).
     #[test]
     fn prop_impl_idempotence(impl_def in impl_strategy()) {
-        // Need a type to impl on
-        let source = format!("type Foo = {{ x: int }}\n\n{}", impl_def.replace("impl Foo", "impl Foo"));
-        let source = source.replace("impl ", "impl Foo ").replace("impl Foo Foo", "impl Foo");
+        // impl_strategy emits on the fixed subject `Foo`; define it.
+        let source = format!("type Foo = {{ x: int }}\n\n{}", impl_def);
         if let Err(e) = test_idempotence(&source) {
             if e.contains("Idempotence failure") {
                 return Err(TestCaseError::fail(e));

@@ -1,3 +1,7 @@
+//! Spec: grammar.ebnf:312 `trait_impl` — subject-first colon form `impl Type: Trait`
+//! (approved `docs/ori_lang/proposals/approved/impl-colon-syntax-proposal.md`).
+//! Covers colon-form parsing + E1019 rejection of the removed `impl Trait for Type` form.
+
 use crate::{parse, ParseOutput};
 use ori_diagnostic::ErrorCode;
 use ori_ir::StringInterner;
