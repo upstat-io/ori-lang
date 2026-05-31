@@ -256,3 +256,18 @@ current mandatory annotation is the outlier.
 Ori's explicit-return form maps cleanly onto Rust's `-> T { … }` and Swift's
 `-> T in …`; this proposal simply makes the inferred-return path available with
 typed parameters, matching the default behavior of all four languages.
+
+---
+
+## Errata (added 2026-05-31)
+
+> **Bare `-> Type` edge case — refined during implementation.** The §Design and
+> §Error Handling text proposed a targeted parse-time diagnostic for
+> `(x: int) -> int` (a return type with no `=` and no body). That shape is
+> syntactically indistinguishable at parse time from the valid inferred-return
+> form `(x: int) -> x` (both are a single name followed by a lambda terminator),
+> so a parse-time rejection is not achievable without also rejecting valid
+> lambdas. Implemented behavior: `(x: int) -> int` parses as an inferred-return
+> lambda whose body is the type name `int`, and the type-name-as-value fails type
+> inference (`E2005`) where the body is checked. Spec `14-expressions.md` §Lambda
+> was updated to describe this; no targeted parse diagnostic is emitted.

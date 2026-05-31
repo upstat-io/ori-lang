@@ -152,12 +152,13 @@ impl Parser<'_> {
         ParseOutcome::consumed_ok(expr)
     }
 
-    /// Parse the typed-lambda branch of `parse_parenthesized_body`.
+    /// Parse the typed-parameter-lambda branch of `parse_parenthesized_body`.
     ///
-    /// Spec: `grammar.ebnf` §`typed_lambda` — `(` `typed_param` { `,` `typed_param` }
-    /// `)` `->` type `=` expression. All params MUST be typed; `ret_ty` AND
-    /// `=` are REQUIRED. Untyped params produce `E1018`; missing return type
-    /// produces `E1005`; missing `=` produces `E1017`.
+    /// Spec: `grammar.ebnf` §`lambda` / §`lambda_tail` — `(` `typed_param`
+    /// { `,` `typed_param` } `)` `->` ( type `=` expression | expression ). The
+    /// return type is explicit when `=` follows it, else inferred (`ret_ty` =
+    /// `ParsedTypeId::INVALID`). All params MUST be typed; untyped params
+    /// produce `E1018`.
     fn parse_typed_lambda_body(&mut self, start_span: Span) -> ParseOutcome<ExprId> {
         let params = committed!(self.parse_params());
 
@@ -181,31 +182,10 @@ impl Parser<'_> {
         committed!(self.cursor.expect(&TokenKind::RParen));
         committed!(self.cursor.expect(&TokenKind::Arrow));
 
-        let Some(ret_ty_parsed) = self.parse_type() else {
-            return ParseOutcome::consumed_err(
-                ParseError::new(
-                    ori_diagnostic::ErrorCode::E1005,
-                    "expected return type after `->` in typed lambda",
-                    self.cursor.current_span(),
-                )
-                .with_help("typed lambda grammar: `(params) -> type = body`"),
-                start_span,
-            );
-        };
-        let ret_ty = self.arena.alloc_parsed_type(ret_ty_parsed);
-
-        if !self.cursor.check(&TokenKind::Eq) {
-            return ParseOutcome::consumed_err(
-                ParseError::new(
-                    ori_diagnostic::ErrorCode::E1017,
-                    "expected `=` after typed lambda return type",
-                    self.cursor.current_span(),
-                )
-                .with_help("typed lambda grammar: `(params) -> type = body`"),
-                start_span,
-            );
-        }
-        self.cursor.advance();
+        // Disambiguate explicit-return (`type = body`) from inferred-return
+        // (`body`) via the `=` delimiter — shared with the `()`-lambda path.
+        // Spec: grammar.ebnf §lambda_tail.
+        let ret_ty = self.try_parse_lambda_return_type();
 
         let body = require!(self, self.parse_expr(), "lambda body");
         let end_span = self.arena.get_expr(body).span;

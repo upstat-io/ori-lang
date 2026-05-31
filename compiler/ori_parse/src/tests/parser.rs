@@ -1733,40 +1733,56 @@ fn test_let_expr_default_mutable_on_pattern() {
     );
 }
 
-// Typed-lambda grammar enforcement (BUG-07-017 Fix 3 — §3.2.X negative pins).
+// Lambda grammar — typed parameters with inferred OR explicit return.
 //
-// Spec: grammar.ebnf §typed_lambda
-//   typed_lambda = "(" typed_param { "," typed_param } ")" "->" type "=" expression
-// Every param typed; ret_ty AND `=` required. Mixed/untyped/missing forms
-// are grammar-invalid and must produce structured E1017 / E1018 diagnostics.
+// Spec: grammar.ebnf §lambda / §lambda_tail
+//   lambda      = lambda_params "->" lambda_tail
+//   lambda_tail = type "=" expression | expression
+// Typed-param lambdas infer the return type unless a `type =` prefix is present
+// (proposal: typed-lambda-inferred-return). Untyped params in a typed lambda
+// are still rejected with E1018.
 
 #[test]
-fn test_typed_lambda_no_eq_after_implicit_ret_ty_rejected() {
+fn test_typed_lambda_inferred_return_accepted() {
+    // (x: int) -> x : typed param, inferred return, no `=` — now valid.
     let result = parse_source("let $f = (x: int) -> x;");
-    assert!(result.has_errors(), "expected parse errors");
-    let has_e1017 = result
-        .errors
-        .iter()
-        .any(|e| e.code == ori_diagnostic::ErrorCode::E1017);
     assert!(
-        has_e1017,
-        "expected E1017 (typed_lambda missing `=`); errors: {:?}",
+        !result.has_errors(),
+        "typed-param inferred-return lambda must parse cleanly; errors: {:?}",
         result.errors
     );
 }
 
 #[test]
-fn test_typed_lambda_no_eq_after_explicit_ret_ty_rejected() {
-    let result = parse_source("let $f = (x: int) -> int x;");
-    assert!(result.has_errors(), "expected parse errors");
-    let has_e1017 = result
-        .errors
-        .iter()
-        .any(|e| e.code == ori_diagnostic::ErrorCode::E1017);
+fn test_typed_lambda_inferred_return_with_operator_body_accepted() {
+    // (x: int) -> x * 2 : body is an expression, not a bare type.
+    let result = parse_source("let $f = (x: int) -> x * 2;");
     assert!(
-        has_e1017,
-        "expected E1017 (typed_lambda missing `=`); errors: {:?}",
+        !result.has_errors(),
+        "inferred-return lambda with operator body must parse; errors: {:?}",
         result.errors
+    );
+}
+
+#[test]
+fn test_typed_lambda_multi_param_inferred_return_accepted() {
+    // (a: int, b: int) -> a - b : multiple typed params, inferred return.
+    let result = parse_source("let $f = (a: int, b: int) -> a - b;");
+    assert!(
+        !result.has_errors(),
+        "multi-typed-param inferred-return lambda must parse; errors: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn test_typed_lambda_juxtaposed_tokens_after_return_type_rejected() {
+    // (x: int) -> int x : `int` parses as the inferred-return body, then the
+    // trailing `x` is unexpected — still rejected (no longer E1017).
+    let result = parse_source("let $f = (x: int) -> int x;");
+    assert!(
+        result.has_errors(),
+        "juxtaposed `int x` after `->` must still be rejected"
     );
 }
 
