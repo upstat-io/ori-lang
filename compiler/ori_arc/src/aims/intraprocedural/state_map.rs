@@ -145,7 +145,7 @@ pub enum ApplyAliasSource {
     /// does NOT seed `project_alias_sources` Step 1b in
     /// `compute_project_alias_sources` (containment is NOT a projection-
     /// derived alias chain). The sole consumer is `should_suppress_apply
-    /// _aliased_dec` (BUG-04-118 §05 Round 4): suppresses the redundant
+    /// _aliased_dec` (BUG-04-118): suppresses the redundant
     /// caller-side canonical dec on `arg` because `arg`'s ownership was
     /// transferred into dst's payload via the wrapping construct. Without
     /// this suppression, both arg's caller-side dec AND dst's structural
@@ -161,7 +161,7 @@ pub enum ApplyAliasSource {
     Conditional { candidates: Vec<ArcVarId> },
 }
 
-/// BUG-04-118 §05 Round 2 /tp-help — same-class dec obligation entry.
+/// Same-class dec obligation entry (BUG-04-118).
 ///
 /// Per `(block, class_id)`, records ordered intra-block dec obligation
 /// points for class members + the set of class members live at block exit.
@@ -249,8 +249,8 @@ pub struct AimsStateMap {
     /// Project chains without re-coding the worklist.
     apply_result_aliases: FxHashMap<ArcVarId, ApplyAliasSource>,
 
-    /// Project-derived alias graph (BUG-04-118 §05 Round 3 Option A; AIMS §1.9
-    /// Side-Table Domains). Sparse: only entries for Project destinations and
+    /// Project-derived alias graph (BUG-04-118; Spec: Annex E §AIMS Side-Table
+    /// Domains). Sparse: only entries for Project destinations and
     /// their transitive Let / Jump-arg / CFG-merge / Apply-aliased sources per
     /// `compute_project_alias_sources`. Empty for functions with no Project
     /// instructions.
@@ -269,9 +269,8 @@ pub struct AimsStateMap {
     /// (preserves "different RC slot" architectural rule).
     project_alias_sources: FxHashMap<ArcVarId, ProjectSources>,
 
-    /// SSA-alias equivalence-class table ( ). Sparse: only entries
-    /// for variables participating in a multi-member class (singletons
-    /// excluded per Round 17 Codex F4 + Gemini F2).
+    /// SSA-alias equivalence-class table. Sparse: only entries for variables
+    /// participating in a multi-member class (singletons excluded).
     ///
     /// Class membership encodes "these SSA names refer to the same RC slot"
     /// — Let-Var aliases (transitively chained), Jump-arg → block-param
@@ -324,8 +323,8 @@ pub struct AimsStateMap {
     /// excluded at population time — those reduce to PIN-4 class-liveness
     /// and need no PIN-6 suppression.
     ///
-    /// Singleton-class invariant (R19 Codex F1): every class id appearing as
-    /// a parent (set value) MUST have a matching entry in `class_members` —
+    /// Singleton-class invariant: every class id appearing as a parent (set
+    /// value) MUST have a matching entry in `class_members` —
     /// the population pass eagerly inserts singleton members so the BFS
     /// predicate's `class_members(parent_class)` lookup succeeds.
     ///
@@ -333,7 +332,7 @@ pub struct AimsStateMap {
     /// [`is_transitive_drop_strategy`]: crate::ir::is_transitive_drop_strategy
     class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
 
-    /// BUG-04-118 §05 Round 2 /tp-help — same-class dec obligation table.
+    /// Same-class dec obligation table (BUG-04-118).
     ///
     /// Per `(block, class_id)`, the ordered intra-block dec obligation
     /// points + block-exit members. Consumed by
@@ -413,10 +412,8 @@ pub struct AimsStateMap {
     /// `MaybeShared` the call-result side table would silently drop
     /// `ori_list_slice_drop`'s contract, leaving `drop_hints` to read lattice
     /// BOTTOM=Unique → `ori_buffer_drop_unique` → BUG-04-086 panic.
-    /// Plan TPR Round 1 F1 (codex+opencode AGREEMENT, 2026-04-26).
     ///
-    /// / TF-6a;
-    /// (side-table extension feeds the lattice via JOIN, never overrides it).
+    /// Side-table extension feeds the lattice via JOIN, never overrides it.
     var_uniqueness: FxHashMap<ArcVarId, Uniqueness>,
 
     /// Per-variable contract-narrowed return locality for Apply/Invoke results.
@@ -424,7 +421,6 @@ pub struct AimsStateMap {
     /// Populated by `populate_call_result_states`. Sparse — BOTTOM-default
     /// filter: `BlockLocal` is the lattice BOTTOM for locality and is NOT
     /// stored. `FunctionLocal`, `HeapEscaping`, and `Unknown` ARE stored.
-    /// Plan TPR Round 1 F1 (2026-04-26).
     var_locality: FxHashMap<ArcVarId, Locality>,
 
     /// Per-Invoke-block-and-dst demand captured BEFORE the normal-successor's
@@ -472,8 +468,8 @@ pub struct AimsStateMap {
     /// Section 09.5 Convergence Feedback.
     cross_dimension_detected: bool,
 
-    /// §04A.3 ITEM-2 — Set of SSA-alias class ids fully covered by the
-    /// burden walk (`emit_burden_ops`).
+    /// Set of SSA-alias class ids fully covered by the burden walk
+    /// (`emit_burden_ops`).
     ///
     /// `class_covered[C] = true` iff:
     /// 1. EVERY var `v` in `class_members(C)` satisfies
@@ -483,18 +479,17 @@ pub struct AimsStateMap {
     ///
     /// Populated POST-CONVERGENCE by
     /// [`populate_class_covered`](super::post_convergence::populate_class_covered)
-    /// via fixed-point iteration on the finite class set (terminates per
-    /// `aims-rules.md §1.8 L-5`). Sparse — only ids of covered classes are
-    /// stored; absence ⇒ not covered.
+    /// via fixed-point iteration on the finite class set (terminates per AIMS
+    /// L-5). Sparse — only ids of covered classes are stored; absence ⇒ not
+    /// covered.
     ///
-    /// Consumed by `decide()` (`aims/realize/decide.rs`) — when a target
-    /// var's class is in this set, `RcDecision` is forced to `None`
-    /// (the burden walk owns the inc/dec; predicate stack defers).
-    /// Coexistence handshake per `plans/aims-burden-tracking/section-04A-
-    /// minimal-lattice-adaptation.md §04A.3 ITEMs 1-3`.
+    /// Consumed by `decide()` (`aims/realize/decide.rs`) — when a target var's
+    /// class is in this set, `RcDecision` is forced to `None` (the burden walk
+    /// owns the inc/dec; the predicate stack defers) per the coexistence
+    /// handshake.
     ///
-    /// AIMS Invariant #5(c) — typed pre-pass input on `AimsStateMap`,
-    /// derived from `class_members` + `class_payload_of` + `func.burden_emitted`.
+    /// AIMS Invariant #5(c) — typed pre-pass input on `AimsStateMap`, derived
+    /// from `class_members` + `class_payload_of` + `func.burden_emitted`.
     class_covered: FxHashSet<u32>,
 }
 
@@ -878,7 +873,7 @@ impl AimsStateMap {
         self.apply_result_aliases = aliases;
     }
 
-    // Project-derived alias graph (BUG-04-118 §05 Round 3 Option A)
+    // Project-derived alias graph (BUG-04-118)
 
     /// Read-only borrow of the entire Project-derived alias source map.
     ///
@@ -912,10 +907,8 @@ impl AimsStateMap {
     /// Owned params. O(1) lookup against the pre-walk-populated
     /// `apply_result_aliases` map.
     ///
-    /// Consumed by §2.3 R17 carve-out per `bug-tracker/plans/ /
-    /// section-05-implementation.md §2.6.4 row 10` for narrowing
-    /// `should_suppress_return_transfer_dec` interactions on apply-alias
-    /// destinations.
+    /// Consumed for narrowing `should_suppress_return_transfer_dec`
+    /// interactions on apply-alias destinations.
     #[must_use]
     pub fn is_apply_alias_destination(&self, var: ArcVarId) -> bool {
         self.apply_result_aliases.contains_key(&var)
@@ -947,8 +940,8 @@ impl AimsStateMap {
         self.class_apply_alias_source_candidates.get(&class_id)
     }
 
-    /// Iterate every `(class_id, members)` entry. §04A.3 ITEM-2 consumer —
-    /// `populate_class_covered` walks every class to compute coverage.
+    /// Iterate every `(class_id, members)` entry. `populate_class_covered`
+    /// walks every class to compute coverage.
     pub(crate) fn class_members_iter(&self) -> impl Iterator<Item = (u32, &FxHashSet<ArcVarId>)> {
         self.class_members.iter().map(|(k, v)| (*k, v))
     }
@@ -985,7 +978,7 @@ impl AimsStateMap {
         self.class_payload_of = class_payload_of;
     }
 
-    // §04A.3 ITEM-2/ITEM-3 — class_covered accessors
+    // class_covered accessors
 
     /// Whether the SSA-alias class `class_id` is fully burden-covered (every
     /// member's burden walk owns its RC traffic AND every transitive payload
@@ -995,7 +988,7 @@ impl AimsStateMap {
     /// covered). Consumed by `decide()` at realization to force `RcDecision::None`
     /// when the burden walk owns the var's RC ops.
     ///
-    /// See [`class_covered`](Self::class_covered) field doc + §04A.3 ITEM-2.
+    /// See [`class_covered`](Self::class_covered) field doc.
     #[must_use]
     pub fn is_class_covered(&self, class_id: u32) -> bool {
         self.class_covered.contains(&class_id)
@@ -1011,7 +1004,7 @@ impl AimsStateMap {
     ///
     /// Called by [`populate_class_covered`](super::post_convergence::populate_class_covered)
     /// after the fixed-point computation completes. Read-only thereafter per
-    /// PL-5 (no-stale-summary invariant). §04A.3 ITEM-2.
+    /// PL-5 (no-stale-summary invariant).
     pub(crate) fn set_class_covered(&mut self, covered: FxHashSet<u32>) {
         self.class_covered = covered;
     }
@@ -1021,12 +1014,12 @@ impl AimsStateMap {
     /// Bypasses the bulk `set_ssa_alias_output` which runs at step 4
     /// pre-worklist. The post-convergence pass computes a path-sensitive
     /// edge set using converged `AimsStateMap` liveness, then installs it
-    /// here (BUG-04-118 Option D §05.0a).
+    /// here (BUG-04-118).
     pub(crate) fn set_class_payload_of(&mut self, payload_map: FxHashMap<u32, FxHashSet<u32>>) {
         self.class_payload_of = payload_map;
     }
 
-    /// Return the `class_dec_obligations` table (BUG-04-118 §05 Round 2).
+    /// Return the `class_dec_obligations` table (BUG-04-118).
     ///
     /// Empty by default; populated by the post-convergence pass
     /// `populate_class_dec_obligations` when multi-member SSA alias classes
@@ -1039,8 +1032,8 @@ impl AimsStateMap {
     }
 
     /// Install the `class_dec_obligations` table after post-convergence
-    /// computation. BUG-04-118 §05 Round 2 /tp-help — typed pre-pass input
-    /// on `AimsStateMap` per AIMS Invariant #5(c). Read-only thereafter.
+    /// computation (BUG-04-118) — typed pre-pass input on `AimsStateMap` per
+    /// AIMS Invariant #5(c). Read-only thereafter.
     pub(crate) fn set_class_dec_obligations(
         &mut self,
         obligations: FxHashMap<(ArcBlockId, u32), ClassObligationEntry>,
@@ -1053,9 +1046,9 @@ impl AimsStateMap {
     /// Singleton id == `ArcVarId::raw()` per the existing scheme; recovers
     /// the var via `ArcVarId::new(class_id)` and inserts both the
     /// class-members and ssa-alias-classes entries idempotently.
-    /// BUG-04-118 §05.4a — required by the post-convergence pass after
-    /// recording new edges so PIN-6's `class_members(parent)` lookup succeeds
-    /// for singleton parents/children.
+    /// Required by the post-convergence pass after recording new edges so
+    /// PIN-6's `class_members(parent)` lookup succeeds for singleton
+    /// parents/children (BUG-04-118).
     pub(crate) fn ensure_singleton_class(&mut self, class_id: u32) {
         if self.class_members.contains_key(&class_id) {
             return;
@@ -1073,9 +1066,9 @@ impl AimsStateMap {
     /// multi-member class and `None` for singletons. Singleton class id
     /// equals `var.raw()` per the existing materialization scheme; this
     /// helper consolidates the lookup so callers don't repeat the fallback.
-    /// BUG-04-118 §05.3 `ClassIdResolver` — used by the post-convergence
-    /// edge recorder to resolve arg/dst class ids without re-running the
-    /// local `UnionFind` from `compute_ssa_alias_classes`.
+    /// Used by the post-convergence edge recorder to resolve arg/dst class ids
+    /// without re-running the local `UnionFind` from `compute_ssa_alias_classes`
+    /// (BUG-04-118).
     pub(crate) fn class_id_of(&self, var: ArcVarId) -> u32 {
         self.ssa_alias_class_of(var).unwrap_or_else(|| var.raw())
     }
@@ -1136,7 +1129,6 @@ impl AimsStateMap {
     /// would erase the load-bearing `ori_list_slice_drop` case where
     /// `return_info.uniqueness = MaybeShared` overrides the optimistic
     /// lattice default — that override is what fixes BUG-04-086.
-    /// Plan TPR Round 1 F1 (codex+opencode AGREEMENT, 2026-04-26).
     pub fn set_var_uniqueness(&mut self, var: ArcVarId, uniq: Uniqueness) {
         if !matches!(uniq, Uniqueness::Unique) {
             self.var_uniqueness.insert(var, uniq);
@@ -1164,10 +1156,8 @@ impl AimsStateMap {
     /// inserts). This presence-awareness is load-bearing for the
     /// `effective_uniqueness_at_block_*` JOIN semantics — an unset variable
     /// is NOT semantically equivalent to one set to `MaybeShared`, despite
-    /// both differing from Unique. Plan TPR Round 0 F1 (codex+gemini
-    /// AGREEMENT) caught the override-pattern alternative as a critical
-    /// AIMS Invariant 5 violation; presence-aware lookup + JOIN is the
-    /// durable fix.
+    /// both differing from Unique. The override-pattern alternative is an AIMS
+    /// Invariant 5 violation; presence-aware lookup + JOIN is the correct fix.
     #[must_use]
     pub fn contract_uniqueness(&self, var: ArcVarId) -> Option<Uniqueness> {
         self.var_uniqueness.get(&var).copied()
@@ -1194,7 +1184,7 @@ impl AimsStateMap {
     /// Invariant 5 — the side table FEEDS INTO the lattice via JOIN, never
     /// overrides it. The override alternative (returning the side-table
     /// value when present, ignoring the lattice) suppresses backward demand
-    /// widening and was rejected at Plan TPR Round 0 F1.
+    /// widening and is rejected.
     #[must_use]
     pub fn effective_uniqueness_at_block_entry(
         &self,
@@ -1214,7 +1204,7 @@ impl AimsStateMap {
     ///
     /// Entry-side and exit-side variants are NOT interchangeable — consumer
     /// sites that read different sides (COW reads entry, `drop_hints` read
-    /// exit) MUST call the matching helper. Plan TPR Round 0 gemini F2.
+    /// exit) MUST call the matching helper.
     #[must_use]
     pub fn effective_uniqueness_at_block_exit(
         &self,

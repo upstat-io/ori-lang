@@ -466,7 +466,7 @@ pub struct ArcFunction {
     /// Each entry identifies the block and instruction index of an `Apply`
     /// in tail position. Populated by [`tail_call::detect_tail_calls`] in the
     /// ARC pipeline (after RC elimination). Consumed by the loop-lowering
-    /// rewrite pass (§09.2). Skipped during cache serialization.
+    /// rewrite pass. Skipped during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub tail_calls: Vec<crate::tail_call::TailCallSite>,
     /// Variables for which `emit_burden_ops` (`lower/burden_lower.rs`) has

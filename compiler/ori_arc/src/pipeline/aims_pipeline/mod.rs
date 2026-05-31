@@ -113,29 +113,14 @@ pub(crate) struct AimsPipelineConfig<'a> {
     /// Annotated function signatures (borrow inference output).
     ///
     /// Consumed by per-variable derived-ownership inference
-    /// (`borrow::infer_derived_ownership`) when wired in by §04A.0 ITEM-2.
-    /// `run_arc_pipeline` and `run_aims_pipeline_all` plumb this through
-    /// from their `sigs` parameters (previously dropped at line 46).
-    #[allow(
-        dead_code,
-        reason = "wired-but-unconsumed until §04A.0 ITEM-2 calls infer_derived_ownership"
-    )]
+    /// (`borrow::infer_derived_ownership`).
     pub sigs: &'a FxHashMap<Name, AnnotatedSig>,
     /// Type registry used by the burden-emission walker
-    /// (`lower::burden_lower::emit_burden_ops`) when wired in by §04A.0
-    /// ITEM-1. Carried per AIMS Invariant 5 ("unified model — new
-    /// capabilities extend a lattice dimension OR a contract field OR
-    /// feed the lattice-driven analysis as a typed pre-pass input").
-    ///
-    /// Today's call sites pass either the live module `TypeRegistry`
-    /// (`oric` codegen path, once the registry is surfaced through
-    /// Salsa) or an empty placeholder (`TypeRegistry::default()`) when
-    /// the burden walker is not yet active. ITEM-1 promotes the
-    /// placeholder paths to real registries.
-    #[allow(
-        dead_code,
-        reason = "wired-but-unconsumed until §04A.0 ITEM-1 calls emit_burden_ops"
-    )]
+    /// (`lower::burden_lower::emit_burden_ops`). Carried per AIMS Invariant 5
+    /// ("unified model — new capabilities extend a lattice dimension OR a
+    /// contract field OR feed the lattice-driven analysis as a typed pre-pass
+    /// input"). Call sites pass either the live module `TypeRegistry` (`oric`
+    /// codegen path) or an empty placeholder (`TypeRegistry::default()`).
     pub type_registry: &'a TypeRegistry,
 }
 
@@ -201,14 +186,13 @@ pub(crate) fn run_aims_pipeline(
         config.observer,
     );
 
-    // §04A.5 ITEM-1: Step 4b-prelude — populate arg_ownership AFTER
-    // analyze_function (so post-convergence's payload-edge analysis sees the
-    // historical empty-arg_ownership behavior, preserving class_payload_of
-    // computation) but BEFORE emit_burden_ops (so burden_lower observes
-    // converged arg_ownership at emission time — closes VF-1 imbalance per
-    // `aims-rules.md §3 TF-3 / §8 RL-2`). emit_arg_ownership is idempotent;
-    // `realize_rc_reuse` Sub-step A removed because arg_ownership is already
-    // populated here.
+    // Step 4b-prelude — populate arg_ownership AFTER analyze_function (so
+    // post-convergence's payload-edge analysis sees empty arg_ownership,
+    // preserving class_payload_of computation) but BEFORE emit_burden_ops (so
+    // burden_lower observes converged arg_ownership at emission time — closes
+    // the VF-1 imbalance per AIMS TF-3 / RL-2). emit_arg_ownership is
+    // idempotent; `realize_rc_reuse` does not re-invoke it because arg_ownership
+    // is already populated here.
     {
         let _span = tracing::debug_span!("emit_arg_ownership_prelude").entered();
         crate::aims::emit_rc::arg_ownership::emit_arg_ownership(

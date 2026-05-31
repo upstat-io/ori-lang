@@ -1,23 +1,22 @@
-//! §04A.1 ITEM-2 — Lattice-convergence smoke harness on burden-emitted IR.
+//! Lattice-convergence smoke harness on burden-emitted IR.
 //!
 //! Drives synthetic `ArcFunction` IR fixtures through:
 //! - Step 4 (`intraprocedural::analyze_function`) — backward dataflow
 //! - Step 4b (`lower::burden_lower::emit_burden_ops`) — burden-op emission
 //! - Re-runs Step 4 on the post-burden-emission IR to verify lattice
-//!   convergence with burden ops in the instruction stream (per §03's
-//!   shipped TF-N/A treatment at `aims/transfer/mod.rs:94-104` + `:287-297`).
+//!   convergence with burden ops in the instruction stream (the shipped TF-N/A
+//!   treatment in `aims/transfer/mod.rs`).
 //!
 //! Coverage:
 //! - (a) straight-line burden inc/dec on a single block
 //! - (b) CFG diamond with balanced predecessors
-//! - (c) closure-env capture site (`PartialApply` per §03.3)
-//! - IC-7 bound check (`aims-rules.md §6 IA-7`)
+//! - (c) closure-env capture site (`PartialApply`)
+//! - IC-7 bound check (AIMS IA-7)
 //! - `ORI_DISABLE_BURDEN_OPS=1` predicate-stack parity
 //!
-//! Note: this harness uses `pub(crate)` infrastructure (`emit_burden_ops`,
-//! `analyze_function`, `lower::test_utils`); accordingly it lives inline at
-//! `compiler/ori_arc/src/aims/burden_lattice_smoke.rs` vs an integration test
-//! at `compiler/ori_arc/tests/` (the plan body's literal path) because the
+//! This harness uses `pub(crate)` infrastructure (`emit_burden_ops`,
+//! `analyze_function`, `lower::test_utils`) and so lives inline here vs an
+//! integration test under `compiler/ori_arc/tests/`, because the
 //! integration-test surface cannot reach `pub(crate)` items.
 
 use ori_ir::Name;
@@ -101,7 +100,7 @@ fn drive_steps_4_and_4b(
 
 /// (a) Straight-line construct + return in single block. Burden walker
 /// emits `BurdenInc` on the Construct arg (transfer point) and `BurdenDec` at
-/// last use along the Return path per §03.2 + §03.3 ordering.
+/// last use along the Return path.
 fn straight_line_construct_return() -> ArcFunction {
     ArcFunction {
         var_types: vec![Idx::INT, Idx::INT],
@@ -129,7 +128,7 @@ fn straight_line_construct_return() -> ArcFunction {
 
 /// (b) CFG diamond: entry branches on a literal to two successor blocks
 /// that both Return the same owned value, merging implicitly at exit.
-/// Tests `alt_join` at predecessors of merge per `aims-rules.md §6 IA-3`.
+/// Tests `alt_join` at predecessors of merge per AIMS IA-3.
 fn diamond_balanced_predecessors() -> ArcFunction {
     ArcFunction {
         var_types: vec![Idx::INT, Idx::INT, Idx::INT],
@@ -181,8 +180,8 @@ fn diamond_balanced_predecessors() -> ArcFunction {
 }
 
 /// (c) Closure-env capture: `PartialApply` captures an owned arg into the
-/// closure environment. Per §03.3, `BurdenInc` lands at the `PartialApply`
-/// site for captured Owned vars.
+/// closure environment. `BurdenInc` lands at the `PartialApply` site for
+/// captured Owned vars.
 fn closure_env_capture() -> ArcFunction {
     ArcFunction {
         var_types: vec![Idx::INT, Idx::INT],
@@ -210,9 +209,9 @@ fn closure_env_capture() -> ArcFunction {
 
 // --- Tests -------------------------------------------------------------------
 
-/// §04A.1 ITEM-2 (a) — Straight-line burden-emitted IR converges.
-/// Post-emission re-analyze produces an identical-shape `AimsStateMap`
-/// because TF-N/A treats burden ops as no-ops in both directions.
+/// (a) Straight-line burden-emitted IR converges. Post-emission re-analyze
+/// produces an identical-shape `AimsStateMap` because TF-N/A treats burden ops
+/// as no-ops in both directions.
 #[test]
 fn straight_line_burden_emitted_ir_converges() {
     let registry = TypeRegistry::new();
@@ -229,10 +228,10 @@ fn straight_line_burden_emitted_ir_converges() {
     );
 }
 
-/// §04A.1 ITEM-2 (b) — CFG diamond with balanced predecessors converges.
-/// Both successor blocks return the same owned var; merge-point lattice
-/// must agree without IC-7 widening (the small fixture has chain height
-/// well below `CHAIN_HEIGHT × |vars| × |blocks|`).
+/// (b) CFG diamond with balanced predecessors converges. Both successor
+/// blocks return the same owned var; merge-point lattice must agree without
+/// IC-7 widening (the small fixture has chain height well below
+/// `CHAIN_HEIGHT × |vars| × |blocks|`).
 #[test]
 fn diamond_balanced_predecessors_converges() {
     let registry = TypeRegistry::new();
@@ -250,8 +249,8 @@ fn diamond_balanced_predecessors_converges() {
     );
 }
 
-/// §04A.1 ITEM-2 (d) — Closure-env capture emits burden ops at
-/// `PartialApply` site. Lattice converges over the burden-emitted IR.
+/// (d) Closure-env capture emits burden ops at `PartialApply` site. Lattice
+/// converges over the burden-emitted IR.
 #[test]
 fn closure_env_capture_burden_emitted_ir_converges() {
     let registry = TypeRegistry::new();
@@ -263,10 +262,10 @@ fn closure_env_capture_burden_emitted_ir_converges() {
     );
 }
 
-/// §04A.1 ITEM-3 — IC-7 convergence bound check.
+/// IC-7 convergence bound check.
 ///
-/// Per `aims-rules.md §6 IA-7`: convergence bound is
-/// `CHAIN_HEIGHT × |variables| × |blocks|` where `CHAIN_HEIGHT = 16`.
+/// Per AIMS IA-7: convergence bound is `CHAIN_HEIGHT × |variables| × |blocks|`
+/// where `CHAIN_HEIGHT = 16`.
 /// Drive the harness suite and assert the observed max iterations stay
 /// within bound for every fixture. Debug-only counter (zero overhead in
 /// release per `aims/intraprocedural/mod.rs::MAX_ITERATIONS_OBSERVED`).
@@ -307,7 +306,7 @@ fn ic7_iteration_bound_respected_across_harness() {
     );
 }
 
-/// §04A.1 ITEM-4 — `ORI_DISABLE_BURDEN_OPS=1` parity check.
+/// `ORI_DISABLE_BURDEN_OPS=1` parity check.
 ///
 /// Disabling burden-op emission via env var produces IR with ZERO burden
 /// ops anywhere (predicate-stack path unchanged). Driven directly at
@@ -339,9 +338,9 @@ fn env_var_disable_yields_zero_burden_ops() {
 }
 
 /// Companion: invoking `emit_burden_ops` on a scalar-only fixture is a no-op
-/// in burden-op shape (per `aims-rules.md §4 DP-1` — scalars never need RC,
-/// burden table at `ori_registry/burden/table.rs:184-193` returns EMPTY for
-/// `Idx::INT`). This pins the predicate-stack-parity contract: when no var
+/// in burden-op shape (per AIMS DP-1 — scalars never need RC; the burden table
+/// at `ori_registry/burden/table.rs` returns EMPTY for `Idx::INT`). This pins
+/// the predicate-stack-parity contract: when no var
 /// in the fixture qualifies, the env-var enable/disable distinction is
 /// observationally identical. Real burden-op emission requires
 /// `UserBurdenSpec`-registered types — exercised by

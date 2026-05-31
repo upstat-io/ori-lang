@@ -30,8 +30,7 @@ use crate::ArcClassification;
 /// all ownership information from `aims_contracts`.
 ///
 /// `sigs` and `type_registry` are bundled into `AimsPipelineConfig` for
-/// downstream consumption by `infer_derived_ownership` (§04A.0 ITEM-2)
-/// and `emit_burden_ops` (§04A.0 ITEM-1) when those wirings land.
+/// downstream consumption by `infer_derived_ownership` and `emit_burden_ops`.
 #[expect(
     clippy::too_many_arguments,
     reason = "pipeline entry point bundles all context"

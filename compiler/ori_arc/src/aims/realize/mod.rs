@@ -113,14 +113,14 @@ pub fn realize_rc_reuse(
     _builtins: &BuiltinOwnershipSets,
     pool: &Pool,
 ) -> RealizationResult {
-    // §04A.5 ITEM-1: emit_arg_ownership was lifted to a Step 4b-prelude in
+    // emit_arg_ownership runs as a Step 4b-prelude in
     // `pipeline/aims_pipeline/mod.rs::run_aims_pipeline` BETWEEN Step 4
     // (`analyze_function`) and Step 4b (`emit_burden_ops`) so burden_lower
     // observes converged arg_ownership at emission time (AIMS Invariant 3 —
-    // no stale summaries). The former Sub-step A invocation here is removed
-    // — the prelude has already populated arg_ownership before this function
-    // runs. The `_` bindings on contracts/interner/builtins/pool keep the
-    // public signature stable; downstream Sub-steps A2 / B / C consume them.
+    // no stale summaries). This function therefore does NOT invoke
+    // emit_arg_ownership — the prelude has already populated arg_ownership
+    // before it runs. The `_` bindings on contracts/interner/builtins/pool keep
+    // the public signature stable; downstream Sub-steps A2 / B / C consume them.
 
     // Sub-step A2: insert RcInc for borrowed-param COW receivers.
     // Borrowed function params at COW call receiver positions need an RcInc
