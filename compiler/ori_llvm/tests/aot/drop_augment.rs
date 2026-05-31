@@ -1,61 +1,38 @@
-//! AOT tests for Drop trait AUGMENT body shape (§04.3 of
-//! `plans/aims-burden-tracking/section-04-recursive-closures-drop-value.md`).
+//! AOT tests for user `@drop` panic-unwind via invoke + landing-pad lowering.
 //!
-//! These tests exercise the END-TO-END Drop AUGMENT story: typeck-side
-//! `user_drop` + `compiled_drop` population at `register_impl` (§04.3
-//! Drop impl registration), codegen-side AUGMENT body shape extension
-//! to `DropKind::Fields` + `DropKind::Enum` (§04.3 Drop AUGMENT body
-//! shape), and runtime-side `ori_drop_double_panic_abort` semantics
-//! (§04.3 Drop panic-safety).
+//! These tests exercise the end-to-end Drop story for AOT codegen: the
+//! generated `_ori_drop$<idx>` function runs the user `@drop` body first,
+//! then walks owned fields in reverse declaration order, then frees the
+//! allocation. A panic inside a user `@drop` (or a field-drop) unwinds —
+//! the cleanup landing pad runs the remaining field-walk + frees before
+//! the unwind resumes — instead of aborting on the first panic. A SECOND
+//! panic during cleanup aborts the process.
 //!
-//! Pre-existing blocker chain for the AOT slice:
+//! Spec: drop-trait-proposal §Drop and panic (single drop-panic recoverable;
+//! nested panic during unwind aborts via `ori_drop_double_panic_abort`).
 //!
-//! 1. `BUG-04-118` — closure `UserBurdenSpec` lambda-side wiring follow-up:
-//!    the lambda-typecheck site at
-//!    `compiler_repo/compiler/ori_types/src/infer/expr/blocks.rs:223`
-//!    does not yet call `compose_closure_burden_spec` +
-//!    `register_user_burden`, so closures-and-Drop interactions don't
-//!    yet roundtrip through the same Drop AUGMENT body.
+//! The fix requires emitting the AOT user-`@drop` function (currently the
+//! `_ori_user_drop$<idx>` target is undefined) AND wrapping the drop call in
+//! `invoke` + a cleanup landing pad. Tracked as BUG-04-125.
 //!
-//! 2. `BUG-04-119` — AUGMENT body shape AOT slice follow-up: the
-//!    plan-mandated `invoke` + landing-pad lowering around `Apply(user_drop)`
-//!    (per `drop-trait-proposal.md §Drop and panic`) is not yet wired in
-//!    `emit_drop_fields` / `emit_drop_enum`; current slice ships a plain
-//!    `call` to user `@drop` (via `_ori_user_drop$<idx>` placeholder) and
-//!    relies on `ori_rt::rc::call_drop_fn`'s abort-on-any-panic runtime
-//!    guard for panic-safety (strict mode — first-panic recovery deferred
-//!    until landing-pad wiring lands).
-//!
-//! Until both blockers ship, the §04.3 deliverables (typeck E2048,
-//! `user_drop` + `compiled_drop` populate, `DropKind::{Fields,Enum}`
-//! struct-form extension, `ori_drop_double_panic_abort` runtime symbol)
-//! are pinned by:
-//! - `ori_types::check::validators::partial_move::tests` — smoke +
-//!   pre-deployment behavior pins
-//! - `ori_llvm::codegen::arc_emitter::tests` — existing 36 drop-codegen
-//!   tests, all migrated to the new `DropKind::{Fields,Enum}` struct shape
-//! - `ori_rt::rc::ori_drop_double_panic_abort` — runtime entry available
-//!   for landing-pad emission once `BUG-04-119` ships
+//! AOT entry points use `@main` — `@t tests _` fails to link (E5006: no main).
+//! Each test asserts the EXACT stdout sentinel sequence via
+//! `compile_and_run_capture` — referencing `assert_aot_success` without
+//! calling it (the prior shape) asserts nothing.
 
 #![allow(
     clippy::needless_raw_string_hashes,
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::compile_and_run_capture;
 
-/// Regression: §04.3 deliverable for Drop AUGMENT struct body.
-///
-/// Verifies user `@drop` runs FIRST (observable side effect), THEN the
-/// compiler walks owned fields in reverse declaration order, THEN the
-/// allocation is freed. Captured `print` output order pins both axes:
-/// user-first AND reverse-decl.
-///
-/// Blocked by `BUG-04-119` — AUGMENT body shape AOT slice; `BUG-04-118`
-/// for closure-aware Drop interactions.
+/// User `@drop` runs first, then the compiler walks owned fields in reverse
+/// declaration order, then the allocation is freed. The captured stdout order
+/// pins both axes: user-@drop-first AND reverse-declaration field walk.
 #[test]
-#[ignore = "BUG-04-119: AUGMENT body shape AOT slice — invoke + landing-pad lowering follow-up; BUG-04-118: closure UserBurdenSpec lambda-side wiring"]
-fn drop_augment_user_method_first_then_compiler_field_walk_reverse_order() {
+#[ignore = "BUG-04-125: AOT user-@drop emission + invoke/landing-pad lowering unimplemented; un-ignored when the §05 fix lands"]
+fn drop_struct_runs_user_method_first_then_fields_in_reverse_decl_order() {
     let source = r#"
 type Logged = { tag: str }
 
@@ -69,33 +46,28 @@ impl Resource: Drop {
     @drop (self) -> void = print("drop-Resource-user")
 }
 
-@t tests _ () -> void = {
+@main () -> void = {
     let r = Resource {
         a: Logged { tag: "a" },
         b: Logged { tag: "b" },
     }
-    // r dropped at scope exit:
-    //   1. drop-Resource-user (user @drop runs FIRST)
-    //   2. drop-Logged-b      (reverse-decl: b drops before a)
-    //   3. drop-Logged-a      (a drops last)
 }
 "#;
-    let _ = assert_aot_success;
-    let _ = source;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        lines,
+        vec!["drop-Resource-user", "drop-Logged-b", "drop-Logged-a"],
+        "user @drop must run first, then fields in reverse decl order; stdout:\n{stdout}"
+    );
 }
 
-/// Regression: §04.3 deliverable for Drop AUGMENT enum body.
-///
-/// Verifies user `@drop` runs FIRST on an enum-shaped Drop type, THEN
-/// the discriminant-switch + per-variant field walk fires. Without
-/// §04.3's `DropKind::Enum { variants, user_drop }` extension, the
-/// user `@drop` body would never be emitted for enum-shaped Drop types —
-/// silent bypass per gemini blind-spot #1.
-///
-/// Blocked by `BUG-04-119`.
+/// On an enum-shaped Drop type, the user `@drop` runs first, then the
+/// discriminant-switch + per-variant field walk fires in reverse order.
 #[test]
-#[ignore = "BUG-04-119: AUGMENT body shape AOT slice — invoke + landing-pad lowering follow-up"]
-fn drop_augment_enum_user_method_first_then_variant_field_walk_reverse_order() {
+#[ignore = "BUG-04-125: AOT enum user-@drop emission (emit_user_drop_call_enum) + invoke/landing-pad lowering unimplemented; un-ignored when the §05 fix lands"]
+fn drop_enum_runs_user_method_first_then_variant_fields_in_reverse_order() {
     let source = r#"
 type Logged = { tag: str }
 
@@ -109,33 +81,35 @@ impl EventLog: Drop {
     @drop (self) -> void = print("drop-EventLog-user")
 }
 
-@t tests _ () -> void = {
+@main () -> void = {
     let pair = EventLog.Pair(
         first: Logged { tag: "first" },
         second: Logged { tag: "second" },
     )
-    // pair dropped at scope exit:
-    //   1. drop-EventLog-user    (user @drop runs FIRST)
-    //   2. drop-Logged-second    (reverse-decl within Pair variant)
-    //   3. drop-Logged-first
 }
 "#;
-    let _ = assert_aot_success;
-    let _ = source;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        lines,
+        vec![
+            "drop-EventLog-user",
+            "drop-Logged-second",
+            "drop-Logged-first"
+        ],
+        "user @drop first, then variant payload reverse-decl walk; stdout:\n{stdout}"
+    );
 }
 
-/// Regression: §04.3 deliverable for landing-pad-around-`invoke` lowering.
-///
-/// Verifies that despite a panic in `Resource::@drop`, the field-walk
-/// STILL fires via the unwind path — `Logged::@drop` runs for both
-/// fields before the unwind resumes. `ORI_CHECK_LEAKS=1` reports zero
-/// leaks on the unwind path.
-///
-/// Blocked by `BUG-04-119` — the landing-pad-around-`invoke` lowering
-/// is the explicit deliverable.
+/// A panic inside a user `@drop` is recoverable: the cleanup landing pad runs
+/// the remaining field-walk (both `Logged` fields drop) before the unwind
+/// resumes, and the program exits via panic (exit 1) — NOT a pre-cleanup
+/// SIGABRT. `ORI_CHECK_LEAKS=1` (on by default in the harness) confirms the
+/// heap `str` fields were freed on the unwind path.
 #[test]
-#[ignore = "BUG-04-119: AUGMENT body shape AOT slice — invoke + landing-pad lowering follow-up"]
-fn drop_augment_landing_pad_runs_field_walk_on_user_drop_panic_path() {
+#[ignore = "BUG-04-125: invoke/landing-pad lowering unimplemented (currently aborts on first @drop panic); un-ignored when the §05 fix lands"]
+fn drop_struct_user_panic_still_runs_field_walk_then_resumes_unwind() {
     let source = r#"
 type Logged = { tag: str }
 
@@ -152,30 +126,37 @@ impl Resource: Drop {
     }
 }
 
-@t tests _ () -> void = {
+@main () -> void = {
     let r = Resource {
         a: Logged { tag: "a" },
         b: Logged { tag: "b" },
     }
-    // r dropped at scope exit; Resource::@drop panics, but Logged
-    // fields a and b still drop via the landing-pad unwind path.
 }
 "#;
-    let _ = assert_aot_success;
-    let _ = source;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    // Single drop-panic is recoverable: exit via panic (1), NOT abort, NOT leak (2).
+    assert_eq!(
+        exit_code, 1,
+        "single @drop panic must unwind (exit 1=panic), not abort or leak; stderr:\n{stderr}"
+    );
+    // Field-walk continued on the unwind path: user @drop ran, then both fields dropped.
+    assert!(
+        stdout.contains("drop-Resource-pre-panic"),
+        "user @drop body must run before the panic; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("drop-Logged-a") && stdout.contains("drop-Logged-b"),
+        "both owned fields must still drop via the landing pad; stdout:\n{stdout}"
+    );
 }
 
-/// Regression: §04.3 deliverable for nested-panic abort via
-/// `ori_drop_double_panic_abort`.
-///
-/// Verifies process aborts when a SECOND panic surfaces during the
-/// cleanup field-walk. Observable via process exit code matching abort
-/// signal (NOT clean exit).
-///
-/// Blocked by `BUG-04-119`.
+/// A SECOND panic during the cleanup field-walk (here: `Logged::@drop` panics
+/// while unwinding from `Resource::@drop`'s panic) aborts the process via
+/// `ori_drop_double_panic_abort`. Observable as a non-recoverable exit
+/// (neither clean 0, panic 1, nor leak 2).
 #[test]
-#[ignore = "BUG-04-119: AUGMENT body shape AOT slice — invoke + landing-pad lowering follow-up"]
-fn drop_augment_nested_panic_invokes_ori_drop_double_panic_abort() {
+#[ignore = "BUG-04-125: nested-panic abort via ori_drop_double_panic_abort needs the landing-pad emission; un-ignored when the §05 fix lands"]
+fn drop_nested_panic_during_cleanup_aborts_process() {
     let source = r#"
 type Logged = { tag: str }
 
@@ -189,16 +170,17 @@ impl Resource: Drop {
     @drop (self) -> void = panic(msg: "panic-in-Resource")
 }
 
-@t tests _ () -> void = {
+@main () -> void = {
     let r = Resource {
         a: Logged { tag: "a" },
         b: Logged { tag: "b" },
     }
-    // r dropped at scope exit; Resource::@drop panics; during cleanup,
-    // Logged::@drop ALSO panics. Nested-panic semantics: abort via
-    // ori_drop_double_panic_abort.
 }
 "#;
-    let _ = assert_aot_success;
-    let _ = source;
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(source);
+    // Nested panic during unwind aborts: not clean (0), not single-panic (1), not leak (2).
+    assert!(
+        exit_code != 0 && exit_code != 1 && exit_code != 2,
+        "nested drop-panic must abort the process; got exit {exit_code}; stderr:\n{stderr}"
+    );
 }
