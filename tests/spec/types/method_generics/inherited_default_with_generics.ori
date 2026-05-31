@@ -16,7 +16,7 @@ trait Reducer<F> {
 
 type Container<X> = { value: X }
 
-impl<X> Reducer<X> for Container<X> {
+impl<X> Container<X>: Reducer<X> {
     // Inherits @reduce from default — no override.
 }
 

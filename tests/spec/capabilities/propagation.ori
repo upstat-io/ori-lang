@@ -22,14 +22,14 @@ trait Logger {
 
 type MockHttp = { base_url: str }
 
-impl Http for MockHttp {
+impl MockHttp: Http {
     @get (self, url: str) -> str = self.base_url + url;
     @post (self, url: str, body: str) -> str = self.base_url + url + ":" + body;
 }
 
 type MockLogger = { prefix: str }
 
-impl Logger for MockLogger {
+impl MockLogger: Logger {
     @log (self, msg: str) -> void = ();
 }
 

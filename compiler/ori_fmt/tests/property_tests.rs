@@ -1647,13 +1647,13 @@ fn test_impl_inherent() {
 
 #[test]
 fn test_impl_trait() {
-    let source = "trait Printable {\n    @to_str (self) -> str\n}\n\ntype Num = { value: int }\n\nimpl Printable for Num {\n    @to_str (self) -> str = \"num\";\n}";
+    let source = "trait Printable {\n    @to_str (self) -> str\n}\n\ntype Num = { value: int }\n\nimpl Num: Printable {\n    @to_str (self) -> str = \"num\";\n}";
     test_idempotence(source).expect("trait impl should be idempotent");
 }
 
 #[test]
 fn test_impl_generic() {
-    let source = "trait Default {\n    @default () -> Self\n}\n\ntype Box<T> = { value: T }\n\nimpl<T: Default> Default for Box<T> {\n    @default () -> Box<T> = Box { value: T.default() }\n}";
+    let source = "trait Default {\n    @default () -> Self\n}\n\ntype Box<T> = { value: T }\n\nimpl<T: Default> Box<T>: Default {\n    @default () -> Box<T> = Box { value: T.default() }\n}";
     test_idempotence(source).expect("generic impl should be idempotent");
 }
 
@@ -1891,7 +1891,7 @@ impl Point {
     @new (x: int, y: int) -> Point = Point { x, y }
 }
 
-impl Printable for Point {
+impl Point: Printable {
     @to_str (self) -> str = "point";
 }
 

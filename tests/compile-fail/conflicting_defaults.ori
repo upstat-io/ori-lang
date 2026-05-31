@@ -16,12 +16,12 @@ trait Pipeline: Source + Sink {
 
 type Stream = { id: int }
 
-impl Source for Stream {}
-impl Sink for Stream {}
+impl Stream: Source {}
+impl Stream: Sink {}
 
 // This impl doesn't override greet, so the conflicting defaults from
 // Source and Sink should trigger E2022
-impl Pipeline for Stream {
+impl Stream: Pipeline {
     @process (self) -> str = "processing";
 }
 

@@ -4,7 +4,7 @@
 // inside Box$to_str to resolve to Box$to_str (wrong function, wrong ABI).
 type Box = { w: int, h: int }
 
-impl Printable for Box {
+impl Box: Printable {
     @to_str (self) -> str = `{self.w}x{self.h}`;
 }
 

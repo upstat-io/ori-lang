@@ -236,7 +236,7 @@ use std.testing { assert, assert_eq }
 #derive(Eq, Clone, Debug)
 type Point = { x: int, y: int }
 
-impl Printable for Point {
+impl Point: Printable {
     @to_str (self) -> str = "(" + str(self.x) + ", " + str(self.y) + ")";
 }
 

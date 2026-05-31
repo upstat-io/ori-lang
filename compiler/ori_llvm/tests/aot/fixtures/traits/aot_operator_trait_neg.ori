@@ -1,6 +1,6 @@
 type Point = { x: int, y: int }
 
-impl Neg for Point {
+impl Point: Neg {
     type Output = Point;
     @negate (self) -> Point = Point {
         x: -self.x,

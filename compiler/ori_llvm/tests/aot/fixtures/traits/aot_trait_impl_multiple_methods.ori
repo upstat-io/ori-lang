@@ -5,7 +5,7 @@ trait Calculator {
 
 type Num = { value: int }
 
-impl Calculator for Num {
+impl Num: Calculator {
     @add (self, n: int) -> int = self.value + n;
     @double (self) -> int = self.value * 2;
 }

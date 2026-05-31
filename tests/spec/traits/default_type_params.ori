@@ -33,7 +33,7 @@ type Point = { x: int, y: int }
 @make_point (x: int, y: int) -> Point = Point { x, y }
 
 // Impl without type args - uses default (Rhs = Self = Point)
-impl Addable for Point {
+impl Point: Addable {
     @add (self, rhs: Point) -> Point = Point {
         x: self.x + rhs.x,
         y: self.y + rhs.y

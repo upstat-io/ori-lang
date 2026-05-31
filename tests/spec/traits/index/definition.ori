@@ -9,7 +9,7 @@ use std.testing { assert_eq }
 
 type Pair = { first: int, second: int }
 
-impl Index<int, int> for Pair {
+impl Pair: Index<int, int> {
     @index (self, key: int) -> int = if key == 0 then self.first else self.second;
 }
 
@@ -35,7 +35,7 @@ impl Index<int, int> for Pair {
 
 type Config = { host: str, port: int }
 
-impl Index<str, str> for Config {
+impl Config: Index<str, str> {
     @index (self, key: str) -> str = match key {
         "host" -> self.host,
         "port" -> self.port.to_str(),
@@ -69,7 +69,7 @@ impl Index<str, str> for Config {
 
 type Grid = { rows: [[int]] }
 
-impl Index<int, [int]> for Grid {
+impl Grid: Index<int, [int]> {
     @index (self, key: int) -> [int] = self.rows[key];
 }
 

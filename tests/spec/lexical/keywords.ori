@@ -105,7 +105,7 @@ trait KeywordTrait {
 
 type KeywordImpl = { val: int }
 
-impl KeywordTrait for KeywordImpl {
+impl KeywordImpl: KeywordTrait {
     @get_value (self) -> int = self.val;
 }
 

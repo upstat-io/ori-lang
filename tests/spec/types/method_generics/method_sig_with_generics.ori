@@ -20,7 +20,7 @@ trait HasGenericMethod {
 
 type Box<U> = { value: U }
 
-impl<U> HasGenericMethod for Box<U> {
+impl<U> Box<U>: HasGenericMethod {
     @count<T> (self, val: T) -> int = 1;
 }
 

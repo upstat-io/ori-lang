@@ -17,7 +17,7 @@ trait Counter {
 // A mock implementation
 type MockCounter = { value: int }
 
-impl Counter for MockCounter {
+impl MockCounter: Counter {
     @increment (self) -> int = self.value + 1;
 
     @get (self) -> int = self.value;
@@ -92,7 +92,7 @@ trait Logger {
 
 type MockLogger = { messages: [str] }
 
-impl Logger for MockLogger {
+impl MockLogger: Logger {
     @log (self, msg: str) -> void = ();
 }
 

@@ -35,7 +35,7 @@ impl<A, B> Pair<A, B> {
 // Trait Impl for Generic Type
 // =============================================================================
 
-impl<T> Container for Box<T> {
+impl<T> Box<T>: Container {
     @get_size (self) -> int = 1;
 }
 

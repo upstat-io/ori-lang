@@ -563,7 +563,7 @@ mod mixed_declarations {
             // Impl with where clause
             "impl<T> Box<T> where T: Clone { @clone_inner (self) -> T = self.value.clone(); }",
             // Trait impl for generic type
-            "impl<T: Clone> Clone for Box<T> { @clone (self) -> Self = Box { value: self.value.clone() } }",
+            "impl<T: Clone> Box<T>: Clone { @clone (self) -> Self = Box { value: self.value.clone() } }",
             // Impl with multiple bounds
             "impl<T: Eq + Hashable> Box<T> { @hash_value (self) -> int = self.value.hash(); }",
             // Impl for nested generic

@@ -259,12 +259,12 @@ impl Spanned for TraitAssocType {
 /// }
 ///
 /// // Trait impl
-/// impl Printable for Point {
+/// impl Point: Printable {
 ///     @to_string (self) -> str = "..."
 /// }
 ///
 /// // Trait impl with type arguments
-/// impl Add<int> for Point {
+/// impl Point: Add<int> {
 ///     @add (self, rhs: int) -> Point = ...
 /// }
 /// ```
@@ -356,7 +356,7 @@ impl From<&TraitDefaultMethod> for ImplMethod {
 /// Associated type definition in an impl block.
 ///
 /// ```ori
-/// impl Iterator for List<T> {
+/// impl List<T>: Iterator {
 ///     type Item = T
 /// }
 /// ```

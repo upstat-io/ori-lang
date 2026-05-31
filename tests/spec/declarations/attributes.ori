@@ -293,7 +293,7 @@ trait Marked {
 
 type MarkedItem = { id: int }
 
-impl Marked for MarkedItem {
+impl MarkedItem: Marked {
     @mark (self) -> str = "marked: " + str(self.id);
 }
 

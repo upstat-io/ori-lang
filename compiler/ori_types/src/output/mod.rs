@@ -365,7 +365,7 @@ pub struct TypedModule {
     /// included (they have known call sites).
     ///
     /// The `Idx` is the self-type index (e.g., `Idx` for `Color` in
-    /// `impl Printable for Color { @to_str }`), disambiguating same-named
+    /// `impl Color: Printable { @to_str }`), disambiguating same-named
     /// methods across different types.
     pub trait_impl_fn_names: Vec<(Idx, Name)>,
 

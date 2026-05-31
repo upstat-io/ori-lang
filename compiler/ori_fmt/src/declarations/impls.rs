@@ -28,19 +28,32 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
         self.ctx.emit(" ");
 
-        // Trait path (if trait impl)
+        // Subject-first colon form (grammar.ebnf:312): `impl Type: Trait`.
+        // Self type (subject) first.
+        format_parsed_type(&impl_def.self_ty, self.arena, self.interner, &mut self.ctx);
+
+        // Trait (if trait impl): `: Trait[<args>]`.
         if let Some(ref trait_path) = impl_def.trait_path {
+            self.ctx.emit(": ");
             for (i, seg) in trait_path.iter().enumerate() {
                 if i > 0 {
                     self.ctx.emit(".");
                 }
                 self.ctx.emit(self.interner.lookup(*seg));
             }
-            self.ctx.emit(" for ");
+            let trait_args = self.arena.get_parsed_type_list(impl_def.trait_type_args);
+            if !trait_args.is_empty() {
+                self.ctx.emit("<");
+                for (i, arg_id) in trait_args.iter().enumerate() {
+                    if i > 0 {
+                        self.ctx.emit(", ");
+                    }
+                    let arg = self.arena.get_parsed_type(*arg_id);
+                    format_parsed_type(arg, self.arena, self.interner, &mut self.ctx);
+                }
+                self.ctx.emit(">");
+            }
         }
-
-        // Self type
-        format_parsed_type(&impl_def.self_ty, self.arena, self.interner, &mut self.ctx);
 
         // Where clauses
         self.format_where_clauses(&impl_def.where_clauses);
@@ -128,19 +141,32 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
         self.ctx.emit(" ");
 
-        // Trait path (if trait impl)
+        // Subject-first colon form (grammar.ebnf:312): `impl Type: Trait`.
+        // Self type (subject) first.
+        format_parsed_type(&impl_def.self_ty, self.arena, self.interner, &mut self.ctx);
+
+        // Trait (if trait impl): `: Trait[<args>]`.
         if let Some(ref trait_path) = impl_def.trait_path {
+            self.ctx.emit(": ");
             for (i, seg) in trait_path.iter().enumerate() {
                 if i > 0 {
                     self.ctx.emit(".");
                 }
                 self.ctx.emit(self.interner.lookup(*seg));
             }
-            self.ctx.emit(" for ");
+            let trait_args = self.arena.get_parsed_type_list(impl_def.trait_type_args);
+            if !trait_args.is_empty() {
+                self.ctx.emit("<");
+                for (i, arg_id) in trait_args.iter().enumerate() {
+                    if i > 0 {
+                        self.ctx.emit(", ");
+                    }
+                    let arg = self.arena.get_parsed_type(*arg_id);
+                    format_parsed_type(arg, self.arena, self.interner, &mut self.ctx);
+                }
+                self.ctx.emit(">");
+            }
         }
-
-        // Self type
-        format_parsed_type(&impl_def.self_ty, self.arena, self.interner, &mut self.ctx);
 
         // Where clauses
         self.format_where_clauses(&impl_def.where_clauses);

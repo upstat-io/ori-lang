@@ -8,6 +8,6 @@ trait Printable {
     @to_str (self) -> str
 }
 
-impl Printable for Point {
+impl Point: Printable {
     @to_str (self) -> str = "point";
 }

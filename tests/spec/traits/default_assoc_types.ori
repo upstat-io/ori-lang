@@ -23,7 +23,7 @@ type Point = { x: int, y: int }
 @make_point (x: int, y: int) -> Point = Point { x, y }
 
 // Impl without Output - uses default (Output = Self = Point)
-impl Addable for Point {
+impl Point: Addable {
     @add (self, rhs: Point) -> Point = Point {
         x: self.x + rhs.x,
         y: self.y + rhs.y
@@ -42,7 +42,7 @@ type Number = { value: int }
 @add_numbers (a: Number, b: Number) -> int = a.add(rhs: b);
 
 // Impl that overrides the default Output type
-impl Addable for Number {
+impl Number: Addable {
     type Output = int;
     @add (self, rhs: Number) -> int = self.value + rhs.value;
 }

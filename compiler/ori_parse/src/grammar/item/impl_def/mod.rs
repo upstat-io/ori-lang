@@ -11,7 +11,7 @@ use ori_ir::{
 impl Parser<'_> {
     /// Parse an impl block.
     ///
-    /// Syntax: impl [<T>] Type { methods } or impl [<T>] Trait for Type { methods }
+    /// Syntax: impl [<T>] Type { methods } (inherent) or impl [<T>] Type: Trait { methods } (trait impl)
     ///
     /// Returns `EmptyErr` if no `impl` keyword is present.
     pub(crate) fn parse_impl(&mut self, attrs: ParsedAttrs) -> ParseOutcome<ImplDef> {
@@ -40,19 +40,32 @@ impl Parser<'_> {
         // Supports both simple `Box` and generic `Box<T>`
         let (first_path, first_ty) = require!(self, self.parse_impl_type(), "type after `impl`");
 
-        // Check for `for` keyword to determine if this is a trait impl
+        // Determine trait vs inherent impl.
         let (trait_path, trait_type_args, self_path, self_ty) =
-            if self.cursor.check(&TokenKind::For) {
+            if self.cursor.check(&TokenKind::Colon) {
+                // Spec: grammar.ebnf trait_impl — subject-first `impl Type: Trait`.
+                // First type is the subject (self_ty); the post-colon type is the trait.
                 self.cursor.advance();
-                // Parse the implementing type
-                let (impl_path, impl_ty) =
-                    require!(self, self.parse_impl_type(), "type after `for`");
-                // Extract type args from trait type (first_ty is a ParsedType::Named with type_args)
-                let trait_type_args = match &first_ty {
+                let (trait_path, trait_ty) =
+                    require!(self, self.parse_impl_type(), "trait path after `:`");
+                // trait_type_args come from the post-colon trait, not the subject.
+                let trait_type_args = match &trait_ty {
                     ori_ir::ParsedType::Named { type_args, .. } => *type_args,
                     _ => ParsedTypeRange::EMPTY,
                 };
-                (Some(first_path), trait_type_args, impl_path, impl_ty)
+                (Some(trait_path), trait_type_args, first_path, first_ty)
+            } else if self.cursor.check(&TokenKind::For) {
+                // Spec: grammar.ebnf trait_impl has no `for`-form — reject with migration help.
+                let for_span = self.cursor.current_span();
+                return ParseOutcome::consumed_err(
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1019,
+                        "trait impl must be written `impl Type: Trait`, not `impl Trait for Type`",
+                        for_span,
+                    )
+                    .with_help("rewrite `impl Trait for Type` as `impl Type: Trait`"),
+                    for_span,
+                );
             } else {
                 (None, ParsedTypeRange::EMPTY, first_path, first_ty)
             };

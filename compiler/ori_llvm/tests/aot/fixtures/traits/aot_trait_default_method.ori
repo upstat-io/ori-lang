@@ -5,7 +5,7 @@ trait Summarizable {
 
 type Item = { label: str }
 
-impl Summarizable for Item {
+impl Item: Summarizable {
     @name (self) -> str = self.label;
 }
 

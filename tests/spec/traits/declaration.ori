@@ -50,11 +50,11 @@ impl Widget {
 }
 
 // Trait impl
-impl Greeter for Widget {
+impl Widget: Greeter {
     @greet (self) -> str = "Hello from " + self.name;
 }
 
-impl Describable for Widget {
+impl Widget: Describable {
     @describe (self) -> str = "Widget(" + self.name + ", " + str(self.value) + ")";
 }
 
@@ -114,7 +114,7 @@ trait Calculator {
 
 type Number = { value: int }
 
-impl Calculator for Number {
+impl Number: Calculator {
     @add (self, other: Number) -> Number = Number { value: self.value + other.value }
     @subtract (self, other: Number) -> Number = Number { value: self.value - other.value }
 }
@@ -166,7 +166,7 @@ trait Printable {
     @to_string (self) -> str
 }
 
-impl Printable for Number {
+impl Number: Printable {
     @to_string (self) -> str = "Number(" + str(self.value) + ")";
 }
 
@@ -235,7 +235,7 @@ trait Shape {
 
 type Rectangle = { width: int, height: int }
 
-impl Shape for Rectangle {
+impl Rectangle: Shape {
     @area (self) -> int = self.width * self.height;
     @perimeter (self) -> int = 2 * (self.width + self.height);
 }

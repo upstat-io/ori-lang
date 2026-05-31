@@ -12,14 +12,14 @@ trait Printable {
 
 type Config = { value: int, name: str }
 
-impl Describable for Config {
+impl Config: Describable {
 }
 
-impl Categorizable for Config {
+impl Config: Categorizable {
     @category (self) -> str = "config";
 }
 
-impl Printable for Config {
+impl Config: Printable {
     @to_str (self) -> str = "cfg";
 }
 

@@ -1,6 +1,6 @@
 type Vec2 = { x: int, y: int }
 
-impl Mul<int> for Vec2 {
+impl Vec2: Mul<int> {
     type Output = Vec2;
     @multiply (self, rhs: int) -> Vec2 = Vec2 {
         x: self.x * rhs,

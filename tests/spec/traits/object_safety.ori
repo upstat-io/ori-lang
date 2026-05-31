@@ -19,11 +19,11 @@ trait Hashable {
 
 type Point = { x: int, y: int }
 
-impl Describable for Point {
+impl Point: Describable {
     @describe (self) -> str = "Point(" + self.x.to_str() + ", " + self.y.to_str() + ")";
 }
 
-impl Hashable for Point {
+impl Point: Hashable {
     @hash (self) -> int = self.x * 31 + self.y;
 }
 

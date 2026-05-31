@@ -13,7 +13,7 @@ trait Describable {
 
 type Item = { name: str }
 
-impl Describable for Item {
+impl Item: Describable {
     @describe (self) -> str = self.name;
 }
 
@@ -35,7 +35,7 @@ trait Geometric {
 
 type Square = { side: int }
 
-impl Geometric for Square {
+impl Square: Geometric {
     @area (self) -> int = self.side * self.side;
     @perimeter (self) -> int = 4 * self.side;
 }
@@ -58,7 +58,7 @@ trait Greetable {
 
 type Person = { name: str }
 
-impl Greetable for Person {
+impl Person: Greetable {
     // Uses default implementation
 }
 
@@ -72,7 +72,7 @@ impl Greetable for Person {
 // Override default
 type VIP = { name: str }
 
-impl Greetable for VIP {
+impl VIP: Greetable {
     @greet (self) -> str = "Welcome, esteemed " + self.name;
 }
 
@@ -97,11 +97,11 @@ trait Derived: Base {
 
 type Widget = { id: int }
 
-impl Base for Widget {
+impl Widget: Base {
     @base_method (self) -> int = self.id;
 }
 
-impl Derived for Widget {
+impl Widget: Derived {
     @derived_method (self) -> int = self.id * 2;
 }
 
@@ -128,15 +128,15 @@ trait C: A + B {
 
 type Triple = { value: int }
 
-impl A for Triple {
+impl Triple: A {
     @method_a (self) -> int = self.value;
 }
 
-impl B for Triple {
+impl Triple: B {
     @method_b (self) -> int = self.value * 2;
 }
 
-impl C for Triple {
+impl Triple: C {
     @method_c (self) -> int = self.value * 3;
 }
 
@@ -160,7 +160,7 @@ trait Container {
 
 type IntBox = { value: int }
 
-impl Container for IntBox {
+impl IntBox: Container {
     type Item = int;
     @get (self) -> int = self.value;
 }
@@ -174,7 +174,7 @@ impl Container for IntBox {
 
 type StrBox = { value: str }
 
-impl Container for StrBox {
+impl StrBox: Container {
     type Item = str;
     @get (self) -> str = self.value;
 }
@@ -197,7 +197,7 @@ trait Processor {
 
 type Counter = { count: int }
 
-impl Processor for Counter {
+impl Counter: Processor {
     // Uses default Output = int
     @process (self) -> int = self.count * 2;
 }
@@ -211,7 +211,7 @@ impl Processor for Counter {
 
 type StrProcessor = { prefix: str }
 
-impl Processor for StrProcessor {
+impl StrProcessor: Processor {
     type Output = str  // Override default;
     @process (self) -> str = self.prefix + "!";
 }
@@ -233,7 +233,7 @@ trait Addable<Rhs = Self> {
 
 type Point = { x: int, y: int }
 
-impl Addable for Point {
+impl Point: Addable {
     @add (self, rhs: Point) -> Self = Point { x: self.x + rhs.x, y: self.y + rhs.y }
 }
 
@@ -263,7 +263,7 @@ trait Wrapper<T> {
 
 type MyBox = { inner: int }
 
-impl Wrapper<int> for MyBox {
+impl MyBox: Wrapper<int> {
     @wrap (value: int) -> Self = MyBox { inner: value }
     @unwrap (self) -> int = self.inner;
 }
@@ -285,7 +285,7 @@ trait Clonable {
 
 type Copyable = { value: int }
 
-impl Clonable for Copyable {
+impl Copyable: Clonable {
     @clone_self (self) -> Self = Copyable { value: self.value }
 }
 
@@ -308,7 +308,7 @@ trait Factory {
 
 type Product = { id: int }
 
-impl Factory for Product {
+impl Product: Factory {
     @create () -> Self = Product { id: 1 }
 }
 
@@ -349,7 +349,7 @@ trait Stringify {
 
 type GenericBox<T> = { value: T }
 
-impl<T: Printable> Stringify for GenericBox<T> {
+impl<T: Printable> GenericBox<T>: Stringify {
     @to_string (self) -> str = self.value.to_str();
 }
 
@@ -374,11 +374,11 @@ trait Aged {
 
 type Entity = { name: str, age: int }
 
-impl Named for Entity {
+impl Entity: Named {
     @name (self) -> str = self.name;
 }
 
-impl Aged for Entity {
+impl Entity: Aged {
     @age (self) -> int = self.age;
 }
 
@@ -448,7 +448,7 @@ trait Scalable {
 
 type Vector = { x: int, y: int }
 
-impl Scalable for Vector {
+impl Vector: Scalable {
     @scale (self, factor: int) -> Self = Vector { x: self.x * factor, y: self.y * factor }
 }
 
@@ -471,7 +471,7 @@ pub trait PublicTrait {
 
 type PublicImpl = { value: int }
 
-impl PublicTrait for PublicImpl {
+impl PublicImpl: PublicTrait {
     @public_method (self) -> int = self.value;
 }
 
@@ -492,7 +492,7 @@ trait Optional {
 
 type MaybeValue = { value: Option<int> }
 
-impl Optional for MaybeValue {
+impl MaybeValue: Optional {
     @try_get (self) -> Option<int> = self.value;
 }
 
@@ -516,7 +516,7 @@ trait Chainable {
 
 type Number = { n: int }
 
-impl Chainable for Number {
+impl Number: Chainable {
     @double (self) -> Self = Number { n: self.n * 2 }
     @triple (self) -> Self = Number { n: self.n * 3 }
 }
@@ -539,7 +539,7 @@ trait Checkable {
 
 type Validated = { valid: bool }
 
-impl Checkable for Validated {
+impl Validated: Checkable {
     @is_valid (self) -> bool = self.valid;
 }
 

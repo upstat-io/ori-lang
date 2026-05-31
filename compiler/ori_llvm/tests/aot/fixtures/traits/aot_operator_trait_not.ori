@@ -1,6 +1,6 @@
 type Toggle = { on: bool }
 
-impl Not for Toggle {
+impl Toggle: Not {
     type Output = Toggle;
     @not (self) -> Toggle = Toggle { on: !self.on }
 }

@@ -20,11 +20,11 @@ trait Describable: Named {
 type Person = { first_name: str, last_name: str }
 
 // Implementing the child trait requires implementing the parent trait too
-impl Named for Person {
+impl Person: Named {
     @name (self) -> str = self.first_name + " " + self.last_name;
 }
 
-impl Describable for Person {
+impl Person: Describable {
     @describe (self) -> str = "Person: " + self.name();
 }
 
@@ -49,15 +49,15 @@ trait Auditable: Trackable {
 
 type Record = { record_id: int, data: str }
 
-impl Identifiable for Record {
+impl Record: Identifiable {
     @id (self) -> int = self.record_id;
 }
 
-impl Trackable for Record {
+impl Record: Trackable {
     @track (self) -> str = "Tracking record #" + str(self.id());
 }
 
-impl Auditable for Record {
+impl Record: Auditable {
     @audit (self) -> str = "Audit: " + self.track() + " [" + self.data + "]";
 }
 
@@ -75,11 +75,11 @@ trait Formatted: Printable {
 
 type Value = { amount: int }
 
-impl Printable for Value {
+impl Value: Printable {
     @to_string (self) -> str = str(self.amount);
 }
 
-impl Formatted for Value {
+impl Value: Formatted {
     // Use default implementation by not overriding format()
 }
 
@@ -89,11 +89,11 @@ impl Formatted for Value {
 
 type Currency = { amount: int, symbol: str }
 
-impl Printable for Currency {
+impl Currency: Printable {
     @to_string (self) -> str = self.symbol + str(self.amount);
 }
 
-impl Formatted for Currency {
+impl Currency: Formatted {
     // Override the default format method
     @format (self) -> str = "Currency: " + self.to_string();
 }

@@ -3,7 +3,7 @@
 
 type Lookup = { data: [int] }
 
-impl Index<int, int> for Lookup {
+impl Lookup: Index<int, int> {
     @index (self, key: int) -> int = self.data[key];
 }
 

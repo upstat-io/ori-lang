@@ -8,7 +8,7 @@ impl Color {
     @brightness (self) -> int = (self.r + self.g + self.b) / 3;
 }
 
-impl Printable for Color {
+impl Color: Printable {
     @to_str (self) -> str = "color";
 }
 

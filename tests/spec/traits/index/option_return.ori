@@ -9,7 +9,7 @@ use std.testing { assert_eq }
 
 type Sparse = { data: {int: str} }
 
-impl Index<int, Option<str>> for Sparse {
+impl Sparse: Index<int, Option<str>> {
     @index (self, key: int) -> Option<str> = self.data[key];
 }
 

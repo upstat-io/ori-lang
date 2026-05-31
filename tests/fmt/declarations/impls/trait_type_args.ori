@@ -1,0 +1,12 @@
+// Golden test: Trait impl with trait type-arguments
+// Spec: 08-declarations.md § Implementations
+
+type Point = { x: int, y: int }
+
+trait Add<T> {
+    @add (self, other: T) -> Self
+}
+
+impl Point: Add<int> {
+    @add (self, other: int) -> Self = self;
+}
