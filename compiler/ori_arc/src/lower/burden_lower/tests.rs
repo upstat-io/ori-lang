@@ -3777,3 +3777,106 @@ fn partial_apply_owned_capture_passed_to_owned_callee_emits_zero_net_burden_per_
         "second BurdenInc MUST appear between PartialApply and Apply; positions={inc_positions:?}, pa_pos={pa_pos}, apply_pos={apply_pos}",
     );
 }
+
+/// RL-2 dec-fidelity: a Let-Var dup-alias whose terminator-position last-use is
+/// NOT an ownership transfer (Jump arg to a Borrowed target-block-param) MUST
+/// be suppressed at the terminator exactly as it is at instruction position.
+/// The alias is predicate-stack-managed (its source stays live) and received no
+/// FRESH-site BurdenInc, so a terminator-position BurdenDec would net its
+/// burden ledger to -1 (VF-1 imbalance). Positive pin: zero BurdenDec for the
+/// alias. Negative pin: reverting the terminator-path dup_alias_dsts suppression
+/// re-introduces the spurious unpaired BurdenDec (asserted by the count == 0).
+#[test]
+fn dup_alias_at_terminator_nontransfer_suppresses_burden_dec() {
+    let registry = TypeRegistry::new();
+    // %0: heap STR produced by an Apply (no contract -> FRESH-site BurdenInc).
+    // %1: Let-Var alias of %0; %0 stays live (used again by the second Apply),
+    //     so %1 is a dup_alias_dst.
+    // %2: second Apply consuming %0 — keeps %0's use count >= 2.
+    // Terminator: Jump block1, args=[%1] — block1's param (%3) is BorrowedFrom,
+    //     so the Jump arg is NON-transfer; %1's last use lands in the second
+    //     (legacy) loop of emit_terminator_burden_decs.
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Apply {
+                        dst: ArcVarId::new(0),
+                        ty: Idx::STR,
+                        func: Name::from_raw(100),
+                        args: Vec::new(),
+                        arg_ownership: Vec::new(),
+                        mono_instance_id: None,
+                    },
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::STR,
+                        value: ArcValue::Var(ArcVarId::new(0)),
+                    },
+                    ArcInstr::Apply {
+                        dst: ArcVarId::new(2),
+                        ty: Idx::STR,
+                        func: Name::from_raw(101),
+                        args: vec![ArcVarId::new(0)],
+                        arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![ArcVarId::new(1)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(ArcVarId::new(3), Idx::STR)],
+                body: Vec::new(),
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+
+    // Mark block1's param (%3) as a borrow so the Jump arg is non-transfer.
+    let derived_ownership = vec![
+        DerivedOwnership::Owned,                          // %0
+        DerivedOwnership::Owned,                          // %1
+        DerivedOwnership::Owned,                          // %2
+        DerivedOwnership::BorrowedFrom(ArcVarId::new(1)), // %3 (block1 param)
+    ];
+
+    let _ctx = emit_burden_ops(
+        &mut func,
+        &registry,
+        &derived_ownership,
+        &[],
+        &FxHashMap::default(),
+    );
+
+    let body = &func.blocks[0].body;
+    let alias_decs = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(1)))
+        .count();
+    assert_eq!(
+        alias_decs, 0,
+        "dup-alias var(1) at a non-transfer terminator position MUST receive zero BurdenDec (RL-2 dec-fidelity; symmetric with instruction-position suppression); body={body:?}",
+    );
+
+    // Sanity: the alias never received a FRESH-site BurdenInc either, so the
+    // suppressed dec would have been unpaired (net -1) — confirming the
+    // suppression is the only thing keeping VF-1 balance for var(1).
+    let alias_incs = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(1)))
+        .count();
+    assert_eq!(
+        alias_incs, 0,
+        "dup-alias var(1) carries no FRESH-site BurdenInc; body={body:?}",
+    );
+}

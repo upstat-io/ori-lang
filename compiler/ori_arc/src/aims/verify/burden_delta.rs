@@ -3,10 +3,10 @@
 //! full-function-scope `verify_burden_balance` (in
 //! `aims/verify/burden_balance.rs`).
 //!
-//! Per `impl-hygiene.md §LEAK:algorithmic-duplication`, the same
-//! `BurdenInc(v) - BurdenDec*(v)` walk over a block's body would otherwise
-//! exist in two sites with identical control-flow shape; the helper here
-//! is the canonical home.
+//! The same `BurdenInc(v) - BurdenDec*(v)` forward-dataflow walk over a
+//! block's body would otherwise exist in multiple sites with identical
+//! control-flow shape; this helper is the single canonical home consumed by
+//! every burden-balance verifier (full-function + TRMC-scope).
 
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 

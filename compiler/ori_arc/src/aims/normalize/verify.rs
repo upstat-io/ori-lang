@@ -26,13 +26,13 @@
 //! # References
 //!
 //! - Leijen & Lorenzen, JFP 2025 — context laws (appctx), (appcomp)
-//! - Section 13.5 of the AIMS plan
 
 use ori_ir::Name;
 
 use crate::aims::contract::ContextRegion;
 use crate::aims::intraprocedural::AimsStateMap;
 use crate::aims::lattice::{ShapeClass, Uniqueness};
+use crate::aims::verify::burden_delta::compute_burden_entry_nets;
 use crate::graph::{compute_predecessors, DominatorTree};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, LitValue};
 
@@ -214,7 +214,7 @@ impl std::fmt::Display for TrmcVerificationError {
 /// This function only checks structural properties of the IR — it does
 /// not require uniqueness analysis or interprocedural contracts. Checks
 /// that depend on external state (uniqueness, effect purity) are handled
-/// separately in Section 13.6 pipeline integration.
+/// separately in the AIMS pipeline integration step.
 pub(crate) fn verify_trmc_rewrite(
     func: &ArcFunction,
     regions: &[ContextRegion],
@@ -622,10 +622,28 @@ pub(crate) fn verify_trmc_burden_balance(
 
     for &var in &context_hole_vars {
         let delta = crate::aims::verify::burden_delta::compute_var_block_deltas(func, var);
-        if let Some(entry_net) =
-            compute_burden_entry_nets(func, &preds, var, ctx.loop_header, &delta, &mut errors)
-        {
-            check_burden_terminal_zero(func, var, ctx.loop_header, &delta, &entry_net, &mut errors);
+        let nets = compute_burden_entry_nets(func, &preds, &delta);
+        // Merge disagreement is reported FIRST and suppresses the terminal-net
+        // check for this var (the function-exit net is undefined when a merge
+        // point already diverges) — mirrors `verify_burden_balance` in
+        // `aims/verify/burden_balance.rs`. The merge block is the divergence
+        // anchor surfaced in the diagnostic `path`.
+        if let Some(&(b, _observed)) = nets.disagree_blocks.first() {
+            errors.push(TrmcVerificationError::BurdenImbalance {
+                function: func.name,
+                var,
+                region: ctx.loop_header,
+                path: vec![func.blocks[b].id],
+            });
+        } else {
+            check_burden_terminal_zero(
+                func,
+                var,
+                ctx.loop_header,
+                &delta,
+                &nets.entry_net,
+                &mut errors,
+            );
         }
     }
 
@@ -647,112 +665,12 @@ fn collect_context_hole_vars(func: &ArcFunction, state_map: &AimsStateMap) -> Ve
     out
 }
 
-// `compute_var_block_deltas` is shared with `verify_burden_balance` in
-// `aims/verify/burden_balance.rs`; canonical home at
-// `aims/verify/burden_delta.rs` per `impl-hygiene.md §LEAK:algorithmic-duplication`.
-
-/// Forward dataflow on net burden count for `var`. `entry_net[b]` is the
-/// sum of deltas along any reachable path from `func.entry` to `b`; every
-/// predecessor's exit net MUST equal the chosen entry net. Mismatch at a
-/// merge point is the imbalance signal — pushed onto `errors` and the
-/// helper returns `None` (one imbalance per var is enough to trigger
-/// rollback; caller skips the terminal check).
-///
-/// A simple worklist over predecessor lists is sufficient because we only
-/// need fixpoint, not optimization (proper reverse postorder lives in
-/// `graph::compute_postorder`).
-fn compute_burden_entry_nets(
-    func: &ArcFunction,
-    preds: &[Vec<usize>],
-    var: ArcVarId,
-    region: ArcBlockId,
-    delta: &[i64],
-    errors: &mut Vec<TrmcVerificationError>,
-) -> Option<Vec<Option<i64>>> {
-    let n = func.blocks.len();
-    let mut entry_net: Vec<Option<i64>> = vec![None; n];
-    let entry_idx = func.entry.index();
-    if entry_idx < n {
-        entry_net[entry_idx] = Some(0);
-    }
-
-    let iter_cap = n.saturating_mul(4).max(16);
-    let mut changed = true;
-    let mut iterations: usize = 0;
-    let mut imbalance_recorded = false;
-
-    while changed && iterations < iter_cap {
-        changed = false;
-        iterations += 1;
-        for b in 0..n {
-            if b == entry_idx || preds[b].is_empty() {
-                continue;
-            }
-            match merge_pred_exits(preds, b, delta, &entry_net) {
-                MergeResult::Agreed(c) => {
-                    if entry_net[b] != Some(c) {
-                        entry_net[b] = Some(c);
-                        changed = true;
-                    }
-                }
-                MergeResult::Disagreed { pred } => {
-                    errors.push(TrmcVerificationError::BurdenImbalance {
-                        function: func.name,
-                        var,
-                        region,
-                        path: vec![func.blocks[pred].id, func.blocks[b].id],
-                    });
-                    imbalance_recorded = true;
-                    break;
-                }
-                MergeResult::Unreachable => {}
-            }
-        }
-        if imbalance_recorded {
-            break;
-        }
-    }
-
-    if imbalance_recorded {
-        None
-    } else {
-        Some(entry_net)
-    }
-}
-
-enum MergeResult {
-    Agreed(i64),
-    Disagreed { pred: usize },
-    Unreachable,
-}
-
-/// At merge point `b`, fold predecessor exit nets: first defined entry
-/// seeds, then every subsequent pred MUST match. Returns the agreed value,
-/// the divergent pred, or `Unreachable` when no predecessor has a defined
-/// entry net yet.
-fn merge_pred_exits(
-    preds: &[Vec<usize>],
-    b: usize,
-    delta: &[i64],
-    entry_net: &[Option<i64>],
-) -> MergeResult {
-    let mut chosen: Option<i64> = None;
-    for &p in &preds[b] {
-        let Some(pe) = entry_net[p] else {
-            continue;
-        };
-        let p_exit = pe + delta[p];
-        match chosen {
-            None => chosen = Some(p_exit),
-            Some(c) if c == p_exit => {}
-            Some(_) => return MergeResult::Disagreed { pred: p },
-        }
-    }
-    match chosen {
-        Some(c) => MergeResult::Agreed(c),
-        None => MergeResult::Unreachable,
-    }
-}
+// Burden-entry-net forward dataflow (`compute_burden_entry_nets`) and the
+// per-block delta (`compute_var_block_deltas`) share a canonical home at
+// `aims/verify/burden_delta.rs` — single source of truth, no parallel walk.
+// This verifier consumes that SSOT and translates the first `disagree_blocks`
+// entry into a `BurdenImbalance` (TRMC rollback signal), mirroring
+// `verify_burden_balance`'s `disagree_blocks.first()` handling.
 
 /// Every path-terminal block (`Return` / `Resume` / `Unreachable`) MUST
 /// have `exit_net == 0` per VF-1 per-edge balance. Straight-line CFGs

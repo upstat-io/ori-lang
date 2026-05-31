@@ -1432,13 +1432,22 @@ fn emit_terminator_burden_decs(
     }
     // Vars whose terminator-position last-use is NOT a transfer point still
     // follow the legacy emission path: emit one BurdenDec per last-use entry
-    // unless full_move suppresses.
+    // unless full_move OR dup-alias suppresses. The dup_alias_dsts suppression
+    // is symmetric with emit_instr_burdens: a Let-Var alias whose source stays
+    // live is predicate-stack-managed (real RcInc/RcDec emitted there) and
+    // received no FRESH-site BurdenInc, so a terminator-position BurdenDec would
+    // net the alias ledger to -1 per AIMS RL-2 dec-fidelity (VF-1 imbalance).
+    // Both positions consume the same `analysis.dup_alias_dsts` set — one
+    // suppression source, no parallel computation.
     if let Some(last_use_vars) = analysis.last_uses_at.get(&(block_idx, terminator_idx)) {
         for &var in last_use_vars {
             if terminator_transfer_vars.contains(&var) {
                 continue;
             }
             if analysis.full_move_vars.contains(&var) {
+                continue;
+            }
+            if analysis.dup_alias_dsts.contains(&var) {
                 continue;
             }
             if let Some(skip_fields) = analysis.partial_move_vars.get(&var) {
