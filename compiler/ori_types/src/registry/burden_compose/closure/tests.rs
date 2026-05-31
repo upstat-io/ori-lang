@@ -291,6 +291,51 @@ fn closure_burden_default_invariants_no_variants_no_element() {
     );
 }
 
+// ─── Borrow-check-refinement sync — partition tracks classification ──────
+
+#[test]
+fn closure_owned_borrowed_partition_is_a_pure_function_of_classification_input() {
+    // §04.2 borrow-check-refinement-sync verification (no-drift):
+    //
+    // `compose_closure_burden_spec` is a PURE mapping of its `owned_captures`
+    // / `borrowed_captures` inputs — it does NOT classify captures itself.
+    // The owned/borrowed partition in the composed spec is therefore exactly
+    // whatever classification the caller supplied. A capture that the borrow
+    // checker refines from by-value (owned) to by-reference (borrowed) lands
+    // in `borrowed_fields` IFF the caller feeds it as a borrowed capture —
+    // there is no internal owned-default that a refinement could leave stale.
+    //
+    // Two compositions of the SAME capture (`Idx::STR` at field 0) under the
+    // two opposite classifications: owned-input → owned_fields only;
+    // borrowed-input → borrowed_fields only. The partition tracks the input
+    // with zero residue in the other set. Wiring the composer at a site that
+    // supplies the post-borrow-check classification therefore yields a
+    // post-borrow-check-correct partition — no drift is possible from the
+    // composer itself.
+    let ci = closure_idx(13);
+    let cap = ClosureCapture {
+        field_index: 0,
+        field_type: Idx::STR,
+    };
+
+    let as_owned = compose_closure_burden_spec(ci, &[cap.clone()], &[]);
+    assert_eq!(as_owned.owned_fields.len(), 1);
+    assert!(
+        as_owned.borrowed_fields.is_empty(),
+        "owned-classified capture leaves zero residue in borrowed_fields",
+    );
+
+    let as_borrowed = compose_closure_burden_spec(ci, &[], &[cap]);
+    assert!(
+        as_borrowed.owned_fields.is_empty(),
+        "borrowed-classified capture leaves zero residue in owned_fields — a \
+         by-value→by-reference refinement carried through the input does NOT \
+         leave a stale owned_fields entry that would emit a spurious dec",
+    );
+    assert_eq!(as_borrowed.borrowed_fields.len(), 1);
+    assert_eq!(as_borrowed.borrowed_fields[0].field_type, Idx::STR);
+}
+
 #[test]
 fn closure_burden_does_not_inherit_default_user_burden_spec() {
     // Defensive: confirm the composed spec is NOT structurally equal to

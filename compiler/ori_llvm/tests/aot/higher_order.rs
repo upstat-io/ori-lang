@@ -469,6 +469,62 @@ fn test_closure_capturing_option_str_match() {
     );
 }
 
+// Closure-env-drop single-SSOT consolidation pins.
+//
+// The closure-env drop function routes every captured field's RC dec through
+// the single `dec_value_rc` SSOT (the same tag-aware inline-value dispatch
+// used everywhere), replacing the prior per-tag dispatch that maintained its
+// own collection-buffer-dec arm. A map capture is the sharpest pin: a map's
+// backing buffer is a single `[metadata | keys | values]` allocation whose
+// teardown requires the buffer-aware `ori_map_buffer_rc_dec` path with the
+// correct key/value element sizes. Reverting the consolidation to a flat
+// `ori_rc_dec(data_ptr, drop_fn)` on the map field would fault or leak —
+// fail-on-revert.
+
+/// Semantic pin (consolidation): closure capturing a `{str: str}` map.
+///
+/// The map's key/value children are heap strings; the env-drop must dec the
+/// map's backing buffer through the buffer-aware path (`dec_value_rc` →
+/// `emit_buffer_rc_dec_map`). Leak-clean under `ORI_CHECK_LEAKS=1` proves the
+/// consolidated single-SSOT dispatch handles collection captures with the
+/// correct buffer offsets — the divergence the consolidation eliminates.
+#[test]
+fn test_closure_capture_map_drops_via_single_ssot() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {"alpha": "one", "beta": "two"};
+    let c = () -> m.length();
+    let n = c();
+    if n == 2 then 0 else 1
+}
+"#,
+        "closure_capture_map_drops_via_single_ssot",
+    );
+}
+
+/// Semantic pin (consolidation): closure capturing a mixed `(str, {str: str})`
+/// pair plus a list, exercising the str / map / list capture tags through the
+/// single env-drop dispatch in one environment. Every captured field must be
+/// decremented exactly once at env teardown; a missed dec leaks, a double dec
+/// double-frees — both surface as a non-zero exit under `ORI_CHECK_LEAKS=1`.
+#[test]
+fn test_closure_capture_mixed_collections_drop_via_single_ssot() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let label = "the-quick-brown-fox-jumps";
+    let table = {"alpha": "one", "beta": "two"};
+    let xs = ["aaa", "bbb", "ccc"];
+    let c = () -> label.length() + table.length() + xs.length();
+    let n = c();
+    if n == 30 then 0 else 1
+}
+"#,
+        "closure_capture_mixed_collections_drop_via_single_ssot",
+    );
+}
+
 // Nested closure RC matrix — covers double-free regression from wrapper
 // RcInc fix. Every test exercises a different type through the nested-capture
 // path: outer closure captures a value, inner closure re-captures it.
@@ -540,6 +596,35 @@ fn test_nested_closure_borrowed_list_param() {
     assert_aot_success(
         include_str!("fixtures/higher_order/nested_closure_borrowed_list_param.ori"),
         "nested_closure_borrowed_list_param",
+    );
+}
+
+/// Verification pin (no-drift): the closure environment physically owns a
+/// copy of every RC capture, so its drop decrements each one regardless of
+/// whether the lambda body treats the capture by-value or by-reference. A
+/// closure capturing a heap str through a path the borrow checker classifies
+/// as a borrow (passed in as a borrowed parameter, then re-captured) is still
+/// leak-clean: the env owns the stored copy, the env-drop decs it exactly
+/// once, and the wrapper does NOT inc it. The owned/borrowed BurdenSpec
+/// partition is consulted for the BODY's borrow treatment (wrapper RcInc
+/// skip), never for the env-drop dec decision — so a by-value→by-reference
+/// refinement cannot drift the env-drop into a missed or spurious dec.
+#[test]
+fn test_closure_borrowed_capture_env_owns_copy_no_drift() {
+    assert_aot_success(
+        r#"
+@use_borrowed (s: str) -> int = {
+    let c = () -> s.length();
+    c()
+}
+
+@main () -> int = {
+    let label = "the-quick-brown-fox-jumps-over";
+    let n = use_borrowed(s: label);
+    if n == 30 then 0 else 1
+}
+"#,
+        "closure_borrowed_capture_env_owns_copy_no_drift",
     );
 }
 

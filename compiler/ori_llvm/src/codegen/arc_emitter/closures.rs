@@ -6,7 +6,8 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_arc::ownership::Ownership;
-use ori_ir::{Name, CLOSURE_FIELD_ENV};
+use ori_arc::DropKind;
+use ori_ir::Name;
 use ori_types::Idx;
 
 use super::context::EmittedValue;
@@ -184,8 +185,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Generate a drop function for a closure environment.
     ///
-    /// The drop function RC-decrements each captured variable that is
-    /// reference-counted, then frees the environment via `ori_rc_free`.
+    /// Builds the `DropKind::ClosureEnv(fields)` descriptor via the
+    /// `ori_arc::compute_closure_env_drop` SSOT (the single source of truth
+    /// for which captures need RC and their logical indices), then walks
+    /// those fields decrementing each through the shared `dec_value_rc`
+    /// helper — the single tag-aware inline-value RC-dec dispatch (buffer dec
+    /// for List/Set/Map, inline-enum dec for Option/Result/Enum, aggregate
+    /// fields for Struct/Tuple, dynamic env-header dec for closures). Finally
+    /// frees the environment via `ori_rc_free`.
+    ///
+    /// Closure-env-specific concerns kept local: the per-instance env struct
+    /// type (closure envs are not interned in the type pool), the +1 field
+    /// offset (field 0 is the `drop_fn` slot; capture `i` lives at field
+    /// `i + 1`), and the `ori_rc_free` payload size.
     fn generate_env_drop_fn(
         &mut self,
         env_struct_ty_id: LLVMTypeId,
@@ -201,7 +213,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_func = self.builder.current_function();
 
         // Save emitter's tracked current_function so helpers that append
-        // blocks (emit_inline_enum_dec, emit_rc_dec_closure) use the drop
+        // blocks (emit_drop_rc_dec → emit_closure_field_rc_dec) use the drop
         // function's id, not the caller's.
         let saved_current_function = self.current_function;
 
@@ -223,79 +235,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let data_ptr = self.builder.get_param(func_id, 0);
 
-        // RC dec each captured variable that needs it.
-        //
-        // The env struct physically owns each capture (it was copied into
-        // the env by build_closure_env). The drop function must dec all
-        // RC-needing captures regardless of the lambda's borrow annotation —
-        // the annotation controls the lambda BODY's treatment, not env ownership.
-        //
-        // Collections (List, Set, Map) need special handling: their drop
-        // functions expect a pointer to the full `{len, cap, data}` struct,
-        // but `ori_rc_dec` only passes the raw data buffer pointer. Use
-        // the buffer RC dec helpers instead, which extract len/cap/data
-        // from the full value and call the appropriate runtime function.
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "capture count bounded by lambda arity, well within u32 range"
-        )]
-        for (i, &cap_ty) in capture_types.iter().enumerate() {
-            let needs_rc = self.classifier.needs_rc(cap_ty);
-            if needs_rc {
-                let field_ty = self.resolve_type(cap_ty);
-                let field_ptr = self.builder.struct_gep(
-                    env_struct_ty_id,
-                    data_ptr,
-                    (i + 1) as u32, // +1: field 0 is drop_fn
-                    &format!("cap.{i}.ptr"),
-                );
-                let field_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
-
-                let resolved = self.pool.resolve_fully(cap_ty);
-                let tag = self.pool.tag(resolved);
-                match tag {
-                    ori_types::Tag::List | ori_types::Tag::Set => {
-                        self.emit_buffer_rc_dec_list_or_set(field_val, resolved, tag);
-                    }
-                    ori_types::Tag::Map => {
-                        self.emit_buffer_rc_dec_map(field_val, resolved);
-                    }
-                    ori_types::Tag::Function => {
-                        // Closure: { fn_ptr, env_ptr } — extract env_ptr,
-                        // null-check, load dynamic drop_fn from env header.
-                        if let Some(env_ptr) = self.builder.extract_value(
-                            field_val,
-                            CLOSURE_FIELD_ENV,
-                            &format!("cap.{i}.env"),
-                        ) {
-                            if !self.builder.is_const_null_ptr(env_ptr) {
-                                let is_null =
-                                    self.builder.is_null_ptr(env_ptr, &format!("cap.{i}.null"));
-                                let do_dec =
-                                    self.builder.append_block(func_id, &format!("cap.{i}.dec"));
-                                let skip_blk =
-                                    self.builder.append_block(func_id, &format!("cap.{i}.skip"));
-                                self.builder.cond_br(is_null, skip_blk, do_dec);
-
-                                self.builder.position_at_end(do_dec);
-                                let ptr_ty = self.builder.ptr_type();
-                                let drop_fn_val =
-                                    self.builder
-                                        .load(ptr_ty, env_ptr, &format!("cap.{i}.drop_fn"));
-                                let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
-                                self.builder.call(rc_dec_id, &[env_ptr, drop_fn_val], "");
-                                self.builder.br(skip_blk);
-
-                                self.builder.position_at_end(skip_blk);
-                            }
-                        }
-                    }
-                    _ => {
-                        self.dec_value_rc(field_val, cap_ty);
-                    }
-                }
-            }
-        }
+        self.emit_closure_env_field_decs(env_struct_ty_id, data_ptr, capture_types);
 
         // Free the env struct
         let size_val = self.builder.const_i64(env_size as i64);
@@ -325,5 +265,49 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         func_id
+    }
+
+    /// Decrement each RC-owning captured field of a closure environment.
+    ///
+    /// The set of fields needing RC and their logical capture indices come
+    /// from `ori_arc::compute_closure_env_drop` — the SSOT shared with the
+    /// `DropKind::ClosureEnv` codegen arm. Each field is loaded from its
+    /// physical slot (`+1` past the `drop_fn` header) and decremented via the
+    /// shared `dec_value_rc` SSOT. `dec_value_rc` itself dispatches per tag
+    /// (buffer dec for List/Set/Map, inline-enum dec for Option/Result/Enum,
+    /// aggregate-field dec for Struct/Tuple, dynamic env-header dec for
+    /// closure captures), so collection captures route through the same
+    /// buffer-dec path as every other inline collection value — no parallel
+    /// per-tag dispatch in the closure path.
+    fn emit_closure_env_field_decs(
+        &mut self,
+        env_struct_ty_id: LLVMTypeId,
+        data_ptr: ValueId,
+        capture_types: &[Idx],
+    ) {
+        let DropKind::ClosureEnv(fields) =
+            ori_arc::compute_closure_env_drop(capture_types, self.classifier)
+        else {
+            // No captured variable needs RC — nothing to walk before free.
+            return;
+        };
+
+        for (capture_index, field_type) in fields {
+            // Physical env layout: field 0 is the drop_fn slot, captures
+            // start at field 1. The logical capture index from the burden
+            // spec maps to physical field `capture_index + 1`.
+            let physical_index = capture_index + 1;
+            let field_llvm_ty = self.resolve_type(field_type);
+            let field_ptr = self.builder.struct_gep(
+                env_struct_ty_id,
+                data_ptr,
+                physical_index,
+                &format!("cap.{capture_index}.ptr"),
+            );
+            let field_val =
+                self.builder
+                    .load(field_llvm_ty, field_ptr, &format!("cap.{capture_index}"));
+            self.dec_value_rc(field_val, field_type);
+        }
     }
 }
