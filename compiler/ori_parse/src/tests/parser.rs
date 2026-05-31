@@ -1776,13 +1776,39 @@ fn test_typed_lambda_multi_param_inferred_return_accepted() {
 }
 
 #[test]
+fn test_typed_lambda_bare_return_type_parses_as_inferred_body() {
+    // (x: int) -> int : no `=`, so the speculative type parse restores and the
+    // tail `int` parses as the inferred-return body (the type name used as a
+    // value expression). The PARSER accepts it cleanly; the type-name-as-value
+    // is rejected later at typeck (E2005) when the lambda is used — see the
+    // `#compile_fail("E2005")` spec companion in tests/spec/expressions/lambdas.ori.
+    // Proposal: typed-lambda-inferred-return Errata 2026-05-31.
+    let result = parse_source("let $f = (x: int) -> int;");
+    assert!(
+        !result.has_errors(),
+        "bare `(x: int) -> int` must parse cleanly (body is the type name `int`); errors: {:?}",
+        result.errors
+    );
+}
+
+#[test]
 fn test_typed_lambda_juxtaposed_tokens_after_return_type_rejected() {
     // (x: int) -> int x : `int` parses as the inferred-return body, then the
-    // trailing `x` is unexpected — still rejected (no longer E1017).
+    // trailing `x` is unexpected — rejected as a statement-boundary error
+    // (E1002 "expected `;` or `}` after let binding"), no longer E1017.
     let result = parse_source("let $f = (x: int) -> int x;");
     assert!(
         result.has_errors(),
         "juxtaposed `int x` after `->` must still be rejected"
+    );
+    let has_e1002 = result
+        .errors
+        .iter()
+        .any(|e| e.code == ori_diagnostic::ErrorCode::E1002);
+    assert!(
+        has_e1002,
+        "expected E1002 (statement boundary after the parsed inferred-return body); errors: {:?}",
+        result.errors
     );
 }
 

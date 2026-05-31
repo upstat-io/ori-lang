@@ -83,11 +83,12 @@ impl Parser<'_> {
 
         // Case 2: Typed lambda params
         //
-        // Spec: grammar.ebnf §typed_lambda — `(` typed_param { `,` typed_param }
-        // `)` `->` type `=` expression. is_typed_lambda_params() only matches
-        // on the first param's `:` shape; mixed forms like `(a: int, b)` reach
-        // this branch and are rejected by the helper per the typed_lambda
-        // production.
+        // Spec: grammar.ebnf §lambda — `(` typed_param { `,` typed_param } `)`
+        // `->` lambda_tail, where lambda_tail is `type "=" expression` (explicit
+        // return) or `expression` (inferred return). parse_typed_lambda_body
+        // disambiguates via the `=` delimiter. is_typed_lambda_params() only
+        // matches on the first param's `:` shape; mixed forms like `(a: int, b)`
+        // reach this branch and are rejected by the helper.
         if self.is_typed_lambda_params() {
             return self.parse_typed_lambda_body(span);
         }
