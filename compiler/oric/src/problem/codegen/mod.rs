@@ -204,7 +204,7 @@ impl CodegenProblem {
                 .with_label(span, "while lowering this expression")
                 .with_note(
                     "this is likely a compiler bug — please report it at \
-                         https://github.com/oriproject/ori/issues",
+                         https://github.com/upstat-io/ori-lang/issues",
                 ),
 
             Self::ArcFbipViolation {

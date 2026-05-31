@@ -9,8 +9,8 @@ Thank you for your interest in contributing to Ori!
 ## Getting Started
 
 ```bash
-git clone https://github.com/yourusername/ori
-cd ori
+git clone https://github.com/yourusername/ori-lang
+cd ori-lang
 ./setup.sh
 ```
 

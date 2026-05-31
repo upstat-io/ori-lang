@@ -403,7 +403,7 @@ jobs:
    cargo install ori_lsp
 
    # Or download from releases
-   curl -L https://github.com/ori-lang/ori/releases/latest/download/ori_lsp-linux -o ~/.local/bin/ori_lsp
+   curl -L https://github.com/upstat-io/ori-lang/releases/latest/download/ori_lsp-linux -o ~/.local/bin/ori_lsp
    chmod +x ~/.local/bin/ori_lsp
    ```
 

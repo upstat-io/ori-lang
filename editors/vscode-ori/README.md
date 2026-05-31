@@ -1,6 +1,6 @@
 # Ori Language Support for VS Code
 
-Syntax highlighting for the [Ori programming language](https://github.com/ori-lang/ori).
+Syntax highlighting for the [Ori programming language](https://github.com/upstat-io/ori-lang).
 
 ## Features
 
