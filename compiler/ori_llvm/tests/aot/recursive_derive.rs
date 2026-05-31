@@ -103,3 +103,71 @@ type Node = { value: int, next: Option<Node> }
 "#;
     assert_aot_success(source, "recursive_derive_debug_chain_formats_nonempty");
 }
+
+/// `#derive(Eq)` on a recursive `Node` whose back-edge is the `Ok` arm of a
+/// `Result<Node, int>` field. The derived `equals` compares the `next` field
+/// through the `Result` payload-comparison path; the `Ok` payload type is the
+/// recursive `Node`, so its slot holds an RC box pointer, not an inline `Node`
+/// struct. Equality MUST load through the box before comparing — loading the
+/// box pointer as an inline struct compares pointer bits, not node contents, so
+/// two structurally-equal chains built from distinct allocations would compare
+/// unequal. The positive/negative pair clamps the semantics: equal chains
+/// compare true, a chain differing one level deep compares false. Reverting the
+/// box-load (comparing the raw box pointer) flips the equal-chains case to
+/// false, failing this pin.
+#[test]
+fn recursive_derive_eq_result_boxed_ok_compares_through_box() {
+    let source = r#"
+use std.testing { assert_eq }
+
+#derive(Eq)
+type Node = { value: int, next: Result<Node, int> }
+
+@main () -> void = {
+    let a2 = Node { value: 2, next: Err(0) };
+    let a1 = Node { value: 1, next: Ok(a2) };
+    let b2 = Node { value: 2, next: Err(0) };
+    let b1 = Node { value: 1, next: Ok(b2) };
+    let c2 = Node { value: 9, next: Err(0) };
+    let c1 = Node { value: 1, next: Ok(c2) };
+    assert_eq(actual: a1 == b1, expected: true);
+    assert_eq(actual: a1 == c1, expected: false);
+    ()
+}
+"#;
+    assert_aot_success(
+        source,
+        "recursive_derive_eq_result_boxed_ok_compares_through_box",
+    );
+}
+
+/// `#derive(Clone)` on the same recursive-`Result`-payload `Node`. The derived
+/// `clone` RC-increments the `next` field through the `Result` clone path; the
+/// `Ok` payload is the recursive `Node`, whose slot holds an RC box pointer.
+/// Clone MUST RC-inc the box POINTER (sharing the box, COW value semantics) —
+/// loading and RC-incrementing the full inline `Node` struct treats the box
+/// pointer's bytes as a struct and increments a wrong/garbage pointer, leaking
+/// the real box and corrupting the chain. `assert_aot_success`'s built-in
+/// `ORI_CHECK_LEAKS=1` oracle verifies clone + drop of both chains balance
+/// allocation/deallocation; a wrong RC-inc target leaks (exit code 2).
+#[test]
+fn recursive_derive_clone_result_boxed_ok_incs_box_no_leak() {
+    let source = r#"
+use std.testing { assert_eq }
+
+#derive(Clone)
+type Node = { value: int, next: Result<Node, int> }
+
+@main () -> void = {
+    let n2 = Node { value: 2, next: Err(0) };
+    let n1 = Node { value: 1, next: Ok(n2) };
+    let c = n1.clone();
+    assert_eq(actual: c.value, expected: 1);
+    ()
+}
+"#;
+    assert_aot_success(
+        source,
+        "recursive_derive_clone_result_boxed_ok_incs_box_no_leak",
+    );
+}

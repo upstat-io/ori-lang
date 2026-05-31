@@ -8,6 +8,7 @@ use ori_ir::{FieldOp, OPTION_TAG_NONE, RESULT_TAG_OK};
 use ori_types::Idx;
 
 use crate::codegen::function_compiler::FunctionCompiler;
+use crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed;
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
 use super::emit_field_operation;
@@ -316,11 +317,164 @@ pub(super) fn emit_option_hash<'a>(
         .select(is_none, none_tag, combined, &format!("{name}.h"))
 }
 
+/// Compute the same-variant payload-equality for a `Result` whose Ok and/or Err
+/// payload is a boxed recursive back-edge. Branches on `is_ok` so each box
+/// pointer is dereferenced ONLY on its own variant's path — the inactive
+/// variant's payload slot holds a different (possibly scalar) bit pattern, so an
+/// unconditional load-through would dereference garbage. Mirrors the
+/// Option-boxed branch in [`compare_boxed_some_payload`], extended to two arms.
+/// `ok_boxed`/`err_boxed` say whether each arm loads through its box pointer
+/// before comparing; non-boxed arms compare the extracted payload inline.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "shared Result-boxed-payload branch threads lhs/rhs/payloads/types"
+)]
+fn compare_result_boxed_payload<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    lhs: ValueId,
+    rhs: ValueId,
+    ok_ty: Idx,
+    err_ty: Idx,
+    ok_boxed: bool,
+    err_boxed: bool,
+    is_ok: ValueId,
+    name: &str,
+    str_ty_id: LLVMTypeId,
+) -> ValueId {
+    let func_id = fc
+        .builder_mut()
+        .current_function()
+        .expect("emit within a function");
+    // When a payload is boxed the Result struct's field-1 slot is a `ptr`; a
+    // scalar arm packs its value into that same slot. Store lhs/rhs to allocas
+    // and GEP field 1, then load each arm through that slot pointer with the
+    // arm's own LLVM type — mirrors the alloca+GEP+load discipline of the
+    // Result clone path (`emit_clone_result_rc_inc`).
+    let result_ty_id = fc.builder_mut().register_value_type(lhs);
+    let lhs_alloca =
+        fc.builder_mut()
+            .create_entry_alloca(func_id, &format!("{name}.lhs_tmp"), result_ty_id);
+    let rhs_alloca =
+        fc.builder_mut()
+            .create_entry_alloca(func_id, &format!("{name}.rhs_tmp"), result_ty_id);
+    fc.builder_mut().store(lhs, lhs_alloca);
+    fc.builder_mut().store(rhs, rhs_alloca);
+    let lhs_slot =
+        fc.builder_mut()
+            .struct_gep(result_ty_id, lhs_alloca, 1, &format!("{name}.lhs_slot"));
+    let rhs_slot =
+        fc.builder_mut()
+            .struct_gep(result_ty_id, rhs_alloca, 1, &format!("{name}.rhs_slot"));
+
+    let ok_bb = fc
+        .builder_mut()
+        .append_block(func_id, &format!("{name}.ok"));
+    let err_bb = fc
+        .builder_mut()
+        .append_block(func_id, &format!("{name}.err"));
+    let join_bb = fc
+        .builder_mut()
+        .append_block(func_id, &format!("{name}.join"));
+    fc.builder_mut().cond_br(is_ok, ok_bb, err_bb);
+
+    // Ok path: compare the Ok payload, loading through the box when boxed.
+    fc.builder_mut().position_at_end(ok_bb);
+    let ok_eq = compare_result_arm_payload(
+        fc,
+        lhs_slot,
+        rhs_slot,
+        ok_ty,
+        ok_boxed,
+        &format!("{name}.ok"),
+        str_ty_id,
+    );
+    let ok_end_bb = fc.builder_mut().current_block().unwrap_or(ok_bb);
+    fc.builder_mut().br(join_bb);
+
+    // Err path: compare the Err payload, loading through the box when boxed.
+    fc.builder_mut().position_at_end(err_bb);
+    let err_eq = compare_result_arm_payload(
+        fc,
+        lhs_slot,
+        rhs_slot,
+        err_ty,
+        err_boxed,
+        &format!("{name}.err"),
+        str_ty_id,
+    );
+    let err_end_bb = fc.builder_mut().current_block().unwrap_or(err_bb);
+    fc.builder_mut().br(join_bb);
+
+    let bool_ty = fc.builder_mut().bool_type();
+    let false_val = fc.builder_mut().const_bool(false);
+    fc.builder_mut().position_at_end(join_bb);
+    fc.builder_mut()
+        .phi_from_incoming(
+            bool_ty,
+            &[(ok_eq, ok_end_bb), (err_eq, err_end_bb)],
+            &format!("{name}.same"),
+        )
+        .unwrap_or(false_val)
+}
+
+/// Compare one Result arm's payload given pointers to each side's field-1 slot.
+/// When `boxed`, the slot holds an RC box pointer: load the box pointer, then
+/// load the inner value through it before comparing. Otherwise load the slot
+/// directly as the arm's own LLVM type (reinterpreting the shared slot bytes).
+fn compare_result_arm_payload<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    lhs_slot: ValueId,
+    rhs_slot: ValueId,
+    payload_ty: Idx,
+    boxed: bool,
+    name: &str,
+    str_ty_id: LLVMTypeId,
+) -> ValueId {
+    let inner_llvm = fc.resolve_type(payload_ty);
+    let inner_ty_id = fc.builder_mut().register_type(inner_llvm);
+    let (lhs_val, rhs_val) = if boxed {
+        let ptr_ty = fc.builder_mut().ptr_type();
+        let lhs_box = fc
+            .builder_mut()
+            .load(ptr_ty, lhs_slot, &format!("{name}.lhs_box"));
+        let rhs_box = fc
+            .builder_mut()
+            .load(ptr_ty, rhs_slot, &format!("{name}.rhs_box"));
+        let lhs_val = fc
+            .builder_mut()
+            .load(inner_ty_id, lhs_box, &format!("{name}.lhs.boxed"));
+        let rhs_val = fc
+            .builder_mut()
+            .load(inner_ty_id, rhs_box, &format!("{name}.rhs.boxed"));
+        (lhs_val, rhs_val)
+    } else {
+        let lhs_val = fc
+            .builder_mut()
+            .load(inner_ty_id, lhs_slot, &format!("{name}.lhs_val"));
+        let rhs_val = fc
+            .builder_mut()
+            .load(inner_ty_id, rhs_slot, &format!("{name}.rhs_val"));
+        (lhs_val, rhs_val)
+    };
+    emit_field_operation(
+        fc,
+        FieldOp::Equals,
+        lhs_val,
+        Some(rhs_val),
+        payload_ty,
+        &format!("{name}.payload"),
+        str_ty_id,
+    )
+}
+
 /// Result<T, E> equality: tags must match; same variant -> compare payloads.
 ///
-/// Uses branchless select. For Ok/Err with different types, always evaluates
-/// both payload comparisons but only uses the relevant one. This is safe
-/// because equality thunks have no observable side effects.
+/// When neither payload is a boxed recursive back-edge, uses branchless select:
+/// both payload comparisons are evaluated and the relevant one selected (safe —
+/// equality thunks have no side effects). When EITHER payload is boxed, the
+/// payload slot holds an RC box pointer that is valid only on its own variant's
+/// path, so the comparison is computed under a tag-guarded branch that loads
+/// through the box only on the matching arm.
 pub(super) fn emit_result_eq<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     lhs: ValueId,
@@ -343,42 +497,46 @@ pub(super) fn emit_result_eq<'a>(
         .builder_mut()
         .icmp_eq(lhs_tag, rhs_tag, &format!("{name}.tags_eq"));
 
-    let lhs_val = fc
-        .builder_mut()
-        .extract_value_any(lhs, 1, &format!("{name}.lhs_val"));
-    let rhs_val = fc
-        .builder_mut()
-        .extract_value_any(rhs, 1, &format!("{name}.rhs_val"));
+    let ok_boxed = payload_type_is_rc_boxed(fc.type_info().pool(), ok_ty);
+    let err_boxed = payload_type_is_rc_boxed(fc.type_info().pool(), err_ty);
 
-    // Compare as Ok type
-    let ok_eq = emit_field_operation(
-        fc,
-        FieldOp::Equals,
-        lhs_val,
-        Some(rhs_val),
-        ok_ty,
-        &format!("{name}.ok"),
-        str_ty_id,
-    );
-    // Compare as Err type
-    let err_eq = emit_field_operation(
-        fc,
-        FieldOp::Equals,
-        lhs_val,
-        Some(rhs_val),
-        err_ty,
-        &format!("{name}.err"),
-        str_ty_id,
-    );
-
-    // Distinguish Ok vs Err for payload type selection
     let ok_tag = fc.builder_mut().const_i64(RESULT_TAG_OK);
     let is_ok = fc
         .builder_mut()
         .icmp_eq(lhs_tag, ok_tag, &format!("{name}.is_ok"));
-    let same_tag_eq = fc
-        .builder_mut()
-        .select(is_ok, ok_eq, err_eq, &format!("{name}.same_eq"));
+
+    let same_tag_eq = if ok_boxed || err_boxed {
+        compare_result_boxed_payload(
+            fc, lhs, rhs, ok_ty, err_ty, ok_boxed, err_boxed, is_ok, name, str_ty_id,
+        )
+    } else {
+        let lhs_val = fc
+            .builder_mut()
+            .extract_value_any(lhs, 1, &format!("{name}.lhs_val"));
+        let rhs_val = fc
+            .builder_mut()
+            .extract_value_any(rhs, 1, &format!("{name}.rhs_val"));
+        let ok_eq = emit_field_operation(
+            fc,
+            FieldOp::Equals,
+            lhs_val,
+            Some(rhs_val),
+            ok_ty,
+            &format!("{name}.ok"),
+            str_ty_id,
+        );
+        let err_eq = emit_field_operation(
+            fc,
+            FieldOp::Equals,
+            lhs_val,
+            Some(rhs_val),
+            err_ty,
+            &format!("{name}.err"),
+            str_ty_id,
+        );
+        fc.builder_mut()
+            .select(is_ok, ok_eq, err_eq, &format!("{name}.same_eq"))
+    };
 
     let false_val = fc.builder_mut().const_bool(false);
     fc.builder_mut()

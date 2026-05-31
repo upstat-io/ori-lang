@@ -174,6 +174,31 @@ fn tag_needs_clone_rc(tag: Tag) -> bool {
     )
 }
 
+/// RC-inc a boxed recursive Result payload arm. The payload slot holds an RC
+/// box pointer (not the inline struct); clone shares the box (COW value
+/// semantics) so RC-inc the pointer directly. Mirrors the Option-boxed clone
+/// path in [`emit_clone_composite_rc_inc`]; the box pointer lives at field 1 of
+/// the Result struct (the shared payload slot).
+fn emit_clone_result_boxed_arm<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    payload_ptr: ValueId,
+    field_idx: usize,
+    label: &str,
+) {
+    let ptr_ty = fc.builder_mut().ptr_type();
+    let box_ptr = fc.builder_mut().load(
+        ptr_ty,
+        payload_ptr,
+        &format!("clone.result.{label}_box.{field_idx}"),
+    );
+    let rc_inc_fn = fc.builder_mut().runtime_fn("ori_rc_inc");
+    fc.builder_mut().call(
+        rc_inc_fn,
+        &[box_ptr],
+        &format!("clone.result.{label}_box.inc.{field_idx}"),
+    );
+}
+
 /// Emit tag-conditional RC increment for a `Result<T, E>` field.
 ///
 /// Result has two variants (Ok/Err) with potentially different payload types.
@@ -181,7 +206,10 @@ fn tag_needs_clone_rc(tag: Tag) -> bool {
 /// on the tag to RC-inc the correct variant's payload.
 ///
 /// Uses alloca + GEP to safely load the payload with each variant's LLVM type,
-/// since Ok and Err may have different struct layouts.
+/// since Ok and Err may have different struct layouts. When a payload type is a
+/// boxed recursive back-edge, the field-1 slot holds an RC box pointer, not the
+/// inline struct: RC-inc the box pointer directly (mirrors the Option-boxed
+/// clone path) instead of loading the full struct and recursing into it.
 fn emit_clone_result_rc_inc<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     func_id: FunctionId,
@@ -189,6 +217,8 @@ fn emit_clone_result_rc_inc<'a>(
     resolved: Idx,
     field_idx: usize,
 ) {
+    use crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed;
+
     let pool = fc.type_info().pool();
     let ok_ty_idx = pool.result_ok(resolved);
     let err_ty_idx = pool.result_err(resolved);
@@ -203,6 +233,9 @@ fn emit_clone_result_rc_inc<'a>(
     if !ok_needs_rc && !err_needs_rc {
         return; // Both variants are scalar — no RC needed
     }
+
+    let ok_boxed = position_is_rc_boxed(pool, resolved, ok_ty_idx);
+    let err_boxed = position_is_rc_boxed(pool, resolved, err_ty_idx);
 
     // Resolve LLVM types for Result struct and each variant payload
     let result_inkwell_ty = fc.resolve_type(resolved);
@@ -252,42 +285,50 @@ fn emit_clone_result_rc_inc<'a>(
     // Ok branch
     fc.builder_mut().position_at_end(ok_block);
     if ok_needs_rc {
-        let ok_inkwell_ty = fc.resolve_type(ok_resolved);
-        let ok_llvm_ty = fc.builder_mut().register_type(ok_inkwell_ty);
-        let ok_val = fc.builder_mut().load(
-            ok_llvm_ty,
-            payload_ptr,
-            &format!("clone.result.ok_val.{field_idx}"),
-        );
-        emit_clone_field_rc_inc(
-            fc,
-            func_id,
-            ok_val,
-            ok_tag,
-            ok_resolved,
-            field_idx * 100 + 1000,
-        );
+        if ok_boxed {
+            emit_clone_result_boxed_arm(fc, payload_ptr, field_idx, "ok");
+        } else {
+            let ok_inkwell_ty = fc.resolve_type(ok_resolved);
+            let ok_llvm_ty = fc.builder_mut().register_type(ok_inkwell_ty);
+            let ok_val = fc.builder_mut().load(
+                ok_llvm_ty,
+                payload_ptr,
+                &format!("clone.result.ok_val.{field_idx}"),
+            );
+            emit_clone_field_rc_inc(
+                fc,
+                func_id,
+                ok_val,
+                ok_tag,
+                ok_resolved,
+                field_idx * 100 + 1000,
+            );
+        }
     }
     fc.builder_mut().br(merge_block);
 
     // Err branch
     fc.builder_mut().position_at_end(err_block);
     if err_needs_rc {
-        let err_inkwell_ty = fc.resolve_type(err_resolved);
-        let err_llvm_ty = fc.builder_mut().register_type(err_inkwell_ty);
-        let err_val = fc.builder_mut().load(
-            err_llvm_ty,
-            payload_ptr,
-            &format!("clone.result.err_val.{field_idx}"),
-        );
-        emit_clone_field_rc_inc(
-            fc,
-            func_id,
-            err_val,
-            err_tag,
-            err_resolved,
-            field_idx * 100 + 2000,
-        );
+        if err_boxed {
+            emit_clone_result_boxed_arm(fc, payload_ptr, field_idx, "err");
+        } else {
+            let err_inkwell_ty = fc.resolve_type(err_resolved);
+            let err_llvm_ty = fc.builder_mut().register_type(err_inkwell_ty);
+            let err_val = fc.builder_mut().load(
+                err_llvm_ty,
+                payload_ptr,
+                &format!("clone.result.err_val.{field_idx}"),
+            );
+            emit_clone_field_rc_inc(
+                fc,
+                func_id,
+                err_val,
+                err_tag,
+                err_resolved,
+                field_idx * 100 + 2000,
+            );
+        }
     }
     fc.builder_mut().br(merge_block);
 

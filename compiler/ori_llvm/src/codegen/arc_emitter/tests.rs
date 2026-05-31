@@ -862,6 +862,164 @@ fn set_emits_struct_gep_and_store() {
     drop(em);
 } // set_emits_struct_gep_and_store
 
+#[test]
+fn set_on_boxed_recursive_field_boxes_value_before_store() {
+    // Recursive struct `Node = { value: int, next: Node }` whose field 1 is a
+    // boxed recursive back-edge. An `ArcInstr::Set { base, field: 1, value }`
+    // mutates that field in place. The field slot holds an RC box pointer (per
+    // the boxing oracle), so the emitted IR MUST allocate a box (`ori_rc_alloc`),
+    // store `value` into it, then store the box pointer into the field slot —
+    // mirroring the Construct/Project box-and-load discipline. Reverting the fix
+    // (storing `value` directly) removes the `ori_rc_alloc` call: the negative
+    // assertion below pins the boxing.
+    //
+    // Reachability note: surface Ori does not yet emit `Set` on a recursive
+    // boxed field today — field assignment is unimplemented and AIMS reuse does
+    // not reconstruct recursive structs in place. This is a codegen-level pin on
+    // the emission path so the fix cannot silently regress when that path
+    // becomes reachable.
+    use ori_arc::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ValueRepr,
+    };
+    use ori_arc::Ownership;
+
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    // Build the self-recursive struct: `next` field's type is a Named
+    // placeholder resolved back to the struct itself, exactly how the type
+    // checker models a recursive back-edge. `resolve_fully` then maps the
+    // field type onto the owner, so the boxing oracle's self-cycle arm fires.
+    let node_named = pool.named(ori_ir::Name::from_raw(0x0DE_2222));
+    let node_ty = pool.struct_type(
+        ori_ir::Name::from_raw(0x0DE_2222),
+        &[
+            (ori_ir::Name::from_raw(301), Idx::INT),
+            (ori_ir::Name::from_raw(302), node_named),
+        ],
+    );
+    pool.set_resolution(node_named, node_ty);
+
+    // Sanity: the boxing oracle MUST classify field 1 (`next`) as boxed, else
+    // the test would assert against the non-boxed path and silently pass.
+    assert!(
+        crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed(
+            &pool, node_ty, node_named
+        ),
+        "test precondition: the recursive `next` field must be a boxed back-edge"
+    );
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_set_boxed"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let ptr_ty = builder.ptr_type();
+    let host = builder.declare_function("test_set_boxed_fn", &[ptr_ty, ptr_ty], ptr_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    // Route the recursive node Idx through DefiniteRef so it is treated as
+    // heap-allocated (the Set fast path requires an RcPointer base).
+    let cl = IdxSetClassifier {
+        heap_idxs: vec![node_ty, node_named],
+    };
+    let codegen_ctx = super::CodegenContext::default();
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    // v0 = base node (RcPointer); v1 = replacement child node (also a Node).
+    // Set v0.next(field 1) = v1, then return v0.
+    let arc_func = ArcFunction {
+        name: interner.intern("test_set_boxed_fn"),
+        params: vec![
+            ArcParam {
+                var: ArcVarId::new(0),
+                ty: node_ty,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: ArcVarId::new(1),
+                ty: node_ty,
+                ownership: Ownership::Owned,
+            },
+        ],
+        return_type: node_ty,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::Set {
+                base: ArcVarId::new(0),
+                field: 1,
+                value: ArcVarId::new(1),
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![node_ty, node_ty],
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::RcPointer],
+        spans: vec![vec![None]],
+        ..Default::default()
+    };
+
+    let abi = FunctionAbi {
+        params: vec![
+            ParamAbi {
+                name: interner.intern("base"),
+                ty: node_ty,
+                passing: ParamPassing::Direct,
+                readonly: false,
+            },
+            ParamAbi {
+                name: interner.intern("val"),
+                ty: node_ty,
+                passing: ParamPassing::Direct,
+                readonly: false,
+            },
+        ],
+        return_abi: ReturnAbi {
+            ty: node_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // The boxed-field Set MUST allocate a box before storing into the slot.
+    // Assert the CALL site (not the runtime `declare`), so the pin fails when
+    // the boxing is reverted to a direct store — the `declare noalias ptr
+    // @ori_rc_alloc` line is always present and is NOT evidence of boxing.
+    assert!(
+        ir.contains("call ptr @ori_rc_alloc"),
+        "Set on a boxed recursive field must box the value via a call to \
+         ori_rc_alloc (not just store the inline aggregate):\n{ir}"
+    );
+    // The in-place field write is still GEP + store of the box pointer.
+    assert!(
+        ir.contains("getelementptr inbounds") && ir.contains("store"),
+        "Set must GEP the field slot and store the box pointer:\n{ir}"
+    );
+
+    drop(em);
+} // set_on_boxed_recursive_field_boxes_value_before_store
+
 // ─── BurdenDecField codegen wire matrix ───
 
 /// Positive pin: `BurdenDecField` on a heap-typed (str) field MUST emit

@@ -41,6 +41,16 @@ impl IrBuilder<'_, '_> {
         )
     }
 
+    /// Register and return the LLVM type of an existing value.
+    ///
+    /// Used when an alloca must match a value already in SSA form (e.g.,
+    /// storing a wrapper struct to a temporary for type-safe field-slot
+    /// extraction) and the producing pool `Idx` is not in scope.
+    pub fn register_value_type(&mut self, val: ValueId) -> LLVMTypeId {
+        let ty = self.arena.get_value(val).get_type();
+        self.arena.push_type(ty)
+    }
+
     /// Check if a value is a struct (SSA aggregate), not a pointer or scalar.
     pub fn is_struct_value(&self, val: ValueId) -> bool {
         matches!(self.arena.get_value(val), BasicValueEnum::StructValue(_))

@@ -754,6 +754,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     // Remap declaration-order field to memory-order.
                     let mem_field = self.remap_struct_field(base_ty, *field);
 
+                    // Boxed recursive back-edge field: the slot holds an RC box
+                    // pointer, not the inline child aggregate. Box `new_val`
+                    // before the in-place store, mirroring the box-before-write
+                    // discipline of the Construct/Project sibling sites that
+                    // consult the same boxing oracle. Storing the unboxed
+                    // aggregate into a `ptr` slot would corrupt the layout.
+                    let field_decl_ty = self
+                        .pool
+                        .struct_fields(base_ty)
+                        .get(*field as usize)
+                        .map(|&(_, ty)| ty);
+                    let store_val = match field_decl_ty {
+                        Some(ft) if is_boxed_enum_field(self.pool, base_ty, ft) => {
+                            self.box_recursive_field(new_val, ft, Some(*value))
+                        }
+                        _ => new_val,
+                    };
+
                     // GEP + store for heap-allocated RC'd objects.
                     // The base is a pointer to the struct data on the heap.
                     let field_ptr = self.builder.struct_gep(
@@ -762,7 +780,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         mem_field,
                         &format!("set.{field}.ptr"),
                     );
-                    self.builder.store(new_val, field_ptr);
+                    self.builder.store(store_val, field_ptr);
                     // base pointer unchanged — mutation is in-place
                 } else {
                     // Non-pointer base: this block is unreachable (IsShared
