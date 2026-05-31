@@ -171,3 +171,57 @@ type Node = { value: int, next: Result<Node, int> }
         "recursive_derive_clone_result_boxed_ok_incs_box_no_leak",
     );
 }
+
+/// `#derive(Eq)` on `Outer` whose `items` is a `[Result<Inner, int>]` — a LIST
+/// of `Result`, where `Inner` is recursive (`next: Option<Inner>`). A list of
+/// non-scalar elements routes element equality through `ori_list_eq_deep` with a
+/// generated per-element eq THUNK; the `Result` element's thunk GEPs the offset-8
+/// payload slot and hands the slot pointer to its Ok/Err arm eq thunks. The Ok
+/// payload `Inner` is a boxed recursive back-edge, so its slot holds an RC box
+/// pointer, not an inline `Inner`. The Ok-arm thunk MUST load through the box
+/// before comparing — comparing the box-pointer-slot bytes as an `Inner` reads a
+/// pointer (and adjacent bytes past the 16-byte `Result`) instead of node
+/// contents, so two structurally-equal chains from distinct allocations compare
+/// unequal. This pin covers the THUNK comparison path, distinct from the inline
+/// `emit_result_eq` path exercised by
+/// `recursive_derive_eq_result_boxed_ok_compares_through_box` (where the `Result`
+/// is a direct struct field, not a list element). The positive/negative pair
+/// clamps the semantics: equal chains compare true, a chain differing one level
+/// deep compares false.
+///
+/// Reachability + fail-on-revert: the list-of-`Result` field is what routes the
+/// `Result` element eq through the thunk (verified in emitted IR:
+/// `ori_list_eq_deep(..., @_ori_eq_result_*)`). Reverting the cure (handing the
+/// raw offset-8 slot pointer to the Ok arm thunk instead of loading through the
+/// box) flips the equal-chains case to false under AOT codegen — the AOT binary
+/// panics `assertion failed: false != true`. The JIT path can mask the flip via
+/// `FastISel` alloca reuse, so this pin runs through `assert_aot_success`'s
+/// AOT-compile-and-execute path, which is the `FastISel`-divergent surface.
+#[test]
+fn recursive_derive_eq_result_boxed_ok_in_list_compares_through_box() {
+    let source = r#"
+use std.testing { assert_eq }
+
+#derive(Eq)
+type Inner = { value: int, next: Option<Inner> }
+
+#derive(Eq)
+type Outer = { items: [Result<Inner, int>] }
+
+@main () -> void = {
+    let a_in = Inner { value: 1, next: Some(Inner { value: 2, next: None }) };
+    let a = Outer { items: [Ok(a_in)] };
+    let b_in = Inner { value: 1, next: Some(Inner { value: 2, next: None }) };
+    let b = Outer { items: [Ok(b_in)] };
+    let c_in = Inner { value: 1, next: Some(Inner { value: 9, next: None }) };
+    let c = Outer { items: [Ok(c_in)] };
+    assert_eq(actual: a == b, expected: true);
+    assert_eq(actual: a == c, expected: false);
+    ()
+}
+"#;
+    assert_aot_success(
+        source,
+        "recursive_derive_eq_result_boxed_ok_in_list_compares_through_box",
+    );
+}
