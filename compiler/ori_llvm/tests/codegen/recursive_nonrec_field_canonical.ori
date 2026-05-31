@@ -1,0 +1,31 @@
+// FileCheck test: BUG-04-043 negative regression (cell-4) — a NON-recursive type
+// whose field flows through the cycle-break fallback / boxing-oracle path must
+// lower to its CANONICAL inline layout, NOT a spurious boxed `ptr`.
+//
+// `Pair` is non-recursive: `b: Option<int>` reaches neither `Pair` nor itself,
+// so the boxing oracle (position_is_rc_boxed) returns false and the field stays
+// the inline explicit-tag `{ i64, i64 }` aggregate. This guards Site-1 (the
+// resolve_inner non-Struct/Enum `type_i64()`/`type_ptr()` fallback) and the
+// oracle's Struct/Enum recursion gate against over-broadening — the box-and-load
+// path must fire ONLY on recursive Struct/Enum back-edges.
+//
+// @function: _ori_make_pair
+//
+// The Option<int> payload is inline (i64), so the field is `{ i64, i64 }` — no
+// boxing, no rc_alloc, no `ptr` payload.
+// CHECK: %ori.Pair
+// CHECK: insertvalue %ori.Pair undef, { i64, i64 }
+// A non-recursive field must NOT be heap-boxed: no rc_alloc, no boxed-ptr store,
+// no `{ i64, ptr }` tagged payload for this Option<int>.
+// CHECK-NOT: call ptr @ori_rc_alloc
+// CHECK-NOT: insertvalue %ori.Pair undef, { i64, ptr }
+// CHECK-NOT: type opaque
+
+type Pair = { a: int, b: Option<int> }
+
+@make_pair (x: int, y: Option<int>) -> Pair = Pair { a: x, b: y };
+
+@main () -> void = {
+    let p = make_pair(x: 1, y: Some(2));
+    print(msg: p.a.to_str())
+}

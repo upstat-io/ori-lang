@@ -29,19 +29,26 @@
 //
 // @function: _ori_make_node
 //
-// Cell 1 (backedge-ptr): the Node aggregate is referenced by name and carries a
-// pointer back-edge; the recursive field is NOT an inline by-value %ori.Node.
+// Cell 1 (backedge-ptr): the recursive back-edge is heap-boxed — the constructor
+// allocates the box and stores its pointer into the variant payload slot, so the
+// field lowers to `ptr`, NOT an inline by-value %ori.Node. The Node aggregate is
+// referenced by name; the back-edge box is an `ori_rc_alloc` + pointer store.
 // CHECK: %ori.Node
+// CHECK: call ptr @ori_rc_alloc
+// CHECK: store ptr %rc.alloc
 // CHECK-NOT: { i64, %ori.Node }
 // CHECK-NOT: i64, %ori.Node,
 // CHECK-NOT: type opaque
 //
 // Cell 2 (option-explicit-tag): the `Option<Node>` next-field is built as a
-// tagged aggregate whose first member is the i64 discriminant and whose payload
-// is the boxed pointer — `{ i64, ptr }`. An explicit tag member is present.
-// CHECK: insertvalue { i64, ptr }
+// tagged aggregate `{ i64, ptr }` — first member the i64 discriminant, payload
+// the boxed pointer. The constructor materializes it via alloca + explicit tag
+// store; an explicit discriminant store IS present.
+// CHECK: alloca { i64, ptr }
+// CHECK: store i64 0, ptr %variant.tag
 // A niche-encoded Option would lower the whole field to a single bare `ptr`
-// with no tag aggregate; assert that collapse does NOT happen.
+// with no tag aggregate and no discriminant store; assert that collapse does
+// NOT happen — the boxed payload sits behind an explicit `{ i64, ptr }` tag.
 // CHECK-NOT: insertvalue %ori.Node undef, ptr %next, 1
 
 type Node = { value: int, next: Option<Node> }

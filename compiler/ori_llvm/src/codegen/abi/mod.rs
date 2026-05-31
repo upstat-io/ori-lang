@@ -205,7 +205,7 @@ fn abi_size_inner(
 
     // Dynamic-size types: compute recursively
     //
-    // FIXME(roadmap:section-05): abi_size_inner sums field sizes WITHOUT
+    // TODO(codegen): abi_size_inner sums field sizes WITHOUT
     // alignment padding. A struct { byte, int, byte } computes as 10 bytes
     // here, but LLVM lays it out as 24 bytes (1+7 padding + 8 + 1+7 padding).
     // This can misclassify as Direct (≤16) when Indirect (>16) is needed.
