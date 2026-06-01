@@ -25,8 +25,11 @@ set -euo pipefail
 # ---- Paths -------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-STATE_FILE="$ROOT_DIR/.claude/state/known-state.json"
+# STATE_FILE / BASELINES_FILE accept env overrides (default to canonical paths)
+# so the baseline subcommand is testable in isolation against a temp dir.
+STATE_FILE="${ORI_STATE_FILE:-$ROOT_DIR/.claude/state/known-state.json}"
 STATE_DIR="$(dirname "$STATE_FILE")"
+BASELINES_FILE="${ORI_BASELINES_FILE:-$STATE_DIR/baselines.json}"
 
 # ---- Defaults ----------------------------------------------------------------
 OUTPUT=human    # show default; machine consumers pass --json
@@ -61,6 +64,25 @@ Subcommands:
                         per line as: <file>:<line>\t<kind>\t<tracking_bug>\t<reason>
                         --json outputs as a JSON array of entry objects.
                         --untracked-only filters to entries with tracking_bug=null.
+  baseline <action>     Pinned pre-work snapshots keyed by bug-id or section,
+                        stored in baselines.json. Capture up front (before work);
+                        compare at close to separate pre-existing failures from
+                        regressions the work introduced.
+                          capture --key K [--by W] [--force] [--refresh]
+                                              Snapshot current test/clippy/
+                                              disposition state under key K.
+                                              create-if-absent (first capture
+                                              wins); --force overwrites;
+                                              --refresh runs `refresh --full`
+                                              first for a fresh measurement.
+                          show --key K        Print baseline K. exit 4 if absent.
+                          compare --key K     Diff current state vs baseline K.
+                                              exit 0 = no regressions; exit 5 =
+                                              regressions (newly-failing tests,
+                                              new untracked dispositions, or more
+                                              clippy errors); exit 4 = no baseline.
+                          list                List captured baselines.
+                          clear --key K       Remove baseline K.
   refresh               Update the cache.
                         --sha-only          Update head_sha + updated_at only
                                             (fast; no test rerun). Use this
@@ -876,17 +898,241 @@ cmd_refresh() {
     esac
 }
 
+# ---- Subcommand: baseline ----------------------------------------------------
+# Pinned pre-work snapshots of test/clippy/disposition state, keyed by a bug id
+# or plan-section key, stored in baselines.json. Captured up front (before work)
+# so close-out can diff current-vs-baseline and distinguish pre-existing failures
+# from regressions the work introduced.
+
+ensure_baselines_file() {
+    if [[ ! -f "$BASELINES_FILE" ]]; then
+        mkdir -p "$(dirname "$BASELINES_FILE")"
+        printf '%s\n' '{"schema_version":1,"baselines":{}}' > "$BASELINES_FILE"
+    fi
+}
+
+# Atomic JSON write for the baselines store: write to .tmp, then rename.
+write_baselines() {
+    local content="$1"
+    local tmp="$BASELINES_FILE.tmp.$$"
+    printf '%s\n' "$content" > "$tmp"
+    mv "$tmp" "$BASELINES_FILE"
+}
+
+# Normalized snapshot object extracted from known-state.json.
+baseline_snapshot_from_state() {
+    require_state_file
+    jq '{
+      test_suite: {
+        totals: {
+          passed: (.test_suite.totals.passed // 0),
+          failed: (.test_suite.totals.failed // 0),
+          skipped: (.test_suite.totals.skipped // 0)
+        },
+        failures: ([.test_suite.failures[]?.test_id] | map(select(. != null)) | unique),
+        known_failing_count: (.test_suite.known_failing_count // 0),
+        status: (.test_suite.status // "unknown")
+      },
+      clippy: {
+        status: (.clippy.status // "unknown"),
+        warnings: (.clippy.warnings // 0),
+        errors: (.clippy.errors // 0)
+      },
+      test_dispositions: {
+        total: (.test_dispositions.totals.total // 0),
+        untracked: (.test_dispositions.totals.untracked // 0)
+      }
+    }' "$STATE_FILE"
+}
+
+baseline_capture() {
+    [[ -n "$BASELINE_KEY" ]] || die "baseline capture requires --key"
+    require_state_file
+    ensure_baselines_file
+    local exists
+    exists=$(jq --arg k "$BASELINE_KEY" '.baselines | has($k)' "$BASELINES_FILE")
+    if [[ "$exists" == "true" && "$BASELINE_FORCE" != "1" ]]; then
+        # create-if-absent: the FIRST (pre-work) capture wins; re-handoff never
+        # clobbers it. --force overwrites deliberately.
+        if [[ "$OUTPUT" == "json" ]]; then
+            jq -n --arg k "$BASELINE_KEY" \
+                '{action:"no-op",key:$k,reason:"baseline exists (use --force to overwrite)"}'
+        else
+            echo "baseline '$BASELINE_KEY' already exists; preserved (use --force to re-capture)"
+        fi
+        return 0
+    fi
+    if [[ "$BASELINE_REFRESH" == "1" ]]; then
+        REFRESH_MODE=full
+        cmd_refresh >/dev/null 2>&1 || true
+    elif [[ "$CHECK_STALE" == "0" ]]; then
+        # Best-effort freshness warning (non-fatal): a stale cache means the
+        # baseline reflects an old measurement, not true work-start state.
+        local cache_sha head_sha
+        cache_sha=$(jq -r '.head_sha // ""' "$STATE_FILE")
+        head_sha=$(current_head_sha)
+        if [[ -n "$cache_sha" && "$cache_sha" != "$head_sha" ]]; then
+            echo "warning: known-state cache SHA ($cache_sha) != HEAD ($head_sha); baseline may be stale (use --refresh for a fresh measurement)" >&2
+        fi
+    fi
+    local snapshot captured_sha captured_at by entry merged
+    snapshot=$(baseline_snapshot_from_state)
+    captured_sha=$(jq -r '.test_suite.last_run_sha // .head_sha // "unknown"' "$STATE_FILE")
+    captured_at=$(iso_now)
+    by="${UPDATED_BY:-manual}"
+    entry=$(jq -n \
+        --arg k "$BASELINE_KEY" --arg at "$captured_at" --arg sha "$captured_sha" --arg by "$by" \
+        --argjson snap "$snapshot" \
+        '{key:$k, captured_at:$at, captured_at_sha:$sha, captured_by:$by} + $snap')
+    merged=$(jq --arg k "$BASELINE_KEY" --argjson e "$entry" '.baselines[$k] = $e' "$BASELINES_FILE")
+    write_baselines "$merged"
+    if [[ "$OUTPUT" == "json" ]]; then
+        echo "$entry" | jq '{action:"captured"} + .'
+    else
+        echo "baseline '$BASELINE_KEY' captured @ $captured_sha (by $by)"
+        echo "$snapshot" | jq -r '"  tests: failed=\(.test_suite.totals.failed) known_failing=\(.test_suite.known_failing_count)  dispositions: untracked=\(.test_dispositions.untracked)  clippy: errors=\(.clippy.errors)"'
+    fi
+}
+
+baseline_show() {
+    [[ -n "$BASELINE_KEY" ]] || die "baseline show requires --key"
+    ensure_baselines_file
+    local entry
+    entry=$(jq -c --arg k "$BASELINE_KEY" '.baselines[$k] // empty' "$BASELINES_FILE")
+    if [[ -z "$entry" ]]; then
+        if [[ "$OUTPUT" == "json" ]]; then
+            jq -n --arg k "$BASELINE_KEY" '{action:"absent",key:$k}'
+        else
+            echo "no baseline for key '$BASELINE_KEY'"
+        fi
+        exit 4
+    fi
+    if [[ "$OUTPUT" == "json" ]]; then
+        echo "$entry" | jq .
+    else
+        echo "$entry" | jq -r '"baseline \(.key) @ \(.captured_at_sha) (\(.captured_at), by \(.captured_by))\n  tests: failed=\(.test_suite.totals.failed) known_failing=\(.test_suite.known_failing_count)\n  dispositions: untracked=\(.test_dispositions.untracked)\n  clippy: errors=\(.clippy.errors) warnings=\(.clippy.warnings)"'
+    fi
+}
+
+baseline_compare() {
+    [[ -n "$BASELINE_KEY" ]] || die "baseline compare requires --key"
+    require_state_file
+    ensure_baselines_file
+    local base
+    base=$(jq -c --arg k "$BASELINE_KEY" '.baselines[$k] // empty' "$BASELINES_FILE")
+    if [[ -z "$base" ]]; then
+        if [[ "$OUTPUT" == "json" ]]; then
+            jq -n --arg k "$BASELINE_KEY" '{action:"absent",key:$k,gate_pass:false,exit_code:4}'
+        else
+            echo "no baseline for key '$BASELINE_KEY' — cannot compare (capture one at work-start)"
+        fi
+        exit 4
+    fi
+    local cur cur_sha report exit_code
+    cur=$(baseline_snapshot_from_state)
+    cur_sha=$(jq -r '.test_suite.last_run_sha // .head_sha // "unknown"' "$STATE_FILE")
+    report=$(jq -n --argjson base "$base" --argjson cur "$cur" --arg cur_sha "$cur_sha" '
+        (($cur.test_suite.failures - $base.test_suite.failures)) as $newfail |
+        (($base.test_suite.failures - $cur.test_suite.failures)) as $newfix |
+        (($cur.test_dispositions.untracked - $base.test_dispositions.untracked)) as $undelta |
+        (($cur.clippy.errors - $base.clippy.errors)) as $clipdelta |
+        (($newfail | length) > 0 or $undelta > 0 or $clipdelta > 0) as $reg |
+        {
+          key: $base.key,
+          baseline_sha: $base.captured_at_sha,
+          current_sha: $cur_sha,
+          newly_failing: $newfail,
+          newly_fixed: $newfix,
+          totals_delta: {
+            passed: ($cur.test_suite.totals.passed - $base.test_suite.totals.passed),
+            failed: ($cur.test_suite.totals.failed - $base.test_suite.totals.failed),
+            skipped: ($cur.test_suite.totals.skipped - $base.test_suite.totals.skipped)
+          },
+          dispositions: { untracked_delta: $undelta },
+          clippy: { errors_delta: $clipdelta },
+          regression: $reg,
+          gate_pass: ($reg | not),
+          exit_code: (if $reg then 5 else 0 end)
+        }')
+    exit_code=$(echo "$report" | jq -r '.exit_code')
+    if [[ "$OUTPUT" == "json" ]]; then
+        echo "$report" | jq .
+    else
+        echo "$report" | jq -r '"baseline compare \(.key): baseline=\(.baseline_sha) current=\(.current_sha)\n  newly_failing: \(.newly_failing | length)  newly_fixed: \(.newly_fixed | length)  untracked_delta: \(.dispositions.untracked_delta)  clippy_errors_delta: \(.clippy.errors_delta)"'
+        if [[ "$(echo "$report" | jq -r '.regression')" == "true" ]]; then
+            echo "  REGRESSION vs baseline — newly_failing: $(echo "$report" | jq -r '.newly_failing | join(", ")')"
+        else
+            echo "  no regressions vs baseline"
+        fi
+    fi
+    exit "$exit_code"
+}
+
+baseline_list() {
+    ensure_baselines_file
+    if [[ "$OUTPUT" == "json" ]]; then
+        jq '.baselines | to_entries | map({key:.key, captured_at_sha:.value.captured_at_sha, captured_at:.value.captured_at, captured_by:.value.captured_by})' "$BASELINES_FILE"
+    else
+        jq -r '.baselines | to_entries[] | "\(.key)\t\(.value.captured_at_sha)\t\(.value.captured_at)\t\(.value.captured_by)"' "$BASELINES_FILE"
+    fi
+}
+
+baseline_clear() {
+    [[ -n "$BASELINE_KEY" ]] || die "baseline clear requires --key"
+    ensure_baselines_file
+    local exists
+    exists=$(jq --arg k "$BASELINE_KEY" '.baselines | has($k)' "$BASELINES_FILE")
+    if [[ "$exists" != "true" ]]; then
+        echo "no baseline for key '$BASELINE_KEY'"
+        exit 4
+    fi
+    local merged
+    merged=$(jq --arg k "$BASELINE_KEY" 'del(.baselines[$k])' "$BASELINES_FILE")
+    write_baselines "$merged"
+    echo "baseline '$BASELINE_KEY' cleared"
+}
+
+cmd_baseline() {
+    require_jq
+    [[ -n "$BASELINE_ACTION" ]] || die "baseline requires an action: capture|show|compare|list|clear"
+    case "$BASELINE_ACTION" in
+        capture)  baseline_capture ;;
+        show)     baseline_show ;;
+        compare)  baseline_compare ;;
+        list)     baseline_list ;;
+        clear)    baseline_clear ;;
+        *) die "unknown baseline action: $BASELINE_ACTION (use capture|show|compare|list|clear)" ;;
+    esac
+}
+
 # ---- Argument parsing --------------------------------------------------------
 if [[ $# -eq 0 ]]; then usage; exit 3; fi
 
 UPDATED_BY=""
 DISPOSITIONS_UNTRACKED_ONLY=0
 CHECK_STALE=0
+BASELINE_KEY=""
+BASELINE_ACTION=""
+BASELINE_FORCE=0
+BASELINE_REFRESH=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --help|-h) usage; exit 0 ;;
         --json) OUTPUT=json; shift ;;
         --human) OUTPUT=human; shift ;;
+        --key)
+            [[ $# -ge 2 ]] || die "--key requires a value"
+            BASELINE_KEY="$2"; shift 2 ;;
+        --force) BASELINE_FORCE=1; shift ;;
+        --refresh) BASELINE_REFRESH=1; shift ;;
+        baseline)
+            [[ -z "$SUBCMD" ]] || die "multiple subcommands: $SUBCMD and $1"
+            SUBCMD="baseline"; shift
+            # `baseline <action>` — consume the sub-action positional together.
+            if [[ $# -ge 1 && "$1" != --* ]]; then
+                BASELINE_ACTION="$1"; shift
+            fi
+            ;;
         --sha-only) REFRESH_MODE=sha-only; shift ;;
         --full) REFRESH_MODE=full; shift ;;
         --hygiene-only) REFRESH_MODE=hygiene-only; shift ;;
@@ -909,7 +1155,13 @@ while [[ $# -gt 0 ]]; do
         show|check|refresh|known-failing|dispositions)
             [[ -z "$SUBCMD" ]] || die "multiple subcommands: $SUBCMD and $1"
             SUBCMD="$1"; shift ;;
-        *) die "unknown argument: $1" ;;
+        *)
+            if [[ "$SUBCMD" == "baseline" && -z "$BASELINE_ACTION" ]]; then
+                BASELINE_ACTION="$1"; shift
+            else
+                die "unknown argument: $1"
+            fi
+            ;;
     esac
 done
 
@@ -919,6 +1171,7 @@ case "$SUBCMD" in
     refresh) cmd_refresh ;;
     known-failing) cmd_known_failing ;;
     dispositions) cmd_dispositions ;;
+    baseline) cmd_baseline ;;
     "") usage; exit 3 ;;
     *) die "unknown subcommand: $SUBCMD" ;;
 esac

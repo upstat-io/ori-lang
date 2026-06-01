@@ -513,6 +513,61 @@ run_test_output_contains "codegen-audit.sh --help shows usage" "Usage:" \
     "$SCRIPT_DIR/codegen-audit.sh" --help
 echo ""
 
+# ─── state.sh baseline ─────────────────────────────────────────────
+# Self-contained: ORI_STATE_FILE / ORI_BASELINES_FILE point at a temp dir so
+# the real .claude/state cache is never touched. Needs jq only (no ori binary).
+printf "${C_BOLD}state.sh baseline${C_NC}\n"
+if command -v jq >/dev/null 2>&1; then
+    BL_TMP=$(mktemp -d)
+    export ORI_STATE_FILE="$BL_TMP/known-state.json"
+    export ORI_BASELINES_FILE="$BL_TMP/baselines.json"
+    cat > "$ORI_STATE_FILE" <<'BLJSON'
+{ "schema_version": 3, "head_sha": "aaaa111",
+  "test_suite": { "status": "known-failing", "last_run_sha": "aaaa111",
+    "totals": {"passed": 100, "failed": 2, "skipped": 5}, "known_failing_count": 2,
+    "failures": [{"test_id": "t_alpha"}, {"test_id": "t_beta"}] },
+  "clippy": {"status": "clean", "warnings": 0, "errors": 0},
+  "test_dispositions": {"totals": {"total": 10, "untracked": 0}} }
+BLJSON
+    run_test_output_contains "baseline capture --help documented" "baseline <action>" \
+        "$SCRIPT_DIR/state.sh" --help
+    run_test_exit_code "baseline capture exits 0" 0 \
+        "$SCRIPT_DIR/state.sh" baseline capture --key SELFTEST --by self-test
+    run_test_output_contains "baseline capture is idempotent (preserved)" "preserved" \
+        "$SCRIPT_DIR/state.sh" baseline capture --key SELFTEST --by self-test
+    run_test_exit_code "baseline show exits 0 for present key" 0 \
+        "$SCRIPT_DIR/state.sh" baseline show --key SELFTEST
+    run_test_exit_code "baseline show exits 4 for absent key" 4 \
+        "$SCRIPT_DIR/state.sh" baseline show --key NOPE
+    run_test_exit_code "baseline compare no-regression exits 0" 0 \
+        "$SCRIPT_DIR/state.sh" baseline compare --key SELFTEST
+    run_test_exit_code "baseline compare absent key exits 4" 4 \
+        "$SCRIPT_DIR/state.sh" baseline compare --key NOPE
+    run_test_output_contains "baseline list shows captured key" "SELFTEST" \
+        "$SCRIPT_DIR/state.sh" baseline list
+    # Introduce a regression and verify compare exits 5.
+    cat > "$ORI_STATE_FILE" <<'BLJSON2'
+{ "schema_version": 3, "head_sha": "bbbb222",
+  "test_suite": { "status": "known-failing", "last_run_sha": "bbbb222",
+    "totals": {"passed": 100, "failed": 3, "skipped": 5}, "known_failing_count": 2,
+    "failures": [{"test_id": "t_alpha"}, {"test_id": "t_beta"}, {"test_id": "t_gamma"}] },
+  "clippy": {"status": "clean", "warnings": 0, "errors": 0},
+  "test_dispositions": {"totals": {"total": 10, "untracked": 0}} }
+BLJSON2
+    run_test_exit_code "baseline compare regression exits 5" 5 \
+        "$SCRIPT_DIR/state.sh" baseline compare --key SELFTEST
+    run_test_output_contains "baseline compare names the new failure" "t_gamma" \
+        "$SCRIPT_DIR/state.sh" baseline compare --key SELFTEST
+    run_test_exit_code "baseline clear exits 0" 0 \
+        "$SCRIPT_DIR/state.sh" baseline clear --key SELFTEST
+    unset ORI_STATE_FILE ORI_BASELINES_FILE
+    rm -rf "$BL_TMP"
+else
+    printf "  ${C_DIM}SKIP${C_NC}  jq not found — baseline tests need jq\n"
+    SKIP=$((SKIP + 11))
+fi
+echo ""
+
 # ─── Summary ──────────────────────────────────────────────────────
 TOTAL=$((PASS + FAIL + SKIP))
 printf "${C_BOLD}=== Summary ===${C_NC}\n"
