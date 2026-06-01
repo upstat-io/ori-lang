@@ -278,7 +278,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         self.builder.set_ccc(func_id);
-        self.builder.add_nounwind_attribute(func_id);
+        // May-unwind element teardown: when the element type's drop tree reaches
+        // a user `@drop` (foreign Ori exception), the element-dec thunk is NOT
+        // `nounwind` — it threads the exception out so the codegen-emitted buffer
+        // teardown loop's per-element cleanup pad can free the remaining elements
+        // + buffer, then `resume`. Itanium only; SEH keeps `nounwind` + abort
+        // (the SEH funclet-EH re-enablement anchor). A scalar / plain element
+        // keeps `nounwind` (the runtime buffer-dec fast path).
+        let elem_unwinds = self.drop_may_unwind(element_type)
+            && self.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
+        if elem_unwinds {
+            let personality = self.builder.runtime_fn("ori_eh_personality");
+            self.builder.set_personality(func_id, personality);
+        } else {
+            self.builder.add_nounwind_attribute(func_id);
+        }
         self.builder.add_cold_attribute(func_id);
         self.builder.add_uwtable_attribute(func_id);
         self.builder.add_noundef_param_attribute(func_id, 0);
@@ -302,9 +316,50 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // runtime-driven (`ori_buffer_rc_dec` / `ori_buffer_drop_unique` via
         // `call_drop_fn`), so this is a plain (non-invoking) call — a panic in
         // a collection element's `@drop` aborts via the runtime drop guard.
-        self.emit_user_drop_via_pointer(element_type, elem_ptr);
+        // Top-level element `@drop` (AUGMENT), then dec the element's RC
+        // children. When the element's own `@drop` may unwind (Itanium), the
+        // `@drop` is an `invoke`: on a panic the cleanup pad still decs the
+        // element's owned children (no leak), then `resume`s so the codegen
+        // buffer-teardown loop's per-element cleanup pad can drain the rest.
+        if elem_unwinds && self.user_drop_method(element_type).is_some() {
+            let cont = self
+                .builder
+                .append_block(self.current_function, "elem_dec.cont");
+            let cleanup = self
+                .builder
+                .append_block(self.current_function, "elem_dec.cleanup");
+            if self.invoke_user_drop_via_pointer(element_type, elem_ptr, cont, cleanup) {
+                self.builder.position_at_end(cont);
+                self.emit_elem_value_field_dec(element_type, elem_ptr);
+                self.builder.ret_void();
 
-        // Load the element value from the pointer
+                self.builder.position_at_end(cleanup);
+                let personality = self.builder.runtime_fn("ori_eh_personality");
+                let lp = self.builder.landingpad(personality, true, "elem_dec.lp");
+                let enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
+                self.builder.call(enter, &[], "");
+                self.emit_elem_value_field_dec(element_type, elem_ptr);
+                let exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
+                self.builder.call(exit, &[], "");
+                self.builder.resume(lp);
+                return func_id;
+            }
+        }
+
+        // Plain path: top-level `@drop` (if any) as a plain call, then field dec.
+        self.emit_user_drop_via_pointer(element_type, elem_ptr);
+        self.emit_elem_value_field_dec(element_type, elem_ptr);
+        self.builder.ret_void();
+        func_id
+    }
+
+    /// Dec the RC children of a buffer element VALUE — no user `@drop`, no
+    /// terminator. The caller owns the `@drop` call (plain or `invoke`) and the
+    /// block terminator (`ret_void` / `resume`).
+    ///
+    /// `str` elements route through `ori_str_rc_dec` (slice-aware: SSO +
+    /// `SLICE_FLAG`); all other elements through `dec_value_rc`.
+    fn emit_elem_value_field_dec(&mut self, element_type: Idx, elem_ptr: ValueId) {
         let elem_llvm_ty = self.resolve_type(element_type);
         let elem_val = self.builder.load(elem_llvm_ty, elem_ptr, "elem");
 
@@ -344,9 +399,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Dec all RC children of the element value
             self.dec_value_rc(elem_val, element_type);
         }
-
-        self.builder.ret_void();
-        func_id
     }
 
     /// Get or generate an element-inc function for a collection's element type.

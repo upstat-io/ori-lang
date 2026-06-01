@@ -214,8 +214,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.builder.position_at_end(cleanup_bb);
                 let personality = self.builder.runtime_fn("ori_eh_personality");
                 let lp = self.builder.landingpad(personality, true, "udrop.lp");
+                let enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
+                self.builder.call(enter, &[], "");
                 self.emit_drop_field_loop(data_ptr, ty, &reversed, None, "f.cl");
                 self.emit_drop_rc_free(data_ptr, ty);
+                let exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
+                self.builder.call(exit, &[], "");
                 self.builder.resume(lp);
                 return;
             }

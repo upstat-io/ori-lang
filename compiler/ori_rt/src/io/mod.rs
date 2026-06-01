@@ -140,6 +140,13 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
     reason = "C-unwind ABI is for unwind semantics, not actual C interop — String stays in Rust frames"
 )]
 extern "C-unwind" fn dispatch_panic(msg: String) -> ! {
+    // Nested drop-panic: a panic raised while a drop-cleanup region is active
+    // (a codegen cleanup landing pad running drop work on the unwind path) is
+    // the double-panic case — abort instead of unwinding further
+    // (drop-trait-proposal.md §Drop and panic).
+    if super::rc::drop_cleanup_active() {
+        super::rc::ori_drop_double_panic_abort();
+    }
     #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     {
         if super::jit_recovery::is_jit_mode() {

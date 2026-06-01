@@ -81,10 +81,38 @@ echo ""
 PHASE1_START=$(date +%s)
 echo -e "${BOLD}--- Phase 1: Clippy ($(date '+%H:%M:%S')) ---${NC}"
 echo ""
-if ! "$SCRIPT_DIR/clippy-all.sh"; then
-    echo ""
-    echo -e "${RED}${BOLD}=== Clippy failed (after $(($(date +%s) - PHASE1_START))s) — skipping tests ===${NC}"
-    exit 1
+
+# Clippy scope. When the commit driver exports ORI_COMMIT_SCOPE=staged (an
+# unrelated-work check-in), scope this blocking gate to the committing diff's
+# own crates: a parallel session's breakage in unrelated crates cannot block an
+# independent check-in, while the committing diff's OWN breakage in its crates
+# still fails (clippy still runs on those crates). Unset = full-workspace clippy.
+CLIPPY_SCOPE_ARGS=()
+RUN_CLIPPY=1
+if [[ "${ORI_COMMIT_SCOPE:-}" == "staged" ]]; then
+    if STAGED_CRATES=$(python3 "$SCRIPT_DIR/scripts/staged-crates.py" 2>/dev/null); then
+        if [[ -z "$STAGED_CRATES" ]]; then
+            RUN_CLIPPY=0
+            echo -e "${YELLOW}No Rust crates in the staged set — skipping clippy (unrelated check-in).${NC}"
+        else
+            echo -e "${YELLOW}Scoped clippy (unrelated check-in) — staged crates:${NC}"
+            while IFS= read -r crate; do
+                [[ -n "$crate" ]] || continue
+                echo "    - $crate"
+                CLIPPY_SCOPE_ARGS+=("-p" "$crate")
+            done <<< "$STAGED_CRATES"
+        fi
+    else
+        echo -e "${YELLOW}Could not enumerate staged crates — falling back to full-workspace clippy.${NC}"
+    fi
+fi
+
+if [[ $RUN_CLIPPY -eq 1 ]]; then
+    if ! "$SCRIPT_DIR/clippy-all.sh" "${CLIPPY_SCOPE_ARGS[@]}"; then
+        echo ""
+        echo -e "${RED}${BOLD}=== Clippy failed (after $(($(date +%s) - PHASE1_START))s) — skipping tests ===${NC}"
+        exit 1
+    fi
 fi
 echo ""
 echo -e "${GREEN}${BOLD}--- Phase 1 (Clippy) PASSED in $(($(date +%s) - PHASE1_START))s ---${NC}"

@@ -145,13 +145,135 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         if tag == Tag::Set {
             // Sets use hash table layout: (data, cap, len, elem_size, elem_dec_fn)
+            // (Set element @drop recoverable teardown is BUG-05-006-blocked — the
+            // set hash-table layout segfaults; stays on the runtime path.)
             let func_id = self.builder.runtime_fn("ori_set_buffer_drop_unique");
             self.emit_rt_call(func_id, &[data, cap, len, elem_size_val, elem_dec_fn], "");
+        } else if self.drop_may_unwind(elem_type)
+            && self.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium
+        {
+            // List with a may-unwind element @drop (Itanium): emit a codegen
+            // per-element invoke loop so a panicking element @drop threads
+            // through codegen cleanup pads (drain remaining elements + free the
+            // buffer + resume) instead of aborting in the runtime catch_unwind.
+            if let Some(&elem_dec_fid) = self.elem_dec_fn_cache.get(&elem_type) {
+                self.emit_codegen_buffer_drop_list_unwind(
+                    data,
+                    len,
+                    cap,
+                    elem_type,
+                    elem_dec_fid,
+                    elem_size,
+                );
+                return;
+            }
+            // No element-dec fn cached (scalar element shouldn't reach here) —
+            // fall back to the runtime path.
+            let func_id = self.builder.runtime_fn("ori_buffer_drop_unique");
+            self.emit_rt_call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
         } else {
             // Lists use packed layout: (data, len, cap, elem_size, elem_dec_fn)
             let func_id = self.builder.runtime_fn("ori_buffer_drop_unique");
             self.emit_rt_call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
         }
+    }
+
+    /// Codegen-emitted unique-drop element loop for a list whose element type
+    /// may unwind (Itanium). Replaces the runtime `ori_buffer_drop_unique` call
+    /// so a per-element `@drop` panic threads through codegen cleanup pads
+    /// (drain the remaining elements + free the buffer + `resume`) rather than
+    /// aborting in the runtime frame's `catch_unwind` (which cannot catch the
+    /// foreign Ori exception).
+    ///
+    /// `elem_size` is the (canonical — may-unwind structs are never narrowed)
+    /// element store size; `elem_dec_fid` is the element-dec thunk (itself
+    /// may-unwind: it invokes the element's `@drop`). Leaves the builder
+    /// positioned at the post-free continuation block for the caller.
+    fn emit_codegen_buffer_drop_list_unwind(
+        &mut self,
+        data: super::ValueId,
+        len: super::ValueId,
+        cap: super::ValueId,
+        elem_type: ori_types::Idx,
+        elem_dec_fid: crate::codegen::value_id::FunctionId,
+        elem_size: u64,
+    ) {
+        let cur = self.current_function;
+        let i64_ty = self.builder.i64_type();
+        let elem_llvm_ty = self.resolve_type(elem_type);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let one = self.builder.const_i64(1);
+        let zero = self.builder.const_i64(0);
+        let personality = self.builder.runtime_fn("ori_eh_personality");
+        // The enclosing function now contains an invoke + landing pad.
+        self.builder.set_personality(cur, personality);
+        let free_fn = self.builder.runtime_fn("ori_list_free_data");
+
+        // Loop index in an alloca so the cleanup pad can read it to drain the
+        // remaining (post-panic) elements.
+        let idx = self.builder.create_entry_alloca(cur, "bdrop.i", i64_ty);
+        self.builder.store(zero, idx);
+
+        let hdr = self.builder.append_block(cur, "bdrop.hdr");
+        let body = self.builder.append_block(cur, "bdrop.body");
+        let cont = self.builder.append_block(cur, "bdrop.cont");
+        let cleanup = self.builder.append_block(cur, "bdrop.cleanup");
+        let done = self.builder.append_block(cur, "bdrop.done");
+
+        self.builder.br(hdr);
+
+        // hdr: i = *idx; if i >= len -> done else body
+        self.builder.position_at_end(hdr);
+        let i = self.builder.load(i64_ty, idx, "bdrop.i.v");
+        let ge = self.builder.icmp_sge(i, len, "bdrop.ge");
+        self.builder.cond_br(ge, done, body);
+
+        // body: invoke elem_dec(data + i) -> cont (normal) / cleanup (unwind)
+        self.builder.position_at_end(body);
+        let elem_ptr = self.builder.gep(elem_llvm_ty, data, &[i], "bdrop.elem");
+        self.builder
+            .invoke(elem_dec_fid, &[elem_ptr], cont, cleanup, "");
+
+        // cont: i++ ; -> hdr
+        self.builder.position_at_end(cont);
+        let i2 = self.builder.load(i64_ty, idx, "bdrop.i2");
+        let inc = self.builder.add(i2, one, "bdrop.inc");
+        self.builder.store(inc, idx);
+        self.builder.br(hdr);
+
+        // cleanup: landingpad; advance past the panicking element (its children
+        // were freed by elem_dec's own cleanup pad); drain the rest via plain
+        // calls (a nested panic here double-unwinds -> abort); free; resume.
+        self.builder.position_at_end(cleanup);
+        let lp = self.builder.landingpad(personality, true, "bdrop.lp");
+        let cl_enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
+        self.builder.call(cl_enter, &[], "");
+        let ci = self.builder.load(i64_ty, idx, "bdrop.ci");
+        let cnext = self.builder.add(ci, one, "bdrop.cnext");
+        self.builder.store(cnext, idx);
+        let dhdr = self.builder.append_block(cur, "bdrop.drain.hdr");
+        let dbody = self.builder.append_block(cur, "bdrop.drain.body");
+        let dfree = self.builder.append_block(cur, "bdrop.drain.free");
+        self.builder.br(dhdr);
+        self.builder.position_at_end(dhdr);
+        let di = self.builder.load(i64_ty, idx, "bdrop.di");
+        let dge = self.builder.icmp_sge(di, len, "bdrop.dge");
+        self.builder.cond_br(dge, dfree, dbody);
+        self.builder.position_at_end(dbody);
+        let delem = self.builder.gep(elem_llvm_ty, data, &[di], "bdrop.delem");
+        self.builder.call(elem_dec_fid, &[delem], "");
+        let dinc = self.builder.add(di, one, "bdrop.dinc");
+        self.builder.store(dinc, idx);
+        self.builder.br(dhdr);
+        self.builder.position_at_end(dfree);
+        self.builder.call(free_fn, &[data, cap, elem_size_val], "");
+        let cl_exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
+        self.builder.call(cl_exit, &[], "");
+        self.builder.resume(lp);
+
+        // done: free buffer; leave builder here for the caller's continuation.
+        self.builder.position_at_end(done);
+        self.builder.call(free_fn, &[data, cap, elem_size_val], "");
     }
 
     /// Emit `ori_map_buffer_drop_unique` for a provably unique map.

@@ -1040,7 +1040,7 @@ fn drop_info_via_burden_for_newly_monomorphized_generic() {
     );
 }
 
-// type_drop_may_unwind — predicate (BUG-04-125 Step 1).
+// type_drop_may_unwind — may-unwind drop predicate.
 //
 // The local "@drop" fact is parameterized via `has_user_drop`, so the drop-tree
 // recursion + cycle-soundness are exercised white-box here, independent of the

@@ -105,7 +105,6 @@ impl EventLog: Drop {
 /// abort. `ORI_CHECK_LEAKS=1` (on by default in the harness) confirms the
 /// heap `str` fields were freed on the unwind path (exit would be 2 on leak).
 #[test]
-#[ignore = "BUG-04-125: recoverable drop-panic unwinding deferred — Ori panics are foreign Itanium exceptions; recovery needs whole-frame unwind threading + runtime catch-continue-reraise, beyond the drop-fn invoke/landing-pad"]
 fn drop_struct_user_panic_still_runs_field_walk_then_resumes_unwind() {
     let source = r#"
 type Logged = { tag: str }
@@ -189,7 +188,6 @@ impl Resource: Drop {
 /// pad still drops the heap `str` field, and the program exits via panic (1).
 /// `ORI_CHECK_LEAKS=1` confirms the str field was freed on the unwind path.
 #[test]
-#[ignore = "BUG-04-125: recoverable drop-panic unwinding deferred — Ori panics are foreign Itanium exceptions; recovery needs whole-frame unwind threading + runtime catch-continue-reraise, beyond the drop-fn invoke/landing-pad"]
 fn drop_struct_user_panic_recoverable_frees_owned_str() {
     let source = r#"
 type Holder = { payload: str }
@@ -220,7 +218,6 @@ impl Holder: Drop {
 /// with two owned-str fields whose element type has a panicking @drop: dropping
 /// field 0 panics → field 1's cleanup still ran (sentinel) + no leak.
 #[test]
-#[ignore = "BUG-04-125: recoverable drop-panic unwinding deferred — Ori panics are foreign Itanium exceptions; recovery needs whole-frame unwind threading + runtime catch-continue-reraise, beyond the drop-fn invoke/landing-pad"]
 fn drop_field_panic_sibling_field_walk_continues() {
     let source = r#"
 type Loud = { tag: str }
@@ -610,7 +607,6 @@ type Wrap = { m: {BoomKey: Val} }
 /// owned field/element is freed exactly once (no leak, no double-free) on the
 /// unwind exit.
 #[test]
-#[ignore = "BUG-04-125: recoverable drop-panic unwinding deferred — Ori panics are foreign Itanium exceptions; recovery needs whole-frame unwind threading + runtime catch-continue-reraise, beyond the drop-fn invoke/landing-pad"]
 fn drop_recoverable_panic_path_no_leak_under_valgrind() {
     let source = r#"
 type Logged = { tag: str }
@@ -647,7 +643,6 @@ impl Resource: Drop {
 /// must exit via panic (1), and the field-walk sentinel proves cleanup ran
 /// before the unwind resumed (not a pre-cleanup abort).
 #[test]
-#[ignore = "BUG-04-125: recoverable drop-panic unwinding deferred — Ori panics are foreign Itanium exceptions; recovery needs whole-frame unwind threading + runtime catch-continue-reraise, beyond the drop-fn invoke/landing-pad"]
 fn drop_single_panic_does_not_abort_before_cleanup() {
     let source = r#"
 type Logged = { tag: str }

@@ -305,7 +305,7 @@ pub extern "C-unwind" fn ori_rc_dec_unwind(
 /// underflow detection, trace logging, and acquire fence.
 ///
 /// This is the single canonical implementation of the ARC decrement
-/// protocol, inspired by Swift's `swift_release_n` and Rust's `Arc::drop`.
+/// protocol: atomic (or non-atomic) decrement with underflow + immortal guards.
 ///
 /// # Safety
 /// `data_ptr` must be non-null and point to data returned by `ori_rc_alloc`.
@@ -515,6 +515,37 @@ pub extern "C" fn ori_drop_double_panic_abort() -> ! {
          (drop-trait-proposal.md §Drop and panic: double-panic abort)"
     );
     std::process::exit(SIGABRT_EXIT_CODE);
+}
+
+thread_local! {
+    /// Depth of active drop-cleanup regions on this thread. Incremented by
+    /// `ori_drop_cleanup_enter` when a codegen cleanup landing pad begins
+    /// running drop work on the unwind path, decremented by
+    /// `ori_drop_cleanup_exit` before the pad `resume`s. A panic raised while
+    /// depth > 0 is a nested drop-panic and aborts via
+    /// `ori_drop_double_panic_abort` (the panic entry points consult
+    /// `drop_cleanup_active`). `_UA_CLEANUP_PHASE` is per-frame and cannot see
+    /// cross-frame nested panics; this thread-local can.
+    static DROP_CLEANUP_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Enter a drop-cleanup region (a codegen cleanup landing pad running drop work
+/// on the unwind path). A panic raised before the matching exit aborts.
+#[no_mangle]
+pub extern "C" fn ori_drop_cleanup_enter() {
+    DROP_CLEANUP_DEPTH.with(|d| d.set(d.get().saturating_add(1)));
+}
+
+/// Leave a drop-cleanup region. Pairs with `ori_drop_cleanup_enter`.
+#[no_mangle]
+pub extern "C" fn ori_drop_cleanup_exit() {
+    DROP_CLEANUP_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+}
+
+/// True when a drop-cleanup region is active on this thread — a panic now is a
+/// nested drop-panic. Consulted by the panic entry points.
+pub(crate) fn drop_cleanup_active() -> bool {
+    DROP_CLEANUP_DEPTH.with(|d| d.get() > 0)
 }
 
 /// Get the number of live RC allocations (for testing and debugging).

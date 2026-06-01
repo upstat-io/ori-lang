@@ -1181,6 +1181,24 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::MemArgmemRW],
         jit_allowed: true,
     },
+    // Drop-cleanup-depth enter/exit: bracket the drop work inside a codegen
+    // cleanup landing pad so a nested panic (depth > 0) aborts via
+    // ori_drop_double_panic_abort. Mutate a thread-local counter only —
+    // nounwind, no argument memory.
+    RtFn {
+        name: "ori_drop_cleanup_enter",
+        params: &[],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_drop_cleanup_exit",
+        params: &[],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // Slice-aware string RC inc: handles SSO, heap, and seamless slices.
     RtFn {
         name: "ori_str_rc_inc",
