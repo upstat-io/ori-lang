@@ -3,9 +3,9 @@
 //! One teardown-walk skeleton shared by every per-field RC-dec site (struct /
 //! tuple inline aggregate, heap drop-fn struct/enum, inline tagged-enum payload,
 //! Option/Result payload, tagless-enum payload). The skeleton threads the
-//! per-field may-unwind `invoke` + cleanup landing pad (drain remaining siblings
-//! + `resume`) uniformly so a panic in one field's user `@drop` still frees the
-//! later-walked siblings.
+//! per-field may-unwind `invoke` plus a cleanup landing pad (drain remaining
+//! siblings then `resume`) uniformly so a panic in one field's user `@drop`
+//! still frees the later-walked siblings.
 //!
 //! The divergent part — how a field at a given cursor is ACCESSED (inline
 //! `extract_value`, heap `struct_gep`, byte-offset `gep`) and DEC'd (value
@@ -48,6 +48,18 @@ pub(super) trait FieldWalkOps {
         field_type: Idx,
     );
 
+    /// Resolve the boxed-recursive field's drop function pointer WITHOUT
+    /// emitting the dec call. Used by the may-unwind walk to route the dec
+    /// through `invoke ori_rc_dec_unwind` when the field type's drop tree may
+    /// unwind, so the cleanup pad still drains later-walked siblings.
+    fn boxed_drop_fn<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        field_type: Idx,
+    ) -> ValueId {
+        emitter.get_or_generate_drop_fn(field_type)
+    }
+
     /// Dec the RC children of an inline field VALUE, AFTER its own user
     /// `@drop` has run (or been `invoke`d). For value-traversal sites this is
     /// `dec_value_rc`; for heap drop-fn sites this is `emit_drop_rc_dec`.
@@ -84,6 +96,38 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 continue;
             };
             if is_boxed {
+                // A boxed-recursive child is dec'd through its drop fn via
+                // `ori_rc_dec`. When that drop tree may unwind (a user `@drop`
+                // inside the boxed node panics), route the dec through
+                // `invoke ori_rc_dec_unwind` so the panic lands in a cleanup pad
+                // that still drains the later-walked siblings, then `resume`s —
+                // matching the inline-value per-field cleanup-continue below. A
+                // plain `ori_rc_dec` boundary would abort the foreign exception.
+                let boxed_unwinds = self.drop_may_unwind(field_ty) && itanium;
+                if boxed_unwinds {
+                    let drop_fn = ops.boxed_drop_fn(self, field_ty);
+                    let cont = self.builder.append_block(self.current_function, "fld.cont");
+                    let cleanup = self
+                        .builder
+                        .append_block(self.current_function, "fld.cleanup");
+                    self.invoke_rc_dec_unwind(fv, drop_fn, cont, cleanup);
+                    // Cleanup pad: drain every remaining sibling (plain — a
+                    // nested panic aborts via the drop-cleanup-depth guard),
+                    // then resume.
+                    self.builder.position_at_end(cleanup);
+                    let personality = self.builder.runtime_fn("ori_eh_personality");
+                    let lp = self.builder.landingpad(personality, true, "fld.lp");
+                    let enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
+                    self.builder.call(enter, &[], "");
+                    self.dec_fields_plain(ops, walk, j + 1);
+                    let exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
+                    self.builder.call(exit, &[], "");
+                    self.builder.resume(lp);
+                    // Normal continuation: advance.
+                    self.builder.position_at_end(cont);
+                    j += 1;
+                    continue;
+                }
                 ops.dec_boxed(self, fv, field_ty);
                 j += 1;
                 continue;

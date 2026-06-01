@@ -401,6 +401,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
+    /// Emit a may-unwind RC dec of a boxed-recursive child as an `invoke` of
+    /// `ori_rc_dec_unwind` → `normal_bb` / `cleanup_bb` (Itanium recoverable
+    /// path). `ori_rc_dec_unwind` calls `drop_fn` directly (no `catch_unwind`),
+    /// so a panicking user `@drop` inside the child's drop tree unwinds to
+    /// `cleanup_bb` instead of aborting at the plain `ori_rc_dec` boundary.
+    /// Caller owns both blocks + the post-invoke continuation.
+    pub(super) fn invoke_rc_dec_unwind(
+        &mut self,
+        ptr: super::ValueId,
+        drop_fn: super::ValueId,
+        normal_bb: crate::codegen::value_id::BlockId,
+        cleanup_bb: crate::codegen::value_id::BlockId,
+    ) {
+        let func_id = self.builder.runtime_fn("ori_rc_dec_unwind");
+        self.builder
+            .invoke(func_id, &[ptr, drop_fn], normal_bb, cleanup_bb, "");
+    }
+
     /// Call `ori_str_rc_inc(data_ptr, cap)` — handles SSO, heap, and slices.
     pub(super) fn call_str_rc_inc(
         &mut self,

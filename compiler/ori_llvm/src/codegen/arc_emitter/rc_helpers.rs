@@ -355,10 +355,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Both directions (inc/dec) share identical tag-switch scaffolding:
     /// alloca → load tag → switch on variants → GEP to payload field.
     /// The only difference is which RC operation is applied to each field.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "Tag-switch + per-variant field traversal is one indivisible pattern"
-    )]
     fn emit_inline_enum_rc_core(
         &mut self,
         val: ValueId,
@@ -592,33 +588,40 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(is_niche, done_block, data_block);
 
         // Emit RC ops for data variant fields.
+        let _ = pool_tag; // niche layout has no tag slot — Option/Result + general enum identical
         self.builder.position_at_end(data_block);
         let data_variant_idx = usize::from(niche_variant_idx == 0);
         if let Some(data_fields) = variant_rc_fields.get(data_variant_idx) {
-            // Option/Result niche layout: payload fields at struct index 0+.
-            let is_option_result = matches!(pool_tag, Tag::Option | Tag::Result);
-            for &(field_index, field_type) in data_fields {
-                let struct_idx = if is_option_result {
-                    // Niche layout: no tag field, payload at struct index 0.
-                    field_index
-                } else {
-                    field_index
-                };
-                let field_llvm_ty = self.resolve_type(field_type);
-                let gep = self.builder.struct_gep(
-                    enum_llvm_ty,
-                    alloca,
-                    struct_idx,
-                    &format!("{prefix}.f{field_index}.ptr"),
-                );
-                let fval =
-                    self.builder
-                        .load(field_llvm_ty, gep, &format!("{prefix}.f{field_index}"));
-                if is_inc {
+            if is_inc {
+                // Niche layout: no tag field — payload fields at struct index
+                // `field_index`. Inc keeps forward order (unobservable for inc).
+                for &(field_index, field_type) in data_fields {
+                    let field_llvm_ty = self.resolve_type(field_type);
+                    let gep = self.builder.struct_gep(
+                        enum_llvm_ty,
+                        alloca,
+                        field_index,
+                        &format!("{prefix}.f{field_index}.ptr"),
+                    );
+                    let fval =
+                        self.builder
+                            .load(field_llvm_ty, gep, &format!("{prefix}.f{field_index}"));
                     self.inc_value_rc(fval, field_type, count);
-                } else {
-                    self.dec_value_rc(fval, field_type);
                 }
+            } else {
+                // Dec routes through the canonical may-unwind field-walk SSOT so
+                // a panicking payload field's user `@drop` still frees the
+                // later-walked sibling payload fields via the per-field cleanup
+                // pad (matching every other enum payload path). Reverse-decl
+                // (LIFO) teardown order.
+                let walk = super::emitter_utils::field_rc_walk_order(data_fields, true);
+                let ops = super::drop_enum::NicheEnumPayloadOps {
+                    value: alloca,
+                    enum_llvm_ty,
+                    owner_ty: resolved_ty,
+                    value_traversal: true,
+                };
+                self.dec_fields_may_unwind(&ops, &walk, 0);
             }
         }
         self.builder.br(done_block);

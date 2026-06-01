@@ -574,6 +574,127 @@ type Chain = Nil | Link(a: Logged, b: Logged, next: Chain);
     }
 }
 
+/// Recoverable boxed-recursive enum `@drop` panic, reached through
+/// `emit_drop_enum` (the F1 surface). A `next: EventLog` field forces the
+/// genuinely boxed-recursive heap drop-fn path: the OUTER `Entry` node is dec'd
+/// through `_ori_drop$<EventLog>` (`emit_drop_enum`), which runs the node's own
+/// `@drop` then walks the variant payload — including the boxed `next` child,
+/// dec'd via the heap drop fn AGAIN. The inner `Boom` node's `@drop` panics.
+///
+/// For recovery, TWO cleanup pads must fire: (1) `emit_drop_enum` invoke-wraps
+/// the enum's OWN `@drop` so a panicking own-`@drop` still runs the variant walk
+/// + free; (2) the may-unwind FIELD WALK routes the boxed-`next` dec through
+/// `invoke ori_rc_dec_unwind` so a panic inside the boxed child's drop tree
+/// lands in a cleanup pad that drains remaining siblings + resumes, instead of
+/// aborting at the plain `ori_rc_dec` boundary ("Rust cannot catch foreign
+/// exceptions, aborting" → exit 134).
+///
+/// `@drop` matches `self` and panics ONLY on `Boom` — exactly ONE node panics
+/// (the boxed inner node), so it is a SINGLE recoverable drop-panic (exit 1),
+/// not a nested panic (134). The outer `Entry` payload `str` + the inner `Boom`
+/// payload `str` must both be freed on the unwind path (`ORI_CHECK_LEAKS=1`
+/// would force exit 2 on leak).
+#[test]
+fn drop_enum_boxed_recursive_drop_panic_recoverable_frees_payload() {
+    let source = r#"
+type EventLog = Empty | Entry(payload: str, next: EventLog) | Boom(tag: str);
+
+impl EventLog: Drop {
+    @drop (self) -> void = match self {
+        Boom(tag:) -> {
+            print(msg: "drop-Boom");
+            panic(msg: "boom")
+        },
+        Entry(payload:, next:) -> print(msg: "drop-Entry"),
+        Empty -> print(msg: "drop-Empty"),
+    }
+}
+
+@main () -> void = {
+    let log = [Entry(
+        payload: "outer-heap-string-not-sso-xxxxxxxxxxxxxxxx",
+        next: Boom(tag: "inner-heap-string-not-sso-yyyyyyyyyyyyyyyy"),
+    )]
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert!(
+        stdout.contains("drop-Entry"),
+        "outer node @drop must run; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("drop-Boom"),
+        "boxed inner node @drop (reached via emit_drop_enum) must run; stdout:\n{stdout}"
+    );
+    // Single boxed-child drop-panic is recoverable: exit via panic (1), NOT
+    // abort (134) at the plain ori_rc_dec boundary, and NOT a leak (2) — both
+    // payload strs are freed on the unwind path via the enum-side cleanup pad +
+    // the boxed-field invoke-ori_rc_dec_unwind routing.
+    assert_eq!(
+        exit_code, 1,
+        "boxed-recursive enum drop-panic must unwind (1), not abort (134) or leak (2); stderr:\n{stderr}"
+    );
+}
+
+/// NICHE enum payload field-drop panic → later-walked sibling payload field
+/// still dropped via the per-field cleanup pad. A 2-variant niche-encoded enum
+/// (`Option<Pair>` with `Pair` carrying a niche-bearing field) routes its data
+/// variant teardown through `emit_drop_enum_niche` (heap) / `emit_niche_enum_rc`
+/// (inline) — the F2 surface. Both now route through the canonical
+/// `dec_fields_may_unwind` SSOT, so a panicking payload field's `@drop` frees
+/// the later-walked sibling instead of leaking it.
+///
+/// IGNORED: niche-encoded codegen is feature-gated OFF
+/// (`NICHE_CODEGEN_READY = false` in `ori_repr/src/canonical/type_repr.rs`), so
+/// no user program reaches the niche dec paths today — a behavioral AOT cell
+/// cannot exercise them. The F2 cure (SSOT routing) is verified at the IR level
+/// (per-field `invoke @drop → fld.cont/fld.cleanup` + `landingpad` + `resume`,
+/// confirmed with the gate temporarily flipped). This cell activates when niche
+/// codegen ships under BUG-04-122 (the `emit_drop_enum_niche` niche-path bug),
+/// at which point it must pass without modification.
+#[test]
+#[ignore = "BUG-04-122: niche-encoded codegen gated off (NICHE_CODEGEN_READY=false); F2 niche dec SSOT routing verified at IR level, this behavioral cell activates when niche codegen ships"]
+fn drop_niche_enum_payload_panic_cleans_remaining_sibling() {
+    let source = r#"
+type Loud = { tag: str }
+
+impl Loud: Drop {
+    @drop (self) -> void = {
+        print(msg: `loud-{self.tag}`);
+        panic(msg: "loud-boom")
+    }
+}
+
+type Quiet = { tag: str }
+
+impl Quiet: Drop {
+    @drop (self) -> void = print(msg: `quiet-{self.tag}`);
+}
+
+type Pair = { first: Quiet, second: Loud }
+
+@main () -> void = {
+    let p: Option<Pair> = Some(Pair {
+        first: Quiet { tag: "Q" },
+        second: Loud { tag: "L" },
+    })
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert!(
+        stdout.contains("loud-L"),
+        "panicking niche-payload field-drop must run; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("quiet-Q"),
+        "later-walked niche-payload sibling must still drop via the per-field cleanup pad; stdout:\n{stdout}"
+    );
+    assert_eq!(
+        exit_code, 1,
+        "niche-payload field-drop panic must unwind (1), not abort or leak (2); stderr:\n{stderr}"
+    );
+}
+
 /// Collection element @drop panics mid-walk → remaining elements still
 /// dropped; the cleanup pad drops only indices > cursor (no double-free of the
 /// already-walked element).

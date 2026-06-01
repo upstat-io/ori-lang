@@ -40,6 +40,86 @@ struct HeapEnumPayloadOps {
     offsets: Vec<u64>,
 }
 
+/// [`FieldWalkOps`] for a NICHE-encoded enum's data-variant payload. The niche
+/// layout has NO explicit tag field — the data variant's payload fields live at
+/// struct index `field_index` directly (the niche discriminant is encoded in an
+/// invalid bit pattern of one payload field, not a separate slot).
+///
+/// Shared by the heap drop-fn niche path (`emit_drop_enum_niche` →
+/// `_ori_drop$<Enum>`, `value` = `data_ptr`, `dec_children` = `emit_drop_rc_dec`)
+/// and the inline value-traversal niche path (`emit_niche_enum_rc` dec branch,
+/// `value` = `alloca`, `dec_children` = `dec_value_rc`). Routing both through
+/// [`ArcIrEmitter::dec_fields_may_unwind`] threads the per-field cleanup pad so a
+/// panicking payload field's `@drop` still frees the later-walked siblings —
+/// matching every other enum payload path.
+pub(super) struct NicheEnumPayloadOps {
+    /// Pointer to the niche-encoded enum value (heap `data_ptr` or inline alloca).
+    pub(super) value: ValueId,
+    pub(super) enum_llvm_ty: LLVMTypeId,
+    pub(super) owner_ty: Idx,
+    /// `true` for the value-traversal dec path (`dec_value_rc`); `false` for the
+    /// heap drop-fn path (`emit_drop_rc_dec`).
+    pub(super) value_traversal: bool,
+}
+
+impl FieldWalkOps for NicheEnumPayloadOps {
+    fn load<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        walk: &[(u32, Idx)],
+        idx: usize,
+    ) -> Option<(ValueId, bool)> {
+        let (field_index, field_type) = walk[idx];
+        let boxed = is_boxed_enum_field(emitter.pool, self.owner_ty, field_type);
+        // Niche layout: no tag field — payload starts at struct index 0, so the
+        // field lives at struct index `field_index`.
+        let field_ptr = emitter.builder.struct_gep(
+            self.enum_llvm_ty,
+            self.value,
+            field_index,
+            &format!("niche.f{field_index}.ptr"),
+        );
+        if boxed {
+            let ptr_ty = emitter.builder.ptr_type();
+            let rc_ptr =
+                emitter
+                    .builder
+                    .load(ptr_ty, field_ptr, &format!("niche.f{field_index}.rc"));
+            Some((rc_ptr, true))
+        } else {
+            let field_llvm_ty = emitter.resolve_type(field_type);
+            let fv =
+                emitter
+                    .builder
+                    .load(field_llvm_ty, field_ptr, &format!("niche.f{field_index}"));
+            Some((fv, false))
+        }
+    }
+
+    fn dec_boxed<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        rc_ptr: ValueId,
+        field_type: Idx,
+    ) {
+        let drop_fn = emitter.get_or_generate_drop_fn(field_type);
+        emitter.emit_drop_rc_dec_with_fn(rc_ptr, drop_fn);
+    }
+
+    fn dec_children<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        field_value: ValueId,
+        field_type: Idx,
+    ) {
+        if self.value_traversal {
+            emitter.dec_value_rc(field_value, field_type);
+        } else {
+            emitter.emit_drop_rc_dec(field_value, field_type);
+        }
+    }
+}
+
 impl FieldWalkOps for HeapEnumPayloadOps {
     fn load<'scx: 'ctx, 'ctx>(
         &self,
@@ -127,9 +207,52 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         variants: &[Vec<(u32, Idx)>],
         _user_drop: Option<ori_registry::burden::FnSym>,
     ) {
-        // Run the user `@drop` first when the enum implements `Drop`. The
-        // helper self-gates on the canonical method map (the upstream burden
-        // `FnSym` is not threaded onto this path), so call it unconditionally.
+        // Recoverable path: the enum's OWN `@drop` may unwind (a panicking
+        // user `@drop`). Mirror the struct path (`emit_drop_fields`): `invoke`
+        // the own `@drop` so a panic routes to a cleanup pad that still runs the
+        // variant burden walk + free (so the variant payload is freed — no
+        // leak), then `resume`s the foreign exception. Itanium only; SEH funclet
+        // EH for the drop-fn cleanup pad is anchored in the recoverable-unwind
+        // deliverable.
+        let own_drop_unwinds = self.user_drop_method(ty).is_some()
+            && self.drop_may_unwind(ty)
+            && self.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
+
+        if own_drop_unwinds {
+            let cont_bb = self
+                .builder
+                .append_block(self.current_function, "edrop.cont");
+            let cleanup_bb = self
+                .builder
+                .append_block(self.current_function, "edrop.cleanup");
+            if self.invoke_user_drop_via_pointer(ty, data_ptr, cont_bb, cleanup_bb) {
+                // Normal continuation: variant burden walk + free + ret.
+                self.builder.position_at_end(cont_bb);
+                self.emit_variant_burden_walk(func_id, data_ptr, ty, variants);
+                self.emit_drop_rc_free(data_ptr, ty);
+                self.builder.ret_void();
+
+                // Cleanup pad: variant burden walk + free still run (no leak),
+                // then re-raise the foreign exception to the caller's pad.
+                self.builder.position_at_end(cleanup_bb);
+                let personality = self.builder.runtime_fn("ori_eh_personality");
+                let lp = self.builder.landingpad(personality, true, "edrop.lp");
+                let enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
+                self.builder.call(enter, &[], "");
+                self.emit_variant_burden_walk(func_id, data_ptr, ty, variants);
+                self.emit_drop_rc_free(data_ptr, ty);
+                let exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
+                self.builder.call(exit, &[], "");
+                self.builder.resume(lp);
+                return;
+            }
+            // No user `@drop` resolved after all — fall through to plain path.
+        }
+
+        // Plain path: run the user `@drop` first when the enum implements
+        // `Drop` (non-unwinding, or SEH). The helper self-gates on the canonical
+        // method map (the upstream burden `FnSym` is not threaded onto this
+        // path), so call it unconditionally.
         self.emit_user_drop_via_pointer(ty, data_ptr);
         self.emit_variant_burden_walk(func_id, data_ptr, ty, variants);
         self.emit_drop_rc_free(data_ptr, ty);
@@ -332,24 +455,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Niche variant → skip to done. Data variant → drop fields.
         self.builder.cond_br(is_niche, drop_done, drop_data);
 
-        // Emit data variant field drops.
+        // Emit data variant field drops via the canonical may-unwind field-walk
+        // SSOT so a panicking payload field's user `@drop` still frees the
+        // later-walked siblings (matching every other enum payload path). The
+        // niche layout has no tag field; `NicheEnumPayloadOps` accesses payload
+        // fields at struct index `field_index`.
         self.builder.position_at_end(drop_data);
         let data_variant_idx = usize::from(niche_variant_idx == 0);
         if let Some(data_fields) = variants.get(data_variant_idx) {
-            for &(field_index, field_type) in data_fields {
-                // Niche layout: no tag field, payload starts at struct index 0.
-                let field_llvm_ty = self.resolve_type(field_type);
-                let gep = self.builder.struct_gep(
-                    enum_llvm_ty,
-                    data_ptr,
-                    field_index,
-                    &format!("niche.f{field_index}.ptr"),
-                );
-                let val = self
-                    .builder
-                    .load(field_llvm_ty, gep, &format!("niche.f{field_index}"));
-                self.emit_drop_rc_dec(val, field_type);
-            }
+            let (resolved_ty, _) = resolve_type_through_aliases(ty, self.pool);
+            let walk = super::emitter_utils::field_rc_walk_order(data_fields, true);
+            let ops = NicheEnumPayloadOps {
+                value: data_ptr,
+                enum_llvm_ty,
+                owner_ty: resolved_ty,
+                value_traversal: false,
+            };
+            self.dec_fields_may_unwind(&ops, &walk, 0);
         }
         self.builder.br(drop_done);
 
